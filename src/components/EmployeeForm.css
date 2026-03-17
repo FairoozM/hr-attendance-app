@@ -1,0 +1,52 @@
+.employee-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.employee-form__label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.employee-form__input,
+.employee-form__select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.employee-form__input:focus,
+.employee-form__select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.employee-form__input--error {
+  border-color: var(--danger);
+}
+
+.employee-form__input--error:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px var(--danger-soft);
+}
+
+.employee-form__error {
+  font-size: 0.75rem;
+  color: var(--danger);
+}
+
+.employee-form__actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 0.5rem;
+  padding-top: 0.25rem;
+}

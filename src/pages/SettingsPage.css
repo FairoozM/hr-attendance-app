@@ -1,0 +1,176 @@
+.settings-section {
+  margin-bottom: 1.5rem;
+}
+
+.settings-section__title {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.settings-section__desc {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.settings-card {
+  padding: 1rem 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+}
+
+.settings-field__label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.settings-field__input {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.settings-field__input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.settings-card__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.settings-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+
+.settings-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  gap: 0.5rem;
+}
+
+.settings-list__item:last-child {
+  border-bottom: none;
+}
+
+.settings-list__label {
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.settings-list__actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.settings-status-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.settings-status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+}
+
+.settings-status-item__code {
+  font-weight: 600;
+  min-width: 1.5rem;
+}
+
+.settings-status-item__label {
+  color: var(--text-muted);
+}
+
+.settings-status-item--success {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.settings-status-item--success .settings-status-item__label {
+  color: var(--success);
+}
+
+.settings-status-item--danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.settings-status-item--danger .settings-status-item__label {
+  color: var(--danger);
+}
+
+.settings-status-item--warning {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.settings-status-item--warning .settings-status-item__label {
+  color: var(--warning);
+}
+
+.settings-status-item--accent {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.settings-status-item--accent .settings-status-item__label {
+  color: var(--accent);
+}
+
+.settings-status-item--weekly-holiday {
+  background: var(--weekly-holiday-soft);
+  color: var(--weekly-holiday);
+}
+
+.settings-status-item--weekly-holiday .settings-status-item__label {
+  color: var(--weekly-holiday);
+}
+
+.settings-reset-text {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.btn--danger-solid {
+  background: var(--danger);
+  color: #fff;
+  border: none;
+}
+
+.btn--danger-solid:hover {
+  background: #b91c1c;
+}
