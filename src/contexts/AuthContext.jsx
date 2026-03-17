@@ -2,7 +2,8 @@ import { createContext, useContext, useState, useCallback, useEffect } from 'rea
 
 const STORAGE_KEY = 'hr-auth'
 
-// Mock users – replace with Cognito/backend later
+// Mock users for development only – replace with Cognito/backend in production.
+// Do not expose these credentials in the UI.
 const MOCK_USERS = [
   { id: '1', username: 'admin', password: 'admin123', role: 'admin' },
   { id: '2', username: 'warehouse', password: 'warehouse123', role: 'warehouse' },

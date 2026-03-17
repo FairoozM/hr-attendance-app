@@ -66,9 +66,6 @@ export function LoginPage() {
             Sign in
           </button>
         </form>
-        <p className="login-hint">
-          Demo: admin / admin123 (full access), warehouse / warehouse123 (Dashboard & Attendance)
-        </p>
       </div>
     </div>
   )
