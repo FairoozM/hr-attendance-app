@@ -1,4 +1,4 @@
-const BASE_URL = 'http://127.0.0.1:5001'
+const BASE_URL = 'https://hr-attendance-backend.onrender.com'
 
 async function request(method, path, body = null) {
   const url = path.startsWith('http') ? path : `${BASE_URL}${path}`
