@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 import { SettingsContext } from './contexts/SettingsContext'
 import { useAppSettings } from './hooks/useAppSettings'
@@ -67,8 +67,7 @@ function AppContent() {
   }, [])
 
   return (
-    <BrowserRouter>
-      <Routes>
+    <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route
           path="/"
@@ -136,7 +135,6 @@ function AppContent() {
           />
         </Route>
       </Routes>
-    </BrowserRouter>
   )
 }
 
