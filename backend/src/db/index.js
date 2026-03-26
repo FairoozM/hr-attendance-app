@@ -3,21 +3,17 @@ const { Pool } = require('pg')
 const connectionString =
   process.env.DATABASE_URL || 'postgres://localhost:5432/hr_attendance'
 
-const pool = new Pool({ connectionString })
+const pool = new Pool({
+  connectionString,
+  ssl: connectionString.includes('localhost')
+    ? false
+    : { rejectUnauthorized: false },
+})
 
-/**
- * Run a SQL query with optional parameters.
- * @param {string} text - SQL query
- * @param {Array} [params] - Query parameters
- * @returns {Promise<import('pg').QueryResult>}
- */
 function query(text, params) {
   return pool.query(text, params)
 }
 
-/**
- * Create employees table if it does not exist.
- */
 async function ensureEmployeesTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS employees (
@@ -31,25 +27,19 @@ async function ensureEmployeesTable() {
   `)
 }
 
-/**
- * Create attendance table if it does not exist.
- */
 async function ensureAttendanceTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS attendance (
       id SERIAL PRIMARY KEY,
       employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
       attendance_date DATE NOT NULL,
-      status VARCHAR(10) NOT NULL,
+      status VARCHAR(20) NOT NULL,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       UNIQUE(employee_id, attendance_date)
     )
   `)
 }
 
-/**
- * Test DB connection with SELECT NOW(). Logs success or error.
- */
 async function testConnection() {
   try {
     const result = await query('SELECT NOW()')
