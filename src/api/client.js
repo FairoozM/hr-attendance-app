@@ -3,12 +3,14 @@ const BASE_URL = ''
 /**
  * Reads fetch response: always JSON for API, or clear error if HTML/non-JSON (e.g. CloudFront/S3).
  */
-async function handleResponse(res) {
+async function handleResponse(res, requestUrl) {
+  const url = requestUrl || res.url || ''
   const text = await res.text()
   if (res.status === 204) {
     if (!res.ok) {
       const err = new Error(res.statusText || 'Request failed')
       err.status = res.status
+      err.url = url
       throw err
     }
     return null
@@ -17,6 +19,7 @@ async function handleResponse(res) {
     if (!res.ok) {
       const err = new Error(res.statusText || 'Request failed')
       err.status = res.status
+      err.url = url
       throw err
     }
     return null
@@ -26,15 +29,17 @@ async function handleResponse(res) {
     data = JSON.parse(text)
   } catch {
     const hint =
-      'Server returned a web page instead of JSON. Check CloudFront: /api/* must go to your API (not S3).'
+      `Server returned non-JSON response from ${url} (HTTP ${res.status}). Check CloudFront behavior/origin for this path.`
     const err = new Error(!res.ok ? text.slice(0, 200) || res.statusText : hint)
     err.status = res.status
+    err.url = url
     err.body = { raw: text.slice(0, 400) }
     throw err
   }
   if (!res.ok) {
     const err = new Error(data?.error || res.statusText || 'Request failed')
     err.status = res.status
+    err.url = url
     err.body = data
     throw err
   }
@@ -49,7 +54,7 @@ async function request(method, path, body = null) {
   }
   if (body != null) options.body = JSON.stringify(body)
   const res = await fetch(url, options)
-  return handleResponse(res)
+  return handleResponse(res, url)
 }
 
 async function postForm(path, formData) {
@@ -57,8 +62,9 @@ async function postForm(path, formData) {
   const res = await fetch(url, {
     method: 'POST',
     body: formData,
+    cache: 'no-store',
   })
-  return handleResponse(res)
+  return handleResponse(res, url)
 }
 
 export const api = {
