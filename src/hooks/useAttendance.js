@@ -16,21 +16,27 @@ export function clearAllAttendanceStorage() {
   } catch (_) {}
 }
 
-function recordsToMap(records) {
-  const map = {}
-  if (!Array.isArray(records)) return map
+function recordsToMaps(records) {
+  const statusMap = {}
+  const docMap = {}
+  if (!Array.isArray(records)) return { statusMap, docMap }
   records.forEach((r) => {
     const empId = String(r.employee_id)
-    if (!map[empId]) map[empId] = {}
+    if (!statusMap[empId]) statusMap[empId] = {}
     const d = r.attendance_date
     const day = typeof d === 'string' ? parseInt(d.slice(8, 10), 10) : d.getDate()
-    map[empId][day] = r.status
+    statusMap[empId][day] = r.status
+    if (r.sick_leave_document_url) {
+      if (!docMap[empId]) docMap[empId] = {}
+      docMap[empId][day] = r.sick_leave_document_url
+    }
   })
-  return map
+  return { statusMap, docMap }
 }
 
 export function useAttendance(employees, month, year) {
   const [attendance, setAttendanceState] = useState({})
+  const [sickLeaveDocuments, setSickLeaveDocuments] = useState({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -44,19 +50,47 @@ export function useAttendance(employees, month, year) {
     api
       .get(`/api/attendance?month=${monthApi}&year=${yearApi}`)
       .then((data) => {
-        if (!cancelled) setAttendanceState(recordsToMap(data))
+        if (cancelled) return
+        const { statusMap, docMap } = recordsToMaps(data)
+        setAttendanceState(statusMap)
+        setSickLeaveDocuments(docMap)
       })
       .catch((err) => {
         if (!cancelled) {
           setError(err.message || 'Failed to load attendance')
           setAttendanceState({})
+          setSickLeaveDocuments({})
         }
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
       })
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [monthApi, yearApi])
+
+  useEffect(() => {
+    setSickLeaveDocuments((prev) => {
+      let next = null
+      employees.forEach((emp) => {
+        const empDocs = prev[emp.id]
+        if (!empDocs) return
+        Object.keys(empDocs).forEach((dayStr) => {
+          const day = Number(dayStr)
+          const status = attendance[emp.id]?.[day]
+          if (status !== 'SL' && empDocs[day]) {
+            if (!next) next = { ...prev }
+            if (!next[emp.id]) next[emp.id] = { ...prev[emp.id] }
+            next[emp.id] = { ...next[emp.id] }
+            delete next[emp.id][day]
+            if (Object.keys(next[emp.id]).length === 0) delete next[emp.id]
+          }
+        })
+      })
+      return next || prev
+    })
+  }, [attendance, employees])
 
   const setAttendance = useCallback(
     (updater) => {
@@ -86,5 +120,58 @@ export function useAttendance(employees, month, year) {
     [employees, month, year]
   )
 
-  return { attendance, setAttendance, loading, error }
+  const uploadSickLeaveDocument = useCallback(
+    async (employeeId, day, file) => {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('employee_id', String(employeeId))
+      formData.append('attendance_date', dateStr)
+      const record = await api.postForm('/api/attendance/sick-leave-document', formData)
+      if (record?.sick_leave_document_url) {
+        const idKey = String(employeeId)
+        setSickLeaveDocuments((prev) => ({
+          ...prev,
+          [idKey]: {
+            ...prev[idKey],
+            [day]: record.sick_leave_document_url,
+          },
+        }))
+      }
+      return record
+    },
+    [month, year]
+  )
+
+  const removeSickLeaveDocument = useCallback(
+    async (employeeId, day) => {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+      const q = new URLSearchParams({
+        employee_id: String(employeeId),
+        attendance_date: dateStr,
+      })
+      await api.delete(`/api/attendance/sick-leave-document?${q.toString()}`)
+      const idKey = String(employeeId)
+      setSickLeaveDocuments((prev) => {
+        const copy = { ...prev }
+        if (copy[idKey]?.[day]) {
+          copy[idKey] = { ...copy[idKey] }
+          delete copy[idKey][day]
+          if (Object.keys(copy[idKey]).length === 0) delete copy[idKey]
+        }
+        return copy
+      })
+    },
+    [month, year]
+  )
+
+  return {
+    attendance,
+    sickLeaveDocuments,
+    setAttendance,
+    uploadSickLeaveDocument,
+    removeSickLeaveDocument,
+    loading,
+    error,
+  }
 }

@@ -38,6 +38,10 @@ async function ensureAttendanceTable() {
       UNIQUE(employee_id, attendance_date)
     )
   `)
+  await query(`
+    ALTER TABLE attendance
+    ADD COLUMN IF NOT EXISTS sick_leave_document_url TEXT
+  `)
 }
 
 async function testConnection() {

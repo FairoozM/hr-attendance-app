@@ -1,3 +1,4 @@
+import { useState, useRef } from 'react'
 import {
   STATUS_KEYS,
   STATUSES,
@@ -31,12 +32,36 @@ export function AttendanceGrid({
   employees,
   attendance,
   setAttendance,
+  sickLeaveDocuments = {},
+  uploadSickLeaveDocument,
+  removeSickLeaveDocument,
   month,
   year,
   daysInMonth,
   weeklyHolidayDay = 0,
 }) {
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1)
+  const slFileInputRef = useRef(null)
+  const [slUploadTarget, setSlUploadTarget] = useState(null)
+
+  async function handleSickLeaveFileChange(e) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || !slUploadTarget || !uploadSickLeaveDocument) return
+    try {
+      await uploadSickLeaveDocument(slUploadTarget.empId, slUploadTarget.day, file)
+    } catch (err) {
+      const msg = err.body?.error || err.message || 'Upload failed'
+      window.alert(msg)
+    } finally {
+      setSlUploadTarget(null)
+    }
+  }
+
+  function openSickLeavePicker(empId, day) {
+    setSlUploadTarget({ empId, day })
+    slFileInputRef.current?.click()
+  }
 
   return (
     <div className="attendance-grid-wrap">
@@ -46,8 +71,22 @@ export function AttendanceGrid({
             <b>{key}</b> {STATUSES[key].label}
           </span>
         ))}
+        {uploadSickLeaveDocument ? (
+          <span className="attendance-legend-hint">
+            Sick leave (SL): use <b>+</b> to upload a medical certificate (PDF or image).
+          </span>
+        ) : null}
       </div>
       <div className="attendance-grid-scroll">
+        <input
+          ref={slFileInputRef}
+          type="file"
+          className="attendance-sl-file-input"
+          accept="application/pdf,image/*"
+          aria-hidden
+          tabIndex={-1}
+          onChange={handleSickLeaveFileChange}
+        />
         <table className="attendance-grid" role="grid">
           <thead>
             <tr className="attendance-grid__header-row attendance-grid__header-row--group">
@@ -143,12 +182,16 @@ export function AttendanceGrid({
                   )
                   const colorClass = current ? `attendance-cell--${STATUSES[current].color}` : ''
                   const isFirstDay = day === 1
+                  const docUrl = sickLeaveDocuments[emp.id]?.[day]
+                  const showSlUpload = current === 'SL'
                   return (
                     <td
                       key={day}
                       className={`attendance-grid__td attendance-grid__td--day ${isFirstDay ? 'attendance-grid__td--day-first' : ''}`}
                     >
-                      <div className="attendance-cell-wrap">
+                      <div
+                        className={`attendance-cell-wrap${showSlUpload ? ' attendance-cell-wrap--with-sl' : ''}`}
+                      >
                         <select
                           className={`attendance-cell attendance-cell--select ${colorClass}`}
                           value={current || ''}
@@ -166,6 +209,45 @@ export function AttendanceGrid({
                             </option>
                           ))}
                         </select>
+                        {showSlUpload && (
+                          <div className="attendance-sl-doc">
+                            {docUrl ? (
+                              <>
+                                <a
+                                  href={docUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="attendance-sl-doc__link"
+                                  title="Open medical record"
+                                >
+                                  View
+                                </a>
+                                {removeSickLeaveDocument ? (
+                                  <button
+                                    type="button"
+                                    className="attendance-sl-doc__remove"
+                                    title="Remove medical record"
+                                    aria-label="Remove medical record"
+                                    onClick={() => removeSickLeaveDocument(emp.id, day)}
+                                  >
+                                    ×
+                                  </button>
+                                ) : null}
+                              </>
+                            ) : null}
+                            {uploadSickLeaveDocument ? (
+                              <button
+                                type="button"
+                                className="attendance-sl-doc__add"
+                                title="Upload medical certificate (PDF or image)"
+                                aria-label="Upload medical certificate"
+                                onClick={() => openSickLeavePicker(emp.id, day)}
+                              >
+                                +
+                              </button>
+                            ) : null}
+                          </div>
+                        )}
                       </div>
                     </td>
                   )

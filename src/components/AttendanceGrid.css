@@ -10,9 +10,21 @@
   display: flex;
   flex-wrap: wrap;
   gap: 1rem;
+  align-items: baseline;
   margin-bottom: 0.75rem;
   font-size: 0.8rem;
   color: var(--text-muted);
+}
+
+.attendance-legend-hint {
+  flex-basis: 100%;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.attendance-legend-hint b {
+  color: var(--accent);
 }
 
 .attendance-legend b {
@@ -74,7 +86,8 @@
 }
 
 .attendance-grid tbody td {
-  height: 3.25rem;
+  min-height: 3.25rem;
+  height: auto;
 }
 
 .attendance-grid thead tr {
@@ -375,6 +388,87 @@
   height: 3.25rem;
   padding: 2px;
   box-sizing: border-box;
+}
+
+.attendance-grid__td .attendance-cell-wrap--with-sl {
+  flex-direction: column;
+  height: auto;
+  min-height: 3.5rem;
+  padding: 4px 2px;
+  gap: 4px;
+}
+
+.attendance-sl-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.attendance-sl-doc {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.attendance-sl-doc__add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.35rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-elevated, var(--surface));
+  color: var(--accent);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.attendance-sl-doc__add:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.attendance-sl-doc__link {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: underline;
+  max-width: 3rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attendance-sl-doc__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--danger);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.attendance-sl-doc__remove:hover {
+  background: var(--danger-soft);
 }
 
 .attendance-cell {

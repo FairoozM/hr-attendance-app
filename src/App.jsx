@@ -31,11 +31,15 @@ function AppContent() {
     deleteEmployee,
     resetToDefault,
   } = useEmployees()
-  const { attendance, setAttendance, loading: attendanceLoading, error: attendanceError } = useAttendance(
-    employees,
-    month,
-    year
-  )
+  const {
+    attendance,
+    sickLeaveDocuments,
+    setAttendance,
+    uploadSickLeaveDocument,
+    removeSickLeaveDocument,
+    loading: attendanceLoading,
+    error: attendanceError,
+  } = useAttendance(employees, month, year)
 
   const handleResetDemoData = useCallback(() => {
     clearAllAttendanceStorage()
@@ -107,6 +111,9 @@ function AppContent() {
                 employees={employees}
                 attendance={attendance}
                 setAttendance={setAttendance}
+                sickLeaveDocuments={sickLeaveDocuments}
+                uploadSickLeaveDocument={uploadSickLeaveDocument}
+                removeSickLeaveDocument={removeSickLeaveDocument}
                 daysInMonth={daysInMonth}
                 yearOptions={yearOptions}
                 weeklyHolidayDay={weeklyHolidayDay}

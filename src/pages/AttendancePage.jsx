@@ -16,6 +16,9 @@ export function AttendancePage({
   employees,
   attendance,
   setAttendance,
+  sickLeaveDocuments,
+  uploadSickLeaveDocument,
+  removeSickLeaveDocument,
   daysInMonth,
   yearOptions,
   weeklyHolidayDay,
@@ -57,6 +60,9 @@ export function AttendancePage({
               employees={employees}
               attendance={attendance}
               setAttendance={setAttendance}
+              sickLeaveDocuments={sickLeaveDocuments}
+              uploadSickLeaveDocument={uploadSickLeaveDocument}
+              removeSickLeaveDocument={removeSickLeaveDocument}
               month={month}
               year={year}
               daysInMonth={daysInMonth}

@@ -7,7 +7,7 @@ const { query } = require('../db')
  */
 async function findByMonthYear(month, year) {
   const result = await query(
-    `SELECT id, employee_id, attendance_date, status, created_at
+    `SELECT id, employee_id, attendance_date, status, sick_leave_document_url, created_at
      FROM attendance
      WHERE EXTRACT(MONTH FROM attendance_date) = $1
        AND EXTRACT(YEAR FROM attendance_date) = $2
@@ -17,28 +17,72 @@ async function findByMonthYear(month, year) {
   return result.rows
 }
 
+async function findOne(employee_id, attendance_date) {
+  const result = await query(
+    `SELECT id, employee_id, attendance_date, status, sick_leave_document_url, created_at
+     FROM attendance WHERE employee_id = $1 AND attendance_date = $2::date`,
+    [employee_id, attendance_date]
+  )
+  return result.rows[0] || null
+}
+
 /**
  * Insert or update a single attendance record.
  * Unique on (employee_id, attendance_date).
+ * Clears sick_leave_document_url when status is not SL.
  */
 async function upsert(employee_id, attendance_date, status) {
   const result = await query(
-    `INSERT INTO attendance (employee_id, attendance_date, status)
-     VALUES ($1, $2, $3)
+    `INSERT INTO attendance (employee_id, attendance_date, status, sick_leave_document_url)
+     VALUES ($1, $2::date, $3, NULL)
      ON CONFLICT (employee_id, attendance_date)
-     DO UPDATE SET status = EXCLUDED.status
-     RETURNING id, employee_id, attendance_date, status, created_at`,
+     DO UPDATE SET
+       status = EXCLUDED.status,
+       sick_leave_document_url = CASE
+         WHEN EXCLUDED.status = 'SL' THEN attendance.sick_leave_document_url
+         ELSE NULL
+       END
+     RETURNING id, employee_id, attendance_date, status, sick_leave_document_url, created_at`,
     [employee_id, attendance_date, status]
   )
   return result.rows[0]
 }
 
+async function setSickLeaveDocumentUrl(employee_id, attendance_date, url) {
+  const result = await query(
+    `UPDATE attendance
+     SET sick_leave_document_url = $3
+     WHERE employee_id = $1 AND attendance_date = $2::date AND status = 'SL'
+     RETURNING id, employee_id, attendance_date, status, sick_leave_document_url, created_at`,
+    [employee_id, attendance_date, url]
+  )
+  return result.rows[0] || null
+}
+
+async function clearSickLeaveDocumentUrl(employee_id, attendance_date) {
+  const result = await query(
+    `UPDATE attendance
+     SET sick_leave_document_url = NULL
+     WHERE employee_id = $1 AND attendance_date = $2::date AND status = 'SL'
+     RETURNING sick_leave_document_url`,
+    [employee_id, attendance_date]
+  )
+  return result.rows[0] || null
+}
+
 async function remove(employee_id, attendance_date) {
   const result = await query(
-    'DELETE FROM attendance WHERE employee_id = $1 AND attendance_date = $2 RETURNING id',
+    'DELETE FROM attendance WHERE employee_id = $1 AND attendance_date = $2::date RETURNING id',
     [employee_id, attendance_date]
   )
   return result.rowCount > 0
 }
 
-module.exports = { findByMonthYear, upsert, remove }
+module.exports = {
+  findByMonthYear,
+  findOne,
+  upsert,
+  setSickLeaveDocumentUrl,
+  clearSickLeaveDocumentUrl,
+  remove,
+}
