@@ -1,4 +1,9 @@
-import { STATUS_KEYS, STATUSES, DAY_NAMES_SHORT } from '../constants/attendance'
+import {
+  STATUS_KEYS,
+  STATUSES,
+  DAY_NAMES_SHORT,
+  STATUS_EXPLICIT_BLANK,
+} from '../constants/attendance'
 import {
   getDayOfWeek,
   getEffectiveStatus,
@@ -15,9 +20,9 @@ function setAttendanceFor(setAttendance, employeeId, day, value) {
     if (value) {
       emp[day] = value
     } else {
-      delete emp[day]
+      emp[day] = STATUS_EXPLICIT_BLANK
     }
-    next[employeeId] = Object.keys(emp).length ? emp : {}
+    next[employeeId] = emp
     return next
   })
 }
@@ -149,7 +154,7 @@ export function AttendanceGrid({
                           value={current || ''}
                           onChange={(e) => {
                             const v = e.target.value
-                            setAttendanceFor(setAttendance, emp.id, day, v || undefined)
+                            setAttendanceFor(setAttendance, emp.id, day, v)
                           }}
                           title={current ? STATUSES[current].label : 'Select status'}
                           aria-label={`Day ${day} status for ${emp.name}`}

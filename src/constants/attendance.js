@@ -1,3 +1,6 @@
+/** Stored in DB / state to mean user chose "—" (overrides auto weekly holiday for that cell). */
+export const STATUS_EXPLICIT_BLANK = '-'
+
 export const STATUSES = {
   P: { label: 'Present', color: 'success' },
   A: { label: 'Absent', color: 'danger' },

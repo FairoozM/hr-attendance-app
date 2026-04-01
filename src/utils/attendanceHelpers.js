@@ -1,3 +1,5 @@
+import { STATUS_EXPLICIT_BLANK } from '../constants/attendance'
+
 /**
  * Returns day of week (0 = Sunday, 6 = Saturday) for a given date.
  * @param {number} year - Full year
@@ -10,6 +12,7 @@ export function getDayOfWeek(year, month, day) {
 
 /**
  * Builds effective attendance: stored value, or WH for weekly-holiday days when not set.
+ * Explicit blank ('-') stays empty (does not fall back to auto WH).
  */
 export function deriveEffectiveAttendance(
   attendance,
@@ -24,6 +27,10 @@ export function deriveEffectiveAttendance(
     result[emp.id] = {}
     for (let day = 1; day <= daysInMonth; day++) {
       const stored = attendance[emp.id]?.[day]
+      if (stored === STATUS_EXPLICIT_BLANK) {
+        result[emp.id][day] = undefined
+        continue
+      }
       const dayOfWeek = getDayOfWeek(year, month, day)
       const isWeeklyHoliday = dayOfWeek === weeklyHolidayDay
       result[emp.id][day] = stored ?? (isWeeklyHoliday ? 'WH' : undefined)
@@ -34,6 +41,7 @@ export function deriveEffectiveAttendance(
 
 /**
  * Effective status for a single cell: stored or auto WH for weekly holiday day.
+ * Explicit blank ('-') shows as empty (not WH).
  */
 export function getEffectiveStatus(
   attendance,
@@ -44,6 +52,7 @@ export function getEffectiveStatus(
   weeklyHolidayDay
 ) {
   const stored = attendance[employeeId]?.[day]
+  if (stored === STATUS_EXPLICIT_BLANK) return null
   if (stored != null && stored !== '') return stored
   const dayOfWeek = getDayOfWeek(year, month, day)
   return dayOfWeek === weeklyHolidayDay ? 'WH' : null
