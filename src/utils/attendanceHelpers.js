@@ -58,8 +58,8 @@ export function getEffectiveStatus(
   return dayOfWeek === weeklyHolidayDay ? 'WH' : null
 }
 
-/** Summary column order: P | A | SL | H | WH */
-export const SUMMARY_STATUS_ORDER = ['P', 'A', 'SL', 'H', 'WH']
+/** Summary column order: P | A | SL | AL | WH */
+export const SUMMARY_STATUS_ORDER = ['P', 'A', 'SL', 'AL', 'WH']
 
 /**
  * Per-employee totals for the month (using effective status, so auto WH is counted).
@@ -72,7 +72,7 @@ export function getEmployeeMonthSummary(
   month,
   weeklyHolidayDay
 ) {
-  const counts = { P: 0, A: 0, SL: 0, H: 0, WH: 0 }
+  const counts = { P: 0, A: 0, SL: 0, AL: 0, WH: 0 }
   for (let day = 1; day <= daysInMonth; day++) {
     const status = getEffectiveStatus(
       attendance,

@@ -5,7 +5,7 @@ export const STATUSES = {
   P: { label: 'Present', color: 'success' },
   A: { label: 'Absent', color: 'danger' },
   SL: { label: 'Sick Leave', color: 'warning' },
-  H: { label: 'Holiday', color: 'accent' },
+  AL: { label: 'Annual Leave', color: 'accent' },
   WH: { label: 'Weekly Holiday', color: 'weekly-holiday' },
 }
 

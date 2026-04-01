@@ -31,7 +31,7 @@ async function clearAttendanceForLeave(leaveId) {
 }
 
 /**
- * Mark each day in range as Absent (A), linked to annual_leave_id.
+ * Mark each day in range as Annual Leave (AL), linked to annual_leave_id.
  */
 async function applyApprovedAttendance(leaveId, employeeId, fromDate, toDate) {
   await clearAttendanceForLeave(leaveId)
@@ -40,10 +40,10 @@ async function applyApprovedAttendance(leaveId, employeeId, fromDate, toDate) {
     inserts.push(
       query(
         `INSERT INTO attendance (employee_id, attendance_date, status, sick_leave_document_url, annual_leave_id)
-         VALUES ($1, $2::date, 'A', NULL, $3)
+         VALUES ($1, $2::date, 'AL', NULL, $3)
          ON CONFLICT (employee_id, attendance_date)
          DO UPDATE SET
-           status = 'A',
+           status = 'AL',
            sick_leave_document_url = CASE
              WHEN attendance.status = 'SL' THEN attendance.sick_leave_document_url
              ELSE NULL

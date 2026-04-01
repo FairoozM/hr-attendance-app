@@ -262,7 +262,7 @@
   border-left: 3px solid #a7f3d0;
 }
 
-/* Summary columns: frozen left block — P | A | SL | H | WH; tinted, strong right divider */
+/* Summary columns: frozen left block — P | A | SL | AL | WH; tinted, strong right divider */
 .attendance-grid__th--summary,
 .attendance-grid__td--summary {
   width: 2.25rem;
@@ -294,7 +294,7 @@
 .attendance-grid__summary-col--p { left: 240px; }
 .attendance-grid__summary-col--a { left: calc(240px + 2.25rem); }
 .attendance-grid__summary-col--sl { left: calc(240px + 4.5rem); }
-.attendance-grid__summary-col--h { left: calc(240px + 6.75rem); }
+.attendance-grid__summary-col--al { left: calc(240px + 6.75rem); }
 .attendance-grid__summary-col--wh {
   left: calc(240px + 9rem);
   border-right: 3px solid #fcd34d;

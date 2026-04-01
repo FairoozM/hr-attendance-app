@@ -41,6 +41,10 @@ async function upsert(employee_id, attendance_date, status) {
        sick_leave_document_url = CASE
          WHEN EXCLUDED.status = 'SL' THEN attendance.sick_leave_document_url
          ELSE NULL
+       END,
+       annual_leave_id = CASE
+         WHEN EXCLUDED.status = 'AL' THEN attendance.annual_leave_id
+         ELSE NULL
        END
      RETURNING id, employee_id, attendance_date, status, sick_leave_document_url, created_at`,
     [employee_id, attendance_date, status]

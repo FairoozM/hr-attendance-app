@@ -70,6 +70,14 @@ async function ensureAttendanceAnnualLeaveColumn() {
   `)
 }
 
+/** One-time data migration: Holiday (H) → Annual Leave (AL); approved leave rows were Absent (A). */
+async function migrateAttendanceStatusHToAl() {
+  await query(`UPDATE attendance SET status = 'AL' WHERE status = 'H'`)
+  await query(
+    `UPDATE attendance SET status = 'AL' WHERE annual_leave_id IS NOT NULL AND status = 'A'`
+  )
+}
+
 async function testConnection() {
   try {
     const result = await query('SELECT NOW()')
@@ -79,6 +87,7 @@ async function testConnection() {
     await ensureAttendanceTable()
     await ensureAnnualLeaveTable()
     await ensureAttendanceAnnualLeaveColumn()
+    await migrateAttendanceStatusHToAl()
   } catch (err) {
     console.error('Database connection failed:', err.message)
   }

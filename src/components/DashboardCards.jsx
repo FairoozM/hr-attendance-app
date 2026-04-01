@@ -13,7 +13,7 @@ export function DashboardCards({ employees, attendance, daysInMonth }) {
     const present = countByStatus(attendance, 'P')
     const absent = countByStatus(attendance, 'A')
     const sickLeave = countByStatus(attendance, 'SL')
-    const holiday = countByStatus(attendance, 'H')
+    const annualLeave = countByStatus(attendance, 'AL')
     const weeklyHoliday = countByStatus(attendance, 'WH')
     const totalPossible = employees.length * daysInMonth
     const presentRate =
@@ -23,7 +23,7 @@ export function DashboardCards({ employees, attendance, daysInMonth }) {
       present,
       absent,
       sickLeave,
-      holiday,
+      annualLeave,
       weeklyHoliday,
       presentRate,
     }
@@ -51,8 +51,8 @@ export function DashboardCards({ employees, attendance, daysInMonth }) {
       variant: 'warning',
     },
     {
-      title: 'Holiday (H)',
-      value: stats.holiday,
+      title: 'Annual Leave (AL)',
+      value: stats.annualLeave,
       variant: 'accent',
     },
     {
