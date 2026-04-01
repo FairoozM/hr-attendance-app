@@ -127,7 +127,7 @@ export function useAttendance(employees, month, year) {
       formData.append('file', file)
       formData.append('employee_id', String(employeeId))
       formData.append('attendance_date', dateStr)
-      const record = await api.postForm('/api/sick-leave-document', formData)
+      const record = await api.postForm('/api/attendance/sick-leave-document', formData)
       if (record?.sick_leave_document_url) {
         const idKey = String(employeeId)
         setSickLeaveDocuments((prev) => ({
@@ -150,7 +150,7 @@ export function useAttendance(employees, month, year) {
         employee_id: String(employeeId),
         attendance_date: dateStr,
       })
-      await api.delete(`/api/sick-leave-document?${q.toString()}`)
+      await api.delete(`/api/attendance/sick-leave-document?${q.toString()}`)
       const idKey = String(employeeId)
       setSickLeaveDocuments((prev) => {
         const copy = { ...prev }

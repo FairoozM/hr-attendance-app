@@ -3,7 +3,7 @@ const BASE_URL = ''
 /** Legacy upload URL sometimes still cached in old bundles; canonical route always hits Express. */
 function normalizeApiPath(path) {
   if (typeof path !== 'string' || path.startsWith('http')) return path
-  return path.replaceAll('/api/attendance/sick-leave-document', '/api/sick-leave-document')
+  return path.replaceAll('/api/sick-leave-document', '/api/attendance/sick-leave-document')
 }
 
 /**
