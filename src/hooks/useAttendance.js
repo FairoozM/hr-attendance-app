@@ -123,11 +123,25 @@ export function useAttendance(employees, month, year) {
   const uploadSickLeaveDocument = useCallback(
     async (employeeId, day, file) => {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('employee_id', String(employeeId))
-      formData.append('attendance_date', dateStr)
-      const record = await api.postForm('/api/attendance/sick-leave-document', formData)
+      const prep = await api.post('/api/attendance/sick-leave-upload-url', {
+        employee_id: Number(employeeId),
+        attendance_date: dateStr,
+        file_name: file.name,
+        file_type: file.type,
+      })
+      const putRes = await fetch(prep.uploadUrl, {
+        method: 'PUT',
+        body: file,
+        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      })
+      if (!putRes.ok) {
+        throw new Error(`S3 upload failed (${putRes.status})`)
+      }
+      const record = await api.post('/api/attendance/sick-leave-document', {
+        employee_id: Number(employeeId),
+        attendance_date: dateStr,
+        key: prep.key,
+      })
       if (record?.sick_leave_document_url) {
         const idKey = String(employeeId)
         setSickLeaveDocuments((prev) => ({

@@ -1,23 +1,18 @@
-const path = require('path')
-const fs = require('fs').promises
 const attendanceService = require('../services/attendanceService')
-const { UPLOAD_ROOT } = require('../middleware/sickLeaveUpload')
+const s3Service = require('../services/s3Service')
 
-function basenameFromDocumentUrl(url) {
+function keyFromDocumentUrl(url) {
   if (!url || typeof url !== 'string') return null
-  const seg = url.split('/').filter(Boolean)
-  const name = seg[seg.length - 1]
-  if (!name || name.includes('..')) return null
-  return path.basename(name)
-}
-
-async function deleteStoredSickLeaveFile(url) {
-  const base = basenameFromDocumentUrl(url)
-  if (!base) return
-  const full = path.join(UPLOAD_ROOT, base)
   try {
-    await fs.unlink(full)
-  } catch (_) {}
+    const fakeBase = 'https://local.invalid'
+    const parsed = new URL(url, fakeBase)
+    if (!parsed.pathname.endsWith('/api/attendance/sick-leave-file')) return null
+    const key = parsed.searchParams.get('key')
+    if (!key) return null
+    return decodeURIComponent(key)
+  } catch (_) {
+    return null
+  }
 }
 
 /**
@@ -95,8 +90,9 @@ async function remove(req, res) {
       return res.status(400).json({ error: 'attendance_date must be a valid date (e.g. YYYY-MM-DD)' })
     }
     const existing = await attendanceService.findOne(employeeId, attendanceDate)
-    if (existing?.sick_leave_document_url) {
-      await deleteStoredSickLeaveFile(existing.sick_leave_document_url)
+    const existingKey = keyFromDocumentUrl(existing?.sick_leave_document_url)
+    if (existingKey) {
+      await s3Service.deleteObjectIfExists(existingKey).catch(() => {})
     }
     await attendanceService.remove(employeeId, attendanceDate)
     res.status(204).send()
@@ -107,50 +103,84 @@ async function remove(req, res) {
 }
 
 /**
- * POST /api/attendance/sick-leave-document
- * multipart: file, employee_id, attendance_date
+ * POST /api/attendance/sick-leave-upload-url
+ * body: { employee_id, attendance_date, file_name, file_type }
  */
-async function uploadSickLeaveDocument(req, res) {
+async function getSickLeaveUploadUrl(req, res) {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'file is required (PDF or image)' })
-    }
     const employeeId = parseInt(req.body.employee_id, 10)
     if (Number.isNaN(employeeId)) {
-      await fs.unlink(req.file.path).catch(() => {})
       return res.status(400).json({ error: 'employee_id is required' })
     }
     const rawDate = req.body.attendance_date
     if (rawDate == null || String(rawDate).trim() === '') {
-      await fs.unlink(req.file.path).catch(() => {})
       return res.status(400).json({ error: 'attendance_date is required' })
     }
     const attendanceDate = String(rawDate).trim()
+    const fileName = String(req.body.file_name || '').trim()
+    const fileType = String(req.body.file_type || '').trim()
+    if (!fileName || !fileType) {
+      return res.status(400).json({ error: 'file_name and file_type are required' })
+    }
+    const allowed =
+      fileType === 'application/pdf' || fileType.startsWith('image/')
+    if (!allowed) {
+      return res.status(400).json({ error: 'Only PDF or image files are allowed' })
+    }
     const row = await attendanceService.findOne(employeeId, attendanceDate)
     if (!row || row.status !== 'SL') {
-      await fs.unlink(req.file.path).catch(() => {})
       return res.status(400).json({
         error: 'Save Sick Leave (SL) for this day before uploading a medical record',
       })
     }
-    if (row.sick_leave_document_url) {
-      await deleteStoredSickLeaveFile(row.sick_leave_document_url)
+    const key = s3Service.createSickLeaveKey(employeeId, attendanceDate, fileName)
+    const uploadUrl = await s3Service.getUploadUrl({ key, contentType: fileType })
+    const viewUrl = `/api/attendance/sick-leave-file?key=${encodeURIComponent(key)}`
+    res.json({ uploadUrl, key, viewUrl })
+  } catch (err) {
+    console.error('Sick leave upload-url error:', err)
+    res.status(err.status || 500).json({ error: err.message || 'Failed to create upload URL' })
+  }
+}
+
+/**
+ * POST /api/attendance/sick-leave-document
+ * body: { employee_id, attendance_date, key }
+ */
+async function uploadSickLeaveDocument(req, res) {
+  try {
+    const employeeId = parseInt(req.body.employee_id, 10)
+    if (Number.isNaN(employeeId)) {
+      return res.status(400).json({ error: 'employee_id is required' })
     }
-    const publicUrl = `/api/attendance/files/${req.file.filename}`
-    const updated = await attendanceService.setSickLeaveDocumentUrl(
-      employeeId,
-      attendanceDate,
-      publicUrl
-    )
+    const rawDate = req.body.attendance_date
+    if (rawDate == null || String(rawDate).trim() === '') {
+      return res.status(400).json({ error: 'attendance_date is required' })
+    }
+    const attendanceDate = String(rawDate).trim()
+    const key = String(req.body.key || '').trim()
+    if (!key) {
+      return res.status(400).json({ error: 'key is required' })
+    }
+    const row = await attendanceService.findOne(employeeId, attendanceDate)
+    if (!row || row.status !== 'SL') {
+      return res.status(400).json({
+        error: 'Save Sick Leave (SL) for this day before uploading a medical record',
+      })
+    }
+    const existingKey = keyFromDocumentUrl(row.sick_leave_document_url)
+    if (existingKey && existingKey !== key) {
+      await s3Service.deleteObjectIfExists(existingKey).catch(() => {})
+    }
+    const publicUrl = `/api/attendance/sick-leave-file?key=${encodeURIComponent(key)}`
+    const updated = await attendanceService.setSickLeaveDocumentUrl(employeeId, attendanceDate, publicUrl)
     if (!updated) {
-      await fs.unlink(req.file.path).catch(() => {})
       return res.status(400).json({ error: 'Could not attach document' })
     }
     res.json(updated)
   } catch (err) {
-    if (req.file?.path) await fs.unlink(req.file.path).catch(() => {})
-    console.error('Sick leave upload error:', err)
-    res.status(500).json({ error: 'Failed to upload document' })
+    console.error('Sick leave attach error:', err)
+    res.status(err.status || 500).json({ error: err.message || 'Failed to attach document' })
   }
 }
 
@@ -169,8 +199,9 @@ async function deleteSickLeaveDocument(req, res) {
     }
     const attendanceDate = String(rawDate).trim()
     const row = await attendanceService.findOne(employeeId, attendanceDate)
-    if (row?.sick_leave_document_url) {
-      await deleteStoredSickLeaveFile(row.sick_leave_document_url)
+    const key = keyFromDocumentUrl(row?.sick_leave_document_url)
+    if (key) {
+      await s3Service.deleteObjectIfExists(key).catch(() => {})
     }
     await attendanceService.clearSickLeaveDocumentUrl(employeeId, attendanceDate)
     res.status(204).send()
@@ -181,26 +212,26 @@ async function deleteSickLeaveDocument(req, res) {
 }
 
 /**
- * GET /api/attendance/files/:filename
+ * GET /api/attendance/sick-leave-file?key=...
  */
-function serveSickLeaveFile(req, res) {
-  const name = path.basename(req.params.filename || '')
-  if (!name || name !== req.params.filename) {
-    return res.status(400).send('Bad request')
+async function serveSickLeaveFile(req, res) {
+  try {
+    const key = String(req.query.key || '').trim()
+    if (!key || !key.startsWith('sick-leave/')) {
+      return res.status(400).json({ error: 'Valid key is required' })
+    }
+    const signedUrl = await s3Service.getDownloadUrl({ key })
+    return res.redirect(302, signedUrl)
+  } catch (err) {
+    return res.status(err.status || 500).json({ error: err.message || 'Failed to open file' })
   }
-  const full = path.join(UPLOAD_ROOT, name)
-  if (!full.startsWith(UPLOAD_ROOT)) {
-    return res.status(400).send('Bad request')
-  }
-  res.sendFile(full, (err) => {
-    if (err) res.status(404).send('Not found')
-  })
 }
 
 module.exports = {
   list,
   upsert,
   remove,
+  getSickLeaveUploadUrl,
   uploadSickLeaveDocument,
   deleteSickLeaveDocument,
   serveSickLeaveFile,

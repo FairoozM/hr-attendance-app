@@ -1,0 +1,62 @@
+const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3')
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner')
+const crypto = require('crypto')
+
+const region = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'eu-central-1'
+const bucket = process.env.S3_BUCKET || process.env.AWS_S3_BUCKET
+
+const s3 = new S3Client({ region })
+
+function requireBucket() {
+  if (!bucket) {
+    const err = new Error('S3_BUCKET (or AWS_S3_BUCKET) is required')
+    err.status = 500
+    throw err
+  }
+  return bucket
+}
+
+function sanitizeName(name) {
+  return String(name || 'document').replace(/[^a-zA-Z0-9._-]/g, '_')
+}
+
+function createSickLeaveKey(employeeId, attendanceDate, fileName) {
+  const safe = sanitizeName(fileName)
+  return `sick-leave/${employeeId}/${attendanceDate}/${crypto.randomUUID()}-${safe}`
+}
+
+async function getUploadUrl({ key, contentType, expiresIn = 300 }) {
+  const Bucket = requireBucket()
+  const command = new PutObjectCommand({
+    Bucket,
+    Key: key,
+    ContentType: contentType,
+  })
+  return getSignedUrl(s3, command, { expiresIn })
+}
+
+async function getDownloadUrl({ key, expiresIn = 300 }) {
+  const Bucket = requireBucket()
+  const command = new GetObjectCommand({
+    Bucket,
+    Key: key,
+  })
+  return getSignedUrl(s3, command, { expiresIn })
+}
+
+async function deleteObjectIfExists(key) {
+  if (!key) return
+  const Bucket = requireBucket()
+  const command = new DeleteObjectCommand({
+    Bucket,
+    Key: key,
+  })
+  await s3.send(command)
+}
+
+module.exports = {
+  createSickLeaveKey,
+  getUploadUrl,
+  getDownloadUrl,
+  deleteObjectIfExists,
+}
