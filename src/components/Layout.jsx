@@ -34,6 +34,9 @@ export function Layout() {
           <NavLink to="/attendance" className={navLinkClass} onClick={() => setMenuOpen(false)}>
             Attendance
           </NavLink>
+          <NavLink to="/annual-leave" className={navLinkClass} onClick={() => setMenuOpen(false)}>
+            Annual Leave
+          </NavLink>
           {isAdmin && (
             <NavLink to="/employees" className={navLinkClass} onClick={() => setMenuOpen(false)}>
               Employees

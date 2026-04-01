@@ -1,0 +1,147 @@
+const employeesService = require('../services/employeesService')
+const annualLeaveService = require('../services/annualLeaveService')
+
+function parseDate(s) {
+  if (s == null || String(s).trim() === '') return null
+  if (s instanceof Date) return s.toISOString().slice(0, 10)
+  const t = String(s).trim().slice(0, 10)
+  const d = new Date(`${t}T12:00:00.000Z`)
+  if (Number.isNaN(d.getTime())) return null
+  return t
+}
+
+function validateRange(fromDate, toDate) {
+  if (!fromDate || !toDate) return 'from_date and to_date are required'
+  if (fromDate > toDate) return 'from_date must be on or before to_date'
+  return null
+}
+
+async function list(req, res) {
+  try {
+    const rows = await annualLeaveService.listWithEmployees()
+    res.json(rows)
+  } catch (err) {
+    console.error('Annual leave list error:', err)
+    res.status(500).json({ error: 'Failed to fetch annual leave requests' })
+  }
+}
+
+async function getOne(req, res) {
+  try {
+    const id = parseInt(req.params.id, 10)
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
+    const row = await annualLeaveService.findByIdWithEmployee(id)
+    if (!row) return res.status(404).json({ error: 'Not found' })
+    res.json(row)
+  } catch (err) {
+    console.error('Annual leave get error:', err)
+    res.status(500).json({ error: 'Failed to fetch annual leave' })
+  }
+}
+
+async function create(req, res) {
+  try {
+    const employeeId = parseInt(req.body.employee_id, 10)
+    if (Number.isNaN(employeeId)) {
+      return res.status(400).json({ error: 'employee_id is required' })
+    }
+    const fromDate = parseDate(req.body.from_date)
+    const toDate = parseDate(req.body.to_date)
+    const rangeErr = validateRange(fromDate, toDate)
+    if (rangeErr) return res.status(400).json({ error: rangeErr })
+
+    const emp = await employeesService.findById(employeeId)
+    if (!emp) return res.status(404).json({ error: 'Employee not found' })
+
+    let status = req.body.status != null ? String(req.body.status).trim() : 'Pending'
+    if (!annualLeaveService.isValidStatus(status)) {
+      return res.status(400).json({ error: 'Invalid status' })
+    }
+    const reason =
+      req.body.reason != null && String(req.body.reason).trim() !== ''
+        ? String(req.body.reason).trim()
+        : null
+
+    const row = await annualLeaveService.create({
+      employee_id: employeeId,
+      from_date: fromDate,
+      to_date: toDate,
+      reason,
+      status,
+    })
+    const enriched = await annualLeaveService.findByIdWithEmployee(row.id)
+    res.status(201).json(enriched || row)
+  } catch (err) {
+    console.error('Annual leave create error:', err)
+    res.status(500).json({ error: 'Failed to create annual leave request' })
+  }
+}
+
+async function update(req, res) {
+  try {
+    const id = parseInt(req.params.id, 10)
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
+
+    const existing = await annualLeaveService.findById(id)
+    if (!existing) return res.status(404).json({ error: 'Not found' })
+
+    const employeeId = parseInt(req.body.employee_id ?? existing.employee_id, 10)
+    if (Number.isNaN(employeeId)) {
+      return res.status(400).json({ error: 'employee_id is required' })
+    }
+    const fromDate = parseDate(req.body.from_date ?? existing.from_date)
+    const toDate = parseDate(req.body.to_date ?? existing.to_date)
+    const rangeErr = validateRange(fromDate, toDate)
+    if (rangeErr) return res.status(400).json({ error: rangeErr })
+
+    const emp = await employeesService.findById(employeeId)
+    if (!emp) return res.status(404).json({ error: 'Employee not found' })
+
+    let status =
+      req.body.status != null ? String(req.body.status).trim() : existing.status
+    if (!annualLeaveService.isValidStatus(status)) {
+      return res.status(400).json({ error: 'Invalid status' })
+    }
+    const reason =
+      req.body.reason !== undefined
+        ? req.body.reason != null && String(req.body.reason).trim() !== ''
+          ? String(req.body.reason).trim()
+          : null
+        : existing.reason
+
+    const row = await annualLeaveService.update(id, {
+      employee_id: employeeId,
+      from_date: fromDate,
+      to_date: toDate,
+      reason,
+      status,
+    })
+    if (!row) return res.status(404).json({ error: 'Not found' })
+    const enriched = await annualLeaveService.findByIdWithEmployee(id)
+    res.json(enriched || row)
+  } catch (err) {
+    console.error('Annual leave update error:', err)
+    res.status(500).json({ error: 'Failed to update annual leave request' })
+  }
+}
+
+async function remove(req, res) {
+  try {
+    const id = parseInt(req.params.id, 10)
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
+    const ok = await annualLeaveService.remove(id)
+    if (!ok) return res.status(404).json({ error: 'Not found' })
+    res.status(204).send()
+  } catch (err) {
+    console.error('Annual leave delete error:', err)
+    res.status(500).json({ error: 'Failed to delete annual leave request' })
+  }
+}
+
+module.exports = {
+  list,
+  getOne,
+  create,
+  update,
+  remove,
+}

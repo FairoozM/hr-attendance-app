@@ -44,6 +44,32 @@ async function ensureAttendanceTable() {
   `)
 }
 
+async function ensureAnnualLeaveTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS annual_leave (
+      id SERIAL PRIMARY KEY,
+      employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+      from_date DATE NOT NULL,
+      to_date DATE NOT NULL,
+      reason TEXT,
+      status VARCHAR(20) NOT NULL DEFAULT 'Pending'
+        CHECK (status IN ('Pending', 'Approved', 'Rejected')),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_annual_leave_employee_id ON annual_leave(employee_id)
+  `)
+}
+
+async function ensureAttendanceAnnualLeaveColumn() {
+  await query(`
+    ALTER TABLE attendance
+    ADD COLUMN IF NOT EXISTS annual_leave_id INTEGER REFERENCES annual_leave(id) ON DELETE SET NULL
+  `)
+}
+
 async function testConnection() {
   try {
     const result = await query('SELECT NOW()')
@@ -51,6 +77,8 @@ async function testConnection() {
     console.log('Database connected successfully. Server time:', now)
     await ensureEmployeesTable()
     await ensureAttendanceTable()
+    await ensureAnnualLeaveTable()
+    await ensureAttendanceAnnualLeaveColumn()
   } catch (err) {
     console.error('Database connection failed:', err.message)
   }
@@ -62,4 +90,6 @@ module.exports = {
   testConnection,
   ensureEmployeesTable,
   ensureAttendanceTable,
+  ensureAnnualLeaveTable,
+  ensureAttendanceAnnualLeaveColumn,
 }

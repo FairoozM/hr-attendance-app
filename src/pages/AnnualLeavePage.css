@@ -1,0 +1,136 @@
+.annual-leave-section-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.annual-leave-form-section {
+  max-width: 960px;
+}
+
+.annual-leave-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  align-items: flex-end;
+}
+
+.annual-leave-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+  color: var(--text-muted, #666);
+}
+
+.annual-leave-field span {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.annual-leave-field input,
+.annual-leave-field select {
+  min-width: 10rem;
+  padding: 0.45rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border, #ddd);
+  background: var(--surface, #fff);
+  color: var(--text);
+}
+
+.annual-leave-field--grow {
+  flex: 1;
+  min-width: 200px;
+}
+
+.annual-leave-field--grow input {
+  min-width: 0;
+  width: 100%;
+}
+
+.annual-leave-form-actions {
+  display: flex;
+  align-items: flex-end;
+}
+
+.annual-leave-submit {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent, #2563eb);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.annual-leave-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.annual-leave-form-error {
+  width: 100%;
+  margin: 0;
+  color: var(--danger, #c00);
+  font-size: 0.875rem;
+}
+
+.annual-leave-empty {
+  margin: 0;
+  color: var(--text-muted, #666);
+}
+
+.annual-leave-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--border, #e5e5e5);
+  border-radius: 8px;
+}
+
+.annual-leave-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.annual-leave-table th,
+.annual-leave-table td {
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border, #eee);
+}
+
+.annual-leave-table th {
+  background: var(--surface-2, #f6f6f6);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.annual-leave-reason {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.annual-leave-status-select {
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border, #ddd);
+  background: var(--surface, #fff);
+  color: var(--text);
+}
+
+.annual-leave-delete {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  border: 1px solid var(--danger, #c00);
+  color: var(--danger, #c00);
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.annual-leave-delete:hover {
+  background: rgba(204, 0, 0, 0.08);
+}
