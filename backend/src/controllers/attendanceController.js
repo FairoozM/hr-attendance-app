@@ -55,4 +55,31 @@ async function upsert(req, res) {
   }
 }
 
-module.exports = { list, upsert }
+/**
+ * DELETE /api/attendance
+ * Query: employee_id, attendance_date — removes row so UI can return to default / auto WH.
+ */
+async function remove(req, res) {
+  try {
+    const employeeId = parseInt(req.query.employee_id, 10)
+    if (Number.isNaN(employeeId)) {
+      return res.status(400).json({ error: 'employee_id is required and must be a number' })
+    }
+    const rawDate = req.query.attendance_date
+    if (rawDate == null || String(rawDate).trim() === '') {
+      return res.status(400).json({ error: 'attendance_date is required' })
+    }
+    const attendanceDate = String(rawDate).trim()
+    const date = new Date(attendanceDate)
+    if (Number.isNaN(date.getTime())) {
+      return res.status(400).json({ error: 'attendance_date must be a valid date (e.g. YYYY-MM-DD)' })
+    }
+    await attendanceService.remove(employeeId, attendanceDate)
+    res.status(204).send()
+  } catch (err) {
+    console.error('Attendance delete error:', err)
+    res.status(500).json({ error: 'Failed to delete attendance' })
+  }
+}
+
+module.exports = { list, upsert, remove }

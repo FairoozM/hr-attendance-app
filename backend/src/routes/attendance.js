@@ -5,5 +5,6 @@ const router = express.Router()
 
 router.get('/', attendanceController.list)
 router.put('/', attendanceController.upsert)
+router.delete('/', attendanceController.remove)
 
 module.exports = router

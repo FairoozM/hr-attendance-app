@@ -58,6 +58,8 @@ async function create(req, res) {
       department,
       is_active: isActive,
     })
+    const io = req.app.get('io')
+    if (io) io.emit('employees:changed', { action: 'created', employee })
     res.status(201).json(employee)
   } catch (err) {
     console.error('Employee create error:', err)
@@ -98,6 +100,8 @@ async function update(req, res) {
       department: department || undefined,
       is_active: isActive,
     })
+    const io = req.app.get('io')
+    if (io) io.emit('employees:changed', { action: 'updated', employee })
     res.json(employee)
   } catch (err) {
     console.error('Employee update error:', err)
@@ -115,6 +119,8 @@ async function remove(req, res) {
     if (!deleted) {
       return res.status(404).json({ error: 'Employee not found' })
     }
+    const io = req.app.get('io')
+    if (io) io.emit('employees:changed', { action: 'deleted', id })
     res.status(204).send()
   } catch (err) {
     console.error('Employee delete error:', err)

@@ -1,4 +1,4 @@
-const BASE_URL = 'http://localhost:5001'
+const BASE_URL = ''
 
 
 async function request(method, path, body = null) {

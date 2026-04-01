@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { api } from '../api/client'
+import { employeesSocket } from '../api/socket'
 
 function mapEmployee(row) {
   return {
@@ -33,6 +34,16 @@ export function useEmployees() {
 
   useEffect(() => {
     fetchEmployees()
+  }, [fetchEmployees])
+
+  useEffect(() => {
+    const onEmployeesChanged = () => {
+      fetchEmployees()
+    }
+    employeesSocket.on('employees:changed', onEmployeesChanged)
+    return () => {
+      employeesSocket.off('employees:changed', onEmployeesChanged)
+    }
   }, [fetchEmployees])
 
   const addEmployee = useCallback(

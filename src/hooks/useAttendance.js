@@ -67,15 +67,25 @@ export function useAttendance(employees, month, year) {
           for (let day = 1; day <= daysInMonth; day++) {
             const prevVal = prev[emp.id]?.[day]
             const nextVal = next[emp.id]?.[day]
-            if (prevVal !== nextVal && nextVal) {
-              const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+            if (prevVal === nextVal) continue
+            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+            const empId = Number(emp.id)
+            if (nextVal) {
               api
                 .put('/api/attendance', {
-                  employee_id: Number(emp.id),
+                  employee_id: empId,
                   attendance_date: dateStr,
                   status: nextVal,
                 })
                 .catch((e) => console.error('Attendance save failed', e))
+            } else if (prevVal) {
+              const q = new URLSearchParams({
+                employee_id: String(empId),
+                attendance_date: dateStr,
+              })
+              api
+                .delete(`/api/attendance?${q.toString()}`)
+                .catch((e) => console.error('Attendance clear failed', e))
             }
           }
         })

@@ -33,4 +33,12 @@ async function upsert(employee_id, attendance_date, status) {
   return result.rows[0]
 }
 
-module.exports = { findByMonthYear, upsert }
+async function remove(employee_id, attendance_date) {
+  const result = await query(
+    'DELETE FROM attendance WHERE employee_id = $1 AND attendance_date = $2 RETURNING id',
+    [employee_id, attendance_date]
+  )
+  return result.rowCount > 0
+}
+
+module.exports = { findByMonthYear, upsert, remove }
