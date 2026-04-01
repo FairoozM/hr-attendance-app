@@ -73,7 +73,8 @@ export function AttendanceGrid({
         ))}
         {uploadSickLeaveDocument ? (
           <span className="attendance-legend-hint">
-            Sick leave (SL): use <b>+</b> to upload a medical certificate (PDF or image).
+            Sick leave (SL): <b>+</b> upload certificate (PDF or image). Then <b>View file</b> /{' '}
+            <b>Delete</b> / <b>Replace</b> as needed.
           </span>
         ) : null}
       </div>
@@ -218,19 +219,18 @@ export function AttendanceGrid({
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="attendance-sl-doc__link"
-                                  title="Open medical record"
+                                  title="Open medical certificate in a new tab"
                                 >
-                                  View
+                                  View file
                                 </a>
                                 {removeSickLeaveDocument ? (
                                   <button
                                     type="button"
-                                    className="attendance-sl-doc__remove"
-                                    title="Remove medical record"
-                                    aria-label="Remove medical record"
+                                    className="attendance-sl-doc__delete"
+                                    title="Remove this file (you can upload a different one after)"
                                     onClick={() => removeSickLeaveDocument(emp.id, day)}
                                   >
-                                    ×
+                                    Delete
                                   </button>
                                 ) : null}
                               </>
@@ -238,12 +238,16 @@ export function AttendanceGrid({
                             {uploadSickLeaveDocument ? (
                               <button
                                 type="button"
-                                className="attendance-sl-doc__add"
-                                title="Upload medical certificate (PDF or image)"
-                                aria-label="Upload medical certificate"
+                                className={`attendance-sl-doc__add${docUrl ? ' attendance-sl-doc__add--replace' : ''}`}
+                                title={
+                                  docUrl
+                                    ? 'Replace with a different file (PDF or image)'
+                                    : 'Upload medical certificate (PDF or image)'
+                                }
+                                aria-label="Upload or replace medical certificate"
                                 onClick={() => openSickLeavePicker(emp.id, day)}
                               >
-                                +
+                                {docUrl ? 'Replace' : '+'}
                               </button>
                             ) : null}
                           </div>

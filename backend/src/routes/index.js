@@ -9,4 +9,8 @@ router.get('/health', healthController.getHealth)
 router.use('/employees', employeesRoutes)
 router.use('/attendance', attendanceRoutes)
 
+router.use((req, res) => {
+  res.status(404).json({ error: 'API route not found' })
+})
+
 module.exports = router
