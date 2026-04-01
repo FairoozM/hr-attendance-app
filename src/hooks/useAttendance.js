@@ -132,7 +132,7 @@ export function useAttendance(employees, month, year) {
       const putRes = await fetch(prep.uploadUrl, {
         method: 'PUT',
         body: file,
-        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        headers: { 'Content-Type': prep.contentType || file.type || 'application/octet-stream' },
       })
       if (!putRes.ok) {
         throw new Error(`S3 upload failed (${putRes.status})`)

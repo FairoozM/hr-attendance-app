@@ -136,7 +136,7 @@ async function getSickLeaveUploadUrl(req, res) {
     const key = s3Service.createSickLeaveKey(employeeId, attendanceDate, fileName)
     const uploadUrl = await s3Service.getUploadUrl({ key, contentType: fileType })
     const viewUrl = `/api/attendance/sick-leave-file?key=${encodeURIComponent(key)}`
-    res.json({ uploadUrl, key, viewUrl })
+    res.json({ uploadUrl, key, viewUrl, contentType: fileType })
   } catch (err) {
     console.error('Sick leave upload-url error:', err)
     res.status(err.status || 500).json({ error: err.message || 'Failed to create upload URL' })

@@ -5,7 +5,8 @@ const crypto = require('crypto')
 const region = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'eu-central-1'
 const bucket = process.env.S3_BUCKET || process.env.AWS_S3_BUCKET
 
-const s3 = new S3Client({ region })
+/** WHEN_REQUIRED avoids default CRC checksum query params on presigned PUTs (browser uploads can't satisfy them → "Failed to fetch"). */
+const s3 = new S3Client({ region, requestChecksumCalculation: 'WHEN_REQUIRED' })
 
 function requireBucket() {
   if (!bucket) {
