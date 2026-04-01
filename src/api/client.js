@@ -1,5 +1,11 @@
 const BASE_URL = ''
 
+/** Legacy upload URL sometimes still cached in old bundles; canonical route always hits Express. */
+function normalizeApiPath(path) {
+  if (typeof path !== 'string' || path.startsWith('http')) return path
+  return path.replaceAll('/api/attendance/sick-leave-document', '/api/sick-leave-document')
+}
+
 /**
  * Reads fetch response: always JSON for API, or clear error if HTML/non-JSON (e.g. CloudFront/S3).
  */
@@ -47,6 +53,7 @@ async function handleResponse(res, requestUrl) {
 }
 
 async function request(method, path, body = null) {
+  path = normalizeApiPath(path)
   const url = path.startsWith('http') ? path : `${BASE_URL}${path}`
   const options = {
     method,
@@ -58,6 +65,7 @@ async function request(method, path, body = null) {
 }
 
 async function postForm(path, formData) {
+  path = normalizeApiPath(path)
   const url = path.startsWith('http') ? path : `${BASE_URL}${path}`
   const res = await fetch(url, {
     method: 'POST',

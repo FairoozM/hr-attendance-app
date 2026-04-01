@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy:frontend": "npm run build && aws s3 sync dist/ s3://hr-lifesmile --delete && aws s3 cp dist/index.html s3://hr-lifesmile/index.html --cache-control \"no-cache, no-store, must-revalidate, max-age=0\" --content-type text/html && aws cloudfront create-invalidation --distribution-id E2YFDZQHMQS2BG --paths \"/*\""
   },
   "dependencies": {
     "react": "^18.2.0",
