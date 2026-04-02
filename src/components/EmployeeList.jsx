@@ -66,6 +66,8 @@ function EmployeeViewModal({ employee, open, onClose }) {
         <dd>{formatJoiningDate(effectiveJoiningDate(employee)) || '—'}</dd>
         <dt>Passport number</dt>
         <dd>{displayOrDash(employee.passportNumber)}</dd>
+        <dt>Nationality</dt>
+        <dd>{displayOrDash(employee.nationality)}</dd>
         <dt>Emirates ID</dt>
         <dd>{displayOrDash(employee.emiratesId)}</dd>
         <dt>Status</dt>
@@ -141,7 +143,7 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
       if (designation !== 'all' && (emp.designation || '') !== designation) return false
       if (status !== 'all' && emp.employmentStatus !== status) return false
       if (!q) return true
-      const blob = [emp.name, emp.employeeId, emp.phone, emp.email]
+      const blob = [emp.name, emp.employeeId, emp.phone, emp.email, emp.nationality]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()
@@ -337,6 +339,7 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
                   phone: editingEmployee.phone ?? '',
                   emiratesId: editingEmployee.emiratesId ?? '',
                   passportNumber: editingEmployee.passportNumber ?? '',
+                  nationality: editingEmployee.nationality ?? '',
                 }
               : undefined
           }

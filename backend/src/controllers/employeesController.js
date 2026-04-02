@@ -37,6 +37,7 @@ function extendedFields(body) {
     phone: parseOptionalTrim(body.phone),
     emirates_id: parseOptionalTrim(body.emirates_id),
     passport_number: parseOptionalTrim(body.passport_number),
+    nationality: parseOptionalTrim(body.nationality),
   }
 }
 
@@ -135,6 +136,7 @@ async function update(req, res) {
       phone: ext.phone,
       emirates_id: ext.emirates_id,
       passport_number: ext.passport_number,
+      nationality: ext.nationality,
     })
     const io = req.app.get('io')
     if (io) io.emit('employees:changed', { action: 'updated', employee })

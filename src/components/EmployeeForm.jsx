@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { DEFAULT_DEPARTMENTS } from '../constants/employees'
+import { NATIONALITY_SUGGESTIONS } from '../constants/nationalities'
 import { useSettings } from '../contexts/SettingsContext'
 import './EmployeeForm.css'
 
@@ -35,6 +36,7 @@ export function EmployeeForm({
   const [phone, setPhone] = useState(initial?.phone ?? '')
   const [emiratesId, setEmiratesId] = useState(initial?.emiratesId ?? '')
   const [passportNumber, setPassportNumber] = useState(initial?.passportNumber ?? '')
+  const [nationality, setNationality] = useState(initial?.nationality ?? '')
 
   useEffect(() => {
     if (!initial) return
@@ -46,6 +48,7 @@ export function EmployeeForm({
     setPhone(initial.phone ?? '')
     setEmiratesId(initial.emiratesId ?? '')
     setPassportNumber(initial.passportNumber ?? '')
+    setNationality(initial.nationality ?? '')
   }, [
     initial?.employeeId,
     initial?.name,
@@ -55,6 +58,7 @@ export function EmployeeForm({
     initial?.phone,
     initial?.emiratesId,
     initial?.passportNumber,
+    initial?.nationality,
     departments,
   ])
 
@@ -79,6 +83,7 @@ export function EmployeeForm({
       phone: emptyToNull(phone),
       emiratesId: emptyToNull(emiratesId),
       passportNumber: emptyToNull(passportNumber),
+      nationality: emptyToNull(nationality),
     })
   }
 
@@ -177,6 +182,24 @@ export function EmployeeForm({
             onChange={(e) => setPassportNumber(e.target.value)}
             autoComplete="off"
           />
+        </label>
+        <label className="employee-form__label">
+          Nationality
+          <input
+            type="text"
+            className="employee-form__input"
+            placeholder="e.g. United Arab Emirates"
+            value={nationality}
+            onChange={(e) => setNationality(e.target.value)}
+            list="employee-nationality-options"
+            autoComplete="off"
+          />
+          <datalist id="employee-nationality-options">
+            {NATIONALITY_SUGGESTIONS.map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
+          <span className="employee-form__hint">Choose a suggestion or type any country.</span>
         </label>
         <label className="employee-form__label">
           Emirates ID

@@ -108,6 +108,7 @@ export function EmployeesDataTable({
               <th className="employees-table__th">Email</th>
               <th className="employees-table__th">{sortable('joiningDate', 'Joining date')}</th>
               <th className="employees-table__th">Passport no.</th>
+              <th className="employees-table__th">Nationality</th>
               <th className="employees-table__th">Emirates ID</th>
               <th className="employees-table__th">{sortable('employmentStatus', 'Status')}</th>
               <th className="employees-table__th employees-table__th--actions">Actions</th>
@@ -149,6 +150,9 @@ export function EmployeesDataTable({
                   <td className="employees-table__td employees-table__td--nowrap">{joinStr || '—'}</td>
                   <td className="employees-table__td employees-table__td--truncate" title={emp.passportNumber || ''}>
                     {displayOrDash(emp.passportNumber)}
+                  </td>
+                  <td className="employees-table__td employees-table__td--truncate" title={emp.nationality || ''}>
+                    {displayOrDash(emp.nationality)}
                   </td>
                   <td className="employees-table__td employees-table__td--truncate" title={emp.emiratesId || ''}>
                     {displayOrDash(emp.emiratesId)}
