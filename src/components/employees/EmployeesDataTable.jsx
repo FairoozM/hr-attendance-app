@@ -1,6 +1,7 @@
+import { useState } from 'react'
 import { EmployeeAvatar } from './EmployeeAvatar'
 import { displayOrDash, formatJoiningDate, effectiveJoiningDate } from './employeeUtils'
-import { ALL_VALUE } from './employeeColumnFilters'
+import { ExcelStyleColumnFilter } from '../ExcelStyleColumnFilter'
 import './EmployeesDataTable.css'
 
 function SortChevron({ active, dir }) {
@@ -20,24 +21,6 @@ function SortChevron({ active, dir }) {
         </svg>
       )}
     </span>
-  )
-}
-
-function ColFilterSelect({ value, options, onChange, id }) {
-  return (
-    <select
-      id={id}
-      className="employees-table__col-filter"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      aria-label="Filter column"
-    >
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
   )
 }
 
@@ -93,9 +76,10 @@ export function EmployeesDataTable({
   totalFiltered,
   onPageChange,
   columnFilters,
-  onColumnFilterChange,
+  onColumnFilterIncludedChange,
   filterOptionsByKey,
 }) {
+  const [openFilterId, setOpenFilterId] = useState(null)
   const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize) || 1)
   const from = totalFiltered === 0 ? 0 : (page - 1) * pageSize + 1
   const to = Math.min(page * pageSize, totalFiltered)
@@ -116,7 +100,7 @@ export function EmployeesDataTable({
 
   const f = columnFilters || {}
   const opt = filterOptionsByKey || {}
-  const setCol = onColumnFilterChange || (() => {})
+  const setInc = onColumnFilterIncludedChange || (() => {})
 
   const thLabel = (text) => (
     <span className="employees-table__th-label">{text}</span>
@@ -137,110 +121,154 @@ export function EmployeesDataTable({
               <th className="employees-table__th employees-table__th--name">
                 <div className="employees-table__th-stack">
                   {sortable('name', 'Employee name')}
-                  <ColFilterSelect
-                    value={f.name || ALL_VALUE}
-                    options={opt.name || [{ value: ALL_VALUE, label: 'All' }]}
-                    onChange={(v) => setCol('name', v)}
+                  <ExcelStyleColumnFilter
+                    filterId="emp-col-name"
+                    openFilterId={openFilterId}
+                    onOpenFilterId={setOpenFilterId}
+                    ariaLabel="Filter by employee name"
+                    options={opt.name || []}
+                    included={f.name}
+                    onIncludedChange={(next) => setInc('name', next)}
                   />
                 </div>
               </th>
               <th className="employees-table__th">
                 <div className="employees-table__th-stack">
                   {thLabel('Employee ID')}
-                  <ColFilterSelect
-                    value={f.employeeId || ALL_VALUE}
-                    options={opt.employeeId || [{ value: ALL_VALUE, label: 'All' }]}
-                    onChange={(v) => setCol('employeeId', v)}
+                  <ExcelStyleColumnFilter
+                    filterId="emp-col-employeeId"
+                    openFilterId={openFilterId}
+                    onOpenFilterId={setOpenFilterId}
+                    ariaLabel="Filter by employee ID"
+                    options={opt.employeeId || []}
+                    included={f.employeeId}
+                    onIncludedChange={(next) => setInc('employeeId', next)}
                   />
                 </div>
               </th>
               <th className="employees-table__th">
                 <div className="employees-table__th-stack">
                   {sortable('department', 'Department')}
-                  <ColFilterSelect
-                    value={f.department || ALL_VALUE}
-                    options={opt.department || [{ value: ALL_VALUE, label: 'All' }]}
-                    onChange={(v) => setCol('department', v)}
+                  <ExcelStyleColumnFilter
+                    filterId="emp-col-department"
+                    openFilterId={openFilterId}
+                    onOpenFilterId={setOpenFilterId}
+                    ariaLabel="Filter by department"
+                    options={opt.department || []}
+                    included={f.department}
+                    onIncludedChange={(next) => setInc('department', next)}
                   />
                 </div>
               </th>
               <th className="employees-table__th">
                 <div className="employees-table__th-stack">
                   {thLabel('Designation')}
-                  <ColFilterSelect
-                    value={f.designation || ALL_VALUE}
-                    options={opt.designation || [{ value: ALL_VALUE, label: 'All' }]}
-                    onChange={(v) => setCol('designation', v)}
+                  <ExcelStyleColumnFilter
+                    filterId="emp-col-designation"
+                    openFilterId={openFilterId}
+                    onOpenFilterId={setOpenFilterId}
+                    ariaLabel="Filter by designation"
+                    options={opt.designation || []}
+                    included={f.designation}
+                    onIncludedChange={(next) => setInc('designation', next)}
                   />
                 </div>
               </th>
               <th className="employees-table__th">
                 <div className="employees-table__th-stack">
                   {thLabel('Contact')}
-                  <ColFilterSelect
-                    value={f.phone || ALL_VALUE}
-                    options={opt.phone || [{ value: ALL_VALUE, label: 'All' }]}
-                    onChange={(v) => setCol('phone', v)}
+                  <ExcelStyleColumnFilter
+                    filterId="emp-col-phone"
+                    openFilterId={openFilterId}
+                    onOpenFilterId={setOpenFilterId}
+                    ariaLabel="Filter by contact number"
+                    options={opt.phone || []}
+                    included={f.phone}
+                    onIncludedChange={(next) => setInc('phone', next)}
                   />
                 </div>
               </th>
               <th className="employees-table__th">
                 <div className="employees-table__th-stack">
                   {thLabel('Email')}
-                  <ColFilterSelect
-                    value={f.email || ALL_VALUE}
-                    options={opt.email || [{ value: ALL_VALUE, label: 'All' }]}
-                    onChange={(v) => setCol('email', v)}
+                  <ExcelStyleColumnFilter
+                    filterId="emp-col-email"
+                    openFilterId={openFilterId}
+                    onOpenFilterId={setOpenFilterId}
+                    ariaLabel="Filter by email"
+                    options={opt.email || []}
+                    included={f.email}
+                    onIncludedChange={(next) => setInc('email', next)}
                   />
                 </div>
               </th>
               <th className="employees-table__th">
                 <div className="employees-table__th-stack">
                   {sortable('joiningDate', 'Joining date')}
-                  <ColFilterSelect
-                    value={f.joining || ALL_VALUE}
-                    options={opt.joining || [{ value: ALL_VALUE, label: 'All' }]}
-                    onChange={(v) => setCol('joining', v)}
+                  <ExcelStyleColumnFilter
+                    filterId="emp-col-joining"
+                    openFilterId={openFilterId}
+                    onOpenFilterId={setOpenFilterId}
+                    ariaLabel="Filter by joining date"
+                    options={opt.joining || []}
+                    included={f.joining}
+                    onIncludedChange={(next) => setInc('joining', next)}
                   />
                 </div>
               </th>
               <th className="employees-table__th">
                 <div className="employees-table__th-stack">
                   {thLabel('Passport no.')}
-                  <ColFilterSelect
-                    value={f.passport || ALL_VALUE}
-                    options={opt.passport || [{ value: ALL_VALUE, label: 'All' }]}
-                    onChange={(v) => setCol('passport', v)}
+                  <ExcelStyleColumnFilter
+                    filterId="emp-col-passport"
+                    openFilterId={openFilterId}
+                    onOpenFilterId={setOpenFilterId}
+                    ariaLabel="Filter by passport number"
+                    options={opt.passport || []}
+                    included={f.passport}
+                    onIncludedChange={(next) => setInc('passport', next)}
                   />
                 </div>
               </th>
               <th className="employees-table__th">
                 <div className="employees-table__th-stack">
                   {thLabel('Nationality')}
-                  <ColFilterSelect
-                    value={f.nationality || ALL_VALUE}
-                    options={opt.nationality || [{ value: ALL_VALUE, label: 'All' }]}
-                    onChange={(v) => setCol('nationality', v)}
+                  <ExcelStyleColumnFilter
+                    filterId="emp-col-nationality"
+                    openFilterId={openFilterId}
+                    onOpenFilterId={setOpenFilterId}
+                    ariaLabel="Filter by nationality"
+                    options={opt.nationality || []}
+                    included={f.nationality}
+                    onIncludedChange={(next) => setInc('nationality', next)}
                   />
                 </div>
               </th>
               <th className="employees-table__th">
                 <div className="employees-table__th-stack">
                   {thLabel('Emirates ID')}
-                  <ColFilterSelect
-                    value={f.emirates || ALL_VALUE}
-                    options={opt.emirates || [{ value: ALL_VALUE, label: 'All' }]}
-                    onChange={(v) => setCol('emirates', v)}
+                  <ExcelStyleColumnFilter
+                    filterId="emp-col-emirates"
+                    openFilterId={openFilterId}
+                    onOpenFilterId={setOpenFilterId}
+                    ariaLabel="Filter by Emirates ID"
+                    options={opt.emirates || []}
+                    included={f.emirates}
+                    onIncludedChange={(next) => setInc('emirates', next)}
                   />
                 </div>
               </th>
               <th className="employees-table__th">
                 <div className="employees-table__th-stack">
                   {sortable('employmentStatus', 'Status')}
-                  <ColFilterSelect
-                    value={f.status || ALL_VALUE}
-                    options={opt.status || [{ value: ALL_VALUE, label: 'All' }]}
-                    onChange={(v) => setCol('status', v)}
+                  <ExcelStyleColumnFilter
+                    filterId="emp-col-status"
+                    openFilterId={openFilterId}
+                    onOpenFilterId={setOpenFilterId}
+                    ariaLabel="Filter by employment status"
+                    options={opt.status || []}
+                    included={f.status}
+                    onIncludedChange={(next) => setInc('status', next)}
                   />
                 </div>
               </th>

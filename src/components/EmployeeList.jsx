@@ -13,12 +13,12 @@ import {
   effectiveJoiningDate,
 } from './employees/employeeUtils'
 import {
+  EMPLOYEE_COLUMN_FILTER_KEYS,
   matchesColumnFilters,
   emptyColumnFilters,
-  buildSelectOptions,
-  ALL_VALUE,
-  BLANK_VALUE,
+  buildExcelColumnOptions,
 } from './employees/employeeColumnFilters'
+import { excelFilterIsActive } from './ExcelStyleColumnFilter'
 import './EmployeeList.css'
 
 const PAGE_SIZE = 10
@@ -165,24 +165,11 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
   )
 
   const filterOptionsByKey = useMemo(() => {
-    const build = (key) => buildSelectOptions(employees, key)
-    const statusOpts = build('status').map((o) => {
-      if (o.value === ALL_VALUE || o.value === BLANK_VALUE) return o
-      return { ...o, label: employmentStatusLabel(o.value) }
-    })
-    return {
-      name: build('name'),
-      employeeId: build('employeeId'),
-      department: build('department'),
-      designation: build('designation'),
-      phone: build('phone'),
-      email: build('email'),
-      joining: build('joining'),
-      passport: build('passport'),
-      nationality: build('nationality'),
-      emirates: build('emirates'),
-      status: statusOpts,
+    const out = {}
+    for (const key of EMPLOYEE_COLUMN_FILTER_KEYS) {
+      out[key] = buildExcelColumnOptions(employees, key)
     }
+    return out
   }, [employees])
 
   const sorted = useMemo(() => {
@@ -208,8 +195,11 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
   }, [sorted, page])
 
   const hasColumnFilters = useMemo(
-    () => Object.values(columnFilters).some((v) => v && v !== ALL_VALUE),
-    [columnFilters]
+    () =>
+      EMPLOYEE_COLUMN_FILTER_KEYS.some((k) =>
+        excelFilterIsActive(columnFilters[k], (filterOptionsByKey[k] || []).map((o) => o.value))
+      ),
+    [columnFilters, filterOptionsByKey]
   )
 
   const hasActiveFilters =
@@ -227,8 +217,13 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
     setColumnFilters(emptyColumnFilters())
   }, [])
 
-  const handleColumnFilterChange = useCallback((key, value) => {
-    setColumnFilters((prev) => ({ ...prev, [key]: value }))
+  const handleColumnFilterIncluded = useCallback((key, next) => {
+    setColumnFilters((prev) => {
+      const copy = { ...prev }
+      if (next === null) delete copy[key]
+      else copy[key] = next
+      return copy
+    })
   }, [])
 
   const handleSort = useCallback(
@@ -363,7 +358,7 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
           totalFiltered={totalFiltered}
           onPageChange={setPage}
           columnFilters={columnFilters}
-          onColumnFilterChange={handleColumnFilterChange}
+          onColumnFilterIncludedChange={handleColumnFilterIncluded}
           filterOptionsByKey={filterOptionsByKey}
         />
       )}

@@ -1,4 +1,4 @@
-import { formatJoiningDate, effectiveJoiningDate } from './employeeUtils'
+import { formatJoiningDate, effectiveJoiningDate, employmentStatusLabel } from './employeeUtils'
 
 export const EMPLOYEE_COLUMN_FILTER_KEYS = [
   'name',
@@ -14,7 +14,6 @@ export const EMPLOYEE_COLUMN_FILTER_KEYS = [
   'status',
 ]
 
-export const ALL_VALUE = '__all__'
 export const BLANK_VALUE = '__blank__'
 
 /** Raw comparable value for filtering (not display). */
@@ -47,33 +46,41 @@ export function getEmployeeFilterValue(emp, key) {
   }
 }
 
-export function buildSelectOptions(employees, key) {
-  const set = new Set()
+/** Options for Excel-style checkbox filter: distinct values + (Blanks) when needed. */
+export function buildExcelColumnOptions(employees, key) {
+  const seen = new Set()
   employees.forEach((emp) => {
     const v = getEmployeeFilterValue(emp, key)
-    if (v) set.add(v)
+    seen.add(v ? v : BLANK_VALUE)
   })
-  const sorted = Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
-  const opts = [{ value: ALL_VALUE, label: 'All' }]
-  opts.push({ value: BLANK_VALUE, label: '(Blanks)' })
-  sorted.forEach((v) => opts.push({ value: v, label: v }))
+  const nonBlank = [...seen].filter((x) => x !== BLANK_VALUE)
+  nonBlank.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+  const opts = []
+  if (seen.has(BLANK_VALUE)) {
+    opts.push({ value: BLANK_VALUE, label: '(Blanks)' })
+  }
+  for (const v of nonBlank) {
+    const label = key === 'status' ? employmentStatusLabel(v) : v
+    opts.push({ value: v, label })
+  }
   return opts
 }
 
+/**
+ * `filters[key]` is `undefined` = all values included (no filter).
+ * Otherwise `Set` of allowed raw values; use BLANK_VALUE for empty cells.
+ */
 export function matchesColumnFilters(emp, filters) {
   for (const key of EMPLOYEE_COLUMN_FILTER_KEYS) {
-    const f = filters[key]
-    if (!f || f === ALL_VALUE) continue
+    const inc = filters[key]
+    if (inc === undefined || inc === null) continue
     const raw = getEmployeeFilterValue(emp, key)
-    if (f === BLANK_VALUE) {
-      if (raw) return false
-    } else if (raw !== f) {
-      return false
-    }
+    const normalized = raw ? raw : BLANK_VALUE
+    if (!inc.has(normalized)) return false
   }
   return true
 }
 
 export function emptyColumnFilters() {
-  return Object.fromEntries(EMPLOYEE_COLUMN_FILTER_KEYS.map((k) => [k, ALL_VALUE]))
+  return {}
 }

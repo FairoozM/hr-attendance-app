@@ -1,0 +1,102 @@
+.excel-col-filter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 1.5rem;
+}
+
+.excel-col-filter__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.65rem;
+  height: 1.5rem;
+  padding: 0;
+  margin: 0 auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  box-sizing: border-box;
+  line-height: 1;
+}
+
+.excel-col-filter__trigger:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.excel-col-filter__trigger--active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.excel-col-filter__funnel {
+  display: block;
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.excel-col-filter__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
+.excel-col-filter__row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0.25rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  user-select: none;
+  border-radius: var(--radius-sm);
+}
+
+.excel-col-filter__row:hover {
+  background: var(--bg);
+}
+
+.excel-col-filter__row--all {
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.4rem;
+  margin-bottom: 0.1rem;
+}
+
+.excel-col-filter__row input {
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.excel-col-filter__opt-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.excel-col-filter__list {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  max-height: 200px;
+}
+
+.excel-col-filter__empty {
+  margin: 0.35rem 0.25rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
