@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { DEFAULT_DEPARTMENTS } from '../constants/employees'
 import { useSettings } from '../contexts/SettingsContext'
 import './EmployeeForm.css'
@@ -14,26 +14,28 @@ export function EmployeeForm({
   const { departments: settingsDepartments } = useSettings()
   const baseDepartments =
     settingsDepartments?.length > 0 ? settingsDepartments : DEFAULT_DEPARTMENTS
-  // Include current employee department in options if it was removed from Settings
-  const departments =
-    initial?.department &&
-    baseDepartments.indexOf(initial.department) === -1
-      ? [initial.department, ...baseDepartments]
-      : baseDepartments
+
+  // Stable list so useEffect does not run every render and reset the department dropdown.
+  const departments = useMemo(() => {
+    if (initial?.department && baseDepartments.indexOf(initial.department) === -1) {
+      return [initial.department, ...baseDepartments]
+    }
+    return baseDepartments
+  }, [initial?.department, baseDepartments])
 
   const [employeeId, setEmployeeId] = useState(initial?.employeeId ?? '')
   const [name, setName] = useState(initial?.name ?? '')
   const [department, setDepartment] = useState(
-    initial?.department ?? departments[0]
+    () => initial?.department ?? departments[0]
   )
 
+  // Only sync form when opening the modal or switching the employee being edited — not on every render.
   useEffect(() => {
-    if (initial) {
-      setEmployeeId(initial.employeeId ?? '')
-      setName(initial.name ?? '')
-      setDepartment(initial.department ?? departments[0])
-    }
-  }, [initial, departments])
+    if (!initial) return
+    setEmployeeId(initial.employeeId ?? '')
+    setName(initial.name ?? '')
+    setDepartment(initial.department ?? departments[0])
+  }, [initial?.employeeId, initial?.name, initial?.department, departments])
 
   const trimmedIdLower = employeeId.trim().toLowerCase()
   const isDuplicate =
