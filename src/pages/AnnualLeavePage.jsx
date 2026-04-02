@@ -16,6 +16,14 @@ function fmtDate(v) {
   return String(v).slice(0, 10)
 }
 
+function fmtDateDisplay(v) {
+  const iso = fmtDate(v)
+  if (!iso || iso === '—') return '—'
+  const [yyyy, mm, dd] = iso.split('-')
+  if (!yyyy || !mm || !dd) return iso
+  return `${dd}/${mm}/${yyyy}`
+}
+
 function leaveDaysInclusive(fromDate, toDate) {
   if (!fromDate || !toDate) return 0
   const from = new Date(`${fmtDate(fromDate)}T00:00:00`)
@@ -66,8 +74,10 @@ export function AnnualLeavePage() {
     () =>
       requests.map((row) => ({
         ...row,
-        fromText: fmtDate(row.from_date),
-        toText: fmtDate(row.to_date),
+        fromIso: fmtDate(row.from_date),
+        toIso: fmtDate(row.to_date),
+        fromText: fmtDateDisplay(row.from_date),
+        toText: fmtDateDisplay(row.to_date),
         days: leaveDaysInclusive(row.from_date, row.to_date),
         reasonText: row.reason || '—',
       })),
@@ -157,12 +167,12 @@ export function AnnualLeavePage() {
           vb = (b.department || '').toLowerCase()
           break
         case 'from':
-          va = a.fromText
-          vb = b.fromText
+          va = a.fromIso
+          vb = b.fromIso
           break
         case 'to':
-          va = a.toText
-          vb = b.toText
+          va = a.toIso
+          vb = b.toIso
           break
         case 'days':
           va = a.days
