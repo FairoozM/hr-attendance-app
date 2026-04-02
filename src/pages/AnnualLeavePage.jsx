@@ -54,6 +54,8 @@ export function AnnualLeavePage() {
   const [saving, setSaving] = useState(false)
   const [openFilterId, setOpenFilterId] = useState(null)
   const [columnFilters, setColumnFilters] = useState({})
+  const [sortKey, setSortKey] = useState('from')
+  const [sortDir, setSortDir] = useState('desc')
 
   const employeeOptions = useMemo(
     () => [...employees].sort((a, b) => a.name.localeCompare(b.name)),
@@ -139,6 +141,62 @@ export function AnnualLeavePage() {
     [rows, columnFilters]
   )
 
+  const sortedRows = useMemo(() => {
+    const copy = [...filteredRows]
+    const mul = sortDir === 'asc' ? 1 : -1
+    copy.sort((a, b) => {
+      let va = ''
+      let vb = ''
+      switch (sortKey) {
+        case 'employee':
+          va = (a.full_name || '').toLowerCase()
+          vb = (b.full_name || '').toLowerCase()
+          break
+        case 'department':
+          va = (a.department || '').toLowerCase()
+          vb = (b.department || '').toLowerCase()
+          break
+        case 'from':
+          va = a.fromText
+          vb = b.fromText
+          break
+        case 'to':
+          va = a.toText
+          vb = b.toText
+          break
+        case 'days':
+          va = a.days
+          vb = b.days
+          break
+        case 'reason':
+          va = (a.reasonText || '').toLowerCase()
+          vb = (b.reasonText || '').toLowerCase()
+          break
+        case 'status':
+          va = (a.status || '').toLowerCase()
+          vb = (b.status || '').toLowerCase()
+          break
+        default:
+          return 0
+      }
+      if (va < vb) return -1 * mul
+      if (va > vb) return 1 * mul
+      return 0
+    })
+    return copy
+  }, [filteredRows, sortKey, sortDir])
+
+  const onSort = useCallback((key) => {
+    setSortKey((prev) => {
+      if (prev === key) {
+        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+        return prev
+      }
+      setSortDir('asc')
+      return key
+    })
+  }, [])
+
   const hasActiveFilters = useMemo(
     () =>
       Object.entries(filterOptionsByKey).some(([key, opts]) =>
@@ -205,6 +263,20 @@ export function AnnualLeavePage() {
       window.alert(err.message || 'Delete failed')
     }
   }
+
+  const sortableHeader = (key, label) => (
+    <button
+      type="button"
+      className="annual-leave-sort-btn"
+      onClick={() => onSort(key)}
+      aria-sort={sortKey === key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
+      <span>{label}</span>
+      <span className={`annual-leave-sort-icon${sortKey === key ? ' annual-leave-sort-icon--active' : ''}`}>
+        {sortKey === key ? (sortDir === 'asc' ? '▲' : '▼') : '↕'}
+      </span>
+    </button>
+  )
 
   return (
     <div className="page annual-leave-page">
@@ -298,13 +370,13 @@ export function AnnualLeavePage() {
             <table className="annual-leave-table">
               <thead>
                 <tr>
-                  <th>Employee</th>
-                  <th>Department</th>
-                  <th>From</th>
-                  <th>To</th>
-                  <th>Days</th>
-                  <th>Reason</th>
-                  <th>Status</th>
+                  <th>{sortableHeader('employee', 'Employee')}</th>
+                  <th>{sortableHeader('department', 'Department')}</th>
+                  <th>{sortableHeader('from', 'From')}</th>
+                  <th>{sortableHeader('to', 'To')}</th>
+                  <th>{sortableHeader('days', 'Days')}</th>
+                  <th>{sortableHeader('reason', 'Reason')}</th>
+                  <th>{sortableHeader('status', 'Status')}</th>
                   {isAdmin && <th />}
                 </tr>
                 <tr className="annual-leave-filter-row">
@@ -389,7 +461,7 @@ export function AnnualLeavePage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.map((row) => (
+                {sortedRows.map((row) => (
                   <tr key={row.id}>
                     <td>{row.full_name}</td>
                     <td>{row.department}</td>
@@ -430,7 +502,7 @@ export function AnnualLeavePage() {
                 ))}
               </tbody>
             </table>
-            {filteredRows.length === 0 && (
+            {sortedRows.length === 0 && (
               <p className="annual-leave-empty annual-leave-empty--filtered">
                 No requests match the selected filters.
               </p>

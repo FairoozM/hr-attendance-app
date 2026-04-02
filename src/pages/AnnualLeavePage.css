@@ -116,6 +116,29 @@
   white-space: nowrap;
 }
 
+.annual-leave-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  padding: 0;
+  cursor: pointer;
+}
+
+.annual-leave-sort-icon {
+  font-size: 0.72rem;
+  color: var(--text-muted, #666);
+  line-height: 1;
+}
+
+.annual-leave-sort-icon--active {
+  color: var(--accent, #2563eb);
+}
+
 .annual-leave-filter-row th {
   padding: 0.35rem 0.5rem;
   background: var(--surface, #fff);
