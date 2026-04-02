@@ -1,5 +1,7 @@
 import { EmployeeList } from '../components/EmployeeList'
+import { EmployeesTableSkeleton } from '../components/employees/EmployeesTableSkeleton'
 import './Page.css'
+import './EmployeesPage.css'
 
 export function EmployeesPage({
   employees,
@@ -10,28 +12,22 @@ export function EmployeesPage({
   error,
 }) {
   return (
-    <div className="page">
-      <div className="page-header">
-        <h1 className="page-title">Employees</h1>
-      </div>
+    <div className="page employees-page">
       {error && (
         <section className="page-section">
-          <p className="page-error" role="alert">{error}</p>
+          <p className="page-error" role="alert">
+            {error}
+          </p>
         </section>
       )}
       {loading && (
-        <section className="page-section">
-          <p className="page-loading">Loading…</p>
+        <section className="page-section page-section--fill employees-page__loading">
+          <EmployeesTableSkeleton />
         </section>
       )}
       {!loading && (
         <section className="page-section page-section--fill">
-          <EmployeeList
-            employees={employees}
-            onAdd={onAdd}
-            onEdit={onEdit}
-            onDelete={onDelete}
-          />
+          <EmployeeList employees={employees} onAdd={onAdd} onEdit={onEdit} onDelete={onDelete} />
         </section>
       )}
     </div>

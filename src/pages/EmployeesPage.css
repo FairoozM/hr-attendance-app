@@ -1,0 +1,11 @@
+.employees-page.page {
+  max-width: 100%;
+}
+
+.employees-page__loading {
+  min-height: 320px;
+}
+
+.page-section--fill .employee-directory {
+  max-width: none;
+}

@@ -1,0 +1,39 @@
+.employee-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #e2e8f0, #cbd5e1);
+  color: var(--text);
+  font-weight: 600;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.employee-avatar--sm {
+  width: 32px;
+  height: 32px;
+  font-size: 0.65rem;
+}
+
+.employee-avatar--md {
+  width: 40px;
+  height: 40px;
+  font-size: 0.75rem;
+}
+
+.employee-avatar__fallback {
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.employee-avatar__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.employee-avatar--image {
+  background: var(--surface);
+}

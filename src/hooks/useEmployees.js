@@ -2,12 +2,32 @@ import { useState, useCallback, useEffect } from 'react'
 import { api } from '../api/client'
 import { employeesSocket } from '../api/socket'
 
+/**
+ * Maps API row to UI employee. Extra fields are optional until backend adds columns.
+ * employment_status (if added): 'active' | 'inactive' | 'on_leave' | 'resigned'
+ */
 function mapEmployee(row) {
+  const rawStatus = row.employment_status
+  let employmentStatus = 'active'
+  if (rawStatus === 'on_leave' || rawStatus === 'On Leave') employmentStatus = 'on_leave'
+  else if (rawStatus === 'resigned' || rawStatus === 'Resigned') employmentStatus = 'resigned'
+  else if (row.is_active === false) employmentStatus = 'inactive'
+  else employmentStatus = 'active'
+
   return {
     id: String(row.id),
     employeeId: row.employee_code,
     name: row.full_name,
     department: row.department,
+    isActive: row.is_active !== false,
+    employmentStatus,
+    createdAt: row.created_at ?? null,
+    photoUrl: row.photo_url ?? null,
+    designation: row.designation ?? null,
+    phone: row.phone ?? row.contact_number ?? null,
+    email: row.email ?? null,
+    passportNumber: row.passport_number ?? null,
+    emiratesId: row.emirates_id ?? null,
   }
 }
 
