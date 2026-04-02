@@ -1,5 +1,5 @@
 import { EmployeeAvatar } from './EmployeeAvatar'
-import { displayOrDash, formatJoiningDate } from './employeeUtils'
+import { displayOrDash, formatJoiningDate, effectiveJoiningDate } from './employeeUtils'
 import './EmployeesDataTable.css'
 
 function SortChevron({ active, dir }) {
@@ -106,7 +106,7 @@ export function EmployeesDataTable({
               <th className="employees-table__th">Designation</th>
               <th className="employees-table__th">Contact</th>
               <th className="employees-table__th">Email</th>
-              <th className="employees-table__th">{sortable('createdAt', 'Joining date')}</th>
+              <th className="employees-table__th">{sortable('joiningDate', 'Joining date')}</th>
               <th className="employees-table__th">Passport no.</th>
               <th className="employees-table__th">Emirates ID</th>
               <th className="employees-table__th">{sortable('employmentStatus', 'Status')}</th>
@@ -116,7 +116,7 @@ export function EmployeesDataTable({
           <tbody>
             {rows.map((emp, i) => {
               const sr = startIndex + i + 1
-              const joinStr = formatJoiningDate(emp.createdAt)
+              const joinStr = formatJoiningDate(effectiveJoiningDate(emp))
               return (
                 <tr key={emp.id} className="employees-table__row">
                   <td className="employees-table__td employees-table__td--num">{sr}</td>

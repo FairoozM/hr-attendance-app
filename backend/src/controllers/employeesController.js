@@ -1,12 +1,43 @@
 const employeesService = require('../services/employeesService')
 
-function validateBody(body, requireAll = false) {
+function validateBody(body) {
   const errors = []
   const fullName = body.full_name != null ? String(body.full_name).trim() : ''
   const department = body.department != null ? String(body.department).trim() : ''
   if (!fullName) errors.push('full_name is required')
   if (!department) errors.push('department is required')
   return { fullName, department, errors }
+}
+
+/** Empty string → null; YYYY-MM-DD or null */
+function parseJoiningDate(v) {
+  if (v == null || v === '') return null
+  const s = String(v).trim().slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null
+  return s
+}
+
+function parseOptionalTrim(v) {
+  if (v == null) return null
+  const s = String(v).trim()
+  return s === '' ? null : s
+}
+
+function parseOptionalUrl(v) {
+  const s = parseOptionalTrim(v)
+  if (!s) return null
+  if (s.length > 2048) return null
+  return s
+}
+
+function extendedFields(body) {
+  return {
+    joining_date: parseJoiningDate(body.joining_date),
+    photo_url: parseOptionalUrl(body.photo_url),
+    phone: parseOptionalTrim(body.phone),
+    emirates_id: parseOptionalTrim(body.emirates_id),
+    passport_number: parseOptionalTrim(body.passport_number),
+  }
 }
 
 async function list(req, res) {
@@ -38,7 +69,7 @@ async function getOne(req, res) {
 
 async function create(req, res) {
   try {
-    const { fullName, department, errors } = validateBody(req.body, true)
+    const { fullName, department, errors } = validateBody(req.body)
     if (errors.length) {
       return res.status(400).json({ error: errors.join('; ') })
     }
@@ -52,11 +83,13 @@ async function create(req, res) {
       return res.status(409).json({ error: 'employee_code already in use' })
     }
     const isActive = req.body.is_active !== false
+    const ext = extendedFields(req.body)
     const employee = await employeesService.create({
       employee_code: employeeCode,
       full_name: fullName,
       department,
       is_active: isActive,
+      ...ext,
     })
     const io = req.app.get('io')
     if (io) io.emit('employees:changed', { action: 'created', employee })
@@ -84,21 +117,24 @@ async function update(req, res) {
     const employeeCode =
       req.body.employee_code != null ? String(req.body.employee_code).trim() : null
     if (employeeCode !== null) {
-      const duplicate = await employeesService.findByEmployeeCode(
-        employeeCode,
-        id
-      )
+      const duplicate = await employeesService.findByEmployeeCode(employeeCode, id)
       if (duplicate) {
         return res.status(409).json({ error: 'employee_code already in use' })
       }
     }
     const isActive =
-      req.body.is_active === undefined ? undefined : Boolean(req.body.is_active)
+      req.body.is_active === undefined ? null : Boolean(req.body.is_active)
+    const ext = extendedFields(req.body)
     const employee = await employeesService.update(id, {
       employee_code: employeeCode,
       full_name: fullName || undefined,
       department: department || undefined,
       is_active: isActive,
+      joining_date: ext.joining_date,
+      photo_url: ext.photo_url,
+      phone: ext.phone,
+      emirates_id: ext.emirates_id,
+      passport_number: ext.passport_number,
     })
     const io = req.app.get('io')
     if (io) io.emit('employees:changed', { action: 'updated', employee })

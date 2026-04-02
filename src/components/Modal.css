@@ -27,6 +27,10 @@
   animation: modalSlideIn 0.2s ease;
 }
 
+.modal-panel--wide {
+  max-width: 560px;
+}
+
 @keyframes modalSlideIn {
   from {
     opacity: 0;

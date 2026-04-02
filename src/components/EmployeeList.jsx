@@ -6,7 +6,12 @@ import { DEFAULT_DEPARTMENTS } from '../constants/employees'
 import { EmployeeSummaryCards } from './employees/EmployeeSummaryCards'
 import { EmployeesToolbar } from './employees/EmployeesToolbar'
 import { EmployeesDataTable } from './employees/EmployeesDataTable'
-import { displayOrDash, formatJoiningDate, employmentStatusLabel } from './employees/employeeUtils'
+import {
+  displayOrDash,
+  formatJoiningDate,
+  employmentStatusLabel,
+  effectiveJoiningDate,
+} from './employees/employeeUtils'
 import './EmployeeList.css'
 
 const PAGE_SIZE = 10
@@ -24,9 +29,9 @@ function compareRows(a, b, sortKey, sortDir) {
       va = (a.department || '').toLowerCase()
       vb = (b.department || '').toLowerCase()
       break
-    case 'createdAt':
-      va = a.createdAt ? new Date(a.createdAt).getTime() : 0
-      vb = b.createdAt ? new Date(b.createdAt).getTime() : 0
+    case 'joiningDate':
+      va = effectiveJoiningDate(a) ? new Date(effectiveJoiningDate(a)).getTime() : 0
+      vb = effectiveJoiningDate(b) ? new Date(effectiveJoiningDate(b)).getTime() : 0
       break
     case 'employmentStatus':
       va = a.employmentStatus || ''
@@ -43,7 +48,7 @@ function compareRows(a, b, sortKey, sortDir) {
 function EmployeeViewModal({ employee, open, onClose }) {
   if (!open || !employee) return null
   return (
-    <Modal title="Employee details" open={open} onClose={onClose}>
+    <Modal title="Employee details" open={open} onClose={onClose} panelClassName="modal-panel--wide">
       <dl className="employee-view-dl">
         <dt>Full name</dt>
         <dd>{displayOrDash(employee.name)}</dd>
@@ -58,7 +63,7 @@ function EmployeeViewModal({ employee, open, onClose }) {
         <dt>Email</dt>
         <dd>{displayOrDash(employee.email)}</dd>
         <dt>Joining date</dt>
-        <dd>{formatJoiningDate(employee.createdAt) || '—'}</dd>
+        <dd>{formatJoiningDate(effectiveJoiningDate(employee)) || '—'}</dd>
         <dt>Passport number</dt>
         <dd>{displayOrDash(employee.passportNumber)}</dd>
         <dt>Emirates ID</dt>
@@ -317,6 +322,7 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
         title={modalMode === 'add' ? 'Add Employee' : 'Edit Employee'}
         open={modalMode === 'add' || modalMode === 'edit'}
         onClose={closeModal}
+        panelClassName="modal-panel--wide"
       >
         <EmployeeForm
           key={modalMode === 'edit' ? editingId : 'add'}
@@ -326,6 +332,11 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
                   employeeId: editingEmployee.employeeId,
                   name: editingEmployee.name,
                   department: editingEmployee.department,
+                  joiningDate: editingEmployee.joiningDate ?? '',
+                  photoUrl: editingEmployee.photoUrl ?? '',
+                  phone: editingEmployee.phone ?? '',
+                  emiratesId: editingEmployee.emiratesId ?? '',
+                  passportNumber: editingEmployee.passportNumber ?? '',
                 }
               : undefined
           }

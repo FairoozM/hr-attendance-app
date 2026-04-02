@@ -1,15 +1,18 @@
 const { query } = require('../db')
 
+const EMPLOYEE_ROW = `id, employee_code, full_name, department, is_active, created_at,
+  joining_date, photo_url, phone, emirates_id, passport_number`
+
 async function findAll() {
   const result = await query(
-    'SELECT id, employee_code, full_name, department, is_active, created_at FROM employees ORDER BY id'
+    `SELECT ${EMPLOYEE_ROW} FROM employees ORDER BY id`
   )
   return result.rows
 }
 
 async function findById(id) {
   const result = await query(
-    'SELECT id, employee_code, full_name, department, is_active, created_at FROM employees WHERE id = $1',
+    `SELECT ${EMPLOYEE_ROW} FROM employees WHERE id = $1`,
     [id]
   )
   return result.rows[0] || null
@@ -25,26 +28,78 @@ async function findByEmployeeCode(employeeCode, excludeId = null) {
   return result.rows[0] || null
 }
 
-async function create({ employee_code, full_name, department, is_active = true }) {
+async function create({
+  employee_code,
+  full_name,
+  department,
+  is_active = true,
+  joining_date = null,
+  photo_url = null,
+  phone = null,
+  emirates_id = null,
+  passport_number = null,
+}) {
   const result = await query(
-    `INSERT INTO employees (employee_code, full_name, department, is_active)
-     VALUES ($1, $2, $3, $4)
-     RETURNING id, employee_code, full_name, department, is_active, created_at`,
-    [employee_code, full_name, department, is_active]
+    `INSERT INTO employees (
+       employee_code, full_name, department, is_active,
+       joining_date, photo_url, phone, emirates_id, passport_number
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     RETURNING ${EMPLOYEE_ROW}`,
+    [
+      employee_code,
+      full_name,
+      department,
+      is_active,
+      joining_date,
+      photo_url,
+      phone,
+      emirates_id,
+      passport_number,
+    ]
   )
   return result.rows[0]
 }
 
-async function update(id, { employee_code, full_name, department, is_active }) {
+async function update(
+  id,
+  {
+    employee_code,
+    full_name,
+    department,
+    is_active,
+    joining_date,
+    photo_url,
+    phone,
+    emirates_id,
+    passport_number,
+  }
+) {
   const result = await query(
     `UPDATE employees
      SET employee_code = COALESCE($2, employee_code),
          full_name = COALESCE($3, full_name),
          department = COALESCE($4, department),
-         is_active = COALESCE($5, is_active)
+         is_active = COALESCE($5, is_active),
+         joining_date = $6,
+         photo_url = $7,
+         phone = $8,
+         emirates_id = $9,
+         passport_number = $10
      WHERE id = $1
-     RETURNING id, employee_code, full_name, department, is_active, created_at`,
-    [id, employee_code, full_name, department, is_active]
+     RETURNING ${EMPLOYEE_ROW}`,
+    [
+      id,
+      employee_code,
+      full_name,
+      department,
+      is_active,
+      joining_date,
+      photo_url,
+      phone,
+      emirates_id,
+      passport_number,
+    ]
   )
   return result.rows[0] || null
 }

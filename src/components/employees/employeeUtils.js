@@ -1,3 +1,9 @@
+/** Prefer explicit HR joining date, else record created_at. */
+export function effectiveJoiningDate(emp) {
+  if (!emp) return null
+  return emp.joiningDate || emp.createdAt || null
+}
+
 /** @param {string|null|undefined} iso */
 export function formatJoiningDate(iso) {
   if (!iso) return null

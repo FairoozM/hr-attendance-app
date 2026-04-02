@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import './Modal.css'
 
-export function Modal({ title, open, onClose, children }) {
+export function Modal({ title, open, onClose, children, panelClassName = '' }) {
   useEffect(() => {
     if (!open) return
     const handleEscape = (e) => e.key === 'Escape' && onClose()
@@ -24,7 +24,7 @@ export function Modal({ title, open, onClose, children }) {
       aria-labelledby="modal-title"
     >
       <div
-        className="modal-panel"
+        className={`modal-panel ${panelClassName}`.trim()}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">

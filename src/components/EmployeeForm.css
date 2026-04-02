@@ -1,7 +1,29 @@
 .employee-form {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 1rem;
+}
+
+.employee-form__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.employee-form__section-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 0.1rem;
+}
+
+.employee-form__hint {
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
 }
 
 .employee-form__label {

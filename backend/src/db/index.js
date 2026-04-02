@@ -27,6 +27,14 @@ async function ensureEmployeesTable() {
   `)
 }
 
+async function ensureEmployeeExtendedColumns() {
+  await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS joining_date DATE`)
+  await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS photo_url TEXT`)
+  await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS phone VARCHAR(50)`)
+  await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS emirates_id VARCHAR(100)`)
+  await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS passport_number VARCHAR(100)`)
+}
+
 async function ensureAttendanceTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS attendance (
@@ -84,6 +92,7 @@ async function testConnection() {
     const now = result.rows[0]?.now
     console.log('Database connected successfully. Server time:', now)
     await ensureEmployeesTable()
+    await ensureEmployeeExtendedColumns()
     await ensureAttendanceTable()
     await ensureAnnualLeaveTable()
     await ensureAttendanceAnnualLeaveColumn()
@@ -98,6 +107,7 @@ module.exports = {
   pool,
   testConnection,
   ensureEmployeesTable,
+  ensureEmployeeExtendedColumns,
   ensureAttendanceTable,
   ensureAnnualLeaveTable,
   ensureAttendanceAnnualLeaveColumn,

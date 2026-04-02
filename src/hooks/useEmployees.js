@@ -14,6 +14,10 @@ function mapEmployee(row) {
   else if (row.is_active === false) employmentStatus = 'inactive'
   else employmentStatus = 'active'
 
+  const joiningDate = row.joining_date
+    ? String(row.joining_date).slice(0, 10)
+    : null
+
   return {
     id: String(row.id),
     employeeId: row.employee_code,
@@ -22,6 +26,7 @@ function mapEmployee(row) {
     isActive: row.is_active !== false,
     employmentStatus,
     createdAt: row.created_at ?? null,
+    joiningDate,
     photoUrl: row.photo_url ?? null,
     designation: row.designation ?? null,
     phone: row.phone ?? row.contact_number ?? null,
@@ -74,6 +79,11 @@ export function useEmployees() {
           employee_code: employee.employeeId,
           full_name: employee.name,
           department: employee.department,
+          joining_date: employee.joiningDate || null,
+          photo_url: employee.photoUrl || null,
+          phone: employee.phone || null,
+          emirates_id: employee.emiratesId || null,
+          passport_number: employee.passportNumber || null,
         })
         setEmployees((prev) => [...prev, mapEmployee(created)])
       } catch (err) {
@@ -93,6 +103,11 @@ export function useEmployees() {
           employee_code: updates.employeeId,
           full_name: updates.name,
           department: updates.department,
+          joining_date: updates.joiningDate || null,
+          photo_url: updates.photoUrl || null,
+          phone: updates.phone || null,
+          emirates_id: updates.emiratesId || null,
+          passport_number: updates.passportNumber || null,
         })
         setEmployees((prev) =>
           prev.map((e) => (e.id === id ? mapEmployee(updated) : e))
