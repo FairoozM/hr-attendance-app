@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
+import { api } from '../api/client'
 
 const STORAGE_KEY = 'hr-auth'
 
@@ -34,18 +35,46 @@ export function AuthProvider({ children }) {
     setLoading(false)
   }, [])
 
-  const login = useCallback((username, password) => {
+  const login = useCallback(async (username, password) => {
     const u = MOCK_USERS.find(
       (m) =>
         m.username.toLowerCase() === (username || '').trim().toLowerCase() &&
         m.password === password
     )
-    if (!u) {
-      throw new Error('Invalid username or password')
+    if (u) {
+      const userData = { id: u.id, username: u.username, role: u.role }
+      setUser(userData)
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ user: userData }))
+      return
     }
-    const userData = { id: u.id, username: u.username, role: u.role }
-    setUser(userData)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ user: userData }))
+
+    const uname = (username || '').trim()
+    if (!uname || !password) throw new Error('Invalid username or password')
+
+    try {
+      const data = await api.get('/api/employees')
+      const rows = Array.isArray(data) ? data : []
+      const emp = rows.find(
+        (r) =>
+          String(r.employee_code || '').trim().toLowerCase() === uname.toLowerCase()
+      )
+      // Frontend-only fallback credential model for employee access:
+      // username = employee code, password = same employee code.
+      if (emp && String(emp.employee_code || '') === password) {
+        const userData = {
+          id: `emp-${emp.id}`,
+          username: String(emp.employee_code),
+          role: 'employee',
+          employeeId: String(emp.id),
+          displayName: String(emp.full_name || emp.employee_code || ''),
+        }
+        setUser(userData)
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ user: userData }))
+        return
+      }
+    } catch (_) {}
+
+    throw new Error('Invalid username or password')
   }, [])
 
   const logout = useCallback(() => {

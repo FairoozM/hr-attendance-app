@@ -11,6 +11,7 @@ export function Layout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const isAdmin = user?.role === 'admin'
+  const isEmployee = user?.role === 'employee'
 
   const navLinkClass = ({ isActive }) =>
     `nav-link ${isActive ? 'nav-link--active' : ''}`
@@ -31,9 +32,11 @@ export function Layout() {
           <NavLink to="/" className={navLinkClass} onClick={() => setMenuOpen(false)}>
             Dashboard
           </NavLink>
-          <NavLink to="/attendance" className={navLinkClass} onClick={() => setMenuOpen(false)}>
-            Attendance
-          </NavLink>
+          {!isEmployee && (
+            <NavLink to="/attendance" className={navLinkClass} onClick={() => setMenuOpen(false)}>
+              Attendance
+            </NavLink>
+          )}
           <NavLink to="/annual-leave" className={navLinkClass} onClick={() => setMenuOpen(false)}>
             Annual Leave
           </NavLink>
@@ -48,7 +51,7 @@ export function Layout() {
             </NavLink>
           )}
           <span className="nav-user">
-            {user?.username}
+            {user?.displayName || user?.username}
             <span className="nav-user-role">({user?.role})</span>
           </span>
           <button

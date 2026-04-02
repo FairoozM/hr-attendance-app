@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useEmployees } from '../hooks/useEmployees'
 import { useAnnualLeave } from '../hooks/useAnnualLeave'
@@ -44,6 +44,8 @@ const LEAVE_BLANK = '__blank__'
 export function AnnualLeavePage() {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
+  const isEmployee = user?.role === 'employee'
+  const loggedInEmployeeId = user?.employeeId ? String(user.employeeId) : null
   const { employees, loading: empLoading } = useEmployees()
   const {
     requests,
@@ -64,15 +66,27 @@ export function AnnualLeavePage() {
   const [columnFilters, setColumnFilters] = useState({})
   const [sortKey, setSortKey] = useState('from')
   const [sortDir, setSortDir] = useState('desc')
+  const [editingRow, setEditingRow] = useState(null)
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState('')
 
   const employeeOptions = useMemo(
-    () => [...employees].sort((a, b) => a.name.localeCompare(b.name)),
-    [employees]
+    () => {
+      const list = [...employees].sort((a, b) => a.name.localeCompare(b.name))
+      if (!isEmployee || !loggedInEmployeeId) return list
+      return list.filter((e) => String(e.id) === loggedInEmployeeId)
+    },
+    [employees, isEmployee, loggedInEmployeeId]
   )
+
+  const visibleRequests = useMemo(() => {
+    if (!isEmployee || !loggedInEmployeeId) return requests
+    return requests.filter((r) => String(r.employee_id) === loggedInEmployeeId)
+  }, [requests, isEmployee, loggedInEmployeeId])
 
   const rows = useMemo(
     () =>
-      requests.map((row) => ({
+      visibleRequests.map((row) => ({
         ...row,
         fromIso: fmtDate(row.from_date),
         toIso: fmtDate(row.to_date),
@@ -81,8 +95,14 @@ export function AnnualLeavePage() {
         days: leaveDaysInclusive(row.from_date, row.to_date),
         reasonText: row.reason || '—',
       })),
-    [requests]
+    [visibleRequests]
   )
+
+  useEffect(() => {
+    if (isEmployee && loggedInEmployeeId && !employeeId) {
+      setEmployeeId(loggedInEmployeeId)
+    }
+  }, [isEmployee, loggedInEmployeeId, employeeId])
 
   const filterOptionsByKey = useMemo(() => {
     const byKey = {
@@ -242,7 +262,7 @@ export function AnnualLeavePage() {
       setReason('')
       setFromDate('')
       setToDate('')
-      setEmployeeId('')
+      setEmployeeId(isEmployee && loggedInEmployeeId ? loggedInEmployeeId : '')
     } catch (err) {
       setFormError(err.message || 'Could not submit')
     } finally {
@@ -271,6 +291,35 @@ export function AnnualLeavePage() {
       await deleteRequest(id)
     } catch (err) {
       window.alert(err.message || 'Delete failed')
+    }
+  }
+
+  async function onEditSave(e) {
+    e.preventDefault()
+    if (!editingRow) return
+    setEditError('')
+    if (!editingRow.employee_id || !editingRow.from_date || !editingRow.to_date) {
+      setEditError('Employee, From date, and To date are required')
+      return
+    }
+    if (editingRow.from_date > editingRow.to_date) {
+      setEditError('From date must be on or before To date')
+      return
+    }
+    setEditSaving(true)
+    try {
+      await updateRequest(editingRow.id, {
+        employee_id: Number(editingRow.employee_id),
+        from_date: editingRow.from_date,
+        to_date: editingRow.to_date,
+        reason: editingRow.reason?.trim() || null,
+        status: editingRow.status || 'Pending',
+      })
+      setEditingRow(null)
+    } catch (err) {
+      setEditError(err.message || 'Update failed')
+    } finally {
+      setEditSaving(false)
     }
   }
 
@@ -310,7 +359,7 @@ export function AnnualLeavePage() {
             <select
               value={employeeId}
               onChange={(e) => setEmployeeId(e.target.value)}
-              disabled={empLoading || saving}
+              disabled={empLoading || saving || isEmployee}
               required
             >
               <option value="">— Select —</option>
@@ -372,10 +421,10 @@ export function AnnualLeavePage() {
           </p>
         )}
         {loading && <p className="page-loading">Loading…</p>}
-        {!loading && requests.length === 0 && (
+        {!loading && visibleRequests.length === 0 && (
           <p className="annual-leave-empty">No annual leave requests yet.</p>
         )}
-        {!loading && requests.length > 0 && (
+        {!loading && visibleRequests.length > 0 && (
           <div className="annual-leave-table-wrap">
             <table className="annual-leave-table">
               <thead>
@@ -387,7 +436,7 @@ export function AnnualLeavePage() {
                   <th>{sortableHeader('days', 'Days')}</th>
                   <th>{sortableHeader('reason', 'Reason')}</th>
                   <th>{sortableHeader('status', 'Status')}</th>
-                  {isAdmin && <th />}
+                  {isAdmin && <th>Actions</th>}
                 </tr>
                 <tr className="annual-leave-filter-row">
                   <th>
@@ -501,6 +550,22 @@ export function AnnualLeavePage() {
                       <td>
                         <button
                           type="button"
+                          className="annual-leave-edit"
+                          onClick={() =>
+                            setEditingRow({
+                              id: row.id,
+                              employee_id: String(row.employee_id),
+                              from_date: row.fromIso,
+                              to_date: row.toIso,
+                              reason: row.reason === '—' ? '' : row.reason || '',
+                              status: row.status || 'Pending',
+                            })
+                          }
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
                           className="annual-leave-delete"
                           onClick={() => onDelete(row.id)}
                         >
@@ -520,6 +585,99 @@ export function AnnualLeavePage() {
           </div>
         )}
       </section>
+
+      {editingRow && (
+        <section className="page-section annual-leave-form-section">
+          <h2 className="annual-leave-section-title">Edit request</h2>
+          <form className="annual-leave-form" onSubmit={onEditSave}>
+            <label className="annual-leave-field">
+              <span>Employee</span>
+              <select
+                value={editingRow.employee_id}
+                onChange={(e) =>
+                  setEditingRow((prev) => ({ ...prev, employee_id: e.target.value }))
+                }
+                disabled={editSaving || empLoading}
+                required
+              >
+                <option value="">— Select —</option>
+                {employeeOptions.map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.name} ({emp.department})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="annual-leave-field">
+              <span>From date</span>
+              <input
+                type="date"
+                value={editingRow.from_date}
+                onChange={(e) =>
+                  setEditingRow((prev) => ({ ...prev, from_date: e.target.value }))
+                }
+                disabled={editSaving}
+                required
+              />
+            </label>
+            <label className="annual-leave-field">
+              <span>To date</span>
+              <input
+                type="date"
+                value={editingRow.to_date}
+                onChange={(e) =>
+                  setEditingRow((prev) => ({ ...prev, to_date: e.target.value }))
+                }
+                disabled={editSaving}
+                required
+              />
+            </label>
+            <label className="annual-leave-field annual-leave-field--grow">
+              <span>Reason</span>
+              <input
+                type="text"
+                value={editingRow.reason}
+                onChange={(e) => setEditingRow((prev) => ({ ...prev, reason: e.target.value }))}
+                disabled={editSaving}
+              />
+            </label>
+            <label className="annual-leave-field">
+              <span>Status</span>
+              <select
+                value={editingRow.status}
+                onChange={(e) =>
+                  setEditingRow((prev) => ({ ...prev, status: e.target.value }))
+                }
+                disabled={editSaving}
+              >
+                {STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="annual-leave-form-actions annual-leave-form-actions--row">
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => setEditingRow(null)}
+                disabled={editSaving}
+              >
+                Cancel
+              </button>
+              <button type="submit" className="annual-leave-submit" disabled={editSaving}>
+                {editSaving ? 'Saving…' : 'Save changes'}
+              </button>
+            </div>
+            {editError && (
+              <p className="annual-leave-form-error" role="alert">
+                {editError}
+              </p>
+            )}
+          </form>
+        </section>
+      )}
     </div>
   )
 }

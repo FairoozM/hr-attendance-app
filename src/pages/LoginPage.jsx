@@ -17,11 +17,11 @@ export function LoginPage() {
     return <Navigate to={from} replace />
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
     try {
-      login(username.trim(), password)
+      await login(username.trim(), password)
       navigate(from, { replace: true })
     } catch (err) {
       setError(err.message || 'Login failed')

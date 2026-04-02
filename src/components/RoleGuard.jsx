@@ -2,6 +2,7 @@ import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
 const ADMIN_ONLY_PATHS = ['/employees', '/settings']
+const EMPLOYEE_BLOCKED_PATHS = ['/employees', '/settings', '/attendance']
 
 /**
  * Redirects to / if the current path is restricted for the user's role.
@@ -14,6 +15,9 @@ export function RoleGuard({ children }) {
 
   if (!user) return children
   if (user.role === 'admin') return children
+  if (user.role === 'employee' && EMPLOYEE_BLOCKED_PATHS.some((p) => path.startsWith(p))) {
+    return <Navigate to="/" replace />
+  }
   if (user.role === 'warehouse' && ADMIN_ONLY_PATHS.some((p) => path.startsWith(p))) {
     return <Navigate to="/" replace />
   }

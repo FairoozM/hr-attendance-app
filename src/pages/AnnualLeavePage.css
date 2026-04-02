@@ -54,6 +54,10 @@
   align-items: flex-end;
 }
 
+.annual-leave-form-actions--row {
+  gap: 0.5rem;
+}
+
 .annual-leave-submit {
   padding: 0.5rem 1rem;
   border-radius: 6px;
@@ -181,6 +185,21 @@
   background: transparent;
   border-radius: 6px;
   cursor: pointer;
+}
+
+.annual-leave-edit {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  border: 1px solid var(--accent, #2563eb);
+  color: var(--accent, #2563eb);
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-right: 0.45rem;
+}
+
+.annual-leave-edit:hover {
+  background: rgba(37, 99, 235, 0.08);
 }
 
 .annual-leave-delete:hover {
