@@ -12,6 +12,13 @@ import {
   employmentStatusLabel,
   effectiveJoiningDate,
 } from './employees/employeeUtils'
+import {
+  matchesColumnFilters,
+  emptyColumnFilters,
+  buildSelectOptions,
+  ALL_VALUE,
+  BLANK_VALUE,
+} from './employees/employeeColumnFilters'
 import './EmployeeList.css'
 
 const PAGE_SIZE = 10
@@ -101,6 +108,7 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
   const [sortKey, setSortKey] = useState('name')
   const [sortDir, setSortDir] = useState('asc')
   const [page, setPage] = useState(1)
+  const [columnFilters, setColumnFilters] = useState(() => emptyColumnFilters())
 
   const editingEmployee = useMemo(
     () => employees.find((e) => e.id === editingId) ?? null,
@@ -136,7 +144,7 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
     return { total, activeCount, inactiveCount, onLeaveCount }
   }, [employees])
 
-  const filtered = useMemo(() => {
+  const afterToolbar = useMemo(() => {
     const q = search.trim().toLowerCase()
     return employees.filter((emp) => {
       if (department !== 'all' && emp.department !== department) return false
@@ -151,6 +159,32 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
     })
   }, [employees, search, department, designation, status])
 
+  const filtered = useMemo(
+    () => afterToolbar.filter((emp) => matchesColumnFilters(emp, columnFilters)),
+    [afterToolbar, columnFilters]
+  )
+
+  const filterOptionsByKey = useMemo(() => {
+    const build = (key) => buildSelectOptions(employees, key)
+    const statusOpts = build('status').map((o) => {
+      if (o.value === ALL_VALUE || o.value === BLANK_VALUE) return o
+      return { ...o, label: employmentStatusLabel(o.value) }
+    })
+    return {
+      name: build('name'),
+      employeeId: build('employeeId'),
+      department: build('department'),
+      designation: build('designation'),
+      phone: build('phone'),
+      email: build('email'),
+      joining: build('joining'),
+      passport: build('passport'),
+      nationality: build('nationality'),
+      emirates: build('emirates'),
+      status: statusOpts,
+    }
+  }, [employees])
+
   const sorted = useMemo(() => {
     const copy = [...filtered]
     copy.sort((a, b) => compareRows(a, b, sortKey, sortDir))
@@ -162,7 +196,7 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
 
   useEffect(() => {
     setPage(1)
-  }, [search, department, designation, status])
+  }, [search, department, designation, status, columnFilters])
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages)
@@ -173,17 +207,28 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
     return sorted.slice(start, start + PAGE_SIZE)
   }, [sorted, page])
 
+  const hasColumnFilters = useMemo(
+    () => Object.values(columnFilters).some((v) => v && v !== ALL_VALUE),
+    [columnFilters]
+  )
+
   const hasActiveFilters =
     search.trim() !== '' ||
     department !== 'all' ||
     designation !== 'all' ||
-    status !== 'all'
+    status !== 'all' ||
+    hasColumnFilters
 
   const clearFilters = useCallback(() => {
     setSearch('')
     setDepartment('all')
     setDesignation('all')
     setStatus('all')
+    setColumnFilters(emptyColumnFilters())
+  }, [])
+
+  const handleColumnFilterChange = useCallback((key, value) => {
+    setColumnFilters((prev) => ({ ...prev, [key]: value }))
   }, [])
 
   const handleSort = useCallback(
@@ -317,6 +362,9 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
           pageSize={PAGE_SIZE}
           totalFiltered={totalFiltered}
           onPageChange={setPage}
+          columnFilters={columnFilters}
+          onColumnFilterChange={handleColumnFilterChange}
+          filterOptionsByKey={filterOptionsByKey}
         />
       )}
 

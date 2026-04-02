@@ -1,5 +1,6 @@
 import { EmployeeAvatar } from './EmployeeAvatar'
 import { displayOrDash, formatJoiningDate, effectiveJoiningDate } from './employeeUtils'
+import { ALL_VALUE } from './employeeColumnFilters'
 import './EmployeesDataTable.css'
 
 function SortChevron({ active, dir }) {
@@ -19,6 +20,24 @@ function SortChevron({ active, dir }) {
         </svg>
       )}
     </span>
+  )
+}
+
+function ColFilterSelect({ value, options, onChange, id }) {
+  return (
+    <select
+      id={id}
+      className="employees-table__col-filter"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label="Filter column"
+    >
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
   )
 }
 
@@ -73,6 +92,9 @@ export function EmployeesDataTable({
   pageSize,
   totalFiltered,
   onPageChange,
+  columnFilters,
+  onColumnFilterChange,
+  filterOptionsByKey,
 }) {
   const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize) || 1)
   const from = totalFiltered === 0 ? 0 : (page - 1) * pageSize + 1
@@ -92,26 +114,139 @@ export function EmployeesDataTable({
     </button>
   )
 
+  const f = columnFilters || {}
+  const opt = filterOptionsByKey || {}
+  const setCol = onColumnFilterChange || (() => {})
+
+  const thLabel = (text) => (
+    <span className="employees-table__th-label">{text}</span>
+  )
+
   return (
     <div className="employees-table-wrap">
       <div className="employees-table-scroll">
         <table className="employees-table">
           <thead>
             <tr>
-              <th className="employees-table__th employees-table__th--num">Sr.</th>
-              <th className="employees-table__th employees-table__th--avatar">Photo</th>
-              <th className="employees-table__th employees-table__th--name">{sortable('name', 'Employee name')}</th>
-              <th className="employees-table__th">Employee ID</th>
-              <th className="employees-table__th">{sortable('department', 'Department')}</th>
-              <th className="employees-table__th">Designation</th>
-              <th className="employees-table__th">Contact</th>
-              <th className="employees-table__th">Email</th>
-              <th className="employees-table__th">{sortable('joiningDate', 'Joining date')}</th>
-              <th className="employees-table__th">Passport no.</th>
-              <th className="employees-table__th">Nationality</th>
-              <th className="employees-table__th">Emirates ID</th>
-              <th className="employees-table__th">{sortable('employmentStatus', 'Status')}</th>
-              <th className="employees-table__th employees-table__th--actions">Actions</th>
+              <th className="employees-table__th employees-table__th--num">
+                <div className="employees-table__th-stack">{thLabel('Sr.')}</div>
+              </th>
+              <th className="employees-table__th employees-table__th--avatar">
+                <div className="employees-table__th-stack">{thLabel('Photo')}</div>
+              </th>
+              <th className="employees-table__th employees-table__th--name">
+                <div className="employees-table__th-stack">
+                  {sortable('name', 'Employee name')}
+                  <ColFilterSelect
+                    value={f.name || ALL_VALUE}
+                    options={opt.name || [{ value: ALL_VALUE, label: 'All' }]}
+                    onChange={(v) => setCol('name', v)}
+                  />
+                </div>
+              </th>
+              <th className="employees-table__th">
+                <div className="employees-table__th-stack">
+                  {thLabel('Employee ID')}
+                  <ColFilterSelect
+                    value={f.employeeId || ALL_VALUE}
+                    options={opt.employeeId || [{ value: ALL_VALUE, label: 'All' }]}
+                    onChange={(v) => setCol('employeeId', v)}
+                  />
+                </div>
+              </th>
+              <th className="employees-table__th">
+                <div className="employees-table__th-stack">
+                  {sortable('department', 'Department')}
+                  <ColFilterSelect
+                    value={f.department || ALL_VALUE}
+                    options={opt.department || [{ value: ALL_VALUE, label: 'All' }]}
+                    onChange={(v) => setCol('department', v)}
+                  />
+                </div>
+              </th>
+              <th className="employees-table__th">
+                <div className="employees-table__th-stack">
+                  {thLabel('Designation')}
+                  <ColFilterSelect
+                    value={f.designation || ALL_VALUE}
+                    options={opt.designation || [{ value: ALL_VALUE, label: 'All' }]}
+                    onChange={(v) => setCol('designation', v)}
+                  />
+                </div>
+              </th>
+              <th className="employees-table__th">
+                <div className="employees-table__th-stack">
+                  {thLabel('Contact')}
+                  <ColFilterSelect
+                    value={f.phone || ALL_VALUE}
+                    options={opt.phone || [{ value: ALL_VALUE, label: 'All' }]}
+                    onChange={(v) => setCol('phone', v)}
+                  />
+                </div>
+              </th>
+              <th className="employees-table__th">
+                <div className="employees-table__th-stack">
+                  {thLabel('Email')}
+                  <ColFilterSelect
+                    value={f.email || ALL_VALUE}
+                    options={opt.email || [{ value: ALL_VALUE, label: 'All' }]}
+                    onChange={(v) => setCol('email', v)}
+                  />
+                </div>
+              </th>
+              <th className="employees-table__th">
+                <div className="employees-table__th-stack">
+                  {sortable('joiningDate', 'Joining date')}
+                  <ColFilterSelect
+                    value={f.joining || ALL_VALUE}
+                    options={opt.joining || [{ value: ALL_VALUE, label: 'All' }]}
+                    onChange={(v) => setCol('joining', v)}
+                  />
+                </div>
+              </th>
+              <th className="employees-table__th">
+                <div className="employees-table__th-stack">
+                  {thLabel('Passport no.')}
+                  <ColFilterSelect
+                    value={f.passport || ALL_VALUE}
+                    options={opt.passport || [{ value: ALL_VALUE, label: 'All' }]}
+                    onChange={(v) => setCol('passport', v)}
+                  />
+                </div>
+              </th>
+              <th className="employees-table__th">
+                <div className="employees-table__th-stack">
+                  {thLabel('Nationality')}
+                  <ColFilterSelect
+                    value={f.nationality || ALL_VALUE}
+                    options={opt.nationality || [{ value: ALL_VALUE, label: 'All' }]}
+                    onChange={(v) => setCol('nationality', v)}
+                  />
+                </div>
+              </th>
+              <th className="employees-table__th">
+                <div className="employees-table__th-stack">
+                  {thLabel('Emirates ID')}
+                  <ColFilterSelect
+                    value={f.emirates || ALL_VALUE}
+                    options={opt.emirates || [{ value: ALL_VALUE, label: 'All' }]}
+                    onChange={(v) => setCol('emirates', v)}
+                  />
+                </div>
+              </th>
+              <th className="employees-table__th">
+                <div className="employees-table__th-stack">
+                  {sortable('employmentStatus', 'Status')}
+                  <ColFilterSelect
+                    value={f.status || ALL_VALUE}
+                    options={opt.status || [{ value: ALL_VALUE, label: 'All' }]}
+                    onChange={(v) => setCol('status', v)}
+                  />
+                </div>
+              </th>
+              <th className="employees-table__th employees-table__th--actions">
+                <div className="employees-table__th-stack">{thLabel('Actions')}</div>
+              </th>
             </tr>
           </thead>
           <tbody>

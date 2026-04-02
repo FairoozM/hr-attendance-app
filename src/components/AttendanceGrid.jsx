@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useMemo, useCallback } from 'react'
 import {
   STATUS_KEYS,
   STATUSES,
@@ -28,6 +28,29 @@ function setAttendanceFor(setAttendance, employeeId, day, value) {
   })
 }
 
+/** Normalize effective status for filter matching (empty cell → 'empty'). */
+function statusFilterKey(
+  attendance,
+  employeeId,
+  day,
+  year,
+  month,
+  weeklyHolidayDay
+) {
+  const s = getEffectiveStatus(attendance, employeeId, day, year, month, weeklyHolidayDay)
+  return s || 'empty'
+}
+
+const DAY_FILTER_OPTIONS = [
+  { value: 'all', label: 'All' },
+  { value: 'A', label: 'A' },
+  { value: 'P', label: 'P' },
+  { value: 'SL', label: 'SL' },
+  { value: 'AL', label: 'AL' },
+  { value: 'WH', label: 'WH' },
+  { value: 'empty', label: '—' },
+]
+
 export function AttendanceGrid({
   employees,
   attendance,
@@ -40,9 +63,82 @@ export function AttendanceGrid({
   daysInMonth,
   weeklyHolidayDay = 0,
 }) {
-  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1)
+  const days = useMemo(() => Array.from({ length: daysInMonth }, (_, i) => i + 1), [daysInMonth])
   const slFileInputRef = useRef(null)
   const [slUploadTarget, setSlUploadTarget] = useState(null)
+
+  const [employeeSearch, setEmployeeSearch] = useState('')
+  const [cellViewMode, setCellViewMode] = useState('all')
+  const [dayScope, setDayScope] = useState('all')
+  const [dayFilters, setDayFilters] = useState({})
+
+  const getDayFilter = useCallback((d) => dayFilters[d] || 'all', [dayFilters])
+
+  const daysWithAnyAbsence = useMemo(() => {
+    const set = new Set()
+    for (const day of days) {
+      for (const emp of employees) {
+        if (
+          getEffectiveStatus(attendance, emp.id, day, year, month, weeklyHolidayDay) === 'A'
+        ) {
+          set.add(day)
+          break
+        }
+      }
+    }
+    return set
+  }, [days, employees, attendance, year, month, weeklyHolidayDay])
+
+  const displayDays = useMemo(() => {
+    if (dayScope !== 'absentDaysOnly') return days
+    return days.filter((d) => daysWithAnyAbsence.has(d))
+  }, [days, dayScope, daysWithAnyAbsence])
+
+  const passesDayFilters = useCallback(
+    (emp) => {
+      for (const day of displayDays) {
+        const f = getDayFilter(day)
+        if (f === 'all') continue
+        const key = statusFilterKey(attendance, emp.id, day, year, month, weeklyHolidayDay)
+        if (f === 'empty') {
+          if (key !== 'empty') return false
+        } else if (key !== f) {
+          return false
+        }
+      }
+      return true
+    },
+    [displayDays, getDayFilter, attendance, year, month, weeklyHolidayDay]
+  )
+
+  const displayEmployees = useMemo(() => {
+    const q = employeeSearch.trim().toLowerCase()
+    return employees.filter((emp) => {
+      if (q) {
+        const name = (emp.name || '').toLowerCase()
+        const dept = (emp.department || '').toLowerCase()
+        if (!name.includes(q) && !dept.includes(q)) return false
+      }
+      return passesDayFilters(emp)
+    })
+  }, [employees, employeeSearch, passesDayFilters])
+
+  const setDayColumnFilter = useCallback((day, value) => {
+    setDayFilters((prev) => ({ ...prev, [day]: value }))
+  }, [])
+
+  const clearAttendanceFilters = useCallback(() => {
+    setEmployeeSearch('')
+    setCellViewMode('all')
+    setDayScope('all')
+    setDayFilters({})
+  }, [])
+
+  const hasActiveAttendanceFilters =
+    employeeSearch.trim() !== '' ||
+    cellViewMode === 'absentOnly' ||
+    dayScope === 'absentDaysOnly' ||
+    Object.values(dayFilters).some((v) => v && v !== 'all')
 
   async function handleSickLeaveFileChange(e) {
     const file = e.target.files?.[0]
@@ -65,6 +161,55 @@ export function AttendanceGrid({
 
   return (
     <div className="attendance-grid-wrap">
+      <div className="attendance-grid-toolbar">
+        <label className="attendance-grid-toolbar__field">
+          <span className="attendance-grid-toolbar__label">Find employee</span>
+          <input
+            type="search"
+            className="attendance-grid-toolbar__input"
+            placeholder="Name or department…"
+            value={employeeSearch}
+            onChange={(e) => setEmployeeSearch(e.target.value)}
+            aria-label="Filter employees by name or department"
+          />
+        </label>
+        <label className="attendance-grid-toolbar__field">
+          <span className="attendance-grid-toolbar__label">Cells</span>
+          <select
+            className="attendance-grid-toolbar__select"
+            value={cellViewMode}
+            onChange={(e) => setCellViewMode(e.target.value)}
+            aria-label="Cell display mode"
+          >
+            <option value="all">Show all statuses</option>
+            <option value="absentOnly">Absent (A) only — dim other cells</option>
+          </select>
+        </label>
+        <label className="attendance-grid-toolbar__field">
+          <span className="attendance-grid-toolbar__label">Day columns</span>
+          <select
+            className="attendance-grid-toolbar__select"
+            value={dayScope}
+            onChange={(e) => setDayScope(e.target.value)}
+            aria-label="Which day columns to show"
+          >
+            <option value="all">All days</option>
+            <option value="absentDaysOnly">Only days with ≥1 absence (A)</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          className="attendance-grid-toolbar__clear btn btn--ghost btn--sm"
+          onClick={clearAttendanceFilters}
+          disabled={!hasActiveAttendanceFilters}
+        >
+          Clear filters
+        </button>
+        <p className="attendance-grid-toolbar__hint">
+          Use the dropdown under each day to show rows that match that day&apos;s status (Excel-style).
+        </p>
+      </div>
+
       <div className="attendance-grid-legend">
         {STATUS_KEYS.map((key) => (
           <span key={key} className={`attendance-legend attendance-legend--${STATUSES[key].color}`}>
@@ -104,7 +249,7 @@ export function AttendanceGrid({
                 Summary
               </th>
               <th
-                colSpan={days.length}
+                colSpan={displayDays.length}
                 className="attendance-grid__th attendance-grid__th--group attendance-grid__th--group-attendance"
               >
                 Attendance
@@ -123,14 +268,14 @@ export function AttendanceGrid({
                   {key}
                 </th>
               ))}
-              {days.map((day) => {
+              {displayDays.map((day) => {
                 const dayOfWeek = getDayOfWeek(year, month, day)
                 const dayName = DAY_NAMES_SHORT[dayOfWeek]
-                const isFirstDay = day === 1
+                const isFirstVisibleDay = day === displayDays[0]
                 return (
                   <th
                     key={day}
-                    className={`attendance-grid__th attendance-grid__th--day attendance-grid__th--sub ${isFirstDay ? 'attendance-grid__th--day-first' : ''}`}
+                    className={`attendance-grid__th attendance-grid__th--day attendance-grid__th--sub ${isFirstVisibleDay ? 'attendance-grid__th--day-first' : ''}`}
                   >
                     <div className="attendance-grid__th-day-inner">
                       <span className="attendance-grid__day-name">{dayName}</span>
@@ -140,9 +285,38 @@ export function AttendanceGrid({
                 )
               })}
             </tr>
+            <tr className="attendance-grid__header-row attendance-grid__header-row--filters">
+              <th className="attendance-grid__th attendance-grid__th--sticky attendance-grid__th--filter">
+                <span className="attendance-grid__filter-row-label">Filter</span>
+              </th>
+              {SUMMARY_STATUS_ORDER.map((key) => (
+                <th
+                  key={key}
+                  className={`attendance-grid__th attendance-grid__th--summary attendance-grid__summary-col--${key.toLowerCase()} attendance-grid__th--filter`}
+                >
+                  <span className="attendance-grid__filter-na">—</span>
+                </th>
+              ))}
+              {displayDays.map((day) => (
+                <th key={`f-${day}`} className="attendance-grid__th attendance-grid__th--day attendance-grid__th--filter">
+                  <select
+                    className="attendance-day-filter"
+                    value={getDayFilter(day)}
+                    onChange={(e) => setDayColumnFilter(day, e.target.value)}
+                    aria-label={`Filter rows by status on day ${day}`}
+                  >
+                    {DAY_FILTER_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </th>
+              ))}
+            </tr>
           </thead>
           <tbody>
-            {employees.map((emp) => (
+            {displayEmployees.map((emp) => (
               <tr key={emp.id}>
                 <td className="attendance-grid__td attendance-grid__td--sticky">
                   <div className="attendance-grid__cell-employee">
@@ -172,7 +346,7 @@ export function AttendanceGrid({
                     </td>
                   ))
                 })()}
-                {days.map((day) => {
+                {displayDays.map((day) => {
                   const current = getEffectiveStatus(
                     attendance,
                     emp.id,
@@ -182,19 +356,21 @@ export function AttendanceGrid({
                     weeklyHolidayDay
                   )
                   const colorClass = current ? `attendance-cell--${STATUSES[current].color}` : ''
-                  const isFirstDay = day === 1
+                  const isFirstVisibleDay = day === displayDays[0]
                   const docUrl = sickLeaveDocuments[emp.id]?.[day]
                   const showSlUpload = current === 'SL'
+                  const dimAbsentView =
+                    cellViewMode === 'absentOnly' && current !== 'A'
                   return (
                     <td
                       key={day}
-                      className={`attendance-grid__td attendance-grid__td--day ${isFirstDay ? 'attendance-grid__td--day-first' : ''}`}
+                      className={`attendance-grid__td attendance-grid__td--day ${isFirstVisibleDay ? 'attendance-grid__td--day-first' : ''}${dimAbsentView ? ' attendance-grid__td--dim' : ''}`}
                     >
                       <div
                         className={`attendance-cell-wrap${showSlUpload ? ' attendance-cell-wrap--with-sl' : ''}`}
                       >
                         <select
-                          className={`attendance-cell attendance-cell--select ${colorClass}`}
+                          className={`attendance-cell attendance-cell--select ${colorClass}${dimAbsentView ? ' attendance-cell--dimmed' : ''}`}
                           value={current || ''}
                           onChange={(e) => {
                             const v = e.target.value
@@ -263,6 +439,11 @@ export function AttendanceGrid({
       </div>
       {employees.length === 0 && (
         <p className="attendance-grid-empty">Add employees to record attendance.</p>
+      )}
+      {employees.length > 0 && displayEmployees.length === 0 && (
+        <p className="attendance-grid-empty attendance-grid-empty--filter" role="status">
+          No rows match your filters. Try clearing filters or widening the day filters.
+        </p>
       )}
     </div>
   )
