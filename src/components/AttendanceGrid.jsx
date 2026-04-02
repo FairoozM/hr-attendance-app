@@ -71,8 +71,34 @@ export function AttendanceGrid({
   const [cellViewMode, setCellViewMode] = useState('all')
   const [dayScope, setDayScope] = useState('all')
   const [dayFilters, setDayFilters] = useState({})
+  const [summaryFilters, setSummaryFilters] = useState(() =>
+    Object.fromEntries(SUMMARY_STATUS_ORDER.map((k) => [k, 'all']))
+  )
 
   const getDayFilter = useCallback((d) => dayFilters[d] || 'all', [dayFilters])
+
+  /** Distinct counts per summary column (Excel-style filter value list). */
+  const summaryFilterOptionsByKey = useMemo(() => {
+    const result = {}
+    for (const key of SUMMARY_STATUS_ORDER) {
+      const counts = new Set()
+      for (const emp of employees) {
+        const s = getEmployeeMonthSummary(
+          attendance,
+          emp.id,
+          daysInMonth,
+          year,
+          month,
+          weeklyHolidayDay
+        )
+        counts.add(s[key])
+      }
+      result[key] = Array.from(counts)
+        .sort((a, b) => a - b)
+        .map((n) => ({ value: String(n), label: String(n) }))
+    }
+    return result
+  }, [employees, attendance, daysInMonth, year, month, weeklyHolidayDay])
 
   const daysWithAnyAbsence = useMemo(() => {
     const set = new Set()
@@ -111,6 +137,26 @@ export function AttendanceGrid({
     [displayDays, getDayFilter, attendance, year, month, weeklyHolidayDay]
   )
 
+  const passesSummaryFilters = useCallback(
+    (emp) => {
+      const summary = getEmployeeMonthSummary(
+        attendance,
+        emp.id,
+        daysInMonth,
+        year,
+        month,
+        weeklyHolidayDay
+      )
+      for (const key of SUMMARY_STATUS_ORDER) {
+        const f = summaryFilters[key] ?? 'all'
+        if (f === 'all') continue
+        if (summary[key] !== Number(f)) return false
+      }
+      return true
+    },
+    [summaryFilters, attendance, daysInMonth, year, month, weeklyHolidayDay]
+  )
+
   const displayEmployees = useMemo(() => {
     const q = employeeSearch.trim().toLowerCase()
     return employees.filter((emp) => {
@@ -119,12 +165,17 @@ export function AttendanceGrid({
         const dept = (emp.department || '').toLowerCase()
         if (!name.includes(q) && !dept.includes(q)) return false
       }
+      if (!passesSummaryFilters(emp)) return false
       return passesDayFilters(emp)
     })
-  }, [employees, employeeSearch, passesDayFilters])
+  }, [employees, employeeSearch, passesSummaryFilters, passesDayFilters])
 
   const setDayColumnFilter = useCallback((day, value) => {
     setDayFilters((prev) => ({ ...prev, [day]: value }))
+  }, [])
+
+  const setSummaryColumnFilter = useCallback((key, value) => {
+    setSummaryFilters((prev) => ({ ...prev, [key]: value }))
   }, [])
 
   const clearAttendanceFilters = useCallback(() => {
@@ -132,13 +183,15 @@ export function AttendanceGrid({
     setCellViewMode('all')
     setDayScope('all')
     setDayFilters({})
+    setSummaryFilters(Object.fromEntries(SUMMARY_STATUS_ORDER.map((k) => [k, 'all'])))
   }, [])
 
   const hasActiveAttendanceFilters =
     employeeSearch.trim() !== '' ||
     cellViewMode === 'absentOnly' ||
     dayScope === 'absentDaysOnly' ||
-    Object.values(dayFilters).some((v) => v && v !== 'all')
+    Object.values(dayFilters).some((v) => v && v !== 'all') ||
+    SUMMARY_STATUS_ORDER.some((k) => summaryFilters[k] && summaryFilters[k] !== 'all')
 
   async function handleSickLeaveFileChange(e) {
     const file = e.target.files?.[0]
@@ -206,7 +259,7 @@ export function AttendanceGrid({
           Clear filters
         </button>
         <p className="attendance-grid-toolbar__hint">
-          Use the dropdown under each day to show rows that match that day&apos;s status (Excel-style).
+          Use the dropdowns under Summary (P, A, SL, AL, WH) and under each day to filter rows (Excel-style).
         </p>
       </div>
 
@@ -294,7 +347,19 @@ export function AttendanceGrid({
                   key={key}
                   className={`attendance-grid__th attendance-grid__th--summary attendance-grid__summary-col--${key.toLowerCase()} attendance-grid__th--filter`}
                 >
-                  <span className="attendance-grid__filter-na">—</span>
+                  <select
+                    className="attendance-summary-filter"
+                    value={summaryFilters[key] ?? 'all'}
+                    onChange={(e) => setSummaryColumnFilter(key, e.target.value)}
+                    aria-label={`Filter rows by ${key} month total`}
+                  >
+                    <option value="all">All</option>
+                    {summaryFilterOptionsByKey[key].map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
                 </th>
               ))}
               {displayDays.map((day) => (
@@ -442,7 +507,7 @@ export function AttendanceGrid({
       )}
       {employees.length > 0 && displayEmployees.length === 0 && (
         <p className="attendance-grid-empty attendance-grid-empty--filter" role="status">
-          No rows match your filters. Try clearing filters or widening the day filters.
+          No rows match your filters. Try clearing filters or relaxing summary or day filters.
         </p>
       )}
     </div>
