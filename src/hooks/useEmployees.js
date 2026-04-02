@@ -10,6 +10,7 @@ function mapEmployee(row) {
   const rawStatus = row.employment_status
   let employmentStatus = 'active'
   if (rawStatus === 'on_leave' || rawStatus === 'On Leave') employmentStatus = 'on_leave'
+  else if (rawStatus === 'inactive' || rawStatus === 'Inactive') employmentStatus = 'inactive'
   else if (rawStatus === 'resigned' || rawStatus === 'Resigned') employmentStatus = 'resigned'
   else if (row.is_active === false) employmentStatus = 'inactive'
   else employmentStatus = 'active'
@@ -80,6 +81,8 @@ export function useEmployees() {
           employee_code: employee.employeeId,
           full_name: employee.name,
           department: employee.department,
+          employment_status: employee.employmentStatus || 'active',
+          is_active: (employee.employmentStatus || 'active') !== 'inactive',
           joining_date: employee.joiningDate || null,
           photo_url: employee.photoUrl || null,
           phone: employee.phone || null,
@@ -105,6 +108,8 @@ export function useEmployees() {
           employee_code: updates.employeeId,
           full_name: updates.name,
           department: updates.department,
+          employment_status: updates.employmentStatus || 'active',
+          is_active: (updates.employmentStatus || 'active') !== 'inactive',
           joining_date: updates.joiningDate || null,
           photo_url: updates.photoUrl || null,
           phone: updates.phone || null,

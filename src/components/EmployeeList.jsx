@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Modal } from './Modal'
 import { EmployeeForm } from './EmployeeForm'
 import { useSettings } from '../contexts/SettingsContext'
+import { useAnnualLeave } from '../hooks/useAnnualLeave'
 import { DEFAULT_DEPARTMENTS } from '../constants/employees'
 import { EmployeeSummaryCards } from './employees/EmployeeSummaryCards'
 import { EmployeesToolbar } from './employees/EmployeesToolbar'
@@ -93,6 +94,7 @@ function EmployeeViewModal({ employee, open, onClose }) {
 
 export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
   const { departments: settingsDepartments } = useSettings()
+  const { requests: leaveRequests } = useAnnualLeave()
   const baseDepartments =
     settingsDepartments?.length > 0 ? settingsDepartments : DEFAULT_DEPARTMENTS
 
@@ -110,23 +112,48 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
   const [page, setPage] = useState(1)
   const [columnFilters, setColumnFilters] = useState(() => emptyColumnFilters())
 
+  const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), [])
+
+  const onLeaveIdSet = useMemo(() => {
+    const set = new Set()
+    leaveRequests.forEach((r) => {
+      if (r.status !== 'Approved') return
+      const from = String(r.from_date || '').slice(0, 10)
+      const to = String(r.to_date || '').slice(0, 10)
+      if (!from || !to) return
+      if (from <= todayIso && todayIso <= to) set.add(String(r.employee_id))
+    })
+    return set
+  }, [leaveRequests, todayIso])
+
+  const effectiveEmployees = useMemo(
+    () =>
+      employees.map((e) => {
+        if (onLeaveIdSet.has(String(e.id)) && e.employmentStatus !== 'inactive' && e.employmentStatus !== 'resigned') {
+          return { ...e, employmentStatus: 'on_leave' }
+        }
+        return e
+      }),
+    [employees, onLeaveIdSet]
+  )
+
   const editingEmployee = useMemo(
-    () => employees.find((e) => e.id === editingId) ?? null,
-    [employees, editingId]
+    () => effectiveEmployees.find((e) => e.id === editingId) ?? null,
+    [effectiveEmployees, editingId]
   )
 
   const departmentOptions = useMemo(() => {
     const set = new Set(baseDepartments)
-    employees.forEach((e) => {
+    effectiveEmployees.forEach((e) => {
       if (e.department) set.add(e.department)
     })
     const sorted = Array.from(set).sort((a, b) => a.localeCompare(b))
     return [{ value: 'all', label: 'All departments' }, ...sorted.map((d) => ({ value: d, label: d }))]
-  }, [employees, baseDepartments])
+  }, [effectiveEmployees, baseDepartments])
 
   const designationOptions = useMemo(() => {
     const set = new Set()
-    employees.forEach((e) => {
+    effectiveEmployees.forEach((e) => {
       if (e.designation && String(e.designation).trim()) set.add(e.designation.trim())
     })
     const sorted = Array.from(set).sort((a, b) => a.localeCompare(b))
@@ -134,19 +161,19 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
       { value: 'all', label: 'All designations' },
       ...sorted.map((d) => ({ value: d, label: d })),
     ]
-  }, [employees])
+  }, [effectiveEmployees])
 
   const stats = useMemo(() => {
-    const total = employees.length
-    const activeCount = employees.filter((e) => e.employmentStatus === 'active').length
-    const inactiveCount = employees.filter((e) => e.employmentStatus === 'inactive').length
-    const onLeaveCount = employees.filter((e) => e.employmentStatus === 'on_leave').length
+    const total = effectiveEmployees.length
+    const activeCount = effectiveEmployees.filter((e) => e.employmentStatus === 'active').length
+    const inactiveCount = effectiveEmployees.filter((e) => e.employmentStatus === 'inactive').length
+    const onLeaveCount = effectiveEmployees.filter((e) => e.employmentStatus === 'on_leave').length
     return { total, activeCount, inactiveCount, onLeaveCount }
-  }, [employees])
+  }, [effectiveEmployees])
 
   const afterToolbar = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return employees.filter((emp) => {
+    return effectiveEmployees.filter((emp) => {
       if (department !== 'all' && emp.department !== department) return false
       if (designation !== 'all' && (emp.designation || '') !== designation) return false
       if (status !== 'all' && emp.employmentStatus !== status) return false
@@ -157,7 +184,7 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
         .toLowerCase()
       return blob.includes(q)
     })
-  }, [employees, search, department, designation, status])
+  }, [effectiveEmployees, search, department, designation, status])
 
   const filtered = useMemo(
     () => afterToolbar.filter((emp) => matchesColumnFilters(emp, columnFilters)),
@@ -167,10 +194,10 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
   const filterOptionsByKey = useMemo(() => {
     const out = {}
     for (const key of EMPLOYEE_COLUMN_FILTER_KEYS) {
-      out[key] = buildExcelColumnOptions(employees, key)
+      out[key] = buildExcelColumnOptions(effectiveEmployees, key)
     }
     return out
-  }, [employees])
+  }, [effectiveEmployees])
 
   const sorted = useMemo(() => {
     const copy = [...filtered]
@@ -266,8 +293,8 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
   }
 
   const existingEmployeeIds = useMemo(
-    () => employees.map((e) => (e.employeeId ?? '').toLowerCase().trim()),
-    [employees]
+    () => effectiveEmployees.map((e) => (e.employeeId ?? '').toLowerCase().trim()),
+    [effectiveEmployees]
   )
   const excludeEmployeeId =
     modalMode === 'edit' && editingEmployee
@@ -377,6 +404,7 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
                   employeeId: editingEmployee.employeeId,
                   name: editingEmployee.name,
                   department: editingEmployee.department,
+                  employmentStatus: editingEmployee.employmentStatus ?? 'active',
                   joiningDate: editingEmployee.joiningDate ?? '',
                   photoUrl: editingEmployee.photoUrl ?? '',
                   phone: editingEmployee.phone ?? '',
@@ -403,7 +431,7 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
       <DeleteConfirmModal
         open={Boolean(deleteConfirmId)}
         employeeName={
-          deleteConfirmId ? employees.find((e) => e.id === deleteConfirmId)?.name ?? '' : ''
+          deleteConfirmId ? effectiveEmployees.find((e) => e.id === deleteConfirmId)?.name ?? '' : ''
         }
         onConfirm={handleDeleteConfirm}
         onCancel={handleDeleteCancel}

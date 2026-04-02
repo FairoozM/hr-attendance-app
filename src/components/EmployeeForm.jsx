@@ -31,6 +31,7 @@ export function EmployeeForm({
   const [employeeId, setEmployeeId] = useState(initial?.employeeId ?? '')
   const [name, setName] = useState(initial?.name ?? '')
   const [department, setDepartment] = useState(() => initial?.department ?? departments[0])
+  const [employmentStatus, setEmploymentStatus] = useState(initial?.employmentStatus ?? 'active')
   const [joiningDate, setJoiningDate] = useState(initial?.joiningDate ?? '')
   const [photoUrl, setPhotoUrl] = useState(initial?.photoUrl ?? '')
   const [phone, setPhone] = useState(initial?.phone ?? '')
@@ -43,6 +44,7 @@ export function EmployeeForm({
     setEmployeeId(initial.employeeId ?? '')
     setName(initial.name ?? '')
     setDepartment(initial.department ?? departments[0])
+    setEmploymentStatus(initial.employmentStatus ?? 'active')
     setJoiningDate(initial.joiningDate ?? '')
     setPhotoUrl(initial.photoUrl ?? '')
     setPhone(initial.phone ?? '')
@@ -53,6 +55,7 @@ export function EmployeeForm({
     initial?.employeeId,
     initial?.name,
     initial?.department,
+    initial?.employmentStatus,
     initial?.joiningDate,
     initial?.photoUrl,
     initial?.phone,
@@ -78,6 +81,7 @@ export function EmployeeForm({
       employeeId: trimmedId,
       name: trimmedName,
       department: department.trim() || departments[0],
+      employmentStatus,
       joiningDate: emptyToNull(joiningDate),
       photoUrl: emptyToNull(photoUrl),
       phone: emptyToNull(phone),
@@ -129,6 +133,19 @@ export function EmployeeForm({
                 {d}
               </option>
             ))}
+          </select>
+        </label>
+        <label className="employee-form__label">
+          Employment status
+          <select
+            className="employee-form__select"
+            value={employmentStatus}
+            onChange={(e) => setEmploymentStatus(e.target.value)}
+          >
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+            <option value="on_leave">On leave</option>
+            <option value="resigned">Resigned</option>
           </select>
         </label>
       </div>
