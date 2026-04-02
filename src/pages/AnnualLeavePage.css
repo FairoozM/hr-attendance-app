@@ -81,6 +81,16 @@
   color: var(--text-muted, #666);
 }
 
+.annual-leave-empty--filtered {
+  padding: 0.75rem;
+}
+
+.annual-leave-filter-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-muted, #666);
+}
+
 .annual-leave-table-wrap {
   overflow: auto;
   border: 1px solid var(--border, #e5e5e5);
@@ -106,6 +116,12 @@
   white-space: nowrap;
 }
 
+.annual-leave-filter-row th {
+  padding: 0.35rem 0.5rem;
+  background: var(--surface, #fff);
+  border-bottom: 1px solid var(--border, #eee);
+}
+
 .annual-leave-reason {
   max-width: 220px;
   overflow: hidden;
@@ -119,6 +135,19 @@
   border: 1px solid var(--border, #ddd);
   background: var(--surface, #fff);
   color: var(--text);
+  font-weight: 600;
+}
+
+.annual-leave-status--approved {
+  color: var(--success, #15803d);
+}
+
+.annual-leave-status--pending {
+  color: #111;
+}
+
+.annual-leave-status--rejected {
+  color: var(--danger, #dc2626);
 }
 
 .annual-leave-delete {

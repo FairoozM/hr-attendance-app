@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useEmployees } from '../hooks/useEmployees'
 import { useAnnualLeave } from '../hooks/useAnnualLeave'
+import { ExcelStyleColumnFilter, excelFilterIsActive } from '../components/ExcelStyleColumnFilter'
 import './Page.css'
 import './AnnualLeavePage.css'
 
@@ -14,6 +15,23 @@ function fmtDate(v) {
   if (typeof v === 'string') return v.slice(0, 10)
   return String(v).slice(0, 10)
 }
+
+function leaveDaysInclusive(fromDate, toDate) {
+  if (!fromDate || !toDate) return 0
+  const from = new Date(`${fmtDate(fromDate)}T00:00:00`)
+  const to = new Date(`${fmtDate(toDate)}T00:00:00`)
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return 0
+  const diffDays = Math.floor((to.getTime() - from.getTime()) / 86400000)
+  return diffDays >= 0 ? diffDays + 1 : 0
+}
+
+function statusClass(status) {
+  if (status === 'Approved') return 'annual-leave-status--approved'
+  if (status === 'Rejected') return 'annual-leave-status--rejected'
+  return 'annual-leave-status--pending'
+}
+
+const LEAVE_BLANK = '__blank__'
 
 export function AnnualLeavePage() {
   const { user } = useAuth()
@@ -34,10 +52,99 @@ export function AnnualLeavePage() {
   const [reason, setReason] = useState('')
   const [formError, setFormError] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [openFilterId, setOpenFilterId] = useState(null)
+  const [columnFilters, setColumnFilters] = useState({})
 
   const employeeOptions = useMemo(
     () => [...employees].sort((a, b) => a.name.localeCompare(b.name)),
     [employees]
+  )
+
+  const rows = useMemo(
+    () =>
+      requests.map((row) => ({
+        ...row,
+        fromText: fmtDate(row.from_date),
+        toText: fmtDate(row.to_date),
+        days: leaveDaysInclusive(row.from_date, row.to_date),
+        reasonText: row.reason || '—',
+      })),
+    [requests]
+  )
+
+  const filterOptionsByKey = useMemo(() => {
+    const byKey = {
+      employee: new Set(),
+      department: new Set(),
+      from: new Set(),
+      to: new Set(),
+      days: new Set(),
+      reason: new Set(),
+      status: new Set(),
+    }
+    rows.forEach((row) => {
+      byKey.employee.add(row.full_name || LEAVE_BLANK)
+      byKey.department.add(row.department || LEAVE_BLANK)
+      byKey.from.add(row.fromText || LEAVE_BLANK)
+      byKey.to.add(row.toText || LEAVE_BLANK)
+      byKey.days.add(String(row.days))
+      byKey.reason.add(row.reasonText || LEAVE_BLANK)
+      byKey.status.add(row.status || LEAVE_BLANK)
+    })
+    const toOptions = (set, key) =>
+      [...set]
+        .sort((a, b) => {
+          if (key === 'days') return Number(a) - Number(b)
+          return String(a).localeCompare(String(b), undefined, { sensitivity: 'base' })
+        })
+        .map((value) => ({ value, label: value === LEAVE_BLANK ? '(Blanks)' : value }))
+    return {
+      employee: toOptions(byKey.employee, 'employee'),
+      department: toOptions(byKey.department, 'department'),
+      from: toOptions(byKey.from, 'from'),
+      to: toOptions(byKey.to, 'to'),
+      days: toOptions(byKey.days, 'days'),
+      reason: toOptions(byKey.reason, 'reason'),
+      status: toOptions(byKey.status, 'status'),
+    }
+  }, [rows])
+
+  const setIncluded = useCallback((key, next) => {
+    setColumnFilters((prev) => {
+      const copy = { ...prev }
+      if (next == null) delete copy[key]
+      else copy[key] = next
+      return copy
+    })
+  }, [])
+
+  const filteredRows = useMemo(
+    () =>
+      rows.filter((row) => {
+        const checks = [
+          ['employee', row.full_name || LEAVE_BLANK],
+          ['department', row.department || LEAVE_BLANK],
+          ['from', row.fromText || LEAVE_BLANK],
+          ['to', row.toText || LEAVE_BLANK],
+          ['days', String(row.days)],
+          ['reason', row.reasonText || LEAVE_BLANK],
+          ['status', row.status || LEAVE_BLANK],
+        ]
+        for (const [key, value] of checks) {
+          const included = columnFilters[key]
+          if (included && !included.has(value)) return false
+        }
+        return true
+      }),
+    [rows, columnFilters]
+  )
+
+  const hasActiveFilters = useMemo(
+    () =>
+      Object.entries(filterOptionsByKey).some(([key, opts]) =>
+        excelFilterIsActive(columnFilters[key], opts.map((o) => o.value))
+      ),
+    [filterOptionsByKey, columnFilters]
   )
 
   async function handleSubmit(e) {
@@ -177,6 +284,11 @@ export function AnnualLeavePage() {
 
       <section className="page-section page-section--fill">
         <h2 className="annual-leave-section-title">All requests</h2>
+        {hasActiveFilters && (
+          <p className="annual-leave-filter-hint" role="status">
+            Showing filtered results.
+          </p>
+        )}
         {loading && <p className="page-loading">Loading…</p>}
         {!loading && requests.length === 0 && (
           <p className="annual-leave-empty">No annual leave requests yet.</p>
@@ -190,23 +302,105 @@ export function AnnualLeavePage() {
                   <th>Department</th>
                   <th>From</th>
                   <th>To</th>
+                  <th>Days</th>
                   <th>Reason</th>
                   <th>Status</th>
                   {isAdmin && <th />}
                 </tr>
+                <tr className="annual-leave-filter-row">
+                  <th>
+                    <ExcelStyleColumnFilter
+                      filterId="leave-employee"
+                      openFilterId={openFilterId}
+                      onOpenFilterId={setOpenFilterId}
+                      ariaLabel="Filter leave by employee"
+                      options={filterOptionsByKey.employee}
+                      included={columnFilters.employee}
+                      onIncludedChange={(next) => setIncluded('employee', next)}
+                    />
+                  </th>
+                  <th>
+                    <ExcelStyleColumnFilter
+                      filterId="leave-department"
+                      openFilterId={openFilterId}
+                      onOpenFilterId={setOpenFilterId}
+                      ariaLabel="Filter leave by department"
+                      options={filterOptionsByKey.department}
+                      included={columnFilters.department}
+                      onIncludedChange={(next) => setIncluded('department', next)}
+                    />
+                  </th>
+                  <th>
+                    <ExcelStyleColumnFilter
+                      filterId="leave-from"
+                      openFilterId={openFilterId}
+                      onOpenFilterId={setOpenFilterId}
+                      ariaLabel="Filter leave by from date"
+                      options={filterOptionsByKey.from}
+                      included={columnFilters.from}
+                      onIncludedChange={(next) => setIncluded('from', next)}
+                    />
+                  </th>
+                  <th>
+                    <ExcelStyleColumnFilter
+                      filterId="leave-to"
+                      openFilterId={openFilterId}
+                      onOpenFilterId={setOpenFilterId}
+                      ariaLabel="Filter leave by to date"
+                      options={filterOptionsByKey.to}
+                      included={columnFilters.to}
+                      onIncludedChange={(next) => setIncluded('to', next)}
+                    />
+                  </th>
+                  <th>
+                    <ExcelStyleColumnFilter
+                      filterId="leave-days"
+                      openFilterId={openFilterId}
+                      onOpenFilterId={setOpenFilterId}
+                      ariaLabel="Filter leave by number of days"
+                      options={filterOptionsByKey.days}
+                      included={columnFilters.days}
+                      onIncludedChange={(next) => setIncluded('days', next)}
+                    />
+                  </th>
+                  <th>
+                    <ExcelStyleColumnFilter
+                      filterId="leave-reason"
+                      openFilterId={openFilterId}
+                      onOpenFilterId={setOpenFilterId}
+                      ariaLabel="Filter leave by reason"
+                      options={filterOptionsByKey.reason}
+                      included={columnFilters.reason}
+                      onIncludedChange={(next) => setIncluded('reason', next)}
+                    />
+                  </th>
+                  <th>
+                    <ExcelStyleColumnFilter
+                      filterId="leave-status"
+                      openFilterId={openFilterId}
+                      onOpenFilterId={setOpenFilterId}
+                      ariaLabel="Filter leave by status"
+                      options={filterOptionsByKey.status}
+                      included={columnFilters.status}
+                      onIncludedChange={(next) => setIncluded('status', next)}
+                    />
+                  </th>
+                  {isAdmin && <th />}
+                </tr>
               </thead>
               <tbody>
-                {requests.map((row) => (
+                {filteredRows.map((row) => (
                   <tr key={row.id}>
                     <td>{row.full_name}</td>
                     <td>{row.department}</td>
-                    <td>{fmtDate(row.from_date)}</td>
-                    <td>{fmtDate(row.to_date)}</td>
-                    <td className="annual-leave-reason">{row.reason || '—'}</td>
+                    <td>{row.fromText}</td>
+                    <td>{row.toText}</td>
+                    <td>{row.days}</td>
+                    <td className="annual-leave-reason">{row.reasonText}</td>
                     <td>
                       {isAdmin ? (
                         <select
-                          className="annual-leave-status-select"
+                          className={`annual-leave-status-select ${statusClass(row.status)}`}
                           value={row.status}
                           onChange={(e) => onStatusChange(row, e.target.value)}
                           aria-label={`Status for request ${row.id}`}
@@ -218,7 +412,7 @@ export function AnnualLeavePage() {
                           ))}
                         </select>
                       ) : (
-                        row.status
+                        <span className={statusClass(row.status)}>{row.status}</span>
                       )}
                     </td>
                     {isAdmin && (
@@ -236,6 +430,11 @@ export function AnnualLeavePage() {
                 ))}
               </tbody>
             </table>
+            {filteredRows.length === 0 && (
+              <p className="annual-leave-empty annual-leave-empty--filtered">
+                No requests match the selected filters.
+              </p>
+            )}
           </div>
         )}
       </section>
