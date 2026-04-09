@@ -20,7 +20,7 @@ app.set('io', io)
 server.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`)
   console.log(
-    '[routes] Express order: GET /api, GET /api/health, /api/auth, /api/employees|attendance|annual-leave, /api 404 JSON'
+    '[routes] Express: GET /api, GET /api/health, POST/GET /api/auth/login, GET /api/auth/me, resource routers, /api 404 JSON'
   )
   console.log(
     process.env.FRONTEND_DIST

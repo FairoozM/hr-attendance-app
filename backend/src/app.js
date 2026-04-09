@@ -3,7 +3,7 @@ const fs = require('fs')
 const express = require('express')
 const cors = require('cors')
 const authMiddleware = require('./middleware/auth')
-const authRoutes = require('./routes/auth')
+const authController = require('./controllers/authController')
 const employeesRoutes = require('./routes/employees')
 const attendanceRoutes = require('./routes/attendance')
 const annualLeaveRoutes = require('./routes/annualLeave')
@@ -15,7 +15,7 @@ app.disable('x-powered-by')
 app.use(cors())
 app.use(express.json({ limit: '10mb' }))
 
-// --- API routes first (order matters) ---
+// --- API routes first (order matters). Auth is registered explicitly on app (no nested-router ambiguity). ---
 
 app.get('/api', (_req, res) => {
   res.json({ status: 'ok', service: 'hr-api' })
@@ -25,7 +25,18 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' })
 })
 
-app.use('/api/auth', authRoutes)
+// Auth — must be before /api 404 fallback and before any static/SPA
+app.post('/api/auth/login', authController.login)
+app.get('/api/auth/login', (_req, res) => {
+  res
+    .status(405)
+    .setHeader('Allow', 'POST, OPTIONS')
+    .json({
+      error: 'Method not allowed',
+      hint: 'Use POST /api/auth/login with Content-Type: application/json and body { "username", "password" }',
+    })
+})
+app.get('/api/auth/me', authMiddleware.attachAuth, authMiddleware.requireAuth, authController.me)
 
 app.use('/api/employees', authMiddleware.attachAuth, employeesRoutes)
 app.use('/api/attendance', authMiddleware.attachAuth, attendanceRoutes)
