@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Modal } from './Modal'
 import { EmployeeForm } from './EmployeeForm'
 import { useSettings } from '../contexts/SettingsContext'
@@ -55,6 +56,7 @@ function compareRows(a, b, sortKey, sortDir) {
 }
 
 function EmployeeViewModal({ employee, open, onClose, onToggleAttendanceInclusion, attendanceTogglePending }) {
+  const navigate = useNavigate()
   if (!open || !employee) return null
   const included = isIncludedInAttendance(employee)
   return (
@@ -100,6 +102,13 @@ function EmployeeViewModal({ employee, open, onClose, onToggleAttendanceInclusio
         </dd>
       </dl>
       <div className="employee-view-actions">
+        <button
+          type="button"
+          className="btn btn--accent btn--sm"
+          onClick={() => { onClose(); navigate(`/employees/${employee.id}/profile`) }}
+        >
+          View Full Profile
+        </button>
         <button type="button" className="btn btn--primary btn--sm" onClick={onClose}>
           Close
         </button>

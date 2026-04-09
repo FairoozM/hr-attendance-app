@@ -26,6 +26,11 @@ function createSickLeaveKey(employeeId, attendanceDate, fileName) {
   return `sick-leave/${employeeId}/${attendanceDate}/${crypto.randomUUID()}-${safe}`
 }
 
+function createProfileDocKey(employeeId, docType, fileName) {
+  const safe = sanitizeName(fileName)
+  return `profile-docs/${employeeId}/${docType}/${crypto.randomUUID()}-${safe}`
+}
+
 async function getUploadUrl({ key, contentType, expiresIn = 300 }) {
   const Bucket = requireBucket()
   const command = new PutObjectCommand({
@@ -57,6 +62,7 @@ async function deleteObjectIfExists(key) {
 
 module.exports = {
   createSickLeaveKey,
+  createProfileDocKey,
   getUploadUrl,
   getDownloadUrl,
   deleteObjectIfExists,

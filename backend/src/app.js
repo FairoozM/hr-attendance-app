@@ -4,6 +4,7 @@ const express = require('express')
 const cors = require('cors')
 const authMiddleware = require('./middleware/auth')
 const authRouter = require('./routes/auth')
+const profileRouter = require('./routes/profile')
 const employeesRoutes = require('./routes/employees')
 const attendanceRoutes = require('./routes/attendance')
 const annualLeaveRoutes = require('./routes/annualLeave')
@@ -29,6 +30,9 @@ app.get('/api/health', (_req, res) => {
 
 // Auth router — POST /api/auth/login, GET /api/auth/login (405), GET /api/auth/me
 app.use('/api/auth', authRouter)
+
+// Employee self-service profile
+app.use('/api/profile', authMiddleware.attachAuth, profileRouter)
 
 // Resource routers (attachAuth decodes token if present; individual handlers call requireAuth/requireAdmin)
 app.use('/api/employees', authMiddleware.attachAuth, employeesRoutes)

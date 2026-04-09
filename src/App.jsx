@@ -12,6 +12,7 @@ import { AttendancePage } from './pages/AttendancePage'
 import { EmployeesPage } from './pages/EmployeesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { AnnualLeavePage } from './pages/AnnualLeavePage'
+import { EmployeeProfileAdminPage } from './pages/EmployeeProfileAdminPage'
 import { useEmployees } from './hooks/useEmployees'
 import { useAttendance, clearAllAttendanceStorage } from './hooks/useAttendance'
 import { useWeeklyHolidayDay } from './hooks/useWeeklyHolidayDay'
@@ -151,6 +152,7 @@ function AppContent() {
             path="settings"
             element={<SettingsPage onResetDemoData={handleResetDemoData} />}
           />
+          <Route path="employees/:id/profile" element={<EmployeeProfileAdminPage />} />
         </Route>
       </Routes>
   )

@@ -1,39 +1,630 @@
+import { useState, useCallback } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useProfile, uploadProfileDoc, deleteProfileDoc } from '../hooks/useProfile'
 import './Page.css'
 import './EmployeeAccountPage.css'
 
-export function EmployeeAccountPage() {
-  const { user } = useAuth()
+// ── Completion ────────────────────────────────────────────────────────────────
 
-  if (user?.role !== 'employee') {
-    return <Navigate to="/" replace />
+const COMPLETION_FIELDS = [
+  'phone', 'personal_email', 'date_of_birth', 'gender', 'nationality',
+  'marital_status', 'current_address', 'city', 'country',
+  'designation', 'employment_status',
+  'emergency_contact_name', 'emergency_contact_phone',
+  'passport_number', 'passport_doc_key',
+  'visa_number', 'visa_doc_key',
+  'emirates_id', 'emirates_id_doc_key',
+]
+
+function calcCompletion(p) {
+  if (!p) return 0
+  const filled = COMPLETION_FIELDS.filter((f) => p[f] != null && String(p[f]).trim() !== '').length
+  return Math.round((filled / COMPLETION_FIELDS.length) * 100)
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function val(v) {
+  if (v == null || String(v).trim() === '') return '—'
+  return String(v)
+}
+
+function fmtDate(v) {
+  if (!v) return '—'
+  const s = String(v).slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+  return new Date(s + 'T12:00:00Z').toLocaleDateString('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric',
+  })
+}
+
+function initials(name) {
+  if (!name) return '?'
+  return name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()
+}
+
+function StatusBadge({ isActive, status }) {
+  const effectiveStatus = status || (isActive ? 'Active' : 'Inactive')
+  const cls = effectiveStatus.toLowerCase().includes('active') && !effectiveStatus.toLowerCase().includes('in')
+    ? 'badge badge--success' : 'badge badge--muted'
+  return <span className={cls}>{effectiveStatus}</span>
+}
+
+function CompletionBar({ pct }) {
+  const cls = pct >= 80 ? 'completion--high' : pct >= 40 ? 'completion--mid' : 'completion--low'
+  return (
+    <div className={`completion-bar ${cls}`}>
+      <div className="completion-bar__fill" style={{ width: `${pct}%` }} />
+      <span className="completion-bar__label">{pct}% complete</span>
+    </div>
+  )
+}
+
+// ── Profile Header ─────────────────────────────────────────────────────────────
+
+function ProfileHeader({ profile, editing, onEditToggle }) {
+  const pct = calcCompletion(profile)
+  const photoUrl = profile.photo_doc_url_signed || profile.photo_url
+  return (
+    <div className="profile-header">
+      <div className="profile-header__avatar-wrap">
+        {photoUrl ? (
+          <img src={photoUrl} alt="Profile" className="profile-header__avatar-img" />
+        ) : (
+          <div className="profile-header__avatar-placeholder">
+            {initials(profile.full_name)}
+          </div>
+        )}
+      </div>
+      <div className="profile-header__info">
+        <h2 className="profile-header__name">{profile.full_name}</h2>
+        <p className="profile-header__meta">
+          {profile.designation ? <span>{profile.designation}</span> : null}
+          {profile.designation && profile.department ? <span className="sep">·</span> : null}
+          {profile.department ? <span>{profile.department}</span> : null}
+        </p>
+        <div className="profile-header__badges">
+          <StatusBadge isActive={profile.is_active} status={profile.employment_status} />
+          <span className="profile-header__code">ID: {profile.employee_code}</span>
+        </div>
+        <CompletionBar pct={pct} />
+      </div>
+      <button
+        type="button"
+        className={`btn ${editing ? 'btn--ghost' : 'btn--primary'} profile-header__edit-btn`}
+        onClick={onEditToggle}
+      >
+        {editing ? '✕ Cancel' : '✎ Edit Profile'}
+      </button>
+    </div>
+  )
+}
+
+// ── Section: Personal Information ─────────────────────────────────────────────
+
+function PersonalView({ p }) {
+  return (
+    <div className="profile-section-grid">
+      <InfoRow label="Full Name" value={val(p.full_name)} />
+      <InfoRow label="Date of Birth" value={fmtDate(p.date_of_birth)} />
+      <InfoRow label="Gender" value={val(p.gender)} />
+      <InfoRow label="Nationality" value={val(p.nationality)} />
+      <InfoRow label="Marital Status" value={val(p.marital_status)} />
+    </div>
+  )
+}
+
+// ── Section: Contact Information ──────────────────────────────────────────────
+
+function ContactView({ p }) {
+  return (
+    <div className="profile-section-grid">
+      <InfoRow label="Mobile" value={val(p.phone)} />
+      <InfoRow label="Personal Email" value={val(p.personal_email)} />
+      <InfoRow label="Work Email" value={val(p.work_email)} />
+      <InfoRow label="Address" value={val(p.current_address)} wide />
+      <InfoRow label="City" value={val(p.city)} />
+      <InfoRow label="Country" value={val(p.country)} />
+    </div>
+  )
+}
+
+// ── Section: Employment ───────────────────────────────────────────────────────
+
+function EmploymentView({ p }) {
+  return (
+    <div className="profile-section-grid">
+      <InfoRow label="Employee ID" value={val(p.employee_code)} />
+      <InfoRow label="Department" value={val(p.department)} />
+      <InfoRow label="Designation" value={val(p.designation)} />
+      <InfoRow label="Joining Date" value={fmtDate(p.joining_date)} />
+      <InfoRow label="Work Location" value={val(p.work_location)} />
+      <InfoRow label="Reporting Manager" value={val(p.manager_name)} />
+      <InfoRow label="Employment Status" value={val(p.employment_status)} />
+    </div>
+  )
+}
+
+// ── Section: Emergency Contact ────────────────────────────────────────────────
+
+function EmergencyView({ p }) {
+  return (
+    <div className="profile-section-grid">
+      <InfoRow label="Contact Name" value={val(p.emergency_contact_name)} />
+      <InfoRow label="Relationship" value={val(p.emergency_contact_relationship)} />
+      <InfoRow label="Phone" value={val(p.emergency_contact_phone)} />
+      <InfoRow label="Alternate Phone" value={val(p.emergency_contact_alt_phone)} />
+    </div>
+  )
+}
+
+// ── Section: Bank / Payroll ───────────────────────────────────────────────────
+
+function BankView({ p }) {
+  return (
+    <div className="profile-section-grid">
+      <InfoRow label="Bank Name" value={val(p.bank_name)} />
+      <InfoRow label="Account Holder" value={val(p.account_holder_name)} />
+      <InfoRow label="IBAN / Account No." value={val(p.iban)} />
+    </div>
+  )
+}
+
+// ── Shared InfoRow ────────────────────────────────────────────────────────────
+
+function InfoRow({ label, value, wide }) {
+  return (
+    <div className={`info-row ${wide ? 'info-row--wide' : ''}`}>
+      <span className="info-row__label">{label}</span>
+      <span className="info-row__value">{value}</span>
+    </div>
+  )
+}
+
+// ── Edit Form ─────────────────────────────────────────────────────────────────
+
+function EditForm({ profile, activeTab, onSave, onCancel }) {
+  const [form, setForm] = useState(() => ({
+    date_of_birth: profile.date_of_birth ? String(profile.date_of_birth).slice(0, 10) : '',
+    gender: profile.gender || '',
+    nationality: profile.nationality || '',
+    marital_status: profile.marital_status || '',
+    phone: profile.phone || '',
+    personal_email: profile.personal_email || '',
+    work_email: profile.work_email || '',
+    current_address: profile.current_address || '',
+    city: profile.city || '',
+    country: profile.country || '',
+    designation: profile.designation || '',
+    work_location: profile.work_location || '',
+    manager_name: profile.manager_name || '',
+    employment_status: profile.employment_status || '',
+    emergency_contact_name: profile.emergency_contact_name || '',
+    emergency_contact_relationship: profile.emergency_contact_relationship || '',
+    emergency_contact_phone: profile.emergency_contact_phone || '',
+    emergency_contact_alt_phone: profile.emergency_contact_alt_phone || '',
+    bank_name: profile.bank_name || '',
+    account_holder_name: profile.account_holder_name || '',
+    iban: profile.iban || '',
+    passport_number: profile.passport_number || '',
+    passport_issue_date: profile.passport_issue_date ? String(profile.passport_issue_date).slice(0, 10) : '',
+    passport_expiry_date: profile.passport_expiry_date ? String(profile.passport_expiry_date).slice(0, 10) : '',
+    visa_number: profile.visa_number || '',
+    visa_issue_date: profile.visa_issue_date ? String(profile.visa_issue_date).slice(0, 10) : '',
+    visa_expiry_date: profile.visa_expiry_date ? String(profile.visa_expiry_date).slice(0, 10) : '',
+    emirates_id: profile.emirates_id || '',
+    emirates_id_issue_date: profile.emirates_id_issue_date ? String(profile.emirates_id_issue_date).slice(0, 10) : '',
+    emirates_id_expiry_date: profile.emirates_id_expiry_date ? String(profile.emirates_id_expiry_date).slice(0, 10) : '',
+  }))
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState(null)
+
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    setSaveError(null)
+    try {
+      await onSave(form)
+    } catch (err) {
+      setSaveError(err.message || 'Failed to save changes')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
-    <div className="page employee-account-page">
-      <header className="page-header">
-        <h1 className="page-title">My account</h1>
-        <p className="employee-account-page__intro">
-          Signed in as <strong>{user.displayName || user.username}</strong>. This area will hold your profile
-          and HR self-service tools in the next phase.
-        </p>
-      </header>
+    <form className="edit-form" onSubmit={handleSubmit}>
+      {saveError && <p className="edit-form__error" role="alert">{saveError}</p>}
 
-      <section className="page-section employee-account-page__grid">
-        <div className="employee-account-card">
-          <h2 className="employee-account-card__title">My profile</h2>
-          <p className="employee-account-card__text">
-            Profile details and completion will be available here in Phase 2.
-          </p>
+      {activeTab === 'personal' && (
+        <fieldset className="edit-fieldset">
+          <legend>Personal Information</legend>
+          <div className="edit-grid">
+            <Field label="Date of Birth" type="date" value={form.date_of_birth} onChange={set('date_of_birth')} />
+            <Field label="Gender" as="select" value={form.gender} onChange={set('gender')}>
+              <option value="">Select</option>
+              <option>Male</option>
+              <option>Female</option>
+              <option>Prefer not to say</option>
+            </Field>
+            <Field label="Nationality" value={form.nationality} onChange={set('nationality')} />
+            <Field label="Marital Status" as="select" value={form.marital_status} onChange={set('marital_status')}>
+              <option value="">Select</option>
+              <option>Single</option>
+              <option>Married</option>
+              <option>Divorced</option>
+              <option>Widowed</option>
+            </Field>
+          </div>
+        </fieldset>
+      )}
+
+      {activeTab === 'contact' && (
+        <fieldset className="edit-fieldset">
+          <legend>Contact &amp; Address</legend>
+          <div className="edit-grid">
+            <Field label="Mobile Number" value={form.phone} onChange={set('phone')} />
+            <Field label="Personal Email" type="email" value={form.personal_email} onChange={set('personal_email')} />
+            <Field label="Work Email" type="email" value={form.work_email} onChange={set('work_email')} />
+            <Field label="Current Address" as="textarea" value={form.current_address} onChange={set('current_address')} wide />
+            <Field label="City" value={form.city} onChange={set('city')} />
+            <Field label="Country" value={form.country} onChange={set('country')} />
+          </div>
+        </fieldset>
+      )}
+
+      {activeTab === 'employment' && (
+        <fieldset className="edit-fieldset">
+          <legend>Employment Details</legend>
+          <div className="edit-grid">
+            <Field label="Designation / Job Title" value={form.designation} onChange={set('designation')} />
+            <Field label="Work Location" value={form.work_location} onChange={set('work_location')} />
+            <Field label="Reporting Manager" value={form.manager_name} onChange={set('manager_name')} />
+            <Field label="Employment Status" as="select" value={form.employment_status} onChange={set('employment_status')}>
+              <option value="">Select</option>
+              <option>Active</option>
+              <option>On Leave</option>
+              <option>Inactive</option>
+              <option>Resigned</option>
+            </Field>
+          </div>
+        </fieldset>
+      )}
+
+      {activeTab === 'emergency' && (
+        <fieldset className="edit-fieldset">
+          <legend>Emergency Contact</legend>
+          <div className="edit-grid">
+            <Field label="Full Name" value={form.emergency_contact_name} onChange={set('emergency_contact_name')} />
+            <Field label="Relationship" value={form.emergency_contact_relationship} onChange={set('emergency_contact_relationship')} />
+            <Field label="Phone Number" value={form.emergency_contact_phone} onChange={set('emergency_contact_phone')} />
+            <Field label="Alternate Phone" value={form.emergency_contact_alt_phone} onChange={set('emergency_contact_alt_phone')} />
+          </div>
+        </fieldset>
+      )}
+
+      {activeTab === 'bank' && (
+        <fieldset className="edit-fieldset">
+          <legend>Bank / Payroll</legend>
+          <div className="edit-grid">
+            <Field label="Bank Name" value={form.bank_name} onChange={set('bank_name')} />
+            <Field label="Account Holder Name" value={form.account_holder_name} onChange={set('account_holder_name')} />
+            <Field label="IBAN / Account Number" value={form.iban} onChange={set('iban')} />
+          </div>
+        </fieldset>
+      )}
+
+      {activeTab === 'documents' && (
+        <fieldset className="edit-fieldset">
+          <legend>Document Metadata</legend>
+          <p className="edit-fieldset__hint">Update document numbers and dates here. Upload files using the cards below.</p>
+          <div className="edit-grid">
+            <Field label="Passport Number" value={form.passport_number} onChange={set('passport_number')} />
+            <Field label="Passport Issue Date" type="date" value={form.passport_issue_date} onChange={set('passport_issue_date')} />
+            <Field label="Passport Expiry Date" type="date" value={form.passport_expiry_date} onChange={set('passport_expiry_date')} />
+            <div className="edit-grid__divider" />
+            <Field label="Visa Number" value={form.visa_number} onChange={set('visa_number')} />
+            <Field label="Visa Issue Date" type="date" value={form.visa_issue_date} onChange={set('visa_issue_date')} />
+            <Field label="Visa Expiry Date" type="date" value={form.visa_expiry_date} onChange={set('visa_expiry_date')} />
+            <div className="edit-grid__divider" />
+            <Field label="Emirates ID Number" value={form.emirates_id} onChange={set('emirates_id')} />
+            <Field label="Emirates ID Issue Date" type="date" value={form.emirates_id_issue_date} onChange={set('emirates_id_issue_date')} />
+            <Field label="Emirates ID Expiry Date" type="date" value={form.emirates_id_expiry_date} onChange={set('emirates_id_expiry_date')} />
+          </div>
+        </fieldset>
+      )}
+
+      <div className="edit-form__actions">
+        <button type="submit" className="btn btn--primary" disabled={saving}>
+          {saving ? 'Saving…' : 'Save Changes'}
+        </button>
+        <button type="button" className="btn btn--ghost" onClick={onCancel} disabled={saving}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  )
+}
+
+function Field({ label, as, type = 'text', value, onChange, wide, children }) {
+  const cls = `edit-field ${wide ? 'edit-field--wide' : ''}`
+  return (
+    <div className={cls}>
+      <label className="edit-field__label">{label}</label>
+      {as === 'select' ? (
+        <select className="edit-field__input" value={value} onChange={onChange}>{children}</select>
+      ) : as === 'textarea' ? (
+        <textarea className="edit-field__input edit-field__textarea" value={value} onChange={onChange} rows={3} />
+      ) : (
+        <input className="edit-field__input" type={type} value={value} onChange={onChange} />
+      )}
+    </div>
+  )
+}
+
+// ── Documents Section ─────────────────────────────────────────────────────────
+
+function DocumentCard({ icon, title, docKey, docUrl, fields, onUpload, onDelete }) {
+  const [uploading, setUploading] = useState(false)
+  const [uploadErr, setUploadErr] = useState(null)
+  const [localUrl, setLocalUrl] = useState(null)
+
+  const effectiveUrl = localUrl || docUrl
+  const hasDoc = !!(docKey || effectiveUrl)
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    setUploadErr(null)
+    setUploading(true)
+    try {
+      const result = await onUpload(file)
+      setLocalUrl(result.docUrl)
+    } catch (err) {
+      setUploadErr(err.message || 'Upload failed')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!window.confirm('Remove this document?')) return
+    try {
+      await onDelete()
+      setLocalUrl(null)
+    } catch (err) {
+      setUploadErr(err.message || 'Delete failed')
+    }
+  }
+
+  return (
+    <div className={`doc-card ${hasDoc ? 'doc-card--has-doc' : ''}`}>
+      <div className="doc-card__header">
+        <span className="doc-card__icon">{icon}</span>
+        <h4 className="doc-card__title">{title}</h4>
+        {hasDoc && <span className="badge badge--success doc-card__badge">Uploaded</span>}
+      </div>
+
+      <dl className="doc-card__fields">
+        {fields.map(({ label, value }) => (
+          <div key={label} className="doc-card__field">
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+
+      {uploadErr && <p className="doc-card__error">{uploadErr}</p>}
+
+      <div className="doc-card__actions">
+        {effectiveUrl && (
+          <a href={effectiveUrl} target="_blank" rel="noopener noreferrer" className="btn btn--ghost btn--sm">
+            View / Download
+          </a>
+        )}
+        <label className={`btn btn--accent btn--sm ${uploading ? 'btn--disabled' : ''}`}>
+          {uploading ? 'Uploading…' : hasDoc ? 'Replace' : 'Upload'}
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp,application/pdf"
+            onChange={handleFileChange}
+            disabled={uploading}
+            style={{ display: 'none' }}
+          />
+        </label>
+        {hasDoc && (
+          <button type="button" className="btn btn--danger btn--sm" onClick={handleDelete}>
+            Remove
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function DocumentsSection({ profile, onDocUploaded, onDocDeleted }) {
+  const handleUpload = (docType) => async (file) => {
+    const result = await uploadProfileDoc(docType, file)
+    onDocUploaded(docType, result)
+    return result
+  }
+
+  const handleDelete = (docType) => async () => {
+    await deleteProfileDoc(docType)
+    onDocDeleted(docType)
+  }
+
+  return (
+    <div className="docs-grid">
+      <DocumentCard
+        icon="🛂"
+        title="Passport"
+        docKey={profile.passport_doc_key}
+        docUrl={profile.passport_doc_url}
+        fields={[
+          { label: 'Number', value: val(profile.passport_number) },
+          { label: 'Issue Date', value: fmtDate(profile.passport_issue_date) },
+          { label: 'Expiry Date', value: fmtDate(profile.passport_expiry_date) },
+        ]}
+        onUpload={handleUpload('passport')}
+        onDelete={handleDelete('passport')}
+      />
+      <DocumentCard
+        icon="📄"
+        title="Visa"
+        docKey={profile.visa_doc_key}
+        docUrl={profile.visa_doc_url}
+        fields={[
+          { label: 'Number', value: val(profile.visa_number) },
+          { label: 'Issue Date', value: fmtDate(profile.visa_issue_date) },
+          { label: 'Expiry Date', value: fmtDate(profile.visa_expiry_date) },
+        ]}
+        onUpload={handleUpload('visa')}
+        onDelete={handleDelete('visa')}
+      />
+      <DocumentCard
+        icon="🪪"
+        title="Emirates ID"
+        docKey={profile.emirates_id_doc_key}
+        docUrl={profile.emirates_id_doc_url}
+        fields={[
+          { label: 'Number', value: val(profile.emirates_id) },
+          { label: 'Issue Date', value: fmtDate(profile.emirates_id_issue_date) },
+          { label: 'Expiry Date', value: fmtDate(profile.emirates_id_expiry_date) },
+        ]}
+        onUpload={handleUpload('emirates-id')}
+        onDelete={handleDelete('emirates-id')}
+      />
+    </div>
+  )
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+
+const TABS = [
+  { id: 'personal', label: 'Personal' },
+  { id: 'contact', label: 'Contact' },
+  { id: 'employment', label: 'Employment' },
+  { id: 'documents', label: 'Documents' },
+  { id: 'emergency', label: 'Emergency' },
+  { id: 'bank', label: 'Bank' },
+]
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+
+export function EmployeeAccountPage() {
+  const { user } = useAuth()
+  const { profile, loading, error, update, setProfile } = useProfile()
+  const [activeTab, setActiveTab] = useState('personal')
+  const [editing, setEditing] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+
+  if (user?.role !== 'employee') return <Navigate to="/" replace />
+
+  const handleSave = useCallback(async (formData) => {
+    await update(formData)
+    setEditing(false)
+    setSaveSuccess(true)
+    setTimeout(() => setSaveSuccess(false), 3000)
+  }, [update])
+
+  const handleDocUploaded = useCallback((docType, result) => {
+    setProfile((prev) => {
+      if (!prev) return prev
+      const keyField = docType === 'emirates-id' ? 'emirates_id_doc_key' : `${docType}_doc_key`
+      const urlField = docType === 'emirates-id' ? 'emirates_id_doc_url' : `${docType}_doc_url`
+      return { ...prev, [keyField]: result.key, [urlField]: result.docUrl }
+    })
+  }, [setProfile])
+
+  const handleDocDeleted = useCallback((docType) => {
+    setProfile((prev) => {
+      if (!prev) return prev
+      const keyField = docType === 'emirates-id' ? 'emirates_id_doc_key' : `${docType}_doc_key`
+      const urlField = docType === 'emirates-id' ? 'emirates_id_doc_url' : `${docType}_doc_url`
+      return { ...prev, [keyField]: null, [urlField]: null }
+    })
+  }, [setProfile])
+
+  return (
+    <div className="page profile-page">
+      {loading && !profile && (
+        <div className="profile-loading">
+          <span className="profile-loading__spinner" />
+          Loading profile…
         </div>
-        <div className="employee-account-card">
-          <h2 className="employee-account-card__title">My account</h2>
-          <p className="employee-account-card__text">
-            Account settings and password changes can be added here later.
-          </p>
-        </div>
-      </section>
+      )}
+      {error && !profile && (
+        <p className="page-error">{error}</p>
+      )}
+      {profile && (
+        <>
+          <ProfileHeader
+            profile={profile}
+            editing={editing}
+            onEditToggle={() => { setEditing(!editing); setSaveSuccess(false) }}
+          />
+
+          {saveSuccess && (
+            <div className="profile-success-banner" role="status">
+              ✓ Profile saved successfully
+            </div>
+          )}
+
+          <div className="profile-tab-bar">
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`profile-tab ${activeTab === t.id ? 'profile-tab--active' : ''}`}
+                onClick={() => { setActiveTab(t.id); setEditing(false) }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="profile-tab-content">
+            {editing && activeTab !== 'documents' ? (
+              <EditForm
+                profile={profile}
+                activeTab={activeTab}
+                onSave={handleSave}
+                onCancel={() => setEditing(false)}
+              />
+            ) : (
+              <>
+                {activeTab === 'personal' && <PersonalView p={profile} />}
+                {activeTab === 'contact' && <ContactView p={profile} />}
+                {activeTab === 'employment' && <EmploymentView p={profile} />}
+                {activeTab === 'emergency' && <EmergencyView p={profile} />}
+                {activeTab === 'bank' && <BankView p={profile} />}
+                {activeTab === 'documents' && (
+                  <>
+                    {editing && (
+                      <EditForm
+                        profile={profile}
+                        activeTab="documents"
+                        onSave={handleSave}
+                        onCancel={() => setEditing(false)}
+                      />
+                    )}
+                    <DocumentsSection
+                      profile={profile}
+                      onDocUploaded={handleDocUploaded}
+                      onDocDeleted={handleDocDeleted}
+                    />
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        </>
+      )}
     </div>
   )
 }

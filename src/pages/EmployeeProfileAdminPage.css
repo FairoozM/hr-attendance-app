@@ -1,0 +1,39 @@
+.admin-profile-nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.admin-profile-nav__label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.admin-profile-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.admin-profile-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  box-shadow: var(--shadow);
+}
+
+.admin-profile-section__title {
+  margin: 0 0 1rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-profile-completion {
+  margin-top: 0.25rem;
+}

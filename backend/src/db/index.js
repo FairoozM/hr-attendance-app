@@ -149,6 +149,44 @@ async function ensureWarehouseUser() {
   console.log('[auth] Seeded warehouse user: %s', whUser)
 }
 
+async function ensureProfileColumns() {
+  const cols = [
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS date_of_birth DATE`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS gender VARCHAR(20)`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS marital_status VARCHAR(30)`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS personal_email VARCHAR(255)`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS work_email VARCHAR(255)`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS current_address TEXT`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS city VARCHAR(100)`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS country VARCHAR(100)`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS designation VARCHAR(255)`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS work_location VARCHAR(255)`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS manager_name VARCHAR(255)`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS employment_status VARCHAR(50)`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS emergency_contact_name VARCHAR(255)`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS emergency_contact_relationship VARCHAR(100)`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS emergency_contact_phone VARCHAR(50)`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS emergency_contact_alt_phone VARCHAR(50)`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS bank_name VARCHAR(255)`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS account_holder_name VARCHAR(255)`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS iban VARCHAR(100)`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS passport_issue_date DATE`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS passport_expiry_date DATE`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS passport_doc_key TEXT`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS visa_number VARCHAR(100)`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS visa_issue_date DATE`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS visa_expiry_date DATE`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS visa_doc_key TEXT`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS emirates_id_issue_date DATE`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS emirates_id_expiry_date DATE`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS emirates_id_doc_key TEXT`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS photo_doc_key TEXT`,
+  ]
+  for (const sql of cols) {
+    await query(sql)
+  }
+}
+
 async function testConnection() {
   const result = await query('SELECT NOW()')
   const now = result.rows[0]?.now
@@ -162,6 +200,7 @@ async function testConnection() {
   await ensureUsersTable()
   await ensureDefaultAdminUser()
   await ensureWarehouseUser()
+  await ensureProfileColumns()
 }
 
 module.exports = {
