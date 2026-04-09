@@ -1,12 +1,13 @@
 import { useState, useCallback, useEffect } from 'react'
 import { api } from '../api/client'
 
-export function useProfile() {
+export function useProfile(enabled = true) {
   const [profile, setProfile] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState(null)
 
   const load = useCallback(async () => {
+    if (!enabled) return
     setLoading(true)
     setError(null)
     try {
@@ -17,11 +18,12 @@ export function useProfile() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [enabled])
 
   useEffect(() => {
-    load()
-  }, [load])
+    if (enabled) load()
+    else setLoading(false)
+  }, [enabled, load])
 
   const update = useCallback(async (data) => {
     const updated = await api.put('/api/profile', data)

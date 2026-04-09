@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
-import { Navigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useProfile, uploadProfileDoc, deleteProfileDoc } from '../hooks/useProfile'
+import { PasswordSection } from '../components/PasswordSection'
 import './Page.css'
 import './EmployeeAccountPage.css'
 
@@ -505,25 +505,30 @@ function DocumentsSection({ profile, onDocUploaded, onDocDeleted }) {
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 
-const TABS = [
+const EMPLOYEE_TABS = [
   { id: 'personal', label: 'Personal' },
   { id: 'contact', label: 'Contact' },
   { id: 'employment', label: 'Employment' },
   { id: 'documents', label: 'Documents' },
   { id: 'emergency', label: 'Emergency' },
   { id: 'bank', label: 'Bank' },
+  { id: 'security', label: '🔒 Security' },
+]
+
+const SECURITY_ONLY_TABS = [
+  { id: 'security', label: '🔒 Security' },
 ]
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export function EmployeeAccountPage() {
   const { user } = useAuth()
-  const { profile, loading, error, update, setProfile } = useProfile()
-  const [activeTab, setActiveTab] = useState('personal')
+  const isEmployee = user?.role === 'employee'
+  const { profile, loading, error, update, setProfile } = useProfile(isEmployee)
+  const TABS = isEmployee ? EMPLOYEE_TABS : SECURITY_ONLY_TABS
+  const [activeTab, setActiveTab] = useState(isEmployee ? 'personal' : 'security')
   const [editing, setEditing] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
-
-  if (user?.role !== 'employee') return <Navigate to="/" replace />
 
   const handleSave = useCallback(async (formData) => {
     await update(formData)
@@ -549,6 +554,34 @@ export function EmployeeAccountPage() {
       return { ...prev, [keyField]: null, [urlField]: null }
     })
   }, [setProfile])
+
+  // Non-employee users (admin, warehouse) see only the account header + security tab
+  if (!isEmployee) {
+    return (
+      <div className="page profile-page">
+        <div className="profile-header">
+          <div className="profile-header__avatar-placeholder" style={{ flexShrink: 0 }}>
+            {(user?.displayName || user?.username || '?').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()}
+          </div>
+          <div className="profile-header__info">
+            <h2 className="profile-header__name">{user?.displayName || user?.username}</h2>
+            <div className="profile-header__badges">
+              <span className="badge badge--success">{user?.role}</span>
+              <span className="profile-header__code">@{user?.username}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="profile-tab-bar">
+          <button type="button" className="profile-tab profile-tab--active">🔒 Security</button>
+        </div>
+
+        <div className="profile-tab-content">
+          <PasswordSection />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="page profile-page">
@@ -589,7 +622,9 @@ export function EmployeeAccountPage() {
           </div>
 
           <div className="profile-tab-content">
-            {editing && activeTab !== 'documents' ? (
+            {activeTab === 'security' ? (
+              <PasswordSection />
+            ) : editing && activeTab !== 'documents' ? (
               <EditForm
                 profile={profile}
                 activeTab={activeTab}

@@ -4,6 +4,7 @@ const express = require('express')
 const cors = require('cors')
 const authMiddleware = require('./middleware/auth')
 const authRouter = require('./routes/auth')
+const adminRouter = require('./routes/admin')
 const profileRouter = require('./routes/profile')
 const employeesRoutes = require('./routes/employees')
 const attendanceRoutes = require('./routes/attendance')
@@ -28,8 +29,11 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' })
 })
 
-// Auth router — POST /api/auth/login, GET /api/auth/login (405), GET /api/auth/me
+// Auth router — POST /api/auth/login, GET /api/auth/login (405), GET /api/auth/me, POST /api/auth/change-password
 app.use('/api/auth', authRouter)
+
+// Admin user management (list users, reset passwords)
+app.use('/api/admin', authMiddleware.attachAuth, adminRouter)
 
 // Employee self-service profile
 app.use('/api/profile', authMiddleware.attachAuth, profileRouter)

@@ -21,4 +21,7 @@ router.get('/login', (_req, res) => {
 // GET /api/auth/me — returns { user } for the authenticated session
 router.get('/me', attachAuth, requireAuth, authController.me)
 
+// POST /api/auth/change-password — authenticated self-service password change (any role)
+router.post('/change-password', attachAuth, requireAuth, authController.changePassword)
+
 module.exports = router

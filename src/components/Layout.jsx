@@ -62,7 +62,7 @@ export function Layout() {
             {isEmployee ? (
               <>
                 <NavLink to="/account" className={navLinkClass} onClick={closeSidebar}>
-                  My account
+                  My Profile
                 </NavLink>
                 <NavLink to="/annual-leave" className={navLinkClass} onClick={closeSidebar}>
                   Annual Leave
@@ -92,6 +92,12 @@ export function Layout() {
                     </NavLink>
                   </>
                 )}
+                <div className="app-sidebar__section-label" role="presentation">
+                  Account
+                </div>
+                <NavLink to="/account" className={navLinkClass} onClick={closeSidebar}>
+                  My Account
+                </NavLink>
               </>
             )}
           </nav>

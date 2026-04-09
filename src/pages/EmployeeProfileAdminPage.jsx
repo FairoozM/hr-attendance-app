@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Navigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { fetchEmployeeProfile } from '../hooks/useProfile'
+import { api } from '../api/client'
+import { AdminResetPasswordPanel } from '../components/PasswordSection'
 import './Page.css'
 import './EmployeeAccountPage.css'
 import './EmployeeProfileAdminPage.css'
@@ -98,6 +100,8 @@ export function EmployeeProfileAdminPage() {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [portalUser, setPortalUser] = useState(null)
+  const [showResetPwd, setShowResetPwd] = useState(false)
 
   if (user?.role !== 'admin') return <Navigate to="/" replace />
 
@@ -108,6 +112,14 @@ export function EmployeeProfileAdminPage() {
       .then(setProfile)
       .catch((err) => setError(err.message || 'Failed to load profile'))
       .finally(() => setLoading(false))
+
+    // Fetch portal user linked to this employee (for password reset)
+    api.get('/api/admin/users')
+      .then((users) => {
+        const linked = users.find((u) => String(u.employee_id) === String(id))
+        setPortalUser(linked || null)
+      })
+      .catch(() => setPortalUser(null))
   }, [id])
 
   const pct = calcCompletion(profile)
@@ -244,6 +256,45 @@ export function EmployeeProfileAdminPage() {
                   ]}
                 />
               </div>
+            </div>
+
+            {/* Portal / Password Reset */}
+            <div className="admin-profile-section">
+              <h3 className="admin-profile-section__title">Portal Account</h3>
+              {portalUser ? (
+                <div className="admin-profile-portal">
+                  <div className="admin-profile-portal__info">
+                    <span className="info-row__label">Username</span>
+                    <span className="info-row__value" style={{ fontFamily: 'monospace' }}>{portalUser.username}</span>
+                  </div>
+                  <div className="admin-profile-portal__info">
+                    <span className="info-row__label">Role</span>
+                    <span className="info-row__value">{portalUser.role}</span>
+                  </div>
+                  {!showResetPwd ? (
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--sm"
+                      style={{ marginTop: '0.75rem' }}
+                      onClick={() => setShowResetPwd(true)}
+                    >
+                      Reset Portal Password
+                    </button>
+                  ) : (
+                    <div style={{ marginTop: '1rem' }}>
+                      <AdminResetPasswordPanel
+                        userId={portalUser.id}
+                        username={portalUser.username}
+                        onClose={() => setShowResetPwd(false)}
+                      />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+                  This employee does not have a portal login account.
+                </p>
+              )}
             </div>
           </div>
         </>

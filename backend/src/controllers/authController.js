@@ -73,4 +73,43 @@ async function me(req, res) {
   }
 }
 
-module.exports = { login, me }
+async function changePassword(req, res) {
+  try {
+    const userId = req.user?.userId
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' })
+
+    const currentPassword = req.body.currentPassword != null ? String(req.body.currentPassword) : ''
+    const newPassword = req.body.newPassword != null ? String(req.body.newPassword) : ''
+    const confirmPassword = req.body.confirmPassword != null ? String(req.body.confirmPassword) : ''
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      return res.status(400).json({ error: 'Current password, new password, and confirm password are all required' })
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters' })
+    }
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ error: 'New password and confirm password do not match' })
+    }
+    if (currentPassword === newPassword) {
+      return res.status(400).json({ error: 'New password must be different from your current password' })
+    }
+
+    const row = await usersService.findById(userId)
+    if (!row) return res.status(401).json({ error: 'User not found' })
+
+    const ok = await bcrypt.compare(currentPassword, row.password_hash)
+    if (!ok) {
+      return res.status(401).json({ error: 'Current password is incorrect' })
+    }
+
+    await usersService.updatePassword(userId, newPassword)
+    console.log('[auth] Password changed for user id', userId, 'role', row.role)
+    return res.json({ success: true, message: 'Password updated successfully' })
+  } catch (err) {
+    console.error('[auth] changePassword error:', err)
+    return res.status(500).json({ error: err.message || 'Failed to change password' })
+  }
+}
+
+module.exports = { login, me, changePassword }
