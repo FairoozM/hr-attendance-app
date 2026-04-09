@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { api } from '../api/client'
-import { employeesSocket } from '../api/socket'
+import { getEmployeesSocket } from '../api/socket'
 import { useAuth } from '../contexts/AuthContext'
 
 /**
@@ -76,12 +76,13 @@ export function useEmployees() {
   }, [fetchEmployees])
 
   useEffect(() => {
+    const socket = getEmployeesSocket()
     const onEmployeesChanged = () => {
       fetchEmployees()
     }
-    employeesSocket.on('employees:changed', onEmployeesChanged)
+    socket.on('employees:changed', onEmployeesChanged)
     return () => {
-      employeesSocket.off('employees:changed', onEmployeesChanged)
+      socket.off('employees:changed', onEmployeesChanged)
     }
   }, [fetchEmployees])
 

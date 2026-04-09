@@ -1,10 +1,17 @@
 import { useState } from 'react'
-import { useNavigate, useLocation, Navigate } from 'react-router-dom'
+import { useNavigate, useLocation, Navigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { getApiBaseUrl } from '../api/config'
+import { ApiRoutingDebug } from '../components/ApiRoutingDebug'
+import { ApiServerSetup } from '../components/ApiServerSetup'
 import './Page.css'
 import './LoginPage.css'
 
 export function LoginPage() {
+  const [searchParams] = useSearchParams()
+  const needsApiSetup = import.meta.env.PROD && !getApiBaseUrl()
+  const showApiDebug =
+    (import.meta.env.DEV || searchParams.get('apiDebug') === '1') && !needsApiSetup
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -36,40 +43,49 @@ export function LoginPage() {
     <div className="page login-page">
       <div className="login-card">
         <h1 className="login-title">HR Attendance</h1>
-        <p className="login-subtitle">Sign in with your admin, warehouse, or employee portal credentials</p>
-        <form className="login-form" onSubmit={handleSubmit}>
-          {error && (
-            <p className="login-error" role="alert">
-              {error}
+        {needsApiSetup ? (
+          <ApiServerSetup />
+        ) : (
+          <>
+            <p className="login-subtitle">
+              Sign in with your admin, warehouse, or employee portal credentials
             </p>
-          )}
-          <label className="login-label">
-            Username
-            <input
-              type="text"
-              className="login-input"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
-              autoFocus
-              required
-            />
-          </label>
-          <label className="login-label">
-            Password
-            <input
-              type="password"
-              className="login-input"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              required
-            />
-          </label>
-          <button type="submit" className="btn btn--primary login-submit">
-            Sign in
-          </button>
-        </form>
+            <form className="login-form" onSubmit={handleSubmit}>
+              {error && (
+                <p className="login-error" role="alert">
+                  {error}
+                </p>
+              )}
+              <label className="login-label">
+                Username
+                <input
+                  type="text"
+                  className="login-input"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  autoComplete="username"
+                  autoFocus
+                  required
+                />
+              </label>
+              <label className="login-label">
+                Password
+                <input
+                  type="password"
+                  className="login-input"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  required
+                />
+              </label>
+              <button type="submit" className="btn btn--primary login-submit">
+                Sign in
+              </button>
+            </form>
+            {showApiDebug && <ApiRoutingDebug />}
+          </>
+        )}
       </div>
     </div>
   )

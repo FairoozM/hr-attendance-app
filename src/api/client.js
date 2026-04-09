@@ -1,11 +1,18 @@
-import { API_BASE_URL } from './config.js'
+import { getApiBaseUrl } from './config.js'
 
 const AUTH_STORAGE_KEY = 'hr-auth'
 
 /** Login and all API calls use paths under `/api/...` (e.g. `POST /api/auth/login`). */
-function resolveApiUrl(path) {
+export function resolveApiUrl(path) {
   if (typeof path !== 'string' || path.startsWith('http')) return path
-  return `${API_BASE_URL}${path}`
+  return `${getApiBaseUrl()}${path}`
+}
+
+const BODY_PREVIEW_LEN = 300
+
+function previewBody(text, max = BODY_PREVIEW_LEN) {
+  const raw = String(text ?? '')
+  return raw.length > max ? `${raw.slice(0, max)}…` : raw
 }
 
 function contentTypeLooksJson(ct) {
@@ -61,9 +68,6 @@ async function handleResponse(res, requestUrl) {
     return null
   }
 
-  const preview = text.slice(0, 280).replace(/\s+/g, ' ')
-  const previewSuffix = text.length > 280 ? '…' : ''
-
   let data
   try {
     data = JSON.parse(text)
@@ -72,17 +76,21 @@ async function handleResponse(res, requestUrl) {
       bodyLooksLikeHtml(text) || contentType.toLowerCase().includes('text/html')
 
     console.warn('[api] Non-JSON response', {
-      url,
+      requestUrl: url,
       status: res.status,
       contentType: contentType || '(missing)',
-      preview: preview + previewSuffix,
+      bodyPreview: previewBody(text),
     })
 
-    const htmlMessage = 'API returned HTML instead of JSON. Check CloudFront /api routing.'
+    const base = getApiBaseUrl()
+    const htmlMessage =
+      `Server returned non-JSON response from ${url} (HTTP ${res.status}). ` +
+      `Got HTML instead of JSON — the page is not reaching your Express API. ` +
+      `Fix: set your backend URL on the login screen (saved in this browser), or add a CloudFront /api/* behavior to your API origin, or set VITE_API_BASE_URL / api-runtime-config.js.`
     const fallbackMessage =
-      API_BASE_URL === ''
-        ? `${htmlMessage} Or set VITE_API_BASE_URL to your API origin and rebuild.`
-        : `Expected JSON from ${url} (HTTP ${res.status}) but parsing failed. content-type: ${contentType || '(none)'}; VITE_API_BASE_URL=${API_BASE_URL || '(empty)'}`
+      base === ''
+        ? `${htmlMessage} (No API base URL is set.)`
+        : `Expected JSON from ${url} (HTTP ${res.status}) but parsing failed. content-type: ${contentType || '(none)'}; API base=${base || '(empty)'}`
 
     let message
     if (isHtmlResponse) {
@@ -110,8 +118,10 @@ async function handleResponse(res, requestUrl) {
 
   if (!contentTypeLooksJson(contentType) && res.ok) {
     console.warn('[api] JSON parsed but Content-Type is not application/json', {
-      url,
+      requestUrl: url,
+      status: res.status,
       contentType: contentType || '(missing)',
+      bodyPreview: previewBody(text),
     })
   }
 
@@ -156,4 +166,33 @@ export const api = {
   delete: (path) => request('DELETE', path),
 }
 
-export { API_BASE_URL as BASE_URL, AUTH_STORAGE_KEY }
+/**
+ * Temporary routing check: GET /api/health with same base URL as other API calls.
+ * Use on login with ?apiDebug=1 to verify CloudFront routes /api/* to the backend.
+ */
+export async function probeApiHealth() {
+  const url = resolveApiUrl('/api/health')
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    cache: 'no-store',
+  })
+  const contentType = res.headers.get('content-type') || ''
+  const text = await res.text()
+  let isJson = false
+  try {
+    JSON.parse(text)
+    isJson = true
+  } catch {
+    isJson = false
+  }
+  return {
+    requestUrl: url,
+    status: res.status,
+    contentType: contentType || '(missing)',
+    isJson,
+    bodyPreview: previewBody(text, 500),
+  }
+}
+
+export { getApiBaseUrl, getApiBaseUrl as BASE_URL, AUTH_STORAGE_KEY }

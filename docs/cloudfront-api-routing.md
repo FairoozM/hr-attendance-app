@@ -8,13 +8,22 @@ You need **one of**:
 
 ## Option A — Path-based behaviors on a single distribution (typical)
 
+### Required CloudFront configuration (infrastructure)
+
+- **Separate behavior for the API** (must be ordered **above** the default):
+  - **Path pattern**: `/api/*`
+  - **Origin**: backend server (ALB, custom domain to Node, etc.) — **not** the S3 static site bucket
+  - **Allowed HTTP methods**: `GET`, `HEAD`, `OPTIONS`, `PUT`, `POST`, `PATCH`, `DELETE` (so login and CRUD work)
+  - **Caching**: disabled (use **CachingDisabled** or **Managed-CachingDisabled**). API responses must not be cached as HTML or stale JSON.
+
+- **Default behavior** (`*`):
+  - **Origin**: frontend static hosting only (S3 or S3 website endpoint)
+  - Serves the React app (`index.html` for SPA routes, hashed assets).
+
 | Priority | Path pattern | Origin | Notes |
 |----------|--------------|--------|--------|
 | 1 (higher) | `/api/*` | **API origin** (ALB / custom domain to Node) | Forward all methods; optional: `/api` → strip or pass through as your app expects. |
-| 2 (default `*`) | `*` (default) | **S3** (or S3 + website) | SPA + hashed assets. |
-
-- **Default behavior**: serves the React app (`index.html` for SPA routes, static assets).
-- **`/api/*` behavior**: must point to the **same host:port (or HTTPS) as Express**, with **no** S3 in front of `/api`.
+| 2 (default `*`) | `*` (default) | **S3** (or S3 + website) | SPA + hashed assets only. |
 
 **Origin request / cache**:
 
