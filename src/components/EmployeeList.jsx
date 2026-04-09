@@ -22,7 +22,7 @@ import {
 import { excelFilterIsActive } from './ExcelStyleColumnFilter'
 import './EmployeeList.css'
 
-const PAGE_SIZE = 10
+const PAGE_SIZE = 20
 
 function compareRows(a, b, sortKey, sortDir) {
   const mul = sortDir === 'asc' ? 1 : -1

@@ -11,6 +11,11 @@ export function EmployeesPage({
   loading,
   error,
 }) {
+  // Only show the skeleton on the very first load (no data yet).
+  // During background refetches, keep EmployeeList mounted so it
+  // preserves its internal state (current page, filters, etc.).
+  const initialLoad = loading && employees.length === 0
+
   return (
     <div className="page employees-page">
       {error && (
@@ -20,12 +25,12 @@ export function EmployeesPage({
           </p>
         </section>
       )}
-      {loading && (
+      {initialLoad && (
         <section className="page-section page-section--fill employees-page__loading">
           <EmployeesTableSkeleton />
         </section>
       )}
-      {!loading && (
+      {!initialLoad && (
         <section className="page-section page-section--fill">
           <EmployeeList employees={employees} onAdd={onAdd} onEdit={onEdit} onDelete={onDelete} />
         </section>
