@@ -104,7 +104,8 @@ export function useEmployees() {
           nationality: employee.nationality || null,
           include_in_attendance: employee.includeInAttendance !== false,
         }
-        if (employee.portalUsername?.trim()) body.portal_username = employee.portalUsername.trim()
+        const portalEmail = employee.portalEmail?.trim() || employee.portalUsername?.trim()
+        if (portalEmail) body.portal_email = portalEmail
         if (employee.portalPassword) body.portal_password = employee.portalPassword
         const created = await api.post('/api/employees', body)
         setEmployees((prev) => [...prev, mapEmployee(created)])
@@ -135,7 +136,8 @@ export function useEmployees() {
           nationality: updates.nationality || null,
           include_in_attendance: updates.includeInAttendance !== false,
         }
-        if (updates.portalUsername?.trim()) body.portal_username = updates.portalUsername.trim()
+        const portalEmail = updates.portalEmail?.trim() || updates.portalUsername?.trim()
+        if (portalEmail) body.portal_email = portalEmail
         if (updates.portalPassword) body.portal_password = updates.portalPassword
         const updated = await api.put(`/api/employees/${id}`, body)
         setEmployees((prev) =>

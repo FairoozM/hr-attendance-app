@@ -121,7 +121,7 @@ async function ensureDefaultAdminUser() {
     return
   }
 
-  const username = String(process.env.ADMIN_USERNAME || 'admin').trim().toLowerCase()
+  const username = String(process.env.ADMIN_USERNAME || 'admin@company.com').trim().toLowerCase()
   const password =
     process.env.ADMIN_PASSWORD != null && String(process.env.ADMIN_PASSWORD) !== ''
       ? String(process.env.ADMIN_PASSWORD)
@@ -136,7 +136,7 @@ async function ensureDefaultAdminUser() {
 
 async function ensureWarehouseUser() {
   const rounds = 10
-  const whUser = String(process.env.WAREHOUSE_USERNAME || 'warehouse').trim().toLowerCase()
+  const whUser = String(process.env.WAREHOUSE_USERNAME || 'warehouse@company.com').trim().toLowerCase()
   const whCheck = await query(`SELECT id FROM users WHERE LOWER(username) = LOWER($1)`, [whUser])
   if (whCheck.rows.length > 0) return
 
@@ -147,6 +147,45 @@ async function ensureWarehouseUser() {
     [whUser, hash]
   )
   console.log('[auth] Seeded warehouse user: %s', whUser)
+}
+
+/**
+ * One-time migration: update non-email usernames to email format.
+ * - admin -> admin@company.com
+ * - warehouse -> warehouse@company.com
+ * - employee portal accounts without @ -> {employee_code}@portal.internal
+ */
+async function migrateUsernamesToEmail() {
+  // Migrate admin system account
+  await query(`
+    UPDATE users
+    SET username = COALESCE($1, 'admin@company.com')
+    WHERE role = 'admin' AND username NOT LIKE '%@%'
+  `, [process.env.ADMIN_USERNAME || 'admin@company.com'])
+
+  // Migrate warehouse system account
+  await query(`
+    UPDATE users
+    SET username = COALESCE($1, 'warehouse@company.com')
+    WHERE role = 'warehouse' AND username NOT LIKE '%@%'
+  `, [process.env.WAREHOUSE_USERNAME || 'warehouse@company.com'])
+
+  // Migrate employee portal accounts: use {employee_code}@portal.internal as placeholder
+  const migrated = await query(`
+    UPDATE users u
+    SET username = CONCAT(COALESCE(e.employee_code, CAST(u.id AS TEXT)), '@portal.internal')
+    FROM employees e
+    WHERE u.employee_id = e.id
+      AND u.role = 'employee'
+      AND u.username NOT LIKE '%@%'
+    RETURNING u.id, u.username
+  `)
+  if (migrated.rowCount > 0) {
+    console.log('[auth] Migrated %d employee portal accounts to email format', migrated.rowCount)
+    migrated.rows.forEach((r) =>
+      console.log('[auth]   user id %s → %s', r.id, r.username)
+    )
+  }
 }
 
 async function ensureProfileColumns() {
@@ -201,6 +240,7 @@ async function testConnection() {
   await ensureDefaultAdminUser()
   await ensureWarehouseUser()
   await ensureProfileColumns()
+  await migrateUsernamesToEmail()
 }
 
 module.exports = {

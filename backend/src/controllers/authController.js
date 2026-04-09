@@ -16,23 +16,25 @@ function buildUserPayload(row) {
 
 async function login(req, res) {
   try {
-    const username = req.body.username != null ? String(req.body.username).trim() : ''
+    // Accept 'email' or legacy 'username' field from request body
+    const rawIdentifier = (req.body.email ?? req.body.username ?? '')
+    const username = String(rawIdentifier).trim()
     const password = req.body.password != null ? String(req.body.password) : ''
-    console.log('[auth] POST /api/auth/login hit', { username: username || '(empty)' })
+    console.log('[auth] POST /api/auth/login hit', { email: username || '(empty)' })
     if (!username || !password) {
-      return res.status(400).json({ error: 'username and password are required' })
+      return res.status(400).json({ error: 'Email and password are required' })
     }
 
-    const row = await usersService.findByUsername(username)
+    const row = await usersService.findByEmail(username)
     if (!row) {
-      console.log('[auth] login: no user found for username', username)
-      return res.status(401).json({ error: 'Invalid username or password' })
+      console.log('[auth] login: no user found for email', username)
+      return res.status(401).json({ error: 'Invalid email or password' })
     }
 
     const ok = await bcrypt.compare(password, row.password_hash)
     if (!ok) {
       console.log('[auth] login: password mismatch for user id', row.id, 'role', row.role)
-      return res.status(401).json({ error: 'Invalid username or password' })
+      return res.status(401).json({ error: 'Invalid email or password' })
     }
 
     console.log('[auth] login: success user id', row.id, 'role', row.role)

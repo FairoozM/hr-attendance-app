@@ -264,7 +264,7 @@ export function EmployeeProfileAdminPage() {
               {portalUser ? (
                 <div className="admin-profile-portal">
                   <div className="admin-profile-portal__info">
-                    <span className="info-row__label">Username</span>
+                    <span className="info-row__label">Login Email</span>
                     <span className="info-row__value" style={{ fontFamily: 'monospace' }}>{portalUser.username}</span>
                   </div>
                   <div className="admin-profile-portal__info">

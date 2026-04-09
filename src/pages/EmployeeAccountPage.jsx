@@ -63,9 +63,28 @@ function CompletionBar({ pct }) {
 
 // ── Profile Header ─────────────────────────────────────────────────────────────
 
-function ProfileHeader({ profile, editing, onEditToggle }) {
+function ProfileHeader({ profile, editing, onEditToggle, onPhotoUploaded }) {
   const pct = calcCompletion(profile)
   const photoUrl = profile.photo_doc_url_signed || profile.photo_url
+  const [photoUploading, setPhotoUploading] = useState(false)
+  const [photoError, setPhotoError] = useState(null)
+
+  const handlePhotoChange = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    setPhotoError(null)
+    setPhotoUploading(true)
+    try {
+      const result = await uploadProfileDoc('photo', file)
+      onPhotoUploaded(result)
+    } catch (err) {
+      setPhotoError(err.message || 'Photo upload failed')
+    } finally {
+      setPhotoUploading(false)
+    }
+  }
+
   return (
     <div className="profile-header">
       <div className="profile-header__avatar-wrap">
@@ -76,6 +95,17 @@ function ProfileHeader({ profile, editing, onEditToggle }) {
             {initials(profile.full_name)}
           </div>
         )}
+        <label className="profile-header__photo-upload" title="Change photo">
+          {photoUploading ? '…' : '📷'}
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={handlePhotoChange}
+            disabled={photoUploading}
+            style={{ display: 'none' }}
+          />
+        </label>
+        {photoError && <p className="profile-header__photo-error">{photoError}</p>}
       </div>
       <div className="profile-header__info">
         <h2 className="profile-header__name">{profile.full_name}</h2>
@@ -196,6 +226,7 @@ function EditForm({ profile, activeTab, onSave, onCancel }) {
     current_address: profile.current_address || '',
     city: profile.city || '',
     country: profile.country || '',
+    joining_date: profile.joining_date ? String(profile.joining_date).slice(0, 10) : '',
     designation: profile.designation || '',
     work_location: profile.work_location || '',
     manager_name: profile.manager_name || '',
@@ -280,6 +311,7 @@ function EditForm({ profile, activeTab, onSave, onCancel }) {
         <fieldset className="edit-fieldset">
           <legend>Employment Details</legend>
           <div className="edit-grid">
+            <Field label="Joining Date" type="date" value={form.joining_date} onChange={set('joining_date')} />
             <Field label="Designation / Job Title" value={form.designation} onChange={set('designation')} />
             <Field label="Work Location" value={form.work_location} onChange={set('work_location')} />
             <Field label="Reporting Manager" value={form.manager_name} onChange={set('manager_name')} />
@@ -555,6 +587,14 @@ export function EmployeeAccountPage() {
     })
   }, [setProfile])
 
+  const handlePhotoUploaded = useCallback((result) => {
+    setProfile((prev) => prev ? {
+      ...prev,
+      photo_doc_key: result.key,
+      photo_doc_url_signed: result.docUrl,
+    } : prev)
+  }, [setProfile])
+
   // Non-employee users (admin, warehouse) see only the account header + security tab
   if (!isEmployee) {
     return (
@@ -567,7 +607,7 @@ export function EmployeeAccountPage() {
             <h2 className="profile-header__name">{user?.displayName || user?.username}</h2>
             <div className="profile-header__badges">
               <span className="badge badge--success">{user?.role}</span>
-              <span className="profile-header__code">@{user?.username}</span>
+              <span className="profile-header__code">{user?.username}</span>
             </div>
           </div>
         </div>
@@ -600,6 +640,7 @@ export function EmployeeAccountPage() {
             profile={profile}
             editing={editing}
             onEditToggle={() => { setEditing(!editing); setSaveSuccess(false) }}
+            onPhotoUploaded={handlePhotoUploaded}
           />
 
           {saveSuccess && (

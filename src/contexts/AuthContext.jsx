@@ -29,9 +29,9 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (username, password) => {
     const u = (username || '').trim()
     const p = password != null ? String(password) : ''
-    if (!u || !p) throw new Error('Invalid username or password')
+    if (!u || !p) throw new Error('Invalid email or password')
 
-    const res = await api.post('/api/auth/login', { username: u, password: p })
+    const res = await api.post('/api/auth/login', { email: u, password: p })
     if (!res?.user || !res?.token) {
       throw new Error('Login failed')
     }

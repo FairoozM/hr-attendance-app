@@ -51,7 +51,7 @@ export function LoginPage() {
     !import.meta.env.PROD ? 'ok' : 'checking'
   )
 
-  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const { user, login } = useAuth()
@@ -134,7 +134,7 @@ export function LoginPage() {
     e.preventDefault()
     setError('')
     try {
-      const u = await login(username.trim(), password)
+      const u = await login(email.trim(), password)
       if (u.role === 'employee') {
         navigate('/account', { replace: true })
       } else {
@@ -163,13 +163,13 @@ export function LoginPage() {
                 </p>
               )}
               <label className="login-label">
-                Username
+                Email Address
                 <input
-                  type="text"
+                  type="email"
                   className="login-input"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  autoComplete="username"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
                   autoFocus
                   required
                 />

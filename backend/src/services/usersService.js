@@ -3,8 +3,14 @@ const { query } = require('../db')
 
 const BCRYPT_ROUNDS = 10
 
-async function findByUsername(username) {
-  const u = String(username || '').trim()
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function isValidEmail(v) {
+  return EMAIL_RE.test(String(v || '').trim())
+}
+
+async function findByUsername(email) {
+  const u = String(email || '').trim().toLowerCase()
   if (!u) return null
   const result = await query(
     `SELECT u.id, u.username, u.password_hash, u.role, u.employee_id,
@@ -16,6 +22,9 @@ async function findByUsername(username) {
   )
   return result.rows[0] || null
 }
+
+/** Alias for semantic clarity when called from login flow */
+const findByEmail = findByUsername
 
 async function findById(id) {
   const result = await query(
@@ -47,10 +56,13 @@ async function findByEmployeeId(employeeId) {
 
 async function createUser({ username, password, role, employee_id }) {
   const uname = String(username || '').trim().toLowerCase()
-  if (!uname) throw new Error('username is required')
+  if (!uname) throw new Error('email is required')
+  if (!isValidEmail(uname)) throw new Error('Login must be a valid email address')
   if (!password || String(password).length < 8) {
     throw new Error('password must be at least 8 characters')
   }
+  const dup = await query(`SELECT id FROM users WHERE LOWER(username) = LOWER($1)`, [uname])
+  if (dup.rows.length > 0) throw new Error('This email is already registered')
   const hash = await bcrypt.hash(String(password), BCRYPT_ROUNDS)
   const result = await query(
     `INSERT INTO users (username, password_hash, role, employee_id)
@@ -71,20 +83,26 @@ async function updatePassword(userId, plainPassword) {
 
 async function updateUsername(userId, newUsername) {
   const uname = String(newUsername || '').trim().toLowerCase()
-  if (!uname) throw new Error('username is required')
+  if (!uname) throw new Error('email is required')
+  if (!isValidEmail(uname)) throw new Error('Login must be a valid email address')
   const dup = await query(`SELECT id FROM users WHERE LOWER(username) = LOWER($1) AND id != $2`, [
     uname,
     userId,
   ])
-  if (dup.rows.length > 0) throw new Error('username already in use')
+  if (dup.rows.length > 0) throw new Error('This email is already registered')
   await query(`UPDATE users SET username = $2, updated_at = NOW() WHERE id = $1`, [userId, uname])
 }
 
+/** Alias */
+const updateEmail = updateUsername
+
 /**
  * Create or update portal user for an employee (admin-only callers).
+ * Accepts portal_email (preferred) or legacy portal_username field.
  */
 async function syncEmployeePortal(employeeId, body, isCreate) {
-  const pu = body.portal_username != null ? String(body.portal_username).trim() : ''
+  const rawEmail = (body.portal_email ?? body.portal_username ?? '')
+  const pu = String(rawEmail).trim().toLowerCase()
   const pp = body.portal_password != null ? String(body.portal_password) : ''
 
   if (!pu && !pp) return null
@@ -93,7 +111,10 @@ async function syncEmployeePortal(employeeId, body, isCreate) {
 
   if (isCreate) {
     if (!pu || !pp) {
-      throw new Error('portal_username and portal_password are both required when enabling portal access')
+      throw new Error('portal_email and portal_password are both required when enabling portal access')
+    }
+    if (!isValidEmail(pu)) {
+      throw new Error('Portal login must be a valid email address')
     }
     if (existing) {
       throw new Error('portal user already exists for this employee')
@@ -108,13 +129,15 @@ async function syncEmployeePortal(employeeId, body, isCreate) {
 
   if (existing) {
     if (pp) await updatePassword(existing.id, pp)
-    if (pu && pu.toLowerCase() !== String(existing.username).toLowerCase()) {
+    if (pu && pu !== String(existing.username).toLowerCase()) {
+      if (!isValidEmail(pu)) throw new Error('Portal login must be a valid email address')
       await updateUsername(existing.id, pu)
     }
     return existing
   }
 
   if (pu && pp) {
+    if (!isValidEmail(pu)) throw new Error('Portal login must be a valid email address')
     return createUser({
       username: pu,
       password: pp,
@@ -124,7 +147,7 @@ async function syncEmployeePortal(employeeId, body, isCreate) {
   }
 
   if (pp && !existing) {
-    throw new Error('portal_username is required when setting a password for an employee without portal access')
+    throw new Error('portal_email is required when setting a password for an employee without portal access')
   }
 
   return null
@@ -136,12 +159,15 @@ async function deleteByEmployeeId(employeeId) {
 
 module.exports = {
   findByUsername,
+  findByEmail,
   findById,
   findByIdJoined,
   findByEmployeeId,
   createUser,
   updatePassword,
   updateUsername,
+  updateEmail,
   syncEmployeePortal,
   deleteByEmployeeId,
+  isValidEmail,
 }

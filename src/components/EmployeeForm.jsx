@@ -41,7 +41,7 @@ export function EmployeeForm({
   const [includeInAttendance, setIncludeInAttendance] = useState(
     initial?.includeInAttendance !== false
   )
-  const [portalUsername, setPortalUsername] = useState(initial?.portalUsername ?? '')
+  const [portalEmail, setPortalEmail] = useState(initial?.portalEmail ?? initial?.portalUsername ?? '')
   const [portalPassword, setPortalPassword] = useState('')
 
   useEffect(() => {
@@ -57,7 +57,7 @@ export function EmployeeForm({
     setPassportNumber(initial.passportNumber ?? '')
     setNationality(initial.nationality ?? '')
     setIncludeInAttendance(initial.includeInAttendance !== false)
-    setPortalUsername(initial.portalUsername ?? '')
+    setPortalEmail(initial.portalEmail ?? initial.portalUsername ?? '')
     setPortalPassword('')
   }, [
     initial?.employeeId,
@@ -71,6 +71,7 @@ export function EmployeeForm({
     initial?.passportNumber,
     initial?.nationality,
     initial?.includeInAttendance,
+    initial?.portalEmail,
     initial?.portalUsername,
     departments,
   ])
@@ -99,7 +100,7 @@ export function EmployeeForm({
       emiratesId: emptyToNull(emiratesId),
       passportNumber: emptyToNull(passportNumber),
       nationality: emptyToNull(nationality),
-      portalUsername: portalUsername.trim() || undefined,
+      portalEmail: portalEmail.trim() || undefined,
       portalPassword: portalPassword ? portalPassword : undefined,
     })
   }
@@ -260,18 +261,18 @@ export function EmployeeForm({
       <div className="employee-form__section">
         <span className="employee-form__section-title">Employee portal</span>
         <p className="employee-form__hint employee-form__hint--block">
-          Optional. Lets this employee sign in with their own username and password (minimum 8 characters).
+          Optional. Lets this employee sign in with their own email address and password (minimum 8 characters).
           When adding an employee, provide both fields to create portal access. When editing, leave the
           password blank to keep the current password.
         </p>
         <label className="employee-form__label">
-          Portal username
+          Portal login email
           <input
-            type="text"
+            type="email"
             className="employee-form__input"
-            placeholder="e.g. email or login name"
-            value={portalUsername}
-            onChange={(e) => setPortalUsername(e.target.value)}
+            placeholder="employee@example.com"
+            value={portalEmail}
+            onChange={(e) => setPortalEmail(e.target.value)}
             autoComplete="off"
           />
         </label>

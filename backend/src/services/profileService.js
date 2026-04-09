@@ -59,6 +59,7 @@ function parseTrim(v) {
 }
 
 const UPDATABLE_FIELDS = [
+  ['joining_date', parseDate],
   ['phone', parseTrim],
   ['nationality', parseTrim],
   ['date_of_birth', parseDate],

@@ -44,6 +44,39 @@
 
 .profile-header__avatar-wrap {
   flex-shrink: 0;
+  position: relative;
+}
+
+.profile-header__photo-upload {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  cursor: pointer;
+  border: 2px solid var(--surface);
+  line-height: 1;
+  transition: background 0.15s;
+}
+.profile-header__photo-upload:hover {
+  background: var(--accent-hover, #1d6be0);
+}
+
+.profile-header__photo-error {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  font-size: 0.7rem;
+  color: var(--danger, #e53e3e);
+  white-space: nowrap;
+  margin: 0.25rem 0 0;
 }
 
 .profile-header__avatar-img {
