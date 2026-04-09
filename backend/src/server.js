@@ -17,7 +17,12 @@ const io = new Server(server, {
 
 app.set('io', io)
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`)
-  testConnection()
+  try {
+    await testConnection()
+  } catch (err) {
+    console.error('Database startup failed:', err.message)
+    if (err.stack) console.error(err.stack)
+  }
 })

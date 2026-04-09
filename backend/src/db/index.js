@@ -104,48 +104,64 @@ async function ensureUsersTable() {
     )
   `)
   await query(`CREATE INDEX IF NOT EXISTS idx_users_employee_id ON users(employee_id)`)
+}
 
+/**
+ * Ensures exactly one default admin exists when none is present (role = 'admin').
+ * Password is hashed with bcrypt; does not insert if an admin row already exists.
+ */
+async function ensureDefaultAdminUser() {
   const rounds = 10
-  const adminExists = await query(`SELECT id FROM users WHERE role = 'admin' LIMIT 1`)
-  if (adminExists.rows.length === 0) {
-    const username = String(process.env.ADMIN_USERNAME || 'admin').trim().toLowerCase()
-    const password = process.env.ADMIN_PASSWORD || 'admin123'
-    const hash = await bcrypt.hash(password, rounds)
-    await query(
-      `INSERT INTO users (username, password_hash, role, employee_id) VALUES ($1, $2, 'admin', NULL)`,
-      [username, hash]
+  const existing = await query(`SELECT id, username FROM users WHERE role = 'admin' LIMIT 1`)
+  if (existing.rows.length > 0) {
+    console.log(
+      '[auth] Admin user already exists (username: %s); skipping default admin seed',
+      existing.rows[0].username
     )
-    console.log(`Seeded admin user: ${username}`)
+    return
   }
 
+  const username = String(process.env.ADMIN_USERNAME || 'admin').trim().toLowerCase()
+  const password =
+    process.env.ADMIN_PASSWORD != null && String(process.env.ADMIN_PASSWORD) !== ''
+      ? String(process.env.ADMIN_PASSWORD)
+      : 'admin123'
+  const hash = await bcrypt.hash(password, rounds)
+  await query(
+    `INSERT INTO users (username, password_hash, role, employee_id) VALUES ($1, $2, 'admin', NULL)`,
+    [username, hash]
+  )
+  console.log('[auth] Default admin user created (username: %s)', username)
+}
+
+async function ensureWarehouseUser() {
+  const rounds = 10
   const whUser = String(process.env.WAREHOUSE_USERNAME || 'warehouse').trim().toLowerCase()
   const whCheck = await query(`SELECT id FROM users WHERE LOWER(username) = LOWER($1)`, [whUser])
-  if (whCheck.rows.length === 0) {
-    const wp = process.env.WAREHOUSE_PASSWORD || 'warehouse123'
-    const hash = await bcrypt.hash(wp, rounds)
-    await query(
-      `INSERT INTO users (username, password_hash, role, employee_id) VALUES ($1, $2, 'warehouse', NULL)`,
-      [whUser, hash]
-    )
-    console.log(`Seeded warehouse user: ${whUser}`)
-  }
+  if (whCheck.rows.length > 0) return
+
+  const wp = process.env.WAREHOUSE_PASSWORD || 'warehouse123'
+  const hash = await bcrypt.hash(wp, rounds)
+  await query(
+    `INSERT INTO users (username, password_hash, role, employee_id) VALUES ($1, $2, 'warehouse', NULL)`,
+    [whUser, hash]
+  )
+  console.log('[auth] Seeded warehouse user: %s', whUser)
 }
 
 async function testConnection() {
-  try {
-    const result = await query('SELECT NOW()')
-    const now = result.rows[0]?.now
-    console.log('Database connected successfully. Server time:', now)
-    await ensureEmployeesTable()
-    await ensureEmployeeExtendedColumns()
-    await ensureAttendanceTable()
-    await ensureAnnualLeaveTable()
-    await ensureAttendanceAnnualLeaveColumn()
-    await migrateAttendanceStatusHToAl()
-    await ensureUsersTable()
-  } catch (err) {
-    console.error('Database connection failed:', err.message)
-  }
+  const result = await query('SELECT NOW()')
+  const now = result.rows[0]?.now
+  console.log('Database connected successfully. Server time:', now)
+  await ensureEmployeesTable()
+  await ensureEmployeeExtendedColumns()
+  await ensureAttendanceTable()
+  await ensureAnnualLeaveTable()
+  await ensureAttendanceAnnualLeaveColumn()
+  await migrateAttendanceStatusHToAl()
+  await ensureUsersTable()
+  await ensureDefaultAdminUser()
+  await ensureWarehouseUser()
 }
 
 module.exports = {
@@ -158,4 +174,5 @@ module.exports = {
   ensureAnnualLeaveTable,
   ensureAttendanceAnnualLeaveColumn,
   ensureUsersTable,
+  ensureDefaultAdminUser,
 }
