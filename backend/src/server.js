@@ -20,10 +20,13 @@ app.set('io', io)
 server.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`)
   console.log('[routes] API mounted at /api — JSON only; no static/SPA fallback in this process')
+  console.log('[routes] GET  /api                    → { status, service }')
   console.log('[routes] GET  /api/health')
-  console.log('[routes] POST /api/auth/login')
-  console.log('[routes] GET  /api/auth/me')
-  console.log('[routes] … employees, attendance, annual-leave (require auth where applicable)')
+  console.log('[routes] Auth router at /api/auth:')
+  console.log('[routes]   GET  /api/auth/login      → 405 JSON (use POST to sign in)')
+  console.log('[routes]   POST /api/auth/login      → { token, user }')
+  console.log('[routes]   GET  /api/auth/me         → { user } (Bearer token)')
+  console.log('[routes] … /api/employees, /api/attendance, /api/annual-leave (auth as required)')
   try {
     await testConnection()
   } catch (err) {

@@ -8,10 +8,15 @@ const annualLeaveRoutes = require('./annualLeave')
 
 const router = express.Router()
 
-// Public first — no attachAuth
+// GET /api — API URL checks and monitoring
+router.get('/', (req, res) => {
+  res.json({ status: 'ok', service: 'hr-api' })
+})
+
+// Public — no attachAuth
 router.get('/health', healthController.getHealth)
 
-// Auth: POST /login is public; GET /me uses attachAuth on that route only
+// Auth mounted at /api/auth — POST /login, GET /login (405), GET /me (see routes/auth.js)
 router.use('/auth', authRoutes)
 
 // All routes below get optional Bearer auth
