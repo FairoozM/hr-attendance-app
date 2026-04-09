@@ -35,6 +35,7 @@ function mapEmployee(row) {
     passportNumber: row.passport_number ?? null,
     emiratesId: row.emirates_id ?? null,
     nationality: row.nationality ?? null,
+    includeInAttendance: row.include_in_attendance !== false,
   }
 }
 
@@ -89,6 +90,7 @@ export function useEmployees() {
           emirates_id: employee.emiratesId || null,
           passport_number: employee.passportNumber || null,
           nationality: employee.nationality || null,
+          include_in_attendance: employee.includeInAttendance !== false,
         })
         setEmployees((prev) => [...prev, mapEmployee(created)])
       } catch (err) {
@@ -116,6 +118,7 @@ export function useEmployees() {
           emirates_id: updates.emiratesId || null,
           passport_number: updates.passportNumber || null,
           nationality: updates.nationality || null,
+          include_in_attendance: updates.includeInAttendance !== false,
         })
         setEmployees((prev) =>
           prev.map((e) => (e.id === id ? mapEmployee(updated) : e))

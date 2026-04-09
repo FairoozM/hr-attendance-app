@@ -38,6 +38,9 @@ export function EmployeeForm({
   const [emiratesId, setEmiratesId] = useState(initial?.emiratesId ?? '')
   const [passportNumber, setPassportNumber] = useState(initial?.passportNumber ?? '')
   const [nationality, setNationality] = useState(initial?.nationality ?? '')
+  const [includeInAttendance, setIncludeInAttendance] = useState(
+    initial?.includeInAttendance !== false
+  )
 
   useEffect(() => {
     if (!initial) return
@@ -51,6 +54,7 @@ export function EmployeeForm({
     setEmiratesId(initial.emiratesId ?? '')
     setPassportNumber(initial.passportNumber ?? '')
     setNationality(initial.nationality ?? '')
+    setIncludeInAttendance(initial.includeInAttendance !== false)
   }, [
     initial?.employeeId,
     initial?.name,
@@ -62,6 +66,7 @@ export function EmployeeForm({
     initial?.emiratesId,
     initial?.passportNumber,
     initial?.nationality,
+    initial?.includeInAttendance,
     departments,
   ])
 
@@ -82,6 +87,7 @@ export function EmployeeForm({
       name: trimmedName,
       department: department.trim() || departments[0],
       employmentStatus,
+      includeInAttendance,
       joiningDate: emptyToNull(joiningDate),
       photoUrl: emptyToNull(photoUrl),
       phone: emptyToNull(phone),
@@ -147,6 +153,19 @@ export function EmployeeForm({
             <option value="on_leave">On leave</option>
             <option value="resigned">Resigned</option>
           </select>
+        </label>
+        <label className="employee-form__label employee-form__label--checkbox">
+          <span className="employee-form__checkbox-wrap">
+            <input
+              type="checkbox"
+              checked={includeInAttendance}
+              onChange={(e) => setIncludeInAttendance(e.target.checked)}
+            />
+            <span>Include in attendance</span>
+          </span>
+          <span className="employee-form__hint">
+            When unchecked, this person is hidden from the attendance grid and dashboard counts, regardless of employment status.
+          </span>
         </label>
       </div>
 

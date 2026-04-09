@@ -41,6 +41,14 @@ function extendedFields(body) {
   }
 }
 
+/** undefined → default for create, null for update (skip); explicit false is allowed */
+function parseIncludeInAttendance(body, forCreate) {
+  if (body.include_in_attendance === undefined) {
+    return forCreate ? true : null
+  }
+  return Boolean(body.include_in_attendance)
+}
+
 async function list(req, res) {
   try {
     const employees = await employeesService.findAll()
@@ -90,6 +98,7 @@ async function create(req, res) {
       full_name: fullName,
       department,
       is_active: isActive,
+      include_in_attendance: parseIncludeInAttendance(req.body, true),
       ...ext,
     })
     const io = req.app.get('io')
@@ -137,6 +146,7 @@ async function update(req, res) {
       emirates_id: ext.emirates_id,
       passport_number: ext.passport_number,
       nationality: ext.nationality,
+      include_in_attendance: parseIncludeInAttendance(req.body, false),
     })
     const io = req.app.get('io')
     if (io) io.emit('employees:changed', { action: 'updated', employee })

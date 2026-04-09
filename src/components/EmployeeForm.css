@@ -35,6 +35,24 @@
   color: var(--text-muted);
 }
 
+.employee-form__label--checkbox {
+  gap: 0.25rem;
+}
+
+.employee-form__checkbox-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.employee-form__checkbox-wrap input {
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+}
+
 .employee-form__input,
 .employee-form__select {
   padding: 0.5rem 0.75rem;

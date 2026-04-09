@@ -20,6 +20,7 @@ import {
   buildExcelColumnOptions,
 } from './employees/employeeColumnFilters'
 import { excelFilterIsActive } from './ExcelStyleColumnFilter'
+import { isIncludedInAttendance } from '../utils/employeeAttendance'
 import './EmployeeList.css'
 
 const PAGE_SIZE = 20
@@ -53,8 +54,9 @@ function compareRows(a, b, sortKey, sortDir) {
   return 0
 }
 
-function EmployeeViewModal({ employee, open, onClose }) {
+function EmployeeViewModal({ employee, open, onClose, onToggleAttendanceInclusion, attendanceTogglePending }) {
   if (!open || !employee) return null
+  const included = isIncludedInAttendance(employee)
   return (
     <Modal title="Employee details" open={open} onClose={onClose} panelClassName="modal-panel--wide">
       <dl className="employee-view-dl">
@@ -82,6 +84,20 @@ function EmployeeViewModal({ employee, open, onClose }) {
         <dd>
           <span className="employee-view-dl__status">{employmentStatusLabel(employee.employmentStatus)}</span>
         </dd>
+        <dt>Attendance</dt>
+        <dd className="employee-view-dl__attendance-row">
+          <span className={included ? 'employee-view-dl__att-yes' : 'employee-view-dl__att-no'}>
+            {included ? 'Included' : 'Excluded'}
+          </span>
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm employee-view-dl__att-btn"
+            onClick={() => onToggleAttendanceInclusion(employee)}
+            disabled={attendanceTogglePending}
+          >
+            {included ? 'Remove from attendance' : 'Include in attendance'}
+          </button>
+        </dd>
       </dl>
       <div className="employee-view-actions">
         <button type="button" className="btn btn--primary btn--sm" onClick={onClose}>
@@ -102,6 +118,7 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
   const [editingId, setEditingId] = useState(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState(null)
   const [viewEmployee, setViewEmployee] = useState(null)
+  const [attendanceTogglePending, setAttendanceTogglePending] = useState(false)
 
   const [search, setSearch] = useState('')
   const [department, setDepartment] = useState('all')
@@ -301,6 +318,27 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
       ? (editingEmployee.employeeId ?? '').trim().toLowerCase()
       : null
 
+  const handleToggleAttendanceInclusion = useCallback(
+    async (emp) => {
+      setAttendanceTogglePending(true)
+      try {
+        const next = !isIncludedInAttendance(emp)
+        await onEdit(emp.id, {
+          ...emp,
+          includeInAttendance: next,
+        })
+        setViewEmployee((prev) =>
+          prev && prev.id === emp.id ? { ...prev, includeInAttendance: next } : prev
+        )
+      } catch (_) {
+        /* error surfaced by parent hook if needed */
+      } finally {
+        setAttendanceTogglePending(false)
+      }
+    },
+    [onEdit]
+  )
+
   const handleDeleteClick = (id) => setDeleteConfirmId(id)
   const handleDeleteConfirm = async () => {
     if (!deleteConfirmId) return
@@ -405,6 +443,7 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
                   name: editingEmployee.name,
                   department: editingEmployee.department,
                   employmentStatus: editingEmployee.employmentStatus ?? 'active',
+                  includeInAttendance: editingEmployee.includeInAttendance !== false,
                   joiningDate: editingEmployee.joiningDate ?? '',
                   photoUrl: editingEmployee.photoUrl ?? '',
                   phone: editingEmployee.phone ?? '',
@@ -426,6 +465,8 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
         employee={viewEmployee}
         open={Boolean(viewEmployee)}
         onClose={() => setViewEmployee(null)}
+        onToggleAttendanceInclusion={handleToggleAttendanceInclusion}
+        attendanceTogglePending={attendanceTogglePending}
       />
 
       <DeleteConfirmModal

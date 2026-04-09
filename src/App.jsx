@@ -15,6 +15,7 @@ import { useEmployees } from './hooks/useEmployees'
 import { useAttendance, clearAllAttendanceStorage } from './hooks/useAttendance'
 import { useWeeklyHolidayDay } from './hooks/useWeeklyHolidayDay'
 import { deriveEffectiveAttendance } from './utils/attendanceHelpers'
+import { employeesForAttendance } from './utils/employeeAttendance'
 import './App.css'
 
 const currentDate = new Date()
@@ -32,6 +33,12 @@ function AppContent() {
     deleteEmployee,
     resetToDefault,
   } = useEmployees()
+
+  const attendanceEmployees = useMemo(
+    () => employeesForAttendance(employees),
+    [employees]
+  )
+
   const {
     attendance,
     sickLeaveDocuments,
@@ -40,7 +47,7 @@ function AppContent() {
     removeSickLeaveDocument,
     loading: attendanceLoading,
     error: attendanceError,
-  } = useAttendance(employees, month, year)
+  } = useAttendance(attendanceEmployees, month, year)
 
   const handleResetDemoData = useCallback(() => {
     clearAllAttendanceStorage()
@@ -57,13 +64,13 @@ function AppContent() {
     () =>
       deriveEffectiveAttendance(
         attendance,
-        employees,
+        attendanceEmployees,
         year,
         month,
         daysInMonth,
         weeklyHolidayDay
       ),
-    [attendance, employees, year, month, daysInMonth, weeklyHolidayDay]
+    [attendance, attendanceEmployees, year, month, daysInMonth, weeklyHolidayDay]
   )
 
   const yearOptions = useMemo(() => {
@@ -90,7 +97,7 @@ function AppContent() {
                 year={year}
                 setMonth={setMonth}
                 setYear={setYear}
-                employees={employees}
+                employees={attendanceEmployees}
                 effectiveAttendance={effectiveAttendance}
                 daysInMonth={daysInMonth}
                 yearOptions={yearOptions}
@@ -110,7 +117,7 @@ function AppContent() {
                 year={year}
                 setMonth={setMonth}
                 setYear={setYear}
-                employees={employees}
+                employees={attendanceEmployees}
                 attendance={attendance}
                 setAttendance={setAttendance}
                 sickLeaveDocuments={sickLeaveDocuments}

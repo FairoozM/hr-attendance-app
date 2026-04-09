@@ -1,7 +1,7 @@
 const { query } = require('../db')
 
 const EMPLOYEE_ROW = `id, employee_code, full_name, department, is_active, created_at,
-  joining_date, photo_url, phone, emirates_id, passport_number, nationality`
+  joining_date, photo_url, phone, emirates_id, passport_number, nationality, include_in_attendance`
 
 async function findAll() {
   const result = await query(
@@ -39,13 +39,15 @@ async function create({
   emirates_id = null,
   passport_number = null,
   nationality = null,
+  include_in_attendance = true,
 }) {
   const result = await query(
     `INSERT INTO employees (
        employee_code, full_name, department, is_active,
-       joining_date, photo_url, phone, emirates_id, passport_number, nationality
+       joining_date, photo_url, phone, emirates_id, passport_number, nationality,
+       include_in_attendance
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      RETURNING ${EMPLOYEE_ROW}`,
     [
       employee_code,
@@ -58,6 +60,7 @@ async function create({
       emirates_id,
       passport_number,
       nationality,
+      include_in_attendance,
     ]
   )
   return result.rows[0]
@@ -76,6 +79,7 @@ async function update(
     emirates_id,
     passport_number,
     nationality,
+    include_in_attendance,
   }
 ) {
   const result = await query(
@@ -89,7 +93,8 @@ async function update(
          phone = $8,
          emirates_id = $9,
          passport_number = $10,
-         nationality = $11
+         nationality = $11,
+         include_in_attendance = COALESCE($12, include_in_attendance)
      WHERE id = $1
      RETURNING ${EMPLOYEE_ROW}`,
     [
@@ -104,6 +109,7 @@ async function update(
       emirates_id,
       passport_number,
       nationality,
+      include_in_attendance,
     ]
   )
   return result.rows[0] || null

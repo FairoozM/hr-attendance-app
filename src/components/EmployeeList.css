@@ -113,6 +113,27 @@
   text-transform: capitalize;
 }
 
+.employee-view-dl__attendance-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.employee-view-dl__att-yes {
+  font-weight: 600;
+  color: var(--success, #15803d);
+}
+
+.employee-view-dl__att-no {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.employee-view-dl__att-btn {
+  flex-shrink: 0;
+}
+
 .employee-view-actions {
   display: flex;
   justify-content: flex-end;
