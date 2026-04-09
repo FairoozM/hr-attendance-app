@@ -45,7 +45,12 @@ function parseOptionalUrl(v) {
   return s
 }
 
+const VALID_OFF_DAYS = new Set(['sunday','monday','tuesday','wednesday','thursday','friday','saturday'])
+const VALID_LOCATIONS = new Set(['office','warehouse','remote'])
+
 function extendedFields(body) {
+  const rawOff = parseOptionalTrim(body.weekly_off_day)
+  const rawLoc = parseOptionalTrim(body.duty_location)
   return {
     joining_date: parseJoiningDate(body.joining_date),
     photo_url: parseOptionalUrl(body.photo_url),
@@ -53,6 +58,8 @@ function extendedFields(body) {
     emirates_id: parseOptionalTrim(body.emirates_id),
     passport_number: parseOptionalTrim(body.passport_number),
     nationality: parseOptionalTrim(body.nationality),
+    weekly_off_day: rawOff && VALID_OFF_DAYS.has(rawOff.toLowerCase()) ? rawOff.toLowerCase() : null,
+    duty_location: rawLoc && VALID_LOCATIONS.has(rawLoc.toLowerCase()) ? rawLoc.toLowerCase() : null,
   }
 }
 
@@ -192,6 +199,8 @@ async function update(req, res) {
       passport_number: ext.passport_number,
       nationality: ext.nationality,
       include_in_attendance: parseIncludeInAttendance(req.body, false),
+      weekly_off_day: ext.weekly_off_day,
+      duty_location: ext.duty_location,
     })
     try {
       await usersService.syncEmployeePortal(id, req.body, false)

@@ -36,6 +36,8 @@ function mapEmployee(row) {
     emiratesId: row.emirates_id ?? null,
     nationality: row.nationality ?? null,
     includeInAttendance: row.include_in_attendance !== false,
+    weeklyOffDay: row.weekly_off_day ?? null,
+    dutyLocation: row.duty_location ?? null,
   }
 }
 
@@ -104,6 +106,8 @@ export function useEmployees() {
           nationality: employee.nationality || null,
           include_in_attendance: employee.includeInAttendance !== false,
         }
+        if (employee.weeklyOffDay) body.weekly_off_day = employee.weeklyOffDay
+        if (employee.dutyLocation) body.duty_location = employee.dutyLocation
         const portalEmail = employee.portalEmail?.trim() || employee.portalUsername?.trim()
         if (portalEmail) body.portal_email = portalEmail
         if (employee.portalPassword) body.portal_password = employee.portalPassword
@@ -136,6 +140,8 @@ export function useEmployees() {
           nationality: updates.nationality || null,
           include_in_attendance: updates.includeInAttendance !== false,
         }
+        body.weekly_off_day = updates.weeklyOffDay || null
+        body.duty_location = updates.dutyLocation || null
         const portalEmail = updates.portalEmail?.trim() || updates.portalUsername?.trim()
         if (portalEmail) body.portal_email = portalEmail
         if (updates.portalPassword) body.portal_password = updates.portalPassword

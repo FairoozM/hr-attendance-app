@@ -79,6 +79,9 @@ export function Layout() {
                 <NavLink to="/annual-leave" className={navLinkClass} onClick={closeSidebar}>
                   Annual Leave
                 </NavLink>
+                <NavLink to="/roster" className={navLinkClass} onClick={closeSidebar}>
+                  Weekly Off &amp; Duty
+                </NavLink>
                 {isAdmin && (
                   <>
                     <div className="app-sidebar__section-label" role="presentation">

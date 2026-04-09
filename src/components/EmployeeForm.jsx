@@ -41,6 +41,8 @@ export function EmployeeForm({
   const [includeInAttendance, setIncludeInAttendance] = useState(
     initial?.includeInAttendance !== false
   )
+  const [weeklyOffDay, setWeeklyOffDay] = useState(initial?.weeklyOffDay ?? '')
+  const [dutyLocation, setDutyLocation] = useState(initial?.dutyLocation ?? '')
   const [portalEmail, setPortalEmail] = useState(initial?.portalEmail ?? initial?.portalUsername ?? '')
   const [portalPassword, setPortalPassword] = useState('')
 
@@ -57,6 +59,8 @@ export function EmployeeForm({
     setPassportNumber(initial.passportNumber ?? '')
     setNationality(initial.nationality ?? '')
     setIncludeInAttendance(initial.includeInAttendance !== false)
+    setWeeklyOffDay(initial.weeklyOffDay ?? '')
+    setDutyLocation(initial.dutyLocation ?? '')
     setPortalEmail(initial.portalEmail ?? initial.portalUsername ?? '')
     setPortalPassword('')
   }, [
@@ -71,6 +75,8 @@ export function EmployeeForm({
     initial?.passportNumber,
     initial?.nationality,
     initial?.includeInAttendance,
+    initial?.weeklyOffDay,
+    initial?.dutyLocation,
     initial?.portalEmail,
     initial?.portalUsername,
     departments,
@@ -100,6 +106,8 @@ export function EmployeeForm({
       emiratesId: emptyToNull(emiratesId),
       passportNumber: emptyToNull(passportNumber),
       nationality: emptyToNull(nationality),
+      weeklyOffDay: weeklyOffDay || undefined,
+      dutyLocation: dutyLocation || undefined,
       portalEmail: portalEmail.trim() || undefined,
       portalPassword: portalPassword ? portalPassword : undefined,
     })
@@ -255,6 +263,41 @@ export function EmployeeForm({
             onChange={(e) => setEmiratesId(e.target.value)}
             autoComplete="off"
           />
+        </label>
+      </div>
+
+      <div className="employee-form__section">
+        <span className="employee-form__section-title">Schedule &amp; location</span>
+        <label className="employee-form__label">
+          Weekly off day
+          <select
+            className="employee-form__select"
+            value={weeklyOffDay}
+            onChange={(e) => setWeeklyOffDay(e.target.value)}
+          >
+            <option value="">Not set</option>
+            <option value="sunday">Sunday</option>
+            <option value="monday">Monday</option>
+            <option value="tuesday">Tuesday</option>
+            <option value="wednesday">Wednesday</option>
+            <option value="thursday">Thursday</option>
+            <option value="friday">Friday</option>
+            <option value="saturday">Saturday</option>
+          </select>
+          <span className="employee-form__hint">The employee's regular weekly day off.</span>
+        </label>
+        <label className="employee-form__label">
+          Primary work location
+          <select
+            className="employee-form__select"
+            value={dutyLocation}
+            onChange={(e) => setDutyLocation(e.target.value)}
+          >
+            <option value="">Not set</option>
+            <option value="office">Office</option>
+            <option value="warehouse">Warehouse</option>
+            <option value="remote">Remote</option>
+          </select>
         </label>
       </div>
 

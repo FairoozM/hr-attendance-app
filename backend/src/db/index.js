@@ -38,6 +38,8 @@ async function ensureEmployeeExtendedColumns() {
   await query(
     `ALTER TABLE employees ADD COLUMN IF NOT EXISTS include_in_attendance BOOLEAN NOT NULL DEFAULT true`
   )
+  await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS weekly_off_day VARCHAR(20)`)
+  await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS duty_location VARCHAR(50)`)
 }
 
 async function ensureAttendanceTable() {

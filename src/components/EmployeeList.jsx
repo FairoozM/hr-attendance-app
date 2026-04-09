@@ -459,6 +459,8 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
                   emiratesId: editingEmployee.emiratesId ?? '',
                   passportNumber: editingEmployee.passportNumber ?? '',
                   nationality: editingEmployee.nationality ?? '',
+                  weeklyOffDay: editingEmployee.weeklyOffDay ?? '',
+                  dutyLocation: editingEmployee.dutyLocation ?? '',
                 }
               : undefined
           }
