@@ -156,19 +156,28 @@ async function ensureWarehouseUser() {
  * - employee portal accounts without @ -> {employee_code}@portal.internal
  */
 async function migrateUsernamesToEmail() {
-  // Migrate admin system account
+  // Migrate admin system account: only if current username has no @
+  // Use ADMIN_USERNAME env only when it looks like a valid email
+  const adminEmail = (() => {
+    const e = process.env.ADMIN_USERNAME || ''
+    return e.includes('@') ? e.toLowerCase() : 'admin@company.com'
+  })()
   await query(`
     UPDATE users
-    SET username = COALESCE($1, 'admin@company.com')
+    SET username = $1
     WHERE role = 'admin' AND username NOT LIKE '%@%'
-  `, [process.env.ADMIN_USERNAME || 'admin@company.com'])
+  `, [adminEmail])
 
   // Migrate warehouse system account
+  const warehouseEmail = (() => {
+    const e = process.env.WAREHOUSE_USERNAME || ''
+    return e.includes('@') ? e.toLowerCase() : 'warehouse@company.com'
+  })()
   await query(`
     UPDATE users
-    SET username = COALESCE($1, 'warehouse@company.com')
+    SET username = $1
     WHERE role = 'warehouse' AND username NOT LIKE '%@%'
-  `, [process.env.WAREHOUSE_USERNAME || 'warehouse@company.com'])
+  `, [warehouseEmail])
 
   // Migrate employee portal accounts: use {employee_code}@portal.internal as placeholder
   const migrated = await query(`
