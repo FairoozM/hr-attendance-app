@@ -1,5 +1,11 @@
-const BASE_URL = ''
+import { API_BASE_URL } from './config.js'
+
 const AUTH_STORAGE_KEY = 'hr-auth'
+
+function resolveApiUrl(path) {
+  if (typeof path !== 'string' || path.startsWith('http')) return path
+  return `${API_BASE_URL}${path}`
+}
 
 function getAuthHeaders() {
   try {
@@ -46,7 +52,9 @@ async function handleResponse(res, requestUrl) {
     data = JSON.parse(text)
   } catch {
     const hint =
-      `Server returned non-JSON response from ${url} (HTTP ${res.status}). Check CloudFront behavior/origin for this path.`
+      API_BASE_URL === ''
+        ? `Server returned non-JSON response from ${url} (HTTP ${res.status}). For production, set VITE_API_BASE_URL to your API origin and rebuild, or configure CloudFront to forward /api/* to your backend.`
+        : `Server returned non-JSON response from ${url} (HTTP ${res.status}). Check that VITE_API_BASE_URL (${API_BASE_URL}) points to your API.`
     const err = new Error(!res.ok ? text.slice(0, 200) || res.statusText : hint)
     err.status = res.status
     err.url = url
@@ -65,7 +73,7 @@ async function handleResponse(res, requestUrl) {
 
 async function request(method, path, body = null) {
   path = normalizeApiPath(path)
-  const url = path.startsWith('http') ? path : `${BASE_URL}${path}`
+  const url = path.startsWith('http') ? path : resolveApiUrl(path)
   const options = {
     method,
     headers: {
@@ -80,7 +88,7 @@ async function request(method, path, body = null) {
 
 async function postForm(path, formData) {
   path = normalizeApiPath(path)
-  const url = path.startsWith('http') ? path : `${BASE_URL}${path}`
+  const url = path.startsWith('http') ? path : resolveApiUrl(path)
   const res = await fetch(url, {
     method: 'POST',
     body: formData,
@@ -100,4 +108,4 @@ export const api = {
   delete: (path) => request('DELETE', path),
 }
 
-export { BASE_URL, AUTH_STORAGE_KEY }
+export { API_BASE_URL as BASE_URL, AUTH_STORAGE_KEY }
