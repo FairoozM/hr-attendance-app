@@ -21,8 +21,12 @@ export function LoginPage() {
     e.preventDefault()
     setError('')
     try {
-      await login(username.trim(), password)
-      navigate(from, { replace: true })
+      const u = await login(username.trim(), password)
+      if (u.role === 'employee') {
+        navigate('/account', { replace: true })
+      } else {
+        navigate(from, { replace: true })
+      }
     } catch (err) {
       setError(err.message || 'Login failed')
     }
@@ -32,7 +36,7 @@ export function LoginPage() {
     <div className="page login-page">
       <div className="login-card">
         <h1 className="login-title">HR Attendance</h1>
-        <p className="login-subtitle">Sign in to continue</p>
+        <p className="login-subtitle">Sign in with your admin, warehouse, or employee portal credentials</p>
         <form className="login-form" onSubmit={handleSubmit}>
           {error && (
             <p className="login-error" role="alert">

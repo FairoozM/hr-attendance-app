@@ -25,6 +25,8 @@ export function Layout() {
     navigate('/login', { replace: true })
   }
 
+  const homePath = isEmployee ? '/account' : '/'
+
   return (
     <div className="app">
       {isSidebarOpen && (
@@ -43,7 +45,7 @@ export function Layout() {
       >
         <div className="app-sidebar__inner">
           <div className="app-sidebar__head">
-            <NavLink to="/" className="app-sidebar__brand">
+            <NavLink to={homePath} className="app-sidebar__brand" onClick={closeSidebar}>
               {appTitle || 'HR Attendance'}
             </NavLink>
             <button
@@ -57,28 +59,39 @@ export function Layout() {
           </div>
 
           <nav id="app-sidebar-nav" className="app-sidebar__nav" aria-label="Main">
-            <NavLink to="/" end className={navLinkClass}>
-              Dashboard
-            </NavLink>
-            {!isEmployee && (
-              <NavLink to="/attendance" className={navLinkClass}>
-                Attendance
-              </NavLink>
-            )}
-            <NavLink to="/annual-leave" className={navLinkClass}>
-              Annual Leave
-            </NavLink>
-            {isAdmin && (
+            {isEmployee ? (
               <>
-                <div className="app-sidebar__section-label" role="presentation">
-                  Admin
-                </div>
-                <NavLink to="/employees" className={navLinkClass}>
-                  Employees
+                <NavLink to="/account" className={navLinkClass} onClick={closeSidebar}>
+                  My account
                 </NavLink>
-                <NavLink to="/settings" className={navLinkClass}>
-                  Settings
+                <NavLink to="/annual-leave" className={navLinkClass} onClick={closeSidebar}>
+                  Annual Leave
                 </NavLink>
+              </>
+            ) : (
+              <>
+                <NavLink to="/" end className={navLinkClass} onClick={closeSidebar}>
+                  Dashboard
+                </NavLink>
+                <NavLink to="/attendance" className={navLinkClass} onClick={closeSidebar}>
+                  Attendance
+                </NavLink>
+                <NavLink to="/annual-leave" className={navLinkClass} onClick={closeSidebar}>
+                  Annual Leave
+                </NavLink>
+                {isAdmin && (
+                  <>
+                    <div className="app-sidebar__section-label" role="presentation">
+                      Admin
+                    </div>
+                    <NavLink to="/employees" className={navLinkClass} onClick={closeSidebar}>
+                      Employees
+                    </NavLink>
+                    <NavLink to="/settings" className={navLinkClass} onClick={closeSidebar}>
+                      Settings
+                    </NavLink>
+                  </>
+                )}
               </>
             )}
           </nav>
@@ -109,7 +122,7 @@ export function Layout() {
             <span className="app-topbar__menu-bar" aria-hidden />
             <span className="app-topbar__menu-bar" aria-hidden />
           </button>
-          <NavLink to="/" className="app-topbar__title">
+          <NavLink to={homePath} className="app-topbar__title" onClick={closeSidebar}>
             {appTitle || 'HR Attendance'}
           </NavLink>
         </header>

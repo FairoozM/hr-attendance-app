@@ -1,24 +1,15 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
-import { api } from '../api/client'
-
-const STORAGE_KEY = 'hr-auth'
-
-// Mock users for development only – replace with Cognito/backend in production.
-// Do not expose these credentials in the UI.
-const MOCK_USERS = [
-  { id: '1', username: 'admin', password: 'admin123', role: 'admin' },
-  { id: '2', username: 'warehouse', password: 'warehouse123', role: 'warehouse' },
-]
+import { api, AUTH_STORAGE_KEY } from '../api/client'
 
 export const AuthContext = createContext(null)
 
-function loadStoredUser() {
+function loadStoredAuth() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY)
     if (raw) {
       const data = JSON.parse(raw)
-      if (data?.user?.id && data?.user?.username && data?.user?.role) {
-        return data.user
+      if (data?.user?.id && data?.user?.username && data?.user?.role && data?.token) {
+        return { user: data.user, token: data.token }
       }
     }
   } catch (_) {}
@@ -30,56 +21,29 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const stored = loadStoredUser()
-    setUser(stored)
+    const stored = loadStoredAuth()
+    setUser(stored?.user ?? null)
     setLoading(false)
   }, [])
 
   const login = useCallback(async (username, password) => {
-    const u = MOCK_USERS.find(
-      (m) =>
-        m.username.toLowerCase() === (username || '').trim().toLowerCase() &&
-        m.password === password
-    )
-    if (u) {
-      const userData = { id: u.id, username: u.username, role: u.role }
-      setUser(userData)
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ user: userData }))
-      return
+    const u = (username || '').trim()
+    const p = password != null ? String(password) : ''
+    if (!u || !p) throw new Error('Invalid username or password')
+
+    const res = await api.post('/api/auth/login', { username: u, password: p })
+    if (!res?.user || !res?.token) {
+      throw new Error('Login failed')
     }
-
-    const uname = (username || '').trim()
-    if (!uname || !password) throw new Error('Invalid username or password')
-
-    try {
-      const data = await api.get('/api/employees')
-      const rows = Array.isArray(data) ? data : []
-      const emp = rows.find(
-        (r) =>
-          String(r.employee_code || '').trim().toLowerCase() === uname.toLowerCase()
-      )
-      // Frontend-only fallback credential model for employee access:
-      // username = employee code, password = same employee code.
-      if (emp && String(emp.employee_code || '') === password) {
-        const userData = {
-          id: `emp-${emp.id}`,
-          username: String(emp.employee_code),
-          role: 'employee',
-          employeeId: String(emp.id),
-          displayName: String(emp.full_name || emp.employee_code || ''),
-        }
-        setUser(userData)
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ user: userData }))
-        return
-      }
-    } catch (_) {}
-
-    throw new Error('Invalid username or password')
+    const payload = { user: res.user, token: res.token }
+    setUser(res.user)
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(payload))
+    return res.user
   }, [])
 
   const logout = useCallback(() => {
     setUser(null)
-    localStorage.removeItem(STORAGE_KEY)
+    localStorage.removeItem(AUTH_STORAGE_KEY)
   }, [])
 
   const value = { user, loading, login, logout }

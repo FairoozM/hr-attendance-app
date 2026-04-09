@@ -1,10 +1,10 @@
 import { useState, useCallback, useEffect } from 'react'
 import { api } from '../api/client'
 import { employeesSocket } from '../api/socket'
+import { useAuth } from '../contexts/AuthContext'
 
 /**
- * Maps API row to UI employee. Extra fields are optional until backend adds columns.
- * employment_status (if added): 'active' | 'inactive' | 'on_leave' | 'resigned'
+ * Maps API row to UI employee.
  */
 function mapEmployee(row) {
   const rawStatus = row.employment_status
@@ -42,23 +42,34 @@ function mapEmployee(row) {
 export const defaultEmployees = []
 
 export function useEmployees() {
+  const { user } = useAuth()
   const [employees, setEmployees] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
   const fetchEmployees = useCallback(async () => {
+    if (!user) {
+      setEmployees([])
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
     try {
-      const data = await api.get('/api/employees')
-      setEmployees(Array.isArray(data) ? data.map(mapEmployee) : [])
+      if (user.role === 'employee') {
+        const data = await api.get('/api/employees/me')
+        setEmployees(data ? [mapEmployee(data)] : [])
+      } else {
+        const data = await api.get('/api/employees')
+        setEmployees(Array.isArray(data) ? data.map(mapEmployee) : [])
+      }
     } catch (err) {
       setError(err.message || 'Failed to load employees')
       setEmployees([])
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [user])
 
   useEffect(() => {
     fetchEmployees()
@@ -78,7 +89,7 @@ export function useEmployees() {
     async (employee) => {
       setError(null)
       try {
-        const created = await api.post('/api/employees', {
+        const body = {
           employee_code: employee.employeeId,
           full_name: employee.name,
           department: employee.department,
@@ -91,7 +102,10 @@ export function useEmployees() {
           passport_number: employee.passportNumber || null,
           nationality: employee.nationality || null,
           include_in_attendance: employee.includeInAttendance !== false,
-        })
+        }
+        if (employee.portalUsername?.trim()) body.portal_username = employee.portalUsername.trim()
+        if (employee.portalPassword) body.portal_password = employee.portalPassword
+        const created = await api.post('/api/employees', body)
         setEmployees((prev) => [...prev, mapEmployee(created)])
       } catch (err) {
         const msg = err.body?.error || err.message || 'Failed to add employee'
@@ -106,7 +120,7 @@ export function useEmployees() {
     async (id, updates) => {
       setError(null)
       try {
-        const updated = await api.put(`/api/employees/${id}`, {
+        const body = {
           employee_code: updates.employeeId,
           full_name: updates.name,
           department: updates.department,
@@ -119,7 +133,10 @@ export function useEmployees() {
           passport_number: updates.passportNumber || null,
           nationality: updates.nationality || null,
           include_in_attendance: updates.includeInAttendance !== false,
-        })
+        }
+        if (updates.portalUsername?.trim()) body.portal_username = updates.portalUsername.trim()
+        if (updates.portalPassword) body.portal_password = updates.portalPassword
+        const updated = await api.put(`/api/employees/${id}`, body)
         setEmployees((prev) =>
           prev.map((e) => (e.id === id ? mapEmployee(updated) : e))
         )

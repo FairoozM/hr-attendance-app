@@ -1,4 +1,15 @@
 const BASE_URL = ''
+const AUTH_STORAGE_KEY = 'hr-auth'
+
+function getAuthHeaders() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY)
+    if (!raw) return {}
+    const { token } = JSON.parse(raw)
+    if (token) return { Authorization: `Bearer ${token}` }
+  } catch (_) {}
+  return {}
+}
 
 /** Legacy upload URL sometimes still cached in old bundles; canonical route always hits Express. */
 function normalizeApiPath(path) {
@@ -57,7 +68,10 @@ async function request(method, path, body = null) {
   const url = path.startsWith('http') ? path : `${BASE_URL}${path}`
   const options = {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
   }
   if (body != null) options.body = JSON.stringify(body)
   const res = await fetch(url, options)
@@ -71,6 +85,9 @@ async function postForm(path, formData) {
     method: 'POST',
     body: formData,
     cache: 'no-store',
+    headers: {
+      ...getAuthHeaders(),
+    },
   })
   return handleResponse(res, url)
 }
@@ -83,4 +100,4 @@ export const api = {
   delete: (path) => request('DELETE', path),
 }
 
-export { BASE_URL }
+export { BASE_URL, AUTH_STORAGE_KEY }

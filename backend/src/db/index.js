@@ -1,4 +1,5 @@
 const { Pool } = require('pg')
+const bcrypt = require('bcrypt')
 
 const connectionString =
   process.env.DATABASE_URL || 'postgres://localhost:5432/hr_attendance'
@@ -90,6 +91,46 @@ async function migrateAttendanceStatusHToAl() {
   )
 }
 
+async function ensureUsersTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      username VARCHAR(255) UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      role VARCHAR(32) NOT NULL CHECK (role IN ('admin', 'employee', 'warehouse')),
+      employee_id INTEGER UNIQUE REFERENCES employees(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_users_employee_id ON users(employee_id)`)
+
+  const rounds = 10
+  const adminExists = await query(`SELECT id FROM users WHERE role = 'admin' LIMIT 1`)
+  if (adminExists.rows.length === 0) {
+    const username = String(process.env.ADMIN_USERNAME || 'admin').trim().toLowerCase()
+    const password = process.env.ADMIN_PASSWORD || 'admin123'
+    const hash = await bcrypt.hash(password, rounds)
+    await query(
+      `INSERT INTO users (username, password_hash, role, employee_id) VALUES ($1, $2, 'admin', NULL)`,
+      [username, hash]
+    )
+    console.log(`Seeded admin user: ${username}`)
+  }
+
+  const whUser = String(process.env.WAREHOUSE_USERNAME || 'warehouse').trim().toLowerCase()
+  const whCheck = await query(`SELECT id FROM users WHERE LOWER(username) = LOWER($1)`, [whUser])
+  if (whCheck.rows.length === 0) {
+    const wp = process.env.WAREHOUSE_PASSWORD || 'warehouse123'
+    const hash = await bcrypt.hash(wp, rounds)
+    await query(
+      `INSERT INTO users (username, password_hash, role, employee_id) VALUES ($1, $2, 'warehouse', NULL)`,
+      [whUser, hash]
+    )
+    console.log(`Seeded warehouse user: ${whUser}`)
+  }
+}
+
 async function testConnection() {
   try {
     const result = await query('SELECT NOW()')
@@ -101,6 +142,7 @@ async function testConnection() {
     await ensureAnnualLeaveTable()
     await ensureAttendanceAnnualLeaveColumn()
     await migrateAttendanceStatusHToAl()
+    await ensureUsersTable()
   } catch (err) {
     console.error('Database connection failed:', err.message)
   }
@@ -115,4 +157,5 @@ module.exports = {
   ensureAttendanceTable,
   ensureAnnualLeaveTable,
   ensureAttendanceAnnualLeaveColumn,
+  ensureUsersTable,
 }

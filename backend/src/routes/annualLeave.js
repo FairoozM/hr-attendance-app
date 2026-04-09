@@ -1,12 +1,13 @@
 const express = require('express')
 const annualLeaveController = require('../controllers/annualLeaveController')
+const auth = require('../middleware/auth')
 
 const router = express.Router()
 
-router.get('/', annualLeaveController.list)
-router.get('/:id', annualLeaveController.getOne)
-router.post('/', annualLeaveController.create)
-router.put('/:id', annualLeaveController.update)
-router.delete('/:id', annualLeaveController.remove)
+router.get('/', auth.requireAuth, annualLeaveController.list)
+router.get('/:id', auth.requireAuth, annualLeaveController.getOne)
+router.post('/', auth.requireAuth, annualLeaveController.create)
+router.put('/:id', auth.requireAuth, annualLeaveController.update)
+router.delete('/:id', auth.requireAuth, annualLeaveController.remove)
 
 module.exports = router

@@ -4,9 +4,10 @@ import { AuthProvider } from './contexts/AuthContext'
 import { SettingsContext } from './contexts/SettingsContext'
 import { useAppSettings } from './hooks/useAppSettings'
 import { Layout } from './components/Layout'
+import { HomeRoute } from './components/HomeRoute'
 import { RequireAuth } from './components/RequireAuth'
 import { LoginPage } from './pages/LoginPage'
-import { DashboardPage } from './pages/DashboardPage'
+import { EmployeeAccountPage } from './pages/EmployeeAccountPage'
 import { AttendancePage } from './pages/AttendancePage'
 import { EmployeesPage } from './pages/EmployeesPage'
 import { SettingsPage } from './pages/SettingsPage'
@@ -92,7 +93,7 @@ function AppContent() {
           <Route
             index
             element={
-              <DashboardPage
+              <HomeRoute
                 month={month}
                 year={year}
                 setMonth={setMonth}
@@ -108,6 +109,7 @@ function AppContent() {
               />
             }
           />
+          <Route path="account" element={<EmployeeAccountPage />} />
           <Route path="annual-leave" element={<AnnualLeavePage />} />
           <Route
             path="attendance"

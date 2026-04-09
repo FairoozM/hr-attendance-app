@@ -16,7 +16,7 @@ export function RoleGuard({ children }) {
   if (!user) return children
   if (user.role === 'admin') return children
   if (user.role === 'employee' && EMPLOYEE_BLOCKED_PATHS.some((p) => path.startsWith(p))) {
-    return <Navigate to="/" replace />
+    return <Navigate to="/account" replace />
   }
   if (user.role === 'warehouse' && ADMIN_ONLY_PATHS.some((p) => path.startsWith(p))) {
     return <Navigate to="/" replace />

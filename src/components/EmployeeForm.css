@@ -26,6 +26,12 @@
   margin-top: 0.15rem;
 }
 
+.employee-form__hint--block {
+  margin: 0 0 0.5rem;
+  line-height: 1.45;
+  max-width: 32rem;
+}
+
 .employee-form__label {
   display: flex;
   flex-direction: column;

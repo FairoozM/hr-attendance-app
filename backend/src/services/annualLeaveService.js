@@ -92,6 +92,29 @@ async function listWithEmployees() {
   return result.rows
 }
 
+async function listWithEmployeesForEmployee(employeeId) {
+  const result = await query(
+    `SELECT
+       al.id,
+       al.employee_id,
+       al.from_date,
+       al.to_date,
+       al.reason,
+       al.status,
+       al.created_at,
+       al.updated_at,
+       e.employee_code,
+       e.full_name,
+       e.department
+     FROM annual_leave al
+     JOIN employees e ON e.id = al.employee_id
+     WHERE al.employee_id = $1
+     ORDER BY al.created_at DESC`,
+    [employeeId]
+  )
+  return result.rows
+}
+
 async function findById(id) {
   const result = await query(
     `SELECT id, employee_id, from_date, to_date, reason, status, created_at, updated_at
@@ -165,6 +188,7 @@ module.exports = {
   STATUSES,
   isValidStatus,
   listWithEmployees,
+  listWithEmployeesForEmployee,
   findById,
   findByIdWithEmployee,
   create,

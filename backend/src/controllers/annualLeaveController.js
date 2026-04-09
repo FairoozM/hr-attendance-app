@@ -18,7 +18,12 @@ function validateRange(fromDate, toDate) {
 
 async function list(req, res) {
   try {
-    const rows = await annualLeaveService.listWithEmployees()
+    const rows =
+      req.user.role === 'employee'
+        ? await annualLeaveService.listWithEmployeesForEmployee(
+            parseInt(req.user.employeeId, 10)
+          )
+        : await annualLeaveService.listWithEmployees()
     res.json(rows)
   } catch (err) {
     console.error('Annual leave list error:', err)
@@ -32,6 +37,11 @@ async function getOne(req, res) {
     if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
     const row = await annualLeaveService.findByIdWithEmployee(id)
     if (!row) return res.status(404).json({ error: 'Not found' })
+    if (req.user.role === 'employee') {
+      if (parseInt(row.employee_id, 10) !== parseInt(req.user.employeeId, 10)) {
+        return res.status(403).json({ error: 'Forbidden' })
+      }
+    }
     res.json(row)
   } catch (err) {
     console.error('Annual leave get error:', err)
@@ -41,10 +51,16 @@ async function getOne(req, res) {
 
 async function create(req, res) {
   try {
-    const employeeId = parseInt(req.body.employee_id, 10)
-    if (Number.isNaN(employeeId)) {
+    let employeeId = parseInt(req.body.employee_id, 10)
+    if (req.user.role === 'employee') {
+      const selfId = parseInt(req.user.employeeId, 10)
+      if (Number.isNaN(employeeId) || employeeId !== selfId) {
+        return res.status(403).json({ error: 'Forbidden' })
+      }
+    } else if (Number.isNaN(employeeId)) {
       return res.status(400).json({ error: 'employee_id is required' })
     }
+
     const fromDate = parseDate(req.body.from_date)
     const toDate = parseDate(req.body.to_date)
     const rangeErr = validateRange(fromDate, toDate)
@@ -54,6 +70,9 @@ async function create(req, res) {
     if (!emp) return res.status(404).json({ error: 'Employee not found' })
 
     let status = req.body.status != null ? String(req.body.status).trim() : 'Pending'
+    if (req.user.role === 'employee' && status !== 'Pending') {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
     if (!annualLeaveService.isValidStatus(status)) {
       return res.status(400).json({ error: 'Invalid status' })
     }
@@ -85,10 +104,23 @@ async function update(req, res) {
     const existing = await annualLeaveService.findById(id)
     if (!existing) return res.status(404).json({ error: 'Not found' })
 
+    if (req.user.role === 'employee') {
+      if (parseInt(existing.employee_id, 10) !== parseInt(req.user.employeeId, 10)) {
+        return res.status(403).json({ error: 'Forbidden' })
+      }
+      if (existing.status !== 'Pending') {
+        return res.status(403).json({ error: 'Forbidden' })
+      }
+    }
+
     const employeeId = parseInt(req.body.employee_id ?? existing.employee_id, 10)
     if (Number.isNaN(employeeId)) {
       return res.status(400).json({ error: 'employee_id is required' })
     }
+    if (req.user.role === 'employee' && employeeId !== parseInt(existing.employee_id, 10)) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+
     const fromDate = parseDate(req.body.from_date ?? existing.from_date)
     const toDate = parseDate(req.body.to_date ?? existing.to_date)
     const rangeErr = validateRange(fromDate, toDate)
@@ -99,6 +131,9 @@ async function update(req, res) {
 
     let status =
       req.body.status != null ? String(req.body.status).trim() : existing.status
+    if (req.user.role === 'employee' && status !== 'Pending') {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
     if (!annualLeaveService.isValidStatus(status)) {
       return res.status(400).json({ error: 'Invalid status' })
     }
@@ -129,6 +164,19 @@ async function remove(req, res) {
   try {
     const id = parseInt(req.params.id, 10)
     if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
+
+    const existing = await annualLeaveService.findById(id)
+    if (!existing) return res.status(404).json({ error: 'Not found' })
+
+    if (req.user.role === 'employee') {
+      if (parseInt(existing.employee_id, 10) !== parseInt(req.user.employeeId, 10)) {
+        return res.status(403).json({ error: 'Forbidden' })
+      }
+      if (existing.status !== 'Pending') {
+        return res.status(403).json({ error: 'Forbidden' })
+      }
+    }
+
     const ok = await annualLeaveService.remove(id)
     if (!ok) return res.status(404).json({ error: 'Not found' })
     res.status(204).send()

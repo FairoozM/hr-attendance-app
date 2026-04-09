@@ -1,4 +1,5 @@
 const employeesService = require('../services/employeesService')
+const usersService = require('../services/usersService')
 
 function validateBody(body) {
   const errors = []
@@ -49,6 +50,23 @@ function parseIncludeInAttendance(body, forCreate) {
   return Boolean(body.include_in_attendance)
 }
 
+async function me(req, res) {
+  try {
+    const id = parseInt(req.user.employeeId, 10)
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid session' })
+    }
+    const employee = await employeesService.findById(id)
+    if (!employee) {
+      return res.status(404).json({ error: 'Employee not found' })
+    }
+    res.json(employee)
+  } catch (err) {
+    console.error('Employee me error:', err)
+    res.status(500).json({ error: 'Failed to fetch employee' })
+  }
+}
+
 async function list(req, res) {
   try {
     const employees = await employeesService.findAll()
@@ -64,6 +82,13 @@ async function getOne(req, res) {
     const id = parseInt(req.params.id, 10)
     if (Number.isNaN(id)) {
       return res.status(400).json({ error: 'Invalid employee id' })
+    }
+    if (req.user.role === 'employee') {
+      if (parseInt(req.user.employeeId, 10) !== id) {
+        return res.status(403).json({ error: 'Forbidden' })
+      }
+    } else if (req.user.role !== 'admin' && req.user.role !== 'warehouse') {
+      return res.status(403).json({ error: 'Forbidden' })
     }
     const employee = await employeesService.findById(id)
     if (!employee) {
@@ -101,6 +126,12 @@ async function create(req, res) {
       include_in_attendance: parseIncludeInAttendance(req.body, true),
       ...ext,
     })
+    try {
+      await usersService.syncEmployeePortal(employee.id, req.body, true)
+    } catch (e) {
+      await employeesService.remove(employee.id)
+      return res.status(400).json({ error: e.message || 'Portal setup failed' })
+    }
     const io = req.app.get('io')
     if (io) io.emit('employees:changed', { action: 'created', employee })
     res.status(201).json(employee)
@@ -148,6 +179,11 @@ async function update(req, res) {
       nationality: ext.nationality,
       include_in_attendance: parseIncludeInAttendance(req.body, false),
     })
+    try {
+      await usersService.syncEmployeePortal(id, req.body, false)
+    } catch (e) {
+      return res.status(400).json({ error: e.message || 'Portal update failed' })
+    }
     const io = req.app.get('io')
     if (io) io.emit('employees:changed', { action: 'updated', employee })
     res.json(employee)
@@ -163,6 +199,7 @@ async function remove(req, res) {
     if (Number.isNaN(id)) {
       return res.status(400).json({ error: 'Invalid employee id' })
     }
+    await usersService.deleteByEmployeeId(id)
     const deleted = await employeesService.remove(id)
     if (!deleted) {
       return res.status(404).json({ error: 'Employee not found' })
@@ -176,4 +213,4 @@ async function remove(req, res) {
   }
 }
 
-module.exports = { list, getOne, create, update, remove }
+module.exports = { me, list, getOne, create, update, remove }
