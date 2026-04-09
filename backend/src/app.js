@@ -3,7 +3,7 @@ const fs = require('fs')
 const express = require('express')
 const cors = require('cors')
 const authMiddleware = require('./middleware/auth')
-const authController = require('./controllers/authController')
+const authRouter = require('./routes/auth')
 const employeesRoutes = require('./routes/employees')
 const attendanceRoutes = require('./routes/attendance')
 const annualLeaveRoutes = require('./routes/annualLeave')
@@ -12,10 +12,12 @@ const app = express()
 
 app.disable('x-powered-by')
 
+// Handle CORS preflight for every route before anything else
+app.options('*', cors())
 app.use(cors())
 app.use(express.json({ limit: '10mb' }))
 
-// --- API routes first (order matters). Auth is registered explicitly on app (no nested-router ambiguity). ---
+// --- API routes (order matters: specific before catch-all) ---
 
 app.get('/api', (_req, res) => {
   res.json({ status: 'ok', service: 'hr-api' })
@@ -25,29 +27,21 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' })
 })
 
-// Auth — must be before /api 404 fallback and before any static/SPA
-app.post('/api/auth/login', authController.login)
-app.get('/api/auth/login', (_req, res) => {
-  res
-    .status(405)
-    .setHeader('Allow', 'POST, OPTIONS')
-    .json({
-      error: 'Method not allowed',
-      hint: 'Use POST /api/auth/login with Content-Type: application/json and body { "username", "password" }',
-    })
-})
-app.get('/api/auth/me', authMiddleware.attachAuth, authMiddleware.requireAuth, authController.me)
+// Auth router — POST /api/auth/login, GET /api/auth/login (405), GET /api/auth/me
+app.use('/api/auth', authRouter)
 
+// Resource routers (attachAuth decodes token if present; individual handlers call requireAuth/requireAdmin)
 app.use('/api/employees', authMiddleware.attachAuth, employeesRoutes)
 app.use('/api/attendance', authMiddleware.attachAuth, attendanceRoutes)
 app.use('/api/annual-leave', authMiddleware.attachAuth, annualLeaveRoutes)
 
+// Catch-all for unmatched /api/* — always JSON, never HTML
 app.use('/api', (_req, res) => {
   if (res.headersSent) return
   res.status(404).json({ error: 'API route not found' })
 })
 
-// --- Only after API: optional static + SPA (production uses S3/CloudFront; enable with FRONTEND_DIST) ---
+// --- Optional static + SPA (production uses S3/CloudFront; enable with FRONTEND_DIST) ---
 const frontendDist = process.env.FRONTEND_DIST
   ? path.resolve(process.env.FRONTEND_DIST)
   : ''
@@ -65,6 +59,7 @@ if (frontendDist && fs.existsSync(frontendDist)) {
   })
 }
 
+// Global error handler — always returns JSON
 app.use((err, req, res, next) => {
   if (err && err.type === 'entity.parse.failed') {
     return res.status(400).json({ error: 'Invalid JSON body' })
