@@ -8,13 +8,19 @@ const annualLeaveRoutes = require('./annualLeave')
 
 const router = express.Router()
 
+// Public first — no attachAuth
 router.get('/health', healthController.getHealth)
+
+// Auth: POST /login is public; GET /me uses attachAuth on that route only
 router.use('/auth', authRoutes)
+
+// All routes below get optional Bearer auth
 router.use(authMiddleware.attachAuth)
 router.use('/employees', employeesRoutes)
 router.use('/attendance', attendanceRoutes)
 router.use('/annual-leave', annualLeaveRoutes)
 
+// Unmatched /api/* must never fall through to a frontend; always JSON
 router.use((req, res) => {
   res.status(404).json({ error: 'API route not found' })
 })

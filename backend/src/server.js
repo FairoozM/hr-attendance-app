@@ -19,6 +19,11 @@ app.set('io', io)
 
 server.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`)
+  console.log('[routes] API mounted at /api — JSON only; no static/SPA fallback in this process')
+  console.log('[routes] GET  /api/health')
+  console.log('[routes] POST /api/auth/login')
+  console.log('[routes] GET  /api/auth/me')
+  console.log('[routes] … employees, attendance, annual-leave (require auth where applicable)')
   try {
     await testConnection()
   } catch (err) {

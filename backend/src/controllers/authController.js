@@ -18,19 +18,24 @@ async function login(req, res) {
   try {
     const username = req.body.username != null ? String(req.body.username).trim() : ''
     const password = req.body.password != null ? String(req.body.password) : ''
+    console.log('[auth] POST /api/auth/login hit', { username: username || '(empty)' })
     if (!username || !password) {
       return res.status(400).json({ error: 'username and password are required' })
     }
 
     const row = await usersService.findByUsername(username)
     if (!row) {
+      console.log('[auth] login: no user found for username', username)
       return res.status(401).json({ error: 'Invalid username or password' })
     }
 
     const ok = await bcrypt.compare(password, row.password_hash)
     if (!ok) {
+      console.log('[auth] login: password mismatch for user id', row.id, 'role', row.role)
       return res.status(401).json({ error: 'Invalid username or password' })
     }
+
+    console.log('[auth] login: success user id', row.id, 'role', row.role)
 
     const token = jwt.sign(
       {
@@ -43,10 +48,11 @@ async function login(req, res) {
     )
 
     const user = buildUserPayload(row)
-    res.json({ token, user })
+    res.setHeader('Content-Type', 'application/json; charset=utf-8')
+    return res.status(200).json({ token, user })
   } catch (err) {
-    console.error('Login error:', err)
-    res.status(500).json({ error: 'Login failed' })
+    console.error('[auth] login: server error', err)
+    return res.status(500).json({ error: 'Login failed' })
   }
 }
 
@@ -59,10 +65,11 @@ async function me(req, res) {
     if (!row) {
       return res.status(401).json({ error: 'Unauthorized' })
     }
-    res.json({ user: buildUserPayload(row) })
+    res.setHeader('Content-Type', 'application/json; charset=utf-8')
+    return res.status(200).json({ user: buildUserPayload(row) })
   } catch (err) {
-    console.error('Auth me error:', err)
-    res.status(500).json({ error: 'Failed to load session' })
+    console.error('[auth] GET /api/auth/me error:', err)
+    return res.status(500).json({ error: 'Failed to load session' })
   }
 }
 
