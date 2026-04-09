@@ -11,7 +11,8 @@ You need **one of**:
 ### Required CloudFront configuration (infrastructure)
 
 - **Separate behavior for the API** (must be ordered **above** the default):
-  - **Path pattern**: `/api/*`
+  - **Path pattern**: `/api/*` (matches `/api/health`, `/api/auth/login`, etc.)
+  - **Path pattern**: `/api` (exact) — **required** for `GET https://your-domain/api` alone. CloudFront’s `/api/*` pattern does **not** match `/api` with no extra path segment; without a `/api` behavior, that request hits **S3** (often `403 AccessDenied` XML).
   - **Origin**: backend server (ALB, custom domain to Node, etc.) — **not** the S3 static site bucket
   - **Allowed HTTP methods**: `GET`, `HEAD`, `OPTIONS`, `PUT`, `POST`, `PATCH`, `DELETE` (so login and CRUD work)
   - **Caching**: disabled (use **CachingDisabled** or **Managed-CachingDisabled**). API responses must not be cached as HTML or stale JSON.
@@ -22,8 +23,9 @@ You need **one of**:
 
 | Priority | Path pattern | Origin | Notes |
 |----------|--------------|--------|--------|
-| 1 (higher) | `/api/*` | **API origin** (ALB / custom domain to Node) | Forward all methods; optional: `/api` → strip or pass through as your app expects. |
-| 2 (default `*`) | `*` (default) | **S3** (or S3 + website) | SPA + hashed assets only. |
+| 1 (higher) | `/api` | **API origin** | Same settings as `/api/*`; enables `GET /api` JSON root. |
+| 2 | `/api/*` | **API origin** (ALB / custom domain to Node) | Forward all methods. |
+| 3 (default `*`) | `*` (default) | **S3** (or S3 + website) | SPA + hashed assets only. |
 
 **Origin request / cache**:
 
