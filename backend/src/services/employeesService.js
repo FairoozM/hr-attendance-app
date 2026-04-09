@@ -1,7 +1,8 @@
 const { query } = require('../db')
 
 const EMPLOYEE_ROW = `id, employee_code, full_name, department, is_active, created_at,
-  joining_date, photo_url, phone, emirates_id, passport_number, nationality, include_in_attendance`
+  joining_date, photo_url, photo_doc_key, phone, emirates_id, passport_number, nationality,
+  include_in_attendance, designation, employment_status`
 
 async function findAll() {
   const result = await query(

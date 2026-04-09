@@ -1,5 +1,19 @@
 const employeesService = require('../services/employeesService')
 const usersService = require('../services/usersService')
+const s3Service = require('../services/s3Service')
+
+async function attachPhotoUrl(emp) {
+  if (emp && emp.photo_doc_key && !emp.photo_url) {
+    try {
+      emp.photo_url = await s3Service.getDownloadUrl({ key: emp.photo_doc_key, expiresIn: 3600 })
+    } catch { /* keep null */ }
+  }
+  return emp
+}
+
+async function attachPhotoUrls(employees) {
+  return Promise.all(employees.map(attachPhotoUrl))
+}
 
 function validateBody(body) {
   const errors = []
@@ -60,7 +74,7 @@ async function me(req, res) {
     if (!employee) {
       return res.status(404).json({ error: 'Employee not found' })
     }
-    res.json(employee)
+    res.json(await attachPhotoUrl(employee))
   } catch (err) {
     console.error('Employee me error:', err)
     res.status(500).json({ error: 'Failed to fetch employee' })
@@ -70,7 +84,7 @@ async function me(req, res) {
 async function list(req, res) {
   try {
     const employees = await employeesService.findAll()
-    res.json(employees)
+    res.json(await attachPhotoUrls(employees))
   } catch (err) {
     console.error('Employees list error:', err)
     res.status(500).json({ error: 'Failed to fetch employees' })
@@ -94,7 +108,7 @@ async function getOne(req, res) {
     if (!employee) {
       return res.status(404).json({ error: 'Employee not found' })
     }
-    res.json(employee)
+    res.json(await attachPhotoUrl(employee))
   } catch (err) {
     console.error('Employee get error:', err)
     res.status(500).json({ error: 'Failed to fetch employee' })
