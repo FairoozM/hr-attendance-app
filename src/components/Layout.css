@@ -6,7 +6,6 @@
   align-items: stretch;
 }
 
-/* Overlay: mobile only, closes sidebar on click */
 .app-sidebar-backdrop {
   position: fixed;
   inset: 0;
@@ -47,17 +46,6 @@
 
 .app-sidebar--open {
   transform: translateX(0);
-}
-
-.app-sidebar--pinned {
-  position: relative;
-  z-index: 1;
-  transform: translateX(0);
-  box-shadow: none;
-  flex-shrink: 0;
-  height: auto;
-  min-height: 100vh;
-  min-height: 100dvh;
 }
 
 .app-sidebar__inner {
@@ -209,30 +197,30 @@
   flex-shrink: 0;
 }
 
-/* On large screens the sidebar carries branding; hide the duplicate top bar */
-@media (min-width: 1024px) {
-  .app-sidebar--pinned ~ .app-shell .app-topbar {
-    display: none;
-  }
-}
-
 .app-topbar__menu {
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 5px;
-  width: 2.5rem;
-  height: 2.5rem;
+  width: 2.75rem;
+  height: 2.75rem;
   padding: 0;
-  border: none;
-  background: transparent;
+  border: 1px solid var(--border);
+  background: var(--surface);
   border-radius: var(--radius-sm);
   cursor: pointer;
   flex-shrink: 0;
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.06));
 }
 
 .app-topbar__menu:hover {
   background: var(--bg);
+  border-color: var(--text-muted);
+}
+
+.app-topbar__menu:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .app-topbar__menu-bar {
@@ -261,10 +249,4 @@
   flex: 1;
   padding: 1rem 1.25rem;
   overflow: auto;
-}
-
-@media (min-width: 1024px) {
-  .app-topbar__menu {
-    display: none;
-  }
 }

@@ -1,48 +1,23 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useSettings } from '../contexts/SettingsContext'
 import { useAuth } from '../contexts/AuthContext'
 import { RoleGuard } from './RoleGuard'
 import './Layout.css'
 
-const DESKTOP_MQ = '(min-width: 1024px)'
-
 export function Layout() {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [isDesktop, setIsDesktop] = useState(false)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const { appTitle } = useSettings()
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const isAdmin = user?.role === 'admin'
   const isEmployee = user?.role === 'employee'
 
-  useEffect(() => {
-    const mq = window.matchMedia(DESKTOP_MQ)
-    const sync = () => {
-      const desktop = mq.matches
-      setIsDesktop(desktop)
-      if (desktop) {
-        setSidebarOpen(true)
-      } else {
-        setSidebarOpen(false)
-      }
-    }
-    sync()
-    mq.addEventListener('change', sync)
-    return () => mq.removeEventListener('change', sync)
-  }, [])
-
-  const openSidebar = useCallback(() => setSidebarOpen(true), [])
-  const closeSidebar = useCallback(() => {
-    if (!isDesktop) setSidebarOpen(false)
-  }, [isDesktop])
+  const openSidebar = useCallback(() => setIsSidebarOpen(true), [])
+  const closeSidebar = useCallback(() => setIsSidebarOpen(false), [])
 
   const navLinkClass = ({ isActive }) =>
     `app-sidebar__link ${isActive ? 'app-sidebar__link--active' : ''}`
-
-  const handleNavClick = useCallback(() => {
-    if (!isDesktop) setSidebarOpen(false)
-  }, [isDesktop])
 
   const handleLogout = () => {
     closeSidebar()
@@ -50,12 +25,9 @@ export function Layout() {
     navigate('/login', { replace: true })
   }
 
-  const showOverlay = sidebarOpen && !isDesktop
-  const sidebarExpanded = isDesktop || sidebarOpen
-
   return (
     <div className="app">
-      {showOverlay && (
+      {isSidebarOpen && (
         <button
           type="button"
           className="app-sidebar-backdrop"
@@ -66,36 +38,34 @@ export function Layout() {
 
       <aside
         id="app-sidebar-panel"
-        className={`app-sidebar ${sidebarExpanded ? 'app-sidebar--open' : ''} ${isDesktop ? 'app-sidebar--pinned' : ''}`}
-        aria-hidden={!sidebarExpanded}
+        className={`app-sidebar ${isSidebarOpen ? 'app-sidebar--open' : ''}`}
+        aria-hidden={!isSidebarOpen}
       >
         <div className="app-sidebar__inner">
           <div className="app-sidebar__head">
-            <NavLink to="/" className="app-sidebar__brand" onClick={handleNavClick}>
+            <NavLink to="/" className="app-sidebar__brand">
               {appTitle || 'HR Attendance'}
             </NavLink>
-            {!isDesktop && (
-              <button
-                type="button"
-                className="app-sidebar__close"
-                onClick={closeSidebar}
-                aria-label="Close menu"
-              >
-                ×
-              </button>
-            )}
+            <button
+              type="button"
+              className="app-sidebar__close"
+              onClick={closeSidebar}
+              aria-label="Close menu"
+            >
+              ×
+            </button>
           </div>
 
           <nav id="app-sidebar-nav" className="app-sidebar__nav" aria-label="Main">
-            <NavLink to="/" end className={navLinkClass} onClick={handleNavClick}>
+            <NavLink to="/" end className={navLinkClass}>
               Dashboard
             </NavLink>
             {!isEmployee && (
-              <NavLink to="/attendance" className={navLinkClass} onClick={handleNavClick}>
+              <NavLink to="/attendance" className={navLinkClass}>
                 Attendance
               </NavLink>
             )}
-            <NavLink to="/annual-leave" className={navLinkClass} onClick={handleNavClick}>
+            <NavLink to="/annual-leave" className={navLinkClass}>
               Annual Leave
             </NavLink>
             {isAdmin && (
@@ -103,10 +73,10 @@ export function Layout() {
                 <div className="app-sidebar__section-label" role="presentation">
                   Admin
                 </div>
-                <NavLink to="/employees" className={navLinkClass} onClick={handleNavClick}>
+                <NavLink to="/employees" className={navLinkClass}>
                   Employees
                 </NavLink>
-                <NavLink to="/settings" className={navLinkClass} onClick={handleNavClick}>
+                <NavLink to="/settings" className={navLinkClass}>
                   Settings
                 </NavLink>
               </>
@@ -127,21 +97,19 @@ export function Layout() {
 
       <div className="app-shell">
         <header className="app-topbar">
-          {!isDesktop && (
-            <button
-              type="button"
-              className="app-topbar__menu"
-              onClick={openSidebar}
-              aria-expanded={sidebarExpanded}
-              aria-controls="app-sidebar-panel"
-              aria-label="Open menu"
-            >
-              <span className="app-topbar__menu-bar" />
-              <span className="app-topbar__menu-bar" />
-              <span className="app-topbar__menu-bar" />
-            </button>
-          )}
-          <NavLink to="/" className="app-topbar__title" onClick={handleNavClick}>
+          <button
+            type="button"
+            className="app-topbar__menu"
+            onClick={openSidebar}
+            aria-expanded={isSidebarOpen}
+            aria-controls="app-sidebar-panel"
+            aria-label="Open menu"
+          >
+            <span className="app-topbar__menu-bar" aria-hidden />
+            <span className="app-topbar__menu-bar" aria-hidden />
+            <span className="app-topbar__menu-bar" aria-hidden />
+          </button>
+          <NavLink to="/" className="app-topbar__title">
             {appTitle || 'HR Attendance'}
           </NavLink>
         </header>
