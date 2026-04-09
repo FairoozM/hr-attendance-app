@@ -2,9 +2,20 @@ import { API_BASE_URL } from './config.js'
 
 const AUTH_STORAGE_KEY = 'hr-auth'
 
+/** Login and all API calls use paths under `/api/...` (e.g. `POST /api/auth/login`). */
 function resolveApiUrl(path) {
   if (typeof path !== 'string' || path.startsWith('http')) return path
   return `${API_BASE_URL}${path}`
+}
+
+function contentTypeLooksJson(ct) {
+  const s = (ct || '').toLowerCase()
+  return s.includes('application/json') || s.includes('+json')
+}
+
+function bodyLooksLikeHtml(text) {
+  const t = String(text || '').trimStart()
+  return t.startsWith('<!') || t.toLowerCase().startsWith('<html')
 }
 
 function getAuthHeaders() {
@@ -24,11 +35,13 @@ function normalizeApiPath(path) {
 }
 
 /**
- * Reads fetch response: always JSON for API, or clear error if HTML/non-JSON (e.g. CloudFront/S3).
+ * Expects JSON bodies for API routes. If CloudFront/S3 returns SPA HTML (HTTP 200, text/html), fails with a clear message.
  */
 async function handleResponse(res, requestUrl) {
   const url = requestUrl || res.url || ''
+  const contentType = res.headers.get('content-type') || ''
   const text = await res.text()
+
   if (res.status === 204) {
     if (!res.ok) {
       const err = new Error(res.statusText || 'Request failed')
@@ -47,20 +60,46 @@ async function handleResponse(res, requestUrl) {
     }
     return null
   }
+
+  const preview = text.slice(0, 280).replace(/\s+/g, ' ')
+  const previewSuffix = text.length > 280 ? '…' : ''
+
   let data
   try {
     data = JSON.parse(text)
   } catch {
-    const hint =
+    const isHtmlResponse =
+      bodyLooksLikeHtml(text) || contentType.toLowerCase().includes('text/html')
+
+    console.warn('[api] Non-JSON response', {
+      url,
+      status: res.status,
+      contentType: contentType || '(missing)',
+      preview: preview + previewSuffix,
+    })
+
+    const htmlMessage = 'API returned HTML instead of JSON. Check CloudFront /api routing.'
+    const fallbackMessage =
       API_BASE_URL === ''
-        ? `Server returned non-JSON response from ${url} (HTTP ${res.status}). For production, set VITE_API_BASE_URL to your API origin and rebuild, or configure CloudFront to forward /api/* to your backend.`
-        : `Server returned non-JSON response from ${url} (HTTP ${res.status}). Check that VITE_API_BASE_URL (${API_BASE_URL}) points to your API.`
-    const err = new Error(!res.ok ? text.slice(0, 200) || res.statusText : hint)
+        ? `${htmlMessage} Or set VITE_API_BASE_URL to your API origin and rebuild.`
+        : `Expected JSON from ${url} (HTTP ${res.status}) but parsing failed. content-type: ${contentType || '(none)'}; VITE_API_BASE_URL=${API_BASE_URL || '(empty)'}`
+
+    let message
+    if (isHtmlResponse) {
+      message = htmlMessage
+    } else if (!res.ok) {
+      message = text.slice(0, 200) || res.statusText || 'Request failed'
+    } else {
+      message = fallbackMessage
+    }
+
+    const err = new Error(message)
     err.status = res.status
     err.url = url
-    err.body = { raw: text.slice(0, 400) }
+    err.body = { raw: text.slice(0, 400), contentType }
     throw err
   }
+
   if (!res.ok) {
     const err = new Error(data?.error || res.statusText || 'Request failed')
     err.status = res.status
@@ -68,6 +107,14 @@ async function handleResponse(res, requestUrl) {
     err.body = data
     throw err
   }
+
+  if (!contentTypeLooksJson(contentType) && res.ok) {
+    console.warn('[api] JSON parsed but Content-Type is not application/json', {
+      url,
+      contentType: contentType || '(missing)',
+    })
+  }
+
   return data
 }
 
@@ -77,6 +124,7 @@ async function request(method, path, body = null) {
   const options = {
     method,
     headers: {
+      Accept: 'application/json',
       'Content-Type': 'application/json',
       ...getAuthHeaders(),
     },
