@@ -33,7 +33,9 @@ export function ApiServerSetup() {
     <div className="api-server-setup" role="region" aria-label="Backend API configuration">
       <p className="api-server-setup__lead">
         This site is not reaching your API server (requests to <code>/api</code> return the web app instead of JSON).
-        Enter the full URL where your Express backend is running — no trailing slash.
+        Use the same origin as this app (CloudFront), with no path and no trailing slash — e.g.{' '}
+        <code>https://d3ci8wu1d5dytp.cloudfront.net</code> — not <code>#/login</code>, not{' '}
+        <code>/api</code>.
       </p>
       <form onSubmit={save} className="api-server-setup__form">
         <label className="login-label">
@@ -41,7 +43,7 @@ export function ApiServerSetup() {
           <input
             type="text"
             className="login-input"
-            placeholder="https://your-alb.region.elb.amazonaws.com"
+            placeholder="https://d3ci8wu1d5dytp.cloudfront.net"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             autoComplete="off"
@@ -58,7 +60,7 @@ export function ApiServerSetup() {
         </button>
       </form>
       <p className="api-server-setup__hint">
-        Example: your ALB, Elastic Beanstalk URL, or <code>https://api.yourdomain.com</code>. The API must allow CORS from this page&apos;s origin.
+        Same-origin CloudFront URL is enough when <code>/api/*</code> routes to Express. Otherwise use your API host (ALB, etc.) — no <code>/api</code> suffix.
       </p>
     </div>
   )

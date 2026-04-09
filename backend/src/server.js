@@ -19,7 +19,14 @@ app.set('io', io)
 
 server.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`)
-  console.log('[routes] API mounted at /api — JSON only; no static/SPA fallback in this process')
+  console.log(
+    '[routes] Express order: GET /api, GET /api/health, /api/auth, /api/employees|attendance|annual-leave, /api 404 JSON'
+  )
+  console.log(
+    process.env.FRONTEND_DIST
+      ? `[routes] FRONTEND_DIST=${process.env.FRONTEND_DIST} — static + SPA catch-all enabled`
+      : '[routes] No FRONTEND_DIST — API-only; SPA hosted on S3/CloudFront'
+  )
   console.log('[routes] GET  /api                    → { status, service }')
   console.log('[routes] GET  /api/health')
   console.log('[routes] Auth router at /api/auth:')
