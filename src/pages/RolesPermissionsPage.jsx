@@ -240,8 +240,6 @@ export function RolesPermissionsPage() {
     const q = empSearch.toLowerCase()
     return allEmployees.filter((e) => {
       if (!e.isActive) return false
-      // Exclude the manager's own employee record from the assignable list
-      if (selectedUser?.employee_id && String(e.id) === String(selectedUser.employee_id)) return false
       if (!q) return true
       return (
         (e.name || '').toLowerCase().includes(q) ||

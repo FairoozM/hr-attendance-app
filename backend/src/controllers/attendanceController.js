@@ -5,22 +5,28 @@ const s3Service = require('../services/s3Service')
 /**
  * Determine which employee IDs this user may access for attendance.
  * - Admin: returns null  → full access (no filter)
- * - Non-admin with attendance permission: returns array of assigned employee IDs
- *   (empty array = no employees assigned yet → sees nothing)
+ * - Non-admin: returns array of assigned employee IDs + own employee record
  */
 async function getAttendanceScope(user) {
   if (!user || user.role === 'admin') return null
-  // Non-admins must have at least view or manage permission to get here
   const ids = await assignmentService.getAssignedEmployeeIds(parseInt(user.userId, 10))
-  return ids // may be empty
+  // Always include the user's own employee record
+  const ownEmpId = user.employeeId ? parseInt(user.employeeId, 10) : null
+  if (ownEmpId && !ids.includes(ownEmpId)) {
+    return [ownEmpId, ...ids]
+  }
+  return ids
 }
 
 /**
  * Check whether a specific employee ID is within the user's allowed scope.
  * Returns true if allowed, false if blocked.
+ * Users can always manage their own attendance record.
  */
 async function isInScope(employeeId, user) {
   if (!user || user.role === 'admin') return true
+  // Always allow the user to manage their own attendance
+  if (user.employeeId && parseInt(user.employeeId, 10) === employeeId) return true
   const ids = await assignmentService.getAssignedEmployeeIds(parseInt(user.userId, 10))
   return ids.includes(employeeId)
 }
@@ -59,16 +65,21 @@ async function listManagedEmployees(req, res) {
       return res.json(result.rows)
     }
 
-    // Non-admin: return only assigned employees
+    // Non-admin: return assigned employees PLUS the user's own employee record
     const ids = await assignmentService.getAssignedEmployeeIds(parseInt(req.user.userId, 10))
-    if (ids.length === 0) return res.json([])
 
-    const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ')
+    // Always include their own employee record if they have one
+    const ownEmpId = req.user.employeeId ? parseInt(req.user.employeeId, 10) : null
+    const allIds = ownEmpId ? [...new Set([ownEmpId, ...ids])] : ids
+
+    if (allIds.length === 0) return res.json([])
+
+    const placeholders = allIds.map((_, i) => `$${i + 1}`).join(', ')
     const result = await query(
       `SELECT ${COLS} FROM employees
        WHERE id IN (${placeholders}) AND is_active = true
        ORDER BY full_name`,
-      ids
+      allIds
     )
     return res.json(result.rows)
   } catch (err) {
