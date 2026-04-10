@@ -16,7 +16,6 @@ import { AnnualLeavePage } from './pages/AnnualLeavePage'
 import { EmployeeProfileAdminPage } from './pages/EmployeeProfileAdminPage'
 import { WeeklyRosterPage } from './pages/WeeklyRosterPage'
 import { RolesPermissionsPage } from './pages/RolesPermissionsPage'
-import { AnnualLeaveSalaryPage } from './pages/AnnualLeaveSalaryPage'
 import { useEmployees } from './hooks/useEmployees'
 import { useAttendance, clearAllAttendanceStorage } from './hooks/useAttendance'
 import { useWeeklyHolidayDay } from './hooks/useWeeklyHolidayDay'
@@ -177,7 +176,6 @@ function AppContent() {
             }
           />
           <Route path="roles-permissions" element={<RolesPermissionsPage />} />
-          <Route path="annual-leave-salary" element={<AnnualLeaveSalaryPage />} />
         </Route>
       </Routes>
   )

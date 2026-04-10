@@ -1,6 +1,6 @@
 /* ── Page ── */
 .als-page {
-  padding: 1.5rem;
+  padding: 0;
   max-width: 1300px;
   margin: 0 auto;
 }
@@ -32,6 +32,15 @@
   gap: 0.6rem;
   flex-wrap: wrap;
   align-items: center;
+}
+
+.als-page-header__actions--bar {
+  margin-bottom: 1rem;
+  min-height: 0;
+}
+
+.als-page-header__actions--bar:empty {
+  display: none;
 }
 
 /* ── Cards ── */

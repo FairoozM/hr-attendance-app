@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useEmployees } from '../hooks/useEmployees'
 import { useAnnualLeave } from '../hooks/useAnnualLeave'
 import { ExcelStyleColumnFilter, excelFilterIsActive } from '../components/ExcelStyleColumnFilter'
+import { AnnualLeaveSalaryPage } from './AnnualLeaveSalaryPage'
 import './Page.css'
 import './AnnualLeavePage.css'
 
@@ -46,6 +47,7 @@ export function AnnualLeavePage() {
   const isAdmin = user?.role === 'admin'
   const isEmployee = user?.role === 'employee'
   const loggedInEmployeeId = user?.employeeId ? String(user.employeeId) : null
+  const [activeTab, setActiveTab] = useState('requests')
   const { employees, loading: empLoading } = useEmployees()
   const {
     requests,
@@ -343,7 +345,30 @@ export function AnnualLeavePage() {
         <h1 className="page-title">Annual Leave</h1>
       </div>
 
-      {error && (
+      {/* ── Sub-tabs ── */}
+      <div className="al-tabs">
+        <button
+          className={`al-tab ${activeTab === 'requests' ? 'al-tab--active' : ''}`}
+          onClick={() => setActiveTab('requests')}
+        >
+          Leave Requests
+        </button>
+        {isAdmin && (
+          <button
+            className={`al-tab ${activeTab === 'salary' ? 'al-tab--active' : ''}`}
+            onClick={() => setActiveTab('salary')}
+          >
+            Leave Salary Calculator
+          </button>
+        )}
+      </div>
+
+      {/* ── Leave Salary Calculator tab ── */}
+      {activeTab === 'salary' && isAdmin && (
+        <AnnualLeaveSalaryPage embedded />
+      )}
+
+      {activeTab === 'requests' && error && (
         <section className="page-section">
           <p className="page-error" role="alert">
             {error}
@@ -351,7 +376,7 @@ export function AnnualLeavePage() {
         </section>
       )}
 
-      <section className="page-section annual-leave-form-section">
+      {activeTab === 'requests' && <section className="page-section annual-leave-form-section">
         <h2 className="annual-leave-section-title">New request</h2>
         <form className="annual-leave-form" onSubmit={handleSubmit}>
           <label className="annual-leave-field">
@@ -411,9 +436,9 @@ export function AnnualLeavePage() {
             </p>
           )}
         </form>
-      </section>
+      </section>}
 
-      <section className="page-section page-section--fill">
+      {activeTab === 'requests' && <section className="page-section page-section--fill">
         <h2 className="annual-leave-section-title">All requests</h2>
         {hasActiveFilters && (
           <p className="annual-leave-filter-hint" role="status">
@@ -581,12 +606,12 @@ export function AnnualLeavePage() {
               <p className="annual-leave-empty annual-leave-empty--filtered">
                 No requests match the selected filters.
               </p>
-            )}
-          </div>
+          )}
+        </div>
         )}
-      </section>
+      </section>}
 
-      {editingRow && (
+      {activeTab === 'requests' && editingRow && (
         <section className="page-section annual-leave-form-section">
           <h2 className="annual-leave-section-title">Edit request</h2>
           <form className="annual-leave-form" onSubmit={onEditSave}>

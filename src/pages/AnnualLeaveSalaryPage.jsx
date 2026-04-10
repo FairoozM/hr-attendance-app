@@ -57,7 +57,7 @@ function NumInput({ label, value, onChange, hint, readOnly, highlight }) {
   )
 }
 
-export function AnnualLeaveSalaryPage() {
+export function AnnualLeaveSalaryPage({ embedded = false }) {
   const { employees } = useEmployees()
   const [empSearch, setEmpSearch] = useState('')
   const [showDropdown, setShowDropdown] = useState(false)
@@ -235,23 +235,25 @@ export function AnnualLeaveSalaryPage() {
   return (
     <div className="als-page" ref={printRef}>
       {/* ── Page header ── */}
-      <div className="als-page-header">
-        <div>
-          <h1 className="als-page-title">Annual Leave Salary</h1>
-          <p className="als-page-sub">Calculate and record employee annual leave salary payments</p>
+      {!embedded && (
+        <div className="als-page-header">
+          <div>
+            <h1 className="als-page-title">Annual Leave Salary</h1>
+            <p className="als-page-sub">Calculate and record employee annual leave salary payments</p>
+          </div>
         </div>
-        <div className="als-page-header__actions">
-          {selectedEmp && editingId && (
-            <button className="als-btn als-btn--outline" onClick={handleNew}>
-              + New Calculation
-            </button>
-          )}
-          {selectedEmp && (
-            <button className="als-btn als-btn--outline als-btn--print" onClick={handlePrint}>
-              🖨 Print / PDF
-            </button>
-          )}
-        </div>
+      )}
+      <div className="als-page-header__actions als-page-header__actions--bar">
+        {selectedEmp && editingId && (
+          <button className="als-btn als-btn--outline" onClick={handleNew}>
+            + New Calculation
+          </button>
+        )}
+        {selectedEmp && (
+          <button className="als-btn als-btn--outline als-btn--print" onClick={handlePrint}>
+            🖨 Print / PDF
+          </button>
+        )}
       </div>
 
       {/* ── Employee selector ── */}

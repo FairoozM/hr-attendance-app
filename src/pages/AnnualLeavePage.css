@@ -1,3 +1,33 @@
+/* ── Sub-tabs ── */
+.al-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid #e5e7eb;
+  margin-bottom: 1.5rem;
+}
+
+.al-tab {
+  padding: 0.6rem 1.3rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #6b7280;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+  white-space: nowrap;
+}
+
+.al-tab:hover { color: #374151; }
+
+.al-tab--active {
+  color: #6366f1;
+  border-bottom-color: #6366f1;
+}
+
+/* ── Original section titles ── */
 .annual-leave-section-title {
   margin: 0 0 0.75rem;
   font-size: 1.05rem;
