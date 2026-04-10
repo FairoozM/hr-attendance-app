@@ -11,6 +11,7 @@ function buildUserPayload(row) {
     role: row.role,
     employeeId: row.employee_id != null ? String(row.employee_id) : null,
     displayName: String(displayName),
+    permissions: row.permissions || {},
   }
 }
 
@@ -44,6 +45,7 @@ async function login(req, res) {
         sub: String(row.id),
         role: row.role,
         employeeId: row.employee_id != null ? String(row.employee_id) : null,
+        permissions: row.permissions || {},
       },
       JWT_SECRET,
       { expiresIn: '7d' }

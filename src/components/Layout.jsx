@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useSettings } from '../contexts/SettingsContext'
-import { useAuth } from '../contexts/AuthContext'
+import { useAuth, hasPermission } from '../contexts/AuthContext'
 import { RoleGuard } from './RoleGuard'
 import './Layout.css'
 
@@ -12,6 +12,8 @@ export function Layout() {
   const navigate = useNavigate()
   const isAdmin = user?.role === 'admin'
   const isEmployee = user?.role === 'employee'
+
+  const can = (module, action) => hasPermission(user, module, action)
 
   const openSidebar = useCallback(() => setIsSidebarOpen(true), [])
   const closeSidebar = useCallback(() => setIsSidebarOpen(false), [])
@@ -67,31 +69,59 @@ export function Layout() {
                 <NavLink to="/annual-leave" className={navLinkClass} onClick={closeSidebar}>
                   Annual Leave
                 </NavLink>
+                {can('attendance', 'view') && (
+                  <NavLink to="/attendance" className={navLinkClass} onClick={closeSidebar}>
+                    Attendance
+                  </NavLink>
+                )}
+                {can('employees', 'view') && (
+                  <NavLink to="/employees" className={navLinkClass} onClick={closeSidebar}>
+                    Employees
+                  </NavLink>
+                )}
+                {can('roster', 'view') && (
+                  <NavLink to="/roster" className={navLinkClass} onClick={closeSidebar}>
+                    Weekly Off &amp; Duty
+                  </NavLink>
+                )}
               </>
             ) : (
               <>
                 <NavLink to="/" end className={navLinkClass} onClick={closeSidebar}>
                   Dashboard
                 </NavLink>
-                <NavLink to="/attendance" className={navLinkClass} onClick={closeSidebar}>
-                  Attendance
-                </NavLink>
-                <NavLink to="/annual-leave" className={navLinkClass} onClick={closeSidebar}>
-                  Annual Leave
-                </NavLink>
-                <NavLink to="/roster" className={navLinkClass} onClick={closeSidebar}>
-                  Weekly Off &amp; Duty
-                </NavLink>
-                {isAdmin && (
+                {can('attendance', 'view') && (
+                  <NavLink to="/attendance" className={navLinkClass} onClick={closeSidebar}>
+                    Attendance
+                  </NavLink>
+                )}
+                {can('leave', 'view') && (
+                  <NavLink to="/annual-leave" className={navLinkClass} onClick={closeSidebar}>
+                    Annual Leave
+                  </NavLink>
+                )}
+                {can('roster', 'view') && (
+                  <NavLink to="/roster" className={navLinkClass} onClick={closeSidebar}>
+                    Weekly Off &amp; Duty
+                  </NavLink>
+                )}
+                {can('employees', 'view') && (
                   <>
                     <div className="app-sidebar__section-label" role="presentation">
-                      Admin
+                      Management
                     </div>
                     <NavLink to="/employees" className={navLinkClass} onClick={closeSidebar}>
                       Employees
                     </NavLink>
+                  </>
+                )}
+                {isAdmin && (
+                  <>
                     <NavLink to="/settings" className={navLinkClass} onClick={closeSidebar}>
                       Settings
+                    </NavLink>
+                    <NavLink to="/roles-permissions" className={navLinkClass} onClick={closeSidebar}>
+                      Roles &amp; Permissions
                     </NavLink>
                   </>
                 )}

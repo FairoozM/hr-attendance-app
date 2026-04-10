@@ -9,4 +9,10 @@ router.get('/users', requireAuth, requireAdmin, adminController.listUsers)
 // POST /api/admin/users/:userId/reset-password — admin resets a specific user's password
 router.post('/users/:userId/reset-password', requireAuth, requireAdmin, adminController.resetUserPassword)
 
+// GET /api/admin/users-permissions — list non-admin users with their permissions
+router.get('/users-permissions', requireAuth, requireAdmin, adminController.listUsersWithPermissions)
+
+// PUT /api/admin/users/:userId/permissions — update a user's module permissions
+router.put('/users/:userId/permissions', requireAuth, requireAdmin, adminController.updateUserPermissions)
+
 module.exports = router

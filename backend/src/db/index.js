@@ -101,11 +101,13 @@ async function ensureUsersTable() {
       password_hash TEXT NOT NULL,
       role VARCHAR(32) NOT NULL CHECK (role IN ('admin', 'employee', 'warehouse')),
       employee_id INTEGER UNIQUE REFERENCES employees(id) ON DELETE SET NULL,
+      permissions JSONB NOT NULL DEFAULT '{}',
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `)
   await query(`CREATE INDEX IF NOT EXISTS idx_users_employee_id ON users(employee_id)`)
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions JSONB NOT NULL DEFAULT '{}'`)
 }
 
 /**

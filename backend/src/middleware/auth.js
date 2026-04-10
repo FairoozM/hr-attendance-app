@@ -14,6 +14,7 @@ function attachAuth(req, res, next) {
       userId: String(payload.sub),
       role: payload.role,
       employeeId: payload.employeeId != null ? String(payload.employeeId) : null,
+      permissions: payload.permissions || {},
     }
     next()
   } catch {
@@ -50,6 +51,34 @@ function requireEmployee(req, res, next) {
   next()
 }
 
+/**
+ * Permission-based access control middleware.
+ * - admin: always passes
+ * - warehouse: always passes (backward compatibility)
+ * - employee: must have the specific permission (manage implies view)
+ */
+function requirePermission(module, action) {
+  return function permissionCheck(req, res, next) {
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' })
+    if (req.user.role === 'admin') return next()
+    if (req.user.role === 'warehouse') return next()
+
+    const p = req.user.permissions || {}
+    const mod = p[module] || {}
+
+    // manage permission implicitly grants view
+    if (action === 'view' && mod.manage) return next()
+    // approve permission implicitly grants view for leave
+    if (action === 'view' && module === 'leave' && mod.approve) return next()
+
+    if (mod[action]) return next()
+
+    return res.status(403).json({
+      error: `Access denied: requires ${module} ${action} permission`,
+    })
+  }
+}
+
 module.exports = {
   JWT_SECRET,
   attachAuth,
@@ -57,4 +86,5 @@ module.exports = {
   requireAdmin,
   requireAdminOrWarehouse,
   requireEmployee,
+  requirePermission,
 }

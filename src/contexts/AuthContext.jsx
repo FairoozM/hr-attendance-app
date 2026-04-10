@@ -46,7 +46,24 @@ export function AuthProvider({ children }) {
     localStorage.removeItem(AUTH_STORAGE_KEY)
   }, [])
 
-  const value = { user, loading, login, logout }
+  /** Refresh user from /api/auth/me (e.g. after admin updates permissions) */
+  const refreshUser = useCallback(async () => {
+    try {
+      const res = await api.get('/api/auth/me')
+      if (res?.user) {
+        const stored = loadStoredAuth()
+        if (stored) {
+          const updated = { user: res.user, token: stored.token }
+          localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updated))
+        }
+        setUser(res.user)
+        return res.user
+      }
+    } catch (_) {}
+    return null
+  }, [])
+
+  const value = { user, loading, login, logout, refreshUser }
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
@@ -54,4 +71,20 @@ export function useAuth() {
   const ctx = useContext(AuthContext)
   if (!ctx) throw new Error('useAuth must be used within AuthProvider')
   return ctx
+}
+
+/**
+ * Returns true if the user can access the given module+action.
+ * Admin and warehouse always return true (backward compat).
+ * employee: checks user.permissions object.
+ */
+export function hasPermission(user, module, action) {
+  if (!user) return false
+  if (user.role === 'admin') return true
+  if (user.role === 'warehouse') return true
+  const p = user.permissions || {}
+  const mod = p[module] || {}
+  if (action === 'view' && mod.manage) return true
+  if (action === 'view' && module === 'leave' && mod.approve) return true
+  return Boolean(mod[action])
 }

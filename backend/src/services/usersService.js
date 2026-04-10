@@ -14,6 +14,7 @@ async function findByUsername(email) {
   if (!u) return null
   const result = await query(
     `SELECT u.id, u.username, u.password_hash, u.role, u.employee_id,
+            u.permissions,
             e.full_name AS employee_full_name
      FROM users u
      LEFT JOIN employees e ON e.id = u.employee_id
@@ -28,7 +29,7 @@ const findByEmail = findByUsername
 
 async function findById(id) {
   const result = await query(
-    `SELECT id, username, password_hash, role, employee_id FROM users WHERE id = $1`,
+    `SELECT id, username, password_hash, role, employee_id, permissions FROM users WHERE id = $1`,
     [id]
   )
   return result.rows[0] || null
@@ -37,6 +38,7 @@ async function findById(id) {
 async function findByIdJoined(id) {
   const result = await query(
     `SELECT u.id, u.username, u.password_hash, u.role, u.employee_id,
+            u.permissions,
             e.full_name AS employee_full_name
      FROM users u
      LEFT JOIN employees e ON e.id = u.employee_id
@@ -48,10 +50,18 @@ async function findByIdJoined(id) {
 
 async function findByEmployeeId(employeeId) {
   const result = await query(
-    `SELECT id, username, password_hash, role, employee_id FROM users WHERE employee_id = $1`,
+    `SELECT id, username, password_hash, role, employee_id, permissions FROM users WHERE employee_id = $1`,
     [employeeId]
   )
   return result.rows[0] || null
+}
+
+async function updatePermissions(userId, permissions) {
+  const safe = typeof permissions === 'object' && permissions !== null ? permissions : {}
+  await query(
+    `UPDATE users SET permissions = $2, updated_at = NOW() WHERE id = $1`,
+    [userId, JSON.stringify(safe)]
+  )
 }
 
 async function createUser({ username, password, role, employee_id }) {
@@ -167,6 +177,7 @@ module.exports = {
   updatePassword,
   updateUsername,
   updateEmail,
+  updatePermissions,
   syncEmployeePortal,
   deleteByEmployeeId,
   isValidEmail,

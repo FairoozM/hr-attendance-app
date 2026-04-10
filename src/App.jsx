@@ -6,6 +6,7 @@ import { useAppSettings } from './hooks/useAppSettings'
 import { Layout } from './components/Layout'
 import { HomeRoute } from './components/HomeRoute'
 import { RequireAuth } from './components/RequireAuth'
+import { PermissionGuard } from './components/PermissionGuard'
 import { LoginPage } from './pages/LoginPage'
 import { EmployeeAccountPage } from './pages/EmployeeAccountPage'
 import { AttendancePage } from './pages/AttendancePage'
@@ -14,6 +15,7 @@ import { SettingsPage } from './pages/SettingsPage'
 import { AnnualLeavePage } from './pages/AnnualLeavePage'
 import { EmployeeProfileAdminPage } from './pages/EmployeeProfileAdminPage'
 import { WeeklyRosterPage } from './pages/WeeklyRosterPage'
+import { RolesPermissionsPage } from './pages/RolesPermissionsPage'
 import { useEmployees } from './hooks/useEmployees'
 import { useAttendance, clearAllAttendanceStorage } from './hooks/useAttendance'
 import { useWeeklyHolidayDay } from './hooks/useWeeklyHolidayDay'
@@ -116,45 +118,64 @@ function AppContent() {
           <Route
             path="attendance"
             element={
-              <AttendancePage
-                month={month}
-                year={year}
-                setMonth={setMonth}
-                setYear={setYear}
-                employees={attendanceEmployees}
-                attendance={attendance}
-                setAttendance={setAttendance}
-                sickLeaveDocuments={sickLeaveDocuments}
-                uploadSickLeaveDocument={uploadSickLeaveDocument}
-                removeSickLeaveDocument={removeSickLeaveDocument}
-                daysInMonth={daysInMonth}
-                yearOptions={yearOptions}
-                weeklyHolidayDay={weeklyHolidayDay}
-                onWeeklyHolidayDayChange={setWeeklyHolidayDay}
-                loading={attendanceLoading}
-                error={attendanceError}
-              />
+              <PermissionGuard module="attendance" action="view">
+                <AttendancePage
+                  month={month}
+                  year={year}
+                  setMonth={setMonth}
+                  setYear={setYear}
+                  employees={attendanceEmployees}
+                  attendance={attendance}
+                  setAttendance={setAttendance}
+                  sickLeaveDocuments={sickLeaveDocuments}
+                  uploadSickLeaveDocument={uploadSickLeaveDocument}
+                  removeSickLeaveDocument={removeSickLeaveDocument}
+                  daysInMonth={daysInMonth}
+                  yearOptions={yearOptions}
+                  weeklyHolidayDay={weeklyHolidayDay}
+                  onWeeklyHolidayDayChange={setWeeklyHolidayDay}
+                  loading={attendanceLoading}
+                  error={attendanceError}
+                />
+              </PermissionGuard>
             }
           />
           <Route
             path="employees"
             element={
-              <EmployeesPage
-                employees={employees}
-                onAdd={addEmployee}
-                onEdit={updateEmployee}
-                onDelete={deleteEmployee}
-                loading={employeesLoading}
-                error={employeesError}
-              />
+              <PermissionGuard module="employees" action="view">
+                <EmployeesPage
+                  employees={employees}
+                  onAdd={addEmployee}
+                  onEdit={updateEmployee}
+                  onDelete={deleteEmployee}
+                  loading={employeesLoading}
+                  error={employeesError}
+                />
+              </PermissionGuard>
             }
           />
           <Route
             path="settings"
             element={<SettingsPage onResetDemoData={handleResetDemoData} />}
           />
-          <Route path="employees/:id/profile" element={<EmployeeProfileAdminPage />} />
-          <Route path="roster" element={<WeeklyRosterPage />} />
+          <Route
+            path="employees/:id/profile"
+            element={
+              <PermissionGuard module="employees" action="view">
+                <EmployeeProfileAdminPage />
+              </PermissionGuard>
+            }
+          />
+          <Route
+            path="roster"
+            element={
+              <PermissionGuard module="roster" action="view">
+                <WeeklyRosterPage />
+              </PermissionGuard>
+            }
+          />
+          <Route path="roles-permissions" element={<RolesPermissionsPage />} />
         </Route>
       </Routes>
   )
