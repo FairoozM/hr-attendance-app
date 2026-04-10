@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { api } from '../api/client'
+import { useAuth } from '../contexts/AuthContext'
 
 export function storageKey(month, year) {
   return `hr-attendance-${year}-${String(month + 1).padStart(2, '0')}`
@@ -35,6 +36,7 @@ function recordsToMaps(records) {
 }
 
 export function useAttendance(employees, month, year) {
+  const { user } = useAuth()
   const [attendance, setAttendanceState] = useState({})
   const [sickLeaveDocuments, setSickLeaveDocuments] = useState({})
   const [loading, setLoading] = useState(true)
@@ -44,6 +46,11 @@ export function useAttendance(employees, month, year) {
   const yearApi = year
 
   useEffect(() => {
+    if (!user) {
+      setLoading(false)
+      setError(null)
+      return
+    }
     let cancelled = false
     setLoading(true)
     setError(null)
@@ -68,7 +75,7 @@ export function useAttendance(employees, month, year) {
     return () => {
       cancelled = true
     }
-  }, [monthApi, yearApi])
+  }, [monthApi, yearApi, user])
 
   useEffect(() => {
     setSickLeaveDocuments((prev) => {
