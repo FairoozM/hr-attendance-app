@@ -57,6 +57,60 @@ function NumInput({ label, value, onChange, hint, readOnly, highlight }) {
   )
 }
 
+function HistoryTable({ rows, editingId, onEdit, showEmployee = false }) {
+  return (
+    <div className="als-table-wrap">
+      <table className="als-table">
+        <thead>
+          <tr>
+            {showEmployee && <th>Employee</th>}
+            <th>Date</th>
+            <th>Monthly Salary</th>
+            <th>Running Days</th>
+            <th>Running Amt</th>
+            <th>Leave Days</th>
+            <th>Leave Salary</th>
+            <th>Additions</th>
+            <th>Deductions</th>
+            <th>Grand Total</th>
+            <th>Remarks</th>
+            <th>Edit</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(row => (
+            <tr key={row.id} className={editingId === row.id ? 'als-table__row--editing' : ''}>
+              {showEmployee && (
+                <td>
+                  <div className="als-table__emp-cell">
+                    <strong>{row.full_name}</strong>
+                    <span>{row.department}</span>
+                  </div>
+                </td>
+              )}
+              <td>{dateLabel(row.calculation_date)}</td>
+              <td>AED {fmt(row.monthly_salary)}</td>
+              <td>{row.running_month_days}</td>
+              <td>AED {fmt(row.running_month_amount)}</td>
+              <td>{row.leave_days_to_pay}</td>
+              <td>AED {fmt(row.leave_salary_amount)}</td>
+              <td>{toNum(row.other_additions) > 0 ? `AED ${fmt(row.other_additions)}` : '—'}</td>
+              <td>{toNum(row.other_deductions) > 0 ? `AED ${fmt(row.other_deductions)}` : '—'}</td>
+              <td className="als-table__total">AED {fmt(row.grand_total)}</td>
+              <td className="als-table__remarks">{row.remarks || '—'}</td>
+              <td>
+                <button className="als-btn als-btn--sm als-btn--outline" onClick={() => onEdit(row)}>
+                  Edit
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmployees }) {
   const { employees: fetchedEmployees } = useEmployees()
   const employees = (propEmployees && propEmployees.length > 0) ? propEmployees : fetchedEmployees
@@ -64,12 +118,13 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
   const [selectedEmp, setSelectedEmp] = useState(null)
   const [calc, setCalc] = useState(EMPTY_CALC)
   const [overrides, setOverrides] = useState({})  // tracks which auto fields were manually overridden
-  const [history, setHistory] = useState([])
+  const [history, setHistory] = useState([])           // per-selected-employee history
   const [histLoading, setHistLoading] = useState(false)
+  const [allHistory, setAllHistory] = useState([])      // all employees history (always visible)
+  const [allHistLoading, setAllHistLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState(null)
   const [editingId, setEditingId] = useState(null)
-  const [deletingId, setDeletingId] = useState(null)
 
   // ── Filtered employee list (always visible when there's a search query) ──
   const filteredEmps = useMemo(() => {
@@ -116,7 +171,6 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
   const selectEmployee = useCallback((emp) => {
     setSelectedEmp(emp)
     setEmpSearch(emp.name)
-    setShowDropdown(false)
     setCalc(prev => ({
       ...EMPTY_CALC,
       calculationDate: prev.calculationDate,
@@ -127,7 +181,7 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
     setSaveMsg(null)
   }, [])
 
-  // ── Load history ──
+  // ── Load per-employee history ──
   const loadHistory = useCallback(async (empId) => {
     if (!empId) return
     setHistLoading(true)
@@ -142,6 +196,18 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
     if (selectedEmp) loadHistory(selectedEmp.id)
     else setHistory([])
   }, [selectedEmp, loadHistory])
+
+  // ── Load all-employees history ──
+  const loadAllHistory = useCallback(async () => {
+    setAllHistLoading(true)
+    try {
+      const data = await api.get('/api/annual-leave-salary')
+      setAllHistory(Array.isArray(data) ? data : [])
+    } catch { setAllHistory([]) }
+    finally { setAllHistLoading(false) }
+  }, [])
+
+  useEffect(() => { loadAllHistory() }, [loadAllHistory])
 
   // ── Save ──
   const handleSave = useCallback(async () => {
@@ -176,15 +242,22 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
         setEditingId(null)
       }
       await loadHistory(selectedEmp.id)
+      await loadAllHistory()
     } catch (err) {
       setSaveMsg({ type: 'error', text: err.message || 'Failed to save.' })
     } finally {
       setSaving(false)
     }
-  }, [selectedEmp, calc, derived, editingId, loadHistory])
+  }, [selectedEmp, calc, derived, editingId, loadHistory, loadAllHistory])
 
   // ── Edit from history ──
   const handleEdit = useCallback((row) => {
+    // If editing from global history, auto-select that employee
+    const emp = employees.find(e => String(e.id) === String(row.employee_id))
+    if (emp) {
+      setSelectedEmp(emp)
+      setEmpSearch(emp.name)
+    }
     setEditingId(row.id)
     setCalc({
       calculationDate: row.calculation_date?.slice(0, 10) || '',
@@ -203,25 +276,7 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
     setOverrides({ perDayRate: true, runningMonthAmount: true, leaveSalaryAmount: true, grandTotal: true })
     setSaveMsg(null)
     window.scrollTo({ top: 0, behavior: 'smooth' })
-  }, [])
-
-  // ── Delete ──
-  const handleDelete = useCallback(async (id) => {
-    setDeletingId(id)
-    try {
-      await api.delete(`/api/annual-leave-salary/${id}`)
-      if (editingId === id) {
-        setEditingId(null)
-        setCalc(EMPTY_CALC)
-        setOverrides({})
-      }
-      await loadHistory(selectedEmp?.id)
-    } catch (err) {
-      alert(err.message || 'Failed to delete.')
-    } finally {
-      setDeletingId(null)
-    }
-  }, [editingId, loadHistory, selectedEmp])
+  }, [employees])
 
   // ── New calculation ──
   const handleNew = useCallback(() => {
@@ -591,82 +646,39 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
             </div>
           </div>
 
-          {/* ── History ── */}
-          <div className="als-card als-history" id="als-history">
+          {/* ── Per-employee history ── */}
+          <div className="als-card als-history">
             <div className="als-card__head">
               <span className="als-card__icon">📋</span>
-              <h2 className="als-card__title">Calculation History — {selectedEmp.name}</h2>
-              <button className="als-btn als-btn--sm als-btn--outline" onClick={() => loadHistory(selectedEmp.id)}>
-                ↺ Refresh
-              </button>
+              <h2 className="als-card__title">History — {selectedEmp.name}</h2>
+              <button className="als-btn als-btn--sm als-btn--outline" onClick={() => loadHistory(selectedEmp.id)}>↺ Refresh</button>
             </div>
             {histLoading ? (
-              <div className="als-loading">Loading history…</div>
+              <div className="als-loading">Loading…</div>
             ) : history.length === 0 ? (
               <div className="als-empty">No calculations saved yet for this employee.</div>
             ) : (
-              <div className="als-table-wrap">
-                <table className="als-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Date</th>
-                      <th>Monthly Salary</th>
-                      <th>Running Days</th>
-                      <th>Running Amt</th>
-                      <th>Leave Days</th>
-                      <th>Leave Salary</th>
-                      <th>Additions</th>
-                      <th>Deductions</th>
-                      <th>Grand Total</th>
-                      <th>Remarks</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {history.map(row => (
-                      <tr key={row.id} className={editingId === row.id ? 'als-table__row--editing' : ''}>
-                        <td>{row.id}</td>
-                        <td>{dateLabel(row.calculation_date)}</td>
-                        <td>AED {fmt(row.monthly_salary)}</td>
-                        <td>{row.running_month_days}</td>
-                        <td>AED {fmt(row.running_month_amount)}</td>
-                        <td>{row.leave_days_to_pay}</td>
-                        <td>AED {fmt(row.leave_salary_amount)}</td>
-                        <td>{toNum(row.other_additions) > 0 ? `AED ${fmt(row.other_additions)}` : '—'}</td>
-                        <td>{toNum(row.other_deductions) > 0 ? `AED ${fmt(row.other_deductions)}` : '—'}</td>
-                        <td className="als-table__total">AED {fmt(row.grand_total)}</td>
-                        <td className="als-table__remarks">{row.remarks || '—'}</td>
-                        <td>
-                          <div className="als-table__acts">
-                            <button
-                              className="als-btn als-btn--sm als-btn--outline"
-                              onClick={() => handleEdit(row)}
-                            >Edit</button>
-                            <button
-                              className="als-btn als-btn--sm als-btn--danger"
-                              onClick={() => handleDelete(row.id)}
-                              disabled={deletingId === row.id}
-                            >{deletingId === row.id ? '…' : 'Del'}</button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <HistoryTable rows={history} editingId={editingId} onEdit={handleEdit} />
             )}
           </div>
         </>
       )}
 
-      {!selectedEmp && (
-        <div className="als-empty-state">
-          <div className="als-empty-state__icon">🏖️</div>
-          <h3>Select an employee to get started</h3>
-          <p>Search for an employee above to calculate their annual leave salary.</p>
+      {/* ── All-employees history (always visible) ── */}
+      <div className="als-card als-history als-all-history">
+        <div className="als-card__head">
+          <span className="als-card__icon">📋</span>
+          <h2 className="als-card__title">All Calculations History</h2>
+          <button className="als-btn als-btn--sm als-btn--outline" onClick={loadAllHistory}>↺ Refresh</button>
         </div>
-      )}
+        {allHistLoading ? (
+          <div className="als-loading">Loading…</div>
+        ) : allHistory.length === 0 ? (
+          <div className="als-empty">No calculations saved yet.</div>
+        ) : (
+          <HistoryTable rows={allHistory} editingId={editingId} onEdit={handleEdit} showEmployee />
+        )}
+      </div>
     </div>
   )
 }

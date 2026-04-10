@@ -521,7 +521,15 @@
   text-overflow: ellipsis;
 }
 
-.als-table__acts { display: flex; gap: .4rem; }
+.als-table__emp-cell {
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+}
+.als-table__emp-cell strong { font-size: .88rem; color: #111827; }
+.als-table__emp-cell span   { font-size: .75rem; color: #9ca3af; }
+
+.als-all-history { margin-top: 1.5rem; }
 
 /* ── Empty state ── */
 .als-empty-state {
