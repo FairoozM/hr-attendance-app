@@ -93,8 +93,10 @@ async function list(req, res) {
     let employees
     if (req.user.permissions?.department_only && req.user.employeeId) {
       const self = await employeesService.findById(parseInt(req.user.employeeId, 10))
-      employees = self?.department
-        ? await employeesService.findAllByDepartment(self.department)
+      const dept = self?.department || null
+      console.log(`[employees] department_only scope for user ${req.user.userId} → dept: ${dept}`)
+      employees = dept
+        ? await employeesService.findAllByDepartment(dept)
         : []
     } else {
       employees = await employeesService.findAll()

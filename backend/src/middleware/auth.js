@@ -2,7 +2,13 @@ const jwt = require('jsonwebtoken')
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hr-attendance-dev-secret-change-me'
 
-function attachAuth(req, res, next) {
+/**
+ * Verify the Bearer JWT and load FRESH permissions from the DB on every
+ * request.  Reading permissions from the DB (single PK lookup, <1 ms) means
+ * permission changes made by the admin take effect immediately — no re-login
+ * required by the employee.
+ */
+async function attachAuth(req, res, next) {
   const h = req.headers.authorization
   if (!h || !h.startsWith('Bearer ')) {
     req.user = null
@@ -10,11 +16,20 @@ function attachAuth(req, res, next) {
   }
   try {
     const payload = jwt.verify(h.slice(7), JWT_SECRET)
+
+    // Always fetch fresh permissions from DB so changes apply immediately
+    const { query } = require('../db')
+    const row = await query(
+      'SELECT permissions FROM users WHERE id = $1',
+      [String(payload.sub)]
+    )
+    const permissions = row.rows[0]?.permissions || {}
+
     req.user = {
       userId: String(payload.sub),
       role: payload.role,
       employeeId: payload.employeeId != null ? String(payload.employeeId) : null,
-      permissions: payload.permissions || {},
+      permissions,
     }
     next()
   } catch {

@@ -28,7 +28,7 @@ async function findByMonthYearDepartment(month, year, department) {
      JOIN employees e ON e.id = a.employee_id
      WHERE EXTRACT(MONTH FROM a.attendance_date) = $1
        AND EXTRACT(YEAR FROM a.attendance_date) = $2
-       AND e.department = $3
+       AND LOWER(e.department) = LOWER($3)
      ORDER BY a.attendance_date, a.employee_id`,
     [month, year, department]
   )

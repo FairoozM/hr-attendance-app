@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../api/client'
+import { useAuth } from '../contexts/AuthContext'
 import './RolesPermissionsPage.css'
 
 const MODULES = [
@@ -91,6 +92,7 @@ function Toggle({ on, onChange, disabled }) {
 }
 
 export function RolesPermissionsPage() {
+  const { user: currentAdmin, refreshUser } = useAuth()
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -172,7 +174,11 @@ export function RolesPermissionsPage() {
     setSaveMsg(null)
     try {
       await api.put(`/api/admin/users/${selectedUser.id}/permissions`, { permissions: localPerms })
-      setSaveMsg({ type: 'success', text: 'Permissions saved. Changes take effect on the user\'s next login.' })
+      setSaveMsg({ type: 'success', text: 'Permissions saved. Changes take effect immediately — no re-login needed.' })
+      // If admin just updated their own permissions, refresh the sidebar too
+      if (currentAdmin && String(selectedUser.id) === String(currentAdmin.id)) {
+        await refreshUser()
+      }
       setUsers((prev) =>
         prev.map((u) =>
           u.id === selectedUser.id ? { ...u, permissions: { ...localPerms } } : u

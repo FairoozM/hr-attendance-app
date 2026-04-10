@@ -13,7 +13,7 @@ async function findAll() {
 
 async function findAllByDepartment(department) {
   const result = await query(
-    `SELECT ${EMPLOYEE_ROW} FROM employees WHERE department = $1 ORDER BY id`,
+    `SELECT ${EMPLOYEE_ROW} FROM employees WHERE LOWER(department) = LOWER($1) ORDER BY id`,
     [department]
   )
   return result.rows
