@@ -249,6 +249,17 @@ async function ensureProfileColumns() {
   }
 }
 
+async function ensureAnnualLeaveExtendedColumns() {
+  const cols = [
+    `ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS actual_return_date DATE`,
+    `ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS return_confirmed_by INTEGER REFERENCES users(id) ON DELETE SET NULL`,
+    `ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS return_confirmed_at TIMESTAMPTZ`,
+    `ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS admin_remarks TEXT`,
+    `ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS grace_period_days SMALLINT NOT NULL DEFAULT 1`,
+  ]
+  for (const sql of cols) await query(sql)
+}
+
 async function ensureAnnualLeaveSalaryTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS annual_leave_salary (
@@ -296,6 +307,7 @@ async function testConnection() {
   await ensureWarehouseUser()
   await ensureProfileColumns()
   await migrateUsernamesToEmail()
+  await ensureAnnualLeaveExtendedColumns()
   await ensureAnnualLeaveSalaryTable()
 }
 
