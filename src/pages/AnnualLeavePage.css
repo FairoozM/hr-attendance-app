@@ -327,6 +327,8 @@
 .al-btn--extend:hover  { background: #bfdbfe; }
 .al-btn--del     { background: #fee2e2; color: #991b1b; }
 .al-btn--del:hover     { background: #fecaca; }
+.al-btn--edit    { background: #f0f9ff; color: #0369a1; border: 1px solid #bae6fd; }
+.al-btn--edit:hover    { background: #e0f2fe; }
 
 /* ── Modals ── */
 .al-modal-overlay {

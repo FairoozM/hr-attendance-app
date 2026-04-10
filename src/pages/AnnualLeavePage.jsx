@@ -229,7 +229,7 @@ const FILTER_TABS = [
   { key: 'Rejected',      label: 'Rejected' },
 ]
 
-function LeaveRow({ row, isAdmin, onStatusChange, onConfirmReturn, onExtend, onDelete, expanded, onToggle }) {
+function LeaveRow({ row, isAdmin, onStatusChange, onConfirmReturn, onExtend, onDelete, onEdit, expanded, onToggle }) {
   const es = row.effective_status || row.status
   const canConfirm = isAdmin && ['Ongoing', 'ReturnPending', 'Overstayed'].includes(es) && !row.actual_return_date
   const canExtend  = isAdmin && ['Approved', 'Ongoing'].includes(es)
@@ -279,6 +279,7 @@ function LeaveRow({ row, isAdmin, onStatusChange, onConfirmReturn, onExtend, onD
                   ↗ Extend
                 </button>
               )}
+              <button className="al-btn al-btn--edit" onClick={() => onEdit(row)}>✏ Edit</button>
               {row.status === 'Pending' && (
                 <button className="al-btn al-btn--del" onClick={() => onDelete(row.id)}>Del</button>
               )}
@@ -647,6 +648,7 @@ export function AnnualLeavePage() {
                         onConfirmReturn={r => setConfirmRow(r)}
                         onExtend={r => setExtendRow(r)}
                         onDelete={onDelete}
+                        onEdit={r => { setEditingRow(r); setExpandedId(null) }}
                         expanded={expandedId === row.id}
                         onToggle={() => toggleExpand(row.id)}
                       />
