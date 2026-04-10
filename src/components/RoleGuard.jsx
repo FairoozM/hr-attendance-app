@@ -1,12 +1,20 @@
 import { Navigate, useLocation } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
+import { useAuth, hasPermission } from '../contexts/AuthContext'
 
-const ADMIN_ONLY_PATHS = ['/employees', '/settings']
-const EMPLOYEE_BLOCKED_PATHS = ['/employees', '/settings', '/attendance']
+/** Paths that require explicit permissions for employee role */
+const PERMISSION_GATED = [
+  { prefix: '/attendance', module: 'attendance', action: 'view' },
+  { prefix: '/employees', module: 'employees', action: 'view' },
+  { prefix: '/roster',    module: 'roster',     action: 'view' },
+]
+
+/** Paths that are strictly admin-only, never accessible by other roles */
+const ADMIN_ONLY_PATHS = ['/settings', '/roles-permissions']
 
 /**
- * Redirects to / if the current path is restricted for the user's role.
- * Admin: all routes. Warehouse: Dashboard + Attendance only.
+ * Redirects if the current path is restricted for the user's role.
+ * Respects module-level permissions so employees granted access to a
+ * specific module (e.g. attendance) are not blocked here.
  */
 export function RoleGuard({ children }) {
   const { user } = useAuth()
@@ -15,11 +23,20 @@ export function RoleGuard({ children }) {
 
   if (!user) return children
   if (user.role === 'admin') return children
-  if (user.role === 'employee' && EMPLOYEE_BLOCKED_PATHS.some((p) => path.startsWith(p))) {
-    return <Navigate to="/account" replace />
-  }
-  if (user.role === 'warehouse' && ADMIN_ONLY_PATHS.some((p) => path.startsWith(p))) {
+
+  // Strictly admin-only pages — redirect everyone else
+  if (ADMIN_ONLY_PATHS.some((p) => path.startsWith(p))) {
     return <Navigate to="/" replace />
   }
+
+  // Permission-gated pages: allow if the user has the required permission
+  for (const gate of PERMISSION_GATED) {
+    if (path.startsWith(gate.prefix)) {
+      if (hasPermission(user, gate.module, gate.action)) return children
+      // No permission → redirect employees to their profile, others to dashboard
+      return <Navigate to={user.role === 'employee' ? '/account' : '/'} replace />
+    }
+  }
+
   return children
 }
