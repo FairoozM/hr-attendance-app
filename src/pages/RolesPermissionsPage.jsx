@@ -171,7 +171,9 @@ export function RolesPermissionsPage() {
     const matchQ =
       !q ||
       (u.employee_full_name || '').toLowerCase().includes(q) ||
-      u.username.toLowerCase().includes(q)
+      (u.username || '').toLowerCase().includes(q) ||
+      (u.department || '').toLowerCase().includes(q) ||
+      (u.employee_code || '').toLowerCase().includes(q)
     const matchRole = !filterRole || u.role === filterRole
     return matchQ && matchRole
   })
