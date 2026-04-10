@@ -317,6 +317,59 @@
   margin-right: 0.5rem;
 }
 
+/* ── Data Scope card ── */
+.rbac-scope-card {
+  margin: 0 1.5rem 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fafaf9;
+}
+
+.rbac-scope-card__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem 0.5rem;
+}
+
+.rbac-scope-card__icon {
+  font-size: 1.2rem;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.rbac-scope-card__title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #111827;
+  margin: 0 0 0.2rem;
+}
+
+.rbac-scope-card__desc {
+  font-size: 0.82rem;
+  color: #6b7280;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.rbac-scope-card__row {
+  padding: 0.5rem 1rem 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.rbac-scope-card__note {
+  margin: 0 1rem 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  color: #166534;
+}
+
 /* ── Module cards ── */
 .rbac-modules {
   padding: 1.25rem 1.5rem;

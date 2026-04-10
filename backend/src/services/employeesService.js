@@ -11,6 +11,14 @@ async function findAll() {
   return result.rows
 }
 
+async function findAllByDepartment(department) {
+  const result = await query(
+    `SELECT ${EMPLOYEE_ROW} FROM employees WHERE department = $1 ORDER BY id`,
+    [department]
+  )
+  return result.rows
+}
+
 async function findById(id) {
   const result = await query(
     `SELECT ${EMPLOYEE_ROW} FROM employees WHERE id = $1`,
@@ -133,6 +141,7 @@ async function remove(id) {
 
 module.exports = {
   findAll,
+  findAllByDepartment,
   findById,
   findByEmployeeCode,
   create,

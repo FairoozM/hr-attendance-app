@@ -92,6 +92,8 @@ async function updateUserPermissions(req, res) {
         }
       }
     }
+    // Top-level scope flag
+    sanitized.department_only = Boolean(incoming.department_only)
 
     await usersService.updatePermissions(userId, sanitized)
     console.log('[admin] Updated permissions for user', userId, '->', JSON.stringify(sanitized))

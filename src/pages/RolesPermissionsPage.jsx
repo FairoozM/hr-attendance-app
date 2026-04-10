@@ -50,7 +50,7 @@ function roleBadgeClass(role) {
 
 function initPermissionsState(raw) {
   const p = raw || {}
-  const result = {}
+  const result = { department_only: Boolean(p.department_only) }
   for (const mod of MODULES) {
     result[mod.key] = {}
     for (const perm of mod.permissions) {
@@ -68,6 +68,26 @@ function countPermissions(perms) {
     }
   }
   return n
+}
+
+function Toggle({ on, onChange, disabled }) {
+  return (
+    <span
+      className={`rbac-toggle ${on ? 'rbac-toggle--on' : ''} ${disabled ? 'rbac-toggle--disabled' : ''}`}
+      role="switch"
+      aria-checked={on}
+      tabIndex={disabled ? -1 : 0}
+      onClick={() => !disabled && onChange(!on)}
+      onKeyDown={(e) => {
+        if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault()
+          onChange(!on)
+        }
+      }}
+    >
+      <span className="rbac-toggle__thumb" />
+    </span>
+  )
 }
 
 export function RolesPermissionsPage() {
@@ -302,6 +322,39 @@ export function RolesPermissionsPage() {
                 </div>
               )}
 
+              {selectedUser.has_account && (
+                <div className="rbac-scope-card">
+                  <div className="rbac-scope-card__head">
+                    <span className="rbac-scope-card__icon">🏢</span>
+                    <div>
+                      <h3 className="rbac-scope-card__title">Data Scope</h3>
+                      <p className="rbac-scope-card__desc">
+                        Restrict all module access to the user&apos;s own department only.
+                        When enabled, they can only see and manage records for employees in their department.
+                      </p>
+                    </div>
+                  </div>
+                  <label className="rbac-perm-label rbac-scope-card__row">
+                    <Toggle
+                      on={Boolean(localPerms.department_only)}
+                      onChange={(val) => {
+                        setLocalPerms((prev) => ({ ...prev, department_only: val }))
+                        setSaveMsg(null)
+                      }}
+                      disabled={false}
+                    />
+                    <span className="rbac-perm-label__text">
+                      <strong>Department only</strong> — sees &amp; manages records for their department exclusively
+                    </span>
+                  </label>
+                  {localPerms.department_only && (
+                    <div className="rbac-scope-card__note">
+                      ✅ Active — this user will only see employees and attendance from their own department.
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className={`rbac-modules ${!selectedUser.has_account ? 'rbac-modules--disabled' : ''}`}>
                 {MODULES.map((mod) => {
                   const modPerms = localPerms[mod.key] || {}
@@ -339,21 +392,11 @@ export function RolesPermissionsPage() {
                           return (
                             <li key={perm.key} className="rbac-perm-row">
                               <label className="rbac-perm-label">
-                                <span
-                                  className={`rbac-toggle ${checked ? 'rbac-toggle--on' : ''} ${!selectedUser.has_account ? 'rbac-toggle--disabled' : ''}`}
-                                  role="switch"
-                                  aria-checked={checked}
-                                  tabIndex={selectedUser.has_account ? 0 : -1}
-                                  onClick={() => selectedUser.has_account && togglePerm(mod.key, perm.key)}
-                                  onKeyDown={(e) => {
-                                    if (selectedUser.has_account && (e.key === 'Enter' || e.key === ' ')) {
-                                      e.preventDefault()
-                                      togglePerm(mod.key, perm.key)
-                                    }
-                                  }}
-                                >
-                                  <span className="rbac-toggle__thumb" />
-                                </span>
+                                <Toggle
+                                  on={checked}
+                                  onChange={() => togglePerm(mod.key, perm.key)}
+                                  disabled={!selectedUser.has_account}
+                                />
                                 <span className="rbac-perm-label__text">{perm.label}</span>
                               </label>
                             </li>

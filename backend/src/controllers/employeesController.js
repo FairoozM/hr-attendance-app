@@ -90,7 +90,15 @@ async function me(req, res) {
 
 async function list(req, res) {
   try {
-    const employees = await employeesService.findAll()
+    let employees
+    if (req.user.permissions?.department_only && req.user.employeeId) {
+      const self = await employeesService.findById(parseInt(req.user.employeeId, 10))
+      employees = self?.department
+        ? await employeesService.findAllByDepartment(self.department)
+        : []
+    } else {
+      employees = await employeesService.findAll()
+    }
     res.json(await attachPhotoUrls(employees))
   } catch (err) {
     console.error('Employees list error:', err)
