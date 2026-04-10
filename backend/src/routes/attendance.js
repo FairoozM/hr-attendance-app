@@ -7,6 +7,9 @@ const router = express.Router()
 const view = [auth.requireAuth, auth.requirePermission('attendance', 'view')]
 const manage = [auth.requireAuth, auth.requirePermission('attendance', 'manage')]
 
+// Must be before generic GET /
+router.get('/managed-employees', ...view, attendanceController.listManagedEmployees)
+
 router.get('/sick-leave-file', ...manage, attendanceController.serveSickLeaveFile)
 router.post('/sick-leave-upload-url', ...manage, attendanceController.getSickLeaveUploadUrl)
 router.post('/sick-leave-document', ...manage, attendanceController.uploadSickLeaveDocument)

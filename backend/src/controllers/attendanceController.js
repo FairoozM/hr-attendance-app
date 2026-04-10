@@ -40,6 +40,44 @@ function keyFromDocumentUrl(url) {
 }
 
 /**
+ * GET /api/attendance/managed-employees
+ * Returns the list of employees this user is allowed to see in the attendance grid.
+ * - Admin / warehouse: all active employees
+ * - Employee with attendance permission: only assigned employees
+ */
+async function listManagedEmployees(req, res) {
+  try {
+    const { query } = require('../db')
+    const COLS = `id, employee_code, full_name, department, is_active, joining_date,
+      photo_url, phone, designation, employment_status, weekly_off_day, duty_location,
+      include_in_attendance, nationality, emirates_id, passport_number`
+
+    if (!req.user || req.user.role === 'admin' || req.user.role === 'warehouse') {
+      const result = await query(
+        `SELECT ${COLS} FROM employees WHERE is_active = true ORDER BY full_name`
+      )
+      return res.json(result.rows)
+    }
+
+    // Non-admin: return only assigned employees
+    const ids = await assignmentService.getAssignedEmployeeIds(parseInt(req.user.userId, 10))
+    if (ids.length === 0) return res.json([])
+
+    const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ')
+    const result = await query(
+      `SELECT ${COLS} FROM employees
+       WHERE id IN (${placeholders}) AND is_active = true
+       ORDER BY full_name`,
+      ids
+    )
+    return res.json(result.rows)
+  } catch (err) {
+    console.error('listManagedEmployees error:', err)
+    return res.status(500).json({ error: 'Failed to fetch managed employees' })
+  }
+}
+
+/**
  * GET /api/attendance?month=3&year=2026
  */
 async function list(req, res) {
@@ -272,6 +310,7 @@ async function serveSickLeaveFile(req, res) {
 }
 
 module.exports = {
+  listManagedEmployees,
   list,
   upsert,
   remove,

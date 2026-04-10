@@ -17,6 +17,7 @@ import { EmployeeProfileAdminPage } from './pages/EmployeeProfileAdminPage'
 import { WeeklyRosterPage } from './pages/WeeklyRosterPage'
 import { RolesPermissionsPage } from './pages/RolesPermissionsPage'
 import { useEmployees } from './hooks/useEmployees'
+import { useAttendanceManagedEmployees } from './hooks/useAttendanceManagedEmployees'
 import { useAttendance, clearAllAttendanceStorage } from './hooks/useAttendance'
 import { useWeeklyHolidayDay } from './hooks/useWeeklyHolidayDay'
 import { deriveEffectiveAttendance } from './utils/attendanceHelpers'
@@ -39,9 +40,21 @@ function AppContent() {
     resetToDefault,
   } = useEmployees()
 
+  // Employees for the full employees page (respects role/permissions of useEmployees)
   const attendanceEmployees = useMemo(
     () => employeesForAttendance(employees),
     [employees]
+  )
+
+  // Scoped employees for the attendance grid — backend enforces assignment-based filtering
+  const {
+    employees: managedEmployees,
+    loading: managedEmployeesLoading,
+  } = useAttendanceManagedEmployees()
+
+  const attendanceScopeEmployees = useMemo(
+    () => employeesForAttendance(managedEmployees),
+    [managedEmployees]
   )
 
   const {
@@ -52,7 +65,7 @@ function AppContent() {
     removeSickLeaveDocument,
     loading: attendanceLoading,
     error: attendanceError,
-  } = useAttendance(attendanceEmployees, month, year)
+  } = useAttendance(attendanceScopeEmployees, month, year)
 
   const handleResetDemoData = useCallback(() => {
     clearAllAttendanceStorage()
@@ -69,13 +82,13 @@ function AppContent() {
     () =>
       deriveEffectiveAttendance(
         attendance,
-        attendanceEmployees,
+        attendanceScopeEmployees,
         year,
         month,
         daysInMonth,
         weeklyHolidayDay
       ),
-    [attendance, attendanceEmployees, year, month, daysInMonth, weeklyHolidayDay]
+    [attendance, attendanceScopeEmployees, year, month, daysInMonth, weeklyHolidayDay]
   )
 
   const yearOptions = useMemo(() => {
@@ -102,13 +115,13 @@ function AppContent() {
                 year={year}
                 setMonth={setMonth}
                 setYear={setYear}
-                employees={attendanceEmployees}
+                employees={attendanceScopeEmployees}
                 effectiveAttendance={effectiveAttendance}
                 daysInMonth={daysInMonth}
                 yearOptions={yearOptions}
                 weeklyHolidayDay={weeklyHolidayDay}
                 onWeeklyHolidayDayChange={setWeeklyHolidayDay}
-                loading={employeesLoading}
+                loading={employeesLoading || managedEmployeesLoading}
                 error={employeesError}
               />
             }
@@ -124,7 +137,7 @@ function AppContent() {
                   year={year}
                   setMonth={setMonth}
                   setYear={setYear}
-                  employees={attendanceEmployees}
+                  employees={attendanceScopeEmployees}
                   attendance={attendance}
                   setAttendance={setAttendance}
                   sickLeaveDocuments={sickLeaveDocuments}
@@ -134,7 +147,7 @@ function AppContent() {
                   yearOptions={yearOptions}
                   weeklyHolidayDay={weeklyHolidayDay}
                   onWeeklyHolidayDayChange={setWeeklyHolidayDay}
-                  loading={attendanceLoading}
+                  loading={attendanceLoading || managedEmployeesLoading}
                   error={attendanceError}
                 />
               </PermissionGuard>
