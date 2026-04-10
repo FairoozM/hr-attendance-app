@@ -138,7 +138,7 @@ export function RolesPermissionsPage() {
       setAssignmentsLoading(true)
       try {
         const data = await api.get(`/api/admin/users/${u.id}/attendance-assignments`)
-        const ids = Array.isArray(data) ? data.map((r) => r.assigned_employee_id) : []
+        const ids = Array.isArray(data) ? data.map((r) => String(r.assigned_employee_id)) : []
         setAssignedEmpIds(new Set(ids))
       } catch (_) {
         setAssignedEmpIds(new Set())
@@ -197,10 +197,10 @@ export function RolesPermissionsPage() {
     try {
       await api.put(`/api/admin/users/${selectedUser.id}/permissions`, { permissions: localPerms })
 
-      // Save attendance assignments alongside permissions
+      // Save attendance assignments alongside permissions (convert string IDs back to numbers for the API)
       if (selectedUser.id) {
         await api.put(`/api/admin/users/${selectedUser.id}/attendance-assignments`, {
-          employeeIds: Array.from(assignedEmpIds),
+          employeeIds: Array.from(assignedEmpIds).map(Number).filter(Boolean),
         })
       }
 
@@ -239,13 +239,13 @@ export function RolesPermissionsPage() {
   const filteredAssignableEmps = useMemo(() => {
     const q = empSearch.toLowerCase()
     return allEmployees.filter((e) => {
-      if (!e.is_active && e.is_active !== undefined) return false
+      if (!e.isActive) return false
       // Exclude the manager's own employee record from the assignable list
-      if (selectedUser?.employee_id && e.id === selectedUser.employee_id) return false
+      if (selectedUser?.employee_id && String(e.id) === String(selectedUser.employee_id)) return false
       if (!q) return true
       return (
-        (e.full_name || '').toLowerCase().includes(q) ||
-        (e.employee_code || '').toLowerCase().includes(q) ||
+        (e.name || '').toLowerCase().includes(q) ||
+        (e.employeeId || '').toLowerCase().includes(q) ||
         (e.department || '').toLowerCase().includes(q)
       )
     })
@@ -403,38 +403,6 @@ export function RolesPermissionsPage() {
                 </div>
               )}
 
-              {selectedUser.has_account && (
-                <div className="rbac-scope-card">
-                  <div className="rbac-scope-card__head">
-                    <span className="rbac-scope-card__icon">🏢</span>
-                    <div>
-                      <h3 className="rbac-scope-card__title">Data Scope</h3>
-                      <p className="rbac-scope-card__desc">
-                        Restrict all module access to the user&apos;s own department only.
-                        When enabled, they can only see and manage records for employees in their department.
-                      </p>
-                    </div>
-                  </div>
-                  <label className="rbac-perm-label rbac-scope-card__row">
-                    <Toggle
-                      on={Boolean(localPerms.department_only)}
-                      onChange={(val) => {
-                        setLocalPerms((prev) => ({ ...prev, department_only: val }))
-                        setSaveMsg(null)
-                      }}
-                      disabled={false}
-                    />
-                    <span className="rbac-perm-label__text">
-                      <strong>Department only</strong> — sees &amp; manages records for their department exclusively
-                    </span>
-                  </label>
-                  {localPerms.department_only && (
-                    <div className="rbac-scope-card__note">
-                      ✅ Active — this user will only see employees and attendance from their own department.
-                    </div>
-                  )}
-                </div>
-              )}
 
               <div className={`rbac-modules ${!selectedUser.has_account ? 'rbac-modules--disabled' : ''}`}>
                 {MODULES.map((mod) => {
@@ -530,23 +498,23 @@ export function RolesPermissionsPage() {
                         {filteredAssignableEmps.length === 0 ? (
                           <li className="rbac-assign-empty">No employees match your search</li>
                         ) : filteredAssignableEmps.map((emp) => {
-                          const checked = assignedEmpIds.has(emp.id)
+                          const checked = assignedEmpIds.has(String(emp.id))
                           return (
                             <li
                               key={emp.id}
                               className={`rbac-assign-item ${checked ? 'rbac-assign-item--checked' : ''}`}
-                              onClick={() => toggleEmpAssignment(emp.id)}
+                              onClick={() => toggleEmpAssignment(String(emp.id))}
                             >
                               <div className="rbac-assign-item__avatar">
-                                {emp.photo_url
-                                  ? <img src={emp.photo_url} alt="" />
-                                  : (emp.full_name?.[0] || '?').toUpperCase()
+                                {emp.photoUrl
+                                  ? <img src={emp.photoUrl} alt="" />
+                                  : (emp.name?.[0] || '?').toUpperCase()
                                 }
                               </div>
                               <div className="rbac-assign-item__info">
-                                <span className="rbac-assign-item__name">{emp.full_name}</span>
+                                <span className="rbac-assign-item__name">{emp.name}</span>
                                 <span className="rbac-assign-item__meta">
-                                  {emp.employee_code}
+                                  {emp.employeeId}
                                   {emp.department && ` · ${emp.department}`}
                                   {emp.designation && ` · ${emp.designation}`}
                                 </span>
