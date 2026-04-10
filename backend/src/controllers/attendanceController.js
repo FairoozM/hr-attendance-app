@@ -1,19 +1,28 @@
 const attendanceService = require('../services/attendanceService')
-const employeesService = require('../services/employeesService')
+const assignmentService = require('../services/attendanceAssignmentService')
 const s3Service = require('../services/s3Service')
 
-/** Resolve the department of the requesting user (when department_only is set). */
-async function getScopeDepartment(user) {
-  if (!user.permissions?.department_only || !user.employeeId) return null
-  const self = await employeesService.findById(parseInt(user.employeeId, 10))
-  return self?.department ?? null
+/**
+ * Determine which employee IDs this user may access for attendance.
+ * - Admin: returns null  → full access (no filter)
+ * - Non-admin with attendance permission: returns array of assigned employee IDs
+ *   (empty array = no employees assigned yet → sees nothing)
+ */
+async function getAttendanceScope(user) {
+  if (!user || user.role === 'admin') return null
+  // Non-admins must have at least view or manage permission to get here
+  const ids = await assignmentService.getAssignedEmployeeIds(parseInt(user.userId, 10))
+  return ids // may be empty
 }
 
-/** When department_only is set, verify the target employee is in the same dept. */
-async function assertSameDepartment(employeeId, scopeDept) {
-  if (!scopeDept) return true
-  const target = await employeesService.findById(employeeId)
-  return target?.department === scopeDept
+/**
+ * Check whether a specific employee ID is within the user's allowed scope.
+ * Returns true if allowed, false if blocked.
+ */
+async function isInScope(employeeId, user) {
+  if (!user || user.role === 'admin') return true
+  const ids = await assignmentService.getAssignedEmployeeIds(parseInt(user.userId, 10))
+  return ids.includes(employeeId)
 }
 
 function keyFromDocumentUrl(url) {
@@ -43,10 +52,21 @@ async function list(req, res) {
     if (Number.isNaN(year) || year < 2000 || year > 2100) {
       return res.status(400).json({ error: 'Valid year is required' })
     }
-    const scopeDept = await getScopeDepartment(req.user)
-    const records = scopeDept
-      ? await attendanceService.findByMonthYearDepartment(month, year, scopeDept)
-      : await attendanceService.findByMonthYear(month, year)
+
+    const scope = await getAttendanceScope(req.user)
+
+    let records
+    if (scope === null) {
+      // Admin — full access
+      records = await attendanceService.findByMonthYear(month, year)
+    } else if (scope.length === 0) {
+      // Non-admin with no assignments — return empty
+      records = []
+    } else {
+      // Non-admin with specific assignments
+      records = await attendanceService.findByMonthYearEmployeeIds(month, year, scope)
+    }
+
     res.json(records)
   } catch (err) {
     console.error('Attendance list error:', err)
@@ -77,9 +97,8 @@ async function upsert(req, res) {
     if (!status) {
       return res.status(400).json({ error: 'status is required' })
     }
-    const scopeDept = await getScopeDepartment(req.user)
-    if (scopeDept && !(await assertSameDepartment(employeeId, scopeDept))) {
-      return res.status(403).json({ error: 'Access denied: employee is outside your department' })
+    if (!(await isInScope(employeeId, req.user))) {
+      return res.status(403).json({ error: 'Access denied: this employee is not in your assigned list' })
     }
     const record = await attendanceService.upsert(employeeId, attendanceDate, status)
     res.json(record)
@@ -111,9 +130,8 @@ async function remove(req, res) {
     if (Number.isNaN(date.getTime())) {
       return res.status(400).json({ error: 'attendance_date must be a valid date (e.g. YYYY-MM-DD)' })
     }
-    const scopeDept = await getScopeDepartment(req.user)
-    if (scopeDept && !(await assertSameDepartment(employeeId, scopeDept))) {
-      return res.status(403).json({ error: 'Access denied: employee is outside your department' })
+    if (!(await isInScope(employeeId, req.user))) {
+      return res.status(403).json({ error: 'Access denied: this employee is not in your assigned list' })
     }
     const existing = await attendanceService.findOne(employeeId, attendanceDate)
     const existingKey = keyFromDocumentUrl(existing?.sick_leave_document_url)

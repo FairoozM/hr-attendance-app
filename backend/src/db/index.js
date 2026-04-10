@@ -260,6 +260,22 @@ async function ensureAnnualLeaveExtendedColumns() {
   for (const sql of cols) await query(sql)
 }
 
+async function ensureAttendanceAssignmentsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS attendance_assignments (
+      id SERIAL PRIMARY KEY,
+      manager_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      assigned_employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+      assigned_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      assigned_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(manager_user_id, assigned_employee_id)
+    )
+  `)
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_aa_manager ON attendance_assignments(manager_user_id)
+  `)
+}
+
 async function ensureAnnualLeaveSalaryTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS annual_leave_salary (
@@ -309,6 +325,7 @@ async function testConnection() {
   await migrateUsernamesToEmail()
   await ensureAnnualLeaveExtendedColumns()
   await ensureAnnualLeaveSalaryTable()
+  await ensureAttendanceAssignmentsTable()
 }
 
 module.exports = {

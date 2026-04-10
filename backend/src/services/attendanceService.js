@@ -35,6 +35,24 @@ async function findByMonthYearDepartment(month, year, department) {
   return result.rows
 }
 
+/**
+ * Get attendance records for a given month/year filtered to a specific list of employee IDs.
+ */
+async function findByMonthYearEmployeeIds(month, year, employeeIds) {
+  if (!employeeIds || employeeIds.length === 0) return []
+  const placeholders = employeeIds.map((_, i) => `$${i + 3}`).join(', ')
+  const result = await query(
+    `SELECT id, employee_id, attendance_date, status, sick_leave_document_url, created_at
+     FROM attendance
+     WHERE EXTRACT(MONTH FROM attendance_date) = $1
+       AND EXTRACT(YEAR FROM attendance_date) = $2
+       AND employee_id IN (${placeholders})
+     ORDER BY attendance_date, employee_id`,
+    [month, year, ...employeeIds]
+  )
+  return result.rows
+}
+
 async function findOne(employee_id, attendance_date) {
   const result = await query(
     `SELECT id, employee_id, attendance_date, status, sick_leave_document_url, created_at
@@ -103,6 +121,7 @@ async function remove(employee_id, attendance_date) {
 module.exports = {
   findByMonthYear,
   findByMonthYearDepartment,
+  findByMonthYearEmployeeIds,
   findOne,
   upsert,
   setSickLeaveDocumentUrl,

@@ -1,4 +1,5 @@
 const usersService = require('../services/usersService')
+const assignmentService = require('../services/attendanceAssignmentService')
 
 const VALID_MODULES = ['attendance', 'leave', 'employees', 'roster']
 const VALID_ACTIONS = {
@@ -167,4 +168,65 @@ async function listUsers(req, res) {
   }
 }
 
-module.exports = { resetUserPassword, listUsers, listUsersWithPermissions, updateUserPermissions }
+/**
+ * Admin: GET /api/admin/users/:userId/attendance-assignments
+ * Returns the list of employees assigned under this user's attendance scope.
+ */
+async function getAttendanceAssignments(req, res) {
+  try {
+    const userId = parseInt(req.params.userId, 10)
+    if (Number.isNaN(userId)) return res.status(400).json({ error: 'Invalid user id' })
+
+    const user = await usersService.findById(userId)
+    if (!user) return res.status(404).json({ error: 'User not found' })
+
+    const assignments = await assignmentService.getAssignmentsForUser(userId)
+    return res.json(assignments)
+  } catch (err) {
+    console.error('[admin] getAttendanceAssignments error:', err)
+    return res.status(500).json({ error: err.message || 'Failed to fetch assignments' })
+  }
+}
+
+/**
+ * Admin: PUT /api/admin/users/:userId/attendance-assignments
+ * Body: { employeeIds: [1, 2, 3] }
+ * Replaces all attendance assignments for this user.
+ */
+async function setAttendanceAssignments(req, res) {
+  try {
+    const userId = parseInt(req.params.userId, 10)
+    if (Number.isNaN(userId)) return res.status(400).json({ error: 'Invalid user id' })
+
+    const user = await usersService.findById(userId)
+    if (!user) return res.status(404).json({ error: 'User not found' })
+    if (user.role === 'admin') {
+      return res.status(400).json({ error: 'Admins have full access; assignments do not apply' })
+    }
+
+    const rawIds = req.body.employeeIds
+    if (!Array.isArray(rawIds)) {
+      return res.status(400).json({ error: 'employeeIds must be an array' })
+    }
+
+    const employeeIds = rawIds.map((id) => parseInt(id, 10)).filter((id) => !Number.isNaN(id))
+
+    await assignmentService.setAssignments(userId, employeeIds, parseInt(req.user.userId, 10))
+    console.log('[admin] Set attendance assignments for user', userId, '→', employeeIds)
+
+    const updated = await assignmentService.getAssignmentsForUser(userId)
+    return res.json({ success: true, assignments: updated })
+  } catch (err) {
+    console.error('[admin] setAttendanceAssignments error:', err)
+    return res.status(500).json({ error: err.message || 'Failed to save assignments' })
+  }
+}
+
+module.exports = {
+  resetUserPassword,
+  listUsers,
+  listUsersWithPermissions,
+  updateUserPermissions,
+  getAttendanceAssignments,
+  setAttendanceAssignments,
+}

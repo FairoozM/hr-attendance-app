@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { api } from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
+import { useEmployees } from '../hooks/useEmployees'
 import './RolesPermissionsPage.css'
 
 const MODULES = [
@@ -103,6 +104,12 @@ export function RolesPermissionsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [filterRole, setFilterRole] = useState('')
 
+  // Attendance assignment state
+  const { employees: allEmployees = [] } = useEmployees()
+  const [assignedEmpIds, setAssignedEmpIds] = useState(new Set())
+  const [assignmentsLoading, setAssignmentsLoading] = useState(false)
+  const [empSearch, setEmpSearch] = useState('')
+
   const fetchUsers = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -120,10 +127,25 @@ export function RolesPermissionsPage() {
     fetchUsers()
   }, [fetchUsers])
 
-  const selectUser = useCallback((u) => {
+  const selectUser = useCallback(async (u) => {
     setSelectedUser(u)
     setLocalPerms(initPermissionsState(u.has_account ? u.permissions : {}))
     setSaveMsg(null)
+    setEmpSearch('')
+    setAssignedEmpIds(new Set())
+
+    if (u.has_account && u.id) {
+      setAssignmentsLoading(true)
+      try {
+        const data = await api.get(`/api/admin/users/${u.id}/attendance-assignments`)
+        const ids = Array.isArray(data) ? data.map((r) => r.assigned_employee_id) : []
+        setAssignedEmpIds(new Set(ids))
+      } catch (_) {
+        setAssignedEmpIds(new Set())
+      } finally {
+        setAssignmentsLoading(false)
+      }
+    }
   }, [])
 
   const togglePerm = useCallback((modKey, permKey) => {
@@ -174,8 +196,15 @@ export function RolesPermissionsPage() {
     setSaveMsg(null)
     try {
       await api.put(`/api/admin/users/${selectedUser.id}/permissions`, { permissions: localPerms })
-      setSaveMsg({ type: 'success', text: 'Permissions saved. Changes take effect immediately — no re-login needed.' })
-      // If admin just updated their own permissions, refresh the sidebar too
+
+      // Save attendance assignments alongside permissions
+      if (selectedUser.id) {
+        await api.put(`/api/admin/users/${selectedUser.id}/attendance-assignments`, {
+          employeeIds: Array.from(assignedEmpIds),
+        })
+      }
+
+      setSaveMsg({ type: 'success', text: 'Permissions and attendance assignments saved. Changes take effect immediately.' })
       if (currentAdmin && String(selectedUser.id) === String(currentAdmin.id)) {
         await refreshUser()
       }
@@ -190,7 +219,7 @@ export function RolesPermissionsPage() {
     } finally {
       setSaving(false)
     }
-  }, [selectedUser, localPerms])
+  }, [selectedUser, localPerms, assignedEmpIds])
 
   const filteredUsers = users.filter((u) => {
     const q = searchQuery.toLowerCase()
@@ -205,6 +234,52 @@ export function RolesPermissionsPage() {
   })
 
   const displayName = (u) => u.employee_full_name || u.username
+
+  // Employees available for attendance assignment (active, excluding the selected user's own employee record)
+  const filteredAssignableEmps = useMemo(() => {
+    const q = empSearch.toLowerCase()
+    return allEmployees.filter((e) => {
+      if (!e.is_active && e.is_active !== undefined) return false
+      // Exclude the manager's own employee record from the assignable list
+      if (selectedUser?.employee_id && e.id === selectedUser.employee_id) return false
+      if (!q) return true
+      return (
+        (e.full_name || '').toLowerCase().includes(q) ||
+        (e.employee_code || '').toLowerCase().includes(q) ||
+        (e.department || '').toLowerCase().includes(q)
+      )
+    })
+  }, [allEmployees, empSearch, selectedUser])
+
+  const toggleEmpAssignment = useCallback((empId) => {
+    setAssignedEmpIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(empId)) next.delete(empId)
+      else next.add(empId)
+      return next
+    })
+    setSaveMsg(null)
+  }, [])
+
+  const selectAllVisible = useCallback(() => {
+    setAssignedEmpIds((prev) => {
+      const next = new Set(prev)
+      filteredAssignableEmps.forEach((e) => next.add(e.id))
+      return next
+    })
+    setSaveMsg(null)
+  }, [filteredAssignableEmps])
+
+  const clearAllVisible = useCallback(() => {
+    setAssignedEmpIds((prev) => {
+      const next = new Set(prev)
+      filteredAssignableEmps.forEach((e) => next.delete(e.id))
+      return next
+    })
+    setSaveMsg(null)
+  }, [filteredAssignableEmps])
+
+  const attendanceManageOn = Boolean(localPerms?.attendance?.manage)
 
   return (
     <div className="page rbac-page">
@@ -413,6 +488,89 @@ export function RolesPermissionsPage() {
                   )
                 })}
               </div>
+
+              {/* Attendance Assignment Panel — only shown when attendance manage is on */}
+              {selectedUser.has_account && attendanceManageOn && (
+                <div className="rbac-assign-panel">
+                  <div className="rbac-assign-panel__head">
+                    <span className="rbac-assign-panel__icon">👥</span>
+                    <div>
+                      <h3 className="rbac-assign-panel__title">Assigned Employees (Attendance Scope)</h3>
+                      <p className="rbac-assign-panel__desc">
+                        Choose exactly which employees this user can view and manage attendance for.
+                        They will <strong>only</strong> see employees checked here.
+                      </p>
+                    </div>
+                  </div>
+
+                  {assignmentsLoading ? (
+                    <div className="rbac-assign-loading">Loading current assignments…</div>
+                  ) : (
+                    <>
+                      <div className="rbac-assign-toolbar">
+                        <input
+                          className="rbac-assign-search"
+                          type="search"
+                          placeholder="Search employees…"
+                          value={empSearch}
+                          onChange={(e) => setEmpSearch(e.target.value)}
+                        />
+                        <span className="rbac-assign-count">
+                          {assignedEmpIds.size} selected
+                        </span>
+                        <button type="button" className="rbac-btn-sm rbac-btn-sm--grant" onClick={selectAllVisible}>
+                          Select all
+                        </button>
+                        <button type="button" className="rbac-btn-sm rbac-btn-sm--revoke" onClick={clearAllVisible}>
+                          Clear all
+                        </button>
+                      </div>
+
+                      <ul className="rbac-assign-list">
+                        {filteredAssignableEmps.length === 0 ? (
+                          <li className="rbac-assign-empty">No employees match your search</li>
+                        ) : filteredAssignableEmps.map((emp) => {
+                          const checked = assignedEmpIds.has(emp.id)
+                          return (
+                            <li
+                              key={emp.id}
+                              className={`rbac-assign-item ${checked ? 'rbac-assign-item--checked' : ''}`}
+                              onClick={() => toggleEmpAssignment(emp.id)}
+                            >
+                              <div className="rbac-assign-item__avatar">
+                                {emp.photo_url
+                                  ? <img src={emp.photo_url} alt="" />
+                                  : (emp.full_name?.[0] || '?').toUpperCase()
+                                }
+                              </div>
+                              <div className="rbac-assign-item__info">
+                                <span className="rbac-assign-item__name">{emp.full_name}</span>
+                                <span className="rbac-assign-item__meta">
+                                  {emp.employee_code}
+                                  {emp.department && ` · ${emp.department}`}
+                                  {emp.designation && ` · ${emp.designation}`}
+                                </span>
+                              </div>
+                              <div className="rbac-assign-item__check">
+                                <span className={`rbac-assign-checkbox ${checked ? 'rbac-assign-checkbox--on' : ''}`}>
+                                  {checked ? '✓' : ''}
+                                </span>
+                              </div>
+                            </li>
+                          )
+                        })}
+                      </ul>
+
+                      {assignedEmpIds.size === 0 && (
+                        <div className="rbac-assign-warn">
+                          ⚠️ No employees assigned — this user will see an empty attendance list.
+                          Assign at least one employee above.
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
 
               {saveMsg && (
                 <div className={`rbac-alert rbac-alert--${saveMsg.type}`}>{saveMsg.text}</div>
