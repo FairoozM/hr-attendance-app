@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { api } from '../api/client'
 import { useEmployees } from '../hooks/useEmployees'
 import './AnnualLeaveSalaryPage.css'
@@ -59,10 +59,8 @@ function NumInput({ label, value, onChange, hint, readOnly, highlight }) {
 
 export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmployees }) {
   const { employees: fetchedEmployees } = useEmployees()
-  // Use employees passed from parent (already loaded) to avoid async delay on tab switch
-  const employees = propEmployees && propEmployees.length > 0 ? propEmployees : fetchedEmployees
+  const employees = (propEmployees && propEmployees.length > 0) ? propEmployees : fetchedEmployees
   const [empSearch, setEmpSearch] = useState('')
-  const [showDropdown, setShowDropdown] = useState(false)
   const [selectedEmp, setSelectedEmp] = useState(null)
   const [calc, setCalc] = useState(EMPTY_CALC)
   const [overrides, setOverrides] = useState({})  // tracks which auto fields were manually overridden
@@ -72,17 +70,19 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
   const [saveMsg, setSaveMsg] = useState(null)
   const [editingId, setEditingId] = useState(null)
   const [deletingId, setDeletingId] = useState(null)
-  const printRef = useRef()
 
-  // ── Filtered employee list ──
+  // ── Filtered employee list (always visible when there's a search query) ──
   const filteredEmps = useMemo(() => {
-    const q = empSearch.toLowerCase()
+    const q = empSearch.trim().toLowerCase()
+    if (!q) return employees.filter(e => e.isActive !== false).slice(0, 20)
     return employees.filter(e =>
       e.isActive !== false &&
-      (e.name?.toLowerCase().includes(q) ||
-       e.employeeId?.toLowerCase().includes(q) ||
-       e.department?.toLowerCase().includes(q))
-    ).slice(0, 12)
+      (
+        (e.name || '').toLowerCase().includes(q) ||
+        (e.employeeId || '').toLowerCase().includes(q) ||
+        (e.department || '').toLowerCase().includes(q)
+      )
+    ).slice(0, 20)
   }, [employees, empSearch])
 
   // ── Auto calculations ──
@@ -235,7 +235,7 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
   const handlePrint = useCallback(() => { window.print() }, [])
 
   return (
-    <div className="als-page" ref={printRef}>
+    <div className="als-page">
       {/* ── Page header ── */}
       {!embedded && (
         <div className="als-page-header">
@@ -263,71 +263,88 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
         <div className="als-card__head">
           <span className="als-card__icon">👤</span>
           <h2 className="als-card__title">Select Employee</h2>
+          {selectedEmp && (
+            <button className="als-btn als-btn--sm als-btn--outline" onClick={() => {
+              setSelectedEmp(null)
+              setEmpSearch('')
+              setCalc(EMPTY_CALC)
+              setOverrides({})
+              setHistory([])
+              setSaveMsg(null)
+              setEditingId(null)
+            }}>Change</button>
+          )}
         </div>
-        <div className="als-emp-selector__body">
-          <div className="als-emp-search-wrap">
-            <input
-              className="als-emp-search"
-              type="text"
-              placeholder="Search by name, ID, or department…"
-              value={empSearch}
-              onChange={e => { setEmpSearch(e.target.value); setShowDropdown(true) }}
-              onFocus={() => setShowDropdown(true)}
-              onBlur={() => setTimeout(() => setShowDropdown(false), 180)}
-              autoComplete="off"
-            />
-            {showDropdown && filteredEmps.length > 0 && (
-              <ul className="als-emp-dropdown">
+        <div className="als-card__body">
+          {!selectedEmp ? (
+            <div className="als-emp-picker">
+              <input
+                className="als-emp-search"
+                type="text"
+                placeholder="Type name, employee ID, or department to search…"
+                value={empSearch}
+                onChange={e => setEmpSearch(e.target.value)}
+                autoComplete="off"
+                autoFocus
+              />
+              <div className="als-emp-list">
+                {employees.length === 0 && (
+                  <div className="als-emp-list__empty">Loading employees…</div>
+                )}
+                {employees.length > 0 && filteredEmps.length === 0 && (
+                  <div className="als-emp-list__empty">No employees match "{empSearch}"</div>
+                )}
                 {filteredEmps.map(e => (
-                  <li key={e.id}>
-                    <button type="button" onMouseDown={() => selectEmployee(e)}>
-                      <span className="als-emp-dropdown__name">{e.name}</span>
-                      <span className="als-emp-dropdown__meta">{e.employeeId} · {e.department}</span>
-                    </button>
-                  </li>
+                  <button
+                    key={e.id}
+                    type="button"
+                    className="als-emp-list__item"
+                    onClick={() => selectEmployee(e)}
+                  >
+                    <div className="als-emp-list__avatar">
+                      {e.photoUrl
+                        ? <img src={e.photoUrl} alt="" />
+                        : (e.name?.[0] || '?').toUpperCase()
+                      }
+                    </div>
+                    <div className="als-emp-list__info">
+                      <span className="als-emp-list__name">{e.name}</span>
+                      <span className="als-emp-list__meta">{e.employeeId} · {e.department}</span>
+                    </div>
+                    <span className="als-emp-list__dept">{e.designation}</span>
+                  </button>
                 ))}
-              </ul>
-            )}
-          </div>
+              </div>
+            </div>
+          ) : (
+            <div className="als-emp-selected-row">
+              <div className="als-emp-list__avatar als-emp-list__avatar--lg">
+                {selectedEmp.photoUrl
+                  ? <img src={selectedEmp.photoUrl} alt="" />
+                  : (selectedEmp.name?.[0] || '?').toUpperCase()
+                }
+              </div>
+              <div>
+                <strong>{selectedEmp.name}</strong>
+                <span className="als-emp-list__meta"> · {selectedEmp.employeeId} · {selectedEmp.department}</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* ── Employee info card ── */}
+      {/* ── Employee detail strip (shown after selection) ── */}
       {selectedEmp && (
-        <div className="als-card als-emp-info">
-          <div className="als-emp-info__avatar">
-            {selectedEmp.photoUrl
-              ? <img src={selectedEmp.photoUrl} alt="" />
-              : <span>{(selectedEmp.name?.[0] || '?').toUpperCase()}</span>
-            }
-          </div>
-          <div className="als-emp-info__grid">
-            <div className="als-emp-info__item">
-              <span className="als-emp-info__label">Employee Name</span>
-              <span className="als-emp-info__value als-emp-info__value--name">{selectedEmp.name}</span>
-            </div>
-            <div className="als-emp-info__item">
-              <span className="als-emp-info__label">Employee ID</span>
-              <span className="als-emp-info__value">{selectedEmp.employeeId}</span>
-            </div>
-            <div className="als-emp-info__item">
-              <span className="als-emp-info__label">Department</span>
-              <span className="als-emp-info__value">{selectedEmp.department || '—'}</span>
-            </div>
-            <div className="als-emp-info__item">
-              <span className="als-emp-info__label">Position</span>
-              <span className="als-emp-info__value">{selectedEmp.designation || '—'}</span>
-            </div>
-            <div className="als-emp-info__item">
-              <span className="als-emp-info__label">Joining Date</span>
-              <span className="als-emp-info__value">{dateLabel(selectedEmp.joiningDate)}</span>
-            </div>
-            <div className="als-emp-info__item">
-              <span className="als-emp-info__label">Status</span>
-              <span className={`als-badge ${selectedEmp.isActive ? 'als-badge--active' : 'als-badge--inactive'}`}>
-                {selectedEmp.isActive ? 'Active' : 'Inactive'}
-              </span>
-            </div>
+        <div className="als-emp-detail-strip">
+          <div className="als-emp-detail-strip__item"><span>ID</span><strong>{selectedEmp.employeeId || '—'}</strong></div>
+          <div className="als-emp-detail-strip__item"><span>Department</span><strong>{selectedEmp.department || '—'}</strong></div>
+          <div className="als-emp-detail-strip__item"><span>Position</span><strong>{selectedEmp.designation || '—'}</strong></div>
+          <div className="als-emp-detail-strip__item"><span>Joining Date</span><strong>{dateLabel(selectedEmp.joiningDate)}</strong></div>
+          <div className="als-emp-detail-strip__item">
+            <span>Status</span>
+            <span className={`als-badge ${selectedEmp.isActive ? 'als-badge--active' : 'als-badge--inactive'}`}>
+              {selectedEmp.isActive ? 'Active' : 'Inactive'}
+            </span>
           </div>
         </div>
       )}

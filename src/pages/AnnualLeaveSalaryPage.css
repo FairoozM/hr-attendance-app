@@ -84,12 +84,15 @@
 }
 
 /* ── Employee selector ── */
-.als-emp-selector .als-card__body { padding: 1rem 1.25rem; }
-
-.als-emp-search-wrap { position: relative; max-width: 480px; }
+.als-emp-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
 
 .als-emp-search {
   width: 100%;
+  max-width: 480px;
   padding: 0.6rem 0.9rem;
   border: 1px solid #d1d5db;
   border-radius: 8px;
@@ -100,78 +103,128 @@
 }
 .als-emp-search:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.12); }
 
-.als-emp-dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,.12);
-  list-style: none;
-  margin: 0;
-  padding: 0.3rem 0;
-  z-index: 100;
-  max-height: 260px;
-  overflow-y: auto;
-}
-
-.als-emp-dropdown li button {
-  width: 100%;
+.als-emp-list {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  padding: 0.55rem 1rem;
+  gap: 2px;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.als-emp-list__empty {
+  padding: 1rem;
+  text-align: center;
+  color: #9ca3af;
+  font-size: .88rem;
+}
+
+.als-emp-list__item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.9rem;
   border: none;
   background: none;
   cursor: pointer;
   text-align: left;
   transition: background .12s;
+  border-radius: 0;
+  width: 100%;
 }
-.als-emp-dropdown li button:hover { background: #f5f3ff; }
+.als-emp-list__item:hover { background: #eef2ff; }
 
-.als-emp-dropdown__name { font-weight: 600; color: #111827; font-size: .9rem; }
-.als-emp-dropdown__meta { font-size: .78rem; color: #6b7280; }
-
-/* ── Employee info card ── */
-.als-emp-info {
-  display: flex;
-  align-items: center;
-  gap: 1.25rem;
-  padding: 1.1rem 1.25rem;
-  flex-wrap: wrap;
-}
-
-.als-emp-info__avatar {
-  width: 60px;
-  height: 60px;
+.als-emp-list__avatar {
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   background: linear-gradient(135deg, #6366f1, #8b5cf6);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.5rem;
+  font-size: .9rem;
   font-weight: 700;
   color: #fff;
   flex-shrink: 0;
   overflow: hidden;
 }
-.als-emp-info__avatar img { width: 100%; height: 100%; object-fit: cover; }
-
-.als-emp-info__grid {
-  flex: 1;
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 0.75rem 1.5rem;
+.als-emp-list__avatar--lg {
+  width: 44px;
+  height: 44px;
+  font-size: 1.1rem;
 }
-@media (max-width: 900px) { .als-emp-info__grid { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 550px) { .als-emp-info__grid { grid-template-columns: repeat(2, 1fr); } }
+.als-emp-list__avatar img { width: 100%; height: 100%; object-fit: cover; }
 
-.als-emp-info__item { display: flex; flex-direction: column; gap: 0.15rem; }
-.als-emp-info__label { font-size: 0.73rem; color: #9ca3af; text-transform: uppercase; letter-spacing: .04em; }
-.als-emp-info__value { font-size: 0.9rem; font-weight: 600; color: #111827; }
-.als-emp-info__value--name { font-size: 1rem; color: #1a1a2e; }
+.als-emp-list__info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+  min-width: 0;
+}
+
+.als-emp-list__name {
+  font-weight: 600;
+  color: #111827;
+  font-size: .9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.als-emp-list__meta {
+  font-size: .78rem;
+  color: #6b7280;
+}
+
+.als-emp-list__dept {
+  font-size: .78rem;
+  color: #9ca3af;
+  white-space: nowrap;
+  margin-left: auto;
+  padding-left: .5rem;
+}
+
+.als-emp-selected-row {
+  display: flex;
+  align-items: center;
+  gap: .85rem;
+  font-size: .92rem;
+  color: #111827;
+}
+
+/* ── Detail strip shown after employee selected ── */
+.als-emp-detail-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1.5rem;
+  background: #f0f4ff;
+  border: 1px solid #c7d2fe;
+  border-radius: 10px;
+  padding: .75rem 1.1rem;
+  margin-bottom: 1.25rem;
+}
+
+.als-emp-detail-strip__item {
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+}
+
+.als-emp-detail-strip__item span {
+  font-size: .72rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.als-emp-detail-strip__item strong {
+  font-size: .88rem;
+  color: #1a1a2e;
+}
+
 
 .als-badge {
   display: inline-block;
