@@ -249,6 +249,38 @@ async function ensureProfileColumns() {
   }
 }
 
+async function ensureAnnualLeaveSalaryTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS annual_leave_salary (
+      id SERIAL PRIMARY KEY,
+      employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+      calculation_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      monthly_salary NUMERIC(14,2) NOT NULL DEFAULT 0,
+      per_day_rate NUMERIC(14,4) NOT NULL DEFAULT 0,
+      running_month_days NUMERIC(6,2) NOT NULL DEFAULT 0,
+      running_month_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+      annual_leave_days_eligible NUMERIC(6,2) NOT NULL DEFAULT 0,
+      leave_days_to_pay NUMERIC(6,2) NOT NULL DEFAULT 0,
+      leave_salary_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+      other_additions NUMERIC(14,2) NOT NULL DEFAULT 0,
+      other_deductions NUMERIC(14,2) NOT NULL DEFAULT 0,
+      grand_total NUMERIC(14,2) NOT NULL DEFAULT 0,
+      remarks TEXT,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_als_employee_id ON annual_leave_salary(employee_id)
+  `)
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_als_date ON annual_leave_salary(calculation_date)
+  `)
+  // Add monthly_salary to employees if not present (for pre-filling the calculator)
+  await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS monthly_salary NUMERIC(14,2)`)
+}
+
 async function testConnection() {
   const result = await query('SELECT NOW()')
   const now = result.rows[0]?.now
@@ -264,6 +296,7 @@ async function testConnection() {
   await ensureWarehouseUser()
   await ensureProfileColumns()
   await migrateUsernamesToEmail()
+  await ensureAnnualLeaveSalaryTable()
 }
 
 module.exports = {

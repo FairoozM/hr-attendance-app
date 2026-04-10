@@ -117,6 +117,9 @@ export function Layout() {
                 )}
                 {isAdmin && (
                   <>
+                    <NavLink to="/annual-leave-salary" className={navLinkClass} onClick={closeSidebar}>
+                      Annual Leave Salary
+                    </NavLink>
                     <NavLink to="/settings" className={navLinkClass} onClick={closeSidebar}>
                       Settings
                     </NavLink>
