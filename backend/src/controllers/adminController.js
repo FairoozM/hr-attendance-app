@@ -9,18 +9,50 @@ const VALID_ACTIONS = {
 }
 
 /**
- * Admin-only: list all non-admin users with their permissions.
+ * Admin-only: list ALL active employees plus any non-employee portal users
+ * (warehouse etc.) with their permissions.
+ * Employees without a portal account are included but show has_account = false.
  */
 async function listUsersWithPermissions(req, res) {
   try {
     const { query } = require('../db')
     const result = await query(
-      `SELECT u.id, u.username, u.role, u.employee_id, u.permissions, u.created_at,
-              e.full_name AS employee_full_name, e.department, e.designation
+      `-- Active employees (with or without a portal account)
+       SELECT
+         u.id,
+         u.username,
+         COALESCE(u.role, 'employee') AS role,
+         e.id AS employee_id,
+         COALESCE(u.permissions, '{}'::jsonb) AS permissions,
+         u.created_at,
+         e.full_name AS employee_full_name,
+         e.department,
+         e.designation,
+         e.employee_code,
+         (u.id IS NOT NULL) AS has_account
+       FROM employees e
+       LEFT JOIN users u ON u.employee_id = e.id AND u.role != 'admin'
+       WHERE e.is_active = true
+
+       UNION ALL
+
+       -- Non-employee portal users (warehouse, etc.) not linked to an employee record
+       SELECT
+         u.id,
+         u.username,
+         u.role,
+         u.employee_id,
+         COALESCE(u.permissions, '{}'::jsonb) AS permissions,
+         u.created_at,
+         u.username AS employee_full_name,
+         NULL AS department,
+         NULL AS designation,
+         NULL AS employee_code,
+         true AS has_account
        FROM users u
-       LEFT JOIN employees e ON e.id = u.employee_id
-       WHERE u.role != 'admin'
-       ORDER BY u.role, u.id`
+       WHERE u.role NOT IN ('admin', 'employee')
+
+       ORDER BY employee_full_name`
     )
     res.json(result.rows)
   } catch (err) {

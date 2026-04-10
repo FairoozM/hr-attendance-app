@@ -207,6 +207,30 @@
   padding: 0.1rem 0.45rem;
 }
 
+.rbac-user-item--no-account {
+  opacity: 0.75;
+}
+
+.rbac-user-item__no-account {
+  font-size: 0.76rem;
+  color: #f59e0b;
+  font-style: italic;
+}
+
+.rbac-modules--disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.rbac-toggle--disabled {
+  cursor: not-allowed;
+}
+
+.rbac-editor__email--dim {
+  color: #f59e0b;
+  font-style: italic;
+}
+
 /* ── Role badges ── */
 .rbac-badge {
   display: inline-block;

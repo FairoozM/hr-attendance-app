@@ -100,7 +100,7 @@ export function RolesPermissionsPage() {
 
   const selectUser = useCallback((u) => {
     setSelectedUser(u)
-    setLocalPerms(initPermissionsState(u.permissions))
+    setLocalPerms(initPermissionsState(u.has_account ? u.permissions : {}))
     setSaveMsg(null)
   }, [])
 
@@ -218,15 +218,16 @@ export function RolesPermissionsPage() {
           ) : filteredUsers.length === 0 ? (
             <div className="rbac-empty">No users found</div>
           ) : (
-            <ul className="rbac-user-list">
+              <ul className="rbac-user-list">
               {filteredUsers.map((u) => {
-                const n = countPermissions(initPermissionsState(u.permissions))
-                const isSelected = selectedUser?.id === u.id
+                const n = u.has_account ? countPermissions(initPermissionsState(u.permissions)) : 0
+                const isSelected = selectedUser?.employee_id === u.employee_id && selectedUser?.id === u.id
+                const rowKey = u.id ? `user-${u.id}` : `emp-${u.employee_id}`
                 return (
-                  <li key={u.id}>
+                  <li key={rowKey}>
                     <button
                       type="button"
-                      className={`rbac-user-item ${isSelected ? 'rbac-user-item--active' : ''}`}
+                      className={`rbac-user-item ${isSelected ? 'rbac-user-item--active' : ''} ${!u.has_account ? 'rbac-user-item--no-account' : ''}`}
                       onClick={() => selectUser(u)}
                     >
                       <div className="rbac-user-item__avatar">
@@ -234,7 +235,10 @@ export function RolesPermissionsPage() {
                       </div>
                       <div className="rbac-user-item__info">
                         <span className="rbac-user-item__name">{displayName(u)}</span>
-                        <span className="rbac-user-item__email">{u.username}</span>
+                        {u.has_account
+                          ? <span className="rbac-user-item__email">{u.username}</span>
+                          : <span className="rbac-user-item__no-account">No portal account</span>
+                        }
                         {u.department && (
                           <span className="rbac-user-item__dept">{u.department}</span>
                         )}
@@ -271,7 +275,10 @@ export function RolesPermissionsPage() {
                   </div>
                   <div>
                     <h2 className="rbac-editor__name">{displayName(selectedUser)}</h2>
-                    <span className="rbac-editor__email">{selectedUser.username}</span>
+                    {selectedUser.has_account
+                      ? <span className="rbac-editor__email">{selectedUser.username}</span>
+                      : <span className="rbac-editor__email rbac-editor__email--dim">No portal account</span>
+                    }
                     <span className={roleBadgeClass(selectedUser.role)}>
                       {roleLabel(selectedUser.role)}
                     </span>
@@ -279,18 +286,25 @@ export function RolesPermissionsPage() {
                 </div>
               </div>
 
-              {selectedUser.role === 'warehouse' && (
+              {!selectedUser.has_account && (
+                <div className="rbac-alert rbac-alert--info">
+                  This employee has no portal login account yet. Create a portal account for them
+                  (in the Employees section) before assigning permissions.
+                </div>
+              )}
+
+              {selectedUser.has_account && selectedUser.role === 'warehouse' && (
                 <div className="rbac-alert rbac-alert--info">
                   Warehouse users have built-in access to Attendance, Employees, and Annual Leave.
                   Permission toggles apply to any additional custom access.
                 </div>
               )}
 
-              <div className="rbac-modules">
+              <div className={`rbac-modules ${!selectedUser.has_account ? 'rbac-modules--disabled' : ''}`}>
                 {MODULES.map((mod) => {
                   const modPerms = localPerms[mod.key] || {}
-                  const anyGranted = mod.permissions.some((p) => modPerms[p.key])
-                  const allGranted = mod.permissions.every((p) => modPerms[p.key])
+                  const anyGranted = selectedUser.has_account && mod.permissions.some((p) => modPerms[p.key])
+                  const allGranted = selectedUser.has_account && mod.permissions.every((p) => modPerms[p.key])
                   return (
                     <div key={mod.key} className={`rbac-module ${anyGranted ? 'rbac-module--active' : ''}`}>
                       <div className="rbac-module__head">
@@ -324,13 +338,13 @@ export function RolesPermissionsPage() {
                             <li key={perm.key} className="rbac-perm-row">
                               <label className="rbac-perm-label">
                                 <span
-                                  className={`rbac-toggle ${checked ? 'rbac-toggle--on' : ''}`}
+                                  className={`rbac-toggle ${checked ? 'rbac-toggle--on' : ''} ${!selectedUser.has_account ? 'rbac-toggle--disabled' : ''}`}
                                   role="switch"
                                   aria-checked={checked}
-                                  tabIndex={0}
-                                  onClick={() => togglePerm(mod.key, perm.key)}
+                                  tabIndex={selectedUser.has_account ? 0 : -1}
+                                  onClick={() => selectedUser.has_account && togglePerm(mod.key, perm.key)}
                                   onKeyDown={(e) => {
-                                    if (e.key === 'Enter' || e.key === ' ') {
+                                    if (selectedUser.has_account && (e.key === 'Enter' || e.key === ' ')) {
                                       e.preventDefault()
                                       togglePerm(mod.key, perm.key)
                                     }
@@ -353,16 +367,18 @@ export function RolesPermissionsPage() {
                 <div className={`rbac-alert rbac-alert--${saveMsg.type}`}>{saveMsg.text}</div>
               )}
 
-              <div className="rbac-editor__footer">
-                <button
-                  type="button"
-                  className="rbac-save-btn"
-                  onClick={savePermissions}
-                  disabled={saving}
-                >
-                  {saving ? 'Saving…' : 'Save permissions'}
-                </button>
-              </div>
+              {selectedUser.has_account && (
+                <div className="rbac-editor__footer">
+                  <button
+                    type="button"
+                    className="rbac-save-btn"
+                    onClick={savePermissions}
+                    disabled={saving}
+                  >
+                    {saving ? 'Saving…' : 'Save permissions'}
+                  </button>
+                </div>
+              )}
             </>
           )}
         </div>
