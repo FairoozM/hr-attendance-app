@@ -105,7 +105,26 @@
   gap: 1rem;
   margin-bottom: 0.75rem;
   flex-wrap: wrap;
+  justify-content: space-between;
 }
+.al-filter-bar__right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.al-filter-select {
+  padding: 0.42rem 0.7rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  background: #fff;
+  color: #374151;
+  outline: none;
+  cursor: pointer;
+  min-width: 160px;
+}
+.al-filter-select:focus { border-color: #6366f1; }
 .al-filter-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -177,6 +196,36 @@
 
 .al-row__dates { display: flex; flex-direction: column; gap: .1rem; }
 .al-row__days  { font-size: .75rem; color: #9ca3af; }
+
+/* ── Days / Year total cells ── */
+.al-row__days-cell,
+.al-row__yrtotal-cell {
+  text-align: center;
+  white-space: nowrap;
+}
+.al-row__days-num {
+  font-size: .92rem;
+  font-weight: 700;
+  color: #374151;
+}
+.al-row__days-label {
+  font-size: .72rem;
+  color: #9ca3af;
+  margin-left: 2px;
+}
+.al-row__yrtotal-cell .al-row__days-num { color: #6366f1; }
+
+/* ── Sortable headers ── */
+.al-th-sort {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.al-th-sort:hover { background: #f3f4f6; }
+.al-th-sort--active { color: #6366f1; }
+.al-th-sort__label { margin-right: 4px; }
+.al-th-sort__icon  { font-size: .75rem; opacity: .5; }
+.al-th-sort--active .al-th-sort__icon { opacity: 1; color: #6366f1; }
 
 .al-row__ret { font-size: .82rem; }
 .al-row__returned { color: #15803d; font-weight: 600; }

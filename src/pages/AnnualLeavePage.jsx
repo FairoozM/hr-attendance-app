@@ -229,8 +229,9 @@ const FILTER_TABS = [
   { key: 'Rejected',      label: 'Rejected' },
 ]
 
-function LeaveRow({ row, isAdmin, onStatusChange, onConfirmReturn, onExtend, onDelete, onEdit, expanded, onToggle }) {
+function LeaveRow({ row, isAdmin, onStatusChange, onConfirmReturn, onExtend, onDelete, onEdit, expanded, onToggle, yearTotal }) {
   const es = row.effective_status || row.status
+  const leaveDays = row.leave_days ?? daysBetween(row.from_date, row.to_date)
   const canConfirm = isAdmin && ['Ongoing', 'ReturnPending', 'Overstayed'].includes(es) && !row.actual_return_date
   const canExtend  = isAdmin && ['Approved', 'Ongoing'].includes(es)
 
@@ -249,8 +250,16 @@ function LeaveRow({ row, isAdmin, onStatusChange, onConfirmReturn, onExtend, onD
         <td>
           <div className="al-row__dates">
             <span>{fmtDisplay(row.from_date)} → {fmtDisplay(row.to_date)}</span>
-            <span className="al-row__days">{row.leave_days ?? daysBetween(row.from_date, row.to_date)} days</span>
           </div>
+        </td>
+        <td className="al-row__days-cell">
+          <span className="al-row__days-num">{leaveDays}</span>
+          <span className="al-row__days-label">days</span>
+        </td>
+        <td className="al-row__yrtotal-cell">
+          {yearTotal != null
+            ? <><span className="al-row__days-num">{yearTotal}</span><span className="al-row__days-label"> days</span></>
+            : <span className="al-row__days-label">—</span>}
         </td>
         <td><StatusBadge status={es} /></td>
         <td className="al-row__ret">
@@ -290,7 +299,7 @@ function LeaveRow({ row, isAdmin, onStatusChange, onConfirmReturn, onExtend, onD
       </tr>
       {expanded && (
         <tr className="al-row-detail">
-          <td colSpan={isAdmin ? 6 : 5}>
+          <td colSpan={isAdmin ? 8 : 7}>
             <div className="al-detail">
               <div className="al-detail__left">
                 <Timeline row={row} />
@@ -424,7 +433,7 @@ function EditRowForm({ row, employees, onSave, onCancel, empLoading }) {
 
   return (
     <tr className="al-row al-row--editing">
-      <td colSpan={6}>
+      <td colSpan={8}>
         <form onSubmit={submit} className="al-form-row al-form-row--edit">
           <div className="al-form-field">
             <label>Employee</label>
@@ -463,6 +472,19 @@ function EditRowForm({ row, employees, onSave, onCancel, empLoading }) {
   )
 }
 
+// ── Sortable column header ─────────────────────────────────────────────────────
+function SortHeader({ col, label, current, dir, onSort, style }) {
+  const active = current === col
+  return (
+    <th className={`al-th-sort ${active ? 'al-th-sort--active' : ''}`}
+        style={style}
+        onClick={() => onSort(col)}>
+      <span className="al-th-sort__label">{label}</span>
+      <span className="al-th-sort__icon">{active ? (dir === 'asc' ? '↑' : '↓') : '↕'}</span>
+    </th>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export function AnnualLeavePage() {
   const { user } = useAuth()
@@ -476,10 +498,43 @@ export function AnnualLeavePage() {
   const [activeTab,    setActiveTab]    = useState('requests')
   const [filterStatus, setFilterStatus] = useState('All')
   const [search,       setSearch]       = useState('')
+  const [deptFilter,   setDeptFilter]   = useState('')
   const [expandedId,   setExpandedId]   = useState(null)
   const [editingRow,   setEditingRow]   = useState(null)
   const [confirmRow,   setConfirmRow]   = useState(null)
   const [extendRow,    setExtendRow]    = useState(null)
+  const [sortBy,       setSortBy]       = useState('from_date')
+  const [sortDir,      setSortDir]      = useState('desc')
+
+  function handleSort(col) {
+    setSortBy(prev => {
+      if (prev === col) { setSortDir(d => d === 'asc' ? 'desc' : 'asc'); return col }
+      setSortDir('asc'); return col
+    })
+  }
+
+  // Total approved/active leave days this calendar year, per employee
+  const yearTotals = useMemo(() => {
+    const yr = new Date().getFullYear()
+    const totals = {}
+    requests.forEach(r => {
+      const es = r.effective_status || r.status
+      if (['Approved','Ongoing','ReturnPending','Completed','Overstayed'].includes(es)) {
+        const fromYr = new Date(fmtDate(r.from_date) + 'T12:00:00Z').getFullYear()
+        if (fromYr === yr) {
+          const k = String(r.employee_id)
+          totals[k] = (totals[k] || 0) + (r.leave_days || daysBetween(r.from_date, r.to_date))
+        }
+      }
+    })
+    return totals
+  }, [requests])
+
+  // Unique departments for filter dropdown
+  const departments = useMemo(() => {
+    const s = new Set(requests.map(r => r.department).filter(Boolean))
+    return Array.from(s).sort()
+  }, [requests])
 
   // filter employees for the employee role
   const visibleRequests = useMemo(() => {
@@ -487,12 +542,11 @@ export function AnnualLeavePage() {
     return requests.filter(r => String(r.employee_id) === loggedInEmpId)
   }, [requests, isEmployee, loggedInEmpId])
 
-  // filter by status tab + search
+  // filter by status tab + dept + search + sort
   const filteredRequests = useMemo(() => {
     let list = visibleRequests
-    if (filterStatus !== 'All') {
-      list = list.filter(r => (r.effective_status || r.status) === filterStatus)
-    }
+    if (filterStatus !== 'All') list = list.filter(r => (r.effective_status || r.status) === filterStatus)
+    if (deptFilter)             list = list.filter(r => r.department === deptFilter)
     if (search.trim()) {
       const q = search.toLowerCase()
       list = list.filter(r =>
@@ -501,8 +555,26 @@ export function AnnualLeavePage() {
         (r.employee_code || '').toLowerCase().includes(q)
       )
     }
+    list = [...list].sort((a, b) => {
+      let va, vb
+      switch (sortBy) {
+        case 'name':        va = a.full_name || '';              vb = b.full_name || '';              break
+        case 'dept':        va = a.department || '';             vb = b.department || '';             break
+        case 'from_date':   va = a.from_date || '';              vb = b.from_date || '';              break
+        case 'days':        va = a.leave_days || daysBetween(a.from_date, a.to_date);
+                            vb = b.leave_days || daysBetween(b.from_date, b.to_date);                break
+        case 'yr_total':    va = yearTotals[String(a.employee_id)] || 0;
+                            vb = yearTotals[String(b.employee_id)] || 0;                             break
+        case 'status':      va = a.effective_status || a.status; vb = b.effective_status || b.status; break
+        case 'return_date': va = a.expected_return_date || '';   vb = b.expected_return_date || '';  break
+        default:            return 0
+      }
+      if (va < vb) return sortDir === 'asc' ? -1 : 1
+      if (va > vb) return sortDir === 'asc' ?  1 : -1
+      return 0
+    })
     return list
-  }, [visibleRequests, filterStatus, search])
+  }, [visibleRequests, filterStatus, deptFilter, search, sortBy, sortDir, yearTotals])
 
   // tab counts
   const tabCounts = useMemo(() => {
@@ -582,7 +654,7 @@ export function AnnualLeavePage() {
             empLoading={empLoading}
           />
 
-          {/* Filter tabs + search */}
+          {/* Filter tabs + search + department filter */}
           <div className="al-filter-bar">
             <div className="al-filter-tabs">
               {FILTER_TABS.map(t => (
@@ -598,13 +670,25 @@ export function AnnualLeavePage() {
                 </button>
               ))}
             </div>
-            <input
-              className="al-search"
-              type="text"
-              placeholder="Search employee…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
+            <div className="al-filter-bar__right">
+              {departments.length > 0 && (
+                <select
+                  className="al-filter-select"
+                  value={deptFilter}
+                  onChange={e => setDeptFilter(e.target.value)}
+                >
+                  <option value="">All Departments</option>
+                  {departments.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              )}
+              <input
+                className="al-search"
+                type="text"
+                placeholder="Search employee…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
           </div>
 
           {/* Table */}
@@ -620,10 +704,12 @@ export function AnnualLeavePage() {
               <table className="al-table">
                 <thead>
                   <tr>
-                    <th>Employee</th>
-                    <th>Leave Period</th>
-                    <th>Status</th>
-                    <th>Return Date</th>
+                    <SortHeader col="name"        label="Employee"          current={sortBy} dir={sortDir} onSort={handleSort} />
+                    <SortHeader col="from_date"   label="Leave Period"      current={sortBy} dir={sortDir} onSort={handleSort} />
+                    <SortHeader col="days"        label="Days"              current={sortBy} dir={sortDir} onSort={handleSort} style={{ width: 72, textAlign: 'center' }} />
+                    <SortHeader col="yr_total"    label="This Year"         current={sortBy} dir={sortDir} onSort={handleSort} style={{ width: 90, textAlign: 'center' }} />
+                    <SortHeader col="status"      label="Status"            current={sortBy} dir={sortDir} onSort={handleSort} />
+                    <SortHeader col="return_date" label="Return Date"       current={sortBy} dir={sortDir} onSort={handleSort} />
                     {isAdmin && <th>Actions</th>}
                     <th />
                   </tr>
@@ -651,6 +737,7 @@ export function AnnualLeavePage() {
                         onEdit={r => { setEditingRow(r); setExpandedId(null) }}
                         expanded={expandedId === row.id}
                         onToggle={() => toggleExpand(row.id)}
+                        yearTotal={yearTotals[String(row.employee_id)] ?? null}
                       />
                     )
                   )}
