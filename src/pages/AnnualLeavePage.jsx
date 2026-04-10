@@ -3,26 +3,40 @@ import { useAuth } from '../contexts/AuthContext'
 import { useEmployees } from '../hooks/useEmployees'
 import { useAnnualLeave } from '../hooks/useAnnualLeave'
 import { AnnualLeaveSalaryPage } from './AnnualLeaveSalaryPage'
+import { fmtDMY, fmtISO } from '../utils/dateFormat'
 import './Page.css'
 import './AnnualLeavePage.css'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-function fmtDate(v) {
-  if (v == null) return '—'
-  return String(v).slice(0, 10)
-}
-function fmtDisplay(v) {
-  const iso = fmtDate(v)
-  if (!iso || iso === '—') return '—'
-  const [y, m, d] = iso.split('-')
-  return `${d}/${m}/${y}`
-}
 function daysBetween(from, to) {
   if (!from || !to) return 0
-  const diff = new Date(`${fmtDate(to)}T12:00:00Z`) - new Date(`${fmtDate(from)}T12:00:00Z`)
+  const diff = new Date(`${fmtISO(to)}T12:00:00Z`) - new Date(`${fmtISO(from)}T12:00:00Z`)
   return Math.max(0, Math.floor(diff / 86400000) + 1)
 }
-function today() { return new Date().toISOString().slice(0, 10) }
+function todayISO() { return new Date().toISOString().slice(0, 10) }
+
+// ── Icons ─────────────────────────────────────────────────────────────────────
+function IconEdit() {
+  return (
+    <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14.5 2.5a2.121 2.121 0 0 1 3 3L6 17l-4 1 1-4L14.5 2.5z"/>
+    </svg>
+  )
+}
+function IconTrash() {
+  return (
+    <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 5h14M8 5V3h4v2M6 5l1 12h6l1-12"/>
+    </svg>
+  )
+}
+function IconChevron({ up }) {
+  return (
+    <svg viewBox="0 0 20 20" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <path d={up ? 'M5 12l5-5 5 5' : 'M5 8l5 5 5-5'} />
+    </svg>
+  )
+}
 
 // ── Status config ─────────────────────────────────────────────────────────────
 const STATUS_CFG = {
@@ -56,12 +70,13 @@ function EmpAvatar({ name, photoUrl, size = 36 }) {
 
 // ── Timeline ─────────────────────────────────────────────────────────────────
 function Timeline({ row }) {
+  const t = todayISO()
   const steps = [
-    { label: 'Applied',  date: row.created_at,           done: true },
-    { label: 'Approved', date: row.updated_at,           done: row.status === 'Approved' || !!row.actual_return_date },
-    { label: 'Leave starts', date: row.from_date,        done: today() >= fmtDate(row.from_date) && row.status === 'Approved' },
-    { label: 'Leave ends',   date: row.to_date,          done: today() > fmtDate(row.to_date) && row.status === 'Approved' },
-    { label: 'Returned', date: row.actual_return_date,   done: !!row.actual_return_date },
+    { label: 'Applied',      date: row.created_at,         done: true },
+    { label: 'Approved',     date: row.updated_at,         done: row.status === 'Approved' || !!row.actual_return_date },
+    { label: 'Leave starts', date: row.from_date,          done: t >= fmtISO(row.from_date) && row.status === 'Approved' },
+    { label: 'Leave ends',   date: row.to_date,            done: t > fmtISO(row.to_date) && row.status === 'Approved' },
+    { label: 'Returned',     date: row.actual_return_date, done: !!row.actual_return_date },
   ]
   return (
     <div className="al-timeline">
@@ -71,7 +86,7 @@ function Timeline({ row }) {
           {i < steps.length - 1 && <div className="al-timeline__line" />}
           <div className="al-timeline__info">
             <span className="al-timeline__label">{s.label}</span>
-            <span className="al-timeline__date">{s.date ? fmtDisplay(s.date) : '—'}</span>
+            <span className="al-timeline__date">{fmtDMY(s.date)}</span>
           </div>
         </div>
       ))}
@@ -81,11 +96,11 @@ function Timeline({ row }) {
 
 // ── Confirm Return modal ──────────────────────────────────────────────────────
 function ConfirmReturnModal({ row, onConfirm, onClose }) {
-  const expectedReturn = row.expected_return_date ? fmtDate(row.expected_return_date) : today()
-  const [returnDate, setReturnDate] = useState(expectedReturn <= today() ? expectedReturn : today())
-  const [remarks, setRemarks] = useState(row.admin_remarks || '')
-  const [saving, setSaving] = useState(false)
-  const [err, setErr] = useState('')
+  const expectedReturn = row.expected_return_date ? fmtISO(row.expected_return_date) : todayISO()
+  const [returnDate, setReturnDate] = useState(expectedReturn <= todayISO() ? expectedReturn : todayISO())
+  const [remarks, setRemarks]       = useState(row.admin_remarks || '')
+  const [saving, setSaving]         = useState(false)
+  const [err, setErr]               = useState('')
 
   async function submit(e) {
     e.preventDefault()
@@ -94,7 +109,7 @@ function ConfirmReturnModal({ row, onConfirm, onClose }) {
     try {
       await onConfirm(row.id, { actual_return_date: returnDate, admin_remarks: remarks })
       onClose()
-    } catch (e) { setErr(e.message || 'Failed'); setSaving(false) }
+    } catch (ex) { setErr(ex.message || 'Failed'); setSaving(false) }
   }
   return (
     <div className="al-modal-overlay" onClick={onClose}>
@@ -105,15 +120,12 @@ function ConfirmReturnModal({ row, onConfirm, onClose }) {
         </div>
         <div className="al-modal__emp">
           <EmpAvatar name={row.full_name} photoUrl={row.photo_url} />
-          <div>
-            <strong>{row.full_name}</strong>
-            <span>{row.department}</span>
-          </div>
+          <div><strong>{row.full_name}</strong><span>{row.department}</span></div>
         </div>
         <form onSubmit={submit}>
           <div className="al-modal__field">
             <label>Expected Return Date</label>
-            <input type="text" value={fmtDisplay(expectedReturn)} readOnly className="al-modal__readonly" />
+            <input type="text" value={fmtDMY(expectedReturn)} readOnly className="al-modal__readonly" />
           </div>
           <div className="al-modal__field">
             <label>Actual Return Date *</label>
@@ -138,20 +150,20 @@ function ConfirmReturnModal({ row, onConfirm, onClose }) {
 
 // ── Extend Leave modal ────────────────────────────────────────────────────────
 function ExtendLeaveModal({ row, onExtend, onClose }) {
-  const currentEnd = fmtDate(row.to_date)
-  const [newEnd, setNewEnd] = useState('')
-  const [remarks, setRemarks] = useState(row.admin_remarks || '')
-  const [saving, setSaving] = useState(false)
-  const [err, setErr] = useState('')
+  const currentEnd = fmtISO(row.to_date)
+  const [newEnd, setNewEnd]     = useState('')
+  const [remarks, setRemarks]   = useState(row.admin_remarks || '')
+  const [saving, setSaving]     = useState(false)
+  const [err, setErr]           = useState('')
 
   async function submit(e) {
     e.preventDefault()
-    if (!newEnd || newEnd <= currentEnd) return setErr('New end date must be after ' + fmtDisplay(currentEnd))
+    if (!newEnd || newEnd <= currentEnd) return setErr('New end date must be after ' + fmtDMY(currentEnd))
     setSaving(true)
     try {
       await onExtend(row.id, { new_to_date: newEnd, admin_remarks: remarks })
       onClose()
-    } catch (e) { setErr(e.message || 'Failed'); setSaving(false) }
+    } catch (ex) { setErr(ex.message || 'Failed'); setSaving(false) }
   }
   return (
     <div className="al-modal-overlay" onClick={onClose}>
@@ -167,7 +179,7 @@ function ExtendLeaveModal({ row, onExtend, onClose }) {
         <form onSubmit={submit}>
           <div className="al-modal__field">
             <label>Current End Date</label>
-            <input type="text" value={fmtDisplay(currentEnd)} readOnly className="al-modal__readonly" />
+            <input type="text" value={fmtDMY(currentEnd)} readOnly className="al-modal__readonly" />
           </div>
           <div className="al-modal__field">
             <label>New End Date *</label>
@@ -218,19 +230,8 @@ function DashboardCards({ stats, isAdmin, onFilterClick }) {
 }
 
 // ── Leave row ─────────────────────────────────────────────────────────────────
-const FILTER_TABS = [
-  { key: 'All',           label: 'All' },
-  { key: 'Pending',       label: 'Pending' },
-  { key: 'Approved',      label: 'Upcoming' },
-  { key: 'Ongoing',       label: 'On Leave' },
-  { key: 'ReturnPending', label: 'Return Pending' },
-  { key: 'Completed',     label: 'Completed' },
-  { key: 'Overstayed',    label: 'Overstayed' },
-  { key: 'Rejected',      label: 'Rejected' },
-]
-
 function LeaveRow({ row, isAdmin, onStatusChange, onConfirmReturn, onExtend, onDelete, onEdit, expanded, onToggle, yearTotal }) {
-  const es = row.effective_status || row.status
+  const es        = row.effective_status || row.status
   const leaveDays = row.leave_days ?? daysBetween(row.from_date, row.to_date)
   const canConfirm = isAdmin && ['Ongoing', 'ReturnPending', 'Overstayed'].includes(es) && !row.actual_return_date
   const canExtend  = isAdmin && ['Approved', 'Ongoing'].includes(es)
@@ -249,53 +250,50 @@ function LeaveRow({ row, isAdmin, onStatusChange, onConfirmReturn, onExtend, onD
         </td>
         <td>
           <div className="al-row__dates">
-            <span>{fmtDisplay(row.from_date)} → {fmtDisplay(row.to_date)}</span>
+            <span>{fmtDMY(row.from_date)} → {fmtDMY(row.to_date)}</span>
           </div>
         </td>
         <td className="al-row__days-cell">
           <span className="al-row__days-num">{leaveDays}</span>
-          <span className="al-row__days-label">days</span>
+          <span className="al-row__days-label"> days</span>
         </td>
         <td className="al-row__yrtotal-cell">
           {yearTotal != null
-            ? <><span className="al-row__days-num">{yearTotal}</span><span className="al-row__days-label"> days</span></>
+            ? <><span className="al-row__days-num" style={{ color: '#6366f1' }}>{yearTotal}</span><span className="al-row__days-label"> days</span></>
             : <span className="al-row__days-label">—</span>}
         </td>
         <td><StatusBadge status={es} /></td>
         <td className="al-row__ret">
           {row.actual_return_date
-            ? <span className="al-row__returned">↩ {fmtDisplay(row.actual_return_date)}</span>
+            ? <span className="al-row__returned">↩ {fmtDMY(row.actual_return_date)}</span>
             : row.expected_return_date
-              ? <span className="al-row__expected">Exp. {fmtDisplay(row.expected_return_date)}</span>
+              ? <span className="al-row__expected">Exp. {fmtDMY(row.expected_return_date)}</span>
               : '—'}
         </td>
         {isAdmin && (
           <td onClick={e => e.stopPropagation()}>
             <div className="al-row__acts">
               {row.status === 'Pending' && (
-                <>
-                  <button className="al-btn al-btn--approve" onClick={() => onStatusChange(row, 'Approved')}>Approve</button>
-                  <button className="al-btn al-btn--reject"  onClick={() => onStatusChange(row, 'Rejected')}>Reject</button>
-                </>
+                <button className="al-btn al-btn--approve" onClick={() => onStatusChange(row, 'Approved')}>Approve</button>
               )}
               {canConfirm && (
-                <button className="al-btn al-btn--success" onClick={() => onConfirmReturn(row)}>
-                  ✓ Return
-                </button>
+                <button className="al-btn al-btn--success" onClick={() => onConfirmReturn(row)}>✓ Return</button>
               )}
               {canExtend && (
-                <button className="al-btn al-btn--extend" onClick={() => onExtend(row)}>
-                  ↗ Extend
-                </button>
+                <button className="al-btn al-btn--extend" onClick={() => onExtend(row)}>↗ Extend</button>
               )}
-              <button className="al-btn al-btn--edit" onClick={() => onEdit(row)}>✏ Edit</button>
+              <button className="al-icon-btn al-icon-btn--edit" title="Edit" onClick={() => onEdit(row)}>
+                <IconEdit />
+              </button>
               {row.status === 'Pending' && (
-                <button className="al-btn al-btn--del" onClick={() => onDelete(row.id)}>Del</button>
+                <button className="al-icon-btn al-icon-btn--del" title="Delete" onClick={() => onDelete(row.id)}>
+                  <IconTrash />
+                </button>
               )}
             </div>
           </td>
         )}
-        <td className="al-row__chevron">{expanded ? '▲' : '▼'}</td>
+        <td className="al-row__chevron"><IconChevron up={expanded} /></td>
       </tr>
       {expanded && (
         <tr className="al-row-detail">
@@ -310,16 +308,16 @@ function LeaveRow({ row, isAdmin, onStatusChange, onConfirmReturn, onExtend, onD
                 )}
                 {row.detected_return_date && !row.actual_return_date && (
                   <div className="al-detail__detected">
-                    🔍 Attendance detected from <strong>{fmtDisplay(row.detected_return_date)}</strong> — confirm below
+                    🔍 Attendance detected from <strong>{fmtDMY(row.detected_return_date)}</strong> — confirm below
                   </div>
                 )}
               </div>
               <div className="al-detail__right">
                 <div className="al-detail__meta">
                   <div><span>Reason</span><span>{row.reason || '—'}</span></div>
-                  <div><span>Applied</span><span>{fmtDisplay(row.created_at)}</span></div>
-                  <div><span>Expected Return</span><span>{fmtDisplay(row.expected_return_date)}</span></div>
-                  {row.actual_return_date && <div><span>Actual Return</span><span>{fmtDisplay(row.actual_return_date)}</span></div>}
+                  <div><span>Applied</span><span>{fmtDMY(row.created_at)}</span></div>
+                  <div><span>Expected Return</span><span>{fmtDMY(row.expected_return_date)}</span></div>
+                  {row.actual_return_date && <div><span>Actual Return</span><span>{fmtDMY(row.actual_return_date)}</span></div>}
                   {row.overstay_days > 0 && <div><span>Overstay Days</span><span>{row.overstay_days}</span></div>}
                   {row.admin_remarks && <div><span>Admin Notes</span><span>{row.admin_remarks}</span></div>}
                 </div>
@@ -335,12 +333,12 @@ function LeaveRow({ row, isAdmin, onStatusChange, onConfirmReturn, onExtend, onD
 // ── New Request form ──────────────────────────────────────────────────────────
 function NewRequestForm({ employees, isAdmin, loggedInEmployeeId, onSubmit, empLoading }) {
   const [employeeId, setEmployeeId] = useState(isAdmin ? '' : loggedInEmployeeId || '')
-  const [fromDate, setFromDate]   = useState('')
-  const [toDate, setToDate]       = useState('')
-  const [reason, setReason]       = useState('')
-  const [err, setErr]             = useState(null)
-  const [saving, setSaving]       = useState(false)
-  const [open, setOpen]           = useState(false)
+  const [fromDate, setFromDate]     = useState('')
+  const [toDate, setToDate]         = useState('')
+  const [reason, setReason]         = useState('')
+  const [err, setErr]               = useState(null)
+  const [saving, setSaving]         = useState(false)
+  const [open, setOpen]             = useState(false)
 
   const options = useMemo(() => {
     const list = [...employees].sort((a, b) => a.name.localeCompare(b.name))
@@ -355,9 +353,9 @@ function NewRequestForm({ employees, isAdmin, loggedInEmployeeId, onSubmit, empL
   async function handleSubmit(e) {
     e.preventDefault()
     setErr(null)
-    if (!employeeId) return setErr('Select an employee')
-    if (!fromDate || !toDate) return setErr('Dates are required')
-    if (fromDate > toDate) return setErr('From date must be before to date')
+    if (!employeeId)            return setErr('Select an employee')
+    if (!fromDate || !toDate)   return setErr('Dates are required')
+    if (fromDate > toDate)      return setErr('From date must be before to date')
     setSaving(true)
     try {
       await onSubmit({ employee_id: Number(employeeId), from_date: fromDate, to_date: toDate, reason: reason.trim() || null, status: 'Pending' })
@@ -414,8 +412,8 @@ function NewRequestForm({ employees, isAdmin, loggedInEmployeeId, onSubmit, empL
 // ── Edit row (inline) ─────────────────────────────────────────────────────────
 function EditRowForm({ row, employees, onSave, onCancel, empLoading }) {
   const [empId,  setEmpId]  = useState(String(row.employee_id))
-  const [from,   setFrom]   = useState(fmtDate(row.from_date))
-  const [to,     setTo]     = useState(fmtDate(row.to_date))
+  const [from,   setFrom]   = useState(fmtISO(row.from_date))
+  const [to,     setTo]     = useState(fmtISO(row.to_date))
   const [reason, setReason] = useState(row.reason || '')
   const [status, setStatus] = useState(row.status)
   const [err,    setErr]    = useState('')
@@ -476,24 +474,128 @@ function EditRowForm({ row, employees, onSave, onCancel, empLoading }) {
 function SortHeader({ col, label, current, dir, onSort, style }) {
   const active = current === col
   return (
-    <th className={`al-th-sort ${active ? 'al-th-sort--active' : ''}`}
-        style={style}
-        onClick={() => onSort(col)}>
+    <th className={`al-th-sort ${active ? 'al-th-sort--active' : ''}`} style={style} onClick={() => onSort(col)}>
       <span className="al-th-sort__label">{label}</span>
       <span className="al-th-sort__icon">{active ? (dir === 'asc' ? '↑' : '↓') : '↕'}</span>
     </th>
   )
 }
 
+// ── Table headers shared ──────────────────────────────────────────────────────
+function TableHead({ isAdmin, sortBy, sortDir, onSort }) {
+  return (
+    <thead>
+      <tr>
+        <SortHeader col="name"        label="Employee"     current={sortBy} dir={sortDir} onSort={onSort} />
+        <SortHeader col="from_date"   label="Leave Period" current={sortBy} dir={sortDir} onSort={onSort} />
+        <SortHeader col="days"        label="Days"         current={sortBy} dir={sortDir} onSort={onSort} style={{ width: 72, textAlign: 'center' }} />
+        <SortHeader col="yr_total"    label="This Year"    current={sortBy} dir={sortDir} onSort={onSort} style={{ width: 90, textAlign: 'center' }} />
+        <SortHeader col="status"      label="Status"       current={sortBy} dir={sortDir} onSort={onSort} />
+        <SortHeader col="return_date" label="Return Date"  current={sortBy} dir={sortDir} onSort={onSort} />
+        {isAdmin && <th>Actions</th>}
+        <th />
+      </tr>
+    </thead>
+  )
+}
+
+// ── Section group ─────────────────────────────────────────────────────────────
+const SECTION_DEFS = [
+  { key: 'Pending',       label: 'Pending Requests' },
+  { key: 'Ongoing',       label: 'On Leave Now' },
+  { key: 'ReturnPending', label: 'Return Pending Confirmation' },
+  { key: 'Overstayed',    label: 'Overstayed / Not Returned' },
+  { key: 'Approved',      label: 'Approved / Upcoming' },
+  { key: 'Completed',     label: 'Completed Leaves' },
+  { key: 'Rejected',      label: 'Rejected' },
+]
+
+function SectionGroup({
+  sectionKey, label, rows, isAdmin,
+  sortBy, sortDir, onSort,
+  expandedId, onToggle,
+  editingRow, setEditingRow,
+  employees, empLoading,
+  yearTotals, updateRequest,
+  onStatusChange, onConfirmReturn, onExtend, onDelete, onEditStart,
+}) {
+  const [collapsed, setCollapsed] = useState(false)
+  const cfg = STATUS_CFG[sectionKey] || {}
+
+  if (rows.length === 0) return null
+
+  return (
+    <div className="al-section">
+      <div className="al-section__head" onClick={() => setCollapsed(c => !c)}
+           style={{ borderLeftColor: cfg.dot || '#6366f1' }}>
+        <span className="al-section__dot" style={{ background: cfg.dot || '#6366f1' }} />
+        <span className="al-section__title">{label}</span>
+        <span className="al-section__count">{rows.length}</span>
+        <span className="al-section__chevron"><IconChevron up={!collapsed} /></span>
+      </div>
+      {!collapsed && (
+        <div className="al-table-wrap al-table-wrap--section">
+          <table className="al-table">
+            <TableHead isAdmin={isAdmin} sortBy={sortBy} sortDir={sortDir} onSort={onSort} />
+            <tbody>
+              {rows.map(row =>
+                editingRow?.id === row.id ? (
+                  <EditRowForm
+                    key={row.id}
+                    row={editingRow}
+                    employees={employees}
+                    onSave={updateRequest}
+                    onCancel={() => setEditingRow(null)}
+                    empLoading={empLoading}
+                  />
+                ) : (
+                  <LeaveRow
+                    key={row.id}
+                    row={row}
+                    isAdmin={isAdmin}
+                    onStatusChange={onStatusChange}
+                    onConfirmReturn={onConfirmReturn}
+                    onExtend={onExtend}
+                    onDelete={onDelete}
+                    onEdit={onEditStart}
+                    expanded={expandedId === row.id}
+                    onToggle={() => onToggle(row.id)}
+                    yearTotal={yearTotals[String(row.employee_id)] ?? null}
+                  />
+                )
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Filter tabs ───────────────────────────────────────────────────────────────
+const FILTER_TABS = [
+  { key: 'All',           label: 'All' },
+  { key: 'Pending',       label: 'Pending' },
+  { key: 'Approved',      label: 'Upcoming' },
+  { key: 'Ongoing',       label: 'On Leave' },
+  { key: 'ReturnPending', label: 'Return Pending' },
+  { key: 'Completed',     label: 'Completed' },
+  { key: 'Overstayed',    label: 'Overstayed' },
+  { key: 'Rejected',      label: 'Rejected' },
+]
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export function AnnualLeavePage() {
-  const { user } = useAuth()
-  const isAdmin      = user?.role === 'admin'
-  const isEmployee   = user?.role === 'employee'
+  const { user }    = useAuth()
+  const isAdmin     = user?.role === 'admin'
+  const isEmployee  = user?.role === 'employee'
   const loggedInEmpId = user?.employeeId ? String(user.employeeId) : null
 
   const { employees, loading: empLoading } = useEmployees()
-  const { requests, loading, error, dashboard, createRequest, updateRequest, deleteRequest, confirmReturn, extendLeave } = useAnnualLeave()
+  const {
+    requests, loading, error, dashboard,
+    createRequest, updateRequest, deleteRequest, confirmReturn, extendLeave,
+  } = useAnnualLeave()
 
   const [activeTab,    setActiveTab]    = useState('requests')
   const [filterStatus, setFilterStatus] = useState('All')
@@ -513,14 +615,14 @@ export function AnnualLeavePage() {
     })
   }
 
-  // Total approved/active leave days this calendar year, per employee
+  // Total leave days this calendar year per employee (approved/active/completed)
   const yearTotals = useMemo(() => {
     const yr = new Date().getFullYear()
     const totals = {}
     requests.forEach(r => {
       const es = r.effective_status || r.status
       if (['Approved','Ongoing','ReturnPending','Completed','Overstayed'].includes(es)) {
-        const fromYr = new Date(fmtDate(r.from_date) + 'T12:00:00Z').getFullYear()
+        const fromYr = new Date(fmtISO(r.from_date) + 'T12:00:00Z').getFullYear()
         if (fromYr === yr) {
           const k = String(r.employee_id)
           totals[k] = (totals[k] || 0) + (r.leave_days || daysBetween(r.from_date, r.to_date))
@@ -530,23 +632,22 @@ export function AnnualLeavePage() {
     return totals
   }, [requests])
 
-  // Unique departments for filter dropdown
+  // Unique departments
   const departments = useMemo(() => {
     const s = new Set(requests.map(r => r.department).filter(Boolean))
     return Array.from(s).sort()
   }, [requests])
 
-  // filter employees for the employee role
+  // Restrict to own requests for employee role
   const visibleRequests = useMemo(() => {
     if (!isEmployee || !loggedInEmpId) return requests
     return requests.filter(r => String(r.employee_id) === loggedInEmpId)
   }, [requests, isEmployee, loggedInEmpId])
 
-  // filter by status tab + dept + search + sort
-  const filteredRequests = useMemo(() => {
+  // Apply search + dept filter + sort (status grouping handled separately)
+  const baseFiltered = useMemo(() => {
     let list = visibleRequests
-    if (filterStatus !== 'All') list = list.filter(r => (r.effective_status || r.status) === filterStatus)
-    if (deptFilter)             list = list.filter(r => r.department === deptFilter)
+    if (deptFilter) list = list.filter(r => r.department === deptFilter)
     if (search.trim()) {
       const q = search.toLowerCase()
       list = list.filter(r =>
@@ -555,7 +656,7 @@ export function AnnualLeavePage() {
         (r.employee_code || '').toLowerCase().includes(q)
       )
     }
-    list = [...list].sort((a, b) => {
+    return [...list].sort((a, b) => {
       let va, vb
       switch (sortBy) {
         case 'name':        va = a.full_name || '';              vb = b.full_name || '';              break
@@ -573,19 +674,24 @@ export function AnnualLeavePage() {
       if (va > vb) return sortDir === 'asc' ?  1 : -1
       return 0
     })
-    return list
-  }, [visibleRequests, filterStatus, deptFilter, search, sortBy, sortDir, yearTotals])
+  }, [visibleRequests, deptFilter, search, sortBy, sortDir, yearTotals])
 
-  // tab counts
+  // For single-status filter view
+  const filteredRequests = useMemo(() => {
+    if (filterStatus === 'All') return baseFiltered
+    return baseFiltered.filter(r => (r.effective_status || r.status) === filterStatus)
+  }, [baseFiltered, filterStatus])
+
+  // Tab counts
   const tabCounts = useMemo(() => {
     const counts = {}
-    visibleRequests.forEach(r => {
+    baseFiltered.forEach(r => {
       const es = r.effective_status || r.status
       counts[es] = (counts[es] || 0) + 1
     })
-    counts.All = visibleRequests.length
+    counts.All = baseFiltered.length
     return counts
-  }, [visibleRequests])
+  }, [baseFiltered])
 
   const toggleExpand = useCallback((id) => {
     setExpandedId(prev => prev === id ? null : id)
@@ -597,10 +703,10 @@ export function AnnualLeavePage() {
     try {
       await updateRequest(row.id, {
         employee_id: row.employee_id,
-        from_date: fmtDate(row.from_date),
-        to_date: fmtDate(row.to_date),
-        reason: row.reason,
-        status: nextStatus,
+        from_date:   fmtISO(row.from_date),
+        to_date:     fmtISO(row.to_date),
+        reason:      row.reason,
+        status:      nextStatus,
       })
     } catch (e) { window.alert(e.message || 'Update failed') }
   }
@@ -608,6 +714,22 @@ export function AnnualLeavePage() {
   async function onDelete(id) {
     if (!window.confirm('Delete this leave request?')) return
     try { await deleteRequest(id) } catch (e) { window.alert(e.message || 'Delete failed') }
+  }
+
+  const onEditStart = useCallback(r => { setEditingRow(r); setExpandedId(null) }, [])
+
+  // Shared props for SectionGroup
+  const sectionProps = {
+    isAdmin, sortBy, sortDir, onSort: handleSort,
+    expandedId, onToggle: toggleExpand,
+    editingRow, setEditingRow,
+    employees, empLoading,
+    yearTotals, updateRequest,
+    onStatusChange,
+    onConfirmReturn: r => setConfirmRow(r),
+    onExtend:        r => setExtendRow(r),
+    onDelete,
+    onEditStart,
   }
 
   return (
@@ -638,14 +760,12 @@ export function AnnualLeavePage() {
         <>
           {error && <p className="page-error">{error}</p>}
 
-          {/* Dashboard summary */}
           <DashboardCards
             stats={dashboard}
             isAdmin={isAdmin}
             onFilterClick={key => { setFilterStatus(key); setSearch('') }}
           />
 
-          {/* New request */}
           <NewRequestForm
             employees={employees}
             isAdmin={isAdmin}
@@ -654,114 +774,108 @@ export function AnnualLeavePage() {
             empLoading={empLoading}
           />
 
-          {/* Filter tabs + search + department filter */}
+          {/* Filter bar */}
           <div className="al-filter-bar">
             <div className="al-filter-tabs">
               {FILTER_TABS.map(t => (
-                <button
-                  key={t.key}
+                <button key={t.key}
                   className={`al-filter-tab ${filterStatus === t.key ? 'al-filter-tab--active' : ''}`}
-                  onClick={() => setFilterStatus(t.key)}
-                >
+                  onClick={() => setFilterStatus(t.key)}>
                   {t.label}
-                  {tabCounts[t.key] > 0 && (
-                    <span className="al-filter-tab__count">{tabCounts[t.key]}</span>
-                  )}
+                  {tabCounts[t.key] > 0 && <span className="al-filter-tab__count">{tabCounts[t.key]}</span>}
                 </button>
               ))}
             </div>
             <div className="al-filter-bar__right">
               {departments.length > 0 && (
-                <select
-                  className="al-filter-select"
-                  value={deptFilter}
-                  onChange={e => setDeptFilter(e.target.value)}
-                >
+                <select className="al-filter-select" value={deptFilter} onChange={e => setDeptFilter(e.target.value)}>
                   <option value="">All Departments</option>
                   {departments.map(d => <option key={d} value={d}>{d}</option>)}
                 </select>
               )}
-              <input
-                className="al-search"
-                type="text"
-                placeholder="Search employee…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
+              <input className="al-search" type="text" placeholder="Search employee…"
+                value={search} onChange={e => setSearch(e.target.value)} />
             </div>
           </div>
 
-          {/* Table */}
           {loading && <p className="page-loading">Loading…</p>}
-          {!loading && filteredRequests.length === 0 && (
-            <div className="al-empty-state">
-              <div className="al-empty-state__icon">🏖️</div>
-              <p>No leave requests found{filterStatus !== 'All' ? ` for "${filterStatus}"` : ''}.</p>
-            </div>
-          )}
-          {!loading && filteredRequests.length > 0 && (
-            <div className="al-table-wrap">
-              <table className="al-table">
-                <thead>
-                  <tr>
-                    <SortHeader col="name"        label="Employee"          current={sortBy} dir={sortDir} onSort={handleSort} />
-                    <SortHeader col="from_date"   label="Leave Period"      current={sortBy} dir={sortDir} onSort={handleSort} />
-                    <SortHeader col="days"        label="Days"              current={sortBy} dir={sortDir} onSort={handleSort} style={{ width: 72, textAlign: 'center' }} />
-                    <SortHeader col="yr_total"    label="This Year"         current={sortBy} dir={sortDir} onSort={handleSort} style={{ width: 90, textAlign: 'center' }} />
-                    <SortHeader col="status"      label="Status"            current={sortBy} dir={sortDir} onSort={handleSort} />
-                    <SortHeader col="return_date" label="Return Date"       current={sortBy} dir={sortDir} onSort={handleSort} />
-                    {isAdmin && <th>Actions</th>}
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredRequests.map(row =>
-                    editingRow?.id === row.id ? (
-                      <EditRowForm
-                        key={row.id}
-                        row={editingRow}
-                        employees={employees}
-                        onSave={updateRequest}
-                        onCancel={() => setEditingRow(null)}
-                        empLoading={empLoading}
-                      />
-                    ) : (
-                      <LeaveRow
-                        key={row.id}
-                        row={row}
-                        isAdmin={isAdmin}
-                        onStatusChange={onStatusChange}
-                        onConfirmReturn={r => setConfirmRow(r)}
-                        onExtend={r => setExtendRow(r)}
-                        onDelete={onDelete}
-                        onEdit={r => { setEditingRow(r); setExpandedId(null) }}
-                        expanded={expandedId === row.id}
-                        onToggle={() => toggleExpand(row.id)}
-                        yearTotal={yearTotals[String(row.employee_id)] ?? null}
-                      />
-                    )
-                  )}
-                </tbody>
-              </table>
-            </div>
+
+          {!loading && (
+            filterStatus === 'All'
+              /* ── Grouped sections (All) ── */
+              ? (
+                baseFiltered.length === 0
+                  ? (
+                    <div className="al-empty-state">
+                      <div className="al-empty-state__icon">🏖️</div>
+                      <p>No leave requests found.</p>
+                    </div>
+                  )
+                  : SECTION_DEFS.map(sec => (
+                    <SectionGroup
+                      key={sec.key}
+                      sectionKey={sec.key}
+                      label={sec.label}
+                      rows={baseFiltered.filter(r => (r.effective_status || r.status) === sec.key)}
+                      {...sectionProps}
+                    />
+                  ))
+              )
+              /* ── Single-status view ── */
+              : (
+                filteredRequests.length === 0
+                  ? (
+                    <div className="al-empty-state">
+                      <div className="al-empty-state__icon">🏖️</div>
+                      <p>No leave requests for this filter.</p>
+                    </div>
+                  )
+                  : (
+                    <div className="al-table-wrap">
+                      <table className="al-table">
+                        <TableHead isAdmin={isAdmin} sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
+                        <tbody>
+                          {filteredRequests.map(row =>
+                            editingRow?.id === row.id ? (
+                              <EditRowForm
+                                key={row.id}
+                                row={editingRow}
+                                employees={employees}
+                                onSave={updateRequest}
+                                onCancel={() => setEditingRow(null)}
+                                empLoading={empLoading}
+                              />
+                            ) : (
+                              <LeaveRow
+                                key={row.id}
+                                row={row}
+                                isAdmin={isAdmin}
+                                onStatusChange={onStatusChange}
+                                onConfirmReturn={r => setConfirmRow(r)}
+                                onExtend={r => setExtendRow(r)}
+                                onDelete={onDelete}
+                                onEdit={r => { setEditingRow(r); setExpandedId(null) }}
+                                expanded={expandedId === row.id}
+                                onToggle={() => toggleExpand(row.id)}
+                                yearTotal={yearTotals[String(row.employee_id)] ?? null}
+                              />
+                            )
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+              )
           )}
         </>
       )}
 
       {/* Modals */}
       {confirmRow && (
-        <ConfirmReturnModal
-          row={confirmRow}
-          onConfirm={confirmReturn}
-          onClose={() => setConfirmRow(null)}
-        />
+        <ConfirmReturnModal row={confirmRow} onConfirm={confirmReturn} onClose={() => setConfirmRow(null)} />
       )}
       {extendRow && (
-        <ExtendLeaveModal
-          row={extendRow}
-          onExtend={extendLeave}
-          onClose={() => setExtendRow(null)}
-        />
+        <ExtendLeaveModal row={extendRow} onExtend={extendLeave} onClose={() => setExtendRow(null)} />
       )}
     </div>
   )

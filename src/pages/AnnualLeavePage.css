@@ -376,8 +376,66 @@
 .al-btn--extend:hover  { background: #bfdbfe; }
 .al-btn--del     { background: #fee2e2; color: #991b1b; }
 .al-btn--del:hover     { background: #fecaca; }
-.al-btn--edit    { background: #f0f9ff; color: #0369a1; border: 1px solid #bae6fd; }
-.al-btn--edit:hover    { background: #e0f2fe; }
+
+/* ── Icon-only action buttons ── */
+.al-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s, color 0.14s;
+  flex-shrink: 0;
+}
+.al-icon-btn--edit  { background: #f0f9ff; color: #0369a1; border-color: #bae6fd; }
+.al-icon-btn--edit:hover { background: #e0f2fe; border-color: #7dd3fc; }
+.al-icon-btn--del   { background: #fff1f2; color: #be123c; border-color: #fecdd3; }
+.al-icon-btn--del:hover  { background: #ffe4e6; border-color: #fda4af; }
+
+/* ── Section groups ── */
+.al-section {
+  margin-bottom: 1.25rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,.05);
+}
+.al-section__head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.7rem 1rem;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+  border-left: 4px solid #6366f1;
+  cursor: pointer;
+  user-select: none;
+}
+.al-section__head:hover { background: #f3f4f6; }
+.al-section__dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.al-section__title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #1f2937;
+  flex: 1;
+}
+.al-section__count {
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: #e5e7eb;
+  color: #374151;
+  padding: 1px 8px;
+  border-radius: 999px;
+}
+.al-section__chevron { color: #9ca3af; display: flex; align-items: center; }
+.al-table-wrap--section { border-radius: 0; box-shadow: none; border: none; }
 
 /* ── Modals ── */
 .al-modal-overlay {

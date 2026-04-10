@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { api } from '../api/client'
 import { useEmployees } from '../hooks/useEmployees'
+import { fmtDMY } from '../utils/dateFormat'
 import './AnnualLeaveSalaryPage.css'
 
 const EMPTY_CALC = {
@@ -30,12 +31,7 @@ function toNum(v) {
 }
 
 function dateLabel(d) {
-  if (!d) return '—'
-  try {
-    return new Date(d + 'T12:00:00Z').toLocaleDateString('en-GB', {
-      day: '2-digit', month: 'short', year: 'numeric',
-    })
-  } catch { return d }
+  return fmtDMY(d)
 }
 
 function NumInput({ label, value, onChange, hint, readOnly, highlight }) {

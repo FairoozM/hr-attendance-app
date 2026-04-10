@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { fetchEmployeeProfile } from '../hooks/useProfile'
 import { api } from '../api/client'
 import { AdminResetPasswordPanel } from '../components/PasswordSection'
+import { fmtDMY } from '../utils/dateFormat'
 import './Page.css'
 import './EmployeeAccountPage.css'
 import './EmployeeProfileAdminPage.css'
@@ -13,14 +14,7 @@ function val(v) {
   return String(v)
 }
 
-function fmtDate(v) {
-  if (!v) return '—'
-  const s = String(v).slice(0, 10)
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
-  return new Date(s + 'T12:00:00Z').toLocaleDateString('en-GB', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  })
-}
+const fmtDate = fmtDMY
 
 function initials(name) {
   if (!name) return '?'

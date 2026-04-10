@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useProfile, uploadProfileDoc, deleteProfileDoc } from '../hooks/useProfile'
 import { PasswordSection } from '../components/PasswordSection'
+import { fmtDMY } from '../utils/dateFormat'
 import './Page.css'
 import './EmployeeAccountPage.css'
 
@@ -30,14 +31,7 @@ function val(v) {
   return String(v)
 }
 
-function fmtDate(v) {
-  if (!v) return '—'
-  const s = String(v).slice(0, 10)
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
-  return new Date(s + 'T12:00:00Z').toLocaleDateString('en-GB', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  })
-}
+const fmtDate = fmtDMY
 
 function initials(name) {
   if (!name) return '?'
