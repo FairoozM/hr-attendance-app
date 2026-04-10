@@ -57,8 +57,10 @@ function NumInput({ label, value, onChange, hint, readOnly, highlight }) {
   )
 }
 
-export function AnnualLeaveSalaryPage({ embedded = false }) {
-  const { employees } = useEmployees()
+export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmployees }) {
+  const { employees: fetchedEmployees } = useEmployees()
+  // Use employees passed from parent (already loaded) to avoid async delay on tab switch
+  const employees = propEmployees && propEmployees.length > 0 ? propEmployees : fetchedEmployees
   const [empSearch, setEmpSearch] = useState('')
   const [showDropdown, setShowDropdown] = useState(false)
   const [selectedEmp, setSelectedEmp] = useState(null)

@@ -365,7 +365,7 @@ export function AnnualLeavePage() {
 
       {/* ── Leave Salary Calculator tab ── */}
       {activeTab === 'salary' && isAdmin && (
-        <AnnualLeaveSalaryPage embedded />
+        <AnnualLeaveSalaryPage embedded employees={employees} />
       )}
 
       {activeTab === 'requests' && error && (
