@@ -12,6 +12,7 @@ export function AttendanceSummaryCards({ metrics }: Props) {
   const r = STATUS_COLORS.A.text
   const o = STATUS_COLORS.SL.text
   const b = STATUS_COLORS.AL.text
+  const p = STATUS_COLORS.WH.text
 
   return (
     <div className="adash__cards">
@@ -24,6 +25,12 @@ export function AttendanceSummaryCards({ metrics }: Props) {
         value={metrics.annualLeave}
         icon="◇"
         color={b}
+      />
+      <AttendanceSummaryCard
+        title="Weekly Holiday (WH)"
+        value={metrics.weeklyHoliday}
+        icon="◎"
+        color={p}
       />
       <AttendanceSummaryCard
         title="Attendance rate"

@@ -87,9 +87,9 @@
   gap: 0.75rem;
 }
 
-@media (min-width: 900px) {
+@media (min-width: 1200px) {
   .adash__cards {
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(7, 1fr);
   }
 }
 
