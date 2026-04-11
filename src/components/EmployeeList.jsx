@@ -13,6 +13,7 @@ import {
   formatJoiningDate,
   employmentStatusLabel,
   effectiveJoiningDate,
+  primaryWorkLocationLabel,
 } from './employees/employeeUtils'
 import {
   EMPLOYEE_COLUMN_FILTER_KEYS,
@@ -38,6 +39,10 @@ function compareRows(a, b, sortKey, sortDir) {
     case 'department':
       va = (a.department || '').toLowerCase()
       vb = (b.department || '').toLowerCase()
+      break
+    case 'primaryLocation':
+      va = (primaryWorkLocationLabel(a) || '').toLowerCase()
+      vb = (primaryWorkLocationLabel(b) || '').toLowerCase()
       break
     case 'joiningDate':
       va = effectiveJoiningDate(a) ? new Date(effectiveJoiningDate(a)).getTime() : 0
@@ -70,6 +75,8 @@ function EmployeeViewModal({ employee, open, onClose, onToggleAttendanceInclusio
         <dd>{displayOrDash(employee.department)}</dd>
         <dt>Designation</dt>
         <dd>{displayOrDash(employee.designation)}</dd>
+        <dt>Primary work location</dt>
+        <dd>{displayOrDash(primaryWorkLocationLabel(employee))}</dd>
         <dt>Contact number</dt>
         <dd>{displayOrDash(employee.phone)}</dd>
         <dt>Email</dt>
@@ -204,7 +211,14 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
       if (designation !== 'all' && (emp.designation || '') !== designation) return false
       if (status !== 'all' && emp.employmentStatus !== status) return false
       if (!q) return true
-      const blob = [emp.name, emp.employeeId, emp.phone, emp.email, emp.nationality]
+      const blob = [
+        emp.name,
+        emp.employeeId,
+        emp.phone,
+        emp.email,
+        emp.nationality,
+        primaryWorkLocationLabel(emp),
+      ]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()

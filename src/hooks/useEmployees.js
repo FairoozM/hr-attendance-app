@@ -38,6 +38,7 @@ function mapEmployee(row) {
     includeInAttendance: row.include_in_attendance !== false,
     weeklyOffDay: row.weekly_off_day ?? null,
     dutyLocation: row.duty_location ?? null,
+    workLocation: row.work_location ?? null,
   }
 }
 

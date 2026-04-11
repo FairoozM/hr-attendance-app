@@ -1,6 +1,11 @@
 import { useState } from 'react'
 import { EmployeeAvatar } from './EmployeeAvatar'
-import { displayOrDash, formatJoiningDate, effectiveJoiningDate } from './employeeUtils'
+import {
+  displayOrDash,
+  formatJoiningDate,
+  effectiveJoiningDate,
+  primaryWorkLocationLabel,
+} from './employeeUtils'
 import { ExcelStyleColumnFilter } from '../ExcelStyleColumnFilter'
 import './EmployeesDataTable.css'
 
@@ -176,6 +181,20 @@ export function EmployeesDataTable({
               </th>
               <th className="employees-table__th">
                 <div className="employees-table__th-stack">
+                  {sortable('primaryLocation', 'Primary work location')}
+                  <ExcelStyleColumnFilter
+                    filterId="emp-col-primary-location"
+                    openFilterId={openFilterId}
+                    onOpenFilterId={setOpenFilterId}
+                    ariaLabel="Filter by primary work location"
+                    options={opt.primaryLocation || []}
+                    included={f.primaryLocation}
+                    onIncludedChange={(next) => setInc('primaryLocation', next)}
+                  />
+                </div>
+              </th>
+              <th className="employees-table__th">
+                <div className="employees-table__th-stack">
                   {thLabel('Contact')}
                   <ExcelStyleColumnFilter
                     filterId="emp-col-phone"
@@ -303,6 +322,12 @@ export function EmployeesDataTable({
                   </td>
                   <td className="employees-table__td employees-table__td--truncate" title={emp.designation || ''}>
                     {displayOrDash(emp.designation)}
+                  </td>
+                  <td
+                    className="employees-table__td employees-table__td--truncate employees-table__td--location"
+                    title={primaryWorkLocationLabel(emp) || ''}
+                  >
+                    {displayOrDash(primaryWorkLocationLabel(emp))}
                   </td>
                   <td className="employees-table__td employees-table__td--truncate" title={emp.phone || ''}>
                     {displayOrDash(emp.phone)}

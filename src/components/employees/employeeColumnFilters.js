@@ -1,10 +1,16 @@
-import { formatJoiningDate, effectiveJoiningDate, employmentStatusLabel } from './employeeUtils'
+import {
+  formatJoiningDate,
+  effectiveJoiningDate,
+  employmentStatusLabel,
+  primaryWorkLocationLabel,
+} from './employeeUtils'
 
 export const EMPLOYEE_COLUMN_FILTER_KEYS = [
   'name',
   'employeeId',
   'department',
   'designation',
+  'primaryLocation',
   'phone',
   'email',
   'joining',
@@ -27,6 +33,8 @@ export function getEmployeeFilterValue(emp, key) {
       return (emp.department || '').trim()
     case 'designation':
       return (emp.designation || '').trim()
+    case 'primaryLocation':
+      return primaryWorkLocationLabel(emp) || ''
     case 'phone':
       return (emp.phone || '').trim()
     case 'email':

@@ -25,6 +25,17 @@ export function displayOrDash(v) {
   return String(v).trim()
 }
 
+/** Profile text first, then duty_location enum label (employee form “Primary work location”). */
+export function primaryWorkLocationLabel(emp) {
+  if (!emp) return null
+  const text = typeof emp.workLocation === 'string' ? emp.workLocation.trim() : ''
+  if (text) return text
+  if (emp.dutyLocation === 'warehouse') return 'Warehouse'
+  if (emp.dutyLocation === 'office') return 'Office'
+  if (emp.dutyLocation === 'remote') return 'Remote'
+  return null
+}
+
 /** @param {string} name */
 export function employmentStatusLabel(status) {
   const m = {
