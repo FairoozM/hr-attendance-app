@@ -10,8 +10,6 @@ import { AttendanceSummaryCards } from './AttendanceSummaryCards'
 import { AttendanceStatusLists } from './AttendanceStatusLists'
 import { AttendanceTrendCharts } from './AttendanceTrendCharts'
 import { AttendanceAlertsPanel } from './AttendanceAlertsPanel'
-import { AttendancePendingActions } from './AttendancePendingActions'
-import { AttendanceLeaveOverview } from './AttendanceLeaveOverview'
 import { AttendanceLoadingState } from './AttendanceLoadingState'
 import { AttendanceEmptyState } from './AttendanceEmptyState'
 import './AttendanceDashboard.css'
@@ -98,10 +96,7 @@ export function AttendanceDashboard({
 
       <AttendanceSummaryCards metrics={dash.metrics} />
 
-      <div className="adash-grid-2">
-        <AttendanceLeaveOverview metrics={dash.metrics} />
-        <AttendancePendingActions items={dash.pendingActions} leaveLoading={dash.leaveLoading} />
-      </div>
+      {/* Leave overview & pending actions: hidden from UI for now; useAttendanceDashboard still computes metrics/pending for reuse */}
 
       <AttendanceStatusLists
         employees={employees}
