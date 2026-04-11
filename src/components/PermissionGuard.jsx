@@ -11,5 +11,5 @@ export function PermissionGuard({ module, action, children }) {
   if (!user) return <Navigate to="/login" replace />
   if (hasPermission(user, module, action)) return children
 
-  return <Navigate to="/" replace />
+  return <Navigate to="/account" replace />
 }

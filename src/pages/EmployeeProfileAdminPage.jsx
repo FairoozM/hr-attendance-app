@@ -97,7 +97,7 @@ export function EmployeeProfileAdminPage() {
   const [portalUser, setPortalUser] = useState(null)
   const [showResetPwd, setShowResetPwd] = useState(false)
 
-  if (user?.role !== 'admin') return <Navigate to="/" replace />
+  if (user?.role !== 'admin') return <Navigate to="/attendance" replace />
 
   useEffect(() => {
     setLoading(true)

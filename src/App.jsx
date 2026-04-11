@@ -20,7 +20,6 @@ import { useEmployees } from './hooks/useEmployees'
 import { useAttendanceManagedEmployees } from './hooks/useAttendanceManagedEmployees'
 import { useAttendance, clearAllAttendanceStorage } from './hooks/useAttendance'
 import { useWeeklyHolidayDay } from './hooks/useWeeklyHolidayDay'
-import { deriveEffectiveAttendance } from './utils/attendanceHelpers'
 import { employeesForAttendance } from './utils/employeeAttendance'
 import './App.css'
 
@@ -39,12 +38,6 @@ function AppContent() {
     deleteEmployee,
     resetToDefault,
   } = useEmployees()
-
-  // Employees for the full employees page (respects role/permissions of useEmployees)
-  const attendanceEmployees = useMemo(
-    () => employeesForAttendance(employees),
-    [employees]
-  )
 
   // Scoped employees for the attendance grid — backend enforces assignment-based filtering
   const {
@@ -78,19 +71,6 @@ function AppContent() {
     return d.getDate()
   }, [month, year])
 
-  const effectiveAttendance = useMemo(
-    () =>
-      deriveEffectiveAttendance(
-        attendance,
-        attendanceScopeEmployees,
-        year,
-        month,
-        daysInMonth,
-        weeklyHolidayDay
-      ),
-    [attendance, attendanceScopeEmployees, year, month, daysInMonth, weeklyHolidayDay]
-  )
-
   const yearOptions = useMemo(() => {
     const current = currentDate.getFullYear()
     return Array.from({ length: 5 }, (_, i) => current - 2 + i)
@@ -107,25 +87,7 @@ function AppContent() {
             </RequireAuth>
           }
         >
-          <Route
-            index
-            element={
-              <HomeRoute
-                month={month}
-                year={year}
-                setMonth={setMonth}
-                setYear={setYear}
-                employees={attendanceScopeEmployees}
-                effectiveAttendance={effectiveAttendance}
-                daysInMonth={daysInMonth}
-                yearOptions={yearOptions}
-                weeklyHolidayDay={weeklyHolidayDay}
-                onWeeklyHolidayDayChange={setWeeklyHolidayDay}
-                loading={employeesLoading || managedEmployeesLoading}
-                error={employeesError}
-              />
-            }
-          />
+          <Route index element={<HomeRoute />} />
           <Route path="account" element={<EmployeeAccountPage />} />
           <Route path="annual-leave" element={<AnnualLeavePage />} />
           <Route

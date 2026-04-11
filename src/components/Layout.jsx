@@ -27,7 +27,8 @@ export function Layout() {
     navigate('/login', { replace: true })
   }
 
-  const homePath = isEmployee ? '/account' : '/'
+  const homePath =
+    isEmployee ? '/account' : can('attendance', 'view') ? '/attendance' : '/account'
 
   return (
     <div className="app">
@@ -87,11 +88,8 @@ export function Layout() {
               </>
             ) : (
               <>
-                <NavLink to="/" end className={navLinkClass} onClick={closeSidebar}>
-                  Dashboard
-                </NavLink>
                 {can('attendance', 'view') && (
-                  <NavLink to="/attendance" className={navLinkClass} onClick={closeSidebar}>
+                  <NavLink to="/attendance" end className={navLinkClass} onClick={closeSidebar}>
                     Attendance
                   </NavLink>
                 )}

@@ -1,11 +1,11 @@
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { DashboardPage } from '../pages/DashboardPage'
 
-export function HomeRoute(props) {
+/** Default landing: attendance for staff; profile for portal employees. */
+export function HomeRoute() {
   const { user } = useAuth()
   if (user?.role === 'employee') {
     return <Navigate to="/account" replace />
   }
-  return <DashboardPage {...props} />
+  return <Navigate to="/attendance" replace />
 }

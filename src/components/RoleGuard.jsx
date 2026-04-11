@@ -26,15 +26,15 @@ export function RoleGuard({ children }) {
 
   // Strictly admin-only pages — redirect everyone else
   if (ADMIN_ONLY_PATHS.some((p) => path.startsWith(p))) {
-    return <Navigate to="/" replace />
+    return <Navigate to="/attendance" replace />
   }
 
   // Permission-gated pages: allow if the user has the required permission
   for (const gate of PERMISSION_GATED) {
     if (path.startsWith(gate.prefix)) {
       if (hasPermission(user, gate.module, gate.action)) return children
-      // No permission → redirect employees to their profile, others to dashboard
-      return <Navigate to={user.role === 'employee' ? '/account' : '/'} replace />
+      // No permission → profile is always allowed
+      return <Navigate to="/account" replace />
     }
   }
 
