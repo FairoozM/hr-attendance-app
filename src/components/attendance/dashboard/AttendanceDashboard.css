@@ -1,0 +1,263 @@
+/* Attendance dashboard — light theme, rounded cards */
+
+.adash {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.adash__header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.adash__title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text, #111827);
+  margin: 0;
+}
+
+.adash__subtitle {
+  font-size: 0.9rem;
+  color: var(--text-muted, #6b7280);
+  margin: 0;
+}
+
+.adash__filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+  padding: 1rem 1.25rem;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 1rem;
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.05));
+}
+
+.adash__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 140px;
+}
+
+.adash__field label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #6b7280);
+}
+
+.adash__select,
+.adash__btn {
+  font-size: 0.9rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border, #e5e7eb);
+  background: var(--surface, #fff);
+  color: var(--text, #111827);
+}
+
+.adash__btn--export {
+  margin-left: auto;
+  cursor: pointer;
+  font-weight: 600;
+  background: var(--accent, #2563eb);
+  color: #fff;
+  border-color: transparent;
+}
+
+.adash__btn--export:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.adash__btn--export:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.adash__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.75rem;
+}
+
+@media (min-width: 900px) {
+  .adash__cards {
+    grid-template-columns: repeat(6, 1fr);
+  }
+}
+
+.adash-card {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 1rem;
+  padding: 1rem;
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.05));
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-height: 88px;
+}
+
+.adash-card__label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted, #6b7280);
+}
+
+.adash-card__value {
+  font-size: 1.65rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.adash-card__icon {
+  font-size: 1.1rem;
+  opacity: 0.85;
+}
+
+.adash-panel {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 1rem;
+  padding: 1rem 1.25rem;
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.05));
+}
+
+.adash-panel__title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin: 0 0 0.75rem;
+  color: var(--text, #111827);
+}
+
+.adash-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.adash-status-block__head {
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.adash-status-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border, #f3f4f6);
+  font-size: 0.85rem;
+}
+
+.adash-status-row:last-child {
+  border-bottom: none;
+}
+
+.adash-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 99px;
+  margin-left: auto;
+}
+
+.adash-chart {
+  width: 100%;
+  height: 260px;
+}
+
+.adash-alert {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #f3f4f6;
+  font-size: 0.85rem;
+}
+
+.adash-alert:last-child {
+  border-bottom: none;
+}
+
+.adash-alert--warning {
+  border-left: 3px solid #f59e0b;
+  padding-left: 0.5rem;
+}
+
+.adash-alert--danger {
+  border-left: 3px solid #ef4444;
+  padding-left: 0.5rem;
+}
+
+.adash-alert--info {
+  border-left: 3px solid #3b82f6;
+  padding-left: 0.5rem;
+}
+
+.adash-leave-mini {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+}
+
+.adash-leave-mini__item {
+  text-align: center;
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+}
+
+.adash-leave-mini__num {
+  font-size: 1.5rem;
+  font-weight: 800;
+}
+
+.adash-leave-mini__lbl {
+  font-size: 0.7rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.adash-skeleton {
+  border-radius: 1rem;
+  background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
+  background-size: 200% 100%;
+  animation: adash-shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes adash-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.adash-empty {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+.adash-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}

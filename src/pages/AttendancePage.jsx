@@ -1,5 +1,6 @@
 import { AttendanceGrid } from '../components/AttendanceGrid'
 import { MonthYearFilters } from '../components/MonthYearFilters'
+import { AttendanceDashboard } from '../components/attendance/dashboard/AttendanceDashboard'
 import './Page.css'
 
 const MONTHS = [
@@ -37,6 +38,20 @@ export function AttendancePage({
             <p className="page-error" role="alert">{error}</p>
           </section>
         )}
+        {!error && (
+          <section className="page-section">
+            <AttendanceDashboard
+              employees={employees}
+              attendance={attendance}
+              month={month}
+              year={year}
+              daysInMonth={daysInMonth}
+              weeklyHolidayDay={weeklyHolidayDay}
+              sickLeaveDocuments={sickLeaveDocuments}
+              loading={loading}
+            />
+          </section>
+        )}
         <section className="page-section">
           <MonthYearFilters
             month={month}
@@ -49,11 +64,6 @@ export function AttendancePage({
             onWeeklyHolidayDayChange={onWeeklyHolidayDayChange}
           />
         </section>
-        {loading && (
-          <section className="page-section">
-            <p className="page-loading">Loading attendance…</p>
-          </section>
-        )}
         {!loading && !error && (
           <section className="page-section page-section--fill">
             <AttendanceGrid
