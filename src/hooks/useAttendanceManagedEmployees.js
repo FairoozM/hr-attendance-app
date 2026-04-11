@@ -20,6 +20,8 @@ function mapRow(row) {
     employmentStatus: row.employment_status ?? 'active',
     weeklyOffDay: row.weekly_off_day ?? null,
     dutyLocation: row.duty_location ?? null,
+    /** Profile / HR text field (same DB column as employee profile "Work location") */
+    workLocation: row.work_location ?? null,
     includeInAttendance: row.include_in_attendance !== false,
     nationality: row.nationality ?? null,
     emiratesId: row.emirates_id ?? null,

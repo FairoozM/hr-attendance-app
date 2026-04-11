@@ -29,10 +29,6 @@ function formatDateLong() {
   })
 }
 
-function capitalize(s) {
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''
-}
-
 /** Sunday-start week containing `ref` */
 function getWeekDates(ref = new Date()) {
   const d = new Date(ref)
@@ -53,6 +49,32 @@ function isAwayStatus(s) {
   return s === 'WH' || s === 'AL' || s === 'SL' || s === 'A'
 }
 
+/**
+ * Label for roster: profile primary text first, then enum from "Primary work location" (duty_location).
+ */
+function primaryLocationLabel(emp) {
+  const text = emp.workLocation?.trim()
+  if (text) return text
+  if (emp.dutyLocation === 'warehouse') return 'Warehouse'
+  if (emp.dutyLocation === 'office') return 'Office'
+  if (emp.dutyLocation === 'remote') return 'Remote'
+  return null
+}
+
+/**
+ * Bucket for Office / Warehouse / Remote columns: explicit duty_location, else light inference from work_location text.
+ */
+function primaryLocationBucket(emp) {
+  const d = emp.dutyLocation
+  if (d === 'warehouse' || d === 'office' || d === 'remote') return d
+  const w = (emp.workLocation || '').trim().toLowerCase()
+  if (!w) return null
+  if (/\bwarehouse\b|\bstore\b|\bwh\b|\bstorage\b/.test(w)) return 'warehouse'
+  if (/\bremote\b|\bwfh\b|\bwork from home\b/.test(w)) return 'remote'
+  if (/\boffice\b|\bhq\b|\bbranch\b/.test(w)) return 'office'
+  return null
+}
+
 // ── Stat summary card ────────────────────────────────────────────────────────
 
 function StatCard({ value, label, color, icon }) {
@@ -68,10 +90,9 @@ function StatCard({ value, label, color, icon }) {
 // ── Employee card (today view) ────────────────────────────────────────────────
 
 function EmpCard({ emp, badge, attendanceStatus }) {
-  const locLabel = emp.dutyLocation === 'warehouse' ? 'Warehouse'
-    : emp.dutyLocation === 'office' ? 'Office'
-    : emp.dutyLocation === 'remote' ? 'Remote'
-    : null
+  const locLabel = primaryLocationLabel(emp)
+  const bucket = primaryLocationBucket(emp)
+  const locBadgeClass = bucket || 'location-text'
   const statusMeta = attendanceStatus && STATUSES[attendanceStatus]
 
   return (
@@ -99,7 +120,7 @@ function EmpCard({ emp, badge, attendanceStatus }) {
             <span className={`roster-badge roster-badge--${badge.color}`}>{badge.label}</span>
           )}
           {locLabel && !badge?.isLoc && (
-            <span className={`roster-badge roster-badge--${emp.dutyLocation}`}>{locLabel}</span>
+            <span className={`roster-badge roster-badge--${locBadgeClass}`}>{locLabel}</span>
           )}
         </div>
       </div>
@@ -257,7 +278,7 @@ export function WeeklyRosterPage() {
   const filtered = useMemo(() => {
     return active.filter((e) => {
       if (filterDept && e.department !== filterDept) return false
-      if (filterLoc && e.dutyLocation !== filterLoc) return false
+      if (filterLoc && primaryLocationBucket(e) !== filterLoc) return false
       if (search) {
         const q = search.toLowerCase()
         if (
@@ -276,12 +297,10 @@ export function WeeklyRosterPage() {
     return isAwayStatus(s)
   })
   const workingToday = filtered.filter((e) => isPresentStatus(todayStatusById[e.id]))
-  const warehouse = workingToday.filter((e) => e.dutyLocation === 'warehouse')
-  const office = workingToday.filter((e) => e.dutyLocation === 'office')
-  const remote = workingToday.filter((e) => e.dutyLocation === 'remote')
-  const unassigned = workingToday.filter(
-    (e) => !e.dutyLocation || !['warehouse', 'office', 'remote'].includes(e.dutyLocation)
-  )
+  const warehouse = workingToday.filter((e) => primaryLocationBucket(e) === 'warehouse')
+  const office = workingToday.filter((e) => primaryLocationBucket(e) === 'office')
+  const remote = workingToday.filter((e) => primaryLocationBucket(e) === 'remote')
+  const unassigned = workingToday.filter((e) => !primaryLocationBucket(e))
 
   const offStatusById = useMemo(() => {
     const m = {}
@@ -500,8 +519,16 @@ export function WeeklyRosterPage() {
                           }
                         </td>
                         <td>
-                          {present && emp.dutyLocation
-                            ? <span className={`roster-badge roster-badge--${emp.dutyLocation}`}>{capitalize(emp.dutyLocation)}</span>
+                          {present && primaryLocationLabel(emp)
+                            ? (
+                              <span
+                                className={`roster-badge roster-badge--${
+                                  primaryLocationBucket(emp) || 'location-text'
+                                }`}
+                              >
+                                {primaryLocationLabel(emp)}
+                              </span>
+                            )
                             : <span className="roster-table__unset">—</span>
                           }
                         </td>

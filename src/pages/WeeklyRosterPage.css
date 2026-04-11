@@ -283,6 +283,13 @@
 .roster-badge--office     { background: #dbeafe; color: #1d4ed8; }
 .roster-badge--warehouse  { background: #fef3c7; color: #b45309; }
 .roster-badge--remote     { background: #d1fae5; color: #065f46; }
+.roster-badge--location-text {
+  background: #eef2ff;
+  color: #4338ca;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .roster-badge--off-day    { background: #f3e8ff; color: #7c3aed; }
 
 /* ── Chip (weekly view mini) ──────────────────────────────────────────────── */

@@ -56,7 +56,7 @@ async function listManagedEmployees(req, res) {
     const { query } = require('../db')
     const COLS = `id, employee_code, full_name, department, is_active, joining_date,
       photo_url, phone, designation, employment_status, weekly_off_day, duty_location,
-      include_in_attendance, nationality, emirates_id, passport_number`
+      work_location, include_in_attendance, nationality, emirates_id, passport_number`
 
     if (!req.user || req.user.role === 'admin' || req.user.role === 'warehouse') {
       const result = await query(
