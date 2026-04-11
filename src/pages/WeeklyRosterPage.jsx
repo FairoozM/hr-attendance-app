@@ -1,5 +1,10 @@
 import { useState, useMemo } from 'react'
-import { useEmployees } from '../hooks/useEmployees'
+import { useAttendanceManagedEmployees } from '../hooks/useAttendanceManagedEmployees'
+import { useAttendance } from '../hooks/useAttendance'
+import { useWeeklyHolidayDay } from '../hooks/useWeeklyHolidayDay'
+import { getEffectiveStatus } from '../utils/attendanceHelpers'
+import { employeesForAttendance } from '../utils/employeeAttendance'
+import { STATUSES } from '../constants/attendance'
 import { EmployeeAvatar } from '../components/employees/EmployeeAvatar'
 import './Page.css'
 import './WeeklyRosterPage.css'
@@ -28,6 +33,26 @@ function capitalize(s) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''
 }
 
+/** Sunday-start week containing `ref` */
+function getWeekDates(ref = new Date()) {
+  const d = new Date(ref)
+  const start = new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay())
+  return Array.from({ length: 7 }, (_, i) => {
+    const x = new Date(start)
+    x.setDate(start.getDate() + i)
+    return x
+  })
+}
+
+function isPresentStatus(s) {
+  return s === 'P'
+}
+
+/** Counts as “not in” for weekly chips: leave, holiday, or absent */
+function isAwayStatus(s) {
+  return s === 'WH' || s === 'AL' || s === 'SL' || s === 'A'
+}
+
 // ── Stat summary card ────────────────────────────────────────────────────────
 
 function StatCard({ value, label, color, icon }) {
@@ -42,11 +67,12 @@ function StatCard({ value, label, color, icon }) {
 
 // ── Employee card (today view) ────────────────────────────────────────────────
 
-function EmpCard({ emp, badge }) {
+function EmpCard({ emp, badge, attendanceStatus }) {
   const locLabel = emp.dutyLocation === 'warehouse' ? 'Warehouse'
     : emp.dutyLocation === 'office' ? 'Office'
     : emp.dutyLocation === 'remote' ? 'Remote'
     : null
+  const statusMeta = attendanceStatus && STATUSES[attendanceStatus]
 
   return (
     <div className="roster-emp-card">
@@ -60,6 +86,15 @@ function EmpCard({ emp, badge }) {
           <span className="roster-emp-card__dept">{emp.department}</span>
         )}
         <div className="roster-emp-card__badges">
+          {statusMeta && (
+            <span
+              className={`roster-badge roster-badge--${
+                attendanceStatus === 'P' ? 'green' : attendanceStatus === 'A' ? 'red' : 'off-day'
+              }`}
+            >
+              {statusMeta.label}
+            </span>
+          )}
           {badge && (
             <span className={`roster-badge roster-badge--${badge.color}`}>{badge.label}</span>
           )}
@@ -88,7 +123,7 @@ function EmpChip({ emp }) {
 
 // ── Today column ─────────────────────────────────────────────────────────────
 
-function TodayColumn({ title, icon, colorKey, employees, emptyText, badge }) {
+function TodayColumn({ title, icon, colorKey, employees, emptyText, badge, statusByEmpId }) {
   return (
     <div className={`roster-col roster-col--${colorKey}`}>
       <div className="roster-col__header">
@@ -101,7 +136,12 @@ function TodayColumn({ title, icon, colorKey, employees, emptyText, badge }) {
           <p className="roster-col__empty">{emptyText}</p>
         ) : (
           employees.map((emp) => (
-            <EmpCard key={emp.id} emp={emp} badge={badge} />
+            <EmpCard
+              key={emp.id}
+              emp={emp}
+              badge={badge}
+              attendanceStatus={statusByEmpId?.[emp.id]}
+            />
           ))
         )}
       </div>
@@ -112,10 +152,16 @@ function TodayColumn({ title, icon, colorKey, employees, emptyText, badge }) {
 // ── Day card (weekly overview) ───────────────────────────────────────────────
 
 function DayCard({ day, offEmployees, isToday }) {
+  const dateLabel = day.date
+    ? day.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+    : null
   return (
     <div className={`roster-day${isToday ? ' roster-day--today' : ''}`}>
       <div className="roster-day__header">
-        <span className="roster-day__name">{day.label}</span>
+        <span className="roster-day__name">
+          {day.label}
+          {dateLabel && <span className="roster-day__date"> · {dateLabel}</span>}
+        </span>
         {isToday && <span className="roster-day__today-tag">Today</span>}
         <span className="roster-day__count">
           {offEmployees.length === 0 ? 'All working' : `${offEmployees.length} off`}
@@ -135,7 +181,40 @@ function DayCard({ day, offEmployees, isToday }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function WeeklyRosterPage() {
-  const { employees, loading } = useEmployees()
+  const { employees: managed, loading: managedLoading, error: managedError } = useAttendanceManagedEmployees()
+  const [weeklyHolidayDay] = useWeeklyHolidayDay()
+
+  const clock = new Date()
+  const curM = clock.getMonth()
+  const curY = clock.getFullYear()
+
+  const prevRef = useMemo(() => new Date(curY, curM, 0), [curM, curY])
+  const prevM = prevRef.getMonth()
+  const prevY = prevRef.getFullYear()
+  const nextM = curM === 11 ? 0 : curM + 1
+  const nextY = curM === 11 ? curY + 1 : curY
+
+  const scope = useMemo(() => employeesForAttendance(managed), [managed])
+
+  const { attendance: attCur, loading: loadCur, error: errCur } = useAttendance(scope, curM, curY)
+  const { attendance: attPrev, loading: loadPrev, error: errPrev } = useAttendance(scope, prevM, prevY)
+  const { attendance: attNext, loading: loadNext, error: errNext } = useAttendance(scope, nextM, nextY)
+
+  const loading = managedLoading || loadCur || loadPrev || loadNext
+  const loadError = managedError || errCur || errPrev || errNext
+
+  const pickAttendance = useMemo(
+    () => (date) => {
+      const m = date.getMonth()
+      const y = date.getFullYear()
+      if (m === curM && y === curY) return attCur
+      if (m === prevM && y === prevY) return attPrev
+      if (m === nextM && y === nextY) return attNext
+      return {}
+    },
+    [attCur, attPrev, attNext, curM, curY, prevM, prevY, nextM, nextY]
+  )
+
   const [search, setSearch] = useState('')
   const [filterDept, setFilterDept] = useState('')
   const [filterLoc, setFilterLoc] = useState('')
@@ -144,16 +223,35 @@ export function WeeklyRosterPage() {
   const todayLabel = formatDateLong()
   const todayDay = DAYS.find((d) => d.key === todayKey)
 
-  // Active, included employees only
+  const weekDates = useMemo(() => getWeekDates(new Date()), [todayKey])
+
+  // Active, included employees only (same scope as attendance grid)
   const active = useMemo(
-    () => employees.filter((e) => e.isActive && e.includeInAttendance),
-    [employees]
+    () => scope.filter((e) => e.isActive),
+    [scope]
   )
 
   const departments = useMemo(
     () => [...new Set(active.map((e) => e.department).filter(Boolean))].sort(),
     [active]
   )
+
+  const todayStatusById = useMemo(() => {
+    const t = new Date()
+    const raw = pickAttendance(t)
+    const map = {}
+    active.forEach((e) => {
+      map[e.id] = getEffectiveStatus(
+        raw,
+        e.id,
+        t.getDate(),
+        t.getFullYear(),
+        t.getMonth(),
+        weeklyHolidayDay
+      )
+    })
+    return map
+  }, [active, pickAttendance, weeklyHolidayDay])
 
   // Filters
   const filtered = useMemo(() => {
@@ -172,21 +270,46 @@ export function WeeklyRosterPage() {
     })
   }, [active, filterDept, filterLoc, search])
 
-  // Today breakdown
-  const offToday       = filtered.filter((e) => e.weeklyOffDay === todayKey)
-  const workingToday   = filtered.filter((e) => e.weeklyOffDay !== todayKey)
-  const warehouse      = workingToday.filter((e) => e.dutyLocation === 'warehouse')
-  const office         = workingToday.filter((e) => e.dutyLocation === 'office')
-  const remote         = workingToday.filter((e) => e.dutyLocation === 'remote')
-  const unassigned     = workingToday.filter(
+  // Today breakdown — from attendance + duty location for present only
+  const offToday = filtered.filter((e) => {
+    const s = todayStatusById[e.id]
+    return isAwayStatus(s)
+  })
+  const workingToday = filtered.filter((e) => isPresentStatus(todayStatusById[e.id]))
+  const warehouse = workingToday.filter((e) => e.dutyLocation === 'warehouse')
+  const office = workingToday.filter((e) => e.dutyLocation === 'office')
+  const remote = workingToday.filter((e) => e.dutyLocation === 'remote')
+  const unassigned = workingToday.filter(
     (e) => !e.dutyLocation || !['warehouse', 'office', 'remote'].includes(e.dutyLocation)
   )
 
-  // Weekly breakdown (off per day)
-  const weeklyBreakdown = DAYS.map((day) => ({
-    ...day,
-    off: filtered.filter((e) => e.weeklyOffDay === day.key),
-  }))
+  const offStatusById = useMemo(() => {
+    const m = {}
+    offToday.forEach((e) => {
+      m[e.id] = todayStatusById[e.id]
+    })
+    return m
+  }, [offToday, todayStatusById])
+
+  // Weekly breakdown: who is away each day this week (from attendance records)
+  const weeklyBreakdown = useMemo(() => {
+    return DAYS.map((day, i) => {
+      const date = weekDates[i]
+      const raw = pickAttendance(date)
+      const off = filtered.filter((e) => {
+        const s = getEffectiveStatus(
+          raw,
+          e.id,
+          date.getDate(),
+          date.getFullYear(),
+          date.getMonth(),
+          weeklyHolidayDay
+        )
+        return isAwayStatus(s)
+      })
+      return { ...day, date, off }
+    })
+  }, [filtered, weekDates, pickAttendance, weeklyHolidayDay])
 
   return (
     <div className="page roster-page">
@@ -231,6 +354,10 @@ export function WeeklyRosterPage() {
         </div>
       </div>
 
+      {loadError && (
+        <p className="page-error" role="alert">{loadError}</p>
+      )}
+
       {loading && (
         <div className="roster-loading">
           <span className="roster-loading__spinner" />
@@ -263,6 +390,7 @@ export function WeeklyRosterPage() {
                 colorKey="off"
                 employees={offToday}
                 emptyText="No one off today 🎉"
+                statusByEmpId={offStatusById}
               />
               <TodayColumn
                 title="Warehouse"
@@ -305,9 +433,9 @@ export function WeeklyRosterPage() {
           {/* ── Weekly planner ── */}
           <section className="roster-section">
             <div className="roster-section__heading">
-              <h2 className="roster-section__title">Weekly Off Schedule</h2>
+              <h2 className="roster-section__title">This week (from attendance)</h2>
               <p className="roster-section__sub">
-                Shows which employees are off on each day of the week
+                Sunday–Saturday; away includes weekly holiday, leave, and absent (same rules as the attendance sheet)
               </p>
             </div>
             <div className="roster-week-grid">
@@ -334,16 +462,19 @@ export function WeeklyRosterPage() {
                   <tr>
                     <th>Employee</th>
                     <th>Department</th>
-                    <th>Weekly Off</th>
-                    <th>Work Location</th>
+                    <th>Today&apos;s attendance</th>
+                    <th>Duty location</th>
                     <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((emp) => {
-                    const isOff = emp.weeklyOffDay === todayKey
+                    const s = todayStatusById[emp.id]
+                    const away = isAwayStatus(s)
+                    const present = isPresentStatus(s)
+                    const statusLabel = s && STATUSES[s] ? STATUSES[s].label : null
                     return (
-                      <tr key={emp.id} className={isOff ? 'roster-table__row--off' : ''}>
+                      <tr key={emp.id} className={away ? 'roster-table__row--off' : ''}>
                         <td className="roster-table__emp-cell">
                           <EmployeeAvatar name={emp.name} photoUrl={emp.photoUrl} size="sm" />
                           <div className="roster-table__emp-info">
@@ -355,22 +486,35 @@ export function WeeklyRosterPage() {
                         </td>
                         <td>{emp.department || '—'}</td>
                         <td>
-                          {emp.weeklyOffDay
-                            ? <span className="roster-badge roster-badge--off-day">{capitalize(emp.weeklyOffDay)}</span>
-                            : <span className="roster-table__unset">Not set</span>
+                          {statusLabel
+                            ? (
+                              <span
+                                className={`roster-badge roster-badge--${
+                                  s === 'P' ? 'green' : s === 'A' ? 'red' : 'off-day'
+                                }`}
+                              >
+                                {statusLabel}
+                              </span>
+                            )
+                            : <span className="roster-table__unset">Not marked</span>
                           }
                         </td>
                         <td>
-                          {emp.dutyLocation
+                          {present && emp.dutyLocation
                             ? <span className={`roster-badge roster-badge--${emp.dutyLocation}`}>{capitalize(emp.dutyLocation)}</span>
-                            : <span className="roster-table__unset">Not set</span>
+                            : <span className="roster-table__unset">—</span>
                           }
                         </td>
                         <td>
-                          {isOff
-                            ? <span className="roster-badge roster-badge--red">Off Today</span>
-                            : <span className="roster-badge roster-badge--green">Working</span>
-                          }
+                          {present && (
+                            <span className="roster-badge roster-badge--green">Working</span>
+                          )}
+                          {away && (
+                            <span className="roster-badge roster-badge--red">{s === 'A' ? 'Absent' : 'Away'}</span>
+                          )}
+                          {!present && !away && (
+                            <span className="roster-table__unset">Not marked</span>
+                          )}
                         </td>
                       </tr>
                     )

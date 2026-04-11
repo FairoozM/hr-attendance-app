@@ -348,7 +348,12 @@
   font-size: 0.85rem;
   font-weight: 700;
 }
+.roster-day__date {
+  font-weight: 500;
+  opacity: 0.85;
+}
 .roster-day--today .roster-day__name { color: #fff; }
+.roster-day--today .roster-day__date { color: rgba(255, 255, 255, 0.9); opacity: 1; }
 .roster-day__today-tag {
   font-size: 0.65rem;
   font-weight: 700;

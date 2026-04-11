@@ -53,7 +53,7 @@ function NumInput({ label, value, onChange, hint, readOnly, highlight }) {
   )
 }
 
-function HistoryTable({ rows, editingId, onEdit, showEmployee = false }) {
+function HistoryTable({ rows, editingId, onEdit, onDelete, showEmployee = false }) {
   return (
     <div className="als-table-wrap">
       <table className="als-table">
@@ -70,7 +70,7 @@ function HistoryTable({ rows, editingId, onEdit, showEmployee = false }) {
             <th>Deductions</th>
             <th>Grand Total</th>
             <th>Remarks</th>
-            <th>Edit</th>
+            <th style={{ width: 72 }}></th>
           </tr>
         </thead>
         <tbody>
@@ -95,9 +95,20 @@ function HistoryTable({ rows, editingId, onEdit, showEmployee = false }) {
               <td className="als-table__total">AED {fmt(row.grand_total)}</td>
               <td className="als-table__remarks">{row.remarks || '—'}</td>
               <td>
-                <button className="als-btn als-btn--sm als-btn--outline" onClick={() => onEdit(row)}>
-                  Edit
-                </button>
+                <div className="als-row-acts">
+                  <button className="als-icon-btn als-icon-btn--edit" title="Edit" onClick={() => onEdit(row)}>
+                    <svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14.5 2.5a2.121 2.121 0 0 1 3 3L6 17l-4 1 1-4L14.5 2.5z"/>
+                    </svg>
+                  </button>
+                  {onDelete && (
+                    <button className="als-icon-btn als-icon-btn--del" title="Delete" onClick={() => onDelete(row.id)}>
+                      <svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 5h14M8 5V3h4v2M6 5l1 12h6l1-12"/>
+                      </svg>
+                    </button>
+                  )}
+                </div>
               </td>
             </tr>
           ))}
@@ -245,6 +256,19 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
       setSaving(false)
     }
   }, [selectedEmp, calc, derived, editingId, loadHistory, loadAllHistory])
+
+  // ── Delete a history record ──
+  const handleDelete = useCallback(async (id) => {
+    if (!window.confirm('Delete this calculation record? This cannot be undone.')) return
+    try {
+      await api.delete(`/api/annual-leave-salary/${id}`)
+      setAllHistory(prev => prev.filter(r => r.id !== id))
+      setHistory(prev => prev.filter(r => r.id !== id))
+      if (editingId === id) setEditingId(null)
+    } catch (err) {
+      window.alert(err.message || 'Failed to delete record')
+    }
+  }, [editingId])
 
   // ── Edit from history ──
   const handleEdit = useCallback((row) => {
@@ -654,7 +678,7 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
             ) : history.length === 0 ? (
               <div className="als-empty">No calculations saved yet for this employee.</div>
             ) : (
-              <HistoryTable rows={history} editingId={editingId} onEdit={handleEdit} />
+              <HistoryTable rows={history} editingId={editingId} onEdit={handleEdit} onDelete={handleDelete} />
             )}
           </div>
         </>
@@ -672,7 +696,7 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
         ) : allHistory.length === 0 ? (
           <div className="als-empty">No calculations saved yet.</div>
         ) : (
-          <HistoryTable rows={allHistory} editingId={editingId} onEdit={handleEdit} showEmployee />
+          <HistoryTable rows={allHistory} editingId={editingId} onEdit={handleEdit} onDelete={handleDelete} showEmployee />
         )}
       </div>
     </div>
