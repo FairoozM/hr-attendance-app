@@ -129,6 +129,19 @@
   min-width: 160px;
 }
 
+/* STATUS column — sticky, second from right */
+.employees-table__th--status,
+.employees-table__td--status {
+  position: sticky;
+  right: 7rem; /* same as actions column width */
+  background: rgba(7, 12, 28, 0.98);
+  z-index: 1;
+}
+
+.employees-table__th--status {
+  z-index: 2; /* above body cells */
+}
+
 .employees-table__th--actions {
   width: 7rem;
   text-align: right;
@@ -209,7 +222,8 @@
   text-align: right;
 }
 
-.employees-table__row:hover .employees-table__td--actions {
+.employees-table__row:hover .employees-table__td--actions,
+.employees-table__row:hover .employees-table__td--status {
   background: rgba(18, 28, 54, 0.99);
 }
 

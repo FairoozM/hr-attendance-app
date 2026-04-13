@@ -277,7 +277,7 @@ export function EmployeesDataTable({
                   />
                 </div>
               </th>
-              <th className="employees-table__th">
+              <th className="employees-table__th employees-table__th--status">
                 <div className="employees-table__th-stack">
                   {sortable('employmentStatus', 'Status')}
                   <ExcelStyleColumnFilter
@@ -345,7 +345,7 @@ export function EmployeesDataTable({
                   <td className="employees-table__td employees-table__td--truncate" title={emp.emiratesId || ''}>
                     {displayOrDash(emp.emiratesId)}
                   </td>
-                  <td className="employees-table__td">
+                  <td className="employees-table__td employees-table__td--status">
                     <StatusBadge employmentStatus={emp.employmentStatus} />
                   </td>
                   <td className="employees-table__td employees-table__td--actions">
