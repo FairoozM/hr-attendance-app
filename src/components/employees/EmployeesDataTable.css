@@ -1,41 +1,64 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   EMPLOYEES DATA TABLE
+   Key design constraint:
+   • position:sticky on td/th requires that NO ancestor between the sticky
+     element and the scroll container has:  overflow (other than visible),
+     backdrop-filter, filter, transform, or will-change.
+   • We apply the glass blur via ::before pseudo-element so the wrap itself
+     does NOT create a stacking context that would break sticky.
+───────────────────────────────────────────────────────────────────────── */
+
+/* Wrap — glass look via ::before, NOT on the element itself */
 .employees-table-wrap {
-  background: rgba(255, 255, 255, 0.06);
-  backdrop-filter: var(--glass-blur-lg);
-  -webkit-backdrop-filter: var(--glass-blur-lg);
+  position: relative;   /* needed so ::before is contained */
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-lg);
   box-shadow: var(--glass-shadow-panel);
-  /* Do NOT use overflow:hidden here — it breaks position:sticky inside */
-  overflow: visible;
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /* NO overflow, NO backdrop-filter, NO transform here */
 }
 
+.employees-table-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: var(--glass-blur-lg);
+  -webkit-backdrop-filter: var(--glass-blur-lg);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Scroll container — the ONLY element with overflow:auto */
 .employees-table-scroll {
+  position: relative;
+  z-index: 1;           /* sits above the ::before blur layer */
   overflow-x: auto;
-  overflow-y: visible;
   -webkit-overflow-scrolling: touch;
   width: 100%;
-  /* Clip the rounded corners without breaking sticky */
   border-radius: var(--radius-lg);
 }
 
+/* ── Table base ── */
 .employees-table {
   width: 100%;
   min-width: 1180px;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 0.8125rem;
+  table-layout: fixed;  /* prevents column drift during scroll */
 }
 
+/* ── Header cells ── */
 .employees-table thead th {
   position: sticky;
   top: 0;
-  z-index: 3;
+  z-index: 3;           /* above body cells (z:1) and sticky body cells (z:2) */
   background: rgb(7, 12, 28);
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-  /* Column divider on the right of every header cell */
   border-right: 1px solid rgba(255, 255, 255, 0.07);
   text-align: left;
   font-weight: 700;
@@ -51,22 +74,20 @@
   border-right: none;
 }
 
+/* ── Header inner stack (label + filter icon) ── */
 .employees-table__th-stack {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   min-width: 0;
-  /* All header cells share the same height so filter icons line up */
   height: 4rem;
 }
 
-/* Label sits at the top */
 .employees-table__th-label,
 .employees-table__th-btn {
   flex-shrink: 0;
 }
 
-/* Filter widget is always pinned to the bottom of the stack */
 .employees-table__th-stack > .excel-col-filter {
   margin-top: auto;
 }
@@ -78,114 +99,7 @@
   white-space: normal;
 }
 
-.employees-table__col-filter {
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  font-size: 0.68rem;
-  font-weight: 500;
-  text-transform: none;
-  letter-spacing: normal;
-  padding: 0.2rem 1.35rem 0.2rem 0.35rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text);
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23a5b4fc' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 0.25rem center;
-}
-
-.employees-table__col-filter option {
-  background: #1a1535;
-  color: var(--text);
-}
-
-.employees-table__col-filter:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.15);
-}
-
-.employees-table__th-btn {
-  white-space: normal;
-  text-align: left;
-  line-height: 1.2;
-}
-
-.employees-table__th--num,
-.employees-table__td--num {
-  width: 2.5rem;
-  text-align: center;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.employees-table__th--avatar,
-.employees-table__td--avatar {
-  width: 3rem;
-  text-align: center;
-}
-
-.employees-table__th--name {
-  min-width: 160px;
-}
-
-/* ── Sticky right columns ─────────────────────────────────────────────
-   Actions: 112px wide, pinned at right:0
-   Status:  pinned at right:112px (= actions width)
-   z-index hierarchy:
-     thead sticky-corner (th+sticky) = 4  ← highest, covers everything
-     thead normal th                  = 3
-     tbody sticky td                  = 2
-     tbody normal td                  = 1 (auto)
-──────────────────────────────────────────────────────────────────── */
-
-/* Actions — header */
-.employees-table__th--actions {
-  width: 112px;
-  min-width: 112px;
-  text-align: right;
-  position: sticky;
-  right: 0;
-  z-index: 4; /* corner: above both sticky-row and sticky-col */
-  background: rgb(7, 12, 28);
-  border-left: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: -6px 0 18px rgba(0, 0, 0, 0.55);
-  border-right: none;
-}
-
-/* Actions — body */
-.employees-table__td--actions {
-  width: 112px;
-  min-width: 112px;
-  position: sticky;
-  right: 0;
-  z-index: 2;
-  background: rgb(7, 12, 28);
-  border-left: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: -6px 0 18px rgba(0, 0, 0, 0.55);
-  text-align: right;
-}
-
-/* Status — header */
-.employees-table__th--status {
-  position: sticky;
-  right: 112px; /* = actions width */
-  z-index: 4;   /* corner: same level as actions header */
-  background: rgb(7, 12, 28);
-}
-
-/* Status — body */
-.employees-table__td--status {
-  position: sticky;
-  right: 112px;
-  z-index: 2;
-  background: rgb(7, 12, 28);
-}
-
+/* ── Sort button ── */
 .employees-table__th-btn {
   display: inline-flex;
   align-items: center;
@@ -199,6 +113,9 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   font-size: 0.7rem;
+  white-space: normal;
+  text-align: left;
+  line-height: 1.2;
   cursor: pointer;
   border-radius: var(--radius-sm);
   transition: color 0.15s;
@@ -219,18 +136,88 @@
   opacity: 1;
 }
 
-.employees-table__row:hover {
-  background: rgba(129, 140, 248, 0.04);
+/* ── Column widths ── */
+.employees-table__th--num,
+.employees-table__td--num {
+  width: 2.5rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
+.employees-table__th--avatar,
+.employees-table__td--avatar {
+  width: 3rem;
+  text-align: center;
+}
+
+.employees-table__th--name {
+  min-width: 160px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   STICKY RIGHT COLUMNS
+   Actions  : 112px, right: 0
+   Status   : auto width, right: 112px
+
+   z-index ladder:
+     4 = sticky th (header corner — top of everything)
+     3 = normal th (sticky top)
+     2 = sticky td (body sticky column)
+     1 = normal td
+───────────────────────────────────────────────────────────────────────── */
+
+/* Actions — header */
+.employees-table__th--actions {
+  position: sticky;
+  right: 0;
+  z-index: 4;
+  width: 112px;
+  min-width: 112px;
+  text-align: right;
+  background: rgb(7, 12, 28);
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  border-right: none;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.6);
+}
+
+/* Actions — body */
+.employees-table__td--actions {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  width: 112px;
+  min-width: 112px;
+  background: rgb(7, 12, 28);
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.6);
+  text-align: right;
+}
+
+/* Status — header */
+.employees-table__th--status {
+  position: sticky;
+  right: 112px;
+  z-index: 4;
+  background: rgb(7, 12, 28);
+}
+
+/* Status — body */
+.employees-table__td--status {
+  position: sticky;
+  right: 112px;
+  z-index: 2;
+  background: rgb(7, 12, 28);
+}
+
+/* ── Body cells ── */
 .employees-table tbody td {
   padding: 0.65rem 0.75rem;
   border-bottom: 1px solid var(--border-subtle);
   border-right: 1px solid rgba(255, 255, 255, 0.05);
   vertical-align: middle;
   color: var(--text);
-  /* Fully solid — no transparency so sticky columns can block them */
-  background: rgb(10, 15, 33);
+  background: rgb(10, 15, 33);   /* fully solid — no bleed-through */
   transition: background 0.12s;
 }
 
@@ -246,21 +233,13 @@
   background: rgb(16, 22, 46);
 }
 
-.employees-table__td--actions {
-  position: sticky;
-  right: 0;
-  background: rgb(7, 12, 28);
-  border-left: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: -6px 0 20px rgba(0, 0, 0, 0.5);
-  text-align: right;
-}
-
-/* Sticky cells get a slightly lighter solid bg on row hover */
+/* Sticky cells keep their solid bg on hover */
 .employees-table__row:hover .employees-table__td--actions,
 .employees-table__row:hover .employees-table__td--status {
   background: rgb(16, 22, 46);
 }
 
+/* ── Cell variants ── */
 .employees-table__name-primary {
   display: block;
   font-weight: 600;
@@ -296,7 +275,7 @@
   white-space: nowrap;
 }
 
-/* ── Badges ── */
+/* ── Status badges ── */
 .employees-badge {
   display: inline-flex;
   align-items: center;
@@ -332,7 +311,7 @@
   border: 1px solid var(--border-subtle);
 }
 
-/* ── Actions ── */
+/* ── Action buttons ── */
 .employees-table__actions {
   display: inline-flex;
   gap: 0.15rem;
@@ -366,8 +345,10 @@
   border-color: rgba(248, 113, 113, 0.2);
 }
 
-/* ── Footer ── */
+/* ── Table footer ── */
 .employees-table-footer {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
