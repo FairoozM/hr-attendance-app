@@ -3,11 +3,13 @@
   flex-direction: column;
   gap: 0.75rem;
   margin-bottom: 1rem;
-  padding: 0.85rem 1rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  padding: 0.9rem 1rem;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  box-shadow: var(--glass-shadow);
 }
 
 @media (min-width: 900px) {
@@ -41,9 +43,13 @@
   border-radius: var(--radius-sm);
   font-size: 0.875rem;
   color: var(--text);
-  background: var(--bg);
+  background: rgba(255, 255, 255, 0.05);
   width: 100%;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s;
+}
+
+.employees-toolbar__input::placeholder {
+  color: var(--text-muted);
 }
 
 .employees-toolbar__input--search {
@@ -53,7 +59,8 @@
 .employees-toolbar__input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  background: rgba(129, 140, 248, 0.07);
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
 }
 
 .employees-toolbar__filters {
@@ -68,26 +75,32 @@
   padding: 0 2rem 0 0.65rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  font-size: 0.8125rem;
+  font-size: 0.8rem;
   font-weight: 500;
   color: var(--text);
-  background: var(--bg);
+  background: rgba(255, 255, 255, 0.05);
   min-width: 7.5rem;
   cursor: pointer;
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a5b4fc' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 0.5rem center;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.employees-toolbar__select option {
+  background: #1a1535;
+  color: var(--text);
 }
 
 .employees-toolbar__select:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
 }
 
 .employees-toolbar__clear:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 

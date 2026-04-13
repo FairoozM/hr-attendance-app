@@ -1,7 +1,7 @@
 .employee-form {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.1rem;
 }
 
 .employee-form__section {
@@ -11,12 +11,13 @@
 }
 
 .employee-form__section-title {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
+  letter-spacing: 0.07em;
+  color: var(--primary);
   margin-bottom: 0.1rem;
+  opacity: 0.85;
 }
 
 .employee-form__hint {
@@ -36,9 +37,10 @@
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  font-size: 0.8rem;
-  font-weight: 500;
+  font-size: 0.78rem;
+  font-weight: 600;
   color: var(--text-muted);
+  letter-spacing: 0.01em;
 }
 
 .employee-form__label--checkbox {
@@ -49,7 +51,7 @@
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   font-weight: 500;
   color: var(--text);
 }
@@ -57,6 +59,7 @@
 .employee-form__checkbox-wrap input {
   margin-top: 0.2rem;
   flex-shrink: 0;
+  accent-color: var(--primary);
 }
 
 .employee-form__input,
@@ -64,8 +67,16 @@
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  font-size: 0.9rem;
-  background: var(--surface);
+  font-size: 0.88rem;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur-sm);
+  -webkit-backdrop-filter: var(--glass-blur-sm);
+  color: var(--text);
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+
+.employee-form__select option {
+  background: #1a1535;
   color: var(--text);
 }
 
@@ -73,6 +84,8 @@
 .employee-form__select:focus {
   outline: none;
   border-color: var(--accent);
+  background: rgba(129, 140, 248, 0.08);
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
 }
 
 .employee-form__input--error {
@@ -81,11 +94,11 @@
 
 .employee-form__input--error:focus {
   border-color: var(--danger);
-  box-shadow: 0 0 0 2px var(--danger-soft);
+  box-shadow: 0 0 0 3px var(--danger-soft);
 }
 
 .employee-form__error {
-  font-size: 0.75rem;
+  font-size: 0.74rem;
   color: var(--danger);
 }
 
@@ -94,5 +107,6 @@
   gap: 0.5rem;
   justify-content: flex-end;
   margin-top: 0.5rem;
-  padding-top: 0.25rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--border-subtle);
 }

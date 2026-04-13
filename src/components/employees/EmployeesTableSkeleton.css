@@ -19,9 +19,13 @@
 .employees-skeleton__card {
   height: 88px;
   border-radius: var(--radius);
-  background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+  background: linear-gradient(90deg,
+    rgba(255,255,255,0.06) 25%,
+    rgba(255,255,255,0.1) 50%,
+    rgba(255,255,255,0.06) 75%
+  );
   background-size: 200% 100%;
-  animation: employees-shimmer 1.2s ease-in-out infinite;
+  animation: employees-shimmer 1.4s ease-in-out infinite;
 }
 
 .employees-skeleton__toolbar {
@@ -29,17 +33,21 @@
   flex-wrap: wrap;
   gap: 0.5rem;
   padding: 0.85rem 1rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius);
 }
 
 .employees-skeleton__bar {
   height: 2.5rem;
   border-radius: var(--radius-sm);
-  background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+  background: linear-gradient(90deg,
+    rgba(255,255,255,0.06) 25%,
+    rgba(255,255,255,0.1) 50%,
+    rgba(255,255,255,0.06) 75%
+  );
   background-size: 200% 100%;
-  animation: employees-shimmer 1.2s ease-in-out infinite;
+  animation: employees-shimmer 1.4s ease-in-out infinite;
 }
 
 .employees-skeleton__bar--search {
@@ -52,17 +60,17 @@
 }
 
 .employees-skeleton__table {
-  border: 1px solid var(--border);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius);
   overflow: hidden;
-  background: var(--surface);
+  background: var(--glass-bg);
 }
 
 .employees-skeleton__row {
   display: flex;
   gap: 0.75rem;
   padding: 0.65rem 0.75rem;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .employees-skeleton__row:last-child {
@@ -77,16 +85,16 @@
 }
 
 .employees-skeleton__cell--shimmer {
-  background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+  background: linear-gradient(90deg,
+    rgba(255,255,255,0.06) 25%,
+    rgba(255,255,255,0.1) 50%,
+    rgba(255,255,255,0.06) 75%
+  );
   background-size: 200% 100%;
-  animation: employees-shimmer 1.2s ease-in-out infinite;
+  animation: employees-shimmer 1.4s ease-in-out infinite;
 }
 
 @keyframes employees-shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }

@@ -1,5 +1,4 @@
-/* Attendance dashboard — light theme, rounded cards */
-
+/* ── Attendance Dashboard ── */
 .adash {
   display: flex;
   flex-direction: column;
@@ -16,13 +15,17 @@
 .adash__title {
   font-size: 1.35rem;
   font-weight: 700;
-  color: var(--text, #111827);
+  color: var(--text);
   margin: 0;
+  background: linear-gradient(90deg, #e2e8f0 0%, #a5b4fc 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .adash__subtitle {
-  font-size: 0.9rem;
-  color: var(--text-muted, #6b7280);
+  font-size: 0.88rem;
+  color: var(--text-muted);
   margin: 0;
 }
 
@@ -32,10 +35,12 @@
   align-items: flex-end;
   gap: 0.75rem 1rem;
   padding: 1rem 1.25rem;
-  background: var(--surface, #fff);
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 1rem;
-  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.05));
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  box-shadow: var(--glass-shadow);
 }
 
 .adash__field {
@@ -46,41 +51,56 @@
 }
 
 .adash__field label {
-  font-size: 0.72rem;
-  font-weight: 600;
+  font-size: 0.7rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted, #6b7280);
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
 }
 
 .adash__select,
 .adash__btn {
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   padding: 0.45rem 0.65rem;
-  border-radius: 0.5rem;
-  border: 1px solid var(--border, #e5e7eb);
-  background: var(--surface, #fff);
-  color: var(--text, #111827);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.adash__select option {
+  background: #1a1535;
+  color: var(--text);
+}
+
+.adash__select:focus,
+.adash__btn:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 .adash__btn--export {
   margin-left: auto;
   cursor: pointer;
   font-weight: 600;
-  background: var(--accent, #2563eb);
+  background: linear-gradient(135deg, var(--accent) 0%, #6366f1 100%);
   color: #fff;
   border-color: transparent;
+  box-shadow: 0 2px 12px rgba(129, 140, 248, 0.3);
 }
 
 .adash__btn--export:hover:not(:disabled) {
-  filter: brightness(1.05);
+  background: linear-gradient(135deg, var(--primary-hover) 0%, var(--accent) 100%);
+  box-shadow: 0 4px 18px rgba(129, 140, 248, 0.45);
 }
 
 .adash__btn--export:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
+/* ── Summary Cards ── */
 .adash__cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -94,49 +114,62 @@
 }
 
 .adash-card {
-  background: var(--surface, #fff);
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 1rem;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-top-color: var(--glass-border-top);
+  border-radius: var(--radius);
   padding: 1rem;
-  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.05));
+  box-shadow: var(--glass-shadow);
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
   min-height: 88px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.adash-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--glass-shadow-raised);
 }
 
 .adash-card__label {
-  font-size: 0.72rem;
-  font-weight: 600;
+  font-size: 0.68rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--text-muted, #6b7280);
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
 }
 
 .adash-card__value {
   font-size: 1.65rem;
   font-weight: 800;
   line-height: 1.1;
+  color: var(--text);
 }
 
 .adash-card__icon {
   font-size: 1.1rem;
-  opacity: 0.85;
+  opacity: 0.8;
 }
 
+/* ── Panels ── */
 .adash-panel {
-  background: var(--surface, #fff);
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 1rem;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
   padding: 1rem 1.25rem;
-  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.05));
+  box-shadow: var(--glass-shadow);
 }
 
 .adash-panel__title {
   font-size: 0.95rem;
   font-weight: 700;
   margin: 0 0 0.75rem;
-  color: var(--text, #111827);
+  color: var(--text);
 }
 
 .adash-status-grid {
@@ -146,12 +179,13 @@
 }
 
 .adash-status-block__head {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: 700;
   margin-bottom: 0.5rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  color: var(--text);
 }
 
 .adash-status-row {
@@ -159,8 +193,9 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.35rem 0;
-  border-bottom: 1px solid var(--border, #f3f4f6);
-  font-size: 0.85rem;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.84rem;
+  color: var(--text);
 }
 
 .adash-status-row:last-child {
@@ -168,7 +203,7 @@
 }
 
 .adash-badge {
-  font-size: 0.65rem;
+  font-size: 0.63rem;
   font-weight: 700;
   padding: 0.15rem 0.45rem;
   border-radius: 99px;
@@ -180,12 +215,14 @@
   height: 260px;
 }
 
+/* ── Alerts ── */
 .adash-alert {
   display: flex;
   gap: 0.5rem;
   padding: 0.5rem 0;
-  border-bottom: 1px solid #f3f4f6;
-  font-size: 0.85rem;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.84rem;
+  color: var(--text);
 }
 
 .adash-alert:last-child {
@@ -193,20 +230,21 @@
 }
 
 .adash-alert--warning {
-  border-left: 3px solid #f59e0b;
+  border-left: 3px solid var(--warning);
   padding-left: 0.5rem;
 }
 
 .adash-alert--danger {
-  border-left: 3px solid #ef4444;
+  border-left: 3px solid var(--danger);
   padding-left: 0.5rem;
 }
 
 .adash-alert--info {
-  border-left: 3px solid #3b82f6;
+  border-left: 3px solid var(--accent);
   padding-left: 0.5rem;
 }
 
+/* ── Leave Mini ── */
 .adash-leave-mini {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -216,44 +254,48 @@
 .adash-leave-mini__item {
   text-align: center;
   padding: 0.75rem;
-  border-radius: 0.75rem;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
 }
 
 .adash-leave-mini__num {
   font-size: 1.5rem;
   font-weight: 800;
+  color: var(--text);
 }
 
 .adash-leave-mini__lbl {
-  font-size: 0.7rem;
-  color: #6b7280;
+  font-size: 0.68rem;
+  color: var(--text-muted);
   text-transform: uppercase;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
+/* ── Skeleton ── */
 .adash-skeleton {
-  border-radius: 1rem;
-  background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
+  border-radius: var(--radius);
+  background: linear-gradient(90deg,
+    rgba(255,255,255,0.06) 25%,
+    rgba(255,255,255,0.1) 50%,
+    rgba(255,255,255,0.06) 75%
+  );
   background-size: 200% 100%;
-  animation: adash-shimmer 1.2s ease-in-out infinite;
+  animation: adash-shimmer 1.4s ease-in-out infinite;
 }
 
 @keyframes adash-shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
+/* ── Empty state ── */
 .adash-empty {
   text-align: center;
   padding: 2rem 1rem;
-  color: #6b7280;
-  font-size: 0.9rem;
+  color: var(--text-muted);
+  font-size: 0.88rem;
 }
 
 .adash-grid-2 {

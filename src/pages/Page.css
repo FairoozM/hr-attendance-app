@@ -1,17 +1,22 @@
 .page {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.25rem;
   max-width: 1600px;
   margin: 0 auto;
   width: 100%;
+  animation: page-fade-in 0.3s ease;
 }
 
-/* Shared container: same max-width and padding for header + table (e.g. Attendance) */
+@keyframes page-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 .page-content {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.25rem;
   width: 100%;
   min-width: 0;
 }
@@ -27,10 +32,14 @@
 
 .page-title {
   margin: 0;
-  font-size: 1.35rem;
-  font-weight: 600;
+  font-size: 1.4rem;
+  font-weight: 700;
   color: var(--text);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
+  background: linear-gradient(90deg, #e2e8f0 0%, #a5b4fc 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .page-section {
@@ -56,8 +65,6 @@
   min-height: 0;
 }
 
-/* Employees page uses full-width directory layout */
-
 .page-loading,
 .page-error {
   margin: 0;
@@ -65,5 +72,5 @@
 }
 
 .page-error {
-  color: var(--danger, #c00);
+  color: var(--danger);
 }

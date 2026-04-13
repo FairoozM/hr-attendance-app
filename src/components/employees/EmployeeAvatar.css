@@ -4,9 +4,9 @@
   justify-content: center;
   flex-shrink: 0;
   border-radius: 50%;
-  background: linear-gradient(145deg, #e2e8f0, #cbd5e1);
+  background: linear-gradient(145deg, rgba(129, 140, 248, 0.3), rgba(192, 132, 252, 0.25));
   color: var(--text);
-  font-weight: 600;
+  font-weight: 700;
   overflow: hidden;
   border: 1px solid var(--border);
 }
@@ -35,5 +35,5 @@
 }
 
 .employee-avatar--image {
-  background: var(--surface);
+  background: var(--glass-bg);
 }
