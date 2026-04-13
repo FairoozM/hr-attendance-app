@@ -5,7 +5,8 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-lg);
   box-shadow: var(--glass-shadow-panel);
-  overflow: hidden;
+  /* Do NOT use overflow:hidden here — it breaks position:sticky inside */
+  overflow: visible;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -13,8 +14,11 @@
 
 .employees-table-scroll {
   overflow-x: auto;
+  overflow-y: visible;
   -webkit-overflow-scrolling: touch;
-  max-width: 100%;
+  width: 100%;
+  /* Clip the rounded corners without breaking sticky */
+  border-radius: var(--radius-lg);
 }
 
 .employees-table {
@@ -28,7 +32,7 @@
 .employees-table thead th {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 3;
   background: rgb(7, 12, 28);
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   /* Column divider on the right of every header cell */
@@ -129,28 +133,57 @@
   min-width: 160px;
 }
 
-/* STATUS column — sticky, second from right */
-.employees-table__th--status,
-.employees-table__td--status {
-  position: sticky;
-  right: 7rem;
-  background: rgb(7, 12, 28);
-  z-index: 1;
-}
+/* ── Sticky right columns ─────────────────────────────────────────────
+   Actions: 112px wide, pinned at right:0
+   Status:  pinned at right:112px (= actions width)
+   z-index hierarchy:
+     thead sticky-corner (th+sticky) = 4  ← highest, covers everything
+     thead normal th                  = 3
+     tbody sticky td                  = 2
+     tbody normal td                  = 1 (auto)
+──────────────────────────────────────────────────────────────────── */
 
-.employees-table__th--status {
-  z-index: 2;
-}
-
+/* Actions — header */
 .employees-table__th--actions {
-  width: 7rem;
+  width: 112px;
+  min-width: 112px;
   text-align: right;
   position: sticky;
   right: 0;
+  z-index: 4; /* corner: above both sticky-row and sticky-col */
   background: rgb(7, 12, 28);
-  border-left: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: -6px 0 20px rgba(0, 0, 0, 0.5);
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: -6px 0 18px rgba(0, 0, 0, 0.55);
   border-right: none;
+}
+
+/* Actions — body */
+.employees-table__td--actions {
+  width: 112px;
+  min-width: 112px;
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  background: rgb(7, 12, 28);
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: -6px 0 18px rgba(0, 0, 0, 0.55);
+  text-align: right;
+}
+
+/* Status — header */
+.employees-table__th--status {
+  position: sticky;
+  right: 112px; /* = actions width */
+  z-index: 4;   /* corner: same level as actions header */
+  background: rgb(7, 12, 28);
+}
+
+/* Status — body */
+.employees-table__td--status {
+  position: sticky;
+  right: 112px;
+  z-index: 2;
+  background: rgb(7, 12, 28);
 }
 
 .employees-table__th-btn {
@@ -193,11 +226,11 @@
 .employees-table tbody td {
   padding: 0.65rem 0.75rem;
   border-bottom: 1px solid var(--border-subtle);
-  /* Column divider */
   border-right: 1px solid rgba(255, 255, 255, 0.05);
   vertical-align: middle;
   color: var(--text);
-  background: rgba(255, 255, 255, 0.01);
+  /* Fully solid — no transparency so sticky columns can block them */
+  background: rgb(10, 15, 33);
   transition: background 0.12s;
 }
 
@@ -210,7 +243,7 @@
 }
 
 .employees-table__row:hover td {
-  background: rgba(129, 140, 248, 0.06);
+  background: rgb(16, 22, 46);
 }
 
 .employees-table__td--actions {
@@ -222,9 +255,10 @@
   text-align: right;
 }
 
+/* Sticky cells get a slightly lighter solid bg on row hover */
 .employees-table__row:hover .employees-table__td--actions,
 .employees-table__row:hover .employees-table__td--status {
-  background: rgb(18, 28, 54);
+  background: rgb(16, 22, 46);
 }
 
 .employees-table__name-primary {
