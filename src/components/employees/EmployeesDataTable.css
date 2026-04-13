@@ -29,7 +29,7 @@
   position: sticky;
   top: 0;
   z-index: 2;
-  background: rgba(7, 12, 28, 0.92);
+  background: rgb(7, 12, 28);
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   /* Column divider on the right of every header cell */
   border-right: 1px solid rgba(255, 255, 255, 0.07);
@@ -133,13 +133,13 @@
 .employees-table__th--status,
 .employees-table__td--status {
   position: sticky;
-  right: 7rem; /* same as actions column width */
-  background: rgba(7, 12, 28, 0.98);
+  right: 7rem;
+  background: rgb(7, 12, 28);
   z-index: 1;
 }
 
 .employees-table__th--status {
-  z-index: 2; /* above body cells */
+  z-index: 2;
 }
 
 .employees-table__th--actions {
@@ -147,7 +147,7 @@
   text-align: right;
   position: sticky;
   right: 0;
-  background: rgba(7, 12, 28, 0.98);
+  background: rgb(7, 12, 28);
   border-left: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: -6px 0 20px rgba(0, 0, 0, 0.5);
   border-right: none;
@@ -216,7 +216,7 @@
 .employees-table__td--actions {
   position: sticky;
   right: 0;
-  background: rgba(7, 12, 28, 0.98);
+  background: rgb(7, 12, 28);
   border-left: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: -6px 0 20px rgba(0, 0, 0, 0.5);
   text-align: right;
@@ -224,7 +224,7 @@
 
 .employees-table__row:hover .employees-table__td--actions,
 .employees-table__row:hover .employees-table__td--status {
-  background: rgba(18, 28, 54, 0.99);
+  background: rgb(18, 28, 54);
 }
 
 .employees-table__name-primary {
