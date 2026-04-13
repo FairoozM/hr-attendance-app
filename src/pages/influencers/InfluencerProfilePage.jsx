@@ -54,12 +54,13 @@ const TABS = ['Overview', 'Social & Audience', 'Commercial', 'Communication', 'P
 export function InfluencerProfilePage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { influencers, updateInfluencer, updateWorkflowStatus } = useInfluencers()
+  const { influencers, updateInfluencer, updateWorkflowStatus, deleteInfluencer } = useInfluencers()
   const { user } = useAuth()
   const can = (action) => hasPermission(user, 'influencers', action)
   const [tab, setTab] = useState('Overview')
   const [showStatusModal, setShowStatusModal] = useState(false)
   const [newStage, setNewStage] = useState('')
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
 
   const inf = influencers.find(i => i.id === id)
 
@@ -125,6 +126,12 @@ export function InfluencerProfilePage() {
             <button className="inf-btn inf-btn--warning inf-btn--sm"
               onClick={() => updateInfluencer(id, { approvalStatus: 'Pending', workflowStatus: 'Under Review' })}>
               ↩ Re-activate
+            </button>
+          )}
+          {can('manage') && (
+            <button className="inf-btn inf-btn--danger inf-btn--sm"
+              onClick={() => setShowDeleteModal(true)}>
+              🗑 Delete
             </button>
           )}
         </div>
@@ -407,6 +414,28 @@ export function InfluencerProfilePage() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="inf-modal-overlay" onClick={() => setShowDeleteModal(false)}>
+          <div className="inf-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
+            <div className="inf-modal__header">
+              <span className="inf-modal__title">Delete Influencer</span>
+              <button className="inf-modal__close" onClick={() => setShowDeleteModal(false)}>×</button>
+            </div>
+            <div className="inf-modal__body">
+              <p style={{ margin: 0, color: 'var(--text)', lineHeight: 1.6 }}>
+                Are you sure you want to permanently delete <strong>{inf.name}</strong>?
+                This action cannot be undone.
+              </p>
+            </div>
+            <div className="inf-modal__footer">
+              <button className="inf-btn inf-btn--ghost" onClick={() => setShowDeleteModal(false)}>Cancel</button>
+              <button className="inf-btn inf-btn--danger" onClick={() => { deleteInfluencer(id); navigate('/influencers/list') }}>Delete</button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -44,10 +44,11 @@ const SORT_OPTIONS = [
 ]
 
 export function InfluencerListPage() {
-  const { influencers, updateInfluencer, updateWorkflowStatus } = useInfluencers()
+  const { influencers, updateInfluencer, updateWorkflowStatus, deleteInfluencer } = useInfluencers()
   const navigate = useNavigate()
   const { user } = useAuth()
   const can = (action) => hasPermission(user, 'influencers', action)
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
 
   const [search, setSearch] = useState('')
   const [filterWorkflow, setFilterWorkflow] = useState('All')
@@ -96,6 +97,12 @@ export function InfluencerListPage() {
     else if (action === 'agreement') navigate(`/influencers/${inf.id}`)
     else if (action === 'payment-ready') updateInfluencer(inf.id, { paymentStatus: 'Ready for Payment' })
     else if (action === 'paid') updateInfluencer(inf.id, { paymentStatus: 'Paid', workflowStatus: 'Paid' })
+    else if (action === 'delete') { e.stopPropagation(); setConfirmDeleteId(inf.id) }
+  }
+
+  const confirmDelete = () => {
+    if (confirmDeleteId) deleteInfluencer(confirmDeleteId)
+    setConfirmDeleteId(null)
   }
 
   return (
@@ -265,8 +272,14 @@ export function InfluencerListPage() {
                       {can('approve') && inf.approvalStatus !== 'Approved' && inf.approvalStatus !== 'Rejected' && (
                         <button className="inf-btn inf-btn--success inf-btn--xs" onClick={e => handleQuickAction(e, 'approve', inf)}>✓ Approve</button>
                       )}
+                      {can('approve') && inf.approvalStatus !== 'Rejected' && (
+                        <button className="inf-btn inf-btn--danger inf-btn--xs" onClick={e => handleQuickAction(e, 'reject', inf)}>✕ Reject</button>
+                      )}
                       {can('payments') && inf.approvalStatus === 'Approved' && inf.paymentStatus !== 'Paid' && (
                         <button className="inf-btn inf-btn--warning inf-btn--xs" onClick={e => handleQuickAction(e, 'payment-ready', inf)}>💳 Pay</button>
+                      )}
+                      {can('manage') && (
+                        <button className="inf-btn inf-btn--danger inf-btn--xs" onClick={e => handleQuickAction(e, 'delete', inf)}>🗑 Delete</button>
                       )}
                     </div>
                   </td>
@@ -276,6 +289,27 @@ export function InfluencerListPage() {
           </table>
         )}
       </div>
+      {/* Delete confirmation modal */}
+      {confirmDeleteId && (
+        <div className="inf-modal-overlay" onClick={() => setConfirmDeleteId(null)}>
+          <div className="inf-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
+            <div className="inf-modal__header">
+              <span className="inf-modal__title">Delete Influencer</span>
+              <button className="inf-modal__close" onClick={() => setConfirmDeleteId(null)}>×</button>
+            </div>
+            <div className="inf-modal__body">
+              <p style={{ margin: 0, color: 'var(--text)', lineHeight: 1.6 }}>
+                Are you sure you want to permanently delete <strong>{influencers.find(i => i.id === confirmDeleteId)?.name}</strong>?
+                This action cannot be undone.
+              </p>
+            </div>
+            <div className="inf-modal__footer">
+              <button className="inf-btn inf-btn--ghost" onClick={() => setConfirmDeleteId(null)}>Cancel</button>
+              <button className="inf-btn inf-btn--danger" onClick={confirmDelete}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
