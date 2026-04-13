@@ -71,7 +71,7 @@ export function Layout() {
   const isEmployee = user?.role === 'employee'
   const can = (module, action) => hasPermission(user, module, action)
 
-  const openSidebar = useCallback(() => setIsSidebarOpen(true), [])
+  const toggleSidebar = useCallback(() => setIsSidebarOpen(prev => !prev), [])
   const closeSidebar = useCallback(() => setIsSidebarOpen(false), [])
 
   const navLinkClass = ({ isActive }) =>
@@ -160,14 +160,6 @@ export function Layout() {
               </NavLink>
               <span className="app-sidebar__brand-subtitle">Premium operations workspace</span>
             </div>
-            <button
-              type="button"
-              className="app-sidebar__close"
-              onClick={closeSidebar}
-              aria-label="Close menu"
-            >
-              ×
-            </button>
           </div>
 
           <nav id="app-sidebar-nav" className="app-sidebar__nav" aria-label="Main">
@@ -239,10 +231,10 @@ export function Layout() {
             <button
               type="button"
               className="app-topbar__menu"
-              onClick={openSidebar}
+              onClick={toggleSidebar}
               aria-expanded={isSidebarOpen}
               aria-controls="app-sidebar-panel"
-              aria-label="Open menu"
+              aria-label={isSidebarOpen ? 'Close menu' : 'Open menu'}
             >
               <span className="app-topbar__menu-bar" aria-hidden />
               <span className="app-topbar__menu-bar" aria-hidden />
