@@ -285,15 +285,13 @@
   padding: 1rem 1.15rem;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-lg);
-  /* Solid bg instead of backdrop-filter — sticky + backdrop-filter repaints on every scroll frame */
   background: rgba(13, 17, 38, 0.92);
   box-shadow: var(--glass-shadow-panel);
   position: sticky;
   top: 1rem;
   z-index: 60;
-  /* Promote to own compositor layer so it doesn't trigger layout during scroll */
-  transform: translateZ(0);
-  will-change: transform;
+  /* NOTE: NO will-change or transform here — those create a stacking context
+     that breaks position:sticky on any descendant in the page content below */
 }
 
 .app-topbar__left,
