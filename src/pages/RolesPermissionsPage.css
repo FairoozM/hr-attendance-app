@@ -11,6 +11,15 @@
   align-items: flex-start;
   justify-content: space-between;
   margin-bottom: 1.5rem;
+  padding: 1.5rem 1.7rem;
+  border-radius: var(--radius-xl);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 18%, transparent 82%, rgba(255, 255, 255, 0.04)),
+    rgba(255, 255, 255, 0.04);
+  box-shadow: var(--glass-shadow-cinematic);
+  backdrop-filter: var(--glass-blur-lg);
+  -webkit-backdrop-filter: var(--glass-blur-lg);
 }
 
 .rbac-header__title {
@@ -57,13 +66,13 @@
 
 /* ── User panel (left) ── */
 .rbac-user-panel {
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: var(--glass-blur-lg);
+  -webkit-backdrop-filter: var(--glass-blur-lg);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
   overflow: hidden;
-  box-shadow: var(--glass-shadow);
+  box-shadow: var(--glass-shadow-panel);
 }
 
 .rbac-user-panel__toolbar {
@@ -248,12 +257,12 @@
 
 /* ── Editor panel (right) ── */
 .rbac-editor {
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius);
-  box-shadow: var(--glass-shadow);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: var(--glass-blur-lg);
+  -webkit-backdrop-filter: var(--glass-blur-lg);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow-panel);
   overflow: hidden;
 }
 
@@ -264,9 +273,23 @@
 }
 
 .rbac-editor__empty-icon {
-  font-size: 3rem;
+  width: 5rem;
+  height: 5rem;
+  margin: 0 auto 0.75rem;
+  border-radius: 1.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   margin-bottom: 0.75rem;
-  opacity: 0.5;
+  opacity: 0.8;
+}
+
+.rbac-editor__empty-icon-svg,
+.rbac-module__icon-svg {
+  width: 1.25rem;
+  height: 1.25rem;
 }
 
 /* ── Editor header ── */
@@ -402,6 +425,19 @@
 }
 
 .rbac-module__icon { font-size: 1.1rem; }
+.rbac-module__icon,
+.rbac-assign-panel__icon {
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(196, 181, 253, 0.86);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
 
 .rbac-module__label {
   flex: 1;

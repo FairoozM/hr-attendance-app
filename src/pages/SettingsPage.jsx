@@ -69,6 +69,9 @@ export function SettingsPage({ onResetDemoData }) {
     <div className="page">
       <div className="page-header">
         <h1 className="page-title">Settings</h1>
+        <p className="ui-page-subtitle">
+          Configure global workspace labels, reusable department options, attendance status references, and demo data controls.
+        </p>
       </div>
 
       <section className="settings-section">

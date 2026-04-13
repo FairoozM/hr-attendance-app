@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useSettings } from '../contexts/SettingsContext'
 import { useAuth, hasPermission, hasAnyModulePermission } from '../contexts/AuthContext'
 import { RoleGuard } from './RoleGuard'
@@ -26,7 +27,7 @@ function ChevronIcon({ open }) {
   )
 }
 
-function NavGroup({ label, children, isActive, defaultOpen = false }) {
+function NavGroup({ label, children, isActive, defaultOpen = false, hint }) {
   const [open, setOpen] = useState(defaultOpen || isActive)
 
   useEffect(() => {
@@ -41,7 +42,13 @@ function NavGroup({ label, children, isActive, defaultOpen = false }) {
         onClick={() => setOpen(o => !o)}
         aria-expanded={open}
       >
-        <span className="nav-group__label">{label}</span>
+        <span className="nav-group__trigger-inner">
+          <span className="nav-group__dot" aria-hidden />
+          <span className="nav-group__text">
+            <span className="nav-group__label">{label}</span>
+            {hint ? <span className="nav-group__hint">{hint}</span> : null}
+          </span>
+        </span>
         <ChevronIcon open={open} />
       </button>
       {open && (
@@ -86,6 +93,17 @@ export function Layout() {
   const isHrActive = HR_ROUTES.some(r => location.pathname.startsWith(r))
   const isInfluencersActive = location.pathname.startsWith('/influencers')
   const hasAnyInfluencerAccess = hasAnyModulePermission(user, 'influencers')
+  const currentSectionLabel = useMemo(() => {
+    if (location.pathname.startsWith('/employees')) return 'Employees'
+    if (location.pathname.startsWith('/attendance')) return 'Attendance'
+    if (location.pathname.startsWith('/annual-leave')) return 'Annual Leave'
+    if (location.pathname.startsWith('/roster')) return 'Weekly Off & Duty'
+    if (location.pathname.startsWith('/settings')) return 'Settings'
+    if (location.pathname.startsWith('/roles-permissions')) return 'Roles & Permissions'
+    if (location.pathname.startsWith('/influencers')) return 'Influencers'
+    if (location.pathname.startsWith('/account')) return 'My Account'
+    return 'Dashboard'
+  }, [location.pathname])
 
   const INFLUENCER_ITEMS = [
     can('influencers', 'view') && { label: 'Influencer List', to: '/influencers/list' },
@@ -107,25 +125,41 @@ export function Layout() {
 
   return (
     <div className="app">
-      {isSidebarOpen && (
-        <button
-          type="button"
-          className="app-sidebar-backdrop"
-          aria-label="Close menu"
-          onClick={closeSidebar}
-        />
-      )}
+      <div className="app__aurora app__aurora--left" aria-hidden />
+      <div className="app__aurora app__aurora--right" aria-hidden />
+      <div className="app__aurora app__aurora--bottom" aria-hidden />
 
-      <aside
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.button
+            type="button"
+            className="app-sidebar-backdrop"
+            aria-label="Close menu"
+            onClick={closeSidebar}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          />
+        )}
+      </AnimatePresence>
+
+      <motion.aside
         id="app-sidebar-panel"
         className={`app-sidebar ${isSidebarOpen ? 'app-sidebar--open' : ''}`}
         aria-hidden={!isSidebarOpen}
+        initial={false}
+        animate={{ x: isSidebarOpen ? 0 : 0 }}
       >
+        <div className="app-sidebar__glow" aria-hidden />
         <div className="app-sidebar__inner">
           <div className="app-sidebar__head">
-            <NavLink to={homePath} className="app-sidebar__brand" onClick={closeSidebar}>
-              {appTitle || 'HR Attendance'}
-            </NavLink>
+            <div className="app-sidebar__brand-wrap">
+              <span className="app-sidebar__brand-badge">Creator-grade HR</span>
+              <NavLink to={homePath} className="app-sidebar__brand" onClick={closeSidebar}>
+                {appTitle || 'HR Attendance'}
+              </NavLink>
+              <span className="app-sidebar__brand-subtitle">Premium operations workspace</span>
+            </div>
             <button
               type="button"
               className="app-sidebar__close"
@@ -137,8 +171,10 @@ export function Layout() {
           </div>
 
           <nav id="app-sidebar-nav" className="app-sidebar__nav" aria-label="Main">
-            {/* HR Section */}
-            <NavGroup label="HR" isActive={isHrActive} defaultOpen>
+            <div className="app-sidebar__section-label" role="presentation">
+              Workspace
+            </div>
+            <NavGroup label="HR" hint="Operations" isActive={isHrActive} defaultOpen>
               {hrItems.map(item => (
                 <NavLink
                   key={item.to}
@@ -147,68 +183,89 @@ export function Layout() {
                   className={subLinkClass}
                   onClick={closeSidebar}
                 >
+                  <span className="nav-group__link-dot" aria-hidden />
                   {item.label}
                 </NavLink>
               ))}
             </NavGroup>
 
-            {/* Influencers Section — only shown if user has any influencer permission */}
             {hasAnyInfluencerAccess && (
-            <NavGroup label="Influencers" isActive={isInfluencersActive}>
-              {INFLUENCER_ITEMS.map(item => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  className={subLinkClass}
-                  onClick={closeSidebar}
-                >
-                  {item.label}
-                </NavLink>
-              ))}
-            </NavGroup>
+              <NavGroup label="Influencers" hint="Creator ops" isActive={isInfluencersActive}>
+                {INFLUENCER_ITEMS.map(item => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    className={subLinkClass}
+                    onClick={closeSidebar}
+                  >
+                    <span className="nav-group__link-dot" aria-hidden />
+                    {item.label}
+                  </NavLink>
+                ))}
+              </NavGroup>
             )}
 
-            {/* Amazon Section — empty, ready for future items */}
-            <NavGroup label="Amazon" isActive={false} />
+            <NavGroup label="Amazon" hint="Reserved" isActive={false} />
 
-            {/* My Account — outside main sections */}
             <div className="app-sidebar__section-label" role="presentation">
               Account
             </div>
             <NavLink to="/account" className={navLinkClass} onClick={closeSidebar}>
-              My Account
+              <span className="app-sidebar__link-dot" aria-hidden />
+              <span className="app-sidebar__link-text">My Account</span>
             </NavLink>
           </nav>
 
           <div className="app-sidebar__footer">
-            <span className="app-sidebar__user">
-              {user?.displayName || user?.username}
-              <span className="app-sidebar__user-role"> ({user?.role})</span>
-            </span>
+            <div className="app-sidebar__profile">
+              <div className="app-sidebar__avatar" aria-hidden>
+                {(user?.displayName || user?.username || '?').slice(0, 1).toUpperCase()}
+              </div>
+              <div className="app-sidebar__profile-copy">
+                <span className="app-sidebar__user">{user?.displayName || user?.username}</span>
+                <span className="app-sidebar__user-role">{user?.role}</span>
+              </div>
+            </div>
             <button type="button" className="app-sidebar__logout" onClick={handleLogout}>
               Log out
             </button>
           </div>
         </div>
-      </aside>
+      </motion.aside>
 
       <div className="app-shell">
         <header className="app-topbar">
-          <button
-            type="button"
-            className="app-topbar__menu"
-            onClick={openSidebar}
-            aria-expanded={isSidebarOpen}
-            aria-controls="app-sidebar-panel"
-            aria-label="Open menu"
-          >
-            <span className="app-topbar__menu-bar" aria-hidden />
-            <span className="app-topbar__menu-bar" aria-hidden />
-            <span className="app-topbar__menu-bar" aria-hidden />
-          </button>
-          <NavLink to={homePath} className="app-topbar__title" onClick={closeSidebar}>
-            {appTitle || 'HR Attendance'}
-          </NavLink>
+          <div className="app-topbar__left">
+            <button
+              type="button"
+              className="app-topbar__menu"
+              onClick={openSidebar}
+              aria-expanded={isSidebarOpen}
+              aria-controls="app-sidebar-panel"
+              aria-label="Open menu"
+            >
+              <span className="app-topbar__menu-bar" aria-hidden />
+              <span className="app-topbar__menu-bar" aria-hidden />
+              <span className="app-topbar__menu-bar" aria-hidden />
+            </button>
+            <div className="app-topbar__copy">
+              <span className="app-topbar__eyebrow">Operations console</span>
+              <NavLink to={homePath} className="app-topbar__title" onClick={closeSidebar}>
+                {currentSectionLabel}
+              </NavLink>
+            </div>
+          </div>
+
+          <div className="app-topbar__meta">
+            <div className="app-topbar__chip">
+              <span className="app-topbar__chip-dot" aria-hidden />
+              {appTitle || 'HR Attendance'}
+            </div>
+            <div className="app-topbar__user-pill">
+              <span className="app-topbar__user-name">{user?.displayName || user?.username}</span>
+              <span className="app-topbar__user-badge">{user?.role}</span>
+            </div>
+          </div>
         </header>
 
         <main className="app-main">

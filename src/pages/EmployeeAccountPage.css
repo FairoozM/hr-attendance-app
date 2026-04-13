@@ -29,17 +29,18 @@
 
 /* ── Profile Header ── */
 .profile-header {
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-top-color: var(--glass-border-top);
-  border-radius: var(--radius);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 18%, transparent 82%, rgba(255, 255, 255, 0.04)),
+    rgba(255, 255, 255, 0.05);
+  backdrop-filter: var(--glass-blur-lg);
+  -webkit-backdrop-filter: var(--glass-blur-lg);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
   padding: 1.5rem;
   display: flex;
   align-items: flex-start;
   gap: 1.25rem;
-  box-shadow: var(--glass-shadow);
+  box-shadow: var(--glass-shadow-panel);
   position: relative;
 }
 
@@ -254,13 +255,13 @@
 
 /* ── Tab Content ── */
 .profile-tab-content {
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: var(--glass-blur-lg);
+  -webkit-backdrop-filter: var(--glass-blur-lg);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
   padding: 1.5rem;
-  box-shadow: var(--glass-shadow);
+  box-shadow: var(--glass-shadow-panel);
   display: flex;
   flex-direction: column;
   gap: 1.25rem;

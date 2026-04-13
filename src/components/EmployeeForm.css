@@ -1,23 +1,29 @@
 .employee-form {
   display: flex;
   flex-direction: column;
-  gap: 1.1rem;
+  gap: 1.25rem;
 }
 
 .employee-form__section {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 0.8rem;
+  padding: 1rem 1.1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
 }
 
 .employee-form__section-title {
-  font-size: 0.68rem;
+  font-size: 0.7rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--primary);
+  letter-spacing: 0.18em;
+  color: rgba(196, 181, 253, 0.82);
   margin-bottom: 0.1rem;
-  opacity: 0.85;
 }
 
 .employee-form__hint {
@@ -36,11 +42,12 @@
 .employee-form__label {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  letter-spacing: 0.01em;
+  gap: 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.42);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
 .employee-form__label--checkbox {
@@ -64,13 +71,14 @@
 
 .employee-form__input,
 .employee-form__select {
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-size: 0.88rem;
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur-sm);
-  -webkit-backdrop-filter: var(--glass-blur-sm);
+  min-height: 2.95rem;
+  padding: 0.78rem 0.95rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 1rem;
+  font-size: 0.9rem;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   color: var(--text);
   transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
 }
@@ -83,9 +91,9 @@
 .employee-form__input:focus,
 .employee-form__select:focus {
   outline: none;
-  border-color: var(--accent);
-  background: rgba(129, 140, 248, 0.08);
-  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
+  border-color: rgba(167, 139, 250, 0.42);
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
 }
 
 .employee-form__input--error {
@@ -106,7 +114,7 @@
   display: flex;
   gap: 0.5rem;
   justify-content: flex-end;
-  margin-top: 0.5rem;
-  padding-top: 0.35rem;
-  border-top: 1px solid var(--border-subtle);
+  margin-top: 0.75rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }

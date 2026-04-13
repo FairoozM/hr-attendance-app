@@ -1,11 +1,11 @@
 .page {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
-  max-width: 1600px;
+  gap: 1.35rem;
+  max-width: var(--page-max);
   margin: 0 auto;
   width: 100%;
-  animation: page-fade-in 0.3s ease;
+  animation: page-fade-in 0.32s ease;
 }
 
 @keyframes page-fade-in {
@@ -28,15 +28,44 @@
 
 .page-header {
   flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 18%, transparent 82%, rgba(255, 255, 255, 0.04)),
+    rgba(255, 255, 255, 0.04);
+  padding: 1.5rem 1.7rem;
+  box-shadow: var(--glass-shadow-cinematic);
+  backdrop-filter: var(--glass-blur-lg);
+  -webkit-backdrop-filter: var(--glass-blur-lg);
+}
+
+.page-header::before {
+  content: '';
+  position: absolute;
+  inset: -35% auto auto 18%;
+  width: 46%;
+  height: 11rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(168, 85, 247, 0.28), rgba(34, 211, 238, 0.18), rgba(96, 165, 250, 0.22));
+  filter: blur(44px);
+  pointer-events: none;
+}
+
+.page-header > * {
+  position: relative;
+  z-index: 1;
 }
 
 .page-title {
   margin: 0;
-  font-size: 1.4rem;
+  font-size: clamp(1.7rem, 3vw, 2.65rem);
   font-weight: 700;
   color: var(--text);
-  letter-spacing: -0.025em;
-  background: linear-gradient(90deg, #e2e8f0 0%, #a5b4fc 100%);
+  letter-spacing: -0.055em;
+  line-height: 1.08;
+  background: var(--heading-gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -44,6 +73,7 @@
 
 .page-section {
   flex-shrink: 0;
+  position: relative;
 }
 
 .page-section--fill {
@@ -68,9 +98,17 @@
 .page-loading,
 .page-error {
   margin: 0;
-  padding: 0.5rem 0;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
 }
 
 .page-error {
   color: var(--danger);
+  border-color: rgba(248, 113, 113, 0.18);
+  background: rgba(248, 113, 113, 0.08);
 }

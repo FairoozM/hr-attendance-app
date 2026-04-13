@@ -47,12 +47,12 @@
 
 /* ── Cards ── */
 .als-card {
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius);
-  box-shadow: var(--glass-shadow);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: var(--glass-blur-lg);
+  -webkit-backdrop-filter: var(--glass-blur-lg);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow-panel);
   margin-bottom: 1.25rem;
   overflow: hidden;
 }
@@ -99,8 +99,8 @@
   width: 100%;
   max-width: 480px;
   padding: 0.6rem 0.9rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 1rem;
   font-size: 0.9rem;
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
@@ -111,7 +111,7 @@
 }
 
 .als-emp-search::placeholder { color: rgba(203,213,225,0.35); }
-.als-emp-search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(129,140,248,0.15); }
+.als-emp-search:focus { border-color: rgba(167, 139, 250, 0.42); box-shadow: 0 0 0 4px rgba(99,102,241,0.1); }
 
 .als-emp-list {
   display: flex;
@@ -299,9 +299,10 @@
 }
 
 .als-field__input {
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  min-height: 2.95rem;
+  padding: 0.72rem 0.95rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 1rem;
   font-size: 0.9rem;
   color: var(--text);
   outline: none;
@@ -313,7 +314,7 @@
 }
 
 .als-field__input::placeholder { color: rgba(203,213,225,0.35); }
-.als-field__input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(129,140,248,0.15); background: rgba(129,140,248,0.08); }
+.als-field__input:focus { border-color: rgba(167, 139, 250, 0.42); box-shadow: 0 0 0 4px rgba(99,102,241,0.1); background: rgba(255,255,255,0.1); }
 
 .als-field__input--auto {
   background: rgba(255, 255, 255, 0.03);
@@ -322,9 +323,9 @@
 }
 
 .als-field__textarea {
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  padding: 0.72rem 0.95rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 1rem;
   font-size: 0.9rem;
   color: var(--text);
   outline: none;
@@ -336,7 +337,7 @@
   transition: border-color 0.15s;
 }
 
-.als-field__textarea:focus { border-color: var(--accent); }
+.als-field__textarea:focus { border-color: rgba(167, 139, 250, 0.42); box-shadow: 0 0 0 4px rgba(99,102,241,0.1); }
 
 .als-field__hint {
   font-size: 0.73rem;
@@ -362,13 +363,13 @@
 .als-summary-panel { position: sticky; top: 1rem; }
 
 .als-summary-card {
-  background: rgba(20, 16, 50, 0.85);
+  background: rgba(7, 12, 28, 0.82);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   border: 1px solid var(--glass-border);
   border-top-color: rgba(255, 255, 255, 0.2);
   color: #fff;
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   padding: 1.4rem;
   box-shadow: var(--glass-shadow-raised);
 }

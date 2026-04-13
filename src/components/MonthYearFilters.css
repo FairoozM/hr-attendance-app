@@ -3,13 +3,13 @@
   gap: 1rem;
   align-items: flex-end;
   flex-wrap: wrap;
-  padding: 0.85rem 1rem;
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius);
-  box-shadow: var(--glass-shadow);
+  padding: 1rem 1.15rem;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: var(--glass-blur-lg);
+  -webkit-backdrop-filter: var(--glass-blur-lg);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow-panel);
 }
 
 .filter-group {
@@ -19,20 +19,21 @@
 }
 
 .filter-label {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 700;
-  color: var(--text-muted);
+  color: rgba(255, 255, 255, 0.42);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.18em;
 }
 
 .filter-select {
-  padding: 0.45rem 0.75rem;
+  min-height: 2.9rem;
+  padding: 0 0.9rem;
   min-width: 140px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.06);
-  backdrop-filter: var(--glass-blur-sm);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: var(--glass-blur);
   color: var(--text);
   font-size: 0.88rem;
   transition: border-color 0.15s, box-shadow 0.15s;
@@ -45,6 +46,6 @@
 
 .filter-select:focus {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
+  border-color: rgba(167, 139, 250, 0.42);
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
 }

@@ -18,7 +18,8 @@
 
 .employees-skeleton__card {
   height: 88px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   background: linear-gradient(90deg,
     rgba(255,255,255,0.06) 25%,
     rgba(255,255,255,0.1) 50%,
@@ -32,10 +33,10 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  padding: 0.85rem 1rem;
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
 }
 
 .employees-skeleton__bar {
@@ -60,10 +61,10 @@
 }
 
 .employees-skeleton__table {
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
   overflow: hidden;
-  background: var(--glass-bg);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .employees-skeleton__row {

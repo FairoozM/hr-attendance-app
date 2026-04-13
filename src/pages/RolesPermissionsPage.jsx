@@ -8,7 +8,6 @@ const MODULES = [
   {
     key: 'attendance',
     label: 'Attendance',
-    icon: '📋',
     permissions: [
       { key: 'view', label: 'View attendance records' },
       { key: 'manage', label: 'Mark & edit attendance (includes view)' },
@@ -17,7 +16,6 @@ const MODULES = [
   {
     key: 'leave',
     label: 'Annual Leave',
-    icon: '🏖️',
     permissions: [
       { key: 'view', label: 'View all leave requests' },
       { key: 'approve', label: 'Approve / reject leave (includes view)' },
@@ -26,7 +24,6 @@ const MODULES = [
   {
     key: 'employees',
     label: 'Employees',
-    icon: '👥',
     permissions: [
       { key: 'view', label: 'View employee list & details' },
       { key: 'edit', label: 'Add / edit / delete employees (includes view)' },
@@ -35,13 +32,11 @@ const MODULES = [
   {
     key: 'roster',
     label: 'Weekly Off & Duty',
-    icon: '📅',
     permissions: [{ key: 'view', label: 'View duty roster' }],
   },
   {
     key: 'influencers',
     label: 'Influencers',
-    icon: '🌟',
     group: 'influencers',
     permissions: [
       { key: 'view', label: 'View influencer list, profiles, pipeline, schedule and reports' },
@@ -102,6 +97,72 @@ function Toggle({ on, onChange, disabled }) {
     >
       <span className="rbac-toggle__thumb" />
     </span>
+  )
+}
+
+function ModuleIcon({ moduleKey, className = '' }) {
+  const common = {
+    className,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: '1.8',
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    'aria-hidden': 'true',
+  }
+
+  if (moduleKey === 'attendance') {
+    return (
+      <svg {...common}>
+        <path d="M8 2v4" />
+        <path d="M16 2v4" />
+        <rect x="3" y="5" width="18" height="16" rx="3" />
+        <path d="M3 10h18" />
+        <path d="M8 14h.01" />
+        <path d="M12 14h.01" />
+        <path d="M16 14h.01" />
+      </svg>
+    )
+  }
+
+  if (moduleKey === 'leave') {
+    return (
+      <svg {...common}>
+        <path d="M4 12c0-4.2 3.3-7.5 7.5-7.5 5.1 0 8.5 4.2 8.5 9.2 0 4.3-3.1 6.8-6.4 6.8-2.8 0-4.6-1.8-4.6-4.2A3.3 3.3 0 0 1 12.3 13H20" />
+        <path d="M7 19.5c-1.8 0-3-1.4-3-3.3 0-1.7.9-3.1 2.3-4.1" />
+      </svg>
+    )
+  }
+
+  if (moduleKey === 'employees') {
+    return (
+      <svg {...common}>
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    )
+  }
+
+  if (moduleKey === 'roster') {
+    return (
+      <svg {...common}>
+        <path d="M8 2v4" />
+        <path d="M16 2v4" />
+        <rect x="3" y="5" width="18" height="16" rx="3" />
+        <path d="M3 10h18" />
+        <path d="M8 14h8" />
+        <path d="M8 18h4" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg {...common}>
+      <path d="M12 3l2.6 5.3 5.9.9-4.3 4.2 1 5.9L12 16.7 6.8 19.3l1-5.9L3.5 9.2l5.9-.9L12 3z" />
+    </svg>
   )
 }
 
@@ -385,7 +446,9 @@ export function RolesPermissionsPage() {
         <div className="rbac-editor">
           {!selectedUser ? (
             <div className="rbac-editor__empty">
-              <div className="rbac-editor__empty-icon">🔐</div>
+              <div className="rbac-editor__empty-icon" aria-hidden>
+                <ModuleIcon moduleKey="attendance" className="rbac-editor__empty-icon-svg" />
+              </div>
               <p>Select a user from the list to manage their permissions</p>
             </div>
           ) : (
@@ -431,7 +494,7 @@ export function RolesPermissionsPage() {
                   return (
                     <div key={mod.key} className={`rbac-module ${anyGranted ? 'rbac-module--active' : ''}`}>
                       <div className="rbac-module__head">
-                        <span className="rbac-module__icon">{mod.icon}</span>
+                        <span className="rbac-module__icon"><ModuleIcon moduleKey={mod.key} className="rbac-module__icon-svg" /></span>
                         <h3 className="rbac-module__label">{mod.label}</h3>
                         <div className="rbac-module__actions">
                           {!allGranted && (
@@ -480,7 +543,7 @@ export function RolesPermissionsPage() {
               {selectedUser.has_account && attendanceManageOn && (
                 <div className="rbac-assign-panel">
                   <div className="rbac-assign-panel__head">
-                    <span className="rbac-assign-panel__icon">👥</span>
+                    <span className="rbac-assign-panel__icon"><ModuleIcon moduleKey="employees" className="rbac-module__icon-svg" /></span>
                     <div>
                       <h3 className="rbac-assign-panel__title">Assigned Employees (Attendance Scope)</h3>
                       <p className="rbac-assign-panel__desc">

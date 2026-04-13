@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation, Navigate, useSearchParams } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { useAuth } from '../contexts/AuthContext'
 import { ApiRoutingDebug } from '../components/ApiRoutingDebug'
 import { ApiServerSetup } from '../components/ApiServerSetup'
@@ -147,51 +148,97 @@ export function LoginPage() {
 
   return (
     <div className="page login-page">
-      <div className="login-card">
-        <h1 className="login-title">HR Attendance</h1>
-        {needsApiSetup ? (
-          <ApiServerSetup />
-        ) : (
-          <>
+      <div className="login-orb login-orb--one" aria-hidden />
+      <div className="login-orb login-orb--two" aria-hidden />
+      <div className="login-orb login-orb--three" aria-hidden />
+
+      <div className="login-shell">
+        <motion.section
+          className="login-stage"
+          initial={{ opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <div className="login-stage__eyebrow">Premium people operations</div>
+          <h1 className="login-stage__title">HR attendance with a cinematic control room feel.</h1>
+          <p className="login-stage__subtitle">
+            Manage teams, attendance, leave, creator workflows, and permissions in one polished workspace.
+          </p>
+
+          <div className="login-stage__metrics">
+            <div className="login-stage__metric">
+              <span className="login-stage__metric-value">HR</span>
+              <span className="login-stage__metric-label">Employees, leave, roster</span>
+            </div>
+            <div className="login-stage__metric">
+              <span className="login-stage__metric-value">Ops</span>
+              <span className="login-stage__metric-label">Attendance and approvals</span>
+            </div>
+            <div className="login-stage__metric">
+              <span className="login-stage__metric-value">Creator</span>
+              <span className="login-stage__metric-label">Influencer workflow control</span>
+            </div>
+          </div>
+        </motion.section>
+
+        <motion.div
+          className="login-card"
+          initial={{ opacity: 0, y: 24, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.45, delay: 0.06, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <div className="login-card__shine" aria-hidden />
+          <div className="login-card__orb" aria-hidden />
+
+          <div className="login-card__header">
+            <div className="login-kicker">Access portal</div>
+            <h2 className="login-title">HR Attendance</h2>
             <p className="login-subtitle">
-              Sign in with your admin, warehouse, or employee portal credentials
+              Sign in with your admin, warehouse, or employee portal credentials.
             </p>
-            <form className="login-form" onSubmit={handleSubmit}>
-              {error && (
-                <p className="login-error" role="alert">
-                  {error}
-                </p>
-              )}
-              <label className="login-label">
-                Email Address
-                <input
-                  type="email"
-                  className="login-input"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  autoComplete="email"
-                  autoFocus
-                  required
-                />
-              </label>
-              <label className="login-label">
-                Password
-                <input
-                  type="password"
-                  className="login-input"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="current-password"
-                  required
-                />
-              </label>
-              <button type="submit" className="btn btn--primary login-submit">
-                Sign in
-              </button>
-            </form>
-            {showApiDebug && <ApiRoutingDebug />}
-          </>
-        )}
+          </div>
+
+          {needsApiSetup ? (
+            <ApiServerSetup />
+          ) : (
+            <>
+              <form className="login-form" onSubmit={handleSubmit}>
+                {error && (
+                  <p className="login-error" role="alert">
+                    {error}
+                  </p>
+                )}
+                <label className="login-label">
+                  Email Address
+                  <input
+                    type="email"
+                    className="login-input"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoComplete="email"
+                    autoFocus
+                    required
+                  />
+                </label>
+                <label className="login-label">
+                  Password
+                  <input
+                    type="password"
+                    className="login-input"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="current-password"
+                    required
+                  />
+                </label>
+                <button type="submit" className="btn btn--primary login-submit">
+                  Sign in
+                </button>
+              </form>
+              {showApiDebug && <ApiRoutingDebug />}
+            </>
+          )}
+        </motion.div>
       </div>
     </div>
   )

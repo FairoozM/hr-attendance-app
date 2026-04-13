@@ -9,15 +9,24 @@
 .adash__header {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.5rem;
+  padding: 1.35rem 1.45rem;
+  border-radius: var(--radius-xl);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 18%, transparent 82%, rgba(255, 255, 255, 0.04)),
+    rgba(255, 255, 255, 0.04);
+  box-shadow: var(--glass-shadow-panel);
+  backdrop-filter: var(--glass-blur-lg);
+  -webkit-backdrop-filter: var(--glass-blur-lg);
 }
 
 .adash__title {
-  font-size: 1.35rem;
+  font-size: clamp(1.35rem, 2.8vw, 2rem);
   font-weight: 700;
   color: var(--text);
   margin: 0;
-  background: linear-gradient(90deg, #e2e8f0 0%, #a5b4fc 100%);
+  background: var(--heading-gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -35,12 +44,12 @@
   align-items: flex-end;
   gap: 0.75rem 1rem;
   padding: 1rem 1.25rem;
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius);
-  box-shadow: var(--glass-shadow);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: var(--glass-blur-lg);
+  -webkit-backdrop-filter: var(--glass-blur-lg);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow-panel);
 }
 
 .adash__field {
@@ -51,20 +60,21 @@
 }
 
 .adash__field label {
-  font-size: 0.7rem;
+  font-size: 0.66rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
+  letter-spacing: 0.16em;
+  color: rgba(255, 255, 255, 0.38);
 }
 
 .adash__select,
 .adash__btn {
   font-size: 0.88rem;
-  padding: 0.45rem 0.65rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.06);
+  min-height: 2.85rem;
+  padding: 0.45rem 0.8rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
   color: var(--text);
   transition: border-color 0.15s, background 0.15s;
 }
@@ -77,22 +87,22 @@
 .adash__select:focus,
 .adash__btn:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: rgba(167, 139, 250, 0.42);
 }
 
 .adash__btn--export {
   margin-left: auto;
   cursor: pointer;
   font-weight: 600;
-  background: linear-gradient(135deg, var(--accent) 0%, #6366f1 100%);
+  background: linear-gradient(to right, var(--primary), var(--accent));
   color: #fff;
   border-color: transparent;
   box-shadow: 0 2px 12px rgba(129, 140, 248, 0.3);
 }
 
 .adash__btn--export:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--primary-hover) 0%, var(--accent) 100%);
-  box-shadow: 0 4px 18px rgba(129, 140, 248, 0.45);
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: var(--shadow-brand-hover);
 }
 
 .adash__btn--export:disabled {
@@ -114,12 +124,13 @@
 }
 
 .adash-card {
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-top-color: var(--glass-border-top);
-  border-radius: var(--radius);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 18%, transparent 82%, rgba(255, 255, 255, 0.04)),
+    rgba(255, 255, 255, 0.05);
+  backdrop-filter: var(--glass-blur-lg);
+  -webkit-backdrop-filter: var(--glass-blur-lg);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
   padding: 1rem;
   box-shadow: var(--glass-shadow);
   display: flex;
@@ -156,13 +167,13 @@
 
 /* ── Panels ── */
 .adash-panel {
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: var(--glass-blur-lg);
+  -webkit-backdrop-filter: var(--glass-blur-lg);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
   padding: 1rem 1.25rem;
-  box-shadow: var(--glass-shadow);
+  box-shadow: var(--glass-shadow-panel);
 }
 
 .adash-panel__title {

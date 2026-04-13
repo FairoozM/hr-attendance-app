@@ -16,13 +16,13 @@
 }
 
 .admin-profile-section {
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: var(--glass-blur-lg);
+  -webkit-backdrop-filter: var(--glass-blur-lg);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
   padding: 1.25rem;
-  box-shadow: var(--glass-shadow);
+  box-shadow: var(--glass-shadow-panel);
 }
 
 .admin-profile-section__title {
