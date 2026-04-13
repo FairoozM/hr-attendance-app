@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { EmployeeAvatar } from './EmployeeAvatar'
 import {
   displayOrDash,
@@ -8,6 +8,37 @@ import {
 } from './employeeUtils'
 import { ExcelStyleColumnFilter } from '../ExcelStyleColumnFilter'
 import './EmployeesDataTable.css'
+
+const TABLE_COLUMNS = [
+  { id: 'sr', label: 'Sr.' },
+  { id: 'photo', label: 'Photo' },
+  { id: 'name', label: 'Employee name', sortKey: 'name', filterKey: 'name', filterId: 'emp-col-name' },
+  { id: 'employeeId', label: 'Employee ID', filterKey: 'employeeId', filterId: 'emp-col-employeeId' },
+  { id: 'department', label: 'Department', sortKey: 'department', filterKey: 'department', filterId: 'emp-col-department' },
+  { id: 'designation', label: 'Designation', filterKey: 'designation', filterId: 'emp-col-designation' },
+  {
+    id: 'primaryLocation',
+    label: 'Primary work location',
+    sortKey: 'primaryLocation',
+    filterKey: 'primaryLocation',
+    filterId: 'emp-col-primary-location',
+  },
+  { id: 'phone', label: 'Contact', filterKey: 'phone', filterId: 'emp-col-phone' },
+  { id: 'email', label: 'Email', filterKey: 'email', filterId: 'emp-col-email' },
+  { id: 'joining', label: 'Joining date', sortKey: 'joiningDate', filterKey: 'joining', filterId: 'emp-col-joining' },
+  { id: 'passport', label: 'Passport no.', filterKey: 'passport', filterId: 'emp-col-passport' },
+  { id: 'nationality', label: 'Nationality', filterKey: 'nationality', filterId: 'emp-col-nationality' },
+  { id: 'emirates', label: 'Emirates ID', filterKey: 'emirates', filterId: 'emp-col-emirates' },
+  {
+    id: 'status',
+    label: 'Status',
+    sortKey: 'employmentStatus',
+    filterKey: 'status',
+    filterId: 'emp-col-status',
+    sticky: 'status',
+  },
+  { id: 'actions', label: 'Actions', sticky: 'actions' },
+]
 
 function SortChevron({ active, dir }) {
   return (
@@ -108,192 +139,177 @@ export function EmployeesDataTable({
   const setInc = onColumnFilterIncludedChange || (() => {})
 
   const thLabel = (text) => (
-    <span className="employees-table__th-label">{text}</span>
+    <span className="employees-table__head-label">{text}</span>
   )
+
+  const headCellClass = (column) => {
+    let cls = `employees-table__head-cell employees-table__head-cell--${column.id}`
+    if (column.sticky) cls += ` employees-table__head-cell--sticky-${column.sticky}`
+    return cls
+  }
+
+  const bodyCellClass = (column) => {
+    let cls = `employees-table__cell employees-table__cell--${column.id}`
+    if (column.sticky) cls += ` employees-table__cell--sticky-${column.sticky}`
+    return cls
+  }
+
+  const renderHeadContent = (column) => {
+    const showFilter = Boolean(column.filterKey)
+    return (
+      <div className="employees-table__head-stack">
+        {column.sortKey ? sortable(column.sortKey, column.label) : thLabel(column.label)}
+        {showFilter && (
+          <ExcelStyleColumnFilter
+            filterId={column.filterId}
+            openFilterId={openFilterId}
+            onOpenFilterId={setOpenFilterId}
+            ariaLabel={`Filter by ${column.label.toLowerCase()}`}
+            options={opt[column.filterKey] || []}
+            included={f[column.filterKey]}
+            onIncludedChange={(next) => setInc(column.filterKey, next)}
+          />
+        )}
+      </div>
+    )
+  }
+
+  const renderBodyCell = (column, emp, sr, joinStr) => {
+    switch (column.id) {
+      case 'sr':
+        return <td className={bodyCellClass(column)}>{sr}</td>
+      case 'photo':
+        return (
+          <td className={bodyCellClass(column)}>
+            <EmployeeAvatar name={emp.name} photoUrl={emp.photoUrl} size="sm" />
+          </td>
+        )
+      case 'name':
+        return (
+          <td className={bodyCellClass(column)}>
+            <span className="employees-table__name-primary">{emp.name}</span>
+            {emp.designation ? (
+              <span className="employees-table__name-sub">{emp.designation}</span>
+            ) : emp.email ? (
+              <span className="employees-table__name-sub employees-table__name-sub--muted">{emp.email}</span>
+            ) : null}
+          </td>
+        )
+      case 'employeeId':
+        return <td className={`${bodyCellClass(column)} employees-table__cell--mono`}>{displayOrDash(emp.employeeId)}</td>
+      case 'department':
+        return (
+          <td className={`${bodyCellClass(column)} employees-table__cell--truncate`} title={emp.department || ''}>
+            {displayOrDash(emp.department)}
+          </td>
+        )
+      case 'designation':
+        return (
+          <td className={`${bodyCellClass(column)} employees-table__cell--truncate`} title={emp.designation || ''}>
+            {displayOrDash(emp.designation)}
+          </td>
+        )
+      case 'primaryLocation': {
+        const location = primaryWorkLocationLabel(emp)
+        return (
+          <td className={`${bodyCellClass(column)} employees-table__cell--truncate`} title={location || ''}>
+            {displayOrDash(location)}
+          </td>
+        )
+      }
+      case 'phone':
+        return (
+          <td className={`${bodyCellClass(column)} employees-table__cell--truncate`} title={emp.phone || ''}>
+            {displayOrDash(emp.phone)}
+          </td>
+        )
+      case 'email':
+        return (
+          <td className={`${bodyCellClass(column)} employees-table__cell--truncate`} title={emp.email || ''}>
+            {displayOrDash(emp.email)}
+          </td>
+        )
+      case 'joining':
+        return <td className={`${bodyCellClass(column)} employees-table__cell--nowrap`}>{joinStr || '—'}</td>
+      case 'passport':
+        return (
+          <td className={`${bodyCellClass(column)} employees-table__cell--truncate`} title={emp.passportNumber || ''}>
+            {displayOrDash(emp.passportNumber)}
+          </td>
+        )
+      case 'nationality':
+        return (
+          <td className={`${bodyCellClass(column)} employees-table__cell--truncate`} title={emp.nationality || ''}>
+            {displayOrDash(emp.nationality)}
+          </td>
+        )
+      case 'emirates':
+        return (
+          <td className={`${bodyCellClass(column)} employees-table__cell--truncate`} title={emp.emiratesId || ''}>
+            {displayOrDash(emp.emiratesId)}
+          </td>
+        )
+      case 'status':
+        return (
+          <td className={bodyCellClass(column)}>
+            <StatusBadge employmentStatus={emp.employmentStatus} />
+          </td>
+        )
+      case 'actions':
+        return (
+          <td className={bodyCellClass(column)}>
+            <div className="employees-table__actions">
+              <button
+                type="button"
+                className="employees-table__action-btn"
+                onClick={() => onView(emp)}
+                title="View"
+                aria-label={`View ${emp.name}`}
+              >
+                <IconView />
+              </button>
+              <button
+                type="button"
+                className="employees-table__action-btn"
+                onClick={() => onEdit(emp.id)}
+                title="Edit"
+                aria-label={`Edit ${emp.name}`}
+              >
+                <IconEdit />
+              </button>
+              <button
+                type="button"
+                className="employees-table__action-btn employees-table__action-btn--danger"
+                onClick={() => onDelete(emp.id)}
+                title="Delete"
+                aria-label={`Delete ${emp.name}`}
+              >
+                <IconTrash />
+              </button>
+            </div>
+          </td>
+        )
+      default:
+        return <td className={bodyCellClass(column)}>—</td>
+    }
+  }
 
   return (
     <div className="employees-table-wrap">
       <div className="employees-table-scroll">
         <table className="employees-table">
+          <colgroup>
+            {TABLE_COLUMNS.map((column) => (
+              <col key={column.id} className={`employees-table__col employees-table__col--${column.id}`} />
+            ))}
+          </colgroup>
           <thead>
             <tr>
-              <th className="employees-table__th employees-table__th--num">
-                <div className="employees-table__th-stack">{thLabel('Sr.')}</div>
-              </th>
-              <th className="employees-table__th employees-table__th--avatar">
-                <div className="employees-table__th-stack">{thLabel('Photo')}</div>
-              </th>
-              <th className="employees-table__th employees-table__th--name">
-                <div className="employees-table__th-stack">
-                  {sortable('name', 'Employee name')}
-                  <ExcelStyleColumnFilter
-                    filterId="emp-col-name"
-                    openFilterId={openFilterId}
-                    onOpenFilterId={setOpenFilterId}
-                    ariaLabel="Filter by employee name"
-                    options={opt.name || []}
-                    included={f.name}
-                    onIncludedChange={(next) => setInc('name', next)}
-                  />
-                </div>
-              </th>
-              <th className="employees-table__th">
-                <div className="employees-table__th-stack">
-                  {thLabel('Employee ID')}
-                  <ExcelStyleColumnFilter
-                    filterId="emp-col-employeeId"
-                    openFilterId={openFilterId}
-                    onOpenFilterId={setOpenFilterId}
-                    ariaLabel="Filter by employee ID"
-                    options={opt.employeeId || []}
-                    included={f.employeeId}
-                    onIncludedChange={(next) => setInc('employeeId', next)}
-                  />
-                </div>
-              </th>
-              <th className="employees-table__th">
-                <div className="employees-table__th-stack">
-                  {sortable('department', 'Department')}
-                  <ExcelStyleColumnFilter
-                    filterId="emp-col-department"
-                    openFilterId={openFilterId}
-                    onOpenFilterId={setOpenFilterId}
-                    ariaLabel="Filter by department"
-                    options={opt.department || []}
-                    included={f.department}
-                    onIncludedChange={(next) => setInc('department', next)}
-                  />
-                </div>
-              </th>
-              <th className="employees-table__th">
-                <div className="employees-table__th-stack">
-                  {thLabel('Designation')}
-                  <ExcelStyleColumnFilter
-                    filterId="emp-col-designation"
-                    openFilterId={openFilterId}
-                    onOpenFilterId={setOpenFilterId}
-                    ariaLabel="Filter by designation"
-                    options={opt.designation || []}
-                    included={f.designation}
-                    onIncludedChange={(next) => setInc('designation', next)}
-                  />
-                </div>
-              </th>
-              <th className="employees-table__th">
-                <div className="employees-table__th-stack">
-                  {sortable('primaryLocation', 'Primary work location')}
-                  <ExcelStyleColumnFilter
-                    filterId="emp-col-primary-location"
-                    openFilterId={openFilterId}
-                    onOpenFilterId={setOpenFilterId}
-                    ariaLabel="Filter by primary work location"
-                    options={opt.primaryLocation || []}
-                    included={f.primaryLocation}
-                    onIncludedChange={(next) => setInc('primaryLocation', next)}
-                  />
-                </div>
-              </th>
-              <th className="employees-table__th">
-                <div className="employees-table__th-stack">
-                  {thLabel('Contact')}
-                  <ExcelStyleColumnFilter
-                    filterId="emp-col-phone"
-                    openFilterId={openFilterId}
-                    onOpenFilterId={setOpenFilterId}
-                    ariaLabel="Filter by contact number"
-                    options={opt.phone || []}
-                    included={f.phone}
-                    onIncludedChange={(next) => setInc('phone', next)}
-                  />
-                </div>
-              </th>
-              <th className="employees-table__th">
-                <div className="employees-table__th-stack">
-                  {thLabel('Email')}
-                  <ExcelStyleColumnFilter
-                    filterId="emp-col-email"
-                    openFilterId={openFilterId}
-                    onOpenFilterId={setOpenFilterId}
-                    ariaLabel="Filter by email"
-                    options={opt.email || []}
-                    included={f.email}
-                    onIncludedChange={(next) => setInc('email', next)}
-                  />
-                </div>
-              </th>
-              <th className="employees-table__th">
-                <div className="employees-table__th-stack">
-                  {sortable('joiningDate', 'Joining date')}
-                  <ExcelStyleColumnFilter
-                    filterId="emp-col-joining"
-                    openFilterId={openFilterId}
-                    onOpenFilterId={setOpenFilterId}
-                    ariaLabel="Filter by joining date"
-                    options={opt.joining || []}
-                    included={f.joining}
-                    onIncludedChange={(next) => setInc('joining', next)}
-                  />
-                </div>
-              </th>
-              <th className="employees-table__th">
-                <div className="employees-table__th-stack">
-                  {thLabel('Passport no.')}
-                  <ExcelStyleColumnFilter
-                    filterId="emp-col-passport"
-                    openFilterId={openFilterId}
-                    onOpenFilterId={setOpenFilterId}
-                    ariaLabel="Filter by passport number"
-                    options={opt.passport || []}
-                    included={f.passport}
-                    onIncludedChange={(next) => setInc('passport', next)}
-                  />
-                </div>
-              </th>
-              <th className="employees-table__th">
-                <div className="employees-table__th-stack">
-                  {thLabel('Nationality')}
-                  <ExcelStyleColumnFilter
-                    filterId="emp-col-nationality"
-                    openFilterId={openFilterId}
-                    onOpenFilterId={setOpenFilterId}
-                    ariaLabel="Filter by nationality"
-                    options={opt.nationality || []}
-                    included={f.nationality}
-                    onIncludedChange={(next) => setInc('nationality', next)}
-                  />
-                </div>
-              </th>
-              <th className="employees-table__th">
-                <div className="employees-table__th-stack">
-                  {thLabel('Emirates ID')}
-                  <ExcelStyleColumnFilter
-                    filterId="emp-col-emirates"
-                    openFilterId={openFilterId}
-                    onOpenFilterId={setOpenFilterId}
-                    ariaLabel="Filter by Emirates ID"
-                    options={opt.emirates || []}
-                    included={f.emirates}
-                    onIncludedChange={(next) => setInc('emirates', next)}
-                  />
-                </div>
-              </th>
-              <th className="employees-table__th employees-table__th--status">
-                <div className="employees-table__th-stack">
-                  {sortable('employmentStatus', 'Status')}
-                  <ExcelStyleColumnFilter
-                    filterId="emp-col-status"
-                    openFilterId={openFilterId}
-                    onOpenFilterId={setOpenFilterId}
-                    ariaLabel="Filter by employment status"
-                    options={opt.status || []}
-                    included={f.status}
-                    onIncludedChange={(next) => setInc('status', next)}
-                  />
-                </div>
-              </th>
-              <th className="employees-table__th employees-table__th--actions">
-                <div className="employees-table__th-stack">{thLabel('Actions')}</div>
-              </th>
+              {TABLE_COLUMNS.map((column) => (
+                <th key={column.id} scope="col" className={headCellClass(column)}>
+                  {renderHeadContent(column)}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -302,83 +318,9 @@ export function EmployeesDataTable({
               const joinStr = formatJoiningDate(effectiveJoiningDate(emp))
               return (
                 <tr key={emp.id} className="employees-table__row">
-                  <td className="employees-table__td employees-table__td--num">{sr}</td>
-                  <td className="employees-table__td employees-table__td--avatar">
-                    <EmployeeAvatar name={emp.name} photoUrl={emp.photoUrl} size="sm" />
-                  </td>
-                  <td className="employees-table__td employees-table__td--name">
-                    <span className="employees-table__name-primary">{emp.name}</span>
-                    {emp.designation ? (
-                      <span className="employees-table__name-sub">{emp.designation}</span>
-                    ) : emp.email ? (
-                      <span className="employees-table__name-sub employees-table__name-sub--muted">
-                        {emp.email}
-                      </span>
-                    ) : null}
-                  </td>
-                  <td className="employees-table__td employees-table__td--mono">{displayOrDash(emp.employeeId)}</td>
-                  <td className="employees-table__td employees-table__td--truncate" title={emp.department}>
-                    {displayOrDash(emp.department)}
-                  </td>
-                  <td className="employees-table__td employees-table__td--truncate" title={emp.designation || ''}>
-                    {displayOrDash(emp.designation)}
-                  </td>
-                  <td
-                    className="employees-table__td employees-table__td--truncate employees-table__td--location"
-                    title={primaryWorkLocationLabel(emp) || ''}
-                  >
-                    {displayOrDash(primaryWorkLocationLabel(emp))}
-                  </td>
-                  <td className="employees-table__td employees-table__td--truncate" title={emp.phone || ''}>
-                    {displayOrDash(emp.phone)}
-                  </td>
-                  <td className="employees-table__td employees-table__td--truncate" title={emp.email || ''}>
-                    {displayOrDash(emp.email)}
-                  </td>
-                  <td className="employees-table__td employees-table__td--nowrap">{joinStr || '—'}</td>
-                  <td className="employees-table__td employees-table__td--truncate" title={emp.passportNumber || ''}>
-                    {displayOrDash(emp.passportNumber)}
-                  </td>
-                  <td className="employees-table__td employees-table__td--truncate" title={emp.nationality || ''}>
-                    {displayOrDash(emp.nationality)}
-                  </td>
-                  <td className="employees-table__td employees-table__td--truncate" title={emp.emiratesId || ''}>
-                    {displayOrDash(emp.emiratesId)}
-                  </td>
-                  <td className="employees-table__td employees-table__td--status">
-                    <StatusBadge employmentStatus={emp.employmentStatus} />
-                  </td>
-                  <td className="employees-table__td employees-table__td--actions">
-                    <div className="employees-table__actions">
-                      <button
-                        type="button"
-                        className="employees-table__action-btn"
-                        onClick={() => onView(emp)}
-                        title="View"
-                        aria-label={`View ${emp.name}`}
-                      >
-                        <IconView />
-                      </button>
-                      <button
-                        type="button"
-                        className="employees-table__action-btn"
-                        onClick={() => onEdit(emp.id)}
-                        title="Edit"
-                        aria-label={`Edit ${emp.name}`}
-                      >
-                        <IconEdit />
-                      </button>
-                      <button
-                        type="button"
-                        className="employees-table__action-btn employees-table__action-btn--danger"
-                        onClick={() => onDelete(emp.id)}
-                        title="Delete"
-                        aria-label={`Delete ${emp.name}`}
-                      >
-                        <IconTrash />
-                      </button>
-                    </div>
-                  </td>
+                  {TABLE_COLUMNS.map((column) => (
+                    <Fragment key={column.id}>{renderBodyCell(column, emp, sr, joinStr)}</Fragment>
+                  ))}
                 </tr>
               )
             })}
