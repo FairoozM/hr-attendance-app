@@ -22,8 +22,22 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     const stored = loadStoredAuth()
-    setUser(stored?.user ?? null)
-    setLoading(false)
+    if (stored) {
+      // Immediately unblock the UI with cached data, then sync fresh permissions
+      setUser(stored.user)
+      setLoading(false)
+      api.get('/api/auth/me')
+        .then((res) => {
+          if (res?.user) {
+            const updated = { user: res.user, token: stored.token }
+            localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updated))
+            setUser(res.user)
+          }
+        })
+        .catch(() => {})
+    } else {
+      setLoading(false)
+    }
   }, [])
 
   const login = useCallback(async (username, password) => {
