@@ -1,0 +1,431 @@
+import { useState } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import { useInfluencers, WORKFLOW_STAGES, APPROVAL_STATUSES, PAYMENT_STATUSES } from '../../contexts/InfluencersContext'
+import './influencers.css'
+
+function wfBadge(status) {
+  const map = {
+    'Approved': 'inf-badge--approved', 'Rejected': 'inf-badge--rejected',
+    'Shortlisted': 'inf-badge--shortlisted', 'Paid': 'inf-badge--paid',
+    'Payment Pending': 'inf-badge--payment', 'Shoot Scheduled': 'inf-badge--scheduled',
+    'Uploaded': 'inf-badge--uploaded',
+  }
+  return `inf-badge inf-badge--dot ${map[status] || 'inf-badge--pending'}`
+}
+
+function payBadge(status) {
+  const map = {
+    'Paid': 'inf-badge--paid', 'Ready for Payment': 'inf-badge--ready',
+    'Payment Processing': 'inf-badge--processing', 'Bank Details Pending': 'inf-badge--waiting',
+    'Not Requested': 'inf-badge--not-requested',
+  }
+  return `inf-badge inf-badge--dot ${map[status] || 'inf-badge--not-requested'}`
+}
+
+function KV({ label, value, link }) {
+  if (!value) return null
+  return (
+    <div className="inf-kv">
+      <span className="inf-kv__key">{label}</span>
+      {link
+        ? <a href={link} target="_blank" rel="noopener noreferrer" className="inf-kv__link">{value}</a>
+        : <span className="inf-kv__val">{value}</span>}
+    </div>
+  )
+}
+
+function Section({ icon, title, children, full }) {
+  return (
+    <div className={`inf-profile-section ${full ? 'inf-profile-section--full' : ''}`}>
+      <div className="inf-profile-section__head">
+        <span className="inf-profile-section__head-icon">{icon}</span>
+        <span className="inf-profile-section__head-title">{title}</span>
+      </div>
+      <div className="inf-profile-section__body">
+        <div className="inf-kv-list">{children}</div>
+      </div>
+    </div>
+  )
+}
+
+const TABS = ['Overview', 'Social & Audience', 'Commercial', 'Communication', 'Payment', 'Schedule', 'Agreement', 'Timeline']
+
+export function InfluencerProfilePage() {
+  const { id } = useParams()
+  const navigate = useNavigate()
+  const { influencers, updateInfluencer, updateWorkflowStatus } = useInfluencers()
+  const [tab, setTab] = useState('Overview')
+  const [showStatusModal, setShowStatusModal] = useState(false)
+  const [newStage, setNewStage] = useState('')
+
+  const inf = influencers.find(i => i.id === id)
+
+  if (!inf) {
+    return (
+      <div className="inf-page">
+        <div className="inf-empty">
+          <div className="inf-empty__icon">🔍</div>
+          <div className="inf-empty__title">Influencer not found</div>
+          <button className="inf-btn inf-btn--primary" onClick={() => navigate('/influencers/list')}>Back to List</button>
+        </div>
+      </div>
+    )
+  }
+
+  const applyStageChange = () => {
+    if (newStage) updateWorkflowStatus(id, newStage)
+    setShowStatusModal(false)
+  }
+
+  return (
+    <div className="inf-page">
+      {/* Hero */}
+      <div className="inf-hero">
+        <div className="inf-hero__left">
+          <div className="inf-hero__name">{inf.name}</div>
+          <div className="inf-hero__handle">
+            {inf.instagram?.handle || inf.youtube?.handle || inf.tiktok?.handle || '—'}
+            {inf.basedIn && <span style={{ opacity: 0.65, fontWeight: 400 }}> · {inf.basedIn}</span>}
+          </div>
+          <div className="inf-hero__badges">
+            <span className={`inf-hero__badge`}>{inf.workflowStatus}</span>
+            <span className={`inf-hero__badge`}>{inf.approvalStatus}</span>
+            {inf.niche && <span className={`inf-hero__badge`}>{inf.niche}</span>}
+          </div>
+        </div>
+        <div className="inf-hero__right">
+          <button className="inf-btn inf-btn--ghost inf-btn--sm" style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)' }}
+            onClick={() => navigate(`/influencers/${id}/edit`)}>
+            ✏️ Edit
+          </button>
+          <button className="inf-btn inf-btn--ghost inf-btn--sm" style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)' }}
+            onClick={() => { setNewStage(inf.workflowStatus); setShowStatusModal(true) }}>
+            🔄 Move Stage
+          </button>
+          {inf.approvalStatus !== 'Approved' && (
+            <button className="inf-btn inf-btn--success inf-btn--sm"
+              onClick={() => updateInfluencer(id, { approvalStatus: 'Approved', workflowStatus: 'Approved' })}>
+              ✓ Approve
+            </button>
+          )}
+          {inf.approvalStatus !== 'Rejected' && (
+            <button className="inf-btn inf-btn--danger inf-btn--sm"
+              onClick={() => updateInfluencer(id, { approvalStatus: 'Rejected', workflowStatus: 'Rejected' })}>
+              ✕ Reject
+            </button>
+          )}
+          {inf.approvalStatus === 'Rejected' && (
+            <button className="inf-btn inf-btn--warning inf-btn--sm"
+              onClick={() => updateInfluencer(id, { approvalStatus: 'Pending', workflowStatus: 'Under Review' })}>
+              ↩ Re-activate
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="inf-tabs">
+        {TABS.map(t => (
+          <button key={t} className={`inf-tab ${tab === t ? 'inf-tab--active' : ''}`} onClick={() => setTab(t)}>{t}</button>
+        ))}
+      </div>
+
+      {tab === 'Overview' && (
+        <div className="inf-profile-grid">
+          <Section icon="👤" title="Basic Information">
+            <KV label="Full Name" value={inf.name} />
+            <KV label="Mobile" value={inf.mobile} />
+            <KV label="WhatsApp" value={inf.whatsapp} />
+            <KV label="Email" value={inf.email} />
+            <KV label="Nationality" value={inf.nationality} />
+            <KV label="Based In" value={inf.basedIn} />
+            <KV label="Niche" value={inf.niche} />
+            <KV label="Assigned To" value={inf.assignedTo} />
+          </Section>
+          <Section icon="📊" title="Status Overview">
+            <div className="inf-kv">
+              <span className="inf-kv__key">Pipeline Stage</span>
+              <span className={wfBadge(inf.workflowStatus)}>{inf.workflowStatus}</span>
+            </div>
+            <div className="inf-kv">
+              <span className="inf-kv__key">Approval</span>
+              <span className={wfBadge(inf.approvalStatus)}>{inf.approvalStatus}</span>
+            </div>
+            <div className="inf-kv">
+              <span className="inf-kv__key">Payment</span>
+              <span className={payBadge(inf.paymentStatus)}>{inf.paymentStatus}</span>
+            </div>
+            <div className="inf-kv">
+              <span className="inf-kv__key">Insights</span>
+              <span className={`inf-badge ${inf.insightsReceived ? 'inf-badge--approved' : 'inf-badge--waiting'}`}>
+                {inf.insightsReceived ? 'Received' : 'Pending'}
+              </span>
+            </div>
+            <div className="inf-kv">
+              <span className="inf-kv__key">Agreement</span>
+              <span className={`inf-badge ${inf.agreementStatus === 'Signed' ? 'inf-badge--signed' : inf.agreementGenerated ? 'inf-badge--generated' : 'inf-badge--not-requested'}`}>
+                {inf.agreementStatus}
+              </span>
+            </div>
+            <KV label="Contact Status" value={inf.contactStatus} />
+            <KV label="Last Updated" value={inf.updatedAt?.split('T')[0]} />
+          </Section>
+          {inf.notes && (
+            <Section icon="📝" title="Notes" full>
+              <div style={{ fontSize: '0.875rem', color: 'var(--text)', lineHeight: 1.6 }}>{inf.notes}</div>
+            </Section>
+          )}
+        </div>
+      )}
+
+      {tab === 'Social & Audience' && (
+        <div className="inf-profile-grid">
+          <Section icon="📱" title="Social Media Handles">
+            {inf.instagram?.handle && <KV label="Instagram" value={inf.instagram.handle} link={inf.instagram.url || undefined} />}
+            {inf.youtube?.handle && <KV label="YouTube" value={inf.youtube.handle} link={inf.youtube.url || undefined} />}
+            {inf.tiktok?.handle && <KV label="TikTok" value={inf.tiktok.handle} link={inf.tiktok.url || undefined} />}
+            {inf.snapchat && <KV label="Snapchat" value={inf.snapchat} />}
+            {inf.facebook && <KV label="Facebook" value={inf.facebook} />}
+            {inf.twitter && <KV label="X / Twitter" value={inf.twitter} />}
+            {inf.telegram && <KV label="Telegram" value={inf.telegram} />}
+            {inf.website && <KV label="Website" value={inf.website} link={inf.website} />}
+            {inf.otherSocial && <KV label="Other" value={inf.otherSocial} />}
+          </Section>
+          <Section icon="📊" title="Audience Data">
+            <KV label="Followers" value={inf.followersCount} />
+            <KV label="Engagement Rate" value={inf.engagementRate} />
+            <KV label="Avg Reel Views" value={inf.avgReelViews} />
+            <KV label="Avg Story Reach" value={inf.avgStoryReach} />
+            <KV label="Audience Notes" value={inf.audienceNotes} />
+            <div className="inf-kv">
+              <span className="inf-kv__key">Insights</span>
+              <span className={`inf-badge ${inf.insightsReceived ? 'inf-badge--approved' : 'inf-badge--waiting'}`}>
+                {inf.insightsReceived ? 'Received' : 'Not Received'}
+              </span>
+            </div>
+          </Section>
+        </div>
+      )}
+
+      {tab === 'Commercial' && (
+        <div className="inf-profile-grid">
+          <Section icon="💰" title="Pricing">
+            <KV label="Reels Price" value={inf.reelsPrice ? `${inf.currency} ${Number(inf.reelsPrice).toLocaleString()}` : undefined} />
+            <KV label="Stories Price" value={inf.storiesPrice ? `${inf.currency} ${Number(inf.storiesPrice).toLocaleString()}` : undefined} />
+            <KV label="Package Price" value={inf.packagePrice ? `${inf.currency} ${Number(inf.packagePrice).toLocaleString()}` : undefined} />
+            <KV label="Currency" value={inf.currency} />
+          </Section>
+          <Section icon="🤝" title="Collaboration Details">
+            <KV label="Type" value={inf.collaborationType} />
+            <KV label="Deliverables" value={inf.deliverables} />
+            <div className="inf-kv">
+              <span className="inf-kv__key">Reel on Page</span>
+              <span className="inf-kv__val">{inf.reelStaysOnPage ? 'Yes' : 'No'}</span>
+            </div>
+            <div className="inf-kv">
+              <span className="inf-kv__key">Brand Content</span>
+              <span className="inf-kv__val">{inf.contentForBrand ? 'Yes — usage rights included' : 'No'}</span>
+            </div>
+          </Section>
+        </div>
+      )}
+
+      {tab === 'Communication' && (
+        <div className="inf-profile-grid">
+          <Section icon="💬" title="Contact & Negotiation">
+            <KV label="Contact Status" value={inf.contactStatus} />
+            <div className="inf-kv">
+              <span className="inf-kv__key">Offer Shared</span>
+              <span className="inf-kv__val">{inf.offerShared ? 'Yes' : 'No'}</span>
+            </div>
+            <KV label="Follow-up" value={inf.followUpReminder} />
+          </Section>
+          <Section icon="📝" title="Notes">
+            {inf.discussionNotes && (
+              <div>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.3rem' }}>Discussion</div>
+                <div style={{ fontSize: '0.875rem', lineHeight: 1.6 }}>{inf.discussionNotes}</div>
+              </div>
+            )}
+            {inf.negotiationNotes && (
+              <div>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.3rem', marginTop: '0.75rem' }}>Negotiation</div>
+                <div style={{ fontSize: '0.875rem', lineHeight: 1.6 }}>{inf.negotiationNotes}</div>
+              </div>
+            )}
+            {inf.approvalNotes && (
+              <div>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--success)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.3rem', marginTop: '0.75rem' }}>Approval Notes</div>
+                <div style={{ fontSize: '0.875rem', lineHeight: 1.6 }}>{inf.approvalNotes}</div>
+              </div>
+            )}
+            {inf.rejectionNotes && (
+              <div>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--danger)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.3rem', marginTop: '0.75rem' }}>Rejection Notes</div>
+                <div style={{ fontSize: '0.875rem', lineHeight: 1.6 }}>{inf.rejectionNotes}</div>
+              </div>
+            )}
+          </Section>
+        </div>
+      )}
+
+      {tab === 'Payment' && (
+        <div className="inf-profile-grid">
+          <Section icon="🏦" title="Bank Details">
+            <KV label="Bank" value={inf.bankName} />
+            <KV label="Account Title" value={inf.accountTitle} />
+            <KV label="IBAN" value={inf.iban} />
+            <KV label="Method" value={inf.paymentMethod} />
+            <KV label="Notes" value={inf.paymentNotes} />
+          </Section>
+          <Section icon="💳" title="Payment Status">
+            <div className="inf-kv">
+              <span className="inf-kv__key">Status</span>
+              <span className={payBadge(inf.paymentStatus)}>{inf.paymentStatus}</span>
+            </div>
+            <KV label="Agreed Amount" value={inf.packagePrice ? `${inf.currency} ${Number(inf.packagePrice).toLocaleString()}` : undefined} />
+            {inf.approvalStatus === 'Approved' && inf.paymentStatus !== 'Paid' && (
+              <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button className="inf-btn inf-btn--warning inf-btn--sm"
+                  onClick={() => updateInfluencer(id, { paymentStatus: 'Ready for Payment' })}>
+                  Mark Ready for Payment
+                </button>
+                <button className="inf-btn inf-btn--success inf-btn--sm"
+                  onClick={() => updateInfluencer(id, { paymentStatus: 'Paid', workflowStatus: 'Paid' })}>
+                  Mark Paid
+                </button>
+              </div>
+            )}
+          </Section>
+        </div>
+      )}
+
+      {tab === 'Schedule' && (
+        <div className="inf-profile-grid">
+          <Section icon="📅" title="Shoot Details">
+            <KV label="Shoot Date" value={inf.shootDate} />
+            <KV label="Shoot Time" value={inf.shootTime} />
+            <KV label="Location" value={inf.shootLocation} />
+            <KV label="Campaign" value={inf.campaign} />
+            <KV label="Assigned To" value={inf.assignedTo} />
+          </Section>
+          <Section icon="📸" title="Shoot Actions">
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button className="inf-btn inf-btn--primary inf-btn--sm"
+                onClick={() => updateWorkflowStatus(id, 'Shoot Scheduled')}>
+                📅 Mark Scheduled
+              </button>
+              <button className="inf-btn inf-btn--success inf-btn--sm"
+                onClick={() => updateWorkflowStatus(id, 'Shot Completed')}>
+                ✓ Mark Shot Completed
+              </button>
+              <button className="inf-btn inf-btn--warning inf-btn--sm"
+                onClick={() => updateWorkflowStatus(id, 'Waiting for Upload')}>
+                ⏳ Waiting for Upload
+              </button>
+              <button className="inf-btn inf-btn--success inf-btn--sm"
+                onClick={() => updateWorkflowStatus(id, 'Uploaded')}>
+                📤 Mark Uploaded
+              </button>
+            </div>
+          </Section>
+        </div>
+      )}
+
+      {tab === 'Agreement' && (
+        <div className="inf-profile-grid">
+          <Section icon="📄" title="Agreement Status">
+            <div className="inf-kv">
+              <span className="inf-kv__key">Status</span>
+              <span className={`inf-badge ${inf.agreementStatus === 'Signed' ? 'inf-badge--signed' : inf.agreementGenerated ? 'inf-badge--generated' : 'inf-badge--not-requested'}`}>
+                {inf.agreementStatus}
+              </span>
+            </div>
+            <div className="inf-kv">
+              <span className="inf-kv__key">Generated</span>
+              <span className="inf-kv__val">{inf.agreementGenerated ? 'Yes' : 'No'}</span>
+            </div>
+            <div className="inf-kv">
+              <span className="inf-kv__key">Signed by Influencer</span>
+              <span className={`inf-badge ${inf.signedByInfluencer ? 'inf-badge--approved' : 'inf-badge--waiting'}`}>
+                {inf.signedByInfluencer ? 'Yes' : 'Pending'}
+              </span>
+            </div>
+            <div className="inf-kv">
+              <span className="inf-kv__key">Signed by Company</span>
+              <span className={`inf-badge ${inf.signedByCompany ? 'inf-badge--approved' : 'inf-badge--waiting'}`}>
+                {inf.signedByCompany ? 'Yes' : 'Pending'}
+              </span>
+            </div>
+          </Section>
+          <Section icon="⚡" title="Agreement Actions">
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button className="inf-btn inf-btn--primary inf-btn--sm"
+                onClick={() => { updateInfluencer(id, { agreementGenerated: true, agreementStatus: 'Generated' }); navigate(`/influencers/agreements?id=${id}`) }}>
+                📄 Generate Agreement
+              </button>
+              <button className="inf-btn inf-btn--ghost inf-btn--sm"
+                onClick={() => navigate(`/influencers/agreements?id=${id}`)}>
+                👁 Preview
+              </button>
+              {inf.agreementGenerated && !inf.signedByInfluencer && (
+                <button className="inf-btn inf-btn--success inf-btn--sm"
+                  onClick={() => updateInfluencer(id, { signedByInfluencer: true, signedByCompany: true, agreementStatus: 'Signed' })}>
+                  ✓ Mark Signed
+                </button>
+              )}
+            </div>
+          </Section>
+        </div>
+      )}
+
+      {tab === 'Timeline' && (
+        <div className="clay-card">
+          <h3 style={{ margin: '0 0 1.25rem', fontSize: '0.875rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            Activity Timeline
+          </h3>
+          {!inf.timeline?.length ? (
+            <div className="inf-empty">
+              <div className="inf-empty__icon">📋</div>
+              <div className="inf-empty__title">No activity recorded yet</div>
+            </div>
+          ) : (
+            <div className="inf-timeline">
+              {[...inf.timeline].reverse().map((item, i) => (
+                <div key={i} className="inf-timeline-item">
+                  <div className="inf-timeline-item__event">{item.event}</div>
+                  <div className="inf-timeline-item__date">{item.date}</div>
+                  {item.note && <div className="inf-timeline-item__note">{item.note}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Stage Move Modal */}
+      {showStatusModal && (
+        <div className="inf-modal-overlay" onClick={() => setShowStatusModal(false)}>
+          <div className="inf-modal" onClick={e => e.stopPropagation()}>
+            <div className="inf-modal__header">
+              <span className="inf-modal__title">Move to Stage</span>
+              <button className="inf-modal__close" onClick={() => setShowStatusModal(false)}>×</button>
+            </div>
+            <div className="inf-modal__body">
+              <div className="inf-field">
+                <label className="inf-label">Select Stage</label>
+                <select className="inf-form-select" value={newStage} onChange={e => setNewStage(e.target.value)}>
+                  {WORKFLOW_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="inf-modal__footer">
+              <button className="inf-btn inf-btn--ghost" onClick={() => setShowStatusModal(false)}>Cancel</button>
+              <button className="inf-btn inf-btn--primary" onClick={applyStageChange}>Apply</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

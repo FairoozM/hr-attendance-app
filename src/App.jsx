@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 import { SettingsContext } from './contexts/SettingsContext'
+import { InfluencersProvider } from './contexts/InfluencersContext'
 import { useAppSettings } from './hooks/useAppSettings'
 import { Layout } from './components/Layout'
 import { HomeRoute } from './components/HomeRoute'
@@ -16,6 +17,14 @@ import { AnnualLeavePage } from './pages/AnnualLeavePage'
 import { EmployeeProfileAdminPage } from './pages/EmployeeProfileAdminPage'
 import { WeeklyRosterPage } from './pages/WeeklyRosterPage'
 import { RolesPermissionsPage } from './pages/RolesPermissionsPage'
+import { InfluencerListPage } from './pages/influencers/InfluencerListPage'
+import { AddInfluencerPage } from './pages/influencers/AddInfluencerPage'
+import { PipelinePage } from './pages/influencers/PipelinePage'
+import { InfluencerProfilePage } from './pages/influencers/InfluencerProfilePage'
+import { ShootSchedulePage } from './pages/influencers/ShootSchedulePage'
+import { PaymentsPage } from './pages/influencers/PaymentsPage'
+import { AgreementsPage } from './pages/influencers/AgreementsPage'
+import { ReportsPage } from './pages/influencers/ReportsPage'
 import { useEmployees } from './hooks/useEmployees'
 import { useAttendanceManagedEmployees } from './hooks/useAttendanceManagedEmployees'
 import { useAttendance, clearAllAttendanceStorage } from './hooks/useAttendance'
@@ -151,6 +160,19 @@ function AppContent() {
             }
           />
           <Route path="roles-permissions" element={<RolesPermissionsPage />} />
+
+          {/* Influencers Module */}
+          <Route path="influencers">
+            <Route path="list" element={<InfluencerListPage />} />
+            <Route path="new" element={<AddInfluencerPage />} />
+            <Route path="pipeline" element={<PipelinePage />} />
+            <Route path="schedule" element={<ShootSchedulePage />} />
+            <Route path="payments" element={<PaymentsPage />} />
+            <Route path="agreements" element={<AgreementsPage />} />
+            <Route path="reports" element={<ReportsPage />} />
+            <Route path=":id" element={<InfluencerProfilePage />} />
+            <Route path=":id/edit" element={<AddInfluencerPage />} />
+          </Route>
         </Route>
       </Routes>
   )
@@ -161,7 +183,9 @@ function App() {
   return (
     <AuthProvider>
       <SettingsContext.Provider value={settings}>
-        <AppContent />
+        <InfluencersProvider>
+          <AppContent />
+        </InfluencersProvider>
       </SettingsContext.Provider>
     </AuthProvider>
   )

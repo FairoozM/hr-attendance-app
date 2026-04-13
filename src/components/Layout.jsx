@@ -84,6 +84,17 @@ export function Layout() {
 
   const HR_ROUTES = ['/employees', '/attendance', '/annual-leave', '/roster', '/settings', '/roles-permissions']
   const isHrActive = HR_ROUTES.some(r => location.pathname.startsWith(r))
+  const isInfluencersActive = location.pathname.startsWith('/influencers')
+
+  const INFLUENCER_ITEMS = [
+    { label: 'Influencer List', to: '/influencers/list' },
+    { label: 'Add Influencer', to: '/influencers/new' },
+    { label: 'Pipeline', to: '/influencers/pipeline' },
+    { label: 'Shoot Schedule', to: '/influencers/schedule' },
+    { label: 'Agreements', to: '/influencers/agreements' },
+    { label: 'Payments', to: '/influencers/payments' },
+    { label: 'Reports', to: '/influencers/reports' },
+  ]
 
   const hrItems = [
     can('employees', 'view') && { label: 'Employees', to: '/employees' },
@@ -141,8 +152,19 @@ export function Layout() {
               ))}
             </NavGroup>
 
-            {/* Influencers Section — empty, ready for future items */}
-            <NavGroup label="Influencers" isActive={false} />
+            {/* Influencers Section */}
+            <NavGroup label="Influencers" isActive={isInfluencersActive}>
+              {INFLUENCER_ITEMS.map(item => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={subLinkClass}
+                  onClick={closeSidebar}
+                >
+                  {item.label}
+                </NavLink>
+              ))}
+            </NavGroup>
 
             {/* Amazon Section — empty, ready for future items */}
             <NavGroup label="Amazon" isActive={false} />
