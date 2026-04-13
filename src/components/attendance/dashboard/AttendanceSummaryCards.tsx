@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { AttendanceSummaryCard } from './AttendanceSummaryCard'
 import { STATUS_COLORS } from '../../../utils/attendance/attendanceStatusColors'
 import type { AttendanceDashboardMetrics } from '../../../types/attendance'
@@ -7,7 +8,7 @@ type Props = {
   metrics: AttendanceDashboardMetrics
 }
 
-export function AttendanceSummaryCards({ metrics }: Props) {
+export const AttendanceSummaryCards = memo(function AttendanceSummaryCards({ metrics }: Props) {
   const g = STATUS_COLORS.P.text
   const r = STATUS_COLORS.A.text
   const o = STATUS_COLORS.SL.text
@@ -40,4 +41,4 @@ export function AttendanceSummaryCards({ metrics }: Props) {
       />
     </div>
   )
-}
+})

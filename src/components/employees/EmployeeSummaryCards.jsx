@@ -1,6 +1,7 @@
+import { memo } from 'react'
 import './EmployeeSummaryCards.css'
 
-export function EmployeeSummaryCards({
+export const EmployeeSummaryCards = memo(function EmployeeSummaryCards({
   total,
   activeCount,
   inactiveCount,
@@ -51,4 +52,4 @@ export function EmployeeSummaryCards({
       ))}
     </div>
   )
-}
+})

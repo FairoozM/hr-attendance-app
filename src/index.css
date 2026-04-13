@@ -70,9 +70,9 @@
   --glass-shadow-raised: 0 16px 48px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.15);
   --glass-shadow-panel: 0 20px 80px rgba(0, 0, 0, 0.35);
   --glass-shadow-cinematic: 0 30px 120px rgba(0, 0, 0, 0.45);
-  --glass-blur: blur(22px) saturate(180%);
-  --glass-blur-sm: blur(14px) saturate(160%);
-  --glass-blur-lg: blur(40px) saturate(200%);
+  --glass-blur: blur(18px) saturate(160%);
+  --glass-blur-sm: blur(12px) saturate(140%);
+  --glass-blur-lg: blur(28px) saturate(180%);
 
   /* Layout spacing */
   --page-max: 1600px;
@@ -104,41 +104,26 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at top left, rgba(139, 92, 246, 0.22), transparent 28%),
-    radial-gradient(circle at top right, rgba(59, 130, 246, 0.18), transparent 25%),
-    linear-gradient(135deg, #0b1020 0%, #11162a 45%, #0f172a 100%);
-  background-attachment: fixed;
+  /* background-attachment: fixed causes full repaint on every scroll frame — removed */
+  background: linear-gradient(135deg, #0b1020 0%, #11162a 45%, #0f172a 100%);
   color: var(--text);
   position: relative;
 }
 
-body::before,
-body::after {
+/* body pseudo-elements: fixed + filter:blur forces GPU repaint on scroll.
+   Replaced with a static gradient on #root's ::before — composited once, never repaints. */
+#root::before {
   content: '';
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: -2;
-}
-
-body::before {
+  z-index: -1;
   background:
-    radial-gradient(circle at 12% 18%, rgba(217, 70, 239, 0.14), transparent 24%),
-    radial-gradient(circle at 84% 16%, rgba(34, 211, 238, 0.12), transparent 22%),
-    radial-gradient(circle at 42% 88%, rgba(99, 102, 241, 0.16), transparent 26%);
-  filter: blur(24px);
-  animation: auroraDrift 22s ease-in-out infinite;
-}
-
-body::after {
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-  background-size: 64px 64px;
-  opacity: 0.16;
-  mask-image: radial-gradient(circle at center, black, transparent 82%);
-  -webkit-mask-image: radial-gradient(circle at center, black, transparent 82%);
+    radial-gradient(circle at 12% 18%, rgba(217, 70, 239, 0.12), transparent 28%),
+    radial-gradient(circle at 84% 16%, rgba(34, 211, 238, 0.10), transparent 26%),
+    radial-gradient(circle at 42% 88%, rgba(99, 102, 241, 0.13), transparent 30%);
+  /* No filter:blur — gradient soft-stops achieve the same look without GPU cost */
+  transform: translateZ(0);
 }
 
 #root {
@@ -579,4 +564,15 @@ img {
   0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
   33% { transform: translate3d(18px, -22px, 0) scale(1.04); }
   66% { transform: translate3d(-14px, 18px, 0) scale(0.98); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body::before {
+    animation: none;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }

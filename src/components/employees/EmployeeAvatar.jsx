@@ -1,7 +1,8 @@
+import { memo } from 'react'
 import { initialsFromName } from './employeeUtils'
 import './EmployeeAvatar.css'
 
-export function EmployeeAvatar({ name, photoUrl, size = 'md' }) {
+export const EmployeeAvatar = memo(function EmployeeAvatar({ name, photoUrl, size = 'md' }) {
   const initial = initialsFromName(name || '')
 
   const className = `employee-avatar employee-avatar--${size}${photoUrl ? ' employee-avatar--image' : ''}`
@@ -19,4 +20,4 @@ export function EmployeeAvatar({ name, photoUrl, size = 'md' }) {
       <span className="employee-avatar__fallback">{initial}</span>
     </span>
   )
-}
+})

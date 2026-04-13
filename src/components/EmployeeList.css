@@ -32,8 +32,7 @@
   width: 45%;
   height: 10rem;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(168, 85, 247, 0.26), rgba(34, 211, 238, 0.15), rgba(96, 165, 250, 0.2));
-  filter: blur(42px);
+  background: radial-gradient(ellipse, rgba(168, 85, 247, 0.22) 0%, rgba(96, 165, 250, 0.12) 55%, transparent 100%);
   pointer-events: none;
 }
 

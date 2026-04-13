@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import type { ReactNode } from 'react'
 
 type Props = {
@@ -8,7 +9,7 @@ type Props = {
   subtitle?: string
 }
 
-export function AttendanceSummaryCard({ title, value, icon, color, subtitle }: Props) {
+export const AttendanceSummaryCard = memo(function AttendanceSummaryCard({ title, value, icon, color, subtitle }: Props) {
   return (
     <div className="adash-card">
       <span className="adash-card__label">{title}</span>
@@ -21,4 +22,4 @@ export function AttendanceSummaryCard({ title, value, icon, color, subtitle }: P
       )}
     </div>
   )
-}
+})

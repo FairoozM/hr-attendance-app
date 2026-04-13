@@ -48,7 +48,6 @@ function AppContent() {
     resetToDefault,
   } = useEmployees()
 
-  // Scoped employees for the attendance grid — backend enforces assignment-based filtering
   const {
     employees: managedEmployees,
     loading: managedEmployeesLoading,
@@ -87,130 +86,130 @@ function AppContent() {
 
   return (
     <Routes>
-        <Route path="/login" element={<LoginPage />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/"
+        element={
+          <RequireAuth>
+            <Layout />
+          </RequireAuth>
+        }
+      >
+        <Route index element={<HomeRoute />} />
+        <Route path="account" element={<EmployeeAccountPage />} />
+        <Route path="annual-leave" element={<AnnualLeavePage />} />
         <Route
-          path="/"
+          path="attendance"
           element={
-            <RequireAuth>
-              <Layout />
-            </RequireAuth>
+            <PermissionGuard module="attendance" action="view">
+              <AttendancePage
+                month={month}
+                year={year}
+                setMonth={setMonth}
+                setYear={setYear}
+                employees={attendanceScopeEmployees}
+                attendance={attendance}
+                setAttendance={setAttendance}
+                sickLeaveDocuments={sickLeaveDocuments}
+                uploadSickLeaveDocument={uploadSickLeaveDocument}
+                removeSickLeaveDocument={removeSickLeaveDocument}
+                daysInMonth={daysInMonth}
+                yearOptions={yearOptions}
+                weeklyHolidayDay={weeklyHolidayDay}
+                onWeeklyHolidayDayChange={setWeeklyHolidayDay}
+                loading={attendanceLoading || managedEmployeesLoading}
+                error={attendanceError}
+              />
+            </PermissionGuard>
           }
-        >
-          <Route index element={<HomeRoute />} />
-          <Route path="account" element={<EmployeeAccountPage />} />
-          <Route path="annual-leave" element={<AnnualLeavePage />} />
-          <Route
-            path="attendance"
-            element={
-              <PermissionGuard module="attendance" action="view">
-                <AttendancePage
-                  month={month}
-                  year={year}
-                  setMonth={setMonth}
-                  setYear={setYear}
-                  employees={attendanceScopeEmployees}
-                  attendance={attendance}
-                  setAttendance={setAttendance}
-                  sickLeaveDocuments={sickLeaveDocuments}
-                  uploadSickLeaveDocument={uploadSickLeaveDocument}
-                  removeSickLeaveDocument={removeSickLeaveDocument}
-                  daysInMonth={daysInMonth}
-                  yearOptions={yearOptions}
-                  weeklyHolidayDay={weeklyHolidayDay}
-                  onWeeklyHolidayDayChange={setWeeklyHolidayDay}
-                  loading={attendanceLoading || managedEmployeesLoading}
-                  error={attendanceError}
-                />
-              </PermissionGuard>
-            }
-          />
-          <Route
-            path="employees"
-            element={
-              <PermissionGuard module="employees" action="view">
-                <EmployeesPage
-                  employees={employees}
-                  onAdd={addEmployee}
-                  onEdit={updateEmployee}
-                  onDelete={deleteEmployee}
-                  loading={employeesLoading}
-                  error={employeesError}
-                />
-              </PermissionGuard>
-            }
-          />
-          <Route
-            path="settings"
-            element={<SettingsPage onResetDemoData={handleResetDemoData} />}
-          />
-          <Route
-            path="employees/:id/profile"
-            element={
-              <PermissionGuard module="employees" action="view">
-                <EmployeeProfileAdminPage />
-              </PermissionGuard>
-            }
-          />
-          <Route
-            path="roster"
-            element={
-              <PermissionGuard module="roster" action="view">
-                <WeeklyRosterPage />
-              </PermissionGuard>
-            }
-          />
-          <Route path="roles-permissions" element={<RolesPermissionsPage />} />
+        />
+        <Route
+          path="employees"
+          element={
+            <PermissionGuard module="employees" action="view">
+              <EmployeesPage
+                employees={employees}
+                onAdd={addEmployee}
+                onEdit={updateEmployee}
+                onDelete={deleteEmployee}
+                loading={employeesLoading}
+                error={employeesError}
+              />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="settings"
+          element={<SettingsPage onResetDemoData={handleResetDemoData} />}
+        />
+        <Route
+          path="employees/:id/profile"
+          element={
+            <PermissionGuard module="employees" action="view">
+              <EmployeeProfileAdminPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="roster"
+          element={
+            <PermissionGuard module="roster" action="view">
+              <WeeklyRosterPage />
+            </PermissionGuard>
+          }
+        />
+        <Route path="roles-permissions" element={<RolesPermissionsPage />} />
 
-          {/* Influencers Module */}
-          <Route path="influencers">
-            <Route path="list" element={
-              <PermissionGuard module="influencers" action="view">
-                <InfluencerListPage />
-              </PermissionGuard>
-            } />
-            <Route path="new" element={
-              <PermissionGuard module="influencers" action="manage">
-                <AddInfluencerPage />
-              </PermissionGuard>
-            } />
-            <Route path="pipeline" element={
-              <PermissionGuard module="influencers" action="view">
-                <PipelinePage />
-              </PermissionGuard>
-            } />
-            <Route path="schedule" element={
-              <PermissionGuard module="influencers" action="view">
-                <ShootSchedulePage />
-              </PermissionGuard>
-            } />
-            <Route path="payments" element={
-              <PermissionGuard module="influencers" action="payments">
-                <PaymentsPage />
-              </PermissionGuard>
-            } />
-            <Route path="agreements" element={
-              <PermissionGuard module="influencers" action="agreements">
-                <AgreementsPage />
-              </PermissionGuard>
-            } />
-            <Route path="reports" element={
-              <PermissionGuard module="influencers" action="view">
-                <ReportsPage />
-              </PermissionGuard>
-            } />
-            <Route path=":id" element={
-              <PermissionGuard module="influencers" action="view">
-                <InfluencerProfilePage />
-              </PermissionGuard>
-            } />
-            <Route path=":id/edit" element={
-              <PermissionGuard module="influencers" action="manage">
-                <AddInfluencerPage />
-              </PermissionGuard>
-            } />
-          </Route>
+        {/* Influencers Module */}
+        <Route path="influencers">
+          <Route path="list" element={
+            <PermissionGuard module="influencers" action="view">
+              <InfluencerListPage />
+            </PermissionGuard>
+          } />
+          <Route path="new" element={
+            <PermissionGuard module="influencers" action="manage">
+              <AddInfluencerPage />
+            </PermissionGuard>
+          } />
+          <Route path="pipeline" element={
+            <PermissionGuard module="influencers" action="view">
+              <PipelinePage />
+            </PermissionGuard>
+          } />
+          <Route path="schedule" element={
+            <PermissionGuard module="influencers" action="view">
+              <ShootSchedulePage />
+            </PermissionGuard>
+          } />
+          <Route path="payments" element={
+            <PermissionGuard module="influencers" action="payments">
+              <PaymentsPage />
+            </PermissionGuard>
+          } />
+          <Route path="agreements" element={
+            <PermissionGuard module="influencers" action="agreements">
+              <AgreementsPage />
+            </PermissionGuard>
+          } />
+          <Route path="reports" element={
+            <PermissionGuard module="influencers" action="view">
+              <ReportsPage />
+            </PermissionGuard>
+          } />
+          <Route path=":id" element={
+            <PermissionGuard module="influencers" action="view">
+              <InfluencerProfilePage />
+            </PermissionGuard>
+          } />
+          <Route path=":id/edit" element={
+            <PermissionGuard module="influencers" action="manage">
+              <AddInfluencerPage />
+            </PermissionGuard>
+          } />
         </Route>
-      </Routes>
+      </Route>
+    </Routes>
   )
 }
 

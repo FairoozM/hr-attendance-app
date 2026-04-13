@@ -143,12 +143,10 @@ export function Layout() {
         )}
       </AnimatePresence>
 
-      <motion.aside
+      <aside
         id="app-sidebar-panel"
         className={`app-sidebar ${isSidebarOpen ? 'app-sidebar--open' : ''}`}
         aria-hidden={!isSidebarOpen}
-        initial={false}
-        animate={{ x: isSidebarOpen ? 0 : 0 }}
       >
         <div className="app-sidebar__glow" aria-hidden />
         <div className="app-sidebar__inner">
@@ -223,7 +221,7 @@ export function Layout() {
             </button>
           </div>
         </div>
-      </motion.aside>
+      </aside>
 
       <div className="app-shell">
         <header className="app-topbar">

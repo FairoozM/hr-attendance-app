@@ -11,8 +11,9 @@
 .login-orb {
   position: absolute;
   border-radius: 999px;
-  filter: blur(80px);
+  filter: blur(50px);
   pointer-events: none;
+  contain: strict;
 }
 
 .login-orb--one {
@@ -158,8 +159,9 @@
   height: 12rem;
   border-radius: 999px;
   background: rgba(99, 102, 241, 0.14);
-  filter: blur(50px);
+  filter: blur(32px);
   pointer-events: none;
+  contain: strict;
 }
 
 .login-card__header,

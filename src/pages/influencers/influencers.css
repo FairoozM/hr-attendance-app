@@ -39,8 +39,7 @@
   width: 42%;
   height: 10rem;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(168, 85, 247, 0.26), rgba(34, 211, 238, 0.15), rgba(96, 165, 250, 0.2));
-  filter: blur(42px);
+  background: radial-gradient(ellipse, rgba(168, 85, 247, 0.22) 0%, rgba(96, 165, 250, 0.12) 55%, transparent 100%);
   pointer-events: none;
 }
 
@@ -963,9 +962,7 @@
 .inf-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(2, 6, 23, 0.68);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(2, 6, 23, 0.78);
   z-index: 500;
   display: flex;
   align-items: center;
@@ -976,9 +973,7 @@
 @keyframes inf-fade-in { from { opacity: 0; } to { opacity: 1; } }
 
 .inf-modal {
-  background: rgba(7, 12, 28, 0.84);
-  backdrop-filter: blur(34px) saturate(200%);
-  -webkit-backdrop-filter: blur(34px) saturate(200%);
+  background: rgba(7, 12, 28, 0.96);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 22px;
   box-shadow: var(--glass-shadow-cinematic);
@@ -1143,10 +1138,9 @@
   position: absolute;
   border-radius: 50%;
   pointer-events: none;
-  filter: blur(80px);
 }
-.aif-bg-orb--tl { width: 380px; height: 380px; top: -80px;  left: -90px; background: rgba(139,92,246,0.12); }
-.aif-bg-orb--tr { width: 360px; height: 360px; top: -60px;  right: -80px; background: rgba(99,102,241,0.11); }
+.aif-bg-orb--tl { width: 380px; height: 380px; top: -80px;  left: -90px; background: radial-gradient(circle, rgba(139,92,246,0.14) 0%, transparent 70%); }
+.aif-bg-orb--tr { width: 360px; height: 360px; top: -60px;  right: -80px; background: radial-gradient(circle, rgba(99,102,241,0.12) 0%, transparent 70%); }
 .aif-bg-orb--bc { width: 340px; height: 340px; bottom: -80px; left: 35%;  background: rgba(59,130,246,0.09); }
 
 /* Content wrapper */
@@ -1299,11 +1293,10 @@
 .aif-sidebar {
   border-radius: 32px;
   border: 1px solid rgba(255,255,255,0.1);
-  background: rgba(255,255,255,0.06);
+  background: rgba(13, 17, 38, 0.92);
   padding: 1rem;
-  backdrop-filter: blur(40px);
-  -webkit-backdrop-filter: blur(40px);
   box-shadow: 0 20px 80px rgba(0,0,0,0.35);
+  transform: translateZ(0);
 }
 .aif-sidebar__head { padding: 0.25rem 0.5rem 0.9rem; }
 .aif-sidebar__eyebrow {
@@ -1417,9 +1410,7 @@
   overflow: hidden;
   border-radius: 36px;
   border: 1px solid rgba(255,255,255,0.1);
-  background: rgba(255,255,255,0.05);
-  backdrop-filter: blur(64px);          /* backdrop-blur-3xl ≈ 64px */
-  -webkit-backdrop-filter: blur(64px);
+  background: rgba(13, 17, 38, 0.94);
   box-shadow: 0 30px 120px rgba(0,0,0,0.45);
   display: flex;
   flex-direction: column;
@@ -1443,10 +1434,9 @@
   position: absolute;
   border-radius: 50%;
   pointer-events: none;
-  filter: blur(55px);
   z-index: 0;
 }
-.aif-panel__orb--tr { width: 220px; height: 220px; top: -50px;  right: -50px;  background: rgba(139,92,246,0.1); }
+.aif-panel__orb--tr { width: 220px; height: 220px; top: -50px;  right: -50px;  background: radial-gradient(circle, rgba(139,92,246,0.12) 0%, transparent 70%); }
 .aif-panel__orb--bl { width: 260px; height: 260px; bottom: -60px; left: -40px; background: rgba(99,102,241,0.1); }
 
 /* Lift all real children above decorations */
@@ -1735,12 +1725,11 @@
 .aif-overview {
   border-radius: 30px;
   border: 1px solid rgba(255,255,255,0.1);
-  background: rgba(0,0,0,0.2);
+  background: rgba(13, 17, 38, 0.92);
   padding: 1.1rem;
-  backdrop-filter: blur(40px);
-  -webkit-backdrop-filter: blur(40px);
   position: sticky;
   top: 0.5rem;
+  transform: translateZ(0);
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
@@ -1874,9 +1863,7 @@
   overflow-y: auto;
   border-radius: 36px;
   border: 1px solid rgba(255,255,255,0.1);
-  background: rgba(11,16,32,0.95);
-  backdrop-filter: blur(44px);
-  -webkit-backdrop-filter: blur(44px);
+  background: rgba(11,16,32,0.97);
   box-shadow: 0 50px 160px rgba(0,0,0,0.7);
 }
 .aif-modal-wrap .aif-page    { background: transparent; }

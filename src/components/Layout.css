@@ -1,40 +1,39 @@
 .app {
   position: relative;
   min-height: 100vh;
-  display: flex;
-  align-items: stretch;
-  gap: 1rem;
+  display: block;
   padding: 1rem;
 }
 
+/* Aurora orbs: use radial-gradient soft-stops instead of filter:blur
+   — identical look, zero per-frame GPU cost, no compositor layer needed */
 .app__aurora {
   position: fixed;
-  border-radius: 999px;
-  filter: blur(90px);
   pointer-events: none;
   z-index: 0;
-  opacity: 0.65;
+  border-radius: 999px;
+  transform: translateZ(0);
 }
 
 .app__aurora--left {
-  inset: 2rem auto auto -6rem;
-  width: 18rem;
-  height: 18rem;
-  background: rgba(217, 70, 239, 0.14);
+  inset: -4rem auto auto -10rem;
+  width: 30rem;
+  height: 30rem;
+  background: radial-gradient(circle, rgba(217, 70, 239, 0.18) 0%, transparent 70%);
 }
 
 .app__aurora--right {
-  inset: 4rem -5rem auto auto;
-  width: 19rem;
-  height: 19rem;
-  background: rgba(34, 211, 238, 0.12);
+  inset: 0rem -10rem auto auto;
+  width: 32rem;
+  height: 32rem;
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.14) 0%, transparent 70%);
 }
 
 .app__aurora--bottom {
-  inset: auto auto -7rem 30%;
-  width: 22rem;
-  height: 22rem;
-  background: rgba(99, 102, 241, 0.12);
+  inset: auto auto -12rem 20%;
+  width: 36rem;
+  height: 36rem;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.14) 0%, transparent 70%);
 }
 
 .app-sidebar-backdrop {
@@ -60,6 +59,7 @@
   overflow: hidden;
   transform: translateX(calc(-100% - 1rem));
   transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
 }
 
 .app-sidebar--open {
@@ -72,8 +72,7 @@
   width: 78%;
   height: 11rem;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(168, 85, 247, 0.28), rgba(34, 211, 238, 0.18), rgba(96, 165, 250, 0.2));
-  filter: blur(42px);
+  background: radial-gradient(ellipse, rgba(168, 85, 247, 0.22) 0%, rgba(96, 165, 250, 0.12) 60%, transparent 100%);
   pointer-events: none;
 }
 
@@ -271,12 +270,10 @@
 .app-shell {
   position: relative;
   z-index: 1;
-  flex: 1;
-  min-width: 0;
+  width: 100%;
   min-height: calc(100vh - 2rem);
   display: flex;
   flex-direction: column;
-  margin-left: 0;
 }
 
 .app-topbar {
@@ -287,13 +284,15 @@
   padding: 1rem 1.15rem;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-lg);
-  background: rgba(255, 255, 255, 0.06);
+  /* Solid bg instead of backdrop-filter — sticky + backdrop-filter repaints on every scroll frame */
+  background: rgba(13, 17, 38, 0.92);
   box-shadow: var(--glass-shadow-panel);
-  backdrop-filter: var(--glass-blur-lg);
-  -webkit-backdrop-filter: var(--glass-blur-lg);
   position: sticky;
   top: 1rem;
   z-index: 60;
+  /* Promote to own compositor layer so it doesn't trigger layout during scroll */
+  transform: translateZ(0);
+  will-change: transform;
 }
 
 .app-topbar__left,
@@ -549,6 +548,7 @@
   }
 
   .app-shell {
+    width: 100%;
     min-height: calc(100vh - 2.2rem);
   }
 }
