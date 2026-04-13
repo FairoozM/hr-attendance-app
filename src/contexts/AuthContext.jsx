@@ -1,5 +1,8 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import { api, AUTH_STORAGE_KEY } from '../api/client'
+import { useIdleLogout } from '../hooks/useIdleLogout'
+
+const IDLE_ACTIVITY_KEY = 'hr_last_activity'
 
 export const AuthContext = createContext(null)
 
@@ -58,6 +61,7 @@ export function AuthProvider({ children }) {
   const logout = useCallback(() => {
     setUser(null)
     localStorage.removeItem(AUTH_STORAGE_KEY)
+    localStorage.removeItem(IDLE_ACTIVITY_KEY)
   }, [])
 
   /** Refresh user from /api/auth/me (e.g. after admin updates permissions) */
@@ -76,6 +80,9 @@ export function AuthProvider({ children }) {
     } catch (_) {}
     return null
   }, [])
+
+  // Auto-logout after 10 hours of inactivity (no mouse/keyboard/touch/scroll)
+  useIdleLogout(user, logout)
 
   const value = { user, loading, login, logout, refreshUser }
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
