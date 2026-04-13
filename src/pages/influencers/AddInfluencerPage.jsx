@@ -87,7 +87,7 @@ function Textarea({ value, onChange, placeholder, rows = 3 }) {
   )
 }
 
-export function AddInfluencerPage() {
+export function AddInfluencerPage({ asModal = false, onClose }) {
   const { influencers, addInfluencer, updateInfluencer } = useInfluencers()
   const navigate = useNavigate()
   const { id } = useParams()
@@ -107,28 +107,36 @@ export function AddInfluencerPage() {
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }))
   const setNested = (key, subKey, val) => setForm(f => ({ ...f, [key]: { ...f[key], [subKey]: val } }))
 
+  const handleCancel = () => {
+    if (asModal) onClose?.()
+    else navigate(-1)
+  }
+
   const handleSubmit = (e) => {
     e.preventDefault()
     if (isEdit) {
       updateInfluencer(id, form)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
     } else {
       const newId = addInfluencer(form)
-      navigate(`/influencers/${newId}`)
-      return
+      if (asModal) {
+        onClose?.()
+      } else {
+        navigate(`/influencers/${newId}`)
+      }
     }
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
   }
 
-  return (
-    <div className="inf-page">
+  const pageContent = (
+    <div className={asModal ? 'inf-modal-inner' : 'inf-page'}>
       <div className="inf-page-header">
         <div>
           <h1 className="inf-page-title">{isEdit ? 'Edit Influencer' : 'Add Influencer'}</h1>
           <p className="inf-page-subtitle">{isEdit ? `Editing: ${existing?.name}` : 'Fill in the details to add a new influencer'}</p>
         </div>
         <div className="inf-page-actions">
-          <button type="button" className="inf-btn inf-btn--ghost" onClick={() => navigate(-1)}>Cancel</button>
+          <button type="button" className="inf-btn inf-btn--ghost" onClick={handleCancel}>Cancel</button>
           <button type="button" className="inf-btn inf-btn--primary" onClick={handleSubmit}>
             {saved ? '✓ Saved' : isEdit ? 'Save Changes' : 'Add Influencer'}
           </button>
@@ -439,7 +447,7 @@ export function AddInfluencerPage() {
               Next →
             </button>
           )}
-          <button type="button" className="inf-btn inf-btn--ghost" onClick={() => navigate(-1)}>Cancel</button>
+          <button type="button" className="inf-btn inf-btn--ghost" onClick={handleCancel}>Cancel</button>
           <button type="submit" className="inf-btn inf-btn--primary inf-btn--lg">
             {saved ? '✓ Saved' : isEdit ? '💾 Save Changes' : '+ Add Influencer'}
           </button>
@@ -447,4 +455,16 @@ export function AddInfluencerPage() {
       </form>
     </div>
   )
+
+  if (asModal) {
+    return (
+      <div className="inf-modal-overlay" onClick={handleCancel}>
+        <div className="inf-modal inf-modal--large" onClick={e => e.stopPropagation()}>
+          {pageContent}
+        </div>
+      </div>
+    )
+  }
+
+  return pageContent
 }

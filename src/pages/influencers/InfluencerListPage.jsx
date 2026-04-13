@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useInfluencers } from '../../contexts/InfluencersContext'
 import { useAuth, hasPermission } from '../../contexts/AuthContext'
+import { AddInfluencerPage } from './AddInfluencerPage'
 import './influencers.css'
 
 function workflowBadgeClass(status) {
@@ -49,6 +50,7 @@ export function InfluencerListPage() {
   const { user } = useAuth()
   const can = (action) => hasPermission(user, 'influencers', action)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+  const [showAddModal, setShowAddModal] = useState(false)
 
   const [search, setSearch] = useState('')
   const [filterWorkflow, setFilterWorkflow] = useState('All')
@@ -114,7 +116,7 @@ export function InfluencerListPage() {
         </div>
         <div className="inf-page-actions">
           {can('manage') && (
-            <button className="inf-btn inf-btn--primary" onClick={() => navigate('/influencers/new')}>
+            <button className="inf-btn inf-btn--primary" onClick={() => setShowAddModal(true)}>
               + Add Influencer
             </button>
           )}
@@ -289,6 +291,11 @@ export function InfluencerListPage() {
           </table>
         )}
       </div>
+      {/* Add Influencer modal */}
+      {showAddModal && (
+        <AddInfluencerPage asModal onClose={() => setShowAddModal(false)} />
+      )}
+
       {/* Delete confirmation modal */}
       {confirmDeleteId && (
         <div className="inf-modal-overlay" onClick={() => setConfirmDeleteId(null)}>
