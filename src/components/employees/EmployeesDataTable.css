@@ -50,12 +50,21 @@
 .employees-table__th-stack {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
   align-items: stretch;
   min-width: 0;
-  /* Fixed height so every header cell is the same — filter rows line up */
-  height: 4.25rem;
-  justify-content: space-between;
+  /* All header cells share the same height so filter icons line up */
+  height: 4rem;
+}
+
+/* Label sits at the top */
+.employees-table__th-label,
+.employees-table__th-btn {
+  flex-shrink: 0;
+}
+
+/* Filter widget is always pinned to the bottom of the stack */
+.employees-table__th-stack > .excel-col-filter {
+  margin-top: auto;
 }
 
 .employees-table__th-label {

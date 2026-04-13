@@ -1,7 +1,7 @@
 .excel-col-filter {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   width: 100%;
   min-height: 1.5rem;
 }
@@ -13,7 +13,7 @@
   width: 1.65rem;
   height: 1.5rem;
   padding: 0;
-  margin: 0 auto;
+  margin: 0;
   border: 1px solid var(--border);
   border-radius: 0.85rem;
   background: rgba(255, 255, 255, 0.08);
