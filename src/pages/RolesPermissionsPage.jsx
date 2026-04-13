@@ -205,34 +205,42 @@ export function RolesPermissionsPage() {
 
   const savePermissions = useCallback(async () => {
     if (!selectedUser) return
+    const savedUserId = selectedUser.id
     setSaving(true)
     setSaveMsg(null)
     try {
-      await api.put(`/api/admin/users/${selectedUser.id}/permissions`, { permissions: localPerms })
+      await api.put(`/api/admin/users/${savedUserId}/permissions`, { permissions: localPerms })
 
-      // Save attendance assignments alongside permissions (convert string IDs back to numbers for the API)
-      if (selectedUser.id) {
-        await api.put(`/api/admin/users/${selectedUser.id}/attendance-assignments`, {
+      // Save attendance assignments alongside permissions
+      if (savedUserId) {
+        await api.put(`/api/admin/users/${savedUserId}/attendance-assignments`, {
           employeeIds: Array.from(assignedEmpIds).map(Number).filter(Boolean),
         })
       }
 
-      setSaveMsg({ type: 'success', text: 'Permissions and attendance assignments saved. Changes take effect immediately.' })
-      if (currentAdmin && String(selectedUser.id) === String(currentAdmin.id)) {
+      // Re-fetch the users list so we have the latest server data
+      const data = await api.get('/api/admin/users-permissions')
+      const freshUsers = Array.isArray(data) ? data : []
+      setUsers(freshUsers)
+
+      // Re-select the same user from the fresh list so the editor stays visible
+      const freshUser = freshUsers.find((u) => u.id === savedUserId)
+      if (freshUser) {
+        setSelectedUser(freshUser)
+        setLocalPerms(initPermissionsState(freshUser.permissions))
+      }
+
+      setSaveMsg({ type: 'success', text: 'Permissions saved. Changes take effect immediately.' })
+
+      if (currentAdmin && String(savedUserId) === String(currentAdmin.id)) {
         await refreshUser()
       }
-      setUsers((prev) =>
-        prev.map((u) =>
-          u.id === selectedUser.id ? { ...u, permissions: { ...localPerms } } : u
-        )
-      )
-      setSelectedUser((prev) => prev ? { ...prev, permissions: { ...localPerms } } : prev)
     } catch (err) {
       setSaveMsg({ type: 'error', text: err.message || 'Failed to save permissions' })
     } finally {
       setSaving(false)
     }
-  }, [selectedUser, localPerms, assignedEmpIds])
+  }, [selectedUser, localPerms, assignedEmpIds, currentAdmin, refreshUser])
 
   const filteredUsers = users.filter((u) => {
     const q = searchQuery.toLowerCase()
