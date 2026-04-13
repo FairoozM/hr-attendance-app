@@ -1,4 +1,14 @@
-import { createContext, useContext, useState, useCallback } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect } from 'react'
+
+const STORAGE_KEY = 'hr-influencers-v1'
+
+function loadStored() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch (_) {}
+  return null
+}
 
 export const WORKFLOW_STAGES = [
   'New Lead', 'Contacted', 'Waiting for Price', 'Waiting for Insights',
@@ -300,7 +310,12 @@ const INITIAL_INFLUENCERS = [
 const InfluencersContext = createContext(null)
 
 export function InfluencersProvider({ children }) {
-  const [influencers, setInfluencers] = useState(INITIAL_INFLUENCERS)
+  const [influencers, setInfluencers] = useState(() => loadStored() ?? INITIAL_INFLUENCERS)
+
+  // Persist every change to localStorage so deletes/adds/edits survive page refresh
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(influencers)) } catch (_) {}
+  }, [influencers])
 
   const addInfluencer = useCallback((data) => {
     const newInfluencer = {
