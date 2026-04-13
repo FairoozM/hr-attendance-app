@@ -42,6 +42,51 @@ function Toggle({ value, onChange, label }) {
   )
 }
 
+function Field({ label, children, full }) {
+  return (
+    <div className={`inf-field ${full ? 'inf-field--full' : ''}`}>
+      <label className="inf-label">{label}</label>
+      {children}
+    </div>
+  )
+}
+
+function Input({ name, value, onChange, placeholder, type = 'text' }) {
+  return (
+    <input
+      className="inf-input"
+      type={type}
+      name={name}
+      value={value || ''}
+      onChange={e => onChange(e.target.value)}
+      placeholder={placeholder}
+    />
+  )
+}
+
+function FormSelect({ value, onChange, options }) {
+  return (
+    <select className="inf-form-select" value={value || ''} onChange={e => onChange(e.target.value)}>
+      {options.map(o => typeof o === 'string'
+        ? <option key={o} value={o}>{o}</option>
+        : <option key={o.value} value={o.value}>{o.label}</option>
+      )}
+    </select>
+  )
+}
+
+function Textarea({ value, onChange, placeholder, rows = 3 }) {
+  return (
+    <textarea
+      className="inf-textarea"
+      value={value || ''}
+      onChange={e => onChange(e.target.value)}
+      placeholder={placeholder}
+      rows={rows}
+    />
+  )
+}
+
 export function AddInfluencerPage() {
   const { influencers, addInfluencer, updateInfluencer } = useInfluencers()
   const navigate = useNavigate()
@@ -74,43 +119,6 @@ export function AddInfluencerPage() {
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
-
-  const Field = ({ label, children, full }) => (
-    <div className={`inf-field ${full ? 'inf-field--full' : ''}`}>
-      <label className="inf-label">{label}</label>
-      {children}
-    </div>
-  )
-
-  const Input = ({ name, value, onChange, placeholder, type = 'text' }) => (
-    <input
-      className="inf-input"
-      type={type}
-      name={name}
-      value={value || ''}
-      onChange={e => onChange(e.target.value)}
-      placeholder={placeholder}
-    />
-  )
-
-  const Select = ({ value, onChange, options }) => (
-    <select className="inf-form-select" value={value || ''} onChange={e => onChange(e.target.value)}>
-      {options.map(o => typeof o === 'string'
-        ? <option key={o} value={o}>{o}</option>
-        : <option key={o.value} value={o.value}>{o.label}</option>
-      )}
-    </select>
-  )
-
-  const Textarea = ({ value, onChange, placeholder, rows = 3 }) => (
-    <textarea
-      className="inf-textarea"
-      value={value || ''}
-      onChange={e => onChange(e.target.value)}
-      placeholder={placeholder}
-      rows={rows}
-    />
-  )
 
   return (
     <div className="inf-page">
@@ -276,7 +284,7 @@ export function AddInfluencerPage() {
             <div className="inf-form-section__body">
               <div className="inf-grid-3">
                 <Field label="Currency">
-                  <Select value={form.currency} onChange={v => set('currency', v)} options={CURRENCIES} />
+                  <FormSelect value={form.currency} onChange={v => set('currency', v)} options={CURRENCIES} />
                 </Field>
                 <Field label="Reels Price">
                   <Input value={form.reelsPrice} onChange={v => set('reelsPrice', v)} placeholder="0" type="number" />
@@ -288,7 +296,7 @@ export function AddInfluencerPage() {
                   <Input value={form.packagePrice} onChange={v => set('packagePrice', v)} placeholder="0" type="number" />
                 </Field>
                 <Field label="Collaboration Type" full>
-                  <Select value={form.collaborationType} onChange={v => set('collaborationType', v)}
+                  <FormSelect value={form.collaborationType} onChange={v => set('collaborationType', v)}
                     options={['', ...COLLABORATION_TYPES]} />
                 </Field>
               </div>
@@ -315,7 +323,7 @@ export function AddInfluencerPage() {
             <div className="inf-form-section__body">
               <div className="inf-grid-2">
                 <Field label="Contact Status">
-                  <Select value={form.contactStatus} onChange={v => set('contactStatus', v)} options={CONTACT_STATUSES} />
+                  <FormSelect value={form.contactStatus} onChange={v => set('contactStatus', v)} options={CONTACT_STATUSES} />
                 </Field>
                 <Field label="Follow-up Reminder Date">
                   <Input value={form.followUpReminder} onChange={v => set('followUpReminder', v)} type="date" />
@@ -361,7 +369,7 @@ export function AddInfluencerPage() {
                   <Input value={form.iban} onChange={v => set('iban', v)} placeholder="AE..." />
                 </Field>
                 <Field label="Payment Method">
-                  <Select value={form.paymentMethod} onChange={v => set('paymentMethod', v)}
+                  <FormSelect value={form.paymentMethod} onChange={v => set('paymentMethod', v)}
                     options={['', 'Bank Transfer', 'Cash', 'Cheque', 'Online Transfer', 'Other']} />
                 </Field>
               </div>
@@ -384,13 +392,13 @@ export function AddInfluencerPage() {
             <div className="inf-form-section__body">
               <div className="inf-grid-2">
                 <Field label="Workflow Stage">
-                  <Select value={form.workflowStatus} onChange={v => set('workflowStatus', v)} options={WORKFLOW_STAGES} />
+                  <FormSelect value={form.workflowStatus} onChange={v => set('workflowStatus', v)} options={WORKFLOW_STAGES} />
                 </Field>
                 <Field label="Approval Status">
-                  <Select value={form.approvalStatus} onChange={v => set('approvalStatus', v)} options={APPROVAL_STATUSES} />
+                  <FormSelect value={form.approvalStatus} onChange={v => set('approvalStatus', v)} options={APPROVAL_STATUSES} />
                 </Field>
                 <Field label="Payment Status">
-                  <Select value={form.paymentStatus} onChange={v => set('paymentStatus', v)} options={PAYMENT_STATUSES} />
+                  <FormSelect value={form.paymentStatus} onChange={v => set('paymentStatus', v)} options={PAYMENT_STATUSES} />
                 </Field>
                 <Field label="Assigned To">
                   <Input value={form.assignedTo} onChange={v => set('assignedTo', v)} placeholder="Team member name" />
