@@ -159,24 +159,37 @@ export function LoginPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
         >
-          <div className="login-stage__eyebrow">Premium people operations</div>
-          <h1 className="login-stage__title">HR attendance with a cinematic control room feel.</h1>
-          <p className="login-stage__subtitle">
-            Manage teams, attendance, leave, creator workflows, and permissions in one polished workspace.
-          </p>
+          <div className="login-stage__logo-wrap">
+            <div className="login-stage__logo-frame">
+              <div className="login-stage__logo-ring login-stage__logo-ring--outer" aria-hidden />
+              <div className="login-stage__logo-ring login-stage__logo-ring--inner" aria-hidden />
+              <div className="login-stage__logo-glow" aria-hidden />
+              <img
+                src="/lifesmile-logo.png"
+                alt="Life Smile"
+                className="login-stage__logo-img"
+              />
+            </div>
+          </div>
+
+          <div className="login-stage__brand">
+            <div className="login-stage__eyebrow">HR &amp; Business Intelligence</div>
+            <h1 className="login-stage__title">Life Smile</h1>
+            <p className="login-stage__tagline">Life Towards Health</p>
+          </div>
 
           <div className="login-stage__metrics">
             <div className="login-stage__metric">
-              <span className="login-stage__metric-value">HR</span>
-              <span className="login-stage__metric-label">Employees, leave, roster</span>
+              <span className="login-stage__metric-dot" aria-hidden />
+              <span className="login-stage__metric-label">Employees &amp; Attendance</span>
             </div>
             <div className="login-stage__metric">
-              <span className="login-stage__metric-value">Ops</span>
-              <span className="login-stage__metric-label">Attendance and approvals</span>
+              <span className="login-stage__metric-dot" aria-hidden />
+              <span className="login-stage__metric-label">Leave &amp; Approvals</span>
             </div>
             <div className="login-stage__metric">
-              <span className="login-stage__metric-value">Creator</span>
-              <span className="login-stage__metric-label">Influencer workflow control</span>
+              <span className="login-stage__metric-dot" aria-hidden />
+              <span className="login-stage__metric-label">Influencer Workflows</span>
             </div>
           </div>
         </motion.section>
@@ -191,10 +204,10 @@ export function LoginPage() {
           <div className="login-card__orb" aria-hidden />
 
           <div className="login-card__header">
-            <div className="login-kicker">Access portal</div>
-            <h2 className="login-title">HR Attendance</h2>
+            <div className="login-kicker">Staff portal</div>
+            <h2 className="login-title">Welcome back</h2>
             <p className="login-subtitle">
-              Sign in with your admin, warehouse, or employee portal credentials.
+              Sign in to your Life Smile workspace.
             </p>
           </div>
 

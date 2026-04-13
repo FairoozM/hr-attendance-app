@@ -64,17 +64,90 @@
 }
 
 .login-stage {
-  padding: 1.8rem;
+  padding: 2rem 1.8rem;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  gap: 1.6rem;
   min-height: 420px;
+}
+
+/* ── Logo frame ── */
+.login-stage__logo-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-stage__logo-frame {
+  position: relative;
+  width: 13rem;
+  height: 13rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-stage__logo-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.login-stage__logo-ring--outer {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow:
+    0 0 0 1px rgba(220, 38, 38, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 0 40px rgba(220, 38, 38, 0.08);
+}
+
+.login-stage__logo-ring--inner {
+  inset: 0.7rem;
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  background: rgba(220, 38, 38, 0.04);
+  box-shadow: 0 0 28px rgba(220, 38, 38, 0.1);
+}
+
+.login-stage__logo-glow {
+  position: absolute;
+  inset: -1.5rem;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(220, 38, 38, 0.12) 0%, transparent 65%);
+  pointer-events: none;
+}
+
+.login-stage__logo-img {
+  position: relative;
+  z-index: 1;
+  width: 8.5rem;
+  height: 8.5rem;
+  object-fit: contain;
+  /* White background pill so the red logo reads on dark */
+  background: #fff;
+  border-radius: 1.4rem;
+  padding: 0.6rem;
+  box-shadow:
+    0 0 0 1px rgba(220, 38, 38, 0.2),
+    0 8px 32px rgba(0, 0, 0, 0.35),
+    0 0 24px rgba(220, 38, 38, 0.15);
+}
+
+/* ── Brand copy ── */
+.login-stage__brand {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  text-align: center;
 }
 
 .login-stage__eyebrow,
 .login-kicker {
   display: inline-flex;
   width: fit-content;
+  align-self: center;
   align-items: center;
   min-height: 2rem;
   padding: 0.35rem 0.8rem;
@@ -89,52 +162,56 @@
 }
 
 .login-stage__title {
-  margin: 1rem 0 0;
-  max-width: 12ch;
-  font-size: clamp(2.4rem, 5vw, 4.6rem);
-  font-weight: 700;
-  letter-spacing: -0.075em;
-  line-height: 0.95;
-  background: var(--heading-gradient);
+  margin: 0.3rem 0 0;
+  font-size: clamp(2.2rem, 4vw, 3.4rem);
+  font-weight: 800;
+  letter-spacing: -0.055em;
+  line-height: 1;
+  background: linear-gradient(135deg, #fff 0%, rgba(252, 165, 165, 0.9) 60%, rgba(220, 38, 38, 0.85) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
-.login-stage__subtitle {
-  max-width: 36rem;
-  margin: 1rem 0 0;
-  color: var(--text-muted);
-  font-size: 0.98rem;
-  line-height: 1.8;
+.login-stage__tagline {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.38);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
 }
 
+/* ── Feature list ── */
 .login-stage__metrics {
-  display: grid;
-  gap: 0.85rem;
-  margin-top: 1.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
 }
 
 .login-stage__metric {
   display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  padding: 1rem 1.05rem;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.7rem 0.9rem;
   border-radius: var(--radius-md);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(0, 0, 0, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(0, 0, 0, 0.14);
 }
 
-.login-stage__metric-value {
-  color: #fff;
-  font-size: 1.1rem;
-  font-weight: 700;
-  letter-spacing: -0.03em;
+.login-stage__metric-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ef4444, #f97316);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+  flex-shrink: 0;
 }
 
 .login-stage__metric-label {
-  color: var(--text-muted);
-  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.84rem;
+  font-weight: 500;
 }
 
 .login-card {
