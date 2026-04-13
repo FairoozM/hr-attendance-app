@@ -1,12 +1,13 @@
 const usersService = require('../services/usersService')
 const assignmentService = require('../services/attendanceAssignmentService')
 
-const VALID_MODULES = ['attendance', 'leave', 'employees', 'roster']
+const VALID_MODULES = ['attendance', 'leave', 'employees', 'roster', 'influencers']
 const VALID_ACTIONS = {
   attendance: ['view', 'manage'],
   leave: ['view', 'approve'],
   employees: ['view', 'edit'],
   roster: ['view'],
+  influencers: ['view', 'manage', 'approve', 'payments', 'agreements'],
 }
 
 /**
