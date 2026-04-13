@@ -1,18 +1,67 @@
-import { useState, useCallback } from 'react'
-import { Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { useState, useEffect, useCallback } from 'react'
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useSettings } from '../contexts/SettingsContext'
 import { useAuth, hasPermission } from '../contexts/AuthContext'
 import { RoleGuard } from './RoleGuard'
 import './Layout.css'
+
+function ChevronIcon({ open }) {
+  return (
+    <svg
+      className={`nav-group__chevron ${open ? 'nav-group__chevron--open' : ''}`}
+      width="14"
+      height="14"
+      viewBox="0 0 14 14"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M3 5l4 4 4-4"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function NavGroup({ label, children, isActive, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen || isActive)
+
+  useEffect(() => {
+    if (isActive) setOpen(true)
+  }, [isActive])
+
+  return (
+    <div className={`nav-group ${isActive ? 'nav-group--has-active' : ''}`}>
+      <button
+        type="button"
+        className={`nav-group__trigger ${open ? 'nav-group__trigger--open' : ''} ${isActive ? 'nav-group__trigger--active' : ''}`}
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+      >
+        <span className="nav-group__label">{label}</span>
+        <ChevronIcon open={open} />
+      </button>
+      {open && (
+        <div className="nav-group__items">
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export function Layout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const { appTitle } = useSettings()
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+
   const isAdmin = user?.role === 'admin'
   const isEmployee = user?.role === 'employee'
-
   const can = (module, action) => hasPermission(user, module, action)
 
   const openSidebar = useCallback(() => setIsSidebarOpen(true), [])
@@ -20,6 +69,9 @@ export function Layout() {
 
   const navLinkClass = ({ isActive }) =>
     `app-sidebar__link ${isActive ? 'app-sidebar__link--active' : ''}`
+
+  const subLinkClass = ({ isActive }) =>
+    `nav-group__link ${isActive ? 'nav-group__link--active' : ''}`
 
   const handleLogout = () => {
     closeSidebar()
@@ -29,6 +81,18 @@ export function Layout() {
 
   const homePath =
     isEmployee ? '/account' : can('attendance', 'view') ? '/attendance' : '/account'
+
+  const HR_ROUTES = ['/employees', '/attendance', '/annual-leave', '/roster', '/settings', '/roles-permissions']
+  const isHrActive = HR_ROUTES.some(r => location.pathname.startsWith(r))
+
+  const hrItems = [
+    can('employees', 'view') && { label: 'Employees', to: '/employees' },
+    can('attendance', 'view') && { label: 'Attendance', to: '/attendance', end: true },
+    (isEmployee || can('leave', 'view')) && { label: 'Annual Leave', to: '/annual-leave' },
+    can('roster', 'view') && { label: 'Weekly Off & Duty', to: '/roster' },
+    isAdmin && { label: 'Settings', to: '/settings' },
+    isAdmin && { label: 'Roles & Permissions', to: '/roles-permissions' },
+  ].filter(Boolean)
 
   return (
     <div className="app">
@@ -62,75 +126,34 @@ export function Layout() {
           </div>
 
           <nav id="app-sidebar-nav" className="app-sidebar__nav" aria-label="Main">
-            {isEmployee ? (
-              <>
-                <NavLink to="/account" className={navLinkClass} onClick={closeSidebar}>
-                  My Profile
+            {/* HR Section */}
+            <NavGroup label="HR" isActive={isHrActive} defaultOpen>
+              {hrItems.map(item => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  className={subLinkClass}
+                  onClick={closeSidebar}
+                >
+                  {item.label}
                 </NavLink>
-                <NavLink to="/annual-leave" className={navLinkClass} onClick={closeSidebar}>
-                  Annual Leave
-                </NavLink>
-                {can('attendance', 'view') && (
-                  <NavLink to="/attendance" className={navLinkClass} onClick={closeSidebar}>
-                    Attendance
-                  </NavLink>
-                )}
-                {can('employees', 'view') && (
-                  <NavLink to="/employees" className={navLinkClass} onClick={closeSidebar}>
-                    Employees
-                  </NavLink>
-                )}
-                {can('roster', 'view') && (
-                  <NavLink to="/roster" className={navLinkClass} onClick={closeSidebar}>
-                    Weekly Off &amp; Duty
-                  </NavLink>
-                )}
-              </>
-            ) : (
-              <>
-                {can('attendance', 'view') && (
-                  <NavLink to="/attendance" end className={navLinkClass} onClick={closeSidebar}>
-                    Attendance
-                  </NavLink>
-                )}
-                {can('leave', 'view') && (
-                  <NavLink to="/annual-leave" className={navLinkClass} onClick={closeSidebar}>
-                    Annual Leave
-                  </NavLink>
-                )}
-                {can('roster', 'view') && (
-                  <NavLink to="/roster" className={navLinkClass} onClick={closeSidebar}>
-                    Weekly Off &amp; Duty
-                  </NavLink>
-                )}
-                {can('employees', 'view') && (
-                  <>
-                    <div className="app-sidebar__section-label" role="presentation">
-                      Management
-                    </div>
-                    <NavLink to="/employees" className={navLinkClass} onClick={closeSidebar}>
-                      Employees
-                    </NavLink>
-                  </>
-                )}
-                {isAdmin && (
-                  <>
-                    <NavLink to="/settings" className={navLinkClass} onClick={closeSidebar}>
-                      Settings
-                    </NavLink>
-                    <NavLink to="/roles-permissions" className={navLinkClass} onClick={closeSidebar}>
-                      Roles &amp; Permissions
-                    </NavLink>
-                  </>
-                )}
-                <div className="app-sidebar__section-label" role="presentation">
-                  Account
-                </div>
-                <NavLink to="/account" className={navLinkClass} onClick={closeSidebar}>
-                  My Account
-                </NavLink>
-              </>
-            )}
+              ))}
+            </NavGroup>
+
+            {/* Influencers Section — empty, ready for future items */}
+            <NavGroup label="Influencers" isActive={false} />
+
+            {/* Amazon Section — empty, ready for future items */}
+            <NavGroup label="Amazon" isActive={false} />
+
+            {/* My Account — outside main sections */}
+            <div className="app-sidebar__section-label" role="presentation">
+              Account
+            </div>
+            <NavLink to="/account" className={navLinkClass} onClick={closeSidebar}>
+              My Account
+            </NavLink>
           </nav>
 
           <div className="app-sidebar__footer">
