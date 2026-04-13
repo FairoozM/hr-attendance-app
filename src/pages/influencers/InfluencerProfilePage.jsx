@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useInfluencers, WORKFLOW_STAGES, APPROVAL_STATUSES, PAYMENT_STATUSES } from '../../contexts/InfluencersContext'
+import { useAuth, hasPermission } from '../../contexts/AuthContext'
 import './influencers.css'
 
 function wfBadge(status) {
@@ -54,6 +55,8 @@ export function InfluencerProfilePage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { influencers, updateInfluencer, updateWorkflowStatus } = useInfluencers()
+  const { user } = useAuth()
+  const can = (action) => hasPermission(user, 'influencers', action)
   const [tab, setTab] = useState('Overview')
   const [showStatusModal, setShowStatusModal] = useState(false)
   const [newStage, setNewStage] = useState('')
@@ -94,27 +97,31 @@ export function InfluencerProfilePage() {
           </div>
         </div>
         <div className="inf-hero__right">
-          <button className="inf-btn inf-btn--ghost inf-btn--sm" style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)' }}
-            onClick={() => navigate(`/influencers/${id}/edit`)}>
-            ✏️ Edit
-          </button>
-          <button className="inf-btn inf-btn--ghost inf-btn--sm" style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)' }}
-            onClick={() => { setNewStage(inf.workflowStatus); setShowStatusModal(true) }}>
-            🔄 Move Stage
-          </button>
-          {inf.approvalStatus !== 'Approved' && (
+          {can('manage') && (
+            <button className="inf-btn inf-btn--ghost inf-btn--sm" style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)' }}
+              onClick={() => navigate(`/influencers/${id}/edit`)}>
+              ✏️ Edit
+            </button>
+          )}
+          {(can('manage') || can('approve')) && (
+            <button className="inf-btn inf-btn--ghost inf-btn--sm" style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)' }}
+              onClick={() => { setNewStage(inf.workflowStatus); setShowStatusModal(true) }}>
+              🔄 Move Stage
+            </button>
+          )}
+          {can('approve') && inf.approvalStatus !== 'Approved' && (
             <button className="inf-btn inf-btn--success inf-btn--sm"
               onClick={() => updateInfluencer(id, { approvalStatus: 'Approved', workflowStatus: 'Approved' })}>
               ✓ Approve
             </button>
           )}
-          {inf.approvalStatus !== 'Rejected' && (
+          {can('approve') && inf.approvalStatus !== 'Rejected' && (
             <button className="inf-btn inf-btn--danger inf-btn--sm"
               onClick={() => updateInfluencer(id, { approvalStatus: 'Rejected', workflowStatus: 'Rejected' })}>
               ✕ Reject
             </button>
           )}
-          {inf.approvalStatus === 'Rejected' && (
+          {can('approve') && inf.approvalStatus === 'Rejected' && (
             <button className="inf-btn inf-btn--warning inf-btn--sm"
               onClick={() => updateInfluencer(id, { approvalStatus: 'Pending', workflowStatus: 'Under Review' })}>
               ↩ Re-activate
@@ -284,7 +291,7 @@ export function InfluencerProfilePage() {
               <span className={payBadge(inf.paymentStatus)}>{inf.paymentStatus}</span>
             </div>
             <KV label="Agreed Amount" value={inf.packagePrice ? `${inf.currency} ${Number(inf.packagePrice).toLocaleString()}` : undefined} />
-            {inf.approvalStatus === 'Approved' && inf.paymentStatus !== 'Paid' && (
+            {can('payments') && inf.approvalStatus === 'Approved' && inf.paymentStatus !== 'Paid' && (
               <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                 <button className="inf-btn inf-btn--warning inf-btn--sm"
                   onClick={() => updateInfluencer(id, { paymentStatus: 'Ready for Payment' })}>

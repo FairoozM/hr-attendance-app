@@ -38,6 +38,19 @@ const MODULES = [
     icon: '📅',
     permissions: [{ key: 'view', label: 'View duty roster' }],
   },
+  {
+    key: 'influencers',
+    label: 'Influencers',
+    icon: '🌟',
+    group: 'influencers',
+    permissions: [
+      { key: 'view', label: 'View influencer list, profiles, pipeline, schedule and reports' },
+      { key: 'manage', label: 'Add and edit influencers, update workflow stages (includes view)' },
+      { key: 'approve', label: 'Approve or reject influencers (includes view)' },
+      { key: 'payments', label: 'Access payments page and mark payment status' },
+      { key: 'agreements', label: 'Generate and manage influencer agreements' },
+    ],
+  },
 ]
 
 function roleLabel(role) {

@@ -163,15 +163,51 @@ function AppContent() {
 
           {/* Influencers Module */}
           <Route path="influencers">
-            <Route path="list" element={<InfluencerListPage />} />
-            <Route path="new" element={<AddInfluencerPage />} />
-            <Route path="pipeline" element={<PipelinePage />} />
-            <Route path="schedule" element={<ShootSchedulePage />} />
-            <Route path="payments" element={<PaymentsPage />} />
-            <Route path="agreements" element={<AgreementsPage />} />
-            <Route path="reports" element={<ReportsPage />} />
-            <Route path=":id" element={<InfluencerProfilePage />} />
-            <Route path=":id/edit" element={<AddInfluencerPage />} />
+            <Route path="list" element={
+              <PermissionGuard module="influencers" action="view">
+                <InfluencerListPage />
+              </PermissionGuard>
+            } />
+            <Route path="new" element={
+              <PermissionGuard module="influencers" action="manage">
+                <AddInfluencerPage />
+              </PermissionGuard>
+            } />
+            <Route path="pipeline" element={
+              <PermissionGuard module="influencers" action="view">
+                <PipelinePage />
+              </PermissionGuard>
+            } />
+            <Route path="schedule" element={
+              <PermissionGuard module="influencers" action="view">
+                <ShootSchedulePage />
+              </PermissionGuard>
+            } />
+            <Route path="payments" element={
+              <PermissionGuard module="influencers" action="payments">
+                <PaymentsPage />
+              </PermissionGuard>
+            } />
+            <Route path="agreements" element={
+              <PermissionGuard module="influencers" action="agreements">
+                <AgreementsPage />
+              </PermissionGuard>
+            } />
+            <Route path="reports" element={
+              <PermissionGuard module="influencers" action="view">
+                <ReportsPage />
+              </PermissionGuard>
+            } />
+            <Route path=":id" element={
+              <PermissionGuard module="influencers" action="view">
+                <InfluencerProfilePage />
+              </PermissionGuard>
+            } />
+            <Route path=":id/edit" element={
+              <PermissionGuard module="influencers" action="manage">
+                <AddInfluencerPage />
+              </PermissionGuard>
+            } />
           </Route>
         </Route>
       </Routes>

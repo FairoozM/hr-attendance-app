@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useInfluencers } from '../../contexts/InfluencersContext'
+import { useAuth, hasPermission } from '../../contexts/AuthContext'
 import './influencers.css'
 
 function workflowBadgeClass(status) {
@@ -45,6 +46,8 @@ const SORT_OPTIONS = [
 export function InfluencerListPage() {
   const { influencers, updateInfluencer, updateWorkflowStatus } = useInfluencers()
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const can = (action) => hasPermission(user, 'influencers', action)
 
   const [search, setSearch] = useState('')
   const [filterWorkflow, setFilterWorkflow] = useState('All')
@@ -103,9 +106,11 @@ export function InfluencerListPage() {
           <p className="inf-page-subtitle">{influencers.length} influencers in the system</p>
         </div>
         <div className="inf-page-actions">
-          <button className="inf-btn inf-btn--primary" onClick={() => navigate('/influencers/new')}>
-            + Add Influencer
-          </button>
+          {can('manage') && (
+            <button className="inf-btn inf-btn--primary" onClick={() => navigate('/influencers/new')}>
+              + Add Influencer
+            </button>
+          )}
         </div>
       </div>
 
@@ -254,11 +259,13 @@ export function InfluencerListPage() {
                   <td>
                     <div className="inf-table__actions" onClick={e => e.stopPropagation()}>
                       <button className="inf-btn inf-btn--ghost inf-btn--xs" onClick={() => navigate(`/influencers/${inf.id}`)}>View</button>
-                      <button className="inf-btn inf-btn--ghost inf-btn--xs" onClick={() => navigate(`/influencers/${inf.id}/edit`)}>Edit</button>
-                      {inf.approvalStatus !== 'Approved' && inf.approvalStatus !== 'Rejected' && (
+                      {can('manage') && (
+                        <button className="inf-btn inf-btn--ghost inf-btn--xs" onClick={() => navigate(`/influencers/${inf.id}/edit`)}>Edit</button>
+                      )}
+                      {can('approve') && inf.approvalStatus !== 'Approved' && inf.approvalStatus !== 'Rejected' && (
                         <button className="inf-btn inf-btn--success inf-btn--xs" onClick={e => handleQuickAction(e, 'approve', inf)}>✓ Approve</button>
                       )}
-                      {inf.approvalStatus === 'Approved' && inf.paymentStatus !== 'Paid' && (
+                      {can('payments') && inf.approvalStatus === 'Approved' && inf.paymentStatus !== 'Paid' && (
                         <button className="inf-btn inf-btn--warning inf-btn--xs" onClick={e => handleQuickAction(e, 'payment-ready', inf)}>💳 Pay</button>
                       )}
                     </div>

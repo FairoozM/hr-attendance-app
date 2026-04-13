@@ -84,7 +84,21 @@ export function hasPermission(user, module, action) {
   if (user.role === 'warehouse') return true
   const p = user.permissions || {}
   const mod = p[module] || {}
+  // manage always implies view for any module
   if (action === 'view' && mod.manage) return true
+  // leave: approve implies view
   if (action === 'view' && module === 'leave' && mod.approve) return true
+  // influencers: any elevated permission implies view access
+  if (action === 'view' && module === 'influencers' && (mod.approve || mod.payments || mod.agreements)) return true
   return Boolean(mod[action])
+}
+
+/** Returns true if user has any permission within the given module. */
+export function hasAnyModulePermission(user, module) {
+  if (!user) return false
+  if (user.role === 'admin') return true
+  if (user.role === 'warehouse') return true
+  const p = user.permissions || {}
+  const mod = p[module] || {}
+  return Object.values(mod).some(Boolean)
 }

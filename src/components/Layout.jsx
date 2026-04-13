@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useSettings } from '../contexts/SettingsContext'
-import { useAuth, hasPermission } from '../contexts/AuthContext'
+import { useAuth, hasPermission, hasAnyModulePermission } from '../contexts/AuthContext'
 import { RoleGuard } from './RoleGuard'
 import './Layout.css'
 
@@ -85,16 +85,17 @@ export function Layout() {
   const HR_ROUTES = ['/employees', '/attendance', '/annual-leave', '/roster', '/settings', '/roles-permissions']
   const isHrActive = HR_ROUTES.some(r => location.pathname.startsWith(r))
   const isInfluencersActive = location.pathname.startsWith('/influencers')
+  const hasAnyInfluencerAccess = hasAnyModulePermission(user, 'influencers')
 
   const INFLUENCER_ITEMS = [
-    { label: 'Influencer List', to: '/influencers/list' },
-    { label: 'Add Influencer', to: '/influencers/new' },
-    { label: 'Pipeline', to: '/influencers/pipeline' },
-    { label: 'Shoot Schedule', to: '/influencers/schedule' },
-    { label: 'Agreements', to: '/influencers/agreements' },
-    { label: 'Payments', to: '/influencers/payments' },
-    { label: 'Reports', to: '/influencers/reports' },
-  ]
+    can('influencers', 'view') && { label: 'Influencer List', to: '/influencers/list' },
+    can('influencers', 'manage') && { label: 'Add Influencer', to: '/influencers/new' },
+    can('influencers', 'view') && { label: 'Pipeline', to: '/influencers/pipeline' },
+    can('influencers', 'view') && { label: 'Shoot Schedule', to: '/influencers/schedule' },
+    can('influencers', 'agreements') && { label: 'Agreements', to: '/influencers/agreements' },
+    can('influencers', 'payments') && { label: 'Payments', to: '/influencers/payments' },
+    can('influencers', 'view') && { label: 'Reports', to: '/influencers/reports' },
+  ].filter(Boolean)
 
   const hrItems = [
     can('employees', 'view') && { label: 'Employees', to: '/employees' },
@@ -152,7 +153,8 @@ export function Layout() {
               ))}
             </NavGroup>
 
-            {/* Influencers Section */}
+            {/* Influencers Section — only shown if user has any influencer permission */}
+            {hasAnyInfluencerAccess && (
             <NavGroup label="Influencers" isActive={isInfluencersActive}>
               {INFLUENCER_ITEMS.map(item => (
                 <NavLink
@@ -165,6 +167,7 @@ export function Layout() {
                 </NavLink>
               ))}
             </NavGroup>
+            )}
 
             {/* Amazon Section — empty, ready for future items */}
             <NavGroup label="Amazon" isActive={false} />
