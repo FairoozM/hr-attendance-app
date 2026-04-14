@@ -2,23 +2,28 @@ const { query } = require('../db')
 const s3Service = require('./s3Service')
 
 const PROFILE_COLS = `
-  id, employee_code, full_name, department, is_active, created_at,
-  joining_date, photo_url, photo_doc_key, phone, nationality,
-  date_of_birth, gender, marital_status,
-  personal_email, work_email, current_address, city, country,
-  designation, work_location, manager_name, employment_status,
-  emergency_contact_name, emergency_contact_relationship,
-  emergency_contact_phone, emergency_contact_alt_phone,
-  bank_name, account_holder_name, iban,
-  passport_number, passport_issue_date, passport_expiry_date, passport_doc_key,
-  visa_number, visa_issue_date, visa_expiry_date, visa_doc_key,
-  emirates_id, emirates_id_issue_date, emirates_id_expiry_date, emirates_id_doc_key,
-  signature_doc_key
+  e.id, e.employee_code, e.full_name, e.department, e.is_active, e.created_at,
+  e.joining_date, e.photo_url, e.photo_doc_key, e.phone, e.nationality,
+  e.date_of_birth, e.gender, e.marital_status,
+  e.personal_email, e.work_email, e.current_address, e.city, e.country,
+  e.designation, e.work_location, e.manager_name, e.employment_status,
+  e.emergency_contact_name, e.emergency_contact_relationship,
+  e.emergency_contact_phone, e.emergency_contact_alt_phone,
+  e.bank_name, e.account_holder_name, e.iban,
+  e.passport_number, e.passport_issue_date, e.passport_expiry_date, e.passport_doc_key,
+  e.visa_number, e.visa_issue_date, e.visa_expiry_date, e.visa_doc_key,
+  e.emirates_id, e.emirates_id_issue_date, e.emirates_id_expiry_date, e.emirates_id_doc_key,
+  e.signature_doc_key,
+  e.alternate_employee_id,
+  alt.full_name AS alternate_employee_name
 `
 
 async function getFullProfile(employeeId) {
   const result = await query(
-    `SELECT ${PROFILE_COLS} FROM employees WHERE id = $1`,
+    `SELECT ${PROFILE_COLS}
+     FROM employees e
+     LEFT JOIN employees alt ON alt.id = e.alternate_employee_id
+     WHERE e.id = $1`,
     [employeeId]
   )
   return result.rows[0] || null
@@ -60,6 +65,13 @@ function parseTrim(v) {
   return s === '' ? null : s
 }
 
+function parseNullableInt(v) {
+  if (v == null || v === '') return null
+  const n = parseInt(String(v), 10)
+  if (Number.isNaN(n) || n < 1) return null
+  return n
+}
+
 const UPDATABLE_FIELDS = [
   ['full_name', parseTrim],
   ['joining_date', parseDate],
@@ -94,6 +106,7 @@ const UPDATABLE_FIELDS = [
   ['emirates_id_issue_date', parseDate],
   ['emirates_id_expiry_date', parseDate],
   ['photo_url', parseTrim],
+  ['alternate_employee_id', parseNullableInt],
 ]
 
 async function updateProfile(employeeId, data) {

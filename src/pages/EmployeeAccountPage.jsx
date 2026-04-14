@@ -1,6 +1,11 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { useProfile, uploadProfileDoc, deleteProfileDoc } from '../hooks/useProfile'
+import {
+  useProfile,
+  uploadProfileDoc,
+  deleteProfileDoc,
+  fetchAlternateEmployeeOptions,
+} from '../hooks/useProfile'
 import { PasswordSection } from '../components/PasswordSection'
 import { fmtDMY } from '../utils/dateFormat'
 import './Page.css'
@@ -159,6 +164,7 @@ function EmploymentView({ p }) {
       <InfoRow label="Work Location" value={val(p.work_location)} />
       <InfoRow label="Reporting Manager" value={val(p.manager_name)} />
       <InfoRow label="Employment Status" value={val(p.employment_status)} />
+      <InfoRow label="Alternate Employee" value={val(p.alternate_employee_name)} />
     </div>
   )
 }
@@ -244,7 +250,7 @@ function EditableProfileSection({
 
 // ── Edit Form ─────────────────────────────────────────────────────────────────
 
-function EditForm({ profile, activeTab, onSave, onCancel }) {
+function EditForm({ profile, activeTab, onSave, onCancel, alternateOptions = [] }) {
   const [form, setForm] = useState(() => ({
     full_name: profile.full_name || '',
     date_of_birth: profile.date_of_birth ? String(profile.date_of_birth).slice(0, 10) : '',
@@ -259,6 +265,8 @@ function EditForm({ profile, activeTab, onSave, onCancel }) {
     country: profile.country || '',
     joining_date: profile.joining_date ? String(profile.joining_date).slice(0, 10) : '',
     designation: profile.designation || '',
+    alternate_employee_id:
+      profile.alternate_employee_id != null ? String(profile.alternate_employee_id) : '',
     work_location: profile.work_location || '',
     manager_name: profile.manager_name || '',
     employment_status: profile.employment_status || '',
@@ -346,6 +354,19 @@ function EditForm({ profile, activeTab, onSave, onCancel }) {
           <div className="edit-grid">
             <Field label="Joining Date" type="date" value={form.joining_date} onChange={set('joining_date')} />
             <Field label="Designation / Job Title" value={form.designation} onChange={set('designation')} />
+            <Field
+              label="Alternate Employee"
+              as="select"
+              value={form.alternate_employee_id}
+              onChange={set('alternate_employee_id')}
+            >
+              <option value="">Not selected</option>
+              {alternateOptions.map((opt) => (
+                <option key={opt.id} value={String(opt.id)}>
+                  {opt.full_name} ({opt.employee_code})
+                </option>
+              ))}
+            </Field>
             <Field label="Work Location" value={form.work_location} onChange={set('work_location')} />
             <Field label="Reporting Manager" value={form.manager_name} onChange={set('manager_name')} />
             <Field label="Employment Status" as="select" value={form.employment_status} onChange={set('employment_status')}>
@@ -588,6 +609,7 @@ export function EmployeeAccountPage() {
   const { profile, loading, error, update, setProfile } = useProfile(isEmployee)
   const [editingSection, setEditingSection] = useState(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
+  const [alternateOptions, setAlternateOptions] = useState([])
 
   const handleSave = useCallback(async (formData) => {
     await update(formData)
@@ -632,6 +654,13 @@ export function EmployeeAccountPage() {
       photo_doc_url_signed: result.docUrl,
     } : prev)
   }, [setProfile])
+
+  useEffect(() => {
+    if (!isEmployee) return
+    fetchAlternateEmployeeOptions()
+      .then((rows) => setAlternateOptions(Array.isArray(rows) ? rows : []))
+      .catch(() => setAlternateOptions([]))
+  }, [isEmployee])
 
   // Non-employee users (admin, warehouse) see only the account header + security tab
   if (!isEmployee) {
@@ -735,6 +764,7 @@ export function EmployeeAccountPage() {
                     activeTab="employment"
                     onSave={handleSave}
                     onCancel={() => setEditingSection(null)}
+                    alternateOptions={alternateOptions}
                   />
                 }
               >
@@ -790,6 +820,7 @@ export function EmployeeAccountPage() {
                       activeTab="documents"
                       onSave={handleSave}
                       onCancel={() => setEditingSection(null)}
+                      alternateOptions={alternateOptions}
                     />
                     <DocumentsSection
                       profile={profile}

@@ -28,6 +28,22 @@ async function findById(id) {
   return result.rows[0] || null
 }
 
+async function findAlternateCandidates(excludeId = null) {
+  const sql =
+    excludeId == null
+      ? `SELECT id, employee_code, full_name, is_active
+         FROM employees
+         WHERE is_active = true
+         ORDER BY full_name ASC`
+      : `SELECT id, employee_code, full_name, is_active
+         FROM employees
+         WHERE is_active = true AND id != $1
+         ORDER BY full_name ASC`
+  const params = excludeId == null ? [] : [excludeId]
+  const result = await query(sql, params)
+  return result.rows
+}
+
 async function findByEmployeeCode(employeeCode, excludeId = null) {
   const sql =
     excludeId == null
@@ -150,6 +166,7 @@ module.exports = {
   findAllByDepartment,
   findById,
   findByEmployeeCode,
+  findAlternateCandidates,
   create,
   update,
   remove,

@@ -5,6 +5,7 @@ const { requireAuth, requireEmployee } = require('../middleware/auth')
 
 // Employee self-service profile
 router.get('/', requireAuth, requireEmployee, profileController.getMyProfile)
+router.get('/alternate-options', requireAuth, requireEmployee, profileController.listAlternateEmployeeOptions)
 router.put('/', requireAuth, requireEmployee, profileController.updateMyProfile)
 router.post('/doc-upload-url', requireAuth, requireEmployee, profileController.requestDocUploadUrl)
 router.post('/doc-confirm', requireAuth, requireEmployee, profileController.confirmDocUpload)

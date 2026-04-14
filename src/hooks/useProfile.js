@@ -66,3 +66,7 @@ export async function deleteProfileDoc(docType) {
 export async function fetchEmployeeProfile(employeeId) {
   return api.get(`/api/employees/${employeeId}/profile`)
 }
+
+export async function fetchAlternateEmployeeOptions() {
+  return api.get('/api/profile/alternate-options')
+}

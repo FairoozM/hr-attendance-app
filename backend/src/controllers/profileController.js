@@ -1,5 +1,6 @@
 const profileService = require('../services/profileService')
 const s3Service = require('../services/s3Service')
+const employeesService = require('../services/employeesService')
 
 const VALID_DOC_TYPES = ['passport', 'visa', 'emirates-id', 'photo', 'signature']
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10 MB
@@ -37,6 +38,22 @@ async function updateMyProfile(req, res) {
     if (Object.prototype.hasOwnProperty.call(req.body, 'full_name')) {
       const fullName = String(req.body.full_name || '').trim()
       if (!fullName) return res.status(400).json({ error: 'full_name cannot be empty' })
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body, 'alternate_employee_id')) {
+      const rawAlt = req.body.alternate_employee_id
+      if (rawAlt != null && rawAlt !== '') {
+        const altId = parseInt(String(rawAlt), 10)
+        if (Number.isNaN(altId) || altId < 1) {
+          return res.status(400).json({ error: 'alternate_employee_id must be a valid employee id or null' })
+        }
+        if (altId === employeeId) {
+          return res.status(400).json({ error: 'You cannot select yourself as alternate employee' })
+        }
+        const alt = await employeesService.findById(altId)
+        if (!alt) {
+          return res.status(400).json({ error: 'Selected alternate employee does not exist' })
+        }
+      }
     }
 
     const updated = await profileService.updateProfile(employeeId, req.body)
@@ -136,6 +153,23 @@ async function getEmployeeProfile(req, res) {
   }
 }
 
+async function listAlternateEmployeeOptions(req, res) {
+  try {
+    const employeeId = resolveEmployeeId(req)
+    if (!employeeId) return res.status(400).json({ error: 'No employee profile linked to this account' })
+    const options = await employeesService.findAlternateCandidates(employeeId)
+    res.json(options.map((r) => ({
+      id: r.id,
+      employee_code: r.employee_code,
+      full_name: r.full_name,
+      is_active: r.is_active,
+    })))
+  } catch (err) {
+    console.error('[profile] listAlternateEmployeeOptions error:', err)
+    res.status(500).json({ error: 'Failed to load alternate employee options' })
+  }
+}
+
 module.exports = {
   getMyProfile,
   updateMyProfile,
@@ -143,4 +177,5 @@ module.exports = {
   confirmDocUpload,
   deleteDoc,
   getEmployeeProfile,
+  listAlternateEmployeeOptions,
 }
