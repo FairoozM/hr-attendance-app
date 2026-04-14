@@ -48,6 +48,18 @@ function parseOptionalUrl(v) {
 const VALID_OFF_DAYS = new Set(['sunday','monday','tuesday','wednesday','thursday','friday','saturday'])
 const VALID_LOCATIONS = new Set(['office','warehouse','remote'])
 
+/** Whether body includes alternate_employee_id, and normalized value (null = none). */
+function parseAlternateEmployeeIdField(body) {
+  if (!Object.prototype.hasOwnProperty.call(body, 'alternate_employee_id')) {
+    return { present: false, value: null }
+  }
+  const v = body.alternate_employee_id
+  if (v === null || v === '') return { present: true, value: null }
+  const n = parseInt(String(v), 10)
+  if (Number.isNaN(n) || n < 1) return { present: true, value: null }
+  return { present: true, value: n }
+}
+
 function extendedFields(body) {
   const rawOff = parseOptionalTrim(body.weekly_off_day)
   const rawLoc = parseOptionalTrim(body.duty_location)
@@ -149,12 +161,21 @@ async function create(req, res) {
     }
     const isActive = req.body.is_active !== false
     const ext = extendedFields(req.body)
+    const alt = parseAlternateEmployeeIdField(req.body)
+    const alternateEmployeeId = alt.present ? alt.value : null
+    if (alternateEmployeeId != null) {
+      const altEmp = await employeesService.findById(alternateEmployeeId)
+      if (!altEmp) {
+        return res.status(400).json({ error: 'alternate_employee_id: referenced employee does not exist' })
+      }
+    }
     const employee = await employeesService.create({
       employee_code: employeeCode,
       full_name: fullName,
       department,
       is_active: isActive,
       include_in_attendance: parseIncludeInAttendance(req.body, true),
+      alternate_employee_id: alternateEmployeeId,
       ...ext,
     })
     try {
@@ -197,6 +218,21 @@ async function update(req, res) {
     const isActive =
       req.body.is_active === undefined ? null : Boolean(req.body.is_active)
     const ext = extendedFields(req.body)
+    const alt = parseAlternateEmployeeIdField(req.body)
+    const nextAlternate = alt.present
+      ? alt.value
+      : existing.alternate_employee_id != null
+        ? existing.alternate_employee_id
+        : null
+    if (alt.present && alt.value != null) {
+      if (alt.value === id) {
+        return res.status(400).json({ error: 'An employee cannot be their own alternate' })
+      }
+      const altEmp = await employeesService.findById(alt.value)
+      if (!altEmp) {
+        return res.status(400).json({ error: 'alternate_employee_id: referenced employee does not exist' })
+      }
+    }
     const employee = await employeesService.update(id, {
       employee_code: employeeCode,
       full_name: fullName || undefined,
@@ -211,6 +247,7 @@ async function update(req, res) {
       include_in_attendance: parseIncludeInAttendance(req.body, false),
       weekly_off_day: ext.weekly_off_day,
       duty_location: ext.duty_location,
+      alternate_employee_id: nextAlternate,
     })
     try {
       await usersService.syncEmployeePortal(id, req.body, false)

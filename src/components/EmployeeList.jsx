@@ -60,7 +60,14 @@ function compareRows(a, b, sortKey, sortDir) {
   return 0
 }
 
-function EmployeeViewModal({ employee, open, onClose, onToggleAttendanceInclusion, attendanceTogglePending }) {
+function EmployeeViewModal({
+  employee,
+  open,
+  onClose,
+  onToggleAttendanceInclusion,
+  attendanceTogglePending,
+  alternateCoverageLabel,
+}) {
   const navigate = useNavigate()
   if (!open || !employee) return null
   const included = isIncludedInAttendance(employee)
@@ -89,6 +96,8 @@ function EmployeeViewModal({ employee, open, onClose, onToggleAttendanceInclusio
         <dd>{displayOrDash(employee.nationality)}</dd>
         <dt>Emirates ID</dt>
         <dd>{displayOrDash(employee.emiratesId)}</dd>
+        <dt>Alternate (annual leave coverage)</dt>
+        <dd>{alternateCoverageLabel != null && alternateCoverageLabel !== '' ? alternateCoverageLabel : '—'}</dd>
         <dt>Status</dt>
         <dd>
           <span className="employee-view-dl__status">{employmentStatusLabel(employee.employmentStatus)}</span>
@@ -174,6 +183,24 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
     () => effectiveEmployees.find((e) => e.id === editingId) ?? null,
     [effectiveEmployees, editingId]
   )
+
+  const alternatePickerOptions = useMemo(() => {
+    const excludeId = modalMode === 'edit' && editingId ? String(editingId) : null
+    return employees
+      .filter((e) => (excludeId ? e.id !== excludeId : true))
+      .map((e) => ({
+        id: e.id,
+        label: `${e.name || '—'} (${e.employeeId || '—'})`,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [employees, modalMode, editingId])
+
+  const viewAlternateCoverageLabel = useMemo(() => {
+    if (!viewEmployee?.alternateEmployeeId) return null
+    const alt = employees.find((e) => e.id === String(viewEmployee.alternateEmployeeId))
+    if (!alt) return null
+    return `${alt.name} (${alt.employeeId})`
+  }, [viewEmployee, employees])
 
   const departmentOptions = useMemo(() => {
     const set = new Set(baseDepartments)
@@ -475,6 +502,7 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
                   nationality: editingEmployee.nationality ?? '',
                   weeklyOffDay: editingEmployee.weeklyOffDay ?? '',
                   dutyLocation: editingEmployee.dutyLocation ?? '',
+                  alternateEmployeeId: editingEmployee.alternateEmployeeId ?? null,
                 }
               : undefined
           }
@@ -483,6 +511,7 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
           submitLabel={modalMode === 'add' ? 'Add Employee' : 'Save'}
           existingEmployeeIds={existingEmployeeIds}
           excludeEmployeeId={excludeEmployeeId}
+          alternateEmployeeOptions={alternatePickerOptions}
         />
       </Modal>
 
@@ -492,6 +521,7 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
         onClose={() => setViewEmployee(null)}
         onToggleAttendanceInclusion={handleToggleAttendanceInclusion}
         attendanceTogglePending={attendanceTogglePending}
+        alternateCoverageLabel={viewAlternateCoverageLabel}
       />
 
       <DeleteConfirmModal

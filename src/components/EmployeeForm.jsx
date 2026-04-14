@@ -16,6 +16,7 @@ export function EmployeeForm({
   submitLabel = 'Save',
   existingEmployeeIds = [],
   excludeEmployeeId = null,
+  alternateEmployeeOptions = [],
 }) {
   const { departments: settingsDepartments } = useSettings()
   const baseDepartments =
@@ -43,6 +44,9 @@ export function EmployeeForm({
   )
   const [weeklyOffDay, setWeeklyOffDay] = useState(initial?.weeklyOffDay ?? '')
   const [dutyLocation, setDutyLocation] = useState(initial?.dutyLocation ?? '')
+  const [alternateEmployeeId, setAlternateEmployeeId] = useState(
+    initial?.alternateEmployeeId != null ? String(initial.alternateEmployeeId) : ''
+  )
   const [portalEmail, setPortalEmail] = useState(initial?.portalEmail ?? initial?.portalUsername ?? '')
   const [portalPassword, setPortalPassword] = useState('')
 
@@ -61,6 +65,9 @@ export function EmployeeForm({
     setIncludeInAttendance(initial.includeInAttendance !== false)
     setWeeklyOffDay(initial.weeklyOffDay ?? '')
     setDutyLocation(initial.dutyLocation ?? '')
+    setAlternateEmployeeId(
+      initial.alternateEmployeeId != null ? String(initial.alternateEmployeeId) : ''
+    )
     setPortalEmail(initial.portalEmail ?? initial.portalUsername ?? '')
     setPortalPassword('')
   }, [
@@ -77,6 +84,7 @@ export function EmployeeForm({
     initial?.includeInAttendance,
     initial?.weeklyOffDay,
     initial?.dutyLocation,
+    initial?.alternateEmployeeId,
     initial?.portalEmail,
     initial?.portalUsername,
     departments,
@@ -108,6 +116,7 @@ export function EmployeeForm({
       nationality: emptyToNull(nationality),
       weeklyOffDay: weeklyOffDay || undefined,
       dutyLocation: dutyLocation || undefined,
+      alternateEmployeeId: alternateEmployeeId.trim() || null,
       portalEmail: portalEmail.trim() || undefined,
       portalPassword: portalPassword ? portalPassword : undefined,
     })
@@ -298,6 +307,25 @@ export function EmployeeForm({
             <option value="warehouse">Warehouse</option>
             <option value="remote">Remote</option>
           </select>
+        </label>
+        <label className="employee-form__label">
+          Alternate employee (annual leave coverage)
+          <select
+            className="employee-form__select"
+            value={alternateEmployeeId}
+            onChange={(e) => setAlternateEmployeeId(e.target.value)}
+          >
+            <option value="">Not set</option>
+            {alternateEmployeeOptions.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <span className="employee-form__hint">
+            Who covers this person&apos;s duties while they are on approved annual leave. Only existing
+            employees can be selected.
+          </span>
         </label>
       </div>
 

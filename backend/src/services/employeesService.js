@@ -3,7 +3,7 @@ const { query } = require('../db')
 const EMPLOYEE_ROW = `id, employee_code, full_name, department, is_active, created_at,
   joining_date, photo_url, photo_doc_key, phone, emirates_id, passport_number, nationality,
   include_in_attendance, designation, employment_status, weekly_off_day, duty_location,
-  work_location`
+  work_location, alternate_employee_id`
 
 async function findAll() {
   const result = await query(
@@ -52,14 +52,15 @@ async function create({
   include_in_attendance = true,
   weekly_off_day = null,
   duty_location = null,
+  alternate_employee_id = null,
 }) {
   const result = await query(
     `INSERT INTO employees (
        employee_code, full_name, department, is_active,
        joining_date, photo_url, phone, emirates_id, passport_number, nationality,
-       include_in_attendance, weekly_off_day, duty_location
+       include_in_attendance, weekly_off_day, duty_location, alternate_employee_id
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      RETURNING ${EMPLOYEE_ROW}`,
     [
       employee_code,
@@ -75,6 +76,7 @@ async function create({
       include_in_attendance,
       weekly_off_day,
       duty_location,
+      alternate_employee_id,
     ]
   )
   return result.rows[0]
@@ -96,6 +98,7 @@ async function update(
     include_in_attendance,
     weekly_off_day,
     duty_location,
+    alternate_employee_id,
   }
 ) {
   const result = await query(
@@ -112,7 +115,8 @@ async function update(
          nationality = $11,
          include_in_attendance = COALESCE($12, include_in_attendance),
          weekly_off_day = $13,
-         duty_location = $14
+         duty_location = $14,
+         alternate_employee_id = $15
      WHERE id = $1
      RETURNING ${EMPLOYEE_ROW}`,
     [
@@ -130,6 +134,7 @@ async function update(
       include_in_attendance,
       weekly_off_day ?? null,
       duty_location ?? null,
+      alternate_employee_id ?? null,
     ]
   )
   return result.rows[0] || null

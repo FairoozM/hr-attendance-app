@@ -39,6 +39,8 @@ function mapEmployee(row) {
     weeklyOffDay: row.weekly_off_day ?? null,
     dutyLocation: row.duty_location ?? null,
     workLocation: row.work_location ?? null,
+    alternateEmployeeId:
+      row.alternate_employee_id != null ? String(row.alternate_employee_id) : null,
   }
 }
 
@@ -109,6 +111,11 @@ export function useEmployees() {
         }
         if (employee.weeklyOffDay) body.weekly_off_day = employee.weeklyOffDay
         if (employee.dutyLocation) body.duty_location = employee.dutyLocation
+        body.alternate_employee_id =
+          employee.alternateEmployeeId != null &&
+          String(employee.alternateEmployeeId).trim() !== ''
+            ? parseInt(String(employee.alternateEmployeeId), 10)
+            : null
         const portalEmail = employee.portalEmail?.trim() || employee.portalUsername?.trim()
         if (portalEmail) body.portal_email = portalEmail
         if (employee.portalPassword) body.portal_password = employee.portalPassword
@@ -143,6 +150,11 @@ export function useEmployees() {
         }
         body.weekly_off_day = updates.weeklyOffDay || null
         body.duty_location = updates.dutyLocation || null
+        body.alternate_employee_id =
+          updates.alternateEmployeeId != null &&
+          String(updates.alternateEmployeeId).trim() !== ''
+            ? parseInt(String(updates.alternateEmployeeId), 10)
+            : null
         const portalEmail = updates.portalEmail?.trim() || updates.portalUsername?.trim()
         if (portalEmail) body.portal_email = portalEmail
         if (updates.portalPassword) body.portal_password = updates.portalPassword

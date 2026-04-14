@@ -42,6 +42,16 @@ async function ensureEmployeeExtendedColumns() {
   await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS duty_location VARCHAR(50)`)
 }
 
+async function ensureEmployeesAlternateEmployeeColumn() {
+  await query(`
+    ALTER TABLE employees
+    ADD COLUMN IF NOT EXISTS alternate_employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL
+  `)
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_employees_alternate_employee_id ON employees(alternate_employee_id)
+  `)
+}
+
 async function ensureAttendanceTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS attendance (
@@ -324,6 +334,7 @@ async function testConnection() {
   console.log('Database connected successfully. Server time:', now)
   await ensureEmployeesTable()
   await ensureEmployeeExtendedColumns()
+  await ensureEmployeesAlternateEmployeeColumn()
   await ensureAttendanceTable()
   await ensureAnnualLeaveTable()
   await ensureAttendanceAnnualLeaveColumn()
