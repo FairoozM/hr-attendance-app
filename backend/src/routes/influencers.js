@@ -5,7 +5,9 @@ const influencersController = require('../controllers/influencersController')
 const router = express.Router()
 
 router.get('/', attachAuth, requireAuth, requirePermission('influencers', 'view'), influencersController.listInfluencers)
+router.post('/', attachAuth, requireAuth, requireInfluencersWrite, influencersController.createInfluencer)
 router.put('/', attachAuth, requireAuth, requireInfluencersWrite, influencersController.putInfluencers)
+router.patch('/:id', attachAuth, requireAuth, requireInfluencersWrite, influencersController.updateInfluencer)
 router.delete(
   '/:id',
   attachAuth,

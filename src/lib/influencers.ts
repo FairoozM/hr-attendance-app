@@ -1,5 +1,4 @@
 import { apiFetch } from "./api"
-import { normalizeInfluencerResponse } from "./influencerResponse"
 
 export async function fetchInfluencersRaw(opts?: { page?: number; limit?: number }) {
   const q = new URLSearchParams()
@@ -16,18 +15,18 @@ export const replaceInfluencersSnapshot = (influencers: any[]) =>
   })
 
 export const createInfluencer = async (payload: any) => {
-  const raw = await fetchInfluencersRaw()
-  const { items: current } = normalizeInfluencerResponse(raw as any)
-  const next = [payload, ...current]
-  await replaceInfluencersSnapshot(next)
+  await apiFetch("/api/influencers", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
   return payload
 }
 
 export const updateInfluencer = async (id: string, payload: any) => {
-  const raw = await fetchInfluencersRaw()
-  const { items: current } = normalizeInfluencerResponse(raw as any)
-  const next = current.map((row: any) => (String(row?.id) === String(id) ? payload : row))
-  await replaceInfluencersSnapshot(next)
+  await apiFetch(`/api/influencers/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  })
   return payload
 }
 

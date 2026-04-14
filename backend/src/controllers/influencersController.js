@@ -18,6 +18,15 @@ function sanitizeInfluencerList(body) {
   return { list: out }
 }
 
+function sanitizeSingleInfluencer(body) {
+  if (!isPlainObject(body)) {
+    return { error: 'Body must be a JSON object' }
+  }
+  const id = body.id != null ? String(body.id).trim() : ''
+  if (!id) return { error: 'Influencer id is required' }
+  return { row: body, id }
+}
+
 async function listInfluencers(req, res) {
   try {
     const list = await influencersService.getInfluencers()
@@ -57,6 +66,21 @@ async function listInfluencers(req, res) {
   }
 }
 
+async function createInfluencer(req, res) {
+  try {
+    const parsed = sanitizeSingleInfluencer(req.body)
+    if (parsed.error) return res.status(400).json({ error: parsed.error })
+    const row = await influencersService.addInfluencer(parsed.row)
+    res.status(201).json({ success: true, influencer: row })
+  } catch (err) {
+    console.error('[influencers] create error:', err)
+    res.status(500).json({
+      error: 'Failed to create influencer',
+      detail: err && err.message ? String(err.message).slice(0, 240) : undefined,
+    })
+  }
+}
+
 async function putInfluencers(req, res) {
   try {
     const parsed = sanitizeInfluencerList(req.body)
@@ -69,6 +93,24 @@ async function putInfluencers(req, res) {
     console.error('[influencers] put error:', err)
     res.status(500).json({
       error: 'Failed to save influencers',
+      detail: err && err.message ? String(err.message).slice(0, 240) : undefined,
+    })
+  }
+}
+
+async function updateInfluencer(req, res) {
+  try {
+    const id = req.params.id != null ? String(req.params.id).trim() : ''
+    if (!id) return res.status(400).json({ error: 'Missing influencer id' })
+    const parsed = sanitizeSingleInfluencer(req.body)
+    if (parsed.error) return res.status(400).json({ error: parsed.error })
+    const row = { ...parsed.row, id }
+    await influencersService.upsertInfluencerById(id, row)
+    res.json({ success: true, influencer: row })
+  } catch (err) {
+    console.error('[influencers] update error:', err)
+    res.status(500).json({
+      error: 'Failed to update influencer',
       detail: err && err.message ? String(err.message).slice(0, 240) : undefined,
     })
   }
@@ -91,4 +133,10 @@ async function deleteInfluencer(req, res) {
   }
 }
 
-module.exports = { listInfluencers, putInfluencers, deleteInfluencer }
+module.exports = {
+  listInfluencers,
+  createInfluencer,
+  putInfluencers,
+  updateInfluencer,
+  deleteInfluencer,
+}

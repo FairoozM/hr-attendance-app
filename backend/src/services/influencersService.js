@@ -64,9 +64,28 @@ async function removeInfluencerById(id) {
   await replaceInfluencers(next)
 }
 
+async function addInfluencer(row) {
+  const list = await getInfluencers()
+  const sid = row?.id != null ? String(row.id) : ''
+  const next = [row, ...list.filter((r) => String(r?.id) !== sid)]
+  await replaceInfluencers(next)
+  return row
+}
+
+async function upsertInfluencerById(id, row) {
+  const sid = String(id).trim()
+  if (!sid) return null
+  const list = await getInfluencers()
+  const next = list.map((r) => (String(r?.id) === sid ? row : r))
+  await replaceInfluencers(next)
+  return row
+}
+
 module.exports = {
   getInfluencers,
   replaceInfluencers,
   mergeInfluencersWithSnapshot,
   removeInfluencerById,
+  addInfluencer,
+  upsertInfluencerById,
 }
