@@ -393,7 +393,7 @@ function Field({ label, as, type = 'text', value, onChange, wide, children }) {
 
 // ── Documents Section ─────────────────────────────────────────────────────────
 
-function DocumentCard({ icon, title, docKey, docUrl, fields, onUpload, onDelete }) {
+function DocumentCard({ icon, title, docKey, docUrl, fields, onUpload, onDelete, fileAccept, uploadHint }) {
   const [uploading, setUploading] = useState(false)
   const [uploadErr, setUploadErr] = useState(null)
   const [localUrl, setLocalUrl] = useState(null)
@@ -456,7 +456,7 @@ function DocumentCard({ icon, title, docKey, docUrl, fields, onUpload, onDelete 
           {uploading ? 'Uploading…' : hasDoc ? 'Replace' : 'Upload'}
           <input
             type="file"
-            accept="image/jpeg,image/png,image/webp,application/pdf"
+            accept={fileAccept || 'image/jpeg,image/png,image/webp,application/pdf'}
             onChange={handleFileChange}
             disabled={uploading}
             style={{ display: 'none' }}
@@ -468,6 +468,7 @@ function DocumentCard({ icon, title, docKey, docUrl, fields, onUpload, onDelete 
           </button>
         )}
       </div>
+      {uploadHint && <p className="doc-card__hint">{uploadHint}</p>}
     </div>
   )
 }
@@ -498,6 +499,17 @@ function DocumentsSection({ profile, onDocUploaded, onDocDeleted }) {
         ]}
         onUpload={handleUpload('passport')}
         onDelete={handleDelete('passport')}
+      />
+      <DocumentCard
+        icon="✍️"
+        title="Signature"
+        docKey={profile.signature_doc_key}
+        docUrl={profile.signature_doc_url}
+        fields={[{ label: 'Use', value: 'Document signing' }]}
+        onUpload={handleUpload('signature')}
+        onDelete={handleDelete('signature')}
+        fileAccept="image/png"
+        uploadHint="PNG only (.png). This signature will be used on generated documents."
       />
       <DocumentCard
         icon="📄"
@@ -563,11 +575,22 @@ export function EmployeeAccountPage() {
     setTimeout(() => setSaveSuccess(false), 3000)
   }, [update])
 
+  const docKeyFieldByType = (docType) => {
+    if (docType === 'emirates-id') return 'emirates_id_doc_key'
+    if (docType === 'signature') return 'signature_doc_key'
+    return `${docType}_doc_key`
+  }
+  const docUrlFieldByType = (docType) => {
+    if (docType === 'emirates-id') return 'emirates_id_doc_url'
+    if (docType === 'signature') return 'signature_doc_url'
+    return `${docType}_doc_url`
+  }
+
   const handleDocUploaded = useCallback((docType, result) => {
     setProfile((prev) => {
       if (!prev) return prev
-      const keyField = docType === 'emirates-id' ? 'emirates_id_doc_key' : `${docType}_doc_key`
-      const urlField = docType === 'emirates-id' ? 'emirates_id_doc_url' : `${docType}_doc_url`
+      const keyField = docKeyFieldByType(docType)
+      const urlField = docUrlFieldByType(docType)
       return { ...prev, [keyField]: result.key, [urlField]: result.docUrl }
     })
   }, [setProfile])
@@ -575,8 +598,8 @@ export function EmployeeAccountPage() {
   const handleDocDeleted = useCallback((docType) => {
     setProfile((prev) => {
       if (!prev) return prev
-      const keyField = docType === 'emirates-id' ? 'emirates_id_doc_key' : `${docType}_doc_key`
-      const urlField = docType === 'emirates-id' ? 'emirates_id_doc_url' : `${docType}_doc_url`
+      const keyField = docKeyFieldByType(docType)
+      const urlField = docUrlFieldByType(docType)
       return { ...prev, [keyField]: null, [urlField]: null }
     })
   }, [setProfile])

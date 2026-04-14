@@ -253,6 +253,7 @@ async function ensureProfileColumns() {
     `ALTER TABLE employees ADD COLUMN IF NOT EXISTS emirates_id_expiry_date DATE`,
     `ALTER TABLE employees ADD COLUMN IF NOT EXISTS emirates_id_doc_key TEXT`,
     `ALTER TABLE employees ADD COLUMN IF NOT EXISTS photo_doc_key TEXT`,
+    `ALTER TABLE employees ADD COLUMN IF NOT EXISTS signature_doc_key TEXT`,
   ]
   for (const sql of cols) {
     await query(sql)

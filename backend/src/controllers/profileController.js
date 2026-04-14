@@ -1,7 +1,7 @@
 const profileService = require('../services/profileService')
 const s3Service = require('../services/s3Service')
 
-const VALID_DOC_TYPES = ['passport', 'visa', 'emirates-id', 'photo']
+const VALID_DOC_TYPES = ['passport', 'visa', 'emirates-id', 'photo', 'signature']
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10 MB
 const ALLOWED_CONTENT_TYPES = [
   'image/jpeg',
@@ -60,6 +60,9 @@ async function requestDocUploadUrl(req, res) {
     }
     if (!ALLOWED_CONTENT_TYPES.includes(contentType)) {
       return res.status(400).json({ error: 'File type not allowed. Accepted: JPEG, PNG, WebP, PDF' })
+    }
+    if (docType === 'signature' && contentType !== 'image/png') {
+      return res.status(400).json({ error: 'Signature must be a PNG (.png) file' })
     }
     if (fileSize && Number(fileSize) > MAX_FILE_SIZE) {
       return res.status(400).json({ error: 'File too large. Maximum 10 MB.' })

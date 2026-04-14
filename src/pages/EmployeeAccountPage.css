@@ -495,6 +495,12 @@
   gap: 0.5rem;
 }
 
+.doc-card__hint {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
 /* ── Buttons ── */
 .btn {
   display: inline-flex;

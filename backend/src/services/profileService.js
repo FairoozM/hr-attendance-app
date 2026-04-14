@@ -12,7 +12,8 @@ const PROFILE_COLS = `
   bank_name, account_holder_name, iban,
   passport_number, passport_issue_date, passport_expiry_date, passport_doc_key,
   visa_number, visa_issue_date, visa_expiry_date, visa_doc_key,
-  emirates_id, emirates_id_issue_date, emirates_id_expiry_date, emirates_id_doc_key
+  emirates_id, emirates_id_issue_date, emirates_id_expiry_date, emirates_id_doc_key,
+  signature_doc_key
 `
 
 async function getFullProfile(employeeId) {
@@ -31,6 +32,7 @@ async function attachDocUrls(profile) {
     ['visa_doc_key', 'visa_doc_url'],
     ['emirates_id_doc_key', 'emirates_id_doc_url'],
     ['photo_doc_key', 'photo_doc_url_signed'],
+    ['signature_doc_key', 'signature_doc_url'],
   ]
   for (const [keyField, urlField] of docFields) {
     if (p[keyField]) {
@@ -121,6 +123,7 @@ const DOC_KEY_FIELD_MAP = {
   visa: 'visa_doc_key',
   'emirates-id': 'emirates_id_doc_key',
   photo: 'photo_doc_key',
+  signature: 'signature_doc_key',
 }
 
 async function updateDocKey(employeeId, docType, key) {

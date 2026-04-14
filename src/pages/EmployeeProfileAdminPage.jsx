@@ -239,6 +239,13 @@ export function EmployeeProfileAdminPage() {
                   ]}
                 />
                 <AdminDocCard
+                  icon="✍️"
+                  title="Signature"
+                  docKey={profile.signature_doc_key}
+                  docUrl={profile.signature_doc_url}
+                  fields={[{ label: 'Use', value: 'Document signing (PNG)' }]}
+                />
+                <AdminDocCard
                   icon="🪪"
                   title="Emirates ID"
                   docKey={profile.emirates_id_doc_key}
