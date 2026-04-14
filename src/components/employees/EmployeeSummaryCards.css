@@ -41,6 +41,10 @@
   color: rgba(255, 255, 255, 0.38);
 }
 
+:root[data-theme='light'] .employee-summary-card__label {
+  color: var(--text-muted);
+}
+
 .employee-summary-card__value {
   font-size: 1.55rem;
   font-weight: 800;
