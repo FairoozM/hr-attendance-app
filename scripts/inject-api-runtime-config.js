@@ -2,7 +2,7 @@
  * After `vite build`, overwrites dist/api-runtime-config.js so the SPA can pin the API origin.
  *
  * - If **HR_PUBLIC_API_URL** is set (e.g. https://api.example.com or https://ec2-…:5001), it is baked in.
- * - If unset, writes an **empty** string so `getApiBaseUrl()` uses localStorage (`hr_api_base_url`
+ * - If unset, writes an **empty** string so `getApiBaseUrl()` uses localStorage (`backendUrl`
  *   from the login “API server” field) or VITE_API_BASE_URL — **never** default to the SPA
  *   CloudFront host (that only serves S3; /api/* returns 403 HTML unless you add a CF behavior).
  */
@@ -21,7 +21,7 @@ const body = `/**
  * Generated at deploy — do not hand-edit on S3; redeploy to change.
  * Source: HR_PUBLIC_API_URL at build time, or empty (then use login API URL / VITE_API_BASE_URL).
  */
-window.__HR_API_BASE_URL__ = ${JSON.stringify(url)}
+window.API_RUNTIME_CONFIG = { API_BASE_URL: ${JSON.stringify(url)} }
 `
 fs.writeFileSync(out, body, 'utf8')
 console.log('[inject-api-runtime-config] wrote', out, '→', url)

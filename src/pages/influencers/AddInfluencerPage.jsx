@@ -153,14 +153,14 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
   const setNested = (key, sub, val)  => setForm(f => ({ ...f, [key]: { ...f[key], [sub]: val } }))
   const cancel    = ()               => { if (asModal) onClose?.(); else navigate(-1) }
 
-  const submit = () => {
+  const submit = async () => {
     if (!form.name?.trim()) { setStep(0); return }
     if (isEdit) {
-      updateInfluencer(id, form)
+      await updateInfluencer(id, form)
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } else {
-      const newId = addInfluencer(form)
+      const newId = await addInfluencer(form)
       if (asModal) onClose?.()
       else navigate(`/influencers/${newId}`)
     }

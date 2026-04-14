@@ -1,7 +1,12 @@
-import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
-import { flushSync } from 'react-dom'
+import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import { useAuth } from './AuthContext'
-import { api } from '../api/client'
+import {
+  getInfluencers as getInfluencersApi,
+  createInfluencer as createInfluencerApi,
+  updateInfluencer as updateInfluencerApi,
+  deleteInfluencer as deleteInfluencerApi,
+  replaceInfluencersSnapshot,
+} from '../lib/influencers'
 
 /** Legacy browser-only store (before server sync). Migrated once if API returns empty. */
 const LEGACY_STORAGE_KEY = 'hr-influencers-v1'
@@ -348,31 +353,15 @@ export function InfluencersProvider({ children }) {
   const [influencers, setInfluencers] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
-  /** After first successful GET, PUTs mirror edits to the API (shared for all users). */
-  const serverReady = useRef(false)
-  /** Rows added while the initial GET is still in flight (persist is skipped until hydrated). */
-  const pendingLocalAddsRef = useRef([])
-  /** Serializes PUT /api/influencers so rapid edits do not overlap and lose rows. */
-  const persistChain = useRef(Promise.resolve())
-  const userRef = useRef(user)
-  userRef.current = user
-
-  const queuePersistSnapshot = useCallback((list) => {
-    const u = userRef.current
-    if (!u || !serverReady.current || !canPersistInfluencersToServer(u)) return
-    persistChain.current = persistChain.current
-      .catch(() => {})
-      .then(() => api.put('/api/influencers', { influencers: list }))
-      .catch((err) => {
-        console.error('[influencers] persist failed', err)
-      })
+  const reloadFromServer = useCallback(async () => {
+    const data = await getInfluencersApi()
+    const list = Array.isArray(data) ? data : []
+    setInfluencers(list)
+    return list
   }, [])
 
   // Load shared list when session changes
   useEffect(() => {
-    serverReady.current = false
-    pendingLocalAddsRef.current = []
-    persistChain.current = Promise.resolve()
     if (!user) {
       setInfluencers([])
       setLoading(false)
@@ -385,7 +374,7 @@ export function InfluencersProvider({ children }) {
     setLoadError(null)
     ;(async () => {
       try {
-        const data = await api.get('/api/influencers')
+        const data = await getInfluencersApi()
         if (cancelled) return
         const serverList = Array.isArray(data) ? data : []
         const legacy = loadLegacyLocal()
@@ -399,7 +388,7 @@ export function InfluencersProvider({ children }) {
 
         if (mergedDiffersFromServer && canPersistInfluencersToServer(user)) {
           try {
-            await api.put('/api/influencers', { influencers: list })
+            await replaceInfluencersSnapshot(list)
             try {
               localStorage.removeItem(LEGACY_STORAGE_KEY)
             } catch (_) {}
@@ -423,49 +412,12 @@ export function InfluencersProvider({ children }) {
         }
 
         if (cancelled) return
-
-        /** flushSync so the merge updater runs before PUT; otherwise merged payload can still be null. */
-        const hydrateMeta = { merged: null, hadPendingAdds: false }
-        flushSync(() => {
-          setInfluencers((prev) => {
-            const pendingNow = pendingLocalAddsRef.current.slice()
-            pendingLocalAddsRef.current.length = 0
-            hydrateMeta.hadPendingAdds = pendingNow.length > 0
-            const merged = mergeInfluencerListsById(
-              mergeInfluencerListsById(list, pendingNow),
-              prev,
-            )
-            hydrateMeta.merged = merged
-            return merged
-          })
-          serverReady.current = true
-        })
-
-        if (hydrateMeta.hadPendingAdds && canPersistInfluencersToServer(user) && hydrateMeta.merged) {
-          persistChain.current = persistChain.current
-            .catch(() => {})
-            .then(() => api.put('/api/influencers', { influencers: hydrateMeta.merged }))
-            .catch((putErr) => {
-              console.error('[influencers] persist pending adds after load failed', putErr)
-              if (!cancelled) {
-                setLoadError(putErr.message || 'Could not save new influencers to the server')
-              }
-            })
-          try {
-            await persistChain.current
-          } catch (_) {
-            /* errors handled on chain */
-          }
-        }
+        setInfluencers(list)
       } catch (e) {
         if (cancelled) return
         setLoadError(e.message || 'Failed to load influencers')
         const legacy = loadLegacyLocal()
-        const base = Array.isArray(legacy) && legacy.length > 0 ? legacy : INITIAL_INFLUENCERS
-        const pendingSnapshot = pendingLocalAddsRef.current.slice()
-        pendingLocalAddsRef.current = []
-        setInfluencers(mergeInfluencerListsById(base, pendingSnapshot))
-        serverReady.current = false
+        setInfluencers(Array.isArray(legacy) && legacy.length > 0 ? legacy : INITIAL_INFLUENCERS)
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -476,7 +428,7 @@ export function InfluencersProvider({ children }) {
     }
   }, [user?.id])
 
-  const addInfluencer = useCallback((data) => {
+  const addInfluencer = useCallback(async (data) => {
     const newId =
       typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
         ? crypto.randomUUID()
@@ -492,66 +444,37 @@ export function InfluencersProvider({ children }) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
-    const readyAtCall = serverReady.current
-    const canSave = canPersistInfluencersToServer(userRef.current)
-    if (!readyAtCall) {
-      pendingLocalAddsRef.current.push(newInfluencer)
-    }
-    setInfluencers((prev) => {
-      const next = [newInfluencer, ...prev]
-      if (readyAtCall && canSave) queuePersistSnapshot(next)
-      return next
-    })
+    await createInfluencerApi(newInfluencer)
+    await reloadFromServer()
     return newInfluencer.id
-  }, [queuePersistSnapshot])
+  }, [reloadFromServer])
 
-  const updateInfluencer = useCallback((id, updates) => {
-    setInfluencers((prev) => {
-      const next = prev.map(inf =>
-        inf.id === id ? { ...inf, ...updates, updatedAt: new Date().toISOString() } : inf
-      )
-      queuePersistSnapshot(next)
-      return next
-    })
-  }, [queuePersistSnapshot])
+  const updateInfluencer = useCallback(async (id, updates) => {
+    const current = influencers.find((inf) => inf.id === id)
+    if (!current) return
+    const next = { ...current, ...updates, updatedAt: new Date().toISOString() }
+    await updateInfluencerApi(id, next)
+    await reloadFromServer()
+  }, [influencers, reloadFromServer])
 
-  const updateWorkflowStatus = useCallback((id, status, note = '') => {
-    setInfluencers((prev) => {
-      const next = prev.map((inf) => {
-        if (inf.id !== id) return inf
-        const entry = { event: status, date: new Date().toISOString().split('T')[0], note }
-        return {
-          ...inf,
-          workflowStatus: status,
-          updatedAt: new Date().toISOString(),
-          timeline: [...(inf.timeline || []), entry],
-        }
-      })
-      queuePersistSnapshot(next)
-      return next
-    })
-  }, [queuePersistSnapshot])
-
-  const deleteInfluencer = useCallback((id) => {
-    const sid = String(id)
-    pendingLocalAddsRef.current = pendingLocalAddsRef.current.filter((r) => String(r?.id) !== sid)
-    const u = userRef.current
-    const remoteDelete =
-      serverReady.current && u && canPersistInfluencersToServer(u)
-    if (remoteDelete) {
-      persistChain.current = persistChain.current
-        .catch(() => {})
-        .then(() => api.delete(`/api/influencers/${encodeURIComponent(sid)}`))
-        .catch((err) => {
-          console.error('[influencers] delete failed', err)
-        })
+  const updateWorkflowStatus = useCallback(async (id, status, note = '') => {
+    const current = influencers.find((inf) => inf.id === id)
+    if (!current) return
+    const entry = { event: status, date: new Date().toISOString().split('T')[0], note }
+    const next = {
+      ...current,
+      workflowStatus: status,
+      updatedAt: new Date().toISOString(),
+      timeline: [...(current.timeline || []), entry],
     }
-    setInfluencers((prev) => {
-      const next = prev.filter((inf) => inf.id !== id)
-      if (!remoteDelete) queuePersistSnapshot(next)
-      return next
-    })
-  }, [queuePersistSnapshot])
+    await updateInfluencerApi(id, next)
+    await reloadFromServer()
+  }, [influencers, reloadFromServer])
+
+  const deleteInfluencer = useCallback(async (id) => {
+    await deleteInfluencerApi(String(id))
+    await reloadFromServer()
+  }, [reloadFromServer])
 
   return (
     <InfluencersContext.Provider

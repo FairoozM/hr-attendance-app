@@ -7,8 +7,8 @@
  * Manual hotfix: uncomment and set, then upload `dist/api-runtime-config.js` next to index.html.
  *
  * Example:
- *   window.__HR_API_BASE_URL__ = 'https://your-alb-xx.region.elb.amazonaws.com'
- *   window.__HR_API_BASE_URL__ = 'https://api.yourdomain.com'
- *   window.__HR_API_BASE_URL__ = 'https://ec2-1-2-3-4.compute-1.amazonaws.com:5001'
+ *   window.API_RUNTIME_CONFIG = { API_BASE_URL: 'https://your-alb-xx.region.elb.amazonaws.com' }
+ *   window.API_RUNTIME_CONFIG = { API_BASE_URL: 'https://api.yourdomain.com' }
+ *   window.API_RUNTIME_CONFIG = { API_BASE_URL: 'https://ec2-1-2-3-4.compute-1.amazonaws.com:5001' }
  */
-// window.__HR_API_BASE_URL__ = ''
+// window.API_RUNTIME_CONFIG = { API_BASE_URL: '' }

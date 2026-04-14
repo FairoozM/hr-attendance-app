@@ -6,7 +6,13 @@ import { setApiBaseUrlInStorage } from '../api/config'
  * User enters the backend URL once; it is persisted to localStorage and the page reloads.
  */
 export function ApiServerSetup() {
-  const [url, setUrl] = useState('')
+  const [url, setUrl] = useState(() => {
+    try {
+      return localStorage.getItem('backendUrl') || ''
+    } catch (_) {
+      return ''
+    }
+  })
   const [err, setErr] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -104,7 +110,7 @@ export function ApiServerSetup() {
         </button>
       </form>
       <p className="api-server-setup__hint">
-        After saving, the URL is stored in this browser as <code>hr_api_base_url</code>. Production
+        After saving, the URL is stored in this browser as <code>backendUrl</code>. Production
         deploys can also set <code>HR_PUBLIC_API_URL</code> so <code>api-runtime-config.js</code> points
         everyone to the API without per-browser setup.
       </p>

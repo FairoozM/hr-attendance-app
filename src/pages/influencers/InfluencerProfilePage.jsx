@@ -375,7 +375,10 @@ export function InfluencerProfilePage() {
           <Section icon="⚡" title="Agreement Actions">
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
               <button className="inf-btn inf-btn--primary inf-btn--sm"
-                onClick={() => { updateInfluencer(id, { agreementGenerated: true, agreementStatus: 'Generated' }); navigate(`/influencers/agreements?id=${id}`) }}>
+                onClick={async () => {
+                  await updateInfluencer(id, { agreementGenerated: true, agreementStatus: 'Generated' })
+                  navigate(`/influencers/agreements?id=${id}`)
+                }}>
                 📄 Generate Agreement
               </button>
               <button className="inf-btn inf-btn--ghost inf-btn--sm"
@@ -433,7 +436,7 @@ export function InfluencerProfilePage() {
             </div>
             <div className="inf-modal__footer">
               <button className="inf-btn inf-btn--ghost" onClick={() => setShowDeleteModal(false)}>Cancel</button>
-              <button className="inf-btn inf-btn--danger" onClick={() => { deleteInfluencer(id); navigate('/influencers/list') }}>Delete</button>
+              <button className="inf-btn inf-btn--danger" onClick={async () => { await deleteInfluencer(id); navigate('/influencers/list') }}>Delete</button>
             </div>
           </div>
         </div>

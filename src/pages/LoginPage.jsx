@@ -71,7 +71,7 @@ export function LoginPage() {
     async function checkApi() {
       // Log what is currently stored so we can debug in the console
       let stored = localStorage.getItem(API_BASE_STORAGE_KEY) || ''
-      console.log('[LoginPage] stored hr_api_base_url:', stored || '(none)')
+      console.log('[LoginPage] stored backendUrl:', stored || '(none)')
 
       // Always probe the same-origin URL first
       const healthy = await probeSameOriginHealth()
@@ -93,7 +93,7 @@ export function LoginPage() {
         } catch (_) {}
         stored = ''
         console.warn(
-          '[LoginPage] Cleared hr_api_base_url: this site URL does not serve /api/* as JSON — use your Express host (see deploy HR_PUBLIC_API_URL or login setup).'
+          '[LoginPage] Cleared backendUrl: this site URL does not serve /api/* as JSON — use your Express host (see deploy HR_PUBLIC_API_URL or login setup).'
         )
       }
 
