@@ -25,8 +25,17 @@ async function list(req, res) {
         : await annualLeaveService.listWithEmployees()
     res.json(rows)
   } catch (err) {
-    console.error('Annual leave list error:', err)
-    res.status(500).json({ error: 'Failed to fetch annual leave requests' })
+    console.error('Annual leave list error:', err.message || err)
+    if (err.stack) console.error(err.stack)
+    const payload = {
+      error: 'Failed to fetch annual leave requests',
+      hint:
+        'Often caused by the database schema not matching this API version. Restart the backend once so startup migrations can run, then retry.',
+    }
+    if (process.env.API_ERROR_DETAIL === '1') {
+      payload.detail = err.message || String(err)
+    }
+    res.status(500).json(payload)
   }
 }
 
@@ -35,8 +44,15 @@ async function dashboard(req, res) {
     const stats = await annualLeaveService.getDashboardStats()
     res.json(stats)
   } catch (err) {
-    console.error('Annual leave dashboard error:', err)
-    res.status(500).json({ error: 'Failed to fetch dashboard stats' })
+    console.error('Annual leave dashboard error:', err.message || err)
+    if (err.stack) console.error(err.stack)
+    const payload = {
+      error: 'Failed to fetch dashboard stats',
+      hint:
+        'If this persists after an upgrade, restart the backend so database migrations can complete.',
+    }
+    if (process.env.API_ERROR_DETAIL === '1') payload.detail = err.message || String(err)
+    res.status(500).json(payload)
   }
 }
 

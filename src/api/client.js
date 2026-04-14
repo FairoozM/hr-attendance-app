@@ -113,6 +113,9 @@ async function handleResponse(res, requestUrl) {
     if (data?.detail && typeof data.detail === 'string') {
       msg = `${msg}: ${data.detail}`
     }
+    if (data?.hint && typeof data.hint === 'string') {
+      msg = `${msg} ${data.hint}`
+    }
     const err = new Error(msg)
     err.status = res.status
     err.url = url

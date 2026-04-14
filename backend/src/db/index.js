@@ -344,15 +344,23 @@ async function testConnection() {
   await ensureEmployeesAlternateEmployeeColumn()
   await ensureAttendanceTable()
   await ensureAnnualLeaveTable()
+  // PDF metadata columns only (no FKs); run early so a failure later in this chain
+  // cannot leave annual_leave SELECTs broken on first request.
+  await ensureAnnualLeavePdfDocumentColumns()
   await ensureAttendanceAnnualLeaveColumn()
   await migrateAttendanceStatusHToAl()
   await ensureUsersTable()
   await ensureDefaultAdminUser()
   await ensureWarehouseUser()
-  await ensureProfileColumns()
-  await migrateUsernamesToEmail()
+  // Must run before username migration: migrateUsernamesToEmail() can throw on edge
+  // duplicate data; if it aborts testConnection(), annual_leave columns would never apply.
   await ensureAnnualLeaveExtendedColumns()
-  await ensureAnnualLeavePdfDocumentColumns()
+  await ensureProfileColumns()
+  try {
+    await migrateUsernamesToEmail()
+  } catch (e) {
+    console.error('[db] migrateUsernamesToEmail skipped/failed (non-fatal):', e.message || e)
+  }
   await ensureAnnualLeaveSalaryTable()
   await ensureAttendanceAssignmentsTable()
   await ensureInfluencersSnapshotTable()

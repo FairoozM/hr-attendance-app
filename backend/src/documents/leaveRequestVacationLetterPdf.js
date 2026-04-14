@@ -1,5 +1,3 @@
-const PDFDocument = require('pdfkit')
-
 const COMPANY_LINES = [
   'To,',
   'General Manager,',
@@ -11,6 +9,7 @@ const APPROVER_NAME = 'Abdolrahim Mirzadeh'
 
 /** Renders the formal vacation request letter (A4, business tone). */
 function renderLeaveRequestVacationPdf(ctx) {
+  const PDFDocument = require('pdfkit')
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       size: 'A4',
