@@ -3,6 +3,11 @@ import { api } from '../api/client'
 import { getEmployeesSocket } from '../api/socket'
 import { useAuth } from '../contexts/AuthContext'
 
+function looksLikeTemporaryS3SignedUrl(url) {
+  const s = String(url || '')
+  return s.includes('X-Amz-Signature=') || s.includes('X-Amz-Algorithm=')
+}
+
 /**
  * Maps API row to UI employee.
  */
@@ -28,7 +33,7 @@ function mapEmployee(row) {
     employmentStatus,
     createdAt: row.created_at ?? null,
     joiningDate,
-    photoUrl: row.photo_url ?? null,
+    photoUrl: row.photo_url_signed ?? row.photo_url ?? null,
     designation: row.designation ?? null,
     phone: row.phone ?? row.contact_number ?? null,
     email: row.email ?? null,
@@ -102,7 +107,10 @@ export function useEmployees() {
           employment_status: employee.employmentStatus || 'active',
           is_active: (employee.employmentStatus || 'active') !== 'inactive',
           joining_date: employee.joiningDate || null,
-          photo_url: employee.photoUrl || null,
+          photo_url:
+            employee.photoUrl && !looksLikeTemporaryS3SignedUrl(employee.photoUrl)
+              ? employee.photoUrl
+              : null,
           phone: employee.phone || null,
           emirates_id: employee.emiratesId || null,
           passport_number: employee.passportNumber || null,
@@ -141,7 +149,10 @@ export function useEmployees() {
           employment_status: updates.employmentStatus || 'active',
           is_active: (updates.employmentStatus || 'active') !== 'inactive',
           joining_date: updates.joiningDate || null,
-          photo_url: updates.photoUrl || null,
+          photo_url:
+            updates.photoUrl && !looksLikeTemporaryS3SignedUrl(updates.photoUrl)
+              ? updates.photoUrl
+              : null,
           phone: updates.phone || null,
           emirates_id: updates.emiratesId || null,
           passport_number: updates.passportNumber || null,

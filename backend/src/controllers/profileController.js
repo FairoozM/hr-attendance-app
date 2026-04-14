@@ -34,6 +34,10 @@ async function updateMyProfile(req, res) {
   try {
     const employeeId = resolveEmployeeId(req)
     if (!employeeId) return res.status(400).json({ error: 'No employee profile linked to this account' })
+    if (Object.prototype.hasOwnProperty.call(req.body, 'full_name')) {
+      const fullName = String(req.body.full_name || '').trim()
+      if (!fullName) return res.status(400).json({ error: 'full_name cannot be empty' })
+    }
 
     const updated = await profileService.updateProfile(employeeId, req.body)
     if (!updated) return res.status(404).json({ error: 'Profile not found' })

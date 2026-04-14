@@ -280,6 +280,18 @@
   color: var(--primary);
 }
 
+.profile-unified-section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.profile-unified-section__head .profile-unified-section__title {
+  margin: 0;
+}
+
 /* ── Section Grid (view mode) ── */
 .profile-section-grid {
   display: grid;

@@ -3,9 +3,12 @@ const usersService = require('../services/usersService')
 const s3Service = require('../services/s3Service')
 
 async function attachPhotoUrl(emp) {
-  if (emp && emp.photo_doc_key && !emp.photo_url) {
+  if (emp && emp.photo_doc_key) {
     try {
-      emp.photo_url = await s3Service.getDownloadUrl({ key: emp.photo_doc_key, expiresIn: 3600 })
+      const freshSigned = await s3Service.getDownloadUrl({ key: emp.photo_doc_key, expiresIn: 3600 })
+      emp.photo_url_signed = freshSigned
+      // Always prefer fresh signed URL when doc key exists to avoid stale persisted URLs.
+      emp.photo_url = freshSigned
     } catch { /* keep null */ }
   }
   return emp
@@ -42,6 +45,8 @@ function parseOptionalUrl(v) {
   const s = parseOptionalTrim(v)
   if (!s) return null
   if (s.length > 2048) return null
+  // Never persist temporary S3 signed URLs; they expire and break profile images later.
+  if (s.includes('X-Amz-Signature=') || s.includes('X-Amz-Algorithm=')) return null
   return s
 }
 

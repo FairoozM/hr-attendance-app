@@ -336,6 +336,23 @@ async function ensureAnnualLeaveSalaryTable() {
   await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS monthly_salary NUMERIC(14,2)`)
 }
 
+/**
+ * Legacy cleanup: old flows could persist expiring S3 signed photo URLs in employees.photo_url.
+ * If photo_doc_key exists, those URLs become invalid after expiry and break avatars.
+ */
+async function normalizeEmployeePhotoUrls() {
+  await query(`
+    UPDATE employees
+    SET photo_url = NULL
+    WHERE photo_doc_key IS NOT NULL
+      AND photo_url IS NOT NULL
+      AND (
+        photo_url LIKE '%X-Amz-Signature=%'
+        OR photo_url LIKE '%X-Amz-Algorithm=%'
+      )
+  `)
+}
+
 async function testConnection() {
   const result = await query('SELECT NOW()')
   const now = result.rows[0]?.now
@@ -363,6 +380,7 @@ async function testConnection() {
     console.error('[db] migrateUsernamesToEmail skipped/failed (non-fatal):', e.message || e)
   }
   await ensureAnnualLeaveSalaryTable()
+  await normalizeEmployeePhotoUrls()
   await ensureAttendanceAssignmentsTable()
   await ensureInfluencersSnapshotTable()
 }

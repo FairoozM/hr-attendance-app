@@ -57,7 +57,7 @@ function CompletionBar({ pct }) {
 
 // ── Profile Header ─────────────────────────────────────────────────────────────
 
-function ProfileHeader({ profile, editing, onEditToggle, onPhotoUploaded }) {
+function ProfileHeader({ profile, onPhotoUploaded }) {
   const pct = calcCompletion(profile)
   const photoUrl = profile.photo_doc_url_signed || profile.photo_url
   const [photoUploading, setPhotoUploading] = useState(false)
@@ -114,13 +114,6 @@ function ProfileHeader({ profile, editing, onEditToggle, onPhotoUploaded }) {
         </div>
         <CompletionBar pct={pct} />
       </div>
-      <button
-        type="button"
-        className={`btn ${editing ? 'btn--ghost' : 'btn--primary'} profile-header__edit-btn`}
-        onClick={onEditToggle}
-      >
-        {editing ? '✕ Cancel' : '✎ Edit Profile'}
-      </button>
     </div>
   )
 }
@@ -215,10 +208,40 @@ function ProfileSection({ title, children }) {
   )
 }
 
+function EditableProfileSection({
+  title,
+  sectionId,
+  editingSection,
+  onEditSection,
+  onCancelSection,
+  children,
+  editContent,
+}) {
+  const isEditing = editingSection === sectionId
+  return (
+    <section className="profile-unified-section">
+      <div className="profile-unified-section__head">
+        <h3 className="profile-unified-section__title">{title}</h3>
+        {!isEditing ? (
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => onEditSection(sectionId)}>
+            Edit
+          </button>
+        ) : (
+          <button type="button" className="btn btn--ghost btn--sm" onClick={onCancelSection}>
+            Cancel
+          </button>
+        )}
+      </div>
+      {isEditing ? editContent : children}
+    </section>
+  )
+}
+
 // ── Edit Form ─────────────────────────────────────────────────────────────────
 
 function EditForm({ profile, activeTab, onSave, onCancel }) {
   const [form, setForm] = useState(() => ({
+    full_name: profile.full_name || '',
     date_of_birth: profile.date_of_birth ? String(profile.date_of_birth).slice(0, 10) : '',
     gender: profile.gender || '',
     nationality: profile.nationality || '',
@@ -278,6 +301,7 @@ function EditForm({ profile, activeTab, onSave, onCancel }) {
         <fieldset className="edit-fieldset">
           <legend>Personal Information</legend>
           <div className="edit-grid">
+            <Field label="Full Name" value={form.full_name} onChange={set('full_name')} />
             <Field label="Date of Birth" type="date" value={form.date_of_birth} onChange={set('date_of_birth')} />
             <Field label="Gender" as="select" value={form.gender} onChange={set('gender')}>
               <option value="">Select</option>
@@ -511,17 +535,6 @@ function DocumentsSection({ profile, onDocUploaded, onDocDeleted }) {
         onDelete={handleDelete('passport')}
       />
       <DocumentCard
-        icon="✍️"
-        title="Signature"
-        docKey={profile.signature_doc_key}
-        docUrl={profile.signature_doc_url}
-        fields={[{ label: 'Use', value: 'Document signing' }]}
-        onUpload={handleUpload('signature')}
-        onDelete={handleDelete('signature')}
-        fileAccept="image/png"
-        uploadHint="PNG only (.png). This signature will be used on generated documents."
-      />
-      <DocumentCard
         icon="📄"
         title="Visa"
         docKey={profile.visa_doc_key}
@@ -547,6 +560,17 @@ function DocumentsSection({ profile, onDocUploaded, onDocDeleted }) {
         onUpload={handleUpload('emirates-id')}
         onDelete={handleDelete('emirates-id')}
       />
+      <DocumentCard
+        icon="✍️"
+        title="Signature"
+        docKey={profile.signature_doc_key}
+        docUrl={profile.signature_doc_url}
+        fields={[{ label: 'Use', value: 'Document signing' }]}
+        onUpload={handleUpload('signature')}
+        onDelete={handleDelete('signature')}
+        fileAccept="image/png"
+        uploadHint="PNG only (.png). This signature will be used on generated documents."
+      />
     </div>
   )
 }
@@ -557,12 +581,12 @@ export function EmployeeAccountPage() {
   const { user } = useAuth()
   const isEmployee = user?.role === 'employee'
   const { profile, loading, error, update, setProfile } = useProfile(isEmployee)
-  const [editing, setEditing] = useState(false)
+  const [editingSection, setEditingSection] = useState(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
 
   const handleSave = useCallback(async (formData) => {
     await update(formData)
-    setEditing(false)
+    setEditingSection(null)
     setSaveSuccess(true)
     setTimeout(() => setSaveSuccess(false), 3000)
   }, [update])
@@ -647,8 +671,6 @@ export function EmployeeAccountPage() {
         <>
           <ProfileHeader
             profile={profile}
-            editing={editing}
-            onEditToggle={() => { setEditing(!editing); setSaveSuccess(false) }}
             onPhotoUploaded={handlePhotoUploaded}
           />
 
@@ -659,42 +681,130 @@ export function EmployeeAccountPage() {
           )}
 
           <div className="profile-tab-content">
-            {editing ? (
-              <EditForm
-                profile={profile}
-                activeTab="all"
-                onSave={handleSave}
-                onCancel={() => setEditing(false)}
-              />
-            ) : (
-              <>
-                <ProfileSection title="Personal Information">
-                  <PersonalView p={profile} />
-                </ProfileSection>
-                <ProfileSection title="Contact Information">
-                  <ContactView p={profile} />
-                </ProfileSection>
-                <ProfileSection title="Employment Details">
-                  <EmploymentView p={profile} />
-                </ProfileSection>
-                <ProfileSection title="Emergency Contact">
-                  <EmergencyView p={profile} />
-                </ProfileSection>
-                <ProfileSection title="Bank / Payroll">
-                  <BankView p={profile} />
-                </ProfileSection>
-                <ProfileSection title="Documents">
-                  <DocumentsSection
+            <>
+              <EditableProfileSection
+                title="Personal Information"
+                sectionId="personal"
+                editingSection={editingSection}
+                onEditSection={(sectionId) => { setEditingSection(sectionId); setSaveSuccess(false) }}
+                onCancelSection={() => setEditingSection(null)}
+                editContent={
+                  <EditForm
                     profile={profile}
-                    onDocUploaded={handleDocUploaded}
-                    onDocDeleted={handleDocDeleted}
+                    activeTab="personal"
+                    onSave={handleSave}
+                    onCancel={() => setEditingSection(null)}
                   />
-                </ProfileSection>
-                <ProfileSection title="Security">
-                  <PasswordSection />
-                </ProfileSection>
-              </>
-            )}
+                }
+              >
+                <PersonalView p={profile} />
+              </EditableProfileSection>
+
+              <EditableProfileSection
+                title="Contact Information"
+                sectionId="contact"
+                editingSection={editingSection}
+                onEditSection={(sectionId) => { setEditingSection(sectionId); setSaveSuccess(false) }}
+                onCancelSection={() => setEditingSection(null)}
+                editContent={
+                  <EditForm
+                    profile={profile}
+                    activeTab="contact"
+                    onSave={handleSave}
+                    onCancel={() => setEditingSection(null)}
+                  />
+                }
+              >
+                <ContactView p={profile} />
+              </EditableProfileSection>
+
+              <EditableProfileSection
+                title="Employment Details"
+                sectionId="employment"
+                editingSection={editingSection}
+                onEditSection={(sectionId) => { setEditingSection(sectionId); setSaveSuccess(false) }}
+                onCancelSection={() => setEditingSection(null)}
+                editContent={
+                  <EditForm
+                    profile={profile}
+                    activeTab="employment"
+                    onSave={handleSave}
+                    onCancel={() => setEditingSection(null)}
+                  />
+                }
+              >
+                <EmploymentView p={profile} />
+              </EditableProfileSection>
+
+              <EditableProfileSection
+                title="Emergency Contact"
+                sectionId="emergency"
+                editingSection={editingSection}
+                onEditSection={(sectionId) => { setEditingSection(sectionId); setSaveSuccess(false) }}
+                onCancelSection={() => setEditingSection(null)}
+                editContent={
+                  <EditForm
+                    profile={profile}
+                    activeTab="emergency"
+                    onSave={handleSave}
+                    onCancel={() => setEditingSection(null)}
+                  />
+                }
+              >
+                <EmergencyView p={profile} />
+              </EditableProfileSection>
+
+              <EditableProfileSection
+                title="Bank / Payroll"
+                sectionId="bank"
+                editingSection={editingSection}
+                onEditSection={(sectionId) => { setEditingSection(sectionId); setSaveSuccess(false) }}
+                onCancelSection={() => setEditingSection(null)}
+                editContent={
+                  <EditForm
+                    profile={profile}
+                    activeTab="bank"
+                    onSave={handleSave}
+                    onCancel={() => setEditingSection(null)}
+                  />
+                }
+              >
+                <BankView p={profile} />
+              </EditableProfileSection>
+
+              <EditableProfileSection
+                title="Documents"
+                sectionId="documents"
+                editingSection={editingSection}
+                onEditSection={(sectionId) => { setEditingSection(sectionId); setSaveSuccess(false) }}
+                onCancelSection={() => setEditingSection(null)}
+                editContent={
+                  <>
+                    <EditForm
+                      profile={profile}
+                      activeTab="documents"
+                      onSave={handleSave}
+                      onCancel={() => setEditingSection(null)}
+                    />
+                    <DocumentsSection
+                      profile={profile}
+                      onDocUploaded={handleDocUploaded}
+                      onDocDeleted={handleDocDeleted}
+                    />
+                  </>
+                }
+              >
+                <DocumentsSection
+                  profile={profile}
+                  onDocUploaded={handleDocUploaded}
+                  onDocDeleted={handleDocDeleted}
+                />
+              </EditableProfileSection>
+
+              <ProfileSection title="Security">
+                <PasswordSection />
+              </ProfileSection>
+            </>
           </div>
         </>
       )}
