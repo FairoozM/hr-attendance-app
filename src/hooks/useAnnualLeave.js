@@ -73,9 +73,15 @@ export function useAnnualLeave() {
     return body
   }, [refresh])
 
+  const regenerateLeaveLetter = useCallback(async (id) => {
+    const body = await api.post(`/api/annual-leave/${id}/leave-request-letter/regenerate`, {})
+    await refresh()
+    return body
+  }, [refresh])
+
   return {
     requests, loading, error, dashboard,
     refresh, createRequest, updateRequest, deleteRequest,
-    confirmReturn, extendLeave, updateRemarks,
+    confirmReturn, extendLeave, updateRemarks, regenerateLeaveLetter,
   }
 }

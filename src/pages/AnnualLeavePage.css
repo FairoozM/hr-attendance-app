@@ -575,3 +575,32 @@
 .al-section__body {
   overflow-x: auto;
 }
+
+/* Leave request letter (PDF) */
+.al-doc-actions {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px dashed var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.al-doc-actions__title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.al-doc-actions__btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.al-btn--sm {
+  font-size: 0.78rem;
+  padding: 0.28rem 0.65rem;
+}

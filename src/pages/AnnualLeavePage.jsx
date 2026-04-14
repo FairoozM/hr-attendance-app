@@ -4,6 +4,10 @@ import { useEmployees } from '../hooks/useEmployees'
 import { useAnnualLeave } from '../hooks/useAnnualLeave'
 import { AnnualLeaveSalaryPage } from './AnnualLeaveSalaryPage'
 import { fmtDMY, fmtISO } from '../utils/dateFormat'
+import {
+  openAnnualLeaveLetterPreview,
+  downloadAnnualLeaveLetterPdf,
+} from '../api/annualLeaveDocuments'
 import './Page.css'
 import './AnnualLeavePage.css'
 
@@ -230,11 +234,27 @@ function DashboardCards({ stats, isAdmin, onFilterClick }) {
 }
 
 // ── Leave row ─────────────────────────────────────────────────────────────────
-function LeaveRow({ row, isAdmin, onStatusChange, onConfirmReturn, onExtend, onDelete, onEdit, expanded, onToggle, yearTotal }) {
+function LeaveRow({
+  row,
+  isAdmin,
+  onStatusChange,
+  onConfirmReturn,
+  onExtend,
+  onDelete,
+  onEdit,
+  expanded,
+  onToggle,
+  yearTotal,
+  onPreviewLeaveLetter,
+  onDownloadLeaveLetter,
+  onRegenerateLeaveLetter,
+  letterBusyId,
+}) {
   const es        = row.effective_status || row.status
   const leaveDays = row.leave_days ?? daysBetween(row.from_date, row.to_date)
   const canConfirm = isAdmin && ['Ongoing', 'ReturnPending', 'Overstayed'].includes(es) && !row.actual_return_date
   const canExtend  = isAdmin && ['Approved', 'Ongoing'].includes(es)
+  const letterBusy = letterBusyId === row.id
 
   return (
     <>
@@ -320,6 +340,46 @@ function LeaveRow({ row, isAdmin, onStatusChange, onConfirmReturn, onExtend, onD
                   {row.actual_return_date && <div><span>Actual Return</span><span>{fmtDMY(row.actual_return_date)}</span></div>}
                   {row.overstay_days > 0 && <div><span>Overstay Days</span><span>{row.overstay_days}</span></div>}
                   {row.admin_remarks && <div><span>Admin Notes</span><span>{row.admin_remarks}</span></div>}
+                  {row.alternate_employee_full_name && (
+                    <div><span>Alternate (leave)</span><span>{row.alternate_employee_full_name}</span></div>
+                  )}
+                  {row.leave_request_pdf_generated_at && (
+                    <div>
+                      <span>Letter PDF saved</span>
+                      <span>{fmtDMY(row.leave_request_pdf_generated_at)}</span>
+                    </div>
+                  )}
+                </div>
+                <div className="al-doc-actions" onClick={(e) => e.stopPropagation()}>
+                  <span className="al-doc-actions__title">Formal leave letter</span>
+                  <div className="al-doc-actions__btns">
+                    <button
+                      type="button"
+                      className="al-btn al-btn--ghost al-btn--sm"
+                      disabled={letterBusy}
+                      onClick={() => onPreviewLeaveLetter(row.id)}
+                    >
+                      Preview
+                    </button>
+                    <button
+                      type="button"
+                      className="al-btn al-btn--ghost al-btn--sm"
+                      disabled={letterBusy}
+                      onClick={() => onDownloadLeaveLetter(row.id)}
+                    >
+                      Download PDF
+                    </button>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        className="al-btn al-btn--ghost al-btn--sm"
+                        disabled={letterBusy}
+                        onClick={() => onRegenerateLeaveLetter(row.id)}
+                      >
+                        {letterBusy ? 'Working…' : 'Regenerate'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -518,6 +578,10 @@ function SectionGroup({
   employees, empLoading,
   yearTotals, updateRequest,
   onStatusChange, onConfirmReturn, onExtend, onDelete, onEditStart,
+  onPreviewLeaveLetter,
+  onDownloadLeaveLetter,
+  onRegenerateLeaveLetter,
+  letterBusyId,
 }) {
   const [collapsed, setCollapsed] = useState(false)
   const cfg = STATUS_CFG[sectionKey] || {}
@@ -561,6 +625,10 @@ function SectionGroup({
                     expanded={expandedId === row.id}
                     onToggle={() => onToggle(row.id)}
                     yearTotal={yearTotals[String(row.employee_id)] ?? null}
+                    onPreviewLeaveLetter={onPreviewLeaveLetter}
+                    onDownloadLeaveLetter={onDownloadLeaveLetter}
+                    onRegenerateLeaveLetter={onRegenerateLeaveLetter}
+                    letterBusyId={letterBusyId}
                   />
                 )
               )}
@@ -594,7 +662,7 @@ export function AnnualLeavePage() {
   const { employees, loading: empLoading } = useEmployees()
   const {
     requests, loading, error, dashboard,
-    createRequest, updateRequest, deleteRequest, confirmReturn, extendLeave,
+    createRequest, updateRequest, deleteRequest, confirmReturn, extendLeave, regenerateLeaveLetter,
   } = useAnnualLeave()
 
   const [activeTab,    setActiveTab]    = useState('requests')
@@ -607,6 +675,38 @@ export function AnnualLeavePage() {
   const [extendRow,    setExtendRow]    = useState(null)
   const [sortBy,       setSortBy]       = useState('from_date')
   const [sortDir,      setSortDir]      = useState('desc')
+  const [letterBusyId, setLetterBusyId] = useState(null)
+
+  const handlePreviewLeaveLetter = useCallback(async (id) => {
+    try {
+      await openAnnualLeaveLetterPreview(id)
+    } catch (e) {
+      window.alert(e.message || 'Could not open the document.')
+    }
+  }, [])
+
+  const handleDownloadLeaveLetter = useCallback(async (id) => {
+    try {
+      await downloadAnnualLeaveLetterPdf(id)
+    } catch (e) {
+      window.alert(e.message || 'Download failed.')
+    }
+  }, [])
+
+  const handleRegenerateLeaveLetter = useCallback(
+    async (id) => {
+      if (!window.confirm('Regenerate the leave request PDF from current employee and leave data?')) return
+      setLetterBusyId(id)
+      try {
+        await regenerateLeaveLetter(id)
+      } catch (e) {
+        window.alert(e.message || 'Regeneration failed.')
+      } finally {
+        setLetterBusyId(null)
+      }
+    },
+    [regenerateLeaveLetter]
+  )
 
   function handleSort(col) {
     setSortBy(prev => {
@@ -730,6 +830,10 @@ export function AnnualLeavePage() {
     onExtend:        r => setExtendRow(r),
     onDelete,
     onEditStart,
+    onPreviewLeaveLetter: handlePreviewLeaveLetter,
+    onDownloadLeaveLetter: handleDownloadLeaveLetter,
+    onRegenerateLeaveLetter: handleRegenerateLeaveLetter,
+    letterBusyId,
   }
 
   return (
@@ -858,6 +962,10 @@ export function AnnualLeavePage() {
                                 expanded={expandedId === row.id}
                                 onToggle={() => toggleExpand(row.id)}
                                 yearTotal={yearTotals[String(row.employee_id)] ?? null}
+                                onPreviewLeaveLetter={handlePreviewLeaveLetter}
+                                onDownloadLeaveLetter={handleDownloadLeaveLetter}
+                                onRegenerateLeaveLetter={handleRegenerateLeaveLetter}
+                                letterBusyId={letterBusyId}
                               />
                             )
                           )}

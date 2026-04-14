@@ -259,6 +259,13 @@ async function ensureProfileColumns() {
   }
 }
 
+async function ensureAnnualLeavePdfDocumentColumns() {
+  await query(`ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS leave_request_pdf_key TEXT`)
+  await query(
+    `ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS leave_request_pdf_generated_at TIMESTAMPTZ`
+  )
+}
+
 async function ensureAnnualLeaveExtendedColumns() {
   const cols = [
     `ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS actual_return_date DATE`,
@@ -345,6 +352,7 @@ async function testConnection() {
   await ensureProfileColumns()
   await migrateUsernamesToEmail()
   await ensureAnnualLeaveExtendedColumns()
+  await ensureAnnualLeavePdfDocumentColumns()
   await ensureAnnualLeaveSalaryTable()
   await ensureAttendanceAssignmentsTable()
   await ensureInfluencersSnapshotTable()

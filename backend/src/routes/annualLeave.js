@@ -9,6 +9,17 @@ router.get('/dashboard', auth.requireAuth, auth.requireAdmin, ctrl.dashboard)
 
 // Standard CRUD
 router.get('/',    auth.requireAuth, ctrl.list)
+router.get(
+  '/:id/leave-request-letter',
+  auth.requireAuth,
+  ctrl.getLeaveRequestLetter
+)
+router.post(
+  '/:id/leave-request-letter/regenerate',
+  auth.requireAuth,
+  auth.requireAdmin,
+  ctrl.regenerateLeaveRequestLetter
+)
 router.get('/:id', auth.requireAuth, ctrl.getOne)
 router.post('/',   auth.requireAuth, ctrl.create)
 router.put('/:id', auth.requireAuth, ctrl.update)

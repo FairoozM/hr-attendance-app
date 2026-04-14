@@ -78,11 +78,14 @@ const RICH_SELECT = `
   al.grace_period_days,
   al.created_at,
   al.updated_at,
+  al.leave_request_pdf_key,
+  al.leave_request_pdf_generated_at,
   e.employee_code,
   e.full_name,
   e.department,
   e.photo_url,
   e.designation,
+  alt.full_name AS alternate_employee_full_name,
   (al.to_date + INTERVAL '1 day')::date                                AS expected_return_date,
   (al.to_date::date - al.from_date::date + 1)                         AS leave_days,
   CASE
@@ -128,6 +131,7 @@ async function listWithEmployees() {
     `SELECT ${RICH_SELECT}
      FROM annual_leave al
      JOIN employees e ON e.id = al.employee_id
+     LEFT JOIN employees alt ON alt.id = e.alternate_employee_id
      ORDER BY al.from_date DESC, al.created_at DESC`
   )
   return result.rows
@@ -138,6 +142,7 @@ async function listWithEmployeesForEmployee(employeeId) {
     `SELECT ${RICH_SELECT}
      FROM annual_leave al
      JOIN employees e ON e.id = al.employee_id
+     LEFT JOIN employees alt ON alt.id = e.alternate_employee_id
      WHERE al.employee_id = $1
      ORDER BY al.from_date DESC, al.created_at DESC`,
     [employeeId]
@@ -161,8 +166,22 @@ async function findByIdWithEmployee(id) {
     `SELECT ${RICH_SELECT}
      FROM annual_leave al
      JOIN employees e ON e.id = al.employee_id
+     LEFT JOIN employees alt ON alt.id = e.alternate_employee_id
      WHERE al.id = $1`,
     [id]
+  )
+  return result.rows[0] || null
+}
+
+async function updateLeaveRequestPdf(id, { pdfKey, generatedAt }) {
+  const result = await query(
+    `UPDATE annual_leave
+     SET leave_request_pdf_key = $2,
+         leave_request_pdf_generated_at = $3,
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING id`,
+    [id, pdfKey || null, generatedAt || null]
   )
   return result.rows[0] || null
 }
@@ -308,6 +327,7 @@ module.exports = {
   listWithEmployeesForEmployee,
   findById,
   findByIdWithEmployee,
+  updateLeaveRequestPdf,
   create,
   update,
   confirmReturn,

@@ -31,6 +31,10 @@ function createProfileDocKey(employeeId, docType, fileName) {
   return `profile-docs/${employeeId}/${docType}/${crypto.randomUUID()}-${safe}`
 }
 
+function createAnnualLeaveLetterKey(leaveId) {
+  return `annual-leave-letters/${leaveId}/${crypto.randomUUID()}.pdf`
+}
+
 async function getUploadUrl({ key, contentType, expiresIn = 300 }) {
   const Bucket = requireBucket()
   const command = new PutObjectCommand({
@@ -50,6 +54,32 @@ async function getDownloadUrl({ key, expiresIn = 300 }) {
   return getSignedUrl(s3, command, { expiresIn })
 }
 
+async function putObjectBuffer({ key, body, contentType = 'application/pdf' }) {
+  const Bucket = requireBucket()
+  await s3.send(
+    new PutObjectCommand({
+      Bucket,
+      Key: key,
+      Body: body,
+      ContentType: contentType,
+    })
+  )
+}
+
+/** Download object body as Buffer (for server-side PDF streaming). */
+async function getObjectBuffer({ key }) {
+  const Bucket = requireBucket()
+  const out = await s3.send(new GetObjectCommand({ Bucket, Key: key }))
+  if (!out.Body) return null
+  if (typeof out.Body.transformToByteArray === 'function') {
+    const bytes = await out.Body.transformToByteArray()
+    return Buffer.from(bytes)
+  }
+  const chunks = []
+  for await (const chunk of out.Body) chunks.push(chunk)
+  return Buffer.concat(chunks)
+}
+
 async function deleteObjectIfExists(key) {
   if (!key) return
   const Bucket = requireBucket()
@@ -63,7 +93,10 @@ async function deleteObjectIfExists(key) {
 module.exports = {
   createSickLeaveKey,
   createProfileDocKey,
+  createAnnualLeaveLetterKey,
   getUploadUrl,
   getDownloadUrl,
+  putObjectBuffer,
+  getObjectBuffer,
   deleteObjectIfExists,
 }

@@ -1,5 +1,6 @@
 const employeesService = require('../services/employeesService')
 const annualLeaveService = require('../services/annualLeaveService')
+const leaveRequestDocumentService = require('../services/leaveRequestDocumentService')
 
 function parseDate(s) {
   if (s == null || String(s).trim() === '') return null
@@ -83,7 +84,13 @@ async function create(req, res) {
 
     const reason = req.body.reason?.trim() || null
     const row = await annualLeaveService.create({ employee_id: employeeId, from_date: fromDate, to_date: toDate, reason, status })
-    const enriched = await annualLeaveService.findByIdWithEmployee(row.id)
+    let enriched = await annualLeaveService.findByIdWithEmployee(row.id)
+    try {
+      await leaveRequestDocumentService.generateAndStoreLeaveLetter(row.id)
+      enriched = (await annualLeaveService.findByIdWithEmployee(row.id)) || enriched
+    } catch (e) {
+      console.error('[annual-leave] Leave request letter PDF:', e.message)
+    }
     res.status(201).json(enriched || row)
   } catch (err) {
     console.error('Annual leave create error:', err)
@@ -234,4 +241,62 @@ async function remove(req, res) {
   }
 }
 
-module.exports = { list, dashboard, getOne, create, update, confirmReturn, extendLeave, updateRemarks, remove }
+async function getLeaveRequestLetter(req, res) {
+  try {
+    const id = parseInt(req.params.id, 10)
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
+    const row = await annualLeaveService.findByIdWithEmployee(id)
+    if (!row) return res.status(404).json({ error: 'Not found' })
+    if (req.user.role === 'employee') {
+      if (parseInt(row.employee_id, 10) !== parseInt(req.user.employeeId, 10)) {
+        return res.status(403).json({ error: 'Forbidden' })
+      }
+    }
+    const disposition = req.query.disposition === 'attachment' ? 'attachment' : 'inline'
+    const buf = await leaveRequestDocumentService.getPdfBufferForLeave(id)
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader(
+      'Content-Disposition',
+      `${disposition}; filename="leave-request-${id}.pdf"`
+    )
+    res.send(buf)
+  } catch (err) {
+    if (err.code === 'LETTER_VALIDATION') {
+      return res.status(422).json({ error: err.message })
+    }
+    console.error('Leave request letter PDF error:', err)
+    res.status(500).json({ error: 'Failed to generate leave request document' })
+  }
+}
+
+async function regenerateLeaveRequestLetter(req, res) {
+  try {
+    const id = parseInt(req.params.id, 10)
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
+    const existing = await annualLeaveService.findById(id)
+    if (!existing) return res.status(404).json({ error: 'Not found' })
+    await leaveRequestDocumentService.generateAndStoreLeaveLetter(id)
+    const enriched = await annualLeaveService.findByIdWithEmployee(id)
+    res.json(enriched)
+  } catch (err) {
+    if (err.code === 'LETTER_VALIDATION') {
+      return res.status(422).json({ error: err.message })
+    }
+    console.error('Regenerate leave letter error:', err)
+    res.status(500).json({ error: err.message || 'Failed to regenerate document' })
+  }
+}
+
+module.exports = {
+  list,
+  dashboard,
+  getOne,
+  create,
+  update,
+  confirmReturn,
+  extendLeave,
+  updateRemarks,
+  remove,
+  getLeaveRequestLetter,
+  regenerateLeaveRequestLetter,
+}
