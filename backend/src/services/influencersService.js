@@ -1,8 +1,9 @@
-const { query } = require('../db')
+const { query, ensureInfluencersSnapshotTable } = require('../db')
 
 const SNAPSHOT_ID = 1
 
 async function getInfluencers() {
+  await ensureInfluencersSnapshotTable()
   const result = await query('SELECT body FROM influencers_snapshot WHERE id = $1', [SNAPSHOT_ID])
   if (!result.rows.length) return []
   const body = result.rows[0].body
@@ -10,6 +11,7 @@ async function getInfluencers() {
 }
 
 async function replaceInfluencers(list) {
+  await ensureInfluencersSnapshotTable()
   await query(
     `INSERT INTO influencers_snapshot (id, body, updated_at)
      VALUES ($1, $2::jsonb, NOW())

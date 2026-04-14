@@ -350,4 +350,5 @@ module.exports = {
   ensureAttendanceAnnualLeaveColumn,
   ensureUsersTable,
   ensureDefaultAdminUser,
+  ensureInfluencersSnapshotTable,
 }

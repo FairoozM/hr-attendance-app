@@ -109,7 +109,11 @@ async function handleResponse(res, requestUrl) {
   }
 
   if (!res.ok) {
-    const err = new Error(data?.error || res.statusText || 'Request failed')
+    let msg = data?.error || res.statusText || 'Request failed'
+    if (data?.detail && typeof data.detail === 'string') {
+      msg = `${msg}: ${data.detail}`
+    }
+    const err = new Error(msg)
     err.status = res.status
     err.url = url
     err.body = data

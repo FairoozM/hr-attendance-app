@@ -122,8 +122,9 @@ export function InfluencerListPage() {
     <div className="inf-page">
       {loadError ? (
         <p className="inf-page-subtitle" style={{ marginBottom: '1rem', color: 'var(--warning)' }} role="alert">
-          Could not reach the server for influencers ({loadError}). Showing offline copy; changes may not sync until
-          the API is available.
+          {loadError.includes('Failed to fetch') || loadError.includes('NetworkError')
+            ? `Could not reach the API (${loadError}). Showing offline copy; check API URL / network.`
+            : `${loadError} Showing offline copy until the API responds successfully.`}
         </p>
       ) : null}
       <div className="inf-page-header">

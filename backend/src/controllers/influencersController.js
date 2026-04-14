@@ -24,7 +24,10 @@ async function listInfluencers(_req, res) {
     res.json(list)
   } catch (err) {
     console.error('[influencers] list error:', err)
-    res.status(500).json({ error: 'Failed to load influencers' })
+    res.status(500).json({
+      error: 'Failed to load influencers',
+      detail: err && err.message ? String(err.message).slice(0, 240) : undefined,
+    })
   }
 }
 
@@ -38,7 +41,10 @@ async function putInfluencers(req, res) {
     res.json({ success: true, count: parsed.list.length })
   } catch (err) {
     console.error('[influencers] put error:', err)
-    res.status(500).json({ error: 'Failed to save influencers' })
+    res.status(500).json({
+      error: 'Failed to save influencers',
+      detail: err && err.message ? String(err.message).slice(0, 240) : undefined,
+    })
   }
 }
 
