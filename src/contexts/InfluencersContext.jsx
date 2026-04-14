@@ -349,15 +349,26 @@ export function InfluencersProvider({ children }) {
   const [loadError, setLoadError] = useState(null)
   /** After first successful GET, PUTs mirror edits to the API (shared for all users). */
   const serverReady = useRef(false)
-  const persistTimer = useRef(null)
+  /** Serializes PUT /api/influencers so rapid edits do not overlap and lose rows. */
+  const persistChain = useRef(Promise.resolve())
+  const userRef = useRef(user)
+  userRef.current = user
+
+  const queuePersistSnapshot = useCallback((list) => {
+    const u = userRef.current
+    if (!u || !serverReady.current || !canPersistInfluencersToServer(u)) return
+    persistChain.current = persistChain.current
+      .catch(() => {})
+      .then(() => api.put('/api/influencers', { influencers: list }))
+      .catch((err) => {
+        console.error('[influencers] persist failed', err)
+      })
+  }, [])
 
   // Load shared list when session changes
   useEffect(() => {
     serverReady.current = false
-    if (persistTimer.current) {
-      clearTimeout(persistTimer.current)
-      persistTimer.current = null
-    }
+    persistChain.current = Promise.resolve()
     if (!user) {
       setInfluencers([])
       setLoading(false)
@@ -426,21 +437,6 @@ export function InfluencersProvider({ children }) {
     }
   }, [user?.id])
 
-  // Debounced save to API (one shared snapshot for the organisation)
-  useEffect(() => {
-    if (!user || !serverReady.current || !canPersistInfluencersToServer(user)) return undefined
-    if (persistTimer.current) clearTimeout(persistTimer.current)
-    persistTimer.current = setTimeout(() => {
-      persistTimer.current = null
-      api.put('/api/influencers', { influencers }).catch((err) => {
-        console.error('[influencers] save failed', err)
-      })
-    }, 500)
-    return () => {
-      if (persistTimer.current) clearTimeout(persistTimer.current)
-    }
-  }, [influencers, user?.id])
-
   const addInfluencer = useCallback((data) => {
     const newInfluencer = {
       ...data,
@@ -453,29 +449,48 @@ export function InfluencersProvider({ children }) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
-    setInfluencers(prev => [newInfluencer, ...prev])
+    setInfluencers((prev) => {
+      const next = [newInfluencer, ...prev]
+      queuePersistSnapshot(next)
+      return next
+    })
     return newInfluencer.id
-  }, [])
+  }, [queuePersistSnapshot])
 
   const updateInfluencer = useCallback((id, updates) => {
-    setInfluencers(prev =>
-      prev.map(inf => inf.id === id ? { ...inf, ...updates, updatedAt: new Date().toISOString() } : inf)
-    )
-  }, [])
+    setInfluencers((prev) => {
+      const next = prev.map(inf =>
+        inf.id === id ? { ...inf, ...updates, updatedAt: new Date().toISOString() } : inf
+      )
+      queuePersistSnapshot(next)
+      return next
+    })
+  }, [queuePersistSnapshot])
 
   const updateWorkflowStatus = useCallback((id, status, note = '') => {
-    setInfluencers(prev =>
-      prev.map(inf => {
+    setInfluencers((prev) => {
+      const next = prev.map((inf) => {
         if (inf.id !== id) return inf
         const entry = { event: status, date: new Date().toISOString().split('T')[0], note }
-        return { ...inf, workflowStatus: status, updatedAt: new Date().toISOString(), timeline: [...(inf.timeline || []), entry] }
+        return {
+          ...inf,
+          workflowStatus: status,
+          updatedAt: new Date().toISOString(),
+          timeline: [...(inf.timeline || []), entry],
+        }
       })
-    )
-  }, [])
+      queuePersistSnapshot(next)
+      return next
+    })
+  }, [queuePersistSnapshot])
 
   const deleteInfluencer = useCallback((id) => {
-    setInfluencers(prev => prev.filter(inf => inf.id !== id))
-  }, [])
+    setInfluencers((prev) => {
+      const next = prev.filter((inf) => inf.id !== id)
+      queuePersistSnapshot(next)
+      return next
+    })
+  }, [queuePersistSnapshot])
 
   return (
     <InfluencersContext.Provider
