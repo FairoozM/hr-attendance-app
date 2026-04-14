@@ -1,3 +1,5 @@
+import { fmtDMY } from '../../utils/dateFormat'
+
 /** Prefer explicit HR joining date, else record created_at. */
 export function effectiveJoiningDate(emp) {
   if (!emp) return null
@@ -7,17 +9,8 @@ export function effectiveJoiningDate(emp) {
 /** @param {string|null|undefined} iso */
 export function formatJoiningDate(iso) {
   if (!iso) return null
-  try {
-    const d = new Date(iso)
-    if (Number.isNaN(d.getTime())) return null
-    return d.toLocaleDateString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    })
-  } catch {
-    return null
-  }
+  const s = fmtDMY(iso)
+  return s === '—' ? null : s
 }
 
 export function displayOrDash(v) {

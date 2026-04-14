@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect } from 'react'
-import { fmtDMY, fmtISO } from '../../utils/dateFormat'
+import { useState, useCallback, useEffect, useMemo } from 'react'
+import { fmtDMY, fmtISO, shopVisitAllowedWindowISO, shopVisitDateValidationError } from '../../utils/dateFormat'
 import './ShopVisitWorkflow.css'
 
 /** Human-readable combined workflow label (leave + main shop). */
@@ -48,6 +48,7 @@ export function ShopWorkflowBadge({ row }) {
 
 /** Employee: submit or update proposed main shop visit (API allows PendingSubmission + Submitted). */
 export function EmployeeShopVisitForm({ row, onSubmit }) {
+  const visitWindow = useMemo(() => shopVisitAllowedWindowISO(row.from_date), [row.from_date])
   const [date, setDate] = useState(() => fmtISO(row.shop_visit_date) || '')
   const [time, setTime] = useState(() => (row.shop_visit_time ? String(row.shop_visit_time) : ''))
   const [note, setNote] = useState(() => (row.shop_visit_note ? String(row.shop_visit_note) : ''))
@@ -57,6 +58,11 @@ export function EmployeeShopVisitForm({ row, onSubmit }) {
 
   const canEdit = row.status === 'Approved' && ['PendingSubmission', 'Submitted'].includes(row.shop_visit_status || 'PendingSubmission')
 
+  useEffect(() => {
+    if (!visitWindow || !date) return
+    if (date < visitWindow.min || date > visitWindow.max) setDate('')
+  }, [visitWindow, row.id, row.from_date, date])
+
   const submit = useCallback(
     async (e) => {
       e.preventDefault()
@@ -64,6 +70,8 @@ export function EmployeeShopVisitForm({ row, onSubmit }) {
       if (!date) return setErr('Proposed visit date is required')
       if (!time) return setErr('Proposed visit time is required')
       if (!confirm) return setErr('Please confirm you will visit the main shop')
+      const ve = shopVisitDateValidationError(date, row.from_date)
+      if (ve) return setErr(ve)
       setSaving(true)
       try {
         await onSubmit(row.id, {
@@ -78,7 +86,7 @@ export function EmployeeShopVisitForm({ row, onSubmit }) {
         setSaving(false)
       }
     },
-    [row.id, date, time, note, confirm, onSubmit]
+    [row.id, row.from_date, date, time, note, confirm, onSubmit]
   )
 
   if (!canEdit) return null
@@ -88,12 +96,26 @@ export function EmployeeShopVisitForm({ row, onSubmit }) {
       <div className="sv-card__head">
         <span className="sv-card__title">Main shop visit (passport &amp; money)</span>
         <span className="sv-card__hint">Leave period: {fmtDMY(row.from_date)} – {fmtDMY(row.to_date)}</span>
+        {visitWindow && (
+          <span className="sv-card__hint sv-card__hint--block">
+            Visit must be between {fmtDMY(visitWindow.min)} and {fmtDMY(visitWindow.max)} (before leave starts on{' '}
+            {fmtDMY(row.from_date)}).
+          </span>
+        )}
       </div>
       <form className="sv-form" onSubmit={submit}>
         <div className="sv-form__row">
           <label>
             Proposed visit date
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} disabled={saving} required />
+            <input
+              type="date"
+              value={date}
+              min={visitWindow?.min}
+              max={visitWindow?.max}
+              onChange={(e) => setDate(e.target.value)}
+              disabled={saving}
+              required
+            />
           </label>
           <label>
             Proposed visit time
@@ -227,15 +249,23 @@ export function AdminShopVisitPanel({
 }
 
 export function ShopVisitRescheduleModal({ row, onSave, onClose }) {
+  const visitWindow = useMemo(() => shopVisitAllowedWindowISO(row.from_date), [row.from_date])
   const [date, setDate] = useState(() => fmtISO(row.shop_visit_date) || '')
   const [time, setTime] = useState(() => (row.shop_visit_time ? String(row.shop_visit_time) : ''))
   const [remarks, setRemarks] = useState(() => row.shop_visit_admin_note || '')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
+  useEffect(() => {
+    if (!visitWindow || !date) return
+    if (date < visitWindow.min || date > visitWindow.max) setDate('')
+  }, [visitWindow, row.id, row.from_date, date])
+
   async function submit(e) {
     e.preventDefault()
     if (!date || !time) return setErr('Date and time are required')
+    const ve = shopVisitDateValidationError(date, row.from_date)
+    if (ve) return setErr(ve)
     setSaving(true)
     try {
       await onSave(row.id, {
@@ -260,9 +290,21 @@ export function ShopVisitRescheduleModal({ row, onSave, onClose }) {
           </button>
         </div>
         <form onSubmit={submit}>
+          {visitWindow && (
+            <p className="al-modal__hint">
+              Allowed: {fmtDMY(visitWindow.min)} – {fmtDMY(visitWindow.max)} (before leave on {fmtDMY(row.from_date)}).
+            </p>
+          )}
           <div className="al-modal__field">
             <label>New visit date *</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+            <input
+              type="date"
+              value={date}
+              min={visitWindow?.min}
+              max={visitWindow?.max}
+              onChange={(e) => setDate(e.target.value)}
+              required
+            />
           </div>
           <div className="al-modal__field">
             <label>New visit time *</label>

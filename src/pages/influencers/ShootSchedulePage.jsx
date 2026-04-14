@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useInfluencers, SHOOT_STATUSES } from '../../contexts/InfluencersContext'
+import { fmtDMY } from '../../utils/dateFormat'
 import './influencers.css'
 
 function shootBadge(status) {
@@ -46,7 +47,9 @@ export function ShootSchedulePage() {
     return (
       <div className="inf-schedule-card" onClick={() => navigate(`/influencers/${inf.id}`)}>
         <div className="inf-schedule-card__date">
-          {inf.shootDate ? `📅 ${inf.shootDate}${inf.shootTime ? ` · ${inf.shootTime}` : ''}` : 'No date set'}
+          {inf.shootDate
+            ? `📅 ${fmtDMY(inf.shootDate)}${inf.shootTime ? ` · ${inf.shootTime}` : ''}`
+            : 'No date set'}
         </div>
         <div className="inf-schedule-card__name">{inf.name}</div>
         <div className="inf-schedule-card__handle">{inf.instagram?.handle || '—'}</div>
@@ -180,7 +183,7 @@ export function ShootSchedulePage() {
                 <tr key={inf.id} onClick={() => navigate(`/influencers/${inf.id}`)}>
                   <td><div className="inf-table__name">{inf.name}</div></td>
                   <td><span className="inf-table__handle">{inf.instagram?.handle || '—'}</span></td>
-                  <td><span className="inf-table__muted">{inf.shootDate || '—'}</span></td>
+                  <td><span className="inf-table__muted">{inf.shootDate ? fmtDMY(inf.shootDate) : '—'}</span></td>
                   <td><span className="inf-table__muted">{inf.shootTime || '—'}</span></td>
                   <td className="wrap"><span className="inf-table__muted">{inf.shootLocation || '—'}</span></td>
                   <td className="wrap"><span className="inf-table__muted">{inf.campaign || '—'}</span></td>

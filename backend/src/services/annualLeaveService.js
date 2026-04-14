@@ -1,5 +1,6 @@
 const { query } = require('../db')
 const annualLeaveSalaryService = require('./annualLeaveSalaryService')
+const { shopVisitDateRangeError } = require('../utils/shopVisitDates')
 
 const STATUSES = ['Pending', 'Approved', 'Rejected']
 
@@ -322,6 +323,9 @@ async function submitShopVisit(id, employeeId, { shop_visit_date, shop_visit_tim
   if (sv === 'Completed' || sv === 'Cancelled') return { error: 'invalid_shop_state' }
   if (sv && !['PendingSubmission', 'Submitted'].includes(sv)) return { error: 'invalid_shop_state' }
 
+  const rangeErr = shopVisitDateRangeError(shop_visit_date, existing.from_date)
+  if (rangeErr) return { error: 'shop_visit_date_out_of_range', message: rangeErr }
+
   await query(
     `UPDATE annual_leave SET
        shop_visit_date = $2::date,
@@ -365,6 +369,9 @@ async function rescheduleShopVisit(id, adminUserId, { shop_visit_date, shop_visi
   if (!['Submitted', 'Confirmed', 'MoneyCalculated'].includes(existing.shop_visit_status || '')) {
     return { error: 'invalid_shop_state' }
   }
+
+  const rangeErr = shopVisitDateRangeError(shop_visit_date, existing.from_date)
+  if (rangeErr) return { error: 'shop_visit_date_out_of_range', message: rangeErr }
 
   await query(
     `UPDATE annual_leave SET

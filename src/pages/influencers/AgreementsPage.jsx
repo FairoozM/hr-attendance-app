@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useInfluencers } from '../../contexts/InfluencersContext'
+import { fmtDMY } from '../../utils/dateFormat'
 import './influencers.css'
 
 const COMPANY_NAME = 'Basmat Al Hayat General Trading LLC'
@@ -29,7 +30,7 @@ function AgreementPreview({ inf, onClose }) {
             <div className="inf-agreement__body">
               {/* Date & Ref */}
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                <span>Date: {new Date().toLocaleDateString('en-AE', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                <span>Date: {fmtDMY(new Date().toISOString())}</span>
                 <span>Ref: INF-{inf.id}-{new Date().getFullYear()}</span>
               </div>
 
@@ -74,7 +75,12 @@ function AgreementPreview({ inf, onClose }) {
                   {inf.reelsPrice && <div><strong>Reels Price:</strong> {inf.currency} {Number(inf.reelsPrice).toLocaleString()}</div>}
                   {inf.storiesPrice && <div><strong>Stories Price:</strong> {inf.currency} {Number(inf.storiesPrice).toLocaleString()}</div>}
                   {inf.packagePrice && <div><strong>Total Package Price:</strong> {inf.currency} {Number(inf.packagePrice).toLocaleString()}</div>}
-                  {inf.shootDate && <div><strong>Shoot Date:</strong> {inf.shootDate}{inf.shootTime ? ` at ${inf.shootTime}` : ''}</div>}
+                  {inf.shootDate && (
+                    <div>
+                      <strong>Shoot Date:</strong> {fmtDMY(inf.shootDate)}
+                      {inf.shootTime ? ` at ${inf.shootTime}` : ''}
+                    </div>
+                  )}
                   {inf.shootLocation && <div><strong>Location:</strong> {inf.shootLocation}</div>}
                   {inf.campaign && <div><strong>Campaign:</strong> {inf.campaign}</div>}
                 </div>

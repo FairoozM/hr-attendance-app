@@ -434,6 +434,9 @@ async function submitShopVisit(req, res) {
     if (result.error === 'invalid_shop_state') {
       return res.status(400).json({ error: 'Shop visit cannot be submitted in the current state' })
     }
+    if (result.error === 'shop_visit_date_out_of_range') {
+      return res.status(400).json({ error: result.message || 'Shop visit date is not allowed' })
+    }
 
     const enriched = await annualLeaveService.findByIdWithEmployee(id)
     res.json(await attachLeavePhotoUrl(enriched))
@@ -499,6 +502,9 @@ async function rescheduleShopVisit(req, res) {
     }
     if (result.error === 'invalid_shop_state') {
       return res.status(400).json({ error: 'Cannot reschedule in the current shop visit state' })
+    }
+    if (result.error === 'shop_visit_date_out_of_range') {
+      return res.status(400).json({ error: result.message || 'Shop visit date is not allowed' })
     }
 
     const enriched = await annualLeaveService.findByIdWithEmployee(id)

@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import type { AttendancePendingActionItem } from '../../types/attendance'
+import { fmtDMY } from '../../utils/dateFormat'
 
 type LeaveRow = {
   id: number
@@ -19,7 +20,7 @@ export function useAttendancePendingActions(requests: LeaveRow[]): AttendancePen
         id: `leave-${r.id}`,
         type: 'approval' as const,
         label: `Annual leave approval #${r.id}`,
-        meta: `${String(r.from_date).slice(0, 10)} → ${String(r.to_date).slice(0, 10)}`,
+        meta: `${fmtDMY(r.from_date)} → ${fmtDMY(r.to_date)}`,
       }))
   }, [requests])
 }

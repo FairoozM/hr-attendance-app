@@ -28,16 +28,7 @@ function daysBetween(from, to) {
 }
 function todayISO() { return new Date().toISOString().slice(0, 10) }
 function fmtPeriodDate(v) {
-  const iso = fmtISO(v)
-  if (!iso) return '—'
-  const dt = new Date(`${iso}T12:00:00Z`)
-  if (Number.isNaN(dt.getTime())) return '—'
-  return new Intl.DateTimeFormat('en-GB', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-    timeZone: 'UTC',
-  }).format(dt)
+  return fmtDMY(v)
 }
 
 // ── Icons ─────────────────────────────────────────────────────────────────────

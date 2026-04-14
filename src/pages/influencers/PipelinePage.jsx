@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useInfluencers, WORKFLOW_STAGES } from '../../contexts/InfluencersContext'
+import { fmtDMY } from '../../utils/dateFormat'
 import './influencers.css'
 
 function approvalBadge(status) {
@@ -139,7 +140,7 @@ export function PipelinePage() {
                     )}
                     {inf.shootDate && (
                       <div className="inf-pipeline-card__meta" style={{ marginTop: '0.25rem' }}>
-                        📅 {inf.shootDate}
+                        📅 {fmtDMY(inf.shootDate)}
                       </div>
                     )}
                     <div className="inf-pipeline-card__badges">
