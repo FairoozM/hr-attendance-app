@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 
 const THEME_STORAGE_KEY = 'hr-attendance-theme'
 const SYSTEM_THEME_QUERY = '(prefers-color-scheme: dark)'
@@ -27,6 +28,8 @@ function applyThemeToDocument(theme) {
 }
 
 export function ThemeProvider({ children }) {
+  const location = useLocation()
+  const onLoginRoute = location.pathname === '/login'
   const [themePreference, setThemePreference] = useState(getStoredThemePreference)
   const [systemTheme, setSystemTheme] = useState(getSystemTheme)
 
@@ -45,7 +48,12 @@ export function ThemeProvider({ children }) {
     }
   }, [])
 
-  const resolvedTheme = themePreference === 'system' ? systemTheme : themePreference
+  // Sign-in screen: follow OS only so another user's saved theme on this browser does not apply before auth.
+  const resolvedTheme = onLoginRoute
+    ? systemTheme
+    : themePreference === 'system'
+      ? systemTheme
+      : themePreference
 
   useEffect(() => {
     applyThemeToDocument(resolvedTheme)

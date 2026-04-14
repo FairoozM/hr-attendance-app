@@ -4,10 +4,17 @@
     <script>
       (function () {
         try {
+          var hash = (location.hash || '').replace(/^#/, '')
+          var onLogin = hash.indexOf('/login') === 0
           var key = 'hr-attendance-theme'
           var pref = localStorage.getItem(key)
-          var dark =
-            pref === 'dark' ? true : pref === 'light' ? false : window.matchMedia('(prefers-color-scheme: dark)').matches
+          var dark = onLogin
+            ? window.matchMedia('(prefers-color-scheme: dark)').matches
+            : pref === 'dark'
+              ? true
+              : pref === 'light'
+                ? false
+                : window.matchMedia('(prefers-color-scheme: dark)').matches
           var root = document.documentElement
           root.dataset.theme = dark ? 'dark' : 'light'
           root.style.colorScheme = dark ? 'dark' : 'light'

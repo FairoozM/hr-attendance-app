@@ -10,6 +10,7 @@ const employeesRoutes = require('./routes/employees')
 const attendanceRoutes = require('./routes/attendance')
 const annualLeaveRoutes = require('./routes/annualLeave')
 const annualLeaveSalaryRoutes = require('./routes/annualLeaveSalary')
+const influencersRoutes = require('./routes/influencers')
 
 const app = express()
 
@@ -44,6 +45,7 @@ app.use('/api/employees', authMiddleware.attachAuth, employeesRoutes)
 app.use('/api/attendance', authMiddleware.attachAuth, attendanceRoutes)
 app.use('/api/annual-leave', authMiddleware.attachAuth, annualLeaveRoutes)
 app.use('/api/annual-leave-salary', authMiddleware.attachAuth, annualLeaveSalaryRoutes)
+app.use('/api/influencers', influencersRoutes)
 
 // Catch-all for unmatched /api/* — always JSON, never HTML
 app.use('/api', (_req, res) => {

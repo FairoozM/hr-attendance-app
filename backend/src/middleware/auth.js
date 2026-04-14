@@ -72,6 +72,15 @@ function requireEmployee(req, res, next) {
  * - warehouse: always passes (backward compatibility)
  * - employee: must have the specific permission (manage implies view)
  */
+/** Any write-capable influencers permission may replace the shared snapshot. */
+function requireInfluencersWrite(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' })
+  if (req.user.role === 'admin' || req.user.role === 'warehouse') return next()
+  const mod = req.user.permissions?.influencers || {}
+  if (mod.manage || mod.approve || mod.payments || mod.agreements) return next()
+  return res.status(403).json({ error: 'Access denied: cannot modify influencers' })
+}
+
 function requirePermission(module, action) {
   return function permissionCheck(req, res, next) {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' })
@@ -85,6 +94,14 @@ function requirePermission(module, action) {
     if (action === 'view' && mod.manage) return next()
     // approve permission implicitly grants view for leave
     if (action === 'view' && module === 'leave' && mod.approve) return next()
+    // influencers: elevated roles imply view (matches frontend PermissionGuard)
+    if (
+      action === 'view' &&
+      module === 'influencers' &&
+      (mod.manage || mod.approve || mod.payments || mod.agreements)
+    ) {
+      return next()
+    }
 
     if (mod[action]) return next()
 
@@ -102,4 +119,5 @@ module.exports = {
   requireAdminOrWarehouse,
   requireEmployee,
   requirePermission,
+  requireInfluencersWrite,
 }

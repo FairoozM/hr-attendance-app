@@ -260,6 +260,16 @@ async function ensureAnnualLeaveExtendedColumns() {
   for (const sql of cols) await query(sql)
 }
 
+async function ensureInfluencersSnapshotTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS influencers_snapshot (
+      id SMALLINT PRIMARY KEY CHECK (id = 1),
+      body JSONB NOT NULL DEFAULT '[]'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+}
+
 async function ensureAttendanceAssignmentsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS attendance_assignments (
@@ -326,6 +336,7 @@ async function testConnection() {
   await ensureAnnualLeaveExtendedColumns()
   await ensureAnnualLeaveSalaryTable()
   await ensureAttendanceAssignmentsTable()
+  await ensureInfluencersSnapshotTable()
 }
 
 module.exports = {

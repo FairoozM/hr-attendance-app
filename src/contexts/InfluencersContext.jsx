@@ -1,13 +1,46 @@
-import { createContext, useContext, useState, useCallback, useEffect } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
+import { useAuth } from './AuthContext'
+import { api } from '../api/client'
 
-const STORAGE_KEY = 'hr-influencers-v1'
+/** Legacy browser-only store (before server sync). Migrated once if API returns empty. */
+const LEGACY_STORAGE_KEY = 'hr-influencers-v1'
 
-function loadStored() {
+function loadLegacyLocal() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(LEGACY_STORAGE_KEY)
     if (raw) return JSON.parse(raw)
   } catch (_) {}
   return null
+}
+
+/** Merge server + old browser-only lists: same id keeps the row with newer updatedAt. */
+function mergeInfluencerListsById(base, extra) {
+  const ts = (r) => {
+    const u = r?.updatedAt || r?.createdAt
+    const n = u ? new Date(u).getTime() : 0
+    return Number.isNaN(n) ? 0 : n
+  }
+  const byId = new Map()
+  for (const r of base || []) {
+    if (r && r.id != null) byId.set(String(r.id), r)
+  }
+  for (const r of extra || []) {
+    if (!r || r.id == null) continue
+    const id = String(r.id)
+    if (!byId.has(id)) {
+      byId.set(id, r)
+    } else if (ts(r) > ts(byId.get(id))) {
+      byId.set(id, r)
+    }
+  }
+  return Array.from(byId.values())
+}
+
+function canPersistInfluencersToServer(user) {
+  if (!user) return false
+  if (user.role === 'admin' || user.role === 'warehouse') return true
+  const m = user.permissions?.influencers || {}
+  return !!(m.manage || m.approve || m.payments || m.agreements)
 }
 
 export const WORKFLOW_STAGES = [
@@ -310,12 +343,103 @@ const INITIAL_INFLUENCERS = [
 const InfluencersContext = createContext(null)
 
 export function InfluencersProvider({ children }) {
-  const [influencers, setInfluencers] = useState(() => loadStored() ?? INITIAL_INFLUENCERS)
+  const { user } = useAuth()
+  const [influencers, setInfluencers] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(null)
+  /** After first successful GET, PUTs mirror edits to the API (shared for all users). */
+  const serverReady = useRef(false)
+  const persistTimer = useRef(null)
 
-  // Persist every change to localStorage so deletes/adds/edits survive page refresh
+  // Load shared list when session changes
   useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(influencers)) } catch (_) {}
-  }, [influencers])
+    serverReady.current = false
+    if (persistTimer.current) {
+      clearTimeout(persistTimer.current)
+      persistTimer.current = null
+    }
+    if (!user) {
+      setInfluencers([])
+      setLoading(false)
+      setLoadError(null)
+      return undefined
+    }
+
+    let cancelled = false
+    setLoading(true)
+    setLoadError(null)
+    ;(async () => {
+      try {
+        const data = await api.get('/api/influencers')
+        if (cancelled) return
+        const serverList = Array.isArray(data) ? data : []
+        const legacy = loadLegacyLocal()
+        let list = serverList
+        let hadLegacy = Array.isArray(legacy) && legacy.length > 0
+        if (hadLegacy) {
+          list = mergeInfluencerListsById(serverList, legacy)
+        }
+        const mergedDiffersFromServer =
+          hadLegacy && JSON.stringify(list) !== JSON.stringify(serverList)
+
+        if (mergedDiffersFromServer && canPersistInfluencersToServer(user)) {
+          try {
+            await api.put('/api/influencers', { influencers: list })
+            try {
+              localStorage.removeItem(LEGACY_STORAGE_KEY)
+            } catch (_) {}
+          } catch (putErr) {
+            if (!cancelled) {
+              setLoadError(putErr.message || 'Could not save merged influencers to the server')
+              list = serverList
+              hadLegacy = true
+            }
+          }
+        } else if (mergedDiffersFromServer && !canPersistInfluencersToServer(user)) {
+          if (!cancelled) {
+            setLoadError(
+              'This browser had a local influencer list; it was merged for display only. Log in once with an account that can edit influencers (or admin) to upload it to the server.',
+            )
+          }
+        } else if (hadLegacy && !mergedDiffersFromServer) {
+          try {
+            localStorage.removeItem(LEGACY_STORAGE_KEY)
+          } catch (_) {}
+        }
+
+        if (cancelled) return
+        setInfluencers(list)
+        serverReady.current = true
+      } catch (e) {
+        if (cancelled) return
+        setLoadError(e.message || 'Failed to load influencers')
+        const legacy = loadLegacyLocal()
+        setInfluencers(Array.isArray(legacy) && legacy.length > 0 ? legacy : INITIAL_INFLUENCERS)
+        serverReady.current = false
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [user?.id])
+
+  // Debounced save to API (one shared snapshot for the organisation)
+  useEffect(() => {
+    if (!user || !serverReady.current || !canPersistInfluencersToServer(user)) return undefined
+    if (persistTimer.current) clearTimeout(persistTimer.current)
+    persistTimer.current = setTimeout(() => {
+      persistTimer.current = null
+      api.put('/api/influencers', { influencers }).catch((err) => {
+        console.error('[influencers] save failed', err)
+      })
+    }, 500)
+    return () => {
+      if (persistTimer.current) clearTimeout(persistTimer.current)
+    }
+  }, [influencers, user?.id])
 
   const addInfluencer = useCallback((data) => {
     const newInfluencer = {
@@ -354,7 +478,17 @@ export function InfluencersProvider({ children }) {
   }, [])
 
   return (
-    <InfluencersContext.Provider value={{ influencers, addInfluencer, updateInfluencer, updateWorkflowStatus, deleteInfluencer }}>
+    <InfluencersContext.Provider
+      value={{
+        influencers,
+        loading,
+        loadError,
+        addInfluencer,
+        updateInfluencer,
+        updateWorkflowStatus,
+        deleteInfluencer,
+      }}
+    >
       {children}
     </InfluencersContext.Provider>
   )

@@ -45,7 +45,8 @@ const SORT_OPTIONS = [
 ]
 
 export function InfluencerListPage() {
-  const { influencers, updateInfluencer, updateWorkflowStatus, deleteInfluencer } = useInfluencers()
+  const { influencers, loading, loadError, updateInfluencer, updateWorkflowStatus, deleteInfluencer } =
+    useInfluencers()
   const navigate = useNavigate()
   const { user } = useAuth()
   const can = (action) => hasPermission(user, 'influencers', action)
@@ -107,8 +108,24 @@ export function InfluencerListPage() {
     setConfirmDeleteId(null)
   }
 
+  if (loading) {
+    return (
+      <div className="inf-page">
+        <p className="inf-page-subtitle" style={{ marginTop: '2rem' }}>
+          Loading influencers…
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className="inf-page">
+      {loadError ? (
+        <p className="inf-page-subtitle" style={{ marginBottom: '1rem', color: 'var(--warning)' }} role="alert">
+          Could not reach the server for influencers ({loadError}). Showing offline copy; changes may not sync until
+          the API is available.
+        </p>
+      ) : null}
       <div className="inf-page-header">
         <div>
           <h1 className="inf-page-title">Influencer List</h1>
