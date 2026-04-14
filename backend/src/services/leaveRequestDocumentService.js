@@ -23,7 +23,15 @@ async function buildPdfBufferFromRow(row) {
     err.code = 'LETTER_VALIDATION'
     throw err
   }
-  return renderLeaveRequestVacationPdf(ctx)
+  let signatureImageBuffer = null
+  if (row.signature_doc_key && hasS3Bucket()) {
+    try {
+      signatureImageBuffer = await s3Service.getObjectBuffer({ key: row.signature_doc_key })
+    } catch (e) {
+      console.warn('[leave-letter] Signature image load failed, continuing without signature:', e.message)
+    }
+  }
+  return renderLeaveRequestVacationPdf(ctx, { signatureImageBuffer })
 }
 
 /**
@@ -36,7 +44,7 @@ async function getPdfBufferForLeave(leaveId) {
     err.code = 'NOT_FOUND'
     throw err
   }
-  if (hasS3Bucket() && row.leave_request_pdf_key) {
+  if (hasS3Bucket() && row.leave_request_pdf_key && !row.signature_doc_key) {
     try {
       const buf = await s3Service.getObjectBuffer({ key: row.leave_request_pdf_key })
       if (buf && buf.length > 0) return buf

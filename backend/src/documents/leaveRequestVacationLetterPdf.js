@@ -8,19 +8,21 @@ const COMPANY_LINES = [
 const APPROVER_NAME = 'Abdolrahim Mirzadeh'
 
 /** Renders the formal vacation request letter (A4, business tone). */
-function renderLeaveRequestVacationPdf(ctx) {
+function renderLeaveRequestVacationPdf(ctx, options = {}) {
+  const { signatureImageBuffer = null } = options
   const PDFDocument = require('pdfkit')
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       size: 'A4',
-      margins: { top: 56, bottom: 56, left: 56, right: 56 },
+      // Keep larger top margin for pre-printed company letterhead.
+      margins: { top: 96, bottom: 56, left: 56, right: 56 },
     })
     const chunks = []
     doc.on('data', (c) => chunks.push(c))
     doc.on('end', () => resolve(Buffer.concat(chunks)))
     doc.on('error', reject)
 
-    doc.font('Times-Roman').fontSize(11)
+    doc.font('Times-Roman').fontSize(12)
 
     doc.text(`Date: ${ctx.applicationDateFormatted}`, { align: 'left' })
     doc.moveDown(1.2)
@@ -56,7 +58,21 @@ function renderLeaveRequestVacationPdf(ctx) {
     doc.moveDown(1.2)
 
     doc.text('Yours sincerely,', { align: 'left' })
-    doc.moveDown(2.2)
+    doc.moveDown(1.5)
+
+    if (signatureImageBuffer) {
+      try {
+        const signatureY = doc.y
+        doc.image(signatureImageBuffer, doc.page.margins.left, signatureY, {
+          fit: [120, 48],
+          align: 'left',
+          valign: 'top',
+        })
+        doc.y = signatureY + 52
+      } catch (e) {
+        console.warn('[leave-letter] Signature image render failed:', e.message)
+      }
+    }
 
     const sigY = doc.y
     const colW = (doc.page.width - doc.page.margins.left - doc.page.margins.right) / 2
