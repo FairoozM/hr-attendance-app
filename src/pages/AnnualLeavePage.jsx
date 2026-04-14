@@ -237,6 +237,7 @@ function DashboardCards({ stats, isAdmin, onFilterClick }) {
 function LeaveRow({
   row,
   isAdmin,
+  canEmployeeEditPending,
   onStatusChange,
   onConfirmReturn,
   onExtend,
@@ -255,6 +256,8 @@ function LeaveRow({
   const canConfirm = isAdmin && ['Ongoing', 'ReturnPending', 'Overstayed'].includes(es) && !row.actual_return_date
   const canExtend  = isAdmin && ['Approved', 'Ongoing'].includes(es)
   const letterBusy = letterBusyId === row.id
+  const employeeCanEditThis = canEmployeeEditPending && row.status === 'Pending'
+  const showActions = isAdmin || employeeCanEditThis
 
   return (
     <>
@@ -290,11 +293,13 @@ function LeaveRow({
               ? <span className="al-row__expected">Exp. {fmtDMY(row.expected_return_date)}</span>
               : '—'}
         </td>
-        {isAdmin && (
+        {showActions && (
           <td onClick={e => e.stopPropagation()}>
             <div className="al-row__acts">
               {row.status === 'Pending' && (
+                isAdmin ? (
                 <button className="al-btn al-btn--approve" onClick={() => onStatusChange(row, 'Approved')}>Approve</button>
+                ) : null
               )}
               {canConfirm && (
                 <button className="al-btn al-btn--success" onClick={() => onConfirmReturn(row)}>✓ Return</button>
@@ -302,10 +307,12 @@ function LeaveRow({
               {canExtend && (
                 <button className="al-btn al-btn--extend" onClick={() => onExtend(row)}>↗ Extend</button>
               )}
-              <button className="al-icon-btn al-icon-btn--edit" title="Edit" onClick={() => onEdit(row)}>
-                <IconEdit />
-              </button>
-              {row.status === 'Pending' && (
+              {(isAdmin || employeeCanEditThis) && (
+                <button className="al-icon-btn al-icon-btn--edit" title="Edit" onClick={() => onEdit(row)}>
+                  <IconEdit />
+                </button>
+              )}
+              {isAdmin && row.status === 'Pending' && (
                 <button className="al-icon-btn al-icon-btn--del" title="Delete" onClick={() => onDelete(row.id)}>
                   <IconTrash />
                 </button>
@@ -317,7 +324,7 @@ function LeaveRow({
       </tr>
       {expanded && (
         <tr className="al-row-detail">
-          <td colSpan={isAdmin ? 8 : 7}>
+          <td colSpan={showActions ? 8 : 7}>
             <div className="al-detail">
               <div className="al-detail__left">
                 <Timeline row={row} />
@@ -504,7 +511,7 @@ function NewRequestForm({ employees, isAdmin, loggedInEmployeeId, onSubmit, empL
 }
 
 // ── Edit row (inline) ─────────────────────────────────────────────────────────
-function EditRowForm({ row, employees, onSave, onCancel, empLoading }) {
+function EditRowForm({ row, employees, onSave, onCancel, empLoading, isAdmin }) {
   const [empId,  setEmpId]  = useState(String(row.employee_id))
   const [alternateEmpId, setAlternateEmpId] = useState(
     row.alternate_employee_id != null ? String(row.alternate_employee_id) : ''
@@ -572,11 +579,15 @@ function EditRowForm({ row, employees, onSave, onCancel, empLoading }) {
           </div>
           <div className="al-form-field">
             <label>Status</label>
-            <select value={status} onChange={e => setStatus(e.target.value)} disabled={saving}>
-              <option value="Pending">Pending</option>
-              <option value="Approved">Approved</option>
-              <option value="Rejected">Rejected</option>
-            </select>
+            {isAdmin ? (
+              <select value={status} onChange={e => setStatus(e.target.value)} disabled={saving}>
+                <option value="Pending">Pending</option>
+                <option value="Approved">Approved</option>
+                <option value="Rejected">Rejected</option>
+              </select>
+            ) : (
+              <input type="text" value="Pending" readOnly className="al-modal__readonly" />
+            )}
           </div>
           <div className="al-form-field al-form-field--grow">
             <label>Reason</label>
@@ -605,7 +616,7 @@ function SortHeader({ col, label, current, dir, onSort, style }) {
 }
 
 // ── Table headers shared ──────────────────────────────────────────────────────
-function TableHead({ isAdmin, sortBy, sortDir, onSort }) {
+function TableHead({ showActions, sortBy, sortDir, onSort }) {
   return (
     <thead>
       <tr>
@@ -615,7 +626,7 @@ function TableHead({ isAdmin, sortBy, sortDir, onSort }) {
         <SortHeader col="yr_total"    label="This Year"    current={sortBy} dir={sortDir} onSort={onSort} style={{ width: 90, textAlign: 'center' }} />
         <SortHeader col="status"      label="Status"       current={sortBy} dir={sortDir} onSort={onSort} />
         <SortHeader col="return_date" label="Return Date"  current={sortBy} dir={sortDir} onSort={onSort} />
-        {isAdmin && <th>Actions</th>}
+        {showActions && <th>Actions</th>}
         <th />
       </tr>
     </thead>
@@ -635,6 +646,8 @@ const SECTION_DEFS = [
 
 function SectionGroup({
   sectionKey, label, rows, isAdmin,
+  canEmployeeEditPending,
+  showActionsColumn,
   sortBy, sortDir, onSort,
   expandedId, onToggle,
   editingRow, setEditingRow,
@@ -663,7 +676,7 @@ function SectionGroup({
       {!collapsed && (
         <div className="al-table-wrap al-table-wrap--section">
           <table className="al-table">
-            <TableHead isAdmin={isAdmin} sortBy={sortBy} sortDir={sortDir} onSort={onSort} />
+            <TableHead showActions={showActionsColumn} sortBy={sortBy} sortDir={sortDir} onSort={onSort} />
             <tbody>
               {rows.map(row =>
                 editingRow?.id === row.id ? (
@@ -674,12 +687,14 @@ function SectionGroup({
                     onSave={updateRequest}
                     onCancel={() => setEditingRow(null)}
                     empLoading={empLoading}
+                    isAdmin={isAdmin}
                   />
                 ) : (
                   <LeaveRow
                     key={row.id}
                     row={row}
                     isAdmin={isAdmin}
+                    canEmployeeEditPending={canEmployeeEditPending}
                     onStatusChange={onStatusChange}
                     onConfirmReturn={onConfirmReturn}
                     onExtend={onExtend}
@@ -720,6 +735,8 @@ export function AnnualLeavePage() {
   const { user }    = useAuth()
   const isAdmin     = user?.role === 'admin'
   const isEmployee  = user?.role === 'employee'
+  const canEmployeeEditPending = isEmployee
+  const showActionsColumn = isAdmin || canEmployeeEditPending
   const loggedInEmpId = user?.employeeId ? String(user.employeeId) : null
 
   const { employees, loading: empLoading } = useEmployees()
@@ -884,7 +901,10 @@ export function AnnualLeavePage() {
 
   // Shared props for SectionGroup
   const sectionProps = {
-    isAdmin, sortBy, sortDir, onSort: handleSort,
+    isAdmin,
+    canEmployeeEditPending,
+    showActionsColumn,
+    sortBy, sortDir, onSort: handleSort,
     expandedId, onToggle: toggleExpand,
     editingRow, setEditingRow,
     employees, empLoading,
@@ -1001,7 +1021,7 @@ export function AnnualLeavePage() {
                   : (
                     <div className="al-table-wrap">
                       <table className="al-table">
-                        <TableHead isAdmin={isAdmin} sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
+                        <TableHead showActions={showActionsColumn} sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
                         <tbody>
                           {filteredRequests.map(row =>
                             editingRow?.id === row.id ? (
@@ -1012,12 +1032,14 @@ export function AnnualLeavePage() {
                                 onSave={updateRequest}
                                 onCancel={() => setEditingRow(null)}
                                 empLoading={empLoading}
+                                isAdmin={isAdmin}
                               />
                             ) : (
                               <LeaveRow
                                 key={row.id}
                                 row={row}
                                 isAdmin={isAdmin}
+                                canEmployeeEditPending={canEmployeeEditPending}
                                 onStatusChange={onStatusChange}
                                 onConfirmReturn={r => setConfirmRow(r)}
                                 onExtend={r => setExtendRow(r)}
