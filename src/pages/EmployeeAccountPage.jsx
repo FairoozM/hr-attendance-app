@@ -138,8 +138,8 @@ function ContactView({ p }) {
   return (
     <div className="profile-section-grid">
       <InfoRow label="Mobile" value={val(p.phone)} />
-      <InfoRow label="Personal Email" value={val(p.personal_email)} />
-      <InfoRow label="Work Email" value={val(p.work_email)} />
+      <InfoRow label="Personal Email" value={val(p.personal_email)} noWrap />
+      <InfoRow label="Work Email" value={val(p.work_email)} noWrap />
       <InfoRow label="Address" value={val(p.current_address)} wide />
       <InfoRow label="City" value={val(p.city)} />
       <InfoRow label="Country" value={val(p.country)} />
@@ -190,11 +190,13 @@ function BankView({ p }) {
 
 // ── Shared InfoRow ────────────────────────────────────────────────────────────
 
-function InfoRow({ label, value, wide }) {
+function InfoRow({ label, value, wide, noWrap = false }) {
   return (
     <div className={`info-row ${wide ? 'info-row--wide' : ''}`}>
       <span className="info-row__label">{label}</span>
-      <span className="info-row__value">{value}</span>
+      <span className={`info-row__value ${noWrap ? 'info-row__value--nowrap' : ''}`} title={String(value)}>
+        {value}
+      </span>
     </div>
   )
 }

@@ -331,6 +331,13 @@
   word-break: break-word;
 }
 
+.info-row__value--nowrap {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: normal;
+}
+
 /* ── Edit Form ── */
 .edit-form {
   display: flex;
