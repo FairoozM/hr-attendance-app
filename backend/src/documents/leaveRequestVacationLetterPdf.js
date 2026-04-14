@@ -30,9 +30,14 @@ function renderLeaveRequestVacationPdf(ctx, options = {}) {
     COMPANY_LINES.forEach((line) => {
       doc.text(line, { align: 'left' })
     })
-    doc.moveDown(0.6)
+    doc.moveDown(2)
 
-    doc.font('Times-Bold').text('Subject: REQUEST FOR VACATION', { align: 'left' })
+    const subjectLabel = 'Subject:'
+    const subjectTitle = ' REQUEST FOR VACATION'
+    const subjectY = doc.y
+    doc.font('Times-Bold').text(subjectLabel, { align: 'left', continued: true, underline: true })
+    doc.font('Times-Bold').text(subjectTitle, { align: 'left', underline: true })
+    doc.y = subjectY + 16
     doc.moveDown(0.8)
     doc.font('Times-Roman')
 
@@ -66,7 +71,7 @@ function renderLeaveRequestVacationPdf(ctx, options = {}) {
           'I kindly request your approval for my vacation request. I assure you that I will complete all pending tasks and hand over any ongoing tasks to ',
           { align: 'justify', lineGap: 2, continued: true }
         )
-        .font('Times-BoldItalic')
+        .font('Times-Bold')
         .text(ctx.alternateEmployeeName, { continued: true })
         .font('Times-Roman')
         .text('.', { lineGap: 2 })
