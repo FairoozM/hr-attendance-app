@@ -15,7 +15,6 @@ import { EmployeesPage } from './pages/EmployeesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { AnnualLeavePage } from './pages/AnnualLeavePage'
 import { EmployeeProfileAdminPage } from './pages/EmployeeProfileAdminPage'
-import { WeeklyRosterPage } from './pages/WeeklyRosterPage'
 import { RolesPermissionsPage } from './pages/RolesPermissionsPage'
 import { InfluencerListPage } from './pages/influencers/InfluencerListPage'
 import { AddInfluencerPage } from './pages/influencers/AddInfluencerPage'
@@ -147,14 +146,6 @@ function AppContent() {
           element={
             <PermissionGuard module="employees" action="view">
               <EmployeeProfileAdminPage />
-            </PermissionGuard>
-          }
-        />
-        <Route
-          path="roster"
-          element={
-            <PermissionGuard module="roster" action="view">
-              <WeeklyRosterPage />
             </PermissionGuard>
           }
         />

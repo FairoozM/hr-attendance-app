@@ -5,7 +5,6 @@ import { useAuth, hasPermission } from '../contexts/AuthContext'
 const PERMISSION_GATED = [
   { prefix: '/attendance', module: 'attendance', action: 'view' },
   { prefix: '/employees', module: 'employees', action: 'view' },
-  { prefix: '/roster',    module: 'roster',     action: 'view' },
 ]
 
 /** Paths that are strictly admin-only, never accessible by other roles */

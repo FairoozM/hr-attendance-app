@@ -30,11 +30,6 @@ const MODULES = [
     ],
   },
   {
-    key: 'roster',
-    label: 'Weekly Off & Duty',
-    permissions: [{ key: 'view', label: 'View duty roster' }],
-  },
-  {
     key: 'influencers',
     label: 'Influencers',
     group: 'influencers',
@@ -142,19 +137,6 @@ function ModuleIcon({ moduleKey, className = '' }) {
         <circle cx="9" cy="7" r="4" />
         <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
         <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-      </svg>
-    )
-  }
-
-  if (moduleKey === 'roster') {
-    return (
-      <svg {...common}>
-        <path d="M8 2v4" />
-        <path d="M16 2v4" />
-        <rect x="3" y="5" width="18" height="16" rx="3" />
-        <path d="M3 10h18" />
-        <path d="M8 14h8" />
-        <path d="M8 18h4" />
       </svg>
     )
   }

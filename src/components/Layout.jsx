@@ -90,7 +90,7 @@ export function Layout() {
   const homePath =
     isEmployee ? '/account' : can('attendance', 'view') ? '/attendance' : '/account'
 
-  const HR_ROUTES = ['/employees', '/attendance', '/annual-leave', '/roster', '/settings', '/roles-permissions']
+  const HR_ROUTES = ['/employees', '/attendance', '/annual-leave', '/settings', '/roles-permissions']
   const isHrActive = HR_ROUTES.some(r => location.pathname.startsWith(r))
   const isInfluencersActive = location.pathname.startsWith('/influencers')
   const hasAnyInfluencerAccess = hasAnyModulePermission(user, 'influencers')
@@ -98,7 +98,6 @@ export function Layout() {
     if (location.pathname.startsWith('/employees')) return 'Employees'
     if (location.pathname.startsWith('/attendance')) return 'Attendance'
     if (location.pathname.startsWith('/annual-leave')) return 'Annual Leave'
-    if (location.pathname.startsWith('/roster')) return 'Weekly Off & Duty'
     if (location.pathname.startsWith('/settings')) return 'Settings'
     if (location.pathname.startsWith('/roles-permissions')) return 'Roles & Permissions'
     if (location.pathname.startsWith('/influencers')) return 'Influencers'
@@ -119,7 +118,6 @@ export function Layout() {
     can('employees', 'view') && { label: 'Employees', to: '/employees' },
     can('attendance', 'view') && { label: 'Attendance', to: '/attendance', end: true },
     (isEmployee || can('leave', 'view')) && { label: 'Annual Leave', to: '/annual-leave' },
-    can('roster', 'view') && { label: 'Weekly Off & Duty', to: '/roster' },
     isAdmin && { label: 'Settings', to: '/settings' },
     isAdmin && { label: 'Roles & Permissions', to: '/roles-permissions' },
   ].filter(Boolean)
