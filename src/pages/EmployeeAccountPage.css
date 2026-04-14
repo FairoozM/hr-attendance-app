@@ -267,6 +267,19 @@
   gap: 1.25rem;
 }
 
+.profile-unified-section + .profile-unified-section {
+  margin-top: 0.25rem;
+}
+
+.profile-unified-section__title {
+  margin: 0 0 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--primary);
+}
+
 /* ── Section Grid (view mode) ── */
 .profile-section-grid {
   display: grid;

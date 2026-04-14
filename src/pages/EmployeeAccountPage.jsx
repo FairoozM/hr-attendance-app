@@ -206,6 +206,15 @@ function InfoRow({ label, value, wide }) {
   )
 }
 
+function ProfileSection({ title, children }) {
+  return (
+    <section className="profile-unified-section">
+      <h3 className="profile-unified-section__title">{title}</h3>
+      {children}
+    </section>
+  )
+}
+
 // ── Edit Form ─────────────────────────────────────────────────────────────────
 
 function EditForm({ profile, activeTab, onSave, onCancel }) {
@@ -244,6 +253,7 @@ function EditForm({ profile, activeTab, onSave, onCancel }) {
   }))
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState(null)
+  const showAll = activeTab === 'all'
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
 
@@ -264,7 +274,7 @@ function EditForm({ profile, activeTab, onSave, onCancel }) {
     <form className="edit-form" onSubmit={handleSubmit}>
       {saveError && <p className="edit-form__error" role="alert">{saveError}</p>}
 
-      {activeTab === 'personal' && (
+      {(activeTab === 'personal' || showAll) && (
         <fieldset className="edit-fieldset">
           <legend>Personal Information</legend>
           <div className="edit-grid">
@@ -287,7 +297,7 @@ function EditForm({ profile, activeTab, onSave, onCancel }) {
         </fieldset>
       )}
 
-      {activeTab === 'contact' && (
+      {(activeTab === 'contact' || showAll) && (
         <fieldset className="edit-fieldset">
           <legend>Contact &amp; Address</legend>
           <div className="edit-grid">
@@ -301,7 +311,7 @@ function EditForm({ profile, activeTab, onSave, onCancel }) {
         </fieldset>
       )}
 
-      {activeTab === 'employment' && (
+      {(activeTab === 'employment' || showAll) && (
         <fieldset className="edit-fieldset">
           <legend>Employment Details</legend>
           <div className="edit-grid">
@@ -320,7 +330,7 @@ function EditForm({ profile, activeTab, onSave, onCancel }) {
         </fieldset>
       )}
 
-      {activeTab === 'emergency' && (
+      {(activeTab === 'emergency' || showAll) && (
         <fieldset className="edit-fieldset">
           <legend>Emergency Contact</legend>
           <div className="edit-grid">
@@ -332,7 +342,7 @@ function EditForm({ profile, activeTab, onSave, onCancel }) {
         </fieldset>
       )}
 
-      {activeTab === 'bank' && (
+      {(activeTab === 'bank' || showAll) && (
         <fieldset className="edit-fieldset">
           <legend>Bank / Payroll</legend>
           <div className="edit-grid">
@@ -343,7 +353,7 @@ function EditForm({ profile, activeTab, onSave, onCancel }) {
         </fieldset>
       )}
 
-      {activeTab === 'documents' && (
+      {(activeTab === 'documents' || showAll) && (
         <fieldset className="edit-fieldset">
           <legend>Document Metadata</legend>
           <p className="edit-fieldset__hint">Update document numbers and dates here. Upload files using the cards below.</p>
@@ -541,30 +551,12 @@ function DocumentsSection({ profile, onDocUploaded, onDocDeleted }) {
   )
 }
 
-// ── Tabs ──────────────────────────────────────────────────────────────────────
-
-const EMPLOYEE_TABS = [
-  { id: 'personal', label: 'Personal' },
-  { id: 'contact', label: 'Contact' },
-  { id: 'employment', label: 'Employment' },
-  { id: 'documents', label: 'Documents' },
-  { id: 'emergency', label: 'Emergency' },
-  { id: 'bank', label: 'Bank' },
-  { id: 'security', label: '🔒 Security' },
-]
-
-const SECURITY_ONLY_TABS = [
-  { id: 'security', label: '🔒 Security' },
-]
-
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export function EmployeeAccountPage() {
   const { user } = useAuth()
   const isEmployee = user?.role === 'employee'
   const { profile, loading, error, update, setProfile } = useProfile(isEmployee)
-  const TABS = isEmployee ? EMPLOYEE_TABS : SECURITY_ONLY_TABS
-  const [activeTab, setActiveTab] = useState(isEmployee ? 'personal' : 'security')
   const [editing, setEditing] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
 
@@ -666,53 +658,41 @@ export function EmployeeAccountPage() {
             </div>
           )}
 
-          <div className="profile-tab-bar">
-            {TABS.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                className={`profile-tab ${activeTab === t.id ? 'profile-tab--active' : ''}`}
-                onClick={() => { setActiveTab(t.id); setEditing(false) }}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-
           <div className="profile-tab-content">
-            {activeTab === 'security' ? (
-              <PasswordSection />
-            ) : editing && activeTab !== 'documents' ? (
+            {editing ? (
               <EditForm
                 profile={profile}
-                activeTab={activeTab}
+                activeTab="all"
                 onSave={handleSave}
                 onCancel={() => setEditing(false)}
               />
             ) : (
               <>
-                {activeTab === 'personal' && <PersonalView p={profile} />}
-                {activeTab === 'contact' && <ContactView p={profile} />}
-                {activeTab === 'employment' && <EmploymentView p={profile} />}
-                {activeTab === 'emergency' && <EmergencyView p={profile} />}
-                {activeTab === 'bank' && <BankView p={profile} />}
-                {activeTab === 'documents' && (
-                  <>
-                    {editing && (
-                      <EditForm
-                        profile={profile}
-                        activeTab="documents"
-                        onSave={handleSave}
-                        onCancel={() => setEditing(false)}
-                      />
-                    )}
-                    <DocumentsSection
-                      profile={profile}
-                      onDocUploaded={handleDocUploaded}
-                      onDocDeleted={handleDocDeleted}
-                    />
-                  </>
-                )}
+                <ProfileSection title="Personal Information">
+                  <PersonalView p={profile} />
+                </ProfileSection>
+                <ProfileSection title="Contact Information">
+                  <ContactView p={profile} />
+                </ProfileSection>
+                <ProfileSection title="Employment Details">
+                  <EmploymentView p={profile} />
+                </ProfileSection>
+                <ProfileSection title="Emergency Contact">
+                  <EmergencyView p={profile} />
+                </ProfileSection>
+                <ProfileSection title="Bank / Payroll">
+                  <BankView p={profile} />
+                </ProfileSection>
+                <ProfileSection title="Documents">
+                  <DocumentsSection
+                    profile={profile}
+                    onDocUploaded={handleDocUploaded}
+                    onDocDeleted={handleDocDeleted}
+                  />
+                </ProfileSection>
+                <ProfileSection title="Security">
+                  <PasswordSection />
+                </ProfileSection>
               </>
             )}
           </div>
