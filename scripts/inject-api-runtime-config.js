@@ -1,9 +1,10 @@
 /**
- * After `vite build`, overwrites dist/api-runtime-config.js so the SPA always knows the API origin.
+ * After `vite build`, overwrites dist/api-runtime-config.js so the SPA can pin the API origin.
  *
- * - If **HR_PUBLIC_API_URL** is set, it wins (e.g. https://api.example.com).
- * - Otherwise this repo defaults to the Life Smile CloudFront URL where /api/* is routed to Express
- *   (same host as the SPA; overrides mistaken hr_api_base_url in localStorage).
+ * - If **HR_PUBLIC_API_URL** is set (e.g. https://api.example.com or https://ec2-…:5001), it is baked in.
+ * - If unset, writes an **empty** string so `getApiBaseUrl()` uses localStorage (`hr_api_base_url`
+ *   from the login “API server” field) or VITE_API_BASE_URL — **never** default to the SPA
+ *   CloudFront host (that only serves S3; /api/* returns 403 HTML unless you add a CF behavior).
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -13,14 +14,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.join(__dirname, '..')
 const out = path.join(root, 'dist', 'api-runtime-config.js')
 
-/** Production SPA + /api/* distribution (see package.json CloudFront invalidation id). */
-const DEFAULT_LIFESMILE_API_ORIGIN = 'https://d3ci8wu1d5dytp.cloudfront.net'
-
-const url = (process.env.HR_PUBLIC_API_URL || DEFAULT_LIFESMILE_API_ORIGIN).trim().replace(/\/$/, '')
+const raw = (process.env.HR_PUBLIC_API_URL || '').trim().replace(/\/$/, '')
+const url = raw
 
 const body = `/**
  * Generated at deploy — do not hand-edit on S3; redeploy to change.
- * Source: HR_PUBLIC_API_URL env, or default Life Smile CloudFront (same-origin /api routing).
+ * Source: HR_PUBLIC_API_URL at build time, or empty (then use login API URL / VITE_API_BASE_URL).
  */
 window.__HR_API_BASE_URL__ = ${JSON.stringify(url)}
 `

@@ -17,7 +17,17 @@ function trimBase(s) {
 function readRuntimeApiBase() {
   if (typeof window === 'undefined') return ''
   const v = window.__HR_API_BASE_URL__
-  return v != null && String(v).trim() !== '' ? trimBase(v) : ''
+  if (v == null || String(v).trim() === '') return ''
+  const t = trimBase(v)
+  if (!t) return ''
+  // Old deploys set this to the SPA CloudFront origin; /api there is S3 → 403 HTML. Treat as
+  // unset so localStorage (login “API server”) or VITE_API_BASE_URL can supply the real Express host.
+  try {
+    if (typeof window.location?.origin === 'string' && trimBase(window.location.origin) === t) {
+      return ''
+    }
+  } catch (_) {}
+  return t
 }
 
 function readFromStorage() {
