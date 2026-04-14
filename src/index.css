@@ -68,6 +68,13 @@
   --theme-sidebar-bg: rgba(13, 17, 38, 0.92);
   --theme-panel-bg: rgba(13, 17, 38, 0.92);
 
+  /* Employees list table (avoid hardcoded dark-only surfaces in component CSS) */
+  --employees-table-surface: rgba(13, 17, 38, 0.78);
+  --employees-table-cell: rgb(10, 15, 33);
+  --employees-table-cell-hover: rgb(16, 22, 46);
+  --employees-table-head: rgb(7, 12, 28);
+  --employees-table-sticky-shadow: -5px 0 16px rgba(0, 0, 0, 0.55);
+
   /* Status */
   --danger: #f87171;
   --danger-soft: rgba(248, 113, 113, 0.12);
@@ -199,6 +206,14 @@
   --theme-overlay: rgba(15, 23, 42, 0.38);
   --theme-sidebar-bg: rgba(255, 255, 255, 0.84);
   --theme-panel-bg: rgba(255, 255, 255, 0.86);
+
+  --employees-table-surface: var(--theme-glass-bg);
+  --employees-table-cell: #ffffff;
+  --employees-table-cell-hover: #f1f5f9;
+  /* Solid fallback if color-mix is unsupported */
+  --employees-table-head: #e8edf5;
+  --employees-table-head: color-mix(in srgb, var(--theme-bg-canvas) 55%, #f1f5f9);
+  --employees-table-sticky-shadow: -4px 0 12px rgba(15, 23, 42, 0.08);
 }
 
 *,

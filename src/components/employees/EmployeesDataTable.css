@@ -1,11 +1,11 @@
 .employees-table-wrap {
   --col-actions-w: 7.75rem;
   --col-status-w: 8.5rem;
-  --cell-bg: rgb(10, 15, 33);
-  --cell-hover-bg: rgb(16, 22, 46);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  --cell-bg: var(--employees-table-cell);
+  --cell-hover-bg: var(--employees-table-cell-hover);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: rgba(13, 17, 38, 0.78);
+  background: var(--employees-table-surface);
   box-shadow: var(--glass-shadow-panel);
   overflow: hidden;
   display: flex;
@@ -49,9 +49,9 @@
   top: 0;
   z-index: 5;
   padding: 0.5rem 0.6rem;
-  background: rgb(7, 12, 28);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-  border-right: 1px solid rgba(255, 255, 255, 0.07);
+  background: var(--employees-table-head);
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border-subtle);
   text-align: left;
   vertical-align: top;
 }
@@ -126,7 +126,7 @@
 .employees-table__cell {
   padding: 0.65rem 0.75rem;
   border-bottom: 1px solid var(--border-subtle);
-  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  border-right: 1px solid var(--border-subtle);
   vertical-align: middle;
   color: var(--text);
   background: var(--cell-bg);
@@ -148,25 +148,25 @@
 .employees-table__cell--sticky-status {
   position: sticky;
   right: var(--col-actions-w);
-  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 1px solid var(--border-subtle);
 }
 
 .employees-table__head-cell--sticky-actions,
 .employees-table__cell--sticky-actions {
   position: sticky;
   right: 0;
-  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  border-left: 1px solid var(--border);
 }
 
 .employees-table__head-cell--sticky-status {
   z-index: 8;
-  background: rgb(7, 12, 28);
+  background: var(--employees-table-head);
 }
 
 .employees-table__head-cell--sticky-actions {
   z-index: 9;
-  background: rgb(7, 12, 28);
-  box-shadow: -5px 0 16px rgba(0, 0, 0, 0.55);
+  background: var(--employees-table-head);
+  box-shadow: var(--employees-table-sticky-shadow);
 }
 
 .employees-table__cell--sticky-status {
@@ -177,7 +177,7 @@
 .employees-table__cell--sticky-actions {
   z-index: 4;
   background: var(--cell-bg);
-  box-shadow: -5px 0 16px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--employees-table-sticky-shadow);
 }
 
 .employees-table__row:hover > .employees-table__cell--sticky-status,
@@ -253,7 +253,7 @@
 }
 
 .employees-badge--inactive {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--theme-surface-soft);
   color: var(--text-muted);
   border: 1px solid var(--border);
 }
@@ -265,7 +265,7 @@
 }
 
 .employees-badge--resigned {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--theme-surface);
   color: var(--text-muted);
   border: 1px solid var(--border-subtle);
 }
@@ -285,7 +285,7 @@
   padding: 0;
   border: 1px solid transparent;
   border-radius: 0.9rem;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--theme-surface-soft);
   color: var(--text-muted);
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s;
@@ -311,7 +311,7 @@
   gap: 0.75rem;
   padding: 0.75rem 1rem;
   border-top: 1px solid var(--border-subtle);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--theme-surface-soft);
 }
 
 .employees-table-footer__count {

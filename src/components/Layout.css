@@ -583,6 +583,22 @@
   flex-shrink: 0;
 }
 
+/* Ensure strong sidebar navigation contrast in light mode */
+:root[data-theme='light'] .app-sidebar__section-label,
+:root[data-theme='light'] .app-sidebar__link,
+:root[data-theme='light'] .nav-group__trigger,
+:root[data-theme='light'] .nav-group__label,
+:root[data-theme='light'] .nav-group__hint,
+:root[data-theme='light'] .nav-group__link {
+  color: var(--text);
+}
+
+:root[data-theme='light'] .nav-group__link--active {
+  color: var(--text);
+  background: rgba(99, 102, 241, 0.16);
+  border-color: rgba(99, 102, 241, 0.28);
+}
+
 @media (min-width: 1101px) {
   .app {
     padding: 1.1rem;
