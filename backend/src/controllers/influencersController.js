@@ -18,9 +18,35 @@ function sanitizeInfluencerList(body) {
   return { list: out }
 }
 
-async function listInfluencers(_req, res) {
+async function listInfluencers(req, res) {
   try {
     const list = await influencersService.getInfluencers()
+    const pageRaw = req.query.page
+    const limitRaw = req.query.limit
+    const page = pageRaw != null && pageRaw !== '' ? Number.parseInt(String(pageRaw), 10) : NaN
+    const limit = limitRaw != null && limitRaw !== '' ? Number.parseInt(String(limitRaw), 10) : NaN
+    const wantPaging =
+      Number.isFinite(page) &&
+      Number.isFinite(limit) &&
+      page >= 1 &&
+      limit >= 1 &&
+      limit <= 200
+
+    if (wantPaging) {
+      const total = list.length
+      const totalPages = Math.max(1, Math.ceil(total / limit))
+      const p = Math.min(Math.max(1, page), totalPages)
+      const start = (p - 1) * limit
+      const slice = list.slice(start, start + limit)
+      return res.json({
+        influencers: slice,
+        total,
+        page: p,
+        limit,
+        totalPages,
+      })
+    }
+
     res.json(list)
   } catch (err) {
     console.error('[influencers] list error:', err)

@@ -43,11 +43,20 @@ const SORT_OPTIONS = [
   { value: 'approved', label: 'Approved' },
   { value: 'payment', label: 'Payment Pending' },
 ]
-const PAGE_SIZE = 20
+const PAGE_SIZE = 10
 
 export function InfluencerListPage() {
-  const { influencers, loading, loadError, updateInfluencer, updateWorkflowStatus, deleteInfluencer } =
-    useInfluencers()
+  const {
+    influencers,
+    loading,
+    loadError,
+    listMeta,
+    retryLoad,
+    refetchInfluencerPage,
+    updateInfluencer,
+    updateWorkflowStatus,
+    deleteInfluencer,
+  } = useInfluencers()
   const navigate = useNavigate()
   const { user } = useAuth()
   const can = (action) => hasPermission(user, 'influencers', action)
@@ -62,6 +71,7 @@ export function InfluencerListPage() {
   const [filterCollab, setFilterCollab] = useState('All')
   const [sortBy, setSortBy] = useState('newest')
   const [page, setPage] = useState(1)
+  const useServerPaging = listMeta && !listMeta.isFullListClientPaging
 
   const cities = useMemo(() => ['All', ...new Set(influencers.map(i => i.basedIn).filter(Boolean))], [influencers])
   const collabTypes = useMemo(() => ['All', ...new Set(influencers.map(i => i.collaborationType).filter(Boolean))], [influencers])
@@ -88,20 +98,34 @@ export function InfluencerListPage() {
   }, [influencers, search, filterWorkflow, filterApproval, filterPayment, filterBasedIn, filterCollab, sortBy])
 
   const stats = useMemo(() => ({
-    total: influencers.length,
+    total: useServerPaging ? listMeta.total : influencers.length,
     approved: influencers.filter(i => i.approvalStatus === 'Approved').length,
     pending: influencers.filter(i => i.paymentStatus === 'Ready for Payment').length,
     rejected: influencers.filter(i => i.approvalStatus === 'Rejected').length,
-  }), [influencers])
+  }), [influencers, listMeta, useServerPaging])
 
   useEffect(() => {
     setPage(1)
   }, [search, filterWorkflow, filterApproval, filterPayment, filterBasedIn, filterCollab, sortBy])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const currentPage = Math.min(page, totalPages)
+  const clientTotalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const currentPage = Math.min(page, clientTotalPages)
   const pageStart = (currentPage - 1) * PAGE_SIZE
-  const pageRows = filtered.slice(pageStart, pageStart + PAGE_SIZE)
+
+  useEffect(() => {
+    if (!useServerPaging && page > clientTotalPages) setPage(clientTotalPages)
+  }, [page, clientTotalPages, useServerPaging])
+
+  const pageRows = useMemo(() => {
+    if (useServerPaging) return filtered
+    return filtered.slice(pageStart, pageStart + PAGE_SIZE)
+  }, [useServerPaging, filtered, pageStart])
+
+  const totalPages = useServerPaging ? listMeta.totalPages : clientTotalPages
+  const currentPageDisplay = useServerPaging ? listMeta.page : currentPage
+  const showPagination =
+    (useServerPaging && listMeta.totalPages > 1) ||
+    (!useServerPaging && clientTotalPages > 1)
 
   const handleQuickAction = (e, action, inf) => {
     e.stopPropagation()
@@ -119,7 +143,7 @@ export function InfluencerListPage() {
     setConfirmDeleteId(null)
   }
 
-  if (loading) {
+  if (loading && influencers.length === 0 && !loadError) {
     return (
       <div className="inf-page">
         <p className="inf-page-subtitle" style={{ marginTop: '2rem' }}>
@@ -129,19 +153,44 @@ export function InfluencerListPage() {
     )
   }
 
+  const errorPreamble =
+    influencers.length > 0
+      ? 'Could not refresh the list. Showing the last successfully loaded data until the API responds.'
+      : null
+
   return (
     <div className="inf-page">
       {loadError ? (
-        <p className="inf-page-subtitle" style={{ marginBottom: '1rem', color: 'var(--warning)' }} role="alert">
-          {loadError.includes('Failed to fetch') || loadError.includes('NetworkError')
-            ? `Could not reach the API (${loadError}). Showing offline copy; check API URL / network.`
-            : `${loadError} Showing offline copy until the API responds successfully.`}
-        </p>
+        <div
+          className="inf-page-subtitle"
+          style={{
+            marginBottom: '1rem',
+            color: 'var(--warning)',
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: '0.75rem',
+          }}
+          role="alert"
+        >
+          <span>
+            {errorPreamble
+              ? `${errorPreamble} (${loadError})`
+              : loadError.includes('Failed to fetch') || loadError.includes('NetworkError')
+                ? `Could not reach the API (${loadError}). Check API URL / network, then retry.`
+                : loadError}
+          </span>
+          <button type="button" className="inf-btn inf-btn--ghost inf-btn--xs" onClick={() => retryLoad()}>
+            Retry
+          </button>
+        </div>
       ) : null}
       <div className="inf-page-header">
         <div>
           <h1 className="inf-page-title">Influencer List</h1>
-          <p className="inf-page-subtitle">{influencers.length} influencers in the system</p>
+          <p className="inf-page-subtitle">
+            {(listMeta && !listMeta.isFullListClientPaging ? listMeta.total : influencers.length)} influencers in the system
+          </p>
         </div>
         <div className="inf-page-actions">
           {can('manage') && (
@@ -237,9 +286,20 @@ export function InfluencerListPage() {
       <div className="inf-table-wrap">
         {filtered.length === 0 ? (
           <div className="inf-empty">
-            <div className="inf-empty__icon">🔍</div>
-            <div className="inf-empty__title">No influencers found</div>
-            <div className="inf-empty__desc">Try adjusting your search or filters.</div>
+            <div className="inf-empty__icon">{influencers.length === 0 && loadError ? '⚠️' : '🔍'}</div>
+            <div className="inf-empty__title">
+              {influencers.length === 0 && loadError ? 'Could not load influencers' : 'No influencers found'}
+            </div>
+            <div className="inf-empty__desc">
+              {influencers.length === 0 && loadError
+                ? 'The API request failed and there is no cached list in this browser yet.'
+                : 'Try adjusting your search or filters.'}
+            </div>
+            {influencers.length === 0 && loadError ? (
+              <button type="button" className="inf-btn inf-btn--primary" style={{ marginTop: '1rem' }} onClick={() => retryLoad()}>
+                Retry
+              </button>
+            ) : null}
           </div>
         ) : (
           <table className="inf-table">
@@ -320,27 +380,34 @@ export function InfluencerListPage() {
           </table>
         )}
       </div>
-      {filtered.length > PAGE_SIZE && (
+      {showPagination ? (
         <div className="inf-pagination">
           <button
             className="inf-btn inf-btn--ghost inf-btn--xs"
-            disabled={currentPage === 1}
-            onClick={() => setPage(p => Math.max(1, p - 1))}
+            disabled={currentPageDisplay <= 1}
+            onClick={() => {
+              if (useServerPaging) void refetchInfluencerPage({ page: listMeta.page - 1, limit: listMeta.limit })
+              else setPage(p => Math.max(1, p - 1))
+            }}
           >
             Previous
           </button>
           <span className="inf-pagination__meta">
-            Page {currentPage} of {totalPages}
+            Page {currentPageDisplay} of {totalPages}
+            {useServerPaging ? ` (${listMeta.total} total)` : ''}
           </span>
           <button
             className="inf-btn inf-btn--ghost inf-btn--xs"
-            disabled={currentPage === totalPages}
-            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            disabled={currentPageDisplay >= totalPages}
+            onClick={() => {
+              if (useServerPaging) void refetchInfluencerPage({ page: listMeta.page + 1, limit: listMeta.limit })
+              else setPage(p => Math.min(totalPages, p + 1))
+            }}
           >
             Next
           </button>
         </div>
-      )}
+      ) : null}
       {/* Add Influencer modal */}
       {showAddModal && (
         <AddInfluencerPage asModal onClose={() => setShowAddModal(false)} />
