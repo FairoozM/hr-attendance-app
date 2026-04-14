@@ -299,6 +299,10 @@
   gap: 1rem;
 }
 
+.profile-section-grid--contact {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
 .info-row {
   display: flex;
   flex-direction: column;
@@ -336,6 +340,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   word-break: normal;
+}
+
+.info-row__value--email {
+  font-size: 0.82rem;
+  word-break: break-all;
 }
 
 /* ── Edit Form ── */

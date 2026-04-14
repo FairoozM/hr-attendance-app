@@ -136,10 +136,10 @@ function PersonalView({ p }) {
 
 function ContactView({ p }) {
   return (
-    <div className="profile-section-grid">
+    <div className="profile-section-grid profile-section-grid--contact">
       <InfoRow label="Mobile" value={val(p.phone)} />
-      <InfoRow label="Personal Email" value={val(p.personal_email)} noWrap />
-      <InfoRow label="Work Email" value={val(p.work_email)} noWrap />
+      <InfoRow label="Personal Email" value={val(p.personal_email)} valueClassName="info-row__value--email" />
+      <InfoRow label="Work Email" value={val(p.work_email)} valueClassName="info-row__value--email" />
       <InfoRow label="Address" value={val(p.current_address)} wide />
       <InfoRow label="City" value={val(p.city)} />
       <InfoRow label="Country" value={val(p.country)} />
@@ -190,11 +190,14 @@ function BankView({ p }) {
 
 // ── Shared InfoRow ────────────────────────────────────────────────────────────
 
-function InfoRow({ label, value, wide, noWrap = false }) {
+function InfoRow({ label, value, wide, noWrap = false, valueClassName = '' }) {
   return (
     <div className={`info-row ${wide ? 'info-row--wide' : ''}`}>
       <span className="info-row__label">{label}</span>
-      <span className={`info-row__value ${noWrap ? 'info-row__value--nowrap' : ''}`} title={String(value)}>
+      <span
+        className={`info-row__value ${noWrap ? 'info-row__value--nowrap' : ''} ${valueClassName}`.trim()}
+        title={String(value)}
+      >
         {value}
       </span>
     </div>
