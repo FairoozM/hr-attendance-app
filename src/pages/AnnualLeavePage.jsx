@@ -18,6 +18,18 @@ function daysBetween(from, to) {
   return Math.max(0, Math.floor(diff / 86400000) + 1)
 }
 function todayISO() { return new Date().toISOString().slice(0, 10) }
+function fmtPeriodDate(v) {
+  const iso = fmtISO(v)
+  if (!iso) return '—'
+  const dt = new Date(`${iso}T12:00:00Z`)
+  if (Number.isNaN(dt.getTime())) return '—'
+  return new Intl.DateTimeFormat('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(dt)
+}
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 function IconEdit() {
@@ -245,7 +257,6 @@ function LeaveRow({
   onEdit,
   expanded,
   onToggle,
-  yearTotal,
   onPreviewLeaveLetter,
   onDownloadLeaveLetter,
   onRegenerateLeaveLetter,
@@ -273,17 +284,17 @@ function LeaveRow({
         </td>
         <td>
           <div className="al-row__dates">
-            <span>{fmtDMY(row.from_date)} → {fmtDMY(row.to_date)}</span>
+            <span>
+              From {fmtPeriodDate(row.from_date)} to {fmtPeriodDate(row.to_date)}
+            </span>
           </div>
+        </td>
+        <td>
+          <span>{row.alternate_employee_full_name || '—'}</span>
         </td>
         <td className="al-row__days-cell">
           <span className="al-row__days-num">{leaveDays}</span>
           <span className="al-row__days-label"> days</span>
-        </td>
-        <td className="al-row__yrtotal-cell">
-          {yearTotal != null
-            ? <><span className="al-row__days-num" style={{ color: '#6366f1' }}>{yearTotal}</span><span className="al-row__days-label"> days</span></>
-            : <span className="al-row__days-label">—</span>}
         </td>
         <td><StatusBadge status={es} /></td>
         <td className="al-row__ret">
@@ -312,7 +323,7 @@ function LeaveRow({
                   <IconEdit />
                 </button>
               )}
-              {isAdmin && row.status === 'Pending' && (
+              {(isAdmin || employeeCanEditThis) && row.status === 'Pending' && (
                 <button className="al-icon-btn al-icon-btn--del" title="Delete" onClick={() => onDelete(row.id)}>
                   <IconTrash />
                 </button>
@@ -650,8 +661,8 @@ function TableHead({ showActions, sortBy, sortDir, onSort }) {
       <tr>
         <SortHeader col="name"        label="Employee"     current={sortBy} dir={sortDir} onSort={onSort} />
         <SortHeader col="from_date"   label="Leave Period" current={sortBy} dir={sortDir} onSort={onSort} />
+        <SortHeader col="alternate"   label="Alternate Employee" current={sortBy} dir={sortDir} onSort={onSort} />
         <SortHeader col="days"        label="Days"         current={sortBy} dir={sortDir} onSort={onSort} style={{ width: 72, textAlign: 'center' }} />
-        <SortHeader col="yr_total"    label="This Year"    current={sortBy} dir={sortDir} onSort={onSort} style={{ width: 90, textAlign: 'center' }} />
         <SortHeader col="status"      label="Status"       current={sortBy} dir={sortDir} onSort={onSort} />
         <SortHeader col="return_date" label="Return Date"  current={sortBy} dir={sortDir} onSort={onSort} />
         {showActions && <th>Actions</th>}
@@ -680,7 +691,7 @@ function SectionGroup({
   expandedId, onToggle,
   editingRow, setEditingRow,
   employees, alternateCandidates, empLoading,
-  yearTotals, updateRequest,
+  updateRequest,
   onStatusChange, onConfirmReturn, onExtend, onDelete, onEditStart,
   onPreviewLeaveLetter,
   onDownloadLeaveLetter,
@@ -731,7 +742,6 @@ function SectionGroup({
                     onEdit={onEditStart}
                     expanded={expandedId === row.id}
                     onToggle={() => onToggle(row.id)}
-                    yearTotal={yearTotals[String(row.employee_id)] ?? null}
                     onPreviewLeaveLetter={onPreviewLeaveLetter}
                     onDownloadLeaveLetter={onDownloadLeaveLetter}
                     onRegenerateLeaveLetter={onRegenerateLeaveLetter}
@@ -824,23 +834,6 @@ export function AnnualLeavePage() {
     })
   }
 
-  // Total leave days this calendar year per employee (approved/active/completed)
-  const yearTotals = useMemo(() => {
-    const yr = new Date().getFullYear()
-    const totals = {}
-    requests.forEach(r => {
-      const es = r.effective_status || r.status
-      if (['Approved','Ongoing','ReturnPending','Completed','Overstayed'].includes(es)) {
-        const fromYr = new Date(fmtISO(r.from_date) + 'T12:00:00Z').getFullYear()
-        if (fromYr === yr) {
-          const k = String(r.employee_id)
-          totals[k] = (totals[k] || 0) + (r.leave_days || daysBetween(r.from_date, r.to_date))
-        }
-      }
-    })
-    return totals
-  }, [requests])
-
   // Unique departments
   const departments = useMemo(() => {
     const s = new Set(requests.map(r => r.department).filter(Boolean))
@@ -873,8 +866,7 @@ export function AnnualLeavePage() {
         case 'from_date':   va = a.from_date || '';              vb = b.from_date || '';              break
         case 'days':        va = a.leave_days || daysBetween(a.from_date, a.to_date);
                             vb = b.leave_days || daysBetween(b.from_date, b.to_date);                break
-        case 'yr_total':    va = yearTotals[String(a.employee_id)] || 0;
-                            vb = yearTotals[String(b.employee_id)] || 0;                             break
+        case 'alternate':   va = a.alternate_employee_full_name || ''; vb = b.alternate_employee_full_name || ''; break
         case 'status':      va = a.effective_status || a.status; vb = b.effective_status || b.status; break
         case 'return_date': va = a.expected_return_date || '';   vb = b.expected_return_date || '';  break
         default:            return 0
@@ -883,7 +875,7 @@ export function AnnualLeavePage() {
       if (va > vb) return sortDir === 'asc' ?  1 : -1
       return 0
     })
-  }, [visibleRequests, deptFilter, search, sortBy, sortDir, yearTotals])
+  }, [visibleRequests, deptFilter, search, sortBy, sortDir])
 
   // For single-status filter view
   const filteredRequests = useMemo(() => {
@@ -937,7 +929,7 @@ export function AnnualLeavePage() {
     expandedId, onToggle: toggleExpand,
     editingRow, setEditingRow,
     employees, alternateCandidates: alternateOptions, empLoading,
-    yearTotals, updateRequest,
+    updateRequest,
     onStatusChange,
     onConfirmReturn: r => setConfirmRow(r),
     onExtend:        r => setExtendRow(r),
@@ -1078,7 +1070,6 @@ export function AnnualLeavePage() {
                                 onEdit={r => { setEditingRow(r); setExpandedId(null) }}
                                 expanded={expandedId === row.id}
                                 onToggle={() => toggleExpand(row.id)}
-                                yearTotal={yearTotals[String(row.employee_id)] ?? null}
                                 onPreviewLeaveLetter={handlePreviewLeaveLetter}
                                 onDownloadLeaveLetter={handleDownloadLeaveLetter}
                                 onRegenerateLeaveLetter={handleRegenerateLeaveLetter}
