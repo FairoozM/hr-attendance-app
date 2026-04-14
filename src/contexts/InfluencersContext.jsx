@@ -477,9 +477,13 @@ export function InfluencersProvider({ children }) {
   }, [user?.id])
 
   const addInfluencer = useCallback((data) => {
+    const newId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
     const newInfluencer = {
       ...data,
-      id: Date.now().toString(),
+      id: newId,
       workflowStatus: data.workflowStatus || 'New Lead',
       approvalStatus: data.approvalStatus || 'Pending',
       paymentStatus: data.paymentStatus || 'Not Requested',
@@ -531,9 +535,20 @@ export function InfluencersProvider({ children }) {
   const deleteInfluencer = useCallback((id) => {
     const sid = String(id)
     pendingLocalAddsRef.current = pendingLocalAddsRef.current.filter((r) => String(r?.id) !== sid)
+    const u = userRef.current
+    const remoteDelete =
+      serverReady.current && u && canPersistInfluencersToServer(u)
+    if (remoteDelete) {
+      persistChain.current = persistChain.current
+        .catch(() => {})
+        .then(() => api.delete(`/api/influencers/${encodeURIComponent(sid)}`))
+        .catch((err) => {
+          console.error('[influencers] delete failed', err)
+        })
+    }
     setInfluencers((prev) => {
       const next = prev.filter((inf) => inf.id !== id)
-      queuePersistSnapshot(next)
+      if (!remoteDelete) queuePersistSnapshot(next)
       return next
     })
   }, [queuePersistSnapshot])

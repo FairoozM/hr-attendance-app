@@ -6,5 +6,12 @@ const router = express.Router()
 
 router.get('/', attachAuth, requireAuth, requirePermission('influencers', 'view'), influencersController.listInfluencers)
 router.put('/', attachAuth, requireAuth, requireInfluencersWrite, influencersController.putInfluencers)
+router.delete(
+  '/:id',
+  attachAuth,
+  requireAuth,
+  requireInfluencersWrite,
+  influencersController.deleteInfluencer,
+)
 
 module.exports = router

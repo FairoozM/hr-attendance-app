@@ -37,8 +37,8 @@ async function putInfluencers(req, res) {
     if (parsed.error) {
       return res.status(400).json({ error: parsed.error })
     }
-    await influencersService.replaceInfluencers(parsed.list)
-    res.json({ success: true, count: parsed.list.length })
+    const merged = await influencersService.mergeInfluencersWithSnapshot(parsed.list)
+    res.json({ success: true, count: merged.length })
   } catch (err) {
     console.error('[influencers] put error:', err)
     res.status(500).json({
@@ -48,4 +48,21 @@ async function putInfluencers(req, res) {
   }
 }
 
-module.exports = { listInfluencers, putInfluencers }
+async function deleteInfluencer(req, res) {
+  try {
+    const id = req.params.id != null ? String(req.params.id).trim() : ''
+    if (!id) {
+      return res.status(400).json({ error: 'Missing influencer id' })
+    }
+    await influencersService.removeInfluencerById(id)
+    res.json({ success: true })
+  } catch (err) {
+    console.error('[influencers] delete error:', err)
+    res.status(500).json({
+      error: 'Failed to delete influencer',
+      detail: err && err.message ? String(err.message).slice(0, 240) : undefined,
+    })
+  }
+}
+
+module.exports = { listInfluencers, putInfluencers, deleteInfluencer }
