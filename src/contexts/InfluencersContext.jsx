@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
+import { flushSync } from 'react-dom'
 import { useAuth } from './AuthContext'
 import { api } from '../api/client'
 
@@ -349,6 +350,8 @@ export function InfluencersProvider({ children }) {
   const [loadError, setLoadError] = useState(null)
   /** After first successful GET, PUTs mirror edits to the API (shared for all users). */
   const serverReady = useRef(false)
+  /** Rows added while the initial GET is still in flight (persist is skipped until hydrated). */
+  const pendingLocalAddsRef = useRef([])
   /** Serializes PUT /api/influencers so rapid edits do not overlap and lose rows. */
   const persistChain = useRef(Promise.resolve())
   const userRef = useRef(user)
@@ -368,6 +371,7 @@ export function InfluencersProvider({ children }) {
   // Load shared list when session changes
   useEffect(() => {
     serverReady.current = false
+    pendingLocalAddsRef.current = []
     persistChain.current = Promise.resolve()
     if (!user) {
       setInfluencers([])
@@ -419,13 +423,48 @@ export function InfluencersProvider({ children }) {
         }
 
         if (cancelled) return
-        setInfluencers(list)
-        serverReady.current = true
+
+        /** flushSync so the merge updater runs before PUT; otherwise merged payload can still be null. */
+        const hydrateMeta = { merged: null, hadPendingAdds: false }
+        flushSync(() => {
+          setInfluencers((prev) => {
+            const pendingNow = pendingLocalAddsRef.current.slice()
+            pendingLocalAddsRef.current.length = 0
+            hydrateMeta.hadPendingAdds = pendingNow.length > 0
+            const merged = mergeInfluencerListsById(
+              mergeInfluencerListsById(list, pendingNow),
+              prev,
+            )
+            hydrateMeta.merged = merged
+            return merged
+          })
+          serverReady.current = true
+        })
+
+        if (hydrateMeta.hadPendingAdds && canPersistInfluencersToServer(user) && hydrateMeta.merged) {
+          persistChain.current = persistChain.current
+            .catch(() => {})
+            .then(() => api.put('/api/influencers', { influencers: hydrateMeta.merged }))
+            .catch((putErr) => {
+              console.error('[influencers] persist pending adds after load failed', putErr)
+              if (!cancelled) {
+                setLoadError(putErr.message || 'Could not save new influencers to the server')
+              }
+            })
+          try {
+            await persistChain.current
+          } catch (_) {
+            /* errors handled on chain */
+          }
+        }
       } catch (e) {
         if (cancelled) return
         setLoadError(e.message || 'Failed to load influencers')
         const legacy = loadLegacyLocal()
-        setInfluencers(Array.isArray(legacy) && legacy.length > 0 ? legacy : INITIAL_INFLUENCERS)
+        const base = Array.isArray(legacy) && legacy.length > 0 ? legacy : INITIAL_INFLUENCERS
+        const pendingSnapshot = pendingLocalAddsRef.current.slice()
+        pendingLocalAddsRef.current = []
+        setInfluencers(mergeInfluencerListsById(base, pendingSnapshot))
         serverReady.current = false
       } finally {
         if (!cancelled) setLoading(false)
@@ -449,9 +488,14 @@ export function InfluencersProvider({ children }) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
+    const readyAtCall = serverReady.current
+    const canSave = canPersistInfluencersToServer(userRef.current)
+    if (!readyAtCall) {
+      pendingLocalAddsRef.current.push(newInfluencer)
+    }
     setInfluencers((prev) => {
       const next = [newInfluencer, ...prev]
-      queuePersistSnapshot(next)
+      if (readyAtCall && canSave) queuePersistSnapshot(next)
       return next
     })
     return newInfluencer.id
@@ -485,6 +529,8 @@ export function InfluencersProvider({ children }) {
   }, [queuePersistSnapshot])
 
   const deleteInfluencer = useCallback((id) => {
+    const sid = String(id)
+    pendingLocalAddsRef.current = pendingLocalAddsRef.current.filter((r) => String(r?.id) !== sid)
     setInfluencers((prev) => {
       const next = prev.filter((inf) => inf.id !== id)
       queuePersistSnapshot(next)
