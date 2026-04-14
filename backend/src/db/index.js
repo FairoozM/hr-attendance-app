@@ -443,7 +443,12 @@ async function testConnection() {
   } catch (e) {
     console.error('[db] migrateUsernamesToEmail skipped/failed (non-fatal):', e.message || e)
   }
-  await ensureAnnualLeaveSalaryTable()
+  try {
+    await ensureAnnualLeaveSalaryTable()
+  } catch (e) {
+    // Common on RDS when annual_leave_salary was created by a superuser: CREATE INDEX requires table owner.
+    console.error('[db] ensureAnnualLeaveSalaryTable skipped/failed (non-fatal):', e.message || e)
+  }
   await normalizeEmployeePhotoUrls()
   await ensureAttendanceAssignmentsTable()
   await ensureInfluencersSnapshotTable()
