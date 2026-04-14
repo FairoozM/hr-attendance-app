@@ -36,11 +36,12 @@ You need **one of**:
 
 ## Option B — Separate API URL (no CloudFront path split)
 
-- Deploy the API at e.g. `https://api.example.com`.
-- Set **`VITE_API_BASE_URL=https://api.example.com`** when building the frontend.
+- Deploy the API at e.g. `https://api.example.com` (or `https://ec2-…amazonaws.com:5001` if TLS/nginx terminates there).
+- **Recommended for this repo:** set **`HR_PUBLIC_API_URL`** when running `npm run deploy:frontend` so `dist/api-runtime-config.js` sets `window.__HR_API_BASE_URL__` for all users (no per-browser login setup).
+- Alternatively set **`VITE_API_BASE_URL=https://api.example.com`** when building the frontend.
 - CloudFront can still front **only** the SPA bucket; API uses its own DNS/TLS.
 
-This avoids path routing on one distribution but requires CORS on the API for browser calls from `https://app.example.com`.
+This avoids path routing on one distribution but requires CORS on the API for browser calls from `https://app.example.com` (Express `cors()` is enabled by default in this project).
 
 ## Quick check
 

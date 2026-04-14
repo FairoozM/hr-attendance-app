@@ -15,7 +15,9 @@ export function ApiServerSetup() {
     setErr('')
     const t = url.trim().replace(/\/$/, '')
     if (!t) {
-      setErr('Enter your backend URL (e.g. https://d3ci8wu1d5dytp.cloudfront.net)')
+      setErr(
+        'Enter the URL where Express runs (e.g. https://ec2-xx.compute.amazonaws.com:5001 or https://api.yourdomain.com) — not this app\'s CloudFront address unless /api/* is routed there.'
+      )
       return
     }
     if (!/^https?:\/\//i.test(t)) {
@@ -52,7 +54,7 @@ export function ApiServerSetup() {
         setSaving(false)
         setErr(
           `Could not reach ${healthUrl} (HTTP ${res.status}, content-type: ${ct}). ` +
-            `Check the URL and try again.`
+            'Use the host where Node listens (often port 5001 on your server or ALB), not the static website URL, unless CloudFront forwards /api/* to that server.'
         )
         return
       }
@@ -70,10 +72,13 @@ export function ApiServerSetup() {
   return (
     <div className="api-server-setup" role="region" aria-label="Backend API configuration">
       <p className="api-server-setup__lead">
-        This site is not reaching your API server (requests to <code>/api</code> return the web
-        app instead of JSON). Use the same origin as this app (CloudFront), with no path and no
-        trailing slash — e.g. <code>https://d3ci8wu1d5dytp.cloudfront.net</code> — not{' '}
-        <code>#/login</code>, not <code>/api</code>.
+        This app is loaded from CloudFront/S3, but <code>/api/*</code> is not reaching your Express
+        server (you get HTML or 403 instead of JSON). Enter the <strong>public URL of your API</strong>{' '}
+        (no path, no trailing slash): e.g. <code>https://your-server.example.com:5001</code> or your
+        ALB URL — <em>not</em> <code>#/login</code> and not <code>/api</code>. If the API is on the
+        same domain as this page, fix CloudFront so <code>/api/*</code> goes to Node (see{' '}
+        <code>docs/cloudfront-api-routing.md</code>) or set <code>HR_PUBLIC_API_URL</code> when
+        deploying the frontend.
       </p>
       <form onSubmit={save} className="api-server-setup__form">
         <label className="login-label">
@@ -81,7 +86,7 @@ export function ApiServerSetup() {
           <input
             type="text"
             className="login-input"
-            placeholder="https://d3ci8wu1d5dytp.cloudfront.net"
+            placeholder="https://your-api-host.example.com:5001"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             autoComplete="off"
@@ -99,8 +104,9 @@ export function ApiServerSetup() {
         </button>
       </form>
       <p className="api-server-setup__hint">
-        Same-origin CloudFront URL is enough when <code>/api/*</code> routes to Express.
-        Otherwise use your API host (ALB, etc.) — no <code>/api</code> suffix.
+        After saving, the URL is stored in this browser as <code>hr_api_base_url</code>. Production
+        deploys can also set <code>HR_PUBLIC_API_URL</code> so <code>api-runtime-config.js</code> points
+        everyone to the API without per-browser setup.
       </p>
     </div>
   )

@@ -1,7 +1,7 @@
 /**
  * API origin (no trailing slash). Use **getApiBaseUrl()** — it resolves on each call:
  *
- * 1. `window.__HR_API_BASE_URL__` (public/api-runtime-config.js)
+ * 1. `window.__HR_API_BASE_URL__` (from `public/api-runtime-config.js`, or overwritten at deploy via `HR_PUBLIC_API_URL`)
  * 2. `localStorage` key `hr_api_base_url` (set from login page in production)
  * 3. `VITE_API_BASE_URL` (build-time)
  * 4. `''` — local dev: Vite proxies `/api` to the backend

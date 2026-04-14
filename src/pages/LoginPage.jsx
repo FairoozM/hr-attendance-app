@@ -4,8 +4,13 @@ import { motion } from 'framer-motion'
 import { useAuth } from '../contexts/AuthContext'
 import { ApiRoutingDebug } from '../components/ApiRoutingDebug'
 import { ApiServerSetup } from '../components/ApiServerSetup'
+import { API_BASE_STORAGE_KEY } from '../api/config'
 import './Page.css'
 import './LoginPage.css'
+
+function trimOrigin(s) {
+  return String(s || '').trim().replace(/\/$/, '')
+}
 
 /**
  * Probe same-origin /api/health and return true when it responds with valid JSON.
@@ -65,7 +70,7 @@ export function LoginPage() {
 
     async function checkApi() {
       // Log what is currently stored so we can debug in the console
-      const stored = localStorage.getItem('hr_api_base_url') || ''
+      let stored = localStorage.getItem(API_BASE_STORAGE_KEY) || ''
       console.log('[LoginPage] stored hr_api_base_url:', stored || '(none)')
 
       // Always probe the same-origin URL first
@@ -73,11 +78,23 @@ export function LoginPage() {
       if (healthy) {
         const origin = window.location.origin
         if (!stored) {
-          localStorage.setItem('hr_api_base_url', origin)
+          localStorage.setItem(API_BASE_STORAGE_KEY, origin)
           console.log('[LoginPage] saved API base URL to localStorage:', origin)
         }
         setApiCheckStatus('ok')
         return
+      }
+
+      // Same-origin /api is not JSON (CloudFront → S3, etc.). Remove mistaken save of SPA host as API base.
+      const originNorm = trimOrigin(window.location.origin)
+      if (stored && trimOrigin(stored) === originNorm) {
+        try {
+          localStorage.removeItem(API_BASE_STORAGE_KEY)
+        } catch (_) {}
+        stored = ''
+        console.warn(
+          '[LoginPage] Cleared hr_api_base_url: this site URL does not serve /api/* as JSON — use your Express host (see deploy HR_PUBLIC_API_URL or login setup).'
+        )
       }
 
       // Same-origin failed; if a stored URL exists, try that
