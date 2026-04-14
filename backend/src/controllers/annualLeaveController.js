@@ -54,7 +54,7 @@ async function list(req, res) {
     const payload = {
       error: 'Failed to fetch annual leave requests',
       hint:
-        'Often caused by the database schema not matching this API version. Restart the backend once so startup migrations can run, then retry.',
+        'Usually the database is missing new columns (shop visit workflow). Restart the API so startup migrations run. If it still fails, apply backend/migrations/012_annual_leave_shop_visit_notifications.sql against the database, then restart again.',
     }
     if (process.env.API_ERROR_DETAIL === '1') {
       payload.detail = err.message || String(err)

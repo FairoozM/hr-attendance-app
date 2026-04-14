@@ -332,6 +332,13 @@ async function backfillShopVisitPendingSubmission() {
   `)
 }
 
+/** For `node backend/scripts/apply-shop-visit-schema.js` if startup migrations did not run. */
+async function ensureShopVisitSchemaOnly() {
+  await ensureAnnualLeaveShopVisitColumns()
+  await ensureNotificationsTable()
+  await backfillShopVisitPendingSubmission()
+}
+
 async function ensureInfluencersSnapshotTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS influencers_snapshot (
@@ -427,6 +434,9 @@ async function testConnection() {
   // Must run before username migration: migrateUsernamesToEmail() can throw on edge
   // duplicate data; if it aborts testConnection(), annual_leave columns would never apply.
   await ensureAnnualLeaveExtendedColumns()
+  // Shop visit + notifications must run before later steps: if a later migration fails,
+  // annual_leave list queries still need these columns once new API code is deployed.
+  await ensureShopVisitSchemaOnly()
   await ensureProfileColumns()
   try {
     await migrateUsernamesToEmail()
@@ -434,9 +444,6 @@ async function testConnection() {
     console.error('[db] migrateUsernamesToEmail skipped/failed (non-fatal):', e.message || e)
   }
   await ensureAnnualLeaveSalaryTable()
-  await ensureAnnualLeaveShopVisitColumns()
-  await ensureNotificationsTable()
-  await backfillShopVisitPendingSubmission()
   await normalizeEmployeePhotoUrls()
   await ensureAttendanceAssignmentsTable()
   await ensureInfluencersSnapshotTable()
@@ -446,6 +453,7 @@ module.exports = {
   query,
   pool,
   testConnection,
+  ensureShopVisitSchemaOnly,
   ensureEmployeesTable,
   ensureEmployeeExtendedColumns,
   ensureAttendanceTable,

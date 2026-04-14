@@ -25,6 +25,8 @@ async function startServer() {
   } catch (err) {
     console.error('Database startup failed:', err.message)
     if (err.stack) console.error(err.stack)
+    // Do not accept traffic with a half-migrated schema (e.g. annual_leave SELECTs would 500).
+    process.exit(1)
   }
 
   server.listen(PORT, () => {
