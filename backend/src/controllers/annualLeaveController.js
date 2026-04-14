@@ -17,6 +17,13 @@ function validateRange(fromDate, toDate) {
   return null
 }
 
+function parseAlternateEmployeeId(v) {
+  if (v == null || v === '') return null
+  const n = parseInt(String(v), 10)
+  if (Number.isNaN(n) || n < 1) return null
+  return n
+}
+
 async function list(req, res) {
   try {
     const rows =
@@ -91,6 +98,15 @@ async function create(req, res) {
 
     const emp = await employeesService.findById(employeeId)
     if (!emp) return res.status(404).json({ error: 'Employee not found' })
+    const alternateEmployeeId = parseAlternateEmployeeId(req.body.alternate_employee_id)
+    if (alternateEmployeeId == null) {
+      return res.status(400).json({ error: 'alternate_employee_id is required' })
+    }
+    if (alternateEmployeeId === employeeId) {
+      return res.status(400).json({ error: 'Employee and alternate employee cannot be the same' })
+    }
+    const alt = await employeesService.findById(alternateEmployeeId)
+    if (!alt) return res.status(404).json({ error: 'Alternate employee not found' })
 
     let status = req.body.status != null ? String(req.body.status).trim() : 'Pending'
     if (req.user.role === 'employee' && status !== 'Pending')
@@ -99,7 +115,14 @@ async function create(req, res) {
       return res.status(400).json({ error: 'Invalid status' })
 
     const reason = req.body.reason?.trim() || null
-    const row = await annualLeaveService.create({ employee_id: employeeId, from_date: fromDate, to_date: toDate, reason, status })
+    const row = await annualLeaveService.create({
+      employee_id: employeeId,
+      alternate_employee_id: alternateEmployeeId,
+      from_date: fromDate,
+      to_date: toDate,
+      reason,
+      status,
+    })
     let enriched = await annualLeaveService.findByIdWithEmployee(row.id)
     try {
       await leaveRequestDocumentService.generateAndStoreLeaveLetter(row.id)
@@ -141,6 +164,17 @@ async function update(req, res) {
 
     const emp = await employeesService.findById(employeeId)
     if (!emp) return res.status(404).json({ error: 'Employee not found' })
+    const alternateEmployeeId = parseAlternateEmployeeId(
+      req.body.alternate_employee_id ?? existing.alternate_employee_id
+    )
+    if (alternateEmployeeId == null) {
+      return res.status(400).json({ error: 'alternate_employee_id is required' })
+    }
+    if (alternateEmployeeId === employeeId) {
+      return res.status(400).json({ error: 'Employee and alternate employee cannot be the same' })
+    }
+    const alt = await employeesService.findById(alternateEmployeeId)
+    if (!alt) return res.status(404).json({ error: 'Alternate employee not found' })
 
     let status = req.body.status != null ? String(req.body.status).trim() : existing.status
     if (req.user.role === 'employee' && status !== 'Pending')
@@ -152,7 +186,14 @@ async function update(req, res) {
       ? (req.body.reason?.trim() || null)
       : existing.reason
 
-    const row = await annualLeaveService.update(id, { employee_id: employeeId, from_date: fromDate, to_date: toDate, reason, status })
+    const row = await annualLeaveService.update(id, {
+      employee_id: employeeId,
+      alternate_employee_id: alternateEmployeeId,
+      from_date: fromDate,
+      to_date: toDate,
+      reason,
+      status,
+    })
     if (!row) return res.status(404).json({ error: 'Not found' })
     const enriched = await annualLeaveService.findByIdWithEmployee(id)
     res.json(enriched || row)

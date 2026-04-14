@@ -393,6 +393,7 @@ function LeaveRow({
 // ── New Request form ──────────────────────────────────────────────────────────
 function NewRequestForm({ employees, isAdmin, loggedInEmployeeId, onSubmit, empLoading }) {
   const [employeeId, setEmployeeId] = useState(isAdmin ? '' : loggedInEmployeeId || '')
+  const [alternateEmployeeId, setAlternateEmployeeId] = useState('')
   const [fromDate, setFromDate]     = useState('')
   const [toDate, setToDate]         = useState('')
   const [reason, setReason]         = useState('')
@@ -405,21 +406,40 @@ function NewRequestForm({ employees, isAdmin, loggedInEmployeeId, onSubmit, empL
     if (!isAdmin && loggedInEmployeeId) return list.filter(e => String(e.id) === loggedInEmployeeId)
     return list
   }, [employees, isAdmin, loggedInEmployeeId])
+  const alternateOptions = useMemo(() => {
+    const selectedEmployeeId = String(employeeId || '')
+    return [...employees]
+      .filter((e) => String(e.id) !== selectedEmployeeId)
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [employees, employeeId])
 
   useEffect(() => {
     if (!isAdmin && loggedInEmployeeId) setEmployeeId(loggedInEmployeeId)
   }, [isAdmin, loggedInEmployeeId])
+  useEffect(() => {
+    if (alternateEmployeeId && String(alternateEmployeeId) === String(employeeId)) {
+      setAlternateEmployeeId('')
+    }
+  }, [employeeId, alternateEmployeeId])
 
   async function handleSubmit(e) {
     e.preventDefault()
     setErr(null)
     if (!employeeId)            return setErr('Select an employee')
+    if (!alternateEmployeeId)   return setErr('Select an alternate employee')
     if (!fromDate || !toDate)   return setErr('Dates are required')
     if (fromDate > toDate)      return setErr('From date must be before to date')
     setSaving(true)
     try {
-      await onSubmit({ employee_id: Number(employeeId), from_date: fromDate, to_date: toDate, reason: reason.trim() || null, status: 'Pending' })
-      setFromDate(''); setToDate(''); setReason('')
+      await onSubmit({
+        employee_id: Number(employeeId),
+        alternate_employee_id: Number(alternateEmployeeId),
+        from_date: fromDate,
+        to_date: toDate,
+        reason: reason.trim() || null,
+        status: 'Pending',
+      })
+      setFromDate(''); setToDate(''); setReason(''); setAlternateEmployeeId('')
       if (isAdmin) setEmployeeId('')
       setOpen(false)
     } catch (e2) { setErr(e2.message || 'Failed') }
@@ -449,6 +469,20 @@ function NewRequestForm({ employees, isAdmin, loggedInEmployeeId, onSubmit, empL
               <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} disabled={saving} required />
             </div>
             <div className="al-form-field">
+              <label>Alternate employee</label>
+              <select
+                value={alternateEmployeeId}
+                onChange={e => setAlternateEmployeeId(e.target.value)}
+                disabled={empLoading || saving}
+                required
+              >
+                <option value="">— Select —</option>
+                {alternateOptions.map(emp => (
+                  <option key={emp.id} value={emp.id}>{emp.name} ({emp.employeeId})</option>
+                ))}
+              </select>
+            </div>
+            <div className="al-form-field">
               <label>To date</label>
               <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} disabled={saving} required />
             </div>
@@ -472,19 +506,34 @@ function NewRequestForm({ employees, isAdmin, loggedInEmployeeId, onSubmit, empL
 // ── Edit row (inline) ─────────────────────────────────────────────────────────
 function EditRowForm({ row, employees, onSave, onCancel, empLoading }) {
   const [empId,  setEmpId]  = useState(String(row.employee_id))
+  const [alternateEmpId, setAlternateEmpId] = useState(
+    row.alternate_employee_id != null ? String(row.alternate_employee_id) : ''
+  )
   const [from,   setFrom]   = useState(fmtISO(row.from_date))
   const [to,     setTo]     = useState(fmtISO(row.to_date))
   const [reason, setReason] = useState(row.reason || '')
   const [status, setStatus] = useState(row.status)
   const [err,    setErr]    = useState('')
   const [saving, setSaving] = useState(false)
+  const alternateOptions = useMemo(
+    () => employees.filter((e) => String(e.id) !== String(empId)),
+    [employees, empId]
+  )
 
   async function submit(e) {
     e.preventDefault()
     if (!from || !to || from > to) return setErr('Invalid dates')
+    if (!alternateEmpId) return setErr('Alternate employee is required')
     setSaving(true)
     try {
-      await onSave(row.id, { employee_id: Number(empId), from_date: from, to_date: to, reason: reason.trim() || null, status })
+      await onSave(row.id, {
+        employee_id: Number(empId),
+        alternate_employee_id: Number(alternateEmpId),
+        from_date: from,
+        to_date: to,
+        reason: reason.trim() || null,
+        status,
+      })
       onCancel()
     } catch (e2) { setErr(e2.message || 'Update failed'); setSaving(false) }
   }
@@ -506,6 +555,20 @@ function EditRowForm({ row, employees, onSave, onCancel, empLoading }) {
           <div className="al-form-field">
             <label>To</label>
             <input type="date" value={to} onChange={e => setTo(e.target.value)} required disabled={saving} />
+          </div>
+          <div className="al-form-field">
+            <label>Alternate</label>
+            <select
+              value={alternateEmpId}
+              onChange={e => setAlternateEmpId(e.target.value)}
+              disabled={empLoading || saving}
+              required
+            >
+              <option value="">— Select —</option>
+              {alternateOptions.map(emp => (
+                <option key={emp.id} value={emp.id}>{emp.name} ({emp.employeeId})</option>
+              ))}
+            </select>
           </div>
           <div className="al-form-field">
             <label>Status</label>
@@ -803,6 +866,7 @@ export function AnnualLeavePage() {
     try {
       await updateRequest(row.id, {
         employee_id: row.employee_id,
+        alternate_employee_id: row.alternate_employee_id,
         from_date:   fmtISO(row.from_date),
         to_date:     fmtISO(row.to_date),
         reason:      row.reason,

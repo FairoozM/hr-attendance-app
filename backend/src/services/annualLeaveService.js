@@ -67,6 +67,7 @@ async function syncAttendanceForRow(row) {
 const RICH_SELECT = `
   al.id,
   al.employee_id,
+  al.alternate_employee_id,
   al.from_date,
   al.to_date,
   al.reason,
@@ -85,7 +86,7 @@ const RICH_SELECT = `
   e.department,
   e.photo_url,
   e.designation,
-  alt.full_name AS alternate_employee_full_name,
+  alt_leave.full_name AS alternate_employee_full_name,
   (al.to_date + INTERVAL '1 day')::date                                AS expected_return_date,
   (al.to_date::date - al.from_date::date + 1)                         AS leave_days,
   CASE
@@ -131,7 +132,7 @@ async function listWithEmployees() {
     `SELECT ${RICH_SELECT}
      FROM annual_leave al
      JOIN employees e ON e.id = al.employee_id
-     LEFT JOIN employees alt ON alt.id = e.alternate_employee_id
+     LEFT JOIN employees alt_leave ON alt_leave.id = al.alternate_employee_id
      ORDER BY al.from_date DESC, al.created_at DESC`
   )
   return result.rows
@@ -142,7 +143,7 @@ async function listWithEmployeesForEmployee(employeeId) {
     `SELECT ${RICH_SELECT}
      FROM annual_leave al
      JOIN employees e ON e.id = al.employee_id
-     LEFT JOIN employees alt ON alt.id = e.alternate_employee_id
+     LEFT JOIN employees alt_leave ON alt_leave.id = al.alternate_employee_id
      WHERE al.employee_id = $1
      ORDER BY al.from_date DESC, al.created_at DESC`,
     [employeeId]
@@ -152,7 +153,7 @@ async function listWithEmployeesForEmployee(employeeId) {
 
 async function findById(id) {
   const result = await query(
-    `SELECT id, employee_id, from_date, to_date, reason, status,
+    `SELECT id, employee_id, alternate_employee_id, from_date, to_date, reason, status,
             actual_return_date, return_confirmed_by, return_confirmed_at,
             admin_remarks, grace_period_days, created_at, updated_at
      FROM annual_leave WHERE id = $1`,
@@ -166,7 +167,7 @@ async function findByIdWithEmployee(id) {
     `SELECT ${RICH_SELECT}
      FROM annual_leave al
      JOIN employees e ON e.id = al.employee_id
-     LEFT JOIN employees alt ON alt.id = e.alternate_employee_id
+     LEFT JOIN employees alt_leave ON alt_leave.id = al.alternate_employee_id
      WHERE al.id = $1`,
     [id]
   )
@@ -186,32 +187,33 @@ async function updateLeaveRequestPdf(id, { pdfKey, generatedAt }) {
   return result.rows[0] || null
 }
 
-async function create({ employee_id, from_date, to_date, reason, status }) {
+async function create({ employee_id, alternate_employee_id, from_date, to_date, reason, status }) {
   const result = await query(
-    `INSERT INTO annual_leave (employee_id, from_date, to_date, reason, status, updated_at)
-     VALUES ($1, $2::date, $3::date, $4, $5, NOW())
-     RETURNING id, employee_id, from_date, to_date, reason, status, created_at, updated_at`,
-    [employee_id, from_date, to_date, reason ?? null, status]
+    `INSERT INTO annual_leave (employee_id, alternate_employee_id, from_date, to_date, reason, status, updated_at)
+     VALUES ($1, $2, $3::date, $4::date, $5, $6, NOW())
+     RETURNING id, employee_id, alternate_employee_id, from_date, to_date, reason, status, created_at, updated_at`,
+    [employee_id, alternate_employee_id ?? null, from_date, to_date, reason ?? null, status]
   )
   const row = result.rows[0]
   await syncAttendanceForRow(row)
   return row
 }
 
-async function update(id, { employee_id, from_date, to_date, reason, status }) {
+async function update(id, { employee_id, alternate_employee_id, from_date, to_date, reason, status }) {
   const existing = await findById(id)
   if (!existing) return null
   const result = await query(
     `UPDATE annual_leave SET
        employee_id = $2,
-       from_date   = $3::date,
-       to_date     = $4::date,
-       reason      = $5,
-       status      = $6,
+       alternate_employee_id = $3,
+       from_date   = $4::date,
+       to_date     = $5::date,
+       reason      = $6,
+       status      = $7,
        updated_at  = NOW()
      WHERE id = $1
-     RETURNING id, employee_id, from_date, to_date, reason, status, created_at, updated_at`,
-    [id, employee_id, from_date, to_date, reason, status]
+     RETURNING id, employee_id, alternate_employee_id, from_date, to_date, reason, status, created_at, updated_at`,
+    [id, employee_id, alternate_employee_id ?? null, from_date, to_date, reason, status]
   )
   const row = result.rows[0]
   if (row) await syncAttendanceForRow(row)

@@ -274,8 +274,12 @@ async function ensureAnnualLeaveExtendedColumns() {
     `ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS return_confirmed_at TIMESTAMPTZ`,
     `ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS admin_remarks TEXT`,
     `ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS grace_period_days SMALLINT NOT NULL DEFAULT 1`,
+    `ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS alternate_employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL`,
   ]
   for (const sql of cols) await query(sql)
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_annual_leave_alternate_employee_id ON annual_leave(alternate_employee_id)`
+  )
 }
 
 async function ensureInfluencersSnapshotTable() {
