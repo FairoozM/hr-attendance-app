@@ -1,6 +1,7 @@
 const employeesService = require('../services/employeesService')
 const annualLeaveService = require('../services/annualLeaveService')
 const leaveRequestDocumentService = require('../services/leaveRequestDocumentService')
+const s3Service = require('../services/s3Service')
 
 function parseDate(s) {
   if (s == null || String(s).trim() === '') return null
@@ -24,13 +25,29 @@ function parseAlternateEmployeeId(v) {
   return n
 }
 
+async function attachLeavePhotoUrl(row) {
+  if (!row) return row
+  if (row.photo_doc_key) {
+    try {
+      row.photo_url = await s3Service.getDownloadUrl({ key: row.photo_doc_key, expiresIn: 3600 })
+    } catch {
+      /* keep existing */
+    }
+  }
+  return row
+}
+
+async function attachLeavePhotoUrls(rows) {
+  return Promise.all((rows || []).map(attachLeavePhotoUrl))
+}
+
 async function list(req, res) {
   try {
     const rows =
       req.user.role === 'employee'
         ? await annualLeaveService.listWithEmployeesForEmployee(parseInt(req.user.employeeId, 10))
         : await annualLeaveService.listWithEmployees()
-    res.json(rows)
+    res.json(await attachLeavePhotoUrls(rows))
   } catch (err) {
     console.error('Annual leave list error:', err.message || err)
     if (err.stack) console.error(err.stack)
@@ -63,6 +80,23 @@ async function dashboard(req, res) {
   }
 }
 
+async function listAlternateOptions(req, res) {
+  try {
+    const rows = await employeesService.findAlternateCandidates(null)
+    res.json(
+      rows.map((r) => ({
+        id: r.id,
+        employee_code: r.employee_code,
+        full_name: r.full_name,
+        is_active: r.is_active,
+      }))
+    )
+  } catch (err) {
+    console.error('Annual leave alternate options error:', err)
+    res.status(500).json({ error: 'Failed to fetch alternate employee options' })
+  }
+}
+
 async function getOne(req, res) {
   try {
     const id = parseInt(req.params.id, 10)
@@ -73,7 +107,7 @@ async function getOne(req, res) {
       if (parseInt(row.employee_id, 10) !== parseInt(req.user.employeeId, 10))
         return res.status(403).json({ error: 'Forbidden' })
     }
-    res.json(row)
+    res.json(await attachLeavePhotoUrl(row))
   } catch (err) {
     console.error('Annual leave get error:', err)
     res.status(500).json({ error: 'Failed to fetch annual leave' })
@@ -98,6 +132,13 @@ async function create(req, res) {
 
     const emp = await employeesService.findById(employeeId)
     if (!emp) return res.status(404).json({ error: 'Employee not found' })
+    const alreadyPending = await annualLeaveService.hasPendingRequestForEmployee(employeeId)
+    if (alreadyPending) {
+      return res.status(409).json({
+        error:
+          'You already have a pending annual leave request. Please delete it before creating a new one.',
+      })
+    }
     const alternateEmployeeId = parseAlternateEmployeeId(req.body.alternate_employee_id)
     if (alternateEmployeeId == null) {
       return res.status(400).json({ error: 'alternate_employee_id is required' })
@@ -130,7 +171,7 @@ async function create(req, res) {
     } catch (e) {
       console.error('[annual-leave] Leave request letter PDF:', e.message)
     }
-    res.status(201).json(enriched || row)
+    res.status(201).json(await attachLeavePhotoUrl(enriched || row))
   } catch (err) {
     console.error('Annual leave create error:', err)
     res.status(500).json({ error: 'Failed to create annual leave request' })
@@ -196,7 +237,7 @@ async function update(req, res) {
     })
     if (!row) return res.status(404).json({ error: 'Not found' })
     const enriched = await annualLeaveService.findByIdWithEmployee(id)
-    res.json(enriched || row)
+    res.json(await attachLeavePhotoUrl(enriched || row))
   } catch (err) {
     console.error('Annual leave update error:', err)
     res.status(500).json({ error: 'Failed to update annual leave request' })
@@ -223,7 +264,7 @@ async function confirmReturn(req, res) {
       confirmed_by: req.user.userId,
     })
     const enriched = await annualLeaveService.findByIdWithEmployee(id)
-    res.json(enriched)
+    res.json(await attachLeavePhotoUrl(enriched))
   } catch (err) {
     console.error('Confirm return error:', err)
     res.status(500).json({ error: 'Failed to confirm return' })
@@ -252,7 +293,7 @@ async function extendLeave(req, res) {
       confirmed_by: req.user.userId,
     })
     const enriched = await annualLeaveService.findByIdWithEmployee(id)
-    res.json(enriched)
+    res.json(await attachLeavePhotoUrl(enriched))
   } catch (err) {
     console.error('Extend leave error:', err)
     res.status(500).json({ error: 'Failed to extend leave' })
@@ -267,7 +308,7 @@ async function updateRemarks(req, res) {
     if (!existing) return res.status(404).json({ error: 'Not found' })
     await annualLeaveService.updateRemarks(id, { admin_remarks: req.body.admin_remarks || null })
     const enriched = await annualLeaveService.findByIdWithEmployee(id)
-    res.json(enriched)
+    res.json(await attachLeavePhotoUrl(enriched))
   } catch (err) {
     console.error('Update remarks error:', err)
     res.status(500).json({ error: 'Failed to update remarks' })
@@ -334,7 +375,7 @@ async function regenerateLeaveRequestLetter(req, res) {
     if (!existing) return res.status(404).json({ error: 'Not found' })
     await leaveRequestDocumentService.generateAndStoreLeaveLetter(id)
     const enriched = await annualLeaveService.findByIdWithEmployee(id)
-    res.json(enriched)
+    res.json(await attachLeavePhotoUrl(enriched))
   } catch (err) {
     if (err.code === 'LETTER_VALIDATION') {
       return res.status(422).json({ error: err.message })
@@ -346,6 +387,7 @@ async function regenerateLeaveRequestLetter(req, res) {
 
 module.exports = {
   list,
+  listAlternateOptions,
   dashboard,
   getOne,
   create,

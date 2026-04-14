@@ -3,6 +3,7 @@ import { api } from '../api/client'
 
 export function useAnnualLeave() {
   const [requests, setRequests] = useState([])
+  const [alternateOptions, setAlternateOptions] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [dashboard, setDashboard] = useState(null)
@@ -28,15 +29,26 @@ export function useAnnualLeave() {
     } catch { /* non-critical */ }
   }, [])
 
+  const fetchAlternateOptions = useCallback(async () => {
+    try {
+      const data = await api.get('/api/annual-leave/alternate-options')
+      setAlternateOptions(Array.isArray(data) ? data : [])
+    } catch {
+      setAlternateOptions([])
+    }
+  }, [])
+
   useEffect(() => {
     fetchRequests()
     fetchDashboard()
-  }, [fetchRequests, fetchDashboard])
+    fetchAlternateOptions()
+  }, [fetchRequests, fetchDashboard, fetchAlternateOptions])
 
   const refresh = useCallback(async () => {
     await fetchRequests()
     await fetchDashboard()
-  }, [fetchRequests, fetchDashboard])
+    await fetchAlternateOptions()
+  }, [fetchRequests, fetchDashboard, fetchAlternateOptions])
 
   const createRequest = useCallback(async (payload) => {
     const body = await api.post('/api/annual-leave', payload)
@@ -80,7 +92,7 @@ export function useAnnualLeave() {
   }, [refresh])
 
   return {
-    requests, loading, error, dashboard,
+    requests, loading, error, dashboard, alternateOptions,
     refresh, createRequest, updateRequest, deleteRequest,
     confirmReturn, extendLeave, updateRemarks, regenerateLeaveLetter,
   }

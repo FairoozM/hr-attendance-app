@@ -1,5 +1,21 @@
 const usersService = require('../services/usersService')
 const assignmentService = require('../services/attendanceAssignmentService')
+const s3Service = require('../services/s3Service')
+
+async function attachAssignmentPhotoUrls(rows) {
+  return Promise.all(
+    (rows || []).map(async (row) => {
+      if (row?.photo_doc_key) {
+        try {
+          row.photo_url = await s3Service.getDownloadUrl({ key: row.photo_doc_key, expiresIn: 3600 })
+        } catch {
+          /* keep existing */
+        }
+      }
+      return row
+    })
+  )
+}
 
 const VALID_MODULES = ['attendance', 'leave', 'employees', 'influencers']
 const VALID_ACTIONS = {
@@ -181,7 +197,7 @@ async function getAttendanceAssignments(req, res) {
     if (!user) return res.status(404).json({ error: 'User not found' })
 
     const assignments = await assignmentService.getAssignmentsForUser(userId)
-    return res.json(assignments)
+    return res.json(await attachAssignmentPhotoUrls(assignments))
   } catch (err) {
     console.error('[admin] getAttendanceAssignments error:', err)
     return res.status(500).json({ error: err.message || 'Failed to fetch assignments' })
@@ -215,7 +231,7 @@ async function setAttendanceAssignments(req, res) {
     console.log('[admin] Set attendance assignments for user', userId, '→', employeeIds)
 
     const updated = await assignmentService.getAssignmentsForUser(userId)
-    return res.json({ success: true, assignments: updated })
+    return res.json({ success: true, assignments: await attachAssignmentPhotoUrls(updated) })
   } catch (err) {
     console.error('[admin] setAttendanceAssignments error:', err)
     return res.status(500).json({ error: err.message || 'Failed to save assignments' })

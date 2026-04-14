@@ -9,6 +9,7 @@ router.get('/dashboard', auth.requireAuth, auth.requireAdmin, ctrl.dashboard)
 
 // Standard CRUD
 router.get('/',    auth.requireAuth, ctrl.list)
+router.get('/alternate-options', auth.requireAuth, ctrl.listAlternateOptions)
 router.get(
   '/:id/leave-request-letter',
   auth.requireAuth,

@@ -20,7 +20,7 @@ async function getAssignmentsForUser(managerUserId) {
   const result = await query(
     `SELECT aa.id, aa.assigned_employee_id, aa.assigned_at,
             e.full_name, e.employee_code, e.department, e.designation,
-            e.photo_url, e.is_active
+            e.photo_url, e.photo_doc_key, e.is_active
      FROM attendance_assignments aa
      JOIN employees e ON e.id = aa.assigned_employee_id
      WHERE aa.manager_user_id = $1

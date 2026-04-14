@@ -45,6 +45,22 @@ function keyFromDocumentUrl(url) {
   }
 }
 
+async function attachPhotoUrl(row) {
+  if (!row) return row
+  if (row.photo_doc_key) {
+    try {
+      row.photo_url = await s3Service.getDownloadUrl({ key: row.photo_doc_key, expiresIn: 3600 })
+    } catch {
+      /* keep existing */
+    }
+  }
+  return row
+}
+
+async function attachPhotoUrls(rows) {
+  return Promise.all((rows || []).map(attachPhotoUrl))
+}
+
 /**
  * GET /api/attendance/managed-employees
  * Returns the list of employees this user is allowed to see in the attendance grid.
@@ -55,6 +71,7 @@ async function listManagedEmployees(req, res) {
   try {
     const { query } = require('../db')
     const COLS = `id, employee_code, full_name, department, is_active, joining_date,
+      photo_doc_key,
       photo_url, phone, designation, employment_status, weekly_off_day, duty_location,
       work_location, include_in_attendance, nationality, emirates_id, passport_number`
 
@@ -62,7 +79,7 @@ async function listManagedEmployees(req, res) {
       const result = await query(
         `SELECT ${COLS} FROM employees WHERE is_active = true ORDER BY full_name`
       )
-      return res.json(result.rows)
+      return res.json(await attachPhotoUrls(result.rows))
     }
 
     // Non-admin: return assigned employees PLUS the user's own employee record
@@ -81,7 +98,7 @@ async function listManagedEmployees(req, res) {
        ORDER BY full_name`,
       allIds
     )
-    return res.json(result.rows)
+    return res.json(await attachPhotoUrls(result.rows))
   } catch (err) {
     console.error('listManagedEmployees error:', err)
     return res.status(500).json({ error: 'Failed to fetch managed employees' })

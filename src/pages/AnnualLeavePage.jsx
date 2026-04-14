@@ -398,7 +398,7 @@ function LeaveRow({
 }
 
 // ── New Request form ──────────────────────────────────────────────────────────
-function NewRequestForm({ employees, isAdmin, loggedInEmployeeId, onSubmit, empLoading }) {
+function NewRequestForm({ employees, alternateCandidates, isAdmin, loggedInEmployeeId, onSubmit, empLoading }) {
   const [employeeId, setEmployeeId] = useState(isAdmin ? '' : loggedInEmployeeId || '')
   const [alternateEmployeeId, setAlternateEmployeeId] = useState('')
   const [fromDate, setFromDate]     = useState('')
@@ -415,10 +415,10 @@ function NewRequestForm({ employees, isAdmin, loggedInEmployeeId, onSubmit, empL
   }, [employees, isAdmin, loggedInEmployeeId])
   const alternateOptions = useMemo(() => {
     const selectedEmployeeId = String(employeeId || '')
-    return [...employees]
+    return [...alternateCandidates]
       .filter((e) => String(e.id) !== selectedEmployeeId)
-      .sort((a, b) => a.name.localeCompare(b.name))
-  }, [employees, employeeId])
+      .sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')))
+  }, [alternateCandidates, employeeId])
 
   useEffect(() => {
     if (!isAdmin && loggedInEmployeeId) setEmployeeId(loggedInEmployeeId)
@@ -473,7 +473,14 @@ function NewRequestForm({ employees, isAdmin, loggedInEmployeeId, onSubmit, empL
             </div>
             <div className="al-form-field">
               <label>From date</label>
-              <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} disabled={saving} required />
+              <input
+                type="date"
+                value={fromDate}
+                onChange={e => setFromDate(e.target.value)}
+                max={toDate || undefined}
+                disabled={saving}
+                required
+              />
             </div>
             <div className="al-form-field">
               <label>Alternate employee</label>
@@ -485,13 +492,20 @@ function NewRequestForm({ employees, isAdmin, loggedInEmployeeId, onSubmit, empL
               >
                 <option value="">— Select —</option>
                 {alternateOptions.map(emp => (
-                  <option key={emp.id} value={emp.id}>{emp.name} ({emp.employeeId})</option>
+                  <option key={emp.id} value={emp.id}>{emp.full_name} ({emp.employee_code})</option>
                 ))}
               </select>
             </div>
             <div className="al-form-field">
               <label>To date</label>
-              <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} disabled={saving} required />
+              <input
+                type="date"
+                value={toDate}
+                onChange={e => setToDate(e.target.value)}
+                min={fromDate || undefined}
+                disabled={saving}
+                required
+              />
             </div>
             <div className="al-form-field al-form-field--grow">
               <label>Reason (optional)</label>
@@ -511,7 +525,7 @@ function NewRequestForm({ employees, isAdmin, loggedInEmployeeId, onSubmit, empL
 }
 
 // ── Edit row (inline) ─────────────────────────────────────────────────────────
-function EditRowForm({ row, employees, onSave, onCancel, empLoading, isAdmin }) {
+function EditRowForm({ row, employees, alternateCandidates, onSave, onCancel, empLoading, isAdmin }) {
   const [empId,  setEmpId]  = useState(String(row.employee_id))
   const [alternateEmpId, setAlternateEmpId] = useState(
     row.alternate_employee_id != null ? String(row.alternate_employee_id) : ''
@@ -523,8 +537,8 @@ function EditRowForm({ row, employees, onSave, onCancel, empLoading, isAdmin }) 
   const [err,    setErr]    = useState('')
   const [saving, setSaving] = useState(false)
   const alternateOptions = useMemo(
-    () => employees.filter((e) => String(e.id) !== String(empId)),
-    [employees, empId]
+    () => alternateCandidates.filter((e) => String(e.id) !== String(empId)),
+    [alternateCandidates, empId]
   )
 
   async function submit(e) {
@@ -557,11 +571,25 @@ function EditRowForm({ row, employees, onSave, onCancel, empLoading, isAdmin }) 
           </div>
           <div className="al-form-field">
             <label>From</label>
-            <input type="date" value={from} onChange={e => setFrom(e.target.value)} required disabled={saving} />
+            <input
+              type="date"
+              value={from}
+              onChange={e => setFrom(e.target.value)}
+              max={to || undefined}
+              required
+              disabled={saving}
+            />
           </div>
           <div className="al-form-field">
             <label>To</label>
-            <input type="date" value={to} onChange={e => setTo(e.target.value)} required disabled={saving} />
+            <input
+              type="date"
+              value={to}
+              onChange={e => setTo(e.target.value)}
+              min={from || undefined}
+              required
+              disabled={saving}
+            />
           </div>
           <div className="al-form-field">
             <label>Alternate</label>
@@ -573,7 +601,7 @@ function EditRowForm({ row, employees, onSave, onCancel, empLoading, isAdmin }) 
             >
               <option value="">— Select —</option>
               {alternateOptions.map(emp => (
-                <option key={emp.id} value={emp.id}>{emp.name} ({emp.employeeId})</option>
+                <option key={emp.id} value={emp.id}>{emp.full_name} ({emp.employee_code})</option>
               ))}
             </select>
           </div>
@@ -651,7 +679,7 @@ function SectionGroup({
   sortBy, sortDir, onSort,
   expandedId, onToggle,
   editingRow, setEditingRow,
-  employees, empLoading,
+  employees, alternateCandidates, empLoading,
   yearTotals, updateRequest,
   onStatusChange, onConfirmReturn, onExtend, onDelete, onEditStart,
   onPreviewLeaveLetter,
@@ -684,6 +712,7 @@ function SectionGroup({
                     key={row.id}
                     row={editingRow}
                     employees={employees}
+                    alternateCandidates={alternateCandidates}
                     onSave={updateRequest}
                     onCancel={() => setEditingRow(null)}
                     empLoading={empLoading}
@@ -741,7 +770,7 @@ export function AnnualLeavePage() {
 
   const { employees, loading: empLoading } = useEmployees()
   const {
-    requests, loading, error, dashboard,
+    requests, loading, error, dashboard, alternateOptions,
     createRequest, updateRequest, deleteRequest, confirmReturn, extendLeave, regenerateLeaveLetter,
   } = useAnnualLeave()
 
@@ -907,7 +936,7 @@ export function AnnualLeavePage() {
     sortBy, sortDir, onSort: handleSort,
     expandedId, onToggle: toggleExpand,
     editingRow, setEditingRow,
-    employees, empLoading,
+    employees, alternateCandidates: alternateOptions, empLoading,
     yearTotals, updateRequest,
     onStatusChange,
     onConfirmReturn: r => setConfirmRow(r),
@@ -956,6 +985,7 @@ export function AnnualLeavePage() {
 
           <NewRequestForm
             employees={employees}
+            alternateCandidates={alternateOptions}
             isAdmin={isAdmin}
             loggedInEmployeeId={loggedInEmpId}
             onSubmit={createRequest}
@@ -1029,6 +1059,7 @@ export function AnnualLeavePage() {
                                 key={row.id}
                                 row={editingRow}
                                 employees={employees}
+                                alternateCandidates={alternateOptions}
                                 onSave={updateRequest}
                                 onCancel={() => setEditingRow(null)}
                                 empLoading={empLoading}

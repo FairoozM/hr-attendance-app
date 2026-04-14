@@ -85,6 +85,7 @@ const RICH_SELECT = `
   e.full_name,
   e.department,
   e.photo_url,
+  e.photo_doc_key,
   e.designation,
   alt_leave.full_name AS alternate_employee_full_name,
   (al.to_date + INTERVAL '1 day')::date                                AS expected_return_date,
@@ -160,6 +161,20 @@ async function findById(id) {
     [id]
   )
   return result.rows[0] || null
+}
+
+async function hasPendingRequestForEmployee(employeeId, excludeLeaveId = null) {
+  const sql =
+    excludeLeaveId == null
+      ? `SELECT id FROM annual_leave
+         WHERE employee_id = $1 AND status = 'Pending'
+         LIMIT 1`
+      : `SELECT id FROM annual_leave
+         WHERE employee_id = $1 AND status = 'Pending' AND id != $2
+         LIMIT 1`
+  const params = excludeLeaveId == null ? [employeeId] : [employeeId, excludeLeaveId]
+  const result = await query(sql, params)
+  return Boolean(result.rows[0])
 }
 
 async function findByIdWithEmployee(id) {
@@ -328,6 +343,7 @@ module.exports = {
   listWithEmployees,
   listWithEmployeesForEmployee,
   findById,
+  hasPendingRequestForEmployee,
   findByIdWithEmployee,
   updateLeaveRequestPdf,
   create,
