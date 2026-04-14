@@ -605,6 +605,21 @@
   box-shadow: var(--glass-shadow-panel);
 }
 
+.inf-pagination {
+  margin-top: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
+.inf-pagination__meta {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  min-width: 105px;
+  text-align: center;
+}
+
 .inf-table {
   width: 100%;
   border-collapse: collapse;

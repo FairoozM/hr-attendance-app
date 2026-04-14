@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useInfluencers } from '../../contexts/InfluencersContext'
 import { useAuth, hasPermission } from '../../contexts/AuthContext'
@@ -43,6 +43,7 @@ const SORT_OPTIONS = [
   { value: 'approved', label: 'Approved' },
   { value: 'payment', label: 'Payment Pending' },
 ]
+const PAGE_SIZE = 20
 
 export function InfluencerListPage() {
   const { influencers, loading, loadError, updateInfluencer, updateWorkflowStatus, deleteInfluencer } =
@@ -60,6 +61,7 @@ export function InfluencerListPage() {
   const [filterBasedIn, setFilterBasedIn] = useState('All')
   const [filterCollab, setFilterCollab] = useState('All')
   const [sortBy, setSortBy] = useState('newest')
+  const [page, setPage] = useState(1)
 
   const cities = useMemo(() => ['All', ...new Set(influencers.map(i => i.basedIn).filter(Boolean))], [influencers])
   const collabTypes = useMemo(() => ['All', ...new Set(influencers.map(i => i.collaborationType).filter(Boolean))], [influencers])
@@ -91,6 +93,15 @@ export function InfluencerListPage() {
     pending: influencers.filter(i => i.paymentStatus === 'Ready for Payment').length,
     rejected: influencers.filter(i => i.approvalStatus === 'Rejected').length,
   }), [influencers])
+
+  useEffect(() => {
+    setPage(1)
+  }, [search, filterWorkflow, filterApproval, filterPayment, filterBasedIn, filterCollab, sortBy])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const pageStart = (currentPage - 1) * PAGE_SIZE
+  const pageRows = filtered.slice(pageStart, pageStart + PAGE_SIZE)
 
   const handleQuickAction = (e, action, inf) => {
     e.stopPropagation()
@@ -250,7 +261,7 @@ export function InfluencerListPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(inf => (
+              {pageRows.map(inf => (
                 <tr key={inf.id} onClick={() => navigate(`/influencers/${inf.id}`)}>
                   <td>
                     <div className="inf-table__name">{inf.name}</div>
@@ -309,6 +320,27 @@ export function InfluencerListPage() {
           </table>
         )}
       </div>
+      {filtered.length > PAGE_SIZE && (
+        <div className="inf-pagination">
+          <button
+            className="inf-btn inf-btn--ghost inf-btn--xs"
+            disabled={currentPage === 1}
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+          >
+            Previous
+          </button>
+          <span className="inf-pagination__meta">
+            Page {currentPage} of {totalPages}
+          </span>
+          <button
+            className="inf-btn inf-btn--ghost inf-btn--xs"
+            disabled={currentPage === totalPages}
+            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+          >
+            Next
+          </button>
+        </div>
+      )}
       {/* Add Influencer modal */}
       {showAddModal && (
         <AddInfluencerPage asModal onClose={() => setShowAddModal(false)} />
