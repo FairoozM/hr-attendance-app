@@ -1884,3 +1884,164 @@
   .aif-panel__footer   { flex-direction: column; align-items: stretch; }
   .aif-progress        { max-width: 100%; }
 }
+
+/* ── Light theme refinements for influencer surfaces ── */
+:root[data-theme='light'] .inf-page,
+:root[data-theme='light'] .aif-page {
+  color: var(--text);
+}
+
+:root[data-theme='light'] .inf-page-header,
+:root[data-theme='light'] .clay-card,
+:root[data-theme='light'] .inf-stat,
+:root[data-theme='light'] .inf-toolbar,
+:root[data-theme='light'] .inf-table-wrap,
+:root[data-theme='light'] .inf-form-section,
+:root[data-theme='light'] .inf-profile-section,
+:root[data-theme='light'] .inf-pipeline-col,
+:root[data-theme='light'] .inf-pipeline-card,
+:root[data-theme='light'] .inf-schedule-card,
+:root[data-theme='light'] .inf-agreement,
+:root[data-theme='light'] .inf-hero,
+:root[data-theme='light'] .inf-modal,
+:root[data-theme='light'] .aif-sidebar,
+:root[data-theme='light'] .aif-panel,
+:root[data-theme='light'] .aif-overview,
+:root[data-theme='light'] .aif-modal-wrap,
+:root[data-theme='light'] .aif-pct-chip,
+:root[data-theme='light'] .aif-overview__item,
+:root[data-theme='light'] .aif-overview__status {
+  background: var(--theme-glass-bg);
+  border-color: var(--theme-border);
+  box-shadow: var(--glass-shadow-panel);
+}
+
+:root[data-theme='light'] .inf-form-section__header,
+:root[data-theme='light'] .inf-profile-section__head,
+:root[data-theme='light'] .inf-pipeline-col__header,
+:root[data-theme='light'] .aif-panel__footer,
+:root[data-theme='light'] .aif-panel__header {
+  background: var(--theme-surface-soft);
+  border-color: var(--theme-border-subtle);
+}
+
+:root[data-theme='light'] .inf-search,
+:root[data-theme='light'] .inf-select,
+:root[data-theme='light'] .inf-input,
+:root[data-theme='light'] .inf-textarea,
+:root[data-theme='light'] .inf-form-select,
+:root[data-theme='light'] .aif-field-outer,
+:root[data-theme='light'] .aif-ta-outer,
+:root[data-theme='light'] .aif-field-inner {
+  background: var(--theme-input-bg);
+  border-color: var(--theme-border);
+  color: var(--text);
+}
+
+:root[data-theme='light'] .inf-search::placeholder,
+:root[data-theme='light'] .inf-input::placeholder,
+:root[data-theme='light'] .inf-textarea::placeholder,
+:root[data-theme='light'] .aif-field-ctrl::placeholder,
+:root[data-theme='light'] .aif-ta-ctrl::placeholder {
+  color: var(--theme-input-placeholder);
+}
+
+:root[data-theme='light'] .inf-table thead tr,
+:root[data-theme='light'] .als-table thead tr {
+  background: rgba(79, 70, 229, 0.1);
+}
+
+:root[data-theme='light'] .inf-table tbody tr:hover,
+:root[data-theme='light'] .inf-chip:hover,
+:root[data-theme='light'] .inf-tab:hover,
+:root[data-theme='light'] .aif-step:hover:not(.is-active) {
+  background: var(--theme-surface-soft);
+}
+
+:root[data-theme='light'] .inf-chip,
+:root[data-theme='light'] .inf-tab,
+:root[data-theme='light'] .aif-step,
+:root[data-theme='light'] .aif-step-pill {
+  color: var(--theme-text-muted);
+  border-color: var(--theme-border-subtle);
+}
+
+:root[data-theme='light'] .inf-chip--active,
+:root[data-theme='light'] .inf-tab--active,
+:root[data-theme='light'] .aif-step.is-active,
+:root[data-theme='light'] .aif-step-pill.is-active {
+  color: var(--theme-text-inverse);
+  background: linear-gradient(120deg, var(--primary), var(--accent));
+  border-color: transparent;
+}
+
+:root[data-theme='light'] .inf-modal-overlay {
+  background: var(--theme-overlay);
+}
+
+:root[data-theme='light'] .aif-page {
+  background:
+    radial-gradient(circle at top left, rgba(139, 92, 246, 0.14), transparent 32%),
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 28%),
+    linear-gradient(135deg, #eef3ff 0%, #f5f8ff 45%, #e9efff 100%);
+}
+
+:root[data-theme='light'] .aif-title,
+:root[data-theme='light'] .aif-panel__title,
+:root[data-theme='light'] .aif-sidebar__title,
+:root[data-theme='light'] .aif-overview__status-title,
+:root[data-theme='light'] .aif-btn-ghost,
+:root[data-theme='light'] .aif-btn-next,
+:root[data-theme='light'] .aif-toggle-label,
+:root[data-theme='light'] .aif-field-ctrl,
+:root[data-theme='light'] .aif-ta-ctrl {
+  color: var(--text);
+}
+
+:root[data-theme='light'] .aif-title {
+  background: linear-gradient(120deg, #0f172a 0%, #312e81 45%, #4338ca 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+:root[data-theme='light'] .aif-subtitle,
+:root[data-theme='light'] .aif-panel__sub,
+:root[data-theme='light'] .aif-overview__status-body,
+:root[data-theme='light'] .aif-step__hint,
+:root[data-theme='light'] .aif-progress__pct,
+:root[data-theme='light'] .aif-field-label {
+  color: var(--theme-text-muted);
+}
+
+:root[data-theme='light'] .aif-btn-ghost {
+  background: var(--theme-glass-soft);
+  border-color: var(--theme-border);
+}
+
+:root[data-theme='light'] .aif-btn-ghost:hover {
+  background: var(--theme-input-bg-hover);
+}
+
+:root[data-theme='light'] .aif-panel__step-pill,
+:root[data-theme='light'] .aif-eyebrow,
+:root[data-theme='light'] .aif-pct-chip__label,
+:root[data-theme='light'] .aif-overview__heading,
+:root[data-theme='light'] .aif-sidebar__eyebrow {
+  color: var(--theme-text-dim);
+}
+
+:root[data-theme='light'] .aif-field-icon,
+:root[data-theme='light'] .aif-overview__item-icon,
+:root[data-theme='light'] .aif-step__num {
+  border-color: var(--theme-border);
+  background: var(--theme-surface-soft);
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
+}
+
+:root[data-theme='light'] .aif-step__num.is-active,
+:root[data-theme='light'] .aif-step__num.is-done {
+  border-color: rgba(99, 102, 241, 0.32);
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--accent);
+}

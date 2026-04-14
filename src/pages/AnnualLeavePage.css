@@ -116,14 +116,15 @@
   border-radius: var(--radius-sm);
   font-size: 0.875rem;
   outline: none;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--theme-input-bg);
   color: var(--text);
   transition: border-color 0.15s, box-shadow 0.15s;
   font-family: inherit;
 }
 
 .al-form-field input::placeholder { color: rgba(203,213,225,0.35); }
-.al-form-field select option { background: #1a1535; color: var(--text); }
+.al-form-field input::placeholder { color: var(--theme-input-placeholder); }
+.al-form-field select option { background: var(--theme-select-option-bg); color: var(--text); }
 
 .al-form-field input:focus,
 .al-form-field select:focus {
@@ -158,7 +159,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   font-size: 0.84rem;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--theme-input-bg);
   color: var(--text);
   outline: none;
   cursor: pointer;
@@ -167,7 +168,7 @@
   transition: border-color 0.15s;
 }
 
-.al-filter-select option { background: #1a1535; color: var(--text); }
+.al-filter-select option { background: var(--theme-select-option-bg); color: var(--text); }
 .al-filter-select:focus { border-color: var(--accent); }
 
 .al-filter-tabs {
@@ -183,7 +184,7 @@
   font-size: 0.8rem;
   font-weight: 600;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--theme-glass-soft);
   color: var(--text-muted);
   cursor: pointer;
   display: flex;
@@ -204,7 +205,7 @@
   padding: 0.05rem 0.4rem;
 }
 
-.al-filter-tab--active .al-filter-tab__count { background: rgba(255,255,255,0.2); }
+.al-filter-tab--active .al-filter-tab__count { background: color-mix(in srgb, var(--theme-text-inverse) 26%, transparent); }
 
 .al-search {
   padding: 0.45rem 0.85rem;
@@ -213,13 +214,13 @@
   font-size: 0.875rem;
   outline: none;
   width: 220px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--theme-input-bg);
   color: var(--text);
   font-family: inherit;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.al-search::placeholder { color: rgba(203,213,225,0.35); }
+.al-search::placeholder { color: var(--theme-input-placeholder); }
 .al-search:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(129,140,248,0.15); }
 
 /* ── Table ── */
@@ -240,7 +241,7 @@
 }
 
 .al-table thead tr {
-  background: rgba(15, 12, 41, 0.5);
+  background: color-mix(in srgb, var(--theme-panel-bg) 86%, var(--theme-bg-canvas));
   border-bottom: 2px solid var(--border);
 }
 
@@ -419,9 +420,9 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.15);
-  border: 2px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
+  background: var(--theme-surface-raised);
+  border: 2px solid var(--theme-border);
+  box-shadow: 0 0 0 2px var(--theme-surface-soft);
   z-index: 1;
   flex-shrink: 0;
 }
@@ -472,11 +473,11 @@
 .al-btn--primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .al-btn--ghost {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--theme-glass-soft);
   color: var(--text);
   border: 1px solid var(--border);
 }
-.al-btn--ghost:hover { background: rgba(255, 255, 255, 0.12); }
+.al-btn--ghost:hover { background: var(--theme-input-bg-hover); }
 
 .al-btn--approve { background: var(--success-soft); color: var(--success); border: 1px solid rgba(52,211,153,0.25); }
 .al-btn--approve:hover { background: rgba(52, 211, 153, 0.2); }
@@ -530,7 +531,7 @@
   align-items: center;
   gap: 0.6rem;
   padding: 0.7rem 1rem;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--theme-surface-soft);
   border-bottom: 1px solid var(--border-subtle);
   border-left: 4px solid var(--accent);
   cursor: pointer;
@@ -538,7 +539,7 @@
   transition: background 0.15s;
 }
 
-.al-section__head:hover { background: rgba(255, 255, 255, 0.07); }
+.al-section__head:hover { background: var(--theme-input-bg-hover); }
 
 .al-section__dot {
   width: 8px;
@@ -557,7 +558,7 @@
 .al-section__count {
   font-size: 0.74rem;
   color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--theme-surface-soft);
   padding: 0.12rem 0.5rem;
   border-radius: 99px;
   border: 1px solid var(--border-subtle);

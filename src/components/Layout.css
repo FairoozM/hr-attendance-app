@@ -41,7 +41,7 @@
   inset: 0;
   z-index: 120;
   border: 0;
-  background: rgba(2, 6, 23, 0.62);
+  background: var(--theme-overlay);
   backdrop-filter: blur(6px);
 }
 
@@ -52,7 +52,7 @@
   width: min(21rem, calc(100vw - 2rem));
   border-radius: var(--radius-xl);
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--theme-sidebar-bg);
   box-shadow: var(--glass-shadow-cinematic);
   backdrop-filter: var(--glass-blur-lg);
   -webkit-backdrop-filter: var(--glass-blur-lg);
@@ -94,7 +94,7 @@
   justify-content: space-between;
   gap: 0.75rem;
   padding-bottom: 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--theme-border-subtle);
 }
 
 .app-sidebar__brand-wrap {
@@ -110,9 +110,9 @@
   gap: 0.45rem;
   padding: 0.4rem 0.7rem;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(196, 181, 253, 0.8);
+  border: 1px solid var(--theme-border);
+  background: var(--theme-glass-soft);
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
   font-size: 0.64rem;
   font-weight: 700;
   letter-spacing: 0.24em;
@@ -148,7 +148,7 @@
 .app-sidebar__section-label {
   margin-top: 0.35rem;
   padding: 0.9rem 0.65rem 0.35rem;
-  color: rgba(255, 255, 255, 0.28);
+  color: var(--theme-text-dim);
   font-size: 0.65rem;
   font-weight: 700;
   letter-spacing: 0.26em;
@@ -164,22 +164,22 @@
   border-radius: 1rem;
   border: 1px solid transparent;
   text-decoration: none;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--theme-text-muted);
   font-size: 0.88rem;
   font-weight: 600;
   transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .app-sidebar__link:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.1);
-  color: #fff;
+  background: var(--theme-surface-soft);
+  border-color: var(--theme-border);
+  color: var(--text);
 }
 
 .app-sidebar__link--active {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  background: var(--theme-surface-raised);
+  border-color: var(--theme-border);
+  color: var(--text);
   box-shadow: inset 0 1px 3px rgba(255, 255, 255, 0.1);
 }
 
@@ -199,7 +199,7 @@
 .app-sidebar__footer {
   margin-top: auto;
   padding-top: 1rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--theme-border-subtle);
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -210,8 +210,8 @@
   align-items: center;
   gap: 0.75rem;
   border-radius: 1.1rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(0, 0, 0, 0.16);
+  border: 1px solid var(--theme-border-subtle);
+  background: var(--theme-input-inner-bg);
   padding: 0.75rem;
 }
 
@@ -222,9 +222,9 @@
   align-items: center;
   justify-content: center;
   border-radius: 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--theme-border);
   background: linear-gradient(135deg, rgba(139, 92, 246, 0.18), rgba(99, 102, 241, 0.18));
-  color: #fff;
+  color: var(--theme-text-inverse);
   font-weight: 700;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
@@ -254,16 +254,16 @@
 .app-sidebar__logout {
   min-height: 2.7rem;
   border-radius: 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.74);
+  border: 1px solid var(--theme-border-subtle);
+  background: var(--theme-glass-soft);
+  color: var(--theme-text-soft);
   font-size: 0.88rem;
   font-weight: 600;
   transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
 }
 
 .app-sidebar__logout:hover {
-  color: #fff;
+  color: var(--text);
   border-color: rgba(248, 113, 113, 0.24);
   background: rgba(248, 113, 113, 0.14);
 }
@@ -283,9 +283,9 @@
   justify-content: space-between;
   gap: 1rem;
   padding: 1rem 1.15rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--theme-border);
   border-radius: var(--radius-lg);
-  background: rgba(13, 17, 38, 0.92);
+  background: var(--theme-panel-bg);
   box-shadow: var(--glass-shadow-panel);
   position: sticky;
   top: 1rem;
@@ -301,6 +301,10 @@
   gap: 0.9rem;
 }
 
+.app-topbar__meta {
+  margin-left: auto;
+}
+
 .app-topbar__copy {
   display: flex;
   flex-direction: column;
@@ -308,7 +312,7 @@
 }
 
 .app-topbar__eyebrow {
-  color: rgba(255, 255, 255, 0.32);
+  color: var(--theme-text-dim);
   font-size: 0.66rem;
   font-weight: 700;
   letter-spacing: 0.24em;
@@ -322,15 +326,15 @@
   flex-direction: column;
   justify-content: center;
   gap: 5px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--theme-border);
   border-radius: 1rem;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--theme-glass-soft);
   transition: background 0.18s ease, border-color 0.18s ease;
 }
 
 .app-topbar__menu:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.16);
+  background: var(--theme-input-bg-hover);
+  border-color: var(--theme-border-strong);
 }
 
 .app-topbar__menu:focus-visible {
@@ -342,7 +346,7 @@
   width: 1.2rem;
   height: 2px;
   margin: 0 auto;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--theme-text-soft);
   border-radius: 999px;
 }
 
@@ -366,9 +370,9 @@
   min-height: 2.7rem;
   padding: 0.65rem 0.9rem;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.74);
+  border: 1px solid var(--theme-border);
+  background: var(--theme-glass-soft);
+  color: var(--theme-text-soft);
   font-size: 0.8rem;
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -397,8 +401,8 @@
   min-height: 1.8rem;
   padding: 0 0.7rem;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.88);
+  background: var(--theme-surface-raised);
+  color: var(--theme-text-soft);
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.14em;
@@ -465,20 +469,20 @@
   border-radius: 1rem;
   border: 1px solid transparent;
   background: transparent;
-  color: rgba(255, 255, 255, 0.58);
+  color: var(--theme-text-muted);
   text-align: left;
   transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .nav-group__trigger:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.1);
-  color: #fff;
+  background: var(--theme-surface-soft);
+  border-color: var(--theme-border);
+  color: var(--text);
 }
 
 .nav-group__trigger--active {
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
+  background: var(--theme-surface-raised);
+  color: var(--text);
   box-shadow: inset 0 1px 3px rgba(255, 255, 255, 0.1);
 }
 
@@ -515,7 +519,7 @@
 }
 
 .nav-group__hint {
-  color: rgba(255, 255, 255, 0.28);
+  color: var(--theme-text-dim);
   font-size: 0.66rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -552,16 +556,16 @@
   border-radius: 0.95rem;
   border: 1px solid transparent;
   text-decoration: none;
-  color: rgba(255, 255, 255, 0.58);
+  color: var(--theme-text-muted);
   font-size: 0.87rem;
   font-weight: 500;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .nav-group__link:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  background: var(--theme-surface-soft);
+  border-color: var(--theme-border-subtle);
+  color: var(--text);
 }
 
 .nav-group__link--active {
@@ -619,6 +623,7 @@
 
   .app-topbar__meta {
     flex-wrap: wrap;
+    margin-left: 0;
   }
 
   .app-main {

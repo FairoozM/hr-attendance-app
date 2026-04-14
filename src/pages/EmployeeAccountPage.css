@@ -63,7 +63,7 @@
   justify-content: center;
   font-size: 0.75rem;
   cursor: pointer;
-  border: 2px solid rgba(15, 12, 41, 0.8);
+  border: 2px solid color-mix(in srgb, var(--theme-panel-bg) 85%, var(--theme-bg-canvas));
   line-height: 1;
   transition: background 0.15s;
 }
@@ -403,7 +403,7 @@
   box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
 }
 
-.edit-field__input option { background: #1a1535; color: var(--text); }
+.edit-field__input option { background: var(--theme-select-option-bg); color: var(--text); }
 
 .edit-field__textarea {
   resize: vertical;

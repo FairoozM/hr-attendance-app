@@ -47,10 +47,10 @@
 
 /* ── Cards ── */
 .als-card {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--theme-glass-soft);
   backdrop-filter: var(--glass-blur-lg);
   -webkit-backdrop-filter: var(--glass-blur-lg);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--theme-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--glass-shadow-panel);
   margin-bottom: 1.25rem;
@@ -62,7 +62,7 @@
   align-items: center;
   gap: 0.65rem;
   padding: 0.85rem 1.25rem;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--theme-surface-soft);
   border-bottom: 1px solid var(--border-subtle);
 }
 
@@ -99,18 +99,18 @@
   width: 100%;
   max-width: 480px;
   padding: 0.6rem 0.9rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--theme-border);
   border-radius: 1rem;
   font-size: 0.9rem;
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
   box-sizing: border-box;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--theme-input-bg);
   color: var(--text);
   font-family: inherit;
 }
 
-.als-emp-search::placeholder { color: rgba(203,213,225,0.35); }
+.als-emp-search::placeholder { color: var(--theme-input-placeholder); }
 .als-emp-search:focus { border-color: rgba(167, 139, 250, 0.42); box-shadow: 0 0 0 4px rgba(99,102,241,0.1); }
 
 .als-emp-list {
@@ -121,7 +121,7 @@
   overflow-y: auto;
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--theme-surface);
 }
 
 .als-emp-list__empty {
@@ -158,7 +158,7 @@
   justify-content: center;
   font-size: 0.9rem;
   font-weight: 700;
-  color: #fff;
+  color: var(--theme-text-inverse);
   flex-shrink: 0;
   overflow: hidden;
 }
@@ -301,7 +301,7 @@
 .als-field__input {
   min-height: 2.95rem;
   padding: 0.72rem 0.95rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--theme-border);
   border-radius: 1rem;
   font-size: 0.9rem;
   color: var(--text);
@@ -309,22 +309,22 @@
   transition: border-color 0.15s, box-shadow 0.15s;
   width: 100%;
   box-sizing: border-box;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--theme-input-bg);
   font-family: inherit;
 }
 
-.als-field__input::placeholder { color: rgba(203,213,225,0.35); }
+.als-field__input::placeholder { color: var(--theme-input-placeholder); }
 .als-field__input:focus { border-color: rgba(167, 139, 250, 0.42); box-shadow: 0 0 0 4px rgba(99,102,241,0.1); background: rgba(255,255,255,0.1); }
 
 .als-field__input--auto {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--theme-surface);
   color: var(--text-muted);
   cursor: default;
 }
 
 .als-field__textarea {
   padding: 0.72rem 0.95rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--theme-border);
   border-radius: 1rem;
   font-size: 0.9rem;
   color: var(--text);
@@ -333,7 +333,7 @@
   font-family: inherit;
   width: 100%;
   box-sizing: border-box;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--theme-input-bg);
   transition: border-color 0.15s;
 }
 
@@ -363,12 +363,12 @@
 .als-summary-panel { position: sticky; top: 1rem; }
 
 .als-summary-card {
-  background: rgba(7, 12, 28, 0.82);
+  background: color-mix(in srgb, var(--theme-panel-bg) 88%, var(--theme-bg-canvas));
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   border: 1px solid var(--glass-border);
-  border-top-color: rgba(255, 255, 255, 0.2);
-  color: #fff;
+  border-top-color: var(--theme-border-strong);
+  color: var(--text);
   border-radius: var(--radius-lg);
   padding: 1.4rem;
   box-shadow: var(--glass-shadow-raised);
@@ -389,7 +389,7 @@
 .als-summary-card__emp {
   font-size: 1.05rem;
   font-weight: 700;
-  color: #fff;
+  color: var(--text);
   margin-bottom: 0.2rem;
   display: flex;
   flex-direction: column;
@@ -419,13 +419,13 @@
   padding: 0.2rem 0;
 }
 
-.als-summary-row span:last-child { font-weight: 700; color: #fff; }
+.als-summary-row span:last-child { font-weight: 700; color: var(--text); }
 .als-summary-row--add span:last-child { color: var(--success); }
 .als-summary-row--ded span:last-child { color: var(--danger); }
 
 .als-summary-divider {
   border: none;
-  border-top: 1px solid rgba(255,255,255,0.1);
+  border-top: 1px solid var(--theme-border);
   margin: 0.4rem 0;
 }
 
@@ -435,7 +435,7 @@
   align-items: center;
   margin-top: 0.9rem;
   padding-top: 0.9rem;
-  border-top: 2px solid rgba(255,255,255,0.15);
+  border-top: 2px solid var(--theme-border-strong);
 }
 
 .als-summary-total span:first-child {
@@ -455,7 +455,7 @@
 .als-summary-remarks {
   margin-top: 0.9rem;
   padding: 0.6rem 0.75rem;
-  background: rgba(255,255,255,0.06);
+  background: var(--theme-surface-soft);
   border-radius: var(--radius-sm);
   font-size: 0.78rem;
   color: rgba(203,213,225,0.8);
@@ -497,12 +497,12 @@
   font-family: inherit;
 }
 
-.als-btn--primary { background: linear-gradient(135deg, var(--accent) 0%, #6366f1 100%); color: #fff; }
+.als-btn--primary { background: linear-gradient(135deg, var(--accent) 0%, #6366f1 100%); color: var(--theme-text-inverse); }
 .als-btn--primary:hover:not(:disabled) { background: linear-gradient(135deg, var(--primary-hover) 0%, var(--accent) 100%); }
 .als-btn--primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.als-btn--outline { background: rgba(255,255,255,0.06); color: var(--text); border-color: var(--border); }
-.als-btn--outline:hover { background: rgba(255,255,255,0.1); }
+.als-btn--outline { background: var(--theme-glass-soft); color: var(--text); border-color: var(--border); }
+.als-btn--outline:hover { background: var(--theme-input-bg-hover); }
 
 .als-btn--danger { background: var(--danger-soft); color: var(--danger); border-color: rgba(248,113,113,0.3); }
 .als-btn--danger:hover:not(:disabled) { background: rgba(248,113,113,0.2); }
@@ -525,7 +525,7 @@
 }
 
 .als-table thead tr {
-  background: rgba(15, 12, 41, 0.5);
+  background: color-mix(in srgb, var(--theme-panel-bg) 86%, var(--theme-bg-canvas));
   border-bottom: 2px solid var(--border);
 }
 

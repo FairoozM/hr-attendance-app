@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useSettings } from '../contexts/SettingsContext'
 import { useAuth, hasPermission, hasAnyModulePermission } from '../contexts/AuthContext'
 import { RoleGuard } from './RoleGuard'
+import { ThemeToggle } from './ThemeToggle'
 import './Layout.css'
 
 function ChevronIcon({ open }) {
@@ -255,6 +256,7 @@ export function Layout() {
               <span className="app-topbar__user-name">{user?.displayName || user?.username}</span>
               <span className="app-topbar__user-badge">{user?.role}</span>
             </div>
+            <ThemeToggle />
             <button
               type="button"
               className="app-topbar__logout-btn"

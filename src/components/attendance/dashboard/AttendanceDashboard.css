@@ -12,10 +12,10 @@
   gap: 0.5rem;
   padding: 1.35rem 1.45rem;
   border-radius: var(--radius-xl);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--theme-border);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 18%, transparent 82%, rgba(255, 255, 255, 0.04)),
-    rgba(255, 255, 255, 0.04);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 18%, transparent 82%, rgba(255, 255, 255, 0.08)),
+    var(--theme-surface-soft);
   box-shadow: var(--glass-shadow-panel);
   backdrop-filter: var(--glass-blur-lg);
   -webkit-backdrop-filter: var(--glass-blur-lg);
@@ -44,10 +44,10 @@
   align-items: flex-end;
   gap: 0.75rem 1rem;
   padding: 1rem 1.25rem;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--theme-glass-soft);
   backdrop-filter: var(--glass-blur-lg);
   -webkit-backdrop-filter: var(--glass-blur-lg);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--theme-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--glass-shadow-panel);
 }
@@ -64,7 +64,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.16em;
-  color: rgba(255, 255, 255, 0.38);
+  color: var(--theme-text-dim);
 }
 
 .adash__select,
@@ -73,14 +73,14 @@
   min-height: 2.85rem;
   padding: 0.45rem 0.8rem;
   border-radius: 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--theme-border);
+  background: var(--theme-input-bg);
   color: var(--text);
   transition: border-color 0.15s, background 0.15s;
 }
 
 .adash__select option {
-  background: #1a1535;
+  background: var(--theme-select-option-bg);
   color: var(--text);
 }
 
@@ -95,7 +95,7 @@
   cursor: pointer;
   font-weight: 600;
   background: linear-gradient(to right, var(--primary), var(--accent));
-  color: #fff;
+  color: var(--theme-text-inverse);
   border-color: transparent;
   box-shadow: 0 2px 12px rgba(129, 140, 248, 0.3);
 }
@@ -125,11 +125,11 @@
 
 .adash-card {
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 18%, transparent 82%, rgba(255, 255, 255, 0.04)),
-    rgba(255, 255, 255, 0.05);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 18%, transparent 82%, rgba(255, 255, 255, 0.08)),
+    var(--theme-glass-soft);
   backdrop-filter: var(--glass-blur-lg);
   -webkit-backdrop-filter: var(--glass-blur-lg);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--theme-border);
   border-radius: var(--radius-md);
   padding: 1rem;
   box-shadow: var(--glass-shadow);
@@ -167,10 +167,10 @@
 
 /* ── Panels ── */
 .adash-panel {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--theme-glass-soft);
   backdrop-filter: var(--glass-blur-lg);
   -webkit-backdrop-filter: var(--glass-blur-lg);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--theme-border);
   border-radius: var(--radius-lg);
   padding: 1rem 1.25rem;
   box-shadow: var(--glass-shadow-panel);
@@ -266,7 +266,7 @@
   text-align: center;
   padding: 0.75rem;
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--theme-glass-soft);
   border: 1px solid var(--border-subtle);
 }
 
@@ -288,9 +288,9 @@
 .adash-skeleton {
   border-radius: var(--radius);
   background: linear-gradient(90deg,
-    rgba(255,255,255,0.06) 25%,
-    rgba(255,255,255,0.1) 50%,
-    rgba(255,255,255,0.06) 75%
+    color-mix(in srgb, var(--theme-surface-soft) 72%, transparent) 25%,
+    color-mix(in srgb, var(--theme-surface-raised) 80%, transparent) 50%,
+    color-mix(in srgb, var(--theme-surface-soft) 72%, transparent) 75%
   );
   background-size: 200% 100%;
   animation: adash-shimmer 1.4s ease-in-out infinite;
