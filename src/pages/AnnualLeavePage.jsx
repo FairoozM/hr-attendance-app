@@ -285,7 +285,8 @@ function LeaveRow({
         <td>
           <div className="al-row__dates">
             <span>
-              From {fmtPeriodDate(row.from_date)} to {fmtPeriodDate(row.to_date)}
+              <span className="al-row__period-from">From</span> {fmtPeriodDate(row.from_date)}{' '}
+              <span className="al-row__period-to">to</span> {fmtPeriodDate(row.to_date)}
             </span>
           </div>
         </td>

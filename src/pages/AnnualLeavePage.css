@@ -274,6 +274,8 @@
 
 .al-row__dates { display: flex; flex-direction: column; gap: 0.1rem; }
 .al-row__days  { font-size: 0.74rem; color: var(--text-muted); }
+.al-row__period-from { color: var(--danger); font-weight: 700; }
+.al-row__period-to { color: var(--success); font-weight: 700; }
 
 /* Days / Year total cells */
 .al-row__days-cell,
