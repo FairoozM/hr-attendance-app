@@ -64,11 +64,11 @@ function renderLeaveRequestVacationPdf(ctx, options = {}) {
       try {
         const signatureY = doc.y
         doc.image(signatureImageBuffer, doc.page.margins.left, signatureY, {
-          fit: [120, 48],
+          fit: [240, 96],
           align: 'left',
           valign: 'top',
         })
-        doc.y = signatureY + 52
+        doc.y = signatureY + 104
       } catch (e) {
         console.warn('[leave-letter] Signature image render failed:', e.message)
       }
