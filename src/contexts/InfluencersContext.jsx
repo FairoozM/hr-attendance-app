@@ -113,8 +113,13 @@ export const CURRENCIES = ['AED', 'USD', 'SAR', 'GBP', 'EUR']
 
 const InfluencersContext = createContext(null)
 
+function isUnauthorizedLoadError(message) {
+  const m = String(message || '')
+  return m.includes('401') || m.toLowerCase().includes('unauthorized')
+}
+
 export function InfluencersProvider({ children }) {
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
   const [influencers, setInfluencers] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
@@ -206,10 +211,15 @@ export function InfluencersProvider({ children }) {
     try {
       return await hydrateInfluencers()
     } catch (e) {
-      applyFetchFailureState(setInfluencers, setListMeta, setLoadError, e.message || 'Failed to load influencers')
+      const msg = e?.message || 'Failed to load influencers'
+      if (isUnauthorizedLoadError(msg)) {
+        logout()
+        return null
+      }
+      applyFetchFailureState(setInfluencers, setListMeta, setLoadError, msg)
       return null
     }
-  }, [hydrateInfluencers])
+  }, [hydrateInfluencers, logout])
 
   const retryLoad = useCallback(async () => {
     setLoading(true)
@@ -217,11 +227,16 @@ export function InfluencersProvider({ children }) {
     try {
       await hydrateInfluencers()
     } catch (e) {
-      applyFetchFailureState(setInfluencers, setListMeta, setLoadError, e.message || 'Failed to load influencers')
+      const msg = e?.message || 'Failed to load influencers'
+      if (isUnauthorizedLoadError(msg)) {
+        logout()
+        return
+      }
+      applyFetchFailureState(setInfluencers, setListMeta, setLoadError, msg)
     } finally {
       setLoading(false)
     }
-  }, [hydrateInfluencers])
+  }, [hydrateInfluencers, logout])
 
   const refetchInfluencerPage = useCallback(
     async (next) => {
@@ -231,12 +246,17 @@ export function InfluencersProvider({ children }) {
       try {
         await hydrateInfluencers(serverPageQueryRef.current)
       } catch (e) {
-        applyFetchFailureState(setInfluencers, setListMeta, setLoadError, e.message || 'Failed to load influencers')
+        const msg = e?.message || 'Failed to load influencers'
+        if (isUnauthorizedLoadError(msg)) {
+          logout()
+          return
+        }
+        applyFetchFailureState(setInfluencers, setListMeta, setLoadError, msg)
       } finally {
         setLoading(false)
       }
     },
-    [hydrateInfluencers],
+    [hydrateInfluencers, logout],
   )
 
   // Load shared list when session changes
@@ -257,7 +277,12 @@ export function InfluencersProvider({ children }) {
         await hydrateInfluencers()
       } catch (e) {
         if (cancelled) return
-        applyFetchFailureState(setInfluencers, setListMeta, setLoadError, e.message || 'Failed to load influencers')
+        const msg = e?.message || 'Failed to load influencers'
+        if (isUnauthorizedLoadError(msg)) {
+          logout()
+          return
+        }
+        applyFetchFailureState(setInfluencers, setListMeta, setLoadError, msg)
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -266,7 +291,7 @@ export function InfluencersProvider({ children }) {
     return () => {
       cancelled = true
     }
-  }, [user?.id, hydrateInfluencers])
+  }, [user?.id, hydrateInfluencers, logout])
 
   const addInfluencer = useCallback(async (data) => {
     const newId =

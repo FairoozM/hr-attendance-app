@@ -148,21 +148,42 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
   )
   const [step,  setStep]  = useState(0)
   const [saved, setSaved] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState('')
 
-  const set       = (key, val)       => setForm(f => ({ ...f, [key]: val }))
-  const setNested = (key, sub, val)  => setForm(f => ({ ...f, [key]: { ...f[key], [sub]: val } }))
+  const set       = (key, val)       => {
+    setSubmitError('')
+    setForm(f => ({ ...f, [key]: val }))
+  }
+  const setNested = (key, sub, val)  => {
+    setSubmitError('')
+    setForm(f => ({ ...f, [key]: { ...f[key], [sub]: val } }))
+  }
   const cancel    = ()               => { if (asModal) onClose?.(); else navigate(-1) }
 
   const submit = async () => {
-    if (!form.name?.trim()) { setStep(0); return }
-    if (isEdit) {
-      await updateInfluencer(id, form)
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2500)
-    } else {
-      const newId = await addInfluencer(form)
-      if (asModal) onClose?.()
-      else navigate(`/influencers/${newId}`)
+    if (isSubmitting) return
+    setSubmitError('')
+    if (!form.name?.trim()) {
+      setStep(0)
+      setSubmitError('Influencer name is required before creating a profile.')
+      return
+    }
+    setIsSubmitting(true)
+    try {
+      if (isEdit) {
+        await updateInfluencer(id, form)
+        setSaved(true)
+        setTimeout(() => setSaved(false), 2500)
+      } else {
+        const newId = await addInfluencer(form)
+        if (asModal) onClose?.()
+        else navigate(`/influencers/${newId}`)
+      }
+    } catch (err) {
+      setSubmitError(err?.message || 'Could not save profile. Please try again.')
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -335,11 +356,31 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
             <button type="button" className="aif-btn-ghost" onClick={cancel}>
               <X size={14} /> Cancel
             </button>
-            <button type="button" className="aif-btn-primary" onClick={submit}>
-              {saved ? <><CheckCircle2 size={14} /> Saved</> : isEdit ? 'Save Changes' : 'Create Profile'}
+            <button type="button" className="aif-btn-primary" onClick={submit} disabled={isSubmitting}>
+              {isSubmitting
+                ? 'Saving...'
+                : saved
+                  ? <><CheckCircle2 size={14} /> Saved</>
+                  : isEdit
+                    ? 'Save Changes'
+                    : 'Create Profile'}
             </button>
           </div>
         </header>
+        {submitError ? (
+          <div
+            role="alert"
+            style={{
+              marginTop: '0.75rem',
+              marginBottom: '0.25rem',
+              color: '#b91c1c',
+              fontWeight: 600,
+              fontSize: '0.92rem',
+            }}
+          >
+            {submitError}
+          </div>
+        ) : null}
 
         {/* ── Two-column grid ── */}
         <div className="aif-layout">
@@ -483,8 +524,14 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
                     Continue <ChevronRight size={14} />
                   </button>
                 ) : (
-                  <button type="button" className="aif-btn-primary" onClick={submit}>
-                    {saved ? <><CheckCircle2 size={14} /> Saved</> : isEdit ? 'Save Changes' : 'Create Profile'}
+                  <button type="button" className="aif-btn-primary" onClick={submit} disabled={isSubmitting}>
+                    {isSubmitting
+                      ? 'Saving...'
+                      : saved
+                        ? <><CheckCircle2 size={14} /> Saved</>
+                        : isEdit
+                          ? 'Save Changes'
+                          : 'Create Profile'}
                   </button>
                 )}
               </div>
