@@ -83,10 +83,16 @@ async function handleResponse(res, requestUrl) {
     })
 
     const base = getApiBaseUrl()
+    const gateway =
+      res.status === 502 || res.status === 503 || res.status === 504
+        ? ` HTTP ${res.status} often means CloudFront’s /api/* origin timed out or is wrong — ` +
+          `set HR_PUBLIC_API_URL to your Express public URL and redeploy the frontend (see .env.deploy.example), ` +
+          `or fix the API origin on the distribution.`
+        : ''
     const htmlMessage =
       `Server returned non-JSON response from ${url} (HTTP ${res.status}). ` +
-      `Got HTML instead of JSON — the page is not reaching your Express API. ` +
-      `Fix: set your backend URL on the login screen (saved in this browser), or add a CloudFront /api/* behavior to your API origin, or set VITE_API_BASE_URL / api-runtime-config.js.`
+      `Got HTML instead of JSON — the page is not reaching your Express API.${gateway} ` +
+      `Fix: set your backend URL on the login screen (saved in this browser), or add a CloudFront /api/* behavior to your API origin, or set HR_PUBLIC_API_URL / VITE_API_BASE_URL / api-runtime-config.js.`
     const fallbackMessage =
       base === ''
         ? `${htmlMessage} (No API base URL is set.)`

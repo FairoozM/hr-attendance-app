@@ -2,6 +2,7 @@ node_modules
 dist
 .env
 .env.local
+.env.deploy
 .DS_Store
 backend/node_modules
 backend/.env
