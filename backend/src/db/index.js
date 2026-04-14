@@ -449,9 +449,21 @@ async function testConnection() {
     // Common on RDS when annual_leave_salary was created by a superuser: CREATE INDEX requires table owner.
     console.error('[db] ensureAnnualLeaveSalaryTable skipped/failed (non-fatal):', e.message || e)
   }
-  await normalizeEmployeePhotoUrls()
-  await ensureAttendanceAssignmentsTable()
-  await ensureInfluencersSnapshotTable()
+  try {
+    await normalizeEmployeePhotoUrls()
+  } catch (e) {
+    console.error('[db] normalizeEmployeePhotoUrls skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    await ensureAttendanceAssignmentsTable()
+  } catch (e) {
+    console.error('[db] ensureAttendanceAssignmentsTable skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    await ensureInfluencersSnapshotTable()
+  } catch (e) {
+    console.error('[db] ensureInfluencersSnapshotTable skipped/failed (non-fatal):', e.message || e)
+  }
 }
 
 module.exports = {
