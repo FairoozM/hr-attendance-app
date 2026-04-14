@@ -1906,6 +1906,22 @@
   color: var(--text);
 }
 
+/* Keep influencer hero text readable in light mode. */
+:root[data-theme='light'] .inf-hero__name {
+  color: var(--text);
+}
+
+:root[data-theme='light'] .inf-hero__handle {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+:root[data-theme='light'] .inf-hero__badge {
+  color: var(--text);
+  background: var(--theme-glass-soft);
+  border-color: var(--theme-border);
+}
+
 :root[data-theme='light'] .inf-page-header,
 :root[data-theme='light'] .clay-card,
 :root[data-theme='light'] .inf-stat,
