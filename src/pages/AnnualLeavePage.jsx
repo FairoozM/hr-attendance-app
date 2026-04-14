@@ -8,6 +8,15 @@ import {
   openAnnualLeaveLetterPreview,
   downloadAnnualLeaveLetterPdf,
 } from '../api/annualLeaveDocuments'
+import {
+  ShopWorkflowBadge,
+  EmployeeShopVisitForm,
+  AdminShopVisitPanel,
+  ShopVisitRescheduleModal,
+  ShopVisitConfirmModal,
+  shopVisitFilterMatch,
+  SHOP_VISIT_FILTER_TABS,
+} from '../components/annualLeave/ShopVisitWorkflow'
 import './Page.css'
 import './AnnualLeavePage.css'
 
@@ -261,6 +270,11 @@ function LeaveRow({
   onDownloadLeaveLetter,
   onRegenerateLeaveLetter,
   letterBusyId,
+  onShopConfirmOpen,
+  onShopRescheduleOpen,
+  onShopComplete,
+  onShopApplyCalculator,
+  onShopSaveAdminNote,
 }) {
   const es        = row.effective_status || row.status
   const leaveDays = row.leave_days ?? daysBetween(row.from_date, row.to_date)
@@ -297,7 +311,16 @@ function LeaveRow({
           <span className="al-row__days-num">{leaveDays}</span>
           <span className="al-row__days-label"> days</span>
         </td>
-        <td><StatusBadge status={es} /></td>
+        <td>
+          <div className="al-row__status-stack">
+            <StatusBadge status={es} />
+            {row.status === 'Approved' && (
+              <div className="al-row__shop-badge">
+                <ShopWorkflowBadge row={row} />
+              </div>
+            )}
+          </div>
+        </td>
         <td className="al-row__ret">
           {row.actual_return_date
             ? <span className="al-row__returned">↩ {fmtDMY(row.actual_return_date)}</span>
@@ -368,6 +391,26 @@ function LeaveRow({
                       <span>{fmtDMY(row.leave_request_pdf_generated_at)}</span>
                     </div>
                   )}
+                  {row.status === 'Approved' && (row.shop_visit_date || row.shop_visit_status) && (
+                    <div>
+                      <span>Main shop visit</span>
+                      <span>
+                        {row.shop_visit_date ? `${fmtDMY(row.shop_visit_date)}${row.shop_visit_time ? ` · ${row.shop_visit_time}` : ''}` : '—'}
+                      </span>
+                    </div>
+                  )}
+                  {row.status === 'Approved' && row.calculated_leave_amount != null && (
+                    <div>
+                      <span>Settlement (calculator)</span>
+                      <span>
+                        AED{' '}
+                        {Number(row.calculated_leave_amount).toLocaleString('en-US', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <div className="al-doc-actions" onClick={(e) => e.stopPropagation()}>
                   <span className="al-doc-actions__title">Formal leave letter</span>
@@ -400,6 +443,16 @@ function LeaveRow({
                     )}
                   </div>
                 </div>
+                {isAdmin && (
+                  <AdminShopVisitPanel
+                    row={row}
+                    onConfirm={onShopConfirmOpen}
+                    onReschedule={onShopRescheduleOpen}
+                    onComplete={onShopComplete}
+                    onApplyCalculator={onShopApplyCalculator}
+                    onSaveAdminNote={onShopSaveAdminNote}
+                  />
+                )}
               </div>
             </div>
           </td>
@@ -698,6 +751,11 @@ function SectionGroup({
   onDownloadLeaveLetter,
   onRegenerateLeaveLetter,
   letterBusyId,
+  onShopConfirmOpen,
+  onShopRescheduleOpen,
+  onShopComplete,
+  onShopApplyCalculator,
+  onShopSaveAdminNote,
 }) {
   const [collapsed, setCollapsed] = useState(false)
   const cfg = STATUS_CFG[sectionKey] || {}
@@ -747,6 +805,11 @@ function SectionGroup({
                     onDownloadLeaveLetter={onDownloadLeaveLetter}
                     onRegenerateLeaveLetter={onRegenerateLeaveLetter}
                     letterBusyId={letterBusyId}
+                    onShopConfirmOpen={onShopConfirmOpen}
+                    onShopRescheduleOpen={onShopRescheduleOpen}
+                    onShopComplete={onShopComplete}
+                    onShopApplyCalculator={onShopApplyCalculator}
+                    onShopSaveAdminNote={onShopSaveAdminNote}
                   />
                 )
               )}
@@ -783,16 +846,26 @@ export function AnnualLeavePage() {
   const {
     requests, loading, error, dashboard, alternateOptions,
     createRequest, updateRequest, deleteRequest, confirmReturn, extendLeave, regenerateLeaveLetter,
+    submitShopVisit,
+    confirmShopVisit,
+    rescheduleShopVisit,
+    completeShopVisit,
+    applyShopVisitCalculator,
+    patchShopVisitAdminNote,
   } = useAnnualLeave()
 
   const [activeTab,    setActiveTab]    = useState('requests')
   const [filterStatus, setFilterStatus] = useState('All')
+  const [shopVisitFilter, setShopVisitFilter] = useState('All')
   const [search,       setSearch]       = useState('')
   const [deptFilter,   setDeptFilter]   = useState('')
   const [expandedId,   setExpandedId]   = useState(null)
   const [editingRow,   setEditingRow]   = useState(null)
   const [confirmRow,   setConfirmRow]   = useState(null)
   const [extendRow,    setExtendRow]    = useState(null)
+  const [shopConfirmRow, setShopConfirmRow] = useState(null)
+  const [shopRescheduleRow, setShopRescheduleRow] = useState(null)
+  const [shopToast, setShopToast] = useState(null)
   const [sortBy,       setSortBy]       = useState('from_date')
   const [sortDir,      setSortDir]      = useState('desc')
   const [letterBusyId, setLetterBusyId] = useState(null)
@@ -878,22 +951,37 @@ export function AnnualLeavePage() {
     })
   }, [visibleRequests, deptFilter, search, sortBy, sortDir])
 
+  const listForDisplay = useMemo(() => {
+    if (!isAdmin || shopVisitFilter === 'All') return baseFiltered
+    return baseFiltered.filter((r) => shopVisitFilterMatch(r, shopVisitFilter))
+  }, [isAdmin, shopVisitFilter, baseFiltered])
+
   // For single-status filter view
   const filteredRequests = useMemo(() => {
-    if (filterStatus === 'All') return baseFiltered
-    return baseFiltered.filter(r => (r.effective_status || r.status) === filterStatus)
-  }, [baseFiltered, filterStatus])
+    if (filterStatus === 'All') return listForDisplay
+    return listForDisplay.filter((r) => (r.effective_status || r.status) === filterStatus)
+  }, [listForDisplay, filterStatus])
 
   // Tab counts
   const tabCounts = useMemo(() => {
     const counts = {}
-    baseFiltered.forEach(r => {
+    listForDisplay.forEach((r) => {
       const es = r.effective_status || r.status
       counts[es] = (counts[es] || 0) + 1
     })
-    counts.All = baseFiltered.length
+    counts.All = listForDisplay.length
     return counts
-  }, [baseFiltered])
+  }, [listForDisplay])
+
+  const employeeShopFormsRows = useMemo(() => {
+    if (!isEmployee || !loggedInEmpId) return []
+    return visibleRequests.filter(
+      (r) =>
+        r.status === 'Approved' &&
+        ['PendingSubmission', 'Submitted'].includes(r.shop_visit_status || 'PendingSubmission') &&
+        !['Completed', 'Cancelled'].includes(r.shop_visit_status || '')
+    )
+  }, [isEmployee, loggedInEmpId, visibleRequests])
 
   const toggleExpand = useCallback((id) => {
     setExpandedId(prev => prev === id ? null : id)
@@ -921,6 +1009,49 @@ export function AnnualLeavePage() {
 
   const onEditStart = useCallback(r => { setEditingRow(r); setExpandedId(null) }, [])
 
+  const handleEmployeeShopSubmit = useCallback(
+    async (id, payload) => {
+      await submitShopVisit(id, payload)
+      setShopToast({ type: 'success', text: 'Shop visit request saved.' })
+      setTimeout(() => setShopToast(null), 5000)
+    },
+    [submitShopVisit]
+  )
+
+  const handleShopComplete = useCallback(
+    async (id) => {
+      if (!window.confirm('Mark passport/money collection as completed for this employee?')) return
+      try {
+        await completeShopVisit(id)
+        setShopToast({ type: 'success', text: 'Marked as completed.' })
+        setTimeout(() => setShopToast(null), 4000)
+      } catch (e) {
+        window.alert(e.message || 'Failed')
+      }
+    },
+    [completeShopVisit]
+  )
+
+  const handleShopApplyCalculator = useCallback(
+    async (id) => {
+      try {
+        await applyShopVisitCalculator(id)
+        setShopToast({ type: 'success', text: 'Calculator snapshot applied.' })
+        setTimeout(() => setShopToast(null), 4000)
+      } catch (e) {
+        window.alert(e.message || 'Failed')
+      }
+    },
+    [applyShopVisitCalculator]
+  )
+
+  const handleShopSaveAdminNote = useCallback(
+    async (id, payload) => {
+      await patchShopVisitAdminNote(id, payload)
+    },
+    [patchShopVisitAdminNote]
+  )
+
   // Shared props for SectionGroup
   const sectionProps = {
     isAdmin,
@@ -940,6 +1071,11 @@ export function AnnualLeavePage() {
     onDownloadLeaveLetter: handleDownloadLeaveLetter,
     onRegenerateLeaveLetter: handleRegenerateLeaveLetter,
     letterBusyId,
+    onShopConfirmOpen: (r) => setShopConfirmRow(r),
+    onShopRescheduleOpen: (r) => setShopRescheduleRow(r),
+    onShopComplete: handleShopComplete,
+    onShopApplyCalculator: handleShopApplyCalculator,
+    onShopSaveAdminNote: handleShopSaveAdminNote,
   }
 
   return (
@@ -973,7 +1109,11 @@ export function AnnualLeavePage() {
           <DashboardCards
             stats={dashboard}
             isAdmin={isAdmin}
-            onFilterClick={key => { setFilterStatus(key); setSearch('') }}
+            onFilterClick={(key) => {
+              setFilterStatus(key)
+              setSearch('')
+              setShopVisitFilter('All')
+            }}
           />
 
           <NewRequestForm
@@ -984,6 +1124,20 @@ export function AnnualLeavePage() {
             onSubmit={createRequest}
             empLoading={empLoading}
           />
+
+          {shopToast && (
+            <div className={`al-toast al-toast--${shopToast.type}`} role="status">
+              {shopToast.text}
+            </div>
+          )}
+
+          {employeeShopFormsRows.length > 0 && (
+            <div className="al-employee-shop-stack">
+              {employeeShopFormsRows.map((row) => (
+                <EmployeeShopVisitForm key={row.id} row={row} onSubmit={handleEmployeeShopSubmit} />
+              ))}
+            </div>
+          )}
 
           {/* Filter bar */}
           <div className="al-filter-bar">
@@ -1009,13 +1163,31 @@ export function AnnualLeavePage() {
             </div>
           </div>
 
+          {isAdmin && (
+            <div className="al-filter-bar al-filter-bar--shop">
+              <span className="al-filter-bar__shop-label">Main shop workflow</span>
+              <div className="al-filter-tabs al-filter-tabs--wrap">
+                {SHOP_VISIT_FILTER_TABS.map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    className={`al-filter-tab ${shopVisitFilter === t.key ? 'al-filter-tab--active' : ''}`}
+                    onClick={() => setShopVisitFilter(t.key)}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {loading && <p className="page-loading">Loading…</p>}
 
           {!loading && (
             filterStatus === 'All'
               /* ── Grouped sections (All) ── */
               ? (
-                baseFiltered.length === 0
+                filteredRequests.length === 0
                   ? (
                     <div className="al-empty-state">
                       <div className="al-empty-state__icon">🏖️</div>
@@ -1027,7 +1199,7 @@ export function AnnualLeavePage() {
                       key={sec.key}
                       sectionKey={sec.key}
                       label={sec.label}
-                      rows={baseFiltered.filter(r => (r.effective_status || r.status) === sec.key)}
+                      rows={filteredRequests.filter(r => (r.effective_status || r.status) === sec.key)}
                       {...sectionProps}
                     />
                   ))
@@ -1075,6 +1247,11 @@ export function AnnualLeavePage() {
                                 onDownloadLeaveLetter={handleDownloadLeaveLetter}
                                 onRegenerateLeaveLetter={handleRegenerateLeaveLetter}
                                 letterBusyId={letterBusyId}
+                                onShopConfirmOpen={(r) => setShopConfirmRow(r)}
+                                onShopRescheduleOpen={(r) => setShopRescheduleRow(r)}
+                                onShopComplete={handleShopComplete}
+                                onShopApplyCalculator={handleShopApplyCalculator}
+                                onShopSaveAdminNote={handleShopSaveAdminNote}
                               />
                             )
                           )}
@@ -1093,6 +1270,20 @@ export function AnnualLeavePage() {
       )}
       {extendRow && (
         <ExtendLeaveModal row={extendRow} onExtend={extendLeave} onClose={() => setExtendRow(null)} />
+      )}
+      {shopConfirmRow && (
+        <ShopVisitConfirmModal
+          row={shopConfirmRow}
+          onSave={confirmShopVisit}
+          onClose={() => setShopConfirmRow(null)}
+        />
+      )}
+      {shopRescheduleRow && (
+        <ShopVisitRescheduleModal
+          row={shopRescheduleRow}
+          onSave={rescheduleShopVisit}
+          onClose={() => setShopRescheduleRow(null)}
+        />
       )}
     </div>
   )

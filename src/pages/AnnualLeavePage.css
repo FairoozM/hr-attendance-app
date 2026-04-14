@@ -606,3 +606,59 @@
   font-size: 0.78rem;
   padding: 0.28rem 0.65rem;
 }
+
+.al-row__status-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.al-row__shop-badge {
+  max-width: 11rem;
+}
+
+.al-filter-bar--shop {
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.al-filter-bar__shop-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.al-filter-tabs--wrap {
+  flex-wrap: wrap;
+}
+
+.al-employee-shop-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.al-toast {
+  padding: 0.65rem 1rem;
+  border-radius: var(--radius, 10px);
+  margin-bottom: 0.75rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.al-toast--success {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  color: #16a34a;
+}
+
+:root[data-theme='light'] .al-toast--success {
+  color: #15803d;
+}

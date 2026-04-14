@@ -1,9 +1,24 @@
 const { query } = require('../db')
+const annualLeaveSalaryService = require('./annualLeaveSalaryService')
 
 const STATUSES = ['Pending', 'Approved', 'Rejected']
 
+/** Workflow after leave is approved (does not replace leave status). */
+const SHOP_VISIT_STATUSES = [
+  'PendingSubmission',
+  'Submitted',
+  'Confirmed',
+  'MoneyCalculated',
+  'Completed',
+  'Cancelled',
+]
+
 function isValidStatus(s) {
   return STATUSES.includes(s)
+}
+
+function isValidShopVisitStatus(s) {
+  return SHOP_VISIT_STATUSES.includes(s)
 }
 
 function dateStr(v) {
@@ -81,6 +96,16 @@ const RICH_SELECT = `
   al.updated_at,
   al.leave_request_pdf_key,
   al.leave_request_pdf_generated_at,
+  al.shop_visit_status,
+  al.shop_visit_date,
+  al.shop_visit_time,
+  al.shop_visit_note,
+  al.shop_visit_submitted_at,
+  al.shop_visit_confirmed_by,
+  al.shop_visit_confirmed_at,
+  al.shop_visit_admin_note,
+  al.calculated_leave_amount,
+  al.calculator_snapshot,
   e.employee_code,
   e.full_name,
   e.department,
@@ -157,7 +182,10 @@ async function findById(id) {
   const result = await query(
     `SELECT id, employee_id, alternate_employee_id, from_date, to_date, reason, status,
             actual_return_date, return_confirmed_by, return_confirmed_at,
-            admin_remarks, grace_period_days, created_at, updated_at
+            admin_remarks, grace_period_days, created_at, updated_at,
+            shop_visit_status, shop_visit_date, shop_visit_time, shop_visit_note,
+            shop_visit_submitted_at, shop_visit_confirmed_by, shop_visit_confirmed_at,
+            shop_visit_admin_note, calculated_leave_amount, calculator_snapshot
      FROM annual_leave WHERE id = $1`,
     [id]
   )
@@ -203,15 +231,61 @@ async function updateLeaveRequestPdf(id, { pdfKey, generatedAt }) {
   return result.rows[0] || null
 }
 
+async function syncShopVisitColumnsAfterLeaveStatusChange(id, leaveStatus) {
+  if (leaveStatus === 'Approved') {
+    await query(
+      `UPDATE annual_leave SET
+         shop_visit_status = CASE
+           WHEN shop_visit_status IN ('Completed', 'Cancelled') THEN shop_visit_status
+           WHEN shop_visit_status IS NULL OR TRIM(COALESCE(shop_visit_status, '')) = '' THEN 'PendingSubmission'
+           ELSE shop_visit_status
+         END,
+         updated_at = NOW()
+       WHERE id = $1`,
+      [id]
+    )
+  } else if (leaveStatus === 'Rejected') {
+    await query(
+      `UPDATE annual_leave SET
+         shop_visit_status = 'Cancelled',
+         updated_at = NOW()
+       WHERE id = $1`,
+      [id]
+    )
+  } else if (leaveStatus === 'Pending') {
+    await query(
+      `UPDATE annual_leave SET
+         shop_visit_status = NULL,
+         shop_visit_date = NULL,
+         shop_visit_time = NULL,
+         shop_visit_note = NULL,
+         shop_visit_submitted_at = NULL,
+         shop_visit_confirmed_by = NULL,
+         shop_visit_confirmed_at = NULL,
+         shop_visit_admin_note = NULL,
+         calculated_leave_amount = NULL,
+         calculator_snapshot = NULL,
+         updated_at = NOW()
+       WHERE id = $1`,
+      [id]
+    )
+  }
+}
+
 async function create({ employee_id, alternate_employee_id, from_date, to_date, reason, status }) {
+  const shopInit = status === 'Approved' ? 'PendingSubmission' : null
   const result = await query(
-    `INSERT INTO annual_leave (employee_id, alternate_employee_id, from_date, to_date, reason, status, updated_at)
-     VALUES ($1, $2, $3::date, $4::date, $5, $6, NOW())
+    `INSERT INTO annual_leave (
+       employee_id, alternate_employee_id, from_date, to_date, reason, status,
+       shop_visit_status, updated_at
+     )
+     VALUES ($1, $2, $3::date, $4::date, $5, $6, $7, NOW())
      RETURNING id, employee_id, alternate_employee_id, from_date, to_date, reason, status, created_at, updated_at`,
-    [employee_id, alternate_employee_id ?? null, from_date, to_date, reason ?? null, status]
+    [employee_id, alternate_employee_id ?? null, from_date, to_date, reason ?? null, status, shopInit]
   )
   const row = result.rows[0]
   await syncAttendanceForRow(row)
+  await syncShopVisitColumnsAfterLeaveStatusChange(row.id, status)
   return row
 }
 
@@ -233,7 +307,149 @@ async function update(id, { employee_id, alternate_employee_id, from_date, to_da
   )
   const row = result.rows[0]
   if (row) await syncAttendanceForRow(row)
+  if (row) await syncShopVisitColumnsAfterLeaveStatusChange(id, status)
   return row
+}
+
+// ── Main shop visit (after leave approved) ──
+
+async function submitShopVisit(id, employeeId, { shop_visit_date, shop_visit_time, shop_visit_note }) {
+  const existing = await findById(id)
+  if (!existing) return { error: 'not_found' }
+  if (parseInt(existing.employee_id, 10) !== parseInt(employeeId, 10)) return { error: 'forbidden' }
+  if (existing.status !== 'Approved') return { error: 'leave_not_approved' }
+  const sv = existing.shop_visit_status
+  if (sv === 'Completed' || sv === 'Cancelled') return { error: 'invalid_shop_state' }
+  if (sv && !['PendingSubmission', 'Submitted'].includes(sv)) return { error: 'invalid_shop_state' }
+
+  await query(
+    `UPDATE annual_leave SET
+       shop_visit_date = $2::date,
+       shop_visit_time = $3,
+       shop_visit_note = $4,
+       shop_visit_status = 'Submitted',
+       shop_visit_submitted_at = NOW(),
+       updated_at = NOW()
+     WHERE id = $1`,
+    [id, shop_visit_date, shop_visit_time || null, shop_visit_note || null]
+  )
+  return { ok: true }
+}
+
+async function confirmShopVisit(id, adminUserId, { shop_visit_admin_note } = {}) {
+  const existing = await findById(id)
+  if (!existing) return { error: 'not_found' }
+  if (existing.status !== 'Approved') return { error: 'leave_not_approved' }
+  if (existing.shop_visit_status !== 'Submitted') return { error: 'must_be_submitted' }
+  if (!existing.shop_visit_date) return { error: 'missing_visit_date' }
+
+  await query(
+    `UPDATE annual_leave SET
+       shop_visit_status = 'Confirmed',
+       shop_visit_confirmed_by = $2::integer,
+       shop_visit_confirmed_at = NOW(),
+       shop_visit_admin_note = COALESCE($3, shop_visit_admin_note),
+       updated_at = NOW()
+     WHERE id = $1`,
+    [id, parseInt(adminUserId, 10) || null, shop_visit_admin_note != null ? String(shop_visit_admin_note).trim() || null : null]
+  )
+
+  const applied = await applyLatestCalculatorSnapshot(id)
+  return { ok: true, calculatorApplied: applied }
+}
+
+async function rescheduleShopVisit(id, adminUserId, { shop_visit_date, shop_visit_time, shop_visit_admin_note }) {
+  const existing = await findById(id)
+  if (!existing) return { error: 'not_found' }
+  if (existing.status !== 'Approved') return { error: 'leave_not_approved' }
+  if (!['Submitted', 'Confirmed', 'MoneyCalculated'].includes(existing.shop_visit_status || '')) {
+    return { error: 'invalid_shop_state' }
+  }
+
+  await query(
+    `UPDATE annual_leave SET
+       shop_visit_date = $2::date,
+       shop_visit_time = $3,
+       shop_visit_admin_note = COALESCE($4, shop_visit_admin_note),
+       shop_visit_status = CASE
+         WHEN shop_visit_status = 'MoneyCalculated' THEN 'Confirmed'
+         ELSE shop_visit_status
+       END,
+       calculated_leave_amount = CASE
+         WHEN shop_visit_status = 'MoneyCalculated' THEN NULL
+         ELSE calculated_leave_amount
+       END,
+       calculator_snapshot = CASE
+         WHEN shop_visit_status = 'MoneyCalculated' THEN NULL
+         ELSE calculator_snapshot
+       END,
+       updated_at = NOW()
+     WHERE id = $1`,
+    [
+      id,
+      shop_visit_date,
+      shop_visit_time || null,
+      shop_visit_admin_note != null ? String(shop_visit_admin_note).trim() || null : null,
+    ]
+  )
+
+  const rowAfter = await findById(id)
+  if (rowAfter.shop_visit_status === 'Confirmed') {
+    await applyLatestCalculatorSnapshot(id)
+  }
+  return { ok: true }
+}
+
+async function updateShopVisitAdminNote(id, { shop_visit_admin_note }) {
+  const existing = await findById(id)
+  if (!existing) return { error: 'not_found' }
+  await query(
+    `UPDATE annual_leave SET shop_visit_admin_note = $2, updated_at = NOW() WHERE id = $1`,
+    [id, shop_visit_admin_note != null ? String(shop_visit_admin_note).trim() || null : null]
+  )
+  return { ok: true }
+}
+
+async function applyLatestCalculatorSnapshot(leaveId) {
+  const leave = await findById(leaveId)
+  if (!leave || leave.status !== 'Approved') return false
+  const empId = parseInt(leave.employee_id, 10)
+  const latest = await annualLeaveSalaryService.findLatestByEmployeeId(empId)
+  if (!latest) return false
+
+  const snapshot = {
+    annual_leave_salary_id: latest.id,
+    calculation_date: latest.calculation_date,
+    grand_total: latest.grand_total,
+    leave_salary_amount: latest.leave_salary_amount,
+    monthly_salary: latest.monthly_salary,
+    leave_days_to_pay: latest.leave_days_to_pay,
+  }
+
+  await query(
+    `UPDATE annual_leave SET
+       calculated_leave_amount = $2,
+       calculator_snapshot = $3::jsonb,
+       shop_visit_status = 'MoneyCalculated',
+       updated_at = NOW()
+     WHERE id = $1`,
+    [leaveId, latest.grand_total, JSON.stringify(snapshot)]
+  )
+  return true
+}
+
+async function completeShopVisit(id) {
+  const existing = await findById(id)
+  if (!existing) return { error: 'not_found' }
+  if (existing.status !== 'Approved') return { error: 'leave_not_approved' }
+  if (!['MoneyCalculated', 'Confirmed'].includes(existing.shop_visit_status || '')) {
+    return { error: 'invalid_shop_state' }
+  }
+  await query(
+    `UPDATE annual_leave SET shop_visit_status = 'Completed', updated_at = NOW() WHERE id = $1`,
+    [id]
+  )
+  return { ok: true }
 }
 
 // ── Confirm employee return ──
@@ -340,7 +556,9 @@ async function remove(id) {
 
 module.exports = {
   STATUSES,
+  SHOP_VISIT_STATUSES,
   isValidStatus,
+  isValidShopVisitStatus,
   listWithEmployees,
   listWithEmployeesForEmployee,
   findById,
@@ -349,6 +567,12 @@ module.exports = {
   updateLeaveRequestPdf,
   create,
   update,
+  submitShopVisit,
+  confirmShopVisit,
+  rescheduleShopVisit,
+  updateShopVisitAdminNote,
+  applyLatestCalculatorSnapshot,
+  completeShopVisit,
   confirmReturn,
   extendLeave,
   updateRemarks,

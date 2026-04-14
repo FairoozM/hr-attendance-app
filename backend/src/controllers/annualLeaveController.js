@@ -385,6 +385,201 @@ async function regenerateLeaveRequestLetter(req, res) {
   }
 }
 
+function parseShopVisitTime(s) {
+  if (s == null || String(s).trim() === '') return null
+  const t = String(s).trim().slice(0, 32)
+  return t
+}
+
+async function getShopVisit(req, res) {
+  return getOne(req, res)
+}
+
+async function submitShopVisit(req, res) {
+  try {
+    const id = parseInt(req.params.id, 10)
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
+
+    const existing = await annualLeaveService.findById(id)
+    if (!existing) return res.status(404).json({ error: 'Not found' })
+
+    if (req.user.role !== 'employee') {
+      return res.status(403).json({ error: 'Only employees can submit a shop visit request' })
+    }
+    if (parseInt(existing.employee_id, 10) !== parseInt(req.user.employeeId, 10)) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+
+    const confirm = req.body.confirmation === true || req.body.confirmation === 'true'
+    if (!confirm) return res.status(400).json({ error: 'confirmation is required' })
+
+    const shop_visit_date = parseDate(req.body.shop_visit_date)
+    const shop_visit_time = parseShopVisitTime(req.body.shop_visit_time)
+    if (!shop_visit_date) return res.status(400).json({ error: 'shop_visit_date is required' })
+    if (!shop_visit_time) return res.status(400).json({ error: 'shop_visit_time is required' })
+
+    const note = req.body.shop_visit_note != null ? String(req.body.shop_visit_note).trim() || null : null
+
+    const employeeIdForCheck = req.user.employeeId
+    const result = await annualLeaveService.submitShopVisit(id, employeeIdForCheck, {
+      shop_visit_date,
+      shop_visit_time,
+      shop_visit_note: note,
+    })
+    if (result.error === 'not_found') return res.status(404).json({ error: 'Not found' })
+    if (result.error === 'forbidden') return res.status(403).json({ error: 'Forbidden' })
+    if (result.error === 'leave_not_approved') {
+      return res.status(400).json({ error: 'Leave must be approved before submitting shop visit' })
+    }
+    if (result.error === 'invalid_shop_state') {
+      return res.status(400).json({ error: 'Shop visit cannot be submitted in the current state' })
+    }
+
+    const enriched = await annualLeaveService.findByIdWithEmployee(id)
+    res.json(await attachLeavePhotoUrl(enriched))
+  } catch (err) {
+    console.error('submitShopVisit error:', err)
+    res.status(500).json({ error: 'Failed to submit shop visit' })
+  }
+}
+
+async function confirmShopVisit(req, res) {
+  try {
+    const id = parseInt(req.params.id, 10)
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
+
+    const existing = await annualLeaveService.findById(id)
+    if (!existing) return res.status(404).json({ error: 'Not found' })
+
+    const note =
+      req.body.shop_visit_admin_note != null ? String(req.body.shop_visit_admin_note).trim() || null : null
+    const result = await annualLeaveService.confirmShopVisit(id, req.user.userId, {
+      shop_visit_admin_note: note,
+    })
+    if (result.error === 'not_found') return res.status(404).json({ error: 'Not found' })
+    if (result.error === 'leave_not_approved') {
+      return res.status(400).json({ error: 'Leave must be approved' })
+    }
+    if (result.error === 'must_be_submitted') {
+      return res.status(400).json({ error: 'Shop visit must be submitted before confirmation' })
+    }
+    if (result.error === 'missing_visit_date') {
+      return res.status(400).json({ error: 'Missing shop visit date' })
+    }
+
+    const enriched = await annualLeaveService.findByIdWithEmployee(id)
+    res.json(await attachLeavePhotoUrl(enriched))
+  } catch (err) {
+    console.error('confirmShopVisit error:', err)
+    res.status(500).json({ error: 'Failed to confirm shop visit' })
+  }
+}
+
+async function rescheduleShopVisit(req, res) {
+  try {
+    const id = parseInt(req.params.id, 10)
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
+
+    const shop_visit_date = parseDate(req.body.shop_visit_date)
+    const shop_visit_time = parseShopVisitTime(req.body.shop_visit_time)
+    if (!shop_visit_date) return res.status(400).json({ error: 'shop_visit_date is required' })
+    if (!shop_visit_time) return res.status(400).json({ error: 'shop_visit_time is required' })
+
+    const note =
+      req.body.shop_visit_admin_note != null ? String(req.body.shop_visit_admin_note).trim() || null : null
+
+    const result = await annualLeaveService.rescheduleShopVisit(id, req.user.userId, {
+      shop_visit_date,
+      shop_visit_time,
+      shop_visit_admin_note: note,
+    })
+    if (result.error === 'not_found') return res.status(404).json({ error: 'Not found' })
+    if (result.error === 'leave_not_approved') {
+      return res.status(400).json({ error: 'Leave must be approved' })
+    }
+    if (result.error === 'invalid_shop_state') {
+      return res.status(400).json({ error: 'Cannot reschedule in the current shop visit state' })
+    }
+
+    const enriched = await annualLeaveService.findByIdWithEmployee(id)
+    res.json(await attachLeavePhotoUrl(enriched))
+  } catch (err) {
+    console.error('rescheduleShopVisit error:', err)
+    res.status(500).json({ error: 'Failed to reschedule shop visit' })
+  }
+}
+
+async function completeShopVisit(req, res) {
+  try {
+    const id = parseInt(req.params.id, 10)
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
+
+    const result = await annualLeaveService.completeShopVisit(id)
+    if (result.error === 'not_found') return res.status(404).json({ error: 'Not found' })
+    if (result.error === 'leave_not_approved') {
+      return res.status(400).json({ error: 'Leave must be approved' })
+    }
+    if (result.error === 'invalid_shop_state') {
+      return res.status(400).json({
+        error: 'Process can only be completed after shop visit is confirmed or money is calculated',
+      })
+    }
+
+    const enriched = await annualLeaveService.findByIdWithEmployee(id)
+    res.json(await attachLeavePhotoUrl(enriched))
+  } catch (err) {
+    console.error('completeShopVisit error:', err)
+    res.status(500).json({ error: 'Failed to complete shop visit process' })
+  }
+}
+
+async function applyShopVisitCalculator(req, res) {
+  try {
+    const id = parseInt(req.params.id, 10)
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
+
+    const existing = await annualLeaveService.findById(id)
+    if (!existing) return res.status(404).json({ error: 'Not found' })
+    if (existing.status !== 'Approved') return res.status(400).json({ error: 'Leave must be approved' })
+    if (!['Confirmed', 'MoneyCalculated'].includes(existing.shop_visit_status || '')) {
+      return res.status(400).json({ error: 'Shop visit must be confirmed first' })
+    }
+
+    const applied = await annualLeaveService.applyLatestCalculatorSnapshot(id)
+    if (!applied) {
+      return res.status(409).json({
+        error: 'No saved annual leave salary calculation found for this employee. Save one in Leave Salary Calculator first.',
+      })
+    }
+    const enriched = await annualLeaveService.findByIdWithEmployee(id)
+    res.json(await attachLeavePhotoUrl(enriched))
+  } catch (err) {
+    console.error('applyShopVisitCalculator error:', err)
+    res.status(500).json({ error: 'Failed to apply calculator snapshot' })
+  }
+}
+
+async function patchShopVisitAdminNote(req, res) {
+  try {
+    const id = parseInt(req.params.id, 10)
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
+
+    const existing = await annualLeaveService.findById(id)
+    if (!existing) return res.status(404).json({ error: 'Not found' })
+
+    const note =
+      req.body.shop_visit_admin_note != null ? String(req.body.shop_visit_admin_note).trim() || null : null
+    const result = await annualLeaveService.updateShopVisitAdminNote(id, { shop_visit_admin_note: note })
+    if (result.error === 'not_found') return res.status(404).json({ error: 'Not found' })
+
+    const enriched = await annualLeaveService.findByIdWithEmployee(id)
+    res.json(await attachLeavePhotoUrl(enriched))
+  } catch (err) {
+    console.error('patchShopVisitAdminNote error:', err)
+    res.status(500).json({ error: 'Failed to update admin note' })
+  }
+}
+
 module.exports = {
   list,
   listAlternateOptions,
@@ -398,4 +593,11 @@ module.exports = {
   remove,
   getLeaveRequestLetter,
   regenerateLeaveRequestLetter,
+  getShopVisit,
+  submitShopVisit,
+  confirmShopVisit,
+  rescheduleShopVisit,
+  completeShopVisit,
+  applyShopVisitCalculator,
+  patchShopVisitAdminNote,
 }

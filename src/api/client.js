@@ -170,6 +170,7 @@ export const api = {
   post: (path, body) => request('POST', path, body),
   postForm: (path, formData) => postForm(path, formData),
   put: (path, body) => request('PUT', path, body),
+  patch: (path, body) => request('PATCH', path, body),
   delete: (path) => request('DELETE', path),
 }
 

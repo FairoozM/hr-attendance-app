@@ -91,9 +91,69 @@ export function useAnnualLeave() {
     return body
   }, [refresh])
 
+  const submitShopVisit = useCallback(
+    async (id, payload) => {
+      const body = await api.post(`/api/annual-leave/${id}/shop-visit/submit`, payload)
+      await refresh()
+      return body
+    },
+    [refresh]
+  )
+
+  const confirmShopVisit = useCallback(
+    async (id, payload) => {
+      const body = await api.post(`/api/annual-leave/${id}/shop-visit/confirm`, payload || {})
+      await refresh()
+      return body
+    },
+    [refresh]
+  )
+
+  const rescheduleShopVisit = useCallback(
+    async (id, payload) => {
+      const body = await api.post(`/api/annual-leave/${id}/shop-visit/reschedule`, payload)
+      await refresh()
+      return body
+    },
+    [refresh]
+  )
+
+  const completeShopVisit = useCallback(
+    async (id) => {
+      const body = await api.post(`/api/annual-leave/${id}/shop-visit/complete`, {})
+      await refresh()
+      return body
+    },
+    [refresh]
+  )
+
+  const applyShopVisitCalculator = useCallback(
+    async (id) => {
+      const body = await api.post(`/api/annual-leave/${id}/shop-visit/apply-calculator`, {})
+      await refresh()
+      return body
+    },
+    [refresh]
+  )
+
+  const patchShopVisitAdminNote = useCallback(
+    async (id, payload) => {
+      const body = await api.patch(`/api/annual-leave/${id}/shop-visit/admin-note`, payload)
+      await refresh()
+      return body
+    },
+    [refresh]
+  )
+
   return {
     requests, loading, error, dashboard, alternateOptions,
     refresh, createRequest, updateRequest, deleteRequest,
     confirmReturn, extendLeave, updateRemarks, regenerateLeaveLetter,
+    submitShopVisit,
+    confirmShopVisit,
+    rescheduleShopVisit,
+    completeShopVisit,
+    applyShopVisitCalculator,
+    patchShopVisitAdminNote,
   }
 }

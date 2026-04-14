@@ -32,6 +32,21 @@ async function findById(id) {
   return result.rows[0] || null
 }
 
+/** Latest saved calculation per employee (for shop-visit settlement link). */
+async function findLatestByEmployeeId(employeeId) {
+  const result = await query(
+    `SELECT als.*,
+            e.full_name, e.employee_code, e.department, e.designation
+     FROM annual_leave_salary als
+     ${JOIN_EMPLOYEES}
+     WHERE als.employee_id = $1
+     ORDER BY als.calculation_date DESC, als.id DESC
+     LIMIT 1`,
+    [employeeId]
+  )
+  return result.rows[0] || null
+}
+
 async function create(data) {
   const {
     employee_id, calculation_date, monthly_salary, per_day_rate,
@@ -87,4 +102,4 @@ async function remove(id) {
   await query('DELETE FROM annual_leave_salary WHERE id = $1', [id])
 }
 
-module.exports = { findAll, findById, create, update, remove }
+module.exports = { findAll, findById, findLatestByEmployeeId, create, update, remove }

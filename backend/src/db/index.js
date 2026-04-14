@@ -282,6 +282,56 @@ async function ensureAnnualLeaveExtendedColumns() {
   )
 }
 
+/** Main shop visit workflow + HR reminder notifications */
+async function ensureAnnualLeaveShopVisitColumns() {
+  const cols = [
+    `ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS shop_visit_status VARCHAR(40)`,
+    `ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS shop_visit_date DATE`,
+    `ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS shop_visit_time VARCHAR(32)`,
+    `ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS shop_visit_note TEXT`,
+    `ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS shop_visit_submitted_at TIMESTAMPTZ`,
+    `ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS shop_visit_confirmed_by INTEGER REFERENCES users(id) ON DELETE SET NULL`,
+    `ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS shop_visit_confirmed_at TIMESTAMPTZ`,
+    `ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS shop_visit_admin_note TEXT`,
+    `ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS calculated_leave_amount NUMERIC(14,2)`,
+    `ALTER TABLE annual_leave ADD COLUMN IF NOT EXISTS calculator_snapshot JSONB`,
+  ]
+  for (const sql of cols) await query(sql)
+}
+
+async function ensureNotificationsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id SERIAL PRIMARY KEY,
+      type VARCHAR(64) NOT NULL,
+      title TEXT,
+      message TEXT NOT NULL,
+      is_read BOOLEAN NOT NULL DEFAULT false,
+      read_at TIMESTAMPTZ,
+      scheduled_for DATE NOT NULL,
+      trigger_key VARCHAR(255) NOT NULL UNIQUE,
+      employee_id INTEGER REFERENCES employees(id) ON DELETE CASCADE,
+      annual_leave_id INTEGER REFERENCES annual_leave(id) ON DELETE CASCADE,
+      meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_notifications_scheduled ON notifications(scheduled_for)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_notifications_employee ON notifications(employee_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_notifications_leave ON notifications(annual_leave_id)`)
+}
+
+/** Backfill shop visit state for already-approved leaves */
+async function backfillShopVisitPendingSubmission() {
+  await query(`
+    UPDATE annual_leave
+    SET shop_visit_status = 'PendingSubmission'
+    WHERE status = 'Approved'
+      AND (shop_visit_status IS NULL OR shop_visit_status = '')
+  `)
+}
+
 async function ensureInfluencersSnapshotTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS influencers_snapshot (
@@ -384,6 +434,9 @@ async function testConnection() {
     console.error('[db] migrateUsernamesToEmail skipped/failed (non-fatal):', e.message || e)
   }
   await ensureAnnualLeaveSalaryTable()
+  await ensureAnnualLeaveShopVisitColumns()
+  await ensureNotificationsTable()
+  await backfillShopVisitPendingSubmission()
   await normalizeEmployeePhotoUrls()
   await ensureAttendanceAssignmentsTable()
   await ensureInfluencersSnapshotTable()
