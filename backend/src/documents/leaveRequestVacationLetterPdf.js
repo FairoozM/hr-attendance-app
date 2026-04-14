@@ -43,12 +43,37 @@ function renderLeaveRequestVacationPdf(ctx, options = {}) {
     doc.text(body1, { align: 'justify', lineGap: 2 })
     doc.moveDown(0.5)
 
-    doc.text(`Starting From: ${ctx.leaveStartFormatted}`, { align: 'left' })
-    doc.text(`To: ${ctx.leaveEndFormatted}`, { align: 'left' })
+    doc
+      .fillColor('#dc2626')
+      .font('Times-Bold')
+      .text('From ', { align: 'left', continued: true })
+      .fillColor('#111827')
+      .font('Times-Roman')
+      .text(`${ctx.leaveStartFormatted} `, { continued: true })
+      .fillColor('#16a34a')
+      .font('Times-Bold')
+      .text('to ', { continued: true })
+      .fillColor('#111827')
+      .font('Times-Roman')
+      .text(ctx.leaveEndFormatted, { align: 'left' })
     doc.moveDown(0.8)
 
-    const body2 = `I kindly request your approval for my vacation request. I assure you that I will complete all pending tasks and hand over any ongoing tasks to ${ctx.alternateHandoverPhrase}.`
-    doc.text(body2, { align: 'justify', lineGap: 2 })
+    if (ctx.alternateEmployeeName) {
+      doc
+        .fillColor('#111827')
+        .font('Times-Roman')
+        .text(
+          'I kindly request your approval for my vacation request. I assure you that I will complete all pending tasks and hand over any ongoing tasks to ',
+          { align: 'justify', lineGap: 2, continued: true }
+        )
+        .font('Times-BoldItalic')
+        .text(ctx.alternateEmployeeName, { continued: true })
+        .font('Times-Roman')
+        .text('.', { lineGap: 2 })
+    } else {
+      const body2 = `I kindly request your approval for my vacation request. I assure you that I will complete all pending tasks and hand over any ongoing tasks to ${ctx.alternateHandoverPhrase}.`
+      doc.fillColor('#111827').font('Times-Roman').text(body2, { align: 'justify', lineGap: 2 })
+    }
     doc.moveDown(0.8)
 
     doc.text(
