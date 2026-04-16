@@ -368,11 +368,14 @@ async function ensureDocumentExpiryTable() {
   `)
   await query(`CREATE INDEX IF NOT EXISTS idx_doc_expiry_expiry_date ON document_expiry(expiry_date)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_doc_expiry_company ON document_expiry(company)`)
-  // Unique constraint so seed rows are idempotent (ON CONFLICT DO NOTHING)
-  await query(`
-    ALTER TABLE document_expiry
-    ADD CONSTRAINT IF NOT EXISTS uq_doc_expiry_name UNIQUE (name)
+  // Add unique constraint only if it doesn't exist yet (IF NOT EXISTS not supported on all PG versions)
+  const constraintExists = await query(`
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'uq_doc_expiry_name' AND conrelid = 'document_expiry'::regclass
   `)
+  if (constraintExists.rowCount === 0) {
+    await query(`ALTER TABLE document_expiry ADD CONSTRAINT uq_doc_expiry_name UNIQUE (name)`)
+  }
 
   // Seed records — inserted once, never duplicated
   const seedRows = [
