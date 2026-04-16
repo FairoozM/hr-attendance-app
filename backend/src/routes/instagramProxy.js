@@ -6,7 +6,7 @@ const router = express.Router()
 const cache = new Map()
 const CACHE_TTL_MS = 60 * 60 * 1000 // 1 hour
 
-function fetchUrl(url, redirectsLeft = 5) {
+function fetchUrl(url, redirectsLeft = 5, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     if (redirectsLeft <= 0) return reject(new Error('Too many redirects'))
     const parsed = new URL(url)
@@ -15,10 +15,11 @@ function fetchUrl(url, redirectsLeft = 5) {
       path: parsed.pathname + parsed.search,
       method: 'GET',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
         'Accept-Encoding': 'identity',
+        ...extraHeaders,
       },
     }
     const req = https.request(options, (res) => {
@@ -28,7 +29,7 @@ function fetchUrl(url, redirectsLeft = 5) {
           ? res.headers.location
           : `https://${parsed.hostname}${res.headers.location}`
         res.resume()
-        return fetchUrl(next, redirectsLeft - 1).then(resolve).catch(reject)
+        return fetchUrl(next, redirectsLeft - 1, extraHeaders).then(resolve).catch(reject)
       }
       let data = ''
       res.on('data', chunk => { data += chunk })
@@ -65,6 +66,33 @@ function extractOgMeta(html) {
 }
 
 async function fetchInstagramProfile(username) {
+  // Try the JSON API first (faster, structured data)
+  try {
+    const apiUrl = `https://www.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(username)}`
+    const { status, body } = await fetchUrl(apiUrl, 5, {
+      'x-ig-app-id': '936619743392459',
+      'x-csrftoken': 'missing',
+      'x-ig-www-claim': '0',
+      'Referer': 'https://www.instagram.com/',
+    })
+    if (status === 200) {
+      const json = JSON.parse(body)
+      const user = json?.data?.user
+      if (user) {
+        return {
+          picUrl: user.profile_pic_url_hd || user.profile_pic_url || null,
+          fullName: user.full_name || null,
+          followersCount: user.edge_followed_by?.count
+            ? String(user.edge_followed_by.count)
+            : null,
+        }
+      }
+    }
+  } catch (_) {
+    // fall through to og:image scrape
+  }
+
+  // Fallback: scrape og:image from profile page
   const { status, body } = await fetchUrl(`https://www.instagram.com/${encodeURIComponent(username)}/`)
   if (status === 404) throw new Error('Profile not found')
   if (status !== 200) throw new Error(`Instagram returned HTTP ${status}`)
