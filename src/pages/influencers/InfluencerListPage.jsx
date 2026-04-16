@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useInfluencers } from '../../contexts/InfluencersContext'
 import { useAuth, hasPermission } from '../../contexts/AuthContext'
 import { AddInfluencerPage } from './AddInfluencerPage'
@@ -100,7 +100,16 @@ export function InfluencerListPage() {
   const [filterBasedIn, setFilterBasedIn] = useState('All')
   const [filterCollab, setFilterCollab] = useState('All')
   const [sortBy, setSortBy] = useState('newest')
-  const [page, setPage] = useState(1)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10))
+  const setPage = useCallback((p) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (p <= 1) next.delete('page')
+      else next.set('page', String(p))
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
   const useServerPaging = listMeta && !listMeta.isFullListClientPaging
 
   const cities = useMemo(() => ['All', ...new Set(influencers.map(i => i.basedIn).filter(Boolean))], [influencers])
@@ -136,6 +145,7 @@ export function InfluencerListPage() {
 
   useEffect(() => {
     setPage(1)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, filterWorkflow, filterApproval, filterPayment, filterBasedIn, filterCollab, sortBy])
 
   const clientTotalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
@@ -144,6 +154,7 @@ export function InfluencerListPage() {
 
   useEffect(() => {
     if (!useServerPaging && page > clientTotalPages) setPage(clientTotalPages)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, clientTotalPages, useServerPaging])
 
   const pageRows = useMemo(() => {
@@ -417,7 +428,7 @@ export function InfluencerListPage() {
             disabled={currentPageDisplay <= 1}
             onClick={() => {
               if (useServerPaging) void refetchInfluencerPage({ page: listMeta.page - 1, limit: listMeta.limit })
-              else setPage(p => Math.max(1, p - 1))
+              else setPage(Math.max(1, page - 1))
             }}
           >
             Previous
@@ -431,7 +442,7 @@ export function InfluencerListPage() {
             disabled={currentPageDisplay >= totalPages}
             onClick={() => {
               if (useServerPaging) void refetchInfluencerPage({ page: listMeta.page + 1, limit: listMeta.limit })
-              else setPage(p => Math.min(totalPages, p + 1))
+              else setPage(Math.min(totalPages, page + 1))
             }}
           >
             Next

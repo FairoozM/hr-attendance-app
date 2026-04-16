@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Modal } from './Modal'
 import { EmployeeForm } from './EmployeeForm'
 import { useSettings } from '../contexts/SettingsContext'
@@ -151,7 +151,16 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
   const [status, setStatus] = useState('all')
   const [sortKey, setSortKey] = useState('name')
   const [sortDir, setSortDir] = useState('asc')
-  const [page, setPage] = useState(1)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10))
+  const setPage = useCallback((p) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (p <= 1) next.delete('page')
+      else next.set('page', String(p))
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
   const [columnFilters, setColumnFilters] = useState(() => emptyColumnFilters())
 
   const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), [])
@@ -277,10 +286,12 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
 
   useEffect(() => {
     setPage(1)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, department, designation, status, columnFilters])
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, totalPages])
 
   const pageRows = useMemo(() => {
