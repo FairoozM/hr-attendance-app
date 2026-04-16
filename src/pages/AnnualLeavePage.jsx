@@ -338,7 +338,7 @@ function LeaveRow({
                   <IconEdit />
                 </button>
               )}
-              {(isAdmin || employeeCanEditThis) && row.status === 'Pending' && (
+              {(isAdmin || employeeCanEditThis) && (row.status === 'Pending' || isAdmin) && (
                 <button className="al-icon-btn al-icon-btn--del" title="Delete" onClick={() => onDelete(row.id)}>
                   <IconTrash />
                 </button>
