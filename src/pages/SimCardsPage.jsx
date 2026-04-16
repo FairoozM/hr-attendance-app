@@ -303,6 +303,7 @@ export function SimCardsPage() {
             <table className="sim-table">
               <thead>
                 <tr>
+                  <th>Sr. No.</th>
                   <th>number</th>
                   <th>Remarks</th>
                   <th>Person</th>
@@ -316,8 +317,9 @@ export function SimCardsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((row) => (
+                {filtered.map((row, idx) => (
                   <tr key={row.id}>
+                    <td>{idx + 1}</td>
                     <td>{row.number || '—'}</td>
                     <td>{row.remarks || '—'}</td>
                     <td>{row.person || '—'}</td>
