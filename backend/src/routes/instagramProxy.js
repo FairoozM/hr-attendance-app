@@ -2,49 +2,66 @@ const express = require('express')
 const https = require('https')
 const router = express.Router()
 
-// Simple in-memory cache: username → { picUrl, fullName, followersCount, timestamp }
+// In-memory cache: username → { picUrl, fullName, followersCount, timestamp }
 const cache = new Map()
-const CACHE_TTL_MS = 30 * 60 * 1000 // 30 minutes
+const CACHE_TTL_MS = 60 * 60 * 1000 // 1 hour
 
-function fetchInstagramProfile(username) {
+function fetchPage(hostname, path, headers) {
   return new Promise((resolve, reject) => {
     const options = {
-      hostname: 'i.instagram.com',
-      path: `/api/v1/users/web_profile_info/?username=${encodeURIComponent(username)}`,
+      hostname,
+      path,
       method: 'GET',
       headers: {
-        'x-ig-app-id': '936619743392459',
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
-        'Accept': 'application/json',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': 'https://www.instagram.com/',
-        'Origin': 'https://www.instagram.com',
+        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        ...headers,
       },
     }
-
     const req = https.request(options, (res) => {
       let data = ''
       res.on('data', chunk => { data += chunk })
-      res.on('end', () => {
-        if (res.statusCode !== 200) return reject(new Error(`Instagram API: ${res.statusCode}`))
-        try {
-          const json = JSON.parse(data)
-          const user = json?.data?.user
-          if (!user) return reject(new Error('User not found'))
-          resolve({
-            picUrl: user.profile_pic_url_hd || user.profile_pic_url || null,
-            fullName: user.full_name || null,
-            followersCount: user.edge_followed_by?.count ?? null,
-          })
-        } catch (e) {
-          reject(new Error('Failed to parse Instagram response'))
-        }
-      })
+      res.on('end', () => resolve({ status: res.statusCode, body: data }))
     })
     req.on('error', reject)
-    req.setTimeout(8000, () => { req.destroy(); reject(new Error('Instagram request timed out')) })
+    req.setTimeout(10000, () => { req.destroy(); reject(new Error('Request timed out')) })
     req.end()
   })
+}
+
+function extractOgMeta(html) {
+  const picMatch = html.match(/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/)
+  const titleMatch = html.match(/<meta[^>]+property="og:title"[^>]+content="([^"]+)"/)
+  const descMatch = html.match(/<meta[^>]+property="og:description"[^>]+content="([^"]+)"/)
+
+  let picUrl = picMatch ? picMatch[1].replace(/&amp;/g, '&') : null
+  let fullName = null
+  let followersCount = null
+
+  if (titleMatch) {
+    // "Full Name (@handle) • Instagram photos and videos"
+    const m = titleMatch[1].match(/^(.+?)\s*\(/)
+    if (m) fullName = m[1].trim()
+  }
+
+  if (descMatch) {
+    // "123K Followers, ..."
+    const m = descMatch[1].match(/([\d,KMB.]+)\s+Followers/i)
+    if (m) followersCount = m[1]
+  }
+
+  return { picUrl, fullName, followersCount }
+}
+
+async function fetchInstagramProfile(username) {
+  const { status, body } = await fetchPage('www.instagram.com', `/${encodeURIComponent(username)}/`, {})
+  if (status === 404) throw new Error('Profile not found')
+  if (status !== 200) throw new Error(`Instagram returned HTTP ${status}`)
+
+  const data = extractOgMeta(body)
+  if (!data.picUrl) throw new Error('Could not extract profile picture')
+  return data
 }
 
 function proxyImage(url, res) {
@@ -55,24 +72,25 @@ function proxyImage(url, res) {
       path: parsed.pathname + parsed.search,
       method: 'GET',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)',
+        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
         'Referer': 'https://www.instagram.com/',
       },
     }
     const req = https.request(options, (imgRes) => {
-      if (imgRes.statusCode !== 200) return reject(new Error(`Image fetch: ${imgRes.statusCode}`))
+      if (imgRes.statusCode !== 200) return reject(new Error(`Image fetch failed: ${imgRes.statusCode}`))
       res.setHeader('Content-Type', imgRes.headers['content-type'] || 'image/jpeg')
-      res.setHeader('Cache-Control', 'public, max-age=1800')
+      res.setHeader('Cache-Control', 'public, max-age=3600')
+      res.setHeader('Access-Control-Allow-Origin', '*')
       imgRes.pipe(res)
       imgRes.on('end', resolve)
     })
     req.on('error', reject)
-    req.setTimeout(8000, () => { req.destroy(); reject(new Error('Image fetch timed out')) })
+    req.setTimeout(10000, () => { req.destroy(); reject(new Error('Image fetch timed out')) })
     req.end()
   })
 }
 
-// GET /api/instagram-proxy/avatar/:username  — proxies the profile pic as an image
+// GET /api/instagram-proxy/avatar/:username — proxies profile pic as image
 router.get('/avatar/:username', async (req, res) => {
   const username = String(req.params.username || '').trim().replace(/^@/, '').toLowerCase()
   if (!username || !/^[\w.]+$/.test(username)) {
@@ -93,11 +111,12 @@ router.get('/avatar/:username', async (req, res) => {
     if (!picUrl) return res.status(404).json({ error: 'No profile pic found' })
     await proxyImage(picUrl, res)
   } catch (err) {
+    console.error('[instagram-proxy] avatar error:', err.message)
     if (!res.headersSent) res.status(502).json({ error: err.message })
   }
 })
 
-// GET /api/instagram-proxy/profile/:username  — returns JSON with profile metadata
+// GET /api/instagram-proxy/profile/:username — returns JSON metadata
 router.get('/profile/:username', async (req, res) => {
   const username = String(req.params.username || '').trim().replace(/^@/, '').toLowerCase()
   if (!username || !/^[\w.]+$/.test(username)) {
@@ -113,6 +132,7 @@ router.get('/profile/:username', async (req, res) => {
     cache.set(username, { ...profile, timestamp: Date.now() })
     res.json({ username, ...profile })
   } catch (err) {
+    console.error('[instagram-proxy] profile error:', err.message)
     if (!res.headersSent) res.status(502).json({ error: err.message })
   }
 })
