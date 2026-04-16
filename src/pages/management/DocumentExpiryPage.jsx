@@ -1,38 +1,12 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { Modal } from '../../components/Modal'
 import { DocSummaryCards } from './components/DocSummaryCards'
 import { DocFiltersBar } from './components/DocFiltersBar'
 import { DocForm } from './components/DocForm'
 import { DocTable } from './components/DocTable'
 import { getSmartStatus, STATUS } from './utils/docExpiryUtils'
-import { SEED_DOCUMENTS } from './data/seedDocuments'
+import { useDocumentExpiry } from '../../hooks/useDocumentExpiry'
 import './DocumentExpiryPage.css'
-
-// ── API integration point ─────────────────────────────────────────────────────
-// Replace the localStorage init + useEffect persistence with a useEffect + API
-// fetch/save when a backend is ready.
-// ─────────────────────────────────────────────────────────────────────────────
-
-const LS_KEY = 'doc_expiry_documents'
-const LS_ID_KEY = 'doc_expiry_next_id'
-
-function loadDocuments() {
-  try {
-    const raw = localStorage.getItem(LS_KEY)
-    if (raw) return JSON.parse(raw)
-  } catch { /* ignore */ }
-  return SEED_DOCUMENTS
-}
-
-function loadNextId() {
-  try {
-    const raw = localStorage.getItem(LS_ID_KEY)
-    if (raw) return Number(raw)
-  } catch { /* ignore */ }
-  return SEED_DOCUMENTS.length + 1
-}
-
-let _nextId = loadNextId()
 
 const EMPTY_FILTERS = {
   search: '',
@@ -42,33 +16,28 @@ const EMPTY_FILTERS = {
 }
 
 export function DocumentExpiryPage() {
-  const [documents, setDocuments] = useState(loadDocuments)
-  const [filters, setFilters] = useState(EMPTY_FILTERS)
-  const [activeQuick, setActiveQuick] = useState('all')
+  const { items: documents, loading, error, createItem, updateItem, deleteItem } = useDocumentExpiry()
 
-  // Persist to localStorage on every change
-  useEffect(() => {
-    try { localStorage.setItem(LS_KEY, JSON.stringify(documents)) } catch { /* ignore */ }
-  }, [documents])
+  const [filters, setFilters]       = useState(EMPTY_FILTERS)
+  const [activeQuick, setActiveQuick] = useState('all')
 
   const [formOpen, setFormOpen]     = useState(false)
   const [editTarget, setEditTarget] = useState(null)
   const [formSaving, setFormSaving] = useState(false)
+  const [formError, setFormError]   = useState('')
   const [deleteId, setDeleteId]     = useState(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
 
-  // Compose quick-filter + field filters
   const filtered = useMemo(() => {
     const q = filters.search.trim().toLowerCase()
     return documents.filter(doc => {
-      if (activeQuick === 'vat'      && doc.documentType !== 'VAT Filing')                   return false
-      if (activeQuick === 'expired'  && getSmartStatus(doc.expiryDate) !== STATUS.EXPIRED)   return false
-      if (activeQuick === 'due-soon' && getSmartStatus(doc.expiryDate) !== STATUS.DUE_SOON)  return false
-      if (activeQuick === 'urgent'   && getSmartStatus(doc.expiryDate) !== STATUS.URGENT)    return false
-
+      if (activeQuick === 'vat'      && doc.documentType !== 'VAT Filing')                  return false
+      if (activeQuick === 'expired'  && getSmartStatus(doc.expiryDate) !== STATUS.EXPIRED)  return false
+      if (activeQuick === 'due-soon' && getSmartStatus(doc.expiryDate) !== STATUS.DUE_SOON) return false
+      if (activeQuick === 'urgent'   && getSmartStatus(doc.expiryDate) !== STATUS.URGENT)   return false
       if (filters.docType && doc.documentType !== filters.docType) return false
       if (filters.company && doc.company      !== filters.company) return false
       if (filters.status  && getSmartStatus(doc.expiryDate) !== filters.status) return false
-
       if (q) {
         const blob = [doc.name, doc.documentType, doc.company, doc.periodCovered]
           .join(' ').toLowerCase()
@@ -80,43 +49,48 @@ export function DocumentExpiryPage() {
 
   const openAdd = useCallback(() => {
     setEditTarget(null)
+    setFormError('')
     setFormOpen(true)
   }, [])
 
   const openEdit = useCallback((doc) => {
     setEditTarget(doc)
+    setFormError('')
     setFormOpen(true)
   }, [])
 
-  const handleSave = useCallback((form) => {
+  const handleSave = useCallback(async (form) => {
     setFormSaving(true)
-    // ── API swap: replace with await api.post/put(...) ──
-    const now = new Date().toISOString().slice(0, 10)
-    if (editTarget) {
-      setDocuments(prev =>
-        prev.map(d => d.id === editTarget.id ? { ...d, ...form, updatedAt: now } : d)
-      )
-    } else {
-      const id = String(_nextId++)
-      try { localStorage.setItem(LS_ID_KEY, String(_nextId)) } catch { /* ignore */ }
-      setDocuments(prev => [...prev, { ...form, id, attachment: null, createdAt: now, updatedAt: now }])
+    setFormError('')
+    try {
+      if (editTarget) {
+        await updateItem(editTarget.id, form)
+      } else {
+        await createItem(form)
+      }
+      setFormOpen(false)
+    } catch (err) {
+      setFormError(err.message || 'Failed to save document')
+    } finally {
+      setFormSaving(false)
     }
-    setFormSaving(false)
-    setFormOpen(false)
-  }, [editTarget])
+  }, [editTarget, createItem, updateItem])
 
-  const handleDelete = useCallback(() => {
+  const handleDelete = useCallback(async () => {
     if (!deleteId) return
-    // ── API swap: replace with await api.delete(`/documents/${deleteId}`) ──
-    setDocuments(prev => prev.filter(d => d.id !== deleteId))
-    setDeleteId(null)
-  }, [deleteId])
+    setDeleteLoading(true)
+    try {
+      await deleteItem(deleteId)
+      setDeleteId(null)
+    } catch (err) {
+      console.error('[doc-expiry] delete failed:', err)
+    } finally {
+      setDeleteLoading(false)
+    }
+  }, [deleteId, deleteItem])
 
-  const handleFiltersChange = useCallback((f) => {
-    setFilters(f)
-  }, [])
-
-  const handleQuickFilter = useCallback((id) => {
+  const handleFiltersChange = useCallback((f) => setFilters(f), [])
+  const handleQuickFilter   = useCallback((id) => {
     setActiveQuick(id)
     setFilters(EMPTY_FILTERS)
   }, [])
@@ -125,7 +99,6 @@ export function DocumentExpiryPage() {
     <div className="page">
       <div className="doc-expiry-page">
 
-        {/* Page header */}
         <div className="doc-page-hero">
           <div>
             <h1 className="doc-page-title">Document Expiry Tracker</h1>
@@ -139,10 +112,14 @@ export function DocumentExpiryPage() {
           </button>
         </div>
 
-        {/* Summary cards — always from full dataset, not filtered */}
+        {error && (
+          <div className="doc-error-banner">
+            ⚠ {error}
+          </div>
+        )}
+
         <DocSummaryCards documents={documents} />
 
-        {/* Filters */}
         <DocFiltersBar
           filters={filters}
           onChange={handleFiltersChange}
@@ -150,21 +127,24 @@ export function DocumentExpiryPage() {
           activeQuick={activeQuick}
         />
 
-        {/* Table / empty state */}
-        <DocTable
-          documents={filtered}
-          onEdit={openEdit}
-          onDelete={(id) => setDeleteId(id)}
-        />
+        {loading ? (
+          <div className="doc-loading">Loading documents…</div>
+        ) : (
+          <DocTable
+            documents={filtered}
+            onEdit={openEdit}
+            onDelete={(id) => setDeleteId(id)}
+          />
+        )}
       </div>
 
-      {/* Add / Edit modal */}
       <Modal
         title={editTarget ? 'Edit Document' : 'Add New Document'}
         open={formOpen}
         onClose={() => setFormOpen(false)}
         panelClassName="modal-panel--wide"
       >
+        {formError && <p className="doc-form-error">{formError}</p>}
         <DocForm
           initialValue={editTarget}
           onSave={handleSave}
@@ -173,7 +153,6 @@ export function DocumentExpiryPage() {
         />
       </Modal>
 
-      {/* Delete confirmation modal */}
       <Modal
         title="Delete Document"
         open={Boolean(deleteId)}
@@ -186,8 +165,13 @@ export function DocumentExpiryPage() {
           <button type="button" className="btn btn--ghost" onClick={() => setDeleteId(null)}>
             Cancel
           </button>
-          <button type="button" className="btn btn--danger" onClick={handleDelete}>
-            Delete
+          <button
+            type="button"
+            className="btn btn--danger"
+            onClick={handleDelete}
+            disabled={deleteLoading}
+          >
+            {deleteLoading ? 'Deleting…' : 'Delete'}
           </button>
         </div>
       </Modal>

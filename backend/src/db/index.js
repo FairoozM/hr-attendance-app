@@ -349,6 +349,27 @@ async function ensureInfluencersSnapshotTable() {
   `)
 }
 
+async function ensureDocumentExpiryTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS document_expiry (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(500) NOT NULL,
+      document_type VARCHAR(255) NOT NULL DEFAULT '',
+      company VARCHAR(255) NOT NULL DEFAULT '',
+      expiry_date DATE,
+      reminder_days INTEGER NOT NULL DEFAULT 30,
+      renewal_frequency VARCHAR(100) NOT NULL DEFAULT '',
+      period_covered VARCHAR(255) NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '',
+      workflow_status VARCHAR(50) NOT NULL DEFAULT 'Pending',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_doc_expiry_expiry_date ON document_expiry(expiry_date)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_doc_expiry_company ON document_expiry(company)`)
+}
+
 async function ensureSimCardsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS sim_cards (
@@ -518,6 +539,11 @@ async function testConnection() {
     console.error('[db] ensureInfluencersSnapshotTable skipped/failed (non-fatal):', e.message || e)
   }
   await ensureSimCardsTable()
+  try {
+    await ensureDocumentExpiryTable()
+  } catch (e) {
+    console.error('[db] ensureDocumentExpiryTable skipped/failed (non-fatal):', e.message || e)
+  }
 }
 
 module.exports = {
@@ -533,4 +559,5 @@ module.exports = {
   ensureUsersTable,
   ensureDefaultAdminUser,
   ensureInfluencersSnapshotTable,
+  ensureDocumentExpiryTable,
 }

@@ -5,7 +5,7 @@ import { useSettings } from '../contexts/SettingsContext'
 import { useAuth, hasPermission, hasAnyModulePermission } from '../contexts/AuthContext'
 import { useNotifications } from '../hooks/useNotifications'
 import { useDocumentReminders } from '../hooks/useDocumentReminders'
-import { SEED_DOCUMENTS } from '../pages/management/data/seedDocuments'
+import { useDocumentExpiry } from '../hooks/useDocumentExpiry'
 import { RoleGuard } from './RoleGuard'
 import { ThemeToggle } from './ThemeToggle'
 import { fmtDMY } from '../utils/dateFormat'
@@ -184,20 +184,10 @@ function NavGroup({ label, children, isActive, defaultOpen = false, hint }) {
 const DOC_URGENCY_LABEL = { expired: 'Expired', urgent: 'Urgent', 'due-soon': 'Due Soon' }
 const DOC_URGENCY_CLS   = { expired: 'notif-doc-badge--expired', urgent: 'notif-doc-badge--urgent', 'due-soon': 'notif-doc-badge--due-soon' }
 
-const LS_DISMISSED_KEY = 'notif_dismissed_doc_ids'
-
-function loadDismissedDocIds() {
-  try {
-    const raw = localStorage.getItem(LS_DISMISSED_KEY)
-    if (raw) return new Set(JSON.parse(raw))
-  } catch { /* ignore */ }
-  return new Set()
-}
-
 function NotificationsBell({ docReminders = [] }) {
   const { items, unread, loading, refresh, markRead, markAllRead, dismiss } = useNotifications(true)
   const [open, setOpen] = useState(false)
-  const [dismissedDocIds, setDismissedDocIds] = useState(loadDismissedDocIds)
+  const [dismissedDocIds, setDismissedDocIds] = useState(() => new Set())
   const wrapRef = useRef(null)
 
   useEffect(() => {
@@ -213,11 +203,7 @@ function NotificationsBell({ docReminders = [] }) {
   const totalUnread = unread + visibleDocReminders.length
 
   function dismissDoc(id) {
-    setDismissedDocIds((prev) => {
-      const next = new Set([...prev, id])
-      try { localStorage.setItem(LS_DISMISSED_KEY, JSON.stringify([...next])) } catch { /* ignore */ }
-      return next
-    })
+    setDismissedDocIds((prev) => new Set([...prev, id]))
   }
 
   return (
@@ -350,8 +336,8 @@ export function Layout() {
   const isEmployee = user?.role === 'employee'
   const can = (module, action) => hasPermission(user, module, action)
 
-  // API integration point: replace SEED_DOCUMENTS with fetched documents state
-  const docReminders = useDocumentReminders(SEED_DOCUMENTS)
+  const { items: docExpiryItems } = useDocumentExpiry()
+  const docReminders = useDocumentReminders(docExpiryItems)
 
   const toggleSidebar = useCallback(() => setIsSidebarOpen(prev => !prev), [])
   const closeSidebar = useCallback(() => setIsSidebarOpen(false), [])
