@@ -25,6 +25,7 @@ import { PaymentsPage } from './pages/influencers/PaymentsPage'
 import { AgreementsPage } from './pages/influencers/AgreementsPage'
 import { ReportsPage } from './pages/influencers/ReportsPage'
 import { SimCardsPage } from './pages/SimCardsPage'
+import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
 import { useEmployees } from './hooks/useEmployees'
 import { useAttendanceManagedEmployees } from './hooks/useAttendanceManagedEmployees'
 import { useAttendance, clearAllAttendanceStorage } from './hooks/useAttendance'
@@ -149,6 +150,10 @@ function AppContent() {
               <SimCardsPage />
             </PermissionGuard>
           }
+        />
+        <Route
+          path="management/document-expiry"
+          element={<DocumentExpiryPage />}
         />
         <Route
           path="employees/:id/profile"

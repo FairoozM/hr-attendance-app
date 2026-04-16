@@ -169,6 +169,7 @@ export function Layout() {
   const isHrActive = HR_ROUTES.some(r => location.pathname.startsWith(r))
   const isListsActive = LISTS_ROUTES.some(r => location.pathname.startsWith(r))
   const isInfluencersActive = location.pathname.startsWith('/influencers')
+  const isManagementActive = location.pathname.startsWith('/management')
   const hasAnyInfluencerAccess = hasAnyModulePermission(user, 'influencers')
   const hasAnyListsAccess = hasAnyModulePermission(user, 'sim_cards')
   const currentSectionLabel = useMemo(() => {
@@ -180,6 +181,7 @@ export function Layout() {
     if (location.pathname.startsWith('/lists/sim-cards')) return 'Sim Cards List'
     if (location.pathname.startsWith('/influencers')) return 'Influencers'
     if (location.pathname.startsWith('/account')) return 'My Account'
+    if (location.pathname.startsWith('/management/document-expiry')) return 'Document Expiry Tracker'
     return 'Dashboard'
   }, [location.pathname])
 
@@ -292,6 +294,20 @@ export function Layout() {
             )}
 
             <NavGroup label="Amazon" hint="Reserved" isActive={false} />
+
+            <div className="app-sidebar__section-label" role="presentation">
+              Management
+            </div>
+            <NavGroup label="Management" hint="Compliance" isActive={isManagementActive}>
+              <NavLink
+                to="/management/document-expiry"
+                className={subLinkClass}
+                onClick={closeSidebar}
+              >
+                <span className="nav-group__link-dot" aria-hidden />
+                Document Expiry Tracker
+              </NavLink>
+            </NavGroup>
 
             <div className="app-sidebar__section-label" role="presentation">
               Account

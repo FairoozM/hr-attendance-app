@@ -1,0 +1,181 @@
+import { useState, useMemo, useCallback } from 'react'
+import { Modal } from '../../components/Modal'
+import { DocSummaryCards } from './components/DocSummaryCards'
+import { DocFiltersBar } from './components/DocFiltersBar'
+import { DocForm } from './components/DocForm'
+import { DocTable } from './components/DocTable'
+import { getSmartStatus, STATUS } from './utils/docExpiryUtils'
+import { SEED_DOCUMENTS } from './data/seedDocuments'
+import './DocumentExpiryPage.css'
+
+// ── API integration point ─────────────────────────────────────────────────────
+// To connect to a backend, replace the useState(SEED_DOCUMENTS) initializer
+// with a useEffect that fetches from your API and sets the documents state.
+// The onSave / onDelete handlers already have clearly marked swap points.
+// ─────────────────────────────────────────────────────────────────────────────
+
+let _nextId = SEED_DOCUMENTS.length + 1
+
+const EMPTY_FILTERS = {
+  search: '',
+  docType: '',
+  company: '',
+  status: '',
+  responsible: '',
+  _persons: [],
+}
+
+export function DocumentExpiryPage() {
+  const [documents, setDocuments] = useState(SEED_DOCUMENTS)
+  const [filters, setFilters] = useState(EMPTY_FILTERS)
+  const [activeQuick, setActiveQuick] = useState('all')
+
+  const [formOpen, setFormOpen]     = useState(false)
+  const [editTarget, setEditTarget] = useState(null)
+  const [formSaving, setFormSaving] = useState(false)
+  const [deleteId, setDeleteId]     = useState(null)
+
+  // Derive persons list from current data for the responsible-person dropdown
+  const persons = useMemo(
+    () => Array.from(new Set(documents.map(d => d.responsiblePerson).filter(Boolean))).sort(),
+    [documents]
+  )
+
+  // Compose quick-filter + field filters
+  const filtered = useMemo(() => {
+    const q = filters.search.trim().toLowerCase()
+    return documents.filter(doc => {
+      if (activeQuick === 'vat'      && doc.documentType !== 'VAT Filing')              return false
+      if (activeQuick === 'expired'  && getSmartStatus(doc.expiryDate) !== STATUS.EXPIRED)  return false
+      if (activeQuick === 'due-soon' && getSmartStatus(doc.expiryDate) !== STATUS.DUE_SOON) return false
+      if (activeQuick === 'urgent'   && getSmartStatus(doc.expiryDate) !== STATUS.URGENT)   return false
+
+      if (filters.docType     && doc.documentType          !== filters.docType)     return false
+      if (filters.company     && doc.company               !== filters.company)     return false
+      if (filters.status      && getSmartStatus(doc.expiryDate) !== filters.status) return false
+      if (filters.responsible && doc.responsiblePerson     !== filters.responsible) return false
+
+      if (q) {
+        const blob = [doc.name, doc.documentType, doc.company, doc.responsiblePerson, doc.place, doc.periodCovered]
+          .join(' ').toLowerCase()
+        if (!blob.includes(q)) return false
+      }
+      return true
+    })
+  }, [documents, filters, activeQuick])
+
+  const openAdd = useCallback(() => {
+    setEditTarget(null)
+    setFormOpen(true)
+  }, [])
+
+  const openEdit = useCallback((doc) => {
+    setEditTarget(doc)
+    setFormOpen(true)
+  }, [])
+
+  const handleSave = useCallback((form) => {
+    setFormSaving(true)
+    // ── API swap: replace this block with await api.post/put(...) ──
+    const now = new Date().toISOString().slice(0, 10)
+    if (editTarget) {
+      setDocuments(prev =>
+        prev.map(d => d.id === editTarget.id ? { ...d, ...form, updatedAt: now } : d)
+      )
+    } else {
+      const id = String(_nextId++)
+      setDocuments(prev => [...prev, { ...form, id, attachment: null, createdAt: now, updatedAt: now }])
+    }
+    setFormSaving(false)
+    setFormOpen(false)
+  }, [editTarget])
+
+  const handleDelete = useCallback(() => {
+    if (!deleteId) return
+    // ── API swap: replace with await api.delete(`/documents/${deleteId}`) ──
+    setDocuments(prev => prev.filter(d => d.id !== deleteId))
+    setDeleteId(null)
+  }, [deleteId])
+
+  const handleFiltersChange = useCallback((f) => {
+    setFilters({ ...f, _persons: persons })
+  }, [persons])
+
+  const handleQuickFilter = useCallback((id) => {
+    setActiveQuick(id)
+    setFilters({ ...EMPTY_FILTERS, _persons: persons })
+  }, [persons])
+
+  return (
+    <div className="page">
+      <div className="doc-expiry-page">
+
+        {/* Page header */}
+        <div className="doc-page-hero">
+          <div>
+            <h1 className="doc-page-title">Document Expiry Tracker</h1>
+            <p className="doc-page-subtitle">
+              Track compliance deadlines, renewals, trade licenses, subscriptions, and
+              VAT filings for UAE &amp; KSA operations.
+            </p>
+          </div>
+          <button type="button" className="btn btn--primary" onClick={openAdd}>
+            + Add Document
+          </button>
+        </div>
+
+        {/* Summary cards — recalculate from ALL documents, not the filtered set */}
+        <DocSummaryCards documents={documents} />
+
+        {/* Filters */}
+        <DocFiltersBar
+          filters={{ ...filters, _persons: persons }}
+          onChange={handleFiltersChange}
+          onQuickFilter={handleQuickFilter}
+          activeQuick={activeQuick}
+        />
+
+        {/* Table / empty state */}
+        <DocTable
+          documents={filtered}
+          onEdit={openEdit}
+          onDelete={(id) => setDeleteId(id)}
+        />
+      </div>
+
+      {/* Add / Edit modal */}
+      <Modal
+        title={editTarget ? 'Edit Document' : 'Add New Document'}
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        panelClassName="modal-panel--wide"
+      >
+        <DocForm
+          initialValue={editTarget}
+          onSave={handleSave}
+          onCancel={() => setFormOpen(false)}
+          saving={formSaving}
+        />
+      </Modal>
+
+      {/* Delete confirmation modal */}
+      <Modal
+        title="Delete Document"
+        open={Boolean(deleteId)}
+        onClose={() => setDeleteId(null)}
+      >
+        <p className="delete-confirm-text">
+          Are you sure you want to delete this document record? This action cannot be undone.
+        </p>
+        <div className="doc-form__actions">
+          <button type="button" className="btn btn--ghost" onClick={() => setDeleteId(null)}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn--danger" onClick={handleDelete}>
+            Delete
+          </button>
+        </div>
+      </Modal>
+    </div>
+  )
+}
