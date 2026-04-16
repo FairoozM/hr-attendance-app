@@ -47,5 +47,10 @@ export function useNotifications(enabled) {
     await load()
   }, [enabled, load])
 
-  return { items, unread, loading, refresh: load, markRead, markAllRead }
+  const dismiss = useCallback((id) => {
+    setItems((prev) => prev.filter((n) => n.id !== id))
+    setUnread((prev) => Math.max(0, prev - 1))
+  }, [])
+
+  return { items, unread, loading, refresh: load, markRead, markAllRead, dismiss }
 }

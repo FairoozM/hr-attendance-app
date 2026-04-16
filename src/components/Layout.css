@@ -685,7 +685,6 @@
   padding: 0.65rem 0.75rem;
   margin-bottom: 0.25rem;
   background: var(--theme-surface-soft);
-  cursor: pointer;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
@@ -699,6 +698,55 @@
 
 .notif-item--read {
   opacity: 0.72;
+}
+
+/* row: content on left, dismiss button on right */
+.notif-item__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+/* stretch the readable content to fill the row */
+.notif-item__read-btn {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  color: inherit;
+}
+
+/* dismiss × button */
+.notif-item__dismiss {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.notif-item:hover .notif-item__dismiss,
+.notif-item--doc:hover .notif-item__dismiss {
+  opacity: 1;
+}
+
+.notif-item__dismiss:hover {
+  background: rgba(248, 113, 113, 0.15);
+  color: #f87171;
 }
 
 .notif-item__title {
@@ -748,6 +796,7 @@
   gap: 0.22rem;
   width: 100%;
   border: 1px solid rgba(251, 146, 60, 0.18);
+  position: relative;
   border-radius: 0.85rem;
   padding: 0.65rem 0.75rem;
   margin-bottom: 0.25rem;

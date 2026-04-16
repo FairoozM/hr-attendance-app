@@ -185,8 +185,9 @@ const DOC_URGENCY_LABEL = { expired: 'Expired', urgent: 'Urgent', 'due-soon': 'D
 const DOC_URGENCY_CLS   = { expired: 'notif-doc-badge--expired', urgent: 'notif-doc-badge--urgent', 'due-soon': 'notif-doc-badge--due-soon' }
 
 function NotificationsBell({ docReminders = [] }) {
-  const { items, unread, loading, refresh, markRead, markAllRead } = useNotifications(true)
+  const { items, unread, loading, refresh, markRead, markAllRead, dismiss } = useNotifications(true)
   const [open, setOpen] = useState(false)
+  const [dismissedDocIds, setDismissedDocIds] = useState(new Set())
   const wrapRef = useRef(null)
 
   useEffect(() => {
@@ -198,7 +199,12 @@ function NotificationsBell({ docReminders = [] }) {
     return () => document.removeEventListener('mousedown', onDocClick)
   }, [open])
 
-  const totalUnread = unread + docReminders.length
+  const visibleDocReminders = docReminders.filter((n) => !dismissedDocIds.has(n.id))
+  const totalUnread = unread + visibleDocReminders.length
+
+  function dismissDoc(id) {
+    setDismissedDocIds((prev) => new Set([...prev, id]))
+  }
 
   return (
     <div className="notif-bell-wrap" ref={wrapRef}>
@@ -234,24 +240,36 @@ function NotificationsBell({ docReminders = [] }) {
 
           <div className="notif-panel__body">
             {/* ── Document reminder section ── */}
-            {docReminders.length > 0 && (
+            {visibleDocReminders.length > 0 && (
               <>
                 <div className="notif-section-label">Document Reminders</div>
-                {docReminders.map((n) => (
+                {visibleDocReminders.map((n) => (
                   <div key={n.id} className="notif-item notif-item--doc">
-                    <span className="notif-item__title">
-                      {n.title}
-                      <span className={`notif-doc-badge ${DOC_URGENCY_CLS[n._urgency] || ''}`}>
-                        {DOC_URGENCY_LABEL[n._urgency] || n._urgency}
+                    <div className="notif-item__row">
+                      <span className="notif-item__title">
+                        {n.title}
+                        <span className={`notif-doc-badge ${DOC_URGENCY_CLS[n._urgency] || ''}`}>
+                          {DOC_URGENCY_LABEL[n._urgency] || n._urgency}
+                        </span>
                       </span>
-                    </span>
+                      <button
+                        type="button"
+                        className="notif-item__dismiss"
+                        aria-label="Dismiss notification"
+                        onClick={() => dismissDoc(n.id)}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
+                          <line x1="18" y1="6" x2="6" y2="18" />
+                          <line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                      </button>
+                    </div>
                     {n._company && (
                       <span className="notif-item__company">{n._company}{n._docType ? ` · ${n._docType}` : ''}</span>
                     )}
                     <span className="notif-item__msg">{n.message}</span>
                     <span className="notif-item__meta">
                       {n.scheduled_for ? fmtDMY(n.scheduled_for) : ''}
-                      <span className="notif-item__dot" />
                     </span>
                   </div>
                 ))}
@@ -259,29 +277,46 @@ function NotificationsBell({ docReminders = [] }) {
             )}
 
             {/* ── HR / system notifications section ── */}
-            {docReminders.length > 0 && (items.length > 0 || loading) && (
+            {visibleDocReminders.length > 0 && (items.length > 0 || loading) && (
               <div className="notif-section-label">System Notifications</div>
             )}
 
             {loading && <div className="notif-panel__empty">Loading…</div>}
-            {!loading && items.length === 0 && docReminders.length === 0 && (
+            {!loading && items.length === 0 && visibleDocReminders.length === 0 && (
               <div className="notif-panel__empty">No notifications yet.</div>
             )}
             {!loading &&
               items.map((n) => (
-                <button
+                <div
                   key={n.id}
-                  type="button"
                   className={`notif-item ${n.is_read ? 'notif-item--read' : ''}`}
-                  onClick={() => { if (!n.is_read) markRead(n.id) }}
                 >
-                  <span className="notif-item__title">{n.title || 'Notice'}</span>
-                  <span className="notif-item__msg">{n.message}</span>
-                  <span className="notif-item__meta">
-                    {n.scheduled_for ? fmtDMY(n.scheduled_for) : ''}
-                    {!n.is_read && <span className="notif-item__dot" />}
-                  </span>
-                </button>
+                  <div className="notif-item__row">
+                    <button
+                      type="button"
+                      className="notif-item__read-btn"
+                      onClick={() => { if (!n.is_read) markRead(n.id) }}
+                    >
+                      <span className="notif-item__title">{n.title || 'Notice'}</span>
+                      <span className="notif-item__msg">{n.message}</span>
+                      <span className="notif-item__meta">
+                        {n.scheduled_for ? fmtDMY(n.scheduled_for) : ''}
+                        {!n.is_read && <span className="notif-item__dot" />}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="notif-item__dismiss"
+                      aria-label="Dismiss notification"
+                      onClick={() => dismiss(n.id)}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
               ))}
           </div>
         </div>
