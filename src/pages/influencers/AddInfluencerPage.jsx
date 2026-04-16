@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   User, Smartphone, Mail, Globe2, MapPin, Sparkles, ChevronRight,
@@ -84,6 +84,69 @@ function FSelect({ icon: Icon, label, value, onChange, options }) {
           </select>
         </div>
       </div>
+    </div>
+  )
+}
+
+/** Instagram live preview card shown in the Social step */
+function InstagramPreviewCard({ handle }) {
+  const [visible, setVisible] = useState(false)
+  const [imgError, setImgError] = useState(false)
+  const username = handle ? handle.replace(/^@/, '').trim() : ''
+
+  useEffect(() => {
+    setImgError(false)
+    setVisible(false)
+    if (!username) return
+    const t = setTimeout(() => setVisible(true), 600)
+    return () => clearTimeout(t)
+  }, [username])
+
+  if (!username || !visible) return null
+
+  const profileUrl = `https://www.instagram.com/${username}/`
+  const avatarSrc = `https://unavatar.io/instagram/${username}`
+
+  return (
+    <div className="aif-ig-preview">
+      <p className="aif-ig-preview__label">Instagram Preview</p>
+      <a href={profileUrl} target="_blank" rel="noopener noreferrer" className="ig-profile-card">
+        <div className="ig-profile-card__avatar-wrap">
+          {!imgError ? (
+            <img
+              src={avatarSrc}
+              alt={username}
+              className="ig-profile-card__avatar"
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            <div className="ig-profile-card__avatar-fallback">
+              <span>{username.slice(0, 2).toUpperCase()}</span>
+            </div>
+          )}
+          <div className="ig-profile-card__avatar-ring" />
+        </div>
+        <div className="ig-profile-card__info">
+          <span className="ig-profile-card__name">@{username}</span>
+          <span className="ig-profile-card__cta">View on Instagram ↗</span>
+        </div>
+        <div className="ig-profile-card__logo">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="ig-grad-wiz" x1="0" y1="24" x2="24" y2="0" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="#f09433"/>
+                <stop offset="25%" stopColor="#e6683c"/>
+                <stop offset="50%" stopColor="#dc2743"/>
+                <stop offset="75%" stopColor="#cc2366"/>
+                <stop offset="100%" stopColor="#bc1888"/>
+              </linearGradient>
+            </defs>
+            <rect x="2" y="2" width="20" height="20" rx="6" fill="url(#ig-grad-wiz)"/>
+            <circle cx="12" cy="12" r="4.5" stroke="white" strokeWidth="1.8" fill="none"/>
+            <circle cx="17.5" cy="6.5" r="1.2" fill="white"/>
+          </svg>
+        </div>
+      </a>
     </div>
   )
 }
@@ -218,6 +281,9 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
           <div className="aif-row2">
             <FInput icon={Camera}        label="Instagram Handle"  value={form.instagram?.handle} onChange={v => setNested('instagram','handle',v)} placeholder="@handle" />
             <FInput icon={Link2}         label="Instagram URL"     value={form.instagram?.url}    onChange={v => setNested('instagram','url',v)}    placeholder="https://instagram.com/…" />
+          </div>
+          <InstagramPreviewCard handle={form.instagram?.handle} />
+          <div className="aif-row2">
             <FInput icon={Video}         label="YouTube Handle"    value={form.youtube?.handle}   onChange={v => setNested('youtube','handle',v)}   placeholder="Channel name" />
             <FInput icon={Link2}         label="YouTube URL"       value={form.youtube?.url}      onChange={v => setNested('youtube','url',v)}      placeholder="https://youtube.com/@…" />
             <FInput icon={Hash}          label="TikTok Handle"     value={form.tiktok?.handle}    onChange={v => setNested('tiktok','handle',v)}    placeholder="@handle" />

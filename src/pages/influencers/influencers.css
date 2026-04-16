@@ -2076,3 +2076,151 @@
   background: rgba(99, 102, 241, 0.15);
   color: var(--accent);
 }
+
+/* ── Instagram Profile Card ── */
+.ig-profile-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(240, 148, 51, 0.08), rgba(188, 24, 136, 0.12));
+  border: 1px solid rgba(240, 148, 51, 0.22);
+  text-decoration: none;
+  transition: background 0.2s, border-color 0.2s, transform 0.15s;
+  cursor: pointer;
+  width: 100%;
+  max-width: 480px;
+}
+
+.ig-profile-card:hover {
+  background: linear-gradient(135deg, rgba(240, 148, 51, 0.14), rgba(188, 24, 136, 0.2));
+  border-color: rgba(240, 148, 51, 0.4);
+  transform: translateY(-1px);
+}
+
+.ig-profile-card__avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+}
+
+.ig-profile-card__avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+  position: relative;
+  z-index: 1;
+}
+
+.ig-profile-card__avatar-fallback {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f09433, #dc2743, #bc1888);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #fff;
+  position: relative;
+  z-index: 1;
+}
+
+.ig-profile-card__avatar-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888);
+  z-index: 0;
+  padding: 2px;
+}
+
+.ig-profile-card__info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.ig-profile-card__name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ig-profile-card__meta {
+  font-size: 0.78rem;
+  color: var(--text-muted, rgba(255,255,255,0.55));
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.ig-profile-card__dot {
+  opacity: 0.5;
+}
+
+.ig-profile-card__cta {
+  font-size: 0.75rem;
+  color: #e6683c;
+  font-weight: 500;
+  margin-top: 0.1rem;
+}
+
+.ig-profile-card__logo {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+}
+
+.ig-profile-card__logo svg {
+  width: 32px;
+  height: 32px;
+}
+
+/* Wizard preview wrapper */
+.aif-ig-preview {
+  margin: 0.75rem 0 1rem;
+}
+
+.aif-ig-preview__label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted, rgba(255,255,255,0.45));
+  margin-bottom: 0.5rem;
+}
+
+/* Light theme overrides */
+:root[data-theme='light'] .ig-profile-card {
+  background: linear-gradient(135deg, rgba(240, 148, 51, 0.06), rgba(188, 24, 136, 0.09));
+  border-color: rgba(240, 148, 51, 0.28);
+}
+
+:root[data-theme='light'] .ig-profile-card:hover {
+  background: linear-gradient(135deg, rgba(240, 148, 51, 0.12), rgba(188, 24, 136, 0.16));
+  border-color: rgba(240, 148, 51, 0.45);
+}
+
+:root[data-theme='light'] .ig-profile-card__name {
+  color: #1e1e2e;
+}
+
+:root[data-theme='light'] .ig-profile-card__meta {
+  color: rgba(30, 30, 46, 0.55);
+}
+
+:root[data-theme='light'] .aif-ig-preview__label {
+  color: rgba(30, 30, 46, 0.45);
+}

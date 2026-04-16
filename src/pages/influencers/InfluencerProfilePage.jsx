@@ -23,6 +23,65 @@ function payBadge(status) {
   return `inf-badge inf-badge--dot ${map[status] || 'inf-badge--not-requested'}`
 }
 
+function InstagramProfileCard({ handle, url, followersCount, niche }) {
+  const username = handle ? handle.replace(/^@/, '') : null
+  const [imgError, setImgError] = useState(false)
+  if (!username) return null
+  const profileUrl = url || `https://www.instagram.com/${username}/`
+  const avatarSrc = `https://unavatar.io/instagram/${username}`
+  return (
+    <a
+      href={profileUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="ig-profile-card"
+    >
+      <div className="ig-profile-card__avatar-wrap">
+        {!imgError ? (
+          <img
+            src={avatarSrc}
+            alt={username}
+            className="ig-profile-card__avatar"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <div className="ig-profile-card__avatar-fallback">
+            <span>{username.slice(0, 2).toUpperCase()}</span>
+          </div>
+        )}
+        <div className="ig-profile-card__avatar-ring" />
+      </div>
+      <div className="ig-profile-card__info">
+        <span className="ig-profile-card__name">@{username}</span>
+        {(followersCount || niche) && (
+          <span className="ig-profile-card__meta">
+            {followersCount && <span>{followersCount} followers</span>}
+            {followersCount && niche && <span className="ig-profile-card__dot">·</span>}
+            {niche && <span>{niche}</span>}
+          </span>
+        )}
+        <span className="ig-profile-card__cta">View on Instagram ↗</span>
+      </div>
+      <div className="ig-profile-card__logo">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="ig-grad" x1="0" y1="24" x2="24" y2="0" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stopColor="#f09433"/>
+              <stop offset="25%" stopColor="#e6683c"/>
+              <stop offset="50%" stopColor="#dc2743"/>
+              <stop offset="75%" stopColor="#cc2366"/>
+              <stop offset="100%" stopColor="#bc1888"/>
+            </linearGradient>
+          </defs>
+          <rect x="2" y="2" width="20" height="20" rx="6" fill="url(#ig-grad)"/>
+          <circle cx="12" cy="12" r="4.5" stroke="white" strokeWidth="1.8" fill="none"/>
+          <circle cx="17.5" cy="6.5" r="1.2" fill="white"/>
+        </svg>
+      </div>
+    </a>
+  )
+}
+
 function KV({ label, value, link }) {
   if (!value) return null
   return (
@@ -194,6 +253,22 @@ export function InfluencerProfilePage() {
 
       {tab === 'Social & Audience' && (
         <div className="inf-profile-grid">
+          {inf.instagram?.handle && (
+            <div className="inf-profile-section inf-profile-section--full">
+              <div className="inf-profile-section__head">
+                <span className="inf-profile-section__head-icon">📸</span>
+                <span className="inf-profile-section__head-title">Instagram Profile</span>
+              </div>
+              <div className="inf-profile-section__body">
+                <InstagramProfileCard
+                  handle={inf.instagram.handle}
+                  url={inf.instagram.url}
+                  followersCount={inf.followersCount}
+                  niche={inf.niche}
+                />
+              </div>
+            </div>
+          )}
           <Section icon="📱" title="Social Media Handles">
             {inf.instagram?.handle && <KV label="Instagram" value={inf.instagram.handle} link={inf.instagram.url || undefined} />}
             {inf.youtube?.handle && <KV label="YouTube" value={inf.youtube.handle} link={inf.youtube.url || undefined} />}
