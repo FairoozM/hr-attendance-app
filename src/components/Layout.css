@@ -731,6 +731,63 @@
   box-shadow: 0 0 8px rgba(244, 63, 94, 0.5);
 }
 
+/* ── Notification section divider label ── */
+.notif-section-label {
+  padding: 0.5rem 0.75rem 0.3rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--theme-text-dim);
+}
+
+/* ── Document reminder items ── */
+.notif-item--doc {
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+  width: 100%;
+  border: 1px solid rgba(251, 146, 60, 0.18);
+  border-radius: 0.85rem;
+  padding: 0.65rem 0.75rem;
+  margin-bottom: 0.25rem;
+  background: rgba(251, 146, 60, 0.06);
+  cursor: default;
+}
+
+.notif-item__company {
+  font-size: 0.72rem;
+  color: var(--theme-text-dim);
+  letter-spacing: 0.03em;
+}
+
+.notif-item__title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-soft);
+}
+
+/* ── Urgency badges inside doc reminder items ── */
+.notif-doc-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.notif-doc-badge--expired  { background: rgba(248, 113, 113, 0.2);  color: #f87171; }
+.notif-doc-badge--urgent   { background: rgba(251, 146, 60, 0.22);  color: #fb923c; }
+.notif-doc-badge--due-soon { background: rgba(251, 191, 36, 0.2);   color: #fbbf24; }
+
 .app-main {
   flex: 1;
   min-width: 0;

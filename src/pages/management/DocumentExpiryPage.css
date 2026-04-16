@@ -112,7 +112,7 @@
 
 .doc-filters__fields {
   display: grid;
-  grid-template-columns: minmax(180px, 1.8fr) repeat(4, minmax(130px, 1fr)) auto;
+  grid-template-columns: minmax(180px, 1.8fr) repeat(3, minmax(130px, 1fr)) auto;
   gap: 0.55rem;
   align-items: center;
 }
@@ -352,7 +352,7 @@
   }
 
   .doc-filters__fields {
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: 1fr 1fr;
   }
 }
 

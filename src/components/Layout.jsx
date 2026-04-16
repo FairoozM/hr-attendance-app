@@ -4,6 +4,8 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useSettings } from '../contexts/SettingsContext'
 import { useAuth, hasPermission, hasAnyModulePermission } from '../contexts/AuthContext'
 import { useNotifications } from '../hooks/useNotifications'
+import { useDocumentReminders } from '../hooks/useDocumentReminders'
+import { SEED_DOCUMENTS } from '../pages/management/data/seedDocuments'
 import { RoleGuard } from './RoleGuard'
 import { ThemeToggle } from './ThemeToggle'
 import { fmtDMY } from '../utils/dateFormat'
@@ -179,7 +181,10 @@ function NavGroup({ label, children, isActive, defaultOpen = false, hint }) {
   )
 }
 
-function NotificationsBell() {
+const DOC_URGENCY_LABEL = { expired: 'Expired', urgent: 'Urgent', 'due-soon': 'Due Soon' }
+const DOC_URGENCY_CLS   = { expired: 'notif-doc-badge--expired', urgent: 'notif-doc-badge--urgent', 'due-soon': 'notif-doc-badge--due-soon' }
+
+function NotificationsBell({ docReminders = [] }) {
   const { items, unread, loading, refresh, markRead, markAllRead } = useNotifications(true)
   const [open, setOpen] = useState(false)
   const wrapRef = useRef(null)
@@ -192,6 +197,8 @@ function NotificationsBell() {
     document.addEventListener('mousedown', onDocClick)
     return () => document.removeEventListener('mousedown', onDocClick)
   }, [open])
+
+  const totalUnread = unread + docReminders.length
 
   return (
     <div className="notif-bell-wrap" ref={wrapRef}>
@@ -209,8 +216,11 @@ function NotificationsBell() {
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
           <path d="M13.73 21a2 2 0 0 1-3.46 0" />
         </svg>
-        {unread > 0 && <span className="notif-bell-badge">{unread > 99 ? '99+' : unread}</span>}
+        {totalUnread > 0 && (
+          <span className="notif-bell-badge">{totalUnread > 99 ? '99+' : totalUnread}</span>
+        )}
       </button>
+
       {open && (
         <div className="notif-panel" role="dialog" aria-label="Notifications">
           <div className="notif-panel__head">
@@ -221,9 +231,40 @@ function NotificationsBell() {
               </button>
             )}
           </div>
+
           <div className="notif-panel__body">
+            {/* ── Document reminder section ── */}
+            {docReminders.length > 0 && (
+              <>
+                <div className="notif-section-label">Document Reminders</div>
+                {docReminders.map((n) => (
+                  <div key={n.id} className="notif-item notif-item--doc">
+                    <span className="notif-item__title">
+                      {n.title}
+                      <span className={`notif-doc-badge ${DOC_URGENCY_CLS[n._urgency] || ''}`}>
+                        {DOC_URGENCY_LABEL[n._urgency] || n._urgency}
+                      </span>
+                    </span>
+                    {n._company && (
+                      <span className="notif-item__company">{n._company}{n._docType ? ` · ${n._docType}` : ''}</span>
+                    )}
+                    <span className="notif-item__msg">{n.message}</span>
+                    <span className="notif-item__meta">
+                      {n.scheduled_for ? fmtDMY(n.scheduled_for) : ''}
+                      <span className="notif-item__dot" />
+                    </span>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {/* ── HR / system notifications section ── */}
+            {docReminders.length > 0 && (items.length > 0 || loading) && (
+              <div className="notif-section-label">System Notifications</div>
+            )}
+
             {loading && <div className="notif-panel__empty">Loading…</div>}
-            {!loading && items.length === 0 && (
+            {!loading && items.length === 0 && docReminders.length === 0 && (
               <div className="notif-panel__empty">No notifications yet.</div>
             )}
             {!loading &&
@@ -232,9 +273,7 @@ function NotificationsBell() {
                   key={n.id}
                   type="button"
                   className={`notif-item ${n.is_read ? 'notif-item--read' : ''}`}
-                  onClick={() => {
-                    if (!n.is_read) markRead(n.id)
-                  }}
+                  onClick={() => { if (!n.is_read) markRead(n.id) }}
                 >
                   <span className="notif-item__title">{n.title || 'Notice'}</span>
                   <span className="notif-item__msg">{n.message}</span>
@@ -261,6 +300,9 @@ export function Layout() {
   const isAdmin = user?.role === 'admin'
   const isEmployee = user?.role === 'employee'
   const can = (module, action) => hasPermission(user, module, action)
+
+  // API integration point: replace SEED_DOCUMENTS with fetched documents state
+  const docReminders = useDocumentReminders(SEED_DOCUMENTS)
 
   const toggleSidebar = useCallback(() => setIsSidebarOpen(prev => !prev), [])
   const closeSidebar = useCallback(() => setIsSidebarOpen(false), [])
@@ -506,7 +548,7 @@ export function Layout() {
               <span className="app-topbar__user-name">{user?.displayName || user?.username}</span>
               <span className="app-topbar__user-badge">{user?.role}</span>
             </div>
-            {isAdmin && <NotificationsBell />}
+            {isAdmin && <NotificationsBell docReminders={docReminders} />}
             <ThemeToggle />
             <button
               type="button"

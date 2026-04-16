@@ -37,9 +37,7 @@ export function DocTable({ documents, onEdit, onDelete }) {
             <th>Reminder Date</th>
             <th>Days Left</th>
             <th>Status</th>
-            <th>Responsible</th>
             <th>Workflow</th>
-            <th>Place</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -61,9 +59,7 @@ export function DocTable({ documents, onEdit, onDelete }) {
                 <td>{fmtDate(reminderDate)}</td>
                 <td><DaysLeftCell expiryDate={doc.expiryDate} /></td>
                 <td><DocStatusBadge expiryDate={doc.expiryDate} /></td>
-                <td>{doc.responsiblePerson || '—'}</td>
                 <td><DocWorkflowBadge status={doc.workflowStatus} /></td>
-                <td>{doc.place || '—'}</td>
                 <td>
                   <div className="doc-actions">
                     <button

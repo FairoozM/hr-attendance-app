@@ -9,9 +9,8 @@ import { SEED_DOCUMENTS } from './data/seedDocuments'
 import './DocumentExpiryPage.css'
 
 // ── API integration point ─────────────────────────────────────────────────────
-// To connect to a backend, replace the useState(SEED_DOCUMENTS) initializer
-// with a useEffect that fetches from your API and sets the documents state.
-// The onSave / onDelete handlers already have clearly marked swap points.
+// Replace useState(SEED_DOCUMENTS) with a useEffect + API fetch when ready.
+// The save/delete handlers have clearly marked swap points below.
 // ─────────────────────────────────────────────────────────────────────────────
 
 let _nextId = SEED_DOCUMENTS.length + 1
@@ -21,8 +20,6 @@ const EMPTY_FILTERS = {
   docType: '',
   company: '',
   status: '',
-  responsible: '',
-  _persons: [],
 }
 
 export function DocumentExpiryPage() {
@@ -35,28 +32,21 @@ export function DocumentExpiryPage() {
   const [formSaving, setFormSaving] = useState(false)
   const [deleteId, setDeleteId]     = useState(null)
 
-  // Derive persons list from current data for the responsible-person dropdown
-  const persons = useMemo(
-    () => Array.from(new Set(documents.map(d => d.responsiblePerson).filter(Boolean))).sort(),
-    [documents]
-  )
-
   // Compose quick-filter + field filters
   const filtered = useMemo(() => {
     const q = filters.search.trim().toLowerCase()
     return documents.filter(doc => {
-      if (activeQuick === 'vat'      && doc.documentType !== 'VAT Filing')              return false
-      if (activeQuick === 'expired'  && getSmartStatus(doc.expiryDate) !== STATUS.EXPIRED)  return false
-      if (activeQuick === 'due-soon' && getSmartStatus(doc.expiryDate) !== STATUS.DUE_SOON) return false
-      if (activeQuick === 'urgent'   && getSmartStatus(doc.expiryDate) !== STATUS.URGENT)   return false
+      if (activeQuick === 'vat'      && doc.documentType !== 'VAT Filing')                   return false
+      if (activeQuick === 'expired'  && getSmartStatus(doc.expiryDate) !== STATUS.EXPIRED)   return false
+      if (activeQuick === 'due-soon' && getSmartStatus(doc.expiryDate) !== STATUS.DUE_SOON)  return false
+      if (activeQuick === 'urgent'   && getSmartStatus(doc.expiryDate) !== STATUS.URGENT)    return false
 
-      if (filters.docType     && doc.documentType          !== filters.docType)     return false
-      if (filters.company     && doc.company               !== filters.company)     return false
-      if (filters.status      && getSmartStatus(doc.expiryDate) !== filters.status) return false
-      if (filters.responsible && doc.responsiblePerson     !== filters.responsible) return false
+      if (filters.docType && doc.documentType !== filters.docType) return false
+      if (filters.company && doc.company      !== filters.company) return false
+      if (filters.status  && getSmartStatus(doc.expiryDate) !== filters.status) return false
 
       if (q) {
-        const blob = [doc.name, doc.documentType, doc.company, doc.responsiblePerson, doc.place, doc.periodCovered]
+        const blob = [doc.name, doc.documentType, doc.company, doc.periodCovered]
           .join(' ').toLowerCase()
         if (!blob.includes(q)) return false
       }
@@ -76,7 +66,7 @@ export function DocumentExpiryPage() {
 
   const handleSave = useCallback((form) => {
     setFormSaving(true)
-    // ── API swap: replace this block with await api.post/put(...) ──
+    // ── API swap: replace with await api.post/put(...) ──
     const now = new Date().toISOString().slice(0, 10)
     if (editTarget) {
       setDocuments(prev =>
@@ -98,13 +88,13 @@ export function DocumentExpiryPage() {
   }, [deleteId])
 
   const handleFiltersChange = useCallback((f) => {
-    setFilters({ ...f, _persons: persons })
-  }, [persons])
+    setFilters(f)
+  }, [])
 
   const handleQuickFilter = useCallback((id) => {
     setActiveQuick(id)
-    setFilters({ ...EMPTY_FILTERS, _persons: persons })
-  }, [persons])
+    setFilters(EMPTY_FILTERS)
+  }, [])
 
   return (
     <div className="page">
@@ -124,12 +114,12 @@ export function DocumentExpiryPage() {
           </button>
         </div>
 
-        {/* Summary cards — recalculate from ALL documents, not the filtered set */}
+        {/* Summary cards — always from full dataset, not filtered */}
         <DocSummaryCards documents={documents} />
 
         {/* Filters */}
         <DocFiltersBar
-          filters={{ ...filters, _persons: persons }}
+          filters={filters}
           onChange={handleFiltersChange}
           onQuickFilter={handleQuickFilter}
           activeQuick={activeQuick}

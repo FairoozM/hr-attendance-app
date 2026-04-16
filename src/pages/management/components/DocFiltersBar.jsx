@@ -13,7 +13,7 @@ export function DocFiltersBar({ filters, onChange, onQuickFilter, activeQuick })
   const set = (key) => (e) => onChange({ ...filters, [key]: e.target.value })
 
   const clearAll = () =>
-    onChange({ search: '', docType: '', company: '', status: '', responsible: '', _persons: filters._persons })
+    onChange({ search: '', docType: '', company: '', status: '' })
 
   return (
     <div className="doc-filters">
@@ -49,10 +49,6 @@ export function DocFiltersBar({ filters, onChange, onQuickFilter, activeQuick })
         <select value={filters.status} onChange={set('status')} className="doc-filters__select">
           <option value="">Status: All</option>
           {Object.values(STATUS).map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <select value={filters.responsible} onChange={set('responsible')} className="doc-filters__select">
-          <option value="">Person: All</option>
-          {(filters._persons || []).map(p => <option key={p} value={p}>{p}</option>)}
         </select>
         <button type="button" className="btn btn--ghost btn--sm" onClick={clearAll}>
           Clear

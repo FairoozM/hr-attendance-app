@@ -7,9 +7,7 @@ const EMPTY_FORM = {
   company: '',
   expiryDate: '',
   reminderDays: 14,
-  responsiblePerson: '',
   renewalFrequency: 'Annual',
-  place: '',
   periodCovered: '',
   notes: '',
   workflowStatus: 'Pending',
@@ -17,13 +15,12 @@ const EMPTY_FORM = {
 }
 
 function validate(form) {
-  if (!String(form.name || '').trim())               return 'Document name is required'
-  if (!form.documentType)                            return 'Document type is required'
-  if (!String(form.company || '').trim())            return 'Company is required'
-  if (!form.expiryDate)                              return 'Expiry date is required'
-  if (!String(form.responsiblePerson || '').trim())  return 'Responsible person is required'
+  if (!String(form.name || '').trim())    return 'Document name is required'
+  if (!form.documentType)                 return 'Document type is required'
+  if (!String(form.company || '').trim()) return 'Company is required'
+  if (!form.expiryDate)                   return 'Expiry date is required'
   const rd = Number(form.reminderDays)
-  if (!Number.isFinite(rd) || rd < 0)               return 'Reminder days must be 0 or more'
+  if (!Number.isFinite(rd) || rd < 0)    return 'Reminder days must be 0 or more'
   return ''
 }
 
@@ -97,28 +94,10 @@ export function DocForm({ initialValue, onSave, onCancel, saving }) {
         </label>
 
         <label>
-          Responsible Person *
-          <input
-            value={form.responsiblePerson}
-            onChange={set('responsiblePerson')}
-            placeholder="Full name"
-          />
-        </label>
-
-        <label>
           Renewal Frequency
           <select value={form.renewalFrequency} onChange={set('renewalFrequency')}>
             {RENEWAL_FREQUENCIES.map(r => <option key={r} value={r}>{r}</option>)}
           </select>
-        </label>
-
-        <label>
-          Place / Portal
-          <input
-            value={form.place}
-            onChange={set('place')}
-            placeholder="e.g. ZATCA Portal, DED Dubai"
-          />
         </label>
 
         <label>
