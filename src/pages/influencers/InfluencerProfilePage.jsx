@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { resolveApiUrl } from '../../api/client'
 import { useInfluencers, WORKFLOW_STAGES, APPROVAL_STATUSES, PAYMENT_STATUSES } from '../../contexts/InfluencersContext'
 import { useAuth, hasPermission } from '../../contexts/AuthContext'
 import './influencers.css'
@@ -28,7 +29,7 @@ function InstagramProfileCard({ handle, url, followersCount, niche }) {
   const [imgError, setImgError] = useState(false)
   if (!username) return null
   const profileUrl = url || `https://www.instagram.com/${username}/`
-  const avatarSrc = `https://unavatar.io/instagram/${username}`
+  const avatarSrc = resolveApiUrl(`/api/instagram-proxy/avatar/${encodeURIComponent(username)}`)
   return (
     <a
       href={profileUrl}

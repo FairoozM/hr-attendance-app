@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useInfluencers } from '../../contexts/InfluencersContext'
 import { useAuth, hasPermission } from '../../contexts/AuthContext'
 import { AddInfluencerPage } from './AddInfluencerPage'
+import { resolveApiUrl } from '../../api/client'
 import './influencers.css'
 
 const HIDDEN_HANDLES = ['queenslifeindubai']
@@ -12,7 +13,7 @@ function InstagramCell({ handle, url }) {
   const raw = handle ? handle.replace(/^@/, '').trim() : ''
   if (!raw || HIDDEN_HANDLES.includes(raw.toLowerCase())) return <span className="inf-table__muted">—</span>
   const profileUrl = url || `https://www.instagram.com/${raw}/`
-  const avatarSrc = `https://unavatar.io/instagram/${raw}`
+  const avatarSrc = resolveApiUrl(`/api/instagram-proxy/avatar/${encodeURIComponent(raw)}`)
   return (
     <a
       href={profileUrl}

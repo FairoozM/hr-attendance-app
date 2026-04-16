@@ -13,6 +13,7 @@ const annualLeaveSalaryRoutes = require('./routes/annualLeaveSalary')
 const notificationsRoutes = require('./routes/notifications')
 const influencersRoutes = require('./routes/influencers')
 const simCardsRoutes = require('./routes/simCards')
+const instagramProxyRoutes = require('./routes/instagramProxy')
 
 const app = express()
 
@@ -50,6 +51,7 @@ app.use('/api/annual-leave-salary', authMiddleware.attachAuth, annualLeaveSalary
 app.use('/api/notifications', authMiddleware.attachAuth, notificationsRoutes)
 app.use('/api/influencers', influencersRoutes)
 app.use('/api/sim-cards', authMiddleware.attachAuth, simCardsRoutes)
+app.use('/api/instagram-proxy', instagramProxyRoutes)
 
 // Catch-all for unmatched /api/* — always JSON, never HTML
 app.use('/api', (_req, res) => {

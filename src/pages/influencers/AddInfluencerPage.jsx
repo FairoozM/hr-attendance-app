@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { resolveApiUrl } from '../../api/client'
 import {
   User, Smartphone, Mail, Globe2, MapPin, Sparkles, ChevronRight,
   Camera, Video, Hash, MessageCircle, Share2, AtSign,
@@ -105,7 +106,7 @@ function InstagramPreviewCard({ handle }) {
   if (!username || !visible) return null
 
   const profileUrl = `https://www.instagram.com/${username}/`
-  const avatarSrc = `https://unavatar.io/instagram/${username}`
+  const avatarSrc = resolveApiUrl(`/api/instagram-proxy/avatar/${encodeURIComponent(username)}`)
 
   return (
     <div className="aif-ig-preview">
