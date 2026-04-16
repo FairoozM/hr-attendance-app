@@ -4,6 +4,8 @@ import { useEmployees } from '../hooks/useEmployees'
 import { fmtDMY } from '../utils/dateFormat'
 import './AnnualLeaveSalaryPage.css'
 
+const DIVISION_DAYS_OPTIONS = [26, 30, 31]
+
 const EMPTY_CALC = {
   calculationDate: new Date().toISOString().slice(0, 10),
   monthlySalary: '',
@@ -124,6 +126,8 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
   const [empSearch, setEmpSearch] = useState('')
   const [selectedEmp, setSelectedEmp] = useState(null)
   const [calc, setCalc] = useState(EMPTY_CALC)
+  const [divisionDays, setDivisionDays] = useState(30)
+  const [customDivDays, setCustomDivDays] = useState('')
   const [overrides, setOverrides] = useState({})  // tracks which auto fields were manually overridden
   const [history, setHistory] = useState([])           // per-selected-employee history
   const [histLoading, setHistLoading] = useState(false)
@@ -150,7 +154,8 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
   // ── Auto calculations ──
   const derived = useMemo(() => {
     const monthly   = toNum(calc.monthlySalary)
-    const perDay    = overrides.perDayRate    ? toNum(calc.perDayRate)    : (monthly > 0 ? monthly / 30 : 0)
+    const divisor   = divisionDays > 0 ? divisionDays : 30
+    const perDay    = overrides.perDayRate    ? toNum(calc.perDayRate)    : (monthly > 0 ? monthly / divisor : 0)
     const rmDays    = toNum(calc.runningMonthDays)
     const rmAmt     = overrides.runningMonthAmount ? toNum(calc.runningMonthAmount) : perDay * rmDays
     const lDays     = toNum(calc.leaveDaysToPay)
@@ -158,8 +163,8 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
     const additions = toNum(calc.otherAdditions)
     const deductions= toNum(calc.otherDeductions)
     const total     = overrides.grandTotal ? toNum(calc.grandTotal) : rmAmt + lAmt + additions - deductions
-    return { perDay, rmAmt, lAmt, total }
-  }, [calc, overrides])
+    return { perDay, rmAmt, lAmt, total, divisor }
+  }, [calc, overrides, divisionDays])
 
   // ── Field change helper ──
   const set = useCallback((field, value, isAutoField = false) => {
@@ -303,6 +308,8 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
     setEditingId(null)
     setCalc(EMPTY_CALC)
     setOverrides({})
+    setDivisionDays(30)
+    setCustomDivDays('')
     setSaveMsg(null)
   }, [])
 
@@ -470,6 +477,45 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
                   <span className="als-card__icon">📆</span>
                   <h3 className="als-card__title">Running Month Salary</h3>
                 </div>
+                <div className="als-card__body" style={{ paddingBottom: 0 }}>
+                  <div className="als-divdays-row">
+                    <span className="als-divdays-row__label">Days divisor for per-day rate:</span>
+                    <div className="als-divdays-row__options">
+                      {DIVISION_DAYS_OPTIONS.map(d => (
+                        <button
+                          key={d}
+                          type="button"
+                          className={`als-divdays-btn${divisionDays === d && !customDivDays ? ' als-divdays-btn--active' : ''}`}
+                          onClick={() => { setDivisionDays(d); setCustomDivDays(''); setOverrides(o => { const n = { ...o }; delete n.perDayRate; return n }) }}
+                        >
+                          {d}
+                        </button>
+                      ))}
+                      <div className="als-divdays-custom">
+                        <input
+                          type="number"
+                          className={`als-divdays-custom__input${customDivDays ? ' als-divdays-btn--active' : ''}`}
+                          placeholder="Custom"
+                          min="1"
+                          max="366"
+                          value={customDivDays}
+                          onChange={e => {
+                            const v = e.target.value
+                            setCustomDivDays(v)
+                            const n = parseInt(v, 10)
+                            if (n > 0) {
+                              setDivisionDays(n)
+                              setOverrides(o => { const next = { ...o }; delete next.perDayRate; return next })
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <span className="als-divdays-row__formula">
+                      = AED {fmt(toNum(calc.monthlySalary) > 0 ? toNum(calc.monthlySalary) / (divisionDays || 30) : 0)} / day
+                    </span>
+                  </div>
+                </div>
                 <div className="als-card__body als-grid-3">
                   <div className="als-field">
                     <label className="als-field__label">
@@ -485,7 +531,7 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
                       onChange={e => set('perDayRate', e.target.value, true)}
                       min="0" step="any" placeholder="Auto"
                     />
-                    <span className="als-field__hint">Monthly ÷ 30</span>
+                    <span className="als-field__hint">Monthly ÷ {derived.divisor}</span>
                   </div>
                   <NumInput
                     label="Salary Days (Running Month)"
@@ -625,7 +671,7 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
                     <span>AED {fmt(calc.monthlySalary)}</span>
                   </div>
                   <div className="als-summary-row">
-                    <span>Per Day Rate</span>
+                    <span>Per Day Rate (÷{derived.divisor})</span>
                     <span>AED {fmt(derived.perDay)}</span>
                   </div>
                   <div className="als-summary-divider" />

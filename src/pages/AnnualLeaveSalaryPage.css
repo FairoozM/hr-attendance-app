@@ -593,3 +593,95 @@
 }
 
 .als-icon-btn--del:hover { background: var(--danger-soft); }
+
+/* ── Division days selector ── */
+.als-divdays-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 0.75rem;
+  background: rgba(129, 140, 248, 0.05);
+  border: 1px solid rgba(129, 140, 248, 0.15);
+  border-radius: var(--radius-md);
+  margin-bottom: 0.75rem;
+}
+
+.als-divdays-row__label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted, rgba(255,255,255,0.55));
+  white-space: nowrap;
+}
+
+.als-divdays-row__options {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.als-divdays-btn {
+  padding: 0.28rem 0.75rem;
+  border-radius: 100px;
+  border: 1px solid rgba(129, 140, 248, 0.3);
+  background: transparent;
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  line-height: 1.4;
+}
+
+.als-divdays-btn:hover {
+  background: rgba(129, 140, 248, 0.12);
+  border-color: rgba(129, 140, 248, 0.5);
+}
+
+.als-divdays-btn--active {
+  background: var(--accent, #818cf8);
+  border-color: var(--accent, #818cf8);
+  color: #fff;
+}
+
+.als-divdays-custom__input {
+  width: 72px;
+  padding: 0.28rem 0.5rem;
+  border-radius: 100px;
+  border: 1px solid rgba(129, 140, 248, 0.3);
+  background: transparent;
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.als-divdays-custom__input:focus {
+  border-color: var(--accent, #818cf8);
+}
+
+.als-divdays-custom__input.als-divdays-btn--active {
+  background: var(--accent, #818cf8);
+  border-color: var(--accent, #818cf8);
+  color: #fff;
+}
+
+.als-divdays-row__formula {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent, #818cf8);
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+:root[data-theme='light'] .als-divdays-row {
+  background: rgba(99, 102, 241, 0.04);
+  border-color: rgba(99, 102, 241, 0.15);
+}
+
+:root[data-theme='light'] .als-divdays-row__label {
+  color: rgba(30, 30, 46, 0.55);
+}
