@@ -368,6 +368,45 @@ async function ensureDocumentExpiryTable() {
   `)
   await query(`CREATE INDEX IF NOT EXISTS idx_doc_expiry_expiry_date ON document_expiry(expiry_date)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_doc_expiry_company ON document_expiry(company)`)
+  // Unique constraint so seed rows are idempotent (ON CONFLICT DO NOTHING)
+  await query(`
+    ALTER TABLE document_expiry
+    ADD CONSTRAINT IF NOT EXISTS uq_doc_expiry_name UNIQUE (name)
+  `)
+
+  // Seed records — inserted once, never duplicated
+  const seedRows = [
+    // name, document_type, company, expiry_date, reminder_days, renewal_frequency, period_covered, notes, workflow_status
+    ['Basmat Al Hayat Goods Wholesalers - 2026 (2nd Qtr)',       'Trade License', 'Basmat Al Hayat Goods Wholesalers',      '2026-11-15', 30, 'Quarterly', 'Q2 2026', '', 'Pending'],
+    ['Envato Elements',                                           'Subscription',  'Basmat Al Hayat General Trading LLC',    '2026-11-30', 14, 'Annual',    'Nov 2025 – Nov 2026', '', 'Pending'],
+    ['VAT KSA July ~ September, 2025',                           'VAT Filing',    'KSA Operations',                        '2026-10-05', 14, 'Quarterly', 'Q3 2025 (Jul–Sep)', '', 'Submitted'],
+    ['VAT KSA April ~ June, 2025',                               'VAT Filing',    'KSA Operations',                        '2026-07-05', 14, 'Quarterly', 'Q2 2025 (Apr–Jun)', '', 'Submitted'],
+    ['VAT KSA January ~ March, 2026',                            'VAT Filing',    'KSA Operations',                        '2026-04-05', 14, 'Quarterly', 'Q1 2026 (Jan–Mar)', '', 'Submitted'],
+    ['VAT KSA October ~ December, 2025',                         'VAT Filing',    'KSA Operations',                        '2026-01-05', 14, 'Quarterly', 'Q4 2025 (Oct–Dec)', '', 'Submitted'],
+    ['Basmat Al Hayat General Trading LLC - 2026 (2nd Qtr)',     'Trade License', 'Basmat Al Hayat General Trading LLC',    '2026-06-15', 30, 'Quarterly', 'Q2 2026', '', 'Pending'],
+    ['Basmat Al Hayat General Trading LLC - 2026 (1st Qtr)',     'Trade License', 'Basmat Al Hayat General Trading LLC',    '2026-03-15', 30, 'Quarterly', 'Q1 2026', '', 'Pending'],
+    ['Basmat Al Hayat General Trading LLC - 2025 (4th Qtr)',     'Trade License', 'Basmat Al Hayat General Trading LLC',    '2025-12-26', 30, 'Quarterly', 'Q4 2025', '', 'Pending'],
+    ['Basmat Al Hayat Goods Wholesalers - 2026 (2nd Qtr) Aug',  'Trade License', 'Basmat Al Hayat Goods Wholesalers',      '2026-08-15', 30, 'Quarterly', 'Q2 2026 (Aug)', '', 'Pending'],
+    ['Basmat Al Hayat Goods Wholesalers - 2026 (1st Qtr)',       'Trade License', 'Basmat Al Hayat Goods Wholesalers',      '2026-05-15', 30, 'Quarterly', 'Q1 2026', '', 'Pending'],
+    ['Basmat Al Hayat Goods Wholesalers - 2025 (4th Qtr)',       'Trade License', 'Basmat Al Hayat Goods Wholesalers',      '2026-02-15', 30, 'Quarterly', 'Q4 2025', '', 'Pending'],
+    ['Urvah NICOP',                                              'ID / NICOP',    'Personal',                               '2034-05-04', 60, 'Every 5 Years', '2029–2034', '', 'Completed'],
+    ['Abdullah NICOP',                                           'ID / NICOP',    'Personal',                               '2035-08-26', 60, 'Every 5 Years', '2030–2035', '', 'Completed'],
+    ['Afra Vaccination',                                         'Medical / Certificate', 'Personal',                       '2026-10-08', 30, 'As Required', '2026', '', 'Completed'],
+    ['ISO Certificate',                                          'Other',         'Basmat Al Hayat General Trading LLC',    '2026-04-10', 30, 'Annual',    '2025–2026', '', 'Pending'],
+    ['Hamdan Visa',                                              'Visa / Emirates ID', 'Personal',                          '2026-06-27', 30, 'Annual',    '2025–2026', '', 'Pending'],
+    ['Hamdan Passport',                                          'Other',         'Personal',                               '2031-09-13', 60, 'Every 5 Years', '2026–2031', '', 'Completed'],
+    ['Ajmal Sharaf Passport',                                    'Other',         'Personal',                               '2027-06-06', 60, 'Every 5 Years', '2022–2027', '', 'Completed'],
+  ]
+
+  for (const row of seedRows) {
+    await query(
+      `INSERT INTO document_expiry
+         (name, document_type, company, expiry_date, reminder_days, renewal_frequency, period_covered, notes, workflow_status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (name) DO NOTHING`,
+      row
+    )
+  }
 }
 
 async function ensureSimCardsTable() {

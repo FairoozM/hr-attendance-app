@@ -184,6 +184,8 @@ export const DOCUMENT_TYPES = [
 
 export const COMPANIES = [
   'KSA Operations',
+  'Basmat Al Hayat Goods Wholesalers',
+  'Basmat Al Hayat General Trading LLC',
   'Basmati Al Hayat Goods Wholesalers',
   'Basmati Al Hayat General Trading LLC',
   'Personal',
