@@ -90,7 +90,7 @@ function FSelect({ icon: Icon, label, value, onChange, options }) {
 }
 
 /** Instagram live preview card shown in the Social step */
-function InstagramPreviewCard({ handle }) {
+function InstagramPreviewCard({ handle, storedPicUrl }) {
   const [visible, setVisible] = useState(false)
   const [imgError, setImgError] = useState(false)
   const username = handle ? handle.replace(/^@/, '').trim() : ''
@@ -106,7 +106,7 @@ function InstagramPreviewCard({ handle }) {
   if (!username || !visible) return null
 
   const profileUrl = `https://www.instagram.com/${username}/`
-  const avatarSrc = resolveApiUrl(`/api/instagram-proxy/avatar/${encodeURIComponent(username)}`)
+  const avatarSrc = storedPicUrl || resolveApiUrl(`/api/instagram-proxy/avatar/${encodeURIComponent(username)}`)
 
   return (
     <div className="aif-ig-preview">
@@ -282,8 +282,9 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
           <div className="aif-row2">
             <FInput icon={Camera}        label="Instagram Handle"  value={form.instagram?.handle} onChange={v => setNested('instagram','handle',v)} placeholder="@handle" />
             <FInput icon={Link2}         label="Instagram URL"     value={form.instagram?.url}    onChange={v => setNested('instagram','url',v)}    placeholder="https://instagram.com/…" />
+            <FInput icon={Camera}        label="Instagram Profile Pic URL (optional)" value={form.instagram?.picUrl} onChange={v => setNested('instagram','picUrl',v)} placeholder="Paste direct image URL for profile pic" />
           </div>
-          <InstagramPreviewCard handle={form.instagram?.handle} />
+          <InstagramPreviewCard handle={form.instagram?.handle} storedPicUrl={form.instagram?.picUrl} />
           <div className="aif-row2">
             <FInput icon={Video}         label="YouTube Handle"    value={form.youtube?.handle}   onChange={v => setNested('youtube','handle',v)}   placeholder="Channel name" />
             <FInput icon={Link2}         label="YouTube URL"       value={form.youtube?.url}      onChange={v => setNested('youtube','url',v)}      placeholder="https://youtube.com/@…" />

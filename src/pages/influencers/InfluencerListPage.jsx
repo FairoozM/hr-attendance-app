@@ -8,12 +8,12 @@ import './influencers.css'
 
 const HIDDEN_HANDLES = ['queenslifeindubai']
 
-function InstagramCell({ handle, url }) {
+function InstagramCell({ handle, url, storedPicUrl }) {
   const [imgError, setImgError] = useState(false)
   const raw = handle ? handle.replace(/^@/, '').trim() : ''
   if (!raw || HIDDEN_HANDLES.includes(raw.toLowerCase())) return <span className="inf-table__muted">—</span>
   const profileUrl = url || `https://www.instagram.com/${raw}/`
-  const avatarSrc = resolveApiUrl(`/api/instagram-proxy/avatar/${encodeURIComponent(raw)}`)
+  const avatarSrc = storedPicUrl || resolveApiUrl(`/api/instagram-proxy/avatar/${encodeURIComponent(raw)}`)
   return (
     <a
       href={profileUrl}
@@ -368,7 +368,7 @@ export function InfluencerListPage() {
                     <div className="inf-table__name">{inf.name}</div>
                     <div className="inf-table__muted">{inf.niche}</div>
                   </td>
-                  <td><InstagramCell handle={inf.instagram?.handle} url={inf.instagram?.url} /></td>
+                  <td><InstagramCell handle={inf.instagram?.handle} url={inf.instagram?.url} storedPicUrl={inf.instagram?.picUrl} /></td>
                   <td><span className="inf-table__muted">{inf.mobile || '—'}</span></td>
                   <td><span className="inf-table__muted">{inf.basedIn || '—'}</span></td>
                   <td><span className="inf-table__muted">{inf.reelsPrice ? `${inf.currency} ${inf.reelsPrice.toLocaleString()}` : '—'}</span></td>

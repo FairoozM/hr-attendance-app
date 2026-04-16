@@ -133,11 +133,34 @@ function proxyImage(url, res, redirectsLeft = 5) {
   })
 }
 
+function svgFallback(username) {
+  const initials = username.slice(0, 2).toUpperCase()
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="g" x1="0" y1="64" x2="64" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#f09433"/>
+      <stop offset="50%" stop-color="#dc2743"/>
+      <stop offset="100%" stop-color="#bc1888"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="32" fill="url(#g)"/>
+  <text x="32" y="38" font-family="Arial,sans-serif" font-size="22" font-weight="bold"
+        fill="white" text-anchor="middle" dominant-baseline="middle">${initials}</text>
+</svg>`
+}
+
 // GET /api/instagram-proxy/avatar/:username — proxies profile pic as image
 router.get('/avatar/:username', async (req, res) => {
   const username = String(req.params.username || '').trim().replace(/^@/, '').toLowerCase()
   if (!username || !/^[\w.]+$/.test(username)) {
     return res.status(400).json({ error: 'Invalid username' })
+  }
+
+  const sendFallback = () => {
+    if (res.headersSent) return
+    res.setHeader('Content-Type', 'image/svg+xml')
+    res.setHeader('Cache-Control', 'public, max-age=300')
+    res.send(svgFallback(username))
   }
 
   try {
@@ -151,11 +174,11 @@ router.get('/avatar/:username', async (req, res) => {
       picUrl = profile.picUrl
     }
 
-    if (!picUrl) return res.status(404).json({ error: 'No profile pic found' })
+    if (!picUrl) return sendFallback()
     await proxyImage(picUrl, res)
   } catch (err) {
     console.error('[instagram-proxy] avatar error:', err.message)
-    if (!res.headersSent) res.status(502).json({ error: err.message })
+    sendFallback()
   }
 })
 

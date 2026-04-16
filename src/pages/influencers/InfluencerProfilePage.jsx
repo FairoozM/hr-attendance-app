@@ -24,12 +24,12 @@ function payBadge(status) {
   return `inf-badge inf-badge--dot ${map[status] || 'inf-badge--not-requested'}`
 }
 
-function InstagramProfileCard({ handle, url, followersCount, niche }) {
+function InstagramProfileCard({ handle, url, storedPicUrl, followersCount, niche }) {
   const username = handle ? handle.replace(/^@/, '') : null
   const [imgError, setImgError] = useState(false)
   if (!username) return null
   const profileUrl = url || `https://www.instagram.com/${username}/`
-  const avatarSrc = resolveApiUrl(`/api/instagram-proxy/avatar/${encodeURIComponent(username)}`)
+  const avatarSrc = storedPicUrl || resolveApiUrl(`/api/instagram-proxy/avatar/${encodeURIComponent(username)}`)
   return (
     <a
       href={profileUrl}
@@ -264,6 +264,7 @@ export function InfluencerProfilePage() {
                 <InstagramProfileCard
                   handle={inf.instagram.handle}
                   url={inf.instagram.url}
+                  storedPicUrl={inf.instagram?.picUrl}
                   followersCount={inf.followersCount}
                   niche={inf.niche}
                 />
