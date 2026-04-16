@@ -5,6 +5,35 @@ import { useAuth, hasPermission } from '../../contexts/AuthContext'
 import { AddInfluencerPage } from './AddInfluencerPage'
 import './influencers.css'
 
+const HIDDEN_HANDLES = ['queenslifeindubai']
+
+function InstagramCell({ handle, url }) {
+  const [imgError, setImgError] = useState(false)
+  const raw = handle ? handle.replace(/^@/, '').trim() : ''
+  if (!raw || HIDDEN_HANDLES.includes(raw.toLowerCase())) return <span className="inf-table__muted">—</span>
+  const profileUrl = url || `https://www.instagram.com/${raw}/`
+  const avatarSrc = `https://unavatar.io/instagram/${raw}`
+  return (
+    <a
+      href={profileUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inf-ig-cell"
+      onClick={e => e.stopPropagation()}
+    >
+      <div className="inf-ig-cell__avatar-wrap">
+        {!imgError ? (
+          <img src={avatarSrc} alt={raw} className="inf-ig-cell__avatar" onError={() => setImgError(true)} />
+        ) : (
+          <div className="inf-ig-cell__avatar-fallback">{raw.slice(0, 2).toUpperCase()}</div>
+        )}
+        <div className="inf-ig-cell__ring" />
+      </div>
+      <span className="inf-ig-cell__handle">@{raw}</span>
+    </a>
+  )
+}
+
 function workflowBadgeClass(status) {
   const map = {
     'New Lead': 'inf-badge--new-lead', 'Contacted': 'inf-badge--contacted',
@@ -327,7 +356,7 @@ export function InfluencerListPage() {
                     <div className="inf-table__name">{inf.name}</div>
                     <div className="inf-table__muted">{inf.niche}</div>
                   </td>
-                  <td><span className="inf-table__handle">{inf.instagram?.handle || '—'}</span></td>
+                  <td><InstagramCell handle={inf.instagram?.handle} url={inf.instagram?.url} /></td>
                   <td><span className="inf-table__muted">{inf.mobile || '—'}</span></td>
                   <td><span className="inf-table__muted">{inf.basedIn || '—'}</span></td>
                   <td><span className="inf-table__muted">{inf.reelsPrice ? `${inf.currency} ${inf.reelsPrice.toLocaleString()}` : '—'}</span></td>
