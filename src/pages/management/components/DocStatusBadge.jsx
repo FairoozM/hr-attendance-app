@@ -1,16 +1,27 @@
-import { getSmartStatus, STATUS } from '../utils/docExpiryUtils'
+import { getDaysLeft, getSmartStatus, STATUS } from '../utils/docExpiryUtils'
 
-/* ── Dot bullet used by both badge types ── */
+/* ── Dot bullet ── */
 function Dot() {
   return <span className="doc-badge__dot" aria-hidden />
 }
 
-/* ── Config maps ── */
-const STATUS_CONFIG = {
-  [STATUS.EXPIRED]:  { label: 'Expired',  cls: 'doc-badge--expired'  },
-  [STATUS.URGENT]:   { label: 'Urgent',   cls: 'doc-badge--urgent'   },
-  [STATUS.DUE_SOON]: { label: 'Due Soon', cls: 'doc-badge--due-soon' },
-  [STATUS.OK]:       { label: 'On Track', cls: 'doc-badge--ok'       },
+/* ── Checkmark icon for OK status ── */
+function IconCheck() {
+  return (
+    <svg
+      width="11" height="11"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      style={{ flexShrink: 0 }}
+    >
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  )
 }
 
 const WORKFLOW_CONFIG = {
@@ -20,18 +31,52 @@ const WORKFLOW_CONFIG = {
   'Completed':   { cls: 'doc-wf-badge--completed'   },
 }
 
-/* ── Badge components ── */
+/* ── Smart-status badge with days embedded ── */
 export function DocStatusBadge({ expiryDate }) {
   const status = getSmartStatus(expiryDate)
-  const cfg = STATUS_CONFIG[status] || STATUS_CONFIG[STATUS.OK]
+  const days   = getDaysLeft(expiryDate)
+
+  if (status === STATUS.OK) {
+    const daysText = days !== null ? ` - ${days}d left` : ''
+    return (
+      <span className="doc-badge doc-badge--ok">
+        <IconCheck />
+        {`OK${daysText}`}
+      </span>
+    )
+  }
+
+  if (status === STATUS.URGENT) {
+    const daysText = days !== null ? ` - ${days}d left` : ''
+    return (
+      <span className="doc-badge doc-badge--urgent">
+        <Dot />
+        {`Urgent${daysText}`}
+      </span>
+    )
+  }
+
+  if (status === STATUS.DUE_SOON) {
+    const daysText = days !== null ? ` - ${days}d left` : ''
+    return (
+      <span className="doc-badge doc-badge--due-soon">
+        <Dot />
+        {`Due Soon${daysText}`}
+      </span>
+    )
+  }
+
+  // EXPIRED
+  const overdue = days !== null ? ` - ${Math.abs(days)}d ago` : ''
   return (
-    <span className={`doc-badge ${cfg.cls}`}>
+    <span className="doc-badge doc-badge--expired">
       <Dot />
-      {cfg.label}
+      {`Expired${overdue}`}
     </span>
   )
 }
 
+/* ── Workflow badge (unchanged) ── */
 export function DocWorkflowBadge({ status }) {
   const cfg = WORKFLOW_CONFIG[status] || WORKFLOW_CONFIG['Pending']
   return (

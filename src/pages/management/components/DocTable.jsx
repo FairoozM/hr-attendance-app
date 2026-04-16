@@ -1,15 +1,5 @@
 import { DocStatusBadge, DocWorkflowBadge } from './DocStatusBadge'
-import { getDaysLeft, getReminderDate, fmtDate } from '../utils/docExpiryUtils'
-
-function DaysLeftCell({ expiryDate }) {
-  const daysLeft = getDaysLeft(expiryDate)
-  if (daysLeft === null) return <span className="doc-days-left">—</span>
-  if (daysLeft < 0) {
-    return <span className="doc-days-left doc-days-left--neg">{Math.abs(daysLeft)}d ago</span>
-  }
-  const cls = daysLeft <= 7 ? 'doc-days-left doc-days-left--warn' : 'doc-days-left'
-  return <span className={cls}>{daysLeft}d</span>
-}
+import { getReminderDate, fmtDate } from '../utils/docExpiryUtils'
 
 function SectionDivider({ label, count, colSpan }) {
   return (
@@ -37,7 +27,6 @@ function DocRow({ doc, idx, onEdit, onDelete }) {
       <td>{doc.company || '—'}</td>
       <td>{fmtDate(doc.expiryDate)}</td>
       <td>{fmtDate(reminderDate)}</td>
-      <td><DaysLeftCell expiryDate={doc.expiryDate} /></td>
       <td><DocStatusBadge expiryDate={doc.expiryDate} /></td>
       <td><DocWorkflowBadge status={doc.workflowStatus} /></td>
       <td>
@@ -62,7 +51,7 @@ function DocRow({ doc, idx, onEdit, onDelete }) {
   )
 }
 
-const COL_SPAN = 10
+const COL_SPAN = 9
 
 export function DocTable({ documents, onEdit, onDelete }) {
   if (documents.length === 0) {
@@ -80,20 +69,10 @@ export function DocTable({ documents, onEdit, onDelete }) {
   const companyDocs  = documents.filter(d => d.company !== 'Personal')
   const personalDocs = documents.filter(d => d.company === 'Personal')
 
-  // When a filter/search is active both groups may be empty; skip dividers for
-  // groups that have no rows so the table doesn't show a lonely heading.
   const showCompany  = companyDocs.length > 0
   const showPersonal = personalDocs.length > 0
-  // Show section dividers only when BOTH groups are present simultaneously
   const showDividers = showCompany && showPersonal
 
-  // Build a flat ordered list: company rows first, then personal
-  const rows = [
-    ...(showCompany  ? companyDocs  : []),
-    ...(showPersonal ? personalDocs : []),
-  ]
-
-  // Running per-section index for the # column
   let companyIdx  = 0
   let personalIdx = 0
 
@@ -108,7 +87,6 @@ export function DocTable({ documents, onEdit, onDelete }) {
             <th>Company</th>
             <th>Expiry Date</th>
             <th>Reminder Date</th>
-            <th>Days Left</th>
             <th>Status</th>
             <th>Workflow</th>
             <th>Actions</th>
