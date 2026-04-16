@@ -33,7 +33,7 @@ function mapRow(row) {
     name:             row.name,
     documentType:     row.document_type,
     company:          row.company,
-    expiryDate:       row.expiry_date ? String(row.expiry_date).slice(0, 10) : null,
+    expiryDate:       row.expiry_date || null,
     reminderDays:     Number(row.reminder_days),
     renewalFrequency: row.renewal_frequency,
     periodCovered:    row.period_covered,

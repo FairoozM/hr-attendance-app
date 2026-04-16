@@ -5,7 +5,7 @@ const BASE_FIELDS = `
   name,
   document_type,
   company,
-  expiry_date,
+  to_char(expiry_date, 'YYYY-MM-DD') AS expiry_date,
   reminder_days,
   renewal_frequency,
   period_covered,
