@@ -172,6 +172,7 @@ export function Layout() {
   const isManagementActive = location.pathname.startsWith('/management')
   const hasAnyInfluencerAccess = hasAnyModulePermission(user, 'influencers')
   const hasAnyListsAccess = hasAnyModulePermission(user, 'sim_cards')
+  const hasAnyManagementAccess = hasAnyModulePermission(user, 'document_expiry')
   const currentSectionLabel = useMemo(() => {
     if (location.pathname.startsWith('/employees')) return 'Employees'
     if (location.pathname.startsWith('/attendance')) return 'Attendance'
@@ -295,19 +296,25 @@ export function Layout() {
 
             <NavGroup label="Amazon" hint="Reserved" isActive={false} />
 
-            <div className="app-sidebar__section-label" role="presentation">
-              Management
-            </div>
-            <NavGroup label="Management" hint="Compliance" isActive={isManagementActive}>
-              <NavLink
-                to="/management/document-expiry"
-                className={subLinkClass}
-                onClick={closeSidebar}
-              >
-                <span className="nav-group__link-dot" aria-hidden />
-                Document Expiry Tracker
-              </NavLink>
-            </NavGroup>
+            {hasAnyManagementAccess && (
+              <>
+                <div className="app-sidebar__section-label" role="presentation">
+                  Management
+                </div>
+                <NavGroup label="Management" hint="Compliance" isActive={isManagementActive}>
+                  {can('document_expiry', 'view') && (
+                    <NavLink
+                      to="/management/document-expiry"
+                      className={subLinkClass}
+                      onClick={closeSidebar}
+                    >
+                      <span className="nav-group__link-dot" aria-hidden />
+                      Document Expiry Tracker
+                    </NavLink>
+                  )}
+                </NavGroup>
+              </>
+            )}
 
             <div className="app-sidebar__section-label" role="presentation">
               Account

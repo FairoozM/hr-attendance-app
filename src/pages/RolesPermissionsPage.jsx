@@ -51,6 +51,16 @@ const MODULES = [
       { key: 'delete', label: 'Delete Sim Card' },
     ],
   },
+  {
+    key: 'document_expiry',
+    label: 'Document Expiry Tracker',
+    permissions: [
+      { key: 'view', label: 'View document records and expiry status' },
+      { key: 'add', label: 'Add new document records (includes view)' },
+      { key: 'edit', label: 'Edit existing document records (includes view)' },
+      { key: 'delete', label: 'Delete document records (includes view)' },
+    ],
+  },
 ]
 
 function roleLabel(role) {

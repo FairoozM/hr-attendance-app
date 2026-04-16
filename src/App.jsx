@@ -153,7 +153,11 @@ function AppContent() {
         />
         <Route
           path="management/document-expiry"
-          element={<DocumentExpiryPage />}
+          element={
+            <PermissionGuard module="document_expiry" action="view">
+              <DocumentExpiryPage />
+            </PermissionGuard>
+          }
         />
         <Route
           path="employees/:id/profile"
