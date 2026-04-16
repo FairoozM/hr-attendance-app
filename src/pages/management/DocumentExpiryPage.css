@@ -173,6 +173,30 @@
   border-bottom: 0;
 }
 
+/* ── Section divider rows ── */
+.doc-table__section-row td {
+  padding: 0.55rem 0.75rem;
+  background: color-mix(in srgb, var(--primary) 8%, var(--theme-surface-soft));
+  border-bottom: 1px solid var(--theme-border-subtle);
+  border-top: 1px solid var(--theme-border-subtle);
+}
+
+.doc-table__section-label {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--primary) 70%, var(--text));
+  margin-right: 0.6rem;
+}
+
+.doc-table__section-count {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
 .doc-table tbody tr:hover td {
   background: var(--theme-surface-soft);
 }
