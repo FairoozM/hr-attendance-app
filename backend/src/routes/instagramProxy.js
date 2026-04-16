@@ -6,20 +6,30 @@ const router = express.Router()
 const cache = new Map()
 const CACHE_TTL_MS = 60 * 60 * 1000 // 1 hour
 
-function fetchPage(hostname, path, headers) {
+function fetchUrl(url, redirectsLeft = 5) {
   return new Promise((resolve, reject) => {
+    if (redirectsLeft <= 0) return reject(new Error('Too many redirects'))
+    const parsed = new URL(url)
     const options = {
-      hostname,
-      path,
+      hostname: parsed.hostname,
+      path: parsed.pathname + parsed.search,
       method: 'GET',
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
-        ...headers,
+        'Accept-Encoding': 'identity',
       },
     }
     const req = https.request(options, (res) => {
+      // Follow redirects
+      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+        const next = res.headers.location.startsWith('http')
+          ? res.headers.location
+          : `https://${parsed.hostname}${res.headers.location}`
+        res.resume()
+        return fetchUrl(next, redirectsLeft - 1).then(resolve).catch(reject)
+      }
       let data = ''
       res.on('data', chunk => { data += chunk })
       res.on('end', () => resolve({ status: res.statusCode, body: data }))
@@ -55,7 +65,7 @@ function extractOgMeta(html) {
 }
 
 async function fetchInstagramProfile(username) {
-  const { status, body } = await fetchPage('www.instagram.com', `/${encodeURIComponent(username)}/`, {})
+  const { status, body } = await fetchUrl(`https://www.instagram.com/${encodeURIComponent(username)}/`)
   if (status === 404) throw new Error('Profile not found')
   if (status !== 200) throw new Error(`Instagram returned HTTP ${status}`)
 
@@ -64,8 +74,9 @@ async function fetchInstagramProfile(username) {
   return data
 }
 
-function proxyImage(url, res) {
+function proxyImage(url, res, redirectsLeft = 5) {
   return new Promise((resolve, reject) => {
+    if (redirectsLeft <= 0) return reject(new Error('Too many redirects'))
     const parsed = new URL(url)
     const options = {
       hostname: parsed.hostname,
@@ -77,6 +88,10 @@ function proxyImage(url, res) {
       },
     }
     const req = https.request(options, (imgRes) => {
+      if ([301, 302, 303, 307, 308].includes(imgRes.statusCode) && imgRes.headers.location) {
+        imgRes.resume()
+        return proxyImage(imgRes.headers.location, res, redirectsLeft - 1).then(resolve).catch(reject)
+      }
       if (imgRes.statusCode !== 200) return reject(new Error(`Image fetch failed: ${imgRes.statusCode}`))
       res.setHeader('Content-Type', imgRes.headers['content-type'] || 'image/jpeg')
       res.setHeader('Cache-Control', 'public, max-age=3600')
