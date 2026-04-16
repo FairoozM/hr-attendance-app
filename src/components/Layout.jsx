@@ -9,6 +9,122 @@ import { ThemeToggle } from './ThemeToggle'
 import { fmtDMY } from '../utils/dateFormat'
 import './Layout.css'
 
+function SidebarSearch({ allItems, onNavigate }) {
+  const [query, setQuery] = useState('')
+  const [cursor, setCursor] = useState(0)
+  const inputRef = useRef(null)
+  const listRef = useRef(null)
+  const navigate = useNavigate()
+
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return []
+    return allItems.filter(item =>
+      item.label.toLowerCase().includes(q) ||
+      item.group.toLowerCase().includes(q)
+    )
+  }, [query, allItems])
+
+  // Reset cursor when results change
+  useEffect(() => { setCursor(0) }, [results.length])
+
+  const commit = useCallback((item) => {
+    navigate(item.to)
+    setQuery('')
+    onNavigate()
+  }, [navigate, onNavigate])
+
+  const onKeyDown = (e) => {
+    if (!results.length) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setCursor(c => Math.min(c + 1, results.length - 1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setCursor(c => Math.max(c - 1, 0))
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      if (results[cursor]) commit(results[cursor])
+    } else if (e.key === 'Escape') {
+      setQuery('')
+    }
+  }
+
+  // Keyboard shortcut: "/" focuses the search box
+  useEffect(() => {
+    function onGlobalKey(e) {
+      if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+        e.preventDefault()
+        inputRef.current?.focus()
+      }
+    }
+    document.addEventListener('keydown', onGlobalKey)
+    return () => document.removeEventListener('keydown', onGlobalKey)
+  }, [])
+
+  return (
+    <div className="nav-search">
+      <div className="nav-search__shell">
+        <svg className="nav-search__icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <input
+          ref={inputRef}
+          type="search"
+          className="nav-search__input"
+          placeholder='Search navigation… ("/")'
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onKeyDown={onKeyDown}
+          autoComplete="off"
+          spellCheck={false}
+          aria-label="Search navigation"
+          aria-autocomplete="list"
+          aria-controls="nav-search-results"
+          aria-activedescendant={results.length ? `nav-sr-${cursor}` : undefined}
+        />
+        {query && (
+          <button
+            type="button"
+            className="nav-search__clear"
+            onClick={() => { setQuery(''); inputRef.current?.focus() }}
+            aria-label="Clear search"
+          >×</button>
+        )}
+      </div>
+
+      {results.length > 0 && (
+        <ul
+          id="nav-search-results"
+          ref={listRef}
+          className="nav-search__results"
+          role="listbox"
+        >
+          {results.map((item, i) => (
+            <li key={item.to} role="option" aria-selected={i === cursor}>
+              <button
+                id={`nav-sr-${i}`}
+                type="button"
+                className={`nav-search__result ${i === cursor ? 'nav-search__result--active' : ''}`}
+                onClick={() => commit(item)}
+                onMouseEnter={() => setCursor(i)}
+              >
+                <span className="nav-search__result-label">{item.label}</span>
+                <span className="nav-search__result-group">{item.group}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {query.trim() && results.length === 0 && (
+        <div className="nav-search__empty">No pages match "{query.trim()}"</div>
+      )}
+    </div>
+  )
+}
+
 function ChevronIcon({ open }) {
   return (
     <svg
@@ -206,6 +322,19 @@ export function Layout() {
     can('sim_cards', 'view') && { label: 'Sim Cards List', to: '/lists/sim-cards' },
   ].filter(Boolean)
 
+  const managementItems = [
+    can('document_expiry', 'view') && { label: 'Document Expiry Tracker', to: '/management/document-expiry' },
+  ].filter(Boolean)
+
+  // Flat list of all accessible nav items used by the sidebar search
+  const allNavItems = useMemo(() => [
+    ...hrItems.map(i => ({ ...i, group: 'HR' })),
+    ...listsItems.map(i => ({ ...i, group: 'Lists' })),
+    ...INFLUENCER_ITEMS.map(i => ({ ...i, group: 'Influencers' })),
+    ...managementItems.map(i => ({ ...i, group: 'Management' })),
+    { label: 'My Account', to: '/account', group: 'Account' },
+  ], [hrItems, listsItems, INFLUENCER_ITEMS, managementItems])
+
   return (
     <div className="app">
       <div className="app__aurora app__aurora--left" aria-hidden />
@@ -244,6 +373,8 @@ export function Layout() {
           </div>
 
           <nav id="app-sidebar-nav" className="app-sidebar__nav" aria-label="Main">
+            <SidebarSearch allItems={allNavItems} onNavigate={closeSidebar} />
+
             <div className="app-sidebar__section-label" role="presentation">
               Workspace
             </div>
@@ -296,22 +427,23 @@ export function Layout() {
 
             <NavGroup label="Amazon" hint="Reserved" isActive={false} />
 
-            {hasAnyManagementAccess && (
+            {hasAnyManagementAccess && managementItems.length > 0 && (
               <>
                 <div className="app-sidebar__section-label" role="presentation">
                   Management
                 </div>
                 <NavGroup label="Management" hint="Compliance" isActive={isManagementActive}>
-                  {can('document_expiry', 'view') && (
+                  {managementItems.map(item => (
                     <NavLink
-                      to="/management/document-expiry"
+                      key={item.to}
+                      to={item.to}
                       className={subLinkClass}
                       onClick={closeSidebar}
                     >
                       <span className="nav-group__link-dot" aria-hidden />
-                      Document Expiry Tracker
+                      {item.label}
                     </NavLink>
-                  )}
+                  ))}
                 </NavGroup>
               </>
             )}
