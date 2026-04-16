@@ -102,6 +102,14 @@ function requirePermission(module, action) {
     ) {
       return next()
     }
+    // sim cards: write permissions imply view
+    if (
+      action === 'view' &&
+      module === 'sim_cards' &&
+      (mod.add || mod.edit || mod.delete)
+    ) {
+      return next()
+    }
 
     if (mod[action]) return next()
 

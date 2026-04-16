@@ -41,6 +41,16 @@ const MODULES = [
       { key: 'agreements', label: 'Generate and manage influencer agreements' },
     ],
   },
+  {
+    key: 'sim_cards',
+    label: 'Sim Cards List',
+    permissions: [
+      { key: 'view', label: 'View Sim Cards List' },
+      { key: 'add', label: 'Add Sim Card' },
+      { key: 'edit', label: 'Edit Sim Card' },
+      { key: 'delete', label: 'Delete Sim Card' },
+    ],
+  },
 ]
 
 function roleLabel(role) {
@@ -211,11 +221,15 @@ export function RolesPermissionsPage() {
       if (permKey === 'manage' && next[modKey].manage) next[modKey].view = true
       if (permKey === 'edit' && next[modKey].edit) next[modKey].view = true
       if (permKey === 'approve' && next[modKey].approve) next[modKey].view = true
+      if (permKey === 'add' && next[modKey].add) next[modKey].view = true
+      if (permKey === 'delete' && next[modKey].delete) next[modKey].view = true
       // unsetting view clears dependent permissions
       if (permKey === 'view' && !next[modKey].view) {
         if (next[modKey].manage != null) next[modKey].manage = false
         if (next[modKey].edit != null) next[modKey].edit = false
         if (next[modKey].approve != null) next[modKey].approve = false
+        if (next[modKey].add != null) next[modKey].add = false
+        if (next[modKey].delete != null) next[modKey].delete = false
       }
       return next
     })

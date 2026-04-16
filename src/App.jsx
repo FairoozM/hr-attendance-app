@@ -24,6 +24,7 @@ import { ShootSchedulePage } from './pages/influencers/ShootSchedulePage'
 import { PaymentsPage } from './pages/influencers/PaymentsPage'
 import { AgreementsPage } from './pages/influencers/AgreementsPage'
 import { ReportsPage } from './pages/influencers/ReportsPage'
+import { SimCardsPage } from './pages/SimCardsPage'
 import { useEmployees } from './hooks/useEmployees'
 import { useAttendanceManagedEmployees } from './hooks/useAttendanceManagedEmployees'
 import { useAttendance, clearAllAttendanceStorage } from './hooks/useAttendance'
@@ -140,6 +141,14 @@ function AppContent() {
         <Route
           path="settings"
           element={<SettingsPage onResetDemoData={handleResetDemoData} />}
+        />
+        <Route
+          path="lists/sim-cards"
+          element={
+            <PermissionGuard module="sim_cards" action="view">
+              <SimCardsPage />
+            </PermissionGuard>
+          }
         />
         <Route
           path="employees/:id/profile"

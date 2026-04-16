@@ -165,15 +165,19 @@ export function Layout() {
     isEmployee ? '/account' : can('attendance', 'view') ? '/attendance' : '/account'
 
   const HR_ROUTES = ['/employees', '/attendance', '/annual-leave', '/settings', '/roles-permissions']
+  const LISTS_ROUTES = ['/lists/sim-cards']
   const isHrActive = HR_ROUTES.some(r => location.pathname.startsWith(r))
+  const isListsActive = LISTS_ROUTES.some(r => location.pathname.startsWith(r))
   const isInfluencersActive = location.pathname.startsWith('/influencers')
   const hasAnyInfluencerAccess = hasAnyModulePermission(user, 'influencers')
+  const hasAnyListsAccess = hasAnyModulePermission(user, 'sim_cards')
   const currentSectionLabel = useMemo(() => {
     if (location.pathname.startsWith('/employees')) return 'Employees'
     if (location.pathname.startsWith('/attendance')) return 'Attendance'
     if (location.pathname.startsWith('/annual-leave')) return 'Annual Leave'
     if (location.pathname.startsWith('/settings')) return 'Settings'
     if (location.pathname.startsWith('/roles-permissions')) return 'Roles & Permissions'
+    if (location.pathname.startsWith('/lists/sim-cards')) return 'Sim Cards List'
     if (location.pathname.startsWith('/influencers')) return 'Influencers'
     if (location.pathname.startsWith('/account')) return 'My Account'
     return 'Dashboard'
@@ -194,6 +198,9 @@ export function Layout() {
     (isEmployee || can('leave', 'view')) && { label: 'Annual Leave', to: '/annual-leave' },
     isAdmin && { label: 'Settings', to: '/settings' },
     isAdmin && { label: 'Roles & Permissions', to: '/roles-permissions' },
+  ].filter(Boolean)
+  const listsItems = [
+    can('sim_cards', 'view') && { label: 'Sim Cards List', to: '/lists/sim-cards' },
   ].filter(Boolean)
 
   return (
@@ -251,6 +258,22 @@ export function Layout() {
                 </NavLink>
               ))}
             </NavGroup>
+
+            {hasAnyListsAccess && listsItems.length > 0 && (
+              <NavGroup label="Lists" hint="Assets" isActive={isListsActive}>
+                {listsItems.map(item => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    className={subLinkClass}
+                    onClick={closeSidebar}
+                  >
+                    <span className="nav-group__link-dot" aria-hidden />
+                    {item.label}
+                  </NavLink>
+                ))}
+              </NavGroup>
+            )}
 
             {hasAnyInfluencerAccess && (
               <NavGroup label="Influencers" hint="Creator ops" isActive={isInfluencersActive}>

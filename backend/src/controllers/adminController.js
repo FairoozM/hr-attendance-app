@@ -17,12 +17,13 @@ async function attachAssignmentPhotoUrls(rows) {
   )
 }
 
-const VALID_MODULES = ['attendance', 'leave', 'employees', 'influencers']
+const VALID_MODULES = ['attendance', 'leave', 'employees', 'influencers', 'sim_cards']
 const VALID_ACTIONS = {
   attendance: ['view', 'manage'],
   leave: ['view', 'approve'],
   employees: ['view', 'edit'],
   influencers: ['view', 'manage', 'approve', 'payments', 'agreements'],
+  sim_cards: ['view', 'add', 'edit', 'delete'],
 }
 
 /**

@@ -349,6 +349,59 @@ async function ensureInfluencersSnapshotTable() {
   `)
 }
 
+async function ensureSimCardsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS sim_cards (
+      id SERIAL PRIMARY KEY,
+      number VARCHAR(100) NOT NULL,
+      remarks TEXT NOT NULL DEFAULT '',
+      person VARCHAR(255) NOT NULL,
+      imei_number VARCHAR(255) NOT NULL DEFAULT '',
+      mobile_number VARCHAR(255) NOT NULL DEFAULT '',
+      monthly_charges_aed NUMERIC(14,2) NOT NULL DEFAULT 0,
+      usage VARCHAR(10) NOT NULL DEFAULT 'Yes',
+      type VARCHAR(255) NOT NULL,
+      issued VARCHAR(255) NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_sim_cards_number ON sim_cards(number)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_sim_cards_person ON sim_cards(person)`)
+
+  const seeded = await query(`SELECT COUNT(*)::int AS n FROM sim_cards`)
+  const n = seeded.rows[0]?.n || 0
+  if (n > 0) return
+
+  const seedRows = [
+    ['0521573960', 'Banned but Getting Calls', 'Ali', '96958, 96953', 'Samsung S24 Ultra', 105, 'Yes', 'Data + Calls', 'BASMAT AL HAYAT GENERAL TRADING LLC'],
+    ['0569048966', 'Banned but Getting Calls', 'Iphone', '90338', 'Iphone 14 Pro Max', 105, 'No', 'Data + Calls', 'BASMAT AL HAYAT GENERAL TRADING LLC'],
+    ['0565043223', '', 'Margaret', '38094, 38096', 'Galaxy A70', 105, 'Yes', 'Data + Calls', 'BASMAT AL HAYAT GENERAL TRADING LLC'],
+    ['0506890728', '', 'Respond.io', '66249, 66240', 'Galaxy Note 10 Lite', 105, 'Yes', 'Data + Calls', 'BASMAT AL HAYAT GENERAL TRADING LLC'],
+    ['0569066450', '', 'Ajmal sharaf', '78154, 78152', 'Galaxy X Cover Pro', 105, 'Yes', 'Data + Calls', 'BASMAT AL HAYAT GENERAL TRADING LLC'],
+    ['0565028957', '', 'Abdullah', '10486, 10487', 'Samsung Note 10 Lite', 105, 'Yes', 'Data + Calls', 'BASMAT AL HAYAT GENERAL TRADING LLC'],
+    ['0503253960', 'Banned but Getting Calls', 'Ali', '46641, 46642', 'Samsung Note 10 Lite', 105, 'No', 'Data + Calls', 'BASMAT AL HAYAT GENERAL TRADING LLC'],
+    ['0502073960', 'New Sim', 'Website- new connection', '96958, 96953', 'Samsung S24 Ultra', 105, 'Yes', 'Data + Calls', 'BASMAT AL HAYAT GENERAL TRADING LLC'],
+    ['0503924053', '', 'Aparna (Dev)', '66249, 66240', 'Galaxy Note 10 Lite', 0, 'Yes', 'Just Sim (No Package)', 'BASMAT AL HAYAT GENERAL TRADING LLC'],
+    ['0503925249', '', 'Ch. Faizan', '23554, 23555', 'Samsung Note 10 Lite', 0, 'Yes', 'Just Sim (No Package)', 'BASMAT AL HAYAT GENERAL TRADING LLC'],
+    ['0521467950', '', 'Abobecker', '48519, 48515', 'Galaxy X Cover 6 Pro', 0, 'Yes', 'Just Sim (No Package)', 'BASMAT AL HAYAT GENERAL TRADING LLC'],
+    ['042593082', '', 'E-Com telephone', '', '', 500, 'Yes', 'Official Landline', 'BASMAT AL HAYAT GENERAL TRADING LLC'],
+    ['045476168', '', 'E-Com telephone', '', '', 1850, 'Yes', 'Offical Internet', 'BASMAT AL HAYAT GENERAL TRADING LLC'],
+    ['0554736936', '', 'Mubashir', '', '', 105, 'Yes', 'Data + Calls', 'AL HOORA TRADING LLC'],
+    ['0501779856', '', 'Shahid', '', '', 105, 'Yes', 'Data + Calls', 'AL HOORA TRADING LLC'],
+  ]
+
+  for (const row of seedRows) {
+    await query(
+      `INSERT INTO sim_cards (
+        number, remarks, person, imei_number, mobile_number,
+        monthly_charges_aed, usage, type, issued
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      row
+    )
+  }
+}
+
 async function ensureAttendanceAssignmentsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS attendance_assignments (
@@ -464,6 +517,7 @@ async function testConnection() {
   } catch (e) {
     console.error('[db] ensureInfluencersSnapshotTable skipped/failed (non-fatal):', e.message || e)
   }
+  await ensureSimCardsTable()
 }
 
 module.exports = {
