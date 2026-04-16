@@ -305,7 +305,6 @@ export function SimCardsPage() {
                 <tr>
                   <th>Sr. No.</th>
                   <th>number</th>
-                  <th>Remarks</th>
                   <th>Person</th>
                   <th>IMEI NUMBER</th>
                   <th>Mobile Number</th>
@@ -313,6 +312,7 @@ export function SimCardsPage() {
                   <th>Usage</th>
                   <th>Type</th>
                   <th>issued</th>
+                  <th>Remarks</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -321,7 +321,6 @@ export function SimCardsPage() {
                   <tr key={row.id}>
                     <td>{idx + 1}</td>
                     <td>{row.number || '—'}</td>
-                    <td>{row.remarks || '—'}</td>
                     <td>{row.person || '—'}</td>
                     <td>{row.imeiNumber || '—'}</td>
                     <td>{row.mobileNumber || '—'}</td>
@@ -331,6 +330,7 @@ export function SimCardsPage() {
                     </td>
                     <td>{row.type || '—'}</td>
                     <td>{row.issued || '—'}</td>
+                    <td>{row.remarks || '—'}</td>
                     <td>
                       <div className="sim-actions">
                         {canEdit ? (
