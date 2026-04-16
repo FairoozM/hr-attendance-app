@@ -184,10 +184,20 @@ function NavGroup({ label, children, isActive, defaultOpen = false, hint }) {
 const DOC_URGENCY_LABEL = { expired: 'Expired', urgent: 'Urgent', 'due-soon': 'Due Soon' }
 const DOC_URGENCY_CLS   = { expired: 'notif-doc-badge--expired', urgent: 'notif-doc-badge--urgent', 'due-soon': 'notif-doc-badge--due-soon' }
 
+const LS_DISMISSED_KEY = 'notif_dismissed_doc_ids'
+
+function loadDismissedDocIds() {
+  try {
+    const raw = localStorage.getItem(LS_DISMISSED_KEY)
+    if (raw) return new Set(JSON.parse(raw))
+  } catch { /* ignore */ }
+  return new Set()
+}
+
 function NotificationsBell({ docReminders = [] }) {
   const { items, unread, loading, refresh, markRead, markAllRead, dismiss } = useNotifications(true)
   const [open, setOpen] = useState(false)
-  const [dismissedDocIds, setDismissedDocIds] = useState(new Set())
+  const [dismissedDocIds, setDismissedDocIds] = useState(loadDismissedDocIds)
   const wrapRef = useRef(null)
 
   useEffect(() => {
@@ -203,7 +213,11 @@ function NotificationsBell({ docReminders = [] }) {
   const totalUnread = unread + visibleDocReminders.length
 
   function dismissDoc(id) {
-    setDismissedDocIds((prev) => new Set([...prev, id]))
+    setDismissedDocIds((prev) => {
+      const next = new Set([...prev, id])
+      try { localStorage.setItem(LS_DISMISSED_KEY, JSON.stringify([...next])) } catch { /* ignore */ }
+      return next
+    })
   }
 
   return (

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { Modal } from '../../components/Modal'
 import { DocSummaryCards } from './components/DocSummaryCards'
 import { DocFiltersBar } from './components/DocFiltersBar'
@@ -9,11 +9,30 @@ import { SEED_DOCUMENTS } from './data/seedDocuments'
 import './DocumentExpiryPage.css'
 
 // ── API integration point ─────────────────────────────────────────────────────
-// Replace useState(SEED_DOCUMENTS) with a useEffect + API fetch when ready.
-// The save/delete handlers have clearly marked swap points below.
+// Replace the localStorage init + useEffect persistence with a useEffect + API
+// fetch/save when a backend is ready.
 // ─────────────────────────────────────────────────────────────────────────────
 
-let _nextId = SEED_DOCUMENTS.length + 1
+const LS_KEY = 'doc_expiry_documents'
+const LS_ID_KEY = 'doc_expiry_next_id'
+
+function loadDocuments() {
+  try {
+    const raw = localStorage.getItem(LS_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch { /* ignore */ }
+  return SEED_DOCUMENTS
+}
+
+function loadNextId() {
+  try {
+    const raw = localStorage.getItem(LS_ID_KEY)
+    if (raw) return Number(raw)
+  } catch { /* ignore */ }
+  return SEED_DOCUMENTS.length + 1
+}
+
+let _nextId = loadNextId()
 
 const EMPTY_FILTERS = {
   search: '',
@@ -23,9 +42,14 @@ const EMPTY_FILTERS = {
 }
 
 export function DocumentExpiryPage() {
-  const [documents, setDocuments] = useState(SEED_DOCUMENTS)
+  const [documents, setDocuments] = useState(loadDocuments)
   const [filters, setFilters] = useState(EMPTY_FILTERS)
   const [activeQuick, setActiveQuick] = useState('all')
+
+  // Persist to localStorage on every change
+  useEffect(() => {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(documents)) } catch { /* ignore */ }
+  }, [documents])
 
   const [formOpen, setFormOpen]     = useState(false)
   const [editTarget, setEditTarget] = useState(null)
@@ -74,6 +98,7 @@ export function DocumentExpiryPage() {
       )
     } else {
       const id = String(_nextId++)
+      try { localStorage.setItem(LS_ID_KEY, String(_nextId)) } catch { /* ignore */ }
       setDocuments(prev => [...prev, { ...form, id, attachment: null, createdAt: now, updatedAt: now }])
     }
     setFormSaving(false)
