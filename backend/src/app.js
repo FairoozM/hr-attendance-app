@@ -15,6 +15,7 @@ const influencersRoutes = require('./routes/influencers')
 const simCardsRoutes = require('./routes/simCards')
 const documentExpiryRoutes = require('./routes/documentExpiry')
 const instagramProxyRoutes = require('./routes/instagramProxy')
+const projectsRoutes = require('./routes/projects')
 
 const app = express()
 
@@ -54,6 +55,7 @@ app.use('/api/influencers', influencersRoutes)
 app.use('/api/sim-cards', authMiddleware.attachAuth, simCardsRoutes)
 app.use('/api/document-expiry', authMiddleware.attachAuth, documentExpiryRoutes)
 app.use('/api/instagram-proxy', instagramProxyRoutes)
+app.use('/api/projects', authMiddleware.attachAuth, projectsRoutes)
 
 // Catch-all for unmatched /api/* — always JSON, never HTML
 app.use('/api', (_req, res) => {

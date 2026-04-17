@@ -609,6 +609,128 @@ async function testConnection() {
   } catch (e) {
     console.error('[db] ensureDocumentExpiryTable skipped/failed (non-fatal):', e.message || e)
   }
+  try {
+    await ensureProjectsTable()
+  } catch (e) {
+    console.error('[db] ensureProjectsTable skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    await ensureProjectSectionsTable()
+  } catch (e) {
+    console.error('[db] ensureProjectSectionsTable skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    await ensureProjectTasksTable()
+  } catch (e) {
+    console.error('[db] ensureProjectTasksTable skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    await ensureTaskDependenciesTable()
+  } catch (e) {
+    console.error('[db] ensureTaskDependenciesTable skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    await ensureTaskAttachmentsTable()
+  } catch (e) {
+    console.error('[db] ensureTaskAttachmentsTable skipped/failed (non-fatal):', e.message || e)
+  }
+}
+
+async function ensureProjectsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS projects (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      slug VARCHAR(255) UNIQUE,
+      description TEXT DEFAULT '',
+      status VARCHAR(50) NOT NULL DEFAULT 'Planning',
+      priority VARCHAR(20) NOT NULL DEFAULT 'Medium',
+      color VARCHAR(20) DEFAULT '#8b5cf6',
+      start_date DATE,
+      due_date DATE,
+      owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      archived BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_projects_archived ON projects(archived)`)
+}
+
+async function ensureProjectSectionsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS project_sections (
+      id SERIAL PRIMARY KEY,
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      name VARCHAR(255) NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_project_sections_project_id ON project_sections(project_id)`)
+}
+
+async function ensureProjectTasksTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS project_tasks (
+      id SERIAL PRIMARY KEY,
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      section_id INTEGER REFERENCES project_sections(id) ON DELETE SET NULL,
+      parent_task_id INTEGER REFERENCES project_tasks(id) ON DELETE CASCADE,
+      title VARCHAR(500) NOT NULL,
+      description TEXT DEFAULT '',
+      status VARCHAR(50) NOT NULL DEFAULT 'Not Started',
+      priority VARCHAR(20) NOT NULL DEFAULT 'Medium',
+      start_date DATE,
+      due_date DATE,
+      completed_at TIMESTAMPTZ,
+      estimated_hours NUMERIC(8,2),
+      actual_hours NUMERIC(8,2),
+      progress_percent SMALLINT NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      archived BOOLEAN NOT NULL DEFAULT false,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_project_tasks_project_id ON project_tasks(project_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_project_tasks_section_id ON project_tasks(section_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_project_tasks_parent_task_id ON project_tasks(parent_task_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_project_tasks_status ON project_tasks(status)`)
+}
+
+async function ensureTaskDependenciesTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS task_dependencies (
+      id SERIAL PRIMARY KEY,
+      task_id INTEGER NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+      depends_on_task_id INTEGER NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+      dependency_type VARCHAR(30) NOT NULL DEFAULT 'finish-to-start',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(task_id, depends_on_task_id)
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_task_deps_task_id ON task_dependencies(task_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_task_deps_depends_on ON task_dependencies(depends_on_task_id)`)
+}
+
+async function ensureTaskAttachmentsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS task_attachments (
+      id SERIAL PRIMARY KEY,
+      task_id INTEGER NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+      file_name VARCHAR(500) NOT NULL,
+      s3_key TEXT NOT NULL,
+      file_type VARCHAR(100),
+      file_size INTEGER,
+      uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_task_attachments_task_id ON task_attachments(task_id)`)
 }
 
 module.exports = {

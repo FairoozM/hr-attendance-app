@@ -504,6 +504,30 @@ export function Layout() {
 
             <NavGroup label="Amazon" hint="Reserved" isActive={false} />
 
+            {isAdmin && (
+              <>
+                <div className="app-sidebar__section-label" role="presentation">
+                  Projects
+                </div>
+                <NavGroup label="Projects" hint="Task mgmt" isActive={location.pathname.startsWith('/projects')}>
+                  {[
+                    { to: '/projects', label: 'All Projects' },
+                    { to: '/projects/dashboard', label: 'Dashboard' },
+                  ].map(item => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      className={subLinkClass}
+                      onClick={closeSidebar}
+                    >
+                      <span className="nav-group__link-dot" aria-hidden />
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </NavGroup>
+              </>
+            )}
+
             {hasAnyManagementAccess && managementItems.length > 0 && (
               <>
                 <div className="app-sidebar__section-label" role="presentation">

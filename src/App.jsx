@@ -26,6 +26,10 @@ import { AgreementsPage } from './pages/influencers/AgreementsPage'
 import { ReportsPage } from './pages/influencers/ReportsPage'
 import { SimCardsPage } from './pages/SimCardsPage'
 import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
+import ProjectsIndexPage from './pages/projects/ProjectsIndexPage'
+import ProjectDetailPage from './pages/projects/ProjectDetailPage'
+import ProjectDashboardPage from './pages/projects/ProjectDashboardPage'
+import { ProjectsProvider } from './contexts/ProjectsContext'
 import { useEmployees } from './hooks/useEmployees'
 import { useAttendanceManagedEmployees } from './hooks/useAttendanceManagedEmployees'
 import { useAttendance, clearAllAttendanceStorage } from './hooks/useAttendance'
@@ -169,6 +173,13 @@ function AppContent() {
         />
         <Route path="roles-permissions" element={<RolesPermissionsPage />} />
 
+        {/* Projects Module */}
+        <Route path="projects">
+          <Route index element={<ProjectsIndexPage />} />
+          <Route path="dashboard" element={<ProjectDashboardPage />} />
+          <Route path=":id" element={<ProjectDetailPage />} />
+        </Route>
+
         {/* Influencers Module */}
         <Route path="influencers">
           <Route path="list" element={
@@ -228,7 +239,9 @@ function App() {
     <AuthProvider>
       <SettingsContext.Provider value={settings}>
         <InfluencersProvider>
-          <AppContent />
+          <ProjectsProvider>
+            <AppContent />
+          </ProjectsProvider>
         </InfluencersProvider>
       </SettingsContext.Provider>
     </AuthProvider>

@@ -35,6 +35,11 @@ function createAnnualLeaveLetterKey(leaveId) {
   return `annual-leave-letters/${leaveId}/${crypto.randomUUID()}.pdf`
 }
 
+function createTaskAttachmentKey(taskId, fileName) {
+  const safe = sanitizeName(fileName)
+  return `task-attachments/${taskId}/${crypto.randomUUID()}-${safe}`
+}
+
 async function getUploadUrl({ key, contentType, expiresIn = 300 }) {
   const Bucket = requireBucket()
   const command = new PutObjectCommand({
@@ -94,6 +99,7 @@ module.exports = {
   createSickLeaveKey,
   createProfileDocKey,
   createAnnualLeaveLetterKey,
+  createTaskAttachmentKey,
   getUploadUrl,
   getDownloadUrl,
   putObjectBuffer,
