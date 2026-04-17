@@ -39,9 +39,20 @@ export function buildApiUrl(path: string): string {
 
 export async function apiFetch(path: string, init?: RequestInit) {
   const url = buildApiUrl(path)
+  const method = (init?.method || "GET").toUpperCase()
+  const hasBody = init?.body != null
+
+  // Don't send Content-Type on GET/HEAD requests with no body — CloudFront's
+  // WAF blocks GET requests that include Content-Type as a non-standard header.
+  const contentTypeHeader =
+    hasBody || method === "POST" || method === "PUT" || method === "PATCH"
+      ? { "Content-Type": "application/json" }
+      : {}
+
   const response = await fetch(url, {
     headers: {
-      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...contentTypeHeader,
       ...getAuthHeaders(),
       ...(init?.headers || {}),
     },
