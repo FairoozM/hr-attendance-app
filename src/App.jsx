@@ -26,6 +26,7 @@ import { AgreementsPage } from './pages/influencers/AgreementsPage'
 import { ReportsPage } from './pages/influencers/ReportsPage'
 import { SimCardsPage } from './pages/SimCardsPage'
 import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
+import { WeeklyAdsReportPage } from './pages/reports/WeeklyAdsReportPage'
 import ProjectsIndexPage from './pages/projects/ProjectsIndexPage'
 import ProjectDetailPage from './pages/projects/ProjectDetailPage'
 import ProjectDashboardPage from './pages/projects/ProjectDashboardPage'
@@ -178,6 +179,13 @@ function AppContent() {
           <Route index element={<ProjectsIndexPage />} />
           <Route path="dashboard" element={<ProjectDashboardPage />} />
           <Route path=":id" element={<ProjectDetailPage />} />
+        </Route>
+
+        {/* Reports Module */}
+        <Route path="reports">
+          <Route path="weekly-report">
+            <Route path="weekly-ads" element={<WeeklyAdsReportPage />} />
+          </Route>
         </Route>
 
         {/* Influencers Module */}

@@ -363,6 +363,7 @@ export function Layout() {
   const isListsActive = LISTS_ROUTES.some(r => location.pathname.startsWith(r))
   const isInfluencersActive = location.pathname.startsWith('/influencers')
   const isManagementActive = location.pathname.startsWith('/management')
+  const isReportsActive = location.pathname.startsWith('/reports')
   const hasAnyInfluencerAccess = hasAnyModulePermission(user, 'influencers')
   const hasAnyListsAccess = hasAnyModulePermission(user, 'sim_cards')
   const hasAnyManagementAccess = hasAnyModulePermission(user, 'document_expiry')
@@ -376,6 +377,8 @@ export function Layout() {
     if (location.pathname.startsWith('/influencers')) return 'Influencers'
     if (location.pathname.startsWith('/account')) return 'My Account'
     if (location.pathname.startsWith('/management/document-expiry')) return 'Document Expiry Tracker'
+    if (location.pathname.startsWith('/reports/weekly-report/weekly-ads')) return 'Weekly Ads Report'
+    if (location.pathname.startsWith('/reports')) return 'Reports'
     return 'Dashboard'
   }, [location.pathname])
 
@@ -403,12 +406,17 @@ export function Layout() {
     can('document_expiry', 'view') && { label: 'Document Expiry Tracker', to: '/management/document-expiry' },
   ].filter(Boolean)
 
+  const REPORTS_ITEMS = [
+    { label: 'Weekly Ads Report', to: '/reports/weekly-report/weekly-ads' },
+  ]
+
   // Flat list of all accessible nav items used by the sidebar search
   const allNavItems = useMemo(() => [
     ...hrItems.map(i => ({ ...i, group: 'HR' })),
     ...listsItems.map(i => ({ ...i, group: 'Lists' })),
     ...INFLUENCER_ITEMS.map(i => ({ ...i, group: 'Influencers' })),
     ...managementItems.map(i => ({ ...i, group: 'Management' })),
+    ...REPORTS_ITEMS.map(i => ({ ...i, group: 'Reports' })),
     { label: 'My Account', to: '/account', group: 'Account' },
   ], [hrItems, listsItems, INFLUENCER_ITEMS, managementItems])
 
@@ -548,6 +556,25 @@ export function Layout() {
                 </NavGroup>
               </>
             )}
+
+            <>
+              <div className="app-sidebar__section-label" role="presentation">
+                Reports
+              </div>
+              <NavGroup label="Weekly Report" hint="Performance" isActive={isReportsActive}>
+                {REPORTS_ITEMS.map(item => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    className={subLinkClass}
+                    onClick={closeSidebar}
+                  >
+                    <span className="nav-group__link-dot" aria-hidden />
+                    {item.label}
+                  </NavLink>
+                ))}
+              </NavGroup>
+            </>
 
             <div className="app-sidebar__section-label" role="presentation">
               Account
