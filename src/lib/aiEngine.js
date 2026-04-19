@@ -184,6 +184,7 @@ const BUFFER_MINUTES  = 10 // gap between tasks
  * Returns tasks with { scheduledStart, scheduledEnd } (Date objects).
  */
 export function buildDailySchedule(tasks, baseDate = new Date()) {
+  const doneTasks    = tasks.filter((t) => t.status === 'done')
   const deepTasks    = tasks.filter((t) => t.energyType === 'deep'    && t.status !== 'done' && t.status !== 'blocked')
   const shallowTasks = tasks.filter((t) => t.energyType !== 'deep'    && t.status !== 'done' && t.status !== 'blocked')
   const blockedTasks = tasks.filter((t) => t.status === 'blocked')
@@ -193,7 +194,7 @@ export function buildDailySchedule(tasks, baseDate = new Date()) {
   let cursor = setHour(baseDate, WORK_START_HOUR, 0)
   const workEnd = setHour(baseDate, WORK_END_HOUR, 0)
 
-  return ordered.map((task) => {
+  const scheduled = ordered.map((task) => {
     const duration = estimateDuration(task)
     const start = new Date(cursor)
     const end   = new Date(cursor.getTime() + duration * 60000)
@@ -205,6 +206,9 @@ export function buildDailySchedule(tasks, baseDate = new Date()) {
     cursor = new Date(end.getTime() + BUFFER_MINUTES * 60000)
     return { ...task, scheduledStart: start, scheduledEnd: end, overflow: false }
   })
+
+  // Done tasks are passed through unchanged so they remain visible in the list
+  return [...scheduled, ...doneTasks]
 }
 
 function setHour(date, h, m) {
