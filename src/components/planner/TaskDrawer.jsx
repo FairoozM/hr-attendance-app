@@ -4,13 +4,14 @@ import { calcPriorityScore, priorityLabel, priorityFlame, formatTime, estimateDu
 import { SubtaskList } from './SubtaskList'
 import { AttachmentPanel } from './AttachmentPanel'
 
+
 const STATUS_OPTIONS   = ['todo', 'blocked', 'done']
 const PRIORITY_OPTIONS = ['low', 'medium', 'high', 'urgent']
 const ENERGY_OPTIONS   = ['shallow', 'deep']
 const TABS = ['Details', 'Subtasks', 'Attachments']
 
 export function TaskDrawer() {
-  const { activeTask, setActiveTaskId, updateTask, deleteTask, markDone, markTodo } = useAIPlanner()
+  const { activeTask, setActiveTaskId, updateTask, deleteTask, markDone, markTodo, sections, moveTaskToSection } = useAIPlanner()
   const [form, setForm]   = useState(null)
   const [dirty, setDirty] = useState(false)
   const [tab, setTab]     = useState('Details')
@@ -244,6 +245,27 @@ export function TaskDrawer() {
                   placeholder="Additional notes…"
                   style={{ minHeight: 64 }}
                 />
+              </div>
+
+              {/* Section */}
+              <div className="aip-drawer__field">
+                <label className="aip-drawer__label">Section</label>
+                <select
+                  className="aip-drawer__input aip-drawer__select"
+                  value={form.sectionId || ''}
+                  onChange={(e) => {
+                    const val = e.target.value || null
+                    set('sectionId', val)
+                    moveTaskToSection(form.id, val)
+                  }}
+                >
+                  <option value="">No Section</option>
+                  {[...(sections || [])].sort((a, b) => a.order - b.order).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.title}
+                    </option>
+                  ))}
+                </select>
               </div>
             </>
           )}

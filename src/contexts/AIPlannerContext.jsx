@@ -9,7 +9,8 @@ import {
   parseQuickCapture,
 } from '../lib/aiEngine'
 
-const STORAGE_KEY = 'ai_planner_tasks_v1'
+const STORAGE_KEY          = 'ai_planner_tasks_v1'
+const SECTIONS_STORAGE_KEY = 'ai_planner_sections_v1'
 
 function loadFromStorage() {
   try {
@@ -26,39 +27,60 @@ function saveToStorage(tasks) {
   } catch {}
 }
 
+function loadSectionsFromStorage() {
+  try {
+    const raw = localStorage.getItem(SECTIONS_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+function saveSectionsToStorage(sections) {
+  try {
+    localStorage.setItem(SECTIONS_STORAGE_KEY, JSON.stringify(sections))
+  } catch {}
+}
+
+const SEED_SECTIONS = [
+  { id: 'sec-1', title: 'This Week', color: '#8b5cf6', order: 0 },
+  { id: 'sec-2', title: 'Operations', color: '#3b82f6', order: 1 },
+  { id: 'sec-3', title: 'Finance', color: '#f59e0b', order: 2 },
+]
+
 // ─── Seed data ─────────────────────────────────────────────────────────────
 const SEED_TASKS = [
   {
     id: '1', title: 'Check Amazon VAT invoices', description: 'Review all VAT invoices for UAE store',
-    status: 'todo', priority: 'high', dueDate: new Date().toISOString().slice(0, 10),
+    status: 'todo', priority: 'high', dueDate: new Date().toISOString().slice(0, 10), sectionId: 'sec-3',
   },
   {
     id: '2', title: 'Follow up with Noon payment', description: 'Follow up on pending payment settlement',
-    status: 'todo', priority: 'high', dueDate: null,
+    status: 'todo', priority: 'high', dueDate: null, sectionId: 'sec-3',
   },
   {
     id: '3', title: 'Review ads campaign ACOS', description: 'Analyse weekly ACOS and adjust bids',
-    status: 'todo', priority: 'medium', dueDate: null,
+    status: 'todo', priority: 'medium', dueDate: null, sectionId: 'sec-1',
   },
   {
     id: '4', title: 'Send influencer brief', description: 'Email brief to new influencer for shoot schedule',
-    status: 'todo', priority: 'medium', dueDate: null,
+    status: 'todo', priority: 'medium', dueDate: null, sectionId: 'sec-1',
   },
   {
     id: '5', title: 'Update employee attendance records', description: 'Mark April attendance for all employees',
-    status: 'blocked', priority: 'medium', dueDate: null,
+    status: 'blocked', priority: 'medium', dueDate: null, sectionId: null,
   },
   {
     id: '6', title: 'Prepare product launch plan', description: 'Strategy doc for Q2 product launch on Amazon KSA',
-    status: 'todo', priority: 'high', dueDate: null,
+    status: 'todo', priority: 'high', dueDate: null, sectionId: 'sec-2',
   },
   {
     id: '7', title: 'Reply to supplier emails', description: '',
-    status: 'todo', priority: 'low', dueDate: null,
+    status: 'todo', priority: 'low', dueDate: null, sectionId: 'sec-2',
   },
   {
     id: '8', title: 'Review budget report', description: 'Monthly budget vs actuals',
-    status: 'done', priority: 'medium', dueDate: null,
+    status: 'done', priority: 'medium', dueDate: null, sectionId: 'sec-3',
   },
 ]
 
@@ -69,6 +91,10 @@ export function AIPlannerProvider({ children }) {
     const stored = loadFromStorage()
     return stored || SEED_TASKS
   })
+  const [sections, setSections] = useState(() => {
+    const stored = loadSectionsFromStorage()
+    return stored || SEED_SECTIONS
+  })
   const [activeTaskId, setActiveTaskId] = useState(null)
   const [view, setView] = useState('planner') // 'planner' | 'today' | 'dashboard'
 
@@ -76,6 +102,11 @@ export function AIPlannerProvider({ children }) {
   useEffect(() => {
     saveToStorage(rawTasks)
   }, [rawTasks])
+
+  // Persist sections
+  useEffect(() => {
+    saveSectionsToStorage(sections)
+  }, [sections])
 
   // ── Enriched + scheduled tasks (derived) ──────────────────────────────
   const tasks = useMemo(() => {
@@ -244,6 +275,37 @@ export function AIPlannerProvider({ children }) {
     )
   }, [])
 
+  // ── Sections ──────────────────────────────────────────────────────────
+
+  const addSection = useCallback((title) => {
+    const sec = {
+      id: `sec-${Date.now()}`,
+      title: title || 'New Section',
+      color: '#6b7280',
+      order: Date.now(),
+    }
+    setSections((prev) => [...prev, sec])
+    return sec
+  }, [])
+
+  const updateSection = useCallback((id, patch) => {
+    setSections((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)))
+  }, [])
+
+  const deleteSection = useCallback((id) => {
+    setSections((prev) => prev.filter((s) => s.id !== id))
+    // Move tasks from deleted section to unsectioned
+    setRawTasks((prev) =>
+      prev.map((t) => (t.sectionId === id ? { ...t, sectionId: null } : t))
+    )
+  }, [])
+
+  const moveTaskToSection = useCallback((taskId, sectionId) => {
+    setRawTasks((prev) =>
+      prev.map((t) => (t.id === taskId ? { ...t, sectionId: sectionId || null } : t))
+    )
+  }, [])
+
   // ── Filtered views ────────────────────────────────────────────────────
 
   const todoTasks    = useMemo(() => tasks.filter((t) => t.status === 'todo'),    [tasks])
@@ -285,6 +347,11 @@ export function AIPlannerProvider({ children }) {
       deleteSubtask,
       addAttachment,
       deleteAttachment,
+      sections,
+      addSection,
+      updateSection,
+      deleteSection,
+      moveTaskToSection,
     }}>
       {children}
     </AIPlannerContext.Provider>

@@ -1409,3 +1409,304 @@
   border-radius: 20px;
   transition: width 0.3s ease;
 }
+
+/* ── Sections list wrapper ───────────────────────────────────────── */
+.aip-sections-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* ── Single section block ────────────────────────────────────────── */
+.aip-section {
+  border-radius: 12px;
+  border: 1px solid var(--theme-border-subtle);
+  overflow: visible;
+  background: var(--theme-glass-soft);
+  transition: border-color 0.15s;
+}
+
+.aip-section:focus-within {
+  border-color: var(--theme-border-strong);
+}
+
+/* ── Section header ──────────────────────────────────────────────── */
+.aip-sec-header {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.6rem 0.85rem;
+  cursor: default;
+  border-radius: 12px 12px 0 0;
+  user-select: none;
+  position: relative;
+}
+
+.aip-sec-header::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--sec-color, #8b5cf6);
+  border-radius: 12px 0 0 0;
+  opacity: 0.8;
+}
+
+/* Collapse button */
+.aip-sec-collapse {
+  width: 1.25rem;
+  height: 1.25rem;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.aip-sec-chevron {
+  display: inline-block;
+  font-size: 1rem;
+  color: var(--theme-text-dim);
+  line-height: 1;
+  transition: transform 0.2s ease;
+  transform: rotate(90deg);
+}
+
+.aip-sec-chevron.collapsed {
+  transform: rotate(0deg);
+}
+
+/* Colour dot */
+.aip-sec-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Section title */
+.aip-sec-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--theme-text-soft);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.aip-sec-title-input {
+  flex: 1;
+  background: var(--theme-input-inner-bg);
+  border: 1px solid rgba(139,92,246,0.4);
+  border-radius: 6px;
+  padding: 0.2rem 0.5rem;
+  color: var(--theme-text);
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-family: inherit;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(99,102,241,0.1);
+}
+
+/* Task count badge */
+.aip-sec-count {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--theme-text-dim);
+  background: var(--theme-surface-soft);
+  padding: 0.1rem 0.45rem;
+  border-radius: 20px;
+  border: 1px solid var(--theme-border-subtle);
+  flex-shrink: 0;
+}
+
+/* ⋯ menu */
+.aip-sec-menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.aip-sec-menu-btn {
+  width: 1.6rem;
+  height: 1.6rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--theme-text-dim);
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: -1px;
+  transition: background 0.12s, color 0.12s;
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+
+.aip-sec-header:hover .aip-sec-menu-btn {
+  opacity: 1;
+}
+
+.aip-sec-menu-btn:hover {
+  background: var(--theme-surface-soft);
+  color: var(--theme-text);
+}
+
+.aip-sec-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 200;
+  min-width: 175px;
+  background: var(--theme-surface-raised, #1e2436);
+  border: 1px solid var(--theme-border);
+  border-radius: 10px;
+  padding: 0.35rem;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.aip-sec-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--theme-text-soft);
+  font-size: 0.8rem;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s, color 0.1s;
+  width: 100%;
+}
+
+.aip-sec-menu-item:hover {
+  background: var(--theme-surface-soft);
+  color: var(--theme-text);
+}
+
+.aip-sec-menu-item.danger {
+  color: #f87171;
+}
+
+.aip-sec-menu-item.danger:hover {
+  background: rgba(239,68,68,0.1);
+  color: #fca5a5;
+}
+
+.aip-sec-menu-divider {
+  height: 1px;
+  background: var(--theme-border-subtle);
+  margin: 0.25rem 0;
+}
+
+/* Colour swatches inside menu */
+.aip-sec-menu-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.5rem 0.65rem;
+}
+
+.aip-sec-color-dot {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.12s, border-color 0.12s;
+}
+
+.aip-sec-color-dot:hover {
+  transform: scale(1.2);
+}
+
+.aip-sec-color-dot.active {
+  border-color: #fff;
+  transform: scale(1.15);
+}
+
+/* ── Section body ────────────────────────────────────────────────── */
+.aip-section__body {
+  padding: 0 0.65rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.aip-sec-empty {
+  font-size: 0.75rem;
+  color: var(--theme-text-dim);
+  padding: 0.5rem 0.25rem;
+  font-style: italic;
+}
+
+/* Inline add task inside a section */
+.aip-sec-inline-add {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0.25rem;
+}
+
+/* "Add task" button inside a section */
+.aip-sec-add-task-btn {
+  width: 100%;
+  padding: 0.38rem 0.5rem;
+  border: 1px dashed var(--theme-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--theme-text-dim);
+  font-size: 0.78rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  margin-top: 0.15rem;
+}
+
+.aip-sec-add-task-btn:hover {
+  background: var(--theme-glass-soft);
+  color: var(--theme-text-soft);
+  border-color: var(--theme-border-strong);
+}
+
+/* "Add Section" button at the bottom of the list */
+.aip-add-section-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.85rem;
+  margin-top: 0.35rem;
+  border: 1.5px dashed var(--theme-border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--theme-text-dim);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  width: 100%;
+}
+
+.aip-add-section-btn:hover {
+  background: var(--theme-glass-soft);
+  color: var(--theme-text-soft);
+  border-color: var(--theme-border-strong);
+}
