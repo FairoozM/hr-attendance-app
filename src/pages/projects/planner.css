@@ -1,0 +1,955 @@
+/* ================================================================
+   AI Planner System — CSS
+   Uses existing app design tokens from index.css
+   ================================================================ */
+
+/* ── Page shell ─────────────────────────────────────────────────── */
+.aip-layout {
+  display: flex;
+  gap: 0;
+  min-height: 100%;
+  position: relative;
+}
+
+.aip-main {
+  flex: 1;
+  min-width: 0;
+  padding: 1.75rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* ── Page header ─────────────────────────────────────────────────── */
+.aip-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.aip-page-title {
+  font-size: 1.55rem;
+  font-weight: 700;
+  background: var(--theme-heading-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.03em;
+  margin: 0 0 0.25rem;
+}
+
+.aip-page-subtitle {
+  font-size: 0.8rem;
+  color: var(--theme-text-dim);
+  margin: 0;
+}
+
+/* ── View tabs ───────────────────────────────────────────────────── */
+.aip-view-tabs {
+  display: flex;
+  gap: 0.3rem;
+  padding: 0.3rem;
+  background: var(--theme-glass-soft);
+  border: 1px solid var(--theme-border);
+  border-radius: 12px;
+  backdrop-filter: var(--glass-blur);
+}
+
+.aip-view-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: 9px;
+  border: none;
+  background: transparent;
+  color: var(--theme-text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.aip-view-tab:hover {
+  color: var(--theme-text);
+  background: var(--theme-surface-soft);
+}
+
+.aip-view-tab.active {
+  background: var(--theme-surface-raised);
+  color: var(--theme-text);
+  box-shadow: inset 0 1px 3px rgba(255,255,255,0.08);
+}
+
+/* ── Quick Capture ───────────────────────────────────────────────── */
+.aip-capture {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.75rem 1rem;
+  background: var(--theme-glass-soft);
+  border: 1px solid var(--theme-border);
+  border-radius: 14px;
+  backdrop-filter: var(--glass-blur);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.aip-capture:focus-within {
+  border-color: rgba(139,92,246,0.45);
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
+}
+
+.aip-capture__icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.aip-capture__input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 0.9rem;
+  color: var(--theme-text);
+  font-weight: 500;
+}
+
+.aip-capture__input::placeholder {
+  color: var(--theme-text-dim);
+  font-weight: 400;
+}
+
+.aip-capture__hint {
+  font-size: 0.72rem;
+  color: var(--theme-text-dim);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.aip-capture__preview {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.9rem;
+  background: var(--theme-surface-soft);
+  border: 1px solid var(--theme-border-subtle);
+  border-radius: 10px;
+  font-size: 0.78rem;
+  color: var(--theme-text-soft);
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.aip-capture__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+/* ── Section headers ─────────────────────────────────────────────── */
+.aip-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.aip-section-title {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--theme-text-dim);
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.aip-section-count {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--theme-text-dim);
+  background: var(--theme-surface-soft);
+  padding: 0.15rem 0.55rem;
+  border-radius: 20px;
+  border: 1px solid var(--theme-border-subtle);
+}
+
+/* ── Task card ───────────────────────────────────────────────────── */
+.aip-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.aip-task-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  background: var(--theme-glass-soft);
+  border: 1px solid var(--theme-border-subtle);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  position: relative;
+}
+
+.aip-task-card:hover {
+  background: var(--theme-surface-soft);
+  border-color: var(--theme-border);
+  box-shadow: var(--theme-shadow-sm);
+}
+
+.aip-task-card.active {
+  background: var(--theme-surface-raised);
+  border-color: rgba(139,92,246,0.35);
+  box-shadow: 0 0 0 2px rgba(99,102,241,0.12);
+}
+
+.aip-task-card.done {
+  opacity: 0.55;
+}
+
+.aip-task-card.blocked {
+  border-color: rgba(249,115,22,0.3);
+  background: rgba(249,115,22,0.04);
+}
+
+/* Checkbox */
+.aip-task-check {
+  flex-shrink: 0;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  border: 2px solid var(--theme-border-strong);
+  background: transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0.15rem;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.aip-task-check:hover {
+  border-color: var(--theme-primary);
+}
+
+.aip-task-check.checked {
+  background: var(--theme-primary);
+  border-color: var(--theme-primary);
+}
+
+.aip-task-check.checked::after {
+  content: '';
+  display: block;
+  width: 0.35rem;
+  height: 0.22rem;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: rotate(-45deg) translateY(-1px);
+}
+
+/* Task body */
+.aip-task-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.aip-task-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--theme-text-soft);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.aip-task-card.done .aip-task-title {
+  text-decoration: line-through;
+  color: var(--theme-text-dim);
+}
+
+.aip-task-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+/* ── Badges ──────────────────────────────────────────────────────── */
+.aip-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 20px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.aip-badge-cat {
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.aip-badge-time {
+  background: var(--theme-surface-soft);
+  color: var(--theme-text-dim);
+  border: 1px solid var(--theme-border-subtle);
+  font-size: 0.68rem;
+}
+
+.aip-badge-due {
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.aip-badge-due.overdue {
+  background: rgba(239,68,68,0.12);
+  color: #f87171;
+}
+
+.aip-badge-due.today {
+  background: rgba(245,158,11,0.12);
+  color: #fbbf24;
+}
+
+.aip-badge-energy {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.aip-badge-energy.deep {
+  background: rgba(6,182,212,0.12);
+  color: #22d3ee;
+}
+
+.aip-badge-energy.shallow {
+  background: var(--theme-surface-soft);
+  color: var(--theme-text-dim);
+}
+
+/* ── Priority score pill ─────────────────────────────────────────── */
+.aip-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 20px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+/* ── Task card right actions ─────────────────────────────────────── */
+.aip-task-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+/* ── AI Assist sidebar ───────────────────────────────────────────── */
+.aip-assist {
+  width: 260px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--theme-border-subtle);
+  padding: 1.75rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  background: var(--theme-surface-dark);
+}
+
+@media (max-width: 1100px) {
+  .aip-assist { display: none; }
+}
+
+.aip-assist__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--theme-text-dim);
+  margin-bottom: 0.25rem;
+}
+
+.aip-suggestion {
+  padding: 0.75rem;
+  background: var(--theme-glass-soft);
+  border: 1px solid var(--theme-border-subtle);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  cursor: default;
+  transition: background 0.15s;
+}
+
+.aip-suggestion:hover {
+  background: var(--theme-surface-soft);
+}
+
+.aip-suggestion__icon-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.aip-suggestion__icon {
+  font-size: 0.95rem;
+}
+
+.aip-suggestion__label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--theme-text-soft);
+}
+
+.aip-suggestion__body {
+  font-size: 0.78rem;
+  color: var(--theme-text-muted);
+  line-height: 1.4;
+}
+
+/* ── Today plan calendar view ────────────────────────────────────── */
+.aip-today-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  position: relative;
+}
+
+.aip-time-slot {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-height: 4rem;
+  border-left: 2px solid var(--theme-border-subtle);
+  padding: 0 0 0 1rem;
+  position: relative;
+}
+
+.aip-time-slot::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 0.85rem;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--theme-border-strong);
+}
+
+.aip-time-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--theme-text-dim);
+  width: 4rem;
+  flex-shrink: 0;
+  padding-top: 0.65rem;
+  text-align: right;
+  margin-left: -5.25rem;
+  letter-spacing: 0.04em;
+}
+
+.aip-time-block {
+  flex: 1;
+  margin: 0.3rem 0;
+  padding: 0.6rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+
+.aip-time-block:hover {
+  transform: translateX(2px);
+  box-shadow: var(--theme-shadow-sm);
+}
+
+.aip-time-block__title {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--theme-text-soft);
+  margin-bottom: 0.2rem;
+}
+
+.aip-time-block__range {
+  font-size: 0.7rem;
+  color: var(--theme-text-dim);
+  font-weight: 500;
+}
+
+.aip-time-block.deep {
+  background: rgba(6,182,212,0.08);
+  border-color: rgba(6,182,212,0.2);
+}
+
+.aip-time-block.shallow {
+  background: var(--theme-glass-soft);
+  border-color: var(--theme-border-subtle);
+}
+
+.aip-time-block.blocked {
+  background: rgba(249,115,22,0.06);
+  border-color: rgba(249,115,22,0.2);
+  opacity: 0.7;
+}
+
+.aip-time-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1rem;
+  color: var(--theme-text-dim);
+  font-size: 0.85rem;
+  flex-direction: column;
+  gap: 0.5rem;
+  text-align: center;
+}
+
+/* ── Task detail drawer ──────────────────────────────────────────── */
+.aip-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: var(--theme-overlay);
+  backdrop-filter: blur(4px);
+}
+
+.aip-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 201;
+  width: min(480px, 100vw);
+  background: var(--theme-panel-bg);
+  border-left: 1px solid var(--theme-border);
+  box-shadow: var(--theme-shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.aip-drawer__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--theme-border-subtle);
+}
+
+.aip-drawer__title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--theme-text-dim);
+}
+
+.aip-drawer__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 8px;
+  border: 1px solid var(--theme-border-subtle);
+  background: var(--theme-surface-soft);
+  color: var(--theme-text-muted);
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background 0.12s, color 0.12s;
+}
+
+.aip-drawer__close:hover {
+  background: var(--theme-surface-raised);
+  color: var(--theme-text);
+}
+
+.aip-drawer__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.aip-drawer__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.aip-drawer__label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--theme-text-dim);
+}
+
+.aip-drawer__input {
+  width: 100%;
+  padding: 0.6rem 0.85rem;
+  background: var(--theme-input-inner-bg);
+  border: 1px solid var(--theme-border);
+  border-radius: 9px;
+  color: var(--theme-text);
+  font-size: 0.88rem;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.aip-drawer__input:focus {
+  border-color: rgba(139,92,246,0.45);
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
+}
+
+.aip-drawer__textarea {
+  resize: vertical;
+  min-height: 80px;
+  line-height: 1.5;
+}
+
+.aip-drawer__select {
+  appearance: none;
+  cursor: pointer;
+}
+
+.aip-drawer__score-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--theme-glass-soft);
+  border: 1px solid var(--theme-border-subtle);
+  border-radius: 10px;
+}
+
+.aip-drawer__score-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--theme-surface-soft);
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.aip-drawer__score-fill {
+  height: 100%;
+  border-radius: 20px;
+  transition: width 0.4s ease;
+}
+
+.aip-drawer__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--theme-border-subtle);
+  flex-wrap: wrap;
+}
+
+/* ── Dashboard ───────────────────────────────────────────────────── */
+.aip-dash-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.85rem;
+}
+
+.aip-stat-card {
+  padding: 1rem 1.1rem;
+  background: var(--theme-glass-soft);
+  border: 1px solid var(--theme-border-subtle);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  transition: background 0.15s;
+}
+
+.aip-stat-card:hover {
+  background: var(--theme-surface-soft);
+}
+
+.aip-stat-value {
+  font-size: 1.8rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.aip-stat-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--theme-text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.aip-dash-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 760px) {
+  .aip-dash-row { grid-template-columns: 1fr; }
+  .aip-main { padding: 1rem; }
+  .aip-assist { display: none; }
+}
+
+.aip-dash-card {
+  padding: 1.2rem;
+  background: var(--theme-glass-soft);
+  border: 1px solid var(--theme-border-subtle);
+  border-radius: 14px;
+}
+
+.aip-dash-card-title {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--theme-text-dim);
+  margin-bottom: 0.9rem;
+}
+
+/* Category distribution bars */
+.aip-cat-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 0.55rem;
+}
+
+.aip-cat-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--theme-text-soft);
+  width: 100px;
+  flex-shrink: 0;
+}
+
+.aip-cat-bar-wrap {
+  flex: 1;
+  height: 5px;
+  background: var(--theme-surface-soft);
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.aip-cat-bar-fill {
+  height: 100%;
+  border-radius: 20px;
+  transition: width 0.5s ease;
+}
+
+.aip-cat-count {
+  font-size: 0.72rem;
+  color: var(--theme-text-dim);
+  font-weight: 600;
+  width: 1.5rem;
+  text-align: right;
+}
+
+/* Energy split doughnut (CSS only) */
+.aip-energy-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.aip-energy-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.aip-energy-item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.8rem;
+  color: var(--theme-text-soft);
+}
+
+.aip-energy-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Add task button */
+.aip-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: 9px;
+  border: 1px dashed var(--theme-border);
+  background: transparent;
+  color: var(--theme-text-dim);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  width: 100%;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.aip-add-btn:hover {
+  background: var(--theme-glass-soft);
+  color: var(--theme-text-soft);
+  border-color: var(--theme-border-strong);
+}
+
+/* Toolbar row */
+.aip-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.aip-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.38rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--theme-border);
+  background: var(--theme-glass-soft);
+  color: var(--theme-text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.aip-filter-btn:hover,
+.aip-filter-btn.active {
+  background: var(--theme-surface-soft);
+  color: var(--theme-text);
+}
+
+/* Empty state */
+.aip-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 2.5rem 1rem;
+  color: var(--theme-text-dim);
+  text-align: center;
+  font-size: 0.84rem;
+}
+
+.aip-empty__icon { font-size: 2rem; opacity: 0.5; }
+.aip-empty__title { font-weight: 600; color: var(--theme-text-muted); }
+
+/* Spinner */
+.aip-spinner {
+  width: 1.2rem;
+  height: 1.2rem;
+  border: 2px solid var(--theme-border-strong);
+  border-top-color: var(--theme-primary);
+  border-radius: 50%;
+  animation: aip-spin 0.7s linear infinite;
+}
+
+@keyframes aip-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Blocked badge inline */
+.aip-blocked-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.12rem 0.5rem;
+  border-radius: 20px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: rgba(249,115,22,0.14);
+  color: #fb923c;
+  letter-spacing: 0.04em;
+}
+
+/* Workload bar in dashboard */
+.aip-workload-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.aip-workload-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.aip-workload-label {
+  font-size: 0.72rem;
+  color: var(--theme-text-muted);
+  width: 70px;
+  flex-shrink: 0;
+}
+
+.aip-workload-track {
+  flex: 1;
+  height: 7px;
+  background: var(--theme-surface-soft);
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.aip-workload-fill {
+  height: 100%;
+  border-radius: 20px;
+  transition: width 0.5s ease;
+}
+
+.aip-workload-fill.overloaded {
+  background: linear-gradient(90deg, #f97316, #ef4444);
+}
+
+.aip-workload-fill.normal {
+  background: linear-gradient(90deg, #8b5cf6, #6366f1);
+}
+
+.aip-workload-val {
+  font-size: 0.68rem;
+  color: var(--theme-text-dim);
+  width: 3rem;
+  text-align: right;
+}

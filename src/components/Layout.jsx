@@ -379,8 +379,9 @@ export function Layout() {
     if (location.pathname.startsWith('/management/document-expiry')) return 'Document Expiry Tracker'
     if (location.pathname.startsWith('/reports/weekly-report/weekly-ads')) return 'Weekly Ads Report'
     if (location.pathname.startsWith('/reports')) return 'Reports'
-    if (location.pathname.startsWith('/projects/dashboard')) return 'Today\'s Plan'
-    if (location.pathname.startsWith('/projects')) return 'AI Task Planner'
+    if (location.pathname === '/projects/dashboard') return 'AI Dashboard'
+    if (location.pathname.startsWith('/projects/')) return 'Today\'s Plan'
+    if (location.pathname === '/projects') return 'AI Task Planner'
     return 'Dashboard'
   }, [location.pathname])
 
@@ -517,11 +518,12 @@ export function Layout() {
             {isAdmin && (
               <>
                 <div className="app-sidebar__section-label" role="presentation">
-                  Projects
+                  AI Planner
                 </div>
-                <NavGroup label="Projects" hint="Task mgmt" isActive={location.pathname.startsWith('/projects')}>
+                <NavGroup label="Planner" hint="AI-powered" isActive={location.pathname.startsWith('/projects')}>
                   {[
-                    { to: '/projects', label: 'All Projects' },
+                    { to: '/projects', label: 'Task List' },
+                    { to: '/projects/today', label: "Today's Plan" },
                     { to: '/projects/dashboard', label: 'Dashboard' },
                   ].map(item => (
                     <NavLink

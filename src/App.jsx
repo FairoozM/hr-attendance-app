@@ -27,9 +27,10 @@ import { ReportsPage } from './pages/influencers/ReportsPage'
 import { SimCardsPage } from './pages/SimCardsPage'
 import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
 import { WeeklyAdsReportPage } from './pages/reports/WeeklyAdsReportPage'
-import PlannerPage from './pages/projects/PlannerPage'
-import TodayPlanPage from './pages/projects/TodayPlanPage'
-import { PlannerProvider } from './contexts/PlannerContext'
+import ProjectsIndexPage from './pages/projects/ProjectsIndexPage'
+import ProjectDetailPage from './pages/projects/ProjectDetailPage'
+import ProjectDashboardPage from './pages/projects/ProjectDashboardPage'
+import { AIPlannerProvider } from './contexts/AIPlannerContext'
 import { useEmployees } from './hooks/useEmployees'
 import { useAttendanceManagedEmployees } from './hooks/useAttendanceManagedEmployees'
 import { useAttendance, clearAllAttendanceStorage } from './hooks/useAttendance'
@@ -173,11 +174,10 @@ function AppContent() {
         />
         <Route path="roles-permissions" element={<RolesPermissionsPage />} />
 
-        {/* AI Task Planner (replaces Projects Module) */}
-        <Route path="projects">
-          <Route index element={<PlannerPage />} />
-          <Route path="dashboard" element={<TodayPlanPage />} />
-        </Route>
+        {/* AI Planner Module */}
+        <Route path="projects" element={<AIPlannerProvider><ProjectsIndexPage /></AIPlannerProvider>} />
+        <Route path="projects/dashboard" element={<AIPlannerProvider><ProjectDashboardPage /></AIPlannerProvider>} />
+        <Route path="projects/today" element={<AIPlannerProvider><ProjectDetailPage /></AIPlannerProvider>} />
 
         {/* Reports Module */}
         <Route path="reports">
@@ -245,9 +245,7 @@ function App() {
     <AuthProvider>
       <SettingsContext.Provider value={settings}>
         <InfluencersProvider>
-          <PlannerProvider>
             <AppContent />
-          </PlannerProvider>
         </InfluencersProvider>
       </SettingsContext.Provider>
     </AuthProvider>
