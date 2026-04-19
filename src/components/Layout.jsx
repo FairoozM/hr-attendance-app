@@ -379,6 +379,8 @@ export function Layout() {
     if (location.pathname.startsWith('/management/document-expiry')) return 'Document Expiry Tracker'
     if (location.pathname.startsWith('/reports/weekly-report/weekly-ads')) return 'Weekly Ads Report'
     if (location.pathname.startsWith('/reports')) return 'Reports'
+    if (location.pathname.startsWith('/projects/dashboard')) return 'Today\'s Plan'
+    if (location.pathname.startsWith('/projects')) return 'AI Task Planner'
     return 'Dashboard'
   }, [location.pathname])
 

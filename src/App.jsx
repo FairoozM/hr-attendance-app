@@ -27,10 +27,9 @@ import { ReportsPage } from './pages/influencers/ReportsPage'
 import { SimCardsPage } from './pages/SimCardsPage'
 import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
 import { WeeklyAdsReportPage } from './pages/reports/WeeklyAdsReportPage'
-import ProjectsIndexPage from './pages/projects/ProjectsIndexPage'
-import ProjectDetailPage from './pages/projects/ProjectDetailPage'
-import ProjectDashboardPage from './pages/projects/ProjectDashboardPage'
-import { ProjectsProvider } from './contexts/ProjectsContext'
+import PlannerPage from './pages/projects/PlannerPage'
+import TodayPlanPage from './pages/projects/TodayPlanPage'
+import { PlannerProvider } from './contexts/PlannerContext'
 import { useEmployees } from './hooks/useEmployees'
 import { useAttendanceManagedEmployees } from './hooks/useAttendanceManagedEmployees'
 import { useAttendance, clearAllAttendanceStorage } from './hooks/useAttendance'
@@ -174,11 +173,10 @@ function AppContent() {
         />
         <Route path="roles-permissions" element={<RolesPermissionsPage />} />
 
-        {/* Projects Module */}
+        {/* AI Task Planner (replaces Projects Module) */}
         <Route path="projects">
-          <Route index element={<ProjectsIndexPage />} />
-          <Route path="dashboard" element={<ProjectDashboardPage />} />
-          <Route path=":id" element={<ProjectDetailPage />} />
+          <Route index element={<PlannerPage />} />
+          <Route path="dashboard" element={<TodayPlanPage />} />
         </Route>
 
         {/* Reports Module */}
@@ -247,9 +245,9 @@ function App() {
     <AuthProvider>
       <SettingsContext.Provider value={settings}>
         <InfluencersProvider>
-          <ProjectsProvider>
+          <PlannerProvider>
             <AppContent />
-          </ProjectsProvider>
+          </PlannerProvider>
         </InfluencersProvider>
       </SettingsContext.Provider>
     </AuthProvider>
