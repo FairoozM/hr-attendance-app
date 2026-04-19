@@ -69,6 +69,7 @@ function ReportTable({ rows, title, dateLabel }) {
     <div className="war-preview">
       <div className="war-preview__head">
         <span className="war-preview__title">{title || 'Ads Spend Weekly Report'}</span>
+        <div className="war-preview__divider" aria-hidden />
         <span className="war-preview__date">{dateLabel}</span>
       </div>
       <div className="war-table-wrap">

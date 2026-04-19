@@ -140,14 +140,21 @@
 
 /* ─── Table ───────────────────────────────────────────────────────── */
 .war-table-wrap {
-  border-radius: 14px;
+  background: linear-gradient(145deg, #f0f3fa, #e8edf7);
+  border-radius: 18px;
+  box-shadow:
+    0 2px 0 rgba(255,255,255,0.85) inset,
+    0 -1px 0 rgba(160,175,205,0.25) inset,
+    0 6px 22px rgba(120,140,175,0.12);
   overflow: hidden;
-  border: 1px solid var(--border-color, rgba(180, 193, 218, 0.45));
-  box-shadow: 0 1px 6px rgba(120, 140, 175, 0.08);
 }
 
 .war-input-table-wrap {
   margin-bottom: 20px;
+  background: none;
+  box-shadow: none;
+  border-radius: 14px;
+  border: 1px solid var(--border-color, rgba(180, 193, 218, 0.45));
 }
 
 .war-table {
@@ -157,30 +164,34 @@
 }
 
 .war-th {
-  padding: 14px 16px;
-  font-size: 12px;
+  padding: 18px 16px;
+  font-size: 13px;
   font-weight: 700;
-  color: var(--text-secondary, #4a5672);
+  color: #4a5672;
   text-align: right;
-  background: var(--table-head-bg, linear-gradient(135deg, #e8edf7 0%, #dde4f0 100%));
-  border-bottom: 1.5px solid var(--border-color, rgba(180, 193, 218, 0.5));
+  background: linear-gradient(135deg, #e2e8f5 0%, #d8dfef 100%);
+  border-bottom: 1.5px solid rgba(180,193,218,0.6);
+  border-right: 1px solid rgba(180,193,218,0.4);
   letter-spacing: 0.3px;
-  text-transform: uppercase;
-  font-size: 11px;
 }
 
+.war-th:last-child { border-right: none; }
 .war-th--left { text-align: left; }
 .war-th--center { text-align: center; }
 
 .war-td {
-  padding: 14px 16px;
-  font-size: 15px;
+  padding: 18px 16px;
+  font-size: 16px;
   font-weight: 500;
-  color: var(--text-primary, #2b3754);
+  color: #2b3754;
   text-align: right;
-  border-bottom: 1px solid var(--border-color, rgba(180, 193, 218, 0.3));
+  border-bottom: 1px solid rgba(180,193,218,0.35);
+  border-right: 1px solid rgba(180,193,218,0.25);
   vertical-align: middle;
+  line-height: 1;
 }
+
+.war-td:last-child { border-right: none; }
 
 .war-td--name {
   text-align: left;
@@ -197,9 +208,9 @@
 }
 
 .war-td--acos-calc {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
-  color: var(--text-secondary, #4a5672);
+  color: #4a5672;
 }
 
 .war-tr:last-child .war-td {
@@ -207,15 +218,16 @@
 }
 
 .war-tr--total .war-td {
-  background: var(--total-row-bg, linear-gradient(135deg, #dce4f4 0%, #d0daf0 100%));
+  background: linear-gradient(135deg, #dce4f4 0%, #d0daf0 100%);
   font-weight: 700;
-  color: var(--text-primary, #1e2d4e);
+  color: #1e2d4e;
   border-bottom: none;
-  font-size: 15px;
+  font-size: 16px;
+  padding: 20px 16px;
 }
 
 .war-tr:hover {
-  background: rgba(74, 124, 255, 0.03);
+  background: rgba(200,212,235,0.15);
 }
 
 /* ─── Cell inputs ─────────────────────────────────────────────────── */
@@ -324,30 +336,51 @@
   background: var(--bg-muted, rgba(180, 193, 218, 0.15));
 }
 
-/* ─── Preview ─────────────────────────────────────────────────────── */
+/* ─── Preview — clay card matching the locked design ─────────────── */
 .war-preview {
+  background: linear-gradient(160deg, #f7f8fc 0%, #eef1f8 100%);
+  border-radius: 36px;
+  padding: 40px 36px 48px;
+  box-shadow:
+    0 2px 0 rgba(255,255,255,0.9) inset,
+    0 -2px 0 rgba(180,190,210,0.3) inset,
+    0 20px 50px rgba(130,150,185,0.2),
+    0 5px 14px rgba(130,150,185,0.1);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 0;
 }
 
 .war-preview__head {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  margin-bottom: 28px;
 }
 
 .war-preview__title {
-  font-size: 18px;
+  font-size: 32px;
   font-weight: 700;
-  color: var(--text-primary, #2b3754);
+  color: #2b3754;
+  letter-spacing: -0.5px;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.war-preview__divider {
+  width: 420px;
+  max-width: 100%;
+  height: 1.5px;
+  background: linear-gradient(90deg, transparent, #c8d0e0, transparent);
+  margin: 14px auto;
 }
 
 .war-preview__date {
-  font-size: 14px;
+  font-size: 20px;
   font-weight: 600;
   color: #2855a0;
+  text-align: center;
 }
 
 /* ─── History ─────────────────────────────────────────────────────── */
