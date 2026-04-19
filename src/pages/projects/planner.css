@@ -1964,3 +1964,597 @@
   text-align: center;
   font-style: italic;
 }
+
+/* ================================================================
+   ASANA-STYLE TABLE LIST — new task-row UI
+   ================================================================ */
+
+/* ── Page layout tweak for list mode ────────────────────────────── */
+.aip-main--list {
+  padding: 1.5rem 1.75rem;
+  gap: 1.1rem;
+}
+
+/* ── Toolbar (filter bar) ────────────────────────────────────────── */
+.tbl-toolbar {
+  gap: 0.25rem;
+}
+
+/* ── Sections list wrapper ───────────────────────────────────────── */
+.tbl-sections-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* ── Section block ───────────────────────────────────────────────── */
+.tbl-section {
+  border-radius: 8px;
+  border: 1px solid var(--theme-border-subtle);
+  overflow: visible;
+  background: transparent;
+}
+
+/* ── Section header ──────────────────────────────────────────────── */
+.tbl-sec-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.85rem 0.45rem 0.55rem;
+  border-bottom: 1px solid var(--theme-border-subtle);
+  background: rgba(255,255,255,0.025);
+  border-radius: 8px 8px 0 0;
+  user-select: none;
+  position: relative;
+}
+
+/* Accent bar on the left */
+.tbl-sec-header::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  border-radius: 4px;
+  background: var(--sec-color, #8b5cf6);
+  opacity: 0.75;
+}
+
+.tbl-sec-collapse {
+  width: 1.2rem;
+  height: 1.2rem;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.tbl-sec-chevron {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 1.5px solid var(--theme-text-dim);
+  border-bottom: 1.5px solid var(--theme-text-dim);
+  transform: rotate(45deg) translateY(-1px);
+  transition: transform 0.18s ease;
+}
+
+.tbl-sec-chevron.collapsed {
+  transform: rotate(-45deg) translateY(1px);
+}
+
+.tbl-sec-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tbl-sec-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--theme-text-soft);
+  flex: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.01em;
+}
+
+.tbl-sec-title-input {
+  flex: 1;
+  background: var(--theme-input-inner-bg);
+  border: 1px solid rgba(139,92,246,0.4);
+  border-radius: 5px;
+  padding: 0.15rem 0.45rem;
+  color: var(--theme-text);
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-family: inherit;
+  outline: none;
+}
+
+.tbl-sec-count {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--theme-text-dim);
+  background: var(--theme-surface-soft);
+  padding: 0.08rem 0.4rem;
+  border-radius: 20px;
+  border: 1px solid var(--theme-border-subtle);
+  flex-shrink: 0;
+}
+
+.tbl-sec-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.tbl-sec-header:hover .tbl-sec-actions {
+  opacity: 1;
+}
+
+.tbl-sec-add-btn {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--theme-text-dim);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, color 0.12s;
+}
+
+.tbl-sec-add-btn:hover {
+  background: var(--theme-surface-soft);
+  color: var(--theme-text-soft);
+}
+
+.tbl-sec-menu-btn {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--theme-text-dim);
+  font-size: 0.85rem;
+  letter-spacing: -1px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, color 0.12s;
+}
+
+.tbl-sec-menu-btn:hover {
+  background: var(--theme-surface-soft);
+  color: var(--theme-text-soft);
+}
+
+/* ── Section body ────────────────────────────────────────────────── */
+.tbl-section__body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Column header ───────────────────────────────────────────────── */
+.tbl-col-header {
+  display: grid;
+  grid-template-columns: 2rem 1fr 9rem 7rem 7rem 6rem 4rem;
+  align-items: center;
+  padding: 0 0.85rem;
+  height: 2rem;
+  border-bottom: 1px solid var(--theme-border-subtle);
+  background: rgba(255,255,255,0.015);
+}
+
+.tbl-col-header .tbl-col {
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--theme-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Task row ────────────────────────────────────────────────────── */
+.tbl-row {
+  display: grid;
+  grid-template-columns: 2rem 1fr 9rem 7rem 7rem 6rem 4rem;
+  align-items: center;
+  padding: 0 0.85rem;
+  min-height: 2.6rem;
+  border-bottom: 1px solid var(--theme-border-subtle);
+  cursor: pointer;
+  transition: background 0.1s;
+  position: relative;
+  outline: none;
+}
+
+.tbl-row:last-of-type {
+  border-bottom: none;
+}
+
+.tbl-row:hover {
+  background: rgba(255,255,255,0.035);
+}
+
+.tbl-row:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(139,92,246,0.4);
+}
+
+.tbl-row.active {
+  background: rgba(139,92,246,0.07);
+  border-left: 2px solid rgba(139,92,246,0.5);
+}
+
+.tbl-row.done {
+  opacity: 0.5;
+}
+
+.tbl-row.blocked {
+  background: rgba(249,115,22,0.03);
+}
+
+.tbl-row.dep-blocked {
+  background: rgba(249,115,22,0.03);
+}
+
+/* ── Shared column base ──────────────────────────────────────────── */
+.tbl-col {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 0.35rem;
+}
+
+.tbl-col--check {
+  justify-content: center;
+  padding: 0;
+}
+
+.tbl-col--name {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  padding: 0.3rem 0.35rem;
+}
+
+/* ── Checkbox ────────────────────────────────────────────────────── */
+.tbl-check {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  border: 1.5px solid var(--theme-border-strong);
+  background: transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: border-color 0.12s, background 0.12s;
+  padding: 0;
+}
+
+.tbl-check:hover {
+  border-color: var(--theme-primary);
+}
+
+.tbl-check.checked {
+  background: var(--theme-primary);
+  border-color: var(--theme-primary);
+}
+
+.tbl-check.checked::after {
+  content: '';
+  display: block;
+  width: 0.3rem;
+  height: 0.18rem;
+  border-left: 1.5px solid #fff;
+  border-bottom: 1.5px solid #fff;
+  transform: rotate(-45deg) translateY(-1px);
+}
+
+.tbl-check-placeholder {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  border: 1.5px solid var(--theme-border-subtle);
+  opacity: 0.35;
+}
+
+/* ── Task name ───────────────────────────────────────────────────── */
+.tbl-task-title {
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--theme-text-soft);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.tbl-row.done .tbl-task-title {
+  text-decoration: line-through;
+  color: var(--theme-text-dim);
+}
+
+/* ── Inline indicators row ───────────────────────────────────────── */
+.tbl-task-indicators {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.tbl-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.63rem;
+  font-weight: 600;
+  padding: 0.08rem 0.38rem;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.tbl-indicator--blocked {
+  background: rgba(249,115,22,0.1);
+  color: #f97316;
+}
+
+.tbl-indicator--dep {
+  background: rgba(249,115,22,0.08);
+  color: #fb923c;
+}
+
+.tbl-indicator--attach {
+  background: var(--theme-surface-soft);
+  color: var(--theme-text-dim);
+}
+
+.tbl-indicator--sub {
+  background: var(--theme-surface-soft);
+  color: var(--theme-text-dim);
+  gap: 0.3rem;
+}
+
+.tbl-indicator--deep {
+  background: rgba(6,182,212,0.08);
+  color: #22d3ee;
+}
+
+/* Subtask mini-progress bar inside indicator */
+.tbl-sub-progress {
+  display: inline-block;
+  width: 2rem;
+  height: 3px;
+  background: var(--theme-border-subtle);
+  border-radius: 20px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.tbl-sub-progress__fill {
+  height: 100%;
+  background: linear-gradient(90deg, #8b5cf6, #6366f1);
+  border-radius: 20px;
+  transition: width 0.3s;
+}
+
+/* ── Category pill ───────────────────────────────────────────────── */
+.tbl-cat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  color: var(--cat-color, #94a3b8);
+  background: var(--cat-bg, rgba(148,163,184,0.1));
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+
+/* ── Due date ────────────────────────────────────────────────────── */
+.tbl-due {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--theme-text-dim);
+  white-space: nowrap;
+}
+
+.tbl-due.overdue {
+  color: #f87171;
+  font-weight: 600;
+}
+
+.tbl-due.today {
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+/* ── Priority dot ────────────────────────────────────────────────── */
+.tbl-priority-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
+.tbl-priority-dot__circle {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--dot-color, #94a3b8);
+  flex-shrink: 0;
+}
+
+.tbl-priority-dot__label {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--dot-color, var(--theme-text-dim));
+}
+
+/* ── Status chip ─────────────────────────────────────────────────── */
+.tbl-status-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.tbl-status-chip--todo {
+  background: rgba(99,102,241,0.1);
+  color: #818cf8;
+}
+
+.tbl-status-chip--blocked {
+  background: rgba(249,115,22,0.1);
+  color: #f97316;
+}
+
+.tbl-status-chip--done {
+  background: rgba(34,197,94,0.1);
+  color: #4ade80;
+}
+
+/* ── AI score ────────────────────────────────────────────────────── */
+.tbl-score {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--score-color, var(--theme-text-dim));
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Add task row ────────────────────────────────────────────────── */
+.tbl-add-row {
+  display: grid;
+  grid-template-columns: 2rem 1fr;
+  align-items: center;
+  padding: 0 0.85rem;
+  min-height: 2.6rem;
+  border-top: 1px dashed var(--theme-border-subtle);
+}
+
+.tbl-add-input {
+  flex: 1;
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--theme-text);
+  font-size: 0.84rem;
+  font-family: inherit;
+  padding: 0.35rem 0;
+}
+
+.tbl-add-input::placeholder {
+  color: var(--theme-text-dim);
+  font-weight: 400;
+}
+
+/* ── "+ Add task" button at bottom of section ────────────────────── */
+.tbl-add-task-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  border: none;
+  background: transparent;
+  color: var(--theme-text-dim);
+  font-size: 0.78rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  border-top: 1px solid var(--theme-border-subtle);
+  transition: color 0.12s, background 0.12s;
+  width: 100%;
+  text-align: left;
+  border-radius: 0 0 8px 8px;
+}
+
+.tbl-add-task-btn:hover {
+  background: rgba(255,255,255,0.025);
+  color: var(--theme-text-soft);
+}
+
+/* ── Empty state inside section ──────────────────────────────────── */
+.tbl-empty {
+  padding: 0.75rem 0.85rem;
+  font-size: 0.75rem;
+  color: var(--theme-text-dim);
+  font-style: italic;
+}
+
+/* ── "+ Add Section" button ──────────────────────────────────────── */
+.tbl-add-section-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.85rem;
+  margin-top: 0.25rem;
+  border: 1px dashed var(--theme-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--theme-text-dim);
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  width: 100%;
+}
+
+.tbl-add-section-btn:hover {
+  background: rgba(255,255,255,0.025);
+  color: var(--theme-text-soft);
+  border-color: var(--theme-border-strong);
+}
+
+/* ── Responsive: collapse some columns on narrower screens ───────── */
+@media (max-width: 900px) {
+  .tbl-col-header,
+  .tbl-row {
+    grid-template-columns: 2rem 1fr 7rem 5.5rem 5rem;
+  }
+  .tbl-col--status,
+  .tbl-col--score {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .tbl-col-header,
+  .tbl-row {
+    grid-template-columns: 2rem 1fr 6rem 5rem;
+  }
+  .tbl-col--priority {
+    display: none;
+  }
+  .aip-main--list {
+    padding: 1rem;
+  }
+}

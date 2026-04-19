@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useAIPlanner } from '../../contexts/AIPlannerContext'
 import { AIAssistPanel } from '../../components/planner/AIAssistPanel'
 import { TaskDrawer } from '../../components/planner/TaskDrawer'
-import { priorityLabel, priorityFlame, formatTime } from '../../lib/aiEngine'
+import { priorityLabel, formatTime } from '../../lib/aiEngine'
 import './planner.css'
 import './projects.css'
 
@@ -12,10 +12,45 @@ const SECTION_COLORS = [
   '#6b7280',
 ]
 
-// ── Quick Capture ────────────────────────────────────────────────────────────
+// ── Priority dot ─────────────────────────────────────────────────────────────
+function PriorityDot({ score }) {
+  const { text, color } = priorityLabel(score || 0)
+  return (
+    <span className="tbl-priority-dot" style={{ '--dot-color': color }} title={`${text} · ${score}`}>
+      <span className="tbl-priority-dot__circle" />
+      <span className="tbl-priority-dot__label">{text}</span>
+    </span>
+  )
+}
+
+// ── Status chip ───────────────────────────────────────────────────────────────
+function StatusChip({ status }) {
+  const map = {
+    todo:    { label: 'To Do',   cls: 'todo'    },
+    blocked: { label: 'Blocked', cls: 'blocked' },
+    done:    { label: 'Done',    cls: 'done'    },
+  }
+  const { label, cls } = map[status] || map.todo
+  return <span className={`tbl-status-chip tbl-status-chip--${cls}`}>{label}</span>
+}
+
+// ── Category pill ─────────────────────────────────────────────────────────────
+function CatPill({ cat }) {
+  if (!cat) return null
+  return (
+    <span
+      className="tbl-cat-pill"
+      style={{ '--cat-color': cat.color, '--cat-bg': cat.bg }}
+    >
+      {cat.icon} {cat.label}
+    </span>
+  )
+}
+
+// ── Quick Capture ─────────────────────────────────────────────────────────────
 function QuickCapture() {
   const { quickCapture } = useAIPlanner()
-  const [input, setInput] = useState('')
+  const [input, setInput]   = useState('')
   const [preview, setPreview] = useState(null)
   const inputRef = useRef(null)
 
@@ -89,78 +124,124 @@ function QuickCapture() {
   )
 }
 
-// ── Task Card ────────────────────────────────────────────────────────────────
-function TaskCard({ task }) {
+// ── Table column header ───────────────────────────────────────────────────────
+function TaskTableHeader() {
+  return (
+    <div className="tbl-col-header" aria-hidden>
+      <div className="tbl-col tbl-col--check" />
+      <div className="tbl-col tbl-col--name">Task name</div>
+      <div className="tbl-col tbl-col--cat">Category</div>
+      <div className="tbl-col tbl-col--due">Due</div>
+      <div className="tbl-col tbl-col--priority">Priority</div>
+      <div className="tbl-col tbl-col--status">Status</div>
+      <div className="tbl-col tbl-col--score">Score</div>
+    </div>
+  )
+}
+
+// ── Task row ──────────────────────────────────────────────────────────────────
+function TaskRow({ task }) {
   const { markDone, markTodo, setActiveTaskId, activeTaskId } = useAIPlanner()
-  const isActive = task.id === activeTaskId
-  const { color: pcolor } = priorityLabel(task.priorityScore || 0)
-  const flames = priorityFlame(task.priorityScore || 0)
-  const cat = task.category
+  const isActive  = task.id === activeTaskId
+  const cat       = task.category
   const isDueToday = task.dueDate === new Date().toISOString().slice(0, 10)
   const isOverdue  = task.dueDate && new Date(task.dueDate) < new Date(new Date().toDateString())
+  const { color: pcolor } = priorityLabel(task.priorityScore || 0)
+
+  // Format due date concisely
+  let dueLabel = null
+  if (task.dueDate) {
+    dueLabel = isOverdue
+      ? { text: task.dueDate, cls: 'overdue' }
+      : isDueToday
+        ? { text: 'Today', cls: 'today' }
+        : { text: task.dueDate, cls: '' }
+  } else if (task.scheduledStart) {
+    dueLabel = { text: formatTime(task.scheduledStart), cls: '' }
+  }
+
+  // Subtask progress
+  const subTotal = task.subtasks?.length || 0
+  const subDone  = subTotal > 0 ? task.subtasks.filter((s) => s.done).length : 0
+  const subPct   = subTotal > 0 ? Math.round((subDone / subTotal) * 100) : 0
 
   return (
     <div
-      className={`aip-task-card ${task.status === 'done' ? 'done' : ''} ${task.status === 'blocked' ? 'blocked' : ''} ${isActive ? 'active' : ''}`}
+      className={`tbl-row ${task.status === 'done' ? 'done' : ''} ${task.status === 'blocked' ? 'blocked' : ''} ${isActive ? 'active' : ''} ${task._hasUnresolvedDeps ? 'dep-blocked' : ''}`}
       onClick={() => setActiveTaskId(task.id)}
+      role="row"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveTaskId(task.id) } }}
     >
-      <button
-        className={`aip-task-check ${task.status === 'done' ? 'checked' : ''}`}
-        onClick={(e) => {
-          e.stopPropagation()
-          task.status === 'done' ? markTodo(task.id) : markDone(task.id)
-        }}
-        aria-label={task.status === 'done' ? 'Mark incomplete' : 'Mark complete'}
-      />
-
-      <div className="aip-task-body">
-        <div className="aip-task-title">{task.title}</div>
-        <div className="aip-task-meta">
-          {cat && (
-            <span className="aip-badge aip-badge-cat" style={{ background: cat.bg, color: cat.color }}>
-              {cat.icon} {cat.label}
-            </span>
-          )}
-          <span className={`aip-badge aip-badge-energy ${task.energyType}`}>
-            {task.energyType === 'deep' ? '🧠' : '⚡'}
-          </span>
-          {task.scheduledStart && (
-            <span className="aip-badge aip-badge-time">{formatTime(task.scheduledStart)}</span>
-          )}
-          {isOverdue && <span className="aip-badge aip-badge-due overdue">⚠️ Overdue</span>}
-          {isDueToday && !isOverdue && <span className="aip-badge aip-badge-due today">📅 Today</span>}
-          {task.status === 'blocked' && <span className="aip-blocked-tag">🚫 Blocked</span>}
-          {task.attachments?.length > 0 && (
-            <span className="aip-badge aip-badge-time">📎 {task.attachments.length}</span>
-          )}
-          {task._hasUnresolvedDeps && (
-            <span className="aip-badge aip-dep-badge">⛓ waiting on {task._unresolvedBlockerIds?.length}</span>
-          )}
-        </div>
-
-        {task.subtasks?.length > 0 && (() => {
-          const done = task.subtasks.filter((s) => s.done).length
-          const pct  = Math.round((done / task.subtasks.length) * 100)
-          return (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginTop: 2 }}>
-              <div className="aip-task-subtask-bar" style={{ flex: 1, maxWidth: 120 }}>
-                <div className="aip-task-subtask-bar-fill" style={{ width: `${pct}%` }} />
-              </div>
-              <span style={{ fontSize: '0.65rem', color: 'var(--theme-text-dim)', fontWeight: 600 }}>
-                {done}/{task.subtasks.length}
-              </span>
-            </div>
-          )
-        })()}
+      {/* Checkbox */}
+      <div className="tbl-col tbl-col--check">
+        <button
+          className={`tbl-check ${task.status === 'done' ? 'checked' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            task.status === 'done' ? markTodo(task.id) : markDone(task.id)
+          }}
+          aria-label={task.status === 'done' ? 'Mark incomplete' : 'Mark complete'}
+        />
       </div>
 
-      <div className="aip-task-actions">
-        <span
-          className="aip-score"
-          style={{ background: `${pcolor}18`, color: pcolor }}
-          title="AI Priority Score"
-        >
-          {flames || ''} {task.priorityScore || 0}
+      {/* Task name */}
+      <div className="tbl-col tbl-col--name">
+        <span className="tbl-task-title">{task.title}</span>
+
+        {/* Inline indicators on the name column */}
+        <div className="tbl-task-indicators">
+          {task.status === 'blocked' && (
+            <span className="tbl-indicator tbl-indicator--blocked">Blocked</span>
+          )}
+          {task._hasUnresolvedDeps && (
+            <span className="tbl-indicator tbl-indicator--dep">
+              ⛓ {task._unresolvedBlockerIds?.length} dep
+            </span>
+          )}
+          {task.attachments?.length > 0 && (
+            <span className="tbl-indicator tbl-indicator--attach">📎 {task.attachments.length}</span>
+          )}
+          {subTotal > 0 && (
+            <span className="tbl-indicator tbl-indicator--sub" title={`${subDone}/${subTotal} subtasks`}>
+              <span className="tbl-sub-progress">
+                <span className="tbl-sub-progress__fill" style={{ width: `${subPct}%` }} />
+              </span>
+              {subDone}/{subTotal}
+            </span>
+          )}
+          {task.energyType === 'deep' && (
+            <span className="tbl-indicator tbl-indicator--deep" title="Deep work">🧠</span>
+          )}
+        </div>
+      </div>
+
+      {/* Category */}
+      <div className="tbl-col tbl-col--cat">
+        <CatPill cat={cat} />
+      </div>
+
+      {/* Due */}
+      <div className="tbl-col tbl-col--due">
+        {dueLabel && (
+          <span className={`tbl-due ${dueLabel.cls}`}>{dueLabel.text}</span>
+        )}
+      </div>
+
+      {/* Priority */}
+      <div className="tbl-col tbl-col--priority">
+        <PriorityDot score={task.priorityScore} />
+      </div>
+
+      {/* Status */}
+      <div className="tbl-col tbl-col--status">
+        <StatusChip status={task.status} />
+      </div>
+
+      {/* Score */}
+      <div className="tbl-col tbl-col--score">
+        <span className="tbl-score" style={{ '--score-color': pcolor }}>
+          {task.priorityScore || 0}
         </span>
       </div>
     </div>
@@ -190,28 +271,32 @@ function InlineAddTask({ sectionId, onDone }) {
   }
 
   return (
-    <div className="aip-sec-inline-add">
-      <div className="aip-sub-check-placeholder" />
-      <input
-        ref={inputRef}
-        className="aip-sub-input"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        onKeyDown={handleKeyDown}
-        onBlur={() => { if (!title.trim()) onDone() }}
-        placeholder="Task name… (Enter to add, Esc to cancel)"
-      />
+    <div className="tbl-add-row">
+      <div className="tbl-col tbl-col--check">
+        <div className="tbl-check-placeholder" />
+      </div>
+      <div className="tbl-col tbl-col--name" style={{ flex: '1 1 0' }}>
+        <input
+          ref={inputRef}
+          className="tbl-add-input"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={() => { if (!title.trim()) onDone() }}
+          placeholder="Task name… Enter to add, Esc to cancel"
+        />
+      </div>
     </div>
   )
 }
 
-// ── Section header with rename / color / delete ────────────────────────────
-function SectionHeader({ section, collapsed, onToggle, taskCount }) {
+// ── Section header ────────────────────────────────────────────────────────────
+function SectionHeader({ section, collapsed, onToggle, taskCount, onAddTask }) {
   const { updateSection, deleteSection, addSection } = useAIPlanner()
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft]     = useState(section.title)
+  const [editing, setEditing]   = useState(false)
+  const [draft, setDraft]       = useState(section.title)
   const [showMenu, setShowMenu] = useState(false)
-  const menuRef = useRef(null)
+  const menuRef  = useRef(null)
   const inputRef = useRef(null)
 
   useEffect(() => {
@@ -239,28 +324,24 @@ function SectionHeader({ section, collapsed, onToggle, taskCount }) {
   }
 
   return (
-    <div className="aip-sec-header" style={{ '--sec-color': section.color }}>
-      {/* Collapse toggle */}
+    <div className="tbl-sec-header" style={{ '--sec-color': section.color }}>
+      {/* Collapse chevron */}
       <button
-        className="aip-sec-collapse"
+        className="tbl-sec-collapse"
         onClick={onToggle}
         aria-label={collapsed ? 'Expand section' : 'Collapse section'}
       >
-        <span className={`aip-sec-chevron ${collapsed ? 'collapsed' : ''}`}>›</span>
+        <span className={`tbl-sec-chevron ${collapsed ? 'collapsed' : ''}`} />
       </button>
 
-      {/* Color dot */}
-      <span
-        className="aip-sec-dot"
-        style={{ background: section.color }}
-        title="Section colour"
-      />
+      {/* Colour dot */}
+      <span className="tbl-sec-dot" style={{ background: section.color }} />
 
-      {/* Title — inline editable */}
+      {/* Title */}
       {editing ? (
         <input
           ref={inputRef}
-          className="aip-sec-title-input"
+          className="tbl-sec-title-input"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commitRename}
@@ -269,7 +350,7 @@ function SectionHeader({ section, collapsed, onToggle, taskCount }) {
         />
       ) : (
         <span
-          className="aip-sec-title"
+          className="tbl-sec-title"
           onDoubleClick={() => setEditing(true)}
           title="Double-click to rename"
         >
@@ -277,63 +358,64 @@ function SectionHeader({ section, collapsed, onToggle, taskCount }) {
         </span>
       )}
 
-      <span className="aip-sec-count">{taskCount}</span>
+      <span className="tbl-sec-count">{taskCount}</span>
 
-      {/* ⋯ menu */}
-      <div className="aip-sec-menu-wrap" ref={menuRef}>
-        <button
-          className="aip-sec-menu-btn"
-          onClick={(e) => { e.stopPropagation(); setShowMenu((v) => !v) }}
-          aria-label="Section options"
-        >
-          ···
-        </button>
-        {showMenu && (
-          <div className="aip-sec-menu">
-            <button className="aip-sec-menu-item" onClick={() => { setEditing(true); setShowMenu(false) }}>
-              ✏️ Rename
-            </button>
+      {/* Right actions */}
+      <div className="tbl-sec-actions">
+        <button className="tbl-sec-add-btn" onClick={onAddTask} title="Add task">+</button>
 
-            {/* Colour picker row */}
-            <div className="aip-sec-menu-colors">
-              {SECTION_COLORS.map((c) => (
-                <button
-                  key={c}
-                  className={`aip-sec-color-dot ${section.color === c ? 'active' : ''}`}
-                  style={{ background: c }}
-                  onClick={() => { updateSection(section.id, { color: c }); setShowMenu(false) }}
-                  aria-label={c}
-                />
-              ))}
+        {/* ⋯ menu */}
+        <div className="aip-sec-menu-wrap" ref={menuRef}>
+          <button
+            className="tbl-sec-menu-btn"
+            onClick={(e) => { e.stopPropagation(); setShowMenu((v) => !v) }}
+            aria-label="Section options"
+          >
+            ···
+          </button>
+          {showMenu && (
+            <div className="aip-sec-menu">
+              <button className="aip-sec-menu-item" onClick={() => { setEditing(true); setShowMenu(false) }}>
+                ✏️ Rename
+              </button>
+              <div className="aip-sec-menu-colors">
+                {SECTION_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    className={`aip-sec-color-dot ${section.color === c ? 'active' : ''}`}
+                    style={{ background: c }}
+                    onClick={() => { updateSection(section.id, { color: c }); setShowMenu(false) }}
+                    aria-label={c}
+                  />
+                ))}
+              </div>
+              <button
+                className="aip-sec-menu-item"
+                onClick={() => { addSection('New Section'); setShowMenu(false) }}
+              >
+                ＋ Add section below
+              </button>
+              <div className="aip-sec-menu-divider" />
+              <button
+                className="aip-sec-menu-item danger"
+                onClick={() => {
+                  if (window.confirm(`Delete section "${section.title}"? Tasks will be moved to No Section.`)) {
+                    deleteSection(section.id)
+                  }
+                  setShowMenu(false)
+                }}
+              >
+                🗑 Delete section
+              </button>
             </div>
-
-            <button
-              className="aip-sec-menu-item"
-              onClick={() => { addSection('New Section'); setShowMenu(false) }}
-            >
-              ＋ Add section below
-            </button>
-
-            <div className="aip-sec-menu-divider" />
-            <button
-              className="aip-sec-menu-item danger"
-              onClick={() => {
-                if (window.confirm(`Delete section "${section.title}"? Tasks will be moved to No Section.`)) {
-                  deleteSection(section.id)
-                }
-                setShowMenu(false)
-              }}
-            >
-              🗑 Delete section
-            </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   )
 }
 
-// ── Section block ─────────────────────────────────────────────────────────────
+// ── Section block (table) ──────────────────────────────────────────────────────
 function SectionBlock({ section, tasks, statusFilter, catFilter }) {
   const [collapsed, setCollapsed] = useState(false)
   const [adding, setAdding]       = useState(false)
@@ -345,30 +427,31 @@ function SectionBlock({ section, tasks, statusFilter, catFilter }) {
   })
 
   return (
-    <div className="aip-section">
+    <div className="tbl-section">
       <SectionHeader
         section={section}
         collapsed={collapsed}
         onToggle={() => setCollapsed((v) => !v)}
         taskCount={filtered.length}
+        onAddTask={() => { setCollapsed(false); setAdding(true) }}
       />
 
       {!collapsed && (
-        <div className="aip-section__body">
-          {filtered.length > 0 ? (
-            <div className="aip-task-list">
-              {filtered.map((task) => (
-                <TaskCard key={task.id} task={task} />
-              ))}
-            </div>
-          ) : (
-            <div className="aip-sec-empty">No tasks in this section</div>
-          )}
+        <div className="tbl-section__body">
+          {/* Column header — shown once per section */}
+          <TaskTableHeader />
 
+          {/* Task rows */}
+          {filtered.length > 0
+            ? filtered.map((task) => <TaskRow key={task.id} task={task} />)
+            : <div className="tbl-empty">No tasks — add one below</div>
+          }
+
+          {/* Inline add */}
           {adding ? (
             <InlineAddTask sectionId={section?.id ?? null} onDone={() => setAdding(false)} />
           ) : (
-            <button className="aip-sec-add-task-btn" onClick={() => setAdding(true)}>
+            <button className="tbl-add-task-btn" onClick={() => setAdding(true)}>
               + Add task
             </button>
           )}
@@ -378,7 +461,7 @@ function SectionBlock({ section, tasks, statusFilter, catFilter }) {
   )
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
+// ── Filter bar ────────────────────────────────────────────────────────────────
 const FILTER_OPTIONS = [
   { id: 'all',     label: 'All' },
   { id: 'todo',    label: 'To Do' },
@@ -395,6 +478,7 @@ const CAT_FILTER_OPTIONS = [
   { id: 'admin',         label: '📋 Admin' },
 ]
 
+// ── Page ──────────────────────────────────────────────────────────────────────
 export default function ProjectsIndexPage() {
   const { tasks, sections, addSection } = useAIPlanner()
   const [statusFilter, setStatusFilter] = useState('all')
@@ -404,17 +488,15 @@ export default function ProjectsIndexPage() {
   const blockedCount = tasks.filter((t) => t.status === 'blocked').length
   const doneCount    = tasks.filter((t) => t.status === 'done').length
 
-  // Sort sections by order
   const sortedSections = [...sections].sort((a, b) => a.order - b.order)
-
-  // Tasks with no section (or section that no longer exists)
-  const sectionIds = new Set(sections.map((s) => s.id))
-  const unsectioned = tasks.filter((t) => !t.sectionId || !sectionIds.has(t.sectionId))
+  const sectionIds     = new Set(sections.map((s) => s.id))
+  const unsectioned    = tasks.filter((t) => !t.sectionId || !sectionIds.has(t.sectionId))
 
   return (
     <div className="aip-layout">
-      <div className="aip-main">
-        {/* Header */}
+      <div className="aip-main aip-main--list">
+
+        {/* Page header */}
         <div className="aip-page-header">
           <div>
             <h1 className="aip-page-title">AI Task Planner</h1>
@@ -427,8 +509,8 @@ export default function ProjectsIndexPage() {
         {/* Quick Capture */}
         <QuickCapture />
 
-        {/* Filters */}
-        <div className="aip-toolbar">
+        {/* Filter bar */}
+        <div className="aip-toolbar tbl-toolbar">
           {FILTER_OPTIONS.map((f) => (
             <button
               key={f.id}
@@ -457,22 +539,19 @@ export default function ProjectsIndexPage() {
           </div>
         </div>
 
-        {/* Sections */}
-        <div className="aip-sections-list">
-          {sortedSections.map((sec) => {
-            const secTasks = tasks.filter((t) => t.sectionId === sec.id)
-            return (
-              <SectionBlock
-                key={sec.id}
-                section={sec}
-                tasks={secTasks}
-                statusFilter={statusFilter}
-                catFilter={catFilter}
-              />
-            )
-          })}
+        {/* Section table list */}
+        <div className="tbl-sections-list">
+          {sortedSections.map((sec) => (
+            <SectionBlock
+              key={sec.id}
+              section={sec}
+              tasks={tasks.filter((t) => t.sectionId === sec.id)}
+              statusFilter={statusFilter}
+              catFilter={catFilter}
+            />
+          ))}
 
-          {/* No Section bucket */}
+          {/* No-section bucket */}
           <SectionBlock
             section={{ id: null, title: 'No Section', color: '#94a3b8', order: 99999 }}
             tasks={unsectioned}
@@ -481,10 +560,11 @@ export default function ProjectsIndexPage() {
           />
         </div>
 
-        {/* Add section button */}
-        <button className="aip-add-section-btn" onClick={() => addSection('New Section')}>
+        {/* Add section */}
+        <button className="tbl-add-section-btn" onClick={() => addSection('New Section')}>
           + Add Section
         </button>
+
       </div>
 
       <AIAssistPanel />
