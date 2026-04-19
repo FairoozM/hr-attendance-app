@@ -108,8 +108,9 @@ export function calcPriorityScore(task) {
     else if (daysUntil <= 7) score += 7
   }
 
-  // Blocked tasks get deprioritised
+  // Blocked tasks (manual status or unresolved dependencies) get deprioritised
   if (task.status === 'blocked') score -= 20
+  if (task._hasUnresolvedDeps) score -= 15
 
   // Deep work gets a slight boost (more important to schedule early)
   if (task.energyType === 'deep') score += 5
@@ -402,6 +403,27 @@ export function rescheduleIncomplete(tasks) {
   })
 }
 
+// ─── Dependency resolution ────────────────────────────────────────────────
+
+/**
+ * For a given task, return the list of blocker tasks that are NOT yet done.
+ * Also returns a boolean _hasUnresolvedDeps flag.
+ */
+export function resolveBlockers(task, allTasks) {
+  const deps = task.blockedBy || []
+  if (deps.length === 0) return { blockers: [], unresolvedBlockers: [], _hasUnresolvedDeps: false }
+
+  const taskMap = Object.fromEntries(allTasks.map((t) => [t.id, t]))
+  const blockers = deps.map((id) => taskMap[id]).filter(Boolean)
+  const unresolvedBlockers = blockers.filter((b) => b.status !== 'done')
+
+  return {
+    blockers,
+    unresolvedBlockers,
+    _hasUnresolvedDeps: unresolvedBlockers.length > 0,
+  }
+}
+
 // ─── Full enrichment pipeline ─────────────────────────────────────────────
 
 /**
@@ -409,10 +431,17 @@ export function rescheduleIncomplete(tasks) {
  * Returns enriched tasks sorted by priority score (descending).
  */
 export function enrichTasks(rawTasks) {
-  const enriched = rawTasks.map((task) => {
+  // First pass: basic enrichment without dep info
+  const firstPass = rawTasks.map((task) => {
     const category   = task.category   || detectCategory(task.title, task.description)
     const energyType = task.energyType || detectEnergyType(task.title)
-    const base = { ...task, category, energyType }
+    return { ...task, category, energyType }
+  })
+
+  // Second pass: resolve dependencies (needs full array for lookups)
+  const enriched = firstPass.map((task) => {
+    const { _hasUnresolvedDeps, unresolvedBlockers } = resolveBlockers(task, firstPass)
+    const base = { ...task, _hasUnresolvedDeps, _unresolvedBlockerIds: unresolvedBlockers.map((b) => b.id) }
     const priorityScore = calcPriorityScore(base)
     return { ...base, priorityScore }
   })

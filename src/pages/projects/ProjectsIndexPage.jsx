@@ -133,6 +133,9 @@ function TaskCard({ task }) {
           {task.attachments?.length > 0 && (
             <span className="aip-badge aip-badge-time">📎 {task.attachments.length}</span>
           )}
+          {task._hasUnresolvedDeps && (
+            <span className="aip-badge aip-dep-badge">⛓ waiting on {task._unresolvedBlockerIds?.length}</span>
+          )}
         </div>
 
         {task.subtasks?.length > 0 && (() => {

@@ -139,6 +139,7 @@ export function AIPlannerProvider({ children }) {
       notes: '',
       subtasks: [],
       attachments: [],
+      blockedBy: [],
       ...data,
       category,
       energyType,
@@ -275,6 +276,29 @@ export function AIPlannerProvider({ children }) {
     )
   }, [])
 
+  // ── Dependencies ──────────────────────────────────────────────────────
+
+  const addDependency = useCallback((taskId, blockerTaskId) => {
+    if (taskId === blockerTaskId) return
+    setRawTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== taskId) return t
+        const existing = t.blockedBy || []
+        if (existing.includes(blockerTaskId)) return t
+        return { ...t, blockedBy: [...existing, blockerTaskId] }
+      })
+    )
+  }, [])
+
+  const removeDependency = useCallback((taskId, blockerTaskId) => {
+    setRawTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== taskId) return t
+        return { ...t, blockedBy: (t.blockedBy || []).filter((id) => id !== blockerTaskId) }
+      })
+    )
+  }, [])
+
   // ── Sections ──────────────────────────────────────────────────────────
 
   const addSection = useCallback((title) => {
@@ -352,6 +376,8 @@ export function AIPlannerProvider({ children }) {
       updateSection,
       deleteSection,
       moveTaskToSection,
+      addDependency,
+      removeDependency,
     }}>
       {children}
     </AIPlannerContext.Provider>

@@ -3,12 +3,12 @@ import { useAIPlanner } from '../../contexts/AIPlannerContext'
 import { calcPriorityScore, priorityLabel, priorityFlame, formatTime, estimateDuration } from '../../lib/aiEngine'
 import { SubtaskList } from './SubtaskList'
 import { AttachmentPanel } from './AttachmentPanel'
-
+import { DependencyPanel } from './DependencyPanel'
 
 const STATUS_OPTIONS   = ['todo', 'blocked', 'done']
 const PRIORITY_OPTIONS = ['low', 'medium', 'high', 'urgent']
 const ENERGY_OPTIONS   = ['shallow', 'deep']
-const TABS = ['Details', 'Subtasks', 'Attachments']
+const TABS = ['Details', 'Subtasks', 'Attachments', 'Dependencies']
 
 export function TaskDrawer() {
   const { activeTask, setActiveTaskId, updateTask, deleteTask, markDone, markTodo, sections, moveTaskToSection } = useAIPlanner()
@@ -55,7 +55,12 @@ export function TaskDrawer() {
 
   const subtasks    = activeTask.subtasks    || []
   const attachments = activeTask.attachments || []
+  const blockedBy   = activeTask.blockedBy   || []
   const doneSubtasks = subtasks.filter((s) => s.done).length
+  const unresolvedDeps = blockedBy.filter((id) => {
+    // resolved if not in _unresolvedBlockerIds (populated by enrichTasks)
+    return (activeTask._unresolvedBlockerIds || []).includes(id)
+  }).length
 
   return (
     <>
@@ -78,6 +83,11 @@ export function TaskDrawer() {
                   📎 {attachments.length} file{attachments.length > 1 ? 's' : ''}
                 </span>
               )}
+              {unresolvedDeps > 0 && (
+                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#f97316', background: 'rgba(249,115,22,0.1)', padding: '0.1rem 0.45rem', borderRadius: 20, border: '1px solid rgba(249,115,22,0.25)' }}>
+                  ⛓ {unresolvedDeps} unresolved dep{unresolvedDeps > 1 ? 's' : ''}
+                </span>
+              )}
             </div>
           </div>
           <button className="aip-drawer__close" onClick={() => setActiveTaskId(null)}>✕</button>
@@ -96,6 +106,11 @@ export function TaskDrawer() {
               )}
               {t === 'Attachments' && attachments.length > 0 && (
                 <span className="aip-drawer__tab-badge">{attachments.length}</span>
+              )}
+              {t === 'Dependencies' && blockedBy.length > 0 && (
+                <span className="aip-drawer__tab-badge" style={unresolvedDeps > 0 ? { background: '#f97316' } : {}}>
+                  {blockedBy.length}
+                </span>
               )}
               {t}
             </button>
@@ -278,6 +293,11 @@ export function TaskDrawer() {
           {/* ── ATTACHMENTS TAB ── */}
           {tab === 'Attachments' && (
             <AttachmentPanel taskId={activeTask.id} attachments={attachments} />
+          )}
+
+          {/* ── DEPENDENCIES TAB ── */}
+          {tab === 'Dependencies' && (
+            <DependencyPanel taskId={activeTask.id} blockedBy={blockedBy} />
           )}
         </div>
 
