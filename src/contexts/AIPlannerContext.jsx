@@ -106,6 +106,8 @@ export function AIPlannerProvider({ children }) {
       dueDate: null,
       estimatedMinutes: null,
       notes: '',
+      subtasks: [],
+      attachments: [],
       ...data,
       category,
       energyType,
@@ -149,6 +151,99 @@ export function AIPlannerProvider({ children }) {
     return addTask(parsed)
   }, [addTask])
 
+  // ── Subtasks ──────────────────────────────────────────────────────────
+
+  const addSubtask = useCallback((taskId, title) => {
+    const sub = {
+      id: Date.now().toString(),
+      title,
+      done: false,
+      createdAt: new Date().toISOString(),
+    }
+    setRawTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId
+          ? { ...t, subtasks: [...(t.subtasks || []), sub] }
+          : t
+      )
+    )
+    return sub
+  }, [])
+
+  const toggleSubtask = useCallback((taskId, subId) => {
+    setRawTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== taskId) return t
+        return {
+          ...t,
+          subtasks: (t.subtasks || []).map((s) =>
+            s.id === subId ? { ...s, done: !s.done } : s
+          ),
+        }
+      })
+    )
+  }, [])
+
+  const updateSubtask = useCallback((taskId, subId, title) => {
+    setRawTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== taskId) return t
+        return {
+          ...t,
+          subtasks: (t.subtasks || []).map((s) =>
+            s.id === subId ? { ...s, title } : s
+          ),
+        }
+      })
+    )
+  }, [])
+
+  const deleteSubtask = useCallback((taskId, subId) => {
+    setRawTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== taskId) return t
+        return { ...t, subtasks: (t.subtasks || []).filter((s) => s.id !== subId) }
+      })
+    )
+  }, [])
+
+  // ── Attachments (base64, stored in localStorage) ──────────────────────
+
+  const addAttachment = useCallback((taskId, file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const attachment = {
+          id: Date.now().toString(),
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          dataUrl: e.target.result,
+          uploadedAt: new Date().toISOString(),
+        }
+        setRawTasks((prev) =>
+          prev.map((t) =>
+            t.id === taskId
+              ? { ...t, attachments: [...(t.attachments || []), attachment] }
+              : t
+          )
+        )
+        resolve(attachment)
+      }
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+  }, [])
+
+  const deleteAttachment = useCallback((taskId, attachId) => {
+    setRawTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== taskId) return t
+        return { ...t, attachments: (t.attachments || []).filter((a) => a.id !== attachId) }
+      })
+    )
+  }, [])
+
   // ── Filtered views ────────────────────────────────────────────────────
 
   const todoTasks    = useMemo(() => tasks.filter((t) => t.status === 'todo'),    [tasks])
@@ -184,6 +279,12 @@ export function AIPlannerProvider({ children }) {
       markDone,
       markTodo,
       quickCapture,
+      addSubtask,
+      toggleSubtask,
+      updateSubtask,
+      deleteSubtask,
+      addAttachment,
+      deleteAttachment,
     }}>
       {children}
     </AIPlannerContext.Provider>

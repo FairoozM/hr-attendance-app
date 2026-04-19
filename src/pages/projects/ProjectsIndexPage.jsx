@@ -149,7 +149,25 @@ function TaskCard({ task }) {
           {task.status === 'blocked' && (
             <span className="aip-blocked-tag">🚫 Blocked</span>
           )}
+          {task.attachments?.length > 0 && (
+            <span className="aip-badge aip-badge-time">📎 {task.attachments.length}</span>
+          )}
         </div>
+        {/* Subtask progress bar */}
+        {task.subtasks?.length > 0 && (() => {
+          const done = task.subtasks.filter((s) => s.done).length
+          const pct  = Math.round((done / task.subtasks.length) * 100)
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginTop: 2 }}>
+              <div className="aip-task-subtask-bar" style={{ flex: 1, maxWidth: 120 }}>
+                <div className="aip-task-subtask-bar-fill" style={{ width: `${pct}%` }} />
+              </div>
+              <span style={{ fontSize: '0.65rem', color: 'var(--theme-text-dim)', fontWeight: 600 }}>
+                {done}/{task.subtasks.length}
+              </span>
+            </div>
+          )
+        })()}
       </div>
 
       {/* Priority score */}
