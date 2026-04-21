@@ -127,7 +127,7 @@ function TaskTableHeader() {
 }
 
 // ── Task row (spreadsheet-style inline edit, no side drawer) ────────────────
-function TaskRow({ task, onOpenDatePicker, plannerSections }) {
+function TaskRow({ task, onOpenDatePicker }) {
   const { markDone, markTodo, updateTask, deleteTask } = useAIPlanner()
   const [titleDraft, setTitleDraft] = useState(task.title || '')
 
@@ -175,10 +175,6 @@ function TaskRow({ task, onOpenDatePicker, plannerSections }) {
     if (t !== (task.title || '')) updateTask(task.id, { title: t })
   }
 
-  const sectionValue = task.sectionId ?? ''
-  const sectionIds = new Set((plannerSections || []).map((s) => s.id))
-  const sectionOrphan = task.sectionId && !sectionIds.has(task.sectionId)
-
   return (
     <div
       className={`tbl-row ${task.status === 'done' ? 'done' : ''} ${task.status === 'blocked' ? 'blocked' : ''} ${task._hasUnresolvedDeps ? 'dep-blocked' : ''}`}
@@ -223,22 +219,6 @@ function TaskRow({ task, onOpenDatePicker, plannerSections }) {
             ×
           </button>
         </div>
-        <select
-          className="tbl-inline-select tbl-section-select"
-          value={sectionValue}
-          onChange={(e) => updateTask(task.id, { sectionId: e.target.value || null })}
-          aria-label="Section"
-        >
-          <option value="">No Section</option>
-          {sectionOrphan ? (
-            <option value={task.sectionId}>Unknown section</option>
-          ) : null}
-          {(plannerSections || []).map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.title}
-            </option>
-          ))}
-        </select>
         <div className="tbl-task-indicators">
           {task.status === 'blocked' && (
             <span className="tbl-indicator tbl-indicator--blocked">Blocked</span>
@@ -517,7 +497,7 @@ function SectionHeader({ section, collapsed, onToggle, taskCount, onAddTask }) {
 }
 
 // ── Section block (table) ──────────────────────────────────────────────────────
-function SectionBlock({ section, tasks, statusFilter, catFilter, onOpenDatePicker, plannerSections, onAfterAddTask }) {
+function SectionBlock({ section, tasks, statusFilter, catFilter, onOpenDatePicker, onAfterAddTask }) {
   const [collapsed, setCollapsed] = useState(false)
   const [adding, setAdding]       = useState(false)
 
@@ -545,12 +525,7 @@ function SectionBlock({ section, tasks, statusFilter, catFilter, onOpenDatePicke
           {/* Task rows */}
           {filtered.length > 0
             ? filtered.map((task) => (
-                <TaskRow
-                  key={task.id}
-                  task={task}
-                  onOpenDatePicker={onOpenDatePicker}
-                  plannerSections={plannerSections}
-                />
+                <TaskRow key={task.id} task={task} onOpenDatePicker={onOpenDatePicker} />
               ))
             : <div className="tbl-empty">No tasks — add one below</div>
           }
@@ -669,7 +644,6 @@ export default function ProjectsIndexPage() {
               statusFilter={statusFilter}
               catFilter={catFilter}
               onOpenDatePicker={(taskId, rect) => setDatePicker({ taskId, rect })}
-              plannerSections={sortedSections}
               onAfterAddTask={afterInlineAdd}
             />
           ))}
@@ -681,7 +655,6 @@ export default function ProjectsIndexPage() {
             statusFilter={statusFilter}
             catFilter={catFilter}
             onOpenDatePicker={(taskId, rect) => setDatePicker({ taskId, rect })}
-            plannerSections={sortedSections}
             onAfterAddTask={afterInlineAdd}
           />
         </div>

@@ -2318,15 +2318,6 @@
   background: rgba(248, 113, 113, 0.12);
 }
 
-.tbl-section-select {
-  width: 100%;
-  max-width: 100%;
-  margin-top: 0.1rem;
-  font-size: 0.65rem;
-  font-weight: 500;
-  color: var(--theme-text-dim);
-}
-
 .tbl-inline-select {
   width: 100%;
   max-width: 100%;
