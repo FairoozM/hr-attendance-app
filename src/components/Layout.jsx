@@ -487,14 +487,16 @@ export function Layout() {
     { label: 'My Account', to: '/account', group: 'Account' },
   ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, managementItems, REPORTS_ITEMS])
 
+  const showSidebarBackdrop = isSidebarOpen && navMode === 'full'
+
   return (
-    <div className="app">
+    <div className={`app ${isSidebarOpen && navMode === 'rail' ? 'app--nav-rail' : ''}`.trim()}>
       <div className="app__aurora app__aurora--left" aria-hidden />
       <div className="app__aurora app__aurora--right" aria-hidden />
       <div className="app__aurora app__aurora--bottom" aria-hidden />
 
       <AnimatePresence>
-        {isSidebarOpen && (
+        {showSidebarBackdrop && (
           <motion.button
             type="button"
             className="app-sidebar-backdrop"
@@ -725,7 +727,13 @@ export function Layout() {
               onClick={toggleSidebar}
               aria-expanded={isSidebarOpen}
               aria-controls="app-sidebar-panel"
-              aria-label={isSidebarOpen ? 'Close menu' : 'Open menu'}
+              aria-label={
+                navMode === 'rail'
+                  ? 'Open full navigation menu'
+                  : isSidebarOpen
+                    ? 'Close menu'
+                    : 'Open menu'
+              }
             >
               <span className="app-topbar__menu-bar" aria-hidden />
               <span className="app-topbar__menu-bar" aria-hidden />

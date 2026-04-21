@@ -410,6 +410,13 @@
   min-height: calc(100vh - 2rem);
   display: flex;
   flex-direction: column;
+  transition: padding-left 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Rail mode: slim sidebar stays docked; main content stays sharp and usable (no overlay blur). */
+.app--nav-rail .app-shell {
+  padding-left: calc(min(5.6rem, calc(100vw - 1.2rem)) + 0.65rem);
+  box-sizing: border-box;
 }
 
 .app-topbar {
