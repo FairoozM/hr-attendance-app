@@ -183,6 +183,13 @@ function NavGroup({ label, children, isActive, defaultOpen = false, hint }) {
   )
 }
 
+function itemIconToken(label) {
+  const words = String(label || '').trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return '•'
+  if (words.length === 1) return words[0].slice(0, 1).toUpperCase()
+  return `${words[0][0] || ''}${words[1][0] || ''}`.toUpperCase()
+}
+
 const DOC_URGENCY_LABEL = { expired: 'Expired', urgent: 'Urgent', 'due-soon': 'Due Soon' }
 const DOC_URGENCY_CLS   = { expired: 'notif-doc-badge--expired', urgent: 'notif-doc-badge--urgent', 'due-soon': 'notif-doc-badge--due-soon' }
 
@@ -329,6 +336,7 @@ function NotificationsBell({ docReminders = [] }) {
 
 export function Layout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [navMode, setNavMode] = useState('full')
   const [focusedSection, setFocusedSection] = useState(null)
   const { appTitle } = useSettings()
   const { user, logout } = useAuth()
@@ -343,16 +351,18 @@ export function Layout() {
   const docReminders = useDocumentReminders(docExpiryItems)
 
   const toggleSidebar = useCallback(() => {
-    // In focused mode, hamburger returns to the full sidebar navigation.
-    if (focusedSection) {
+    // In rail mode, hamburger returns to the full sidebar navigation.
+    if (navMode === 'rail') {
+      setNavMode('full')
       setFocusedSection(null)
       setIsSidebarOpen(true)
       return
     }
     setIsSidebarOpen(prev => !prev)
-  }, [focusedSection])
+  }, [navMode])
   const closeSidebar = useCallback(() => setIsSidebarOpen(false), [])
   const openFocusedSection = useCallback((sectionKey) => {
+    setNavMode('rail')
     setFocusedSection(sectionKey)
     setIsSidebarOpen(true)
   }, [])
@@ -435,23 +445,24 @@ export function Layout() {
   ].filter(Boolean)
 
   const focusedSectionConfig = useMemo(() => {
+    const withIcons = (items) => items.map((item) => ({ ...item, icon: item.icon || itemIconToken(item.label) }))
     const sections = {
-      hr: { title: 'HR', items: hrItems },
-      admin: { title: 'Admin', items: adminNavItems },
-      lists: { title: 'Lists', items: listsItems },
-      influencers: { title: 'Influencers', items: INFLUENCER_ITEMS },
+      hr: { title: 'HR', items: withIcons(hrItems) },
+      admin: { title: 'Admin', items: withIcons(adminNavItems) },
+      lists: { title: 'Lists', items: withIcons(listsItems) },
+      influencers: { title: 'Influencers', items: withIcons(INFLUENCER_ITEMS) },
       planner: {
         title: 'Planner',
-        items: isAdmin
+        items: withIcons(isAdmin
           ? [
               { to: '/projects', label: 'Task List' },
               { to: '/projects/today', label: "Today's Plan" },
               { to: '/projects/dashboard', label: 'Dashboard' },
             ]
-          : [],
+          : []),
       },
-      management: { title: 'Management', items: managementItems },
-      reports: { title: 'Reports', items: REPORTS_ITEMS },
+      management: { title: 'Management', items: withIcons(managementItems) },
+      reports: { title: 'Reports', items: withIcons(REPORTS_ITEMS) },
     }
     return sections[focusedSection] || null
   }, [
@@ -498,7 +509,7 @@ export function Layout() {
 
       <aside
         id="app-sidebar-panel"
-        className={`app-sidebar ${isSidebarOpen ? 'app-sidebar--open' : ''}`}
+        className={`app-sidebar ${isSidebarOpen ? 'app-sidebar--open' : ''} ${navMode === 'rail' ? 'app-sidebar--rail' : ''}`}
         aria-hidden={!isSidebarOpen}
       >
         <div className="app-sidebar__glow" aria-hidden />
@@ -516,21 +527,21 @@ export function Layout() {
           <nav id="app-sidebar-nav" className="app-sidebar__nav" aria-label="Main">
             <SidebarSearch allItems={allNavItems} onNavigate={closeSidebar} enableHotkey={false} />
 
-            {focusedSectionConfig ? (
+            {navMode === 'rail' && focusedSectionConfig ? (
               <>
                 <div className="app-sidebar__section-label" role="presentation">
                   {focusedSectionConfig.title}
                 </div>
-                <div className="nav-group__items nav-group__items--focused">
+                <div className="nav-rail">
                   {focusedSectionConfig.items.map((item) => (
                     <NavLink
                       key={item.to}
                       to={item.to}
                       end={item.end}
-                      className={subLinkClass}
+                      className={({ isActive }) => `nav-rail__link ${isActive ? 'nav-rail__link--active' : ''}`}
                     >
-                      <span className="nav-group__link-dot" aria-hidden />
-                      {item.label}
+                      <span className="nav-rail__icon" aria-hidden>{item.icon}</span>
+                      <span className="nav-rail__label">{item.label}</span>
                     </NavLink>
                   ))}
                 </div>
