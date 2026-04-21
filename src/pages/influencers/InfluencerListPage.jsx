@@ -1,6 +1,16 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Smartphone, Users } from 'lucide-react'
+import {
+  Smartphone,
+  Users,
+  MoreHorizontal,
+  Eye,
+  Pencil,
+  Check,
+  X,
+  CreditCard,
+  Trash2,
+} from 'lucide-react'
 import { useInfluencers } from '../../contexts/InfluencersContext'
 import { useAuth, hasPermission } from '../../contexts/AuthContext'
 import { AddInfluencerPage } from './AddInfluencerPage'
@@ -121,7 +131,92 @@ const QUICK_CHIP = {
   PAYMENT: 'payment',
   APPROVED: 'approved',
 }
-const PAGE_SIZE = 10
+const PAGE_SIZE = 20
+
+function closeRowMenuFromEvent(e) {
+  const d = e.currentTarget?.closest?.('details')
+  if (d) d.open = false
+}
+
+/** Compact row actions: single trigger + dropdown (preserves all prior actions). */
+function InfluencerRowActions({ inf, can, navigate, onQuickAction }) {
+  const run = (e, fn) => {
+    e.stopPropagation()
+    closeRowMenuFromEvent(e)
+    fn(e)
+  }
+  return (
+    <details className="inf-list-menu" onClick={e => e.stopPropagation()}>
+      <summary
+        className="inf-list-menu__trigger"
+        aria-label="Row actions"
+        onClick={e => e.stopPropagation()}
+      >
+        <MoreHorizontal size={16} strokeWidth={2} aria-hidden />
+      </summary>
+      <div className="inf-list-menu__panel" role="menu">
+        <button
+          type="button"
+          className="inf-list-menu__item"
+          role="menuitem"
+          onClick={e => run(e, () => navigate(`/influencers/${inf.id}`))}
+        >
+          <Eye size={14} aria-hidden /> View profile
+        </button>
+        {can('manage') ? (
+          <button
+            type="button"
+            className="inf-list-menu__item"
+            role="menuitem"
+            onClick={e => run(e, () => navigate(`/influencers/${inf.id}/edit`))}
+          >
+            <Pencil size={14} aria-hidden /> Edit
+          </button>
+        ) : null}
+        {can('approve') && inf.approvalStatus !== 'Approved' && inf.approvalStatus !== 'Rejected' ? (
+          <button
+            type="button"
+            className="inf-list-menu__item inf-list-menu__item--success"
+            role="menuitem"
+            onClick={e => run(e, (ev) => onQuickAction(ev, 'approve', inf))}
+          >
+            <Check size={14} aria-hidden /> Approve
+          </button>
+        ) : null}
+        {can('approve') && inf.approvalStatus !== 'Rejected' ? (
+          <button
+            type="button"
+            className="inf-list-menu__item inf-list-menu__item--danger"
+            role="menuitem"
+            onClick={e => run(e, (ev) => onQuickAction(ev, 'reject', inf))}
+          >
+            <X size={14} aria-hidden /> Reject
+          </button>
+        ) : null}
+        {can('payments') && inf.approvalStatus === 'Approved' && inf.paymentStatus !== 'Paid' ? (
+          <button
+            type="button"
+            className="inf-list-menu__item inf-list-menu__item--warning"
+            role="menuitem"
+            onClick={e => run(e, (ev) => onQuickAction(ev, 'payment-ready', inf))}
+          >
+            <CreditCard size={14} aria-hidden /> Mark ready for payment
+          </button>
+        ) : null}
+        {can('manage') ? (
+          <button
+            type="button"
+            className="inf-list-menu__item inf-list-menu__item--danger"
+            role="menuitem"
+            onClick={e => run(e, (ev) => onQuickAction(ev, 'delete', inf))}
+          >
+            <Trash2 size={14} aria-hidden /> Delete
+          </button>
+        ) : null}
+      </div>
+    </details>
+  )
+}
 
 export function InfluencerListPage() {
   const {
@@ -396,7 +491,7 @@ export function InfluencerListPage() {
       </div>
 
       {/* Filter chips for quick views */}
-      <div className="inf-filter-chips" style={{ marginBottom: '1rem' }}>
+      <div className="inf-filter-chips inf-filter-chips--tight">
         {[
           { label: 'All', key: QUICK_CHIP.ALL },
           { label: 'Active', key: QUICK_CHIP.ACTIVE },
@@ -423,7 +518,7 @@ export function InfluencerListPage() {
             {label}
           </button>
         ))}
-        <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', alignSelf: 'center', marginLeft: '0.5rem' }}>
+        <span className="inf-filter-chips__meta">
           {filtered.length} result{filtered.length !== 1 ? 's' : ''}
         </span>
       </div>
@@ -448,91 +543,88 @@ export function InfluencerListPage() {
             ) : null}
           </div>
         ) : (
-          <table className="inf-table">
+          <table className="inf-table inf-table--compact">
             <thead>
               <tr>
                 <th className="inf-table__th-sr">Sr. No.</th>
-                <th>Name</th>
-                <th>Nationality</th>
-                <th>Instagram</th>
-                <th>Mobile</th>
-                <th>Based In</th>
-                <th>Followers</th>
-                <th>Package</th>
-                <th>Insights</th>
-                <th className="inf-table__th--badge-col">Stage</th>
-                <th className="inf-table__th--badge-col">Approval</th>
-                <th className="inf-table__th--badge-col">Payment</th>
-                <th>Shoot Date</th>
-                <th>Assigned</th>
-                <th>Actions</th>
+                <th className="inf-table__col inf-table__col--name">Name</th>
+                <th className="inf-table__col inf-table__col--hide-lg">Nationality</th>
+                <th className="inf-table__col inf-table__col--ig">Instagram</th>
+                <th className="inf-table__col inf-table__col--mobile">Mobile</th>
+                <th className="inf-table__col inf-table__col--hide-lg">Based In</th>
+                <th className="inf-table__col inf-table__col--num">Followers</th>
+                <th className="inf-table__col inf-table__col--pkg">Package</th>
+                <th className="inf-table__col inf-table__col--tight">Insights</th>
+                <th className="inf-table__th--badge-col inf-table__col--stage">Stage</th>
+                <th className="inf-table__th--badge-col inf-table__col--tight">Approval</th>
+                <th className="inf-table__th--badge-col inf-table__col--tight">Payment</th>
+                <th className="inf-table__col inf-table__col--hide-md">Shoot Date</th>
+                <th className="inf-table__col inf-table__col--hide-md inf-table__col--assign">Assigned</th>
+                <th className="inf-table__col inf-table__col--actions">Actions</th>
               </tr>
             </thead>
             <tbody>
               {pageRows.map((inf, index) => (
                 <tr key={inf.id} onClick={() => navigate(`/influencers/${inf.id}`)}>
                   <td className="inf-table__sr">{serialOffset + index + 1}</td>
-                  <td>
+                  <td className="inf-table__col inf-table__col--name">
                     <div className="inf-table__name">{inf.name}</div>
-                    <div className="inf-table__muted">{inf.niche}</div>
+                    {inf.niche ? <div className="inf-table__sub">{inf.niche}</div> : null}
                   </td>
-                  <td><span className="inf-table__muted">{inf.nationality || '—'}</span></td>
-                  <td><InstagramCell handle={inf.instagram?.handle} url={inf.instagram?.url} storedPicUrl={inf.instagram?.picUrl} /></td>
-                  <td>
+                  <td className="inf-table__col inf-table__col--hide-lg"><span className="inf-table__muted">{inf.nationality || '—'}</span></td>
+                  <td className="inf-table__col inf-table__col--ig"><InstagramCell handle={inf.instagram?.handle} url={inf.instagram?.url} storedPicUrl={inf.instagram?.picUrl} /></td>
+                  <td className="inf-table__col inf-table__col--mobile">
                     <span className="inf-table__cell-icon-row">
-                      <Smartphone size={14} className="inf-table__cell-icon" aria-hidden />
+                      <Smartphone size={13} className="inf-table__cell-icon" aria-hidden />
                       <span className="inf-table__muted">{inf.mobile || '—'}</span>
                     </span>
                   </td>
-                  <td><span className="inf-table__muted">{inf.basedIn || '—'}</span></td>
-                  <td>
+                  <td className="inf-table__col inf-table__col--hide-lg"><span className="inf-table__muted">{inf.basedIn || '—'}</span></td>
+                  <td className="inf-table__col inf-table__col--num">
                     <span className="inf-table__cell-icon-row">
-                      <Users size={14} className="inf-table__cell-icon" aria-hidden />
+                      <Users size={13} className="inf-table__cell-icon" aria-hidden />
                       <span className="inf-table__muted">{formatFollowersCell(inf.followersCount)}</span>
                     </span>
                   </td>
-                  <td><span className="inf-table__muted">{inf.reelsPrice ? `${inf.currency} ${Number(inf.reelsPrice).toLocaleString()}` : '—'}</span></td>
-                  <td>
-                    <span className={`inf-badge ${inf.insightsReceived ? 'inf-badge--approved' : 'inf-badge--waiting'}`}>
+                  <td className="inf-table__col inf-table__col--pkg"><span className="inf-table__muted">{inf.reelsPrice ? `${inf.currency} ${Number(inf.reelsPrice).toLocaleString()}` : '—'}</span></td>
+                  <td className="inf-table__col inf-table__col--tight">
+                    <span className={`inf-badge inf-badge--table ${inf.insightsReceived ? 'inf-badge--approved' : 'inf-badge--waiting'}`}>
                       {inf.insightsReceived ? 'Yes' : 'No'}
                     </span>
                   </td>
-                  <td className="inf-table__cell--badge-col">
-                    <span className={`inf-badge inf-badge--dot ${workflowBadgeClass(inf.workflowStatus)}`}>
+                  <td className="inf-table__cell--badge-col inf-table__col--stage">
+                    <span
+                      className={`inf-badge inf-badge--dot inf-badge--table ${workflowBadgeClass(inf.workflowStatus)}`}
+                      title={inf.workflowStatus}
+                    >
                       {inf.workflowStatus}
                     </span>
                   </td>
-                  <td className="inf-table__cell--badge-col">
-                    <span className={`inf-badge inf-badge--dot ${approvalBadgeClass(inf.approvalStatus)}`}>
+                  <td className="inf-table__cell--badge-col inf-table__col--tight">
+                    <span
+                      className={`inf-badge inf-badge--dot inf-badge--table ${approvalBadgeClass(inf.approvalStatus)}`}
+                      title={inf.approvalStatus}
+                    >
                       {inf.approvalStatus}
                     </span>
                   </td>
-                  <td className="inf-table__cell--badge-col">
-                    <span className={`inf-badge inf-badge--dot ${paymentBadgeClass(inf.paymentStatus)}`}>
+                  <td className="inf-table__cell--badge-col inf-table__col--tight">
+                    <span
+                      className={`inf-badge inf-badge--dot inf-badge--table ${paymentBadgeClass(inf.paymentStatus)}`}
+                      title={inf.paymentStatus}
+                    >
                       {inf.paymentStatus}
                     </span>
                   </td>
-                  <td><span className="inf-table__muted">{inf.shootDate || '—'}</span></td>
-                  <td><span className="inf-table__muted">{inf.assignedTo || '—'}</span></td>
-                  <td>
-                    <div className="inf-table__actions" onClick={e => e.stopPropagation()}>
-                      <button className="inf-btn inf-btn--ghost inf-btn--xs" onClick={() => navigate(`/influencers/${inf.id}`)}>View</button>
-                      {can('manage') && (
-                        <button className="inf-btn inf-btn--ghost inf-btn--xs" onClick={() => navigate(`/influencers/${inf.id}/edit`)}>Edit</button>
-                      )}
-                      {can('approve') && inf.approvalStatus !== 'Approved' && inf.approvalStatus !== 'Rejected' && (
-                        <button className="inf-btn inf-btn--success inf-btn--xs" onClick={e => handleQuickAction(e, 'approve', inf)}>✓ Approve</button>
-                      )}
-                      {can('approve') && inf.approvalStatus !== 'Rejected' && (
-                        <button className="inf-btn inf-btn--danger inf-btn--xs" onClick={e => handleQuickAction(e, 'reject', inf)}>✕ Reject</button>
-                      )}
-                      {can('payments') && inf.approvalStatus === 'Approved' && inf.paymentStatus !== 'Paid' && (
-                        <button className="inf-btn inf-btn--warning inf-btn--xs" onClick={e => handleQuickAction(e, 'payment-ready', inf)}>💳 Pay</button>
-                      )}
-                      {can('manage') && (
-                        <button className="inf-btn inf-btn--danger inf-btn--xs" onClick={e => handleQuickAction(e, 'delete', inf)}>🗑 Delete</button>
-                      )}
-                    </div>
+                  <td className="inf-table__col inf-table__col--hide-md"><span className="inf-table__muted">{inf.shootDate || '—'}</span></td>
+                  <td className="inf-table__col inf-table__col--hide-md inf-table__col--assign"><span className="inf-table__muted">{inf.assignedTo || '—'}</span></td>
+                  <td className="inf-table__col inf-table__col--actions">
+                    <InfluencerRowActions
+                      inf={inf}
+                      can={can}
+                      navigate={navigate}
+                      onQuickAction={handleQuickAction}
+                    />
                   </td>
                 </tr>
               ))}
