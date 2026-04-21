@@ -1165,6 +1165,34 @@
 }
 .inf-hero__right { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-start; }
 
+/* Hero secondary actions: readable on dark glass and on light theme (no inline white-on-white). */
+.inf-hero__action-btn.inf-btn--ghost {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+}
+.inf-hero__action-btn.inf-btn--ghost:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.38);
+}
+
+:root[data-theme='light'] .inf-hero__action-btn.inf-btn--ghost {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: var(--theme-surface-soft);
+  color: var(--text);
+  border: 1px solid var(--theme-border);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+:root[data-theme='light'] .inf-hero__action-btn.inf-btn--ghost:hover {
+  background: var(--theme-glass-soft);
+  color: var(--text);
+  border-color: var(--theme-border-subtle);
+}
+
 /* ── Divider ── */
 .inf-divider { height: 1px; background: rgba(226, 232, 240, 0.6); margin: 1.25rem 0; }
 

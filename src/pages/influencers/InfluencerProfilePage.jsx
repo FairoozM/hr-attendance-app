@@ -189,14 +189,20 @@ export function InfluencerProfilePage() {
         </div>
         <div className="inf-hero__right">
           {can('manage') && (
-            <button className="inf-btn inf-btn--ghost inf-btn--sm" style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)' }}
-              onClick={() => navigate(`/influencers/${id}/edit`)}>
+            <button
+              type="button"
+              className="inf-btn inf-btn--ghost inf-btn--sm inf-hero__action-btn"
+              onClick={() => navigate(`/influencers/${id}/edit`)}
+            >
               ✏️ Edit
             </button>
           )}
           {(can('manage') || can('approve')) && (
-            <button className="inf-btn inf-btn--ghost inf-btn--sm" style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)' }}
-              onClick={() => { setNewStage(inf.workflowStatus); setShowStatusModal(true) }}>
+            <button
+              type="button"
+              className="inf-btn inf-btn--ghost inf-btn--sm inf-hero__action-btn"
+              onClick={() => { setNewStage(inf.workflowStatus); setShowStatusModal(true) }}
+            >
               🔄 Move Stage
             </button>
           )}
