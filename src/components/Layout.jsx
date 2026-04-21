@@ -77,7 +77,7 @@ function SidebarSearch({ allItems, onNavigate, className = '', enableHotkey = tr
           ref={inputRef}
           type="search"
           className="nav-search__input"
-          placeholder='Search navigation… ("/")'
+          placeholder="Search for Anything"
           value={query}
           onChange={e => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
@@ -482,7 +482,6 @@ export function Layout() {
                   to={item.to}
                   end={item.end}
                   className={subLinkClass}
-                  onClick={closeSidebar}
                 >
                   <span className="nav-group__link-dot" aria-hidden />
                   {item.label}
@@ -501,7 +500,6 @@ export function Layout() {
                       key={item.to}
                       to={item.to}
                       className={subLinkClass}
-                      onClick={closeSidebar}
                     >
                       <span className="nav-group__link-dot" aria-hidden />
                       {item.label}
@@ -518,7 +516,6 @@ export function Layout() {
                     key={item.to}
                     to={item.to}
                     className={subLinkClass}
-                    onClick={closeSidebar}
                   >
                     <span className="nav-group__link-dot" aria-hidden />
                     {item.label}
@@ -534,7 +531,6 @@ export function Layout() {
                     key={item.to}
                     to={item.to}
                     className={subLinkClass}
-                    onClick={closeSidebar}
                   >
                     <span className="nav-group__link-dot" aria-hidden />
                     {item.label}
@@ -560,7 +556,6 @@ export function Layout() {
                       key={item.to}
                       to={item.to}
                       className={subLinkClass}
-                      onClick={closeSidebar}
                     >
                       <span className="nav-group__link-dot" aria-hidden />
                       {item.label}
@@ -581,7 +576,6 @@ export function Layout() {
                       key={item.to}
                       to={item.to}
                       className={subLinkClass}
-                      onClick={closeSidebar}
                     >
                       <span className="nav-group__link-dot" aria-hidden />
                       {item.label}
@@ -602,7 +596,6 @@ export function Layout() {
                       key={item.to}
                       to={item.to}
                       className={subLinkClass}
-                      onClick={closeSidebar}
                     >
                       <span className="nav-group__link-dot" aria-hidden />
                       {item.label}
@@ -615,7 +608,7 @@ export function Layout() {
             <div className="app-sidebar__section-label" role="presentation">
               Account
             </div>
-            <NavLink to="/account" className={navLinkClass} onClick={closeSidebar}>
+            <NavLink to="/account" className={navLinkClass}>
               <span className="app-sidebar__link-dot" aria-hidden />
               <span className="app-sidebar__link-text">My Account</span>
             </NavLink>
