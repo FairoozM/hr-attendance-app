@@ -79,6 +79,30 @@ function formatFollowersCell(value) {
   return String(value).trim() || '—'
 }
 
+/** Follower count filter buckets (uses parseFollowersCount). */
+const FOLLOWER_FILTER_OPTIONS = [
+  { value: 'All', label: 'All Followers' },
+  { value: 'none', label: 'No follower data' },
+  { value: 'lt10k', label: 'Under 10K' },
+  { value: '10k-100k', label: '10K – 100K' },
+  { value: '100k-500k', label: '100K – 500K' },
+  { value: '500k-1m', label: '500K – 1M' },
+  { value: '1m+', label: '1M+' },
+]
+
+function matchesFollowerFilter(count, filter) {
+  if (filter === 'All') return true
+  const n = parseFollowersCount(count)
+  if (filter === 'none') return n === 0
+  if (n === 0) return false
+  if (filter === 'lt10k') return n < 10_000
+  if (filter === '10k-100k') return n >= 10_000 && n < 100_000
+  if (filter === '100k-500k') return n >= 100_000 && n < 500_000
+  if (filter === '500k-1m') return n >= 500_000 && n < 1_000_000
+  if (filter === '1m+') return n >= 1_000_000
+  return true
+}
+
 const SORT_OPTIONS = [
   { value: 'newest', label: 'Newest First' },
   { value: 'updated', label: 'Last Updated' },
@@ -123,6 +147,7 @@ export function InfluencerListPage() {
   const [filterBasedIn, setFilterBasedIn] = useState('All')
   const [filterNationality, setFilterNationality] = useState('All')
   const [filterCollab, setFilterCollab] = useState('All')
+  const [filterFollowers, setFilterFollowers] = useState('All')
   const [quickChip, setQuickChip] = useState(QUICK_CHIP.ALL)
   const [sortBy, setSortBy] = useState('newest')
   const [searchParams, setSearchParams] = useSearchParams()
@@ -172,6 +197,7 @@ export function InfluencerListPage() {
       if (filterBasedIn !== 'All' && inf.basedIn !== filterBasedIn) return false
       if (filterNationality !== 'All' && inf.nationality !== filterNationality) return false
       if (filterCollab !== 'All' && inf.collaborationType !== filterCollab) return false
+      if (!matchesFollowerFilter(inf.followersCount, filterFollowers)) return false
       return true
     })
 
@@ -187,7 +213,7 @@ export function InfluencerListPage() {
     }
 
     return list
-  }, [influencers, search, filterWorkflow, filterApproval, filterPayment, filterBasedIn, filterNationality, filterCollab, sortBy, quickChip])
+  }, [influencers, search, filterWorkflow, filterApproval, filterPayment, filterBasedIn, filterNationality, filterCollab, filterFollowers, sortBy, quickChip])
 
   const stats = useMemo(() => ({
     total: useServerPaging ? listMeta.total : influencers.length,
@@ -199,7 +225,7 @@ export function InfluencerListPage() {
   useEffect(() => {
     setPage(1)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, filterWorkflow, filterApproval, filterPayment, filterBasedIn, filterNationality, filterCollab, sortBy, quickChip])
+  }, [search, filterWorkflow, filterApproval, filterPayment, filterBasedIn, filterNationality, filterCollab, filterFollowers, sortBy, quickChip])
 
   const clientTotalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const currentPage = Math.min(page, clientTotalPages)
@@ -353,6 +379,11 @@ export function InfluencerListPage() {
             <option key={c} value={c}>{c === 'All' ? 'All Collab Types' : c}</option>
           ))}
         </select>
+        <select className="inf-select" value={filterFollowers} onChange={(e) => { setQuickChip(QUICK_CHIP.ALL); setFilterFollowers(e.target.value) }}>
+          {FOLLOWER_FILTER_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
         <select className="inf-select" value={sortBy} onChange={e => setSortBy(e.target.value)}>
           {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
@@ -378,6 +409,7 @@ export function InfluencerListPage() {
               setFilterBasedIn('All')
               setFilterNationality('All')
               setFilterCollab('All')
+              setFilterFollowers('All')
               setSearch('')
               setQuickChip(key)
             }}
