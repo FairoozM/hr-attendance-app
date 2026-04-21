@@ -942,6 +942,10 @@
   padding: 0.14rem 0 0.22rem 0.78rem;
 }
 
+.nav-group__items--focused {
+  padding-left: 0;
+}
+
 .nav-group__link {
   display: flex;
   align-items: center;

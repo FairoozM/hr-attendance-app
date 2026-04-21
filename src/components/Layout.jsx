@@ -329,6 +329,7 @@ function NotificationsBell({ docReminders = [] }) {
 
 export function Layout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [focusedSection, setFocusedSection] = useState(null)
   const { appTitle } = useSettings()
   const { user, logout } = useAuth()
   const navigate = useNavigate()
@@ -341,8 +342,20 @@ export function Layout() {
   const { items: docExpiryItems } = useDocumentExpiry()
   const docReminders = useDocumentReminders(docExpiryItems)
 
-  const toggleSidebar = useCallback(() => setIsSidebarOpen(prev => !prev), [])
+  const toggleSidebar = useCallback(() => {
+    // In focused mode, hamburger returns to the full sidebar navigation.
+    if (focusedSection) {
+      setFocusedSection(null)
+      setIsSidebarOpen(true)
+      return
+    }
+    setIsSidebarOpen(prev => !prev)
+  }, [focusedSection])
   const closeSidebar = useCallback(() => setIsSidebarOpen(false), [])
+  const openFocusedSection = useCallback((sectionKey) => {
+    setFocusedSection(sectionKey)
+    setIsSidebarOpen(true)
+  }, [])
 
   const navLinkClass = ({ isActive }) =>
     `app-sidebar__link ${isActive ? 'app-sidebar__link--active' : ''}`
@@ -421,6 +434,37 @@ export function Layout() {
     hasWeeklyReportsAccess && { label: 'Weekly Ads Report', to: '/reports/weekly-report/weekly-ads' },
   ].filter(Boolean)
 
+  const focusedSectionConfig = useMemo(() => {
+    const sections = {
+      hr: { title: 'HR', items: hrItems },
+      admin: { title: 'Admin', items: adminNavItems },
+      lists: { title: 'Lists', items: listsItems },
+      influencers: { title: 'Influencers', items: INFLUENCER_ITEMS },
+      planner: {
+        title: 'Planner',
+        items: isAdmin
+          ? [
+              { to: '/projects', label: 'Task List' },
+              { to: '/projects/today', label: "Today's Plan" },
+              { to: '/projects/dashboard', label: 'Dashboard' },
+            ]
+          : [],
+      },
+      management: { title: 'Management', items: managementItems },
+      reports: { title: 'Reports', items: REPORTS_ITEMS },
+    }
+    return sections[focusedSection] || null
+  }, [
+    focusedSection,
+    hrItems,
+    adminNavItems,
+    listsItems,
+    INFLUENCER_ITEMS,
+    isAdmin,
+    managementItems,
+    REPORTS_ITEMS,
+  ])
+
   // Flat list of all accessible nav items used by the sidebar search
   const allNavItems = useMemo(() => [
     ...hrItems.map(i => ({ ...i, group: 'HR' })),
@@ -472,143 +516,173 @@ export function Layout() {
           <nav id="app-sidebar-nav" className="app-sidebar__nav" aria-label="Main">
             <SidebarSearch allItems={allNavItems} onNavigate={closeSidebar} enableHotkey={false} />
 
-            <div className="app-sidebar__section-label" role="presentation">
-              Workspace
-            </div>
-            <NavGroup label="HR" hint="Operations" isActive={isHrActive} defaultOpen>
-              {hrItems.map(item => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.end}
-                  className={subLinkClass}
-                >
-                  <span className="nav-group__link-dot" aria-hidden />
-                  {item.label}
-                </NavLink>
-              ))}
-            </NavGroup>
-
-            {adminNavItems.length > 0 && (
+            {focusedSectionConfig ? (
               <>
                 <div className="app-sidebar__section-label" role="presentation">
-                  Admin
+                  {focusedSectionConfig.title}
                 </div>
-                <NavGroup label="Admin" hint="System" isActive={isAdminNavActive} defaultOpen={isAdminNavActive}>
-                  {adminNavItems.map(item => (
+                <div className="nav-group__items nav-group__items--focused">
+                  {focusedSectionConfig.items.map((item) => (
                     <NavLink
                       key={item.to}
                       to={item.to}
+                      end={item.end}
                       className={subLinkClass}
                     >
                       <span className="nav-group__link-dot" aria-hidden />
                       {item.label}
                     </NavLink>
                   ))}
-                </NavGroup>
+                </div>
               </>
-            )}
-
-            {hasAnyListsAccess && listsItems.length > 0 && (
-              <NavGroup label="Lists" hint="Assets" isActive={isListsActive}>
-                {listsItems.map(item => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    className={subLinkClass}
-                  >
-                    <span className="nav-group__link-dot" aria-hidden />
-                    {item.label}
-                  </NavLink>
-                ))}
-              </NavGroup>
-            )}
-
-            {hasAnyInfluencerAccess && (
-              <NavGroup label="Influencers" hint="Creator ops" isActive={isInfluencersActive}>
-                {INFLUENCER_ITEMS.map(item => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    className={subLinkClass}
-                  >
-                    <span className="nav-group__link-dot" aria-hidden />
-                    {item.label}
-                  </NavLink>
-                ))}
-              </NavGroup>
-            )}
-
-            <NavGroup label="Amazon" hint="Reserved" isActive={false} />
-
-            {isAdmin && (
+            ) : (
               <>
                 <div className="app-sidebar__section-label" role="presentation">
-                  AI Planner
+                  Workspace
                 </div>
-                <NavGroup label="Planner" hint="AI-powered" isActive={location.pathname.startsWith('/projects')}>
-                  {[
-                    { to: '/projects', label: 'Task List' },
-                    { to: '/projects/today', label: "Today's Plan" },
-                    { to: '/projects/dashboard', label: 'Dashboard' },
-                  ].map(item => (
+                <NavGroup label="HR" hint="Operations" isActive={isHrActive} defaultOpen>
+                  {hrItems.map(item => (
                     <NavLink
                       key={item.to}
                       to={item.to}
+                      end={item.end}
                       className={subLinkClass}
+                      onClick={() => openFocusedSection('hr')}
                     >
                       <span className="nav-group__link-dot" aria-hidden />
                       {item.label}
                     </NavLink>
                   ))}
                 </NavGroup>
-              </>
-            )}
 
-            {hasAnyManagementAccess && managementItems.length > 0 && (
-              <>
-                <div className="app-sidebar__section-label" role="presentation">
-                  Management
-                </div>
-                <NavGroup label="Management" hint="Compliance" isActive={isManagementActive}>
-                  {managementItems.map(item => (
-                    <NavLink
-                      key={item.to}
-                      to={item.to}
-                      className={subLinkClass}
-                    >
-                      <span className="nav-group__link-dot" aria-hidden />
-                      {item.label}
-                    </NavLink>
-                  ))}
-                </NavGroup>
-              </>
-            )}
+                {adminNavItems.length > 0 && (
+                  <>
+                    <div className="app-sidebar__section-label" role="presentation">
+                      Admin
+                    </div>
+                    <NavGroup label="Admin" hint="System" isActive={isAdminNavActive} defaultOpen={isAdminNavActive}>
+                      {adminNavItems.map(item => (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          className={subLinkClass}
+                          onClick={() => openFocusedSection('admin')}
+                        >
+                          <span className="nav-group__link-dot" aria-hidden />
+                          {item.label}
+                        </NavLink>
+                      ))}
+                    </NavGroup>
+                  </>
+                )}
 
-            {REPORTS_ITEMS.length > 0 && (
-              <>
-                <div className="app-sidebar__section-label" role="presentation">
-                  Reports
-                </div>
-                <NavGroup label="Weekly Report" hint="Performance" isActive={isReportsActive}>
-                  {REPORTS_ITEMS.map(item => (
-                    <NavLink
-                      key={item.to}
-                      to={item.to}
-                      className={subLinkClass}
-                    >
-                      <span className="nav-group__link-dot" aria-hidden />
-                      {item.label}
-                    </NavLink>
-                  ))}
-                </NavGroup>
+                {hasAnyListsAccess && listsItems.length > 0 && (
+                  <NavGroup label="Lists" hint="Assets" isActive={isListsActive}>
+                    {listsItems.map(item => (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        className={subLinkClass}
+                        onClick={() => openFocusedSection('lists')}
+                      >
+                        <span className="nav-group__link-dot" aria-hidden />
+                        {item.label}
+                      </NavLink>
+                    ))}
+                  </NavGroup>
+                )}
+
+                {hasAnyInfluencerAccess && (
+                  <NavGroup label="Influencers" hint="Creator ops" isActive={isInfluencersActive}>
+                    {INFLUENCER_ITEMS.map(item => (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        className={subLinkClass}
+                        onClick={() => openFocusedSection('influencers')}
+                      >
+                        <span className="nav-group__link-dot" aria-hidden />
+                        {item.label}
+                      </NavLink>
+                    ))}
+                  </NavGroup>
+                )}
+
+                <NavGroup label="Amazon" hint="Reserved" isActive={false} />
+
+                {isAdmin && (
+                  <>
+                    <div className="app-sidebar__section-label" role="presentation">
+                      AI Planner
+                    </div>
+                    <NavGroup label="Planner" hint="AI-powered" isActive={location.pathname.startsWith('/projects')}>
+                      {[
+                        { to: '/projects', label: 'Task List' },
+                        { to: '/projects/today', label: "Today's Plan" },
+                        { to: '/projects/dashboard', label: 'Dashboard' },
+                      ].map(item => (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          className={subLinkClass}
+                          onClick={() => openFocusedSection('planner')}
+                        >
+                          <span className="nav-group__link-dot" aria-hidden />
+                          {item.label}
+                        </NavLink>
+                      ))}
+                    </NavGroup>
+                  </>
+                )}
+
+                {hasAnyManagementAccess && managementItems.length > 0 && (
+                  <>
+                    <div className="app-sidebar__section-label" role="presentation">
+                      Management
+                    </div>
+                    <NavGroup label="Management" hint="Compliance" isActive={isManagementActive}>
+                      {managementItems.map(item => (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          className={subLinkClass}
+                          onClick={() => openFocusedSection('management')}
+                        >
+                          <span className="nav-group__link-dot" aria-hidden />
+                          {item.label}
+                        </NavLink>
+                      ))}
+                    </NavGroup>
+                  </>
+                )}
+
+                {REPORTS_ITEMS.length > 0 && (
+                  <>
+                    <div className="app-sidebar__section-label" role="presentation">
+                      Reports
+                    </div>
+                    <NavGroup label="Weekly Report" hint="Performance" isActive={isReportsActive}>
+                      {REPORTS_ITEMS.map(item => (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          className={subLinkClass}
+                          onClick={() => openFocusedSection('reports')}
+                        >
+                          <span className="nav-group__link-dot" aria-hidden />
+                          {item.label}
+                        </NavLink>
+                      ))}
+                    </NavGroup>
+                  </>
+                )}
               </>
             )}
 
             <div className="app-sidebar__section-label" role="presentation">
               Account
             </div>
-            <NavLink to="/account" className={navLinkClass}>
+            <NavLink to="/account" className={navLinkClass} onClick={closeSidebar}>
               <span className="app-sidebar__link-dot" aria-hidden />
               <span className="app-sidebar__link-text">My Account</span>
             </NavLink>
