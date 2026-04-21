@@ -673,6 +673,17 @@
 .inf-table__name { font-weight: 700; color: var(--text); }
 .inf-table__handle { font-size: 0.8rem; color: var(--accent); font-weight: 600; }
 .inf-table__muted { color: var(--text-muted); font-size: 0.82rem; }
+
+.inf-table__cell-icon-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.inf-table__cell-icon {
+  flex-shrink: 0;
+  opacity: 0.6;
+  color: var(--text-muted);
+}
 .inf-table__actions { display: flex; gap: 0.35rem; align-items: center; }
 
 /* ── Empty State ── */

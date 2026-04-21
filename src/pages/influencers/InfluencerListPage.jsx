@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Smartphone, Users } from 'lucide-react'
 import { useInfluencers } from '../../contexts/InfluencersContext'
 import { useAuth, hasPermission } from '../../contexts/AuthContext'
 import { AddInfluencerPage } from './AddInfluencerPage'
@@ -418,7 +419,6 @@ export function InfluencerListPage() {
                 <th>Mobile</th>
                 <th>Based In</th>
                 <th>Followers</th>
-                <th>Reel</th>
                 <th>Package</th>
                 <th>Insights</th>
                 <th>Stage</th>
@@ -438,11 +438,20 @@ export function InfluencerListPage() {
                   </td>
                   <td><span className="inf-table__muted">{inf.nationality || '—'}</span></td>
                   <td><InstagramCell handle={inf.instagram?.handle} url={inf.instagram?.url} storedPicUrl={inf.instagram?.picUrl} /></td>
-                  <td><span className="inf-table__muted">{inf.mobile || '—'}</span></td>
+                  <td>
+                    <span className="inf-table__cell-icon-row">
+                      <Smartphone size={14} className="inf-table__cell-icon" aria-hidden />
+                      <span className="inf-table__muted">{inf.mobile || '—'}</span>
+                    </span>
+                  </td>
                   <td><span className="inf-table__muted">{inf.basedIn || '—'}</span></td>
-                  <td><span className="inf-table__muted">{formatFollowersCell(inf.followersCount)}</span></td>
+                  <td>
+                    <span className="inf-table__cell-icon-row">
+                      <Users size={14} className="inf-table__cell-icon" aria-hidden />
+                      <span className="inf-table__muted">{formatFollowersCell(inf.followersCount)}</span>
+                    </span>
+                  </td>
                   <td><span className="inf-table__muted">{inf.reelsPrice ? `${inf.currency} ${Number(inf.reelsPrice).toLocaleString()}` : '—'}</span></td>
-                  <td><span className="inf-table__muted">{inf.packagePrice ? `${inf.currency} ${Number(inf.packagePrice).toLocaleString()}` : '—'}</span></td>
                   <td>
                     <span className={`inf-badge ${inf.insightsReceived ? 'inf-badge--approved' : 'inf-badge--waiting'}`}>
                       {inf.insightsReceived ? 'Yes' : 'No'}
