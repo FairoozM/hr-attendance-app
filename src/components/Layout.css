@@ -52,7 +52,7 @@
   width: min(18.5rem, calc(100vw - 1.2rem));
   border-radius: 0.9rem;
   border: 1px solid var(--theme-border-subtle);
-  background: var(--theme-surface);
+  background: var(--theme-surface-solid, #f3f4f8);
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.14);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -61,6 +61,14 @@
   transform: translateX(calc(-100% - 1rem));
   transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform;
+}
+
+:root[data-theme='light'] .app-sidebar {
+  background: #f3f4f8;
+}
+
+:root[data-theme='dark'] .app-sidebar {
+  background: #111827;
 }
 
 .app-sidebar--open {
