@@ -8,13 +8,11 @@ import { DependencyPanel } from './DependencyPanel'
 const STATUS_OPTIONS   = ['todo', 'blocked', 'done']
 const PRIORITY_OPTIONS = ['low', 'medium', 'high', 'urgent']
 const ENERGY_OPTIONS   = ['shallow', 'deep']
-const TABS = ['Details', 'Subtasks', 'Attachments', 'Dependencies']
 
 export function TaskDrawer() {
   const { activeTask, setActiveTaskId, updateTask, deleteTask, markDone, markTodo, sections, moveTaskToSection } = useAIPlanner()
   const [form, setForm]   = useState(null)
   const [dirty, setDirty] = useState(false)
-  const [tab, setTab]     = useState('Details')
 
   useEffect(() => {
     if (activeTask) {
@@ -22,7 +20,6 @@ export function TaskDrawer() {
       setDirty(false)
     } else {
       setForm(null)
-      setTab('Details')
     }
   }, [activeTask])
 
@@ -93,36 +90,10 @@ export function TaskDrawer() {
           <button className="aip-drawer__close" onClick={() => setActiveTaskId(null)}>✕</button>
         </div>
 
-        {/* ── Tabs ── */}
-        <div className="aip-drawer__tabs">
-          {TABS.map((t) => (
-            <button
-              key={t}
-              className={`aip-drawer__tab ${tab === t ? 'active' : ''}`}
-              onClick={() => setTab(t)}
-            >
-              {t === 'Subtasks' && subtasks.length > 0 && (
-                <span className="aip-drawer__tab-badge">{subtasks.length}</span>
-              )}
-              {t === 'Attachments' && attachments.length > 0 && (
-                <span className="aip-drawer__tab-badge">{attachments.length}</span>
-              )}
-              {t === 'Dependencies' && blockedBy.length > 0 && (
-                <span className="aip-drawer__tab-badge" style={unresolvedDeps > 0 ? { background: '#f97316' } : {}}>
-                  {blockedBy.length}
-                </span>
-              )}
-              {t}
-            </button>
-          ))}
-        </div>
-
-        {/* ── Body ── */}
+        {/* ── Body (single scroll — Asana-style) ── */}
         <div className="aip-drawer__body">
 
-          {/* ── DETAILS TAB ── */}
-          {tab === 'Details' && (
-            <>
+          <div className="aip-drawer__details">
               {/* AI Score */}
               <div className="aip-drawer__score-row">
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1 }}>
@@ -282,23 +253,19 @@ export function TaskDrawer() {
                   ))}
                 </select>
               </div>
-            </>
-          )}
+          </div>
 
-          {/* ── SUBTASKS TAB ── */}
-          {tab === 'Subtasks' && (
+          <div className="aip-drawer__block">
             <SubtaskList taskId={activeTask.id} subtasks={subtasks} />
-          )}
+          </div>
 
-          {/* ── ATTACHMENTS TAB ── */}
-          {tab === 'Attachments' && (
+          <div className="aip-drawer__block">
             <AttachmentPanel taskId={activeTask.id} attachments={attachments} />
-          )}
+          </div>
 
-          {/* ── DEPENDENCIES TAB ── */}
-          {tab === 'Dependencies' && (
+          <div className="aip-drawer__block">
             <DependencyPanel taskId={activeTask.id} blockedBy={blockedBy} />
-          )}
+          </div>
         </div>
 
         {/* ── Footer ── */}
@@ -324,16 +291,14 @@ export function TaskDrawer() {
                 ↺ Reopen
               </button>
             )}
-            {tab === 'Details' && (
-              <button
-                className="pm-btn pm-btn-primary"
-                style={{ fontSize: '0.8rem' }}
-                onClick={handleSave}
-                disabled={!dirty}
-              >
-                Save
-              </button>
-            )}
+            <button
+              className="pm-btn pm-btn-primary"
+              style={{ fontSize: '0.8rem' }}
+              onClick={handleSave}
+              disabled={!dirty}
+            >
+              Save
+            </button>
           </div>
         </div>
       </div>

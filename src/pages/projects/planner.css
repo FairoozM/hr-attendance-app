@@ -601,6 +601,17 @@
   gap: 1.25rem;
 }
 
+.aip-drawer__details {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.aip-drawer__block {
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--theme-border-subtle);
+}
+
 .aip-drawer__field {
   display: flex;
   flex-direction: column;
@@ -952,57 +963,6 @@
   color: var(--theme-text-dim);
   width: 3rem;
   text-align: right;
-}
-
-/* ── Drawer tabs ─────────────────────────────────────────────────── */
-.aip-drawer__tabs {
-  display: flex;
-  gap: 0;
-  border-bottom: 1px solid var(--theme-border-subtle);
-  padding: 0 1rem;
-  background: var(--theme-surface-dark);
-  flex-shrink: 0;
-}
-
-.aip-drawer__tab {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.65rem 0.85rem;
-  border: none;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: var(--theme-text-dim);
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
-  white-space: nowrap;
-  margin-bottom: -1px;
-}
-
-.aip-drawer__tab:hover {
-  color: var(--theme-text-soft);
-}
-
-.aip-drawer__tab.active {
-  color: var(--theme-text);
-  border-bottom-color: var(--theme-primary);
-}
-
-.aip-drawer__tab-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1.1rem;
-  height: 1.1rem;
-  padding: 0 0.3rem;
-  border-radius: 20px;
-  background: var(--theme-primary);
-  color: #fff;
-  font-size: 0.6rem;
-  font-weight: 800;
 }
 
 /* ── Subtasks ─────────────────────────────────────────────────────── */
