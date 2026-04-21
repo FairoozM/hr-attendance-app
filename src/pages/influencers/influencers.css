@@ -1746,6 +1746,148 @@
   gap: 1.75rem;
 }
 
+/* Centered content (e.g. profile not found on aif-page) */
+.aif-content--centered {
+  justify-content: center;
+  align-items: center;
+  min-height: min(72vh, 640px);
+}
+
+.aif-profile-not-found {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 2rem 1.5rem;
+  max-width: 420px;
+}
+.aif-profile-not-found__icon {
+  font-size: 3rem;
+  opacity: 0.42;
+  line-height: 1;
+}
+.aif-profile-not-found__title {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+/* Profile view — status pills under aif-title */
+.aif-profile-hero-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.65rem;
+}
+
+/* Read-only profile cards inside main aif-panel (dark glass) */
+.aif-panel--profile .aif-panel__body {
+  padding-bottom: 2rem;
+}
+.aif-profile-shell .inf-profile-section {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+}
+.aif-profile-shell .inf-profile-section__head {
+  background: rgba(0, 0, 0, 0.22);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+.aif-profile-shell .inf-profile-section__head-title {
+  color: rgba(167, 139, 250, 0.78);
+}
+.aif-profile-shell .inf-kv__key {
+  color: rgba(255, 255, 255, 0.45);
+}
+.aif-profile-shell .inf-kv__val {
+  color: rgba(255, 255, 255, 0.92);
+}
+.aif-profile-shell .inf-kv__link {
+  color: #c4b5fd;
+}
+.aif-profile-shell .inf-kv__link:hover {
+  color: #e9d5ff;
+}
+
+.aif-profile-timeline-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.5rem 1rem;
+  text-align: center;
+}
+.aif-profile-timeline-empty__icon {
+  font-size: 2rem;
+  opacity: 0.4;
+  line-height: 1;
+}
+.aif-profile-timeline-empty__text {
+  font-size: 0.88rem;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.aif-profile-shell .aif-profile-timeline::before {
+  background: rgba(255, 255, 255, 0.12);
+}
+.aif-profile-shell .aif-profile-timeline .inf-timeline-item::before {
+  border-color: rgba(15, 23, 42, 0.95);
+  box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.55);
+  background: linear-gradient(135deg, #a78bfa, #6366f1);
+}
+.aif-profile-shell .aif-profile-timeline .inf-timeline-item__event {
+  color: rgba(255, 255, 255, 0.92);
+}
+.aif-profile-shell .aif-profile-timeline .inf-timeline-item__date,
+.aif-profile-shell .aif-profile-timeline .inf-timeline-item__note {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.aif-profile-shell .inf-insights-images__intro,
+.aif-profile-shell .inf-insights-images__hint,
+.aif-profile-shell .inf-insights-images__empty {
+  color: rgba(255, 255, 255, 0.45);
+}
+.aif-profile-shell .inf-insights-images__err {
+  color: #fca5a5;
+}
+
+:root[data-theme='light'] .aif-profile-not-found__title {
+  color: var(--text);
+}
+:root[data-theme='light'] .aif-profile-shell .inf-profile-section__head-title {
+  color: rgba(91, 33, 182, 0.88);
+}
+:root[data-theme='light'] .aif-profile-shell .inf-kv__key {
+  color: var(--theme-text-muted);
+}
+:root[data-theme='light'] .aif-profile-shell .inf-kv__val {
+  color: var(--text);
+}
+:root[data-theme='light'] .aif-profile-shell .inf-kv__link {
+  color: var(--accent);
+}
+:root[data-theme='light'] .aif-profile-timeline-empty__text {
+  color: var(--theme-text-muted);
+}
+:root[data-theme='light'] .aif-profile-shell .aif-profile-timeline .inf-timeline-item__event {
+  color: var(--text);
+}
+:root[data-theme='light'] .aif-profile-shell .aif-profile-timeline .inf-timeline-item__date,
+:root[data-theme='light'] .aif-profile-shell .aif-profile-timeline .inf-timeline-item__note {
+  color: var(--theme-text-muted);
+}
+:root[data-theme='light'] .aif-profile-shell .aif-profile-timeline::before {
+  background: rgba(148, 163, 184, 0.45);
+}
+:root[data-theme='light'] .aif-profile-shell .inf-insights-images__intro,
+:root[data-theme='light'] .aif-profile-shell .inf-insights-images__hint,
+:root[data-theme='light'] .aif-profile-shell .inf-insights-images__empty {
+  color: var(--theme-text-muted);
+}
+
 /* ─── Top bar ─── */
 .aif-topbar {
   display: flex;

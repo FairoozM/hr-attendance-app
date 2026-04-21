@@ -1,6 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { List } from 'lucide-react'
+import {
+  List,
+  Sparkles,
+  User,
+  Pencil,
+  RefreshCw,
+  Check,
+  X,
+  Trash2,
+} from 'lucide-react'
 import { resolveApiUrl } from '../../api/client'
 import { useInfluencers, WORKFLOW_STAGES } from '../../contexts/InfluencersContext'
 import {
@@ -296,11 +305,18 @@ export function InfluencerProfilePage() {
 
   if (!inf) {
     return (
-      <div className="inf-page">
-        <div className="inf-empty">
-          <div className="inf-empty__icon">🔍</div>
-          <div className="inf-empty__title">Influencer not found</div>
-          <button className="inf-btn inf-btn--primary" onClick={() => navigate('/influencers/list')}>Back to List</button>
+      <div className="aif-page">
+        <div className="aif-bg-orb aif-bg-orb--tl" aria-hidden />
+        <div className="aif-bg-orb aif-bg-orb--tr" aria-hidden />
+        <div className="aif-bg-orb aif-bg-orb--bc" aria-hidden />
+        <div className="aif-content aif-content--centered">
+          <div className="aif-profile-not-found">
+            <div className="aif-profile-not-found__icon" aria-hidden>🔍</div>
+            <h2 className="aif-profile-not-found__title">Influencer not found</h2>
+            <button type="button" className="aif-btn-primary" onClick={() => navigate('/influencers/list')}>
+              Back to list
+            </button>
+          </div>
         </div>
       </div>
     )
@@ -312,88 +328,128 @@ export function InfluencerProfilePage() {
   }
 
   return (
-    <div className="inf-page">
-      {/* Hero */}
-      <div className="inf-hero">
-        <div className="inf-hero__back-row">
-          <button
-            type="button"
-            className="inf-hero__back-btn"
-            onClick={() => navigate('/influencers/list')}
-            aria-label="Back to influencer list"
-          >
-            <List size={16} strokeWidth={2.25} aria-hidden />
-            Back to list
-          </button>
-        </div>
-        <div className="inf-hero__main-row">
-        <div className="inf-hero__left">
-          <div className="inf-hero__name">{inf.name}</div>
-          <div className="inf-hero__handle">
-            {inf.instagram?.handle
-              ? formatAtHandle(inf.instagram.handle)
-              : inf.youtube?.handle
-                ? inf.youtube.handle
-                : inf.tiktok?.handle
-                  ? formatAtHandle(inf.tiktok.handle)
-                  : '—'}
-            {inf.basedIn && <span style={{ opacity: 0.65, fontWeight: 400 }}> · {inf.basedIn}</span>}
-          </div>
-          <div className="inf-hero__badges">
-            <span className={`inf-hero__badge`}>{inf.workflowStatus}</span>
-            <span className={`inf-hero__badge`}>{inf.approvalStatus}</span>
-            {inf.niche && <span className={`inf-hero__badge`}>{inf.niche}</span>}
-          </div>
-        </div>
-        <div className="inf-hero__right">
-          {can('manage') && (
-            <button
-              type="button"
-              className="inf-btn inf-btn--ghost inf-btn--sm inf-hero__action-btn"
-              onClick={() => navigate(`/influencers/${id}/edit`)}
-            >
-              ✏️ Edit
-            </button>
-          )}
-          {(can('manage') || can('approve')) && (
-            <button
-              type="button"
-              className="inf-btn inf-btn--ghost inf-btn--sm inf-hero__action-btn"
-              onClick={() => { setNewStage(inf.workflowStatus); setShowStatusModal(true) }}
-            >
-              🔄 Move Stage
-            </button>
-          )}
-          {can('approve') && inf.approvalStatus !== 'Approved' && (
-            <button className="inf-btn inf-btn--success inf-btn--sm"
-              onClick={() => updateInfluencer(id, { approvalStatus: 'Approved', workflowStatus: 'Approved' })}>
-              ✓ Approve
-            </button>
-          )}
-          {can('approve') && inf.approvalStatus !== 'Rejected' && (
-            <button className="inf-btn inf-btn--danger inf-btn--sm"
-              onClick={() => updateInfluencer(id, { approvalStatus: 'Rejected', workflowStatus: 'Rejected' })}>
-              ✕ Reject
-            </button>
-          )}
-          {can('approve') && inf.approvalStatus === 'Rejected' && (
-            <button className="inf-btn inf-btn--warning inf-btn--sm"
-              onClick={() => updateInfluencer(id, { approvalStatus: 'Pending', workflowStatus: 'Under Review' })}>
-              ↩ Re-activate
-            </button>
-          )}
-          {can('manage') && (
-            <button className="inf-btn inf-btn--danger inf-btn--sm"
-              onClick={() => setShowDeleteModal(true)}>
-              🗑 Delete
-            </button>
-          )}
-        </div>
-        </div>
-      </div>
+    <div className="aif-page">
+      <div className="aif-bg-orb aif-bg-orb--tl" aria-hidden />
+      <div className="aif-bg-orb aif-bg-orb--tr" aria-hidden />
+      <div className="aif-bg-orb aif-bg-orb--bc" aria-hidden />
 
-      {/* Single-page profile: all sections */}
-      <div className="inf-profile-all">
+      <div className="aif-content">
+        <header className="aif-topbar">
+          <div className="aif-topbar__text">
+            <div className="aif-back-row">
+              <button
+                type="button"
+                className="inf-hero__back-btn"
+                onClick={() => navigate('/influencers/list')}
+                aria-label="Back to influencer list"
+              >
+                <List size={16} strokeWidth={2.25} aria-hidden />
+                Back to list
+              </button>
+            </div>
+            <div className="aif-eyebrow">
+              <Sparkles size={11} aria-hidden />
+              Influencer Intelligence System
+            </div>
+            <h1 className="aif-title">{inf.name}</h1>
+            <p className="aif-subtitle">
+              {inf.instagram?.handle
+                ? formatAtHandle(inf.instagram.handle)
+                : inf.youtube?.handle
+                  ? inf.youtube.handle
+                  : inf.tiktok?.handle
+                    ? formatAtHandle(inf.tiktok.handle)
+                    : '—'}
+              {inf.basedIn ? ` · ${inf.basedIn}` : ''}
+            </p>
+            <div className="aif-profile-hero-pills" aria-label="Status tags">
+              <span className="inf-hero__badge">{inf.workflowStatus}</span>
+              <span className="inf-hero__badge">{inf.approvalStatus}</span>
+              {inf.niche && <span className="inf-hero__badge">{inf.niche}</span>}
+            </div>
+          </div>
+
+          <div className="aif-topbar__actions">
+            {can('manage') && (
+              <button
+                type="button"
+                className="aif-btn-primary"
+                onClick={() => navigate(`/influencers/${id}/edit`)}
+              >
+                <Pencil size={14} aria-hidden />
+                Edit
+              </button>
+            )}
+            {(can('manage') || can('approve')) && (
+              <button
+                type="button"
+                className="aif-btn-ghost"
+                onClick={() => { setNewStage(inf.workflowStatus); setShowStatusModal(true) }}
+              >
+                <RefreshCw size={14} aria-hidden />
+                Move stage
+              </button>
+            )}
+            {can('approve') && inf.approvalStatus !== 'Approved' && (
+              <button
+                type="button"
+                className="inf-btn inf-btn--success inf-btn--sm"
+                onClick={() => updateInfluencer(id, { approvalStatus: 'Approved', workflowStatus: 'Approved' })}
+              >
+                <Check size={14} aria-hidden />
+                Approve
+              </button>
+            )}
+            {can('approve') && inf.approvalStatus !== 'Rejected' && (
+              <button
+                type="button"
+                className="inf-btn inf-btn--danger inf-btn--sm"
+                onClick={() => updateInfluencer(id, { approvalStatus: 'Rejected', workflowStatus: 'Rejected' })}
+              >
+                <X size={14} aria-hidden />
+                Reject
+              </button>
+            )}
+            {can('approve') && inf.approvalStatus === 'Rejected' && (
+              <button
+                type="button"
+                className="inf-btn inf-btn--warning inf-btn--sm"
+                onClick={() => updateInfluencer(id, { approvalStatus: 'Pending', workflowStatus: 'Under Review' })}
+              >
+                Re-activate
+              </button>
+            )}
+            {can('manage') && (
+              <button type="button" className="inf-btn inf-btn--danger inf-btn--sm" onClick={() => setShowDeleteModal(true)}>
+                <Trash2 size={14} aria-hidden />
+                Delete
+              </button>
+            )}
+          </div>
+        </header>
+
+        <section className="aif-panel aif-panel--profile">
+          <div className="aif-panel__grad" aria-hidden />
+          <div className="aif-panel__orb aif-panel__orb--tr" aria-hidden />
+          <div className="aif-panel__orb aif-panel__orb--bl" aria-hidden />
+
+          <div className="aif-panel__header">
+            <div className="aif-panel__header-left">
+              <div className="aif-panel__icon">
+                <User size={20} aria-hidden />
+              </div>
+              <div>
+                <span className="aif-panel__step-pill">Profile</span>
+                <h2 className="aif-panel__title">Full record</h2>
+                <p className="aif-panel__sub">
+                  View pipeline, commercial, compliance, and activity for this influencer.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="aif-panel__body">
+            <div className="inf-profile-all aif-profile-shell">
         <div className="inf-profile-grid">
           <Section icon="👤" title="Basic Information">
             <KV label="Full Name" value={inf.name} />
@@ -673,27 +729,29 @@ export function InfluencerProfilePage() {
           </Section>
         </div>
 
-        <div className="clay-card">
-          <h3 style={{ margin: '0 0 1.25rem', fontSize: '0.875rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-            Activity Timeline
-          </h3>
-          {!inf.timeline?.length ? (
-            <div className="inf-empty">
-              <div className="inf-empty__icon">📋</div>
-              <div className="inf-empty__title">No activity recorded yet</div>
-            </div>
-          ) : (
-            <div className="inf-timeline">
-              {[...inf.timeline].reverse().map((item, i) => (
-                <div key={i} className="inf-timeline-item">
-                  <div className="inf-timeline-item__event">{item.event}</div>
-                  <div className="inf-timeline-item__date">{item.date}</div>
-                  {item.note && <div className="inf-timeline-item__note">{item.note}</div>}
-                </div>
-              ))}
-            </div>
-          )}
+        <div className="inf-profile-grid">
+          <Section icon="📋" title="Activity Timeline" full>
+            {!inf.timeline?.length ? (
+              <div className="aif-profile-timeline-empty">
+                <span className="aif-profile-timeline-empty__icon" aria-hidden>📋</span>
+                <span className="aif-profile-timeline-empty__text">No activity recorded yet</span>
+              </div>
+            ) : (
+              <div className="inf-timeline aif-profile-timeline">
+                {[...inf.timeline].reverse().map((item, i) => (
+                  <div key={i} className="inf-timeline-item">
+                    <div className="inf-timeline-item__event">{item.event}</div>
+                    <div className="inf-timeline-item__date">{item.date}</div>
+                    {item.note && <div className="inf-timeline-item__note">{item.note}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Section>
         </div>
+            </div>
+          </div>
+        </section>
       </div>
 
       {/* Delete Confirmation Modal */}
