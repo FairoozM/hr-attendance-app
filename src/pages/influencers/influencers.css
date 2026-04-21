@@ -1239,6 +1239,7 @@
   justify-content: space-between;
 }
 .aif-topbar__text { display: flex; flex-direction: column; gap: 0; }
+.aif-back-row { margin-bottom: 0.35rem; }
 .aif-topbar__actions { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
 
 /* Eyebrow badge */

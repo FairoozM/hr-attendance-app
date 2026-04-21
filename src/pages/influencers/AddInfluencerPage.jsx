@@ -6,7 +6,7 @@ import {
   Camera, Video, Hash, MessageCircle, Share2, AtSign,
   Users, TrendingUp, Eye, BarChart2, DollarSign, Link2,
   Phone, FileText, CreditCard, Building2, BadgeCheck, Calendar,
-  Clock, X, CheckCircle2,
+  Clock, X, CheckCircle2, List,
 } from 'lucide-react'
 import {
   useInfluencers,
@@ -225,6 +225,7 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
     setForm(f => ({ ...f, [key]: { ...f[key], [sub]: val } }))
   }
   const cancel    = ()               => { if (asModal) onClose?.(); else navigate(-1) }
+  const goToList  = ()               => { if (asModal) onClose?.(); navigate('/influencers/list') }
 
   const submit = async () => {
     if (isSubmitting) return
@@ -407,6 +408,17 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
         {/* ── Top bar ── */}
         <header className="aif-topbar">
           <div className="aif-topbar__text">
+            <div className="aif-back-row">
+              <button
+                type="button"
+                className="inf-hero__back-btn"
+                onClick={goToList}
+                aria-label="Back to influencer list"
+              >
+                <List size={16} strokeWidth={2.25} aria-hidden />
+                Back to list
+              </button>
+            </div>
             <div className="aif-eyebrow">
               <Sparkles size={11} />
               Influencer Intelligence System
