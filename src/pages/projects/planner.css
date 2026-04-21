@@ -1991,7 +1991,7 @@
 .tbl-section {
   border-radius: 8px;
   border: 1px solid var(--theme-border-subtle);
-  overflow: visible;
+  overflow: hidden;
   background: transparent;
 }
 
@@ -2146,21 +2146,35 @@
   color: var(--theme-text-soft);
 }
 
-/* ── Section body ────────────────────────────────────────────────── */
+/* ── Section body (Asana-style sheet: full grid lines) ───────────── */
 .tbl-section__body {
   display: flex;
   flex-direction: column;
+  --tbl-grid: rgba(255, 255, 255, 0.09);
+  --tbl-grid-hover: rgba(255, 255, 255, 0.06);
+  --tbl-sheet-bg: rgba(0, 0, 0, 0.14);
+  --tbl-header-bg: rgba(255, 255, 255, 0.035);
+  border-radius: 0 0 8px 8px;
+  overflow: hidden;
+  background: var(--tbl-sheet-bg);
+}
+
+:root[data-theme='light'] .tbl-section__body {
+  --tbl-grid: rgba(15, 23, 42, 0.1);
+  --tbl-grid-hover: rgba(15, 23, 42, 0.04);
+  --tbl-sheet-bg: rgba(255, 255, 255, 0.65);
+  --tbl-header-bg: rgba(248, 250, 252, 0.95);
 }
 
 /* ── Column header ───────────────────────────────────────────────── */
 .tbl-col-header {
   display: grid;
   grid-template-columns: 2rem 1fr 9rem 7rem 7rem 6rem 4rem;
-  align-items: center;
-  padding: 0 0.85rem;
-  height: 2rem;
-  border-bottom: 1px solid var(--theme-border-subtle);
-  background: rgba(255,255,255,0.015);
+  align-items: stretch;
+  padding: 0;
+  min-height: 2rem;
+  border-bottom: 1px solid var(--tbl-grid);
+  background: var(--tbl-header-bg);
 }
 
 .tbl-col-header .tbl-col {
@@ -2172,28 +2186,33 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  border-right: 1px solid var(--tbl-grid);
+  padding: 0.35rem 0.5rem;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+}
+
+.tbl-col-header .tbl-col:last-child {
+  border-right: none;
 }
 
 /* ── Task row ────────────────────────────────────────────────────── */
 .tbl-row {
   display: grid;
   grid-template-columns: 2rem 1fr 9rem 7rem 7rem 6rem 4rem;
-  align-items: center;
-  padding: 0 0.85rem;
+  align-items: stretch;
+  padding: 0;
   min-height: 2.6rem;
-  border-bottom: 1px solid var(--theme-border-subtle);
+  border-bottom: 1px solid var(--tbl-grid);
   cursor: pointer;
   transition: background 0.1s;
   position: relative;
   outline: none;
 }
 
-.tbl-row:last-of-type {
-  border-bottom: none;
-}
-
 .tbl-row:hover {
-  background: rgba(255,255,255,0.035);
+  background: var(--tbl-grid-hover);
 }
 
 .tbl-row:focus-visible {
@@ -2201,8 +2220,8 @@
 }
 
 .tbl-row.active {
-  background: rgba(139,92,246,0.07);
-  border-left: 2px solid rgba(139,92,246,0.5);
+  background: rgba(139,92,246,0.08);
+  box-shadow: inset 3px 0 0 0 rgba(139, 92, 246, 0.65);
 }
 
 .tbl-row.done {
@@ -2217,24 +2236,36 @@
   background: rgba(249,115,22,0.03);
 }
 
-/* ── Shared column base ──────────────────────────────────────────── */
+/* ── Shared column base (vertical rules like Asana) ───────────────── */
+.tbl-row .tbl-col {
+  border-right: 1px solid var(--tbl-grid);
+  padding: 0.35rem 0.5rem;
+}
+
+.tbl-row .tbl-col:last-child {
+  border-right: none;
+}
+
 .tbl-col {
   display: flex;
   align-items: center;
   min-width: 0;
-  padding: 0 0.35rem;
 }
 
 .tbl-col--check {
   justify-content: center;
-  padding: 0;
+  padding: 0.35rem 0.25rem;
 }
 
 .tbl-col--name {
   flex-direction: column;
   align-items: flex-start;
+  justify-content: center;
   gap: 0.25rem;
-  padding: 0.3rem 0.35rem;
+}
+
+.tbl-col--pad {
+  pointer-events: none;
 }
 
 /* ── Checkbox ────────────────────────────────────────────────────── */
@@ -2449,14 +2480,29 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Add task row ────────────────────────────────────────────────── */
+/* ── Add task row (same column grid + grid lines) ────────────────── */
 .tbl-add-row {
   display: grid;
-  grid-template-columns: 2rem 1fr;
-  align-items: center;
-  padding: 0 0.85rem;
+  grid-template-columns: 2rem 1fr 9rem 7rem 7rem 6rem 4rem;
+  align-items: stretch;
+  padding: 0;
   min-height: 2.6rem;
-  border-top: 1px dashed var(--theme-border-subtle);
+  border-top: 1px solid var(--tbl-grid);
+  border-bottom: 1px solid var(--tbl-grid);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tbl-add-row .tbl-col {
+  border-right: 1px solid var(--tbl-grid);
+  padding: 0.35rem 0.5rem;
+}
+
+.tbl-add-row .tbl-col:last-child {
+  border-right: none;
+}
+
+.tbl-add-row .tbl-col--check {
+  justify-content: center;
 }
 
 .tbl-add-input {
@@ -2481,19 +2527,19 @@
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.45rem 0.85rem;
+  padding: 0.5rem 0.85rem;
   border: none;
-  background: transparent;
+  background: rgba(255, 255, 255, 0.02);
   color: var(--theme-text-dim);
   font-size: 0.78rem;
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
-  border-top: 1px solid var(--theme-border-subtle);
+  border-top: 1px solid var(--tbl-grid);
   transition: color 0.12s, background 0.12s;
   width: 100%;
   text-align: left;
-  border-radius: 0 0 8px 8px;
+  border-radius: 0 0 6px 6px;
 }
 
 .tbl-add-task-btn:hover {
@@ -2507,6 +2553,8 @@
   font-size: 0.75rem;
   color: var(--theme-text-dim);
   font-style: italic;
+  border-bottom: 1px solid var(--tbl-grid);
+  background: rgba(255, 255, 255, 0.015);
 }
 
 /* ── "+ Add Section" button ──────────────────────────────────────── */
@@ -2537,7 +2585,8 @@
 /* ── Responsive: collapse some columns on narrower screens ───────── */
 @media (max-width: 900px) {
   .tbl-col-header,
-  .tbl-row {
+  .tbl-row,
+  .tbl-add-row {
     grid-template-columns: 2rem 1fr 7rem 5.5rem 5rem;
   }
   .tbl-col--status,
@@ -2548,7 +2597,8 @@
 
 @media (max-width: 640px) {
   .tbl-col-header,
-  .tbl-row {
+  .tbl-row,
+  .tbl-add-row {
     grid-template-columns: 2rem 1fr 6rem 5rem;
   }
   .tbl-col--priority {

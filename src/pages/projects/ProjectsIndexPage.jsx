@@ -275,7 +275,7 @@ function InlineAddTask({ sectionId, onDone }) {
       <div className="tbl-col tbl-col--check">
         <div className="tbl-check-placeholder" />
       </div>
-      <div className="tbl-col tbl-col--name" style={{ flex: '1 1 0' }}>
+      <div className="tbl-col tbl-col--name">
         <input
           ref={inputRef}
           className="tbl-add-input"
@@ -286,6 +286,11 @@ function InlineAddTask({ sectionId, onDone }) {
           placeholder="Task name… Enter to add, Esc to cancel"
         />
       </div>
+      <div className="tbl-col tbl-col--cat tbl-col--pad" aria-hidden />
+      <div className="tbl-col tbl-col--due tbl-col--pad" aria-hidden />
+      <div className="tbl-col tbl-col--priority tbl-col--pad" aria-hidden />
+      <div className="tbl-col tbl-col--status tbl-col--pad" aria-hidden />
+      <div className="tbl-col tbl-col--score tbl-col--pad" aria-hidden />
     </div>
   )
 }
