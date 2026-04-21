@@ -9,8 +9,8 @@ import {
   parseQuickCapture,
 } from '../lib/aiEngine'
 
-const STORAGE_KEY          = 'ai_planner_tasks_v1'
-const SECTIONS_STORAGE_KEY = 'ai_planner_sections_v1'
+const STORAGE_KEY          = 'ai_planner_tasks_v2'
+const SECTIONS_STORAGE_KEY = 'ai_planner_sections_v2'
 
 function loadFromStorage() {
   try {
@@ -42,45 +42,147 @@ function saveSectionsToStorage(sections) {
   } catch {}
 }
 
+/** Default sections — aligned with imported Asana-style workflow lists */
 const SEED_SECTIONS = [
-  { id: 'sec-1', title: 'This Week', color: '#8b5cf6', order: 0 },
-  { id: 'sec-2', title: 'Operations', color: '#3b82f6', order: 1 },
-  { id: 'sec-3', title: 'Finance', color: '#f59e0b', order: 2 },
+  { id: 'sec-daily', title: 'Daily To-Do', color: '#8b5cf6', order: 0 },
+  { id: 'sec-weekly', title: 'Weekly', color: '#6366f1', order: 1 },
+  { id: 'sec-followup', title: 'Follow-Up', color: '#f59e0b', order: 2 },
+  { id: 'sec-monthly', title: 'Monthly Tasks', color: '#10b981', order: 3 },
 ]
 
-// ─── Seed data ─────────────────────────────────────────────────────────────
+/**
+ * Default tasks — bulk import from the Life Smile ops Asana list (dates use 2026).
+ * Assignee noted in description where it was Abdullah; unassigned rows omitted.
+ */
 const SEED_TASKS = [
+  // —— Daily To-Do ——
   {
-    id: '1', title: 'Check Amazon VAT invoices', description: 'Review all VAT invoices for UAE store',
-    status: 'todo', priority: 'high', dueDate: new Date().toISOString().slice(0, 10), sectionId: 'sec-3',
+    id: 'asana-d1',
+    title: 'Open Cliq and check messages',
+    description: 'Assignee: Abdullah Ab. · Recurring.',
+    status: 'todo',
+    priority: 'medium',
+    dueDate: '2026-04-09',
+    sectionId: 'sec-daily',
   },
   {
-    id: '2', title: 'Follow up with Noon payment', description: 'Follow up on pending payment settlement',
-    status: 'todo', priority: 'high', dueDate: null, sectionId: 'sec-3',
+    id: 'asana-d2',
+    title: 'Check the Apple Email and Clear and Follow Up',
+    description: 'Assignee: Abdullah Ab. · Recurring.',
+    status: 'todo',
+    priority: 'medium',
+    dueDate: '2026-03-30',
+    sectionId: 'sec-daily',
   },
   {
-    id: '3', title: 'Review ads campaign ACOS', description: 'Analyse weekly ACOS and adjust bids',
-    status: 'todo', priority: 'medium', dueDate: null, sectionId: 'sec-1',
+    id: 'asana-d3',
+    title: 'Stelcore Communication about Billing and VAT penalty',
+    description: 'Assignee: Abdullah Ab.',
+    status: 'todo',
+    priority: 'high',
+    dueDate: '2026-03-25',
+    sectionId: 'sec-daily',
   },
   {
-    id: '4', title: 'Send influencer brief', description: 'Email brief to new influencer for shoot schedule',
-    status: 'todo', priority: 'medium', dueDate: null, sectionId: 'sec-1',
+    id: 'asana-d4',
+    title: 'Forwarding Invoice to Asad from Wanasa for Payment',
+    description: 'Assignee: Abdullah Ab.',
+    status: 'todo',
+    priority: 'high',
+    dueDate: '2026-03-25',
+    sectionId: 'sec-daily',
   },
   {
-    id: '5', title: 'Update employee attendance records', description: 'Mark April attendance for all employees',
-    status: 'blocked', priority: 'medium', dueDate: null, sectionId: null,
+    id: 'asana-d5',
+    title: 'UAE VAT invoices related to KSA Amazon to give to Abobecker',
+    description: 'Assignee: Abdullah Ab.',
+    status: 'todo',
+    priority: 'high',
+    dueDate: '2026-03-25',
+    sectionId: 'sec-daily',
   },
   {
-    id: '6', title: 'Prepare product launch plan', description: 'Strategy doc for Q2 product launch on Amazon KSA',
-    status: 'todo', priority: 'high', dueDate: null, sectionId: 'sec-2',
+    id: 'asana-d6',
+    title: 'KNINExUnit Videos Follow-Up',
+    description: 'Assignee: Abdullah Ab.',
+    status: 'todo',
+    priority: 'medium',
+    dueDate: '2026-03-25',
+    sectionId: 'sec-daily',
   },
   {
-    id: '7', title: 'Reply to supplier emails', description: '',
-    status: 'todo', priority: 'low', dueDate: null, sectionId: 'sec-2',
+    id: 'asana-d7',
+    title: 'Check the LIFEP24SL-MIX-13-1-SILVER product upload on Amazon',
+    description: 'Assignee: Abdullah Ab.',
+    status: 'todo',
+    priority: 'medium',
+    dueDate: '2026-03-25',
+    sectionId: 'sec-daily',
+  },
+  // —— Weekly ——
+  {
+    id: 'asana-w1',
+    title: 'Clearing the Low Stock Group',
+    description: 'Assignee: Abdullah Ab. · Recurring.',
+    status: 'todo',
+    priority: 'medium',
+    dueDate: '2026-03-25',
+    sectionId: 'sec-weekly',
   },
   {
-    id: '8', title: 'Review budget report', description: 'Monthly budget vs actuals',
-    status: 'done', priority: 'medium', dueDate: null, sectionId: 'sec-3',
+    id: 'asana-w2',
+    title: 'Weekly Reports Preparation',
+    description: 'Assignee: Abdullah Ab. · Recurring.',
+    status: 'todo',
+    priority: 'medium',
+    dueDate: '2026-03-26',
+    sectionId: 'sec-weekly',
+  },
+  // —— Follow-Up ——
+  {
+    id: 'asana-f1',
+    title: 'Shein & Temu Fake Life Smile Product Removal - Registration on Temu',
+    description: 'Assignee: Abdullah Ab.',
+    status: 'todo',
+    priority: 'high',
+    dueDate: '2026-03-10',
+    sectionId: 'sec-followup',
+  },
+  {
+    id: 'asana-f2',
+    title: 'Following up for IP Trademark Life Smile Life Smile for Australia',
+    description: 'Assignee: Abdullah Ab.',
+    status: 'todo',
+    priority: 'high',
+    dueDate: '2026-03-10',
+    sectionId: 'sec-followup',
+  },
+  {
+    id: 'asana-f3',
+    title: 'Mr. Rahim Personal Account (Mr. Rahim Capital Account)',
+    description: 'Assignee: Abdullah Ab.',
+    status: 'todo',
+    priority: 'medium',
+    dueDate: '2026-03-10',
+    sectionId: 'sec-followup',
+  },
+  {
+    id: 'asana-f4',
+    title: 'Amazon Australia - Trademark Case Checking and Writing the comment',
+    description: 'Unassigned in source list — set due date when known.',
+    status: 'todo',
+    priority: 'medium',
+    dueDate: null,
+    sectionId: 'sec-followup',
+  },
+  {
+    id: 'asana-f5',
+    title: 'ZDS + KNIFE SET + FLASK + LIFEP17-MIX-31 + A BIG NEW SET + CAKE MO…',
+    description: 'Unassigned · long SKU / product bundle follow-up from Asana.',
+    status: 'todo',
+    priority: 'medium',
+    dueDate: null,
+    sectionId: 'sec-followup',
   },
 ]
 
