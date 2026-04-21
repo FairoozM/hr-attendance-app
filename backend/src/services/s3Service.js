@@ -40,6 +40,12 @@ function createTaskAttachmentKey(taskId, fileName) {
   return `task-attachments/${taskId}/${crypto.randomUUID()}-${safe}`
 }
 
+function createInfluencerInsightsImageKey(influencerId, fileName) {
+  const safe = sanitizeName(fileName)
+  const sid = String(influencerId || 'unknown').replace(/[^a-zA-Z0-9._-]/g, '_')
+  return `influencer-insights/${sid}/${crypto.randomUUID()}-${safe}`
+}
+
 async function getUploadUrl({ key, contentType, expiresIn = 300 }) {
   const Bucket = requireBucket()
   const command = new PutObjectCommand({
@@ -100,6 +106,7 @@ module.exports = {
   createProfileDocKey,
   createAnnualLeaveLetterKey,
   createTaskAttachmentKey,
+  createInfluencerInsightsImageKey,
   getUploadUrl,
   getDownloadUrl,
   putObjectBuffer,

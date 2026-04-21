@@ -38,6 +38,8 @@ export interface Influencer {
   avgStoryReach?: string
   audienceNotes?: string
   insightsReceived?: boolean
+  /** S3 object keys for insights screenshots (max 6); signed URLs loaded separately. */
+  insightsImageKeys?: string[]
   reelsPrice?: string | number
   storiesPrice?: string | number
   packagePrice?: string | number
@@ -109,3 +111,29 @@ export const deleteInfluencer = (id: string) =>
   apiFetch(`/api/influencers/${id}`, {
     method: "DELETE",
   })
+
+export async function fetchInsightsImageUrls(
+  influencerId: string,
+): Promise<{ key: string; url: string }[]> {
+  const data = await apiFetch(`/api/influencers/${encodeURIComponent(influencerId)}/insights-images/urls`)
+  return Array.isArray(data?.items) ? data.items : []
+}
+
+export async function getInsightsImageUploadUrl(
+  influencerId: string,
+  payload: { fileName: string; contentType: string },
+): Promise<{ uploadUrl: string; key: string }> {
+  return apiFetch(`/api/influencers/${encodeURIComponent(influencerId)}/insights-images/upload-url`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function uploadInsightsImageToS3(uploadUrl: string, file: File): Promise<void> {
+  const res = await fetch(uploadUrl, {
+    method: "PUT",
+    body: file,
+    headers: { "Content-Type": file.type || "application/octet-stream" },
+  })
+  if (!res.ok) throw new Error(`Upload failed (HTTP ${res.status})`)
+}

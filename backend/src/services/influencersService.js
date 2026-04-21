@@ -38,6 +38,13 @@ async function getInfluencers() {
   return Array.isArray(body) ? body : []
 }
 
+async function getInfluencerById(id) {
+  const sid = String(id || '').trim()
+  if (!sid) return null
+  const list = await getInfluencers()
+  return list.find((r) => r && String(r.id) === sid) || null
+}
+
 async function replaceInfluencers(list) {
   await ensureInfluencersSnapshotTable()
   await query(
@@ -83,6 +90,7 @@ async function upsertInfluencerById(id, row) {
 
 module.exports = {
   getInfluencers,
+  getInfluencerById,
   replaceInfluencers,
   mergeInfluencersWithSnapshot,
   removeInfluencerById,
