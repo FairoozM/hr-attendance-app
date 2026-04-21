@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, useId } from 'react'
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useSettings } from '../contexts/SettingsContext'
@@ -11,11 +11,12 @@ import { ThemeToggle } from './ThemeToggle'
 import { fmtDMY } from '../utils/dateFormat'
 import './Layout.css'
 
-function SidebarSearch({ allItems, onNavigate }) {
+function SidebarSearch({ allItems, onNavigate, className = '', enableHotkey = true }) {
   const [query, setQuery] = useState('')
   const [cursor, setCursor] = useState(0)
   const inputRef = useRef(null)
   const listRef = useRef(null)
+  const resultsId = useId()
   const navigate = useNavigate()
 
   const results = useMemo(() => {
@@ -54,6 +55,7 @@ function SidebarSearch({ allItems, onNavigate }) {
 
   // Keyboard shortcut: "/" focuses the search box
   useEffect(() => {
+    if (!enableHotkey) return undefined
     function onGlobalKey(e) {
       if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
         e.preventDefault()
@@ -62,10 +64,10 @@ function SidebarSearch({ allItems, onNavigate }) {
     }
     document.addEventListener('keydown', onGlobalKey)
     return () => document.removeEventListener('keydown', onGlobalKey)
-  }, [])
+  }, [enableHotkey])
 
   return (
-    <div className="nav-search">
+    <div className={`nav-search ${className}`.trim()}>
       <div className="nav-search__shell">
         <svg className="nav-search__icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <circle cx="11" cy="11" r="8" />
@@ -83,8 +85,8 @@ function SidebarSearch({ allItems, onNavigate }) {
           spellCheck={false}
           aria-label="Search navigation"
           aria-autocomplete="list"
-          aria-controls="nav-search-results"
-          aria-activedescendant={results.length ? `nav-sr-${cursor}` : undefined}
+          aria-controls={resultsId}
+          aria-activedescendant={results.length ? `${resultsId}-${cursor}` : undefined}
         />
         {query && (
           <button
@@ -98,7 +100,7 @@ function SidebarSearch({ allItems, onNavigate }) {
 
       {results.length > 0 && (
         <ul
-          id="nav-search-results"
+          id={resultsId}
           ref={listRef}
           className="nav-search__results"
           role="listbox"
@@ -106,7 +108,7 @@ function SidebarSearch({ allItems, onNavigate }) {
           {results.map((item, i) => (
             <li key={item.to} role="option" aria-selected={i === cursor}>
               <button
-                id={`nav-sr-${i}`}
+                id={`${resultsId}-${i}`}
                 type="button"
                 className={`nav-search__result ${i === cursor ? 'nav-search__result--active' : ''}`}
                 onClick={() => commit(item)}
@@ -468,7 +470,7 @@ export function Layout() {
           </div>
 
           <nav id="app-sidebar-nav" className="app-sidebar__nav" aria-label="Main">
-            <SidebarSearch allItems={allNavItems} onNavigate={closeSidebar} />
+            <SidebarSearch allItems={allNavItems} onNavigate={closeSidebar} enableHotkey={false} />
 
             <div className="app-sidebar__section-label" role="presentation">
               Workspace
@@ -657,6 +659,10 @@ export function Layout() {
                 {currentSectionLabel}
               </NavLink>
             </div>
+          </div>
+
+          <div className="app-topbar__search">
+            <SidebarSearch allItems={allNavItems} onNavigate={closeSidebar} className="nav-search--topbar" />
           </div>
 
           <div className="app-topbar__meta">

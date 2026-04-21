@@ -438,8 +438,28 @@
   gap: 0.9rem;
 }
 
+.app-topbar__left {
+  flex-shrink: 0;
+}
+
+.app-topbar__search {
+  flex: 1;
+  min-width: 16rem;
+  max-width: 36rem;
+}
+
 .app-topbar__meta {
   margin-left: auto;
+  flex-shrink: 0;
+}
+
+.nav-search--topbar {
+  margin-bottom: 0;
+}
+
+.nav-search--topbar .nav-search__shell {
+  min-height: 2.7rem;
+  border-radius: 999px;
 }
 
 .app-topbar__copy {
@@ -1025,6 +1045,12 @@
   .app-topbar__left,
   .app-topbar__meta {
     justify-content: space-between;
+  }
+
+  .app-topbar__search {
+    min-width: 0;
+    max-width: none;
+    width: 100%;
   }
 
   .app-topbar__meta {
