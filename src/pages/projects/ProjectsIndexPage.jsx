@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
+import { ChevronRight } from 'lucide-react'
 import { useAIPlanner } from '../../contexts/AIPlannerContext'
 import { AIAssistPanel } from '../../components/planner/AIAssistPanel'
+import { TaskDrawer } from '../../components/planner/TaskDrawer'
 import { PlannerDatePopover } from '../../components/planner/PlannerDatePopover'
 import { priorityLabel, formatTime, getCategoryById, PLANNER_CATEGORY_LIST } from '../../lib/aiEngine'
 import './planner.css'
@@ -12,13 +14,14 @@ const SECTION_COLORS = [
   '#6b7280',
 ]
 
-function isoToUsShort(iso) {
+/** Asana-style list display: "Apr 9" (no year) */
+function formatDueShort(iso) {
   if (!iso) return ''
   const parts = iso.split('-').map(Number)
-  if (parts.length < 3) return ''
-  const [, m, d] = parts
-  const y = parts[0]
-  return `${String(m).padStart(2, '0')}/${String(d).padStart(2, '0')}/${String(y).slice(-2)}`
+  if (parts.length < 3 || !parts[0] || !parts[1] || !parts[2]) return ''
+  const d = new Date(parts[0], parts[1] - 1, parts[2])
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 const INLINE_PRIORITY_OPTIONS = [
@@ -128,7 +131,8 @@ function TaskTableHeader() {
 
 // ── Task row (spreadsheet-style inline edit, no side drawer) ────────────────
 function TaskRow({ task, onOpenDatePicker }) {
-  const { markDone, markTodo, updateTask, deleteTask } = useAIPlanner()
+  const { markDone, markTodo, updateTask, deleteTask, setActiveTaskId, activeTaskId } = useAIPlanner()
+  const detailsOpen = task.id === activeTaskId
   const [titleDraft, setTitleDraft] = useState(task.title || '')
 
   useEffect(() => {
@@ -147,12 +151,12 @@ function TaskRow({ task, onOpenDatePicker }) {
   let dueLabel = null
   if (task.dueDate) {
     const text = isRange
-      ? `${isoToUsShort(startDate)} – ${isoToUsShort(endDate)}`
+      ? `${formatDueShort(startDate)} – ${formatDueShort(endDate)}`
       : isOverdue
-        ? isoToUsShort(endDate)
+        ? formatDueShort(endDate)
         : isDueToday
           ? 'Today'
-          : isoToUsShort(endDate)
+          : formatDueShort(endDate)
     dueLabel = isOverdue
       ? { text, cls: 'overdue' }
       : isDueToday && !isRange
@@ -177,7 +181,7 @@ function TaskRow({ task, onOpenDatePicker }) {
 
   return (
     <div
-      className={`tbl-row ${task.status === 'done' ? 'done' : ''} ${task.status === 'blocked' ? 'blocked' : ''} ${task._hasUnresolvedDeps ? 'dep-blocked' : ''}`}
+      className={`tbl-row ${task.status === 'done' ? 'done' : ''} ${task.status === 'blocked' ? 'blocked' : ''} ${task._hasUnresolvedDeps ? 'dep-blocked' : ''} ${detailsOpen ? 'tbl-row--details-open' : ''}`}
       role="row"
       data-task-id={task.id}
     >
@@ -208,6 +212,19 @@ function TaskRow({ task, onOpenDatePicker }) {
             }}
             aria-label="Task title"
           />
+          <button
+            type="button"
+            className="tbl-row-details"
+            title="Details"
+            aria-label="Open task details"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={(e) => {
+              e.stopPropagation()
+              setActiveTaskId(task.id)
+            }}
+          >
+            <ChevronRight size={16} strokeWidth={2.25} aria-hidden />
+          </button>
           <button
             type="button"
             className="tbl-row-delete"
@@ -264,9 +281,21 @@ function TaskRow({ task, onOpenDatePicker }) {
         <button
           type="button"
           className={`tbl-due-btn ${dueLabel ? `tbl-due ${dueLabel.cls}` : 'tbl-due tbl-due--placeholder'}`}
+          onMouseDown={(e) => e.preventDefault()}
           onClick={(e) => {
             e.stopPropagation()
-            onOpenDatePicker(task.id, e.currentTarget.getBoundingClientRect())
+            const r = e.currentTarget.getBoundingClientRect()
+            onOpenDatePicker(task.id, {
+              rect: {
+                top: r.top,
+                left: r.left,
+                bottom: r.bottom,
+                right: r.right,
+                width: r.width,
+                height: r.height,
+              },
+              scrollY: window.scrollY,
+            })
           }}
         >
           {dueLabel ? dueLabel.text : 'Set date'}
@@ -643,7 +672,7 @@ export default function ProjectsIndexPage() {
               tasks={tasks.filter((t) => t.sectionId === sec.id)}
               statusFilter={statusFilter}
               catFilter={catFilter}
-              onOpenDatePicker={(taskId, rect) => setDatePicker({ taskId, rect })}
+              onOpenDatePicker={(taskId, payload) => setDatePicker({ taskId, ...payload })}
               onAfterAddTask={afterInlineAdd}
             />
           ))}
@@ -654,7 +683,7 @@ export default function ProjectsIndexPage() {
             tasks={unsectioned}
             statusFilter={statusFilter}
             catFilter={catFilter}
-            onOpenDatePicker={(taskId, rect) => setDatePicker({ taskId, rect })}
+            onOpenDatePicker={(taskId, payload) => setDatePicker({ taskId, ...payload })}
             onAfterAddTask={afterInlineAdd}
           />
         </div>
@@ -667,10 +696,12 @@ export default function ProjectsIndexPage() {
       </div>
 
       <AIAssistPanel />
+      <TaskDrawer />
       {datePicker && datePickerTask && (
         <PlannerDatePopover
           task={datePickerTask}
           anchorRect={datePicker.rect}
+          openScrollY={datePicker.scrollY}
           onClose={() => setDatePicker(null)}
           onApply={(patch) => updateTask(datePicker.taskId, patch)}
         />
