@@ -11,6 +11,27 @@ import { ThemeToggle } from './ThemeToggle'
 import { fmtDMY } from '../utils/dateFormat'
 import './Layout.css'
 
+/** AI Planner sub-routes (admin sidebar, rail, and global nav search). */
+const PLANNER_NAV_ITEMS = [
+  { to: '/projects', label: 'Task List' },
+  { to: '/projects/today', label: "Today's Plan" },
+  { to: '/projects/dashboard', label: 'Dashboard' },
+]
+
+/**
+ * Match nav search: full substring, or every whitespace-separated word must appear
+ * somewhere in label + group + optional searchHint (e.g. "weekly report" finds "Weekly Ads Report").
+ */
+function navSearchMatches(item, queryRaw) {
+  const q = queryRaw.trim().toLowerCase()
+  if (!q) return false
+  const hint = item.searchHint != null ? String(item.searchHint) : ''
+  const hay = `${item.label} ${item.group} ${hint}`.toLowerCase()
+  if (hay.includes(q)) return true
+  const words = q.split(/\s+/).filter(Boolean)
+  return words.length > 0 && words.every(w => hay.includes(w))
+}
+
 function SidebarSearch({ allItems, onNavigate, className = '', enableHotkey = true }) {
   const [query, setQuery] = useState('')
   const [cursor, setCursor] = useState(0)
@@ -20,12 +41,9 @@ function SidebarSearch({ allItems, onNavigate, className = '', enableHotkey = tr
   const navigate = useNavigate()
 
   const results = useMemo(() => {
-    const q = query.trim().toLowerCase()
+    const q = query.trim()
     if (!q) return []
-    return allItems.filter(item =>
-      item.label.toLowerCase().includes(q) ||
-      item.group.toLowerCase().includes(q)
-    )
+    return allItems.filter(item => navSearchMatches(item, q))
   }, [query, allItems])
 
   // Reset cursor when results change
@@ -106,7 +124,7 @@ function SidebarSearch({ allItems, onNavigate, className = '', enableHotkey = tr
           role="listbox"
         >
           {results.map((item, i) => (
-            <li key={item.to} role="option" aria-selected={i === cursor}>
+            <li key={`${item.to}::${item.group}::${item.label}`} role="option" aria-selected={i === cursor}>
               <button
                 id={`${resultsId}-${i}`}
                 type="button"
@@ -453,13 +471,7 @@ export function Layout() {
       influencers: { title: 'Influencers', items: withIcons(INFLUENCER_ITEMS) },
       planner: {
         title: 'Planner',
-        items: withIcons(isAdmin
-          ? [
-              { to: '/projects', label: 'Task List' },
-              { to: '/projects/today', label: "Today's Plan" },
-              { to: '/projects/dashboard', label: 'Dashboard' },
-            ]
-          : []),
+        items: withIcons(isAdmin ? PLANNER_NAV_ITEMS : []),
       },
       management: { title: 'Management', items: withIcons(managementItems) },
       reports: { title: 'Reports', items: withIcons(REPORTS_ITEMS) },
@@ -476,16 +488,21 @@ export function Layout() {
     REPORTS_ITEMS,
   ])
 
-  // Flat list of all accessible nav items used by the sidebar search
+  // Flat list of every link shown in the sidebar (sidebar + topbar search). Keep in sync with nav groups above.
   const allNavItems = useMemo(() => [
     ...hrItems.map(i => ({ ...i, group: 'HR' })),
     ...listsItems.map(i => ({ ...i, group: 'Lists' })),
     ...INFLUENCER_ITEMS.map(i => ({ ...i, group: 'Influencers' })),
+    ...(isAdmin ? PLANNER_NAV_ITEMS.map(i => ({ ...i, group: 'AI Planner', searchHint: 'planner projects tasks ai' })) : []),
     ...managementItems.map(i => ({ ...i, group: 'Management' })),
-    ...REPORTS_ITEMS.map(i => ({ ...i, group: 'Reports' })),
+    ...REPORTS_ITEMS.map(i => ({
+      ...i,
+      group: 'Weekly Report',
+      searchHint: 'weekly ads performance reports',
+    })),
     ...adminNavItems.map(i => ({ ...i, group: 'Admin' })),
     { label: 'My Account', to: '/account', group: 'Account' },
-  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, managementItems, REPORTS_ITEMS])
+  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, managementItems, REPORTS_ITEMS])
 
   const showSidebarBackdrop = isSidebarOpen && navMode === 'full'
 
@@ -608,11 +625,7 @@ export function Layout() {
                       AI Planner
                     </div>
                     <NavGroup label="Planner" hint="AI-powered" isActive={location.pathname.startsWith('/projects')}>
-                      {[
-                        { to: '/projects', label: 'Task List' },
-                        { to: '/projects/today', label: "Today's Plan" },
-                        { to: '/projects/dashboard', label: 'Dashboard' },
-                      ].map(item => (
+                      {PLANNER_NAV_ITEMS.map(item => (
                         <NavLink
                           key={item.to}
                           to={item.to}
