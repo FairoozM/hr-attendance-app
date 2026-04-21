@@ -118,7 +118,7 @@ function ReportTable({ rows, title, dateLabel }) {
   )
 }
 
-function HistoryCard({ entry, onDelete }) {
+function HistoryCard({ entry, onDelete, onEdit }) {
   const [expanded, setExpanded] = useState(false)
 
   const totals = useMemo(() => {
@@ -162,6 +162,17 @@ function HistoryCard({ entry, onDelete }) {
           </div>
         </div>
         <div className="war-history-card__actions">
+          <button
+            type="button"
+            className="war-history-card__edit"
+            title="Edit this report"
+            onClick={(e) => { e.stopPropagation(); onEdit(entry) }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+            </svg>
+          </button>
           <button
             type="button"
             className="war-history-card__delete"
@@ -214,6 +225,7 @@ function saveHistory(list) {
 
 export function WeeklyAdsReportPage() {
   const [history, setHistory] = useState(loadHistory)
+  const [editingId, setEditingId] = useState(null)
 
   // Form state
   const [title, setTitle] = useState('Ads Spend Weekly Report')
@@ -255,9 +267,40 @@ export function WeeklyAdsReportPage() {
 
   const totalAcos = calcAcos(totals.spend, totals.sales)
 
+  const beginCreateNew = useCallback(() => {
+    const d = new Date()
+    const day = d.getDay()
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1)
+    d.setDate(diff)
+    const newStart = d.toISOString().slice(0, 10)
+    const d2 = new Date(d)
+    d2.setDate(d.getDate() + 6)
+    const newEnd = d2.toISOString().slice(0, 10)
+
+    setEditingId(null)
+    setTitle('Ads Spend Weekly Report')
+    setStartDate(newStart)
+    setEndDate(newEnd)
+    setRows(DEFAULT_ROWS())
+    setNotes('')
+    setSaved(false)
+  }, [])
+
+  const handleEdit = useCallback((entry) => {
+    setEditingId(entry.id)
+    setTitle(entry.title || 'Ads Spend Weekly Report')
+    setStartDate(entry.startDate || todayStr())
+    setEndDate(entry.endDate || todayStr())
+    setRows(JSON.parse(JSON.stringify(entry.rows || DEFAULT_ROWS())))
+    setNotes(entry.notes || '')
+    setSaved(false)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [])
+
   const handleSave = () => {
+    const entryId = editingId || Date.now().toString()
     const entry = {
-      id: Date.now().toString(),
+      id: entryId,
       title,
       startDate,
       endDate,
@@ -265,17 +308,22 @@ export function WeeklyAdsReportPage() {
       notes,
       savedAt: new Date().toISOString(),
     }
-    const updated = [entry, ...history]
+    const updated = editingId
+      ? history.map((h) => (h.id === editingId ? entry : h))
+      : [entry, ...history]
     setHistory(updated)
     saveHistory(updated)
+    setEditingId(null)
     setSaved(true)
-    // Reset form to next week
-    const nextStart = addDays(endDate, 1)
-    const nextEnd = addDays(endDate, 7)
-    setStartDate(nextStart)
-    setEndDate(nextEnd)
-    setRows(DEFAULT_ROWS())
-    setNotes('')
+    // Reset form to next week only for new entries
+    if (!editingId) {
+      const nextStart = addDays(endDate, 1)
+      const nextEnd = addDays(endDate, 7)
+      setStartDate(nextStart)
+      setEndDate(nextEnd)
+      setRows(DEFAULT_ROWS())
+      setNotes('')
+    }
     setTimeout(() => setSaved(false), 3000)
   }
 
@@ -285,11 +333,15 @@ export function WeeklyAdsReportPage() {
       saveHistory(updated)
       return updated
     })
-  }, [])
+    if (editingId === id) {
+      beginCreateNew()
+    }
+  }, [editingId, beginCreateNew])
 
   const handleClearForm = () => {
     setRows(DEFAULT_ROWS())
     setNotes('')
+    setEditingId(null)
     setSaved(false)
   }
 
@@ -314,7 +366,7 @@ export function WeeklyAdsReportPage() {
 
       {/* ─── Input Form ─── */}
       <section className="war-section">
-        <h2 className="war-section__title">New Weekly Report</h2>
+        <h2 className="war-section__title">{editingId ? 'Edit Weekly Report' : 'New Weekly Report'}</h2>
 
         <div className="war-form-meta">
           <div className="war-form-field">
@@ -439,6 +491,11 @@ export function WeeklyAdsReportPage() {
         </div>
 
         <div className="war-form-actions">
+          {editingId && (
+            <button type="button" className="war-btn war-btn--ghost" onClick={beginCreateNew}>
+              Cancel Edit
+            </button>
+          )}
           <button type="button" className="war-btn war-btn--ghost" onClick={handleClearForm}>
             Clear
           </button>
@@ -453,7 +510,7 @@ export function WeeklyAdsReportPage() {
               <polyline points="17 21 17 13 7 13 7 21" />
               <polyline points="7 3 7 8 15 8" />
             </svg>
-            Save Report
+            {editingId ? 'Update Report' : 'Save Report'}
           </button>
         </div>
       </section>
@@ -477,7 +534,7 @@ export function WeeklyAdsReportPage() {
         ) : (
           <div className="war-history-list">
             {history.map((entry) => (
-              <HistoryCard key={entry.id} entry={entry} onDelete={handleDelete} />
+              <HistoryCard key={entry.id} entry={entry} onDelete={handleDelete} onEdit={handleEdit} />
             ))}
           </div>
         )}

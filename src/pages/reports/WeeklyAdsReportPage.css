@@ -483,6 +483,23 @@
   transition: background 0.1s, color 0.1s;
 }
 
+.war-history-card__edit {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  color: var(--text-secondary, #8896b0);
+  display: flex;
+  align-items: center;
+  transition: background 0.1s, color 0.1s;
+}
+
+.war-history-card__edit:hover {
+  background: rgba(59, 109, 224, 0.1);
+  color: #3b6de0;
+}
+
 .war-history-card__delete:hover {
   background: rgba(192, 57, 43, 0.1);
   color: #c0392b;
