@@ -1,7 +1,13 @@
 import { useAIPlanner } from '../../contexts/AIPlannerContext'
 
+function scrollToTaskRow(taskId) {
+  if (!taskId) return
+  const el = document.querySelector(`[data-task-id="${String(taskId)}"]`)
+  el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
 export function AIAssistPanel() {
-  const { suggestions, tasks, setActiveTaskId } = useAIPlanner()
+  const { suggestions, tasks } = useAIPlanner()
 
   const done  = tasks.filter((t) => t.status === 'done').length
   const total = tasks.length
@@ -37,7 +43,7 @@ export function AIAssistPanel() {
           <div
             key={i}
             className="aip-suggestion"
-            onClick={() => s.taskId && setActiveTaskId(s.taskId)}
+            onClick={() => s.taskId && scrollToTaskRow(s.taskId)}
             style={{ cursor: s.taskId ? 'pointer' : 'default', borderLeftColor: s.color, borderLeftWidth: 3 }}
           >
             <div className="aip-suggestion__icon-row">

@@ -49,6 +49,12 @@ const CATEGORY_RULES = [
   },
 ]
 
+/** All planner category options for inline dropdowns (includes General fallback). */
+export const PLANNER_CATEGORY_LIST = [
+  ...CATEGORY_RULES,
+  { id: 'general', label: 'General', color: '#94a3b8', bg: 'rgba(148,163,184,0.12)', icon: '📌' },
+]
+
 export function detectCategory(title = '', description = '') {
   const text = `${title} ${description}`.toLowerCase()
   let best = null

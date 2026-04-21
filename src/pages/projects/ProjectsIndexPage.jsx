@@ -1,9 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAIPlanner } from '../../contexts/AIPlannerContext'
 import { AIAssistPanel } from '../../components/planner/AIAssistPanel'
-import { TaskDrawer } from '../../components/planner/TaskDrawer'
 import { PlannerDatePopover } from '../../components/planner/PlannerDatePopover'
-import { priorityLabel, formatTime } from '../../lib/aiEngine'
+import { priorityLabel, formatTime, getCategoryById, PLANNER_CATEGORY_LIST } from '../../lib/aiEngine'
 import './planner.css'
 import './projects.css'
 
@@ -22,40 +21,18 @@ function isoToUsShort(iso) {
   return `${String(m).padStart(2, '0')}/${String(d).padStart(2, '0')}/${String(y).slice(-2)}`
 }
 
-// ── Priority dot ─────────────────────────────────────────────────────────────
-function PriorityDot({ score }) {
-  const { text, color } = priorityLabel(score || 0)
-  return (
-    <span className="tbl-priority-dot" style={{ '--dot-color': color }} title={`${text} · ${score}`}>
-      <span className="tbl-priority-dot__circle" />
-      <span className="tbl-priority-dot__label">{text}</span>
-    </span>
-  )
-}
+const INLINE_PRIORITY_OPTIONS = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'urgent', label: 'Urgent' },
+]
 
-// ── Status chip ───────────────────────────────────────────────────────────────
-function StatusChip({ status }) {
-  const map = {
-    todo:    { label: 'To Do',   cls: 'todo'    },
-    blocked: { label: 'Blocked', cls: 'blocked' },
-    done:    { label: 'Done',    cls: 'done'    },
-  }
-  const { label, cls } = map[status] || map.todo
-  return <span className={`tbl-status-chip tbl-status-chip--${cls}`}>{label}</span>
-}
-
-// ── Category pill ─────────────────────────────────────────────────────────────
-function CatPill({ cat }) {
-  if (!cat) return null
-  return (
-    <span
-      className="tbl-cat-pill"
-      style={{ '--cat-color': cat.color, '--cat-bg': cat.bg }}
-    >
-      {cat.icon} {cat.label}
-    </span>
-  )
-}
+const INLINE_STATUS_OPTIONS = [
+  { value: 'todo', label: 'To Do' },
+  { value: 'blocked', label: 'Blocked' },
+  { value: 'done', label: 'Done' },
+]
 
 // ── Quick Capture ─────────────────────────────────────────────────────────────
 function QuickCapture() {
@@ -149,19 +126,24 @@ function TaskTableHeader() {
   )
 }
 
-// ── Task row ──────────────────────────────────────────────────────────────────
-function TaskRow({ task, onOpenDatePicker }) {
-  const { markDone, markTodo, setActiveTaskId, activeTaskId } = useAIPlanner()
-  const isActive  = task.id === activeTaskId
-  const cat       = task.category
-  const endDate   = task.dueDate
-  const startDate = task.dueDateStart || endDate
-  const isRange   = endDate && startDate && startDate !== endDate
-  const isDueToday = endDate === new Date().toISOString().slice(0, 10)
-  const isOverdue  = endDate && new Date(endDate) < new Date(new Date().toDateString())
-  const { color: pcolor } = priorityLabel(task.priorityScore || 0)
+// ── Task row (spreadsheet-style inline edit, no side drawer) ────────────────
+function TaskRow({ task, onOpenDatePicker, plannerSections }) {
+  const { markDone, markTodo, updateTask, deleteTask } = useAIPlanner()
+  const [titleDraft, setTitleDraft] = useState(task.title || '')
 
-  // Format due date concisely
+  useEffect(() => {
+    setTitleDraft(task.title || '')
+  }, [task.id, task.title])
+
+  const cat = task.category
+  const endDate = task.dueDate
+  const startDate = task.dueDateStart || endDate
+  const isRange = endDate && startDate && startDate !== endDate
+  const isDueToday = endDate === new Date().toISOString().slice(0, 10)
+  const isOverdue = endDate && new Date(endDate) < new Date(new Date().toDateString())
+  const { color: pcolor } = priorityLabel(task.priorityScore || 0)
+  const catId = cat?.id && PLANNER_CATEGORY_LIST.some((c) => c.id === cat.id) ? cat.id : 'general'
+
   let dueLabel = null
   if (task.dueDate) {
     const text = isRange
@@ -180,22 +162,32 @@ function TaskRow({ task, onOpenDatePicker }) {
     dueLabel = { text: formatTime(task.scheduledStart), cls: '' }
   }
 
-  // Subtask progress
   const subTotal = task.subtasks?.length || 0
-  const subDone  = subTotal > 0 ? task.subtasks.filter((s) => s.done).length : 0
-  const subPct   = subTotal > 0 ? Math.round((subDone / subTotal) * 100) : 0
+  const subDone = subTotal > 0 ? task.subtasks.filter((s) => s.done).length : 0
+  const subPct = subTotal > 0 ? Math.round((subDone / subTotal) * 100) : 0
+
+  function commitTitle() {
+    const t = titleDraft.trim()
+    if (!t) {
+      setTitleDraft(task.title || '')
+      return
+    }
+    if (t !== (task.title || '')) updateTask(task.id, { title: t })
+  }
+
+  const sectionValue = task.sectionId ?? ''
+  const sectionIds = new Set((plannerSections || []).map((s) => s.id))
+  const sectionOrphan = task.sectionId && !sectionIds.has(task.sectionId)
 
   return (
     <div
-      className={`tbl-row ${task.status === 'done' ? 'done' : ''} ${task.status === 'blocked' ? 'blocked' : ''} ${isActive ? 'active' : ''} ${task._hasUnresolvedDeps ? 'dep-blocked' : ''}`}
-      onClick={() => setActiveTaskId(task.id)}
+      className={`tbl-row ${task.status === 'done' ? 'done' : ''} ${task.status === 'blocked' ? 'blocked' : ''} ${task._hasUnresolvedDeps ? 'dep-blocked' : ''}`}
       role="row"
-      tabIndex={0}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveTaskId(task.id) } }}
+      data-task-id={task.id}
     >
-      {/* Checkbox */}
       <div className="tbl-col tbl-col--check">
         <button
+          type="button"
           className={`tbl-check ${task.status === 'done' ? 'checked' : ''}`}
           onClick={(e) => {
             e.stopPropagation()
@@ -205,11 +197,48 @@ function TaskRow({ task, onOpenDatePicker }) {
         />
       </div>
 
-      {/* Task name */}
       <div className="tbl-col tbl-col--name">
-        <span className="tbl-task-title">{task.title}</span>
-
-        {/* Inline indicators on the name column */}
+        <div className="tbl-name-edit-row">
+          <input
+            className="tbl-inline-title"
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={commitTitle}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                e.currentTarget.blur()
+              }
+            }}
+            aria-label="Task title"
+          />
+          <button
+            type="button"
+            className="tbl-row-delete"
+            title="Delete task"
+            onClick={() => {
+              if (window.confirm(`Delete “${task.title || 'this task'}”?`)) deleteTask(task.id)
+            }}
+          >
+            ×
+          </button>
+        </div>
+        <select
+          className="tbl-inline-select tbl-section-select"
+          value={sectionValue}
+          onChange={(e) => updateTask(task.id, { sectionId: e.target.value || null })}
+          aria-label="Section"
+        >
+          <option value="">No Section</option>
+          {sectionOrphan ? (
+            <option value={task.sectionId}>Unknown section</option>
+          ) : null}
+          {(plannerSections || []).map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.title}
+            </option>
+          ))}
+        </select>
         <div className="tbl-task-indicators">
           {task.status === 'blocked' && (
             <span className="tbl-indicator tbl-indicator--blocked">Blocked</span>
@@ -236,12 +265,21 @@ function TaskRow({ task, onOpenDatePicker }) {
         </div>
       </div>
 
-      {/* Category */}
       <div className="tbl-col tbl-col--cat">
-        <CatPill cat={cat} />
+        <select
+          className="tbl-inline-select tbl-inline-select--cat"
+          value={catId}
+          onChange={(e) => updateTask(task.id, { category: getCategoryById(e.target.value) })}
+          aria-label="Category"
+        >
+          {PLANNER_CATEGORY_LIST.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.icon} {c.label}
+            </option>
+          ))}
+        </select>
       </div>
 
-      {/* Due — inline Asana-style date picker */}
       <div className="tbl-col tbl-col--due">
         <button
           type="button"
@@ -255,17 +293,36 @@ function TaskRow({ task, onOpenDatePicker }) {
         </button>
       </div>
 
-      {/* Priority */}
       <div className="tbl-col tbl-col--priority">
-        <PriorityDot score={task.priorityScore} />
+        <select
+          className="tbl-inline-select"
+          value={task.priority || 'medium'}
+          onChange={(e) => updateTask(task.id, { priority: e.target.value })}
+          aria-label="Priority"
+        >
+          {INLINE_PRIORITY_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
       </div>
 
-      {/* Status */}
       <div className="tbl-col tbl-col--status">
-        <StatusChip status={task.status} />
+        <select
+          className="tbl-inline-select"
+          value={task.status || 'todo'}
+          onChange={(e) => updateTask(task.id, { status: e.target.value })}
+          aria-label="Status"
+        >
+          {INLINE_STATUS_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
       </div>
 
-      {/* Score */}
       <div className="tbl-col tbl-col--score">
         <span className="tbl-score" style={{ '--score-color': pcolor }}>
           {task.priorityScore || 0}
@@ -276,24 +333,33 @@ function TaskRow({ task, onOpenDatePicker }) {
 }
 
 // ── Inline add-task row ───────────────────────────────────────────────────────
-function InlineAddTask({ sectionId, onDone }) {
+function InlineAddTask({ sectionId, onDone, onAdded }) {
   const { addTask } = useAIPlanner()
   const [title, setTitle] = useState('')
   const inputRef = useRef(null)
+  const skipBlurClose = useRef(false)
 
   useEffect(() => { inputRef.current?.focus() }, [])
 
   function commit() {
     const trimmed = title.trim()
     if (trimmed) {
-      addTask({ title: trimmed, sectionId: sectionId || null })
+      skipBlurClose.current = true
+      addTask({ title: trimmed, sectionId: sectionId ?? null })
       setTitle('')
-      inputRef.current?.focus()
+      onAdded?.()
+      requestAnimationFrame(() => {
+        skipBlurClose.current = false
+        inputRef.current?.focus()
+      })
     }
   }
 
   function handleKeyDown(e) {
-    if (e.key === 'Enter') commit()
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      commit()
+    }
     if (e.key === 'Escape') onDone()
   }
 
@@ -309,7 +375,10 @@ function InlineAddTask({ sectionId, onDone }) {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={handleKeyDown}
-          onBlur={() => { if (!title.trim()) onDone() }}
+          onBlur={() => {
+            if (skipBlurClose.current) return
+            if (!title.trim()) onDone()
+          }}
           placeholder="Task name… Enter to add, Esc to cancel"
         />
       </div>
@@ -448,7 +517,7 @@ function SectionHeader({ section, collapsed, onToggle, taskCount, onAddTask }) {
 }
 
 // ── Section block (table) ──────────────────────────────────────────────────────
-function SectionBlock({ section, tasks, statusFilter, catFilter, onOpenDatePicker }) {
+function SectionBlock({ section, tasks, statusFilter, catFilter, onOpenDatePicker, plannerSections, onAfterAddTask }) {
   const [collapsed, setCollapsed] = useState(false)
   const [adding, setAdding]       = useState(false)
 
@@ -476,14 +545,23 @@ function SectionBlock({ section, tasks, statusFilter, catFilter, onOpenDatePicke
           {/* Task rows */}
           {filtered.length > 0
             ? filtered.map((task) => (
-                <TaskRow key={task.id} task={task} onOpenDatePicker={onOpenDatePicker} />
+                <TaskRow
+                  key={task.id}
+                  task={task}
+                  onOpenDatePicker={onOpenDatePicker}
+                  plannerSections={plannerSections}
+                />
               ))
             : <div className="tbl-empty">No tasks — add one below</div>
           }
 
           {/* Inline add */}
           {adding ? (
-            <InlineAddTask sectionId={section?.id ?? null} onDone={() => setAdding(false)} />
+            <InlineAddTask
+              sectionId={section?.id ?? null}
+              onDone={() => setAdding(false)}
+              onAdded={onAfterAddTask}
+            />
           ) : (
             <button className="tbl-add-task-btn" onClick={() => setAdding(true)}>
               + Add task
@@ -528,6 +606,11 @@ export default function ProjectsIndexPage() {
   const unsectioned    = tasks.filter((t) => !t.sectionId || !sectionIds.has(t.sectionId))
 
   const datePickerTask = datePicker ? tasks.find((t) => t.id === datePicker.taskId) : null
+
+  const afterInlineAdd = () => {
+    setCatFilter('')
+    setStatusFilter('all')
+  }
 
   return (
     <div className="aip-layout">
@@ -586,6 +669,8 @@ export default function ProjectsIndexPage() {
               statusFilter={statusFilter}
               catFilter={catFilter}
               onOpenDatePicker={(taskId, rect) => setDatePicker({ taskId, rect })}
+              plannerSections={sortedSections}
+              onAfterAddTask={afterInlineAdd}
             />
           ))}
 
@@ -596,6 +681,8 @@ export default function ProjectsIndexPage() {
             statusFilter={statusFilter}
             catFilter={catFilter}
             onOpenDatePicker={(taskId, rect) => setDatePicker({ taskId, rect })}
+            plannerSections={sortedSections}
+            onAfterAddTask={afterInlineAdd}
           />
         </div>
 
@@ -607,7 +694,6 @@ export default function ProjectsIndexPage() {
       </div>
 
       <AIAssistPanel />
-      <TaskDrawer />
       {datePicker && datePickerTask && (
         <PlannerDatePopover
           task={datePickerTask}
