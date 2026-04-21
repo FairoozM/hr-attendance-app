@@ -125,6 +125,77 @@ const QUICK_CHIP = {
 }
 const PAGE_SIZE = 20
 
+/** Excel-style resizable list columns — widths persisted in localStorage */
+const LIST_COL_STORAGE_KEY = 'hr-influencer-list-col-widths-v3'
+const LIST_COL_KEYS = [
+  'sr', 'name', 'nationality', 'ig', 'mobile', 'based', 'followers', 'pkg', 'insights', 'stage', 'payment', 'actions',
+]
+const DEFAULT_COL_WIDTHS = Object.freeze({
+  sr: 46,
+  name: 240,
+  nationality: 86,
+  ig: 150,
+  mobile: 118,
+  based: 72,
+  followers: 92,
+  pkg: 100,
+  insights: 72,
+  stage: 124,
+  payment: 116,
+  actions: 44,
+})
+const COL_WIDTH_MIN = Object.freeze({
+  sr: 36, name: 140, nationality: 64, ig: 100, mobile: 88, based: 52, followers: 72, pkg: 72, insights: 52, stage: 88, payment: 88, actions: 36,
+})
+const COL_WIDTH_MAX = Object.freeze({
+  sr: 72, name: 520, nationality: 180, ig: 320, mobile: 260, based: 240, followers: 160, pkg: 200, insights: 140, stage: 320, payment: 300, actions: 100,
+})
+
+function loadListColWidths() {
+  if (typeof localStorage === 'undefined') return { ...DEFAULT_COL_WIDTHS }
+  try {
+    const raw = localStorage.getItem(LIST_COL_STORAGE_KEY)
+    if (!raw) return { ...DEFAULT_COL_WIDTHS }
+    const parsed = JSON.parse(raw)
+    const next = { ...DEFAULT_COL_WIDTHS }
+    for (const k of LIST_COL_KEYS) {
+      const n = Number(parsed[k])
+      if (Number.isFinite(n) && n > 0) next[k] = Math.round(n)
+    }
+    return next
+  } catch {
+    return { ...DEFAULT_COL_WIDTHS }
+  }
+}
+
+function saveListColWidths(widths) {
+  try {
+    localStorage.setItem(LIST_COL_STORAGE_KEY, JSON.stringify(widths))
+  } catch { /* ignore */ }
+}
+
+function ResizableTh({
+  colIndex,
+  widthPx,
+  className,
+  children,
+  onResizeStart,
+}) {
+  return (
+    <th className={className} style={{ width: widthPx }}>
+      <span className="inf-table__th-label">{children}</span>
+      <span
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize column"
+        title="Drag to resize column"
+        className="inf-table__col-resize"
+        onMouseDown={(e) => onResizeStart(e, colIndex)}
+      />
+    </th>
+  )
+}
+
 /** Compact row actions: trigger + dropdown; closes on outside click / Escape (not only on ⋯). */
 function InfluencerRowActions({ inf, can, navigate, onQuickAction }) {
   const [open, setOpen] = useState(false)
@@ -253,6 +324,8 @@ export function InfluencerListPage() {
   const can = (action) => hasPermission(user, 'influencers', action)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const [showAddModal, setShowAddModal] = useState(false)
+  const [colWidths, setColWidths] = useState(loadListColWidths)
+  const [resizeSession, setResizeSession] = useState(null)
 
   const [search, setSearch] = useState('')
   const [filterWorkflow, setFilterWorkflow] = useState('All')
@@ -360,6 +433,52 @@ export function InfluencerListPage() {
     if (useServerPaging && listMeta) return (listMeta.page - 1) * listMeta.limit
     return pageStart
   }, [useServerPaging, listMeta, pageStart])
+
+  useEffect(() => {
+    if (!resizeSession) return
+    const key = LIST_COL_KEYS[resizeSession.index]
+    const mn = COL_WIDTH_MIN[key]
+    const mx = COL_WIDTH_MAX[key]
+    const onMove = (e) => {
+      const dx = e.clientX - resizeSession.startX
+      const w = Math.round(Math.min(mx, Math.max(mn, resizeSession.startWidth + dx)))
+      setColWidths((prev) => ({ ...prev, [key]: w }))
+    }
+    const onUp = () => {
+      setColWidths((prev) => {
+        saveListColWidths(prev)
+        return prev
+      })
+      setResizeSession(null)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+  }, [resizeSession])
+
+  const startColResize = useCallback((e, index) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const key = LIST_COL_KEYS[index]
+    setResizeSession({
+      index,
+      startX: e.clientX,
+      startWidth: colWidths[key],
+    })
+  }, [colWidths])
+
+  const resetListColWidths = useCallback(() => {
+    const next = { ...DEFAULT_COL_WIDTHS }
+    setColWidths(next)
+    saveListColWidths(next)
+  }, [])
 
   const totalPages = useServerPaging ? listMeta.totalPages : clientTotalPages
   const currentPageDisplay = useServerPaging ? listMeta.page : currentPage
@@ -540,6 +659,9 @@ export function InfluencerListPage() {
         <span className="inf-filter-chips__meta">
           {filtered.length} result{filtered.length !== 1 ? 's' : ''}
         </span>
+        <button type="button" className="inf-list-col-reset-btn" onClick={resetListColWidths} title="Restore default column widths">
+          Reset column widths
+        </button>
       </div>
 
       {/* Table */}
@@ -562,21 +684,26 @@ export function InfluencerListPage() {
             ) : null}
           </div>
         ) : (
-          <table className="inf-table inf-table--compact">
+          <table className="inf-table inf-table--compact inf-table--resizable">
+            <colgroup>
+              {LIST_COL_KEYS.map((k) => (
+                <col key={k} style={{ width: colWidths[k] }} />
+              ))}
+            </colgroup>
             <thead>
               <tr>
-                <th className="inf-table__th-sr">Sr. No.</th>
-                <th className="inf-table__col inf-table__col--name">Name</th>
-                <th className="inf-table__col inf-table__col--hide-lg inf-table__col--nationality">Nationality</th>
-                <th className="inf-table__col inf-table__col--ig">Instagram</th>
-                <th className="inf-table__col inf-table__col--mobile">Mobile</th>
-                <th className="inf-table__col inf-table__col--hide-lg">Based In</th>
-                <th className="inf-table__col inf-table__col--num">Followers</th>
-                <th className="inf-table__col inf-table__col--pkg">Package</th>
-                <th className="inf-table__col inf-table__col--tight">Insights</th>
-                <th className="inf-table__th--badge-col inf-table__col--stage">Stage</th>
-                <th className="inf-table__th--badge-col inf-table__col--tight">Payment</th>
-                <th className="inf-table__col inf-table__col--actions">Actions</th>
+                <ResizableTh colIndex={0} widthPx={colWidths.sr} className="inf-table__th-sr" onResizeStart={startColResize}>Sr. No.</ResizableTh>
+                <ResizableTh colIndex={1} widthPx={colWidths.name} className="inf-table__col inf-table__col--name" onResizeStart={startColResize}>Name</ResizableTh>
+                <ResizableTh colIndex={2} widthPx={colWidths.nationality} className="inf-table__col inf-table__col--hide-lg inf-table__col--nationality" onResizeStart={startColResize}>Nationality</ResizableTh>
+                <ResizableTh colIndex={3} widthPx={colWidths.ig} className="inf-table__col inf-table__col--ig" onResizeStart={startColResize}>Instagram</ResizableTh>
+                <ResizableTh colIndex={4} widthPx={colWidths.mobile} className="inf-table__col inf-table__col--mobile" onResizeStart={startColResize}>Mobile</ResizableTh>
+                <ResizableTh colIndex={5} widthPx={colWidths.based} className="inf-table__col inf-table__col--hide-lg inf-table__col--based" onResizeStart={startColResize}>Based In</ResizableTh>
+                <ResizableTh colIndex={6} widthPx={colWidths.followers} className="inf-table__col inf-table__col--num" onResizeStart={startColResize}>Followers</ResizableTh>
+                <ResizableTh colIndex={7} widthPx={colWidths.pkg} className="inf-table__col inf-table__col--pkg" onResizeStart={startColResize}>Package</ResizableTh>
+                <ResizableTh colIndex={8} widthPx={colWidths.insights} className="inf-table__col inf-table__col--tight" onResizeStart={startColResize}>Insights</ResizableTh>
+                <ResizableTh colIndex={9} widthPx={colWidths.stage} className="inf-table__th--badge-col inf-table__col--stage" onResizeStart={startColResize}>Stage</ResizableTh>
+                <ResizableTh colIndex={10} widthPx={colWidths.payment} className="inf-table__th--badge-col inf-table__col--tight" onResizeStart={startColResize}>Payment</ResizableTh>
+                <ResizableTh colIndex={11} widthPx={colWidths.actions} className="inf-table__col inf-table__col--actions" onResizeStart={startColResize}>Actions</ResizableTh>
               </tr>
             </thead>
             <tbody>
@@ -595,7 +722,7 @@ export function InfluencerListPage() {
                       <span className="inf-table__muted">{inf.mobile || '—'}</span>
                     </span>
                   </td>
-                  <td className="inf-table__col inf-table__col--hide-lg"><span className="inf-table__muted">{inf.basedIn || '—'}</span></td>
+                  <td className="inf-table__col inf-table__col--hide-lg inf-table__col--based"><span className="inf-table__muted">{inf.basedIn || '—'}</span></td>
                   <td className="inf-table__col inf-table__col--num">
                     <span className="inf-table__cell-icon-row">
                       <Users size={13} className="inf-table__cell-icon" aria-hidden />

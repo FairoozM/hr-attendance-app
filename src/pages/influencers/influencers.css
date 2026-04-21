@@ -17,9 +17,6 @@
   box-sizing: border-box;
   padding-left: clamp(1rem, 2.5vw, 2.25rem);
   padding-right: clamp(1rem, 2.5vw, 2.25rem);
-  /* Optional overrides (e.g. in DevTools or a theme snippet): column width tuning */
-  --inf-list-col-name: 19%;
-  --inf-list-col-nationality: 5.25rem;
 }
 .inf-page--list .inf-table-wrap {
   width: 100%;
@@ -74,6 +71,7 @@
   margin-bottom: 0.45rem !important;
   gap: 0.35rem;
   align-items: center;
+  flex-wrap: wrap;
 }
 .inf-filter-chips--tight .inf-chip {
   min-height: 1.65rem;
@@ -142,16 +140,9 @@
   text-align: center;
 }
 
-/* Column width budget (fixed layout) — name wider, nationality narrow + centered */
-.inf-page--list .inf-table--compact .inf-table__col--name {
-  width: var(--inf-list-col-name, 19%);
-  min-width: 12rem;
-}
+/* Column widths come from <colgroup> + localStorage (see inf-table--resizable) */
 .inf-page--list .inf-table--compact th.inf-table__col--nationality,
 .inf-page--list .inf-table--compact td.inf-table__col--nationality {
-  width: var(--inf-list-col-nationality, 5.25rem);
-  max-width: 6rem;
-  min-width: 0;
   text-align: center;
 }
 .inf-page--list .inf-table--compact .inf-table__col--nationality .inf-table__muted {
@@ -161,15 +152,66 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.inf-page--list .inf-table--compact .inf-table__col--ig { width: 10%; }
-.inf-page--list .inf-table--compact .inf-table__col--mobile { width: 8.5%; }
-.inf-page--list .inf-table--compact .inf-table__col--num { width: 6.5%; }
-.inf-page--list .inf-table--compact .inf-table__col--pkg { width: 7.5%; }
-.inf-page--list .inf-table--compact .inf-table__col--tight { width: 5.5%; }
-.inf-page--list .inf-table--compact .inf-table__col--stage { width: 8.5%; }
+.inf-page--list .inf-table--compact .inf-table__col--based .inf-table__muted {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .inf-page--list .inf-table--compact .inf-table__col--actions {
-  width: 2.75rem;
   text-align: right;
+}
+
+/* Excel-style resize handles on header cells */
+.inf-page--list .inf-table--resizable thead th {
+  position: relative;
+  padding-right: 10px;
+}
+.inf-page--list .inf-table--resizable .inf-table__th-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 2px;
+}
+.inf-page--list .inf-table--resizable .inf-table__col-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  margin-right: -2px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+  z-index: 2;
+  background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.12));
+}
+.inf-page--list .inf-table--resizable .inf-table__col-resize:hover {
+  background: rgba(99, 102, 241, 0.22);
+}
+:root[data-theme='light'] .inf-page--list .inf-table--resizable .inf-table__col-resize {
+  background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.08));
+}
+:root[data-theme='light'] .inf-page--list .inf-table--resizable .inf-table__col-resize:hover {
+  background: rgba(99, 102, 241, 0.16);
+}
+
+.inf-list-col-reset-btn {
+  margin-left: auto;
+  padding: 0.22rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--theme-border-subtle, rgba(255, 255, 255, 0.1));
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.inf-list-col-reset-btn:hover {
+  color: var(--accent);
+  background: rgba(99, 102, 241, 0.1);
 }
 .inf-page--list .inf-ig-cell {
   padding: 0.15rem 0.4rem 0.15rem 0.15rem;
