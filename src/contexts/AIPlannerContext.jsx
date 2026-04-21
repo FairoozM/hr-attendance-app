@@ -11,6 +11,57 @@ import {
 
 const STORAGE_KEY          = 'ai_planner_tasks_v2'
 const SECTIONS_STORAGE_KEY = 'ai_planner_sections_v2'
+/** Bump when adding default tasks/sections so existing localStorage gets merged once */
+const SEED_REVISION_KEY     = 'ai_planner_seed_revision_v1'
+const CURRENT_SEED_REVISION = 1
+
+let _initPlannerCache = null
+
+function initPlannerState() {
+  if (_initPlannerCache) return _initPlannerCache
+
+  const tasksStored = loadFromStorage()
+  const secStored = loadSectionsFromStorage()
+  let rev = 0
+  try {
+    rev = Number(localStorage.getItem(SEED_REVISION_KEY) || '0')
+  } catch {}
+
+  if (!tasksStored && !secStored) {
+    try {
+      localStorage.setItem(SEED_REVISION_KEY, String(CURRENT_SEED_REVISION))
+    } catch {}
+    _initPlannerCache = { tasks: SEED_TASKS, sections: SEED_SECTIONS }
+    return _initPlannerCache
+  }
+
+  let tasks = tasksStored ? [...tasksStored] : [...SEED_TASKS]
+  let sections = secStored ? [...secStored] : [...SEED_SECTIONS]
+
+  if (rev < CURRENT_SEED_REVISION) {
+    const taskIds = new Set(tasks.map((t) => t.id))
+    for (const t of SEED_TASKS) {
+      if (!taskIds.has(t.id)) {
+        tasks.push(t)
+        taskIds.add(t.id)
+      }
+    }
+    const secIds = new Set(sections.map((s) => s.id))
+    for (const s of SEED_SECTIONS) {
+      if (!secIds.has(s.id)) {
+        sections.push(s)
+        secIds.add(s.id)
+      }
+    }
+    sections.sort((a, b) => a.order - b.order)
+    try {
+      localStorage.setItem(SEED_REVISION_KEY, String(CURRENT_SEED_REVISION))
+    } catch {}
+  }
+
+  _initPlannerCache = { tasks, sections }
+  return _initPlannerCache
+}
 
 function loadFromStorage() {
   try {
@@ -48,6 +99,7 @@ const SEED_SECTIONS = [
   { id: 'sec-weekly', title: 'Weekly', color: '#6366f1', order: 1 },
   { id: 'sec-followup', title: 'Follow-Up', color: '#f59e0b', order: 2 },
   { id: 'sec-monthly', title: 'Monthly Tasks', color: '#10b981', order: 3 },
+  { id: 'sec-threat-matrix', title: 'Threat Matrix', color: '#ef4444', order: 4 },
 ]
 
 /**
@@ -184,19 +236,33 @@ const SEED_TASKS = [
     dueDate: null,
     sectionId: 'sec-followup',
   },
+  // —— Monthly Tasks ——
+  {
+    id: 'asana-m1',
+    title: 'Salary Preparation and Clearance',
+    description: 'Assignee: Abdullah Ab.',
+    status: 'todo',
+    priority: 'high',
+    dueDate: '2026-04-07',
+    sectionId: 'sec-monthly',
+  },
+  // —— Threat Matrix ——
+  {
+    id: 'asana-tm1',
+    title: 'Amazon KSA Stocks, Payment Clearance, FBA',
+    description: 'Assignee: Abdullah Ab.',
+    status: 'todo',
+    priority: 'high',
+    dueDate: '2026-03-11',
+    sectionId: 'sec-threat-matrix',
+  },
 ]
 
 const AIPlannerContext = createContext(null)
 
 export function AIPlannerProvider({ children }) {
-  const [rawTasks, setRawTasks] = useState(() => {
-    const stored = loadFromStorage()
-    return stored || SEED_TASKS
-  })
-  const [sections, setSections] = useState(() => {
-    const stored = loadSectionsFromStorage()
-    return stored || SEED_SECTIONS
-  })
+  const [rawTasks, setRawTasks] = useState(() => initPlannerState().tasks)
+  const [sections, setSections] = useState(() => initPlannerState().sections)
   const [activeTaskId, setActiveTaskId] = useState(null)
   const [view, setView] = useState('planner') // 'planner' | 'today' | 'dashboard'
 
