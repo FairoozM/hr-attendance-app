@@ -624,11 +624,12 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 0.85rem;
+  /* Light grid: rows + columns (uses theme tokens for light/dark) */
+  --inf-table-line: var(--theme-border-subtle);
 }
 
 .inf-table thead tr {
   background: rgba(7, 12, 28, 0.82);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .inf-table th {
@@ -642,16 +643,19 @@
   white-space: nowrap;
   cursor: pointer;
   user-select: none;
+  border-right: 1px solid var(--inf-table-line);
+  border-bottom: 1px solid var(--theme-border);
+}
+.inf-table th:last-child {
+  border-right: none;
 }
 .inf-table th:hover { color: var(--text); }
 .inf-table th.sorted { color: var(--accent); }
 
 .inf-table tbody tr {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   transition: background 0.12s ease;
   cursor: pointer;
 }
-.inf-table tbody tr:last-child { border-bottom: none; }
 .inf-table tbody tr:hover { background: rgba(255, 255, 255, 0.07); }
 
 .inf-table td {
@@ -659,6 +663,11 @@
   color: var(--text);
   vertical-align: middle;
   white-space: nowrap;
+  border-right: 1px solid var(--inf-table-line);
+  border-bottom: 1px solid var(--inf-table-line);
+}
+.inf-table td:last-child {
+  border-right: none;
 }
 .inf-table td.wrap { white-space: normal; min-width: 140px; }
 .inf-table__name { font-weight: 700; color: var(--text); }
