@@ -95,6 +95,20 @@ function KV({ label, value, link }) {
   )
 }
 
+/** Normalize stored handle for display (may or may not include @). */
+function formatAtHandle(handle) {
+  if (handle == null || String(handle).trim() === '') return ''
+  const t = String(handle).trim()
+  return t.startsWith('@') ? t : `@${t}`
+}
+
+function instagramProfileUrl(handle, url) {
+  if (url) return url
+  const raw = handle ? String(handle).replace(/^@/, '').trim() : ''
+  if (!raw) return undefined
+  return `https://www.instagram.com/${raw}/`
+}
+
 function Section({ icon, title, children, full }) {
   return (
     <div className={`inf-profile-section ${full ? 'inf-profile-section--full' : ''}`}>
@@ -148,7 +162,13 @@ export function InfluencerProfilePage() {
         <div className="inf-hero__left">
           <div className="inf-hero__name">{inf.name}</div>
           <div className="inf-hero__handle">
-            {inf.instagram?.handle || inf.youtube?.handle || inf.tiktok?.handle || '—'}
+            {inf.instagram?.handle
+              ? formatAtHandle(inf.instagram.handle)
+              : inf.youtube?.handle
+                ? inf.youtube.handle
+                : inf.tiktok?.handle
+                  ? formatAtHandle(inf.tiktok.handle)
+                  : '—'}
             {inf.basedIn && <span style={{ opacity: 0.65, fontWeight: 400 }}> · {inf.basedIn}</span>}
           </div>
           <div className="inf-hero__badges">
@@ -208,6 +228,21 @@ export function InfluencerProfilePage() {
         <div className="inf-profile-grid">
           <Section icon="👤" title="Basic Information">
             <KV label="Full Name" value={inf.name} />
+            <div className="inf-kv">
+              <span className="inf-kv__key">Instagram</span>
+              {inf.instagram?.handle ? (
+                <a
+                  href={instagramProfileUrl(inf.instagram.handle, inf.instagram.url)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inf-kv__link"
+                >
+                  {formatAtHandle(inf.instagram.handle)}
+                </a>
+              ) : (
+                <span className="inf-kv__val">—</span>
+              )}
+            </div>
             <KV label="Mobile" value={inf.mobile} />
             <KV label="WhatsApp" value={inf.whatsapp} />
             <KV label="Email" value={inf.email} />

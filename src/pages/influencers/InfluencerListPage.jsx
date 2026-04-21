@@ -6,13 +6,10 @@ import { AddInfluencerPage } from './AddInfluencerPage'
 import { resolveApiUrl } from '../../api/client'
 import './influencers.css'
 
-/** Instagram handles to hide from avatar column (privacy / internal). */
-const INSTAGRAM_HIDDEN_HANDLES = ['queenslifeindubai']
-
 function InstagramCell({ handle, url, storedPicUrl }) {
   const [imgError, setImgError] = useState(false)
   const raw = handle ? handle.replace(/^@/, '').trim() : ''
-  if (!raw || INSTAGRAM_HIDDEN_HANDLES.includes(raw.toLowerCase())) return <span className="inf-table__muted">—</span>
+  if (!raw) return <span className="inf-table__muted">—</span>
   const profileUrl = url || `https://www.instagram.com/${raw}/`
   const avatarSrc = storedPicUrl || resolveApiUrl(`/api/instagram-proxy/avatar/${encodeURIComponent(raw)}`)
   return (
