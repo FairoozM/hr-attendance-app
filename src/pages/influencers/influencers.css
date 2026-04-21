@@ -1108,6 +1108,30 @@
     inset 0 1px 0 rgba(255,255,255,0.12);
 }
 
+.inf-hero__back-row {
+  width: 100%;
+  margin-bottom: 0.85rem;
+}
+.inf-hero__back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.5rem 0.35rem 0.15rem;
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.inf-hero__back-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
 .inf-hero__pager {
   display: flex;
   align-items: center;
@@ -1996,6 +2020,14 @@
   color: var(--text);
   background: var(--theme-glass-soft);
   border-color: var(--theme-border);
+}
+
+:root[data-theme='light'] .inf-hero__back-btn {
+  color: var(--text);
+}
+:root[data-theme='light'] .inf-hero__back-btn:hover {
+  background: var(--theme-surface-soft);
+  color: var(--text);
 }
 
 :root[data-theme='light'] .inf-hero__pager {

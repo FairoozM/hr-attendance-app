@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, List } from 'lucide-react'
 import { resolveApiUrl } from '../../api/client'
 import { useInfluencers, WORKFLOW_STAGES, APPROVAL_STATUSES, PAYMENT_STATUSES } from '../../contexts/InfluencersContext'
 import { useAuth, hasPermission } from '../../contexts/AuthContext'
@@ -170,6 +170,17 @@ export function InfluencerProfilePage() {
     <div className="inf-page">
       {/* Hero */}
       <div className="inf-hero">
+        <div className="inf-hero__back-row">
+          <button
+            type="button"
+            className="inf-hero__back-btn"
+            onClick={() => navigate('/influencers/list')}
+            aria-label="Back to influencer list"
+          >
+            <List size={16} strokeWidth={2.25} aria-hidden />
+            Back to list
+          </button>
+        </div>
         <div className="inf-hero__pager">
           <button
             type="button"
