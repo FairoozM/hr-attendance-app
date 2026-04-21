@@ -2424,6 +2424,41 @@
   font-weight: 600;
 }
 
+.tbl-due-btn {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  margin: 0;
+  padding: 0.1rem 0.2rem;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tbl-due-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.tbl-due-btn:focus-visible {
+  outline: 2px solid rgba(99, 102, 241, 0.6);
+  outline-offset: 1px;
+}
+
+.tbl-due--placeholder {
+  color: var(--theme-text-dim);
+  opacity: 0.75;
+  font-style: normal;
+}
+
 /* ── Priority dot ────────────────────────────────────────────────── */
 .tbl-priority-dot {
   display: inline-flex;
@@ -2607,4 +2642,313 @@
   .aip-main--list {
     padding: 1rem;
   }
+}
+
+/* ── Asana-like date popover (inline Due column) ─────────────────── */
+.aip-date-popover {
+  width: min(300px, calc(100vw - 16px));
+  padding: 0.75rem 0.85rem 0.65rem;
+  background: #1e1f26;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(0, 0, 0, 0.2);
+  color: #e8e9ed;
+  font-size: 0.8rem;
+}
+
+.aip-date-popover__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.aip-date-popover__head-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #d4a574;
+  letter-spacing: 0.02em;
+}
+
+.aip-date-popover__bookmark {
+  flex-shrink: 0;
+  color: #d4a574;
+}
+
+.aip-date-popover__input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.aip-date-popover__input {
+  width: 7.5rem;
+  padding: 0.28rem 1.6rem 0.28rem 0.45rem;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: #f1f2f5;
+  background: #14151a;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 6px;
+}
+
+.aip-date-popover__input:focus {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.8);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+.aip-date-popover__input-clear {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  padding: 0;
+  margin: 0;
+  color: #94a3b8;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.aip-date-popover__input-clear:hover {
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.aip-date-popover__nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.35rem;
+}
+
+.aip-date-popover__nav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  color: #cbd5e1;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.aip-date-popover__nav-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+}
+
+.aip-date-popover__month {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.aip-date-popover__weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0;
+  margin-bottom: 0.2rem;
+}
+
+.aip-date-popover__weekday {
+  text-align: center;
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.aip-date-popover__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-bottom: 0.65rem;
+}
+
+.aip-date-popover__cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: 0.72rem;
+  color: #e2e8f0;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.aip-date-popover__cell:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.aip-date-popover__cell--muted {
+  color: #475569;
+}
+
+.aip-date-popover__cell-num {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  min-height: 1.75rem;
+  border-radius: 50%;
+}
+
+.aip-date-popover__cell--in-range {
+  background: rgba(59, 130, 246, 0.22);
+  border-radius: 0;
+}
+
+.aip-date-popover__cell--in-range:first-of-type,
+.aip-date-popover__cell--range-start {
+  border-top-left-radius: 6px;
+  border-bottom-left-radius: 6px;
+}
+
+.aip-date-popover__cell--range-end {
+  border-top-right-radius: 6px;
+  border-bottom-right-radius: 6px;
+}
+
+.aip-date-popover__cell--range-start .aip-date-popover__cell-num,
+.aip-date-popover__cell--range-end .aip-date-popover__cell-num,
+.aip-date-popover__cell--single .aip-date-popover__cell-num {
+  background: #2563eb;
+  color: #fff;
+  font-weight: 600;
+}
+
+.aip-date-popover__cell--range-end .aip-date-popover__cell-num {
+  box-shadow: 0 0 0 2px #f8fafc;
+}
+
+.aip-date-popover__cell--single .aip-date-popover__cell-num {
+  box-shadow: none;
+}
+
+.aip-date-popover__repeat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 0.45rem;
+}
+
+.aip-date-popover__repeat-label {
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+.aip-date-popover__repeat-select {
+  flex: 1;
+  max-width: 11rem;
+  padding: 0.28rem 0.4rem;
+  font-size: 0.72rem;
+  color: #e2e8f0;
+  background: #14151a;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.aip-date-popover__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.aip-date-popover__footer-left {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-right: auto;
+}
+
+.aip-date-popover__icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  color: #64748b;
+  opacity: 0.6;
+}
+
+.aip-date-popover__sync-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  color: #fff;
+  background: #2563eb;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.aip-date-popover__sync-btn:hover {
+  background: #1d4ed8;
+}
+
+.aip-date-popover__clear {
+  padding: 0.3rem 0.65rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: #94a3b8;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.aip-date-popover__clear:hover {
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.aip-date-popover__done {
+  padding: 0.3rem 0.85rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #fff;
+  background: #2563eb;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.aip-date-popover__done:hover {
+  background: #1d4ed8;
 }

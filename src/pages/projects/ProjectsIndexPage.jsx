@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useAIPlanner } from '../../contexts/AIPlannerContext'
 import { AIAssistPanel } from '../../components/planner/AIAssistPanel'
 import { TaskDrawer } from '../../components/planner/TaskDrawer'
+import { PlannerDatePopover } from '../../components/planner/PlannerDatePopover'
 import { priorityLabel, formatTime } from '../../lib/aiEngine'
 import './planner.css'
 import './projects.css'
@@ -11,6 +12,15 @@ const SECTION_COLORS = [
   '#10b981', '#f59e0b', '#f97316', '#ef4444', '#ec4899',
   '#6b7280',
 ]
+
+function isoToUsShort(iso) {
+  if (!iso) return ''
+  const parts = iso.split('-').map(Number)
+  if (parts.length < 3) return ''
+  const [, m, d] = parts
+  const y = parts[0]
+  return `${String(m).padStart(2, '0')}/${String(d).padStart(2, '0')}/${String(y).slice(-2)}`
+}
 
 // ── Priority dot ─────────────────────────────────────────────────────────────
 function PriorityDot({ score }) {
@@ -140,22 +150,32 @@ function TaskTableHeader() {
 }
 
 // ── Task row ──────────────────────────────────────────────────────────────────
-function TaskRow({ task }) {
+function TaskRow({ task, onOpenDatePicker }) {
   const { markDone, markTodo, setActiveTaskId, activeTaskId } = useAIPlanner()
   const isActive  = task.id === activeTaskId
   const cat       = task.category
-  const isDueToday = task.dueDate === new Date().toISOString().slice(0, 10)
-  const isOverdue  = task.dueDate && new Date(task.dueDate) < new Date(new Date().toDateString())
+  const endDate   = task.dueDate
+  const startDate = task.dueDateStart || endDate
+  const isRange   = endDate && startDate && startDate !== endDate
+  const isDueToday = endDate === new Date().toISOString().slice(0, 10)
+  const isOverdue  = endDate && new Date(endDate) < new Date(new Date().toDateString())
   const { color: pcolor } = priorityLabel(task.priorityScore || 0)
 
   // Format due date concisely
   let dueLabel = null
   if (task.dueDate) {
+    const text = isRange
+      ? `${isoToUsShort(startDate)} – ${isoToUsShort(endDate)}`
+      : isOverdue
+        ? isoToUsShort(endDate)
+        : isDueToday
+          ? 'Today'
+          : isoToUsShort(endDate)
     dueLabel = isOverdue
-      ? { text: task.dueDate, cls: 'overdue' }
-      : isDueToday
-        ? { text: 'Today', cls: 'today' }
-        : { text: task.dueDate, cls: '' }
+      ? { text, cls: 'overdue' }
+      : isDueToday && !isRange
+        ? { text, cls: 'today' }
+        : { text, cls: '' }
   } else if (task.scheduledStart) {
     dueLabel = { text: formatTime(task.scheduledStart), cls: '' }
   }
@@ -221,11 +241,18 @@ function TaskRow({ task }) {
         <CatPill cat={cat} />
       </div>
 
-      {/* Due */}
+      {/* Due — inline Asana-style date picker */}
       <div className="tbl-col tbl-col--due">
-        {dueLabel && (
-          <span className={`tbl-due ${dueLabel.cls}`}>{dueLabel.text}</span>
-        )}
+        <button
+          type="button"
+          className={`tbl-due-btn ${dueLabel ? `tbl-due ${dueLabel.cls}` : 'tbl-due tbl-due--placeholder'}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            onOpenDatePicker(task.id, e.currentTarget.getBoundingClientRect())
+          }}
+        >
+          {dueLabel ? dueLabel.text : 'Set date'}
+        </button>
       </div>
 
       {/* Priority */}
@@ -421,7 +448,7 @@ function SectionHeader({ section, collapsed, onToggle, taskCount, onAddTask }) {
 }
 
 // ── Section block (table) ──────────────────────────────────────────────────────
-function SectionBlock({ section, tasks, statusFilter, catFilter }) {
+function SectionBlock({ section, tasks, statusFilter, catFilter, onOpenDatePicker }) {
   const [collapsed, setCollapsed] = useState(false)
   const [adding, setAdding]       = useState(false)
 
@@ -448,7 +475,9 @@ function SectionBlock({ section, tasks, statusFilter, catFilter }) {
 
           {/* Task rows */}
           {filtered.length > 0
-            ? filtered.map((task) => <TaskRow key={task.id} task={task} />)
+            ? filtered.map((task) => (
+                <TaskRow key={task.id} task={task} onOpenDatePicker={onOpenDatePicker} />
+              ))
             : <div className="tbl-empty">No tasks — add one below</div>
           }
 
@@ -485,9 +514,10 @@ const CAT_FILTER_OPTIONS = [
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function ProjectsIndexPage() {
-  const { tasks, sections, addSection } = useAIPlanner()
+  const { tasks, sections, addSection, updateTask } = useAIPlanner()
   const [statusFilter, setStatusFilter] = useState('all')
   const [catFilter, setCatFilter]       = useState('')
+  const [datePicker, setDatePicker]     = useState(null)
 
   const todoCount    = tasks.filter((t) => t.status === 'todo').length
   const blockedCount = tasks.filter((t) => t.status === 'blocked').length
@@ -496,6 +526,8 @@ export default function ProjectsIndexPage() {
   const sortedSections = [...sections].sort((a, b) => a.order - b.order)
   const sectionIds     = new Set(sections.map((s) => s.id))
   const unsectioned    = tasks.filter((t) => !t.sectionId || !sectionIds.has(t.sectionId))
+
+  const datePickerTask = datePicker ? tasks.find((t) => t.id === datePicker.taskId) : null
 
   return (
     <div className="aip-layout">
@@ -553,6 +585,7 @@ export default function ProjectsIndexPage() {
               tasks={tasks.filter((t) => t.sectionId === sec.id)}
               statusFilter={statusFilter}
               catFilter={catFilter}
+              onOpenDatePicker={(taskId, rect) => setDatePicker({ taskId, rect })}
             />
           ))}
 
@@ -562,6 +595,7 @@ export default function ProjectsIndexPage() {
             tasks={unsectioned}
             statusFilter={statusFilter}
             catFilter={catFilter}
+            onOpenDatePicker={(taskId, rect) => setDatePicker({ taskId, rect })}
           />
         </div>
 
@@ -574,6 +608,14 @@ export default function ProjectsIndexPage() {
 
       <AIAssistPanel />
       <TaskDrawer />
+      {datePicker && datePickerTask && (
+        <PlannerDatePopover
+          task={datePickerTask}
+          anchorRect={datePicker.rect}
+          onClose={() => setDatePicker(null)}
+          onApply={(patch) => updateTask(datePicker.taskId, patch)}
+        />
+      )}
     </div>
   )
 }
