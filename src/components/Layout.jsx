@@ -479,11 +479,11 @@ export function Layout() {
   // Flat list of all accessible nav items used by the sidebar search
   const allNavItems = useMemo(() => [
     ...hrItems.map(i => ({ ...i, group: 'HR' })),
-    ...adminNavItems.map(i => ({ ...i, group: 'Admin' })),
     ...listsItems.map(i => ({ ...i, group: 'Lists' })),
     ...INFLUENCER_ITEMS.map(i => ({ ...i, group: 'Influencers' })),
     ...managementItems.map(i => ({ ...i, group: 'Management' })),
     ...REPORTS_ITEMS.map(i => ({ ...i, group: 'Reports' })),
+    ...adminNavItems.map(i => ({ ...i, group: 'Admin' })),
     { label: 'My Account', to: '/account', group: 'Account' },
   ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, managementItems, REPORTS_ITEMS])
 
@@ -567,27 +567,6 @@ export function Layout() {
                     </NavLink>
                   ))}
                 </NavGroup>
-
-                {adminNavItems.length > 0 && (
-                  <>
-                    <div className="app-sidebar__section-label" role="presentation">
-                      Admin
-                    </div>
-                    <NavGroup label="Admin" hint="System" isActive={isAdminNavActive} defaultOpen={isAdminNavActive}>
-                      {adminNavItems.map(item => (
-                        <NavLink
-                          key={item.to}
-                          to={item.to}
-                          className={subLinkClass}
-                          onClick={() => openFocusedSection('admin')}
-                        >
-                          <span className="nav-group__link-dot" aria-hidden />
-                          {item.label}
-                        </NavLink>
-                      ))}
-                    </NavGroup>
-                  </>
-                )}
 
                 {hasAnyListsAccess && listsItems.length > 0 && (
                   <NavGroup label="Lists" hint="Assets" isActive={isListsActive}>
@@ -681,6 +660,27 @@ export function Layout() {
                           to={item.to}
                           className={subLinkClass}
                           onClick={() => openFocusedSection('reports')}
+                        >
+                          <span className="nav-group__link-dot" aria-hidden />
+                          {item.label}
+                        </NavLink>
+                      ))}
+                    </NavGroup>
+                  </>
+                )}
+
+                {adminNavItems.length > 0 && (
+                  <>
+                    <div className="app-sidebar__section-label" role="presentation">
+                      Admin
+                    </div>
+                    <NavGroup label="Admin" hint="System" isActive={isAdminNavActive} defaultOpen={isAdminNavActive}>
+                      {adminNavItems.map(item => (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          className={subLinkClass}
+                          onClick={() => openFocusedSection('admin')}
                         >
                           <span className="nav-group__link-dot" aria-hidden />
                           {item.label}
