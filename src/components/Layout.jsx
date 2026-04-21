@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, useId } from 'react'
-import { Outlet, NavLink, Link, useLocation, useNavigate } from 'react-router-dom'
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useSettings } from '../contexts/SettingsContext'
 import { useAuth, hasPermission, hasAnyModulePermission } from '../contexts/AuthContext'
@@ -188,120 +188,6 @@ function itemIconToken(label) {
   if (words.length === 0) return '•'
   if (words.length === 1) return words[0].slice(0, 1).toUpperCase()
   return `${words[0][0] || ''}${words[1][0] || ''}`.toUpperCase()
-}
-
-/** @returns {{ label: string, to: string | null }[]} */
-function buildAppBreadcrumbs(pathname, homePath) {
-  const path = pathname.replace(/\/$/, '') || '/'
-
-  if (path === '/' || path === '') {
-    return [{ label: 'Home', to: null }]
-  }
-
-  const out = [{ label: 'Home', to: homePath }]
-
-  if (path === '/account' || path.startsWith('/account')) {
-    out.push({ label: 'My Account', to: null })
-    return out
-  }
-
-  if (path.includes('/employees/') && path.includes('/profile')) {
-    out.push({ label: 'HR', to: '/employees' })
-    out.push({ label: 'Employees', to: '/employees' })
-    out.push({ label: 'Profile', to: null })
-    return out
-  }
-
-  if (path.startsWith('/employees')) {
-    out.push({ label: 'HR', to: '/employees' })
-    out.push({ label: 'Employees', to: null })
-    return out
-  }
-
-  if (path.startsWith('/attendance')) {
-    out.push({ label: 'HR', to: '/employees' })
-    out.push({ label: 'Attendance', to: null })
-    return out
-  }
-
-  if (path.startsWith('/annual-leave')) {
-    out.push({ label: 'HR', to: '/employees' })
-    out.push({ label: 'Annual Leave', to: null })
-    return out
-  }
-
-  if (path.startsWith('/settings')) {
-    out.push({ label: 'Admin', to: '/settings' })
-    out.push({ label: 'Settings', to: null })
-    return out
-  }
-
-  if (path.startsWith('/roles-permissions')) {
-    out.push({ label: 'Admin', to: '/settings' })
-    out.push({ label: 'Roles & Permissions', to: null })
-    return out
-  }
-
-  if (path.startsWith('/lists/sim-cards')) {
-    out.push({ label: 'Lists', to: '/lists/sim-cards' })
-    out.push({ label: 'Sim Cards List', to: null })
-    return out
-  }
-
-  if (path.startsWith('/management/document-expiry')) {
-    out.push({ label: 'Management', to: '/management/document-expiry' })
-    out.push({ label: 'Document Expiry Tracker', to: null })
-    return out
-  }
-
-  if (path.startsWith('/reports/weekly-report/weekly-ads')) {
-    out.push({ label: 'Reports', to: '/reports/weekly-report/weekly-ads' })
-    out.push({ label: 'Weekly Ads Report', to: null })
-    return out
-  }
-
-  if (path.startsWith('/projects')) {
-    out.push({ label: 'AI Planner', to: '/projects' })
-    if (path === '/projects' || path === '/projects/') {
-      out.push({ label: 'Task List', to: null })
-    } else if (path.startsWith('/projects/today')) {
-      out.push({ label: "Today's Plan", to: null })
-    } else if (path.startsWith('/projects/dashboard')) {
-      out.push({ label: 'Dashboard', to: null })
-    } else {
-      out.push({ label: 'Planner', to: null })
-    }
-    return out
-  }
-
-  if (path.startsWith('/influencers')) {
-    out.push({ label: 'Influencers', to: '/influencers/list' })
-    if (path.startsWith('/influencers/list')) {
-      out.push({ label: 'Influencer List', to: null })
-    } else if (path.startsWith('/influencers/new')) {
-      out.push({ label: 'Add Influencer', to: null })
-    } else if (path.startsWith('/influencers/pipeline')) {
-      out.push({ label: 'Pipeline', to: null })
-    } else if (path.startsWith('/influencers/schedule')) {
-      out.push({ label: 'Shoot Schedule', to: null })
-    } else if (path.startsWith('/influencers/payments')) {
-      out.push({ label: 'Payments', to: null })
-    } else if (path.startsWith('/influencers/agreements')) {
-      out.push({ label: 'Agreements', to: null })
-    } else if (path.startsWith('/influencers/reports')) {
-      out.push({ label: 'Reports', to: null })
-    } else if (/\/influencers\/[^/]+\/edit/.test(path)) {
-      out.push({ label: 'Edit', to: null })
-    } else if (/^\/influencers\/[^/]+$/.test(path)) {
-      out.push({ label: 'Profile', to: null })
-    } else {
-      out.push({ label: 'Influencers', to: null })
-    }
-    return out
-  }
-
-  out.push({ label: 'Page', to: null })
-  return out
 }
 
 const DOC_URGENCY_LABEL = { expired: 'Expired', urgent: 'Urgent', 'due-soon': 'Due Soon' }
@@ -601,11 +487,6 @@ export function Layout() {
     { label: 'My Account', to: '/account', group: 'Account' },
   ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, managementItems, REPORTS_ITEMS])
 
-  const breadcrumbItems = useMemo(
-    () => buildAppBreadcrumbs(location.pathname, homePath),
-    [location.pathname, homePath],
-  )
-
   const showSidebarBackdrop = isSidebarOpen && navMode === 'full'
 
   return (
@@ -897,24 +778,6 @@ export function Layout() {
             </button>
           </div>
         </header>
-
-        <nav className="app-breadcrumb-bar" aria-label="Breadcrumb">
-          <ol className="app-breadcrumb-bar__list">
-            {breadcrumbItems.map((crumb, i) => (
-              <li key={`${crumb.label}-${i}`} className="app-breadcrumb-bar__item">
-                {crumb.to ? (
-                  <Link to={crumb.to} className="app-breadcrumb-bar__link">
-                    {crumb.label}
-                  </Link>
-                ) : (
-                  <span className="app-breadcrumb-bar__current" aria-current="page">
-                    {crumb.label}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ol>
-        </nav>
 
         <main className="app-main">
           <RoleGuard>

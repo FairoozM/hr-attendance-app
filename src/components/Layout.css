@@ -417,59 +417,13 @@
   min-height: calc(100vh - 2rem);
   display: flex;
   flex-direction: column;
-  transition: padding-left 0.26s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.app-breadcrumb-bar {
-  flex-shrink: 0;
-  padding: 0.15rem 0 0.55rem;
-  margin: 0;
-}
-
-.app-breadcrumb-bar__list {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  line-height: 1.45;
-}
-
-.app-breadcrumb-bar__item {
-  display: inline-flex;
-  align-items: center;
-}
-
-.app-breadcrumb-bar__item + .app-breadcrumb-bar__item::before {
-  content: '/';
-  margin: 0 0.45rem;
-  color: var(--theme-text-dim);
-  font-weight: 600;
-  user-select: none;
-}
-
-.app-breadcrumb-bar__link {
-  color: var(--theme-text-dim);
-  text-decoration: none;
-  transition: color 0.15s ease;
-}
-
-.app-breadcrumb-bar__link:hover {
-  color: rgba(139, 92, 246, 0.95);
-}
-
-.app-breadcrumb-bar__current {
-  color: var(--text);
-  font-weight: 700;
-}
-
-/* Rail mode: slim sidebar stays docked; main content stays sharp and usable (no overlay blur). */
-.app--nav-rail .app-shell {
+/*
+ * Noon-style: the top bar (hamburger + title + search) stays full-width — do NOT offset the shell
+ * when the slim rail is open, or the menu button shifts sideways. Only indent scrollable page body.
+ */
+.app--nav-rail .app-main {
   padding-left: calc(min(5.6rem, calc(100vw - 1.2rem)) + 0.65rem);
   box-sizing: border-box;
 }
@@ -922,6 +876,7 @@
   min-width: 0;
   padding: 1.25rem 0 0;
   overflow: visible;
+  transition: padding-left 0.26s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .nav-group {
