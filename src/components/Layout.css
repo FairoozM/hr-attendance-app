@@ -150,6 +150,36 @@
   display: none;
 }
 
+/* Slim rail: title must wrap and scale down — full-width app title overflows ~5.6rem */
+.app-sidebar--rail .app-sidebar__head {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.app-sidebar--rail .app-sidebar__brand-wrap {
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  text-align: center;
+}
+
+.app-sidebar--rail .app-sidebar__brand {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 0 0.15rem;
+  font-size: clamp(0.5rem, 2.6vw, 0.62rem);
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  text-align: center;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  hyphens: manual;
+}
+
 /* ── Sidebar navigation search ── */
 .nav-search {
   position: relative;
