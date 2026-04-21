@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { List } from 'lucide-react'
 import { resolveApiUrl } from '../../api/client'
-import { useInfluencers, WORKFLOW_STAGES, APPROVAL_STATUSES, PAYMENT_STATUSES } from '../../contexts/InfluencersContext'
+import { useInfluencers, WORKFLOW_STAGES } from '../../contexts/InfluencersContext'
 import { useAuth, hasPermission } from '../../contexts/AuthContext'
 import './influencers.css'
 
@@ -124,15 +124,12 @@ function Section({ icon, title, children, full }) {
   )
 }
 
-const TABS = ['Overview', 'Social & Audience', 'Commercial', 'Communication', 'Payment', 'Schedule', 'Agreement', 'Timeline']
-
 export function InfluencerProfilePage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { influencers, updateInfluencer, updateWorkflowStatus, deleteInfluencer } = useInfluencers()
   const { user } = useAuth()
   const can = (action) => hasPermission(user, 'influencers', action)
-  const [tab, setTab] = useState('Overview')
   const [showStatusModal, setShowStatusModal] = useState(false)
   const [newStage, setNewStage] = useState('')
   const [showDeleteModal, setShowDeleteModal] = useState(false)
@@ -231,14 +228,8 @@ export function InfluencerProfilePage() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="inf-tabs">
-        {TABS.map(t => (
-          <button key={t} className={`inf-tab ${tab === t ? 'inf-tab--active' : ''}`} onClick={() => setTab(t)}>{t}</button>
-        ))}
-      </div>
-
-      {tab === 'Overview' && (
+      {/* Single-page profile: all sections */}
+      <div className="inf-profile-all">
         <div className="inf-profile-grid">
           <Section icon="👤" title="Basic Information">
             <KV label="Full Name" value={inf.name} />
@@ -299,9 +290,7 @@ export function InfluencerProfilePage() {
             </Section>
           )}
         </div>
-      )}
 
-      {tab === 'Social & Audience' && (
         <div className="inf-profile-grid">
           {inf.instagram?.handle && (
             <div className="inf-profile-section inf-profile-section--full">
@@ -345,9 +334,7 @@ export function InfluencerProfilePage() {
             </div>
           </Section>
         </div>
-      )}
 
-      {tab === 'Commercial' && (
         <div className="inf-profile-grid">
           <Section icon="💰" title="Pricing">
             <KV label="Reels Price" value={inf.reelsPrice ? `${inf.currency} ${Number(inf.reelsPrice).toLocaleString()}` : undefined} />
@@ -368,9 +355,7 @@ export function InfluencerProfilePage() {
             </div>
           </Section>
         </div>
-      )}
 
-      {tab === 'Communication' && (
         <div className="inf-profile-grid">
           <Section icon="💬" title="Contact & Negotiation">
             <KV label="Contact Status" value={inf.contactStatus} />
@@ -407,9 +392,7 @@ export function InfluencerProfilePage() {
             )}
           </Section>
         </div>
-      )}
 
-      {tab === 'Payment' && (
         <div className="inf-profile-grid">
           <Section icon="🏦" title="Bank Details">
             <KV label="Bank" value={inf.bankName} />
@@ -438,9 +421,7 @@ export function InfluencerProfilePage() {
             )}
           </Section>
         </div>
-      )}
 
-      {tab === 'Schedule' && (
         <div className="inf-profile-grid">
           <Section icon="📅" title="Shoot Details">
             <KV label="Shoot Date" value={inf.shootDate} />
@@ -470,9 +451,7 @@ export function InfluencerProfilePage() {
             </div>
           </Section>
         </div>
-      )}
 
-      {tab === 'Agreement' && (
         <div className="inf-profile-grid">
           <Section icon="📄" title="Agreement Status">
             <div className="inf-kv">
@@ -520,9 +499,7 @@ export function InfluencerProfilePage() {
             </div>
           </Section>
         </div>
-      )}
 
-      {tab === 'Timeline' && (
         <div className="clay-card">
           <h3 style={{ margin: '0 0 1.25rem', fontSize: '0.875rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             Activity Timeline
@@ -544,7 +521,7 @@ export function InfluencerProfilePage() {
             </div>
           )}
         </div>
-      )}
+      </div>
 
       {/* Delete Confirmation Modal */}
       {showDeleteModal && (

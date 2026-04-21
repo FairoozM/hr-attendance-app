@@ -701,6 +701,11 @@
 .inf-empty__desc { font-size: 0.875rem; color: var(--text-muted); max-width: 320px; }
 
 /* ── Profile sections ── */
+.inf-profile-all {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
 .inf-profile-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
