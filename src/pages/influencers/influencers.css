@@ -1110,7 +1110,9 @@
 
 .inf-hero__back-row {
   width: 100%;
-  margin-bottom: 0.85rem;
+  padding-bottom: 1rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
 }
 .inf-hero__back-btn {
   display: inline-flex;
@@ -1130,53 +1132,6 @@
 .inf-hero__back-btn:hover {
   background: rgba(255, 255, 255, 0.12);
   color: #fff;
-}
-
-.inf-hero__pager {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  width: 100%;
-  padding-bottom: 1rem;
-  margin-bottom: 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
-}
-.inf-hero__pager-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.45rem 0.85rem;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: #fff;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 10px;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-.inf-hero__pager-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.18);
-  border-color: rgba(255, 255, 255, 0.35);
-}
-.inf-hero__pager-btn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-.inf-hero__pager-meta {
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.65);
-  min-width: 4.5rem;
-  text-align: center;
-}
-.inf-hero__pager-sep {
-  opacity: 0.5;
-  font-weight: 500;
-  padding: 0 0.15rem;
 }
 
 .inf-hero__main-row {
@@ -2030,20 +1985,8 @@
   color: var(--text);
 }
 
-:root[data-theme='light'] .inf-hero__pager {
+:root[data-theme='light'] .inf-hero__back-row {
   border-bottom-color: var(--theme-border-subtle);
-}
-:root[data-theme='light'] .inf-hero__pager-meta {
-  color: var(--text-muted);
-}
-:root[data-theme='light'] .inf-hero__pager-btn {
-  color: var(--text);
-  background: var(--theme-surface-soft);
-  border-color: var(--theme-border);
-}
-:root[data-theme='light'] .inf-hero__pager-btn:hover:not(:disabled) {
-  background: var(--theme-glass-soft);
-  border-color: var(--theme-border-strong);
 }
 
 :root[data-theme='light'] .inf-page-header,
