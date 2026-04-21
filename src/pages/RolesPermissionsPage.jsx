@@ -61,6 +61,13 @@ const MODULES = [
       { key: 'delete', label: 'Delete document records (includes view)' },
     ],
   },
+  {
+    key: 'weekly_reports',
+    label: 'Weekly reports (Ads)',
+    permissions: [
+      { key: 'view', label: 'View Weekly Ads Report (local history & form)' },
+    ],
+  },
 ]
 
 function roleLabel(role) {
@@ -87,6 +94,7 @@ function initPermissionsState(raw) {
 
 function countPermissions(perms) {
   let n = 0
+  if (perms.department_only) n++
   for (const mod of MODULES) {
     for (const perm of mod.permissions) {
       if (perms[mod.key]?.[perm.key]) n++
@@ -157,6 +165,47 @@ function ModuleIcon({ moduleKey, className = '' }) {
         <circle cx="9" cy="7" r="4" />
         <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
         <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    )
+  }
+
+  if (moduleKey === 'influencers') {
+    return (
+      <svg {...common}>
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    )
+  }
+
+  if (moduleKey === 'sim_cards') {
+    return (
+      <svg {...common}>
+        <rect x="5" y="2" width="14" height="20" rx="2" />
+        <path d="M12 18h.01" />
+      </svg>
+    )
+  }
+
+  if (moduleKey === 'document_expiry') {
+    return (
+      <svg {...common}>
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <path d="M14 2v6h6" />
+        <path d="M16 13H8" />
+        <path d="M16 17H8" />
+        <path d="M10 9H8" />
+      </svg>
+    )
+  }
+
+  if (moduleKey === 'weekly_reports') {
+    return (
+      <svg {...common}>
+        <path d="M3 3v18h18" />
+        <path d="M7 16l4-4 3 3 5-6" />
       </svg>
     )
   }
@@ -233,6 +282,8 @@ export function RolesPermissionsPage() {
       if (permKey === 'approve' && next[modKey].approve) next[modKey].view = true
       if (permKey === 'add' && next[modKey].add) next[modKey].view = true
       if (permKey === 'delete' && next[modKey].delete) next[modKey].view = true
+      if (permKey === 'payments' && next[modKey].payments) next[modKey].view = true
+      if (permKey === 'agreements' && next[modKey].agreements) next[modKey].view = true
       // unsetting view clears dependent permissions
       if (permKey === 'view' && !next[modKey].view) {
         if (next[modKey].manage != null) next[modKey].manage = false
@@ -240,6 +291,8 @@ export function RolesPermissionsPage() {
         if (next[modKey].approve != null) next[modKey].approve = false
         if (next[modKey].add != null) next[modKey].add = false
         if (next[modKey].delete != null) next[modKey].delete = false
+        if (next[modKey].payments != null) next[modKey].payments = false
+        if (next[modKey].agreements != null) next[modKey].agreements = false
       }
       return next
     })
@@ -270,6 +323,11 @@ export function RolesPermissionsPage() {
     setSaveMsg(null)
   }, [])
 
+  const toggleDepartmentOnly = useCallback(() => {
+    setLocalPerms((prev) => ({ ...prev, department_only: !prev.department_only }))
+    setSaveMsg(null)
+  }, [])
+
   const savePermissions = useCallback(async () => {
     if (!selectedUser) return
     const savedUserId = selectedUser.id
@@ -278,10 +336,13 @@ export function RolesPermissionsPage() {
     try {
       await api.put(`/api/admin/users/${savedUserId}/permissions`, { permissions: localPerms })
 
-      // Save attendance assignments alongside permissions
+      // Save attendance assignments alongside permissions (clear when manage is off)
       if (savedUserId) {
+        const ids = localPerms?.attendance?.manage
+          ? Array.from(assignedEmpIds).map(Number).filter(Boolean)
+          : []
         await api.put(`/api/admin/users/${savedUserId}/attendance-assignments`, {
-          employeeIds: Array.from(assignedEmpIds).map(Number).filter(Boolean),
+          employeeIds: ids,
         })
       }
 
@@ -545,9 +606,31 @@ export function RolesPermissionsPage() {
                 })}
               </div>
 
-              {/* Attendance Assignment Panel — only shown when attendance manage is on */}
-              {selectedUser.has_account && attendanceManageOn && (
-                <div className="rbac-assign-panel">
+              {selectedUser.has_account && selectedUser.role === 'employee' && selectedUser.employee_id && (
+                <div className="rbac-scope-panel">
+                  <div className="rbac-scope-panel__head">
+                    <h3 className="rbac-scope-panel__title">Employee directory scope</h3>
+                    <p className="rbac-scope-panel__desc">
+                      When this user can view the employee list, restrict rows to their own department only.
+                    </p>
+                  </div>
+                  <label className="rbac-perm-label rbac-scope-panel__row">
+                    <Toggle
+                      on={Boolean(localPerms.department_only)}
+                      onChange={toggleDepartmentOnly}
+                      disabled={!selectedUser.has_account}
+                    />
+                    <span className="rbac-perm-label__text">
+                      Department only — show colleagues in{' '}
+                      <strong>{selectedUser.department || 'their department'}</strong> only
+                    </span>
+                  </label>
+                </div>
+              )}
+
+              {/* Attendance assignment — always visible for accounts; controls active when Manage is on */}
+              {selectedUser.has_account && (
+                <div className={`rbac-assign-panel ${!attendanceManageOn ? 'rbac-assign-panel--locked' : ''}`}>
                   <div className="rbac-assign-panel__head">
                     <span className="rbac-assign-panel__icon"><ModuleIcon moduleKey="employees" className="rbac-module__icon-svg" /></span>
                     <div>
@@ -559,9 +642,16 @@ export function RolesPermissionsPage() {
                     </div>
                   </div>
 
-                  {assignmentsLoading ? (
+                  {!attendanceManageOn && (
+                    <div className="rbac-assign-panel__lock-msg">
+                      Enable <strong>Mark &amp; edit attendance</strong> under Attendance above to assign employees.
+                      Saving permissions while that toggle is off will clear any previous assignments.
+                    </div>
+                  )}
+
+                  {attendanceManageOn && assignmentsLoading ? (
                     <div className="rbac-assign-loading">Loading current assignments…</div>
-                  ) : (
+                  ) : attendanceManageOn ? (
                     <>
                       <div className="rbac-assign-toolbar">
                         <input
@@ -624,7 +714,7 @@ export function RolesPermissionsPage() {
                         </div>
                       )}
                     </>
-                  )}
+                  ) : null}
                 </div>
               )}
 

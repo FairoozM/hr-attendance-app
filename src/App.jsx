@@ -182,7 +182,14 @@ function AppContent() {
         {/* Reports Module */}
         <Route path="reports">
           <Route path="weekly-report">
-            <Route path="weekly-ads" element={<WeeklyAdsReportPage />} />
+            <Route
+              path="weekly-ads"
+              element={
+                <PermissionGuard module="weekly_reports" action="view">
+                  <WeeklyAdsReportPage />
+                </PermissionGuard>
+              }
+            />
           </Route>
         </Route>
 

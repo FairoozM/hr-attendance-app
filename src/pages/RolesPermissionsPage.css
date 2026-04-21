@@ -761,3 +761,48 @@
   font-size: 0.8rem;
   color: var(--warning);
 }
+
+.rbac-assign-panel--locked {
+  border-color: var(--border-subtle);
+  background: var(--theme-surface-soft);
+}
+
+.rbac-assign-panel--locked .rbac-assign-panel__head {
+  background: var(--theme-surface-soft);
+  border-bottom-color: var(--border-subtle);
+}
+
+.rbac-assign-panel__lock-msg {
+  padding: 0.85rem 1.25rem 1rem;
+  font-size: 0.84rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* ── Employee directory scope (department_only) ── */
+.rbac-scope-panel {
+  margin: 1rem 1.5rem 0;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--theme-surface-soft);
+}
+
+.rbac-scope-panel__title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 0.35rem;
+}
+
+.rbac-scope-panel__desc {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0 0 0.75rem;
+  line-height: 1.4;
+}
+
+.rbac-scope-panel__row {
+  margin: 0;
+}

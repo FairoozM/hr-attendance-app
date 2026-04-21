@@ -357,9 +357,11 @@ export function Layout() {
   const homePath =
     isEmployee ? '/account' : can('attendance', 'view') ? '/attendance' : '/account'
 
-  const HR_ROUTES = ['/employees', '/attendance', '/annual-leave', '/settings', '/roles-permissions']
+  const HR_ROUTES = ['/employees', '/attendance', '/annual-leave']
+  const ADMIN_NAV_ROUTES = ['/settings', '/roles-permissions']
   const LISTS_ROUTES = ['/lists/sim-cards']
   const isHrActive = HR_ROUTES.some(r => location.pathname.startsWith(r))
+  const isAdminNavActive = isAdmin && ADMIN_NAV_ROUTES.some(r => location.pathname.startsWith(r))
   const isListsActive = LISTS_ROUTES.some(r => location.pathname.startsWith(r))
   const isInfluencersActive = location.pathname.startsWith('/influencers')
   const isManagementActive = location.pathname.startsWith('/management')
@@ -367,6 +369,7 @@ export function Layout() {
   const hasAnyInfluencerAccess = hasAnyModulePermission(user, 'influencers')
   const hasAnyListsAccess = hasAnyModulePermission(user, 'sim_cards')
   const hasAnyManagementAccess = hasAnyModulePermission(user, 'document_expiry')
+  const hasWeeklyReportsAccess = can('weekly_reports', 'view')
   const currentSectionLabel = useMemo(() => {
     if (location.pathname.startsWith('/employees')) return 'Employees'
     if (location.pathname.startsWith('/attendance')) return 'Attendance'
@@ -398,6 +401,9 @@ export function Layout() {
     can('employees', 'view') && { label: 'Employees', to: '/employees' },
     can('attendance', 'view') && { label: 'Attendance', to: '/attendance', end: true },
     (isEmployee || can('leave', 'view')) && { label: 'Annual Leave', to: '/annual-leave' },
+  ].filter(Boolean)
+
+  const adminNavItems = [
     isAdmin && { label: 'Settings', to: '/settings' },
     isAdmin && { label: 'Roles & Permissions', to: '/roles-permissions' },
   ].filter(Boolean)
@@ -410,18 +416,19 @@ export function Layout() {
   ].filter(Boolean)
 
   const REPORTS_ITEMS = [
-    { label: 'Weekly Ads Report', to: '/reports/weekly-report/weekly-ads' },
-  ]
+    hasWeeklyReportsAccess && { label: 'Weekly Ads Report', to: '/reports/weekly-report/weekly-ads' },
+  ].filter(Boolean)
 
   // Flat list of all accessible nav items used by the sidebar search
   const allNavItems = useMemo(() => [
     ...hrItems.map(i => ({ ...i, group: 'HR' })),
+    ...adminNavItems.map(i => ({ ...i, group: 'Admin' })),
     ...listsItems.map(i => ({ ...i, group: 'Lists' })),
     ...INFLUENCER_ITEMS.map(i => ({ ...i, group: 'Influencers' })),
     ...managementItems.map(i => ({ ...i, group: 'Management' })),
     ...REPORTS_ITEMS.map(i => ({ ...i, group: 'Reports' })),
     { label: 'My Account', to: '/account', group: 'Account' },
-  ], [hrItems, listsItems, INFLUENCER_ITEMS, managementItems])
+  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, managementItems, REPORTS_ITEMS])
 
   return (
     <div className="app">
@@ -480,6 +487,27 @@ export function Layout() {
                 </NavLink>
               ))}
             </NavGroup>
+
+            {adminNavItems.length > 0 && (
+              <>
+                <div className="app-sidebar__section-label" role="presentation">
+                  Admin
+                </div>
+                <NavGroup label="Admin" hint="System" isActive={isAdminNavActive} defaultOpen={isAdminNavActive}>
+                  {adminNavItems.map(item => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      className={subLinkClass}
+                      onClick={closeSidebar}
+                    >
+                      <span className="nav-group__link-dot" aria-hidden />
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </NavGroup>
+              </>
+            )}
 
             {hasAnyListsAccess && listsItems.length > 0 && (
               <NavGroup label="Lists" hint="Assets" isActive={isListsActive}>
@@ -561,24 +589,26 @@ export function Layout() {
               </>
             )}
 
-            <>
-              <div className="app-sidebar__section-label" role="presentation">
-                Reports
-              </div>
-              <NavGroup label="Weekly Report" hint="Performance" isActive={isReportsActive}>
-                {REPORTS_ITEMS.map(item => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    className={subLinkClass}
-                    onClick={closeSidebar}
-                  >
-                    <span className="nav-group__link-dot" aria-hidden />
-                    {item.label}
-                  </NavLink>
-                ))}
-              </NavGroup>
-            </>
+            {REPORTS_ITEMS.length > 0 && (
+              <>
+                <div className="app-sidebar__section-label" role="presentation">
+                  Reports
+                </div>
+                <NavGroup label="Weekly Report" hint="Performance" isActive={isReportsActive}>
+                  {REPORTS_ITEMS.map(item => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      className={subLinkClass}
+                      onClick={closeSidebar}
+                    >
+                      <span className="nav-group__link-dot" aria-hidden />
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </NavGroup>
+              </>
+            )}
 
             <div className="app-sidebar__section-label" role="presentation">
               Account

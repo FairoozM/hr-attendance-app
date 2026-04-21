@@ -110,6 +110,14 @@ function requirePermission(module, action) {
     ) {
       return next()
     }
+    // document expiry: write permissions imply view
+    if (
+      action === 'view' &&
+      module === 'document_expiry' &&
+      (mod.add || mod.edit || mod.delete)
+    ) {
+      return next()
+    }
 
     if (mod[action]) return next()
 
