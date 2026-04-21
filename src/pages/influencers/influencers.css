@@ -10,6 +10,31 @@
   min-height: 100%;
 }
 
+/* List view: use more horizontal space and slightly larger table copy */
+.inf-page--list {
+  max-width: min(1920px, 100%);
+  width: 100%;
+  box-sizing: border-box;
+  padding-left: clamp(1rem, 2.5vw, 2.25rem);
+  padding-right: clamp(1rem, 2.5vw, 2.25rem);
+}
+.inf-page--list .inf-table-wrap {
+  width: 100%;
+}
+.inf-page--list .inf-table {
+  font-size: 0.9rem;
+}
+.inf-page--list .inf-table th {
+  font-size: 0.72rem;
+  padding: 0.8rem 1.05rem;
+}
+.inf-page--list .inf-table td {
+  padding: 0.8rem 1.05rem;
+}
+.inf-page--list .inf-table__muted {
+  font-size: 0.875rem;
+}
+
 /* No override — inherits the global dark glassmorphism background */
 
 .inf-page-header {
@@ -684,7 +709,41 @@
   opacity: 0.6;
   color: var(--text-muted);
 }
-.inf-table__actions { display: flex; gap: 0.35rem; align-items: center; }
+.inf-table__actions { display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap; }
+
+/* Serial number column */
+.inf-table__th-sr,
+.inf-table__sr {
+  width: 3.5rem;
+  max-width: 4rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.inf-table__th-sr {
+  text-align: right;
+}
+.inf-table__sr {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.88em;
+}
+
+/* Status badge columns: avoid clipping long labels (table cells are nowrap by default) */
+.inf-table__th--badge-col,
+.inf-table__cell--badge-col {
+  white-space: normal;
+  min-width: 7.5rem;
+  max-width: 12rem;
+  vertical-align: middle;
+}
+.inf-table__cell--badge-col .inf-badge {
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+  line-height: 1.25;
+  align-items: flex-start;
+  word-break: break-word;
+}
 
 /* ── Empty State ── */
 .inf-empty {

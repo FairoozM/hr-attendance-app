@@ -241,6 +241,12 @@ export function InfluencerListPage() {
     return filtered.slice(pageStart, pageStart + PAGE_SIZE)
   }, [useServerPaging, filtered, pageStart])
 
+  /** Index of first row on this page (for Sr. No.) */
+  const serialOffset = useMemo(() => {
+    if (useServerPaging && listMeta) return (listMeta.page - 1) * listMeta.limit
+    return pageStart
+  }, [useServerPaging, listMeta, pageStart])
+
   const totalPages = useServerPaging ? listMeta.totalPages : clientTotalPages
   const currentPageDisplay = useServerPaging ? listMeta.page : currentPage
   const showPagination =
@@ -265,7 +271,7 @@ export function InfluencerListPage() {
 
   if (loading && influencers.length === 0 && !loadError) {
     return (
-      <div className="inf-page">
+      <div className="inf-page inf-page--list">
         <p className="inf-page-subtitle" style={{ marginTop: '2rem' }}>
           Loading influencers…
         </p>
@@ -279,7 +285,7 @@ export function InfluencerListPage() {
       : null
 
   return (
-    <div className="inf-page">
+    <div className="inf-page inf-page--list">
       {loadError ? (
         <div
           className="inf-page-subtitle"
@@ -445,6 +451,7 @@ export function InfluencerListPage() {
           <table className="inf-table">
             <thead>
               <tr>
+                <th className="inf-table__th-sr">Sr. No.</th>
                 <th>Name</th>
                 <th>Nationality</th>
                 <th>Instagram</th>
@@ -453,17 +460,18 @@ export function InfluencerListPage() {
                 <th>Followers</th>
                 <th>Package</th>
                 <th>Insights</th>
-                <th>Stage</th>
-                <th>Approval</th>
-                <th>Payment</th>
+                <th className="inf-table__th--badge-col">Stage</th>
+                <th className="inf-table__th--badge-col">Approval</th>
+                <th className="inf-table__th--badge-col">Payment</th>
                 <th>Shoot Date</th>
                 <th>Assigned</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {pageRows.map(inf => (
+              {pageRows.map((inf, index) => (
                 <tr key={inf.id} onClick={() => navigate(`/influencers/${inf.id}`)}>
+                  <td className="inf-table__sr">{serialOffset + index + 1}</td>
                   <td>
                     <div className="inf-table__name">{inf.name}</div>
                     <div className="inf-table__muted">{inf.niche}</div>
@@ -489,17 +497,17 @@ export function InfluencerListPage() {
                       {inf.insightsReceived ? 'Yes' : 'No'}
                     </span>
                   </td>
-                  <td>
+                  <td className="inf-table__cell--badge-col">
                     <span className={`inf-badge inf-badge--dot ${workflowBadgeClass(inf.workflowStatus)}`}>
                       {inf.workflowStatus}
                     </span>
                   </td>
-                  <td>
+                  <td className="inf-table__cell--badge-col">
                     <span className={`inf-badge inf-badge--dot ${approvalBadgeClass(inf.approvalStatus)}`}>
                       {inf.approvalStatus}
                     </span>
                   </td>
-                  <td>
+                  <td className="inf-table__cell--badge-col">
                     <span className={`inf-badge inf-badge--dot ${paymentBadgeClass(inf.paymentStatus)}`}>
                       {inf.paymentStatus}
                     </span>
