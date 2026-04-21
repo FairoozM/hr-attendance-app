@@ -567,7 +567,7 @@ export function InfluencerListPage() {
               <tr>
                 <th className="inf-table__th-sr">Sr. No.</th>
                 <th className="inf-table__col inf-table__col--name">Name</th>
-                <th className="inf-table__col inf-table__col--hide-lg">Nationality</th>
+                <th className="inf-table__col inf-table__col--hide-lg inf-table__col--nationality">Nationality</th>
                 <th className="inf-table__col inf-table__col--ig">Instagram</th>
                 <th className="inf-table__col inf-table__col--mobile">Mobile</th>
                 <th className="inf-table__col inf-table__col--hide-lg">Based In</th>
@@ -587,7 +587,7 @@ export function InfluencerListPage() {
                     <div className="inf-table__name">{inf.name}</div>
                     {inf.niche ? <div className="inf-table__sub">{inf.niche}</div> : null}
                   </td>
-                  <td className="inf-table__col inf-table__col--hide-lg"><span className="inf-table__muted">{inf.nationality || '—'}</span></td>
+                  <td className="inf-table__col inf-table__col--hide-lg inf-table__col--nationality"><span className="inf-table__muted">{inf.nationality || '—'}</span></td>
                   <td className="inf-table__col inf-table__col--ig"><InstagramCell handle={inf.instagram?.handle} url={inf.instagram?.url} storedPicUrl={inf.instagram?.picUrl} /></td>
                   <td className="inf-table__col inf-table__col--mobile">
                     <span className="inf-table__cell-icon-row">
