@@ -3,6 +3,8 @@
   min-height: 100vh;
   display: block;
   padding: 1rem;
+  /* Vertical offset so rail sidebar clears the sticky topbar (hamburger stays in the top bar). */
+  --app-topbar-stack: 5.35rem;
 }
 
 /* Aurora orbs: use radial-gradient soft-stops instead of filter:blur
@@ -77,6 +79,11 @@
 
 .app-sidebar--rail {
   width: min(5.6rem, calc(100vw - 1.2rem));
+}
+
+/* Dock rail below the top bar so nav + brand sit under the hamburger row (Noon-style). */
+.app-sidebar--rail.app-sidebar--open {
+  top: calc(1rem + var(--app-topbar-stack));
 }
 
 .app-sidebar__glow {
@@ -411,6 +418,54 @@
   display: flex;
   flex-direction: column;
   transition: padding-left 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.app-breadcrumb-bar {
+  flex-shrink: 0;
+  padding: 0.15rem 0 0.55rem;
+  margin: 0;
+}
+
+.app-breadcrumb-bar__list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.45;
+}
+
+.app-breadcrumb-bar__item {
+  display: inline-flex;
+  align-items: center;
+}
+
+.app-breadcrumb-bar__item + .app-breadcrumb-bar__item::before {
+  content: '/';
+  margin: 0 0.45rem;
+  color: var(--theme-text-dim);
+  font-weight: 600;
+  user-select: none;
+}
+
+.app-breadcrumb-bar__link {
+  color: var(--theme-text-dim);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.app-breadcrumb-bar__link:hover {
+  color: rgba(139, 92, 246, 0.95);
+}
+
+.app-breadcrumb-bar__current {
+  color: var(--text);
+  font-weight: 700;
 }
 
 /* Rail mode: slim sidebar stays docked; main content stays sharp and usable (no overlay blur). */
@@ -1097,6 +1152,7 @@
 @media (max-width: 760px) {
   .app {
     padding: 0.7rem;
+    --app-topbar-stack: 10.85rem;
   }
 
   .app-topbar {
