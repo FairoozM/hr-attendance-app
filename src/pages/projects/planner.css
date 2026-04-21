@@ -2169,7 +2169,7 @@
 /* ── Column header ───────────────────────────────────────────────── */
 .tbl-col-header {
   display: grid;
-  grid-template-columns: 2rem 1fr 9rem 7rem 7rem 6rem 4rem;
+  grid-template-columns: 1.25rem 2rem 1fr 9rem 7rem 7rem 6rem 4rem;
   align-items: stretch;
   padding: 0;
   min-height: 2rem;
@@ -2200,7 +2200,7 @@
 /* ── Task row ────────────────────────────────────────────────────── */
 .tbl-row {
   display: grid;
-  grid-template-columns: 2rem 1fr 9rem 7rem 7rem 6rem 4rem;
+  grid-template-columns: 1.25rem 2rem 1fr 9rem 7rem 7rem 6rem 4rem;
   align-items: stretch;
   padding: 0;
   min-height: 2.6rem;
@@ -2245,6 +2245,54 @@
   display: flex;
   align-items: center;
   min-width: 0;
+}
+
+.tbl-col--grip {
+  justify-content: center;
+  padding: 0.25rem 0.1rem;
+  align-self: stretch;
+}
+
+.tbl-drag-handle {
+  display: grid;
+  grid-template-columns: repeat(2, 3px);
+  grid-template-rows: repeat(3, 3px);
+  gap: 2px 3px;
+  align-content: center;
+  justify-content: center;
+  cursor: grab;
+  color: var(--theme-text-dim);
+  opacity: 0.5;
+  transition: opacity 0.12s;
+}
+
+.tbl-row:hover .tbl-drag-handle {
+  opacity: 0.85;
+}
+
+.tbl-drag-handle:active {
+  cursor: grabbing;
+}
+
+.tbl-drag-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.tbl-row--dragging {
+  opacity: 0.45;
+}
+
+.tbl-drop-tail {
+  min-height: 10px;
+  border-bottom: 1px solid var(--tbl-grid);
+  background: transparent;
+}
+
+.tbl-drop-tail:hover {
+  background: rgba(99, 102, 241, 0.06);
 }
 
 .tbl-col--check {
@@ -2633,7 +2681,7 @@
 /* ── Add task row (same column grid + grid lines) ────────────────── */
 .tbl-add-row {
   display: grid;
-  grid-template-columns: 2rem 1fr 9rem 7rem 7rem 6rem 4rem;
+  grid-template-columns: 1.25rem 2rem 1fr 9rem 7rem 7rem 6rem 4rem;
   align-items: stretch;
   padding: 0;
   min-height: 2.6rem;
@@ -2737,7 +2785,7 @@
   .tbl-col-header,
   .tbl-row,
   .tbl-add-row {
-    grid-template-columns: 2rem 1fr 7rem 5.5rem 5rem;
+    grid-template-columns: 1.25rem 2rem 1fr 7rem 5.5rem 5rem;
   }
   .tbl-col--status,
   .tbl-col--score {
@@ -2749,7 +2797,7 @@
   .tbl-col-header,
   .tbl-row,
   .tbl-add-row {
-    grid-template-columns: 2rem 1fr 6rem 5rem;
+    grid-template-columns: 1.25rem 2rem 1fr 6rem 5rem;
   }
   .tbl-col--priority {
     display: none;

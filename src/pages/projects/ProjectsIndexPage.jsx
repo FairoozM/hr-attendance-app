@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { useAIPlanner } from '../../contexts/AIPlannerContext'
 import { AIAssistPanel } from '../../components/planner/AIAssistPanel'
@@ -36,6 +36,24 @@ const INLINE_STATUS_OPTIONS = [
   { value: 'blocked', label: 'Blocked' },
   { value: 'done', label: 'Done' },
 ]
+
+/** Enriched tasks in manual listOrder when set; otherwise match AI priority sort. */
+function orderTasksForListSection(rawInSection, enrichedById) {
+  const hasAny = rawInSection.some((t) => t.listOrder != null)
+  const items = rawInSection
+    .map((r) => {
+      const e = enrichedById[r.id]
+      if (!e) return null
+      return { enriched: e, raw: r }
+    })
+    .filter(Boolean)
+  if (!hasAny) {
+    items.sort((a, b) => (b.enriched.priorityScore ?? 0) - (a.enriched.priorityScore ?? 0))
+  } else {
+    items.sort((a, b) => (a.raw.listOrder ?? 0) - (b.raw.listOrder ?? 0))
+  }
+  return items.map((x) => x.enriched)
+}
 
 // ── Quick Capture ─────────────────────────────────────────────────────────────
 function QuickCapture() {
@@ -118,6 +136,7 @@ function QuickCapture() {
 function TaskTableHeader() {
   return (
     <div className="tbl-col-header" aria-hidden>
+      <div className="tbl-col tbl-col--grip" />
       <div className="tbl-col tbl-col--check" />
       <div className="tbl-col tbl-col--name">Task name</div>
       <div className="tbl-col tbl-col--cat">Category</div>
@@ -130,7 +149,14 @@ function TaskTableHeader() {
 }
 
 // ── Task row (spreadsheet-style inline edit, no side drawer) ────────────────
-function TaskRow({ task, onOpenDatePicker }) {
+function TaskRow({
+  task,
+  sectionId,
+  onOpenDatePicker,
+  reorderTasksInSection,
+  draggingId,
+  onDragState,
+}) {
   const { markDone, markTodo, updateTask, deleteTask, setActiveTaskId, activeTaskId } = useAIPlanner()
   const detailsOpen = task.id === activeTaskId
   const [titleDraft, setTitleDraft] = useState(task.title || '')
@@ -179,12 +205,43 @@ function TaskRow({ task, onOpenDatePicker }) {
     if (t !== (task.title || '')) updateTask(task.id, { title: t })
   }
 
+  const isDragging = draggingId === task.id
+
   return (
     <div
-      className={`tbl-row ${task.status === 'done' ? 'done' : ''} ${task.status === 'blocked' ? 'blocked' : ''} ${task._hasUnresolvedDeps ? 'dep-blocked' : ''} ${detailsOpen ? 'tbl-row--details-open' : ''}`}
+      className={`tbl-row ${task.status === 'done' ? 'done' : ''} ${task.status === 'blocked' ? 'blocked' : ''} ${task._hasUnresolvedDeps ? 'dep-blocked' : ''} ${detailsOpen ? 'tbl-row--details-open' : ''} ${isDragging ? 'tbl-row--dragging' : ''}`}
       role="row"
       data-task-id={task.id}
+      draggable
+      onDragStart={(e) => {
+        if (!e.target.closest('.tbl-drag-handle')) {
+          e.preventDefault()
+          return
+        }
+        e.dataTransfer.setData('text/plain', task.id)
+        e.dataTransfer.effectAllowed = 'move'
+        onDragState?.(task.id)
+      }}
+      onDragEnd={() => onDragState?.(null)}
+      onDragOver={(e) => {
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+      }}
+      onDrop={(e) => {
+        e.preventDefault()
+        const draggedId = e.dataTransfer.getData('text/plain')
+        if (!draggedId || draggedId === task.id) return
+        reorderTasksInSection(sectionId, draggedId, task.id)
+        onDragState?.(null)
+      }}
     >
+      <div className="tbl-col tbl-col--grip" aria-hidden>
+        <span className="tbl-drag-handle" title="Drag to reorder" aria-label="Drag to reorder">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <span key={i} className="tbl-drag-dot" />
+          ))}
+        </span>
+      </div>
       <div className="tbl-col tbl-col--check">
         <button
           type="button"
@@ -374,6 +431,7 @@ function InlineAddTask({ sectionId, onDone, onAdded }) {
 
   return (
     <div className="tbl-add-row">
+      <div className="tbl-col tbl-col--grip tbl-col--pad" aria-hidden />
       <div className="tbl-col tbl-col--check">
         <div className="tbl-check-placeholder" />
       </div>
@@ -526,11 +584,21 @@ function SectionHeader({ section, collapsed, onToggle, taskCount, onAddTask }) {
 }
 
 // ── Section block (table) ──────────────────────────────────────────────────────
-function SectionBlock({ section, tasks, statusFilter, catFilter, onOpenDatePicker, onAfterAddTask }) {
+function SectionBlock({
+  section,
+  sectionTasksOrdered,
+  statusFilter,
+  catFilter,
+  onOpenDatePicker,
+  onAfterAddTask,
+  reorderTasksInSection,
+}) {
   const [collapsed, setCollapsed] = useState(false)
   const [adding, setAdding]       = useState(false)
+  const [draggingId, setDraggingId] = useState(null)
+  const sectionId = section?.id ?? null
 
-  const filtered = tasks.filter((t) => {
+  const filtered = sectionTasksOrdered.filter((t) => {
     if (statusFilter !== 'all' && t.status !== statusFilter) return false
     if (catFilter && t.category?.id !== catFilter) return false
     return true
@@ -553,9 +621,34 @@ function SectionBlock({ section, tasks, statusFilter, catFilter, onOpenDatePicke
 
           {/* Task rows */}
           {filtered.length > 0
-            ? filtered.map((task) => (
-                <TaskRow key={task.id} task={task} onOpenDatePicker={onOpenDatePicker} />
-              ))
+            ? (
+              <>
+                {filtered.map((task) => (
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    sectionId={sectionId}
+                    onOpenDatePicker={onOpenDatePicker}
+                    reorderTasksInSection={reorderTasksInSection}
+                    draggingId={draggingId}
+                    onDragState={setDraggingId}
+                  />
+                ))}
+                <div
+                  className="tbl-drop-tail"
+                  onDragOver={(e) => {
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = 'move'
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    const id = e.dataTransfer.getData('text/plain')
+                    if (id) reorderTasksInSection(sectionId, id, null)
+                    setDraggingId(null)
+                  }}
+                />
+              </>
+            )
             : <div className="tbl-empty">No tasks — add one below</div>
           }
 
@@ -596,7 +689,7 @@ const CAT_FILTER_OPTIONS = [
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function ProjectsIndexPage() {
-  const { tasks, sections, addSection, updateTask } = useAIPlanner()
+  const { tasks, rawTasks, sections, addSection, updateTask, reorderTasksInSection } = useAIPlanner()
   const [statusFilter, setStatusFilter] = useState('all')
   const [catFilter, setCatFilter]       = useState('')
   const [datePicker, setDatePicker]     = useState(null)
@@ -607,9 +700,10 @@ export default function ProjectsIndexPage() {
 
   const sortedSections = [...sections].sort((a, b) => a.order - b.order)
   const sectionIds     = new Set(sections.map((s) => s.id))
-  const unsectioned    = tasks.filter((t) => !t.sectionId || !sectionIds.has(t.sectionId))
 
   const datePickerTask = datePicker ? tasks.find((t) => t.id === datePicker.taskId) : null
+
+  const enrichedById = useMemo(() => Object.fromEntries(tasks.map((t) => [t.id, t])), [tasks])
 
   const afterInlineAdd = () => {
     setCatFilter('')
@@ -669,22 +763,30 @@ export default function ProjectsIndexPage() {
             <SectionBlock
               key={sec.id}
               section={sec}
-              tasks={tasks.filter((t) => t.sectionId === sec.id)}
+              sectionTasksOrdered={orderTasksForListSection(
+                rawTasks.filter((t) => (t.sectionId ?? null) === (sec.id ?? null)),
+                enrichedById
+              )}
               statusFilter={statusFilter}
               catFilter={catFilter}
               onOpenDatePicker={(taskId, payload) => setDatePicker({ taskId, ...payload })}
               onAfterAddTask={afterInlineAdd}
+              reorderTasksInSection={reorderTasksInSection}
             />
           ))}
 
           {/* No-section bucket */}
           <SectionBlock
             section={{ id: null, title: 'No Section', color: '#94a3b8', order: 99999 }}
-            tasks={unsectioned}
+            sectionTasksOrdered={orderTasksForListSection(
+              rawTasks.filter((t) => !t.sectionId || !sectionIds.has(t.sectionId)),
+              enrichedById
+            )}
             statusFilter={statusFilter}
             catFilter={catFilter}
             onOpenDatePicker={(taskId, payload) => setDatePicker({ taskId, ...payload })}
             onAfterAddTask={afterInlineAdd}
+            reorderTasksInSection={reorderTasksInSection}
           />
         </div>
 

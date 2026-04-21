@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Bookmark, ChevronLeft, ChevronRight, X, Clock, RefreshCw } from 'lucide-react'
 
@@ -76,8 +76,18 @@ function compareIso(a, b) {
  * Asana-like date popover: range selection, US date input, recurrence, clear.
  * Persists dueDate (end), optional dueDateStart, recurrence on task.
  */
-export function PlannerDatePopover({ task, anchorRect, onClose, onApply }) {
+const POPOVER_MAX_HEIGHT = 520
+const POPOVER_WIDTH = 300
+const POPOVER_GAP = 8
+
+export function PlannerDatePopover({ task, anchorRect, openScrollY, onClose, onApply }) {
   const wrapRef = useRef(null)
+
+  useLayoutEffect(() => {
+    if (typeof openScrollY === 'number') {
+      window.scrollTo(0, openScrollY)
+    }
+  }, [openScrollY, task?.id])
 
   const initial = useMemo(() => {
     const end = task?.dueDate || null
@@ -216,10 +226,21 @@ export function PlannerDatePopover({ task, anchorRect, onClose, onApply }) {
 
   const pos = useMemo(() => {
     if (!anchorRect) return { top: 80, left: 80 }
-    const w = 300
-    const left = Math.max(8, Math.min(anchorRect.left, window.innerWidth - w - 8))
-    const top = Math.min(anchorRect.bottom + 8, window.innerHeight - 420)
-    return { top: Math.max(8, top), left }
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    const maxH = Math.min(POPOVER_MAX_HEIGHT, vh * 0.9)
+    const w = Math.min(POPOVER_WIDTH, vw - 16)
+    const left = Math.max(8, Math.min(anchorRect.left, vw - w - 8))
+    const pad = 8
+    let top
+    if (anchorRect.bottom + POPOVER_GAP + maxH <= vh - pad) {
+      top = anchorRect.bottom + POPOVER_GAP
+    } else if (anchorRect.top - POPOVER_GAP - maxH >= pad) {
+      top = anchorRect.top - POPOVER_GAP - maxH
+    } else {
+      top = Math.max(pad, Math.min(anchorRect.bottom + POPOVER_GAP, vh - maxH - pad))
+    }
+    return { top, left }
   }, [anchorRect])
 
   const monthLabel = new Date(viewYear, viewMonth, 1).toLocaleString('en-US', {

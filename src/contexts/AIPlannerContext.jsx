@@ -296,6 +296,7 @@ export function AIPlannerProvider({ children }) {
     const id = Date.now().toString()
     const category   = detectCategory(data.title, data.description)
     const energyType = detectEnergyType(data.title)
+    const sid = data.sectionId ?? null
     const newTask = {
       id,
       title: '',
@@ -313,7 +314,15 @@ export function AIPlannerProvider({ children }) {
       energyType,
       createdAt: new Date().toISOString(),
     }
-    setRawTasks((prev) => [newTask, ...prev])
+    setRawTasks((prev) => {
+      const inSec = prev.filter((t) => (t.sectionId ?? null) === sid)
+      const minL =
+        inSec.length > 0
+          ? Math.min(...inSec.map((t) => (t.listOrder != null ? t.listOrder : Number.MAX_SAFE_INTEGER)))
+          : 1_000_000
+      newTask.listOrder = minL - 1000
+      return [newTask, ...prev]
+    })
     return newTask
   }, [])
 
@@ -498,6 +507,35 @@ export function AIPlannerProvider({ children }) {
     )
   }, [])
 
+  /** Manual list order within a section (AI Task Planner table). */
+  const reorderTasksInSection = useCallback((sectionId, draggedId, beforeTaskId) => {
+    const sid = sectionId ?? null
+    setRawTasks((prev) => {
+      const dragged = prev.find((t) => t.id === draggedId)
+      if (!dragged || (dragged.sectionId ?? null) !== sid) return prev
+
+      const inSection = prev.filter((t) => (t.sectionId ?? null) === sid)
+      if (!inSection.some((t) => t.id === draggedId)) return prev
+
+      let ordered = [...inSection].sort((a, b) => (a.listOrder ?? 0) - (b.listOrder ?? 0))
+      let ids = ordered.map((t) => t.id).filter((id) => id !== draggedId)
+
+      if (beforeTaskId === null || beforeTaskId === '__end__') {
+        ids.push(draggedId)
+      } else {
+        const insertAt = ids.indexOf(beforeTaskId)
+        if (insertAt === -1) return prev
+        ids.splice(insertAt, 0, draggedId)
+      }
+
+      const orderMap = Object.fromEntries(ids.map((id, i) => [id, i * 1000]))
+      return prev.map((t) => {
+        if (orderMap[t.id] !== undefined) return { ...t, listOrder: orderMap[t.id] }
+        return t
+      })
+    })
+  }, [])
+
   // ── Filtered views ────────────────────────────────────────────────────
 
   const todoTasks    = useMemo(() => tasks.filter((t) => t.status === 'todo'),    [tasks])
@@ -544,6 +582,7 @@ export function AIPlannerProvider({ children }) {
       updateSection,
       deleteSection,
       moveTaskToSection,
+      reorderTasksInSection,
       addDependency,
       removeDependency,
     }}>
