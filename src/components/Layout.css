@@ -5,6 +5,8 @@
   padding: 1rem;
   /* Vertical offset so rail sidebar clears the sticky topbar (hamburger stays in the top bar). */
   --app-topbar-stack: 5.35rem;
+  /* Space between bottom of sticky header and top of rail panel (avoid radius / shadow overlap). */
+  --app-rail-below-topbar: 0.75rem;
 }
 
 /* Aurora orbs: use radial-gradient soft-stops instead of filter:blur
@@ -83,7 +85,9 @@
 
 /* Dock rail below the top bar so nav + brand sit under the hamburger row (Noon-style). */
 .app-sidebar--rail.app-sidebar--open {
-  top: calc(1rem + var(--app-topbar-stack));
+  top: calc(1rem + var(--app-topbar-stack) + var(--app-rail-below-topbar));
+  /* Stay under the sticky header so large header radius does not paint over the rail */
+  z-index: 55;
 }
 
 .app-sidebar__glow {
@@ -470,7 +474,7 @@
   box-shadow: var(--glass-shadow-panel);
   position: sticky;
   top: 1rem;
-  z-index: 60;
+  z-index: 70;
   /* NOTE: NO will-change or transform here — those create a stacking context
      that breaks position:sticky on any descendant in the page content below */
 }
