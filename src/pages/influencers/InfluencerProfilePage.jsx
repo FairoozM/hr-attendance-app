@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { resolveApiUrl } from '../../api/client'
 import { useInfluencers, WORKFLOW_STAGES, APPROVAL_STATUSES, PAYMENT_STATUSES } from '../../contexts/InfluencersContext'
 import { useAuth, hasPermission } from '../../contexts/AuthContext'
@@ -155,10 +156,50 @@ export function InfluencerProfilePage() {
     setShowStatusModal(false)
   }
 
+  const { profileIndex, prevId, nextId } = useMemo(() => {
+    const i = influencers.findIndex((x) => String(x.id) === String(id))
+    if (i < 0) return { profileIndex: -1, prevId: null, nextId: null }
+    return {
+      profileIndex: i,
+      prevId: i > 0 ? influencers[i - 1].id : null,
+      nextId: i < influencers.length - 1 ? influencers[i + 1].id : null,
+    }
+  }, [influencers, id])
+
   return (
     <div className="inf-page">
       {/* Hero */}
       <div className="inf-hero">
+        <div className="inf-hero__pager">
+          <button
+            type="button"
+            className="inf-hero__pager-btn"
+            disabled={!prevId}
+            onClick={() => prevId && navigate(`/influencers/${prevId}`)}
+            aria-label="Previous influencer"
+          >
+            <ChevronLeft size={18} strokeWidth={2.25} aria-hidden />
+            Previous
+          </button>
+          {profileIndex >= 0 && influencers.length > 0 ? (
+            <span className="inf-hero__pager-meta">
+              {profileIndex + 1} <span className="inf-hero__pager-sep">/</span> {influencers.length}
+            </span>
+          ) : (
+            <span className="inf-hero__pager-meta" />
+          )}
+          <button
+            type="button"
+            className="inf-hero__pager-btn"
+            disabled={!nextId}
+            onClick={() => nextId && navigate(`/influencers/${nextId}`)}
+            aria-label="Next influencer"
+          >
+            Next
+            <ChevronRight size={18} strokeWidth={2.25} aria-hidden />
+          </button>
+        </div>
+        <div className="inf-hero__main-row">
         <div className="inf-hero__left">
           <div className="inf-hero__name">{inf.name}</div>
           <div className="inf-hero__handle">
@@ -214,6 +255,7 @@ export function InfluencerProfilePage() {
               🗑 Delete
             </button>
           )}
+        </div>
         </div>
       </div>
 
