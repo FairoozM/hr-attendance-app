@@ -576,7 +576,6 @@ export function InfluencerListPage() {
                 <th className="inf-table__col inf-table__col--tight">Insights</th>
                 <th className="inf-table__th--badge-col inf-table__col--stage">Stage</th>
                 <th className="inf-table__th--badge-col inf-table__col--tight">Payment</th>
-                <th className="inf-table__col inf-table__col--hide-md inf-table__col--assign">Assigned</th>
                 <th className="inf-table__col inf-table__col--actions">Actions</th>
               </tr>
             </thead>
@@ -625,7 +624,6 @@ export function InfluencerListPage() {
                       {inf.paymentStatus}
                     </span>
                   </td>
-                  <td className="inf-table__col inf-table__col--hide-md inf-table__col--assign"><span className="inf-table__muted">{inf.assignedTo || '—'}</span></td>
                   <td className="inf-table__col inf-table__col--actions">
                     <InfluencerRowActions
                       inf={inf}
