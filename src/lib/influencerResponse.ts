@@ -1,9 +1,11 @@
+import type { Influencer } from './influencers'
+
 export type InfluencerResponse =
-  | any[]
+  | Influencer[]
   | {
-      data?: any[]
-      influencers?: any[]
-      items?: any[]
+      data?: Influencer[]
+      influencers?: Influencer[]
+      items?: Influencer[]
       total?: number
       totalPages?: number
       page?: number
@@ -11,7 +13,7 @@ export type InfluencerResponse =
     }
 
 export type NormalizedInfluencerResponse = {
-  items: any[]
+  items: Influencer[]
   total: number
   totalPages: number
   page: number

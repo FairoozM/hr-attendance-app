@@ -29,6 +29,7 @@ const EMPTY_FORM = {
   bankName: '', accountTitle: '', iban: '', paymentMethod: '', paymentNotes: '',
   workflowStatus: 'New Lead', approvalStatus: 'Pending', paymentStatus: 'Not Requested', assignedTo: '',
   shootDate: '', shootTime: '', shootLocation: '', campaign: '',
+  agreementStatus: 'Not Generated',
 }
 
 const STEPS = [

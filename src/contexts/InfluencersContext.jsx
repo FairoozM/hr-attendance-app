@@ -75,18 +75,14 @@ function applyFetchFailureState(setInfluencers, setListMeta, setLoadError, errMe
   setLoadError(errMessage)
   const legacy = loadLegacyLocal()
   const prev = influencersRefGlobal.current
-  let fallbackSource = 'none_empty'
-  if (prev.length > 0) {
-    fallbackSource = 'cached_list_state'
-  } else if (Array.isArray(legacy) && legacy.length > 0) {
-    fallbackSource = 'legacy_localStorage'
+  if (prev.length > 0) return
+  if (Array.isArray(legacy) && legacy.length > 0) {
     setInfluencers(legacy)
     setListMeta(listMetaForFullClientList(legacy))
-  } else {
-    setInfluencers([])
-    setListMeta(listMetaForFullClientList([]))
+    return
   }
-  console.log('API failure fallback used:', fallbackSource)
+  setInfluencers([])
+  setListMeta(listMetaForFullClientList([]))
 }
 
 export const WORKFLOW_STAGES = [
@@ -142,9 +138,7 @@ export function InfluencersProvider({ children }) {
         : undefined
 
     const raw = await fetchInfluencersRaw(fetchOpts)
-    console.log('Influencer API raw response:', raw)
     const normalized = normalizeInfluencerResponse(raw)
-    console.log('Normalized influencer response:', normalized)
 
     if (!normalized.isFullListClientPaging) {
       console.warn(
@@ -163,7 +157,6 @@ export function InfluencersProvider({ children }) {
         isFullListClientPaging: false,
       })
       setLoadError(null)
-      console.log('API failure fallback used:', 'none')
       return normalized.items
     }
 
@@ -203,7 +196,6 @@ export function InfluencersProvider({ children }) {
     setInfluencers(list)
     setListMeta(listMetaForFullClientList(list))
     setLoadError(loadErr)
-    if (!loadErr) console.log('API failure fallback used:', 'none')
     return list
   }, [])
 
@@ -304,6 +296,7 @@ export function InfluencersProvider({ children }) {
       workflowStatus: data.workflowStatus || 'New Lead',
       approvalStatus: data.approvalStatus || 'Pending',
       paymentStatus: data.paymentStatus || 'Not Requested',
+      agreementStatus: data.agreementStatus || 'Not Generated',
       agreementGenerated: false, signedByInfluencer: false, signedByCompany: false,
       timeline: [{ event: 'Created', date: new Date().toISOString().split('T')[0], note: 'Added to system' }],
       createdAt: new Date().toISOString(),

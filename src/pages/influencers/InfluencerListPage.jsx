@@ -6,12 +6,13 @@ import { AddInfluencerPage } from './AddInfluencerPage'
 import { resolveApiUrl } from '../../api/client'
 import './influencers.css'
 
-const HIDDEN_HANDLES = ['queenslifeindubai']
+/** Instagram handles to hide from avatar column (privacy / internal). */
+const INSTAGRAM_HIDDEN_HANDLES = ['queenslifeindubai']
 
 function InstagramCell({ handle, url, storedPicUrl }) {
   const [imgError, setImgError] = useState(false)
   const raw = handle ? handle.replace(/^@/, '').trim() : ''
-  if (!raw || HIDDEN_HANDLES.includes(raw.toLowerCase())) return <span className="inf-table__muted">—</span>
+  if (!raw || INSTAGRAM_HIDDEN_HANDLES.includes(raw.toLowerCase())) return <span className="inf-table__muted">—</span>
   const profileUrl = url || `https://www.instagram.com/${raw}/`
   const avatarSrc = storedPicUrl || resolveApiUrl(`/api/instagram-proxy/avatar/${encodeURIComponent(raw)}`)
   return (
@@ -66,13 +67,38 @@ function paymentBadgeClass(status) {
   return map[status] || 'inf-badge--not-requested'
 }
 
+function parseFollowersCount(value) {
+  if (value == null || value === '') return 0
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  const n = parseInt(String(value).replace(/[^0-9]/g, ''), 10)
+  return Number.isNaN(n) ? 0 : n
+}
+
+function formatFollowersCell(value) {
+  const n = parseFollowersCount(value)
+  if (n <= 0 && (value == null || value === '')) return '—'
+  if (n > 0) return n.toLocaleString()
+  return String(value).trim() || '—'
+}
+
 const SORT_OPTIONS = [
   { value: 'newest', label: 'Newest First' },
   { value: 'updated', label: 'Last Updated' },
   { value: 'shoot', label: 'Shoot Date' },
   { value: 'approved', label: 'Approved' },
   { value: 'payment', label: 'Payment Pending' },
+  { value: 'followers-desc', label: 'Followers (high → low)' },
+  { value: 'followers-asc', label: 'Followers (low → high)' },
 ]
+
+/** Quick chip row: all | active | rejected | payment | approved */
+const QUICK_CHIP = {
+  ALL: 'all',
+  ACTIVE: 'active',
+  REJECTED: 'rejected',
+  PAYMENT: 'payment',
+  APPROVED: 'approved',
+}
 const PAGE_SIZE = 10
 
 export function InfluencerListPage() {
@@ -84,7 +110,6 @@ export function InfluencerListPage() {
     retryLoad,
     refetchInfluencerPage,
     updateInfluencer,
-    updateWorkflowStatus,
     deleteInfluencer,
   } = useInfluencers()
   const navigate = useNavigate()
@@ -98,7 +123,9 @@ export function InfluencerListPage() {
   const [filterApproval, setFilterApproval] = useState('All')
   const [filterPayment, setFilterPayment] = useState('All')
   const [filterBasedIn, setFilterBasedIn] = useState('All')
+  const [filterNationality, setFilterNationality] = useState('All')
   const [filterCollab, setFilterCollab] = useState('All')
+  const [quickChip, setQuickChip] = useState(QUICK_CHIP.ALL)
   const [sortBy, setSortBy] = useState('newest')
   const [searchParams, setSearchParams] = useSearchParams()
   const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10))
@@ -113,16 +140,39 @@ export function InfluencerListPage() {
   const useServerPaging = listMeta && !listMeta.isFullListClientPaging
 
   const cities = useMemo(() => ['All', ...new Set(influencers.map(i => i.basedIn).filter(Boolean))], [influencers])
+  const nationalities = useMemo(() => ['All', ...new Set(influencers.map(i => i.nationality).filter(Boolean))], [influencers])
   const collabTypes = useMemo(() => ['All', ...new Set(influencers.map(i => i.collaborationType).filter(Boolean))], [influencers])
 
   const filtered = useMemo(() => {
-    let list = influencers.filter(inf => {
+    let list = influencers.filter((inf) => {
+      if (quickChip === QUICK_CHIP.ACTIVE) {
+        if (inf.approvalStatus === 'Rejected' || inf.workflowStatus === 'Closed') return false
+      } else if (quickChip === QUICK_CHIP.REJECTED) {
+        if (inf.approvalStatus !== 'Rejected') return false
+      } else if (quickChip === QUICK_CHIP.PAYMENT) {
+        if (inf.paymentStatus !== 'Ready for Payment') return false
+      } else if (quickChip === QUICK_CHIP.APPROVED) {
+        if (inf.approvalStatus !== 'Approved') return false
+      }
+
       const q = search.toLowerCase()
-      if (q && ![inf.name, inf.instagram?.handle, inf.mobile, inf.whatsapp].some(v => v?.toLowerCase().includes(q))) return false
+      if (
+        q
+        && ![
+          inf.name,
+          inf.instagram?.handle,
+          inf.mobile,
+          inf.whatsapp,
+          inf.nationality,
+        ].some((v) => v?.toLowerCase().includes(q))
+      ) {
+        return false
+      }
       if (filterWorkflow !== 'All' && inf.workflowStatus !== filterWorkflow) return false
       if (filterApproval !== 'All' && inf.approvalStatus !== filterApproval) return false
       if (filterPayment !== 'All' && inf.paymentStatus !== filterPayment) return false
       if (filterBasedIn !== 'All' && inf.basedIn !== filterBasedIn) return false
+      if (filterNationality !== 'All' && inf.nationality !== filterNationality) return false
       if (filterCollab !== 'All' && inf.collaborationType !== filterCollab) return false
       return true
     })
@@ -132,9 +182,14 @@ export function InfluencerListPage() {
     else if (sortBy === 'shoot') list = [...list].sort((a, b) => (a.shootDate || 'z') < (b.shootDate || 'z') ? -1 : 1)
     else if (sortBy === 'approved') list = [...list].filter(i => i.approvalStatus === 'Approved').concat(list.filter(i => i.approvalStatus !== 'Approved'))
     else if (sortBy === 'payment') list = [...list].sort((a, b) => (a.paymentStatus === 'Ready for Payment' ? -1 : 1))
+    else if (sortBy === 'followers-desc') {
+      list = [...list].sort((a, b) => parseFollowersCount(b.followersCount) - parseFollowersCount(a.followersCount))
+    } else if (sortBy === 'followers-asc') {
+      list = [...list].sort((a, b) => parseFollowersCount(a.followersCount) - parseFollowersCount(b.followersCount))
+    }
 
     return list
-  }, [influencers, search, filterWorkflow, filterApproval, filterPayment, filterBasedIn, filterCollab, sortBy])
+  }, [influencers, search, filterWorkflow, filterApproval, filterPayment, filterBasedIn, filterNationality, filterCollab, sortBy, quickChip])
 
   const stats = useMemo(() => ({
     total: useServerPaging ? listMeta.total : influencers.length,
@@ -146,7 +201,7 @@ export function InfluencerListPage() {
   useEffect(() => {
     setPage(1)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, filterWorkflow, filterApproval, filterPayment, filterBasedIn, filterCollab, sortBy])
+  }, [search, filterWorkflow, filterApproval, filterPayment, filterBasedIn, filterNationality, filterCollab, sortBy, quickChip])
 
   const clientTotalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const currentPage = Math.min(page, clientTotalPages)
@@ -268,54 +323,68 @@ export function InfluencerListPage() {
           <span className="inf-search-icon">🔍</span>
           <input
             className="inf-search"
-            placeholder="Search name, Instagram, mobile…"
+            placeholder="Search name, Instagram, mobile, nationality…"
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={(e) => { setQuickChip(QUICK_CHIP.ALL); setSearch(e.target.value) }}
           />
         </div>
-        <select className="inf-select" value={filterWorkflow} onChange={e => setFilterWorkflow(e.target.value)}>
+        <select className="inf-select" value={filterWorkflow} onChange={(e) => { setQuickChip(QUICK_CHIP.ALL); setFilterWorkflow(e.target.value) }}>
           <option value="All">All Stages</option>
           {['New Lead','Contacted','Waiting for Price','Waiting for Insights','Under Review','Shortlisted','Approved','Rejected','Shoot Scheduled','Shot Completed','Waiting for Upload','Uploaded','Payment Pending','Paid','Closed'].map(s => (
             <option key={s} value={s}>{s}</option>
           ))}
         </select>
-        <select className="inf-select" value={filterApproval} onChange={e => setFilterApproval(e.target.value)}>
+        <select className="inf-select" value={filterApproval} onChange={(e) => { setQuickChip(QUICK_CHIP.ALL); setFilterApproval(e.target.value) }}>
           <option value="All">All Approval</option>
           {['Pending','Shortlisted','Approved','Rejected'].map(s => <option key={s} value={s}>{s}</option>)}
         </select>
-        <select className="inf-select" value={filterPayment} onChange={e => setFilterPayment(e.target.value)}>
+        <select className="inf-select" value={filterPayment} onChange={(e) => { setQuickChip(QUICK_CHIP.ALL); setFilterPayment(e.target.value) }}>
           <option value="All">All Payment</option>
           {['Not Requested','Bank Details Pending','Ready for Payment','Payment Processing','Paid'].map(s => <option key={s} value={s}>{s}</option>)}
         </select>
-        <select className="inf-select" value={filterBasedIn} onChange={e => setFilterBasedIn(e.target.value)}>
+        <select className="inf-select" value={filterBasedIn} onChange={(e) => { setQuickChip(QUICK_CHIP.ALL); setFilterBasedIn(e.target.value) }}>
           {cities.map(c => <option key={c} value={c}>{c === 'All' ? 'All Cities' : c}</option>)}
+        </select>
+        <select className="inf-select" value={filterNationality} onChange={(e) => { setQuickChip(QUICK_CHIP.ALL); setFilterNationality(e.target.value) }}>
+          {nationalities.map((n) => (
+            <option key={n} value={n}>{n === 'All' ? 'All Nationalities' : n}</option>
+          ))}
+        </select>
+        <select className="inf-select" value={filterCollab} onChange={(e) => { setQuickChip(QUICK_CHIP.ALL); setFilterCollab(e.target.value) }}>
+          {collabTypes.map((c) => (
+            <option key={c} value={c}>{c === 'All' ? 'All Collab Types' : c}</option>
+          ))}
         </select>
         <select className="inf-select" value={sortBy} onChange={e => setSortBy(e.target.value)}>
           {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </div>
 
-      {/* Filter chips for quick rejected view */}
+      {/* Filter chips for quick views */}
       <div className="inf-filter-chips" style={{ marginBottom: '1rem' }}>
-        {['All', 'Active', 'Rejected', 'Payment Pending', 'Approved'].map(chip => (
+        {[
+          { label: 'All', key: QUICK_CHIP.ALL },
+          { label: 'Active', key: QUICK_CHIP.ACTIVE },
+          { label: 'Rejected', key: QUICK_CHIP.REJECTED },
+          { label: 'Payment Pending', key: QUICK_CHIP.PAYMENT },
+          { label: 'Approved', key: QUICK_CHIP.APPROVED },
+        ].map(({ label, key }) => (
           <button
-            key={chip}
-            className={`inf-chip ${
-              (chip === 'All' && filterWorkflow === 'All' && filterApproval === 'All')
-              || (chip === 'Rejected' && filterApproval === 'Rejected')
-              || (chip === 'Approved' && filterApproval === 'Approved')
-              || (chip === 'Payment Pending' && filterPayment === 'Ready for Payment')
-                ? 'inf-chip--active' : ''
-            }`}
+            key={key}
+            type="button"
+            className={`inf-chip ${quickChip === key ? 'inf-chip--active' : ''}`}
             onClick={() => {
-              setFilterWorkflow('All'); setFilterApproval('All'); setFilterPayment('All')
-              if (chip === 'Rejected') setFilterApproval('Rejected')
-              else if (chip === 'Approved') setFilterApproval('Approved')
-              else if (chip === 'Payment Pending') setFilterPayment('Ready for Payment')
-              else if (chip === 'Active') setFilterWorkflow('Contacted')
+              setFilterWorkflow('All')
+              setFilterApproval('All')
+              setFilterPayment('All')
+              setFilterBasedIn('All')
+              setFilterNationality('All')
+              setFilterCollab('All')
+              setSearch('')
+              setQuickChip(key)
             }}
           >
-            {chip}
+            {label}
           </button>
         ))}
         <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', alignSelf: 'center', marginLeft: '0.5rem' }}>
@@ -347,9 +416,11 @@ export function InfluencerListPage() {
             <thead>
               <tr>
                 <th>Name</th>
+                <th>Nationality</th>
                 <th>Instagram</th>
                 <th>Mobile</th>
                 <th>Based In</th>
+                <th>Followers</th>
                 <th>Reel</th>
                 <th>Package</th>
                 <th>Insights</th>
@@ -368,11 +439,13 @@ export function InfluencerListPage() {
                     <div className="inf-table__name">{inf.name}</div>
                     <div className="inf-table__muted">{inf.niche}</div>
                   </td>
+                  <td><span className="inf-table__muted">{inf.nationality || '—'}</span></td>
                   <td><InstagramCell handle={inf.instagram?.handle} url={inf.instagram?.url} storedPicUrl={inf.instagram?.picUrl} /></td>
                   <td><span className="inf-table__muted">{inf.mobile || '—'}</span></td>
                   <td><span className="inf-table__muted">{inf.basedIn || '—'}</span></td>
-                  <td><span className="inf-table__muted">{inf.reelsPrice ? `${inf.currency} ${inf.reelsPrice.toLocaleString()}` : '—'}</span></td>
-                  <td><span className="inf-table__muted">{inf.packagePrice ? `${inf.currency} ${inf.packagePrice.toLocaleString()}` : '—'}</span></td>
+                  <td><span className="inf-table__muted">{formatFollowersCell(inf.followersCount)}</span></td>
+                  <td><span className="inf-table__muted">{inf.reelsPrice ? `${inf.currency} ${Number(inf.reelsPrice).toLocaleString()}` : '—'}</span></td>
+                  <td><span className="inf-table__muted">{inf.packagePrice ? `${inf.currency} ${Number(inf.packagePrice).toLocaleString()}` : '—'}</span></td>
                   <td>
                     <span className={`inf-badge ${inf.insightsReceived ? 'inf-badge--approved' : 'inf-badge--waiting'}`}>
                       {inf.insightsReceived ? 'Yes' : 'No'}
