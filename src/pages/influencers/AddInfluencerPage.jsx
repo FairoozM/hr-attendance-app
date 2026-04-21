@@ -13,6 +13,8 @@ import {
   WORKFLOW_STAGES, APPROVAL_STATUSES, PAYMENT_STATUSES,
   COLLABORATION_TYPES, CONTACT_STATUSES, CURRENCIES,
 } from '../../contexts/InfluencersContext'
+import { useAuth, hasPermission } from '../../contexts/AuthContext'
+import { InsightsImagesSection } from './InsightsImagesSection'
 import './influencers.css'
 
 /* ─── Static data ──────────────────────────────────────────── */
@@ -30,6 +32,7 @@ const EMPTY_FORM = {
   workflowStatus: 'New Lead', approvalStatus: 'Pending', paymentStatus: 'Not Requested', assignedTo: '',
   shootDate: '', shootTime: '', shootLocation: '', campaign: '',
   agreementStatus: 'Not Generated',
+  insightsImageKeys: [],
 }
 
 const STEPS = [
@@ -197,6 +200,8 @@ function STitle({ children }) {
 /* ─── Main component ──────────────────────────────────────── */
 export function AddInfluencerPage({ asModal = false, onClose }) {
   const { influencers, addInfluencer, updateInfluencer } = useInfluencers()
+  const { user } = useAuth()
+  const canInfl = (action) => hasPermission(user, 'influencers', action)
   const navigate = useNavigate()
   const { id }   = useParams()
   const isEdit   = Boolean(id)
@@ -316,6 +321,22 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
           <div className="aif-toggles">
             <FToggle label="Insights screenshots / data received" value={form.insightsReceived} onChange={v => set('insightsReceived', v)} />
           </div>
+          {isEdit && id ? (
+            <>
+              <STitle>Insights images</STitle>
+              <InsightsImagesSection
+                influencerId={id}
+                imageKeys={existing?.insightsImageKeys ?? []}
+                canEdit={canInfl('manage') || canInfl('approve')}
+                updateInfluencer={updateInfluencer}
+                className="aif-insights-embed"
+              />
+            </>
+          ) : (
+            <p className="aif-insights-wizard-hint">
+              Save the profile once to enable uploads. After creation, reopen this influencer or go to their profile to add up to 6 insights screenshots (same storage as the profile page).
+            </p>
+          )}
         </>
       )
 

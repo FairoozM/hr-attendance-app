@@ -1144,6 +1144,54 @@
 .inf-kv__link { color: var(--accent); text-decoration: none; font-weight: 600; }
 .inf-kv__link:hover { text-decoration: underline; }
 
+/* Insights images — Add/Edit wizard (Audience step, inside aif-panel) */
+.aif-insights-embed {
+  margin-top: 0.35rem;
+}
+.aif-insights-embed .inf-profile-section {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+}
+.aif-insights-embed .inf-profile-section__head {
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+.aif-insights-embed .inf-profile-section__head-title {
+  color: rgba(167, 139, 250, 0.78);
+}
+.aif-insights-embed .inf-insights-images__intro,
+.aif-insights-embed .inf-insights-images__hint,
+.aif-insights-embed .inf-insights-images__empty {
+  color: rgba(255, 255, 255, 0.45);
+}
+.aif-insights-wizard-hint {
+  margin: 1rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.38);
+  max-width: 40rem;
+}
+:root[data-theme='light'] .aif-insights-wizard-hint {
+  color: var(--theme-text-muted);
+}
+:root[data-theme='light'] .aif-insights-embed .inf-profile-section {
+  background: var(--theme-glass-bg);
+  border-color: var(--theme-border);
+}
+:root[data-theme='light'] .aif-insights-embed .inf-profile-section__head {
+  background: var(--theme-surface-soft);
+  border-color: var(--theme-border-subtle);
+}
+:root[data-theme='light'] .aif-insights-embed .inf-profile-section__head-title {
+  color: rgba(91, 33, 182, 0.88);
+}
+:root[data-theme='light'] .aif-insights-embed .inf-insights-images__intro,
+:root[data-theme='light'] .aif-insights-embed .inf-insights-images__hint,
+:root[data-theme='light'] .aif-insights-embed .inf-insights-images__empty {
+  color: var(--theme-text-muted);
+}
+
 /* Insights images (profile) */
 .inf-insights-images__intro {
   margin: 0 0 0.85rem;
