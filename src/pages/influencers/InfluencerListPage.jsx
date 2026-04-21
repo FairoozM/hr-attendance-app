@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Smartphone,
@@ -54,14 +54,6 @@ function workflowBadgeClass(status) {
     'Waiting for Upload': 'inf-badge--upload', 'Uploaded': 'inf-badge--uploaded',
     'Payment Pending': 'inf-badge--payment', 'Paid': 'inf-badge--paid',
     'Closed': 'inf-badge--closed',
-  }
-  return map[status] || 'inf-badge--pending'
-}
-
-function approvalBadgeClass(status) {
-  const map = {
-    'Pending': 'inf-badge--pending', 'Shortlisted': 'inf-badge--shortlisted',
-    'Approved': 'inf-badge--approved', 'Rejected': 'inf-badge--rejected',
   }
   return map[status] || 'inf-badge--pending'
 }
@@ -133,88 +125,115 @@ const QUICK_CHIP = {
 }
 const PAGE_SIZE = 20
 
-function closeRowMenuFromEvent(e) {
-  const d = e.currentTarget?.closest?.('details')
-  if (d) d.open = false
-}
-
-/** Compact row actions: single trigger + dropdown (preserves all prior actions). */
+/** Compact row actions: trigger + dropdown; closes on outside click / Escape (not only on ⋯). */
 function InfluencerRowActions({ inf, can, navigate, onQuickAction }) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (e) => {
+      if (rootRef.current && !rootRef.current.contains(e.target)) {
+        setOpen(false)
+      }
+    }
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('touchstart', onPointerDown, { passive: true })
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('touchstart', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
   const run = (e, fn) => {
     e.stopPropagation()
-    closeRowMenuFromEvent(e)
+    setOpen(false)
     fn(e)
   }
+
   return (
-    <details className="inf-list-menu" onClick={e => e.stopPropagation()}>
-      <summary
-        className="inf-list-menu__trigger"
+    <div ref={rootRef} className="inf-list-menu" onClick={e => e.stopPropagation()}>
+      <button
+        type="button"
+        className={`inf-list-menu__trigger ${open ? 'inf-list-menu__trigger--open' : ''}`}
         aria-label="Row actions"
-        onClick={e => e.stopPropagation()}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={(e) => {
+          e.stopPropagation()
+          setOpen(o => !o)
+        }}
       >
         <MoreHorizontal size={16} strokeWidth={2} aria-hidden />
-      </summary>
-      <div className="inf-list-menu__panel" role="menu">
-        <button
-          type="button"
-          className="inf-list-menu__item"
-          role="menuitem"
-          onClick={e => run(e, () => navigate(`/influencers/${inf.id}`))}
-        >
-          <Eye size={14} aria-hidden /> View profile
-        </button>
-        {can('manage') ? (
+      </button>
+      {open ? (
+        <div className="inf-list-menu__panel" role="menu">
           <button
             type="button"
             className="inf-list-menu__item"
             role="menuitem"
-            onClick={e => run(e, () => navigate(`/influencers/${inf.id}/edit`))}
+            onClick={e => run(e, () => navigate(`/influencers/${inf.id}`))}
           >
-            <Pencil size={14} aria-hidden /> Edit
+            <Eye size={14} aria-hidden /> View profile
           </button>
-        ) : null}
-        {can('approve') && inf.approvalStatus !== 'Approved' && inf.approvalStatus !== 'Rejected' ? (
-          <button
-            type="button"
-            className="inf-list-menu__item inf-list-menu__item--success"
-            role="menuitem"
-            onClick={e => run(e, (ev) => onQuickAction(ev, 'approve', inf))}
-          >
-            <Check size={14} aria-hidden /> Approve
-          </button>
-        ) : null}
-        {can('approve') && inf.approvalStatus !== 'Rejected' ? (
-          <button
-            type="button"
-            className="inf-list-menu__item inf-list-menu__item--danger"
-            role="menuitem"
-            onClick={e => run(e, (ev) => onQuickAction(ev, 'reject', inf))}
-          >
-            <X size={14} aria-hidden /> Reject
-          </button>
-        ) : null}
-        {can('payments') && inf.approvalStatus === 'Approved' && inf.paymentStatus !== 'Paid' ? (
-          <button
-            type="button"
-            className="inf-list-menu__item inf-list-menu__item--warning"
-            role="menuitem"
-            onClick={e => run(e, (ev) => onQuickAction(ev, 'payment-ready', inf))}
-          >
-            <CreditCard size={14} aria-hidden /> Mark ready for payment
-          </button>
-        ) : null}
-        {can('manage') ? (
-          <button
-            type="button"
-            className="inf-list-menu__item inf-list-menu__item--danger"
-            role="menuitem"
-            onClick={e => run(e, (ev) => onQuickAction(ev, 'delete', inf))}
-          >
-            <Trash2 size={14} aria-hidden /> Delete
-          </button>
-        ) : null}
-      </div>
-    </details>
+          {can('manage') ? (
+            <button
+              type="button"
+              className="inf-list-menu__item"
+              role="menuitem"
+              onClick={e => run(e, () => navigate(`/influencers/${inf.id}/edit`))}
+            >
+              <Pencil size={14} aria-hidden /> Edit
+            </button>
+          ) : null}
+          {can('approve') && inf.approvalStatus !== 'Approved' && inf.approvalStatus !== 'Rejected' ? (
+            <button
+              type="button"
+              className="inf-list-menu__item inf-list-menu__item--success"
+              role="menuitem"
+              onClick={e => run(e, (ev) => onQuickAction(ev, 'approve', inf))}
+            >
+              <Check size={14} aria-hidden /> Approve
+            </button>
+          ) : null}
+          {can('approve') && inf.approvalStatus !== 'Rejected' ? (
+            <button
+              type="button"
+              className="inf-list-menu__item inf-list-menu__item--danger"
+              role="menuitem"
+              onClick={e => run(e, (ev) => onQuickAction(ev, 'reject', inf))}
+            >
+              <X size={14} aria-hidden /> Reject
+            </button>
+          ) : null}
+          {can('payments') && inf.approvalStatus === 'Approved' && inf.paymentStatus !== 'Paid' ? (
+            <button
+              type="button"
+              className="inf-list-menu__item inf-list-menu__item--warning"
+              role="menuitem"
+              onClick={e => run(e, (ev) => onQuickAction(ev, 'payment-ready', inf))}
+            >
+              <CreditCard size={14} aria-hidden /> Mark ready for payment
+            </button>
+          ) : null}
+          {can('manage') ? (
+            <button
+              type="button"
+              className="inf-list-menu__item inf-list-menu__item--danger"
+              role="menuitem"
+              onClick={e => run(e, (ev) => onQuickAction(ev, 'delete', inf))}
+            >
+              <Trash2 size={14} aria-hidden /> Delete
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -556,9 +575,7 @@ export function InfluencerListPage() {
                 <th className="inf-table__col inf-table__col--pkg">Package</th>
                 <th className="inf-table__col inf-table__col--tight">Insights</th>
                 <th className="inf-table__th--badge-col inf-table__col--stage">Stage</th>
-                <th className="inf-table__th--badge-col inf-table__col--tight">Approval</th>
                 <th className="inf-table__th--badge-col inf-table__col--tight">Payment</th>
-                <th className="inf-table__col inf-table__col--hide-md">Shoot Date</th>
                 <th className="inf-table__col inf-table__col--hide-md inf-table__col--assign">Assigned</th>
                 <th className="inf-table__col inf-table__col--actions">Actions</th>
               </tr>
@@ -602,21 +619,12 @@ export function InfluencerListPage() {
                   </td>
                   <td className="inf-table__cell--badge-col inf-table__col--tight">
                     <span
-                      className={`inf-badge inf-badge--dot inf-badge--table ${approvalBadgeClass(inf.approvalStatus)}`}
-                      title={inf.approvalStatus}
-                    >
-                      {inf.approvalStatus}
-                    </span>
-                  </td>
-                  <td className="inf-table__cell--badge-col inf-table__col--tight">
-                    <span
                       className={`inf-badge inf-badge--dot inf-badge--table ${paymentBadgeClass(inf.paymentStatus)}`}
                       title={inf.paymentStatus}
                     >
                       {inf.paymentStatus}
                     </span>
                   </td>
-                  <td className="inf-table__col inf-table__col--hide-md"><span className="inf-table__muted">{inf.shootDate || '—'}</span></td>
                   <td className="inf-table__col inf-table__col--hide-md inf-table__col--assign"><span className="inf-table__muted">{inf.assignedTo || '—'}</span></td>
                   <td className="inf-table__col inf-table__col--actions">
                     <InfluencerRowActions
