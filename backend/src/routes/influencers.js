@@ -21,6 +21,13 @@ router.post(
   requireInfluencersWrite,
   influencersController.getInsightsImageUploadUrl,
 )
+router.post(
+  '/:id/insights-images/upload-urls',
+  attachAuth,
+  requireAuth,
+  requireInfluencersWrite,
+  influencersController.getInsightsImageUploadUrlsBatch,
+)
 router.patch('/:id', attachAuth, requireAuth, requireInfluencersWrite, influencersController.updateInfluencer)
 router.delete(
   '/:id',

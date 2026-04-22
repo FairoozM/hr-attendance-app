@@ -152,18 +152,63 @@ export async function getInsightsImageUploadUrl(
   })
 }
 
-export async function uploadInsightsImageToS3(
+/** Batch presign: 1 round trip for N files. Falls back to N parallel single-presign calls if missing. */
+export async function getInsightsImageUploadUrlsBatch(
+  influencerId: string,
+  items: { fileName: string; contentType: string }[],
+): Promise<{ uploadUrl: string; key: string; contentType: string }[]> {
+  try {
+    const data = await apiFetch(
+      `/api/influencers/${encodeURIComponent(influencerId)}/insights-images/upload-urls`,
+      {
+        method: "POST",
+        body: JSON.stringify({ items }),
+      },
+    )
+    if (Array.isArray(data?.items) && data.items.length === items.length) {
+      return data.items
+    }
+    throw new Error("Batch endpoint returned unexpected payload")
+  } catch (err) {
+    const out = await Promise.all(
+      items.map(async (it) => {
+        const r = await getInsightsImageUploadUrl(influencerId, it)
+        return { uploadUrl: r.uploadUrl, key: r.key, contentType: it.contentType }
+      }),
+    )
+    return out
+  }
+}
+
+/** Upload via XHR so we get progress events; same end result as a fetch PUT. */
+export function uploadInsightsImageToS3(
   uploadUrl: string,
   file: File,
   contentType: string,
+  onProgress?: (loaded: number, total: number) => void,
 ): Promise<void> {
-  const res = await fetch(uploadUrl, {
-    method: "PUT",
-    body: file,
-    headers: { "Content-Type": contentType },
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open("PUT", uploadUrl, true)
+    xhr.setRequestHeader("Content-Type", contentType)
+    if (xhr.upload && onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(e.loaded, e.total)
+      }
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve()
+      } else {
+        const hint =
+          xhr.status === 403
+            ? " (CORS or signature mismatch; check S3 CORS and Content-Type)"
+            : ""
+        reject(new Error(`Upload failed (HTTP ${xhr.status})${hint}`))
+      }
+    }
+    xhr.onerror = () => reject(new Error("Network error during upload"))
+    xhr.onabort = () => reject(new Error("Upload aborted"))
+    xhr.send(file)
   })
-  if (!res.ok) {
-    const hint = res.status === 403 ? " (CORS or signature mismatch; check S3 CORS and Content-Type)" : ""
-    throw new Error(`Upload failed (HTTP ${res.status})${hint}`)
-  }
 }

@@ -210,6 +210,53 @@ async function getInsightsImageUploadUrl(req, res) {
   }
 }
 
+/** Batch presign: one snapshot read instead of N — drastically reduces upload latency. */
+async function getInsightsImageUploadUrlsBatch(req, res) {
+  try {
+    const id = req.params.id != null ? String(req.params.id).trim() : ''
+    if (!id) return res.status(400).json({ error: 'Missing influencer id' })
+    const existing = await influencersService.getInfluencerById(id)
+    if (!existing) return res.status(404).json({ error: 'Influencer not found' })
+    const items = Array.isArray(req.body?.items) ? req.body.items : []
+    if (!items.length) {
+      return res.status(400).json({ error: 'items[] required' })
+    }
+    if (items.length > MAX_INSIGHT_IMAGES) {
+      return res.status(400).json({ error: `Cannot request more than ${MAX_INSIGHT_IMAGES} URLs at once` })
+    }
+    const usedCount = Array.isArray(existing.insightsImageKeys) ? existing.insightsImageKeys.length : 0
+    if (usedCount + items.length > MAX_INSIGHT_IMAGES) {
+      return res.status(400).json({
+        error: `Only ${Math.max(0, MAX_INSIGHT_IMAGES - usedCount)} more image(s) allowed`,
+      })
+    }
+    for (const it of items) {
+      const ct = String(it?.contentType || '').toLowerCase()
+      if (!ct.startsWith('image/')) {
+        return res.status(400).json({ error: 'Only image files are allowed' })
+      }
+      if (!it?.fileName || typeof it.fileName !== 'string') {
+        return res.status(400).json({ error: 'fileName is required for every item' })
+      }
+    }
+    const out = await Promise.all(
+      items.map(async (it) => {
+        const ct = String(it.contentType).toLowerCase()
+        const key = s3Service.createInfluencerInsightsImageKey(id, it.fileName)
+        const uploadUrl = await s3Service.getUploadUrl({ key, contentType: ct })
+        return { uploadUrl, key, contentType: ct }
+      }),
+    )
+    res.json({ items: out })
+  } catch (err) {
+    console.error('[influencers] insights batch upload-url error:', err)
+    res.status(err.status || 500).json({
+      error: err.message || 'Failed to create upload URLs',
+      detail: err && err.message ? String(err.message).slice(0, 240) : undefined,
+    })
+  }
+}
+
 async function getInsightsImageSignedUrls(req, res) {
   try {
     const id = req.params.id != null ? String(req.params.id).trim() : ''
@@ -240,5 +287,6 @@ module.exports = {
   updateInfluencer,
   deleteInfluencer,
   getInsightsImageUploadUrl,
+  getInsightsImageUploadUrlsBatch,
   getInsightsImageSignedUrls,
 }

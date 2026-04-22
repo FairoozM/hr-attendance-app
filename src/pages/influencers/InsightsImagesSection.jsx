@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import {
   fetchInsightsImageUrls,
-  getInsightsImageUploadUrl,
+  getInsightsImageUploadUrlsBatch,
   uploadInsightsImageToS3,
   guessImageContentType,
 } from '../../lib/influencers'
@@ -182,29 +182,45 @@ export function InsightsImagesSection({
       }
       const toAdd = imageFiles.slice(0, remaining)
       setBusy(true)
+      const totalBytes = toAdd.reduce((s, f) => s + (f.size || 0), 0)
       setUploadLine(`Preparing ${toAdd.length} file(s)…`)
       const preview = {}
-      const meta = []
       try {
-        for (let fi = 0; fi < toAdd.length; fi += 1) {
-          const file = toAdd[fi]
-          setUploadLine(`Getting secure link for ${fi + 1} / ${toAdd.length}…`)
-          const contentType = guessImageContentType(file)
-          const m = await getInsightsImageUploadUrl(influencerId, {
-            fileName: file.name && file.name.trim() ? file.name : 'image.jpg',
-            contentType,
-          })
-          meta.push({ ...m, contentType, file })
-        }
+        const batchInput = toAdd.map((file) => ({
+          fileName: file.name && file.name.trim() ? file.name : 'image.jpg',
+          contentType: guessImageContentType(file),
+        }))
+        const presigned = await getInsightsImageUploadUrlsBatch(influencerId, batchInput)
+        const meta = presigned.map((p, i) => ({ ...p, file: toAdd[i] }))
         for (let i = 0; i < meta.length; i += 1) {
           const u = URL.createObjectURL(meta[i].file)
           blobRef.current.add(u)
           preview[meta[i].key] = u
         }
         setLocalPreview((p) => ({ ...p, ...preview }))
-        setUploadLine(`Uploading to storage (${meta.length} file(s))…`)
+
+        const loaded = new Array(meta.length).fill(0)
+        const totals = meta.map((m) => m.file.size || 0)
+        const fmt = (b) => (b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.round(b / 1024)} KB`)
+        let lastShown = 0
+        const updateProgress = () => {
+          const sum = loaded.reduce((s, n) => s + n, 0)
+          const pct = totalBytes > 0 ? Math.min(100, Math.round((sum / totalBytes) * 100)) : 0
+          const now = Date.now()
+          if (now - lastShown > 120 || pct === 100) {
+            lastShown = now
+            setUploadLine(`Uploading ${meta.length} file(s) — ${pct}% (${fmt(sum)} / ${fmt(totalBytes)})`)
+          }
+        }
+        setUploadLine(`Uploading ${meta.length} file(s) — 0% (0 KB / ${fmt(totalBytes)})`)
         await Promise.all(
-          meta.map((m) => uploadInsightsImageToS3(m.uploadUrl, m.file, m.contentType)),
+          meta.map((m, i) =>
+            uploadInsightsImageToS3(m.uploadUrl, m.file, m.contentType, (l, t) => {
+              loaded[i] = l
+              if (t && totals[i] !== t) totals[i] = t
+              updateProgress()
+            }),
+          ),
         )
         setUploadLine('Saving to profile…')
         const newKeyStrings = meta.map((m) => m.key)
@@ -213,7 +229,7 @@ export function InsightsImagesSection({
           insightsImageRotations: imageRotations,
         })
         setUploadLine('Upload complete.')
-        setTimeout(() => setUploadLine(null), 3500)
+        setTimeout(() => setUploadLine(null), 2500)
       } catch (err) {
         setLocalPreview((p) => {
           const n = { ...p }
