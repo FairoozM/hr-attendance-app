@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
-import { ChevronRight } from 'lucide-react'
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
+import { ChevronRight, Copy, CornerDownRight, CheckCircle2, Circle, ListTree, ExternalLink, Link2, Trash2 } from 'lucide-react'
 import { useAIPlanner } from '../../contexts/AIPlannerContext'
 import { AIAssistPanel } from '../../components/planner/AIAssistPanel'
 import { TaskDrawer } from '../../components/planner/TaskDrawer'
@@ -148,6 +148,153 @@ function TaskTableHeader() {
   )
 }
 
+// ── Task right-click context menu ─────────────────────────────────────────────
+function TaskContextMenu({ task, sectionId, pos, onClose }) {
+  const { markDone, markTodo, deleteTask, setActiveTaskId, addTask } = useAIPlanner()
+  const menuRef = useRef(null)
+
+  // Close on outside click or Escape
+  useEffect(() => {
+    function onMouseDown(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) onClose()
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+
+  // Smart positioning: flip up/left if near viewport edges
+  const MENU_W = 218
+  const MENU_H = 280
+  const left = pos.x + MENU_W > window.innerWidth  ? pos.x - MENU_W : pos.x
+  const top  = pos.y + MENU_H > window.innerHeight ? pos.y - MENU_H : pos.y
+
+  function act(fn) {
+    onClose()
+    fn()
+  }
+
+  function duplicateTask() {
+    const { id: _id, createdAt: _c, listOrder: _lo, ...rest } = task
+    addTask({ ...rest, title: `Copy of ${task.title || 'Untitled'}`, sectionId: sectionId ?? null, status: 'todo' })
+  }
+
+  function createFollowUp() {
+    addTask({
+      title: `Follow-up: ${task.title || 'Untitled'}`,
+      sectionId: sectionId ?? null,
+      dueDate: task.dueDate || null,
+      priority: task.priority || 'medium',
+      category: task.category || null,
+      status: 'todo',
+    })
+  }
+
+  function copyTaskLink() {
+    const text = `[${task.title || 'Untitled'}] — Task #${task.id}`
+    navigator.clipboard?.writeText(text).catch(() => {})
+  }
+
+  const isDone = task.status === 'done'
+
+  return (
+    <div
+      ref={menuRef}
+      className="task-ctx-menu"
+      style={{ top, left }}
+      role="menu"
+      aria-label="Task options"
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {/* Mark complete / incomplete */}
+      <button
+        className="task-ctx-menu__item"
+        role="menuitem"
+        onClick={() => act(() => isDone ? markTodo(task.id) : markDone(task.id))}
+      >
+        {isDone
+          ? <Circle size={15} className="ctx-icon" />
+          : <CheckCircle2 size={15} className="ctx-icon" />}
+        {isDone ? 'Mark incomplete' : 'Mark complete'}
+      </button>
+
+      <div className="task-ctx-menu__divider" />
+
+      {/* Duplicate */}
+      <button
+        className="task-ctx-menu__item"
+        role="menuitem"
+        onClick={() => act(duplicateTask)}
+      >
+        <Copy size={15} className="ctx-icon" />
+        Duplicate task
+      </button>
+
+      {/* Follow-up */}
+      <button
+        className="task-ctx-menu__item"
+        role="menuitem"
+        onClick={() => act(createFollowUp)}
+      >
+        <CornerDownRight size={15} className="ctx-icon" />
+        Create follow-up task
+      </button>
+
+      {/* Add subtask */}
+      <button
+        className="task-ctx-menu__item"
+        role="menuitem"
+        onClick={() => act(() => setActiveTaskId(task.id))}
+      >
+        <ListTree size={15} className="ctx-icon" />
+        Add subtask
+      </button>
+
+      <div className="task-ctx-menu__divider" />
+
+      {/* Open details */}
+      <button
+        className="task-ctx-menu__item"
+        role="menuitem"
+        onClick={() => act(() => setActiveTaskId(task.id))}
+      >
+        <ExternalLink size={15} className="ctx-icon" />
+        Open task details
+      </button>
+
+      {/* Copy task link */}
+      <button
+        className="task-ctx-menu__item"
+        role="menuitem"
+        onClick={() => act(copyTaskLink)}
+      >
+        <Link2 size={15} className="ctx-icon" />
+        Copy task link
+      </button>
+
+      <div className="task-ctx-menu__divider" />
+
+      {/* Delete */}
+      <button
+        className="task-ctx-menu__item task-ctx-menu__item--danger"
+        role="menuitem"
+        onClick={() => act(() => {
+          if (window.confirm(`Delete "${task.title || 'this task'}"?`)) deleteTask(task.id)
+        })}
+      >
+        <Trash2 size={15} className="ctx-icon" />
+        Delete task
+      </button>
+    </div>
+  )
+}
+
 // ── Task row (spreadsheet-style inline edit, no side drawer) ────────────────
 function TaskRow({
   task,
@@ -160,6 +307,7 @@ function TaskRow({
   const { markDone, markTodo, updateTask, deleteTask, setActiveTaskId, activeTaskId } = useAIPlanner()
   const detailsOpen = task.id === activeTaskId
   const [titleDraft, setTitleDraft] = useState(task.title || '')
+  const [ctxMenu, setCtxMenu] = useState(null) // { x, y } | null
 
   useEffect(() => {
     setTitleDraft(task.title || '')
@@ -207,12 +355,18 @@ function TaskRow({
 
   const isDragging = draggingId === task.id
 
+  const closeCtx = useCallback(() => setCtxMenu(null), [])
+
   return (
     <div
       className={`tbl-row ${task.status === 'done' ? 'done' : ''} ${task.status === 'blocked' ? 'blocked' : ''} ${task._hasUnresolvedDeps ? 'dep-blocked' : ''} ${detailsOpen ? 'tbl-row--details-open' : ''} ${isDragging ? 'tbl-row--dragging' : ''}`}
       role="row"
       data-task-id={task.id}
       draggable
+      onContextMenu={(e) => {
+        e.preventDefault()
+        setCtxMenu({ x: e.clientX, y: e.clientY })
+      }}
       onDragStart={(e) => {
         if (!e.target.closest('.tbl-drag-handle')) {
           e.preventDefault()
@@ -394,6 +548,15 @@ function TaskRow({
           {task.priorityScore || 0}
         </span>
       </div>
+
+      {ctxMenu && (
+        <TaskContextMenu
+          task={task}
+          sectionId={sectionId}
+          pos={ctxMenu}
+          onClose={closeCtx}
+        />
+      )}
     </div>
   )
 }
