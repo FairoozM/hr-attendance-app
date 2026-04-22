@@ -74,20 +74,59 @@ function jsonResponder(status, payload) {
 test('zohoService._internals.validateAndNormaliseItem accepts a complete row', () => {
   const zoho = loadZoho()
   const { item, errors } = zoho._internals.validateAndNormaliseItem({
-    sku: 'FL-001', item_name: 'FL Shine',
+    sku: 'FL-001', item_name: 'FL Shine', family: 'ZDS',
     opening_stock: 100, purchases: 5, returned_to_wholesale: 0,
     closing_stock: 95, sold: 10,
   }, 0)
   assert.equal(errors.length, 0)
   assert.equal(item.sku, 'FL-001')
+  assert.equal(item.family, 'ZDS')
   assert.equal(item.opening_stock, 100)
   assert.equal(item.sold, 10)
+})
+
+test('zohoService._internals.validateAndNormaliseItem rejects missing family key', () => {
+  const zoho = loadZoho()
+  const { item, errors } = zoho._internals.validateAndNormaliseItem({
+    sku: 'X', opening_stock: 0, purchases: 0, returned_to_wholesale: 0, closing_stock: 0, sold: 0,
+  }, 0)
+  assert.equal(item, null)
+  assert.ok(errors.some((e) => /"family" is required/.test(e)))
+})
+
+test('zohoService._internals.validateAndNormaliseItem accepts family as empty string', () => {
+  const zoho = loadZoho()
+  const { item, errors } = zoho._internals.validateAndNormaliseItem({
+    sku: 'X', family: '', opening_stock: 0, purchases: 0, returned_to_wholesale: 0, closing_stock: 0, sold: 0,
+  }, 0)
+  assert.equal(errors.length, 0)
+  assert.equal(item.family, '')
+})
+
+test('zohoService._internals.validateAndNormaliseItem rejects non-string family', () => {
+  const zoho = loadZoho()
+  const { item, errors } = zoho._internals.validateAndNormaliseItem({
+    sku: 'X', family: 99,
+    opening_stock: 0, purchases: 0, returned_to_wholesale: 0, closing_stock: 0, sold: 0,
+  }, 0)
+  assert.equal(item, null)
+  assert.ok(errors.some((e) => /"family" must be a string/.test(e)))
+})
+
+test('zohoService._internals.validateAndNormaliseItem rejects null family', () => {
+  const zoho = loadZoho()
+  const { item, errors } = zoho._internals.validateAndNormaliseItem({
+    sku: 'X', family: null,
+    opening_stock: 0, purchases: 0, returned_to_wholesale: 0, closing_stock: 0, sold: 0,
+  }, 0)
+  assert.equal(item, null)
+  assert.ok(errors.some((e) => /"family" must be a JSON string, not null/.test(e)))
 })
 
 test('zohoService._internals.validateAndNormaliseItem defaults null/absent numerics to 0', () => {
   const zoho = loadZoho()
   const { item, errors } = zoho._internals.validateAndNormaliseItem({
-    sku: 'X', purchases: null, // others absent
+    sku: 'X', family: '', purchases: null, // others absent
   }, 0)
   assert.equal(errors.length, 0)
   assert.equal(item.purchases, 0)
@@ -105,7 +144,7 @@ test('zohoService._internals.validateAndNormaliseItem rejects a missing sku', ()
 test('zohoService._internals.validateAndNormaliseItem rejects empty/whitespace skus', () => {
   const zoho = loadZoho()
   for (const sku of ['', '   ']) {
-    const { item, errors } = zoho._internals.validateAndNormaliseItem({ sku }, 0)
+    const { item, errors } = zoho._internals.validateAndNormaliseItem({ sku, family: '' }, 0)
     assert.equal(item, null)
     assert.ok(errors.length > 0)
   }
@@ -120,7 +159,7 @@ test('zohoService._internals.validateAndNormaliseItem rejects non-numeric stock 
     { closing_stock: Infinity },
   ]
   for (const extra of cases) {
-    const { item, errors } = zoho._internals.validateAndNormaliseItem({ sku: 'X', ...extra }, 0)
+    const { item, errors } = zoho._internals.validateAndNormaliseItem({ sku: 'X', family: 'F', ...extra }, 0)
     assert.equal(item, null, `should reject ${JSON.stringify(extra)}`)
     assert.ok(errors.some((e) => /must be a JSON number/.test(e)))
   }
@@ -198,8 +237,8 @@ test('zohoService: row missing sku → WEBHOOK_INVALID_RESPONSE with row-level e
   configureWebhook()
   serverHandler = jsonResponder(200, {
     items: [
-      { sku: 'OK-1', opening_stock: 1, purchases: 0, returned_to_wholesale: 0, closing_stock: 1, sold: 0 },
-      { item_name: 'No SKU here', opening_stock: 1 },
+      { sku: 'OK-1', family: '', opening_stock: 1, purchases: 0, returned_to_wholesale: 0, closing_stock: 1, sold: 0 },
+      { item_name: 'No SKU here', family: '', opening_stock: 1, purchases: 0, returned_to_wholesale: 0, closing_stock: 0, sold: 0 },
     ],
   })
   const zoho = loadZoho([{ sku: 'OK-1' }])
@@ -214,7 +253,7 @@ test('zohoService: row missing sku → WEBHOOK_INVALID_RESPONSE with row-level e
 test('zohoService: row with non-numeric stock → WEBHOOK_INVALID_RESPONSE', async () => {
   configureWebhook()
   serverHandler = jsonResponder(200, {
-    items: [{ sku: 'A', opening_stock: '100' }],
+    items: [{ sku: 'A', family: '', opening_stock: '100', purchases: 0, returned_to_wholesale: 0, closing_stock: 0, sold: 0 }],
   })
   const zoho = loadZoho([{ sku: 'A' }])
   await assert.rejects(
@@ -254,14 +293,15 @@ test('zohoService: SKU-based filter excludes Zoho rows that are not in the group
   configureWebhook()
   serverHandler = jsonResponder(200, {
     items: [
-      { sku: 'IN-GROUP', opening_stock: 10, purchases: 0, returned_to_wholesale: 0, closing_stock: 10, sold: 0 },
-      { sku: 'NOT-IN-GROUP', opening_stock: 5, purchases: 0, returned_to_wholesale: 0, closing_stock: 5, sold: 0 },
+      { sku: 'IN-GROUP', family: 'ZDS', opening_stock: 10, purchases: 0, returned_to_wholesale: 0, closing_stock: 10, sold: 0 },
+      { sku: 'NOT-IN-GROUP', family: 'OtherFam', opening_stock: 5, purchases: 0, returned_to_wholesale: 0, closing_stock: 5, sold: 0 },
     ],
   })
   const zoho = loadZoho([{ sku: 'IN-GROUP' }])
   const items = await zoho.getInventoryByGroup('slow_moving', '2026-01-01', '2026-01-07')
   assert.equal(items.length, 1)
   assert.equal(items[0].sku, 'IN-GROUP')
+  assert.equal(items[0].family, 'ZDS')
 })
 
 test('zohoService: webhook query params + auth header are sent correctly', async () => {

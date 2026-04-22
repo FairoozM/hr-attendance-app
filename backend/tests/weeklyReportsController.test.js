@@ -117,14 +117,16 @@ test('weeklyReports: empty result returns 200 with all-zero Grand Total', async 
 test('weeklyReports: Grand Total sums Zoho-provided numbers verbatim', async () => {
   const ctrl = loadController({
     getInventoryByGroup: async () => ([
-      { sku: 'A', item_name: 'A', opening_stock: 100, purchases: 10, returned_to_wholesale: 1, closing_stock: 109, sold: 0 },
-      { sku: 'B', item_name: 'B', opening_stock:  50, purchases:  5, returned_to_wholesale: 0, closing_stock:  45, sold: 10 },
+      { sku: 'A', item_name: 'A', family: 'ZDS', opening_stock: 100, purchases: 10, returned_to_wholesale: 1, closing_stock: 109, sold: 0 },
+      { sku: 'B', item_name: 'B', family: 'LIFEP', opening_stock:  50, purchases:  5, returned_to_wholesale: 0, closing_stock:  45, sold: 10 },
     ]),
     listGroupKeys: async () => ['slow_moving'],
   })
   const { req, res } = makeReqRes({ params: { group: 'slow_moving' }, query: VALID })
   await ctrl.getReportByGroup(req, res)
   assert.equal(res.statusCode, 200)
+  assert.equal(res.body.items[0].family, 'ZDS')
+  assert.equal(res.body.items[1].family, 'LIFEP')
   assert.deepEqual(res.body.totals, {
     opening_stock: 150,
     purchases: 15,
@@ -194,7 +196,7 @@ test('weeklyReports: unknown error code falls back to 502 (and never 200)', asyn
 test('weeklyReports: legacy /slow-moving keeps same response shape', async () => {
   const ctrl = loadController({
     getSlowMovingInventory: async () => ([
-      { sku: 'A', item_name: 'A', opening_stock: 5, purchases: 0, returned_to_wholesale: 0, closing_stock: 5, sold: 0 },
+      { sku: 'A', item_name: 'A', family: '', opening_stock: 5, purchases: 0, returned_to_wholesale: 0, closing_stock: 5, sold: 0 },
     ]),
     listGroupKeys: async () => ['slow_moving'],
   })

@@ -11,6 +11,10 @@
 //   - Top-level body MUST be { "items": [ ... ] }.
 //   - Each row MUST include a non-empty "sku" string. Rows without a SKU
 //     are skipped here and would be rejected by the HR backend anyway.
+//   - Required "family" (string): Zoho item Family custom field — metadata
+//     for HR only. Emit "" when the item has no Family. HR business report
+//     groups (slow_moving, other_family) are NOT derived from "family"; they
+//     come from the item_report_groups table.
 //   - All five business numbers (opening_stock, purchases,
 //     returned_to_wholesale, closing_stock, sold) MUST be real numbers
 //     (Long / Decimal). Never strings. Never null. The HR backend defaults
@@ -140,13 +144,21 @@ string weekly_inventory_report(string from_date, string to_date)
                         + returned_qty
                         - purchase_qty;
 
-        // 3e. Build the row in the strict contract shape.
+        // 3e. Zoho "Family" custom field — REQUIRED string on every row for HR
+        //     (org-specific API key: often cf_family or custom_fields[]). Use
+        //     "" when the item has no Family in Zoho.
+        family_str = "";
+        // Example if your org exposes it on the item object:
+        // family_str = ifnull(item.get("cf_family"), "").toString().trim();
+
+        // 3f. Build the row in the strict contract shape.
         //     EVERY numeric field is forced to a Long via .toLong() so the
         //     resulting JSON contains real numbers, never strings.
         row = Map();
         row.put("sku",                   item_sku);            // REQUIRED (string)
         row.put("item_name",             item_name);           // optional
         row.put("item_id",               item_id);             // optional
+        row.put("family",                family_str);         // required ("" allowed)
         row.put("opening_stock",         opening_stock.toLong());
         row.put("purchases",             purchase_qty.toLong());
         row.put("returned_to_wholesale", returned_qty.toLong());

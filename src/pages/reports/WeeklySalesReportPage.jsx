@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react'
+import { fetchBinary, downloadBlob } from '../../api/client'
 import { useWeeklySalesReport } from '../../hooks/useWeeklySalesReport'
 import './WeeklyAdsReportPage.css'
 import './WeeklySalesReportPage.css'
@@ -32,6 +33,15 @@ function defaultWeekRange() {
   end.setDate(start.getDate() + 6)
   const iso = (x) => x.toISOString().slice(0, 10)
   return { from: iso(start), to: iso(end) }
+}
+
+function defaultExportXlsxName(reportGroup, fromDate, toDate) {
+  const slug =
+    {
+      slow_moving: 'slow-moving',
+      other_family: 'other-family',
+    }[reportGroup] || String(reportGroup).replace(/_/g, '-')
+  return `weekly-${slug}-report-${fromDate}-to-${toDate}.xlsx`
 }
 
 function NotConfiguredCallout({ message }) {
@@ -75,8 +85,9 @@ function ErrorCallout({ message, onRetry, validationErrors }) {
           </ul>
           <p className="wsr-callout__hint">
             Fix the Deluge function on the Zoho side so each item row has a
-            non-empty <code>sku</code> and only JSON numbers (never strings)
-            for the stock fields.
+            non-empty <code>sku</code>, a string <code>family</code> (use{' '}
+            <code>""</code> if the item has no Zoho Family), and only JSON
+            numbers (never strings) for the stock fields.
           </p>
         </details>
       )}
@@ -112,14 +123,42 @@ export function WeeklySalesReportPage({ reportGroup, title, subtitle }) {
   const initial = useMemo(defaultWeekRange, [])
   const [fromDate, setFromDate] = useState(initial.from)
   const [toDate, setToDate]     = useState(initial.to)
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState('')
 
   const { items, totals, loading, error, notConfigured, validationErrors, refetch } =
     useWeeklySalesReport({ reportGroup, fromDate, toDate })
 
   const dateLabel = formatDateLabel(fromDate, toDate)
 
-  const handleFromChange = useCallback((e) => setFromDate(e.target.value), [])
-  const handleToChange   = useCallback((e) => setToDate(e.target.value),   [])
+  const handleFromChange = useCallback((e) => {
+    setFromDate(e.target.value)
+    setExportError('')
+  }, [])
+  const handleToChange = useCallback((e) => {
+    setToDate(e.target.value)
+    setExportError('')
+  }, [])
+
+  const handleExportExcel = useCallback(async () => {
+    if (!fromDate || !toDate || fromDate > toDate) return
+    if (notConfigured) return
+    setExporting(true)
+    setExportError('')
+    const qs = new URLSearchParams({ from_date: fromDate, to_date: toDate }).toString()
+    const path = `/api/weekly-reports/by-group/${encodeURIComponent(
+      reportGroup
+    )}/export.xlsx?${qs}`
+    try {
+      const { blob, filename } = await fetchBinary(path)
+      const name = filename || defaultExportXlsxName(reportGroup, fromDate, toDate)
+      downloadBlob(blob, name)
+    } catch (err) {
+      setExportError(err?.message || 'Export failed. Try again.')
+    } finally {
+      setExporting(false)
+    }
+  }, [fromDate, toDate, notConfigured, reportGroup])
 
   const grandTotal = totals || {
     opening_stock: 0,
@@ -171,6 +210,15 @@ export function WeeklySalesReportPage({ reportGroup, title, subtitle }) {
           <div className="wsr-toolbar__actions">
             <button
               type="button"
+              className="war-btn war-btn--primary"
+              onClick={handleExportExcel}
+              disabled={exporting || !datesValid || notConfigured}
+              aria-busy={exporting}
+            >
+              {exporting ? 'Exporting…' : 'Export to Excel'}
+            </button>
+            <button
+              type="button"
               className="war-btn war-btn--ghost"
               onClick={refetch}
               disabled={loading || !datesValid}
@@ -179,6 +227,15 @@ export function WeeklySalesReportPage({ reportGroup, title, subtitle }) {
             </button>
           </div>
         </div>
+        {exportError ? (
+          <div
+            className="wsr-callout wsr-callout--error wsr-callout--inline"
+            role="alert"
+            style={{ marginTop: 12 }}
+          >
+            <span className="wsr-callout__body">{exportError}</span>
+          </div>
+        ) : null}
         {!datesValid && (
           <div className="wsr-callout wsr-callout--warn">
             <span className="wsr-callout__title">Invalid date range</span>

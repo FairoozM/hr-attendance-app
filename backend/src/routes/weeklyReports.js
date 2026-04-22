@@ -4,12 +4,21 @@ const {
   listAvailableGroups,
   getReportByGroup,
   getSlowMovingReport,
+  exportReportByGroupXlsx,
 } = require('../controllers/weeklyReportsController')
 
 const router = express.Router()
 
 // Generic: list available report groups (driven by item_report_groups table)
 router.get('/groups', requirePermission('weekly_reports', 'view'), listAvailableGroups)
+
+// Excel export (real .xlsx) — more specific than /by-group/:group
+// GET /api/weekly-reports/by-group/:group/export.xlsx?from_date&to_date
+router.get(
+  '/by-group/:group/export.xlsx',
+  requirePermission('weekly_reports', 'view'),
+  exportReportByGroupXlsx
+)
 
 // Generic: per-group weekly Zoho-sourced report
 // GET /api/weekly-reports/by-group/:group?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD

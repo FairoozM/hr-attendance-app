@@ -3,13 +3,29 @@ import { api } from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
 
 /**
+ * @typedef {Object} ZohoReportRow
+ * A normalised Zoho-backed row. Business numbers are authoritative from Zoho.
+ * @property {string} sku
+ * @property {string} [item_name]  Display name for the ITEM column
+ * @property {string} [item_id]   Zoho item id
+ * @property {string} family   Zoho **Family** custom field (metadata; always
+ *   present in API responses, may be `""`). Not the same as app `report_group` —
+ *   use `item_report_groups` for membership; keep `family` for display / future
+ *   Excel export columns.
+ * @property {number} opening_stock
+ * @property {number} purchases
+ * @property {number} returned_to_wholesale
+ * @property {number} closing_stock
+ * @property {number} sold
+ */
+
+/**
  * Fetches a Zoho-sourced weekly sales report for a given group + date range.
  *
  * Backend contract: GET /api/weekly-reports/by-group/:group?from_date&to_date
  *   {
  *     report_group, from_date, to_date,
- *     items:  [{ item_name, sku, item_id, opening_stock, purchases,
- *                returned_to_wholesale, closing_stock, sold }, ...],
+ *     items:  (ZohoReportRow[]) ,
  *     totals: { opening_stock, purchases, returned_to_wholesale,
  *               closing_stock, sold }
  *   }

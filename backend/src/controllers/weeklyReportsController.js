@@ -1,5 +1,11 @@
 const { getInventoryByGroup, getSlowMovingInventory } = require('../services/zohoService')
 const { listGroupKeys }                               = require('../services/itemReportGroupsService')
+const { sumReportGrandTotals }                        = require('../utils/weeklyReportTotals')
+const {
+  buildWeeklyReportXlsxBuffer,
+  getExportSheetTitleForGroup,
+  getExportDownloadFilename,
+} = require('../services/weeklyReportXlsxService')
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -20,21 +26,6 @@ function validateDateRange(req, res) {
     return null
   }
   return { from_date, to_date }
-}
-
-/** Sums the Zoho-provided values for the Grand Total row. No business derivation. */
-function sumTotals(items) {
-  return items.reduce(
-    (acc, it) => {
-      acc.opening_stock         += it.opening_stock
-      acc.purchases             += it.purchases
-      acc.returned_to_wholesale += it.returned_to_wholesale
-      acc.closing_stock         += it.closing_stock
-      acc.sold                  += it.sold
-      return acc
-    },
-    { opening_stock: 0, purchases: 0, returned_to_wholesale: 0, closing_stock: 0, sold: 0 }
-  )
 }
 
 function handleZohoError(res, err, ctx) {
@@ -81,6 +72,11 @@ async function listAvailableGroups(_req, res) {
  * item_report_groups. Numeric values are returned verbatim from the Zoho
  * webhook; the only computation here is summing those values into a Grand
  * Total row for display.
+ *
+ * Each item in `items` may include a string `family` (Zoho Family custom
+ * field) as metadata. Business report groups are never inferred from `family` —
+ * membership is solely from `item_report_groups` vs `sku` (and legacy
+ * `item_name` fallback when the member row has no SKU).
  */
 async function getReportByGroup(req, res) {
   const { group } = req.params
@@ -102,7 +98,7 @@ async function getReportByGroup(req, res) {
 
   try {
     const items  = await getInventoryByGroup(group, range.from_date, range.to_date)
-    const totals = sumTotals(items)
+    const totals = sumReportGrandTotals(items)
     return res.json({
       report_group: group,
       from_date:    range.from_date,
@@ -127,7 +123,7 @@ async function getSlowMovingReport(req, res) {
 
   try {
     const items  = await getSlowMovingInventory(range.from_date, range.to_date)
-    const totals = sumTotals(items)
+    const totals = sumReportGrandTotals(items)
     return res.json({
       from_date: range.from_date,
       to_date:   range.to_date,
@@ -139,8 +135,53 @@ async function getSlowMovingReport(req, res) {
   }
 }
 
+/**
+ * GET /api/weekly-reports/by-group/:group/export.xlsx?from_date&to_date
+ * Same data pipeline as getReportByGroup; returns a real .xlsx (ExcelJS).
+ */
+async function exportReportByGroupXlsx(req, res) {
+  const { group } = req.params
+  const range = validateDateRange(req, res)
+  if (!range) return
+
+  let validGroups
+  try {
+    validGroups = await listGroupKeys()
+  } catch (err) {
+    console.error('[weeklyReports] exportReportByGroupXlsx listGroupKeys error:', err.message)
+    return res.status(500).json({ error: 'Failed to validate report group' })
+  }
+  if (!validGroups.includes(group)) {
+    return res.status(404).json({
+      error: `Unknown report_group '${group}'. Available: ${validGroups.join(', ') || '(none)'}`,
+    })
+  }
+
+  try {
+    const items = await getInventoryByGroup(group, range.from_date, range.to_date)
+    const totals = sumReportGrandTotals(items)
+    const buffer = await buildWeeklyReportXlsxBuffer({
+      sheetTitle: getExportSheetTitleForGroup(group),
+      fromDate:   range.from_date,
+      toDate:     range.to_date,
+      items,
+      totals,
+    })
+    const filename = getExportDownloadFilename(group, range.from_date, range.to_date)
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+    return res.status(200).send(buffer)
+  } catch (err) {
+    return handleZohoError(res, err, `exportReportByGroupXlsx(${group})`)
+  }
+}
+
 module.exports = {
   listAvailableGroups,
   getReportByGroup,
   getSlowMovingReport,
+  exportReportByGroupXlsx,
 }

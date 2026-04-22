@@ -8,6 +8,14 @@ It is intentionally strict: the HR backend treats Zoho as the only authority
 for business numbers, so any ambiguity in the response is treated as a bug
 on the Zoho side and surfaced as an error rather than silently coerced.
 
+**Report groups vs Zoho “Family”.** Business reporting groups such as
+`slow_moving` and `other_family` are defined only in the HR database table
+`item_report_groups`. They are **not** the same thing as Zoho’s item **Family**
+custom field. The webhook **must** include a string `family` on every item row
+(Zoho metadata; use `""` if the item has no Family in Zoho). The HR app passes
+it through on each report row for display and future export, but **never** uses
+it to decide which items belong to which weekly report.
+
 - HR backend client:           [`backend/src/services/zohoService.js`](../backend/src/services/zohoService.js)
 - HR backend controller:       [`backend/src/controllers/weeklyReportsController.js`](../backend/src/controllers/weeklyReportsController.js)
 - Sample Deluge implementation:[`docs/weekly-reports-zoho-webhook.deluge`](./weekly-reports-zoho-webhook.deluge)
@@ -75,13 +83,14 @@ fails as `WEBHOOK_INVALID_RESPONSE`.
 
 ### 2.3 Per-item row schema
 
-Each row is a JSON object with exactly these fields:
+Each row is a JSON object. Required and optional fields:
 
 | Field                   | Type           | Required | Notes                                                                                                                       |
 |-------------------------|----------------|----------|-----------------------------------------------------------------------------------------------------------------------------|
 | `sku`                   | `string`       | YES      | **Primary match key.** Non-empty after trimming. Used to join against `item_report_groups.sku` (case-insensitive).           |
 | `item_name`             | `string`       | no       | Display label shown in the report's `ITEM` column. Strongly recommended for human readability.                              |
 | `item_id`               | `string`       | no       | Zoho's internal item id. Stored verbatim, used only for traceability.                                                       |
+| `family`                | `string`       | YES      | Zoho item **Family** (custom field). **Required** on every row. **Metadata only** — for display / future export; **not** used to decide `slow_moving` / `other_family` (those come from `item_report_groups`). Use a JSON string; use `""` when the item has no Family in Zoho. `null` and a missing key are **not** allowed. |
 | `opening_stock`         | `number\|null` | no       | Number of units in stock at `from_date 00:00`.                                                                              |
 | `purchases`             | `number\|null` | no       | Units purchased during the range. Already aggregated by Zoho.                                                               |
 | `returned_to_wholesale` | `number\|null` | no       | Units returned to wholesale during the range.                                                                               |
@@ -90,15 +99,18 @@ Each row is a JSON object with exactly these fields:
 
 **Strictness rules:**
 
-1. `sku` is the only required identifier. A row without `sku` is rejected.
-2. Numeric fields **must** be JSON numbers (e.g. `0`, `1152`, `12.5`). The
+1. `sku` is required. A row without a non-empty `sku` is rejected.
+2. `family` is required on every row. It must be a JSON `string` (use `""` for
+   items with no Zoho Family). Omitted keys, `null`, and non-strings (e.g. numbers)
+   are rejected.
+3. Numeric fields **must** be JSON numbers (e.g. `0`, `1152`, `12.5`). The
    strings `"0"` or `"1152"` are rejected.
-3. A numeric field that is `null` or absent defaults to `0`. This is
+4. A numeric field that is `null` or absent defaults to `0`. This is
    interpreted as "Zoho explicitly returned no value, meaning no movement
    for this item in this period."
-4. `NaN`, `Infinity`, booleans, arrays, and objects are rejected for
+5. `NaN`, `Infinity`, booleans, arrays, and objects are rejected for
    numeric fields.
-5. Negative values are accepted (Zoho may legitimately report negative
+6. Negative values are accepted (Zoho may legitimately report negative
    stock movements such as adjustments). The report renders them verbatim.
 
 ### 2.4 Example — well-formed response
@@ -110,6 +122,7 @@ Each row is a JSON object with exactly these fields:
       "sku": "FL-SHINE-001",
       "item_name": "FL SHINE",
       "item_id": "12345",
+      "family": "ZDS",
       "opening_stock": 12980,
       "purchases": 0,
       "returned_to_wholesale": 0,
@@ -119,6 +132,7 @@ Each row is a JSON object with exactly these fields:
     {
       "sku": "LIFEP2N-001",
       "item_name": "LIFEP2N",
+      "family": "LIFEP",
       "opening_stock": 540,
       "purchases": null,
       "returned_to_wholesale": null,
@@ -130,9 +144,10 @@ Each row is a JSON object with exactly these fields:
 ```
 
 Both rows are valid:
-- Row 1 is fully populated.
-- Row 2 omits `item_id` and uses `null` for "no movement" fields — the HR
-  backend stores them as `0`.
+- Row 1 is fully populated (including required `family`).
+- Row 2 includes `family` (required) and `""` would be valid for no Family; it
+  omits `item_id` and uses `null` for "no movement" number fields — the HR
+  backend stores those numerics as `0`.
 
 ### 2.5 Example — rejected response
 
@@ -164,8 +179,10 @@ The HR backend would respond with HTTP 502 and:
 
 ## 3. Match contract — how rows are mapped to a report
 
-The HR `item_report_groups` table maps SKUs to logical buckets (`slow_moving`,
-`other_family`, …).
+The HR `item_report_groups` table maps SKUs to business reporting buckets
+(`slow_moving`, `other_family`, …). This is **independent** of the Zoho
+`family` string on each item row. Zoho’s Family is useful metadata in Inventory;
+HR report groups are a separate business classification controlled in the app.
 
 Matching algorithm executed on every report request:
 
@@ -178,6 +195,9 @@ Matching algorithm executed on every report request:
      `member.item_name`. New entries should always include a SKU.
 4. Only matched rows are returned to the frontend. The Grand Total row is
    computed by summing the matched rows' numeric fields verbatim.
+5. The `family` string from Zoho is copied onto each returned row unchanged.
+   It is **not** read during matching and does not need to line up with
+   `report_group` names.
 
 If Zoho returns an item that's not in the group, it is dropped. If the group
 has a member that Zoho didn't return, the report **does not** display a
@@ -196,6 +216,7 @@ reflects what Zoho actually returned for the period.
 | Shape           | Body is `{items:[…]}`, `{data:[…]}`, or a bare array                                                  | `WEBHOOK_INVALID_RESPONSE` → HTTP 502                       |
 | Row             | Row is a JSON object                                                                                  | `WEBHOOK_INVALID_RESPONSE` → HTTP 502                       |
 | Row.sku         | Non-empty string                                                                                      | `WEBHOOK_INVALID_RESPONSE` → HTTP 502                       |
+| Row.family      | JSON **string** (required; `""` allowed) — **not** used for matching                                 | `WEBHOOK_INVALID_RESPONSE` → HTTP 502 if missing, `null`, or non-string |
 | Row.numeric     | Number, or `null`/absent (treated as 0)                                                               | `WEBHOOK_INVALID_RESPONSE` → HTTP 502                       |
 | Configuration   | `ZOHO_REPORT_WEBHOOK_URL` and `ZOHO_REPORT_WEBHOOK_AUTH_HEADER` both set                              | `ZOHO_NOT_CONFIGURED` → HTTP 503                            |
 
@@ -306,13 +327,20 @@ Successful response shape:
   "report_group": "slow_moving",
   "from_date": "2026-04-13",
   "to_date": "2026-04-19",
-  "items": [ /* matched, validated rows */ ],
+  "items": [
+    // each row: sku, family (required), item_name?, item_id?, five business numbers
+    { "sku": "6294021009331", "item_name": "ZDS-1-8L", "family": "ZDS", "opening_stock": 0, "purchases": 0, "returned_to_wholesale": 0, "closing_stock": 1, "sold": 0 }
+  ],
   "totals": {
     "opening_stock": 0, "purchases": 0,
     "returned_to_wholesale": 0, "closing_stock": 0, "sold": 0
   }
 }
 ```
+
+`items[]` objects mirror the validated Zoho row shape, including required
+`family` on every row. `report_group` is the HR business bucket, not the Zoho
+Family string.
 
 ### 6.5 Common failure modes & how to fix them
 

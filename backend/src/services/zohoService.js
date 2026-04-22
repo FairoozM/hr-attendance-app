@@ -36,6 +36,10 @@
  *         "sku": "FL-SHINE-001",                  // REQUIRED, non-empty string
  *         "item_name": "FL SHINE",                // optional but recommended
  *         "item_id":   "12345",                   // optional
+ *         "family":    "ZDS",                    // REQUIRED string — Zoho *Family* custom
+ *                                                //   field, metadata only (NOT used
+ *                                                //   for report_group membership). Use
+ *                                                //   "" if the item has no Family in Zoho.
  *         "opening_stock":         12980,         // number | null | absent
  *         "purchases":                 0,         // number | null | absent
  *         "returned_to_wholesale":     0,         // number | null | absent
@@ -45,6 +49,10 @@
  *       ...
  *     ]
  *   }
+ *
+ * Business report groups (`slow_moving`, `other_family`, …) are defined only
+ * in the DB table `item_report_groups`. The Zoho `family` field is item
+ * metadata for display and future export — it is never a membership key.
  *
  * Strictness:
  *   - sku is the primary match key. Rows without a non-empty sku are rejected.
@@ -285,6 +293,27 @@ function validateAndNormaliseItem(raw, index) {
     ''
 
   const rowLabel = `items[${index}] (sku="${sku || '?'}")`
+
+  // Zoho Inventory "Family" custom field — required on every row (string).
+  // Use "" when the item has no Family. Metadata only: report membership
+  // stays on item_report_groups, never on `family`.
+  let family = ''
+  if (raw.family === undefined) {
+    errors.push(
+      `items[${index}]: "family" is required (Zoho Family metadata as a JSON ` +
+        `string; use "" if the item has no Family in Zoho).`
+    )
+  } else if (raw.family === null) {
+    errors.push(
+      `items[${index}]: "family" must be a JSON string, not null (use "" if no Family).`
+    )
+  } else if (typeof raw.family !== 'string') {
+    errors.push(
+      `${rowLabel}: "family" must be a string (Zoho Family metadata). Got ${typeof raw.family}.`
+    )
+  } else {
+    family = raw.family.trim()
+  }
   const numeric = {}
   for (const field of NUMERIC_FIELDS) {
     const { value, error } = validateNumericField(raw, field, rowLabel)
@@ -299,6 +328,7 @@ function validateAndNormaliseItem(raw, index) {
       sku,
       item_name: itemName,
       item_id:   itemId,
+      family, // Zoho Family metadata; not used for report_group matching
       ...numeric,
     },
     errors: [],
@@ -333,7 +363,9 @@ function buildMatcher(members) {
 /**
  * Fetch Zoho-sourced rows for the given date range, validate them strictly,
  * then keep only those whose sku (or item_name as a legacy fallback) appears
- * in `item_report_groups` for the requested group.
+ * in `item_report_groups` for the requested group. Each kept row includes
+ * Zoho `family` metadata when the webhook provided it; matching never uses
+ * `family`.
  *
  * Behaviour intentionally driven by the Zoho response, not the seed list:
  *   - If Zoho returns no row for an item that's in the group, it is NOT

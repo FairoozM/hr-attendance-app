@@ -141,6 +141,82 @@ async function handleResponse(res, requestUrl) {
   return data
 }
 
+function parseFilenameFromContentDisposition(header) {
+  if (!header || typeof header !== 'string') return null
+  const m =
+    /filename\*=UTF-8''([^;]+)|filename="([^"]+)"|filename=([^;\s]+)/i.exec(header)
+  if (m) {
+    const raw = m[1] || m[2] || m[3]
+    try {
+      return decodeURIComponent(raw)
+    } catch {
+      return raw
+    }
+  }
+  return null
+}
+
+/**
+ * GET a binary response (e.g. .xlsx) with the same auth as other API calls.
+ * On error, attempts to parse JSON error bodies from the API.
+ */
+export async function fetchBinary(path) {
+  const p = normalizeApiPath(path)
+  const url = p.startsWith('http') ? p : resolveApiUrl(p)
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Accept: '*/*',
+      ...getAuthHeaders(),
+    },
+    cache: 'no-store',
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    let msg = res.statusText || 'Request failed'
+    const ct = (res.headers.get('content-type') || '').toLowerCase()
+    if (ct.includes('json')) {
+      try {
+        const j = JSON.parse(text)
+        if (j && typeof j.error === 'string') msg = j.error
+        if (j && j.code) msg = `${msg}${msg.includes(j.code) ? '' : ` (${j.code})`}`
+      } catch {
+        if (text) msg = text.slice(0, 200)
+      }
+    } else if (text) {
+      msg = text.slice(0, 200) || msg
+    }
+    const err = new Error(msg)
+    err.status = res.status
+    err.url = url
+    err.body = text
+    try {
+      err.parsed = JSON.parse(text)
+    } catch {
+      err.parsed = null
+    }
+    throw err
+  }
+  const blob = await res.blob()
+  const filename = parseFilenameFromContentDisposition(
+    res.headers.get('content-disposition')
+  )
+  return { blob, filename, contentType: res.headers.get('content-type') }
+}
+
+/** Trigger a browser download for a Blob. */
+export function downloadBlob(blob, filename) {
+  const u = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = u
+  a.download = filename || 'download'
+  a.rel = 'noopener'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(u)
+}
+
 async function request(method, path, body = null) {
   path = normalizeApiPath(path)
   const url = path.startsWith('http') ? path : resolveApiUrl(path)

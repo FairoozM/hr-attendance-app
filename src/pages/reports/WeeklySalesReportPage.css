@@ -1,7 +1,7 @@
 /* Slow-moving / Other-family / etc. weekly Zoho sales reports.
    Reuses the war-* class system from WeeklyAdsReportPage.css; this file only
-   adds the small bits unique to read-only Zoho-sourced reports (refresh button,
-   loading / empty / error / not-configured callouts, SR.NO column width). */
+   adds the small bits unique to read-only Zoho-sourced reports (Export to Excel,
+   refresh, loading / empty / error / not-configured callouts, SR.NO column width). */
 
 .wsr-toolbar {
   display: flex;
@@ -57,6 +57,12 @@
   background: #fee2e2;
   border-color: #fecaca;
   color: #991b1b;
+}
+
+.wsr-callout--inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
 .wsr-callout__title {
