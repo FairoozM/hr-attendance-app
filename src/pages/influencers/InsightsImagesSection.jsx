@@ -241,9 +241,35 @@ export function InsightsImagesSection({
     const list = e.target.files
     e.target.value = ''
     if (!list?.length) {
+      setUploadLine('Picker closed without choosing a file.')
+      setTimeout(() => setUploadLine((s) => (s === 'Picker closed without choosing a file.' ? null : s)), 2500)
       return
     }
+    setUploadLine(`Selected ${list.length} file(s). Starting upload…`)
     await runUploads([...list])
+  }
+
+  const openPicker = () => {
+    setUploadLine(null)
+    if (!influencerId) {
+      setUploadLine('Cannot open picker: missing influencer id (open the row from the list and click Edit).')
+      return
+    }
+    if (!canEdit) {
+      setUploadLine("You don’t have permission to upload (needs Manage or Approve on Influencers).")
+      return
+    }
+    if (busy) return
+    const el = fileRef.current
+    if (!el) {
+      setUploadLine('File input not mounted — please reload the page.')
+      return
+    }
+    try {
+      el.click()
+    } catch (err) {
+      setUploadLine(`Could not open file picker: ${err?.message || err}`)
+    }
   }
 
   const onDeleteOne = async (removeKey) => {
@@ -412,6 +438,19 @@ export function InsightsImagesSection({
 
   return (
     <div className={`inf-prod-images-wrap ${className}`.trim()}>
+      {/* Hidden file input lives outside the grid so its native UI can never bleed into layout. */}
+      <input
+        id={fileInputId}
+        ref={fileRef}
+        type="file"
+        accept="image/*,image/heic,image/heif"
+        multiple
+        className="inf-prod-images__hidden-file"
+        aria-hidden
+        tabIndex={-1}
+        onChange={onPickFile}
+        disabled={busy || !canEdit}
+      />
       <div className="inf-prod-images">
         <div className="inf-prod-images__head">
           <h3 className="inf-prod-images__title">
@@ -461,33 +500,20 @@ export function InsightsImagesSection({
           onDrop={onDropFile}
         >
           {canEdit && displayKeys.length < MAX_INSIGHT_IMAGES && (
-            <div
-              className={'inf-prod-images__add-wrap' + (busy ? ' inf-prod-images__add-wrap--busy' : '')}
+            <button
+              type="button"
+              className={'inf-prod-images__add' + (busy ? ' inf-prod-images__add--busy' : '')}
+              onClick={openPicker}
               onDragOver={onDragOverGrid}
+              disabled={busy}
+              aria-label="Add insights images"
             >
-              {/*
-                Full-bleed native file input on top of the card (reliable in Safari/iOS; <label> + useId
-                and nested controls are flaky). Visual layer has pointer-events: none.
-              */}
-              <div className="inf-prod-images__add-facade" aria-hidden>
-                <div className="inf-prod-images__add-icon">
-                  <ImagePlus size={24} />
-                </div>
-                <span className="inf-prod-images__add-title">Add images</span>
-                <span className="inf-prod-images__add-hint">You can select multiple at once</span>
+              <div className="inf-prod-images__add-icon">
+                <ImagePlus size={24} />
               </div>
-              <input
-                id={fileInputId}
-                ref={fileRef}
-                type="file"
-                accept="image/*,image/heic,image/heif"
-                multiple
-                className="inf-prod-images__add-file"
-                aria-label="Add insights images"
-                onChange={onPickFile}
-                disabled={busy}
-              />
-            </div>
+              <span className="inf-prod-images__add-title">Add images</span>
+              <span className="inf-prod-images__add-hint">You can select multiple at once</span>
+            </button>
           )}
 
           {displayKeys.map((k) => {
