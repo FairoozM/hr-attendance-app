@@ -1117,6 +1117,30 @@
   border-color: rgba(99, 102, 241, 0.28);
 }
 
+/* Comfort: full contrast nav items — dot, text, and active state all clearly visible on white sidebar */
+:root[data-theme='comfort'] .app-sidebar__section-label,
+:root[data-theme='comfort'] .app-sidebar__link,
+:root[data-theme='comfort'] .nav-group__trigger,
+:root[data-theme='comfort'] .nav-group__label,
+:root[data-theme='comfort'] .nav-group__hint,
+:root[data-theme='comfort'] .nav-group__link {
+  color: var(--text);
+}
+
+:root[data-theme='comfort'] .nav-group__link-dot {
+  background: #6b7280;
+}
+
+:root[data-theme='comfort'] .nav-group__link--active {
+  color: var(--text);
+  background: rgba(59, 130, 246, 0.10);
+  border-color: rgba(59, 130, 246, 0.28);
+}
+
+:root[data-theme='comfort'] .nav-group__link--active .nav-group__link-dot {
+  background: var(--accent, #3b82f6);
+}
+
 @media (min-width: 1101px) {
   .app {
     padding: 1.1rem;
