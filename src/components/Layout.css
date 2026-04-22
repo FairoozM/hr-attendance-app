@@ -505,6 +505,57 @@
   margin-bottom: 0;
 }
 
+/* Cmd+K task search trigger button */
+.app-topbar__search-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.38rem 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--theme-text-muted, #6b7280);
+  background: var(--theme-glass-soft, rgba(255,255,255,0.06));
+  border: 1px solid var(--theme-border, rgba(255,255,255,0.1));
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease;
+  flex-shrink: 0;
+}
+
+.app-topbar__search-btn:hover {
+  background: var(--theme-surface-soft, rgba(255,255,255,0.1));
+  color: var(--text, #e2e8f0);
+}
+
+.app-topbar__search-btn-label {
+  display: none;
+}
+
+.app-topbar__search-btn-kbd {
+  font-size: 0.68rem;
+  font-weight: 600;
+  opacity: 0.55;
+  letter-spacing: 0.02em;
+}
+
+@media (min-width: 900px) {
+  .app-topbar__search-btn-label {
+    display: inline;
+  }
+}
+
+:root[data-theme='comfort'] .app-topbar__search-btn {
+  background: #f3f4f6;
+  border-color: #e5e7eb;
+  color: #374151;
+}
+
+:root[data-theme='comfort'] .app-topbar__search-btn:hover {
+  background: #e5e7eb;
+  color: #111827;
+}
+
 .nav-search--topbar .nav-search__shell {
   min-height: 2.7rem;
   border-radius: 999px;
@@ -1115,6 +1166,23 @@
   color: var(--text);
   background: rgba(99, 102, 241, 0.16);
   border-color: rgba(99, 102, 241, 0.28);
+}
+
+/* Trash count badge in sidebar */
+.nav-trash-badge {
+  margin-left: auto;
+  padding: 0.08rem 0.42rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: #fee2e2;
+  color: #dc2626;
+  border-radius: 10px;
+  line-height: 1.4;
+}
+
+:root[data-theme='dark'] .nav-trash-badge {
+  background: rgba(239,68,68,0.18);
+  color: #f87171;
 }
 
 /* Comfort: full contrast nav items — dot, text, and active state all clearly visible on white sidebar */

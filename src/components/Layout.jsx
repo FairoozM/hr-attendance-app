@@ -9,6 +9,8 @@ import { useDocumentExpiry } from '../hooks/useDocumentExpiry'
 import { RoleGuard } from './RoleGuard'
 import { ThemeToggle } from './ThemeToggle'
 import { fmtDMY } from '../utils/dateFormat'
+import { useAIPlanner } from '../contexts/AIPlannerContext'
+import { TaskSearchModal } from './planner/TaskSearchModal'
 import './Layout.css'
 
 /** AI Planner sub-routes (admin sidebar, rail, and global nav search). */
@@ -16,6 +18,7 @@ const PLANNER_NAV_ITEMS = [
   { to: '/projects', label: 'Task List' },
   { to: '/projects/today', label: "Today's Plan" },
   { to: '/projects/dashboard', label: 'Dashboard' },
+  { to: '/projects/trash', label: 'Deleted' },
 ]
 
 /**
@@ -356,10 +359,24 @@ export function Layout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [navMode, setNavMode] = useState('full')
   const [focusedSection, setFocusedSection] = useState(null)
+  const [searchOpen, setSearchOpen] = useState(false)
   const { appTitle } = useSettings()
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const { trashedTasks } = useAIPlanner()
+
+  // Cmd+K / Ctrl+K opens global task search
+  useEffect(() => {
+    function handler(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setSearchOpen((v) => !v)
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [])
 
   const isAdmin = user?.role === 'admin'
   const isEmployee = user?.role === 'employee'
@@ -634,6 +651,9 @@ export function Layout() {
                         >
                           <span className="nav-group__link-dot" aria-hidden />
                           {item.label}
+                          {item.to === '/projects/trash' && trashedTasks.length > 0 && (
+                            <span className="nav-trash-badge">{trashedTasks.length}</span>
+                          )}
                         </NavLink>
                       ))}
                     </NavGroup>
@@ -764,6 +784,22 @@ export function Layout() {
             <SidebarSearch allItems={allNavItems} onNavigate={closeSidebar} className="nav-search--topbar" />
           </div>
 
+          {/* Cmd+K task search trigger */}
+          <button
+            type="button"
+            className="app-topbar__search-btn"
+            onClick={() => setSearchOpen(true)}
+            title="Search tasks (⌘K)"
+            aria-label="Open task search"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <span className="app-topbar__search-btn-label">Search tasks</span>
+            <span className="app-topbar__search-btn-kbd">⌘K</span>
+          </button>
+
           <div className="app-topbar__meta">
             <div className="app-topbar__chip">
               <span className="app-topbar__chip-dot" aria-hidden />
@@ -798,6 +834,9 @@ export function Layout() {
           </RoleGuard>
         </main>
       </div>
+
+      {/* Global task search modal */}
+      {searchOpen && <TaskSearchModal onClose={() => setSearchOpen(false)} />}
     </div>
   )
 }

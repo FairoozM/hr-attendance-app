@@ -34,6 +34,7 @@ import { WeeklyAdsReportPage } from './pages/reports/WeeklyAdsReportPage'
 import ProjectsIndexPage from './pages/projects/ProjectsIndexPage'
 import ProjectDetailPage from './pages/projects/ProjectDetailPage'
 import ProjectDashboardPage from './pages/projects/ProjectDashboardPage'
+import TrashPage from './pages/projects/TrashPage'
 import { AIPlannerProvider } from './contexts/AIPlannerContext'
 import { useEmployees } from './hooks/useEmployees'
 import { useAttendanceManagedEmployees } from './hooks/useAttendanceManagedEmployees'
@@ -101,7 +102,9 @@ function AppContent() {
         path="/"
         element={
           <RequireAuth>
-            <Layout />
+            <AIPlannerProvider>
+              <Layout />
+            </AIPlannerProvider>
           </RequireAuth>
         }
       >
@@ -179,9 +182,10 @@ function AppContent() {
         <Route path="roles-permissions" element={<RolesPermissionsPage />} />
 
         {/* AI Planner Module */}
-        <Route path="projects" element={<AIPlannerProvider><ProjectsIndexPage /></AIPlannerProvider>} />
-        <Route path="projects/dashboard" element={<AIPlannerProvider><ProjectDashboardPage /></AIPlannerProvider>} />
-        <Route path="projects/today" element={<AIPlannerProvider><ProjectDetailPage /></AIPlannerProvider>} />
+        <Route path="projects" element={<ProjectsIndexPage />} />
+        <Route path="projects/dashboard" element={<ProjectDashboardPage />} />
+        <Route path="projects/today" element={<ProjectDetailPage />} />
+        <Route path="projects/trash" element={<TrashPage />} />
 
         {/* Reports Module */}
         <Route path="reports">

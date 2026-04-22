@@ -11,6 +11,8 @@ import {
 
 const STORAGE_KEY          = 'ai_planner_tasks_v2'
 const SECTIONS_STORAGE_KEY = 'ai_planner_sections_v2'
+const TRASH_STORAGE_KEY    = 'ai_planner_trash_v1'
+const RECENTS_STORAGE_KEY  = 'ai_planner_recents_v1'
 /** Bump when adding default tasks/sections so existing localStorage gets merged once */
 const SEED_REVISION_KEY     = 'ai_planner_seed_revision_v1'
 const CURRENT_SEED_REVISION = 1
@@ -90,6 +92,36 @@ function loadSectionsFromStorage() {
 function saveSectionsToStorage(sections) {
   try {
     localStorage.setItem(SECTIONS_STORAGE_KEY, JSON.stringify(sections))
+  } catch {}
+}
+
+function loadTrashFromStorage() {
+  try {
+    const raw = localStorage.getItem(TRASH_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+function saveTrashToStorage(tasks) {
+  try {
+    localStorage.setItem(TRASH_STORAGE_KEY, JSON.stringify(tasks))
+  } catch {}
+}
+
+function loadRecentsFromStorage() {
+  try {
+    const raw = localStorage.getItem(RECENTS_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+function saveRecentsToStorage(ids) {
+  try {
+    localStorage.setItem(RECENTS_STORAGE_KEY, JSON.stringify(ids))
   } catch {}
 }
 
@@ -263,6 +295,8 @@ const AIPlannerContext = createContext(null)
 export function AIPlannerProvider({ children }) {
   const [rawTasks, setRawTasks] = useState(() => initPlannerState().tasks)
   const [sections, setSections] = useState(() => initPlannerState().sections)
+  const [trashedTasks, setTrashedTasks] = useState(() => loadTrashFromStorage())
+  const [recentTaskIds, setRecentTaskIds] = useState(() => loadRecentsFromStorage())
   const [activeTaskId, setActiveTaskId] = useState(null)
   const [view, setView] = useState('planner') // 'planner' | 'today' | 'dashboard'
 
@@ -275,6 +309,25 @@ export function AIPlannerProvider({ children }) {
   useEffect(() => {
     saveSectionsToStorage(sections)
   }, [sections])
+
+  // Persist trash
+  useEffect(() => {
+    saveTrashToStorage(trashedTasks)
+  }, [trashedTasks])
+
+  // Persist recents
+  useEffect(() => {
+    saveRecentsToStorage(recentTaskIds)
+  }, [recentTaskIds])
+
+  // Track recently viewed tasks
+  const trackRecent = useCallback((id) => {
+    if (!id) return
+    setRecentTaskIds((prev) => {
+      const filtered = prev.filter((r) => r !== id)
+      return [id, ...filtered].slice(0, 10)
+    })
+  }, [])
 
   // ── Enriched + scheduled tasks (derived) ──────────────────────────────
   const tasks = useMemo(() => {
@@ -341,9 +394,35 @@ export function AIPlannerProvider({ children }) {
     )
   }, [])
 
+  // Soft-delete: moves task to trash instead of removing permanently
   const deleteTask = useCallback((id) => {
-    setRawTasks((prev) => prev.filter((t) => t.id !== id))
+    setRawTasks((prev) => {
+      const task = prev.find((t) => t.id === id)
+      if (task) {
+        setTrashedTasks((tr) => [{ ...task, deletedAt: new Date().toISOString() }, ...tr])
+      }
+      return prev.filter((t) => t.id !== id)
+    })
     setActiveTaskId((prev) => (prev === id ? null : prev))
+  }, [])
+
+  const restoreTask = useCallback((id) => {
+    setTrashedTasks((prev) => {
+      const task = prev.find((t) => t.id === id)
+      if (task) {
+        const { deletedAt: _d, ...restored } = task
+        setRawTasks((rt) => [restored, ...rt])
+      }
+      return prev.filter((t) => t.id !== id)
+    })
+  }, [])
+
+  const permanentlyDeleteTask = useCallback((id) => {
+    setTrashedTasks((prev) => prev.filter((t) => t.id !== id))
+  }, [])
+
+  const emptyTrash = useCallback(() => {
+    setTrashedTasks([])
   }, [])
 
   const markDone = useCallback((id) => {
@@ -564,10 +643,15 @@ export function AIPlannerProvider({ children }) {
       activeTaskId,
       view,
       setView,
-      setActiveTaskId,
+      setActiveTaskId: (id) => { setActiveTaskId(id); if (id) trackRecent(id) },
       addTask,
       updateTask,
       deleteTask,
+      restoreTask,
+      permanentlyDeleteTask,
+      emptyTrash,
+      trashedTasks,
+      recentTaskIds,
       markDone,
       markTodo,
       quickCapture,
