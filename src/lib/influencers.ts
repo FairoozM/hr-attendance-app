@@ -40,6 +40,8 @@ export interface Influencer {
   insightsReceived?: boolean
   /** S3 object keys for insights screenshots (max 6); signed URLs loaded separately. */
   insightsImageKeys?: string[]
+  /** Display rotation in degrees (0, 90, 180, 270) keyed by S3 object key. */
+  insightsImageRotations?: Record<string, number>
   reelsPrice?: string | number
   storiesPrice?: string | number
   packagePrice?: string | number
@@ -121,21 +123,47 @@ export async function fetchInsightsImageUrls(
   return Array.isArray(data?.items) ? data.items : []
 }
 
+/** iOS/ Safari often send empty or application/octet-stream; must match presigned Content-Type. */
+export function guessImageContentType(file: File): string {
+  const t = (file.type || "").trim().toLowerCase()
+  if (t.startsWith("image/")) {
+    return t
+  }
+  const name = (file.name || "").toLowerCase()
+  if (name.endsWith(".png")) return "image/png"
+  if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg"
+  if (name.endsWith(".webp")) return "image/webp"
+  if (name.endsWith(".gif")) return "image/gif"
+  if (name.endsWith(".heic") || name.endsWith(".heif")) return "image/heic"
+  if (name.endsWith(".avif")) return "image/avif"
+  return "image/jpeg"
+}
+
 export async function getInsightsImageUploadUrl(
   influencerId: string,
   payload: { fileName: string; contentType: string },
 ): Promise<{ uploadUrl: string; key: string }> {
   return apiFetch(`/api/influencers/${encodeURIComponent(influencerId)}/insights-images/upload-url`, {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      fileName: payload.fileName || "image.jpg",
+      contentType: payload.contentType,
+    }),
   })
 }
 
-export async function uploadInsightsImageToS3(uploadUrl: string, file: File): Promise<void> {
+export async function uploadInsightsImageToS3(
+  uploadUrl: string,
+  file: File,
+  contentType: string,
+): Promise<void> {
   const res = await fetch(uploadUrl, {
     method: "PUT",
     body: file,
-    headers: { "Content-Type": file.type || "application/octet-stream" },
+    headers: { "Content-Type": contentType },
   })
-  if (!res.ok) throw new Error(`Upload failed (HTTP ${res.status})`)
+  if (!res.ok) {
+    const hint = res.status === 403 ? " (CORS or signature mismatch; check S3 CORS and Content-Type)" : ""
+    throw new Error(`Upload failed (HTTP ${res.status})${hint}`)
+  }
 }

@@ -1,38 +1,82 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
+  GripVertical,
+  Eye,
+  RotateCw,
+  Trash2,
+  ImagePlus,
+  Info,
+} from 'lucide-react'
+import {
   fetchInsightsImageUrls,
   getInsightsImageUploadUrl,
   uploadInsightsImageToS3,
+  guessImageContentType,
 } from '../../lib/influencers'
 
 export const MAX_INSIGHT_IMAGES = 6
 
 /**
- * Upload and manage influencer insights screenshots (S3-backed, max MAX_INSIGHT_IMAGES).
- * Direct-to-S3 presigned uploads, parallel transfer, one PATCH to persist keys.
+ * Product-style 6-capacity insights grid: presigned S3, reorder, rotation metadata, delete all.
  */
 export function InsightsImagesSection({
   influencerId,
   imageKeys,
+  imageRotations: imageRotationsProp = {},
   canEdit,
   updateInfluencer,
   className = '',
 }) {
   const keys = Array.isArray(imageKeys) ? imageKeys : []
+  const imageRotations = useMemo(
+    () => (imageRotationsProp && typeof imageRotationsProp === 'object' ? imageRotationsProp : {}),
+    [imageRotationsProp],
+  )
+
   const keysJoined = keys.join('\0')
   const [signedByKey, setSignedByKey] = useState({})
   const [loadError, setLoadError] = useState(null)
   const [loadingUrls, setLoadingUrls] = useState(false)
   const [busy, setBusy] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
-  /** S3 key → local blob: for instant preview while the object uploads / signs. */
   const [localPreview, setLocalPreview] = useState({})
+  const [dragKey, setDragKey] = useState(null)
+  const fileRef = useRef(null)
+  const blobRef = useRef(new Set())
+
   const displayKeys = useMemo(() => {
     const fromLocal = Object.keys(localPreview).filter((k) => !keys.includes(k))
     return fromLocal.length ? [...keys, ...fromLocal] : keys
   }, [keys, localPreview])
-  const fileRef = useRef(null)
-  const blobRef = useRef(new Set())
+
+  const persistRotations = useCallback(
+    (next) => {
+      if (!influencerId) return
+      return updateInfluencer(influencerId, { insightsImageRotations: next })
+    },
+    [influencerId, updateInfluencer],
+  )
+
+  const persistKeys = useCallback(
+    async (newKeys, rotationsPatch) => {
+      if (!influencerId) return
+      const r =
+        rotationsPatch != null
+          ? rotationsPatch
+          : (() => {
+              const m = { ...imageRotations }
+              for (const k of Object.keys(m)) {
+                if (!newKeys.includes(k)) delete m[k]
+              }
+              return m
+            })()
+      await updateInfluencer(influencerId, {
+        insightsImageKeys: newKeys,
+        insightsImageRotations: r,
+      })
+    },
+    [influencerId, updateInfluencer, imageRotations],
+  )
 
   const revokeAllLocal = useCallback(() => {
     blobRef.current.forEach((u) => {
@@ -96,36 +140,47 @@ export function InsightsImagesSection({
 
   const runUploads = useCallback(
     async (fileArray) => {
-      const imageFiles = fileArray.filter((f) => f.type && f.type.startsWith('image/'))
-      if (!imageFiles.length) return
+      const imageFiles = fileArray.filter(
+        (f) =>
+          f.type &&
+          (f.type.startsWith('image/') ||
+            /(\.jpe?g|\.png|\.webp|\.gif|\.heic|\.heif|\.avif)$/i.test(f.name || '')),
+      )
+      if (!imageFiles.length) {
+        return
+      }
       const pendingLocal = Object.keys(localPreview).filter((k) => !keys.includes(k)).length
       const used = keys.length + pendingLocal
       const remaining = Math.max(0, MAX_INSIGHT_IMAGES - used)
-      if (remaining <= 0) return
+      if (remaining <= 0) {
+        return
+      }
       const toAdd = imageFiles.slice(0, remaining)
       setBusy(true)
       const preview = {}
+      const meta = []
       try {
-        const meta = await Promise.all(
-          toAdd.map((file) =>
-            getInsightsImageUploadUrl(influencerId, {
-              fileName: file.name,
-              contentType: file.type,
-            }),
-          ),
-        )
+        for (const file of toAdd) {
+          const contentType = guessImageContentType(file)
+          const m = await getInsightsImageUploadUrl(influencerId, {
+            fileName: file.name && file.name.trim() ? file.name : 'image.jpg',
+            contentType,
+          })
+          meta.push({ ...m, contentType, file })
+        }
         for (let i = 0; i < meta.length; i += 1) {
-          const url = URL.createObjectURL(toAdd[i])
-          blobRef.current.add(url)
-          preview[meta[i].key] = url
+          const u = URL.createObjectURL(meta[i].file)
+          blobRef.current.add(u)
+          preview[meta[i].key] = u
         }
         setLocalPreview((p) => ({ ...p, ...preview }))
         await Promise.all(
-          meta.map((m, i) => uploadInsightsImageToS3(m.uploadUrl, toAdd[i])),
+          meta.map((m) => uploadInsightsImageToS3(m.uploadUrl, m.file, m.contentType)),
         )
         const newKeyStrings = meta.map((m) => m.key)
         await updateInfluencer(influencerId, {
           insightsImageKeys: [...keys, ...newKeyStrings],
+          insightsImageRotations: imageRotations,
         })
       } catch (err) {
         setLocalPreview((p) => {
@@ -146,18 +201,22 @@ export function InsightsImagesSection({
         setBusy(false)
       }
     },
-    [influencerId, keys, localPreview, updateInfluencer],
+    [influencerId, keys, localPreview, updateInfluencer, imageRotations],
   )
 
   const onPickFile = async (e) => {
     const list = e.target.files
     e.target.value = ''
-    if (!list?.length) return
+    if (!list?.length) {
+      return
+    }
     await runUploads([...list])
   }
 
-  const onRemove = async (removeKey) => {
-    if (!canEdit || busy) return
+  const onDeleteOne = async (removeKey) => {
+    if (!canEdit || busy) {
+      return
+    }
     if (!keys.includes(removeKey) && localPreview[removeKey]) {
       setLocalPreview((p) => {
         const n = { ...p }
@@ -175,18 +234,22 @@ export function InsightsImagesSection({
     setBusy(true)
     try {
       setLocalPreview((p) => {
-        if (p[removeKey]) {
-          try {
-            URL.revokeObjectURL(p[removeKey])
-            blobRef.current.delete(p[removeKey])
-          } catch (_) {}
-        }
         const n = { ...p }
-        delete n[removeKey]
+        if (n[removeKey]) {
+          try {
+            URL.revokeObjectURL(n[removeKey])
+            blobRef.current.delete(n[removeKey])
+          } catch (_) {}
+          delete n[removeKey]
+        }
         return n
       })
+      const newKeys = keys.filter((k) => k !== removeKey)
+      const nextR = { ...imageRotations }
+      delete nextR[removeKey]
       await updateInfluencer(influencerId, {
-        insightsImageKeys: keys.filter((k) => k !== removeKey),
+        insightsImageKeys: newKeys,
+        insightsImageRotations: nextR,
       })
     } catch (err) {
       window.alert(err?.message || 'Remove failed')
@@ -195,123 +258,276 @@ export function InsightsImagesSection({
     }
   }
 
-  const onDragOver = (e) => {
-    if (!canEdit || busy || displayKeys.length >= MAX_INSIGHT_IMAGES) return
+  const onDeleteAll = async () => {
+    if (!canEdit || busy || !keys.length) {
+      return
+    }
+    if (!window.confirm('Remove all insights images? This cannot be undone.')) {
+      return
+    }
+    setBusy(true)
+    try {
+      setLocalPreview({})
+      await updateInfluencer(influencerId, {
+        insightsImageKeys: [],
+        insightsImageRotations: {},
+      })
+    } catch (err) {
+      window.alert(err?.message || 'Failed to clear images')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const onRotate = async (k) => {
+    if (!canEdit || busy) {
+      return
+    }
+    const cur = (imageRotations[k] || 0) % 360
+    const next = (cur + 90) % 360
+    try {
+      await persistRotations({ ...imageRotations, [k]: next })
+    } catch (e) {
+      window.alert(e?.message || 'Could not save rotation')
+    }
+  }
+
+  const onDragOverGrid = (e) => {
+    if (!canEdit || busy) {
+      return
+    }
     e.preventDefault()
-    e.stopPropagation()
     e.dataTransfer.dropEffect = 'copy'
-    if (e.dataTransfer?.types?.includes('Files')) setIsDragging(true)
   }
 
-  const onDragLeave = (e) => {
+  const onDropFile = (e) => {
     e.preventDefault()
-    e.stopPropagation()
-    if (!e.currentTarget?.contains(e.relatedTarget)) setIsDragging(false)
-  }
-
-  const onDrop = async (e) => {
-    e.preventDefault()
-    e.stopPropagation()
     setIsDragging(false)
-    if (!canEdit || busy || displayKeys.length >= MAX_INSIGHT_IMAGES) return
-    const dt = e.dataTransfer
-    if (!dt?.files?.length) return
-    await runUploads([...dt.files])
+    if (!canEdit || busy) {
+      return
+    }
+    if (e.dataTransfer?.files?.length) {
+      void runUploads([...e.dataTransfer.files])
+    }
+  }
+
+  const onKeyDragStart = (e, key) => {
+    if (!canEdit) {
+      return
+    }
+    e.dataTransfer.setData('text/plain', key)
+    e.dataTransfer.effectAllowed = 'move'
+    setDragKey(key)
+  }
+
+  const onKeyDragEnd = () => {
+    setDragKey(null)
+  }
+
+  const onKeyDragOver = (e) => {
+    e.preventDefault()
+    if (e.dataTransfer?.types?.includes('Files')) {
+      e.dataTransfer.dropEffect = 'copy'
+    } else {
+      e.dataTransfer.dropEffect = 'move'
+    }
+  }
+
+  const onKeyDropOnCell = async (e, targetKey) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.dataTransfer?.files?.length) {
+      setIsDragging(false)
+      await runUploads([...e.dataTransfer.files])
+      return
+    }
+    if (!canEdit) {
+      return
+    }
+    const fromK = e.dataTransfer.getData('text/plain') || dragKey
+    if (!fromK || fromK === targetKey) {
+      return
+    }
+    if (!keys.includes(fromK) || !keys.includes(targetKey)) {
+      return
+    }
+    const a = [...keys]
+    const fromI = a.indexOf(fromK)
+    const toI = a.indexOf(targetKey)
+    if (fromI < 0 || toI < 0) {
+      return
+    }
+    a.splice(fromI, 1)
+    a.splice(toI, 0, fromK)
+    setDragKey(null)
+    setBusy(true)
+    try {
+      await persistKeys(a, imageRotations)
+    } catch (err) {
+      window.alert(err?.message || 'Reorder failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const previewKey = (k) => {
+    const u = signedByKey[k] || localPreview[k]
+    if (u) {
+      window.open(u, '_blank', 'noopener,noreferrer')
+    }
   }
 
   return (
-    <div className={`inf-insights-images-wrap ${className}`.trim()}>
-      <div
-        className={`inf-profile-section inf-profile-section--full inf-insights-images${
-          isDragging ? ' inf-insights-images--dropping' : ''
-        }`}
-        onDragOver={onDragOver}
-        onDragEnter={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-        role="presentation"
-      >
-        <div className="inf-profile-section__head">
-          <span className="inf-profile-section__head-icon">🖼️</span>
-          <span className="inf-profile-section__head-title">Insights images</span>
-        </div>
-        <div className="inf-profile-section__body">
-          <p className="inf-insights-images__intro">
-            Add multiple screenshots at once (up to {MAX_INSIGHT_IMAGES} total). Files upload directly to secure
-            storage for speed—drop files here or use the button. Only users with influencer access can view them.
-          </p>
-          <div className="inf-insights-images__toolbar">
-            <span className="inf-insights-images__hint">
-              {displayKeys.length}/{MAX_INSIGHT_IMAGES} used
-              {loadingUrls && displayKeys.length > 0 ? ' · Loading…' : ''}
+    <div className={`inf-prod-images-wrap ${className}`.trim()}>
+      <div className="inf-prod-images">
+        <div className="inf-prod-images__head">
+          <h3 className="inf-prod-images__title">
+            <span>Insights images</span>
+            <span className="inf-prod-images__info" title="Max 6 images, stored in your secure bucket. Reorder, rotate, or remove before they go live.">
+              <Info size={14} aria-hidden />
             </span>
-            {canEdit && displayKeys.length < MAX_INSIGHT_IMAGES && (
-              <>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="inf-insights-images__file"
-                  aria-label="Upload insights images"
-                  onChange={onPickFile}
-                  disabled={busy}
-                />
-                <button
-                  type="button"
-                  className="inf-btn inf-btn--primary inf-btn--sm"
-                  disabled={busy}
-                  onClick={() => fileRef.current?.click()}
-                >
-                  {busy ? 'Uploading…' : 'Add images'}
-                </button>
-              </>
-            )}
-          </div>
-          {loadError && <p className="inf-insights-images__err">{loadError}</p>}
-          {isDragging && (
-            <p className="inf-insights-images__drop-prompt" aria-hidden>
-              Drop images to upload
-            </p>
+          </h3>
+          <p className="inf-prod-images__sub">
+            Add images to share influencer insights. You can reorder, rotate, or remove each image before they are saved to your library.
+            {loadingUrls && displayKeys.length > 0 ? ' Loading previews…' : null}
+          </p>
+        </div>
+
+        <div
+          className={`inf-prod-images__grid${isDragging ? ' inf-prod-images__grid--dropping' : ''}`}
+          onDragOver={(e) => {
+            if (!e.dataTransfer.types?.includes('Files')) {
+              return
+            }
+            e.preventDefault()
+            e.dataTransfer.dropEffect = 'copy'
+            if (canEdit && displayKeys.length < MAX_INSIGHT_IMAGES) {
+              setIsDragging(true)
+            }
+          }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={onDropFile}
+        >
+          {canEdit && displayKeys.length < MAX_INSIGHT_IMAGES && (
+            <button
+              type="button"
+              className="inf-prod-images__add"
+              onClick={() => fileRef.current?.click()}
+              disabled={busy}
+              onDragOver={onDragOverGrid}
+            >
+              <div className="inf-prod-images__add-icon">
+                <ImagePlus size={24} />
+              </div>
+              <span className="inf-prod-images__add-title">Add images</span>
+              <span className="inf-prod-images__add-hint">You can select multiple at once</span>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*,.heic,.heif"
+                multiple
+                className="inf-prod-sr"
+                aria-label="Add insights images"
+                onChange={onPickFile}
+                disabled={busy}
+              />
+            </button>
           )}
-          {!displayKeys.length && !loadError && (
-            <p className="inf-insights-images__empty">No insights images yet.</p>
-          )}
-          {displayKeys.length > 0 && (
-            <div className="inf-insights-images__grid">
-              {displayKeys.map((key) => {
-                const url = signedByKey[key] || localPreview[key]
-                return (
-                  <div key={key} className="inf-insights-images__cell">
-                    {url ? (
-                      <a
-                        href={url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inf-insights-images__link"
+
+          {displayKeys.map((k) => {
+            const url = signedByKey[k] || localPreview[k]
+            const deg = (imageRotations[k] || 0) % 360
+            const isPersisted = keys.includes(k)
+            return (
+              <div
+                key={k}
+                className="inf-prod-images__cell"
+                onDragOver={onKeyDragOver}
+                onDrop={(e) => onKeyDropOnCell(e, k)}
+              >
+                {url ? (
+                  <div className="inf-prod-images__thumb" style={{ transform: `rotate(${deg}deg)` }}>
+                    <img src={url} alt="" role="presentation" />
+                  </div>
+                ) : (
+                  <div className="inf-prod-images__skeleton" />
+                )}
+                {canEdit && (
+                  <div className="inf-prod-images__toolbar" onClick={(e) => e.stopPropagation()}>
+                    {isPersisted && (
+                      <span
+                        className="inf-prod-images__tool"
+                        title="Drag to reorder"
+                        draggable
+                        onDragStart={(e) => onKeyDragStart(e, k)}
+                        onDragEnd={onKeyDragEnd}
+                        role="button"
+                        tabIndex={0}
+                        aria-label="Drag to reorder"
                       >
-                        <img src={url} alt="Insights" loading="lazy" />
-                      </a>
-                    ) : (
-                      <div className="inf-insights-images__placeholder" />
+                        <GripVertical size={16} />
+                      </span>
                     )}
-                    {canEdit && (
+                    {url && (
                       <button
                         type="button"
-                        className="inf-insights-images__remove"
-                        aria-label="Remove image"
-                        disabled={busy}
-                        onClick={() => onRemove(key)}
+                        className="inf-prod-images__tool"
+                        title="Open full size"
+                        onClick={() => previewKey(k)}
                       >
-                        ×
+                        <Eye size={16} />
                       </button>
                     )}
+                    {isPersisted && url && (
+                      <button
+                        type="button"
+                        className="inf-prod-images__tool"
+                        title="Rotate 90°"
+                        onClick={() => onRotate(k)}
+                        disabled={busy}
+                      >
+                        <RotateCw size={16} />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="inf-prod-images__tool inf-prod-images__tool--del"
+                      title="Remove"
+                      onClick={() => onDeleteOne(k)}
+                      disabled={busy}
+                    >
+                      <Trash2 size={16} />
+                    </button>
                   </div>
-                )
-              })}
-            </div>
-          )}
+                )}
+              </div>
+            )
+          })}
         </div>
+
+        {loadError && <p className="inf-prod-images__err">{loadError}</p>}
+
+        {canEdit && keys.length > 0 && (
+          <div className="inf-prod-images__footer">
+            <button
+              type="button"
+              className="inf-prod-images__delete-all"
+              onClick={onDeleteAll}
+              disabled={busy}
+            >
+              <Trash2 size={16} />
+              Delete all images
+            </button>
+            <span className="inf-prod-images__count" aria-live="polite">
+              {displayKeys.length} / {MAX_INSIGHT_IMAGES} images
+            </span>
+          </div>
+        )}
+        {!canEdit && displayKeys.length > 0 && (
+          <p className="inf-prod-images__ro-hint" role="status">
+            View only — {displayKeys.length} {displayKeys.length === 1 ? 'image' : 'images'}
+          </p>
+        )}
       </div>
     </div>
   )

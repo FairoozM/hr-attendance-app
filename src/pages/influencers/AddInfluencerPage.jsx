@@ -33,6 +33,7 @@ const EMPTY_FORM = {
   shootDate: '', shootTime: '', shootLocation: '', campaign: '',
   agreementStatus: 'Not Generated',
   insightsImageKeys: [],
+  insightsImageRotations: {},
 }
 
 /* ─── Field atoms — module-level (stable identity, no focus loss) ── */
@@ -244,12 +245,16 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
     try {
       if (isEdit) {
         const live = influencers.find((i) => String(i.id) === String(id))
-        await updateInfluencer(id, {
-          ...form,
-          id,
-          /** Always use the latest S3 key list from context (wizard form is often stale after insights uploads). */
-          insightsImageKeys: live?.insightsImageKeys ?? form.insightsImageKeys ?? [],
-        })
+        const payload = { ...form, id }
+        if (live) {
+          payload.insightsImageKeys = live?.insightsImageKeys ?? form.insightsImageKeys ?? []
+          payload.insightsImageRotations =
+            live?.insightsImageRotations ?? form.insightsImageRotations ?? {}
+        } else {
+          delete payload.insightsImageKeys
+          delete payload.insightsImageRotations
+        }
+        await updateInfluencer(id, payload)
         setSaved(true)
         setTimeout(() => setSaved(false), 2500)
       } else {
@@ -322,6 +327,7 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
             <InsightsImagesSection
               influencerId={id}
               imageKeys={existing?.insightsImageKeys ?? []}
+              imageRotations={existing?.insightsImageRotations ?? {}}
               canEdit={canInfl('manage') || canInfl('approve')}
               updateInfluencer={updateInfluencer}
               className="aif-insights-embed"
