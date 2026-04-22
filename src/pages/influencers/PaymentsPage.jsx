@@ -130,7 +130,7 @@ export function PaymentsPage() {
             </thead>
             <tbody>
               {filtered.map(inf => (
-                <tr key={inf.id} onClick={() => navigate(`/influencers/${inf.id}`)}>
+                <tr key={inf.id} onClick={() => navigate(`/influencers/${inf.id}/edit`)}>
                   <td>
                     <div className="inf-table__name">{inf.name}</div>
                     <div className="inf-table__muted">{inf.nationality}</div>

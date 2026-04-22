@@ -248,7 +248,7 @@ function InfluencerRowActions({ inf, can, navigate, onQuickAction }) {
             type="button"
             className="inf-list-menu__item"
             role="menuitem"
-            onClick={e => run(e, () => navigate(`/influencers/${inf.id}`))}
+            onClick={e => run(e, () => navigate(`/influencers/${inf.id}/edit`))}
           >
             <Eye size={14} aria-hidden /> View profile
           </button>
@@ -490,8 +490,8 @@ export function InfluencerListPage() {
     e.stopPropagation()
     if (action === 'approve') updateInfluencer(inf.id, { approvalStatus: 'Approved', workflowStatus: 'Approved' })
     else if (action === 'reject') updateInfluencer(inf.id, { approvalStatus: 'Rejected', workflowStatus: 'Rejected' })
-    else if (action === 'schedule') navigate(`/influencers/${inf.id}`)
-    else if (action === 'agreement') navigate(`/influencers/${inf.id}`)
+    else if (action === 'schedule') navigate(`/influencers/${inf.id}/edit`)
+    else if (action === 'agreement') navigate(`/influencers/${inf.id}/edit`)
     else if (action === 'payment-ready') updateInfluencer(inf.id, { paymentStatus: 'Ready for Payment' })
     else if (action === 'paid') updateInfluencer(inf.id, { paymentStatus: 'Paid', workflowStatus: 'Paid' })
     else if (action === 'delete') { e.stopPropagation(); setConfirmDeleteId(inf.id) }
@@ -708,7 +708,7 @@ export function InfluencerListPage() {
             </thead>
             <tbody>
               {pageRows.map((inf, index) => (
-                <tr key={inf.id} onClick={() => navigate(`/influencers/${inf.id}`)}>
+                <tr key={inf.id} onClick={() => navigate(`/influencers/${inf.id}/edit`)}>
                   <td className="inf-table__sr">{serialOffset + index + 1}</td>
                   <td className="inf-table__col inf-table__col--name">
                     <div className="inf-table__name">{inf.name}</div>

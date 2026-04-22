@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { resolveApiUrl } from '../../api/client'
 import {
-  User, Smartphone, Mail, Globe2, MapPin, Sparkles, ChevronRight,
+  User, Smartphone, Mail, Globe2, MapPin, Sparkles,
   Camera, Video, Hash, MessageCircle, Share2, AtSign,
   Users, TrendingUp, Eye, BarChart2, DollarSign, Link2,
   Phone, FileText, CreditCard, Building2, BadgeCheck, Calendar,
@@ -35,20 +35,10 @@ const EMPTY_FORM = {
   insightsImageKeys: [],
 }
 
-const STEPS = [
-  { id: 'basic',      label: 'Basic Details',          Icon: User },
-  { id: 'social',     label: 'Social Media',           Icon: Camera },
-  { id: 'audience',   label: 'Audience & Profile',     Icon: Users },
-  { id: 'commercial', label: 'Commercial',             Icon: DollarSign },
-  { id: 'contact',    label: 'Contact & Negotiation',  Icon: MessageCircle },
-  { id: 'payment',    label: 'Payment Details',        Icon: CreditCard },
-  { id: 'status',     label: 'Status & Assign',        Icon: BadgeCheck },
-]
-
 /* ─── Field atoms — module-level (stable identity, no focus loss) ── */
 
 /** Icon + input row, matches reference FuturisticField exactly */
-function FInput({ icon: Icon, label, value, onChange, placeholder, type = 'text' }) {
+function FInput({ icon: Icon, label, value, onChange, placeholder, type = 'text', readOnly = false }) {
   return (
     <div className="aif-field">
       <label className="aif-field-label">{label}</label>
@@ -59,8 +49,9 @@ function FInput({ icon: Icon, label, value, onChange, placeholder, type = 'text'
             className="aif-field-ctrl"
             type={type}
             value={value || ''}
-            onChange={e => onChange(e.target.value)}
+            onChange={e => !readOnly && onChange(e.target.value)}
             placeholder={placeholder}
+            readOnly={readOnly}
           />
         </div>
       </div>
@@ -69,7 +60,7 @@ function FInput({ icon: Icon, label, value, onChange, placeholder, type = 'text'
 }
 
 /** Icon + select row */
-function FSelect({ icon: Icon, label, value, onChange, options }) {
+function FSelect({ icon: Icon, label, value, onChange, options, readOnly = false }) {
   return (
     <div className="aif-field">
       <label className="aif-field-label">{label}</label>
@@ -79,7 +70,8 @@ function FSelect({ icon: Icon, label, value, onChange, options }) {
           <select
             className="aif-field-ctrl aif-field-ctrl--sel"
             value={value || ''}
-            onChange={e => onChange(e.target.value)}
+            onChange={e => !readOnly && onChange(e.target.value)}
+            disabled={readOnly}
           >
             {options.map(o =>
               typeof o === 'string'
@@ -157,7 +149,7 @@ function InstagramPreviewCard({ handle, storedPicUrl }) {
 }
 
 /** Textarea — wider outer radius matching reference */
-function FTextarea({ label, value, onChange, placeholder, rows = 5 }) {
+function FTextarea({ label, value, onChange, placeholder, rows = 5, readOnly = false }) {
   return (
     <div className="aif-field aif-field--wide">
       <label className="aif-field-label">{label}</label>
@@ -165,9 +157,10 @@ function FTextarea({ label, value, onChange, placeholder, rows = 5 }) {
         <textarea
           className="aif-ta-ctrl"
           value={value || ''}
-          onChange={e => onChange(e.target.value)}
+          onChange={e => !readOnly && onChange(e.target.value)}
           placeholder={placeholder}
           rows={rows}
+          readOnly={readOnly}
         />
       </div>
     </div>
@@ -175,7 +168,7 @@ function FTextarea({ label, value, onChange, placeholder, rows = 5 }) {
 }
 
 /** Toggle switch */
-function FToggle({ label, value, onChange }) {
+function FToggle({ label, value, onChange, readOnly = false }) {
   return (
     <label className="aif-toggle-row">
       <button
@@ -183,7 +176,8 @@ function FToggle({ label, value, onChange }) {
         role="switch"
         aria-checked={value}
         className={`aif-toggle${value ? ' is-on' : ''}`}
-        onClick={() => onChange(!value)}
+        disabled={readOnly}
+        onClick={() => !readOnly && onChange(!value)}
       >
         <span className="aif-toggle-thumb" />
       </button>
@@ -216,10 +210,14 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
         }
       : EMPTY_FORM
   )
-  const [step,  setStep]  = useState(0)
   const [saved, setSaved] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
+
+  const canWrite = isEdit
+    ? (canInfl('manage') || canInfl('approve'))
+    : canInfl('manage')
+  const ro = !canWrite
 
   const set       = (key, val)       => {
     setSubmitError('')
@@ -236,8 +234,10 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
     if (isSubmitting) return
     setSubmitError('')
     if (!form.name?.trim()) {
-      setStep(0)
       setSubmitError('Influencer name is required before creating a profile.')
+      try {
+        document.getElementById('aif-section-basic')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      } catch (_) {}
       return
     }
     setIsSubmitting(true)
@@ -255,7 +255,7 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
       } else {
         const newId = await addInfluencer(form)
         if (asModal) onClose?.()
-        else navigate(`/influencers/${newId}`)
+        else navigate(`/influencers/${newId}/edit`)
       }
     } catch (err) {
       setSubmitError(err?.message || 'Could not save profile. Please try again.')
@@ -264,162 +264,140 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
     }
   }
 
-  const cur  = STEPS[step]
-  const SIcon = cur.Icon
-  const pct  = Math.round(((step + 1) / STEPS.length) * 100)
+  const formSections = () => (
+    <>
+      <div className="aif-form-section" id="aif-section-basic">
+        <STitle>Identity &amp; Contact</STitle>
+        <div className="aif-row2">
+          <FInput readOnly={ro} icon={User}       label="Influencer Name *" value={form.name}        onChange={v => set('name', v)}        placeholder="Full name" />
+          <FInput readOnly={ro} icon={Sparkles}   label="Niche / Category"  value={form.niche}       onChange={v => set('niche', v)}       placeholder="Fashion, Beauty, Food…" />
+          <FInput readOnly={ro} icon={Smartphone} label="Mobile Number"     value={form.mobile}      onChange={v => set('mobile', v)}      placeholder="+971 50 000 0000" />
+          <FInput readOnly={ro} icon={Smartphone} label="WhatsApp Number"   value={form.whatsapp}    onChange={v => set('whatsapp', v)}    placeholder="+971 50 000 0000" />
+          <FInput readOnly={ro} icon={Mail}       label="Email Address"     value={form.email}       onChange={v => set('email', v)}       placeholder="name@example.com" type="email" />
+          <FInput readOnly={ro} icon={Globe2}     label="Nationality"       value={form.nationality} onChange={v => set('nationality', v)} placeholder="e.g. Emirati, Lebanese" />
+          <FInput readOnly={ro} icon={MapPin}     label="Based In"          value={form.basedIn}     onChange={v => set('basedIn', v)}     placeholder="e.g. Dubai, Abu Dhabi" />
+        </div>
+        <FTextarea readOnly={ro} label="Notes / Intelligence" value={form.notes} onChange={v => set('notes', v)}
+          placeholder="Strategic notes, communication preferences, past campaign performance…" rows={6} />
+      </div>
 
-  /* ─── Section form bodies ─── */
-  const body = () => {
-    switch (cur.id) {
+      <div className="aif-form-section" id="aif-section-social">
+        <STitle>Handles &amp; Profile URLs</STitle>
+        <div className="aif-row2">
+          <FInput readOnly={ro} icon={Camera}        label="Instagram Handle"  value={form.instagram?.handle} onChange={v => setNested('instagram', 'handle', v)} placeholder="@handle" />
+          <FInput readOnly={ro} icon={Link2}         label="Instagram URL"     value={form.instagram?.url}    onChange={v => setNested('instagram', 'url', v)}    placeholder="https://instagram.com/…" />
+          <FInput readOnly={ro} icon={Camera}        label="Instagram Profile Pic URL (optional)" value={form.instagram?.picUrl} onChange={v => setNested('instagram', 'picUrl', v)} placeholder="Paste direct image URL for profile pic" />
+        </div>
+        <InstagramPreviewCard handle={form.instagram?.handle} storedPicUrl={form.instagram?.picUrl} />
+        <div className="aif-row2">
+          <FInput readOnly={ro} icon={Video}         label="YouTube Handle"    value={form.youtube?.handle}   onChange={v => setNested('youtube', 'handle', v)}   placeholder="Channel name" />
+          <FInput readOnly={ro} icon={Link2}         label="YouTube URL"       value={form.youtube?.url}      onChange={v => setNested('youtube', 'url', v)}      placeholder="https://youtube.com/@…" />
+          <FInput readOnly={ro} icon={Hash}          label="TikTok Handle"     value={form.tiktok?.handle}    onChange={v => setNested('tiktok', 'handle', v)}    placeholder="@handle" />
+          <FInput readOnly={ro} icon={Link2}         label="TikTok URL"        value={form.tiktok?.url}       onChange={v => setNested('tiktok', 'url', v)}       placeholder="https://tiktok.com/@…" />
+          <FInput readOnly={ro} icon={Hash}          label="Snapchat Handle"   value={form.snapchat}          onChange={v => set('snapchat', v)}               placeholder="username" />
+          <FInput readOnly={ro} icon={Share2}        label="Facebook Page"     value={form.facebook}          onChange={v => set('facebook', v)}               placeholder="Page name or URL" />
+          <FInput readOnly={ro} icon={AtSign}        label="X / Twitter"       value={form.twitter}           onChange={v => set('twitter', v)}                placeholder="@handle" />
+          <FInput readOnly={ro} icon={MessageCircle} label="Telegram"          value={form.telegram}          onChange={v => set('telegram', v)}               placeholder="@username or channel" />
+          <FInput readOnly={ro} icon={Link2}         label="Website"           value={form.website}           onChange={v => set('website', v)}                placeholder="https://…" />
+          <FInput readOnly={ro} icon={Hash}          label="Other Socials"     value={form.otherSocial}       onChange={v => set('otherSocial', v)}            placeholder="LinkedIn, Pinterest…" />
+        </div>
+      </div>
 
-      case 'basic': return (
-        <>
-          <STitle>Identity &amp; Contact</STitle>
-          <div className="aif-row2">
-            <FInput icon={User}       label="Influencer Name *" value={form.name}        onChange={v => set('name', v)}        placeholder="Full name" />
-            <FInput icon={Sparkles}   label="Niche / Category"  value={form.niche}       onChange={v => set('niche', v)}       placeholder="Fashion, Beauty, Food…" />
-            <FInput icon={Smartphone} label="Mobile Number"     value={form.mobile}      onChange={v => set('mobile', v)}      placeholder="+971 50 000 0000" />
-            <FInput icon={Smartphone} label="WhatsApp Number"   value={form.whatsapp}    onChange={v => set('whatsapp', v)}    placeholder="+971 50 000 0000" />
-            <FInput icon={Mail}       label="Email Address"     value={form.email}       onChange={v => set('email', v)}       placeholder="name@example.com" type="email" />
-            <FInput icon={Globe2}     label="Nationality"       value={form.nationality} onChange={v => set('nationality', v)} placeholder="e.g. Emirati, Lebanese" />
-            <FInput icon={MapPin}     label="Based In"          value={form.basedIn}     onChange={v => set('basedIn', v)}     placeholder="e.g. Dubai, Abu Dhabi" />
-          </div>
-          <FTextarea label="Notes / Intelligence" value={form.notes} onChange={v => set('notes', v)}
-            placeholder="Strategic notes, communication preferences, past campaign performance…" rows={6} />
-        </>
-      )
+      <div className="aif-form-section" id="aif-section-audience">
+        <STitle>Audience Metrics</STitle>
+        <div className="aif-row2">
+          <FInput readOnly={ro} icon={Users}      label="Followers Count"  value={form.followersCount}  onChange={v => set('followersCount', v)}  placeholder="e.g. 125,000" />
+          <FInput readOnly={ro} icon={TrendingUp} label="Engagement Rate"  value={form.engagementRate}  onChange={v => set('engagementRate', v)}  placeholder="e.g. 4.2%" />
+          <FInput readOnly={ro} icon={Eye}        label="Avg Reel Views"   value={form.avgReelViews}    onChange={v => set('avgReelViews', v)}    placeholder="e.g. 80,000" />
+          <FInput readOnly={ro} icon={BarChart2}  label="Avg Story Reach"  value={form.avgStoryReach}   onChange={v => set('avgStoryReach', v)}   placeholder="e.g. 15,000" />
+        </div>
+        <FTextarea readOnly={ro} label="Audience Location Notes" value={form.audienceNotes} onChange={v => set('audienceNotes', v)}
+          placeholder="e.g. Mainly UAE-based, 65% female, high engagement in Dubai…" rows={3} />
+        <div className="aif-toggles">
+          <FToggle readOnly={ro} label="Insights screenshots / data received" value={form.insightsReceived} onChange={v => set('insightsReceived', v)} />
+        </div>
+        {isEdit && id ? (
+          <>
+            <STitle>Insights images</STitle>
+            <InsightsImagesSection
+              influencerId={id}
+              imageKeys={existing?.insightsImageKeys ?? []}
+              canEdit={canInfl('manage') || canInfl('approve')}
+              updateInfluencer={updateInfluencer}
+              className="aif-insights-embed"
+            />
+          </>
+        ) : (
+          <p className="aif-insights-wizard-hint">
+            Save the profile once, then you can add up to 6 insights screenshots here.
+          </p>
+        )}
+      </div>
 
-      case 'social': return (
-        <>
-          <STitle>Handles &amp; Profile URLs</STitle>
-          <div className="aif-row2">
-            <FInput icon={Camera}        label="Instagram Handle"  value={form.instagram?.handle} onChange={v => setNested('instagram','handle',v)} placeholder="@handle" />
-            <FInput icon={Link2}         label="Instagram URL"     value={form.instagram?.url}    onChange={v => setNested('instagram','url',v)}    placeholder="https://instagram.com/…" />
-            <FInput icon={Camera}        label="Instagram Profile Pic URL (optional)" value={form.instagram?.picUrl} onChange={v => setNested('instagram','picUrl',v)} placeholder="Paste direct image URL for profile pic" />
-          </div>
-          <InstagramPreviewCard handle={form.instagram?.handle} storedPicUrl={form.instagram?.picUrl} />
-          <div className="aif-row2">
-            <FInput icon={Video}         label="YouTube Handle"    value={form.youtube?.handle}   onChange={v => setNested('youtube','handle',v)}   placeholder="Channel name" />
-            <FInput icon={Link2}         label="YouTube URL"       value={form.youtube?.url}      onChange={v => setNested('youtube','url',v)}      placeholder="https://youtube.com/@…" />
-            <FInput icon={Hash}          label="TikTok Handle"     value={form.tiktok?.handle}    onChange={v => setNested('tiktok','handle',v)}    placeholder="@handle" />
-            <FInput icon={Link2}         label="TikTok URL"        value={form.tiktok?.url}       onChange={v => setNested('tiktok','url',v)}       placeholder="https://tiktok.com/@…" />
-            <FInput icon={Hash}          label="Snapchat Handle"   value={form.snapchat}          onChange={v => set('snapchat', v)}               placeholder="username" />
-            <FInput icon={Share2}        label="Facebook Page"     value={form.facebook}          onChange={v => set('facebook', v)}               placeholder="Page name or URL" />
-            <FInput icon={AtSign}        label="X / Twitter"       value={form.twitter}           onChange={v => set('twitter', v)}                placeholder="@handle" />
-            <FInput icon={MessageCircle} label="Telegram"          value={form.telegram}          onChange={v => set('telegram', v)}               placeholder="@username or channel" />
-            <FInput icon={Link2}         label="Website"           value={form.website}           onChange={v => set('website', v)}                placeholder="https://…" />
-            <FInput icon={Hash}          label="Other Socials"     value={form.otherSocial}       onChange={v => set('otherSocial', v)}            placeholder="LinkedIn, Pinterest…" />
-          </div>
-        </>
-      )
+      <div className="aif-form-section" id="aif-section-commercial">
+        <STitle>Pricing &amp; Deliverables</STitle>
+        <div className="aif-row3">
+          <FSelect readOnly={ro} icon={DollarSign} label="Currency"           value={form.currency}          onChange={v => set('currency', v)}          options={CURRENCIES} />
+          <FInput readOnly={ro}  icon={DollarSign} label="Reels Price"        value={form.reelsPrice}        onChange={v => set('reelsPrice', v)}        placeholder="0" type="number" />
+          <FInput readOnly={ro}  icon={DollarSign} label="Stories Price"      value={form.storiesPrice}      onChange={v => set('storiesPrice', v)}      placeholder="0" type="number" />
+          <FInput readOnly={ro}  icon={DollarSign} label="Package Price"      value={form.packagePrice}      onChange={v => set('packagePrice', v)}      placeholder="0" type="number" />
+          <FSelect readOnly={ro} icon={Sparkles}   label="Collaboration Type" value={form.collaborationType} onChange={v => set('collaborationType', v)} options={['', ...COLLABORATION_TYPES]} />
+        </div>
+        <FTextarea readOnly={ro} label="Deliverables" value={form.deliverables} onChange={v => set('deliverables', v)}
+          placeholder="e.g. 1 Reel + 3 Stories on influencer page, usage rights included…" rows={3} />
+        <div className="aif-toggles">
+          <FToggle readOnly={ro} label="Reel stays permanently on influencer's channel" value={form.reelStaysOnPage} onChange={v => set('reelStaysOnPage', v)} />
+          <FToggle readOnly={ro} label="Content production for brand channel included"  value={form.contentForBrand} onChange={v => set('contentForBrand', v)} />
+        </div>
+      </div>
 
-      case 'audience': return (
-        <>
-          <STitle>Audience Metrics</STitle>
-          <div className="aif-row2">
-            <FInput icon={Users}      label="Followers Count"  value={form.followersCount}  onChange={v => set('followersCount', v)}  placeholder="e.g. 125,000" />
-            <FInput icon={TrendingUp} label="Engagement Rate"  value={form.engagementRate}  onChange={v => set('engagementRate', v)}  placeholder="e.g. 4.2%" />
-            <FInput icon={Eye}        label="Avg Reel Views"   value={form.avgReelViews}    onChange={v => set('avgReelViews', v)}    placeholder="e.g. 80,000" />
-            <FInput icon={BarChart2}  label="Avg Story Reach"  value={form.avgStoryReach}   onChange={v => set('avgStoryReach', v)}   placeholder="e.g. 15,000" />
-          </div>
-          <FTextarea label="Audience Location Notes" value={form.audienceNotes} onChange={v => set('audienceNotes', v)}
-            placeholder="e.g. Mainly UAE-based, 65% female, high engagement in Dubai…" rows={3} />
-          <div className="aif-toggles">
-            <FToggle label="Insights screenshots / data received" value={form.insightsReceived} onChange={v => set('insightsReceived', v)} />
-          </div>
-          {isEdit && id ? (
-            <>
-              <STitle>Insights images</STitle>
-              <InsightsImagesSection
-                influencerId={id}
-                imageKeys={existing?.insightsImageKeys ?? []}
-                canEdit={canInfl('manage') || canInfl('approve')}
-                updateInfluencer={updateInfluencer}
-                className="aif-insights-embed"
-              />
-            </>
-          ) : (
-            <p className="aif-insights-wizard-hint">
-              Save the profile once to enable uploads. After creation, reopen this influencer or go to their profile to add up to 6 insights screenshots (same storage as the profile page).
-            </p>
-          )}
-        </>
-      )
+      <div className="aif-form-section" id="aif-section-contact">
+        <STitle>Negotiation &amp; Follow-up</STitle>
+        <div className="aif-row2">
+          <FSelect readOnly={ro} icon={Phone}    label="Contact Status"     value={form.contactStatus}    onChange={v => set('contactStatus', v)}    options={CONTACT_STATUSES} />
+          <FInput readOnly={ro}  icon={Calendar} label="Follow-up Reminder" value={form.followUpReminder} onChange={v => set('followUpReminder', v)} type="date" />
+        </div>
+        <div className="aif-stack">
+          <FTextarea readOnly={ro} label="Discussion Notes"        value={form.discussionNotes}  onChange={v => set('discussionNotes', v)}  placeholder="Key points from initial discussions…"   rows={3} />
+          <FTextarea readOnly={ro} label="Price Negotiation Notes" value={form.negotiationNotes} onChange={v => set('negotiationNotes', v)} placeholder="Pricing discussion and counter-offers…" rows={3} />
+          <FTextarea readOnly={ro} label="Approval Notes"          value={form.approvalNotes}    onChange={v => set('approvalNotes', v)}    placeholder="Why approved — key considerations…"      rows={2} />
+          <FTextarea readOnly={ro} label="Rejection Notes"         value={form.rejectionNotes}   onChange={v => set('rejectionNotes', v)}   placeholder="Reason for rejection (if applicable)…"  rows={2} />
+        </div>
+        <div className="aif-toggles">
+          <FToggle readOnly={ro} label="Offer / brief has been shared with influencer" value={form.offerShared} onChange={v => set('offerShared', v)} />
+        </div>
+      </div>
 
-      case 'commercial': return (
-        <>
-          <STitle>Pricing &amp; Deliverables</STitle>
-          <div className="aif-row3">
-            <FSelect icon={DollarSign} label="Currency"           value={form.currency}          onChange={v => set('currency', v)}          options={CURRENCIES} />
-            <FInput  icon={DollarSign} label="Reels Price"        value={form.reelsPrice}        onChange={v => set('reelsPrice', v)}        placeholder="0" type="number" />
-            <FInput  icon={DollarSign} label="Stories Price"      value={form.storiesPrice}      onChange={v => set('storiesPrice', v)}      placeholder="0" type="number" />
-            <FInput  icon={DollarSign} label="Package Price"      value={form.packagePrice}      onChange={v => set('packagePrice', v)}      placeholder="0" type="number" />
-            <FSelect icon={Sparkles}   label="Collaboration Type" value={form.collaborationType} onChange={v => set('collaborationType', v)} options={['', ...COLLABORATION_TYPES]} />
-          </div>
-          <FTextarea label="Deliverables" value={form.deliverables} onChange={v => set('deliverables', v)}
-            placeholder="e.g. 1 Reel + 3 Stories on influencer page, usage rights included…" rows={3} />
-          <div className="aif-toggles">
-            <FToggle label="Reel stays permanently on influencer's channel" value={form.reelStaysOnPage} onChange={v => set('reelStaysOnPage', v)} />
-            <FToggle label="Content production for brand channel included"  value={form.contentForBrand} onChange={v => set('contentForBrand', v)} />
-          </div>
-        </>
-      )
+      <div className="aif-form-section" id="aif-section-payment">
+        <STitle>Bank &amp; Payment Details</STitle>
+        <div className="aif-row2">
+          <FInput readOnly={ro}  icon={Building2}  label="Bank Name"          value={form.bankName}      onChange={v => set('bankName', v)}      placeholder="e.g. Emirates NBD" />
+          <FInput readOnly={ro}  icon={User}       label="Account Title"      value={form.accountTitle}  onChange={v => set('accountTitle', v)}  placeholder="Account holder name" />
+          <FInput readOnly={ro}  icon={CreditCard} label="IBAN / Account No." value={form.iban}          onChange={v => set('iban', v)}          placeholder="AE…" />
+          <FSelect readOnly={ro} icon={CreditCard} label="Payment Method"     value={form.paymentMethod} onChange={v => set('paymentMethod', v)} options={['', 'Bank Transfer', 'Cash', 'Cheque', 'Online Transfer', 'Other']} />
+        </div>
+        <FTextarea readOnly={ro} label="Payment Notes" value={form.paymentNotes} onChange={v => set('paymentNotes', v)}
+          placeholder="Any notes for the finance team…" rows={3} />
+      </div>
 
-      case 'contact': return (
-        <>
-          <STitle>Negotiation &amp; Follow-up</STitle>
-          <div className="aif-row2">
-            <FSelect icon={Phone}    label="Contact Status"     value={form.contactStatus}    onChange={v => set('contactStatus', v)}    options={CONTACT_STATUSES} />
-            <FInput  icon={Calendar} label="Follow-up Reminder" value={form.followUpReminder} onChange={v => set('followUpReminder', v)} type="date" />
-          </div>
-          <div className="aif-stack">
-            <FTextarea label="Discussion Notes"        value={form.discussionNotes}  onChange={v => set('discussionNotes', v)}  placeholder="Key points from initial discussions…"   rows={3} />
-            <FTextarea label="Price Negotiation Notes" value={form.negotiationNotes} onChange={v => set('negotiationNotes', v)} placeholder="Pricing discussion and counter-offers…" rows={3} />
-            <FTextarea label="Approval Notes"          value={form.approvalNotes}    onChange={v => set('approvalNotes', v)}    placeholder="Why approved — key considerations…"      rows={2} />
-            <FTextarea label="Rejection Notes"         value={form.rejectionNotes}   onChange={v => set('rejectionNotes', v)}   placeholder="Reason for rejection (if applicable)…"  rows={2} />
-          </div>
-          <div className="aif-toggles">
-            <FToggle label="Offer / brief has been shared with influencer" value={form.offerShared} onChange={v => set('offerShared', v)} />
-          </div>
-        </>
-      )
-
-      case 'payment': return (
-        <>
-          <STitle>Bank &amp; Payment Details</STitle>
-          <div className="aif-row2">
-            <FInput  icon={Building2}  label="Bank Name"          value={form.bankName}      onChange={v => set('bankName', v)}      placeholder="e.g. Emirates NBD" />
-            <FInput  icon={User}       label="Account Title"      value={form.accountTitle}  onChange={v => set('accountTitle', v)}  placeholder="Account holder name" />
-            <FInput  icon={CreditCard} label="IBAN / Account No." value={form.iban}          onChange={v => set('iban', v)}          placeholder="AE…" />
-            <FSelect icon={CreditCard} label="Payment Method"     value={form.paymentMethod} onChange={v => set('paymentMethod', v)} options={['', 'Bank Transfer', 'Cash', 'Cheque', 'Online Transfer', 'Other']} />
-          </div>
-          <FTextarea label="Payment Notes" value={form.paymentNotes} onChange={v => set('paymentNotes', v)}
-            placeholder="Any notes for the finance team…" rows={3} />
-        </>
-      )
-
-      case 'status': return (
-        <>
-          <STitle>Workflow &amp; Assignment</STitle>
-          <div className="aif-row2">
-            <FSelect icon={BadgeCheck} label="Workflow Stage"   value={form.workflowStatus}  onChange={v => set('workflowStatus', v)}  options={WORKFLOW_STAGES} />
-            <FSelect icon={BadgeCheck} label="Approval Status"  value={form.approvalStatus}  onChange={v => set('approvalStatus', v)}  options={APPROVAL_STATUSES} />
-            <FSelect icon={CreditCard} label="Payment Status"   value={form.paymentStatus}   onChange={v => set('paymentStatus', v)}   options={PAYMENT_STATUSES} />
-            <FInput  icon={User}       label="Assigned To"      value={form.assignedTo}      onChange={v => set('assignedTo', v)}      placeholder="Team member name" />
-          </div>
-          <STitle>Shoot Details</STitle>
-          <div className="aif-row2">
-            <FInput icon={Calendar} label="Shoot Date"      value={form.shootDate}     onChange={v => set('shootDate', v)}     type="date" />
-            <FInput icon={Clock}    label="Shoot Time"      value={form.shootTime}     onChange={v => set('shootTime', v)}     type="time" />
-            <FInput icon={MapPin}   label="Shoot Location"  value={form.shootLocation} onChange={v => set('shootLocation', v)} placeholder="Studio, store address…" />
-            <FInput icon={FileText} label="Campaign / Offer" value={form.campaign}     onChange={v => set('campaign', v)}      placeholder="Campaign name or offer" />
-          </div>
-        </>
-      )
-
-      default: return null
-    }
-  }
+      <div className="aif-form-section" id="aif-section-status">
+        <STitle>Workflow &amp; Assignment</STitle>
+        <div className="aif-row2">
+          <FSelect readOnly={ro} icon={BadgeCheck} label="Workflow Stage"   value={form.workflowStatus}  onChange={v => set('workflowStatus', v)}  options={WORKFLOW_STAGES} />
+          <FSelect readOnly={ro} icon={BadgeCheck} label="Approval Status"  value={form.approvalStatus}  onChange={v => set('approvalStatus', v)}  options={APPROVAL_STATUSES} />
+          <FSelect readOnly={ro} icon={CreditCard} label="Payment Status"   value={form.paymentStatus}   onChange={v => set('paymentStatus', v)}   options={PAYMENT_STATUSES} />
+          <FInput readOnly={ro}  icon={User}       label="Assigned To"      value={form.assignedTo}      onChange={v => set('assignedTo', v)}      placeholder="Team member name" />
+        </div>
+        <STitle>Shoot Details</STitle>
+        <div className="aif-row2">
+          <FInput readOnly={ro} icon={Calendar} label="Shoot Date"      value={form.shootDate}     onChange={v => set('shootDate', v)}     type="date" />
+          <FInput readOnly={ro} icon={Clock}    label="Shoot Time"      value={form.shootTime}     onChange={v => set('shootTime', v)}     type="time" />
+          <FInput readOnly={ro} icon={MapPin}   label="Shoot Location"  value={form.shootLocation} onChange={v => set('shootLocation', v)} placeholder="Studio, store address…" />
+          <FInput readOnly={ro} icon={FileText} label="Campaign / Offer" value={form.campaign}     onChange={v => set('campaign', v)}      placeholder="Campaign name or offer" />
+        </div>
+      </div>
+    </>
+  )
 
   /* ─── Rendered page content ─── */
   const content = (
@@ -455,8 +433,8 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
             </h1>
             <p className="aif-subtitle">
               {isEdit
-                ? `Editing profile · ${existing?.name}`
-                : 'Create a next-generation influencer profile with precision and elegance.'}
+                ? `Update every section below in one place · ${existing?.name || ''}`.trim()
+                : 'Fill in each section on this page — no step tabs, scroll to review before saving.'}
             </p>
           </div>
 
@@ -464,7 +442,7 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
             <button type="button" className="aif-btn-ghost" onClick={cancel}>
               <X size={14} /> Cancel
             </button>
-            <button type="button" className="aif-btn-primary" onClick={submit} disabled={isSubmitting}>
+            <button type="button" className="aif-btn-primary" onClick={submit} disabled={!canWrite || isSubmitting}>
               {isSubmitting
                 ? 'Saving...'
                 : saved
@@ -490,161 +468,27 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
           </div>
         ) : null}
 
-        {/* ── Two-column grid ── */}
-        <div className="aif-layout">
-
-          {/* ── Step sidebar ── */}
-          <aside className="aif-sidebar">
-            <div className="aif-sidebar__head">
-              <p className="aif-sidebar__eyebrow">Workflow</p>
-              <h2 className="aif-sidebar__title">Profile Builder</h2>
-            </div>
-
-            <div className="aif-steps">
-              {STEPS.map((s, i) => {
-                const active    = i === step
-                const completed = i < step
-                return (
-                  <button
-                    key={s.id}
-                    type="button"
-                    className={`aif-step${active ? ' is-active' : completed ? ' is-done' : ''}`}
-                    onClick={() => setStep(i)}
-                  >
-                    <div className={`aif-step__num${active ? ' is-active' : completed ? ' is-done' : ''}`}>
-                      {String(i + 1).padStart(2, '0')}
-                    </div>
-                    <div className="aif-step__text">
-                      <p className="aif-step__label">{s.label}</p>
-                      <p className="aif-step__hint">
-                        {active ? 'Current section' : completed ? 'Completed' : 'Pending'}
-                      </p>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          </aside>
-
-          {/* ── Main glass panel ── */}
-          <section className="aif-panel">
-
-            {/* Depth decorations — inside the glass panel */}
+        <div className="aif-layout aif-layout--single">
+          <section className="aif-panel aif-panel--stacked">
             <div className="aif-panel__grad" aria-hidden="true" />
             <div className="aif-panel__orb aif-panel__orb--tr" aria-hidden="true" />
             <div className="aif-panel__orb aif-panel__orb--bl" aria-hidden="true" />
-
-            {/* Panel header */}
-            <div className="aif-panel__header">
-              <div className="aif-panel__header-left">
-                <div className="aif-panel__icon">
-                  <SIcon size={20} />
-                </div>
-                <div>
-                  <span className="aif-panel__step-pill">
-                    Step {String(step + 1).padStart(2, '0')} / {STEPS.length}
-                  </span>
-                  <h2 className="aif-panel__title">{cur.label}</h2>
-                  <p className="aif-panel__sub">
-                    Build a refined, high-signal influencer profile with structured input.
-                  </p>
-                </div>
-              </div>
-
-              <div className="aif-pct-chip">
-                <span className="aif-pct-chip__label">Completion</span>
-                <span className="aif-pct-chip__val">{pct}%</span>
-              </div>
+            <div className="aif-panel__body aif-panel__body--longform">
+              {formSections()}
             </div>
-
-            {/* Panel body: form + overview */}
-            <div className="aif-panel__body">
-              <div className="aif-body-split">
-
-                {/* Form fields */}
-                <div className="aif-form-area">
-                  {body()}
-                </div>
-
-                {/* Live overview */}
-                <div className="aif-overview">
-                  <p className="aif-overview__heading">Live Overview</p>
-
-                  <div className="aif-overview__items">
-                    {[
-                      { label: 'Identity',   Icon: User },
-                      { label: 'Reach',      Icon: TrendingUp },
-                      { label: 'Commercial', Icon: DollarSign },
-                      { label: 'Operations', Icon: CreditCard },
-                    ].map(({ label, Icon: OIcon }) => (
-                      <div key={label} className="aif-overview__item">
-                        <div className="aif-overview__item-icon"><OIcon size={11} /></div>
-                        <span className="aif-overview__item-label">{label}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="aif-overview__status">
-                    <p className="aif-overview__status-title">Profile Status</p>
-                    <p className="aif-overview__status-body">
-                      {form.name
-                        ? `Building profile for ${form.name}${form.instagram?.handle ? ` · ${form.instagram.handle}` : ''}`
-                        : 'Enter influencer name to begin.'}
-                    </p>
-                  </div>
-
-                  <div className="aif-overview__pills">
-                    {STEPS.map((s, i) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => setStep(i)}
-                        className={`aif-step-pill${i === step ? ' is-active' : i < step ? ' is-done' : ''}`}
-                      >
-                        {String(i + 1).padStart(2, '0')}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-              </div>
-            </div>
-
-            {/* Panel footer */}
-            <footer className="aif-panel__footer">
-              <div className="aif-progress">
-                <div className="aif-progress__track">
-                  <div className="aif-progress__fill" style={{ width: `${pct}%` }} />
-                </div>
-                <span className="aif-progress__pct">{pct}%</span>
-              </div>
-
-              <div className="aif-panel__footer-btns">
-                {step > 0 && (
-                  <button type="button" className="aif-btn-ghost"
-                    onClick={() => setStep(i => Math.max(i - 1, 0))}>
-                    Previous
-                  </button>
-                )}
-                {step < STEPS.length - 1 ? (
-                  <button type="button" className="aif-btn-next"
-                    onClick={() => setStep(i => Math.min(i + 1, STEPS.length - 1))}>
-                    Continue <ChevronRight size={14} />
-                  </button>
-                ) : (
-                  <button type="button" className="aif-btn-primary" onClick={submit} disabled={isSubmitting}>
-                    {isSubmitting
-                      ? 'Saving...'
-                      : saved
-                        ? <><CheckCircle2 size={14} /> Saved</>
-                        : isEdit
-                          ? 'Save Changes'
-                          : 'Create Profile'}
-                  </button>
-                )}
+            <footer className="aif-panel__footer aif-panel__footer--end">
+              <div className="aif-panel__footer-btns" style={{ width: '100%', justifyContent: 'flex-end' }}>
+                <button type="button" className="aif-btn-primary" onClick={submit} disabled={!canWrite || isSubmitting}>
+                  {isSubmitting
+                    ? 'Saving...'
+                    : saved
+                      ? <><CheckCircle2 size={14} /> Saved</>
+                      : isEdit
+                        ? 'Save changes'
+                        : 'Create profile'}
+                </button>
               </div>
             </footer>
-
           </section>
         </div>
       </div>

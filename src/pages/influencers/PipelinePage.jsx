@@ -123,7 +123,7 @@ export function PipelinePage() {
                     draggable
                     onDragStart={e => handleDragStart(e, inf)}
                     onDragEnd={handleDragEnd}
-                    onClick={() => navigate(`/influencers/${inf.id}`)}
+                    onClick={() => navigate(`/influencers/${inf.id}/edit`)}
                   >
                     <div className="inf-pipeline-card__name">{inf.name}</div>
                     {inf.instagram?.handle && (

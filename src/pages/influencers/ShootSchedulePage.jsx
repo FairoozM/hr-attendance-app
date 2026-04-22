@@ -45,7 +45,7 @@ export function ShootSchedulePage() {
 
   function ShootCard({ inf }) {
     return (
-      <div className="inf-schedule-card" onClick={() => navigate(`/influencers/${inf.id}`)}>
+      <div className="inf-schedule-card" onClick={() => navigate(`/influencers/${inf.id}/edit`)}>
         <div className="inf-schedule-card__date">
           {inf.shootDate
             ? `📅 ${fmtDMY(inf.shootDate)}${inf.shootTime ? ` · ${inf.shootTime}` : ''}`
@@ -180,7 +180,7 @@ export function ShootSchedulePage() {
             </thead>
             <tbody>
               {scheduled.map(inf => (
-                <tr key={inf.id} onClick={() => navigate(`/influencers/${inf.id}`)}>
+                <tr key={inf.id} onClick={() => navigate(`/influencers/${inf.id}/edit`)}>
                   <td><div className="inf-table__name">{inf.name}</div></td>
                   <td><span className="inf-table__handle">{inf.instagram?.handle || '—'}</span></td>
                   <td><span className="inf-table__muted">{inf.shootDate ? fmtDMY(inf.shootDate) : '—'}</span></td>

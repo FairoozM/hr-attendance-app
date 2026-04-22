@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react'
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 import { SettingsContext } from './contexts/SettingsContext'
 import { InfluencersProvider } from './contexts/InfluencersContext'
@@ -19,7 +19,11 @@ import { RolesPermissionsPage } from './pages/RolesPermissionsPage'
 import { InfluencerListPage } from './pages/influencers/InfluencerListPage'
 import { AddInfluencerPage } from './pages/influencers/AddInfluencerPage'
 import { PipelinePage } from './pages/influencers/PipelinePage'
-import { InfluencerProfilePage } from './pages/influencers/InfluencerProfilePage'
+/** /influencers/:id (legacy profile URL) — send users straight to the editor. */
+function InfluencerIdToEditRedirect() {
+  const { id } = useParams()
+  return <Navigate to={`/influencers/${encodeURIComponent(id)}/edit`} replace />
+}
 import { ShootSchedulePage } from './pages/influencers/ShootSchedulePage'
 import { PaymentsPage } from './pages/influencers/PaymentsPage'
 import { AgreementsPage } from './pages/influencers/AgreementsPage'
@@ -232,11 +236,11 @@ function AppContent() {
           } />
           <Route path=":id" element={
             <PermissionGuard module="influencers" action="view">
-              <InfluencerProfilePage />
+              <InfluencerIdToEditRedirect />
             </PermissionGuard>
           } />
           <Route path=":id/edit" element={
-            <PermissionGuard module="influencers" action="manage">
+            <PermissionGuard module="influencers" action="view">
               <AddInfluencerPage />
             </PermissionGuard>
           } />
