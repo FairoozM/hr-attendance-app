@@ -2110,20 +2110,28 @@
 .tbl-section__body {
   display: flex;
   flex-direction: column;
-  --tbl-grid: rgba(255, 255, 255, 0.09);
-  --tbl-grid-hover: rgba(255, 255, 255, 0.06);
-  --tbl-sheet-bg: rgba(0, 0, 0, 0.14);
-  --tbl-header-bg: rgba(255, 255, 255, 0.035);
+  /* Dark-glass default — still readable on the aurora background */
+  --tbl-grid: rgba(255, 255, 255, 0.08);
+  --tbl-grid-hover: rgba(255, 255, 255, 0.05);
+  --tbl-sheet-bg: rgba(255, 255, 255, 0.06);
+  --tbl-header-bg: rgba(255, 255, 255, 0.04);
   border-radius: 0 0 8px 8px;
   overflow: hidden;
   background: var(--tbl-sheet-bg);
 }
 
 :root[data-theme='light'] .tbl-section__body {
-  --tbl-grid: rgba(15, 23, 42, 0.1);
-  --tbl-grid-hover: rgba(15, 23, 42, 0.04);
-  --tbl-sheet-bg: rgba(255, 255, 255, 0.65);
-  --tbl-header-bg: rgba(248, 250, 252, 0.95);
+  --tbl-grid: rgba(15, 23, 42, 0.08);
+  --tbl-grid-hover: rgba(15, 23, 42, 0.03);
+  --tbl-sheet-bg: #ffffff;
+  --tbl-header-bg: #f8fafc;
+}
+
+:root[data-theme='comfort'] .tbl-section__body {
+  --tbl-grid: rgba(15, 23, 42, 0.07);
+  --tbl-grid-hover: rgba(15, 23, 42, 0.025);
+  --tbl-sheet-bg: #ffffff;
+  --tbl-header-bg: #f9fafb;
 }
 
 /* ── Column header ───────────────────────────────────────────────── */
@@ -3633,6 +3641,117 @@
 :root[data-theme='dark'] .trash-row__badge--done { background: rgba(16,185,129,0.15); color: #6ee7b7; }
 :root[data-theme='dark'] .trash-row__btn--restore { background: rgba(37,99,235,0.1); border-color: rgba(59,130,246,0.3); color: #93c5fd; }
 :root[data-theme='dark'] .trash-row__btn--delete { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.1); color: #64748b; }
+
+/* ══════════════════════════════════════════════════════════════════
+   Subtask display rows (shown inline below parent task)
+   ══════════════════════════════════════════════════════════════════ */
+.tbl-subtask-rows {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--tbl-grid);
+}
+
+.tbl-subtask-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.3rem 0.5rem 0.3rem 2.6rem;
+  background: var(--tbl-sheet-bg, rgba(255,255,255,0.03));
+  border-bottom: 1px solid var(--tbl-grid);
+  min-height: 2.15rem;
+  transition: background 0.09s ease;
+}
+
+.tbl-subtask-row:last-child {
+  border-bottom: none;
+}
+
+.tbl-subtask-row:hover {
+  background: var(--tbl-grid-hover);
+}
+
+.tbl-subtask-row.done .tbl-subtask-row__title {
+  text-decoration: line-through;
+  opacity: 0.45;
+}
+
+.tbl-subtask-row__indent {
+  display: inline-block;
+  width: 1px;
+  flex-shrink: 0;
+}
+
+/* Small checkbox matching the main task check */
+.tbl-subtask-row__check {
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  border: 1.5px solid rgba(139, 92, 246, 0.45);
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  position: relative;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.tbl-subtask-row__check.checked {
+  background: #8b5cf6;
+  border-color: #8b5cf6;
+}
+
+.tbl-subtask-row__check.checked::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 4L3.5 6.5L9 1' stroke='white' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;
+}
+
+:root[data-theme='light'] .tbl-subtask-row__check,
+:root[data-theme='comfort'] .tbl-subtask-row__check {
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.tbl-subtask-row__title {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 0.8rem;
+  color: var(--theme-text-soft);
+  caret-color: var(--accent, #8b5cf6);
+  padding: 0;
+}
+
+:root[data-theme='light'] .tbl-subtask-row__title,
+:root[data-theme='comfort'] .tbl-subtask-row__title {
+  color: #4b5563;
+}
+
+.tbl-subtask-row__delete {
+  flex-shrink: 0;
+  width: 1.3rem;
+  height: 1.3rem;
+  font-size: 1rem;
+  line-height: 1;
+  color: transparent;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.1s ease, background 0.1s ease;
+}
+
+.tbl-subtask-row:hover .tbl-subtask-row__delete {
+  color: var(--theme-text-dim);
+}
+
+.tbl-subtask-row__delete:hover {
+  color: #f87171 !important;
+  background: rgba(248,113,113,0.1);
+}
 
 /* ══════════════════════════════════════════════════════════════════
    Inline subtask input row (appears below the parent task row)

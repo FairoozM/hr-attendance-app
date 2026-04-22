@@ -298,6 +298,67 @@ function InlineSubtaskInput({ taskId, onDone }) {
   )
 }
 
+// ── Inline subtask display rows ───────────────────────────────────────────────
+function SubtaskRows({ taskId, subtasks }) {
+  const { toggleSubtask, updateSubtask, deleteSubtask } = useAIPlanner()
+  if (!subtasks || subtasks.length === 0) return null
+
+  return (
+    <div className="tbl-subtask-rows">
+      {subtasks.map((sub) => (
+        <SubtaskRow
+          key={sub.id}
+          sub={sub}
+          onToggle={() => toggleSubtask(taskId, sub.id)}
+          onRename={(title) => updateSubtask(taskId, sub.id, title)}
+          onDelete={() => deleteSubtask(taskId, sub.id)}
+        />
+      ))}
+    </div>
+  )
+}
+
+function SubtaskRow({ sub, onToggle, onRename, onDelete }) {
+  const [draft, setDraft] = useState(sub.title || '')
+
+  useEffect(() => { setDraft(sub.title || '') }, [sub.id, sub.title])
+
+  function commit() {
+    const t = draft.trim()
+    if (!t) { setDraft(sub.title || ''); return }
+    if (t !== (sub.title || '')) onRename(t)
+  }
+
+  return (
+    <div className={`tbl-subtask-row ${sub.done ? 'done' : ''}`}>
+      <span className="tbl-subtask-row__indent" aria-hidden />
+      <button
+        type="button"
+        className={`tbl-subtask-row__check ${sub.done ? 'checked' : ''}`}
+        onClick={onToggle}
+        aria-label={sub.done ? 'Mark subtask incomplete' : 'Mark subtask complete'}
+      />
+      <input
+        className="tbl-subtask-row__title"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur() }
+          if (e.key === 'Escape') { setDraft(sub.title || ''); e.currentTarget.blur() }
+        }}
+        aria-label="Subtask title"
+      />
+      <button
+        type="button"
+        className="tbl-subtask-row__delete"
+        title="Delete subtask"
+        onClick={onDelete}
+      >×</button>
+    </div>
+  )
+}
+
 // ── Task row (spreadsheet-style inline edit, no side drawer) ────────────────
 function TaskRow({
   task,
@@ -468,7 +529,7 @@ function TaskRow({
               <span className="tbl-sub-progress">
                 <span className="tbl-sub-progress__fill" style={{ width: `${subPct}%` }} />
               </span>
-              {subDone}/{subTotal}
+              <span>{subDone}/{subTotal}</span>
             </span>
           )}
           {task.energyType === 'deep' && (
@@ -565,7 +626,10 @@ function TaskRow({
       )}
     </div>
 
-    {/* Inline subtask input — appears below this row without opening the sidebar */}
+    {/* Existing subtasks shown as text rows, same visual weight as the main task */}
+    <SubtaskRows taskId={task.id} subtasks={task.subtasks} />
+
+    {/* Inline subtask input — appears below after the existing subtasks */}
     {addingSubtask && (
       <InlineSubtaskInput
         taskId={task.id}
