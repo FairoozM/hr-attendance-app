@@ -124,3 +124,53 @@
   z-index: 1;
   padding: 1.3rem;
 }
+
+/* ── Comfort Theme overrides ── */
+:root[data-theme='comfort'] .modal-backdrop {
+  background: rgba(17, 24, 39, 0.28);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme='comfort'] .modal-panel {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme='comfort'] .modal-panel__shine {
+  display: none;
+}
+
+:root[data-theme='comfort'] .modal-panel__orb {
+  display: none;
+}
+
+:root[data-theme='comfort'] .modal-header {
+  border-bottom-color: #e5e7eb;
+}
+
+:root[data-theme='comfort'] .modal-kicker {
+  color: var(--accent, #3b82f6);
+}
+
+:root[data-theme='comfort'] .modal-title {
+  background: linear-gradient(120deg, #1f2937 0%, #1d4ed8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+:root[data-theme='comfort'] .modal-close {
+  background: #f3f4f6;
+  border-color: #e5e7eb;
+  color: #6b7280;
+}
+
+:root[data-theme='comfort'] .modal-close:hover {
+  background: #e5e7eb;
+  color: #1f2937;
+  border-color: #d1d5db;
+}
