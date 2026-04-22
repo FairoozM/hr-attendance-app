@@ -224,7 +224,6 @@
 
 html {
   background: var(--theme-bg-canvas);
-  scroll-behavior: smooth;
 }
 
 body {
@@ -233,6 +232,20 @@ body {
   background: linear-gradient(135deg, var(--theme-bg-start) 0%, var(--theme-bg-mid) 45%, var(--theme-bg-end) 100%);
   color: var(--text);
   position: relative;
+}
+
+/**
+ * Scroll-time blur kill-switch.
+ * `body.is-scrolling` is toggled by src/lib/scrollIdle.js for ~140ms after the last
+ * scroll/wheel/touchmove event. Suspending backdrop-filter for that brief window cuts
+ * per-frame GPU paint cost dramatically — fast wheel spins stop dropping frames and
+ * the page no longer "skips" past the middle. The blur snaps back as soon as the user stops.
+ */
+body.is-scrolling *,
+body.is-scrolling *::before,
+body.is-scrolling *::after {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 /* body pseudo-elements: fixed + filter:blur forces GPU repaint on scroll.
@@ -334,8 +347,12 @@ img {
   width: 42%;
   height: 12rem;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(168, 85, 247, 0.28), rgba(34, 211, 238, 0.2), rgba(96, 165, 250, 0.24));
-  filter: blur(42px);
+  /* Soft-stop radial gradient — same hazy look as filter:blur(42px) without the per-frame GPU cost.
+     Mirrors the optimization on #root::before and .app__aurora. */
+  background:
+    radial-gradient(ellipse at 18% 50%, rgba(168, 85, 247, 0.28), transparent 70%),
+    radial-gradient(ellipse at 50% 50%, rgba(34, 211, 238, 0.2), transparent 70%),
+    radial-gradient(ellipse at 82% 50%, rgba(96, 165, 250, 0.24), transparent 70%);
   pointer-events: none;
 }
 
@@ -700,4 +717,17 @@ img {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+/**
+ * Paint containment for long-form panels.
+ * Tells the browser that paint and layout for these subtrees stay inside their box, so a
+ * scroll-triggered repaint of one panel doesn't invalidate the rest of the document. Cheap,
+ * visually neutral, and very effective on long pages (Influencer profile, glass cards, app body).
+ */
+.aif-panel,
+.aif-form-section,
+.app__main,
+.glass-card {
+  contain: layout paint;
 }
