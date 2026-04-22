@@ -3635,6 +3635,138 @@
 :root[data-theme='dark'] .trash-row__btn--delete { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.1); color: #64748b; }
 
 /* ══════════════════════════════════════════════════════════════════
+   Inline subtask input row (appears below the parent task row)
+   ══════════════════════════════════════════════════════════════════ */
+.tbl-subtask-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.32rem 0.5rem 0.32rem 2.4rem;
+  background: var(--theme-glass-soft, rgba(255,255,255,0.03));
+  border-left: 2px solid var(--theme-border, rgba(255,255,255,0.08));
+  margin-left: 1rem;
+  border-radius: 0 0 6px 6px;
+  animation: subtask-row-in 0.12s ease;
+}
+
+@keyframes subtask-row-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.tbl-subtask-input-icon {
+  font-size: 0.75rem;
+  color: var(--theme-text-dim, #6b7280);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.tbl-subtask-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 0.8rem;
+  color: var(--text, #e2e8f0);
+  caret-color: var(--accent, #8b5cf6);
+  padding: 0.28rem 0;
+}
+
+.tbl-subtask-input::placeholder { color: var(--theme-text-dim, #64748b); }
+
+:root[data-theme='light'] .tbl-subtask-input,
+:root[data-theme='comfort'] .tbl-subtask-input { color: #374151; }
+:root[data-theme='comfort'] .tbl-subtask-input-row { background: #f9fafb; border-left-color: #e5e7eb; }
+
+/* ══════════════════════════════════════════════════════════════════
+   Undo delete toast
+   ══════════════════════════════════════════════════════════════════ */
+.undo-toast {
+  position: fixed;
+  bottom: 1.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 0.75rem 0.65rem 1rem;
+  background: #1e293b;
+  color: #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  font-size: 0.82rem;
+  white-space: nowrap;
+  animation: toast-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  min-width: 220px;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(12px) scale(0.95); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0)    scale(1); }
+}
+
+.undo-toast__msg {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Shrinking progress bar on the left edge of the text */
+.undo-toast__progress {
+  position: absolute;
+  left: -1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 70%;
+  background: #8b5cf6;
+  border-radius: 2px;
+  transition: height 1s linear;
+  height: var(--pct, 100%);
+}
+
+.undo-toast__undo {
+  padding: 0.3rem 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #a78bfa;
+  background: rgba(139,92,246,0.15);
+  border: 1px solid rgba(139,92,246,0.3);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+  flex-shrink: 0;
+}
+
+.undo-toast__undo:hover {
+  background: rgba(139,92,246,0.28);
+  color: #c4b5fd;
+}
+
+.undo-toast__close {
+  background: none;
+  border: none;
+  color: #64748b;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.2rem;
+  flex-shrink: 0;
+}
+
+.undo-toast__close:hover { color: #94a3b8; }
+
+:root[data-theme='light'] .undo-toast,
+:root[data-theme='comfort'] .undo-toast {
+  background: #1e293b;
+  color: #f1f5f9;
+}
+
+/* ══════════════════════════════════════════════════════════════════
    Task right-click context menu  (Asana-style)
    ══════════════════════════════════════════════════════════════════ */
 .task-ctx-menu {

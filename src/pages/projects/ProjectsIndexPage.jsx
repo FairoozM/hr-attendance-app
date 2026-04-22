@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback, Fragment } from 'react'
 import { ChevronRight, Copy, CornerDownRight, CheckCircle2, Circle, ListTree, ExternalLink, Link2, Trash2 } from 'lucide-react'
 import { useAIPlanner } from '../../contexts/AIPlannerContext'
 import { AIAssistPanel } from '../../components/planner/AIAssistPanel'
@@ -149,11 +149,10 @@ function TaskTableHeader() {
 }
 
 // ── Task right-click context menu ─────────────────────────────────────────────
-function TaskContextMenu({ task, sectionId, pos, onClose }) {
-  const { markDone, markTodo, deleteTask, setActiveTaskId, addTask } = useAIPlanner()
+function TaskContextMenu({ task, sectionId, pos, onClose, onAddSubtask, onDelete }) {
+  const { markDone, markTodo, setActiveTaskId, addTask } = useAIPlanner()
   const menuRef = useRef(null)
 
-  // Close on outside click or Escape
   useEffect(() => {
     function onMouseDown(e) {
       if (menuRef.current && !menuRef.current.contains(e.target)) onClose()
@@ -169,16 +168,12 @@ function TaskContextMenu({ task, sectionId, pos, onClose }) {
     }
   }, [onClose])
 
-  // Smart positioning: flip up/left if near viewport edges
   const MENU_W = 218
   const MENU_H = 280
   const left = pos.x + MENU_W > window.innerWidth  ? pos.x - MENU_W : pos.x
   const top  = pos.y + MENU_H > window.innerHeight ? pos.y - MENU_H : pos.y
 
-  function act(fn) {
-    onClose()
-    fn()
-  }
+  function act(fn) { onClose(); fn() }
 
   function duplicateTask() {
     const { id: _id, createdAt: _c, listOrder: _lo, ...rest } = task
@@ -212,85 +207,93 @@ function TaskContextMenu({ task, sectionId, pos, onClose }) {
       aria-label="Task options"
       onContextMenu={(e) => e.preventDefault()}
     >
-      {/* Mark complete / incomplete */}
-      <button
-        className="task-ctx-menu__item"
-        role="menuitem"
-        onClick={() => act(() => isDone ? markTodo(task.id) : markDone(task.id))}
-      >
-        {isDone
-          ? <Circle size={15} className="ctx-icon" />
-          : <CheckCircle2 size={15} className="ctx-icon" />}
+      <button className="task-ctx-menu__item" role="menuitem"
+        onClick={() => act(() => isDone ? markTodo(task.id) : markDone(task.id))}>
+        {isDone ? <Circle size={15} className="ctx-icon" /> : <CheckCircle2 size={15} className="ctx-icon" />}
         {isDone ? 'Mark incomplete' : 'Mark complete'}
       </button>
 
       <div className="task-ctx-menu__divider" />
 
-      {/* Duplicate */}
-      <button
-        className="task-ctx-menu__item"
-        role="menuitem"
-        onClick={() => act(duplicateTask)}
-      >
-        <Copy size={15} className="ctx-icon" />
-        Duplicate task
+      <button className="task-ctx-menu__item" role="menuitem" onClick={() => act(duplicateTask)}>
+        <Copy size={15} className="ctx-icon" />Duplicate task
       </button>
 
-      {/* Follow-up */}
-      <button
-        className="task-ctx-menu__item"
-        role="menuitem"
-        onClick={() => act(createFollowUp)}
-      >
-        <CornerDownRight size={15} className="ctx-icon" />
-        Create follow-up task
+      <button className="task-ctx-menu__item" role="menuitem" onClick={() => act(createFollowUp)}>
+        <CornerDownRight size={15} className="ctx-icon" />Create follow-up task
       </button>
 
-      {/* Add subtask */}
-      <button
-        className="task-ctx-menu__item"
-        role="menuitem"
-        onClick={() => act(() => setActiveTaskId(task.id))}
-      >
-        <ListTree size={15} className="ctx-icon" />
-        Add subtask
+      {/* Add subtask — opens inline input in the row, not the sidebar */}
+      <button className="task-ctx-menu__item" role="menuitem"
+        onClick={() => act(() => onAddSubtask?.())}>
+        <ListTree size={15} className="ctx-icon" />Add subtask
       </button>
 
       <div className="task-ctx-menu__divider" />
 
-      {/* Open details */}
-      <button
-        className="task-ctx-menu__item"
-        role="menuitem"
-        onClick={() => act(() => setActiveTaskId(task.id))}
-      >
-        <ExternalLink size={15} className="ctx-icon" />
-        Open task details
+      <button className="task-ctx-menu__item" role="menuitem"
+        onClick={() => act(() => setActiveTaskId(task.id))}>
+        <ExternalLink size={15} className="ctx-icon" />Open task details
       </button>
 
-      {/* Copy task link */}
-      <button
-        className="task-ctx-menu__item"
-        role="menuitem"
-        onClick={() => act(copyTaskLink)}
-      >
-        <Link2 size={15} className="ctx-icon" />
-        Copy task link
+      <button className="task-ctx-menu__item" role="menuitem" onClick={() => act(copyTaskLink)}>
+        <Link2 size={15} className="ctx-icon" />Copy task link
       </button>
 
       <div className="task-ctx-menu__divider" />
 
-      {/* Delete */}
-      <button
-        className="task-ctx-menu__item task-ctx-menu__item--danger"
-        role="menuitem"
-        onClick={() => act(() => {
-          if (window.confirm(`Delete "${task.title || 'this task'}"?`)) deleteTask(task.id)
-        })}
-      >
-        <Trash2 size={15} className="ctx-icon" />
-        Delete task
+      {/* Delete — instant, no confirm; undo toast shown by parent */}
+      <button className="task-ctx-menu__item task-ctx-menu__item--danger" role="menuitem"
+        onClick={() => act(() => onDelete?.(task))}>
+        <Trash2 size={15} className="ctx-icon" />Delete task
       </button>
+    </div>
+  )
+}
+
+// ── Inline subtask input (appears below a task row) ───────────────────────────
+function InlineSubtaskInput({ taskId, onDone }) {
+  const { addSubtask } = useAIPlanner()
+  const [value, setValue] = useState('')
+  const inputRef = useRef(null)
+  const skipBlur = useRef(false)
+
+  useEffect(() => { inputRef.current?.focus() }, [])
+
+  function commit() {
+    const t = value.trim()
+    if (t) {
+      skipBlur.current = true
+      addSubtask(taskId, t)
+      setValue('')
+      requestAnimationFrame(() => {
+        skipBlur.current = false
+        inputRef.current?.focus()
+      })
+    }
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Enter') { e.preventDefault(); commit() }
+    if (e.key === 'Escape') onDone()
+  }
+
+  return (
+    <div className="tbl-subtask-input-row">
+      <span className="tbl-subtask-input-indent" aria-hidden />
+      <span className="tbl-subtask-input-icon" aria-hidden>↳</span>
+      <input
+        ref={inputRef}
+        className="tbl-subtask-input"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onBlur={() => {
+          if (skipBlur.current) return
+          onDone()
+        }}
+        placeholder="Subtask name… Enter to add, Esc to cancel"
+      />
     </div>
   )
 }
@@ -303,11 +306,13 @@ function TaskRow({
   reorderTasksInSection,
   draggingId,
   onDragState,
+  onDelete,
 }) {
-  const { markDone, markTodo, updateTask, deleteTask, setActiveTaskId, activeTaskId } = useAIPlanner()
+  const { markDone, markTodo, updateTask, setActiveTaskId, activeTaskId } = useAIPlanner()
   const detailsOpen = task.id === activeTaskId
   const [titleDraft, setTitleDraft] = useState(task.title || '')
   const [ctxMenu, setCtxMenu] = useState(null) // { x, y } | null
+  const [addingSubtask, setAddingSubtask] = useState(false)
 
   useEffect(() => {
     setTitleDraft(task.title || '')
@@ -358,6 +363,7 @@ function TaskRow({
   const closeCtx = useCallback(() => setCtxMenu(null), [])
 
   return (
+    <>
     <div
       className={`tbl-row ${task.status === 'done' ? 'done' : ''} ${task.status === 'blocked' ? 'blocked' : ''} ${task._hasUnresolvedDeps ? 'dep-blocked' : ''} ${detailsOpen ? 'tbl-row--details-open' : ''} ${isDragging ? 'tbl-row--dragging' : ''}`}
       role="row"
@@ -440,9 +446,7 @@ function TaskRow({
             type="button"
             className="tbl-row-delete"
             title="Delete task"
-            onClick={() => {
-              if (window.confirm(`Delete “${task.title || 'this task'}”?`)) deleteTask(task.id)
-            }}
+            onClick={() => onDelete?.(task)}
           >
             ×
           </button>
@@ -555,9 +559,20 @@ function TaskRow({
           sectionId={sectionId}
           pos={ctxMenu}
           onClose={closeCtx}
+          onAddSubtask={() => setAddingSubtask(true)}
+          onDelete={onDelete}
         />
       )}
     </div>
+
+    {/* Inline subtask input — appears below this row without opening the sidebar */}
+    {addingSubtask && (
+      <InlineSubtaskInput
+        taskId={task.id}
+        onDone={() => setAddingSubtask(false)}
+      />
+    )}
+    </>
   )
 }
 
@@ -755,6 +770,7 @@ function SectionBlock({
   onOpenDatePicker,
   onAfterAddTask,
   reorderTasksInSection,
+  onDelete,
 }) {
   const [collapsed, setCollapsed] = useState(false)
   const [adding, setAdding]       = useState(false)
@@ -795,6 +811,7 @@ function SectionBlock({
                     reorderTasksInSection={reorderTasksInSection}
                     draggingId={draggingId}
                     onDragState={setDraggingId}
+                    onDelete={onDelete}
                   />
                 ))}
                 <div
@@ -850,12 +867,71 @@ const CAT_FILTER_OPTIONS = [
   { id: 'admin',         label: '📋 Admin' },
 ]
 
+// ── Undo delete toast ─────────────────────────────────────────────────────────
+function UndoToast({ title, onUndo, onDismiss, secondsLeft }) {
+  return (
+    <div className="undo-toast" role="status" aria-live="polite">
+      <span className="undo-toast__msg">
+        <span className="undo-toast__progress" style={{ '--pct': `${(secondsLeft / 10) * 100}%` }} />
+        Task deleted
+      </span>
+      <button type="button" className="undo-toast__undo" onClick={onUndo}>
+        Undo
+      </button>
+      <button type="button" className="undo-toast__close" onClick={onDismiss} aria-label="Dismiss">×</button>
+    </div>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function ProjectsIndexPage() {
-  const { tasks, rawTasks, sections, addSection, updateTask, reorderTasksInSection } = useAIPlanner()
+  const { tasks, rawTasks, sections, addSection, updateTask, reorderTasksInSection, deleteTask, restoreTask } = useAIPlanner()
   const [statusFilter, setStatusFilter] = useState('all')
   const [catFilter, setCatFilter]       = useState('')
   const [datePicker, setDatePicker]     = useState(null)
+  const [undoState, setUndoState]       = useState(null) // { taskId, title, secondsLeft }
+  const undoTimerRef = useRef(null)
+  const undoTickRef  = useRef(null)
+
+  const clearUndo = useCallback(() => {
+    clearTimeout(undoTimerRef.current)
+    clearInterval(undoTickRef.current)
+    setUndoState(null)
+  }, [])
+
+  const deleteWithUndo = useCallback((task) => {
+    // Cancel any pending undo from a previous delete
+    clearTimeout(undoTimerRef.current)
+    clearInterval(undoTickRef.current)
+
+    deleteTask(task.id)
+
+    setUndoState({ taskId: task.id, title: task.title || 'Untitled', secondsLeft: 10 })
+
+    // Count down every second
+    undoTickRef.current = setInterval(() => {
+      setUndoState((prev) => {
+        if (!prev) return null
+        if (prev.secondsLeft <= 1) return null
+        return { ...prev, secondsLeft: prev.secondsLeft - 1 }
+      })
+    }, 1000)
+
+    // Auto-dismiss after 10 s
+    undoTimerRef.current = setTimeout(() => {
+      clearInterval(undoTickRef.current)
+      setUndoState(null)
+    }, 10000)
+  }, [deleteTask, clearUndo])
+
+  const handleUndo = useCallback(() => {
+    if (!undoState) return
+    restoreTask(undoState.taskId)
+    clearUndo()
+  }, [undoState, restoreTask, clearUndo])
+
+  // Cleanup on unmount
+  useEffect(() => () => { clearTimeout(undoTimerRef.current); clearInterval(undoTickRef.current) }, [])
 
   const todoCount    = tasks.filter((t) => t.status === 'todo').length
   const blockedCount = tasks.filter((t) => t.status === 'blocked').length
@@ -935,6 +1011,7 @@ export default function ProjectsIndexPage() {
               onOpenDatePicker={(taskId, payload) => setDatePicker({ taskId, ...payload })}
               onAfterAddTask={afterInlineAdd}
               reorderTasksInSection={reorderTasksInSection}
+              onDelete={deleteWithUndo}
             />
           ))}
 
@@ -950,6 +1027,7 @@ export default function ProjectsIndexPage() {
             onOpenDatePicker={(taskId, payload) => setDatePicker({ taskId, ...payload })}
             onAfterAddTask={afterInlineAdd}
             reorderTasksInSection={reorderTasksInSection}
+            onDelete={deleteWithUndo}
           />
         </div>
 
@@ -969,6 +1047,16 @@ export default function ProjectsIndexPage() {
           openScrollY={datePicker.scrollY}
           onClose={() => setDatePicker(null)}
           onApply={(patch) => updateTask(datePicker.taskId, patch)}
+        />
+      )}
+
+      {/* Undo delete toast */}
+      {undoState && (
+        <UndoToast
+          title={undoState.title}
+          secondsLeft={undoState.secondsLeft}
+          onUndo={handleUndo}
+          onDismiss={clearUndo}
         />
       )}
     </div>
