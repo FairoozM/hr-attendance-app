@@ -238,15 +238,20 @@ export function InsightsImagesSection({
   )
 
   const onPickFile = async (e) => {
-    const list = e.target.files
-    e.target.value = ''
-    if (!list?.length) {
+    /** FileList is live: copy BEFORE clearing the input value (else it becomes empty). */
+    const picked = Array.from(e.target.files || [])
+    if (!picked.length) {
+      e.target.value = ''
       setUploadLine('Picker closed without choosing a file.')
-      setTimeout(() => setUploadLine((s) => (s === 'Picker closed without choosing a file.' ? null : s)), 2500)
+      setTimeout(
+        () => setUploadLine((s) => (s === 'Picker closed without choosing a file.' ? null : s)),
+        2500,
+      )
       return
     }
-    setUploadLine(`Selected ${list.length} file(s). Starting upload…`)
-    await runUploads([...list])
+    setUploadLine(`Selected ${picked.length} file(s). Starting upload…`)
+    e.target.value = ''
+    await runUploads(picked)
   }
 
   const openPicker = () => {
