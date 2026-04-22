@@ -128,6 +128,29 @@ function normalizeInsightsImageKeys(body, existing, influencerId) {
     .slice(0, MAX_INSIGHT_IMAGES)
 }
 
+/** Required fields that must never be cleared by a stale PATCH (silently dropped from the patch). */
+const PROTECTED_NON_EMPTY_FIELDS = ['name']
+
+function sanitizePatchRow(parsedRow, existing) {
+  const out = { ...parsedRow }
+  for (const f of PROTECTED_NON_EMPTY_FIELDS) {
+    const incoming = out[f]
+    const had = existing && existing[f]
+    const incomingEmpty =
+      incoming === undefined || incoming === null || (typeof incoming === 'string' && !incoming.trim())
+    if (incomingEmpty && had) {
+      delete out[f]
+    }
+  }
+  /** Append-only timeline support: avoids a stale full-timeline payload truncating server state. */
+  if (out.timelineAppend && typeof out.timelineAppend === 'object') {
+    const base = Array.isArray(existing?.timeline) ? existing.timeline : []
+    out.timeline = [...base, out.timelineAppend]
+    delete out.timelineAppend
+  }
+  return out
+}
+
 async function updateInfluencer(req, res) {
   try {
     const id = req.params.id != null ? String(req.params.id).trim() : ''
@@ -139,9 +162,10 @@ async function updateInfluencer(req, res) {
       return res.status(404).json({ error: 'Influencer not found' })
     }
     const oldKeys = Array.isArray(existing?.insightsImageKeys) ? existing.insightsImageKeys : []
-    const nextKeys = normalizeInsightsImageKeys(parsed.row, existing, id)
-    /** Merge with stored row so partial PATCH (or client form with empty insightsImageKeys) never wipes the record. */
-    const row = { ...existing, ...parsed.row, id, insightsImageKeys: nextKeys }
+    const safeRow = sanitizePatchRow(parsed.row, existing)
+    const nextKeys = normalizeInsightsImageKeys(safeRow, existing, id)
+    /** Merge with stored row so partial PATCH never wipes the record. */
+    const row = { ...existing, ...safeRow, id, insightsImageKeys: nextKeys }
     await influencersService.upsertInfluencerById(id, row)
     for (const k of oldKeys) {
       if (!nextKeys.includes(k)) {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { resolveApiUrl } from '../../api/client'
 import {
@@ -212,9 +212,33 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
         }
       : EMPTY_FORM
   )
+  const dirtyRef = useRef(false)
+  const [hasLoadedFromServer, setHasLoadedFromServer] = useState(Boolean(existing) || !isEdit)
   const [saved, setSaved] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
+
+  /**
+   * If we mounted before the influencer list arrived, init the form once it does.
+   * This prevents a Save from sending EMPTY_FORM and wiping every field on the server.
+   */
+  useEffect(() => {
+    if (!isEdit) return
+    if (!existing) return
+    if (hasLoadedFromServer) return
+    if (dirtyRef.current) {
+      setHasLoadedFromServer(true)
+      return
+    }
+    setHasLoadedFromServer(true)
+    setForm({
+      ...EMPTY_FORM,
+      ...existing,
+      instagram: existing.instagram || { handle: '', url: '' },
+      youtube:   existing.youtube   || { handle: '', url: '' },
+      tiktok:    existing.tiktok    || { handle: '', url: '' },
+    })
+  }, [isEdit, existing, hasLoadedFromServer])
 
   const canWrite = isEdit
     ? (canInfl('manage') || canInfl('approve'))
@@ -222,10 +246,12 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
   const ro = !canWrite
 
   const set       = (key, val)       => {
+    dirtyRef.current = true
     setSubmitError('')
     setForm(f => ({ ...f, [key]: val }))
   }
   const setNested = (key, sub, val)  => {
+    dirtyRef.current = true
     setSubmitError('')
     setForm(f => ({ ...f, [key]: { ...f[key], [sub]: val } }))
   }
@@ -245,17 +271,17 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
     setIsSubmitting(true)
     try {
       if (isEdit) {
-        const live = influencers.find((i) => String(i.id) === String(id))
-        const payload = { ...form, id }
-        if (live) {
-          payload.insightsImageKeys = live?.insightsImageKeys ?? form.insightsImageKeys ?? []
-          payload.insightsImageRotations =
-            live?.insightsImageRotations ?? form.insightsImageRotations ?? {}
-        } else {
-          delete payload.insightsImageKeys
-          delete payload.insightsImageRotations
+        if (!hasLoadedFromServer) {
+          /** Refuse to save before we have ever seen the server row — would wipe all fields. */
+          setSubmitError('Profile is still loading. Try again in a moment.')
+          return
         }
+        const payload = { ...form, id }
+        /** Image fields are managed exclusively by the insights uploader; never overwrite from the form. */
+        delete payload.insightsImageKeys
+        delete payload.insightsImageRotations
         await updateInfluencer(id, payload)
+        dirtyRef.current = false
         setSaved(true)
         setTimeout(() => setSaved(false), 2500)
       } else {
@@ -449,13 +475,18 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
             <button type="button" className="aif-btn-ghost" onClick={cancel}>
               <X size={14} /> Cancel
             </button>
-            <button type="button" className="aif-btn-primary" onClick={submit} disabled={!canWrite || isSubmitting}>
+            <button
+              type="button"
+              className="aif-btn-primary"
+              onClick={submit}
+              disabled={!canWrite || isSubmitting || (isEdit && !hasLoadedFromServer)}
+            >
               {isSubmitting
                 ? 'Saving...'
                 : saved
                   ? <><CheckCircle2 size={14} /> Saved</>
                   : isEdit
-                    ? 'Save Changes'
+                    ? (hasLoadedFromServer ? 'Save Changes' : 'Loading…')
                     : 'Create Profile'}
             </button>
           </div>
@@ -485,13 +516,18 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
             </div>
             <footer className="aif-panel__footer aif-panel__footer--end">
               <div className="aif-panel__footer-btns" style={{ width: '100%', justifyContent: 'flex-end' }}>
-                <button type="button" className="aif-btn-primary" onClick={submit} disabled={!canWrite || isSubmitting}>
+                <button
+                  type="button"
+                  className="aif-btn-primary"
+                  onClick={submit}
+                  disabled={!canWrite || isSubmitting || (isEdit && !hasLoadedFromServer)}
+                >
                   {isSubmitting
                     ? 'Saving...'
                     : saved
                       ? <><CheckCircle2 size={14} /> Saved</>
                       : isEdit
-                        ? 'Save changes'
+                        ? (hasLoadedFromServer ? 'Save changes' : 'Loading…')
                         : 'Create profile'}
                 </button>
               </div>

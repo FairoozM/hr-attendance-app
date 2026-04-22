@@ -307,15 +307,16 @@ export function InfluencersProvider({ children }) {
     return newInfluencer.id
   }, [reloadFromServer])
 
+  /**
+   * Send ONLY the changed fields to the API. The backend is the source of truth and merges
+   * with the stored row, so we MUST NOT splat the local row into the request — a stale local
+   * row would silently overwrite fields that another action (or another tab) just changed.
+   */
   const updateInfluencer = useCallback(async (id, updates) => {
     const sid = String(id)
-    const current = influencersRefGlobal.current.find((inf) => String(inf.id) === sid)
-    const next = current
-      ? { ...current, ...updates, id: current.id, updatedAt: new Date().toISOString() }
-      : { ...updates, id: sid, updatedAt: new Date().toISOString() }
-    const data = await updateInfluencerApi(sid, next)
+    const payload = { ...updates, id: sid, updatedAt: new Date().toISOString() }
+    const data = await updateInfluencerApi(sid, payload)
     if (data?.influencer) {
-      /** Keep edit form / insights uploader in sync even if this row was not on the current list page. */
       setInfluencers((prev) => {
         const idx = prev.findIndex((inf) => String(inf.id) === sid)
         if (idx === -1) {
@@ -334,28 +335,24 @@ export function InfluencersProvider({ children }) {
   const updateWorkflowStatus = useCallback(async (id, status, note = '') => {
     const sid = String(id)
     const current = influencersRefGlobal.current.find((inf) => String(inf.id) === sid)
-    if (!current) return
     const entry = { event: status, date: new Date().toISOString().split('T')[0], note }
-    const next = {
-      ...current,
+    /** Send only the diff + appended timeline entry; backend merges with the stored row. */
+    const payload = {
+      id: sid,
       workflowStatus: status,
       updatedAt: new Date().toISOString(),
-      timeline: [...(current.timeline || []), entry],
+      timelineAppend: entry,
+      timeline: [...(current?.timeline || []), entry],
     }
-    const wasInList = !!influencersRefGlobal.current.find((inf) => String(inf.id) === sid)
-    const data = await updateInfluencerApi(sid, next)
+    const data = await updateInfluencerApi(sid, payload)
     if (data?.influencer) {
-      if (wasInList) {
-        setInfluencers((prev) => {
-          const idx = prev.findIndex((inf) => String(inf.id) === sid)
-          if (idx === -1) return prev
-          const copy = [...prev]
-          copy[idx] = data.influencer
-          return copy
-        })
-      } else {
-        await reloadFromServer()
-      }
+      setInfluencers((prev) => {
+        const idx = prev.findIndex((inf) => String(inf.id) === sid)
+        if (idx === -1) return [data.influencer, ...prev]
+        const copy = [...prev]
+        copy[idx] = data.influencer
+        return copy
+      })
     } else {
       await reloadFromServer()
     }
