@@ -31,6 +31,7 @@ import { ReportsPage } from './pages/influencers/ReportsPage'
 import { SimCardsPage } from './pages/SimCardsPage'
 import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
 import { WeeklyAdsReportPage } from './pages/reports/WeeklyAdsReportPage'
+import { WeeklySlowMovingReportPage } from './pages/reports/WeeklySlowMovingReportPage'
 import ProjectsIndexPage from './pages/projects/ProjectsIndexPage'
 import ProjectDetailPage from './pages/projects/ProjectDetailPage'
 import ProjectDashboardPage from './pages/projects/ProjectDashboardPage'
@@ -195,6 +196,14 @@ function AppContent() {
               element={
                 <PermissionGuard module="weekly_reports" action="view">
                   <WeeklyAdsReportPage />
+                </PermissionGuard>
+              }
+            />
+            <Route
+              path="slow-moving"
+              element={
+                <PermissionGuard module="weekly_reports" action="view">
+                  <WeeklySlowMovingReportPage />
                 </PermissionGuard>
               }
             />

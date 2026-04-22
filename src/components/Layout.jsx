@@ -440,7 +440,8 @@ export function Layout() {
     if (location.pathname.startsWith('/influencers')) return 'Influencers'
     if (location.pathname.startsWith('/account')) return 'My Account'
     if (location.pathname.startsWith('/management/document-expiry')) return 'Document Expiry Tracker'
-    if (location.pathname.startsWith('/reports/weekly-report/weekly-ads')) return 'Weekly Ads Report'
+    if (location.pathname.startsWith('/reports/weekly-report/weekly-ads'))  return 'Weekly Ads Report'
+    if (location.pathname.startsWith('/reports/weekly-report/slow-moving')) return 'Slow Moving Sales Report'
     if (location.pathname.startsWith('/reports')) return 'Reports'
     if (location.pathname === '/projects/dashboard') return 'AI Dashboard'
     if (location.pathname.startsWith('/projects/')) return 'Today\'s Plan'
@@ -476,7 +477,8 @@ export function Layout() {
   ].filter(Boolean)
 
   const REPORTS_ITEMS = [
-    hasWeeklyReportsAccess && { label: 'Weekly Ads Report', to: '/reports/weekly-report/weekly-ads' },
+    hasWeeklyReportsAccess && { label: 'Weekly Ads Report',          to: '/reports/weekly-report/weekly-ads'   },
+    hasWeeklyReportsAccess && { label: 'Slow Moving Sales Report',   to: '/reports/weekly-report/slow-moving'  },
   ].filter(Boolean)
 
   const focusedSectionConfig = useMemo(() => {
@@ -515,7 +517,7 @@ export function Layout() {
     ...REPORTS_ITEMS.map(i => ({
       ...i,
       group: 'Weekly Report',
-      searchHint: 'weekly ads performance reports',
+      searchHint: 'weekly ads slow moving sales inventory performance reports zoho',
     })),
     ...adminNavItems.map(i => ({ ...i, group: 'Admin' })),
     { label: 'My Account', to: '/account', group: 'Account' },

@@ -2400,46 +2400,157 @@
 }
 
 /* ── Checkbox ────────────────────────────────────────────────────── */
+/* ── Collapse/expand toggle (shown in grip col when task has subtasks) ── */
+.tbl-expand-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #9ca3af;
+  border-radius: 4px;
+  transition: color 0.12s ease, background 0.12s ease;
+  flex-shrink: 0;
+}
+
+.tbl-expand-btn svg {
+  transition: transform 0.18s ease;
+  transform: rotate(-90deg); /* collapsed: points right */
+}
+
+.tbl-expand-btn.expanded svg {
+  transform: rotate(0deg); /* expanded: points down */
+}
+
+.tbl-expand-btn:hover {
+  color: #374151;
+  background: rgba(0,0,0,0.06);
+}
+
+:root[data-theme='dark'] .tbl-expand-btn:hover {
+  color: #e2e8f0;
+  background: rgba(255,255,255,0.08);
+}
+
+/* ── Asana-style circle check ─────────────────────────────────────── */
 .tbl-check {
-  width: 1rem;
-  height: 1rem;
+  width: 1.15rem;
+  height: 1.15rem;
   border-radius: 50%;
-  border: 1.5px solid var(--theme-border-strong);
+  border: 1.75px solid #d1d5db;
   background: transparent;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: border-color 0.12s, background 0.12s;
+  transition: border-color 0.15s ease, background 0.15s ease;
   padding: 0;
+  position: relative;
 }
 
 .tbl-check:hover {
-  border-color: var(--theme-primary);
+  border-color: #22c55e;
+}
+
+/* Faint hover checkmark (green) */
+.tbl-check__hover-mark {
+  opacity: 0;
+  color: #22c55e;
+  transition: opacity 0.15s ease;
+  position: absolute;
+}
+
+.tbl-check:hover .tbl-check__hover-mark {
+  opacity: 0.6;
 }
 
 .tbl-check.checked {
-  background: var(--theme-primary);
-  border-color: var(--theme-primary);
+  background: #22c55e;
+  border-color: #22c55e;
 }
 
-.tbl-check.checked::after {
-  content: '';
-  display: block;
-  width: 0.3rem;
-  height: 0.18rem;
-  border-left: 1.5px solid #fff;
-  border-bottom: 1.5px solid #fff;
-  transform: rotate(-45deg) translateY(-1px);
+/* Done state: white checkmark always visible */
+.tbl-check.checked .tbl-check__hover-mark {
+  display: none;
 }
 
 .tbl-check-placeholder {
-  width: 1rem;
-  height: 1rem;
+  width: 1.15rem;
+  height: 1.15rem;
   border-radius: 50%;
-  border: 1.5px solid var(--theme-border-subtle);
-  opacity: 0.35;
+  border: 1.75px solid #d1d5db;
+  opacity: 0.4;
+}
+
+/* ── Subtask count badge next to title ──────────────────────────── */
+.tbl-subtask-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  padding: 0.12rem 0.45rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #6b7280;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.1s ease;
+}
+
+.tbl-subtask-badge:hover {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+:root[data-theme='dark'] .tbl-subtask-badge {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.12);
+  color: #94a3b8;
+}
+
+:root[data-theme='dark'] .tbl-subtask-badge:hover {
+  background: rgba(255,255,255,0.12);
+  color: #e2e8f0;
+}
+
+/* ── Subtask area (wraps rows + add subtask button) ─────────────── */
+.tbl-subtask-area {
+  border-bottom: 1px solid var(--tbl-grid);
+  background: var(--tbl-sheet-bg);
+}
+
+/* ── Persistent "Add subtask…" button row ───────────────────────── */
+.tbl-add-subtask-btn {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0.38rem 0.5rem 0.38rem 3.5rem;
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: #9ca3af;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--tbl-grid);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+
+.tbl-add-subtask-btn:hover {
+  background: var(--tbl-grid-hover);
+  color: #374151;
+}
+
+:root[data-theme='dark'] .tbl-add-subtask-btn:hover {
+  color: #e2e8f0;
 }
 
 /* ── Task name ───────────────────────────────────────────────────── */
@@ -3681,23 +3792,37 @@
   flex-shrink: 0;
 }
 
-/* Small checkbox matching the main task check */
+/* Small checkbox — same green Asana style as main check */
 .tbl-subtask-row__check {
   flex-shrink: 0;
   width: 1rem;
   height: 1rem;
   border-radius: 50%;
-  border: 1.5px solid rgba(139, 92, 246, 0.45);
+  border: 1.5px solid #d1d5db;
   background: transparent;
   cursor: pointer;
   padding: 0;
-  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   transition: background 0.12s ease, border-color 0.12s ease;
+  position: relative;
+}
+
+.tbl-subtask-row__check:hover {
+  border-color: #22c55e;
+}
+
+.tbl-subtask-row__check:hover::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 4L3.5 6.5L9 1' stroke='%2322c55e' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' opacity='0.6'/%3E%3C/svg%3E") center/contain no-repeat;
 }
 
 .tbl-subtask-row__check.checked {
-  background: #8b5cf6;
-  border-color: #8b5cf6;
+  background: #22c55e;
+  border-color: #22c55e;
 }
 
 .tbl-subtask-row__check.checked::after {
@@ -3705,11 +3830,6 @@
   position: absolute;
   inset: 2px;
   background: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 4L3.5 6.5L9 1' stroke='white' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;
-}
-
-:root[data-theme='light'] .tbl-subtask-row__check,
-:root[data-theme='comfort'] .tbl-subtask-row__check {
-  border-color: rgba(99, 102, 241, 0.4);
 }
 
 .tbl-subtask-row__title {

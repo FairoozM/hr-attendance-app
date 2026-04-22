@@ -1,0 +1,137 @@
+/* ─── Slow Moving Report — layout additions ──────────────────────── */
+
+/* Fetch-button column keeps the same height as the date inputs */
+.wsmr-fetch-field {
+  justify-content: flex-end;
+}
+
+.wsmr-date-hint {
+  font-size: 13px;
+  color: var(--text-secondary, #6b7a99);
+  margin: 8px 0 0;
+}
+
+/* ─── Preview card ────────────────────────────────────────────────── */
+.wsmr-preview {
+  background: linear-gradient(160deg, #f7f8fc 0%, #eef1f8 100%);
+  border-radius: 36px;
+  padding: 40px 36px 48px;
+  box-shadow:
+    0 2px 0 rgba(255,255,255,0.9) inset,
+    0 -2px 0 rgba(180,190,210,0.3) inset,
+    0 20px 50px rgba(130,150,185,0.2),
+    0 5px 14px rgba(130,150,185,0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.wsmr-preview__head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  margin-bottom: 28px;
+}
+
+.wsmr-preview__title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #2b3754;
+  letter-spacing: -0.4px;
+  line-height: 1.15;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.wsmr-preview__divider {
+  width: 420px;
+  max-width: 100%;
+  height: 1.5px;
+  background: linear-gradient(90deg, transparent, #c8d0e0, transparent);
+  margin: 14px auto;
+}
+
+.wsmr-preview__date {
+  font-size: 18px;
+  font-weight: 600;
+  color: #2855a0;
+  text-align: center;
+}
+
+/* ─── Table column widths ─────────────────────────────────────────── */
+.wsmr-table { table-layout: auto; }
+
+.wsmr-th--sr   { width: 56px; }
+.wsmr-th--item { min-width: 120px; }
+
+/* Highlight SOLD column */
+.wsmr-td--sold {
+  font-weight: 700;
+  color: #1e3a8a;
+}
+
+/* ─── Loading / error states ──────────────────────────────────────── */
+.wsmr-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 56px 24px;
+  text-align: center;
+  color: var(--text-secondary, #6b7a99);
+}
+
+.wsmr-state--error {
+  color: #c0392b;
+}
+
+.wsmr-state__title {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.wsmr-state__sub {
+  font-size: 13px;
+  max-width: 420px;
+  line-height: 1.5;
+  margin: 0;
+  color: var(--text-secondary, #8896b0);
+}
+
+/* Loading spinner */
+@keyframes wsmr-spin {
+  to { transform: rotate(360deg); }
+}
+
+.wsmr-spinner {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid rgba(74, 124, 255, 0.2);
+  border-top-color: #4a7cff;
+  animation: wsmr-spin 0.7s linear infinite;
+}
+
+/* Inline button spinner */
+.wsmr-btn-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.35);
+  border-top-color: #fff;
+  animation: wsmr-spin 0.6s linear infinite;
+  vertical-align: middle;
+}
+
+/* ─── Dark-mode tweaks ────────────────────────────────────────────── */
+[data-theme="dark"] .wsmr-preview {
+  background: linear-gradient(160deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.02) 100%);
+}
+
+[data-theme="dark"] .wsmr-td--sold {
+  color: #93c5fd;
+}

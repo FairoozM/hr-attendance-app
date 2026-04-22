@@ -374,6 +374,7 @@ function TaskRow({
   const [titleDraft, setTitleDraft] = useState(task.title || '')
   const [ctxMenu, setCtxMenu] = useState(null) // { x, y } | null
   const [addingSubtask, setAddingSubtask] = useState(false)
+  const [subtasksExpanded, setSubtasksExpanded] = useState(true)
 
   useEffect(() => {
     setTitleDraft(task.title || '')
@@ -456,13 +457,29 @@ function TaskRow({
         onDragState?.(null)
       }}
     >
-      <div className="tbl-col tbl-col--grip" aria-hidden>
-        <span className="tbl-drag-handle" title="Drag to reorder" aria-label="Drag to reorder">
-          {[0, 1, 2, 3, 4, 5].map((i) => (
-            <span key={i} className="tbl-drag-dot" />
-          ))}
-        </span>
+      {/* Grip / collapse toggle — shows chevron when subtasks exist, drag dots otherwise */}
+      <div className="tbl-col tbl-col--grip">
+        {subTotal > 0 ? (
+          <button
+            type="button"
+            className={`tbl-expand-btn ${subtasksExpanded ? 'expanded' : ''}`}
+            onClick={(e) => { e.stopPropagation(); setSubtasksExpanded((v) => !v) }}
+            aria-label={subtasksExpanded ? 'Collapse subtasks' : 'Expand subtasks'}
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
+              <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        ) : (
+          <span className="tbl-drag-handle" title="Drag to reorder" aria-label="Drag to reorder" aria-hidden>
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <span key={i} className="tbl-drag-dot" />
+            ))}
+          </span>
+        )}
       </div>
+
+      {/* Asana-style circle check */}
       <div className="tbl-col tbl-col--check">
         <button
           type="button"
@@ -472,7 +489,18 @@ function TaskRow({
             task.status === 'done' ? markTodo(task.id) : markDone(task.id)
           }}
           aria-label={task.status === 'done' ? 'Mark incomplete' : 'Mark complete'}
-        />
+        >
+          {task.status === 'done' && (
+            <svg width="11" height="9" viewBox="0 0 11 9" fill="none" aria-hidden>
+              <path d="M1 4L4 7.5L10 1" stroke="white" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          )}
+          {task.status !== 'done' && (
+            <svg className="tbl-check__hover-mark" width="11" height="9" viewBox="0 0 11 9" fill="none" aria-hidden>
+              <path d="M1 4L4 7.5L10 1" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          )}
+        </button>
       </div>
 
       <div className="tbl-col tbl-col--name">
@@ -490,6 +518,20 @@ function TaskRow({
             }}
             aria-label="Task title"
           />
+          {/* Subtask count badge — e.g. "2 ↳" */}
+          {subTotal > 0 && (
+            <button
+              type="button"
+              className="tbl-subtask-badge"
+              title={`${subTotal} subtask${subTotal !== 1 ? 's' : ''}`}
+              onClick={(e) => { e.stopPropagation(); setSubtasksExpanded((v) => !v) }}
+            >
+              {subTotal}
+              <svg width="11" height="10" viewBox="0 0 11 10" fill="none" aria-hidden>
+                <path d="M2 1v5.5h7M6 3.5l3 3-3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          )}
           <button
             type="button"
             className="tbl-row-details"
@@ -524,14 +566,7 @@ function TaskRow({
           {task.attachments?.length > 0 && (
             <span className="tbl-indicator tbl-indicator--attach">📎 {task.attachments.length}</span>
           )}
-          {subTotal > 0 && (
-            <span className="tbl-indicator tbl-indicator--sub" title={`${subDone}/${subTotal} subtasks`}>
-              <span className="tbl-sub-progress">
-                <span className="tbl-sub-progress__fill" style={{ width: `${subPct}%` }} />
-              </span>
-              <span>{subDone}/{subTotal}</span>
-            </span>
-          )}
+          {/* Subtask progress now shown via the badge next to the title */}
           {task.energyType === 'deep' && (
             <span className="tbl-indicator tbl-indicator--deep" title="Deep work">🧠</span>
           )}
@@ -626,15 +661,31 @@ function TaskRow({
       )}
     </div>
 
-    {/* Existing subtasks shown as text rows, same visual weight as the main task */}
-    <SubtaskRows taskId={task.id} subtasks={task.subtasks} />
+    {/* Subtask area — shown when expanded */}
+    {subtasksExpanded && (subTotal > 0 || addingSubtask) && (
+      <div className="tbl-subtask-area">
+        {/* Existing subtasks as text rows */}
+        <SubtaskRows taskId={task.id} subtasks={task.subtasks} />
 
-    {/* Inline subtask input — appears below after the existing subtasks */}
-    {addingSubtask && (
-      <InlineSubtaskInput
-        taskId={task.id}
-        onDone={() => setAddingSubtask(false)}
-      />
+        {/* Inline input for new subtask */}
+        {addingSubtask && (
+          <InlineSubtaskInput
+            taskId={task.id}
+            onDone={() => setAddingSubtask(false)}
+          />
+        )}
+
+        {/* Persistent "Add subtask…" trigger */}
+        {!addingSubtask && (
+          <button
+            type="button"
+            className="tbl-add-subtask-btn"
+            onClick={() => setAddingSubtask(true)}
+          >
+            + Add subtask…
+          </button>
+        )}
+      </div>
     )}
     </>
   )
