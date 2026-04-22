@@ -1373,6 +1373,26 @@
   box-shadow: inset 0 0 0 2px rgba(99, 102, 241, 0.45);
   background: rgba(99, 102, 241, 0.05);
 }
+.inf-prod-images__add-wrap {
+  position: relative;
+  min-width: 0;
+}
+/* Visually hidden file input lives in the same grid cell as the label; no <button> wrapper (invalid with file input). */
+.inf-prod-images__add-wrap .inf-prod-sr {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 1;
+  width: 0.1px;
+  height: 0.1px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
 .inf-prod-images__add {
   display: flex;
   flex-direction: column;
@@ -1389,14 +1409,16 @@
   padding: 0.65rem 0.4rem;
   transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
-.inf-prod-images__add:hover:not(:disabled) {
+.inf-prod-images__add:hover:not(:disabled):not(.inf-prod-images__add--disabled) {
   border-color: var(--inf-accent, #7c3aed);
   color: var(--text);
   background: rgba(124, 58, 237, 0.04);
 }
-.inf-prod-images__add:disabled {
+.inf-prod-images__add:disabled,
+.inf-prod-images__add--disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  pointer-events: none;
 }
 .inf-prod-images__add-icon {
   display: flex;

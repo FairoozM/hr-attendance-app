@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, useId } from 'react'
 import {
   GripVertical,
   Eye,
@@ -15,6 +15,17 @@ import {
 } from '../../lib/influencers'
 
 export const MAX_INSIGHT_IMAGES = 6
+
+/** Browsers (esp. iOS) often send empty `file.type`; do not require it if the name looks like an image. */
+function isLikelyImageFile(f) {
+  const name = f.name || ''
+  if (f.type?.startsWith?.('image/')) return true
+  if (/\.(jpe?g|png|webp|gif|heic|heif|avif|bmp|tiff?)$/i.test(name)) return true
+  if (f.type === 'application/octet-stream' && /\.(jpe?g|png|webp|heic|heif)$/i.test(name)) {
+    return true
+  }
+  return false
+}
 
 /**
  * Product-style 6-capacity insights grid: presigned S3, reorder, rotation metadata, delete all.
@@ -42,6 +53,7 @@ export function InsightsImagesSection({
   const [localPreview, setLocalPreview] = useState({})
   const [dragKey, setDragKey] = useState(null)
   const fileRef = useRef(null)
+  const fileInputId = useId()
   const blobRef = useRef(new Set())
 
   const displayKeys = useMemo(() => {
@@ -140,13 +152,9 @@ export function InsightsImagesSection({
 
   const runUploads = useCallback(
     async (fileArray) => {
-      const imageFiles = fileArray.filter(
-        (f) =>
-          f.type &&
-          (f.type.startsWith('image/') ||
-            /(\.jpe?g|\.png|\.webp|\.gif|\.heic|\.heif|\.avif)$/i.test(f.name || '')),
-      )
+      const imageFiles = fileArray.filter((f) => isLikelyImageFile(f))
       if (!imageFiles.length) {
+        window.alert('No image files in that selection. Use JPG, PNG, WebP, HEIC, or GIF.')
         return
       }
       const pendingLocal = Object.keys(localPreview).filter((k) => !keys.includes(k)).length
@@ -409,19 +417,9 @@ export function InsightsImagesSection({
           onDrop={onDropFile}
         >
           {canEdit && displayKeys.length < MAX_INSIGHT_IMAGES && (
-            <button
-              type="button"
-              className="inf-prod-images__add"
-              onClick={() => fileRef.current?.click()}
-              disabled={busy}
-              onDragOver={onDragOverGrid}
-            >
-              <div className="inf-prod-images__add-icon">
-                <ImagePlus size={24} />
-              </div>
-              <span className="inf-prod-images__add-title">Add images</span>
-              <span className="inf-prod-images__add-hint">You can select multiple at once</span>
+            <div className="inf-prod-images__add-wrap" onDragOver={onDragOverGrid}>
               <input
+                id={fileInputId}
                 ref={fileRef}
                 type="file"
                 accept="image/*,.heic,.heif"
@@ -431,7 +429,19 @@ export function InsightsImagesSection({
                 onChange={onPickFile}
                 disabled={busy}
               />
-            </button>
+              <label
+                className={
+                  'inf-prod-images__add' + (busy ? ' inf-prod-images__add--disabled' : '')
+                }
+                htmlFor={fileInputId}
+              >
+                <div className="inf-prod-images__add-icon">
+                  <ImagePlus size={24} />
+                </div>
+                <span className="inf-prod-images__add-title">Add images</span>
+                <span className="inf-prod-images__add-hint">You can select multiple at once</span>
+              </label>
+            </div>
           )}
 
           {displayKeys.map((k) => {
