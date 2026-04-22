@@ -41,7 +41,8 @@
   color: rgba(255, 255, 255, 0.38);
 }
 
-:root[data-theme='light'] .employee-summary-card__label {
+:root[data-theme='light'] .employee-summary-card__label,
+:root[data-theme='comfort'] .employee-summary-card__label {
   color: var(--text-muted);
 }
 

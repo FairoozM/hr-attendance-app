@@ -3435,3 +3435,342 @@
 :root[data-theme='light'] .aif-ig-preview__label {
   color: rgba(30, 30, 46, 0.45);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Comfort Theme overrides — mirrors all :root[data-theme='light'] rules above.
+   Comfort is data-theme='comfort', not 'light', so light selectors don't fire.
+   All token values (var(--theme-*)) resolve to the comfort palette from index.css.
+───────────────────────────────────────────────────────────────────────────── */
+
+/* Column resize handle */
+:root[data-theme='comfort'] .inf-page--list .inf-table--resizable .inf-table__col-resize {
+  background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.08));
+}
+:root[data-theme='comfort'] .inf-page--list .inf-table--resizable .inf-table__col-resize:hover {
+  background: rgba(99, 102, 241, 0.16);
+}
+
+/* Row action dropdown trigger */
+:root[data-theme='comfort'] .inf-list-menu__trigger--open,
+:root[data-theme='comfort'] .inf-list-menu__trigger:focus-visible {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.45);
+}
+
+/* Row action dropdown panel */
+:root[data-theme='comfort'] .inf-list-menu__panel {
+  background: var(--theme-glass-bg, #fff);
+  border-color: var(--theme-border);
+  box-shadow: var(--glass-shadow-panel, 0 8px 24px rgba(15, 23, 42, 0.12));
+}
+
+/* Row action dropdown item */
+:root[data-theme='comfort'] .inf-list-menu__item:hover {
+  background: var(--theme-surface-soft);
+}
+
+/* Compact list thead */
+:root[data-theme='comfort'] .inf-page--list .inf-table--compact thead th {
+  background: var(--theme-surface-soft, rgba(248, 250, 252, 0.96));
+  color: var(--text-muted);
+}
+
+/* Insights embed section */
+:root[data-theme='comfort'] .aif-insights-wizard-hint {
+  color: var(--theme-text-muted);
+}
+:root[data-theme='comfort'] .aif-insights-embed .inf-profile-section {
+  background: var(--theme-glass-bg);
+  border-color: var(--theme-border);
+}
+:root[data-theme='comfort'] .aif-insights-embed .inf-profile-section__head {
+  background: var(--theme-surface-soft);
+  border-color: var(--theme-border-subtle);
+}
+:root[data-theme='comfort'] .aif-insights-embed .inf-profile-section__head-title {
+  color: rgba(91, 33, 182, 0.88);
+}
+:root[data-theme='comfort'] .aif-insights-embed .inf-insights-images__intro,
+:root[data-theme='comfort'] .aif-insights-embed .inf-insights-images__hint,
+:root[data-theme='comfort'] .aif-insights-embed .inf-insights-images__empty {
+  color: var(--theme-text-muted);
+}
+
+/* Product image cells */
+[data-theme='comfort'] .inf-prod-images__cell,
+:root[data-theme='comfort'] .inf-prod-images__cell {
+  background: #fff;
+  border-color: #e2e8f0;
+}
+
+/* Image toolbar buttons — keep dark enough to be visible on white cells */
+[data-theme='comfort'] .inf-prod-images__tool,
+:root[data-theme='comfort'] .inf-prod-images__tool {
+  background: rgba(15, 23, 42, 0.72);
+}
+
+/* Image footer divider */
+[data-theme='comfort'] .inf-prod-images__footer,
+:root[data-theme='comfort'] .inf-prod-images__footer {
+  border-top-color: #e2e8f0;
+}
+
+/* Hero ghost buttons */
+:root[data-theme='comfort'] .inf-hero__action-btn.inf-btn--ghost {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: var(--theme-surface-soft);
+  color: var(--text);
+  border: 1px solid var(--theme-border);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+:root[data-theme='comfort'] .inf-hero__action-btn.inf-btn--ghost:hover {
+  background: var(--theme-glass-soft);
+  color: var(--text);
+  border-color: var(--theme-border-subtle);
+}
+
+/* Profile shell text */
+:root[data-theme='comfort'] .aif-profile-not-found__title {
+  color: var(--text);
+}
+:root[data-theme='comfort'] .aif-profile-shell .inf-profile-section__head-title {
+  color: rgba(91, 33, 182, 0.88);
+}
+:root[data-theme='comfort'] .aif-profile-shell .inf-kv__key {
+  color: var(--theme-text-muted);
+}
+:root[data-theme='comfort'] .aif-profile-shell .inf-kv__val {
+  color: var(--text);
+}
+:root[data-theme='comfort'] .aif-profile-shell .inf-kv__link {
+  color: var(--accent);
+}
+:root[data-theme='comfort'] .aif-profile-timeline-empty__text {
+  color: var(--theme-text-muted);
+}
+:root[data-theme='comfort'] .aif-profile-shell .aif-profile-timeline .inf-timeline-item__event {
+  color: var(--text);
+}
+:root[data-theme='comfort'] .aif-profile-shell .aif-profile-timeline .inf-timeline-item__date,
+:root[data-theme='comfort'] .aif-profile-shell .aif-profile-timeline .inf-timeline-item__note {
+  color: var(--theme-text-muted);
+}
+:root[data-theme='comfort'] .aif-profile-shell .aif-profile-timeline::before {
+  background: rgba(148, 163, 184, 0.45);
+}
+:root[data-theme='comfort'] .aif-profile-shell .inf-insights-images__intro,
+:root[data-theme='comfort'] .aif-profile-shell .inf-insights-images__hint,
+:root[data-theme='comfort'] .aif-profile-shell .inf-insights-images__empty {
+  color: var(--theme-text-muted);
+}
+
+/* Form section + footer dividers */
+[data-theme='comfort'] .aif-form-section,
+:root[data-theme='comfort'] .aif-form-section {
+  border-bottom-color: rgba(15, 23, 42, 0.08);
+}
+[data-theme='comfort'] .aif-panel__footer--end,
+:root[data-theme='comfort'] .aif-panel__footer--end {
+  border-top-color: rgba(15, 23, 42, 0.08);
+}
+
+/* ── Main structural comfort overrides (page, panels, cards, inputs) ── */
+:root[data-theme='comfort'] .inf-page,
+:root[data-theme='comfort'] .aif-page {
+  color: var(--text);
+}
+
+:root[data-theme='comfort'] .inf-hero__name {
+  color: var(--text);
+}
+:root[data-theme='comfort'] .inf-hero__handle {
+  color: var(--text-muted);
+  opacity: 1;
+}
+:root[data-theme='comfort'] .inf-hero__badge {
+  color: var(--text);
+  background: var(--theme-glass-soft);
+  border-color: var(--theme-border);
+}
+:root[data-theme='comfort'] .inf-hero__back-btn {
+  color: var(--text);
+}
+:root[data-theme='comfort'] .inf-hero__back-btn:hover {
+  background: var(--theme-surface-soft);
+  color: var(--text);
+}
+:root[data-theme='comfort'] .inf-hero__back-row {
+  border-bottom-color: var(--theme-border-subtle);
+}
+
+:root[data-theme='comfort'] .inf-page-header,
+:root[data-theme='comfort'] .clay-card,
+:root[data-theme='comfort'] .inf-stat,
+:root[data-theme='comfort'] .inf-toolbar,
+:root[data-theme='comfort'] .inf-table-wrap,
+:root[data-theme='comfort'] .inf-form-section,
+:root[data-theme='comfort'] .inf-profile-section,
+:root[data-theme='comfort'] .inf-pipeline-col,
+:root[data-theme='comfort'] .inf-pipeline-card,
+:root[data-theme='comfort'] .inf-schedule-card,
+:root[data-theme='comfort'] .inf-agreement,
+:root[data-theme='comfort'] .inf-hero,
+:root[data-theme='comfort'] .inf-modal,
+:root[data-theme='comfort'] .aif-sidebar,
+:root[data-theme='comfort'] .aif-panel,
+:root[data-theme='comfort'] .aif-overview,
+:root[data-theme='comfort'] .aif-modal-wrap,
+:root[data-theme='comfort'] .aif-pct-chip,
+:root[data-theme='comfort'] .aif-overview__item,
+:root[data-theme='comfort'] .aif-overview__status {
+  background: var(--theme-glass-bg);
+  border-color: var(--theme-border);
+  box-shadow: var(--glass-shadow-panel);
+}
+
+:root[data-theme='comfort'] .inf-form-section__header,
+:root[data-theme='comfort'] .inf-profile-section__head,
+:root[data-theme='comfort'] .inf-pipeline-col__header,
+:root[data-theme='comfort'] .aif-panel__footer,
+:root[data-theme='comfort'] .aif-panel__header {
+  background: var(--theme-surface-soft);
+  border-color: var(--theme-border-subtle);
+}
+
+:root[data-theme='comfort'] .inf-search,
+:root[data-theme='comfort'] .inf-select,
+:root[data-theme='comfort'] .inf-input,
+:root[data-theme='comfort'] .inf-textarea,
+:root[data-theme='comfort'] .inf-form-select,
+:root[data-theme='comfort'] .aif-field-outer,
+:root[data-theme='comfort'] .aif-ta-outer,
+:root[data-theme='comfort'] .aif-field-inner {
+  background: var(--theme-input-bg);
+  border-color: var(--theme-border);
+  color: var(--text);
+}
+
+:root[data-theme='comfort'] .inf-search::placeholder,
+:root[data-theme='comfort'] .inf-input::placeholder,
+:root[data-theme='comfort'] .inf-textarea::placeholder,
+:root[data-theme='comfort'] .aif-field-ctrl::placeholder,
+:root[data-theme='comfort'] .aif-ta-ctrl::placeholder {
+  color: var(--theme-input-placeholder);
+}
+
+:root[data-theme='comfort'] .inf-table thead tr,
+:root[data-theme='comfort'] .als-table thead tr {
+  background: rgba(79, 70, 229, 0.07);
+}
+
+:root[data-theme='comfort'] .inf-table tbody tr:hover,
+:root[data-theme='comfort'] .inf-chip:hover,
+:root[data-theme='comfort'] .inf-tab:hover,
+:root[data-theme='comfort'] .aif-step:hover:not(.is-active) {
+  background: var(--theme-surface-soft);
+}
+
+:root[data-theme='comfort'] .inf-chip,
+:root[data-theme='comfort'] .inf-tab,
+:root[data-theme='comfort'] .aif-step,
+:root[data-theme='comfort'] .aif-step-pill {
+  color: var(--theme-text-muted);
+  border-color: var(--theme-border-subtle);
+}
+
+:root[data-theme='comfort'] .inf-chip--active,
+:root[data-theme='comfort'] .inf-tab--active,
+:root[data-theme='comfort'] .aif-step.is-active,
+:root[data-theme='comfort'] .aif-step-pill.is-active {
+  color: var(--theme-text-inverse);
+  background: linear-gradient(120deg, var(--primary), var(--accent));
+  border-color: transparent;
+}
+
+:root[data-theme='comfort'] .inf-modal-overlay {
+  background: var(--theme-overlay);
+}
+
+/* Flat page background — no aurora gradient */
+:root[data-theme='comfort'] .aif-page {
+  background: #f8f9fa;
+}
+
+/* Readable text throughout the form */
+:root[data-theme='comfort'] .aif-title,
+:root[data-theme='comfort'] .aif-panel__title,
+:root[data-theme='comfort'] .aif-sidebar__title,
+:root[data-theme='comfort'] .aif-overview__status-title,
+:root[data-theme='comfort'] .aif-btn-ghost,
+:root[data-theme='comfort'] .aif-btn-next,
+:root[data-theme='comfort'] .aif-toggle-label,
+:root[data-theme='comfort'] .aif-field-ctrl,
+:root[data-theme='comfort'] .aif-ta-ctrl {
+  color: var(--text);
+}
+
+:root[data-theme='comfort'] .aif-title {
+  background: linear-gradient(120deg, #1f2937 0%, #1d4ed8 45%, #3b82f6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+:root[data-theme='comfort'] .aif-subtitle,
+:root[data-theme='comfort'] .aif-panel__sub,
+:root[data-theme='comfort'] .aif-overview__status-body,
+:root[data-theme='comfort'] .aif-step__hint,
+:root[data-theme='comfort'] .aif-progress__pct,
+:root[data-theme='comfort'] .aif-field-label {
+  color: var(--theme-text-muted);
+}
+
+:root[data-theme='comfort'] .aif-btn-ghost {
+  background: var(--theme-glass-soft);
+  border-color: var(--theme-border);
+}
+:root[data-theme='comfort'] .aif-btn-ghost:hover {
+  background: var(--theme-input-bg-hover);
+}
+
+:root[data-theme='comfort'] .aif-panel__step-pill,
+:root[data-theme='comfort'] .aif-eyebrow,
+:root[data-theme='comfort'] .aif-pct-chip__label,
+:root[data-theme='comfort'] .aif-overview__heading,
+:root[data-theme='comfort'] .aif-sidebar__eyebrow {
+  color: var(--theme-text-dim);
+}
+
+:root[data-theme='comfort'] .aif-field-icon,
+:root[data-theme='comfort'] .aif-overview__item-icon,
+:root[data-theme='comfort'] .aif-step__num {
+  border-color: var(--theme-border);
+  background: var(--theme-surface-soft);
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
+}
+:root[data-theme='comfort'] .aif-step__num.is-active,
+:root[data-theme='comfort'] .aif-step__num.is-done {
+  border-color: rgba(59, 130, 246, 0.32);
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--accent);
+}
+
+/* Instagram profile card in comfort */
+:root[data-theme='comfort'] .ig-profile-card {
+  background: linear-gradient(135deg, rgba(240, 148, 51, 0.06), rgba(188, 24, 136, 0.09));
+  border-color: rgba(240, 148, 51, 0.28);
+}
+:root[data-theme='comfort'] .ig-profile-card:hover {
+  background: linear-gradient(135deg, rgba(240, 148, 51, 0.12), rgba(188, 24, 136, 0.16));
+  border-color: rgba(240, 148, 51, 0.45);
+}
+:root[data-theme='comfort'] .ig-profile-card__name {
+  color: #1e1e2e;
+}
+:root[data-theme='comfort'] .ig-profile-card__meta {
+  color: rgba(30, 30, 46, 0.55);
+}
+:root[data-theme='comfort'] .aif-ig-preview__label {
+  color: rgba(30, 30, 46, 0.45);
+}

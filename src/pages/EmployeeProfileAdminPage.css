@@ -56,3 +56,17 @@
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-subtle);
 }
+
+/* ── Comfort Theme overrides ── */
+:root[data-theme='comfort'] .admin-profile-section {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme='comfort'] .admin-profile-portal__info {
+  background: #f9fafb;
+  border-color: #e5e7eb;
+}
