@@ -816,7 +816,9 @@ export function Layout() {
           <div className="app-topbar__meta">
             <div className="app-topbar__chip">
               <span className="app-topbar__chip-dot" aria-hidden />
-              {appTitle || 'HR Attendance'}
+              <span className="app-topbar__chip-text" title={appTitle || 'HR Attendance'}>
+                {appTitle || 'HR Attendance'}
+              </span>
             </div>
             <div className="app-topbar__user-pill">
               <span className="app-topbar__user-name">{user?.displayName || user?.username}</span>

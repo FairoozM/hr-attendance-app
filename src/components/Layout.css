@@ -475,6 +475,7 @@
   position: sticky;
   top: 1rem;
   z-index: 70;
+  min-width: 0;
   /* NOTE: NO will-change or transform here — those create a stacking context
      that breaks position:sticky on any descendant in the page content below */
 }
@@ -492,13 +493,20 @@
 
 .app-topbar__search {
   flex: 1;
-  min-width: 16rem;
+  min-width: 0;
   max-width: 36rem;
 }
 
 .app-topbar__meta {
   margin-left: auto;
-  flex-shrink: 0;
+  min-width: 0;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  row-gap: 0.4rem;
+  column-gap: 0.5rem;
+  align-content: center;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .nav-search--topbar {
@@ -624,6 +632,8 @@
   align-items: center;
   gap: 0.5rem;
   min-height: 2.7rem;
+  min-width: 0;
+  max-width: min(20rem, 100%);
   padding: 0.65rem 0.9rem;
   border-radius: 999px;
   border: 1px solid var(--theme-border);
@@ -634,21 +644,34 @@
   -webkit-backdrop-filter: var(--glass-blur);
 }
 
+.app-topbar__chip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .app-topbar__chip-dot {
   width: 0.45rem;
   height: 0.45rem;
   border-radius: 999px;
   background: linear-gradient(135deg, var(--primary), var(--accent-blue));
   box-shadow: 0 0 14px rgba(99, 102, 241, 0.35);
+  flex-shrink: 0;
 }
 
 .app-topbar__user-pill {
   gap: 0.75rem;
+  max-width: min(22rem, 100%);
 }
 
 .app-topbar__user-name {
+  min-width: 0;
   color: var(--text-soft);
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-topbar__user-badge {
@@ -700,6 +723,27 @@
   }
   .app-topbar__logout-btn {
     padding: 0 0.75rem;
+  }
+}
+
+/* Tight but not “mobile” layout: first row = nav + search; second row = meta + logout (always visible). */
+@media (min-width: 761px) and (max-width: 1200px) {
+  .app {
+    --app-topbar-stack: 8.9rem;
+  }
+
+  .app-topbar {
+    flex-wrap: wrap;
+  }
+
+  .app-topbar__search {
+    max-width: none;
+    flex: 1 1 10rem;
+  }
+
+  .app-topbar__meta {
+    flex: 1 0 100%;
+    margin-left: 0;
   }
 }
 
