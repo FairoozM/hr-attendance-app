@@ -1,0 +1,157 @@
+/* Slow-moving / Other-family / etc. weekly Zoho sales reports.
+   Reuses the war-* class system from WeeklyAdsReportPage.css; this file only
+   adds the small bits unique to read-only Zoho-sourced reports (refresh button,
+   loading / empty / error / not-configured callouts, SR.NO column width). */
+
+.wsr-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.wsr-toolbar__dates {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+@media (max-width: 540px) {
+  .wsr-toolbar__dates { grid-template-columns: 1fr; }
+}
+
+.wsr-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wsr-callout {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  border: 1px solid transparent;
+}
+
+.wsr-callout--info {
+  background: rgba(74, 124, 255, 0.08);
+  border-color: rgba(74, 124, 255, 0.25);
+  color: #1e3a8a;
+}
+
+.wsr-callout--warn {
+  background: #fef3c7;
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+.wsr-callout--error {
+  background: #fee2e2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
+.wsr-callout__title {
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.wsr-callout__body code,
+.wsr-callout__hint code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.wsr-callout__details {
+  margin-top: 6px;
+  padding: 6px 0 2px;
+  border-top: 1px dashed rgba(153, 27, 27, 0.25);
+}
+
+.wsr-callout__details summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.wsr-callout__list {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.wsr-callout__hint {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  font-style: italic;
+  opacity: 0.9;
+}
+
+.wsr-loading {
+  padding: 40px 0;
+  text-align: center;
+  color: var(--text-secondary, #6b7a99);
+  font-size: 14px;
+}
+
+.wsr-empty {
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--text-secondary, #6b7a99);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.wsr-empty__sub {
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.wsr-th--sr,
+.wsr-td--sr {
+  width: 70px;
+  text-align: center;
+}
+
+.wsr-th--item,
+.wsr-td--item {
+  text-align: left;
+  font-weight: 600;
+}
+
+.wsr-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  font-size: 13px;
+  color: var(--text-secondary, #6b7a99);
+  margin-top: 12px;
+}
+
+.wsr-meta__item strong {
+  color: var(--text-primary, #1e2d4e);
+  font-weight: 600;
+  margin-left: 4px;
+}

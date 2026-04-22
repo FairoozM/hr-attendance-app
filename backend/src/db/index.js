@@ -488,6 +488,110 @@ async function ensureSimCardsTable() {
   }
 }
 
+/**
+ * Maps Zoho items to logical "report_group" buckets used by the Weekly Reports
+ * section. Membership is the source of truth for which items appear in which
+ * report. The numeric values themselves always come from the Zoho-source
+ * webhook (see services/zohoService.js); this table only decides membership.
+ *
+ * Seed lists below are bootstrap-only — they reflect the initial Excel groups
+ * provided by the business. Long-term, edit this table directly (or add an
+ * admin UI) to manage which SKUs belong to which report.
+ */
+async function ensureItemReportGroupsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS item_report_groups (
+      id           SERIAL PRIMARY KEY,
+      sku          VARCHAR(100),
+      item_id      VARCHAR(100),
+      item_name    VARCHAR(255),
+      report_group VARCHAR(64) NOT NULL,
+      active       BOOLEAN NOT NULL DEFAULT true,
+      notes        TEXT NOT NULL DEFAULT '',
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CHECK (sku IS NOT NULL OR item_id IS NOT NULL OR item_name IS NOT NULL)
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_irg_group ON item_report_groups(report_group, active)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_irg_sku   ON item_report_groups(LOWER(sku))`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_irg_name  ON item_report_groups(LOWER(item_name))`)
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_irg_sku_group
+      ON item_report_groups(LOWER(sku), report_group)
+      WHERE sku IS NOT NULL
+  `)
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_irg_name_group
+      ON item_report_groups(LOWER(item_name), report_group)
+      WHERE sku IS NULL AND item_name IS NOT NULL
+  `)
+
+  // Bootstrap seed (idempotent). Skipped entirely if any rows already exist for
+  // the group — operators can freely add/remove rows without seed-overwrite.
+  const seedGroups = [
+    {
+      group: 'slow_moving',
+      items: [
+        'FL SHINE', 'LIFEP2N', 'CUT', 'Acrylic', 'LIFESS',
+        'LIFEP9', 'PR', 'STA', 'EGG', 'APRON',
+      ],
+    },
+    {
+      group: 'other_family',
+      items: [
+        'LIFEP75', 'LIFEP17', 'LIFEP18', 'LIFEP17S', 'LIFEP12', 'LIFEP7',
+        'LIFEP20', 'FLHM-S', 'LIFEP30', 'ZDS-NEW', 'LIFEP32', 'LIFEP19',
+        'LIFEP22', 'LUP', 'LIFEP13N', 'LIFEP24', 'DSH', 'FLCM',
+        'R TROLLEY', 'NML', 'TNML', 'LIFEP29', 'TOOLS', 'NCK',
+        'LIFEP5', 'TK1', 'BRKH', 'FK', 'SPHM-S', 'NSEL',
+        'LIFEP26', 'MR', 'LIFEP21', 'SPF', 'TK3', 'LIFEP23',
+      ],
+    },
+  ]
+
+  for (const { group, items } of seedGroups) {
+    const existing = await query(
+      `SELECT 1 FROM item_report_groups WHERE report_group = $1 LIMIT 1`,
+      [group]
+    )
+    if (existing.rowCount > 0) continue
+
+    for (const name of items) {
+      await query(
+        `INSERT INTO item_report_groups (item_name, report_group, notes)
+         VALUES ($1, $2, $3)
+         ON CONFLICT DO NOTHING`,
+        [name, group, 'bootstrap seed']
+      )
+    }
+  }
+}
+
+async function ensureItemReportGroupsImportLogTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS item_report_groups_import_log (
+      id                SERIAL PRIMARY KEY,
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      user_id           INTEGER,
+      user_role         VARCHAR(32),
+      mode              VARCHAR(32) NOT NULL,
+      total_rows        INTEGER NOT NULL DEFAULT 0,
+      created_count     INTEGER NOT NULL DEFAULT 0,
+      updated_count     INTEGER NOT NULL DEFAULT 0,
+      invalid_count     INTEGER NOT NULL DEFAULT 0,
+      deactivated_count INTEGER NOT NULL DEFAULT 0,
+      succeeded         BOOLEAN NOT NULL DEFAULT TRUE,
+      error_code        VARCHAR(64),
+      notes             TEXT
+    )
+  `)
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_irg_import_log_created_at
+      ON item_report_groups_import_log (created_at DESC)
+  `)
+}
+
 async function ensureAttendanceAssignmentsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS attendance_assignments (
@@ -634,6 +738,16 @@ async function testConnection() {
   } catch (e) {
     console.error('[db] ensureTaskAttachmentsTable skipped/failed (non-fatal):', e.message || e)
   }
+  try {
+    await ensureItemReportGroupsTable()
+  } catch (e) {
+    console.error('[db] ensureItemReportGroupsTable skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    await ensureItemReportGroupsImportLogTable()
+  } catch (e) {
+    console.error('[db] ensureItemReportGroupsImportLogTable skipped/failed (non-fatal):', e.message || e)
+  }
 }
 
 async function ensureProjectsTable() {
@@ -747,4 +861,6 @@ module.exports = {
   ensureDefaultAdminUser,
   ensureInfluencersSnapshotTable,
   ensureDocumentExpiryTable,
+  ensureItemReportGroupsTable,
+  ensureItemReportGroupsImportLogTable,
 }

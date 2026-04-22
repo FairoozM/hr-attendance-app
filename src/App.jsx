@@ -16,6 +16,7 @@ import { SettingsPage } from './pages/SettingsPage'
 import { AnnualLeavePage } from './pages/AnnualLeavePage'
 import { EmployeeProfileAdminPage } from './pages/EmployeeProfileAdminPage'
 import { RolesPermissionsPage } from './pages/RolesPermissionsPage'
+import { ItemReportGroupsAdminPage } from './pages/admin/ItemReportGroupsAdminPage'
 import { InfluencerListPage } from './pages/influencers/InfluencerListPage'
 import { AddInfluencerPage } from './pages/influencers/AddInfluencerPage'
 import { PipelinePage } from './pages/influencers/PipelinePage'
@@ -31,7 +32,7 @@ import { ReportsPage } from './pages/influencers/ReportsPage'
 import { SimCardsPage } from './pages/SimCardsPage'
 import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
 import { WeeklyAdsReportPage } from './pages/reports/WeeklyAdsReportPage'
-import { WeeklySlowMovingReportPage } from './pages/reports/WeeklySlowMovingReportPage'
+import { WeeklySalesReportPage } from './pages/reports/WeeklySalesReportPage'
 import ProjectsIndexPage from './pages/projects/ProjectsIndexPage'
 import ProjectDetailPage from './pages/projects/ProjectDetailPage'
 import ProjectDashboardPage from './pages/projects/ProjectDashboardPage'
@@ -181,6 +182,7 @@ function AppContent() {
           }
         />
         <Route path="roles-permissions" element={<RolesPermissionsPage />} />
+        <Route path="admin/item-report-groups" element={<ItemReportGroupsAdminPage />} />
 
         {/* AI Planner Module */}
         <Route path="projects" element={<ProjectsIndexPage />} />
@@ -203,7 +205,23 @@ function AppContent() {
               path="slow-moving"
               element={
                 <PermissionGuard module="weekly_reports" action="view">
-                  <WeeklySlowMovingReportPage />
+                  <WeeklySalesReportPage
+                    reportGroup="slow_moving"
+                    title="Weekly Slow Moving Sales Report"
+                    subtitle="Live Zoho-sourced totals for the slow-moving item group"
+                  />
+                </PermissionGuard>
+              }
+            />
+            <Route
+              path="other-family"
+              element={
+                <PermissionGuard module="weekly_reports" action="view">
+                  <WeeklySalesReportPage
+                    reportGroup="other_family"
+                    title="Weekly Other Family Sales Report"
+                    subtitle="Live Zoho-sourced totals for the other-family item group"
+                  />
                 </PermissionGuard>
               }
             />

@@ -17,6 +17,7 @@ const documentExpiryRoutes = require('./routes/documentExpiry')
 const instagramProxyRoutes = require('./routes/instagramProxy')
 const projectsRoutes      = require('./routes/projects')
 const weeklyReportsRoutes = require('./routes/weeklyReports')
+const itemReportGroupsRoutes = require('./routes/itemReportGroups')
 
 const app = express()
 
@@ -58,6 +59,7 @@ app.use('/api/document-expiry', authMiddleware.attachAuth, documentExpiryRoutes)
 app.use('/api/instagram-proxy', instagramProxyRoutes)
 app.use('/api/projects',       authMiddleware.attachAuth, projectsRoutes)
 app.use('/api/weekly-reports', authMiddleware.attachAuth, weeklyReportsRoutes)
+app.use('/api/item-report-groups', authMiddleware.attachAuth, itemReportGroupsRoutes)
 
 // Catch-all for unmatched /api/* — always JSON, never HTML
 app.use('/api', (_req, res) => {

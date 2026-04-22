@@ -1,34 +1,88 @@
 /**
- * Zoho Inventory integration service.
+ * Zoho-source weekly inventory data, fetched from a custom Deluge webhook
+ * deployed inside the user's Zoho organization.
+ *
+ * Why a webhook and not the REST API:
+ *   Zoho Inventory's "Inventory Summary" report (which contains Opening Stock,
+ *   Purchases, Returned to Wholesale, Closing Stock, SOLD per item per date
+ *   range) is NOT exposed through the public REST API. The supported way to
+ *   obtain those pre-aggregated values without re-deriving business numbers
+ *   in our backend is to compute them inside Zoho via a Deluge function and
+ *   expose the result as a webhook.
+ *
+ * Full integration contract:        docs/weekly-reports-zoho-webhook.md
+ * Sample Deluge implementation:     docs/weekly-reports-zoho-webhook.deluge
  *
  * Required environment variables:
- *   ZOHO_CLIENT_ID        – OAuth2 client ID
- *   ZOHO_CLIENT_SECRET    – OAuth2 client secret
- *   ZOHO_REFRESH_TOKEN    – long-lived refresh token (generate once via OAuth2 code flow)
- *   ZOHO_ORGANIZATION_ID  – Zoho Inventory organization ID
- *   ZOHO_ACCOUNTS_URL     – (optional) defaults to https://accounts.zoho.com
- *   ZOHO_INVENTORY_URL    – (optional) defaults to https://inventory.zoho.com
+ *   ZOHO_REPORT_WEBHOOK_URL          – HTTPS URL the Deluge function is
+ *                                      published at.
+ *   ZOHO_REPORT_WEBHOOK_AUTH_HEADER  – full header value, e.g.
+ *                                      "Zoho-oauthtoken 1000.xxx" or
+ *                                      "Bearer xxx".
  *
- * The service caches the access token in memory and refreshes it automatically
- * when it expires (1-hour TTL with a 60-second safety margin).
+ * Optional environment variables:
+ *   ZOHO_REPORT_WEBHOOK_HEADER_NAME  – defaults to "Authorization"
+ *   ZOHO_REPORT_WEBHOOK_FROM_PARAM   – query-param name for the start date,
+ *                                      defaults to "from_date"
+ *   ZOHO_REPORT_WEBHOOK_TO_PARAM     – query-param name for the end date,
+ *                                      defaults to "to_date"
+ *   ZOHO_REPORT_WEBHOOK_TIMEOUT_MS   – defaults to 20000
+ *
+ * Strict response contract (see contract doc for the full version):
+ *
+ *   {
+ *     "items": [
+ *       {
+ *         "sku": "FL-SHINE-001",                  // REQUIRED, non-empty string
+ *         "item_name": "FL SHINE",                // optional but recommended
+ *         "item_id":   "12345",                   // optional
+ *         "opening_stock":         12980,         // number | null | absent
+ *         "purchases":                 0,         // number | null | absent
+ *         "returned_to_wholesale":     0,         // number | null | absent
+ *         "closing_stock":         11828,         // number | null | absent
+ *         "sold":                  1152           // number | null | absent
+ *       },
+ *       ...
+ *     ]
+ *   }
+ *
+ * Strictness:
+ *   - sku is the primary match key. Rows without a non-empty sku are rejected.
+ *   - Numeric fields MUST be JSON numbers. Strings (even numeric strings),
+ *     booleans, NaN, and Infinity are rejected as invalid.
+ *   - A field that is absent OR explicitly null defaults to 0 (Zoho is
+ *     stating "no movement"). Anything else surfaces a validation error.
+ *
+ * Error contract:
+ *   - ZOHO_NOT_CONFIGURED         (env vars missing)             → controller maps to 503
+ *   - ZOHO_WEBHOOK_TIMEOUT        (request did not return in time) → 504
+ *   - ZOHO_WEBHOOK_HTTP_ERROR     (non-2xx status from Zoho)      → 502
+ *   - WEBHOOK_INVALID_RESPONSE    (malformed JSON / shape / row)  → 502
+ *
+ * No business derivation happens here — every numeric field is taken verbatim
+ * from the webhook response. Membership filtering by report group is performed
+ * against the DB (see itemReportGroupsService.js).
  */
 
 const https = require('https')
 const http  = require('http')
+const { listMembersOfGroup } = require('./itemReportGroupsService')
 
-const ACCOUNTS_URL  = (process.env.ZOHO_ACCOUNTS_URL  || 'https://accounts.zoho.com').replace(/\/$/, '')
-const INVENTORY_URL = (process.env.ZOHO_INVENTORY_URL || 'https://inventory.zoho.com').replace(/\/$/, '')
-
-let _tokenCache = {
-  accessToken: null,
-  expiresAt: 0,        // epoch ms
-}
+const DEFAULT_TIMEOUT_MS = 20000
+const NUMERIC_FIELDS = [
+  'opening_stock',
+  'purchases',
+  'returned_to_wholesale',
+  'closing_stock',
+  'sold',
+]
+const MAX_REPORTED_ERRORS = 10
 
 // ---------------------------------------------------------------------------
-// Internal helpers
+// HTTP helper
 // ---------------------------------------------------------------------------
 
-function httpsRequest(url, options = {}, body = null) {
+function httpRequest(url, options = {}) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url)
     const lib    = parsed.protocol === 'https:' ? https : http
@@ -41,93 +95,235 @@ function httpsRequest(url, options = {}, body = null) {
     }
     const req = lib.request(reqOpts, (res) => {
       let data = ''
-      res.on('data', chunk => { data += chunk })
+      res.on('data', (chunk) => { data += chunk })
       res.on('end', () => resolve({ status: res.statusCode, body: data }))
     })
-    req.on('error', reject)
-    req.setTimeout(15000, () => { req.destroy(); reject(new Error('Zoho request timed out')) })
-    if (body) req.write(body)
+    req.on('error', (err) => {
+      err.code = err.code || 'ZOHO_WEBHOOK_NETWORK_ERROR'
+      reject(err)
+    })
+    const timeoutMs = Number(options.timeoutMs || DEFAULT_TIMEOUT_MS)
+    req.setTimeout(timeoutMs, () => {
+      req.destroy()
+      const err = new Error(`Zoho webhook request timed out after ${timeoutMs}ms`)
+      err.code = 'ZOHO_WEBHOOK_TIMEOUT'
+      reject(err)
+    })
     req.end()
   })
 }
 
-async function refreshAccessToken() {
-  const { ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN } = process.env
-  if (!ZOHO_CLIENT_ID || !ZOHO_CLIENT_SECRET || !ZOHO_REFRESH_TOKEN) {
-    throw new Error(
-      'Zoho credentials are not configured. ' +
-      'Set ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET and ZOHO_REFRESH_TOKEN in your environment.'
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+function readWebhookConfig() {
+  const url        = process.env.ZOHO_REPORT_WEBHOOK_URL
+  const authHeader = process.env.ZOHO_REPORT_WEBHOOK_AUTH_HEADER
+  if (!url || !authHeader) {
+    const err = new Error(
+      'Zoho source not configured. Set ZOHO_REPORT_WEBHOOK_URL and ' +
+      'ZOHO_REPORT_WEBHOOK_AUTH_HEADER in the backend environment to enable ' +
+      'weekly Zoho-sourced reports.'
     )
+    err.code = 'ZOHO_NOT_CONFIGURED'
+    throw err
   }
+  return {
+    url,
+    headerName: process.env.ZOHO_REPORT_WEBHOOK_HEADER_NAME || 'Authorization',
+    authHeader,
+    fromParam:  process.env.ZOHO_REPORT_WEBHOOK_FROM_PARAM  || 'from_date',
+    toParam:    process.env.ZOHO_REPORT_WEBHOOK_TO_PARAM    || 'to_date',
+    timeoutMs:  Number(process.env.ZOHO_REPORT_WEBHOOK_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
+  }
+}
 
-  const params = new URLSearchParams({
-    grant_type:    'refresh_token',
-    client_id:     ZOHO_CLIENT_ID,
-    client_secret: ZOHO_CLIENT_SECRET,
-    refresh_token: ZOHO_REFRESH_TOKEN,
-  })
+// ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
 
-  const { status, body } = await httpsRequest(
-    `${ACCOUNTS_URL}/oauth/v2/token`,
-    {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    },
-    params.toString()
+function makeError(code, message) {
+  const e = new Error(message)
+  e.code = code
+  return e
+}
+
+function makeInvalidResponseError(errors) {
+  const visible = errors.slice(0, MAX_REPORTED_ERRORS)
+  const overflow = errors.length - visible.length
+  const lines = visible.map((m, i) => `  ${i + 1}. ${m}`).join('\n')
+  const tail  = overflow > 0 ? `\n  …and ${overflow} more validation error(s).` : ''
+  const e = new Error(
+    `Zoho webhook returned an invalid response (${errors.length} validation ` +
+    `error${errors.length === 1 ? '' : 's'}):\n${lines}${tail}`
   )
-
-  let json
-  try { json = JSON.parse(body) } catch {
-    throw new Error(`Zoho token endpoint returned non-JSON (HTTP ${status})`)
-  }
-
-  if (status !== 200 || !json.access_token) {
-    throw new Error(
-      `Zoho token refresh failed (HTTP ${status}): ${json.error || json.message || body}`
-    )
-  }
-
-  // expires_in is in seconds; apply a 60-second safety margin
-  const ttlMs = ((json.expires_in || 3600) - 60) * 1000
-  _tokenCache = { accessToken: json.access_token, expiresAt: Date.now() + ttlMs }
-  return json.access_token
+  e.code = 'WEBHOOK_INVALID_RESPONSE'
+  e.validation_errors = errors
+  return e
 }
 
-async function getAccessToken() {
-  if (_tokenCache.accessToken && Date.now() < _tokenCache.expiresAt) {
-    return _tokenCache.accessToken
-  }
-  return refreshAccessToken()
-}
+// ---------------------------------------------------------------------------
+// Fetch
+// ---------------------------------------------------------------------------
 
-async function zohoGet(path, queryParams = {}) {
-  const token  = await getAccessToken()
-  const orgId  = process.env.ZOHO_ORGANIZATION_ID
-  if (!orgId) throw new Error('ZOHO_ORGANIZATION_ID is not set.')
+/**
+ * Call the Deluge webhook for a date range and return the raw `items` array.
+ * Throws ZOHO_NOT_CONFIGURED, ZOHO_WEBHOOK_TIMEOUT, ZOHO_WEBHOOK_HTTP_ERROR,
+ * or WEBHOOK_INVALID_RESPONSE depending on what went wrong.
+ */
+async function fetchInventorySnapshot(fromDate, toDate) {
+  const cfg = readWebhookConfig()
 
-  const qs = new URLSearchParams({ organization_id: orgId, ...queryParams })
-  const url = `${INVENTORY_URL}/api/v1${path}?${qs.toString()}`
+  const u = new URL(cfg.url)
+  u.searchParams.set(cfg.fromParam, fromDate)
+  u.searchParams.set(cfg.toParam,   toDate)
 
-  const { status, body } = await httpsRequest(url, {
-    method:  'GET',
+  const { status, body } = await httpRequest(u.toString(), {
+    method:    'GET',
+    timeoutMs: cfg.timeoutMs,
     headers: {
-      Authorization: `Zoho-oauthtoken ${token}`,
-      Accept:        'application/json',
+      Accept:           'application/json',
+      [cfg.headerName]: cfg.authHeader,
     },
   })
 
   let json
-  try { json = JSON.parse(body) } catch {
-    throw new Error(`Zoho API returned non-JSON (HTTP ${status}) for ${path}`)
+  try {
+    json = JSON.parse(body)
+  } catch {
+    throw makeInvalidResponseError([
+      `Response body is not valid JSON (HTTP ${status}). First 200 chars: ` +
+      JSON.stringify(String(body).slice(0, 200)),
+    ])
   }
 
-  if (status !== 200 || (json.code !== undefined && json.code !== 0)) {
-    throw new Error(
-      `Zoho API error (HTTP ${status}, code ${json.code}): ${json.message || body}`
+  if (status < 200 || status >= 300) {
+    const msg = (json && (json.error || json.message)) || body || `HTTP ${status}`
+    throw makeError(
+      'ZOHO_WEBHOOK_HTTP_ERROR',
+      `Zoho webhook responded with HTTP ${status}: ${msg}`
     )
   }
 
-  return json
+  // Accept either { items: [...] } or a bare array.
+  let items
+  if (Array.isArray(json)) {
+    items = json
+  } else if (json && Array.isArray(json.items)) {
+    items = json.items
+  } else if (json && Array.isArray(json.data)) {
+    items = json.data
+  } else {
+    throw makeInvalidResponseError([
+      `Response is missing an "items" array. Top-level keys: ` +
+      `${json && typeof json === 'object' ? Object.keys(json).join(', ') || '(none)' : `(not an object: ${typeof json})`}`,
+    ])
+  }
+
+  return items
+}
+
+// ---------------------------------------------------------------------------
+// Strict per-row validation + normalisation
+// ---------------------------------------------------------------------------
+
+/** True only for genuine, finite JSON numbers. Strings are rejected. */
+function isFiniteNumber(v) {
+  return typeof v === 'number' && Number.isFinite(v)
+}
+
+/** Validate a single numeric business field. Returns { value, error }. */
+function validateNumericField(raw, field, rowLabel) {
+  const v = raw[field]
+  // Absent OR explicit null => Zoho is saying "no movement" => default to 0.
+  if (v === undefined || v === null) return { value: 0, error: null }
+  if (isFiniteNumber(v)) return { value: v, error: null }
+  return {
+    value: 0,
+    error:
+      `${rowLabel}: field "${field}" must be a JSON number (or null/absent for 0). ` +
+      `Got ${typeof v}: ${JSON.stringify(v)}.`,
+  }
+}
+
+/**
+ * Validate + normalise a single row from the webhook response.
+ * Returns { item, errors }. `errors` is empty on success.
+ */
+function validateAndNormaliseItem(raw, index) {
+  const errors = []
+
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {
+      item: null,
+      errors: [`items[${index}]: row must be a JSON object, got ${Array.isArray(raw) ? 'array' : typeof raw}.`],
+    }
+  }
+
+  const skuRaw = raw.sku
+  let sku = ''
+  if (skuRaw === undefined || skuRaw === null || skuRaw === '') {
+    errors.push(`items[${index}]: "sku" is required and must be a non-empty string.`)
+  } else if (typeof skuRaw !== 'string') {
+    errors.push(`items[${index}]: "sku" must be a string. Got ${typeof skuRaw}.`)
+  } else {
+    sku = skuRaw.trim()
+    if (!sku) {
+      errors.push(`items[${index}]: "sku" must be a non-empty string after trimming.`)
+    }
+  }
+
+  const itemName =
+    typeof raw.item_name === 'string' ? raw.item_name.trim() :
+    typeof raw.item      === 'string' ? raw.item.trim()      :
+    ''
+
+  const itemId =
+    typeof raw.item_id === 'string' ? raw.item_id.trim() :
+    typeof raw.id      === 'string' ? raw.id.trim()      :
+    ''
+
+  const rowLabel = `items[${index}] (sku="${sku || '?'}")`
+  const numeric = {}
+  for (const field of NUMERIC_FIELDS) {
+    const { value, error } = validateNumericField(raw, field, rowLabel)
+    if (error) errors.push(error)
+    numeric[field] = value
+  }
+
+  if (errors.length > 0) return { item: null, errors }
+
+  return {
+    item: {
+      sku,
+      item_name: itemName,
+      item_id:   itemId,
+      ...numeric,
+    },
+    errors: [],
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Membership filter — sku-primary, item_name fallback for legacy seeds only.
+// ---------------------------------------------------------------------------
+
+function buildMatcher(members) {
+  const skus  = new Set()
+  const names = new Set() // legacy fallback for DB rows that have no SKU yet
+  for (const m of members) {
+    if (m.sku) {
+      skus.add(String(m.sku).trim().toLowerCase())
+    } else if (m.item_name) {
+      names.add(String(m.item_name).trim().toLowerCase())
+    }
+  }
+  return (item) => {
+    if (item.sku && skus.has(item.sku.toLowerCase())) return true
+    if (item.item_name && names.has(item.item_name.toLowerCase())) return true
+    return false
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -135,126 +331,58 @@ async function zohoGet(path, queryParams = {}) {
 // ---------------------------------------------------------------------------
 
 /**
- * Fetch Zoho Inventory Summary report for a given date range.
+ * Fetch Zoho-sourced rows for the given date range, validate them strictly,
+ * then keep only those whose sku (or item_name as a legacy fallback) appears
+ * in `item_report_groups` for the requested group.
  *
- * Zoho endpoint: GET /api/v1/reports/inventorysummary
+ * Behaviour intentionally driven by the Zoho response, not the seed list:
+ *   - If Zoho returns no row for an item that's in the group, it is NOT
+ *     force-displayed with zeros.
+ *   - If the group has no DB members, the report is empty (never the entire
+ *     Zoho dump).
  *
- * Each item in the returned array contains:
- *   item_id, item_name, sku,
- *   opening_stock,
- *   quantity_purchased         → Purchases
- *   quantity_purchased_returned→ Returned to Wholesale
- *   quantity_sold              → SOLD
- *   quantity_adjusted          → manual adjustments
- *   closing_stock
- *
- * @param {string} fromDate – YYYY-MM-DD
- * @param {string} toDate   – YYYY-MM-DD
- * @returns {Promise<Array>}
+ * Throws WEBHOOK_INVALID_RESPONSE if any row in the webhook response fails
+ * validation. The error is fail-loud on purpose — we will not silently
+ * coerce or default business numbers from a malformed source.
  */
-async function fetchInventorySummary(fromDate, toDate) {
-  const data = await zohoGet('/reports/inventorysummary', {
-    from_date: fromDate,
-    to_date:   toDate,
-  })
+async function getInventoryByGroup(group, fromDate, toDate) {
+  const members = await listMembersOfGroup(group)
+  if (members.length === 0) return []
 
-  // Zoho may return the list under different top-level keys depending on the API version
-  return (
-    data.inventory_summary ||
-    data.inventorysummary  ||
-    data.items             ||
-    []
-  )
-}
+  const raw = await fetchInventorySnapshot(fromDate, toDate)
 
-/**
- * Normalise a single Zoho inventory summary row into the shape our
- * weekly report controller expects.
- *
- * Zoho field names can vary slightly between API versions / regions.
- * We try every known alias so the service is robust to minor variations.
- */
-function normaliseItem(raw) {
-  const pick = (...keys) => {
-    for (const k of keys) {
-      if (raw[k] !== undefined && raw[k] !== null) return Number(raw[k]) || 0
+  const items   = []
+  const errors  = []
+  for (let i = 0; i < raw.length; i++) {
+    const { item, errors: rowErrors } = validateAndNormaliseItem(raw[i], i)
+    if (rowErrors.length > 0) {
+      errors.push(...rowErrors)
+      if (errors.length >= MAX_REPORTED_ERRORS) break
+    } else {
+      items.push(item)
     }
-    return 0
   }
 
-  return {
-    item_id:              raw.item_id   || raw.item_name || '',
-    item_name:            raw.item_name || raw.name      || '',
-    sku:                  raw.sku       || raw.item_sku  || '',
-    opening_stock:        pick('opening_stock', 'opening_quantity'),
-    purchases:            pick('quantity_purchased',         'quantity_in',     'purchased_quantity'),
-    returned_to_wholesale:pick('quantity_purchased_returned','purchase_returns', 'quantity_returned'),
-    sold:                 pick('quantity_sold',  'sales_quantity',  'quantity_out'),
-    closing_stock:        pick('closing_stock', 'closing_quantity'),
-    // preserve all raw fields for debugging
-    _raw: raw,
-  }
+  if (errors.length > 0) throw makeInvalidResponseError(errors)
+
+  const match = buildMatcher(members)
+  return items.filter(match)
 }
 
 /**
- * Filter and return only items that are tagged as "slow_moving".
- *
- * Detection order:
- *  1. Zoho custom field  `cf_report_group` === 'slow_moving'
- *  2. Zoho custom field  `cf_category`      === 'slow_moving'
- *  3. Item tags array    contains            'slow_moving'
- *  4. Env var            ZOHO_SLOW_MOVING_ITEMS (comma-separated SKUs / item names)
- *
- * If none of the above applies to any item the full list is returned so the
- * report is never silently empty on first deploy.
- */
-function filterSlowMovingItems(items) {
-  const envList = (process.env.ZOHO_SLOW_MOVING_ITEMS || '')
-    .split(',')
-    .map(s => s.trim().toLowerCase())
-    .filter(Boolean)
-
-  function isSlowMoving(item) {
-    const raw = item._raw || {}
-
-    // 1. Custom field cf_report_group
-    if (raw.cf_report_group && String(raw.cf_report_group).toLowerCase() === 'slow_moving') return true
-
-    // 2. Custom field cf_category
-    if (raw.cf_category && String(raw.cf_category).toLowerCase() === 'slow_moving') return true
-
-    // 3. Tags array
-    const tags = raw.tags || raw.item_tags || []
-    if (Array.isArray(tags) && tags.some(t => {
-      const tv = typeof t === 'object' ? (t.tag_name || t.name || '') : String(t)
-      return tv.toLowerCase() === 'slow_moving'
-    })) return true
-
-    // 4. Env-var allowlist (by SKU or name)
-    if (envList.length) {
-      const sku  = (item.sku        || '').toLowerCase()
-      const name = (item.item_name  || '').toLowerCase()
-      if (envList.includes(sku) || envList.includes(name)) return true
-    }
-
-    return false
-  }
-
-  const filtered = items.filter(isSlowMoving)
-
-  // Fallback: return all items when no classification exists yet
-  return filtered.length > 0 ? filtered : items
-}
-
-/**
- * Main entry point used by the weekly reports controller.
- *
- * Returns an array of normalised items filtered to the slow-moving group.
+ * Back-compat wrapper for the original /api/weekly-reports/slow-moving route.
+ * New consumers should use getInventoryByGroup(group, ...) directly.
  */
 async function getSlowMovingInventory(fromDate, toDate) {
-  const raw       = await fetchInventorySummary(fromDate, toDate)
-  const normalised = raw.map(normaliseItem)
-  return filterSlowMovingItems(normalised)
+  return getInventoryByGroup('slow_moving', fromDate, toDate)
 }
 
-module.exports = { getSlowMovingInventory }
+module.exports = {
+  getInventoryByGroup,
+  getSlowMovingInventory,
+  // Exported for unit testing.
+  _internals: {
+    validateAndNormaliseItem,
+    buildMatcher,
+  },
+}

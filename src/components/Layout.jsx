@@ -418,7 +418,7 @@ export function Layout() {
     isEmployee ? '/account' : can('attendance', 'view') ? '/attendance' : '/account'
 
   const HR_ROUTES = ['/employees', '/attendance', '/annual-leave']
-  const ADMIN_NAV_ROUTES = ['/settings', '/roles-permissions']
+  const ADMIN_NAV_ROUTES = ['/settings', '/roles-permissions', '/admin']
   const LISTS_ROUTES = ['/lists/sim-cards']
   const isHrActive = HR_ROUTES.some(r => location.pathname.startsWith(r))
   const isAdminNavActive = isAdmin && ADMIN_NAV_ROUTES.some(r => location.pathname.startsWith(r))
@@ -440,9 +440,11 @@ export function Layout() {
     if (location.pathname.startsWith('/influencers')) return 'Influencers'
     if (location.pathname.startsWith('/account')) return 'My Account'
     if (location.pathname.startsWith('/management/document-expiry')) return 'Document Expiry Tracker'
-    if (location.pathname.startsWith('/reports/weekly-report/weekly-ads'))  return 'Weekly Ads Report'
-    if (location.pathname.startsWith('/reports/weekly-report/slow-moving')) return 'Slow Moving Sales Report'
+    if (location.pathname.startsWith('/reports/weekly-report/weekly-ads'))   return 'Weekly Ads Report'
+    if (location.pathname.startsWith('/reports/weekly-report/slow-moving'))  return 'Weekly Slow Moving Sales Report'
+    if (location.pathname.startsWith('/reports/weekly-report/other-family')) return 'Weekly Other Family Sales Report'
     if (location.pathname.startsWith('/reports')) return 'Reports'
+    if (location.pathname.startsWith('/admin/item-report-groups')) return 'Item Report Groups'
     if (location.pathname === '/projects/dashboard') return 'AI Dashboard'
     if (location.pathname.startsWith('/projects/')) return 'Today\'s Plan'
     if (location.pathname === '/projects') return 'AI Task Planner'
@@ -467,6 +469,7 @@ export function Layout() {
   const adminNavItems = [
     isAdmin && { label: 'Settings', to: '/settings' },
     isAdmin && { label: 'Roles & Permissions', to: '/roles-permissions' },
+    isAdmin && { label: 'Item Report Groups', to: '/admin/item-report-groups' },
   ].filter(Boolean)
   const listsItems = [
     can('sim_cards', 'view') && { label: 'Sim Cards List', to: '/lists/sim-cards' },
@@ -477,8 +480,9 @@ export function Layout() {
   ].filter(Boolean)
 
   const REPORTS_ITEMS = [
-    hasWeeklyReportsAccess && { label: 'Weekly Ads Report',          to: '/reports/weekly-report/weekly-ads'   },
-    hasWeeklyReportsAccess && { label: 'Slow Moving Sales Report',   to: '/reports/weekly-report/slow-moving'  },
+    hasWeeklyReportsAccess && { label: 'Weekly Ads Report',                to: '/reports/weekly-report/weekly-ads'   },
+    hasWeeklyReportsAccess && { label: 'Weekly Slow Moving Sales Report',  to: '/reports/weekly-report/slow-moving'  },
+    hasWeeklyReportsAccess && { label: 'Weekly Other Family Sales Report', to: '/reports/weekly-report/other-family' },
   ].filter(Boolean)
 
   const focusedSectionConfig = useMemo(() => {
@@ -517,9 +521,16 @@ export function Layout() {
     ...REPORTS_ITEMS.map(i => ({
       ...i,
       group: 'Weekly Report',
-      searchHint: 'weekly ads slow moving sales inventory performance reports zoho',
+      searchHint: 'weekly ads slow moving other family sales inventory performance reports zoho',
     })),
-    ...adminNavItems.map(i => ({ ...i, group: 'Admin' })),
+    ...adminNavItems.map(i => ({
+      ...i,
+      group: 'Admin',
+      searchHint:
+        i.to === '/admin/item-report-groups'
+          ? 'item report groups slow moving other family weekly mapping zoho sku'
+          : '',
+    })),
     { label: 'My Account', to: '/account', group: 'Account' },
   ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, managementItems, REPORTS_ITEMS])
 

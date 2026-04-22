@@ -1,60 +1,146 @@
-const { getSlowMovingInventory } = require('../services/zohoService')
+const { getInventoryByGroup, getSlowMovingInventory } = require('../services/zohoService')
+const { listGroupKeys }                               = require('../services/itemReportGroupsService')
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+function validateDateRange(req, res) {
+  const { from_date, to_date } = req.query
+  if (!from_date || !to_date) {
+    res.status(400).json({
+      error: 'Missing required query parameters: from_date and to_date (YYYY-MM-DD)',
+    })
+    return null
+  }
+  if (!DATE_RE.test(from_date) || !DATE_RE.test(to_date)) {
+    res.status(400).json({ error: 'Dates must be in YYYY-MM-DD format' })
+    return null
+  }
+  if (from_date > to_date) {
+    res.status(400).json({ error: 'from_date must be before or equal to to_date' })
+    return null
+  }
+  return { from_date, to_date }
+}
+
+/** Sums the Zoho-provided values for the Grand Total row. No business derivation. */
+function sumTotals(items) {
+  return items.reduce(
+    (acc, it) => {
+      acc.opening_stock         += it.opening_stock
+      acc.purchases             += it.purchases
+      acc.returned_to_wholesale += it.returned_to_wholesale
+      acc.closing_stock         += it.closing_stock
+      acc.sold                  += it.sold
+      return acc
+    },
+    { opening_stock: 0, purchases: 0, returned_to_wholesale: 0, closing_stock: 0, sold: 0 }
+  )
+}
+
+function handleZohoError(res, err, ctx) {
+  console.error(`[weeklyReports] ${ctx} error:`, err.message)
+  switch (err.code) {
+    case 'ZOHO_NOT_CONFIGURED':
+      return res.status(503).json({ error: err.message, code: err.code })
+    case 'ZOHO_WEBHOOK_TIMEOUT':
+      return res.status(504).json({ error: err.message, code: err.code })
+    case 'WEBHOOK_INVALID_RESPONSE':
+      return res.status(502).json({
+        error: err.message,
+        code: err.code,
+        validation_errors: err.validation_errors || [],
+      })
+    case 'ZOHO_WEBHOOK_HTTP_ERROR':
+    case 'ZOHO_WEBHOOK_NETWORK_ERROR':
+      return res.status(502).json({ error: err.message, code: err.code })
+    default:
+      return res.status(502).json({
+        error: err.message || 'Failed to fetch report from Zoho',
+      })
+  }
+}
 
 /**
- * GET /api/weekly-reports/slow-moving?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD
- *
- * Returns the Weekly Slow Moving Sales Report sourced directly from Zoho
- * Inventory. All numeric values (opening stock, purchases, returned to
- * wholesale, closing stock, sold) come verbatim from Zoho — nothing is
- * derived or calculated here except for the Grand Total row which aggregates
- * the Zoho-provided values for display purposes only.
+ * GET /api/weekly-reports/groups
+ * Lists all distinct active report_group keys defined in item_report_groups.
  */
-async function getSlowMovingReport(req, res) {
-  const { from_date, to_date } = req.query
+async function listAvailableGroups(_req, res) {
+  try {
+    const groups = await listGroupKeys()
+    return res.json({ groups })
+  } catch (err) {
+    console.error('[weeklyReports] listAvailableGroups error:', err.message)
+    return res.status(500).json({ error: 'Failed to list report groups' })
+  }
+}
 
-  if (!from_date || !to_date) {
-    return res.status(400).json({
-      error: 'Missing required query parameters: from_date and to_date (YYYY-MM-DD)',
+/**
+ * GET /api/weekly-reports/by-group/:group?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD
+ *
+ * Generic Zoho-sourced weekly report for any report_group present in
+ * item_report_groups. Numeric values are returned verbatim from the Zoho
+ * webhook; the only computation here is summing those values into a Grand
+ * Total row for display.
+ */
+async function getReportByGroup(req, res) {
+  const { group } = req.params
+  const range = validateDateRange(req, res)
+  if (!range) return
+
+  let validGroups
+  try {
+    validGroups = await listGroupKeys()
+  } catch (err) {
+    console.error('[weeklyReports] getReportByGroup listGroupKeys error:', err.message)
+    return res.status(500).json({ error: 'Failed to validate report group' })
+  }
+  if (!validGroups.includes(group)) {
+    return res.status(404).json({
+      error: `Unknown report_group '${group}'. Available: ${validGroups.join(', ') || '(none)'}`,
     })
   }
 
-  const dateRe = /^\d{4}-\d{2}-\d{2}$/
-  if (!dateRe.test(from_date) || !dateRe.test(to_date)) {
-    return res.status(400).json({ error: 'Dates must be in YYYY-MM-DD format' })
-  }
-
-  if (from_date > to_date) {
-    return res.status(400).json({ error: 'from_date must be before or equal to to_date' })
-  }
-
   try {
-    const items = await getSlowMovingInventory(from_date, to_date)
-
-    // Build Grand Total by summing Zoho-sourced values
-    const totals = items.reduce(
-      (acc, item) => {
-        acc.opening_stock         += item.opening_stock
-        acc.purchases             += item.purchases
-        acc.returned_to_wholesale += item.returned_to_wholesale
-        acc.closing_stock         += item.closing_stock
-        acc.sold                  += item.sold
-        return acc
-      },
-      { opening_stock: 0, purchases: 0, returned_to_wholesale: 0, closing_stock: 0, sold: 0 }
-    )
-
+    const items  = await getInventoryByGroup(group, range.from_date, range.to_date)
+    const totals = sumTotals(items)
     return res.json({
-      from_date,
-      to_date,
+      report_group: group,
+      from_date:    range.from_date,
+      to_date:      range.to_date,
       items,
       totals,
     })
   } catch (err) {
-    console.error('[weeklyReports] getSlowMovingReport error:', err.message)
-    return res.status(502).json({
-      error: err.message || 'Failed to fetch report from Zoho',
-    })
+    return handleZohoError(res, err, `getReportByGroup(${group})`)
   }
 }
 
-module.exports = { getSlowMovingReport }
+/**
+ * GET /api/weekly-reports/slow-moving?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD
+ *
+ * Legacy route — kept for backward compatibility. Delegates to the generic
+ * implementation with report_group='slow_moving'. Response shape is unchanged.
+ */
+async function getSlowMovingReport(req, res) {
+  const range = validateDateRange(req, res)
+  if (!range) return
+
+  try {
+    const items  = await getSlowMovingInventory(range.from_date, range.to_date)
+    const totals = sumTotals(items)
+    return res.json({
+      from_date: range.from_date,
+      to_date:   range.to_date,
+      items,
+      totals,
+    })
+  } catch (err) {
+    return handleZohoError(res, err, 'getSlowMovingReport')
+  }
+}
+
+module.exports = {
+  listAvailableGroups,
+  getReportByGroup,
+  getSlowMovingReport,
+}

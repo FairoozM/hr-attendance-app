@@ -9,7 +9,7 @@ const PERMISSION_GATED = [
 ]
 
 /** Paths that are strictly admin-only, never accessible by other roles */
-const ADMIN_ONLY_PATHS = ['/settings', '/roles-permissions']
+const ADMIN_ONLY_PATHS = ['/settings', '/roles-permissions', '/admin']
 
 /**
  * Redirects if the current path is restricted for the user's role.

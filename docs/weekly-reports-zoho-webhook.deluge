@@ -1,0 +1,310 @@
+// =============================================================================
+// Weekly Reports — Zoho-side Deluge function (FINAL)
+// =============================================================================
+//
+// PURPOSE
+//   Returns per-item Opening Stock / Purchases / Returned to Wholesale /
+//   Closing Stock / SOLD for a date range, in the exact JSON shape the HR
+//   backend (services/zohoService.js) expects.
+//
+// CONTRACT (must match docs/weekly-reports-zoho-webhook.md)
+//   - Top-level body MUST be { "items": [ ... ] }.
+//   - Each row MUST include a non-empty "sku" string. Rows without a SKU
+//     are skipped here and would be rejected by the HR backend anyway.
+//   - All five business numbers (opening_stock, purchases,
+//     returned_to_wholesale, closing_stock, sold) MUST be real numbers
+//     (Long / Decimal). Never strings. Never null. The HR backend defaults
+//     null/absent to 0, but the safer contract is to always emit a number.
+//
+// DEPLOYMENT
+//   Option 1 — Zoho Creator REST API
+//     1. In Zoho Creator, create a workflow / standalone function.
+//     2. Paste the body of `weekly_inventory_report` below.
+//     3. Publish as a REST API endpoint:
+//          - HTTP method:  GET
+//          - Inputs:       from_date (string), to_date (string)
+//          - Auth:         OAuth2 (recommended) or static API key header
+//     4. Copy the public URL into ZOHO_REPORT_WEBHOOK_URL.
+//     5. Copy the auth header value into ZOHO_REPORT_WEBHOOK_AUTH_HEADER.
+//
+//   Option 2 — Zoho Inventory custom function + custom button
+//     - Same code, exposed via Zoho Flow or any webhook URL of your choice.
+//
+// IMPORTANT
+//   All numeric aggregation lives inside Zoho. The HR backend does NOT
+//   re-derive any business value; it only sums the rows you return into
+//   the Grand Total row. Keep that contract intact when customising.
+// =============================================================================
+
+
+// -----------------------------------------------------------------------------
+// Entry point
+// -----------------------------------------------------------------------------
+//
+// Inputs (provided as Deluge function arguments):
+//     from_date  string  YYYY-MM-DD, inclusive
+//     to_date    string  YYYY-MM-DD, inclusive
+//
+// Output: a Map serialisable to JSON, matching the strict contract.
+//
+
+string weekly_inventory_report(string from_date, string to_date)
+{
+    // -------------------------------------------------------------------------
+    // 1. Validate inputs (Zoho-side guard — HR also validates)
+    // -------------------------------------------------------------------------
+    if (from_date.isEmpty() || to_date.isEmpty()) {
+        return Map({
+            "error" : "from_date and to_date are required (YYYY-MM-DD)"
+        }).toString();
+    }
+
+    from_dt = from_date.toDate("yyyy-MM-dd");
+    to_dt   = to_date.toDate("yyyy-MM-dd");
+    if (from_dt > to_dt) {
+        return Map({
+            "error" : "from_date must be <= to_date"
+        }).toString();
+    }
+
+    // -------------------------------------------------------------------------
+    // 2. Pull the active inventory items
+    //
+    // Replace the connection name "zoho_inventory" with whatever you've
+    // configured under Setup → Connections. The /items endpoint IS public
+    // (unlike the report endpoints) and is the canonical source of SKUs.
+    // -------------------------------------------------------------------------
+    org_id   = "YOUR_ZOHO_INVENTORY_ORG_ID";
+    base_url = "https://www.zohoapis.com/inventory/v1";
+    headers  = Map();
+    headers.put("Accept", "application/json");
+
+    items_resp = invokeurl
+    [
+        url     : base_url + "/items?organization_id=" + org_id + "&per_page=200"
+        type    : GET
+        headers : headers
+        connection : "zoho_inventory"
+    ];
+
+    items_list = ifnull(items_resp.get("items"), List());
+
+    // -------------------------------------------------------------------------
+    // 3. For each item, compute the 5 columns inside Zoho
+    //
+    // The aggregation helpers below are illustrative. In production, batch by
+    // item_id (one /invoices call covering the period, then group by
+    // line_item.item_id in memory) to stay well under Zoho's API limits.
+    //
+    // Whatever you do, ALL FIVE BUSINESS VALUES MUST BE REAL NUMBERS.
+    // -------------------------------------------------------------------------
+    rows = List();
+
+    for each  item in items_list
+    {
+        item_id   = ifnull(item.get("item_id"),   "").toString();
+        item_name = ifnull(item.get("name"),      "").toString();
+        item_sku  = ifnull(item.get("sku"),       "").toString().trim();
+
+        // CONTRACT: skip any row without a SKU. The HR backend rejects them.
+        if (item_sku.isEmpty()) {
+            continue;
+        }
+
+        stock_now = ifnull(item.get("stock_on_hand"), 0).toLong();
+
+        // 3a. SOLD in [from_date, to_date]
+        sold_qty     = sum_invoiced_quantity(item_id, from_date, to_date);
+        // 3b. Purchases in [from_date, to_date]
+        purchase_qty = sum_purchase_received_quantity(item_id, from_date, to_date);
+        // 3c. Returned to Wholesale in [from_date, to_date]
+        returned_qty = sum_vendor_credit_quantity(item_id, from_date, to_date);
+
+        // 3d. Movements AFTER to_date — needed to roll the live stock back
+        //     to the closing value at to_date.
+        next_day = to_dt.addDay(1).toString("yyyy-MM-dd");
+        today    = zoho.currentdate.toString("yyyy-MM-dd");
+
+        sold_after_to      = sum_invoiced_quantity(item_id,         next_day, today);
+        purchased_after_to = sum_purchase_received_quantity(item_id, next_day, today);
+        returned_after_to  = sum_vendor_credit_quantity(item_id,    next_day, today);
+
+        // closing_stock = stock_now - net movements after to_date
+        // opening_stock = closing_stock - net movements during the period
+        closing_stock = stock_now
+                        + sold_after_to
+                        + returned_after_to
+                        - purchased_after_to;
+        opening_stock = closing_stock
+                        + sold_qty
+                        + returned_qty
+                        - purchase_qty;
+
+        // 3e. Build the row in the strict contract shape.
+        //     EVERY numeric field is forced to a Long via .toLong() so the
+        //     resulting JSON contains real numbers, never strings.
+        row = Map();
+        row.put("sku",                   item_sku);            // REQUIRED (string)
+        row.put("item_name",             item_name);           // optional
+        row.put("item_id",               item_id);             // optional
+        row.put("opening_stock",         opening_stock.toLong());
+        row.put("purchases",             purchase_qty.toLong());
+        row.put("returned_to_wholesale", returned_qty.toLong());
+        row.put("closing_stock",         closing_stock.toLong());
+        row.put("sold",                  sold_qty.toLong());
+
+        rows.add(row);
+    }
+
+    // -------------------------------------------------------------------------
+    // 4. Wrap in the response envelope. The HR backend also accepts a bare
+    //    top-level array, but { "items": [...] } is the recommended shape.
+    // -------------------------------------------------------------------------
+    response = Map();
+    response.put("from_date", from_date);
+    response.put("to_date",   to_date);
+    response.put("items",     rows);
+
+    return response.toString();
+}
+
+
+// =============================================================================
+// Aggregation helpers
+// =============================================================================
+//
+// These call documented Zoho Inventory REST endpoints. Each returns the total
+// quantity for a given item_id in a given date range as a Long.
+// =============================================================================
+
+
+long sum_invoiced_quantity(string item_id, string from_date, string to_date)
+{
+    org_id  = "YOUR_ZOHO_INVENTORY_ORG_ID";
+    headers = Map();
+    headers.put("Accept", "application/json");
+
+    resp = invokeurl
+    [
+        url        : "https://www.zohoapis.com/inventory/v1/invoices"
+                     + "?organization_id=" + org_id
+                     + "&date_start=" + from_date
+                     + "&date_end="   + to_date
+                     + "&item_id="    + item_id
+                     + "&status=sent,paid,partially_paid,overdue"
+        type       : GET
+        headers    : headers
+        connection : "zoho_inventory"
+    ];
+
+    total = 0;
+    for each  invoice in ifnull(resp.get("invoices"), List())
+    {
+        for each  line in ifnull(invoice.get("line_items"), List())
+        {
+            if (line.get("item_id") == item_id) {
+                total = total + ifnull(line.get("quantity"), 0).toLong();
+            }
+        }
+    }
+    return total;
+}
+
+
+long sum_purchase_received_quantity(string item_id, string from_date, string to_date)
+{
+    org_id  = "YOUR_ZOHO_INVENTORY_ORG_ID";
+    headers = Map();
+    headers.put("Accept", "application/json");
+
+    resp = invokeurl
+    [
+        url        : "https://www.zohoapis.com/inventory/v1/purchasereceives"
+                     + "?organization_id=" + org_id
+                     + "&date_start=" + from_date
+                     + "&date_end="   + to_date
+                     + "&item_id="    + item_id
+        type       : GET
+        headers    : headers
+        connection : "zoho_inventory"
+    ];
+
+    total = 0;
+    for each  receipt in ifnull(resp.get("purchasereceives"), List())
+    {
+        for each  line in ifnull(receipt.get("line_items"), List())
+        {
+            if (line.get("item_id") == item_id) {
+                total = total + ifnull(line.get("quantity"), 0).toLong();
+            }
+        }
+    }
+    return total;
+}
+
+
+long sum_vendor_credit_quantity(string item_id, string from_date, string to_date)
+{
+    org_id  = "YOUR_ZOHO_INVENTORY_ORG_ID";
+    headers = Map();
+    headers.put("Accept", "application/json");
+
+    resp = invokeurl
+    [
+        url        : "https://www.zohoapis.com/inventory/v1/vendorcredits"
+                     + "?organization_id=" + org_id
+                     + "&date_start=" + from_date
+                     + "&date_end="   + to_date
+                     + "&item_id="    + item_id
+        type       : GET
+        headers    : headers
+        connection : "zoho_inventory"
+    ];
+
+    total = 0;
+    for each  vc in ifnull(resp.get("vendor_credits"), List())
+    {
+        for each  line in ifnull(vc.get("line_items"), List())
+        {
+            if (line.get("item_id") == item_id) {
+                total = total + ifnull(line.get("quantity"), 0).toLong();
+            }
+        }
+    }
+    return total;
+}
+
+
+// =============================================================================
+// Optional: lock down the webhook
+// =============================================================================
+//
+// Zoho Creator REST endpoints can be secured with OAuth2 (recommended) or
+// with a static header you check at the top of the function:
+//
+//     if (request.get("headers").get("X-HR-Token") != "your-shared-secret") {
+//         response = Map();
+//         response.put("error", "Unauthorized");
+//         return response.toString();
+//     }
+//
+// Whatever scheme you choose, mirror the header name in
+// ZOHO_REPORT_WEBHOOK_HEADER_NAME and the value in
+// ZOHO_REPORT_WEBHOOK_AUTH_HEADER on the HR backend.
+//
+// SELF-TEST CHECKLIST
+//   curl -i \
+//     -H "Authorization: Zoho-oauthtoken 1000.<token>" \
+//     -H "Accept: application/json" \
+//     "https://www.zohoapis.com/server/weekly_inventory?from_date=2026-04-13&to_date=2026-04-19"
+//
+// Expect HTTP/1.1 200 OK and a body like:
+//   {
+//     "items": [
+//       { "sku": "FL-SHINE-001", "item_name": "FL SHINE",
+//         "opening_stock": 12980, "purchases": 0,
+//         "returned_to_wholesale": 0, "closing_stock": 11828,
+//         "sold": 1152 },
+//       ...
+//     ]
+//   }
