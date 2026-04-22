@@ -15,6 +15,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const ExcelJS = require('exceljs')
 const { mockModule, freshRequire, makeReqRes, captureConsole } = require('./_helpers')
 
 function makeError(code, message, extra = {}) {
@@ -136,6 +137,51 @@ test('weeklyReports: Grand Total sums Zoho-provided numbers verbatim', async () 
   })
 })
 
+test('weeklyReports: export.xlsx uses the same getInventoryByGroup + items as JSON (adapter pipeline)', async () => {
+  const sharedItems = [
+    {
+      sku: 'SKU-1',
+      item_name: 'ExportPipelineLabel',
+      item_id: '99',
+      family: 'Fam',
+      opening_stock: 1,
+      purchases: 2,
+      returned_to_wholesale: 0,
+      closing_stock: 4,
+      sold: 3,
+      _zoho: { from_date: '2026-01-01', to_date: '2026-01-07', family: 'Fam' },
+    },
+  ]
+  const invCalls = []
+  const getInventoryByGroup = async (group, from, to) => {
+    invCalls.push({ group, from, to })
+    return sharedItems
+  }
+  const ctrl = loadController({
+    getInventoryByGroup,
+    getSlowMovingInventory: async () => [],
+    listGroupKeys: async () => ['slow_moving', 'other_family'],
+  })
+  const { req, res } = makeReqRes({ params: { group: 'slow_moving' }, query: VALID })
+  await ctrl.getReportByGroup(req, res)
+  assert.equal(res.statusCode, 200)
+  assert.strictEqual(res.body.items, sharedItems)
+  const expected = { group: 'slow_moving', from: '2026-01-01', to: '2026-01-07' }
+  assert.deepEqual(invCalls[0], expected)
+
+  const { req: req2, res: res2 } = makeReqRes({ params: { group: 'slow_moving' }, query: VALID })
+  res2.setHeader = () => {}
+  await ctrl.exportReportByGroupXlsx(req2, res2)
+  assert.equal(res2.statusCode, 200)
+  assert.equal(invCalls.length, 2)
+  assert.deepEqual(invCalls[1], expected)
+  const wb = new ExcelJS.Workbook()
+  await wb.xlsx.load(res2.body)
+  const sheet = wb.getWorksheet('Report')
+  assert.equal(String(sheet.getCell('B5').value), 'ExportPipelineLabel')
+  assert.equal(Number(sheet.getCell('G5').value), 3)
+})
+
 // ---------------------------------------------------------------------------
 // Zoho error → HTTP status mapping
 // ---------------------------------------------------------------------------
@@ -145,6 +191,7 @@ const ERROR_CASES = [
   { code: 'ZOHO_OAUTH_ERROR',         status: 502 },
   { code: 'ZOHO_API_ERROR',           status: 502 },
   { code: 'ZOHO_API_NETWORK_ERROR',   status: 502 },
+  { code: 'ZOHO_API_TIMEOUT',         status: 504 },
   { code: 'ZOHO_WEBHOOK_TIMEOUT',     status: 504 },
   { code: 'ZOHO_WEBHOOK_HTTP_ERROR',  status: 502 },
   { code: 'ZOHO_WEBHOOK_NETWORK_ERROR', status: 502 },

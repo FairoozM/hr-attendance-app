@@ -4,7 +4,7 @@
  */
 
 const { getZohoAccessToken } = require('./zohoOAuth')
-const { readZohoInventoryConfig, INVENTORY_V1 } = require('./zohoConfig')
+const { readZohoConfig, INVENTORY_V1 } = require('./zohoConfig')
 const { httpsRequestJson } = require('./zohoHttp')
 
 const DEFAULT_PER_PAGE = 200
@@ -16,7 +16,7 @@ const DEFAULT_PER_PAGE = 200
  * @param {string} [body]
  */
 async function zohoApiRequest(path, searchParams, method, body) {
-  const c = readZohoInventoryConfig()
+  const c = readZohoConfig()
   if (c.code !== 'ok') {
     const e = new Error('Zoho not configured')
     e.code = 'ZOHO_NOT_CONFIGURED'
@@ -69,7 +69,7 @@ async function zohoApiRequest(path, searchParams, method, body) {
  * @returns {Promise<object[]>}
  */
 async function listAllItems() {
-  const c = readZohoInventoryConfig()
+  const c = readZohoConfig()
   if (c.code !== 'ok') {
     const e = new Error('Zoho not configured')
     e.code = 'ZOHO_NOT_CONFIGURED'

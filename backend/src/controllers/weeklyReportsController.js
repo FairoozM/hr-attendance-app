@@ -38,6 +38,7 @@ function handleZohoError(res, err, ctx) {
     case 'ZOHO_API_ERROR':
     case 'ZOHO_API_NETWORK_ERROR':
       return res.status(502).json({ error: err.message, code: err.code })
+    case 'ZOHO_API_TIMEOUT':
     case 'ZOHO_WEBHOOK_TIMEOUT':
       return res.status(504).json({ error: err.message, code: err.code })
     case 'WEBHOOK_INVALID_RESPONSE':
@@ -78,10 +79,11 @@ async function listAvailableGroups(_req, res) {
  * webhook; the only computation here is summing those values into a Grand
  * Total row for display.
  *
- * Each item in `items` may include a string `family` (Zoho Family custom
- * field) as metadata. Business report groups are never inferred from `family` —
- * membership is solely from `item_report_groups` vs `sku` (and legacy
- * `item_name` fallback when the member row has no SKU).
+ * Each item in `items` has string `family` (Zoho Family custom field) and may
+ * include `_zoho: { from_date, to_date, family }` (Family duplicated for
+ * metadata). Business report groups are never inferred from `family` — membership
+ * is solely from `item_report_groups` vs `sku` (and legacy `item_name` fallback
+ * when the member row has no SKU).
  */
 async function getReportByGroup(req, res) {
   const { group } = req.params
@@ -102,6 +104,7 @@ async function getReportByGroup(req, res) {
   }
 
   try {
+    // Same `items` / `totals` source as `exportReportByGroupXlsx` (Zoho adapter + item_report_groups).
     const items  = await getInventoryByGroup(group, range.from_date, range.to_date)
     const totals = sumReportGrandTotals(items)
     return res.json({
@@ -144,7 +147,8 @@ async function getSlowMovingReport(req, res) {
 
 /**
  * GET /api/weekly-reports/by-group/:group/export.xlsx?from_date&to_date
- * Same data pipeline as getReportByGroup; returns a real .xlsx (ExcelJS).
+ * Same `getInventoryByGroup` + `sumReportGrandTotals` as JSON `getReportByGroup` — only
+ * the response format differs (.xlsx vs JSON).
  */
 async function exportReportByGroupXlsx(req, res) {
   const { group } = req.params

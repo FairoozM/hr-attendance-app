@@ -94,6 +94,7 @@ test('zohoService._internals.validateAndNormaliseItem accepts a complete row', (
       sku: 'FL-001', item_name: 'FL Shine', family: 'ZDS',
       opening_stock: 100, purchases: 5, returned_to_wholesale: 0,
       closing_stock: 95, sold: 10,
+      _zoho: { from_date: '2026-01-01', to_date: '2026-01-07' },
     },
     0
   )
@@ -102,6 +103,9 @@ test('zohoService._internals.validateAndNormaliseItem accepts a complete row', (
   assert.equal(item.family, 'ZDS')
   assert.equal(item.opening_stock, 100)
   assert.equal(item.sold, 10)
+  assert.equal(item._zoho.family, 'ZDS')
+  assert.equal(item._zoho.from_date, '2026-01-01')
+  assert.equal(item._zoho.to_date, '2026-01-07')
 })
 
 test('zohoService._internals.validateAndNormaliseItem: explicit null = N/A (null) for a numeric', () => {
@@ -143,6 +147,7 @@ test('zohoService._internals.validateAndNormaliseItem accepts family as empty st
   )
   assert.equal(errors.length, 0)
   assert.equal(item.family, '')
+  assert.equal(item._zoho.family, '')
 })
 
 test('zohoService._internals.validateAndNormaliseItem rejects non-string family', () => {
@@ -306,6 +311,7 @@ test('zohoService: nulls on unfiltered API-style row round-trip for member', asy
         returned_to_wholesale: null,
         closing_stock: 3,
         sold: null,
+        _zoho: { from_date: '2026-01-01', to_date: '2026-01-07', family: 'X' },
       },
     ] }
   )
@@ -313,4 +319,8 @@ test('zohoService: nulls on unfiltered API-style row round-trip for member', asy
   assert.equal(items.length, 1)
   assert.equal(items[0].opening_stock, null)
   assert.equal(items[0].closing_stock, 3)
+  assert.equal(items[0].family, 'X')
+  assert.equal(items[0]._zoho.family, 'X')
+  assert.equal(items[0]._zoho.from_date, '2026-01-01')
+  assert.equal(items[0]._zoho.to_date, '2026-01-07')
 })

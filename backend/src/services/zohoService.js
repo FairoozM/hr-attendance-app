@@ -1,15 +1,19 @@
 /**
- * Zoho-sourced weekly inventory: Zoho Inventory REST (OAuth + Items API) via
- * `weeklyReportZohoData`, then strict row validation, then `item_report_groups` membership.
+ * Zoho-sourced weekly inventory: `weeklyReportZohoData` loads items via
+ * `zohoAdapter.fetchAllItemsRaw` and normalises id + Family with
+ * `normalizeZohoInventoryItem` (same rules as `zohoAdapter.getItems()`), then
+ * strict row validation, then `item_report_groups` membership.
  *
  * Business report groups (slow_moving, …) live only in `item_report_groups`. The
- * `family` field is Zoho metadata (see ZOHO_FAMILY_CUSTOMFIELD_ID).
+ * `family` field is Zoho metadata; each returned item also includes
+ * `_zoho: { from_date, to_date, family }` (Family duplicated for metadata clients).
  *
  * No Deluge / webhook. See docs/zoho-inventory-api-coverage.md for what the
  * public API can supply vs. the old Deluge "Inventory Summary" style numbers.
  *
- * Error codes: ZOHO_NOT_CONFIGURED, ZOHO_OAUTH_ERROR, ZOHO_API_ERROR, ZOHO_API_NETWORK_ERROR,
- * WEBHOOK_INVALID_RESPONSE (validation; name kept for API stability)
+ * Error codes: see `docs/integrations-zoho.md` (e.g. ZOHO_NOT_CONFIGURED, ZOHO_OAUTH_ERROR,
+ * ZOHO_API_TIMEOUT, ZOHO_API_ERROR, WEBHOOK_INVALID_RESPONSE for bad row data — name kept
+ * for API stability)
  */
 
 const { listMembersOfGroup } = require('./itemReportGroupsService')
@@ -73,7 +77,8 @@ function validateNumericField(raw, field, rowLabel) {
 }
 
 /**
- * Validate + normalise a single item row. Drops internal `_zoho` keys.
+ * Validate + normalise a single item row. On success, attaches Zoho range + Family
+ * metadata on `item._zoho` (Family matches top-level `family` after validation).
  * Returns { item, errors }.
  */
 function validateAndNormaliseItem(raw, index) {
@@ -137,16 +142,23 @@ function validateAndNormaliseItem(raw, index) {
 
   if (errors.length > 0) return { item: null, errors }
 
-  return {
-    item: {
-      sku,
-      item_name: itemName,
-      item_id:   itemId,
-      family,
-      ...numeric,
-    },
-    errors: [],
+  const item = {
+    sku,
+    item_name: itemName,
+    item_id:   itemId,
+    family,
+    ...numeric,
   }
+  if (raw._zoho && typeof raw._zoho === 'object' && !Array.isArray(raw._zoho)) {
+    item._zoho = {
+      from_date: typeof raw._zoho.from_date === 'string' ? raw._zoho.from_date : undefined,
+      to_date:   typeof raw._zoho.to_date   === 'string' ? raw._zoho.to_date   : undefined,
+      family,
+    }
+  } else {
+    item._zoho = { family }
+  }
+  return { item, errors: [] }
 }
 
 // ---------------------------------------------------------------------------
@@ -182,17 +194,11 @@ async function getInventoryByGroup(group, fromDate, toDate) {
   if (members.length === 0) return []
 
   const raw = await fetchZohoItemRowsUnfiltered(fromDate, toDate)
-  // Strip any internal fields before validate (defensive)
-  const clean = raw.map((r) => {
-    if (!r || typeof r !== 'object') return r
-    const { _zoho, ...rest } = r
-    return rest
-  })
 
   const items   = []
   const errors  = []
-  for (let i = 0; i < clean.length; i += 1) {
-    const { item, errors: rowErrors } = validateAndNormaliseItem(clean[i], i)
+  for (let i = 0; i < raw.length; i += 1) {
+    const { item, errors: rowErrors } = validateAndNormaliseItem(raw[i], i)
     if (rowErrors.length > 0) {
       errors.push(...rowErrors)
       if (errors.length >= MAX_REPORTED_ERRORS) break

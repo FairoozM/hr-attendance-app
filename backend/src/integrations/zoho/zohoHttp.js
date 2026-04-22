@@ -59,7 +59,7 @@ function httpsRequestJson(url, opts = {}) {
     req.setTimeout(timeoutMs, () => {
       req.destroy()
       const e = new Error(`Zoho API request timed out after ${timeoutMs}ms`)
-      e.code = 'ZOHO_API_ERROR'
+      e.code = 'ZOHO_API_TIMEOUT'
       reject(e)
     })
     if (body) req.write(body)

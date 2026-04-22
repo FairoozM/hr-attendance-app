@@ -1,4 +1,4 @@
-const { readZohoInventoryConfig } = require('./zohoConfig')
+const { readZohoConfig, orgEnvHint } = require('./zohoConfig')
 const { httpsRequestJson, formEncode } = require('./zohoHttp')
 
 /** In-memory access token (single Node process) */
@@ -10,9 +10,11 @@ const SLACK_MS = 30_000
  * @returns {Promise<string>}
  */
 async function getZohoAccessToken() {
-  const c = readZohoInventoryConfig()
+  const c = readZohoConfig()
   if (c.code !== 'ok') {
-    const e = new Error('Zoho not configured. Set ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN, ZOHO_INVENTORY_ORGANIZATION_ID.')
+    const e = new Error(
+      `Zoho not configured. Set ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN, and ${orgEnvHint()}.`
+    )
     e.code = 'ZOHO_NOT_CONFIGURED'
     throw e
   }

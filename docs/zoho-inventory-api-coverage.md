@@ -36,7 +36,8 @@ Zoho’s UI **Inventory Summary**-style report (and your former Deluge function)
 | `ZOHO_CLIENT_ID` | OAuth client |
 | `ZOHO_CLIENT_SECRET` | OAuth client |
 | `ZOHO_REFRESH_TOKEN` | Long-lived refresh token (generate in Zoho API console) |
-| `ZOHO_INVENTORY_ORGANIZATION_ID` | Organization / org id in Zoho Inventory |
+| `ZOHO_ORGANIZATION_ID` (or legacy `ZOHO_INVENTORY_ORGANIZATION_ID`) | Organization id in Zoho Inventory |
+| `ZOHO_API_BASE_URL` (or legacy `ZOHO_INVENTORY_API_BASE`) | API host, default `https://www.zohoapis.com` |
 | `ZOHO_FAMILY_CUSTOMFIELD_ID` | (Recommended) The Zoho `customfield_id` for the **Family** field on items. Without it, `family` is always `""`. |
 | `ZOHO_ACCOUNTS_BASE` | Default `https://accounts.zoho.com` — set `https://accounts.zoho.eu` etc. if your DC differs |
 | `ZOHO_INVENTORY_API_BASE` | Default `https://www.zohoapis.com` |

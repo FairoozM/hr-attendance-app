@@ -184,6 +184,33 @@ test('buildWeeklyReportXlsxBuffer: empty data still has header + zero grand tota
   assert.equal(Number(sheet.getCell('C5').value), 0) // first numeric col of total row
 })
 
+test('buildWeeklyReportXlsxBuffer: _zoho metadata on items does not affect columns', async () => {
+  const items = [
+    {
+      sku: 'S1',
+      item_name: 'WithZohoMeta',
+      family: 'F',
+      opening_stock: 0,
+      purchases: 0,
+      returned_to_wholesale: 0,
+      closing_stock: 5,
+      sold: 0,
+      _zoho: { from_date: '2026-01-01', to_date: '2026-01-07', family: 'F' },
+    },
+  ]
+  const buf = await buildWeeklyReportXlsxBuffer({
+    sheetTitle: 'ECOMMERCE SLOW MOVING SALES REPORT',
+    fromDate: '2026-01-01',
+    toDate: '2026-01-07',
+    items,
+    totals: sumReportGrandTotals(items),
+  })
+  const wb = new ExcelJS.Workbook()
+  await wb.xlsx.load(buf)
+  assert.equal(String(wb.getWorksheet('Report').getCell('B5').value), 'WithZohoMeta')
+  assert.equal(Number(wb.getWorksheet('Report').getCell('F5').value), 5) // closing_stock
+})
+
 test('buildWeeklyReportXlsxBuffer: special characters in item name round-trip', async () => {
   const weird = 'Test "Quote" <tag> & 陶'
   const items = [

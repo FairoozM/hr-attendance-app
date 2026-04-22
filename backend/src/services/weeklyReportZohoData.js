@@ -2,12 +2,16 @@
  * Weekly report row shape built from Zoho Inventory REST (Items API) — separate
  * from Excel/UI formatting (see zohoService + weeklyReportXlsxService).
  *
- * Does not compute hidden stock movements. Values we cannot read from the API
- * are returned as `null` (UI / Excel show "—"); see docs/zoho-inventory-api-coverage.md.
+ * Data: `zohoAdapter.fetchAllItemsRaw()` (Zoho REST items + locations) plus
+ * `normalizeZohoInventoryItem` (same id/family resolution as `getItems()` on the
+ * adapter). Does not compute hidden stock movements. Values we cannot read
+ * from the API are `null` (UI / Excel show "—"); see
+ * docs/zoho-inventory-api-coverage.md.
  */
 
-const { listAllItems } = require('../integrations/zoho/zohoInventoryClient')
-const { readZohoInventoryConfig } = require('../integrations/zoho/zohoConfig')
+const { fetchAllItemsRaw } = require('../integrations/zoho/zohoAdapter')
+const { readZohoConfig, orgEnvHint } = require('../integrations/zoho/zohoConfig')
+const { normalizeZohoInventoryItem, parseFamilyFromZohoItem } = require('../integrations/zoho/zohoItemFamily')
 
 /**
  * Exposed on JSON responses so the UI can show a one-line data-source note.
@@ -64,26 +68,14 @@ function sumCurrentLocationStock(item) {
  * @param {object} item
  * @param {string | null} familyFieldId
  * @returns {string}
+ * @see parseFamilyFromZohoItem
  */
-function pickFamilyValue(item, familyFieldId) {
-  const custom = item.custom_fields
-  if (!Array.isArray(custom) || custom.length === 0) return ''
-  if (familyFieldId) {
-    const f = custom.find(
-      (c) => c && String(c.customfield_id) === String(familyFieldId)
-    )
-    if (f && f.value != null && f.value !== '') {
-      return String(f.value).trim()
-    }
-    return ''
-  }
-  // No id configured: cannot reliably pick a label — leave empty; doc tells ops to set ZOHO_FAMILY_CUSTOMFIELD_ID
-  return ''
-}
+const pickFamilyValue = parseFamilyFromZohoItem
 
 /**
  * Normalised "report row" before `item_report_groups` filtering (same field names
- * as the old webhook contract; see zohoService validation).
+ * as the old webhook contract; see zohoService validation). Identity and Family
+ * use `normalizeZohoInventoryItem` (same as `zohoAdapter.getItems()`).
  * @param {string} fromDate
  * @param {string} toDate
  * @param {object} zohoItem
@@ -91,20 +83,15 @@ function pickFamilyValue(item, familyFieldId) {
  * @returns {object}
  */
 function zohoItemToReportRow(zohoItem, fromDate, toDate, familyFieldId) {
-  const sku = typeof zohoItem.sku === 'string' ? zohoItem.sku.trim() : ''
-  const name = typeof zohoItem.name === 'string' ? zohoItem.name.trim() : ''
-  const iid = zohoItem.item_id
-  const itemId = iid == null || iid === '' ? '' : String(iid)
-
-  const family = pickFamilyValue(zohoItem, familyFieldId)
+  const n = normalizeZohoInventoryItem(zohoItem, familyFieldId)
   const closing = sumCurrentLocationStock(zohoItem)
 
   // Period metrics: not available without aggregating other documents; unambiguously null
   return {
-    sku,
-    item_name: name,
-    item_id: itemId,
-    family: typeof family === 'string' ? family : '',
+    sku: n.sku,
+    item_name: n.name,
+    item_id: n.item_id,
+    family: n.family,
     opening_stock: null,
     purchases: null,
     returned_to_wholesale: null,
@@ -113,6 +100,8 @@ function zohoItemToReportRow(zohoItem, fromDate, toDate, familyFieldId) {
     _zoho: {
       from_date: fromDate,
       to_date: toDate,
+      // Duplicates top-level `family` (Zoho custom field) for metadata-only clients
+      family: n.family,
     },
   }
 }
@@ -126,16 +115,17 @@ function zohoItemToReportRow(zohoItem, fromDate, toDate, familyFieldId) {
  * @returns {Promise<object[]>}
  */
 async function fetchZohoItemRowsUnfiltered(fromDate, toDate) {
-  const cfg = readZohoInventoryConfig()
+  const cfg = readZohoConfig()
   if (cfg.code !== 'ok') {
     const e = new Error(
-      'Zoho source not configured. Set ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN, ZOHO_INVENTORY_ORGANIZATION_ID.'
+      `Zoho source not configured. Set ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ` +
+        `ZOHO_REFRESH_TOKEN, and ${orgEnvHint()}.`
     )
     e.code = 'ZOHO_NOT_CONFIGURED'
     throw e
   }
   const familyFieldId = cfg.familyCustomFieldId
-  const raw = await listAllItems()
+  const raw = await fetchAllItemsRaw()
   const out = []
   for (const row of raw) {
     if (!row) continue
