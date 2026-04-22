@@ -2457,16 +2457,16 @@
   border-color: #22c55e;
 }
 
-/* Faint hover checkmark (green) */
+/* Tick always visible — gray when unchecked, turns green on hover */
 .tbl-check__hover-mark {
-  opacity: 0;
-  color: #22c55e;
-  transition: opacity 0.15s ease;
+  opacity: 1;
+  color: #c9cdd4;
+  transition: color 0.15s ease;
   position: absolute;
 }
 
 .tbl-check:hover .tbl-check__hover-mark {
-  opacity: 0.6;
+  color: #22c55e;
 }
 
 .tbl-check.checked {
@@ -2474,7 +2474,7 @@
   border-color: #22c55e;
 }
 
-/* Done state: white checkmark always visible */
+/* Done state: white checkmark */
 .tbl-check.checked .tbl-check__hover-mark {
   display: none;
 }
@@ -3809,20 +3809,29 @@
   position: relative;
 }
 
+/* Always show faint tick, turns green on hover */
+.tbl-subtask-row__check::before {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 4L3.5 6.5L9 1' stroke='%23c9cdd4' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;
+}
+
 .tbl-subtask-row__check:hover {
   border-color: #22c55e;
 }
 
-.tbl-subtask-row__check:hover::after {
-  content: '';
-  position: absolute;
-  inset: 2px;
-  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 4L3.5 6.5L9 1' stroke='%2322c55e' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' opacity='0.6'/%3E%3C/svg%3E") center/contain no-repeat;
+.tbl-subtask-row__check:hover::before {
+  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 4L3.5 6.5L9 1' stroke='%2322c55e' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' opacity='0.75'/%3E%3C/svg%3E") center/contain no-repeat;
 }
 
 .tbl-subtask-row__check.checked {
   background: #22c55e;
   border-color: #22c55e;
+}
+
+.tbl-subtask-row__check.checked::before {
+  display: none;
 }
 
 .tbl-subtask-row__check.checked::after {
