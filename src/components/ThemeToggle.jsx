@@ -1,40 +1,101 @@
-import { MoonStar, SunMedium } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 
+const THEMES = [
+  {
+    id: 'light',
+    label: 'Light',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <circle cx="12" cy="12" r="5" />
+        <line x1="12" y1="1" x2="12" y2="3" />
+        <line x1="12" y1="21" x2="12" y2="23" />
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+        <line x1="1" y1="12" x2="3" y2="12" />
+        <line x1="21" y1="12" x2="23" y2="12" />
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+      </svg>
+    ),
+  },
+  {
+    id: 'dark',
+    label: 'Dark',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'comfort',
+    label: 'Comfort',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    ),
+  },
+]
+
 export function ThemeToggle() {
-  const { resolvedTheme, themePreference, toggleTheme } = useTheme()
-  const isDark = resolvedTheme === 'dark'
-  const nextTheme = isDark ? 'light' : 'dark'
+  const { resolvedTheme, setTheme } = useTheme()
 
   return (
-    <button
-      type="button"
-      onClick={toggleTheme}
-      aria-label={`Switch to ${nextTheme} theme`}
-      title={`Switch to ${nextTheme} theme`}
-      className="group relative inline-flex h-11 items-center gap-2 overflow-hidden rounded-full border border-[color:var(--theme-border)] bg-[color:var(--theme-glass-soft)] px-2.5 text-xs font-semibold tracking-[0.12em] text-[color:var(--theme-text-soft)] uppercase shadow-[var(--theme-shadow-sm)] backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:border-[color:var(--theme-border-strong)] hover:bg-[color:var(--theme-glass-raised)] hover:text-[color:var(--theme-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring-soft)]"
+    <div
+      role="group"
+      aria-label="Select theme"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '2px',
+        padding: '3px',
+        borderRadius: '999px',
+        border: '1px solid var(--theme-border)',
+        background: 'var(--theme-surface)',
+        boxShadow: 'var(--theme-shadow-sm)',
+      }}
     >
-      <span className="relative inline-flex h-6 w-11 items-center rounded-full border border-[color:var(--theme-border-subtle)] bg-[color:var(--theme-surface-raised)] p-0.5 shadow-inner transition-colors duration-300">
-        <span
-          className={`absolute left-0.5 h-4 w-4 rounded-full bg-[color:var(--theme-accent)] shadow-[0_4px_14px_rgba(99,102,241,0.38)] transition-transform duration-300 ${isDark ? 'translate-x-5' : 'translate-x-0'}`}
-        />
-        <SunMedium
-          size={12}
-          className={`relative z-10 ml-0.5 transition-colors duration-300 ${isDark ? 'text-[color:var(--theme-text-dim)]' : 'text-[color:var(--theme-text)]'}`}
-        />
-        <MoonStar
-          size={12}
-          className={`relative z-10 ml-auto mr-0.5 transition-colors duration-300 ${isDark ? 'text-[color:var(--theme-text)]' : 'text-[color:var(--theme-text-dim)]'}`}
-        />
-      </span>
-
-      <span className="hidden sm:inline">{isDark ? 'Dark' : 'Light'}</span>
-
-      {themePreference === 'system' ? (
-        <span className="rounded-full border border-[color:var(--theme-border-subtle)] bg-[color:var(--theme-surface)] px-1.5 py-0.5 text-[10px] leading-none tracking-[0.16em] text-[color:var(--theme-text-muted)]">
-          Auto
-        </span>
-      ) : null}
-    </button>
+      {THEMES.map(({ id, label, icon }) => {
+        const active = resolvedTheme === id
+        return (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setTheme(id)}
+            aria-pressed={active}
+            aria-label={`${label} theme`}
+            title={`Switch to ${label} theme`}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
+              padding: '5px 10px',
+              borderRadius: '999px',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '11px',
+              fontWeight: active ? '600' : '500',
+              letterSpacing: '0.04em',
+              lineHeight: 1,
+              transition: 'background 0.18s, color 0.18s, box-shadow 0.18s',
+              background: active
+                ? 'var(--theme-surface-raised)'
+                : 'transparent',
+              color: active
+                ? 'var(--theme-text)'
+                : 'var(--theme-text-muted)',
+              boxShadow: active
+                ? 'var(--theme-shadow-sm)'
+                : 'none',
+            }}
+          >
+            {icon}
+            <span className="hidden sm:inline" style={{ display: 'inline' }}>{label}</span>
+          </button>
+        )
+      })}
+    </div>
   )
 }

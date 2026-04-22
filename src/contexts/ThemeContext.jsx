@@ -4,7 +4,7 @@ import { useLocation } from 'react-router-dom'
 const THEME_STORAGE_KEY = 'hr-attendance-theme'
 const SYSTEM_THEME_QUERY = '(prefers-color-scheme: dark)'
 
-const VALID_THEMES = new Set(['light', 'dark', 'system'])
+const VALID_THEMES = new Set(['light', 'dark', 'comfort', 'system'])
 
 const ThemeContext = createContext(null)
 
@@ -23,7 +23,7 @@ function applyThemeToDocument(theme) {
   if (typeof document === 'undefined') return
   const root = document.documentElement
   root.dataset.theme = theme
-  root.style.colorScheme = theme
+  root.style.colorScheme = theme === 'dark' ? 'dark' : 'light'
   root.classList.toggle('dark', theme === 'dark')
 }
 
@@ -67,7 +67,9 @@ export function ThemeProvider({ children }) {
   const toggleTheme = useCallback(() => {
     setThemePreference((prev) => {
       const activeTheme = prev === 'system' ? systemTheme : prev
-      return activeTheme === 'dark' ? 'light' : 'dark'
+      if (activeTheme === 'dark') return 'light'
+      if (activeTheme === 'light') return 'comfort'
+      return 'dark'
     })
   }, [systemTheme])
 

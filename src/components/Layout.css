@@ -1171,3 +1171,64 @@
     padding-top: 1rem;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Comfort Theme overrides
+   Goal: suppress every glass/aurora/blur effect so the shell looks clean
+   and solid, matching the flat surfaces defined in the token block.
+───────────────────────────────────────────────────────────────────────────── */
+
+/* Hide aurora background orbs completely */
+:root[data-theme='comfort'] .app__aurora {
+  display: none;
+}
+
+/* No aurora on #root pseudo-element either */
+:root[data-theme='comfort'] #root::before {
+  display: none;
+}
+
+/* Flat body gradient → already overridden in index.css via :root[data-theme='comfort'] body */
+
+/* Sidebar: fully opaque white, standard border shadow */
+:root[data-theme='comfort'] .app-sidebar {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Sidebar backdrop: semi-opaque overlay, no blur */
+:root[data-theme='comfort'] .app-sidebar-backdrop {
+  background: rgba(17, 24, 39, 0.25);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Top bar: solid white, clean border bottom */
+:root[data-theme='comfort'] .app-topbar {
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+/* Notification panel: solid, not glassy */
+:root[data-theme='comfort'] .notif-panel {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.10);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Search results dropdown: solid */
+:root[data-theme='comfort'] .nav-search__results {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.09);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}

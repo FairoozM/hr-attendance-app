@@ -216,6 +216,107 @@
   --employees-table-sticky-shadow: -4px 0 12px rgba(15, 23, 42, 0.08);
 }
 
+/**
+ * Comfort Theme — non-glass, solid surfaces, optimised for long work sessions.
+ * No blur, no transparency-heavy backgrounds, no aurora glows.
+ * Soft neutral palette with muted blue accent for low eye-strain.
+ */
+:root[data-theme='comfort'] {
+  color-scheme: light;
+
+  /* Flat neutral canvas — single tone, no gradient steps needed */
+  --theme-bg-canvas: #f5f5f4;
+  --theme-bg-start: #f8f9fa;
+  --theme-bg-mid: #f8f9fa;
+  --theme-bg-end: #f5f5f4;
+
+  /* Aurora variables all transparent — no glowing orbs */
+  --theme-aurora-1: transparent;
+  --theme-aurora-2: transparent;
+  --theme-aurora-3: transparent;
+
+  /* Solid surfaces — no alpha transparency */
+  --theme-surface: #f3f4f6;
+  --theme-surface-soft: #ffffff;
+  --theme-surface-raised: #ffffff;
+  --theme-surface-strong: #ffffff;
+  --theme-surface-dark: #e5e7eb;
+  --theme-surface-black: #d1d5db;
+
+  /* Very subtle borders */
+  --theme-border: #e5e7eb;
+  --theme-border-subtle: #f3f4f6;
+  --theme-border-strong: #d1d5db;
+  --theme-border-accent: rgba(59, 130, 246, 0.22);
+
+  /* High-readability text — dark gray, not pure black */
+  --theme-text: #1f2937;
+  --theme-text-soft: #374151;
+  --theme-text-muted: #6b7280;
+  --theme-text-dim: #9ca3af;
+  --theme-text-inverse: #ffffff;
+  --theme-heading-gradient: linear-gradient(135deg, #1f2937 0%, #374151 100%);
+
+  /* Muted blue primary — calm, not vivid */
+  --theme-primary: #3b82f6;
+  --theme-primary-hover: #2563eb;
+  --theme-primary-strong: #1d4ed8;
+  --theme-accent: #3b82f6;
+  --theme-accent-soft: rgba(59, 130, 246, 0.07);
+  --theme-accent-soft-strong: rgba(59, 130, 246, 0.12);
+  --theme-accent-hover: #2563eb;
+  --theme-accent-cyan: #0ea5e9;
+  --theme-accent-blue: #3b82f6;
+  --ring-soft: rgba(59, 130, 246, 0.14);
+
+  /* Glass tokens mapped to solid equivalents — no transparency, no blur */
+  --theme-glass-soft: #ffffff;
+  --theme-glass-bg: #ffffff;
+  --theme-glass-raised: #ffffff;
+  --theme-glass-heavy: #ffffff;
+  --theme-glass-border: #e5e7eb;
+  --theme-glass-border-top: #f9fafb;
+
+  /* Soft, realistic shadows — no dramatic depth */
+  --theme-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --theme-shadow: 0 4px 12px rgba(0, 0, 0, 0.07);
+  --theme-shadow-md: 0 8px 24px rgba(0, 0, 0, 0.09);
+  --theme-shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.11);
+  --theme-shadow-brand: 0 4px 14px rgba(59, 130, 246, 0.18);
+  --theme-shadow-brand-hover: 0 6px 18px rgba(59, 130, 246, 0.26);
+  --theme-glass-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), 0 0 0 1px #e5e7eb;
+  --theme-glass-shadow-raised: 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px #e5e7eb;
+  --theme-glass-shadow-panel: 0 6px 20px rgba(0, 0, 0, 0.08);
+  --theme-glass-shadow-cinematic: 0 10px 36px rgba(0, 0, 0, 0.10);
+
+  /* Clear, fully-opaque inputs */
+  --theme-input-bg: #ffffff;
+  --theme-input-bg-hover: #f9fafb;
+  --theme-input-inner-bg: #f3f4f6;
+  --theme-input-placeholder: #9ca3af;
+  --theme-select-option-bg: #ffffff;
+  --theme-overlay: rgba(17, 24, 39, 0.28);
+  --theme-sidebar-bg: #ffffff;
+  --theme-panel-bg: #ffffff;
+
+  /* Tables — clean, optional zebra via hover */
+  --employees-table-surface: #ffffff;
+  --employees-table-cell: #ffffff;
+  --employees-table-cell-hover: #f9fafb;
+  --employees-table-head: #f3f4f6;
+  --employees-table-sticky-shadow: -3px 0 8px rgba(0, 0, 0, 0.05);
+
+  /* Kill all blur — must override the :root defaults */
+  --glass-blur: none;
+  --glass-blur-sm: none;
+  --glass-blur-lg: none;
+}
+
+/* Comfort: flat canvas background — override the gradient body rule */
+:root[data-theme='comfort'] body {
+  background: var(--theme-bg-canvas);
+}
+
 *,
 *::before,
 *::after {
