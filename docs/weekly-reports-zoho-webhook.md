@@ -1,11 +1,15 @@
-# Weekly Reports — Zoho Webhook Integration Contract (FINAL)
+# Weekly Reports — Zoho Webhook Integration Contract (ARCHIVAL)
 
-This document is the source of truth for how the HR backend talks to the
-Zoho-side Deluge function that powers every Weekly Report (Slow Moving,
-Other Family, etc.).
+> **Superseded (2026):** Weekly reports are implemented in the **Node.js backend** using
+> **Zoho Inventory REST + OAuth** (`docs/zoho-inventory-api-coverage.md`). The Deluge
+> webhook is no longer the main engine. The contract below is kept for historical
+> reference and migration notes only.
 
-It is intentionally strict: the HR backend treats Zoho as the only authority
-for business numbers, so any ambiguity in the response is treated as a bug
+This document was the source of truth for how the HR backend used to call a
+Zoho-side Deluge function for every Weekly Report (Slow Moving, Other Family, etc.).
+
+It is intentionally strict: the HR backend treated Zoho as the only authority
+for business numbers, so any ambiguity in the response was treated as a bug
 on the Zoho side and surfaced as an error rather than silently coerced.
 
 **Report groups vs Zoho “Family”.** Business reporting groups such as

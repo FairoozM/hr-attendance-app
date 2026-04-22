@@ -205,9 +205,15 @@ async function buildBusinessTableXlsxBuffer(p) {
         cell.alignment = { horizontal: 'left', vertical: 'middle' }
       } else if (def.type === 'sum') {
         const nfmt = def.numFmt ?? DEFAULT_NUM_FMT
-        cell.value = item[def.key]
-        cell.numFmt = nfmt
-        cell.font = { ...dataFont }
+        const v = item[def.key]
+        if (v == null) {
+          cell.value = '—'
+          cell.font = { ...dataFont }
+        } else {
+          cell.value = v
+          cell.numFmt = nfmt
+          cell.font = { ...dataFont }
+        }
         cell.alignment = { horizontal: 'right', vertical: 'middle' }
       }
     }
@@ -232,9 +238,15 @@ async function buildBusinessTableXlsxBuffer(p) {
       cell.alignment = { horizontal: 'left', vertical: 'middle' }
     } else if (def.type === 'sum') {
       const nfmt = def.numFmt ?? DEFAULT_NUM_FMT
-      cell.value = totals[def.key]
-      cell.numFmt = nfmt
-      cell.font = { ...dataFontNumberGT, name: 'Calibri' }
+      const tv = totals[def.key]
+      if (tv == null) {
+        cell.value = '—'
+        cell.font = { ...dataFontNumberGT, name: 'Calibri' }
+      } else {
+        cell.value = tv
+        cell.numFmt = nfmt
+        cell.font = { ...dataFontNumberGT, name: 'Calibri' }
+      }
       cell.alignment = { horizontal: 'right', vertical: 'middle' }
     }
   }

@@ -142,6 +142,9 @@ test('weeklyReports: Grand Total sums Zoho-provided numbers verbatim', async () 
 
 const ERROR_CASES = [
   { code: 'ZOHO_NOT_CONFIGURED',      status: 503 },
+  { code: 'ZOHO_OAUTH_ERROR',         status: 502 },
+  { code: 'ZOHO_API_ERROR',           status: 502 },
+  { code: 'ZOHO_API_NETWORK_ERROR',   status: 502 },
   { code: 'ZOHO_WEBHOOK_TIMEOUT',     status: 504 },
   { code: 'ZOHO_WEBHOOK_HTTP_ERROR',  status: 502 },
   { code: 'ZOHO_WEBHOOK_NETWORK_ERROR', status: 502 },

@@ -12,11 +12,11 @@ import { useAuth } from '../contexts/AuthContext'
  *   present in API responses, may be `""`). Not the same as app `report_group` —
  *   use `item_report_groups` for membership; keep `family` for display / future
  *   Excel export columns.
- * @property {number} opening_stock
- * @property {number} purchases
- * @property {number} returned_to_wholesale
- * @property {number} closing_stock
- * @property {number} sold
+ * @property {number|null} opening_stock
+ * @property {number|null} purchases
+ * @property {number|null} returned_to_wholesale
+ * @property {number|null} closing_stock
+ * @property {number|null} sold
  */
 
 /**
@@ -41,6 +41,7 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate }) {
   const { user } = useAuth()
   const [items, setItems] = useState([])
   const [totals, setTotals] = useState(null)
+  const [zoho, setZoho] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [notConfigured, setNotConfigured] = useState(false)
@@ -50,6 +51,7 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate }) {
     if (!user || !reportGroup || !fromDate || !toDate) {
       setItems([])
       setTotals(null)
+      setZoho(null)
       setLoading(false)
       return
     }
@@ -64,6 +66,7 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate }) {
       )
       setItems(Array.isArray(data?.items) ? data.items : [])
       setTotals(data?.totals || null)
+      setZoho(data?.zoho && typeof data.zoho === 'object' ? data.zoho : null)
     } catch (err) {
       const code = err?.body?.code
       if (code === 'ZOHO_NOT_CONFIGURED' || err?.status === 503) {
@@ -79,6 +82,7 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate }) {
       }
       setItems([])
       setTotals(null)
+      setZoho(null)
     } finally {
       setLoading(false)
     }
@@ -91,6 +95,7 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate }) {
   return {
     items,
     totals,
+    zoho,
     loading,
     error,
     notConfigured,

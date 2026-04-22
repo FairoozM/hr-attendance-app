@@ -1,6 +1,7 @@
 const { getInventoryByGroup, getSlowMovingInventory } = require('../services/zohoService')
 const { listGroupKeys }                               = require('../services/itemReportGroupsService')
 const { sumReportGrandTotals }                        = require('../utils/weeklyReportTotals')
+const { ZOHO_WEEKLY_REPORT_INTEGRATION }              = require('../services/weeklyReportZohoData')
 const {
   buildWeeklyReportXlsxBuffer,
   getExportSheetTitleForGroup,
@@ -33,6 +34,10 @@ function handleZohoError(res, err, ctx) {
   switch (err.code) {
     case 'ZOHO_NOT_CONFIGURED':
       return res.status(503).json({ error: err.message, code: err.code })
+    case 'ZOHO_OAUTH_ERROR':
+    case 'ZOHO_API_ERROR':
+    case 'ZOHO_API_NETWORK_ERROR':
+      return res.status(502).json({ error: err.message, code: err.code })
     case 'ZOHO_WEBHOOK_TIMEOUT':
       return res.status(504).json({ error: err.message, code: err.code })
     case 'WEBHOOK_INVALID_RESPONSE':
@@ -105,6 +110,7 @@ async function getReportByGroup(req, res) {
       to_date:      range.to_date,
       items,
       totals,
+      zoho: ZOHO_WEEKLY_REPORT_INTEGRATION,
     })
   } catch (err) {
     return handleZohoError(res, err, `getReportByGroup(${group})`)
@@ -129,6 +135,7 @@ async function getSlowMovingReport(req, res) {
       to_date:   range.to_date,
       items,
       totals,
+      zoho: ZOHO_WEEKLY_REPORT_INTEGRATION,
     })
   } catch (err) {
     return handleZohoError(res, err, 'getSlowMovingReport')

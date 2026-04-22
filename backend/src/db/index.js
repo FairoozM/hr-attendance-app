@@ -492,7 +492,8 @@ async function ensureSimCardsTable() {
  * Maps Zoho items to logical "report_group" buckets used by the Weekly Reports
  * section. Membership is the source of truth for which items appear in which
  * report. The numeric values themselves always come from the Zoho-source
- * webhook (see services/zohoService.js); this table only decides membership.
+ * Zoho data (see services/zohoService.js + weeklyReportZohoData.js);
+ * this table only decides membership.
  *
  * Seed lists below are bootstrap-only — they reflect the initial Excel groups
  * provided by the business. Long-term, edit this table directly (or add an

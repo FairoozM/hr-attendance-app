@@ -5,6 +5,7 @@ import './WeeklyAdsReportPage.css'
 import './WeeklySalesReportPage.css'
 
 function formatNum(val) {
+  if (val == null) return '—'
   const n = Number(val)
   if (!Number.isFinite(n)) return '—'
   if (n === 0) return '-'
@@ -47,14 +48,14 @@ function defaultExportXlsxName(reportGroup, fromDate, toDate) {
 function NotConfiguredCallout({ message }) {
   return (
     <div className="wsr-callout wsr-callout--warn" role="status">
-      <span className="wsr-callout__title">Zoho source not configured</span>
+      <span className="wsr-callout__title">Zoho not configured</span>
       <div className="wsr-callout__body">
         {message ||
-          'This report needs a Zoho-side webhook (Deluge function) that returns the per-item weekly totals.'}
+          'Set Zoho Inventory OAuth and organization variables on the backend (see .env.example).'}
         <div style={{ marginTop: 6 }}>
-          Set <code>ZOHO_REPORT_WEBHOOK_URL</code> and{' '}
-          <code>ZOHO_REPORT_WEBHOOK_AUTH_HEADER</code> in the backend
-          environment, then restart the API.
+          Required: <code>ZOHO_CLIENT_ID</code>, <code>ZOHO_CLIENT_SECRET</code>,{' '}
+          <code>ZOHO_REFRESH_TOKEN</code>, <code>ZOHO_INVENTORY_ORGANIZATION_ID</code>. Optional:{' '}
+          <code>ZOHO_FAMILY_CUSTOMFIELD_ID</code> for the Family field.
         </div>
       </div>
     </div>
@@ -84,10 +85,9 @@ function ErrorCallout({ message, onRetry, validationErrors }) {
             )}
           </ul>
           <p className="wsr-callout__hint">
-            Fix the Deluge function on the Zoho side so each item row has a
-            non-empty <code>sku</code>, a string <code>family</code> (use{' '}
-            <code>""</code> if the item has no Zoho Family), and only JSON
-            numbers (never strings) for the stock fields.
+            Fix the Zoho data so each row has a non-empty <code>sku</code>, a string{' '}
+            <code>family</code> (use <code>""</code> if none), and only JSON numbers
+            (or <code>null</code> for unavailable) for the stock fields.
           </p>
         </details>
       )}
@@ -126,7 +126,7 @@ export function WeeklySalesReportPage({ reportGroup, title, subtitle }) {
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState('')
 
-  const { items, totals, loading, error, notConfigured, validationErrors, refetch } =
+  const { items, totals, zoho, loading, error, notConfigured, validationErrors, refetch } =
     useWeeklySalesReport({ reportGroup, fromDate, toDate })
 
   const dateLabel = formatDateLabel(fromDate, toDate)
@@ -263,6 +263,19 @@ export function WeeklySalesReportPage({ reportGroup, title, subtitle }) {
             <div className="war-preview__divider" aria-hidden />
             <span className="war-preview__date">{dateLabel}</span>
           </div>
+          {zoho?.data_source && (
+            <div
+              className="wsr-callout wsr-callout--inline"
+              role="note"
+              style={{ marginBottom: 12, fontSize: 13, lineHeight: 1.4 }}
+            >
+              <strong>Data source:</strong> Zoho Inventory API. Some period columns
+              (opening, purchases, returns, sold) are not in the Items response — they
+              show "—" here. {zoho?.documentation
+                ? ` See ${zoho.documentation} in the repo.`
+                : null}
+            </div>
+          )}
 
           <div className="war-table-wrap">
             <table className="war-table">
