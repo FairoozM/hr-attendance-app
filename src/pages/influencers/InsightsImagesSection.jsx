@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, useId } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   GripVertical,
   Eye,
@@ -6,6 +6,7 @@ import {
   Trash2,
   ImagePlus,
   Info,
+  Loader2,
 } from 'lucide-react'
 import {
   fetchInsightsImageUrls,
@@ -24,6 +25,8 @@ function isLikelyImageFile(f) {
   if (f.type === 'application/octet-stream' && /\.(jpe?g|png|webp|heic|heif)$/i.test(name)) {
     return true
   }
+  /* Some mobile pickers send a binary with no name/type; allow and let the server presign with guessed MIME. */
+  if (f.size > 0 && !name && !f.type) return true
   return false
 }
 
@@ -52,9 +55,13 @@ export function InsightsImagesSection({
   const [isDragging, setIsDragging] = useState(false)
   const [localPreview, setLocalPreview] = useState({})
   const [dragKey, setDragKey] = useState(null)
+  const [uploadLine, setUploadLine] = useState(null)
   const fileRef = useRef(null)
-  const fileInputId = useId()
   const blobRef = useRef(new Set())
+  const fileInputId =
+    influencerId && String(influencerId).trim()
+      ? `inf-insights-file-${String(influencerId).replace(/[^a-zA-Z0-9_-]/g, '_')}`
+      : 'inf-insights-file'
 
   const displayKeys = useMemo(() => {
     const fromLocal = Object.keys(localPreview).filter((k) => !keys.includes(k))
@@ -152,23 +159,36 @@ export function InsightsImagesSection({
 
   const runUploads = useCallback(
     async (fileArray) => {
+      if (!influencerId) {
+        setUploadLine('Missing influencer id — open this page from the list and try again.')
+        return
+      }
+      if (!canEdit) {
+        setUploadLine("You don’t have permission to upload (needs Manage or Approve on Influencers).")
+        return
+      }
+      setUploadLine(null)
       const imageFiles = fileArray.filter((f) => isLikelyImageFile(f))
       if (!imageFiles.length) {
-        window.alert('No image files in that selection. Use JPG, PNG, WebP, HEIC, or GIF.')
+        setUploadLine('No image files in that selection. Use JPG, PNG, WebP, or HEIC (with a file name or type).')
         return
       }
       const pendingLocal = Object.keys(localPreview).filter((k) => !keys.includes(k)).length
       const used = keys.length + pendingLocal
       const remaining = Math.max(0, MAX_INSIGHT_IMAGES - used)
       if (remaining <= 0) {
+        setUploadLine('Maximum 6 images — remove one before adding more.')
         return
       }
       const toAdd = imageFiles.slice(0, remaining)
       setBusy(true)
+      setUploadLine(`Preparing ${toAdd.length} file(s)…`)
       const preview = {}
       const meta = []
       try {
-        for (const file of toAdd) {
+        for (let fi = 0; fi < toAdd.length; fi += 1) {
+          const file = toAdd[fi]
+          setUploadLine(`Getting secure link for ${fi + 1} / ${toAdd.length}…`)
           const contentType = guessImageContentType(file)
           const m = await getInsightsImageUploadUrl(influencerId, {
             fileName: file.name && file.name.trim() ? file.name : 'image.jpg',
@@ -182,14 +202,18 @@ export function InsightsImagesSection({
           preview[meta[i].key] = u
         }
         setLocalPreview((p) => ({ ...p, ...preview }))
+        setUploadLine(`Uploading to storage (${meta.length} file(s))…`)
         await Promise.all(
           meta.map((m) => uploadInsightsImageToS3(m.uploadUrl, m.file, m.contentType)),
         )
+        setUploadLine('Saving to profile…')
         const newKeyStrings = meta.map((m) => m.key)
         await updateInfluencer(influencerId, {
           insightsImageKeys: [...keys, ...newKeyStrings],
           insightsImageRotations: imageRotations,
         })
+        setUploadLine('Upload complete.')
+        setTimeout(() => setUploadLine(null), 3500)
       } catch (err) {
         setLocalPreview((p) => {
           const n = { ...p }
@@ -204,12 +228,13 @@ export function InsightsImagesSection({
           }
           return n
         })
-        window.alert(err?.message || 'Upload failed')
+        const msg = err?.message || 'Upload failed'
+        setUploadLine(msg)
       } finally {
         setBusy(false)
       }
     },
-    [influencerId, keys, localPreview, updateInfluencer, imageRotations],
+    [influencerId, keys, localPreview, updateInfluencer, imageRotations, canEdit],
   )
 
   const onPickFile = async (e) => {
@@ -401,6 +426,25 @@ export function InsightsImagesSection({
           </p>
         </div>
 
+        {!canEdit && (
+          <p className="inf-prod-images__perm" role="status">
+            View only — uploading requires <strong>Manage</strong> or <strong>Approve</strong> on Influencers.
+          </p>
+        )}
+
+        {(uploadLine || busy) && (
+          <p
+            className={
+              'inf-prod-images__status' + (uploadLine && uploadLine.length > 120 ? ' inf-prod-images__status--long' : '')
+            }
+            role="status"
+            aria-live="polite"
+          >
+            {busy ? <Loader2 className="inf-prod-images__spinner" size={16} aria-hidden /> : null}
+            {uploadLine || (busy ? 'Processing…' : null)}
+          </p>
+        )}
+
         <div
           className={`inf-prod-images__grid${isDragging ? ' inf-prod-images__grid--dropping' : ''}`}
           onDragOver={(e) => {
@@ -417,30 +461,32 @@ export function InsightsImagesSection({
           onDrop={onDropFile}
         >
           {canEdit && displayKeys.length < MAX_INSIGHT_IMAGES && (
-            <div className="inf-prod-images__add-wrap" onDragOver={onDragOverGrid}>
-              <input
-                id={fileInputId}
-                ref={fileRef}
-                type="file"
-                accept="image/*,.heic,.heif"
-                multiple
-                className="inf-prod-sr"
-                aria-label="Add insights images"
-                onChange={onPickFile}
-                disabled={busy}
-              />
-              <label
-                className={
-                  'inf-prod-images__add' + (busy ? ' inf-prod-images__add--disabled' : '')
-                }
-                htmlFor={fileInputId}
-              >
+            <div
+              className={'inf-prod-images__add-wrap' + (busy ? ' inf-prod-images__add-wrap--busy' : '')}
+              onDragOver={onDragOverGrid}
+            >
+              {/*
+                Full-bleed native file input on top of the card (reliable in Safari/iOS; <label> + useId
+                and nested controls are flaky). Visual layer has pointer-events: none.
+              */}
+              <div className="inf-prod-images__add-facade" aria-hidden>
                 <div className="inf-prod-images__add-icon">
                   <ImagePlus size={24} />
                 </div>
                 <span className="inf-prod-images__add-title">Add images</span>
                 <span className="inf-prod-images__add-hint">You can select multiple at once</span>
-              </label>
+              </div>
+              <input
+                id={fileInputId}
+                ref={fileRef}
+                type="file"
+                accept="image/*,image/heic,image/heif"
+                multiple
+                className="inf-prod-images__add-file"
+                aria-label="Add insights images"
+                onChange={onPickFile}
+                disabled={busy}
+              />
             </div>
           )}
 

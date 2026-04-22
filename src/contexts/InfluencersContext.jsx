@@ -313,23 +313,22 @@ export function InfluencersProvider({ children }) {
     const next = current
       ? { ...current, ...updates, id: current.id, updatedAt: new Date().toISOString() }
       : { ...updates, id: sid, updatedAt: new Date().toISOString() }
-    const wasInList = !!influencersRefGlobal.current.find((inf) => String(inf.id) === sid)
     const data = await updateInfluencerApi(sid, next)
     if (data?.influencer) {
-      if (wasInList) {
-        setInfluencers((prev) => {
-          const idx = prev.findIndex((inf) => String(inf.id) === sid)
-          if (idx === -1) return prev
-          const copy = [...prev]
-          copy[idx] = data.influencer
-          return copy
-        })
-      } else {
-        await reloadFromServer()
-      }
+      /** Keep edit form / insights uploader in sync even if this row was not on the current list page. */
+      setInfluencers((prev) => {
+        const idx = prev.findIndex((inf) => String(inf.id) === sid)
+        if (idx === -1) {
+          return [data.influencer, ...prev]
+        }
+        const copy = [...prev]
+        copy[idx] = data.influencer
+        return copy
+      })
     } else {
       await reloadFromServer()
     }
+    return data
   }, [reloadFromServer])
 
   const updateWorkflowStatus = useCallback(async (id, status, note = '') => {

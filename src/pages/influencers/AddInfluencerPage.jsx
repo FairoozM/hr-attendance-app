@@ -200,7 +200,8 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
   const navigate = useNavigate()
   const { id }   = useParams()
   const isEdit   = Boolean(id)
-  const existing = isEdit ? influencers.find(i => i.id === id) : null
+  const liveRow = isEdit && id ? influencers.find((i) => String(i.id) === String(id)) : null
+  const existing = liveRow
 
   const [form, setForm] = useState(() =>
     existing
@@ -326,8 +327,8 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
             <STitle>Insights images</STitle>
             <InsightsImagesSection
               influencerId={id}
-              imageKeys={existing?.insightsImageKeys ?? []}
-              imageRotations={existing?.insightsImageRotations ?? {}}
+              imageKeys={liveRow?.insightsImageKeys ?? form.insightsImageKeys ?? []}
+              imageRotations={liveRow?.insightsImageRotations ?? form.insightsImageRotations ?? {}}
               canEdit={canInfl('manage') || canInfl('approve')}
               updateInfluencer={updateInfluencer}
               className="aif-insights-embed"
