@@ -99,12 +99,14 @@ export const createInfluencer = async (payload: Influencer) => {
   return payload
 }
 
-export const updateInfluencer = async (id: string, payload: Influencer) => {
-  await apiFetch(`/api/influencers/${id}`, {
+export const updateInfluencer = async (
+  id: string,
+  payload: Influencer,
+): Promise<{ success?: boolean; influencer?: Influencer } | null> => {
+  return apiFetch(`/api/influencers/${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
   })
-  return payload
 }
 
 export const deleteInfluencer = (id: string) =>

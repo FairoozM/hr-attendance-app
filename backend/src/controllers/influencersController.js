@@ -135,9 +135,13 @@ async function updateInfluencer(req, res) {
     const parsed = sanitizeSingleInfluencer(req.body)
     if (parsed.error) return res.status(400).json({ error: parsed.error })
     const existing = await influencersService.getInfluencerById(id)
+    if (!existing) {
+      return res.status(404).json({ error: 'Influencer not found' })
+    }
     const oldKeys = Array.isArray(existing?.insightsImageKeys) ? existing.insightsImageKeys : []
     const nextKeys = normalizeInsightsImageKeys(parsed.row, existing, id)
-    const row = { ...parsed.row, id, insightsImageKeys: nextKeys }
+    /** Merge with stored row so partial PATCH (or client form with empty insightsImageKeys) never wipes the record. */
+    const row = { ...existing, ...parsed.row, id, insightsImageKeys: nextKeys }
     await influencersService.upsertInfluencerById(id, row)
     for (const k of oldKeys) {
       if (!nextKeys.includes(k)) {

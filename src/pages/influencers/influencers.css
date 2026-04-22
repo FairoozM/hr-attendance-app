@@ -1229,6 +1229,21 @@
   font-size: 0.85rem;
   color: var(--text-muted);
 }
+.inf-insights-images--dropping {
+  outline: 2px dashed var(--inf-accent, #7c3aed);
+  outline-offset: 4px;
+  border-radius: 12px;
+  background: rgba(124, 58, 237, 0.05);
+  transition: background 0.12s ease, outline-color 0.12s ease;
+}
+.inf-insights-images__drop-prompt {
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--inf-accent, #7c3aed);
+  text-align: center;
+  letter-spacing: 0.02em;
+}
 .inf-insights-images__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));

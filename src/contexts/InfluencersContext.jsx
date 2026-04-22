@@ -308,15 +308,33 @@ export function InfluencersProvider({ children }) {
   }, [reloadFromServer])
 
   const updateInfluencer = useCallback(async (id, updates) => {
-    const current = influencers.find((inf) => inf.id === id)
-    if (!current) return
-    const next = { ...current, ...updates, updatedAt: new Date().toISOString() }
-    await updateInfluencerApi(id, next)
-    await reloadFromServer()
-  }, [influencers, reloadFromServer])
+    const sid = String(id)
+    const current = influencersRefGlobal.current.find((inf) => String(inf.id) === sid)
+    const next = current
+      ? { ...current, ...updates, id: current.id, updatedAt: new Date().toISOString() }
+      : { ...updates, id: sid, updatedAt: new Date().toISOString() }
+    const wasInList = !!influencersRefGlobal.current.find((inf) => String(inf.id) === sid)
+    const data = await updateInfluencerApi(sid, next)
+    if (data?.influencer) {
+      if (wasInList) {
+        setInfluencers((prev) => {
+          const idx = prev.findIndex((inf) => String(inf.id) === sid)
+          if (idx === -1) return prev
+          const copy = [...prev]
+          copy[idx] = data.influencer
+          return copy
+        })
+      } else {
+        await reloadFromServer()
+      }
+    } else {
+      await reloadFromServer()
+    }
+  }, [reloadFromServer])
 
   const updateWorkflowStatus = useCallback(async (id, status, note = '') => {
-    const current = influencers.find((inf) => inf.id === id)
+    const sid = String(id)
+    const current = influencersRefGlobal.current.find((inf) => String(inf.id) === sid)
     if (!current) return
     const entry = { event: status, date: new Date().toISOString().split('T')[0], note }
     const next = {
@@ -325,9 +343,24 @@ export function InfluencersProvider({ children }) {
       updatedAt: new Date().toISOString(),
       timeline: [...(current.timeline || []), entry],
     }
-    await updateInfluencerApi(id, next)
-    await reloadFromServer()
-  }, [influencers, reloadFromServer])
+    const wasInList = !!influencersRefGlobal.current.find((inf) => String(inf.id) === sid)
+    const data = await updateInfluencerApi(sid, next)
+    if (data?.influencer) {
+      if (wasInList) {
+        setInfluencers((prev) => {
+          const idx = prev.findIndex((inf) => String(inf.id) === sid)
+          if (idx === -1) return prev
+          const copy = [...prev]
+          copy[idx] = data.influencer
+          return copy
+        })
+      } else {
+        await reloadFromServer()
+      }
+    } else {
+      await reloadFromServer()
+    }
+  }, [reloadFromServer])
 
   const deleteInfluencer = useCallback(async (id) => {
     await deleteInfluencerApi(String(id))

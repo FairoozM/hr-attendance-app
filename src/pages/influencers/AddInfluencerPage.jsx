@@ -243,7 +243,13 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
     setIsSubmitting(true)
     try {
       if (isEdit) {
-        await updateInfluencer(id, form)
+        const live = influencers.find((i) => String(i.id) === String(id))
+        await updateInfluencer(id, {
+          ...form,
+          id,
+          /** Always use the latest S3 key list from context (wizard form is often stale after insights uploads). */
+          insightsImageKeys: live?.insightsImageKeys ?? form.insightsImageKeys ?? [],
+        })
         setSaved(true)
         setTimeout(() => setSaved(false), 2500)
       } else {
