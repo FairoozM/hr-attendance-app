@@ -1,15 +1,15 @@
 /**
- * Zoho-sourced weekly inventory: `weeklyReportZohoData` loads items via
- * `zohoAdapter.fetchAllItemsRaw` and normalises id + Family with
- * `normalizeZohoInventoryItem` (same rules as `zohoAdapter.getItems()`), then
- * strict row validation, then `item_report_groups` membership.
+ * Zoho-sourced weekly inventory: `weeklyReportZohoData` uses the Zoho adapter
+ * (Inventory REST) and `item_report_groups` as the only business membership
+ * source. Rows are built by intersecting group members with Zoho items, then
+ * strict validation (see `weeklyReportZohoData` for placeholder stock numbers).
  *
- * Business report groups (slow_moving, …) live only in `item_report_groups`. The
- * `family` field is Zoho metadata; each returned item also includes
- * `_zoho: { from_date, to_date, family }` (Family duplicated for metadata clients).
+ * Vendor scoping for **credits** and **optional purchases** is loaded via
+ * `weeklyReportVendorConfig` and passed to `fetchZohoItemRowsForGroupMembers` for
+ * when period transactions are implemented; SOLD and stock are never vendor-filtered.
  *
- * No Deluge / webhook. See docs/zoho-inventory-api-coverage.md for what the
- * public API can supply vs. the old Deluge "Inventory Summary" style numbers.
+ * The legacy Deluge path is not used; see `zohoDelugeWebhookAdapter.deprecated.js`
+ * in integrations if referenced elsewhere.
  *
  * Error codes: see `docs/integrations-zoho.md` (e.g. ZOHO_NOT_CONFIGURED, ZOHO_OAUTH_ERROR,
  * ZOHO_API_TIMEOUT, ZOHO_API_ERROR, WEBHOOK_INVALID_RESPONSE for bad row data — name kept
@@ -17,7 +17,8 @@
  */
 
 const { listMembersOfGroup } = require('./itemReportGroupsService')
-const { fetchZohoItemRowsUnfiltered } = require('./weeklyReportZohoData')
+const { fetchZohoItemRowsForGroupMembers } = require('./weeklyReportZohoData')
+const { getVendorConfigForGroup } = require('./weeklyReportVendorConfig')
 
 const MAX_REPORTED_ERRORS = 10
 const NUMERIC_FIELDS = [
@@ -187,16 +188,26 @@ function buildMatcher(members) {
 // ---------------------------------------------------------------------------
 
 /**
- * Fetches all items from Zoho, validates rows, then filters to group members.
+ * Membership first (`item_report_groups`), then Zoho-adapter data for matching
+ * items only (intersection). Rows and grand totals in the API match this list.
  */
 async function getInventoryByGroup(group, fromDate, toDate) {
   const members = await listMembersOfGroup(group)
-  if (members.length === 0) return []
+  if (members.length === 0) {
+    return { items: [], reportMeta: { warnings: [] } }
+  }
 
-  const raw = await fetchZohoItemRowsUnfiltered(fromDate, toDate)
+  const vendorConfig = getVendorConfigForGroup(group)
+  const { items: raw, reportMeta: fetchMeta } = await fetchZohoItemRowsForGroupMembers(
+    members,
+    fromDate,
+    toDate,
+    vendorConfig,
+    group
+  )
 
-  const items   = []
-  const errors  = []
+  const items = []
+  const errors = []
   for (let i = 0; i < raw.length; i += 1) {
     const { item, errors: rowErrors } = validateAndNormaliseItem(raw[i], i)
     if (rowErrors.length > 0) {
@@ -209,12 +220,12 @@ async function getInventoryByGroup(group, fromDate, toDate) {
 
   if (errors.length > 0) throw makeInvalidResponseError(errors)
 
-  const match = buildMatcher(members)
-  return items.filter(match)
+  return { items, reportMeta: fetchMeta && typeof fetchMeta === 'object' ? fetchMeta : { warnings: [] } }
 }
 
 async function getSlowMovingInventory(fromDate, toDate) {
-  return getInventoryByGroup('slow_moving', fromDate, toDate)
+  const { items } = await getInventoryByGroup('slow_moving', fromDate, toDate)
+  return items
 }
 
 module.exports = {

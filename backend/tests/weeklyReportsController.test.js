@@ -25,10 +25,9 @@ function makeError(code, message, extra = {}) {
   return e
 }
 
-function loadController({ getInventoryByGroup, getSlowMovingInventory, listGroupKeys }) {
+function loadController({ getInventoryByGroup, listGroupKeys }) {
   mockModule('../src/services/zohoService', {
     getInventoryByGroup,
-    getSlowMovingInventory,
   })
   mockModule('../src/services/itemReportGroupsService', {
     listGroupKeys,
@@ -38,13 +37,16 @@ function loadController({ getInventoryByGroup, getSlowMovingInventory, listGroup
 
 const VALID = { from_date: '2026-01-01', to_date: '2026-01-07' }
 
+const emptyZoho = async () => ({ items: [], reportMeta: { warnings: [] } })
+const wrapItems = (items) => async () => ({ items, reportMeta: { warnings: [] } })
+
 // ---------------------------------------------------------------------------
 // Date / group validation
 // ---------------------------------------------------------------------------
 
 test('weeklyReports: rejects missing date params with 400', async () => {
   const ctrl = loadController({
-    getInventoryByGroup: async () => [],
+    getInventoryByGroup: emptyZoho,
     listGroupKeys: async () => ['slow_moving'],
   })
   const { req, res } = makeReqRes({ params: { group: 'slow_moving' }, query: {} })
@@ -55,7 +57,7 @@ test('weeklyReports: rejects missing date params with 400', async () => {
 
 test('weeklyReports: rejects malformed dates with 400', async () => {
   const ctrl = loadController({
-    getInventoryByGroup: async () => [],
+    getInventoryByGroup: emptyZoho,
     listGroupKeys: async () => ['slow_moving'],
   })
   const { req, res } = makeReqRes({
@@ -69,7 +71,7 @@ test('weeklyReports: rejects malformed dates with 400', async () => {
 
 test('weeklyReports: rejects from_date > to_date with 400', async () => {
   const ctrl = loadController({
-    getInventoryByGroup: async () => [],
+    getInventoryByGroup: emptyZoho,
     listGroupKeys: async () => ['slow_moving'],
   })
   const { req, res } = makeReqRes({
@@ -82,7 +84,7 @@ test('weeklyReports: rejects from_date > to_date with 400', async () => {
 
 test('weeklyReports: unknown report_group returns 404 with available groups listed', async () => {
   const ctrl = loadController({
-    getInventoryByGroup: async () => [],
+    getInventoryByGroup: emptyZoho,
     listGroupKeys: async () => ['slow_moving', 'other_family'],
   })
   const { req, res } = makeReqRes({ params: { group: 'does_not_exist' }, query: VALID })
@@ -98,7 +100,7 @@ test('weeklyReports: unknown report_group returns 404 with available groups list
 
 test('weeklyReports: empty result returns 200 with all-zero Grand Total', async () => {
   const ctrl = loadController({
-    getInventoryByGroup: async () => [],
+    getInventoryByGroup: emptyZoho,
     listGroupKeys: async () => ['slow_moving'],
   })
   const { req, res } = makeReqRes({ params: { group: 'slow_moving' }, query: VALID })
@@ -117,7 +119,7 @@ test('weeklyReports: empty result returns 200 with all-zero Grand Total', async 
 
 test('weeklyReports: Grand Total sums Zoho-provided numbers verbatim', async () => {
   const ctrl = loadController({
-    getInventoryByGroup: async () => ([
+    getInventoryByGroup: wrapItems([
       { sku: 'A', item_name: 'A', family: 'ZDS', opening_stock: 100, purchases: 10, returned_to_wholesale: 1, closing_stock: 109, sold: 0 },
       { sku: 'B', item_name: 'B', family: 'LIFEP', opening_stock:  50, purchases:  5, returned_to_wholesale: 0, closing_stock:  45, sold: 10 },
     ]),
@@ -155,11 +157,10 @@ test('weeklyReports: export.xlsx uses the same getInventoryByGroup + items as JS
   const invCalls = []
   const getInventoryByGroup = async (group, from, to) => {
     invCalls.push({ group, from, to })
-    return sharedItems
+    return { items: sharedItems, reportMeta: { warnings: [] } }
   }
   const ctrl = loadController({
     getInventoryByGroup,
-    getSlowMovingInventory: async () => [],
     listGroupKeys: async () => ['slow_moving', 'other_family'],
   })
   const { req, res } = makeReqRes({ params: { group: 'slow_moving' }, query: VALID })
@@ -180,6 +181,66 @@ test('weeklyReports: export.xlsx uses the same getInventoryByGroup + items as JS
   const sheet = wb.getWorksheet('Report')
   assert.equal(String(sheet.getCell('B5').value), 'ExportPipelineLabel')
   assert.equal(Number(sheet.getCell('G5').value), 3)
+  const totalRow = 5 + res.body.items.length
+  assert.equal(Number(sheet.getCell(`C${totalRow}`).value), res.body.totals.opening_stock)
+  assert.equal(Number(sheet.getCell(`D${totalRow}`).value), res.body.totals.purchases)
+  assert.equal(Number(sheet.getCell(`E${totalRow}`).value), res.body.totals.returned_to_wholesale)
+  assert.equal(Number(sheet.getCell(`F${totalRow}`).value), res.body.totals.closing_stock)
+  assert.equal(Number(sheet.getCell(`G${totalRow}`).value), res.body.totals.sold)
+})
+
+test('weeklyReports: other_family export.xlsx uses same getInventoryByGroup + totals as JSON', async () => {
+  const invCalls = []
+  const getInventoryByGroup = async (group, from, to) => {
+    invCalls.push({ group, from, to })
+    return {
+      items: [
+        { sku: 'O1', item_name: 'OtherFam', family: 'X', opening_stock: 0, purchases: 0, returned_to_wholesale: 0, closing_stock: 0, sold: 0 },
+      ],
+      reportMeta: { warnings: [] },
+    }
+  }
+  const ctrl = loadController({
+    getInventoryByGroup,
+    listGroupKeys: async () => ['slow_moving', 'other_family'],
+  })
+  const { req, res } = makeReqRes({ params: { group: 'other_family' }, query: VALID })
+  await ctrl.getReportByGroup(req, res)
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.report_group, 'other_family')
+  const { req: req2, res: res2 } = makeReqRes({ params: { group: 'other_family' }, query: VALID })
+  res2.setHeader = () => {}
+  await ctrl.exportReportByGroupXlsx(req2, res2)
+  assert.equal(invCalls.length, 2)
+  assert.deepEqual(invCalls[0], { group: 'other_family', from: '2026-01-01', to: '2026-01-07' })
+  assert.deepEqual(invCalls[1], { group: 'other_family', from: '2026-01-01', to: '2026-01-07' })
+  const wb = new ExcelJS.Workbook()
+  await wb.xlsx.load(res2.body)
+  const sheet = wb.getWorksheet('Report')
+  const totalRow = 5 + res.body.items.length
+  assert.equal(Number(sheet.getCell(`C${totalRow}`).value), res.body.totals.opening_stock)
+  assert.equal(Number(sheet.getCell(`G${totalRow}`).value), res.body.totals.sold)
+})
+
+test('weeklyReports: empty export xlsx grand total matches API totals (all zeros)', async () => {
+  const ctrl = loadController({
+    getInventoryByGroup: emptyZoho,
+    listGroupKeys: async () => ['other_family', 'slow_moving'],
+  })
+  const { req, res } = makeReqRes({ params: { group: 'other_family' }, query: VALID })
+  await ctrl.getReportByGroup(req, res)
+  const { req: req2, res: res2 } = makeReqRes({ params: { group: 'other_family' }, query: VALID })
+  res2.setHeader = () => {}
+  await ctrl.exportReportByGroupXlsx(req2, res2)
+  const wb = new ExcelJS.Workbook()
+  await wb.xlsx.load(res2.body)
+  const sheet = wb.getWorksheet('Report')
+  assert.equal(String(sheet.getCell('B5').value), 'Grand Total')
+  assert.equal(Number(sheet.getCell('C5').value), res.body.totals.opening_stock)
+  assert.equal(Number(sheet.getCell('D5').value), res.body.totals.purchases)
+  assert.equal(Number(sheet.getCell('E5').value), res.body.totals.returned_to_wholesale)
+  assert.equal(Number(sheet.getCell('F5').value), res.body.totals.closing_stock)
+  assert.equal(Number(sheet.getCell('G5').value), res.body.totals.sold)
 })
 
 // ---------------------------------------------------------------------------
@@ -245,9 +306,10 @@ test('weeklyReports: unknown error code falls back to 502 (and never 200)', asyn
 
 test('weeklyReports: legacy /slow-moving keeps same response shape', async () => {
   const ctrl = loadController({
-    getSlowMovingInventory: async () => ([
-      { sku: 'A', item_name: 'A', family: '', opening_stock: 5, purchases: 0, returned_to_wholesale: 0, closing_stock: 5, sold: 0 },
-    ]),
+    getInventoryByGroup: async (group) =>
+      group === 'slow_moving'
+        ? { items: [{ sku: 'A', item_name: 'A', family: '', opening_stock: 5, purchases: 0, returned_to_wholesale: 0, closing_stock: 5, sold: 0 }], reportMeta: { warnings: [] } }
+        : { items: [], reportMeta: { warnings: [] } },
     listGroupKeys: async () => ['slow_moving'],
   })
   const { req, res } = makeReqRes({ query: VALID })
@@ -259,7 +321,7 @@ test('weeklyReports: legacy /slow-moving keeps same response shape', async () =>
 
 test('weeklyReports: listAvailableGroups returns active groups', async () => {
   const ctrl = loadController({
-    getInventoryByGroup: async () => [],
+    getInventoryByGroup: emptyZoho,
     listGroupKeys: async () => ['other_family', 'slow_moving'],
   })
   const { req, res } = makeReqRes({})

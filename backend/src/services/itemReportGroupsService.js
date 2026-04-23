@@ -2,9 +2,9 @@
  * DB layer for the `item_report_groups` table.
  *
  * The Weekly Reports section uses these mappings to decide which Zoho items
- * appear in which report. Numeric values (opening/closing stock, purchases,
- * returns, sold) come from the Zoho-source webhook (see services/zohoService.js)
- * — this module only answers "which items belong to group X".
+ * are eligible for each report. `zohoService` intersects these rows with the
+ * Zoho Inventory API (see services/zohoService.js + weeklyReportZohoData.js) —
+ * this module only answers "which items belong to group X".
  */
 
 const { query, pool } = require('../db')

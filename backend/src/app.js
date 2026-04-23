@@ -18,6 +18,7 @@ const instagramProxyRoutes = require('./routes/instagramProxy')
 const projectsRoutes      = require('./routes/projects')
 const weeklyReportsRoutes = require('./routes/weeklyReports')
 const itemReportGroupsRoutes = require('./routes/itemReportGroups')
+const debugRoutes = require('./routes/debug')
 
 const app = express()
 
@@ -28,7 +29,9 @@ app.options('*', cors())
 app.use(cors())
 app.use(express.json({ limit: '10mb' }))
 
-// --- API routes (order matters: specific before catch-all) ---
+// --- Public (no authMiddleware, no requireAuth/requireAdmin) — must stay above /api/* routers
+// 403 in the browser for GET /api/health usually means the request never reached Express
+// (e.g. CloudFront default to S3 only; see docs/cloudfront-api-routing.md), not route-level auth. ---
 
 app.get('/api', (_req, res) => {
   res.json({ status: 'ok', service: 'hr-api' })
@@ -60,6 +63,8 @@ app.use('/api/instagram-proxy', instagramProxyRoutes)
 app.use('/api/projects',       authMiddleware.attachAuth, projectsRoutes)
 app.use('/api/weekly-reports', authMiddleware.attachAuth, weeklyReportsRoutes)
 app.use('/api/item-report-groups', authMiddleware.attachAuth, itemReportGroupsRoutes)
+// TEMPORARY — Zoho debug (remove when stable)
+app.use('/api/debug', authMiddleware.attachAuth, debugRoutes)
 
 // Catch-all for unmatched /api/* — always JSON, never HTML
 app.use('/api', (_req, res) => {

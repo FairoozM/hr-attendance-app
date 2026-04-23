@@ -16,7 +16,12 @@
  * `zohoService` for response-shape backward compatibility; semantically = invalid Zoho data.
  */
 
-const { listAllItems, zohoApiRequest } = require('./zohoInventoryClient')
+const { listAllItems, zohoApiRequest, fetchListPaginated } = require('./zohoInventoryClient')
+const {
+  getSales,
+  getPurchases,
+  getVendorCredits,
+} = require('./weeklyReportZohoTransactions')
 const { readZohoConfig, INVENTORY_V1, orgEnvHint } = require('./zohoConfig')
 const { normalizeZohoInventoryItem } = require('./zohoItemFamily')
 
@@ -62,8 +67,12 @@ module.exports = {
   fetchAllItemsRaw,
   getItems,
   zohoApiRequest,
+  fetchListPaginated,
   getZohoConfigOrNotConfigured,
   readZohoConfig,
   INVENTORY_V1,
   orgEnvHint,
+  getSales,
+  getPurchases,
+  getVendorCredits,
 }

@@ -1,17 +1,33 @@
 /**
- * Weekly report row shape built from Zoho Inventory REST (Items API) — separate
- * from Excel/UI formatting (see zohoService + weeklyReportXlsxService).
+ * Weekly report rows from `zohoAdapter.fetchAllItemsRaw()`: primary data source
+ * is the Zoho adapter (not Deluge webhooks).
  *
- * Data: `zohoAdapter.fetchAllItemsRaw()` (Zoho REST items + locations) plus
- * `normalizeZohoInventoryItem` (same id/family resolution as `getItems()` on the
- * adapter). Does not compute hidden stock movements. Values we cannot read
- * from the API are `null` (UI / Excel show "—"); see
- * docs/zoho-inventory-api-coverage.md.
+ * For each `item_report_groups` member, intersect with the Zoho catalog. **Family**
+ * is display metadata. **closing_stock** is current on-hand from Items API;
+ * **period columns** (sold, purchases, returns) are summed from Invoices, Bills, and
+ * vendor credits. **Opening** (Phase 4) is a **TEMPORARY** stand-in: same as current
+ * `stock_on_hand` as `closing_stock` until a true period opening exists; not derived
+ * from transactions (see `weeklyReportZohoLineMerge.applyTransactionMapsToRow`).
  */
 
 const { fetchAllItemsRaw } = require('../integrations/zoho/zohoAdapter')
 const { readZohoConfig, orgEnvHint } = require('../integrations/zoho/zohoConfig')
 const { normalizeZohoInventoryItem, parseFamilyFromZohoItem } = require('../integrations/zoho/zohoItemFamily')
+const {
+  getSales,
+  getPurchases,
+  getVendorCredits,
+} = require('../integrations/zoho/weeklyReportZohoTransactions')
+const {
+  buildItemIdToSkuMap,
+  sumLinesToMap,
+  applyTransactionMapsToRow,
+} = require('./weeklyReportZohoLineMerge')
+const {
+  getResolvedReportVendor,
+  assertReportVendorResolvedIfRequired,
+  isReportVendorOptional,
+} = require('./weeklyReportReportVendor')
 
 /**
  * Exposed on JSON responses so the UI can show a one-line data-source note.
@@ -20,21 +36,51 @@ const { normalizeZohoInventoryItem, parseFamilyFromZohoItem } = require('../inte
 const ZOHO_WEEKLY_REPORT_INTEGRATION = {
   data_source: 'zoho_inventory_rest_v1',
   item_endpoint: 'GET /inventory/v1/items (pages)',
-  /**
-   * Fields we do **not** take from a single public endpoint for an arbitrary
-   * date range (Zoho’s UI "Inventory Summary" / Deluge pipeline is not mirrored).
-   */
+  // Same keys as prior API; phase 2 uses stock placeholders and zeros where noted below
   metrics_unavailable_in_this_integration: [
-    'opening_stock (at from_date start)',
-    'purchases (period total)',
-    'returned_to_wholesale (period total)',
-    'sold (period total, as in the old Deluge report)',
+    'Point-in-time Zoho "stock on from_date" (historical) — opening is **not** that value; it is ' +
+      'a **TEMPORARY** duplicate of current `stock_on_hand` (see transaction_debug, Phase 4).',
   ],
   metrics_populated: [
-    'closing_stock: sum of per-location `location_available_stock` (or `location_stock_on_hand` fallback) on each item as returned by the API — this is *current* stock, not a historical to_date close unless the request is made at that time',
-    'family: Zoho item custom field, resolved via ZOHO_FAMILY_CUSTOMFIELD_ID when set, else ""',
+    'row keys: item_report_groups ∩ Zoho; item_name, sku, family; closing = current item stock; sold/returns/purch from APIs',
+    'family: Zoho custom field via ZOHO_FAMILY_CUSTOMFIELD_ID when set, else ""',
   ],
-  documentation: 'docs/zoho-inventory-api-coverage.md',
+  phase2_stock_placeholders: {
+    /** Current stock on hand from Items API at request time (or available_* fallbacks) */
+    closing_from_items_api: 'Zoho item stock (stock_on_hand or available_* fallback).',
+    /** TEMPORARY (Phase 4): duplicate of `stock_on_hand` / `closing_from_items_api`; not ledger-backed */
+    opening_stock: 'TEMPORARY: current stock_on_hand (same as closing) — not "stock on from_date."',
+    sales_source: 'GET /invoices, all customers, date in [from_date,to_date], not void; line item quantities',
+    purchases_source: 'GET /bills, filtered to REPORT vendor (REPORT_VENDOR_ID/NAME or group config); line item quantities',
+    returns_source: 'GET /vendorcredits, same vendor; line item quantities',
+  },
+  documentation: 'docs/zoho-inventory-api-coverage.md, docs/weekly-report-zoho-transactions.md',
+  /**
+   * How metrics relate to Zoho / vendors. Stock and sales are never
+   * “vendor-sliced” at row level: opening/closing are global item; SOLD
+   * includes all sales. Vendor scoping is only for vendor-credits (returned
+   * to wholesale) and optionally for purchases, per `WEEKLY_REPORT_VENDORS_JSON`
+   * / related env. See `weeklyReportVendorConfig.js`.
+   */
+  metric_business_scopes: {
+    sold: {
+      include: 'all_sales',
+      note: 'No vendor filter on sales lines; all vendors when transactions are wired.',
+    },
+    opening_stock: { scope: 'global_item' },
+    closing_stock: { scope: 'global_item' },
+    returned_to_wholesale: {
+      meaning: 'vendor_credits',
+      include: 'configured_vendor_credits_contact_only',
+      note:
+        'Vendor credit documents for the configured `vendor_credits_contact_id` ' +
+        'per report group; other vendors excluded.',
+    },
+    purchases: {
+      source: 'GET /bills',
+      note: 'Bills in date range for REPORT_VENDOR_ID / per-group id / REPORT_VENDOR_NAME; other vendors excluded.',
+    },
+  },
 }
 
 function parseQty(s) {
@@ -44,77 +90,125 @@ function parseQty(s) {
 }
 
 /**
- * @param {object} item - raw Zoho item
- * @returns {number} Sum of available stock across locations
+ * Single quantity for placeholder opening/closing from a Zoho item. Prefer
+ * `stock_on_hand` as requested for Phase 2; fall back if Zoho omits it.
+ *
+ * @param {object} item
+ * @returns {number} finite number, 0 if unknown
  */
-function sumCurrentLocationStock(item) {
-  const locs = item.locations
-  if (!Array.isArray(locs) || locs.length === 0) {
-    // Some items may have top-level rate only; no locations array
-    return 0
+function parseZohoStockOnHand(item) {
+  if (!item || typeof item !== 'object') return 0
+  const v =
+    item.stock_on_hand != null
+      ? item.stock_on_hand
+      : item.available_stock != null
+        ? item.available_stock
+        : item.available_for_sale
+  if (v === undefined || v === null) return 0
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  if (typeof v === 'string' && v.trim() !== '') {
+    const n = parseFloat(String(v).replace(/,/g, ''))
+    return Number.isFinite(n) ? n : 0
   }
-  let sum = 0
-  for (const loc of locs) {
-    const q =
-      loc.location_available_stock != null && String(loc.location_available_stock).length
-        ? loc.location_available_stock
-        : loc.location_stock_on_hand
-    sum += parseQty(q)
-  }
-  return sum
+  return 0
 }
 
 /**
- * @param {object} item
- * @param {string | null} familyFieldId
- * @returns {string}
- * @see parseFamilyFromZohoItem
- */
-const pickFamilyValue = parseFamilyFromZohoItem
-
-/**
- * Normalised "report row" before `item_report_groups` filtering (same field names
- * as the old webhook contract; see zohoService validation). Identity and Family
- * use `normalizeZohoInventoryItem` (same as `zohoAdapter.getItems()`).
+ * @param {object} zohoItem
  * @param {string} fromDate
  * @param {string} toDate
- * @param {object} zohoItem
  * @param {string | null} familyFieldId
- * @returns {object}
+ * @see normalizeZohoInventoryItem
  */
-function zohoItemToReportRow(zohoItem, fromDate, toDate, familyFieldId) {
+function zohoItemToPlaceholderReportRow(zohoItem, fromDate, toDate, familyFieldId) {
   const n = normalizeZohoInventoryItem(zohoItem, familyFieldId)
-  const closing = sumCurrentLocationStock(zohoItem)
-
-  // Period metrics: not available without aggregating other documents; unambiguously null
+  const sh = parseZohoStockOnHand(zohoItem)
+  // Period numbers filled in fetchZohoItemRowsForGroupMembers. opening_stock: TEMP same as
+  // closing (see applyTransactionMapsToRow — it does not overwrite opening).
   return {
     sku: n.sku,
     item_name: n.name,
     item_id: n.item_id,
     family: n.family,
-    opening_stock: null,
-    purchases: null,
-    returned_to_wholesale: null,
-    closing_stock: Number.isFinite(closing) ? closing : 0,
-    sold: null,
+    opening_stock: sh,
+    closing_stock: sh,
+    purchases: 0,
+    returned_to_wholesale: 0,
+    sold: 0,
     _zoho: {
       from_date: fromDate,
       to_date: toDate,
-      // Duplicates top-level `family` (Zoho custom field) for metadata-only clients
       family: n.family,
     },
   }
 }
 
 /**
- * Fetch and normalise all active items to report rows. Date args are passed
- * through to row metadata and drive no extra API calls.
+ * @param {object[]} rawZoho
+ * @returns {{ bySku: Map, byName: Map, byItemId: Map }}
+ */
+function buildZohoLookupMaps(rawZoho) {
+  const bySku = new Map()
+  const byName = new Map()
+  const byItemId = new Map()
+  if (!Array.isArray(rawZoho)) {
+    return { bySku, byName, byItemId }
+  }
+  for (const it of rawZoho) {
+    if (!it || typeof it !== 'object') continue
+    if (it.sku) {
+      const k = String(it.sku).trim().toLowerCase()
+      if (k) bySku.set(k, it)
+    }
+    if (it.name != null && String(it.name).trim() !== '') {
+      byName.set(String(it.name).trim().toLowerCase(), it)
+    }
+    if (it.item_id != null && it.item_id !== '') {
+      byItemId.set(String(it.item_id).trim(), it)
+    }
+  }
+  return { bySku, byName, byItemId }
+}
+
+/**
+ * @param {object} member - row from item_report_groups (sku, item_id, item_name)
+ * @param {{ bySku: Map, byName: Map, byItemId: Map }} maps
+ * @returns {object | null}
+ */
+function findZohoItemForMember(member, maps) {
+  if (!member || typeof member !== 'object') return null
+  if (member.sku != null && String(member.sku).trim() !== '') {
+    return maps.bySku.get(String(member.sku).trim().toLowerCase()) || null
+  }
+  if (member.item_id != null && String(member.item_id).trim() !== '') {
+    return maps.byItemId.get(String(member.item_id).trim()) || null
+  }
+  if (member.item_name != null && String(member.item_name).trim() !== '') {
+    return maps.byName.get(String(member.item_name).trim().toLowerCase()) || null
+  }
+  return null
+}
+
+/**
+ * Fetches all Zoho items, then for each `item_report_groups` member in order
+ * includes at most one report row if a matching Zoho line exists. Members with
+ * no Zoho item are **omitted** (intersection only).
  *
+ * @param {object[]} members - from listMembersOfGroup
  * @param {string} fromDate
  * @param {string} toDate
- * @returns {Promise<object[]>}
+ * @param {object} [vendorConfig] - passed for future use (per-group policy)
+ * @param {string} [reportGroup] - used to resolve `REPORT_VENDOR_*` / group vendor id
+ * @returns {Promise<{ items: object[], reportMeta: { warnings: string[], transaction_debug?: object } }>}
  */
-async function fetchZohoItemRowsUnfiltered(fromDate, toDate) {
+async function fetchZohoItemRowsForGroupMembers(
+  members,
+  fromDate,
+  toDate,
+  _vendorConfig = null,
+  reportGroup = ''
+) {
+  void _vendorConfig
   const cfg = readZohoConfig()
   if (cfg.code !== 'ok') {
     const e = new Error(
@@ -126,22 +220,122 @@ async function fetchZohoItemRowsUnfiltered(fromDate, toDate) {
   }
   const familyFieldId = cfg.familyCustomFieldId
   const raw = await fetchAllItemsRaw()
+  const maps = buildZohoLookupMaps(raw)
   const out = []
-  for (const row of raw) {
-    if (!row) continue
-    if (row.status && String(row.status).toLowerCase() === 'inactive') continue
-    const sk = typeof row.sku === 'string' ? row.sku.trim() : ''
+  for (const m of members) {
+    const z = findZohoItemForMember(m, maps)
+    if (!z) continue
+    if (z.status && String(z.status).toLowerCase() === 'inactive') continue
+    const sk = typeof z.sku === 'string' ? z.sku.trim() : ''
     if (!sk) continue
-    out.push(zohoItemToReportRow(row, fromDate, toDate, familyFieldId))
+    out.push(zohoItemToPlaceholderReportRow(z, fromDate, toDate, familyFieldId))
   }
-  return out
+
+  if (out.length === 0) {
+    return { items: [], reportMeta: { warnings: [] } }
+  }
+
+  assertReportVendorResolvedIfRequired(reportGroup)
+
+  const warnings = []
+  const onWarning = (w) => {
+    if (w) warnings.push(String(w))
+  }
+
+  const idToSku = buildItemIdToSkuMap(raw)
+  const rv = getResolvedReportVendor(reportGroup)
+
+  if (isReportVendorOptional() && !rv.vendorId && !rv.vendorName) {
+    onWarning(
+      'WEEKLY_REPORT_VENDOR_OPTIONAL=1: no REPORT_VENDOR_ID / group vendor / name — purchases and returned_to_wholesale are 0.'
+    )
+  }
+
+  const [salesR, purchR, vcR] = await Promise.all([
+    getSales(fromDate, toDate, { onWarning }),
+    getPurchases(fromDate, toDate, rv.vendorId, { vendorName: rv.vendorName, onWarning }),
+    getVendorCredits(fromDate, toDate, rv.vendorId, { vendorName: rv.vendorName, onWarning }),
+  ])
+
+  if (salesR.error) {
+    onWarning(`Sales (invoices) not loaded: ${(salesR.error && salesR.error.message) || salesR.error}`)
+  }
+  if (purchR && purchR.error) {
+    onWarning(`Purchases (bills) not loaded: ${(purchR.error && purchR.error.message) || purchR.error}`)
+  }
+  if (vcR && vcR.error) {
+    onWarning(`Vendor credits not loaded: ${(vcR && vcR.error && vcR.error.message) || vcR.error}`)
+  }
+  if (salesR.list_truncated || (purchR && purchR.list_truncated) || (vcR && vcR.list_truncated)) {
+    onWarning('One or more Zoho list endpoints may be incomplete (pagination cap). Narrow the date range if totals look off.')
+  }
+
+  const salesLines = (salesR && salesR.lines) || []
+  const purchLines = (purchR && purchR.lines) || []
+  const retLines = (vcR && vcR.lines) || []
+  const sm = sumLinesToMap(
+    salesLines.map((a) => ({ item_id: a.item_id, name: a.name, quantity: a.quantity })),
+    idToSku
+  )
+  const pm = sumLinesToMap(
+    purchLines.map((a) => ({ item_id: a.item_id, name: a.name, quantity: a.quantity })),
+    idToSku
+  )
+  const rm = sumLinesToMap(
+    retLines.map((a) => ({ item_id: a.item_id, name: a.name, quantity: a.quantity })),
+    idToSku
+  )
+
+  for (const row of out) {
+    applyTransactionMapsToRow(row, sm, pm, rm)
+  }
+
+  const isDevDebug = process.env.NODE_ENV !== 'production' || process.env.WEEKLY_REPORT_VENDOR_DEBUG === '1'
+  const reportMeta = {
+    warnings: [...new Set(warnings)].filter(Boolean),
+  }
+  if (isDevDebug) {
+    const vfa = !!(rv.vendorId || rv.vendorName)
+    reportMeta.transaction_debug = {
+      sales_source_count: salesLines.length,
+      purchases_source_count: purchLines.length,
+      credits_source_count: retLines.length,
+      opening_stock_is_temporary_fallback: true,
+      vendor_filter_applied: vfa,
+      report_vendor: { vendorId: rv.vendorId, vendorName: rv.vendorName, source: rv.source },
+      sales: {
+        list_truncated: !!(salesR && salesR.list_truncated),
+        line_count: (salesR && salesR.line_count) ?? salesLines.length,
+        sample_doc_ids: [...new Set(salesLines.map((l) => l && l.document_id).filter(Boolean))].slice(0, 12),
+      },
+      purchases: {
+        list_truncated: !!(purchR && purchR.list_truncated),
+        line_count: (purchR && purchR.line_count) ?? purchLines.length,
+        sample_doc_ids: [...new Set(purchLines.map((l) => l && l.document_id).filter(Boolean))].slice(0, 12),
+      },
+      returned_to_wholesale: {
+        list_truncated: !!(vcR && vcR.list_truncated),
+        line_count: (vcR && vcR.line_count) ?? retLines.length,
+        sample_doc_ids: [...new Set(retLines.map((l) => l && l.document_id).filter(Boolean))].slice(0, 12),
+      },
+    }
+  }
+
+  return { items: out, reportMeta }
 }
 
 module.exports = {
-  fetchZohoItemRowsUnfiltered,
+  fetchZohoItemRowsForGroupMembers,
   ZOHO_WEEKLY_REPORT_INTEGRATION,
-  sumCurrentLocationStock,
-  pickFamilyValue,
-  // tests
-  _internals: { zohoItemToReportRow, parseQty },
+  /**
+   * @see parseFamilyFromZohoItem
+   */
+  pickFamilyValue: parseFamilyFromZohoItem,
+  _internals: {
+    zohoItemToPlaceholderReportRow,
+    parseZohoStockOnHand,
+    buildZohoLookupMaps,
+    findZohoItemForMember,
+    parseQty,
+  },
 }

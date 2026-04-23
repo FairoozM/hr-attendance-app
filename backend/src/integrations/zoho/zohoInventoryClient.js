@@ -91,4 +91,39 @@ async function listAllItems() {
   return all
 }
 
-module.exports = { zohoApiRequest, listAllItems }
+/**
+ * Paginate a list endpoint that returns a JSON object with an array at `listKey`.
+ * **Assumption:** `page` / `per_page` (default 200) per Zoho Inventory v1.
+ * Large orgs may have many pages — see `docs/weekly-report-zoho-transactions.md`.
+ *
+ * @param {string} path - e.g. `${INVENTORY_V1}/invoices`
+ * @param {string} listKey - response array key, e.g. `invoices`, `bills`, `vendor_credits`
+ * @param {number} [maxPages=500] - safety cap; if reached, `truncated` in result
+ * @returns {Promise<{ rows: object[], truncated: boolean, pages: number }>}
+ */
+async function fetchListPaginated(path, listKey, maxPages = 500) {
+  const c = readZohoConfig()
+  if (c.code !== 'ok') {
+    const e = new Error('Zoho not configured')
+    e.code = 'ZOHO_NOT_CONFIGURED'
+    throw e
+  }
+  const all = []
+  const per = DEFAULT_PER_PAGE
+  for (let page = 1; page <= maxPages; page += 1) {
+    const p = new URLSearchParams()
+    p.set('organization_id', c.organizationId)
+    p.set('page', String(page))
+    p.set('per_page', String(per))
+    const json = await zohoApiRequest(path, p, 'GET')
+    const list = json && json[listKey]
+    const pageItems = Array.isArray(list) ? list : []
+    for (const it of pageItems) all.push(it)
+    if (pageItems.length < per) {
+      return { rows: all, truncated: false, pages: page }
+    }
+  }
+  return { rows: all, truncated: true, pages: maxPages }
+}
+
+module.exports = { zohoApiRequest, listAllItems, fetchListPaginated }

@@ -1,7 +1,8 @@
-const { getInventoryByGroup, getSlowMovingInventory } = require('../services/zohoService')
+const { getInventoryByGroup } = require('../services/zohoService')
 const { listGroupKeys }                               = require('../services/itemReportGroupsService')
 const { sumReportGrandTotals }                        = require('../utils/weeklyReportTotals')
 const { ZOHO_WEEKLY_REPORT_INTEGRATION }              = require('../services/weeklyReportZohoData')
+const { mergeZohoWithVendorContext }                 = require('../services/weeklyReportVendorConfig')
 const {
   buildWeeklyReportXlsxBuffer,
   getExportSheetTitleForGroup,
@@ -29,6 +30,28 @@ function validateDateRange(req, res) {
   return { from_date, to_date }
 }
 
+/**
+ * Single data path for JSON and Excel: Zoho adapter + `item_report_groups` via
+ * `getInventoryByGroup`, then the same `sumReportGrandTotals` the UI and export use.
+ * No separate export-only fetch.
+ */
+async function loadWeeklyReportPayload(group, fromDate, toDate) {
+  const { items, reportMeta } = await getInventoryByGroup(group, fromDate, toDate)
+  const totals = sumReportGrandTotals(items)
+  return { items, totals, reportMeta: reportMeta || { warnings: [] } }
+}
+
+function attachReportMetaToZoho(zohoObj, reportMeta) {
+  const o = { ...zohoObj }
+  if (reportMeta && Array.isArray(reportMeta.warnings) && reportMeta.warnings.length) {
+    o.warnings = reportMeta.warnings
+  }
+  if (reportMeta && reportMeta.transaction_debug) {
+    o.transaction_debug = reportMeta.transaction_debug
+  }
+  return o
+}
+
 function handleZohoError(res, err, ctx) {
   console.error(`[weeklyReports] ${ctx} error:`, err.message)
   switch (err.code) {
@@ -47,6 +70,8 @@ function handleZohoError(res, err, ctx) {
         code: err.code,
         validation_errors: err.validation_errors || [],
       })
+    case 'REPORT_VENDOR_NOT_CONFIGURED':
+      return res.status(400).json({ error: err.message, code: err.code })
     case 'ZOHO_WEBHOOK_HTTP_ERROR':
     case 'ZOHO_WEBHOOK_NETWORK_ERROR':
       return res.status(502).json({ error: err.message, code: err.code })
@@ -104,16 +129,22 @@ async function getReportByGroup(req, res) {
   }
 
   try {
-    // Same `items` / `totals` source as `exportReportByGroupXlsx` (Zoho adapter + item_report_groups).
-    const items  = await getInventoryByGroup(group, range.from_date, range.to_date)
-    const totals = sumReportGrandTotals(items)
+    const { items, totals, reportMeta } = await loadWeeklyReportPayload(
+      group,
+      range.from_date,
+      range.to_date
+    )
+    const zoho = attachReportMetaToZoho(
+      mergeZohoWithVendorContext(ZOHO_WEEKLY_REPORT_INTEGRATION, group),
+      reportMeta
+    )
     return res.json({
       report_group: group,
       from_date:    range.from_date,
       to_date:      range.to_date,
       items,
       totals,
-      zoho: ZOHO_WEEKLY_REPORT_INTEGRATION,
+      zoho,
     })
   } catch (err) {
     return handleZohoError(res, err, `getReportByGroup(${group})`)
@@ -123,22 +154,29 @@ async function getReportByGroup(req, res) {
 /**
  * GET /api/weekly-reports/slow-moving?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD
  *
- * Legacy route — kept for backward compatibility. Delegates to the generic
- * implementation with report_group='slow_moving'. Response shape is unchanged.
+ * Legacy route — kept for backward compatibility. Uses the same
+ * `loadWeeklyReportPayload('slow_moving', …)` as the generic by-group path;
+ * response shape is unchanged (no `report_group` field).
  */
 async function getSlowMovingReport(req, res) {
   const range = validateDateRange(req, res)
   if (!range) return
 
   try {
-    const items  = await getSlowMovingInventory(range.from_date, range.to_date)
-    const totals = sumReportGrandTotals(items)
+    const { items, totals, reportMeta } = await loadWeeklyReportPayload(
+      'slow_moving',
+      range.from_date,
+      range.to_date
+    )
     return res.json({
       from_date: range.from_date,
       to_date:   range.to_date,
       items,
       totals,
-      zoho: ZOHO_WEEKLY_REPORT_INTEGRATION,
+      zoho: attachReportMetaToZoho(
+        mergeZohoWithVendorContext(ZOHO_WEEKLY_REPORT_INTEGRATION, 'slow_moving'),
+        reportMeta
+      ),
     })
   } catch (err) {
     return handleZohoError(res, err, 'getSlowMovingReport')
@@ -147,8 +185,8 @@ async function getSlowMovingReport(req, res) {
 
 /**
  * GET /api/weekly-reports/by-group/:group/export.xlsx?from_date&to_date
- * Same `getInventoryByGroup` + `sumReportGrandTotals` as JSON `getReportByGroup` — only
- * the response format differs (.xlsx vs JSON).
+ * Same `loadWeeklyReportPayload` as JSON `getReportByGroup` — only the response format
+ * differs (.xlsx vs JSON).
  */
 async function exportReportByGroupXlsx(req, res) {
   const { group } = req.params
@@ -169,8 +207,11 @@ async function exportReportByGroupXlsx(req, res) {
   }
 
   try {
-    const items = await getInventoryByGroup(group, range.from_date, range.to_date)
-    const totals = sumReportGrandTotals(items)
+    const { items, totals } = await loadWeeklyReportPayload(
+      group,
+      range.from_date,
+      range.to_date
+    )
     const buffer = await buildWeeklyReportXlsxBuffer({
       sheetTitle: getExportSheetTitleForGroup(group),
       fromDate:   range.from_date,
@@ -195,4 +236,8 @@ module.exports = {
   getReportByGroup,
   getSlowMovingReport,
   exportReportByGroupXlsx,
+  /** @internal debug route + tests — same payload path as public JSON/Excel */
+  loadWeeklyReportPayload,
+  validateDateRange,
+  handleZohoError,
 }

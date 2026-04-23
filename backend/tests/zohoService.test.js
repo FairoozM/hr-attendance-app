@@ -24,11 +24,11 @@ const sampleRows = [
     item_name: 'Item B',
     item_id: '101',
     family: '',
-    opening_stock: null,
-    purchases: null,
-    returned_to_wholesale: null,
+    opening_stock: 3,
+    purchases: 0,
+    returned_to_wholesale: 0,
     closing_stock: 3,
-    sold: null,
+    sold: 0,
   },
 ]
 
@@ -61,13 +61,13 @@ function loadZoho(members = [], opts = {}) {
   }
   if (opts.fetchError) {
     mockModule('../src/services/weeklyReportZohoData', {
-      fetchZohoItemRowsUnfiltered: async () => { throw Object.assign(new Error(opts.fetchError.message), { code: opts.fetchError.code }) },
+      fetchZohoItemRowsForGroupMembers: async () => { throw Object.assign(new Error(opts.fetchError.message), { code: opts.fetchError.code }) },
     })
   } else {
     mockModule('../src/services/weeklyReportZohoData', {
-      fetchZohoItemRowsUnfiltered: async (from, to) => {
+      fetchZohoItemRowsForGroupMembers: async (_members, from, to) => {
         if (from === 'throw' && to === 'throw') throw new Error('bad')
-        return fetchPayload
+        return { items: fetchPayload, reportMeta: { warnings: [] } }
       },
     })
   }
@@ -223,7 +223,7 @@ test('zohoService._internals.buildMatcher matches by SKU first, item_name as leg
 test('zohoService: ZOHO_NOT_CONFIGURED from data layer', async () => {
   clearZohoEnv()
   mockModule('../src/services/weeklyReportZohoData', {
-    fetchZohoItemRowsUnfiltered: async () => {
+    fetchZohoItemRowsForGroupMembers: async () => {
       const e = new Error('Zoho not configured')
       e.code = 'ZOHO_NOT_CONFIGURED'
       throw e
@@ -272,32 +272,32 @@ test('zohoService: empty members short-circuits — fetchZoho is never called', 
     process.env.ZOHO_INVENTORY_ORGANIZATION_ID = '1'
   }
   mockModule('../src/services/weeklyReportZohoData', {
-    fetchZohoItemRowsUnfiltered: async () => {
+    fetchZohoItemRowsForGroupMembers: async () => {
       count += 1
       return sampleRows
     },
   })
   mockModule('../src/services/itemReportGroupsService', { listMembersOfGroup: async () => [], listGroupKeys: async () => ['slow_moving', 'other_family'] })
   const zoho = freshRequire('../src/services/zohoService')
-  const items = await zoho.getInventoryByGroup('slow_moving', '2026-01-01', '2026-01-07')
-  assert.deepEqual(items, [])
+  const r = await zoho.getInventoryByGroup('slow_moving', '2026-01-01', '2026-01-07')
+  assert.deepEqual(r.items, [])
+  assert.ok(r.reportMeta)
   assert.equal(count, 0, 'Zoho data fetch should not run for empty group')
 })
 
-test('zohoService: SKU filter keeps only group members', async () => {
+test('zohoService: intersection (members ∩ Zoho) — mocked data returns only in-group item', async () => {
   const zoho = loadZoho(
     [{ sku: 'A' }],
     { fetchRows: [
       { sku: 'A', item_name: 'A', item_id: '1', family: 'F', opening_stock: 1, purchases: 0, returned_to_wholesale: 0, closing_stock: 1, sold: 0 },
-      { sku: 'Z', item_name: 'Z', item_id: '2', family: 'F', opening_stock: 0, purchases: 0, returned_to_wholesale: 0, closing_stock: 0, sold: 0 },
     ] }
   )
-  const items = await zoho.getInventoryByGroup('slow_moving', '2026-01-01', '2026-01-07')
+  const { items } = await zoho.getInventoryByGroup('slow_moving', '2026-01-01', '2026-01-07')
   assert.equal(items.length, 1)
   assert.equal(items[0].sku, 'A')
 })
 
-test('zohoService: nulls on unfiltered API-style row round-trip for member', async () => {
+test('zohoService: placeholder numbers round-trip for member', async () => {
   const zoho = loadZoho(
     [{ sku: 'B' }],
     { fetchRows: [
@@ -306,19 +306,21 @@ test('zohoService: nulls on unfiltered API-style row round-trip for member', asy
         item_name: 'Item B',
         item_id: '101',
         family: 'X',
-        opening_stock: null,
-        purchases: null,
-        returned_to_wholesale: null,
+        opening_stock: 3,
+        purchases: 0,
+        returned_to_wholesale: 0,
         closing_stock: 3,
-        sold: null,
+        sold: 0,
         _zoho: { from_date: '2026-01-01', to_date: '2026-01-07', family: 'X' },
       },
     ] }
   )
-  const items = await zoho.getInventoryByGroup('slow_moving', '2026-01-01', '2026-01-07')
+  const { items } = await zoho.getInventoryByGroup('slow_moving', '2026-01-01', '2026-01-07')
   assert.equal(items.length, 1)
-  assert.equal(items[0].opening_stock, null)
+  assert.equal(items[0].opening_stock, 3)
   assert.equal(items[0].closing_stock, 3)
+  assert.equal(items[0].purchases, 0)
+  assert.equal(items[0].sold, 0)
   assert.equal(items[0].family, 'X')
   assert.equal(items[0]._zoho.family, 'X')
   assert.equal(items[0]._zoho.from_date, '2026-01-01')
