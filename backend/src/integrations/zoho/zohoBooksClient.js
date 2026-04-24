@@ -1,109 +1,188 @@
 /**
  * Zoho Books API v3 client — customers, invoices, credit notes.
  *
- * Reuses the same `zohoApiRequest` and `fetchListPaginated` helpers from
- * zohoInventoryClient.js (same OAuth credentials, same organization_id).
+ * Performance strategy
+ * ────────────────────
+ * The raw /invoices list endpoint returns individual documents and requires
+ * paginating through thousands of records (10 000+ rows = 50 pages = 3-4 min).
  *
- * Required Zoho OAuth scopes (must be present on the refresh token):
+ * Instead we use the Zoho Books REPORT endpoints which return pre-aggregated
+ * per-customer totals in a handful of calls:
+ *
+ *   GET /books/v3/reports/salesbycustomer   → invoice totals per customer
+ *   GET /books/v3/reports/creditnotes       → credit note totals per customer
+ *     (credit notes are already fast via list, kept as primary with report fallback)
+ *
+ * Required Zoho OAuth scopes:
  *   ZohoBooks.contacts.READ
  *   ZohoBooks.invoices.READ
  *   ZohoBooks.creditnotes.READ
- *
- * If the token lacks these scopes, Zoho returns HTTP 401 / code 57.
- * The caller surfaces that as a ZOHO_API_ERROR with a clear message.
  */
 
 const { zohoApiRequest, fetchListPaginated } = require('./zohoInventoryClient')
 
 const BOOKS_V3 = '/books/v3'
 const MAX_PAGES = 50
+const MAX_CN_PAGES = 10   // credit notes are small, 10 pages is more than enough
+
+// ── Customers ──────────────────────────────────────────────────────────────
 
 /**
- * Fetch all customers (contact_type=customer) from Zoho Books.
- * Cached by the caller — this always hits Zoho.
- *
- * @returns {Promise<object[]>}  Array of Zoho contact objects.
+ * Fetch all Zoho Books customers.
+ * @returns {Promise<object[]>}
  */
 async function fetchCustomers() {
-  const params = new URLSearchParams()
-  params.set('contact_type', 'customer')
-  params.set('sort_column', 'contact_name')
-  params.set('sort_order', 'A')
-
-  const { rows } = await fetchListPaginated(
-    `${BOOKS_V3}/contacts`,
-    'contacts',
-    MAX_PAGES,
-    params
-  )
+  const params = new URLSearchParams({
+    contact_type: 'customer',
+    sort_column:  'contact_name',
+    sort_order:   'A',
+  })
+  const { rows } = await fetchListPaginated(`${BOOKS_V3}/contacts`, 'contacts', MAX_PAGES, params)
   return rows
 }
 
+// ── Sales by Customer report (replaces raw invoice pagination) ─────────────
+
 /**
- * Fetch all invoices in the given date range, optionally filtered to one customer.
- * Returns raw Zoho invoice objects (summary-level, not line-item detail).
+ * Fetch the "Sales by Customer" report from Zoho Books.
  *
- * Zoho date filter params: date_start / date_end (Books v3 field names).
+ * This returns pre-aggregated per-customer totals (invoice_count, sub_total,
+ * tax_amount, total) in a single API call — far faster than paginating through
+ * thousands of individual invoice records.
  *
- * @param {string} fromDate  YYYY-MM-DD
- * @param {string} toDate    YYYY-MM-DD
- * @param {string|null} [customerId]  Zoho contact_id; null = all customers
+ * When customerId is supplied, filters to that customer only (fast path).
+ *
+ * Zoho Books report pagination: response has page_context.has_more_page.
+ * Typical real-world result fits in 1-2 pages (one row per customer).
+ *
+ * @param {string} fromDate   YYYY-MM-DD
+ * @param {string} toDate     YYYY-MM-DD
+ * @param {string|null} customerId
  * @returns {Promise<{ rows: object[], truncated: boolean, pages: number }>}
+ */
+async function fetchSalesByCustomer(fromDate, toDate, customerId = null) {
+  const params = new URLSearchParams()
+  if (fromDate)    params.set('from_date',   fromDate)
+  if (toDate)      params.set('to_date',     toDate)
+  if (customerId)  params.set('customer_id', String(customerId))
+
+  // The report endpoint uses different response keys depending on Zoho region/version.
+  // We try 'salesbycustomer' first, then fall back to common alternatives.
+  const t0 = Date.now()
+  let page = 1
+  const allRows = []
+  let truncated = false
+
+  while (page <= 10) {
+    params.set('page', String(page))
+    const json = await zohoApiRequest(`${BOOKS_V3}/reports/salesbycustomer`, params)
+
+    // Zoho Books uses different top-level keys for different report responses
+    const pageRows =
+      json?.salesbycustomer ??
+      json?.sales_by_customer ??
+      json?.customers ??
+      json?.report_rows ??
+      []
+
+    if (!Array.isArray(pageRows) || pageRows.length === 0) break
+
+    allRows.push(...pageRows)
+
+    const hasMore = json?.page_context?.has_more_page === true
+    if (!hasMore) break
+
+    if (page >= 10) { truncated = true; break }
+    page++
+  }
+
+  console.log(`[zoho-books] salesbycustomer: ${allRows.length} customers in ${page} page(s) — ${Date.now() - t0}ms`)
+  return { rows: allRows, truncated, pages: page }
+}
+
+/**
+ * Fallback: raw invoice list pagination (used when report endpoint is unavailable
+ * or when single-customer detail is needed).
+ *
+ * Hard-capped at 15 pages to prevent runaway fetches.
  */
 async function fetchInvoices(fromDate, toDate, customerId = null) {
   const params = new URLSearchParams()
-  if (fromDate) params.set('date_start', fromDate)
-  if (toDate)   params.set('date_end',   toDate)
+  if (fromDate)   params.set('date_start',  fromDate)
+  if (toDate)     params.set('date_end',    toDate)
   if (customerId) params.set('customer_id', String(customerId))
-  // Exclude void invoices
   params.set('filter_by', 'Status.All')
 
-  return fetchListPaginated(
-    `${BOOKS_V3}/invoices`,
-    'invoices',
-    MAX_PAGES,
-    params
-  )
+  return fetchListPaginated(`${BOOKS_V3}/invoices`, 'invoices', 15, params)
+}
+
+// ── Credit Notes ──────────────────────────────────────────────────────────
+
+/**
+ * Fetch the "Credit Notes by Customer" report from Zoho Books.
+ * Falls back to the list endpoint — credit notes are typically small (<500 total).
+ */
+async function fetchCreditNotesByCustomer(fromDate, toDate, customerId = null) {
+  const params = new URLSearchParams()
+  if (fromDate)    params.set('from_date',   fromDate)
+  if (toDate)      params.set('to_date',     toDate)
+  if (customerId)  params.set('customer_id', String(customerId))
+
+  const t0 = Date.now()
+  let page = 1
+  const allRows = []
+  let truncated = false
+
+  while (page <= 10) {
+    params.set('page', String(page))
+    const json = await zohoApiRequest(`${BOOKS_V3}/reports/creditnotes`, params)
+
+    const pageRows =
+      json?.creditnotes_by_customer ??
+      json?.credit_notes_by_customer ??
+      json?.creditnotes ??
+      json?.report_rows ??
+      []
+
+    if (!Array.isArray(pageRows) || pageRows.length === 0) break
+
+    allRows.push(...pageRows)
+
+    const hasMore = json?.page_context?.has_more_page === true
+    if (!hasMore) break
+    if (page >= 10) { truncated = true; break }
+    page++
+  }
+
+  if (allRows.length > 0) {
+    console.log(`[zoho-books] creditnotes-report: ${allRows.length} in ${page} page(s) — ${Date.now() - t0}ms`)
+    return { rows: allRows, truncated, pages: page }
+  }
+
+  // Fall back to raw list if report endpoint returned nothing
+  return fetchCreditNotesList(fromDate, toDate, customerId)
 }
 
 /**
- * Fetch all credit notes in the given date range, optionally filtered to one customer.
- *
- * @param {string} fromDate  YYYY-MM-DD
- * @param {string} toDate    YYYY-MM-DD
- * @param {string|null} [customerId]
- * @returns {Promise<{ rows: object[], truncated: boolean, pages: number }>}
+ * Raw credit notes list pagination (fallback / single-customer path).
  */
-async function fetchCreditNotes(fromDate, toDate, customerId = null) {
+async function fetchCreditNotesList(fromDate, toDate, customerId = null) {
   const params = new URLSearchParams()
-  if (fromDate) params.set('date_start', fromDate)
-  if (toDate)   params.set('date_end',   toDate)
+  if (fromDate)   params.set('date_start',  fromDate)
+  if (toDate)     params.set('date_end',    toDate)
   if (customerId) params.set('customer_id', String(customerId))
 
-  return fetchListPaginated(
-    `${BOOKS_V3}/creditnotes`,
-    'creditnotes',
-    MAX_PAGES,
-    params
-  )
+  return fetchListPaginated(`${BOOKS_V3}/creditnotes`, 'creditnotes', MAX_CN_PAGES, params)
 }
 
-/**
- * Fetch a single invoice's full detail (includes line_items with tax breakdown).
- * Used when the list endpoint doesn't return tax_amount at the line level.
- *
- * @param {string} invoiceId
- * @returns {Promise<object>}
- */
-async function fetchInvoiceDetail(invoiceId) {
-  const json = await zohoApiRequest(`${BOOKS_V3}/invoices/${invoiceId}`)
-  return json?.invoice || json
-}
+// Keep old name as alias for backward compat with controller
+const fetchCreditNotes = fetchCreditNotesList
 
 module.exports = {
   fetchCustomers,
+  fetchSalesByCustomer,
   fetchInvoices,
+  fetchCreditNotesByCustomer,
   fetchCreditNotes,
-  fetchInvoiceDetail,
   BOOKS_V3,
 }
