@@ -236,9 +236,9 @@ export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate,
                   <th className="war-th wsr-th--sr">SR. NO</th>
                   <th className="war-th wsr-th--item">FAMILY</th>
                   <th className="war-th">Opening Stock</th>
-                  <th className="war-th">Closing Stock</th>
                   <th className="war-th">Purchase Amount</th>
                   <th className="war-th">Returned to Wholesale</th>
+                  <th className="war-th">Closing Stock</th>
                   <th className="war-th">Sales Amount</th>
                 </tr>
               </thead>
@@ -261,9 +261,9 @@ export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate,
                     <td className="war-td wsr-td--sr">{idx + 1}</td>
                     <td className="war-td wsr-td--item">{it.family || '—'}</td>
                     <td className="war-td">{formatCurrency(it.opening_stock)}</td>
-                    <td className="war-td">{formatCurrency(it.closing_stock)}</td>
                     <td className="war-td">{formatCurrency(it.purchase_amount)}</td>
                     <td className="war-td">{formatCurrency(it.returned_to_wholesale)}</td>
+                    <td className="war-td">{formatCurrency(it.closing_stock)}</td>
                     <td className="war-td">{formatCurrency(it.sales_amount)}</td>
                   </tr>
                 ))}
@@ -274,9 +274,9 @@ export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate,
                     <td className="war-td wsr-td--sr" />
                     <td className="war-td wsr-td--item">Grand Total</td>
                     <td className="war-td">{formatCurrency(grandTotal.opening_stock)}</td>
-                    <td className="war-td">{formatCurrency(grandTotal.closing_stock)}</td>
                     <td className="war-td">{formatCurrency(grandTotal.purchase_amount)}</td>
                     <td className="war-td">{formatCurrency(grandTotal.returned_to_wholesale)}</td>
+                    <td className="war-td">{formatCurrency(grandTotal.closing_stock)}</td>
                     <td className="war-td">{formatCurrency(grandTotal.sales_amount)}</td>
                   </tr>
                 </tfoot>

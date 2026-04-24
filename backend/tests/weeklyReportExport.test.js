@@ -210,7 +210,7 @@ test('buildWeeklyReportXlsxBuffer: _zoho metadata on items does not affect colum
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(buf)
   assert.equal(String(wb.getWorksheet('Report').getCell('B5').value), 'F')
-  assert.equal(Number(wb.getWorksheet('Report').getCell('D5').value), 5) // closing_stock
+  assert.equal(Number(wb.getWorksheet('Report').getCell('F5').value), 5) // closing_stock (after purchase / returns)
 })
 
 test('buildWeeklyReportXlsxBuffer: special characters in item name round-trip', async () => {

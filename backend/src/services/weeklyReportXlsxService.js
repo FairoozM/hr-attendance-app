@@ -23,9 +23,9 @@ const WEEKLY_STOCK_MOVEMENT_XLSX_COLUMNS = [
     grandTotalText: 'Grand Total',
   },
   { header: 'Opening Stock', width: 16, type: 'sum', key: 'opening_stock', numFmt: WEEKLY_REPORT_CURRENCY_NUMFMT },
-  { header: 'Closing Stock', width: 16, type: 'sum', key: 'closing_stock', numFmt: WEEKLY_REPORT_CURRENCY_NUMFMT },
   { header: 'Purchase Amount', width: 18, type: 'sum', key: 'purchase_amount', numFmt: WEEKLY_REPORT_CURRENCY_NUMFMT },
   { header: 'Returned to Wholesale', width: 24, type: 'sum', key: 'returned_to_wholesale', numFmt: WEEKLY_REPORT_CURRENCY_NUMFMT },
+  { header: 'Closing Stock', width: 16, type: 'sum', key: 'closing_stock', numFmt: WEEKLY_REPORT_CURRENCY_NUMFMT },
   { header: 'Sales Amount', width: 18, type: 'sum', key: 'sales_amount', numFmt: WEEKLY_REPORT_CURRENCY_NUMFMT },
 ]
 
