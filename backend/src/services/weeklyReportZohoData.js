@@ -6,7 +6,8 @@
  * is display metadata. On-hand **quantities** come from Items; period movement (sold, purchases, returns) from
  * reports and vendor credits. The API then exposes **monetary** opening / closing and **purchase**
  * (period purchase qty × Zoho `rate`, same sales price as stock) plus sales $ from the sales report, etc.
- * If `rate` is missing or not positive, opening / closing and purchase $ (when qty &gt; 0) are `null`;
+ * If no unit can be resolved (Zoho `rate` / `purchase_rate`, or implied `sales_amount/sold` for the
+ * item), opening / closing and purchase $ (when period purchase qty is positive) are `null`;
  * return $ uses vendor line total when present, else qty × `rate` with the same rule.
  */
 
@@ -165,9 +166,7 @@ function parseZohoStockOnHand(item) {
 }
 
 /**
- * Per-unit **selling** (sales) price from the Zoho Inventory item. Uses `rate` only
- * (not `purchase_rate`). If missing or not positive, returns `null` (caller leaves
- * stock value fields unset).
+ * Per-unit **selling** (list) price from the Zoho Inventory item (`rate`).
  * @param {object} item
  * @returns {number|null}
  */
@@ -180,6 +179,44 @@ function parseZohoUnitSalesPrice(item) {
 }
 
 /**
+ * Zoho `purchase_rate` (cost) when the selling `rate` is empty — many orgs only fill one of them.
+ * @param {object} item
+ * @returns {number|null}
+ */
+function parseZohoUnitPurchasePrice(item) {
+  if (!item || typeof item !== 'object') return null
+  const r = item.purchase_rate
+  if (r == null || r === '') return null
+  const n = parseQty(r)
+  return n > 0 && Number.isFinite(n) ? n : null
+}
+
+/**
+ * Picks a positive unit price to turn quantities into $ for the weekly report: selling rate,
+ * else purchase cost, else **implied** average from period `sales_amount / sold` (same item).
+ * The implied path fixes rows where Zoho has sales but no item-level rate (e.g. LIFEP* SKUs).
+ *
+ * @param {object | null} item  raw Zoho item (from GET /items) or null
+ * @param {{ sold?: number, sales_amount?: number }} row  same row after `applyTransactionMapsToRow`
+ * @returns {number|null}
+ */
+function resolveUnitPriceForStockValuation(item, row) {
+  if (item && typeof item === 'object') {
+    const a = parseZohoUnitSalesPrice(item)
+    if (a != null) return a
+    const b = parseZohoUnitPurchasePrice(item)
+    if (b != null) return b
+  }
+  const s = Number(row.sold) || 0
+  const amt = Number(row.sales_amount) || 0
+  if (s > 0 && amt > 0) {
+    const u = amt / s
+    return u > 0 && Number.isFinite(u) ? u : null
+  }
+  return null
+}
+
+/**
  * @param {object} zohoItem
  * @param {string} fromDate
  * @param {string} toDate
@@ -189,7 +226,7 @@ function parseZohoUnitSalesPrice(item) {
 function zohoItemToPlaceholderReportRow(zohoItem, fromDate, toDate, familyFieldId) {
   const n = normalizeZohoInventoryItem(zohoItem, familyFieldId)
   const sh = parseZohoStockOnHand(zohoItem)
-  const unitSales = parseZohoUnitSalesPrice(zohoItem)
+  const unitSales = parseZohoUnitSalesPrice(zohoItem) ?? parseZohoUnitPurchasePrice(zohoItem)
   // stock fields are **quantities** until the value pass in `fetchZohoItemRowsForGroupMembers`
   return {
     sku: n.sku,
@@ -314,6 +351,7 @@ const NOT_FOUND_IN_GROUPS_SUFFIX = ' (not found in groups)'
 function aggregateByFamily(itemRows) {
   /** @type {Map<string, object>} family (lowercase key) → accumulator */
   const map = new Map()
+  const isUsable = (v) => v != null && !Number.isNaN(Number(v))
   for (const row of itemRows) {
     const familyDisplay = row._familyDisplayOverride || row.family || '(no family)'
     const key = familyDisplay.toLowerCase()
@@ -326,45 +364,41 @@ function aggregateByFamily(itemRows) {
         sales_amount: 0,
         purchase_amount: 0,
         returned_to_wholesale: 0,
-        _openingNull: false,
-        _closingNull: false,
-        _returnedNull: false,
-        _purchaseNull: false,
+        _openingN: 0,
+        _closingN: 0,
+        _returnedN: 0,
+        _purchaseN: 0,
       }
       map.set(key, acc)
     }
-    if (row.opening_stock == null || Number.isNaN(Number(row.opening_stock))) {
-      acc._openingNull = true
-    } else {
+    if (isUsable(row.opening_stock)) {
       acc.opening_stock += Number(row.opening_stock)
+      acc._openingN += 1
     }
-    if (row.closing_stock == null || Number.isNaN(Number(row.closing_stock))) {
-      acc._closingNull = true
-    } else {
+    if (isUsable(row.closing_stock)) {
       acc.closing_stock += Number(row.closing_stock)
+      acc._closingN += 1
     }
-    if (row.returned_to_wholesale == null || Number.isNaN(Number(row.returned_to_wholesale))) {
-      acc._returnedNull = true
-    } else {
+    if (isUsable(row.returned_to_wholesale)) {
       acc.returned_to_wholesale += Number(row.returned_to_wholesale)
+      acc._returnedN += 1
     }
-    if (row.purchase_amount == null || Number.isNaN(Number(row.purchase_amount))) {
-      acc._purchaseNull = true
-    } else {
+    if (isUsable(row.purchase_amount)) {
       acc.purchase_amount += Number(row.purchase_amount)
+      acc._purchaseN += 1
     }
     acc.sales_amount += row.sales_amount || 0
   }
   const out = []
   for (const acc of map.values()) {
-    if (acc._openingNull) acc.opening_stock = null
-    if (acc._closingNull) acc.closing_stock = null
-    if (acc._returnedNull) acc.returned_to_wholesale = null
-    if (acc._purchaseNull) acc.purchase_amount = null
-    delete acc._openingNull
-    delete acc._closingNull
-    delete acc._returnedNull
-    delete acc._purchaseNull
+    if (acc._openingN === 0) acc.opening_stock = null
+    if (acc._closingN === 0) acc.closing_stock = null
+    if (acc._returnedN === 0) acc.returned_to_wholesale = null
+    if (acc._purchaseN === 0) acc.purchase_amount = null
+    delete acc._openingN
+    delete acc._closingN
+    delete acc._returnedN
+    delete acc._purchaseN
     out.push(acc)
   }
   return out.sort((a, b) => a.family.localeCompare(b.family))
@@ -555,6 +589,15 @@ async function fetchZohoItemRowsForGroupMembers(
   }
 
   const idToSku = buildItemIdToSkuMap(raw)
+  /** @type {Map<string, object>} */
+  const skuToZohoItem = new Map()
+  if (Array.isArray(raw)) {
+    for (const it of raw) {
+      if (it && it.sku && String(it.sku).trim() !== '') {
+        skuToZohoItem.set(String(it.sku).trim().toLowerCase(), it)
+      }
+    }
+  }
 
   if (salesR.error) {
     onWarning(`Sales (invoices) not loaded: ${(salesR.error && salesR.error.message) || salesR.error}`)
@@ -598,7 +641,10 @@ async function fetchZohoItemRowsForGroupMembers(
   }
 
   for (const row of out) {
-    const praw = row._unit_sales_price
+    const zItem = row.sku
+      ? skuToZohoItem.get(String(row.sku).trim().toLowerCase()) || null
+      : null
+    const praw = resolveUnitPriceForStockValuation(zItem, row)
     const canValueStock = praw != null && Number.isFinite(praw) && praw > 0
     const unit = canValueStock ? praw : null
     const qC = Number(row.closing_stock) || 0
@@ -680,6 +726,8 @@ module.exports = {
     zohoItemToPlaceholderReportRow,
     parseZohoStockOnHand,
     parseZohoUnitSalesPrice,
+    parseZohoUnitPurchasePrice,
+    resolveUnitPriceForStockValuation,
     buildZohoLookupMaps,
     findZohoItemForMember,
     findZohoItemsForMember,
