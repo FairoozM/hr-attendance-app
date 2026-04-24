@@ -93,10 +93,9 @@ export function useKsaVatReport({ fromDate, toDate, customerId = null }) {
   const [loading, setLoading]           = useState(false)
   const [error, setError]               = useState(null)
   const [notConfigured, setNotConfigured] = useState(false)
-
   const abortRef = useRef(null)
 
-  const fetchReport = useCallback(async () => {
+  const fetchReport = useCallback(async (opts = {}) => {
     if (!user || !fromDate || !toDate) {
       setInvoices([])
       setCreditNotes([])
@@ -119,6 +118,7 @@ export function useKsaVatReport({ fromDate, toDate, customerId = null }) {
       if (customerId && String(customerId).trim() !== '') {
         qsParams.customer_id = String(customerId).trim()
       }
+      if (opts.bust) qsParams.bust = '1'
       const qs   = new URLSearchParams(qsParams).toString()
       const data = await api.get(`/api/taxation/vat/report?${qs}`, { signal: controller.signal })
 
@@ -158,6 +158,7 @@ export function useKsaVatReport({ fromDate, toDate, customerId = null }) {
     loading,
     error,
     notConfigured,
-    refetch: fetchReport,
+    refetch:     () => fetchReport(),
+    refetchBust: () => fetchReport({ bust: true }),
   }
 }

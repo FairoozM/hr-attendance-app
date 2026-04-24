@@ -90,12 +90,16 @@ function parseNum(v) {
 /**
  * Normalise a raw Zoho Books invoice or credit note row.
  *
- * VAT is ALWAYS calculated at the KSA rate (15%) of sub_total.
- * Zoho Books does not store VAT amounts for this organisation, so we
- * never trust tax_total — we derive it ourselves.
- *   taxable_amount = sub_total
- *   tax_amount     = sub_total × 15%
- *   total          = sub_total × 1.15
+ * VAT is ALWAYS calculated at the KSA rate (15%) of the taxable amount.
+ * Zoho Books does not store VAT amounts for this organisation (tax_total=0),
+ * so total = sub_total on every Zoho record.
+ *
+ * The invoice LIST endpoint often omits sub_total, so we fall back to total
+ * (safe because total == sub_total when no tax is recorded).
+ *
+ *   taxable_amount = sub_total  (or row.total when sub_total absent)
+ *   tax_amount     = taxable × 15%
+ *   gross_total    = taxable × 1.15
  */
 function normaliseRow(row) {
   const status = row.status ? String(row.status).toLowerCase() : ''
@@ -104,7 +108,9 @@ function normaliseRow(row) {
   const customerId   = row.customer_id   || row.contact_id  || ''
   const customerName = row.customer_name || row.contact_name || 'Unknown'
 
-  const subTotal  = parseNum(row.sub_total ?? row.amount_before_tax ?? 0)
+  // Prefer sub_total; fall back to total (they're equal when no VAT is recorded)
+  const zohoTotal = parseNum(row.total ?? row.invoice_total ?? row.creditnote_total ?? 0)
+  const subTotal  = parseNum(row.sub_total ?? row.amount_before_tax ?? zohoTotal)
   const taxAmount = subTotal * KSA_VAT_RATE
   const total     = subTotal + taxAmount
 
@@ -178,6 +184,12 @@ async function getVatReport(req, res) {
   const customerId = req.query.customer_id && String(req.query.customer_id).trim() !== ''
     ? String(req.query.customer_id).trim()
     : null
+
+  // Allow cache-busting from the Refresh button
+  if (req.query.bust === '1') {
+    const key = makeVatKey(range.from_date, range.to_date, customerId)
+    _vatCache.delete(key)
+  }
 
   try {
     const result = await getCachedVatReport(range.from_date, range.to_date, customerId, async () => {

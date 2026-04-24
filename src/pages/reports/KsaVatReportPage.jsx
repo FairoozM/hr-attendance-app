@@ -170,7 +170,7 @@ export function KsaVatReportPage() {
 
   const {
     invoices, creditNotes, totals, meta,
-    loading, error, notConfigured, refetch,
+    loading, error, notConfigured, refetch, refetchBust,
   } = useKsaVatReport({ fromDate, toDate, customerId: customerId || null })
 
   const handleFromChange     = useCallback((e) => setFromDate(e.target.value), [])
@@ -283,7 +283,7 @@ export function KsaVatReportPage() {
             <button
               type="button"
               className="war-btn war-btn--ghost war-btn--sm"
-              onClick={() => { refreshCustomers(); refetch() }}
+              onClick={() => { refreshCustomers(); refetchBust() }}
               disabled={loading || !datesValid}
             >
               {loading ? 'Loading…' : 'Refresh'}
