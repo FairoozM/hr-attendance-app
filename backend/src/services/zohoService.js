@@ -215,7 +215,9 @@ function buildMatcher(members) {
  */
 async function getInventoryByGroup(group, fromDate, toDate, warehouseId = null) {
   const members = await listMembersOfGroup(group)
-  if (members.length === 0) {
+  // other_family: still call Zoho so we can list families that exist in Zoho but have no
+  // item_report_groups row, with a "(not found in groups)" label (see weeklyReportZohoData).
+  if (members.length === 0 && group !== 'other_family') {
     return { items: [], reportMeta: { warnings: [] } }
   }
 

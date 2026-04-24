@@ -309,11 +309,13 @@ function findZohoItemForMember(member, maps) {
  * @param {object[]} itemRows - output of the main item-matching loop
  * @returns {object[]} one row per distinct family value, sorted by family name
  */
+const NOT_FOUND_IN_GROUPS_SUFFIX = ' (not found in groups)'
+
 function aggregateByFamily(itemRows) {
   /** @type {Map<string, object>} family (lowercase key) → accumulator */
   const map = new Map()
   for (const row of itemRows) {
-    const familyDisplay = row.family || '(no family)'
+    const familyDisplay = row._familyDisplayOverride || row.family || '(no family)'
     const key = familyDisplay.toLowerCase()
     let acc = map.get(key)
     if (!acc) {
@@ -456,7 +458,24 @@ async function fetchZohoItemRowsForGroupMembers(
   }
 
   const maps = buildZohoLookupMaps(raw, familyFieldId)
+
+  /** Zoho family keys (lowercase) matched by at least one item_report_groups member for this run */
+  const claimedFamilyKeys = new Set()
+  if (reportGroup === 'other_family') {
+    for (const m of members) {
+      const zohoMatches = findZohoItemsForMember(m, maps)
+      for (const z of zohoMatches) {
+        if (z.status && String(z.status).toLowerCase() === 'inactive') continue
+        const fam = parseFamilyFromZohoItem(z, familyFieldId)
+        if (fam && String(fam).trim() !== '') {
+          claimedFamilyKeys.add(String(fam).trim().toLowerCase())
+        }
+      }
+    }
+  }
+
   const out = []
+  const includedItemSkus = new Set()
   const skipReasons = []
   for (const m of members) {
     const label = m.sku || m.item_name || m.item_id || '?'
@@ -473,7 +492,34 @@ async function fetchZohoItemRowsForGroupMembers(
         skipReasons.push(`"${z.name || label}" — no SKU in Zoho`)
         continue
       }
+      includedItemSkus.add(String(sk).trim().toLowerCase())
       out.push(zohoItemToPlaceholderReportRow(z, fromDate, toDate, familyFieldId))
+    }
+  }
+
+  // other_family: include every Zoho family that was not covered by any DB mapping, with a clear label
+  if (reportGroup === 'other_family' && maps.byFamily && maps.byFamily.size > 0) {
+    let addedUnmapped = 0
+    for (const [fk, famItems] of maps.byFamily) {
+      if (claimedFamilyKeys.has(fk)) continue
+      for (const z of famItems) {
+        if (z.status && String(z.status).toLowerCase() === 'inactive') continue
+        const sk = typeof z.sku === 'string' ? z.sku.trim() : ''
+        if (!sk) continue
+        const skL = String(sk).trim().toLowerCase()
+        if (includedItemSkus.has(skL)) continue
+        const row = zohoItemToPlaceholderReportRow(z, fromDate, toDate, familyFieldId)
+        const base = (row.family && String(row.family).trim()) || fk
+        row._familyDisplayOverride = `${base}${NOT_FOUND_IN_GROUPS_SUFFIX}`
+        out.push(row)
+        includedItemSkus.add(skL)
+        addedUnmapped += 1
+      }
+    }
+    if (addedUnmapped > 0) {
+      console.log(
+        `[weekly-report] group "other_family": +${addedUnmapped} Zoho item row(s) from families not in item_report_groups (label: …${NOT_FOUND_IN_GROUPS_SUFFIX})`
+      )
     }
   }
 
@@ -623,6 +669,7 @@ async function fetchZohoItemRowsForGroupMembers(
 }
 
 module.exports = {
+  NOT_FOUND_IN_GROUPS_SUFFIX,
   fetchZohoItemRowsForGroupMembers,
   ZOHO_WEEKLY_REPORT_INTEGRATION,
   /**
@@ -638,5 +685,6 @@ module.exports = {
     findZohoItemsForMember,
     aggregateByFamily,
     parseQty,
+    NOT_FOUND_IN_GROUPS_SUFFIX,
   },
 }

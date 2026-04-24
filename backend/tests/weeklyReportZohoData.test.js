@@ -169,3 +169,80 @@ test('fetchZohoItemRowsForGroupMembers: no sales rate — stock value null, VC l
   assert.equal(totals.closing_stock, null)
   assert.equal(totals.returned_to_wholesale, 4.5)
 })
+
+test('fetchZohoItemRowsForGroupMembers: other_family adds Zoho families not in item_report_groups with label', async (t) => {
+  const prevN = process.env.NODE_ENV
+  const prevR = process.env.REPORT_VENDOR_ID
+  const prevJ = process.env.WEEKLY_REPORT_VENDORS_JSON
+  const prevC = process.env.WEEKLY_REPORT_VENDOR_CREDITS_CONTACT_ID
+  process.env.NODE_ENV = 'test'
+  process.env.REPORT_VENDOR_ID = VENDOR
+  delete process.env.WEEKLY_REPORT_VENDORS_JSON
+  delete process.env.WEEKLY_REPORT_VENDOR_CREDITS_CONTACT_ID
+  const salesLines = [
+    { item_id: '1', name: 'A', quantity: 0, item_total: 0, document_id: 'i0' },
+    { item_id: '2', name: 'B', quantity: 0, item_total: 0, document_id: 'i0' },
+  ]
+  const noLines = []
+  const r1 = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: 'cf1' }),
+    orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
+  })
+  const r2 = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchAllItemsRaw: async () => [
+      {
+        sku: 'S1',
+        name: 'A',
+        item_id: '1',
+        status: 'active',
+        stock_on_hand: 3,
+        rate: 1,
+        custom_fields: [{ customfield_id: 'cf1', value: 'MappedFam', label: 'Family' }],
+      },
+      {
+        sku: 'S2',
+        name: 'B',
+        item_id: '2',
+        status: 'active',
+        stock_on_hand: 2,
+        rate: 1,
+        custom_fields: [{ customfield_id: 'cf1', value: 'OrphanFam', label: 'Family' }],
+      },
+    ],
+  })
+  const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
+    getSales: async () => ({ lines: salesLines, line_count: salesLines.length, list_truncated: false, error: null }),
+    getPurchases: async () => ({ lines: noLines, line_count: 0, list_truncated: false, error: null }),
+    getVendorCredits: async () => ({ lines: noLines, line_count: 0, list_truncated: false, error: null }),
+  })
+  t.after(() => {
+    r1()
+    r2()
+    r3()
+    if (prevN === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = prevN
+    if (prevR === undefined) delete process.env.REPORT_VENDOR_ID
+    else process.env.REPORT_VENDOR_ID = prevR
+    if (prevJ === undefined) delete process.env.WEEKLY_REPORT_VENDORS_JSON
+    else process.env.WEEKLY_REPORT_VENDORS_JSON = prevJ
+    if (prevC === undefined) delete process.env.WEEKLY_REPORT_VENDOR_CREDITS_CONTACT_ID
+    else process.env.WEEKLY_REPORT_VENDOR_CREDITS_CONTACT_ID = prevC
+    const resolved = require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })
+    delete require.cache[resolved]
+  })
+  const m = freshRequire('../src/services/weeklyReportZohoData')
+  const { items } = await m.fetchZohoItemRowsForGroupMembers(
+    [{ item_name: 'mappedfam' }],
+    '2026-01-01',
+    '2026-01-31',
+    null,
+    'other_family'
+  )
+  const names = items.map((r) => r.family).sort()
+  assert.equal(items.length, 2)
+  assert.ok(names.includes('MappedFam'), 'DB-mapped family appears as its Zoho name')
+  assert.ok(
+    names.some((n) => n === 'OrphanFam (not found in groups)'),
+    'Zoho-only family includes suffix from NOT_FOUND_IN_GROUPS'
+  )
+})

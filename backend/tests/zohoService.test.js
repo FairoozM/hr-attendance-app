@@ -263,7 +263,7 @@ test('zohoService: row missing sku in fetch payload → WEBHOOK_INVALID_RESPONSE
   )
 })
 
-test('zohoService: empty members short-circuits — fetchZoho is never called', async () => {
+test('zohoService: empty members short-circuits — fetchZoho is never called (except other_family)', async () => {
   let count = 0
   clearZohoEnv()
   if (!process.env.ZOHO_CLIENT_ID) {
@@ -275,7 +275,7 @@ test('zohoService: empty members short-circuits — fetchZoho is never called', 
   mockModule('../src/services/weeklyReportZohoData', {
     fetchZohoItemRowsForGroupMembers: async () => {
       count += 1
-      return sampleRows
+      return { items: sampleRows, reportMeta: { warnings: [] } }
     },
   })
   mockModule('../src/services/itemReportGroupsService', { listMembersOfGroup: async () => [], listGroupKeys: async () => ['slow_moving', 'other_family'] })
@@ -284,6 +284,14 @@ test('zohoService: empty members short-circuits — fetchZoho is never called', 
   assert.deepEqual(r.items, [])
   assert.ok(r.reportMeta)
   assert.equal(count, 0, 'Zoho data fetch should not run for empty group')
+
+  const r2 = await zoho.getInventoryByGroup('other_family', '2026-01-01', '2026-01-07')
+  assert.equal(
+    r2.items.length,
+    sampleRows.length,
+    'other_family with no DB members still fetches (Zoho-only families and labels)'
+  )
+  assert.equal(count, 1)
 })
 
 test('zohoService: intersection (members ∩ Zoho) — mocked data returns only in-group item', async () => {
