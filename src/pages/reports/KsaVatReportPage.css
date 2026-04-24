@@ -3,6 +3,27 @@
    war-* (WeeklyAdsReportPage.css) and wsr-* (WeeklySalesReportPage.css).
    This file only adds kvat-* classes for the summary panel and input row. */
 
+/* ── Quarter preset buttons ── */
+.kvat-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.kvat-preset-btn {
+  font-size: 13px;
+  padding: 4px 12px;
+  border-radius: 20px;
+}
+
+.kvat-preset-btn--active {
+  background: rgba(74, 124, 255, 0.12);
+  border-color: #4a7cff;
+  color: #1a56db;
+  font-weight: 600;
+}
+
 /* ── Other Input VAT input row ── */
 .kvat-input-row {
   display: flex;

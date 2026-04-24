@@ -87,22 +87,59 @@ export function calcVatSummary({ invoiceTaxable, invoiceTax, cnTaxable, cnTax, o
 }
 
 /**
- * Default to the current calendar quarter (Jan–Mar, Apr–Jun, Jul–Sep, Oct–Dec).
+ * Return the start/end dates for a given quarter number (1-4) and year.
+ *
+ * @param {number} q     1-based quarter (1 = Jan-Mar, 2 = Apr-Jun, …)
+ * @param {number} year  e.g. 2026
+ * @returns {{ from: string, to: string }}  YYYY-MM-DD strings
+ */
+export function quarterRange(q, year) {
+  const startMonth = (q - 1) * 3           // 0, 3, 6, 9  (0-indexed)
+  const endMonth   = startMonth + 2
+  const start = new Date(year, startMonth, 1)
+  const end   = new Date(year, endMonth + 1, 0)  // last day of endMonth
+  const iso   = (d) => d.toISOString().slice(0, 10)
+  return { from: iso(start), to: iso(end) }
+}
+
+/**
+ * Default to the PREVIOUS complete quarter.
+ * When filing VAT in April 2026, we default to Q1 2026 (Jan–Mar).
  *
  * @returns {{ from: string, to: string }}  YYYY-MM-DD strings
  */
 export function defaultQuarterRange() {
   const now   = new Date()
   const year  = now.getFullYear()
-  const month = now.getMonth()           // 0-indexed
-  const q     = Math.floor(month / 3)   // 0, 1, 2, 3
+  const curQ  = Math.floor(now.getMonth() / 3) + 1  // 1-based current quarter
 
-  const startMonth = q * 3              // 0, 3, 6, 9
-  const endMonth   = startMonth + 2     // 2, 5, 8, 11
+  const prevQ    = curQ === 1 ? 4 : curQ - 1
+  const prevYear = curQ === 1 ? year - 1 : year
 
-  const start = new Date(year, startMonth, 1)
-  const end   = new Date(year, endMonth + 1, 0) // last day of endMonth
+  return quarterRange(prevQ, prevYear)
+}
 
-  const iso = (d) => d.toISOString().slice(0, 10)
-  return { from: iso(start), to: iso(end) }
+/**
+ * Return Q1–Q4 presets for the current and previous year.
+ * Used by the date preset buttons in KsaVatReportPage.
+ *
+ * @returns {Array<{ label: string, from: string, to: string }>}
+ */
+export function quarterPresets() {
+  const now      = new Date()
+  const year     = now.getFullYear()
+  const curQ     = Math.floor(now.getMonth() / 3) + 1  // 1-based
+
+  const presets = []
+  // Show quarters from most-recent-past to oldest
+  for (let q = curQ - 1; q >= 1; q--) {
+    const r = quarterRange(q, year)
+    presets.push({ label: `Q${q} ${year}`, ...r })
+  }
+  // Fill remaining quarters from previous year
+  for (let q = 4; q >= curQ; q--) {
+    const r = quarterRange(q, year - 1)
+    presets.push({ label: `Q${q} ${year - 1}`, ...r })
+  }
+  return presets.slice(0, 4)  // show at most 4 presets
 }

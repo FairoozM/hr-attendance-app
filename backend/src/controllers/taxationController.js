@@ -66,6 +66,20 @@ async function getCachedVatReport(fromDate, toDate, customerId, buildFn) {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * Return true if the record's date falls within [fromDate, toDate] (inclusive).
+ * Zoho Books uses different date field names on different endpoints:
+ *   invoices:     row.date
+ *   credit notes: row.date or row.creditnote_date
+ * If no date field is found we keep the record (can't filter what we can't read).
+ */
+function isWithinRange(row, fromDate, toDate) {
+  const d = row.date || row.creditnote_date || row.invoice_date
+  if (!d) return true
+  const rowDate = String(d).slice(0, 10)   // "YYYY-MM-DD"
+  return rowDate >= fromDate && rowDate <= toDate
+}
+
 function parseNum(v) {
   if (v == null) return 0
   if (typeof v === 'number' && Number.isFinite(v)) return v
@@ -171,15 +185,25 @@ async function getVatReport(req, res) {
         fetchCreditNotesByCustomer(range.from_date, range.to_date, customerId),
       ])
 
+      // Post-fetch date safety filter — ensures records outside the requested
+      // range are never included even if the Zoho API filter has edge cases.
+      const filteredInvoices = invResult.rows.filter((r) => isWithinRange(r, range.from_date, range.to_date))
+      const filteredCNs      = cnResult.rows.filter((r) => isWithinRange(r, range.from_date, range.to_date))
+
+      const excluded = (invResult.rows.length - filteredInvoices.length) + (cnResult.rows.length - filteredCNs.length)
+      if (excluded > 0) {
+        console.warn(`[taxation] post-filter excluded ${excluded} record(s) outside date range`)
+      }
+
       console.log(
         `[taxation] vat-report from=${range.from_date} to=${range.to_date}` +
         ` customer=${customerId || 'all'}` +
-        ` invoices=${invResult.rows.length} cn=${cnResult.rows.length}` +
+        ` invoices=${filteredInvoices.length} cn=${filteredCNs.length}` +
         ` ${Date.now() - t0}ms`
       )
 
-      const invoiceRows    = aggregateByCustomer(invResult.rows)
-      const creditNoteRows = aggregateByCustomer(cnResult.rows)
+      const invoiceRows    = aggregateByCustomer(filteredInvoices)
+      const creditNoteRows = aggregateByCustomer(filteredCNs)
       const invTotals      = grandTotals(invoiceRows)
       const cnTotals       = grandTotals(creditNoteRows)
 

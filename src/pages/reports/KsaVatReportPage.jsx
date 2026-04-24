@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react'
 import { useVatCustomers, useKsaVatReport } from '../../hooks/useKsaVatReport'
-import { calcVatSummary, defaultQuarterRange, formatSAR } from '../../utils/ksaVatCalc'
+import { calcVatSummary, defaultQuarterRange, formatSAR, quarterPresets } from '../../utils/ksaVatCalc'
 import { formatDateLabel, NotConfiguredCallout, ErrorCallout } from './WeeklySalesReportPage'
 import './WeeklyAdsReportPage.css'
 import './WeeklySalesReportPage.css'
@@ -159,7 +159,8 @@ function VatSummaryRow({ label, value, highlight, note }) {
  * - Section C: VAT Payable summary with manual "Other Input VAT" field
  */
 export function KsaVatReportPage() {
-  const initial = useMemo(defaultQuarterRange, [])
+  const initial  = useMemo(defaultQuarterRange, [])
+  const presets  = useMemo(quarterPresets, [])
   const [fromDate, setFromDate]       = useState(initial.from)
   const [toDate, setToDate]           = useState(initial.to)
   const [customerId, setCustomerId]   = useState('')
@@ -215,6 +216,21 @@ export function KsaVatReportPage() {
       {/* ── Filters ── */}
       <section className="war-section">
         <h2 className="war-section__title">Filters</h2>
+
+        {/* Quarter preset buttons */}
+        <div className="kvat-presets">
+          {presets.map((p) => (
+            <button
+              key={p.label}
+              type="button"
+              className={`war-btn war-btn--ghost war-btn--sm kvat-preset-btn${fromDate === p.from && toDate === p.to ? ' kvat-preset-btn--active' : ''}`}
+              onClick={() => { setFromDate(p.from); setToDate(p.to) }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
         <div className="wsr-toolbar wsr-toolbar--filters">
           {/* Date range */}
           <div className="wsr-toolbar__dates">
