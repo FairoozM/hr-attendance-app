@@ -150,6 +150,7 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseI
   fetchRef.current = fetchReport
   useEffect(() => {
     if (loadToken <= 0) return
+    setLoading(true)
     const id = setTimeout(() => fetchRef.current(), 400)
     return () => clearTimeout(id)
   }, [loadToken])
