@@ -148,6 +148,49 @@ async function ensureDefaultAdminUser() {
   console.log('[auth] Default admin user created (username: %s)', username)
 }
 
+const SYNC_ADMIN_TRUTHY = /^(1|true|yes)$/i
+
+/**
+ * When SYNC_ADMIN_PASSWORD is truthy and ADMIN_PASSWORD is set, re-hash and update
+ * the existing admin row (ADMIN_USERNAME or admin@company.com). Skipped in production
+ * so production deploys cannot overwrite admin credentials from env by mistake.
+ */
+async function resyncAdminPasswordFromEnvIfRequested() {
+  if (process.env.NODE_ENV === 'production') {
+    if (SYNC_ADMIN_TRUTHY.test(String(process.env.SYNC_ADMIN_PASSWORD || '')) && process.env.ADMIN_PASSWORD) {
+      console.warn(
+        '[auth] SYNC_ADMIN_PASSWORD is set but ignored when NODE_ENV=production (set a new password via DB or the admin UI)'
+      )
+    }
+    return
+  }
+  if (!SYNC_ADMIN_TRUTHY.test(String(process.env.SYNC_ADMIN_PASSWORD || ''))) return
+
+  const pw = process.env.ADMIN_PASSWORD != null ? String(process.env.ADMIN_PASSWORD) : ''
+  if (!pw) {
+    console.warn('[auth] SYNC_ADMIN_PASSWORD=1 but ADMIN_PASSWORD is empty; skipping resync')
+    return
+  }
+  if (pw.length < 8) {
+    console.warn('[auth] SYNC_ADMIN_PASSWORD: ADMIN_PASSWORD must be at least 8 characters; skipping')
+    return
+  }
+  const uname = String(process.env.ADMIN_USERNAME || 'admin@company.com').trim().toLowerCase()
+  const hash = await bcrypt.hash(pw, 10)
+  const r = await query(
+    `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE role = 'admin' AND LOWER(username) = LOWER($2)`,
+    [hash, uname]
+  )
+  if (r.rowCount > 0) {
+    console.log('[auth] Admin password updated from env (SYNC_ADMIN_PASSWORD) for', uname)
+  } else {
+    console.warn(
+      '[auth] SYNC_ADMIN_PASSWORD: no admin user matched username %s; create one first or fix ADMIN_USERNAME',
+      uname
+    )
+  }
+}
+
 async function ensureWarehouseUser() {
   const rounds = 10
   const whUser = String(process.env.WAREHOUSE_USERNAME || 'warehouse@company.com').trim().toLowerCase()
@@ -674,6 +717,7 @@ async function testConnection() {
   await migrateAttendanceStatusHToAl()
   await ensureUsersTable()
   await ensureDefaultAdminUser()
+  await resyncAdminPasswordFromEnvIfRequested()
   await ensureWarehouseUser()
   // Must run before username migration: migrateUsernamesToEmail() can throw on edge
   // duplicate data; if it aborts testConnection(), annual_leave columns would never apply.
@@ -860,6 +904,7 @@ module.exports = {
   ensureAttendanceAnnualLeaveColumn,
   ensureUsersTable,
   ensureDefaultAdminUser,
+  resyncAdminPasswordFromEnvIfRequested,
   ensureInfluencersSnapshotTable,
   ensureDocumentExpiryTable,
   ensureItemReportGroupsTable,

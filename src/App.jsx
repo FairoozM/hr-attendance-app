@@ -33,6 +33,7 @@ import { SimCardsPage } from './pages/SimCardsPage'
 import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
 import { WeeklyAdsReportPage } from './pages/reports/WeeklyAdsReportPage'
 import { WeeklySalesReportPage } from './pages/reports/WeeklySalesReportPage'
+import { WeeklyCombinedSalesReportPage } from './pages/reports/WeeklyCombinedSalesReportPage'
 import ProjectsIndexPage from './pages/projects/ProjectsIndexPage'
 import ProjectDetailPage from './pages/projects/ProjectDetailPage'
 import ProjectDashboardPage from './pages/projects/ProjectDashboardPage'
@@ -201,6 +202,16 @@ function AppContent() {
                 </PermissionGuard>
               }
             />
+            {/* Combined page: both Slow Moving + Other Family in one view */}
+            <Route
+              path="sales"
+              element={
+                <PermissionGuard module="weekly_reports" action="view">
+                  <WeeklyCombinedSalesReportPage />
+                </PermissionGuard>
+              }
+            />
+            {/* Keep individual routes for direct links / backward compat */}
             <Route
               path="slow-moving"
               element={

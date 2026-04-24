@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { api } from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -47,6 +47,11 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate }) {
   const [notConfigured, setNotConfigured] = useState(false)
   const [validationErrors, setValidationErrors] = useState([])
 
+  // Tracks the AbortController for the current in-flight request so that a
+  // second call (e.g. from React StrictMode double-invoke in development) can
+  // cancel the first before starting a new one, avoiding duplicate backend hits.
+  const abortRef = useRef(null)
+
   const fetchReport = useCallback(async () => {
     if (!user || !reportGroup || !fromDate || !toDate) {
       setItems([])
@@ -55,6 +60,14 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate }) {
       setLoading(false)
       return
     }
+
+    // Cancel any previous in-flight request before starting a new one.
+    if (abortRef.current) {
+      abortRef.current.abort()
+    }
+    const controller = new AbortController()
+    abortRef.current = controller
+
     setLoading(true)
     setError(null)
     setNotConfigured(false)
@@ -62,12 +75,16 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate }) {
     try {
       const qs = new URLSearchParams({ from_date: fromDate, to_date: toDate }).toString()
       const data = await api.get(
-        `/api/weekly-reports/by-group/${encodeURIComponent(reportGroup)}?${qs}`
+        `/api/weekly-reports/by-group/${encodeURIComponent(reportGroup)}?${qs}`,
+        { signal: controller.signal }
       )
       setItems(Array.isArray(data?.items) ? data.items : [])
       setTotals(data?.totals || null)
       setZoho(data?.zoho && typeof data.zoho === 'object' ? data.zoho : null)
     } catch (err) {
+      // Aborted by a subsequent fetchReport call — let that new call own the
+      // loading state; don't touch state here.
+      if (err?.name === 'AbortError') return
       const code = err?.body?.code
       if (code === 'ZOHO_NOT_CONFIGURED' || err?.status === 503) {
         setNotConfigured(true)
@@ -84,12 +101,31 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate }) {
       setTotals(null)
       setZoho(null)
     } finally {
-      setLoading(false)
+      // Only clear the spinner if this invocation still owns the controller.
+      // If another fetchReport() started in the meantime it already set
+      // abortRef.current to its own controller and called setLoading(true),
+      // so we must not override that with setLoading(false).
+      if (abortRef.current === controller) {
+        setLoading(false)
+      }
     }
-  }, [user, reportGroup, fromDate, toDate])
+  // Depend on user.id rather than the full user object so that an identity-
+  // preserving setUser() call from AuthContext (auth/me refresh returning the
+  // same account with a new object reference) does NOT recreate this callback,
+  // which would abort a running Zoho fetch and trigger a redundant re-request.
+  // The API token is read from localStorage by api.get(), not from user itself.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id ?? null, reportGroup, fromDate, toDate])
 
+  // Debounce: wait 400 ms after the last date/group change before firing.
+  // React StrictMode double-invoke is absorbed: the first timeout is cleared
+  // by the cleanup before it fires, so only one real request starts.
+  // We do NOT abort abortRef here — the backend cache deduplicates concurrent
+  // requests, so it is harmless for two fetches to race, and aborting here
+  // was causing a second setLoading(true) after the first response arrived.
   useEffect(() => {
-    fetchReport()
+    const id = setTimeout(() => fetchReport(), 400)
+    return () => clearTimeout(id)
   }, [fetchReport])
 
   return {

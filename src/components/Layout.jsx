@@ -441,6 +441,7 @@ export function Layout() {
     if (location.pathname.startsWith('/account')) return 'My Account'
     if (location.pathname.startsWith('/management/document-expiry')) return 'Document Expiry Tracker'
     if (location.pathname.startsWith('/reports/weekly-report/weekly-ads'))   return 'Weekly Ads Report'
+    if (location.pathname.startsWith('/reports/weekly-report/sales'))        return 'Weekly Sales Reports'
     if (location.pathname.startsWith('/reports/weekly-report/slow-moving'))  return 'Weekly Slow Moving Sales Report'
     if (location.pathname.startsWith('/reports/weekly-report/other-family')) return 'Weekly Other Family Sales Report'
     if (location.pathname.startsWith('/reports')) return 'Reports'
@@ -480,9 +481,8 @@ export function Layout() {
   ].filter(Boolean)
 
   const REPORTS_ITEMS = [
-    hasWeeklyReportsAccess && { label: 'Weekly Ads Report',                to: '/reports/weekly-report/weekly-ads'   },
-    hasWeeklyReportsAccess && { label: 'Weekly Slow Moving Sales Report',  to: '/reports/weekly-report/slow-moving'  },
-    hasWeeklyReportsAccess && { label: 'Weekly Other Family Sales Report', to: '/reports/weekly-report/other-family' },
+    hasWeeklyReportsAccess && { label: 'Weekly Ads Report',    to: '/reports/weekly-report/weekly-ads' },
+    hasWeeklyReportsAccess && { label: 'Weekly Sales Reports', to: '/reports/weekly-report/sales'      },
   ].filter(Boolean)
 
   const focusedSectionConfig = useMemo(() => {

@@ -15,6 +15,7 @@ function httpsRequestJson(url, opts = {}) {
     const u = new URL(url)
     const method = opts.method || 'GET'
     const body = opts.body
+    const timeoutMs = opts.timeoutMs || 20000
     const headers = {
       Accept: 'application/json',
       'User-Agent': 'hr-attendance-backend/weekly-reports',
@@ -31,6 +32,20 @@ function httpsRequestJson(url, opts = {}) {
       reject(err)
       return
     }
+
+    // Wall-clock timeout: fires unconditionally after timeoutMs even when Zoho
+    // trickle-streams data (a socket-idle timeout would never fire in that case
+    // because the socket is technically "active").
+    let settled = false
+    const wallClock = setTimeout(() => {
+      if (settled) return
+      settled = true
+      req.destroy()
+      const e = new Error(`Zoho API request timed out after ${timeoutMs}ms`)
+      e.code = 'ZOHO_API_TIMEOUT'
+      reject(e)
+    }, timeoutMs)
+
     const req = lib.request(
       {
         hostname: u.hostname,
@@ -38,28 +53,35 @@ function httpsRequestJson(url, opts = {}) {
         path: u.pathname + u.search,
         method,
         headers,
-        timeout: opts.timeoutMs || 20000,
       },
       (res) => {
         const chunks = []
         res.on('data', (c) => chunks.push(c))
         res.on('end', () => {
+          if (settled) return
+          settled = true
+          clearTimeout(wallClock)
           const raw = Buffer.concat(chunks).toString('utf8')
           resolve({ status: res.statusCode || 0, body: raw, headers: res.headers })
+        })
+        res.on('error', (resErr) => {
+          if (settled) return
+          settled = true
+          clearTimeout(wallClock)
+          const e = new Error(resErr.message || 'Zoho response stream error')
+          e.code = 'ZOHO_API_NETWORK_ERROR'
+          e.cause = resErr
+          reject(e)
         })
       }
     )
     req.on('error', (err) => {
+      if (settled) return
+      settled = true
+      clearTimeout(wallClock)
       const e = new Error(err.message || 'Zoho API request failed')
       e.code = 'ZOHO_API_NETWORK_ERROR'
       e.cause = err
-      reject(e)
-    })
-    const timeoutMs = opts.timeoutMs || 20000
-    req.setTimeout(timeoutMs, () => {
-      req.destroy()
-      const e = new Error(`Zoho API request timed out after ${timeoutMs}ms`)
-      e.code = 'ZOHO_API_TIMEOUT'
       reject(e)
     })
     if (body) req.write(body)

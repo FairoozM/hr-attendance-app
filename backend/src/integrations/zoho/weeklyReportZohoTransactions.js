@@ -13,10 +13,12 @@
  * - List responses are **paginated**; we may truncate after `maxPages` and set `truncated`.
  */
 
-const { fetchListPaginated } = require('./zohoInventoryClient')
+const { fetchListPaginated, zohoApiRequest } = require('./zohoInventoryClient')
 const { INVENTORY_V1 } = require('./zohoConfig')
+// Vendor credits are still loaded from the bills/vc cache (no report endpoint for them).
+const { fetchAllVendorCreditsRaw } = require('./zohoTransactionsCache')
 
-const MAX_DEFAULT_PAGES = 500
+const MAX_DEFAULT_PAGES = 50
 
 /**
  * @param {string|undefined} iso
@@ -64,40 +66,50 @@ function matchesReportVendor(actualId, expectedId, actualName, expectedName) {
 }
 
 /**
- * All invoice line rows in the date range (all customers — no sales vendor filter).
+ * Per-item sales totals for the date range using the Zoho "Sales by Item" report.
  *
- * @param {string} fromDate
- * @param {string} toDate
+ * Why this endpoint instead of /invoices list:
+ *   The /invoices list API does NOT return line_items — you would need a separate
+ *   GET /invoices/:id per invoice (hundreds of calls). The /reports/salesbyitem
+ *   endpoint returns pre-aggregated quantity_sold + amount per item in a single
+ *   paginated call, which is ~100× faster.
+ *
+ * @param {string} fromDate  YYYY-MM-DD
+ * @param {string} toDate    YYYY-MM-DD
  * @param {{ onWarning?: (s: string) => void }} [opts]
  * @returns {Promise<{ lines: object[], document_count: number, list_truncated: boolean, list_pages: number, error: Error|null }>}
  */
 async function getSales(fromDate, toDate, opts = {}) {
   const onW = typeof opts.onWarning === 'function' ? opts.onWarning : () => {}
+  const t0 = Date.now()
   try {
+    const dateParams = new URLSearchParams()
+    if (fromDate) dateParams.set('from_date', fromDate)
+    if (toDate) dateParams.set('to_date', toDate)
+
     const { rows, truncated, pages } = await fetchListPaginated(
-      `${INVENTORY_V1}/invoices`,
-      'invoices',
-      MAX_DEFAULT_PAGES
+      `${INVENTORY_V1}/reports/salesbyitem`,
+      'sales',
+      MAX_DEFAULT_PAGES,
+      dateParams
     )
+    console.log(`[zoho-timing] salesbyitem: ${rows.length} items, ${pages} page(s), ${Date.now() - t0}ms`)
     if (truncated) {
-      onW('Invoice list may be incomplete: pagination cap reached. Export date range to narrow results.')
+      onW('Sales by Item report may be incomplete: pagination cap reached. Narrow the date range.')
     }
-    const lineRows = []
-    for (const inv of rows) {
-      if (!isNotVoidStatus(inv)) continue
-      if (!isDateInRangeIncl(inv.date, fromDate, toDate)) continue
-      const lines = Array.isArray(inv.line_items) ? inv.line_items : []
-      for (const li of lines) {
-        lineRows.push({
-          type: 'invoice',
-          document_id: inv.invoice_id,
-          document_date: inv.date,
-          item_id: li.item_id,
-          name: li.name,
-          quantity: parseLineQty(li.quantity),
-        })
-      }
-    }
+
+    // Normalise into the same line shape used by sumLinesToMap / sumAmountsToMap.
+    // `sku` is available directly from `row.item.sku` which lets lineCanonicalKey
+    // skip the item_id→sku lookup and key by s:<sku> directly.
+    const lineRows = rows.map((r) => ({
+      type: 'sales_report',
+      item_id: r.item_id || '',
+      name: r.item_name || '',
+      sku: (r.item && r.item.sku) ? String(r.item.sku).trim() : '',
+      quantity: typeof r.quantity_sold === 'number' ? r.quantity_sold : parseLineQty(r.quantity_sold),
+      item_total: typeof r.amount === 'number' ? r.amount : parseLineQty(r.amount),
+    }))
+
     return {
       lines: lineRows,
       line_count: lineRows.length,
@@ -113,59 +125,103 @@ async function getSales(fromDate, toDate, opts = {}) {
 }
 
 /**
- * Purchase bill line rows for a single vendor (Bills, not purchase orders), date range.
+ * Fetch all purchase rows from the Zoho "Purchases by Item" report for a date range.
+ *
+ * The response nests items inside `purchases_by_item[n].purchase[]`, unlike
+ * `salesbyitem` which has a flat `sales[]` array. We flatten across all groups
+ * and pages into a single array.
+ *
+ * @param {string} fromDate  YYYY-MM-DD
+ * @param {string} toDate    YYYY-MM-DD
+ * @returns {Promise<{ rows: object[], truncated: boolean, pages: number }>}
+ */
+async function fetchPurchasesByItemReport(fromDate, toDate) {
+  const allItems = []
+  let page = 1
+  const maxPages = MAX_DEFAULT_PAGES
+  const t0 = Date.now()
+  while (page <= maxPages) {
+    const p = new URLSearchParams()
+    if (fromDate) p.set('from_date', fromDate)
+    if (toDate) p.set('to_date', toDate)
+    p.set('page', String(page))
+    p.set('per_page', '200')
+    const json = await zohoApiRequest(`${INVENTORY_V1}/reports/purchasesbyitem`, p)
+    // Response shape: purchases_by_item: [{ purchase: [{item_id, item_name, quantity_purchased, amount, item:{sku}}] }]
+    const groups = Array.isArray(json.purchases_by_item) ? json.purchases_by_item : []
+    let pageCount = 0
+    for (const group of groups) {
+      const items = Array.isArray(group.purchase) ? group.purchase : []
+      pageCount += items.length
+      allItems.push(...items)
+    }
+    const hasMore = json.page_context && json.page_context.has_more_page === true
+    if (!hasMore || pageCount === 0) {
+      console.log(`[zoho-timing] purchasesbyitem: ${allItems.length} items, ${page} page(s), ${Date.now() - t0}ms`)
+      return { rows: allItems, truncated: false, pages: page }
+    }
+    if (page === maxPages) {
+      console.warn(`[zoho-timing] purchasesbyitem: safety limit ${maxPages} pages reached — ${allItems.length} items, TRUNCATED`)
+      return { rows: allItems, truncated: true, pages: maxPages }
+    }
+    page++
+  }
+  return { rows: allItems, truncated: false, pages: page - 1 }
+}
+
+/** Module-level cache so repeated report calls within 5 min share one fetch. */
+let _purchasesReportCache = null
+let _purchasesReportInFlight = null
+const PURCHASES_CACHE_TTL_MS = 5 * 60 * 1000
+
+async function fetchPurchasesByItemReportCached(fromDate, toDate) {
+  const key = `${fromDate}::${toDate}`
+  if (_purchasesReportCache && _purchasesReportCache.key === key && Date.now() < _purchasesReportCache.expiresAt) {
+    return _purchasesReportCache.rows
+  }
+  if (_purchasesReportInFlight && _purchasesReportInFlight.key === key) return _purchasesReportInFlight.promise
+  const promise = fetchPurchasesByItemReport(fromDate, toDate).then(({ rows }) => {
+    _purchasesReportCache = { key, rows, expiresAt: Date.now() + PURCHASES_CACHE_TTL_MS }
+    _purchasesReportInFlight = null
+    return rows
+  }).catch((e) => { _purchasesReportInFlight = null; throw e })
+  _purchasesReportInFlight = { key, promise }
+  return promise
+}
+
+/**
+ * Per-item purchase totals for the date range using the Zoho "Purchases by Item" report.
+ * Returns all vendors (no vendor filter) — grouping by family already provides the
+ * right level of aggregation for the weekly report.
+ *
  * @param {string} fromDate
  * @param {string} toDate
- * @param {string | undefined} vendorId — `REPORT_VENDOR_ID` (Zoho `vendor_id` on the bill)
- * @param {{ vendorName?: string, onWarning?: (s: string) => void }} [opts] — `vendorName` for fallback match when id unset
+ * @param {string | undefined} _vendorId — kept for API compatibility, ignored
+ * @param {{ onWarning?: (s: string) => void }} [opts]
  */
-async function getPurchases(fromDate, toDate, vendorId, opts = {}) {
+async function getPurchases(fromDate, toDate, _vendorId, opts = {}) {
   const onW = typeof opts.onWarning === 'function' ? opts.onWarning : () => {}
-  const vname = opts.vendorName
-  if ((vendorId == null || String(vendorId).trim() === '') && !vname) {
-    return {
-      lines: [],
-      line_count: 0,
-      document_count: 0,
-      list_truncated: false,
-      list_pages: 0,
-      error: null,
-    }
-  }
-  const vid = vendorId != null && String(vendorId).trim() !== '' ? String(vendorId).trim() : undefined
-  const vname2 = vname
+  const t0 = Date.now()
   try {
-    const { rows, truncated, pages } = await fetchListPaginated(
-      `${INVENTORY_V1}/bills`,
-      'bills',
-      MAX_DEFAULT_PAGES
-    )
-    if (truncated) {
-      onW('Bills list may be incomplete: pagination cap reached.')
-    }
-    const lineRows = []
-    for (const bill of rows) {
-      if (!isNotVoidStatus(bill)) continue
-      if (!isDateInRangeIncl(bill.date, fromDate, toDate)) continue
-      if (!matchesReportVendor(bill.vendor_id, vid, bill.vendor_name, vname2)) continue
-      const lines = Array.isArray(bill.line_items) ? bill.line_items : []
-      for (const li of lines) {
-        lineRows.push({
-          type: 'bill',
-          document_id: bill.bill_id != null ? bill.bill_id : bill.bill_number,
-          document_date: bill.date,
-          item_id: li.item_id,
-          name: li.name,
-          quantity: parseLineQty(li.quantity),
-        })
-      }
-    }
+    const rows = await fetchPurchasesByItemReportCached(fromDate, toDate)
+    console.log(`[zoho-timing] purchasesbyitem (cached): ${rows.length} items, ${Date.now() - t0}ms`)
+
+    // Normalise into the same line shape used by sumLinesToMap / sumAmountsToMap
+    const lineRows = rows.map((r) => ({
+      type: 'purchases_report',
+      item_id: r.item_id || '',
+      name: r.item_name || '',
+      sku: (r.item && r.item.sku) ? String(r.item.sku).trim() : '',
+      quantity: typeof r.quantity_purchased === 'number' ? r.quantity_purchased : parseLineQty(r.quantity_purchased),
+      item_total: typeof r.amount === 'number' ? r.amount : parseLineQty(r.amount),
+    }))
+
     return {
       lines: lineRows,
       line_count: lineRows.length,
       document_count: rows.length,
-      list_truncated: truncated,
-      list_pages: pages,
+      list_truncated: false,
+      list_pages: 0,
       error: null,
     }
   } catch (e) {
@@ -197,14 +253,11 @@ async function getVendorCredits(fromDate, toDate, vendorId, opts = {}) {
   }
   const vid = vendorId != null && String(vendorId).trim() !== '' ? String(vendorId).trim() : undefined
   const vname2 = vname
+  const t0 = Date.now()
   try {
-    // List response key per Zoho Inventory: `vendor_credits`
-    const { rows, truncated, pages } = await fetchListPaginated(
-      `${INVENTORY_V1}/vendorcredits`,
-      'vendor_credits',
-      MAX_DEFAULT_PAGES
-    )
-    if (truncated) onW('Vendor credits list may be incomplete: pagination cap reached.')
+    // Vendor credits are served from the module-level TTL cache (fetchAllVendorCreditsRaw).
+    const rows = await fetchAllVendorCreditsRaw()
+    console.log(`[zoho-timing] vendorcredits: ${rows.length} docs, cache, ${Date.now() - t0}ms`)
     const lineRows = []
     for (const vc of rows) {
       if (!isNotVoidStatus(vc)) continue
@@ -226,8 +279,8 @@ async function getVendorCredits(fromDate, toDate, vendorId, opts = {}) {
       lines: lineRows,
       line_count: lineRows.length,
       document_count: rows.length,
-      list_truncated: truncated,
-      list_pages: pages,
+      list_truncated: false,
+      list_pages: 0,
       error: null,
     }
   } catch (e) {

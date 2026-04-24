@@ -6,28 +6,26 @@
 
 const { buildBusinessTableXlsxBuffer } = require('../utils/businessTableXlsx')
 
-function itemLabelFromRow(row) {
-  return (row.item_name && String(row.item_name).trim()) || row.sku || row.item_id || '—'
-}
-
 /**
- * Default column layout for Zoho weekly stock–movement reports (SR, item, five quantity fields).
- * Reuse or copy for a new `buildXxxReportXlsxBuffer` that passes a different schema.
+ * Family-level column layout for Zoho weekly stock-movement reports.
+ * Each row is one Zoho Family (aggregated from individual items).
  */
 const WEEKLY_STOCK_MOVEMENT_XLSX_COLUMNS = [
   { header: 'SR. NO', width: 7.5, type: 'index' },
   {
-    header: 'ITEM',
-    width: 44,
+    header: 'FAMILY',
+    width: 28,
     type: 'rowText',
-    getValue: (row) => itemLabelFromRow(row),
+    getValue: (row) => row.family || '—',
     grandTotalText: 'Grand Total',
   },
-  { header: 'Opening Stock', width: 16, type: 'sum', key: 'opening_stock' },
-  { header: 'Purchases', width: 16, type: 'sum', key: 'purchases' },
-  { header: 'Returned to Wholesale', width: 24, type: 'sum', key: 'returned_to_wholesale' },
+  { header: 'Active Items', width: 14, type: 'sum', key: 'item_count' },
   { header: 'Closing Stock', width: 16, type: 'sum', key: 'closing_stock' },
-  { header: 'SOLD', width: 12, type: 'sum', key: 'sold' },
+  { header: 'Purchases Qty', width: 16, type: 'sum', key: 'purchases' },
+  { header: 'Purchase Amount', width: 18, type: 'sum', key: 'purchase_amount' },
+  { header: 'Returned to Wholesale', width: 24, type: 'sum', key: 'returned_to_wholesale' },
+  { header: 'SOLD Qty', width: 12, type: 'sum', key: 'sold' },
+  { header: 'Sales Amount', width: 18, type: 'sum', key: 'sales_amount' },
 ]
 
 /**

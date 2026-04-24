@@ -3,6 +3,7 @@ const { listGroupKeys }                               = require('../services/ite
 const { sumReportGrandTotals }                        = require('../utils/weeklyReportTotals')
 const { ZOHO_WEEKLY_REPORT_INTEGRATION }              = require('../services/weeklyReportZohoData')
 const { mergeZohoWithVendorContext }                 = require('../services/weeklyReportVendorConfig')
+const { getCachedReport }                             = require('../services/weeklyReportCache')
 const {
   buildWeeklyReportXlsxBuffer,
   getExportSheetTitleForGroup,
@@ -34,11 +35,19 @@ function validateDateRange(req, res) {
  * Single data path for JSON and Excel: Zoho adapter + `item_report_groups` via
  * `getInventoryByGroup`, then the same `sumReportGrandTotals` the UI and export use.
  * No separate export-only fetch.
+ *
+ * Wrapped by `getCachedReport` so that:
+ *  - Concurrent calls with the same key (group+dates) share one Promise (in-flight dedup).
+ *  - Repeated calls within WEEKLY_REPORT_CACHE_TTL_MS (default 2 min) return cached data
+ *    immediately, no Zoho round-trip. This covers StrictMode double-fire, Export + View
+ *    fired together, and rapid Refresh clicks.
  */
 async function loadWeeklyReportPayload(group, fromDate, toDate) {
-  const { items, reportMeta } = await getInventoryByGroup(group, fromDate, toDate)
-  const totals = sumReportGrandTotals(items)
-  return { items, totals, reportMeta: reportMeta || { warnings: [] } }
+  return getCachedReport(group, fromDate, toDate, async () => {
+    const { items, reportMeta } = await getInventoryByGroup(group, fromDate, toDate)
+    const totals = sumReportGrandTotals(items)
+    return { items, totals, reportMeta: reportMeta || { warnings: [] } }
+  })
 }
 
 function attachReportMetaToZoho(zohoObj, reportMeta) {
@@ -53,14 +62,39 @@ function attachReportMetaToZoho(zohoObj, reportMeta) {
 }
 
 function handleZohoError(res, err, ctx) {
-  console.error(`[weeklyReports] ${ctx} error:`, err.message)
+  const isDev = process.env.NODE_ENV !== 'production'
+  console.error(
+    `[weeklyReports] ${ctx} error:`,
+    err.message,
+    err.code ? `code=${err.code}` : '',
+    err.missing && err.missing.length ? `missing=${err.missing.join(',')}` : ''
+  )
   switch (err.code) {
-    case 'ZOHO_NOT_CONFIGURED':
-      return res.status(503).json({ error: err.message, code: err.code })
+    case 'ZOHO_NOT_CONFIGURED': {
+      const body = { error: err.message, code: err.code }
+      if (isDev) {
+        body.dev_detail = {
+          missing: err.missing || [],
+          hint:
+            'Set the missing variables in backend/.env, save the file, then restart the backend. node --watch does not pick up .env changes.',
+        }
+      }
+      return res.status(503).json(body)
+    }
     case 'ZOHO_OAUTH_ERROR':
     case 'ZOHO_API_ERROR':
-    case 'ZOHO_API_NETWORK_ERROR':
-      return res.status(502).json({ error: err.message, code: err.code })
+    case 'ZOHO_API_NETWORK_ERROR': {
+      const body = { error: err.message, code: err.code }
+      if (isDev) {
+        body.dev_detail = {
+          httpStatus: err.httpStatus,
+          oauth: err.oauth,
+          upstreamBodyPreview:
+            typeof err.body === 'string' ? err.body.slice(0, 500) : undefined,
+        }
+      }
+      return res.status(502).json(body)
+    }
     case 'ZOHO_API_TIMEOUT':
     case 'ZOHO_WEBHOOK_TIMEOUT':
       return res.status(504).json({ error: err.message, code: err.code })
@@ -70,8 +104,18 @@ function handleZohoError(res, err, ctx) {
         code: err.code,
         validation_errors: err.validation_errors || [],
       })
-    case 'REPORT_VENDOR_NOT_CONFIGURED':
-      return res.status(400).json({ error: err.message, code: err.code })
+    case 'REPORT_VENDOR_NOT_CONFIGURED': {
+      const body = { error: err.message, code: err.code }
+      if (isDev) {
+        body.dev_detail = {
+          tried: err.tried || [],
+          optionalFlag: err.optionalFlag || null,
+          hint:
+            'Set WEEKLY_REPORT_VENDOR_OPTIONAL=1 in backend/.env (and restart the backend) to allow the report to run without a vendor in local development.',
+        }
+      }
+      return res.status(400).json(body)
+    }
     case 'ZOHO_WEBHOOK_HTTP_ERROR':
     case 'ZOHO_WEBHOOK_NETWORK_ERROR':
       return res.status(502).json({ error: err.message, code: err.code })

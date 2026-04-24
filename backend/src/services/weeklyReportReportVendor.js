@@ -40,12 +40,39 @@ function getResolvedReportVendor(reportGroup) {
 
 /**
  * When `true`, missing `REPORT_VENDOR_ID` (and no per-group / name fallback) only
- * yields a warning and zero purch/credits (not for production).
+ * yields a warning and zero purch/credits.
+ *
+ * Production safety: in `NODE_ENV=production` the flag is honored only when
+ * `WEEKLY_REPORT_VENDOR_OPTIONAL_ALLOW_PROD=1` is also set, so a stray
+ * `WEEKLY_REPORT_VENDOR_OPTIONAL=1` in a prod environment cannot silently
+ * publish zero-vendor reports.
+ *
  * When `false` (default), a non-empty report with no resolved vendor returns 400
  * `REPORT_VENDOR_NOT_CONFIGURED`.
  */
 function isReportVendorOptional() {
-  return String(process.env.WEEKLY_REPORT_VENDOR_OPTIONAL || '').trim() === '1'
+  const on = String(process.env.WEEKLY_REPORT_VENDOR_OPTIONAL || '').trim() === '1'
+  if (!on) return false
+  if (process.env.NODE_ENV === 'production') {
+    const allow =
+      String(process.env.WEEKLY_REPORT_VENDOR_OPTIONAL_ALLOW_PROD || '').trim() === '1'
+    return allow
+  }
+  return true
+}
+
+function getOptionalFlagDecision() {
+  const flag = String(process.env.WEEKLY_REPORT_VENDOR_OPTIONAL || '').trim() === '1'
+  const allowProd =
+    String(process.env.WEEKLY_REPORT_VENDOR_OPTIONAL_ALLOW_PROD || '').trim() === '1'
+  const isProd = process.env.NODE_ENV === 'production'
+  return {
+    flag,
+    allowProd,
+    isProd,
+    effective: flag && (!isProd || allowProd),
+    suppressedInProd: flag && isProd && !allowProd,
+  }
 }
 
 /**
@@ -56,12 +83,36 @@ function assertReportVendorResolvedIfRequired(reportGroup) {
   if (isReportVendorOptional()) return
   const r = getResolvedReportVendor(reportGroup)
   if (r.vendorId || r.vendorName) return
+
+  const decision = getOptionalFlagDecision()
+  const tried = []
+  if (!process.env.REPORT_VENDOR_ID) tried.push('REPORT_VENDOR_ID (unset)')
+  if (!process.env.REPORT_VENDOR_NAME) tried.push('REPORT_VENDOR_NAME (unset)')
+  tried.push(`vendor_credits_contact_id for group "${reportGroup}" in WEEKLY_REPORT_VENDORS_JSON (none)`)
+
+  const localHint =
+    'For local development, set WEEKLY_REPORT_VENDOR_OPTIONAL=1 in backend/.env and restart the backend ' +
+    '(node --watch does not reload .env).'
+  const prodHint = decision.suppressedInProd
+    ? 'WEEKLY_REPORT_VENDOR_OPTIONAL=1 was set but is being ignored because NODE_ENV=production. ' +
+      'To opt-in for production explicitly, also set WEEKLY_REPORT_VENDOR_OPTIONAL_ALLOW_PROD=1.'
+    : ''
+
   const e = new Error(
-    'REPORT_VENDOR_ID is not set. Set it to your Zoho `vendor_id` (e.g. 4265011000000080014) ' +
-      'for bills and vendor credits, or set `vendor_credits_contact_id` in WEEKLY_REPORT_VENDORS_JSON for this group, ' +
-      'or REPORT_VENDOR_NAME. For local tests only, set WEEKLY_REPORT_VENDOR_OPTIONAL=1.'
+    [
+      'REPORT_VENDOR_NOT_CONFIGURED: no report vendor could be resolved.',
+      `Tried: ${tried.join('; ')}.`,
+      'Fix in production by setting REPORT_VENDOR_ID to your Zoho `vendor_id` (e.g. 4265011000000080014), ' +
+        'or REPORT_VENDOR_NAME, or `vendor_credits_contact_id` in WEEKLY_REPORT_VENDORS_JSON for this group.',
+      localHint,
+      prodHint,
+    ]
+      .filter(Boolean)
+      .join(' ')
   )
   e.code = 'REPORT_VENDOR_NOT_CONFIGURED'
+  e.tried = tried
+  e.optionalFlag = decision
   throw e
 }
 
@@ -73,6 +124,7 @@ function isReportVendorStrictlyRequired() {
 module.exports = {
   getResolvedReportVendor,
   isReportVendorOptional,
+  getOptionalFlagDecision,
   assertReportVendorResolvedIfRequired,
   isReportVendorStrictlyRequired,
 }

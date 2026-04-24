@@ -22,11 +22,14 @@ const { getVendorConfigForGroup } = require('./weeklyReportVendorConfig')
 
 const MAX_REPORTED_ERRORS = 10
 const NUMERIC_FIELDS = [
+  'item_count',
   'opening_stock',
   'purchases',
+  'purchase_amount',
   'returned_to_wholesale',
   'closing_stock',
   'sold',
+  'sales_amount',
 ]
 
 // ---------------------------------------------------------------------------
@@ -78,8 +81,15 @@ function validateNumericField(raw, field, rowLabel) {
 }
 
 /**
- * Validate + normalise a single item row. On success, attaches Zoho range + Family
- * metadata on `item._zoho` (Family matches top-level `family` after validation).
+ * Validate + normalise a single report row.
+ *
+ * Supports two shapes:
+ *  - **Family-level row** (new): `family` is the primary identifier, no `sku` required.
+ *    Produced by `aggregateByFamily()` in weeklyReportZohoData.
+ *  - **Item-level row** (legacy/fallback): `sku` is the primary identifier.
+ *
+ * A row is treated as family-level when `family` is present and `sku` is absent.
+ *
  * Returns { item, errors }.
  */
 function validateAndNormaliseItem(raw, index) {
@@ -92,16 +102,21 @@ function validateAndNormaliseItem(raw, index) {
     }
   }
 
-  const skuRaw = raw.sku
+  // Determine row type: family-level when family present and sku absent
+  const isFamilyRow = raw.family != null && (raw.sku === undefined || raw.sku === null || raw.sku === '')
+
   let sku = ''
-  if (skuRaw === undefined || skuRaw === null || skuRaw === '') {
-    errors.push(`items[${index}]: "sku" is required and must be a non-empty string.`)
-  } else if (typeof skuRaw !== 'string') {
-    errors.push(`items[${index}]: "sku" must be a string. Got ${typeof skuRaw}.`)
-  } else {
-    sku = skuRaw.trim()
-    if (!sku) {
-      errors.push(`items[${index}]: "sku" must be a non-empty string after trimming.`)
+  if (!isFamilyRow) {
+    const skuRaw = raw.sku
+    if (skuRaw === undefined || skuRaw === null || skuRaw === '') {
+      errors.push(`items[${index}]: "sku" is required and must be a non-empty string.`)
+    } else if (typeof skuRaw !== 'string') {
+      errors.push(`items[${index}]: "sku" must be a string. Got ${typeof skuRaw}.`)
+    } else {
+      sku = skuRaw.trim()
+      if (!sku) {
+        errors.push(`items[${index}]: "sku" must be a non-empty string after trimming.`)
+      }
     }
   }
 
@@ -115,13 +130,16 @@ function validateAndNormaliseItem(raw, index) {
     raw.item_id != null && raw.item_id !== '' ? String(raw.item_id).trim() :
     ''
 
-  const rowLabel = `items[${index}] (sku="${sku || '?'}")`
+  const rowLabel = isFamilyRow
+    ? `items[${index}] (family="${String(raw.family || '').trim()}")`
+    : `items[${index}] (sku="${sku || '?'}")`
 
   let family = ''
   if (raw.family === undefined) {
-    errors.push(
-      `items[${index}]: "family" is required (Zoho Family metadata as a string; use "" if none).`
-    )
+    if (!isFamilyRow) {
+      // item-level rows: family is metadata, optional
+      family = ''
+    }
   } else if (raw.family === null) {
     errors.push(
       `items[${index}]: "family" must be a JSON string, not null (use "" if no Family).`
@@ -134,6 +152,11 @@ function validateAndNormaliseItem(raw, index) {
     family = raw.family.trim()
   }
 
+  // Family-level rows must have a non-empty family value
+  if (isFamilyRow && !family) {
+    errors.push(`items[${index}]: family-level row must have a non-empty "family" string.`)
+  }
+
   const numeric = {}
   for (const field of NUMERIC_FIELDS) {
     const { value, error } = validateNumericField(raw, field, rowLabel)
@@ -144,11 +167,13 @@ function validateAndNormaliseItem(raw, index) {
   if (errors.length > 0) return { item: null, errors }
 
   const item = {
-    sku,
-    item_name: itemName,
-    item_id:   itemId,
     family,
     ...numeric,
+  }
+  if (!isFamilyRow) {
+    item.sku = sku
+    item.item_name = itemName
+    item.item_id = itemId
   }
   if (raw._zoho && typeof raw._zoho === 'object' && !Array.isArray(raw._zoho)) {
     item._zoho = {

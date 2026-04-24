@@ -21,9 +21,26 @@ test('parseFamilyFromZohoItem: matches customfield_id and returns trimmed value'
   assert.equal(parseFamilyFromZohoItem(item, 'cf-family'), 'Wood')
 })
 
-test('parseFamilyFromZohoItem: no familyFieldId returns empty (cannot disambiguate)', () => {
+test('parseFamilyFromZohoItem: no familyFieldId returns empty when no label===Family field', () => {
   const item = {
     custom_fields: [{ customfield_id: 'a', value: 'Should not pick' }],
+  }
+  assert.equal(parseFamilyFromZohoItem(item, null), '')
+})
+
+test('parseFamilyFromZohoItem: label fallback returns value when field has label===Family', () => {
+  const item = {
+    custom_fields: [
+      { customfield_id: 'cf-other', label: 'Color', value: 'Red' },
+      { customfield_id: 'cf-123456', label: 'Family', value: '  Slow Moving  ' },
+    ],
+  }
+  assert.equal(parseFamilyFromZohoItem(item, null), 'Slow Moving')
+})
+
+test('parseFamilyFromZohoItem: label fallback returns empty when Family field has no value', () => {
+  const item = {
+    custom_fields: [{ customfield_id: 'cf-123456', label: 'Family', value: '' }],
   }
   assert.equal(parseFamilyFromZohoItem(item, null), '')
 })

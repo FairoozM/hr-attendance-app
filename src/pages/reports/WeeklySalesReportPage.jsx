@@ -4,7 +4,7 @@ import { useWeeklySalesReport } from '../../hooks/useWeeklySalesReport'
 import './WeeklyAdsReportPage.css'
 import './WeeklySalesReportPage.css'
 
-function formatNum(val) {
+export function formatNum(val) {
   if (val == null) return '—'
   const n = Number(val)
   if (!Number.isFinite(n)) return '—'
@@ -12,7 +12,15 @@ function formatNum(val) {
   return n.toLocaleString('en-US', { maximumFractionDigits: 2 })
 }
 
-function formatDateLabel(start, end) {
+export function formatCurrency(val) {
+  if (val == null) return '—'
+  const n = Number(val)
+  if (!Number.isFinite(n)) return '—'
+  if (n === 0) return '-'
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+export function formatDateLabel(start, end) {
   if (!start || !end) return ''
   const fmt = (d) =>
     new Date(d).toLocaleDateString('en-GB', {
@@ -24,7 +32,7 @@ function formatDateLabel(start, end) {
 }
 
 /** Default to the current ISO-week (Mon–Sun). */
-function defaultWeekRange() {
+export function defaultWeekRange() {
   const d = new Date()
   const day = d.getDay()
   const monOffset = day === 0 ? -6 : 1 - day
@@ -36,7 +44,7 @@ function defaultWeekRange() {
   return { from: iso(start), to: iso(end) }
 }
 
-function defaultExportXlsxName(reportGroup, fromDate, toDate) {
+export function defaultExportXlsxName(reportGroup, fromDate, toDate) {
   const slug =
     {
       slow_moving: 'slow-moving',
@@ -45,7 +53,7 @@ function defaultExportXlsxName(reportGroup, fromDate, toDate) {
   return `weekly-${slug}-report-${fromDate}-to-${toDate}.xlsx`
 }
 
-function NotConfiguredCallout({ message }) {
+export function NotConfiguredCallout({ message }) {
   return (
     <div className="wsr-callout wsr-callout--warn" role="status">
       <span className="wsr-callout__title">Zoho not configured</span>
@@ -62,7 +70,7 @@ function NotConfiguredCallout({ message }) {
   )
 }
 
-function ErrorCallout({ message, onRetry, validationErrors }) {
+export function ErrorCallout({ message, onRetry, validationErrors }) {
   const hasValidation = Array.isArray(validationErrors) && validationErrors.length > 0
   return (
     <div className="wsr-callout wsr-callout--error" role="alert">
@@ -108,21 +116,17 @@ function ErrorCallout({ message, onRetry, validationErrors }) {
 }
 
 /**
- * Generic, read-only Zoho-sourced weekly sales report. The component is
- * driven entirely by props + the backend response — every numeric column
- * (Opening Stock, Purchases, Returned to Wholesale, Closing Stock, SOLD)
- * comes verbatim from the Zoho-source webhook. The Grand Total row sums
- * those Zoho-provided values for display only.
+ * One report group's data + table. Receives `fromDate` / `toDate` from a parent
+ * so multiple sections can share a single date picker.
  *
  * Props:
- *   reportGroup – the report_group key (e.g. 'slow_moving', 'other_family')
- *   title       – display title shown in the page header
- *   subtitle    – optional one-line description
+ *   reportGroup  – e.g. 'slow_moving'
+ *   title        – section heading
+ *   fromDate     – YYYY-MM-DD (controlled by parent)
+ *   toDate       – YYYY-MM-DD (controlled by parent)
+ *   datesValid   – boolean from parent so the section doesn't double-validate
  */
-export function WeeklySalesReportPage({ reportGroup, title, subtitle }) {
-  const initial = useMemo(defaultWeekRange, [])
-  const [fromDate, setFromDate] = useState(initial.from)
-  const [toDate, setToDate]     = useState(initial.to)
+export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate, datesValid }) {
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState('')
 
@@ -131,45 +135,158 @@ export function WeeklySalesReportPage({ reportGroup, title, subtitle }) {
 
   const dateLabel = formatDateLabel(fromDate, toDate)
 
-  const handleFromChange = useCallback((e) => {
-    setFromDate(e.target.value)
-    setExportError('')
-  }, [])
-  const handleToChange = useCallback((e) => {
-    setToDate(e.target.value)
-    setExportError('')
-  }, [])
-
-  const handleExportExcel = useCallback(async () => {
-    if (!fromDate || !toDate || fromDate > toDate) return
-    if (notConfigured) return
+  const handleExport = useCallback(async () => {
+    if (!datesValid || notConfigured) return
     setExporting(true)
     setExportError('')
     const qs = new URLSearchParams({ from_date: fromDate, to_date: toDate }).toString()
-    const path = `/api/weekly-reports/by-group/${encodeURIComponent(
-      reportGroup
-    )}/export.xlsx?${qs}`
+    const path = `/api/weekly-reports/by-group/${encodeURIComponent(reportGroup)}/export.xlsx?${qs}`
     try {
       const { blob, filename } = await fetchBinary(path)
-      const name = filename || defaultExportXlsxName(reportGroup, fromDate, toDate)
-      downloadBlob(blob, name)
+      downloadBlob(blob, filename || defaultExportXlsxName(reportGroup, fromDate, toDate))
     } catch (err) {
       setExportError(err?.message || 'Export failed. Try again.')
     } finally {
       setExporting(false)
     }
-  }, [fromDate, toDate, notConfigured, reportGroup])
+  }, [datesValid, notConfigured, fromDate, toDate, reportGroup])
 
   const grandTotal = totals || {
-    opening_stock: 0,
-    purchases: 0,
-    returned_to_wholesale: 0,
-    closing_stock: 0,
-    sold: 0,
+    item_count: 0, closing_stock: 0, purchases: 0, purchase_amount: 0,
+    returned_to_wholesale: 0, sold: 0, sales_amount: 0,
   }
 
-  const datesValid = Boolean(fromDate) && Boolean(toDate) && fromDate <= toDate
   const showTable = !loading && !error && !notConfigured && datesValid
+
+  return (
+    <section className="war-section wsr-report-section">
+      {/* Section header with title + per-group export/refresh */}
+      <div className="wsr-section-header">
+        <div className="wsr-section-header__title-wrap">
+          <h2 className="wsr-section-heading">{title}</h2>
+          {dateLabel && <span className="wsr-section-header__date">{dateLabel}</span>}
+        </div>
+        <div className="wsr-section-header__actions">
+          <button
+            type="button"
+            className="war-btn war-btn--primary war-btn--sm"
+            onClick={handleExport}
+            disabled={exporting || !datesValid || notConfigured}
+            aria-busy={exporting}
+          >
+            {exporting ? 'Exporting…' : 'Export Excel'}
+          </button>
+          <button
+            type="button"
+            className="war-btn war-btn--ghost war-btn--sm"
+            onClick={refetch}
+            disabled={loading || !datesValid}
+          >
+            {loading ? 'Loading…' : 'Refresh'}
+          </button>
+        </div>
+      </div>
+
+      {exportError && (
+        <div className="wsr-callout wsr-callout--error wsr-callout--inline" role="alert" style={{ marginBottom: 12 }}>
+          <span className="wsr-callout__body">{exportError}</span>
+        </div>
+      )}
+
+      {notConfigured && <NotConfiguredCallout message={error} />}
+
+      {error && !notConfigured && (
+        <ErrorCallout message={error} onRetry={refetch} validationErrors={validationErrors} />
+      )}
+
+      {loading && <div className="wsr-loading">Loading from Zoho…</div>}
+
+      {showTable && (
+        <>
+          <div className="war-table-wrap">
+            <table className="war-table">
+              <thead>
+                <tr>
+                  <th className="war-th wsr-th--sr">SR. NO</th>
+                  <th className="war-th wsr-th--item">FAMILY</th>
+                  <th className="war-th">Active Items</th>
+                  <th className="war-th">Closing Stock</th>
+                  <th className="war-th">Purchases Qty</th>
+                  <th className="war-th">Purchase Amount</th>
+                  <th className="war-th">Returned to Wholesale</th>
+                  <th className="war-th">SOLD Qty</th>
+                  <th className="war-th">Sales Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.length === 0 && (
+                  <tr className="war-tr">
+                    <td className="war-td" colSpan={9}>
+                      <div className="wsr-empty">
+                        <strong>No families found for this date range.</strong>
+                        <span className="wsr-empty__sub">
+                          No active Zoho items matched the Family field for{' '}
+                          {dateLabel || 'the selected period'}.
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {items.map((it, idx) => (
+                  <tr key={it.family || idx} className="war-tr">
+                    <td className="war-td wsr-td--sr">{idx + 1}</td>
+                    <td className="war-td wsr-td--item">{it.family || '—'}</td>
+                    <td className="war-td">{formatNum(it.item_count)}</td>
+                    <td className="war-td">{formatNum(it.closing_stock)}</td>
+                    <td className="war-td">{formatNum(it.purchases)}</td>
+                    <td className="war-td">{formatCurrency(it.purchase_amount)}</td>
+                    <td className="war-td">{formatNum(it.returned_to_wholesale)}</td>
+                    <td className="war-td">{formatNum(it.sold)}</td>
+                    <td className="war-td">{formatCurrency(it.sales_amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {items.length > 0 && (
+                <tfoot>
+                  <tr className="war-tr war-tr--total">
+                    <td className="war-td wsr-td--sr" />
+                    <td className="war-td wsr-td--item">Grand Total</td>
+                    <td className="war-td">{formatNum(grandTotal.item_count)}</td>
+                    <td className="war-td">{formatNum(grandTotal.closing_stock)}</td>
+                    <td className="war-td">{formatNum(grandTotal.purchases)}</td>
+                    <td className="war-td">{formatCurrency(grandTotal.purchase_amount)}</td>
+                    <td className="war-td">{formatNum(grandTotal.returned_to_wholesale)}</td>
+                    <td className="war-td">{formatNum(grandTotal.sold)}</td>
+                    <td className="war-td">{formatCurrency(grandTotal.sales_amount)}</td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+          <div className="wsr-meta">
+            <div className="wsr-meta__item">Group:<strong>{reportGroup}</strong></div>
+            <div className="wsr-meta__item">Families:<strong>{items.length}</strong></div>
+            <div className="wsr-meta__item">Source:<strong>Zoho (live)</strong></div>
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
+/**
+ * Stand-alone page for a single report group (keeps backward compat for
+ * direct links to /slow-moving or /other-family if needed).
+ */
+export function WeeklySalesReportPage({ reportGroup, title, subtitle }) {
+  const initial = useMemo(defaultWeekRange, [])
+  const [fromDate, setFromDate] = useState(initial.from)
+  const [toDate, setToDate]     = useState(initial.to)
+
+  const handleFromChange = useCallback((e) => setFromDate(e.target.value), [])
+  const handleToChange   = useCallback((e) => setToDate(e.target.value), [])
+
+  const datesValid = Boolean(fromDate) && Boolean(toDate) && fromDate <= toDate
 
   return (
     <div className="war-page">
@@ -186,177 +303,31 @@ export function WeeklySalesReportPage({ reportGroup, title, subtitle }) {
           <div className="wsr-toolbar__dates">
             <div className="war-form-field">
               <label className="war-label" htmlFor="wsr-from">From</label>
-              <input
-                id="wsr-from"
-                type="date"
-                className="war-input"
-                value={fromDate}
-                max={toDate || undefined}
-                onChange={handleFromChange}
-              />
+              <input id="wsr-from" type="date" className="war-input"
+                value={fromDate} max={toDate || undefined} onChange={handleFromChange} />
             </div>
             <div className="war-form-field">
               <label className="war-label" htmlFor="wsr-to">To</label>
-              <input
-                id="wsr-to"
-                type="date"
-                className="war-input"
-                value={toDate}
-                min={fromDate || undefined}
-                onChange={handleToChange}
-              />
+              <input id="wsr-to" type="date" className="war-input"
+                value={toDate} min={fromDate || undefined} onChange={handleToChange} />
             </div>
           </div>
-          <div className="wsr-toolbar__actions">
-            <button
-              type="button"
-              className="war-btn war-btn--primary"
-              onClick={handleExportExcel}
-              disabled={exporting || !datesValid || notConfigured}
-              aria-busy={exporting}
-            >
-              {exporting ? 'Exporting…' : 'Export to Excel'}
-            </button>
-            <button
-              type="button"
-              className="war-btn war-btn--ghost"
-              onClick={refetch}
-              disabled={loading || !datesValid}
-            >
-              {loading ? 'Loading…' : 'Refresh'}
-            </button>
-          </div>
         </div>
-        {exportError ? (
-          <div
-            className="wsr-callout wsr-callout--error wsr-callout--inline"
-            role="alert"
-            style={{ marginTop: 12 }}
-          >
-            <span className="wsr-callout__body">{exportError}</span>
-          </div>
-        ) : null}
         {!datesValid && (
           <div className="wsr-callout wsr-callout--warn">
             <span className="wsr-callout__title">Invalid date range</span>
-            <div className="wsr-callout__body">
-              Pick a From date that's before or equal to the To date.
-            </div>
+            <div className="wsr-callout__body">Pick a From date ≤ To date.</div>
           </div>
         )}
       </section>
 
-      {notConfigured && <NotConfiguredCallout message={error} />}
-
-      {error && !notConfigured && (
-        <ErrorCallout
-          message={error}
-          onRetry={refetch}
-          validationErrors={validationErrors}
-        />
-      )}
-
-      {showTable && (
-        <section className="war-section">
-          <div className="war-preview__head" style={{ marginBottom: 12 }}>
-            <span className="war-preview__title">{title}</span>
-            <div className="war-preview__divider" aria-hidden />
-            <span className="war-preview__date">{dateLabel}</span>
-          </div>
-          {zoho?.data_source && (
-            <div
-              className="wsr-callout wsr-callout--inline"
-              role="note"
-              style={{ marginBottom: 12, fontSize: 13, lineHeight: 1.4 }}
-            >
-              <strong>Data source:</strong> Zoho Inventory API. Some period columns
-              (opening, purchases, returns, sold) are not in the Items response — they
-              show "—" here. {zoho?.documentation
-                ? ` See ${zoho.documentation} in the repo.`
-                : null}
-            </div>
-          )}
-
-          <div className="war-table-wrap">
-            <table className="war-table">
-              <thead>
-                <tr>
-                  <th className="war-th wsr-th--sr">SR. NO</th>
-                  <th className="war-th wsr-th--item">ITEM</th>
-                  <th className="war-th">Opening Stock</th>
-                  <th className="war-th">Purchases</th>
-                  <th className="war-th">Returned to Wholesale</th>
-                  <th className="war-th">Closing Stock</th>
-                  <th className="war-th">SOLD</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.length === 0 && (
-                  <tr className="war-tr">
-                    <td className="war-td" colSpan={7}>
-                      <div className="wsr-empty">
-                        <strong>No items returned by Zoho for this date range.</strong>
-                        <span className="wsr-empty__sub">
-                          The report group has members in the database, but the
-                          Zoho webhook returned no matching rows for{' '}
-                          {dateLabel || 'the selected period'}.
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-                {items.map((it, idx) => {
-                  const key = it.sku || it.item_id || it.item_name || idx
-                  return (
-                    <tr key={key} className="war-tr">
-                      <td className="war-td wsr-td--sr">{idx + 1}</td>
-                      <td className="war-td wsr-td--item">
-                        {it.item_name || it.sku || it.item_id || '—'}
-                      </td>
-                      <td className="war-td">{formatNum(it.opening_stock)}</td>
-                      <td className="war-td">{formatNum(it.purchases)}</td>
-                      <td className="war-td">{formatNum(it.returned_to_wholesale)}</td>
-                      <td className="war-td">{formatNum(it.closing_stock)}</td>
-                      <td className="war-td">{formatNum(it.sold)}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-              {items.length > 0 && (
-                <tfoot>
-                  <tr className="war-tr war-tr--total">
-                    <td className="war-td wsr-td--sr"></td>
-                    <td className="war-td wsr-td--item">Grand Total</td>
-                    <td className="war-td">{formatNum(grandTotal.opening_stock)}</td>
-                    <td className="war-td">{formatNum(grandTotal.purchases)}</td>
-                    <td className="war-td">{formatNum(grandTotal.returned_to_wholesale)}</td>
-                    <td className="war-td">{formatNum(grandTotal.closing_stock)}</td>
-                    <td className="war-td">{formatNum(grandTotal.sold)}</td>
-                  </tr>
-                </tfoot>
-              )}
-            </table>
-          </div>
-
-          <div className="wsr-meta">
-            <div className="wsr-meta__item">
-              Group:<strong>{reportGroup}</strong>
-            </div>
-            <div className="wsr-meta__item">
-              Items returned:<strong>{items.length}</strong>
-            </div>
-            <div className="wsr-meta__item">
-              Source:<strong>Zoho (live)</strong>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {loading && (
-        <section className="war-section">
-          <div className="wsr-loading">Loading report from Zoho…</div>
-        </section>
-      )}
+      <WeeklySalesReportSection
+        reportGroup={reportGroup}
+        title={title}
+        fromDate={fromDate}
+        toDate={toDate}
+        datesValid={datesValid}
+      />
     </div>
   )
 }

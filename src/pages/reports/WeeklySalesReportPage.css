@@ -161,3 +161,81 @@
   font-weight: 600;
   margin-left: 4px;
 }
+
+/* ── Combined page: per-section header with title + inline actions ── */
+.wsr-report-section {
+  padding-top: 0;
+}
+
+.wsr-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.wsr-section-header__title-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  /* Shrinks before the action buttons disappear off-screen */
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.wsr-section-heading {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary, #1e2d4e);
+  letter-spacing: -0.2px;
+  /* Prevents very long titles from pushing buttons off-screen */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wsr-section-header__date {
+  font-size: 13px;
+  color: var(--text-secondary, #6b7a99);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.wsr-section-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Never shrink or wrap the buttons themselves */
+  flex: 0 0 auto;
+  /* Always stay on the right, even when title wraps below */
+  margin-left: auto;
+}
+
+/* Small button variant */
+.war-btn--sm {
+  font-size: 13px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+/* Divider between the two report sections */
+.wsr-section-divider {
+  height: 1px;
+  background: var(--border-color, #e5e9f2);
+  margin: 4px 0 8px;
+  border-radius: 1px;
+}
+
+/* Date badge next to the date picker */
+.wsr-date-badge {
+  font-size: 13px;
+  color: var(--text-secondary, #6b7a99);
+  white-space: nowrap;
+  align-self: flex-end;
+  padding-bottom: 2px;
+}

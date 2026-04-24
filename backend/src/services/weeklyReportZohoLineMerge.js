@@ -22,11 +22,16 @@ function buildItemIdToSkuMap(zohoItemRows) {
 
 /**
  * One canonical key per line to avoid double-counting.
- * @param {{ item_id?: unknown, name?: string, quantity?: unknown }} line
+ * Priority: sku on line (fast, e.g. from salesbyitem report) → item_id→sku lookup → item_id → name.
+ * @param {{ item_id?: unknown, sku?: string, name?: string }} line
  * @param {Map<string, string>} idToSku
  * @returns {string|null}
  */
 function lineCanonicalKey(line, idToSku) {
+  // Fast path: sku already on the line (e.g. from /reports/salesbyitem)
+  if (line.sku && String(line.sku).trim() !== '') {
+    return `s:${String(line.sku).trim().toLowerCase()}`
+  }
   const iid = line.item_id != null && line.item_id !== '' ? String(line.item_id).trim() : ''
   if (iid) {
     const sk = idToSku.get(iid)
@@ -63,6 +68,23 @@ function sumLinesToMap(lines, idToSku) {
 }
 
 /**
+ * Same as sumLinesToMap but sums `item_total` (currency amount) instead of quantity.
+ * @param {Array<{ item_id?: unknown, name?: string, item_total?: unknown }>} lines
+ * @param {Map<string, string>} idToSku
+ * @returns {Map<string, number>}
+ */
+function sumAmountsToMap(lines, idToSku) {
+  const map = new Map()
+  for (const line of lines || []) {
+    const k = lineCanonicalKey(line, idToSku)
+    if (!k) continue
+    const a = parseLineQty(line.item_total)
+    map.set(k, (map.get(k) || 0) + a)
+  }
+  return map
+}
+
+/**
  * @param {Map<string, number>} m
  * @param {{ sku: string, item_id: string, item_name: string }} row
  * @returns {number}
@@ -87,31 +109,27 @@ function mapLookupForReportRow(m, row) {
 }
 
 /**
- * Fills sold, purchases, and returned_to_wholesale. **Does not recompute
- * `opening_stock`** (Phase 4): that field stays a **TEMPORARY** duplicate of
- * current `stock_on_hand` (same as `closing_stock` from the Items API) until
- * a real opening snapshot exists; see `transaction_debug.opening_stock_is_temporary_fallback`
- * in `weeklyReportZohoData`.
+ * Fills sold, purchases, returned_to_wholesale, sales_amount, and purchase_amount on an item row.
  * @param {object} row - report row
- * @param {Map<string, number>} soldMap
- * @param {Map<string, number>} purchMap
- * @param {Map<string, number>} retMap
+ * @param {Map<string, number>} soldMap         - quantity sold
+ * @param {Map<string, number>} purchMap        - quantity purchased
+ * @param {Map<string, number>} retMap          - quantity returned
+ * @param {Map<string, number>} [salesAmountMap]  - invoice item_total (currency)
+ * @param {Map<string, number>} [purchAmountMap]  - purchase item_total (currency)
  */
-function applyTransactionMapsToRow(row, soldMap, purchMap, retMap) {
-  const sold = mapLookupForReportRow(soldMap, row)
-  const pur = mapLookupForReportRow(purchMap, row)
-  const ret = mapLookupForReportRow(retMap, row)
-  row.sold = sold
-  row.purchases = pur
-  row.returned_to_wholesale = ret
-  // opening_stock: intentionally unchanged — set with closing from parseZohoStockOnHand
-  // (TEMPORARY: no historical "stock on from_date" in Items v1; see weeklyReportZohoData).
+function applyTransactionMapsToRow(row, soldMap, purchMap, retMap, salesAmountMap, purchAmountMap) {
+  row.sold = mapLookupForReportRow(soldMap, row)
+  row.purchases = mapLookupForReportRow(purchMap, row)
+  row.returned_to_wholesale = mapLookupForReportRow(retMap, row)
+  row.sales_amount = salesAmountMap ? mapLookupForReportRow(salesAmountMap, row) : 0
+  row.purchase_amount = purchAmountMap ? mapLookupForReportRow(purchAmountMap, row) : 0
 }
 
 module.exports = {
   buildItemIdToSkuMap,
   lineCanonicalKey,
   sumLinesToMap,
+  sumAmountsToMap,
   mapLookupForReportRow,
   applyTransactionMapsToRow,
   _internals: { parseLineQty, lineCanonicalKey },

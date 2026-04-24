@@ -217,7 +217,7 @@ export function downloadBlob(blob, filename) {
   URL.revokeObjectURL(u)
 }
 
-async function request(method, path, body = null) {
+async function request(method, path, body = null, opts = {}) {
   path = normalizeApiPath(path)
   const url = path.startsWith('http') ? path : resolveApiUrl(path)
   const options = {
@@ -229,6 +229,7 @@ async function request(method, path, body = null) {
     },
   }
   if (body != null) options.body = JSON.stringify(body)
+  if (opts && opts.signal) options.signal = opts.signal
   const res = await fetch(url, options)
   return handleResponse(res, url)
 }
@@ -248,7 +249,7 @@ async function postForm(path, formData) {
 }
 
 export const api = {
-  get: (path) => request('GET', path),
+  get: (path, opts) => request('GET', path, null, opts),
   post: (path, body) => request('POST', path, body),
   postForm: (path, formData) => postForm(path, formData),
   put: (path, body) => request('PUT', path, body),

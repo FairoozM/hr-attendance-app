@@ -8,13 +8,13 @@
  * See docs/integrations-zoho.md and docs/zoho-inventory-api-coverage.md.
  */
 
-const DEFAULT_TIMEOUT_MS = 20000
+const DEFAULT_TIMEOUT_MS = 45000
 const DEFAULT_ACCOUNTS_BASE = 'https://accounts.zoho.com'
 const DEFAULT_API_BASE = 'https://www.zohoapis.com'
 const INVENTORY_V1 = '/inventory/v1'
 
 /**
- * @returns {{ code: 'ok', clientId: string, clientSecret: string, refreshToken: string, organizationId: string, accountsBase: string, apiBase: string, familyCustomFieldId: string | null, timeoutMs: number } | { code: 'ZOHO_NOT_CONFIGURED' }}
+ * @returns {{ code: 'ok', clientId: string, clientSecret: string, refreshToken: string, organizationId: string, accountsBase: string, apiBase: string, redirectUri: string | null, familyCustomFieldId: string | null, timeoutMs: number } | { code: 'ZOHO_NOT_CONFIGURED', missing: string[] }}
  */
 function readZohoConfig() {
   const clientId = process.env.ZOHO_CLIENT_ID
@@ -22,8 +22,13 @@ function readZohoConfig() {
   const refreshToken = process.env.ZOHO_REFRESH_TOKEN
   const organizationId =
     process.env.ZOHO_ORGANIZATION_ID || process.env.ZOHO_INVENTORY_ORGANIZATION_ID
-  if (!clientId || !clientSecret || !refreshToken || !organizationId) {
-    return { code: 'ZOHO_NOT_CONFIGURED' }
+  const missing = []
+  if (!clientId) missing.push('ZOHO_CLIENT_ID')
+  if (!clientSecret) missing.push('ZOHO_CLIENT_SECRET')
+  if (!refreshToken) missing.push('ZOHO_REFRESH_TOKEN')
+  if (!organizationId) missing.push('ZOHO_ORGANIZATION_ID')
+  if (missing.length) {
+    return { code: 'ZOHO_NOT_CONFIGURED', missing }
   }
   const apiBaseRaw =
     process.env.ZOHO_API_BASE_URL || process.env.ZOHO_INVENTORY_API_BASE || DEFAULT_API_BASE
@@ -35,6 +40,9 @@ function readZohoConfig() {
     organizationId: String(organizationId).trim(),
     accountsBase: (process.env.ZOHO_ACCOUNTS_BASE || DEFAULT_ACCOUNTS_BASE).replace(/\/$/, ''),
     apiBase: String(apiBaseRaw).replace(/\/$/, ''),
+    redirectUri: process.env.ZOHO_REDIRECT_URI
+      ? String(process.env.ZOHO_REDIRECT_URI).trim()
+      : null,
     familyCustomFieldId: process.env.ZOHO_FAMILY_CUSTOMFIELD_ID
       ? String(process.env.ZOHO_FAMILY_CUSTOMFIELD_ID).trim()
       : null,

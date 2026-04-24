@@ -27,19 +27,21 @@ app.disable('x-powered-by')
 // Handle CORS preflight for every route before anything else
 app.options('*', cors())
 app.use(cors())
-app.use(express.json({ limit: '10mb' }))
 
-// --- Public (no authMiddleware, no requireAuth/requireAdmin) — must stay above /api/* routers
-// 403 in the browser for GET /api/health usually means the request never reached Express
-// (e.g. CloudFront default to S3 only; see docs/cloudfront-api-routing.md), not route-level auth. ---
+// --- Public (no authMiddleware) — before express.json so a parse edge case on GET cannot affect health
+// 403/500 from the browser for GET /api/health is often the edge (CloudFront → S3) or Vite proxy, not this route. ---
 
 app.get('/api', (_req, res) => {
+  res.type('application/json')
   res.json({ status: 'ok', service: 'hr-api' })
 })
 
 app.get('/api/health', (_req, res) => {
+  res.type('application/json')
   res.json({ status: 'ok' })
 })
+
+app.use(express.json({ limit: '10mb' }))
 
 // Auth router — POST /api/auth/login, GET /api/auth/login (405), GET /api/auth/me, POST /api/auth/change-password
 app.use('/api/auth', authRouter)

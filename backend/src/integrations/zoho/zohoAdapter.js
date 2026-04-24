@@ -22,6 +22,12 @@ const {
   getPurchases,
   getVendorCredits,
 } = require('./weeklyReportZohoTransactions')
+const {
+  fetchAllBillsRaw,
+  clearBillsCache,
+  fetchAllVendorCreditsRaw,
+  clearVendorCreditsCache,
+} = require('./zohoTransactionsCache')
 const { readZohoConfig, INVENTORY_V1, orgEnvHint } = require('./zohoConfig')
 const { normalizeZohoInventoryItem } = require('./zohoItemFamily')
 
@@ -35,16 +41,74 @@ const { normalizeZohoInventoryItem } = require('./zohoItemFamily')
  */
 
 /**
+ * Items are static product-catalog data that rarely changes. Cache them for
+ * ZOHO_ITEMS_CACHE_TTL_MS (default 5 min) so that every report request after
+ * the first cold load returns items instantly instead of re-scanning 20 pages.
+ *
+ * Set ZOHO_ITEMS_CACHE_TTL_MS=0 to disable.
+ */
+const ITEMS_CACHE_TTL_MS =
+  process.env.ZOHO_ITEMS_CACHE_TTL_MS !== undefined
+    ? Math.max(0, parseInt(process.env.ZOHO_ITEMS_CACHE_TTL_MS, 10) || 0)
+    : 5 * 60 * 1000
+
+/** @type {{ items: object[], expiresAt: number } | null} */
+let _itemsCache = null
+
+/** @type {Promise<object[]> | null} */
+let _itemsFetchInFlight = null
+
+/**
  * All inventory item rows as returned by Zoho (unfiltered, paginated). Raw API objects.
+ *
+ * Two-layer guard:
+ *  1. TTL cache  — serve stale-safe items without hitting Zoho (default 5 min)
+ *  2. In-flight dedup — concurrent callers share one Promise so pages are
+ *     fetched exactly once even on a cold start
+ *
  * @returns {Promise<object[]>}
  */
 async function fetchAllItemsRaw() {
-  return listAllItems()
+  // 1. Warm cache hit
+  if (_itemsCache && Date.now() < _itemsCache.expiresAt) {
+    if (process.env.DEBUG_ZOHO === '1') {
+      console.log('[zoho-items] cache hit — serving from memory')
+    }
+    return _itemsCache.items
+  }
+
+  // 2. In-flight dedup
+  if (_itemsFetchInFlight) {
+    return _itemsFetchInFlight
+  }
+
+  // 3. Cold fetch
+  _itemsFetchInFlight = listAllItems()
+    .then((items) => {
+      if (ITEMS_CACHE_TTL_MS > 0) {
+        _itemsCache = { items, expiresAt: Date.now() + ITEMS_CACHE_TTL_MS }
+      }
+      console.log(
+        `[zoho-items] cached ${items.length} items for ${Math.round(ITEMS_CACHE_TTL_MS / 1000)}s`
+      )
+      return items
+    })
+    .finally(() => {
+      _itemsFetchInFlight = null
+    })
+  return _itemsFetchInFlight
+}
+
+/** Evict the items cache (e.g. after a catalog change). */
+function clearItemsCache() {
+  _itemsCache = null
 }
 
 /**
  * Same data as `fetchAllItemsRaw`, mapped to {@link ZohoNormalizedItem} with
  * the Family custom field parsed from `custom_fields` (see `zohoItemFamily.js`).
+ * Uses `fetchAllItemsRaw` (not `listAllItems` directly) so that concurrent callers
+ * share the `_itemsFetchInFlight` guard and only one Zoho scan is issued at a time.
  * @returns {Promise<ZohoNormalizedItem[]>}
  */
 async function getItems() {
@@ -54,7 +118,7 @@ async function getItems() {
     e.code = 'ZOHO_NOT_CONFIGURED'
     throw e
   }
-  const raw = await listAllItems()
+  const raw = await fetchAllItemsRaw()
   const familyId = c.familyCustomFieldId
   return raw.map((it) => normalizeZohoInventoryItem(it, familyId))
 }
@@ -65,6 +129,11 @@ function getZohoConfigOrNotConfigured() {
 
 module.exports = {
   fetchAllItemsRaw,
+  clearItemsCache,
+  fetchAllBillsRaw,
+  clearBillsCache,
+  fetchAllVendorCreditsRaw,
+  clearVendorCreditsCache,
   getItems,
   zohoApiRequest,
   fetchListPaginated,

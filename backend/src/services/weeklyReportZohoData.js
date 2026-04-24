@@ -21,6 +21,7 @@ const {
 const {
   buildItemIdToSkuMap,
   sumLinesToMap,
+  sumAmountsToMap,
   applyTransactionMapsToRow,
 } = require('./weeklyReportZohoLineMerge')
 const {
@@ -28,6 +29,55 @@ const {
   assertReportVendorResolvedIfRequired,
   isReportVendorOptional,
 } = require('./weeklyReportReportVendor')
+
+/**
+ * Map Zoho Inventory path → required OAuth scope. The single source of truth
+ * for the scope set used by the weekly report. Keep in sync with
+ * docs/weekly-report-zoho-transactions.md and docs/zoho-inventory-api-coverage.md.
+ */
+const ZOHO_INV_SCOPE_BY_PATH = [
+  { re: /\/inventory\/v1\/items\b/,         scope: 'ZohoInventory.items.READ' },
+  { re: /\/inventory\/v1\/invoices\b/,      scope: 'ZohoInventory.invoices.READ' },
+  { re: /\/inventory\/v1\/bills\b/,         scope: 'ZohoInventory.bills.READ' },
+  { re: /\/inventory\/v1\/vendorcredits\b/, scope: 'ZohoInventory.debitnotes.READ' },
+  { re: /\/inventory\/v1\/contacts\b/,      scope: 'ZohoInventory.contacts.READ' },
+]
+
+const ZOHO_REQUIRED_SCOPES_SUMMARY =
+  'ZohoInventory.items.READ, ZohoInventory.invoices.READ, ZohoInventory.bills.READ, ' +
+  'ZohoInventory.debitnotes.READ (vendor credits)' +
+  '. Re-issue the refresh token at https://api-console.zoho.com (Self Client → Generate Code → Generate Token) ' +
+  'with these scopes.'
+
+/**
+ * Adds a “Required Zoho OAuth scope: …” hint to warnings that look like an
+ * authentication/scope failure (HTTP 401 from Zoho or app-level code 57).
+ * Pure formatting; no side effects.
+ *
+ * @param {string} msg
+ * @returns {string}
+ */
+function enrichZohoWarning(msg) {
+  const s = String(msg || '')
+  const is401 = /\bHTTP\s*401\b/.test(s)
+  const isCode57 =
+    /\bcode\s*["':]?\s*57\b/.test(s) ||
+    /You are not authorized to perform this operation/i.test(s)
+  if (!is401 && !isCode57) return s
+  for (const e of ZOHO_INV_SCOPE_BY_PATH) {
+    if (e.re.test(s)) {
+      return (
+        `${s} → Missing Zoho OAuth scope: ${e.scope}. ` +
+        `Re-issue the refresh token with this scope (https://api-console.zoho.com → Self Client). ` +
+        `Full required scope set for the weekly report: ${ZOHO_REQUIRED_SCOPES_SUMMARY}`
+      )
+    }
+  }
+  return (
+    `${s} → Zoho returned 401 / code 57 (not authorized). ` +
+    `Required Zoho Inventory scopes for the weekly report: ${ZOHO_REQUIRED_SCOPES_SUMMARY}`
+  )
+}
 
 /**
  * Exposed on JSON responses so the UI can show a one-line data-source note.
@@ -147,12 +197,18 @@ function zohoItemToPlaceholderReportRow(zohoItem, fromDate, toDate, familyFieldI
  * @param {object[]} rawZoho
  * @returns {{ bySku: Map, byName: Map, byItemId: Map }}
  */
-function buildZohoLookupMaps(rawZoho) {
+/**
+ * @param {object[]} rawZoho
+ * @param {string | null} familyFieldId - from ZOHO_FAMILY_CUSTOMFIELD_ID (or null for label fallback)
+ */
+function buildZohoLookupMaps(rawZoho, familyFieldId) {
   const bySku = new Map()
   const byName = new Map()
   const byItemId = new Map()
+  /** family value (lowercase) → active items with that family */
+  const byFamily = new Map()
   if (!Array.isArray(rawZoho)) {
-    return { bySku, byName, byItemId }
+    return { bySku, byName, byItemId, byFamily }
   }
   for (const it of rawZoho) {
     if (!it || typeof it !== 'object') continue
@@ -166,27 +222,105 @@ function buildZohoLookupMaps(rawZoho) {
     if (it.item_id != null && it.item_id !== '') {
       byItemId.set(String(it.item_id).trim(), it)
     }
+    // Index by Family custom field value (active items only — caller decides inactive policy)
+    const family = parseFamilyFromZohoItem(it, familyFieldId)
+    if (family) {
+      const fk = family.trim().toLowerCase()
+      if (!byFamily.has(fk)) byFamily.set(fk, [])
+      byFamily.get(fk).push(it)
+    }
   }
-  return { bySku, byName, byItemId }
+  return { bySku, byName, byItemId, byFamily }
 }
 
 /**
- * @param {object} member - row from item_report_groups (sku, item_id, item_name)
- * @param {{ bySku: Map, byName: Map, byItemId: Map }} maps
- * @returns {object | null}
+ * Returns all Zoho items that match a single `item_report_groups` member.
+ *
+ * Matching priority:
+ *  1. sku field set on member — exact SKU match (single item)
+ *  2. item_id field set on member — exact Zoho item_id match (single item)
+ *  3. item_name — treated as a Zoho **Family custom field** value.
+ *     "FL SHINE" returns every active Zoho item whose Family = "FL SHINE".
+ *     Falls back to exact item-name match only if no family match is found.
+ *
+ * @param {object} member - row from item_report_groups
+ * @param {{ bySku: Map, byName: Map, byItemId: Map, byFamily: Map }} maps
+ * @returns {object[]}  may be empty
  */
-function findZohoItemForMember(member, maps) {
-  if (!member || typeof member !== 'object') return null
+function findZohoItemsForMember(member, maps) {
+  if (!member || typeof member !== 'object') return []
+
+  // 1. SKU — single unique match
   if (member.sku != null && String(member.sku).trim() !== '') {
-    return maps.bySku.get(String(member.sku).trim().toLowerCase()) || null
+    const item = maps.bySku.get(String(member.sku).trim().toLowerCase())
+    return item ? [item] : []
   }
+
+  // 2. item_id — single unique match
   if (member.item_id != null && String(member.item_id).trim() !== '') {
-    return maps.byItemId.get(String(member.item_id).trim()) || null
+    const item = maps.byItemId.get(String(member.item_id).trim())
+    return item ? [item] : []
   }
+
+  // 3. item_name is the Zoho Family custom field value
   if (member.item_name != null && String(member.item_name).trim() !== '') {
-    return maps.byName.get(String(member.item_name).trim().toLowerCase()) || null
+    const needle = String(member.item_name).trim().toLowerCase()
+
+    // 3a. Family field match — primary path ("FL SHINE" → all items where Family = "FL SHINE")
+    if (maps.byFamily && maps.byFamily.has(needle)) {
+      return maps.byFamily.get(needle)
+    }
+
+    // 3b. Exact item-name fallback (e.g. "APRON" is both the item name AND it might
+    //     not have a Family value set in Zoho)
+    const exact = maps.byName.get(needle)
+    if (exact) return [exact]
   }
-  return null
+
+  return []
+}
+
+/** @deprecated single-result shim — use findZohoItemsForMember */
+function findZohoItemForMember(member, maps) {
+  return findZohoItemsForMember(member, maps)[0] || null
+}
+
+/**
+ * Aggregates individual item-level rows (one per Zoho item) into one summary
+ * row per family. All numeric fields are summed; `item_count` is added.
+ *
+ * @param {object[]} itemRows - output of the main item-matching loop
+ * @returns {object[]} one row per distinct family value, sorted by family name
+ */
+function aggregateByFamily(itemRows) {
+  /** @type {Map<string, object>} family (lowercase key) → accumulator */
+  const map = new Map()
+  for (const row of itemRows) {
+    const familyDisplay = row.family || '(no family)'
+    const key = familyDisplay.toLowerCase()
+    let acc = map.get(key)
+    if (!acc) {
+      acc = {
+        family: familyDisplay,
+        item_count: 0,
+        closing_stock: 0,
+        sold: 0,
+        sales_amount: 0,
+        purchases: 0,
+        purchase_amount: 0,
+        returned_to_wholesale: 0,
+      }
+      map.set(key, acc)
+    }
+    acc.item_count += 1
+    acc.closing_stock += row.closing_stock || 0
+    acc.sold += row.sold || 0
+    acc.sales_amount += row.sales_amount || 0
+    acc.purchases += row.purchases || 0
+    acc.purchase_amount += row.purchase_amount || 0
+    acc.returned_to_wholesale += row.returned_to_wholesale || 0
+  }
+  return [...map.values()].sort((a, b) => a.family.localeCompare(b.family))
 }
 
 /**
@@ -211,39 +345,28 @@ async function fetchZohoItemRowsForGroupMembers(
   void _vendorConfig
   const cfg = readZohoConfig()
   if (cfg.code !== 'ok') {
+    const missing = Array.isArray(cfg.missing) ? cfg.missing : []
     const e = new Error(
-      `Zoho source not configured. Set ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ` +
-        `ZOHO_REFRESH_TOKEN, and ${orgEnvHint()}.`
+      missing.length
+        ? `Zoho source not configured. Missing env vars: ${missing.join(', ')} (org alias accepted: ZOHO_INVENTORY_ORGANIZATION_ID).`
+        : `Zoho source not configured. Set ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ` +
+            `ZOHO_REFRESH_TOKEN, and ${orgEnvHint()}.`
     )
     e.code = 'ZOHO_NOT_CONFIGURED'
+    e.missing = missing
     throw e
   }
   const familyFieldId = cfg.familyCustomFieldId
-  const raw = await fetchAllItemsRaw()
-  const maps = buildZohoLookupMaps(raw)
-  const out = []
-  for (const m of members) {
-    const z = findZohoItemForMember(m, maps)
-    if (!z) continue
-    if (z.status && String(z.status).toLowerCase() === 'inactive') continue
-    const sk = typeof z.sku === 'string' ? z.sku.trim() : ''
-    if (!sk) continue
-    out.push(zohoItemToPlaceholderReportRow(z, fromDate, toDate, familyFieldId))
-  }
 
-  if (out.length === 0) {
-    return { items: [], reportMeta: { warnings: [] } }
-  }
-
+  // Resolve vendor synchronously upfront so we can start all async fetches
+  // in parallel immediately below.
   assertReportVendorResolvedIfRequired(reportGroup)
+  const rv = getResolvedReportVendor(reportGroup)
 
   const warnings = []
   const onWarning = (w) => {
-    if (w) warnings.push(String(w))
+    if (w) warnings.push(enrichZohoWarning(w))
   }
-
-  const idToSku = buildItemIdToSkuMap(raw)
-  const rv = getResolvedReportVendor(reportGroup)
 
   if (isReportVendorOptional() && !rv.vendorId && !rv.vendorName) {
     onWarning(
@@ -251,11 +374,95 @@ async function fetchZohoItemRowsForGroupMembers(
     )
   }
 
-  const [salesR, purchR, vcR] = await Promise.all([
+  // Fetch items AND all transactions in parallel — items (20 pages, ~27s) used to
+  // take 27 extra seconds before transactions could even start.  Running them
+  // concurrently means total time = max(items, invoices) instead of items + invoices.
+  const t0All = Date.now()
+  const [raw, salesR, purchR, vcR] = await Promise.all([
+    fetchAllItemsRaw(),
     getSales(fromDate, toDate, { onWarning }),
     getPurchases(fromDate, toDate, rv.vendorId, { vendorName: rv.vendorName, onWarning }),
     getVendorCredits(fromDate, toDate, rv.vendorId, { vendorName: rv.vendorName, onWarning }),
   ])
+  console.log(
+    `[zoho-timing] parallel fetch ${Date.now() - t0All}ms — ` +
+    `items=${raw.length}, invoices=${salesR.document_count ?? 0}, ` +
+    `bills=${purchR ? (purchR.document_count ?? 0) : 0}, ` +
+    `vendorcredits=${vcR ? (vcR.document_count ?? 0) : 0}`
+  )
+
+  // If ZOHO_FAMILY_CUSTOMFIELD_ID is not set, scan the first 100 items for a
+  // custom field with label "Family" and log the id once.
+  if (!familyFieldId && Array.isArray(raw)) {
+    const scan = raw.slice(0, 100)
+    for (const item of scan) {
+      const cfs = Array.isArray(item && item.custom_fields) ? item.custom_fields : []
+      const cf = cfs.find((c) => c && c.label === 'Family')
+      if (cf && cf.customfield_id) {
+        console.log(
+          '[zoho-family] auto-detected Family field id:',
+          cf.customfield_id,
+          '— set ZOHO_FAMILY_CUSTOMFIELD_ID=' + cf.customfield_id + ' in backend/.env'
+        )
+        break
+      }
+    }
+  }
+
+  const maps = buildZohoLookupMaps(raw, familyFieldId)
+  const out = []
+  const skipReasons = []
+  for (const m of members) {
+    const label = m.sku || m.item_name || m.item_id || '?'
+    const zohoMatches = findZohoItemsForMember(m, maps)
+    if (zohoMatches.length === 0) {
+      skipReasons.push(`"${label}" — no Zoho match (no Family="${label}" items found)`)
+      continue
+    }
+    for (const z of zohoMatches) {
+      // Skip inactive items — report only active inventory
+      if (z.status && String(z.status).toLowerCase() === 'inactive') continue
+      const sk = typeof z.sku === 'string' ? z.sku.trim() : ''
+      if (!sk) {
+        skipReasons.push(`"${z.name || label}" — no SKU in Zoho`)
+        continue
+      }
+      out.push(zohoItemToPlaceholderReportRow(z, fromDate, toDate, familyFieldId))
+    }
+  }
+
+  console.log(
+    `[weekly-report] group "${reportGroup}": ${members.length} DB members → ${out.length} Zoho rows` +
+    (skipReasons.length ? ` | skipped: ${skipReasons.join(' | ')}` : '')
+  )
+
+  if (out.length === 0) {
+    console.log(`[weekly-report] group "${reportGroup}": no active items matched — returning empty`)
+    return { items: [], reportMeta: { warnings: [] } }
+  }
+
+  if (!familyFieldId) {
+    const sampleCustomFields = Array.isArray(raw)
+      ? (raw.find(
+          (it) => it && Array.isArray(it.custom_fields) && it.custom_fields.length > 0
+        ) || {}).custom_fields
+      : null
+    const sampleHint = Array.isArray(sampleCustomFields)
+      ? ` Sample custom_fields on this org: [${sampleCustomFields
+          .slice(0, 6)
+          .map((c) => `${c.label || c.api_name || '?'}=${c.customfield_id || '?'}`)
+          .join(', ')}].`
+      : ''
+    onWarning(
+      'family is blank because ZOHO_FAMILY_CUSTOMFIELD_ID is not set. ' +
+        'Find the Family field id in Zoho Inventory (Settings → Preferences → Items → Custom Fields, ' +
+        'or inspect any item from GET /inventory/v1/items and look at custom_fields[].customfield_id ' +
+        'whose label is "Family"), then set ZOHO_FAMILY_CUSTOMFIELD_ID in backend/.env and restart the backend.' +
+        sampleHint
+    )
+  }
+
+  const idToSku = buildItemIdToSkuMap(raw)
 
   if (salesR.error) {
     onWarning(`Sales (invoices) not loaded: ${(salesR.error && salesR.error.message) || salesR.error}`)
@@ -278,17 +485,32 @@ async function fetchZohoItemRowsForGroupMembers(
     idToSku
   )
   const pm = sumLinesToMap(
-    purchLines.map((a) => ({ item_id: a.item_id, name: a.name, quantity: a.quantity })),
+    purchLines.map((a) => ({ item_id: a.item_id, sku: a.sku, name: a.name, quantity: a.quantity })),
     idToSku
   )
   const rm = sumLinesToMap(
     retLines.map((a) => ({ item_id: a.item_id, name: a.name, quantity: a.quantity })),
     idToSku
   )
+  // Amount maps (currency): sum of item_total per item for sales and purchases
+  const salesAmountMap = sumAmountsToMap(
+    salesLines.map((a) => ({ item_id: a.item_id, sku: a.sku, name: a.name, item_total: a.item_total })),
+    idToSku
+  )
+  const purchAmountMap = sumAmountsToMap(
+    purchLines.map((a) => ({ item_id: a.item_id, sku: a.sku, name: a.name, item_total: a.item_total })),
+    idToSku
+  )
 
   for (const row of out) {
-    applyTransactionMapsToRow(row, sm, pm, rm)
+    applyTransactionMapsToRow(row, sm, pm, rm, salesAmountMap, purchAmountMap)
   }
+
+  // Collapse individual item rows into one summary row per family
+  const familyRows = aggregateByFamily(out)
+  console.log(
+    `[weekly-report] group "${reportGroup}": aggregated ${out.length} item rows → ${familyRows.length} family rows`
+  )
 
   const isDevDebug = process.env.NODE_ENV !== 'production' || process.env.WEEKLY_REPORT_VENDOR_DEBUG === '1'
   const reportMeta = {
@@ -321,7 +543,7 @@ async function fetchZohoItemRowsForGroupMembers(
     }
   }
 
-  return { items: out, reportMeta }
+  return { items: familyRows, reportMeta }
 }
 
 module.exports = {
@@ -336,6 +558,8 @@ module.exports = {
     parseZohoStockOnHand,
     buildZohoLookupMaps,
     findZohoItemForMember,
+    findZohoItemsForMember,
+    aggregateByFamily,
     parseQty,
   },
 }

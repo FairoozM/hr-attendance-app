@@ -3,6 +3,19 @@ const http = require('http')
 const { Server } = require('socket.io')
 const app = require('./app')
 const { testConnection } = require('./db')
+const { getOptionalFlagDecision } = require('./services/weeklyReportReportVendor')
+const { readZohoConfig } = require('./integrations/zoho/zohoConfig')
+
+{
+  const zc = readZohoConfig()
+  if (zc.code === 'ok') {
+    const id = zc.clientId
+    console.log('[zoho-config] clientId suffix:', id.length >= 4 ? id.slice(-4) : id)
+    console.log('[zoho-config] clientSecret length:', zc.clientSecret.length)
+  } else {
+    console.warn('[zoho-config] not configured — missing:', zc.missing.join(', '))
+  }
+}
 
 const PORT = process.env.PORT || 5001
 
@@ -46,6 +59,19 @@ async function startServer() {
     console.log('[routes]   POST /api/auth/login      → { token, user }')
     console.log('[routes]   GET  /api/auth/me         → { user } (Bearer token)')
     console.log('[routes] … /api/employees, /api/attendance, /api/annual-leave (auth as required)')
+
+    const opt = getOptionalFlagDecision()
+    if (opt.effective) {
+      console.warn(
+        `[weeklyReports] WEEKLY_REPORT_VENDOR_OPTIONAL=1 is ACTIVE (NODE_ENV=${process.env.NODE_ENV || 'development'}). ` +
+          'Reports will run without REPORT_VENDOR_ID; purchases and returned_to_wholesale will be 0.'
+      )
+    } else if (opt.suppressedInProd) {
+      console.warn(
+        '[weeklyReports] WEEKLY_REPORT_VENDOR_OPTIONAL=1 is set but IGNORED because NODE_ENV=production. ' +
+          'Set WEEKLY_REPORT_VENDOR_OPTIONAL_ALLOW_PROD=1 to opt-in for production explicitly.'
+      )
+    }
   })
 }
 
