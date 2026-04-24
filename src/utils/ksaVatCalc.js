@@ -94,12 +94,15 @@ export function calcVatSummary({ invoiceTaxable, invoiceTax, cnTaxable, cnTax, o
  * @returns {{ from: string, to: string }}  YYYY-MM-DD strings
  */
 export function quarterRange(q, year) {
-  const startMonth = (q - 1) * 3           // 0, 3, 6, 9  (0-indexed)
+  const startMonth = (q - 1) * 3  // 0, 3, 6, 9
   const endMonth   = startMonth + 2
-  const start = new Date(year, startMonth, 1)
-  const end   = new Date(year, endMonth + 1, 0)  // last day of endMonth
-  const iso   = (d) => d.toISOString().slice(0, 10)
-  return { from: iso(start), to: iso(end) }
+  // Build YYYY-MM-DD directly (no Date object) to avoid UTC timezone shift.
+  const pad2  = (n) => String(n).padStart(2, '0')
+  const lastDay = new Date(year, endMonth + 1, 0).getDate()  // safe: only .getDate() used
+  return {
+    from: `${year}-${pad2(startMonth + 1)}-01`,
+    to:   `${year}-${pad2(endMonth + 1)}-${pad2(lastDay)}`,
+  }
 }
 
 /**
@@ -125,21 +128,13 @@ export function defaultQuarterRange() {
  *
  * @returns {Array<{ label: string, from: string, to: string }>}
  */
+/**
+ * Return Q1–Q4 presets for the current year only, in natural order.
+ * e.g. in April 2026 → [Q1 2026, Q2 2026, Q3 2026, Q4 2026]
+ *
+ * @returns {Array<{ label: string, from: string, to: string }>}
+ */
 export function quarterPresets() {
-  const now      = new Date()
-  const year     = now.getFullYear()
-  const curQ     = Math.floor(now.getMonth() / 3) + 1  // 1-based
-
-  const presets = []
-  // Show quarters from most-recent-past to oldest
-  for (let q = curQ - 1; q >= 1; q--) {
-    const r = quarterRange(q, year)
-    presets.push({ label: `Q${q} ${year}`, ...r })
-  }
-  // Fill remaining quarters from previous year
-  for (let q = 4; q >= curQ; q--) {
-    const r = quarterRange(q, year - 1)
-    presets.push({ label: `Q${q} ${year - 1}`, ...r })
-  }
-  return presets.slice(0, 4)  // show at most 4 presets
+  const year = new Date().getFullYear()
+  return [1, 2, 3, 4].map((q) => ({ label: `Q${q} ${year}`, ...quarterRange(q, year) }))
 }
