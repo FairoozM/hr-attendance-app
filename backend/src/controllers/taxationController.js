@@ -4,19 +4,13 @@
  * GET /api/taxation/vat/customers  – Zoho Books customer list (cached 5 min)
  * GET /api/taxation/vat/report     – Invoice + credit-note totals for a date range
  *
- * Performance
- * ───────────
- * • Invoice totals use the Zoho Books `salesbycustomer` report endpoint which
- *   returns pre-aggregated per-customer rows (1-2 API calls) instead of paginating
- *   through 10 000+ individual invoice records.
- * • Credit notes fall back to the `creditnotes` report, then raw list (small volume).
- * • Report results are cached for 2 minutes (TTL) with in-flight deduplication so
- *   rapid filter changes or React StrictMode double-invocations don't cause extra calls.
+ * Data source: raw Zoho Books invoice list (sub_total + tax_total per invoice).
+ * Performance: parallel page fetching in zohoBooksClient.js (~5× faster than sequential).
+ * Caching: 2-min TTL + in-flight deduplication so rapid filter changes don't re-fetch.
  */
 
 const {
   fetchCustomers,
-  fetchSalesByCustomer,
   fetchInvoices,
   fetchCreditNotesByCustomer,
 } = require('../integrations/zoho/zohoBooksClient')
@@ -38,8 +32,8 @@ async function getCachedCustomers() {
 
 // ── VAT report cache (2 min TTL + in-flight dedup) ───────────────────────────
 const VAT_CACHE_TTL_MS = 2 * 60 * 1000
-const _vatCache   = new Map()   // key → { result, expiresAt }
-const _vatInFlight = new Map()  // key → Promise
+const _vatCache    = new Map()
+const _vatInFlight = new Map()
 
 function makeVatKey(fromDate, toDate, customerId) {
   return `${fromDate}|${toDate}|${customerId || 'all'}`
@@ -53,20 +47,18 @@ async function getCachedVatReport(fromDate, toDate, customerId, buildFn) {
     console.log(`[taxation] cache HIT ${key}`)
     return cached.result
   }
-
   if (_vatInFlight.has(key)) {
     console.log(`[taxation] dedup HIT ${key}`)
     return _vatInFlight.get(key)
   }
 
-  const promise = buildFn().then((result) => {
-    _vatCache.set(key, { result, expiresAt: Date.now() + VAT_CACHE_TTL_MS })
-    _vatInFlight.delete(key)
-    return result
-  }).catch((err) => {
-    _vatInFlight.delete(key)
-    throw err
-  })
+  const promise = buildFn()
+    .then((result) => {
+      _vatCache.set(key, { result, expiresAt: Date.now() + VAT_CACHE_TTL_MS })
+      _vatInFlight.delete(key)
+      return result
+    })
+    .catch((err) => { _vatInFlight.delete(key); throw err })
 
   _vatInFlight.set(key, promise)
   return promise
@@ -82,39 +74,46 @@ function parseNum(v) {
 }
 
 /**
- * Normalise a row from the salesbycustomer report OR a raw invoice record
- * into our standard { customer_id, customer_name, count, taxable_amount, tax_amount, total }.
+ * Normalise a raw Zoho Books invoice or credit note row.
+ * Zoho Books invoice list fields:
+ *   sub_total  → taxable amount (before tax)
+ *   tax_total  → total VAT on the invoice
+ *   total      → gross amount (sub_total + tax_total)
  */
-function normaliseSalesRow(row) {
+function normaliseRow(row) {
   const status = row.status ? String(row.status).toLowerCase() : ''
   if (status === 'void' || status === 'voided') return null
 
-  // Report endpoint fields differ from list endpoint fields
-  const customerId   = row.customer_id   || row.contact_id || ''
+  const customerId   = row.customer_id   || row.contact_id  || ''
   const customerName = row.customer_name || row.contact_name || 'Unknown'
 
-  // salesbycustomer report uses invoice_count; list uses nothing (1 per row)
-  const count     = parseNum(row.invoice_count ?? row.creditnote_count ?? 1)
-  const subTotal  = parseNum(row.sub_total ?? row.taxable_amount ?? row.amount_before_tax)
-  const taxAmount = parseNum(row.tax_amount ?? row.tax_total ?? row.tax)
-  const total     = parseNum(row.total     ?? row.invoice_total ?? row.amount)
+  const subTotal  = parseNum(row.sub_total   ?? row.amount_before_tax ?? 0)
+  const taxAmount = parseNum(row.tax_total   ?? row.tax_amount        ?? 0)
+  const total     = parseNum(row.total       ?? row.invoice_total     ?? 0)
 
-  return { customer_id: customerId, customer_name: customerName, count, taxable_amount: subTotal, tax_amount: taxAmount, total }
+  return {
+    customer_id:    customerId,
+    customer_name:  customerName,
+    count:          1,
+    taxable_amount: subTotal,
+    tax_amount:     taxAmount,
+    total,
+  }
 }
 
 /**
- * Aggregate a list of normalised rows into one row per customer.
+ * Aggregate a flat list of per-document rows into one row per customer.
  */
-function aggregateRows(rows) {
+function aggregateByCustomer(rows) {
   const map = new Map()
   for (const raw of rows) {
-    const row = normaliseSalesRow(raw)
+    const row = normaliseRow(raw)
     if (!row) continue
     if (!map.has(row.customer_id)) {
       map.set(row.customer_id, { ...row })
     } else {
       const e = map.get(row.customer_id)
-      e.count          += row.count
+      e.count          += 1
       e.taxable_amount += row.taxable_amount
       e.tax_amount     += row.tax_amount
       e.total          += row.total
@@ -126,6 +125,7 @@ function aggregateRows(rows) {
 function grandTotals(rows) {
   let taxable = 0, tax = 0, total = 0
   for (const r of rows) { taxable += r.taxable_amount; tax += r.tax_amount; total += r.total }
+  // If Zoho returned 0 for tax (missing field), fall back to 15% rate
   return { taxable, tax, effective_tax: tax > 0 ? tax : taxable * KSA_VAT_RATE, total }
 }
 
@@ -140,10 +140,7 @@ async function getVatCustomers(_req, res) {
     if (zohoCode === 57 || String(zohoCode) === '57' || err?.status === 401) {
       return res.status(503).json({
         code: 'ZOHO_NOT_CONFIGURED',
-        message:
-          'Zoho Books API access is not authorized. ' +
-          'The current refresh token does not include ZohoBooks scopes. ' +
-          'Please re-issue the Zoho OAuth token with ZohoBooks.contacts.READ scope.',
+        message: 'Zoho Books API access is not authorized. Re-issue the Zoho OAuth token with ZohoBooks.contacts.READ scope.',
       })
     }
     return handleZohoError(res, err, 'getVatCustomers')
@@ -153,9 +150,9 @@ async function getVatCustomers(_req, res) {
 /**
  * GET /api/taxation/vat/report?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD[&customer_id=]
  *
- * Uses the salesbycustomer report endpoint for invoices (fast) and
- * the creditnotes report endpoint for credit notes (fast fallback to list).
- * Results are cached for 2 minutes.
+ * Fetches raw invoices (with sub_total + tax_total) and credit notes in parallel.
+ * Invoice pages are fetched in parallel batches — see zohoBooksClient.fetchInvoices().
+ * Results cached 2 minutes.
  */
 async function getVatReport(req, res) {
   const range = validateDateRange(req, res)
@@ -169,50 +166,20 @@ async function getVatReport(req, res) {
     const result = await getCachedVatReport(range.from_date, range.to_date, customerId, async () => {
       const t0 = Date.now()
 
-      // Fetch invoice totals via the fast report endpoint.
-      // If salesbycustomer report returns 0 rows (can happen for very new orgs),
-      // fall back to raw invoice list (capped at 15 pages).
-      const [salesResult, cnResult] = await Promise.all([
-        fetchSalesByCustomer(range.from_date, range.to_date, customerId),
+      const [invResult, cnResult] = await Promise.all([
+        fetchInvoices(range.from_date, range.to_date, customerId),
         fetchCreditNotesByCustomer(range.from_date, range.to_date, customerId),
       ])
-
-      let invoiceSource = salesResult
-
-      if (salesResult.scopeError) {
-        // ZohoBooks.reports.READ scope is missing.
-        // Fall back to raw invoice list only when a single customer is selected
-        // (keeps response under 30s). For "All Customers" this would timeout — reject early.
-        if (!customerId) {
-          throw Object.assign(
-            new Error(
-              'The Zoho refresh token is missing the ZohoBooks.reports.READ scope, ' +
-              'which is required to load totals for all customers efficiently. ' +
-              'Please select a specific customer, or re-issue the Zoho OAuth token with ' +
-              'ZohoBooks.reports.READ scope added.'
-            ),
-            { code: 'ZOHO_SCOPE_MISSING', status: 503 }
-          )
-        }
-        console.log('[taxation] salesbycustomer scope error, falling back to invoice list for single customer')
-        invoiceSource = await fetchInvoices(range.from_date, range.to_date, customerId)
-      } else if (salesResult.rows.length === 0 && !salesResult.truncated) {
-        // Report endpoint returned nothing (no data for this period) — also try list
-        if (customerId) {
-          console.log('[taxation] salesbycustomer report empty, falling back to invoice list')
-          invoiceSource = await fetchInvoices(range.from_date, range.to_date, customerId)
-        }
-      }
 
       console.log(
         `[taxation] vat-report from=${range.from_date} to=${range.to_date}` +
         ` customer=${customerId || 'all'}` +
-        ` invoices=${invoiceSource.rows.length} cn=${cnResult.rows.length}` +
+        ` invoices=${invResult.rows.length} cn=${cnResult.rows.length}` +
         ` ${Date.now() - t0}ms`
       )
 
-      const invoiceRows    = aggregateRows(invoiceSource.rows)
-      const creditNoteRows = aggregateRows(cnResult.rows)
+      const invoiceRows    = aggregateByCustomer(invResult.rows)
+      const creditNoteRows = aggregateByCustomer(cnResult.rows)
       const invTotals      = grandTotals(invoiceRows)
       const cnTotals       = grandTotals(creditNoteRows)
 
@@ -223,15 +190,15 @@ async function getVatReport(req, res) {
         invoices:     invoiceRows,
         credit_notes: creditNoteRows,
         totals: {
-          invoice_taxable:  invTotals.taxable,
-          invoice_tax:      invTotals.effective_tax,
-          invoice_total:    invTotals.total,
-          cn_taxable:       cnTotals.taxable,
-          cn_tax:           cnTotals.effective_tax,
-          cn_total:         cnTotals.total,
+          invoice_taxable: invTotals.taxable,
+          invoice_tax:     invTotals.effective_tax,
+          invoice_total:   invTotals.total,
+          cn_taxable:      cnTotals.taxable,
+          cn_tax:          cnTotals.effective_tax,
+          cn_total:        cnTotals.total,
         },
         meta: {
-          invoice_truncated:     invoiceSource.truncated,
+          invoice_truncated:     invResult.truncated,
           credit_note_truncated: cnResult.truncated,
           vat_rate:              KSA_VAT_RATE,
         },
@@ -241,17 +208,12 @@ async function getVatReport(req, res) {
     return res.json(result)
   } catch (err) {
     const zohoCode = err?.zohoCode ?? err?.body?.code ?? err?.code
-    if (err?.code === 'ZOHO_SCOPE_MISSING') {
-      return res.status(503).json({ code: 'ZOHO_SCOPE_MISSING', message: err.message })
-    }
     if (zohoCode === 57 || String(zohoCode) === '57' || err?.status === 401) {
       return res.status(503).json({
         code: 'ZOHO_NOT_CONFIGURED',
         message:
-          'Zoho Books API access is not authorized. ' +
-          'The current refresh token does not include ZohoBooks scopes. ' +
-          'Please re-issue the Zoho OAuth token with: ' +
-          'ZohoBooks.invoices.READ, ZohoBooks.creditnotes.READ, ZohoBooks.contacts.READ, ZohoBooks.reports.READ',
+          'Zoho Books API access is not authorized. Re-issue the Zoho OAuth token with: ' +
+          'ZohoBooks.invoices.READ, ZohoBooks.creditnotes.READ, ZohoBooks.contacts.READ',
       })
     }
     return handleZohoError(res, err, 'getVatReport')
