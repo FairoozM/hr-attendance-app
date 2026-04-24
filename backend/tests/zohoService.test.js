@@ -109,6 +109,25 @@ test('zohoService._internals.validateAndNormaliseItem accepts a complete row', (
   assert.equal(item._zoho.to_date, '2026-01-07')
 })
 
+test('zohoService._internals.validateAndNormaliseItem: family row keeps zoho_representative_item_id', () => {
+  const zoho = loadZoho()
+  const { item, errors } = zoho._internals.validateAndNormaliseItem(
+    {
+      family: 'Acrylic',
+      zoho_representative_item_id: '4815000000123456',
+      opening_stock: 1,
+      purchase_amount: 0,
+      returned_to_wholesale: 0,
+      closing_stock: 2,
+      sales_amount: 0,
+    },
+    0
+  )
+  assert.equal(errors.length, 0)
+  assert.equal(item.zoho_representative_item_id, '4815000000123456')
+  assert.ok(!item.sku)
+})
+
 test('zohoService._internals.validateAndNormaliseItem: explicit null = N/A (null) for a numeric', () => {
   const zoho = loadZoho()
   const { item, errors } = zoho._internals.validateAndNormaliseItem(

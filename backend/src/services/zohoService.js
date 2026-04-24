@@ -171,6 +171,12 @@ function validateAndNormaliseItem(raw, index) {
     item.sku = sku
     item.item_name = itemName
     item.item_id = itemId
+  } else {
+    // aggregateByFamily sets this for Zoho product image lookup; do not drop it
+    const zrid = raw.zoho_representative_item_id
+    if (zrid != null && String(zrid).trim() !== '') {
+      item.zoho_representative_item_id = String(zrid).trim()
+    }
   }
   if (raw._zoho && typeof raw._zoho === 'object' && !Array.isArray(raw._zoho)) {
     item._zoho = {
