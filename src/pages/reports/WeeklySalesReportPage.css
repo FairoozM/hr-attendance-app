@@ -365,3 +365,34 @@
   color: var(--text-primary, #1e2d4e);
   margin-left: 4px;
 }
+
+.wsr-subsection-heading {
+  margin: 20px 0 6px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary, #1e2d4e);
+  letter-spacing: 0.02em;
+}
+
+.wsr-no-activity-embed,
+.wsr-no-activity-section {
+  margin-top: 8px;
+}
+
+.wsr-no-activity__intro {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-secondary, #6b7a99);
+  max-width: 64ch;
+}
+
+.wsr-no-activity-table-wrap {
+  margin-top: 4px;
+}
+
+.wsr-td--dash {
+  text-align: right;
+  color: var(--text-secondary, #6b7a99);
+  font-weight: 500;
+}

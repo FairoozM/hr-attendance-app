@@ -31,6 +31,79 @@ export function formatDateLabel(start, end) {
   return `${fmt(start)} – ${fmt(end)}`
 }
 
+/**
+ * A family row is treated as "no values for this period" when every $ metric
+ * is null, non-finite, or 0 (matches the table showing only "—" / "-").
+ */
+function isNoPeriodValueField(v) {
+  if (v == null) return true
+  if (typeof v === 'number' && !Number.isFinite(v)) return true
+  if (Number(v) === 0) return true
+  return false
+}
+
+const FAMILY_NUM_KEYS = [
+  'opening_stock',
+  'closing_stock',
+  'purchase_amount',
+  'returned_to_wholesale',
+  'sales_amount',
+]
+
+/**
+ * Splits Zoho family rows into those with at least one non-zero/defined amount
+ * and those with nothing to show for the period.
+ */
+export function partitionWeeklyFamilyItems(items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return { withValues: [], noValues: [] }
+  }
+  const withValues = []
+  const noValues = []
+  for (const it of items) {
+    const allEmpty = FAMILY_NUM_KEYS.every((k) => isNoPeriodValueField(it[k]))
+    if (allEmpty) noValues.push(it)
+    else withValues.push(it)
+  }
+  return { withValues, noValues }
+}
+
+/**
+ * Grand totals for a list of family rows (same rules as the backend for weekly reports).
+ */
+export function sumWeeklyFamilyRowTotals(items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return {
+      opening_stock: 0,
+      closing_stock: 0,
+      purchase_amount: 0,
+      returned_to_wholesale: 0,
+      sales_amount: 0,
+    }
+  }
+  const acc = {
+    opening_stock: 0,
+    closing_stock: 0,
+    purchase_amount: 0,
+    returned_to_wholesale: 0,
+    sales_amount: 0,
+  }
+  const hasNumeric = { ...Object.fromEntries(FAMILY_NUM_KEYS.map((k) => [k, false])) }
+  for (const it of items) {
+    for (const f of FAMILY_NUM_KEYS) {
+      const v = it[f]
+      if (typeof v === 'number' && Number.isFinite(v)) {
+        hasNumeric[f] = true
+        acc[f] += v
+      }
+    }
+  }
+  for (const f of FAMILY_NUM_KEYS) {
+    if (!hasNumeric[f]) acc[f] = null
+  }
+  return acc
+}
+
 /** Default to the current ISO-week (Mon–Sun). */
 export function defaultWeekRange() {
   const d = new Date()
@@ -116,6 +189,94 @@ export function ErrorCallout({ message, onRetry, validationErrors }) {
 }
 
 /**
+ * Renders a read-only sub-table of families with no amounts for the period
+ * (same money columns, filled with "—" for all metrics).
+ */
+export const SOURCE_GROUP_LABELS = {
+  slow_moving: 'Slow moving',
+  other_family: 'Other family',
+}
+
+export function WeeklyNoActivityFamilyTable({ rows, showSourceColumn }) {
+  if (!Array.isArray(rows) || rows.length === 0) return null
+  return (
+    <div className="war-table-wrap wsr-no-activity-table-wrap">
+      <table className="war-table">
+        <thead>
+          <tr>
+            <th className="war-th wsr-th--sr">SR. NO</th>
+            {showSourceColumn && <th className="war-th">Source</th>}
+            <th className="war-th wsr-th--item">FAMILY</th>
+            <th className="war-th">Opening Stock</th>
+            <th className="war-th">Purchase Amount</th>
+            <th className="war-th">Returned to Wholesale</th>
+            <th className="war-th">Closing Stock</th>
+            <th className="war-th">Sales Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((it, idx) => {
+            const k =
+              it._rowKey
+              || (showSourceColumn
+                ? `${it._sourceGroup || 'g'}:${it.family || ''}:${idx}`
+                : `no-act-embed-${idx}`)
+            return (
+              <tr key={k} className="war-tr wsr-tr--no-activity">
+                <td className="war-td wsr-td--sr">{idx + 1}</td>
+                {showSourceColumn && (
+                  <td className="war-td">
+                    {it._sourceLabel
+                      || (it._sourceGroup && SOURCE_GROUP_LABELS[it._sourceGroup])
+                      || '—'}
+                  </td>
+                )}
+                <td className="war-td wsr-td--item">{it.family || '—'}</td>
+                <td className="war-td wsr-td--dash">—</td>
+                <td className="war-td wsr-td--dash">—</td>
+                <td className="war-td wsr-td--dash">—</td>
+                <td className="war-td wsr-td--dash">—</td>
+                <td className="war-td wsr-td--dash">—</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/**
+ * Full-width section for the combined weekly page: families with no period amounts,
+ * merged from slow_moving and other_family (source column).
+ */
+export function WeeklyNoActivityReportSection({ dateLabel, mergedRows }) {
+  if (!Array.isArray(mergedRows) || mergedRows.length === 0) return null
+  return (
+    <>
+      <div className="wsr-section-divider" aria-hidden />
+      <section className="war-section wsr-report-section wsr-no-activity-section">
+        <div className="wsr-section-header">
+          <div className="wsr-section-header__title-wrap">
+            <h2 className="wsr-section-heading">No period activity</h2>
+            {dateLabel && <span className="wsr-section-header__date">{dateLabel}</span>}
+          </div>
+        </div>
+        <p className="wsr-no-activity__intro">
+          Zoho families that are included in your Slow moving or Other family groups but have no opening, purchase,
+          return, closing, or sales values for the selected range.
+        </p>
+        <WeeklyNoActivityFamilyTable rows={mergedRows} showSourceColumn />
+        <div className="wsr-meta">
+          <div className="wsr-meta__item">Families:<strong>{mergedRows.length}</strong></div>
+          <div className="wsr-meta__item">Source:<strong>Zoho (live)</strong></div>
+        </div>
+      </section>
+    </>
+  )
+}
+
+/**
  * One report group's data + table. Receives `fromDate` / `toDate` from a parent
  * so multiple sections can share a single date picker.
  *
@@ -127,15 +288,53 @@ export function ErrorCallout({ message, onRetry, validationErrors }) {
  *   datesValid   – boolean from parent so the section doesn't double-validate
  *   warehouseId  – optional Zoho warehouse_id to filter by
  *   loadToken      – parent increments when user runs "Load report" (positive value triggers fetch)
+ *   onNoValueRows  – if set, families with all-zero period metrics are omitted from the main
+ *                    table and the callback receives `(reportGroup, rows[])`; when omitted, those
+ *                    rows are shown in a second table inside this section.
  */
-export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate, datesValid, warehouseId = null, loadToken = 0 }) {
+export function WeeklySalesReportSection({
+  reportGroup,
+  title,
+  fromDate,
+  toDate,
+  datesValid,
+  warehouseId = null,
+  loadToken = 0,
+  onNoValueRows = null,
+}) {
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState('')
 
-  const { items, totals, zoho, loading, error, notConfigured, validationErrors, refetch } =
+  const { items, loading, error, notConfigured, validationErrors, refetch } =
     useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseId, loadToken })
 
   const dateLabel = formatDateLabel(fromDate, toDate)
+
+  const { withValues, noValues } = useMemo(
+    () => partitionWeeklyFamilyItems(items),
+    [items]
+  )
+
+  const grandTotal = useMemo(
+    () => sumWeeklyFamilyRowTotals(withValues),
+    [withValues]
+  )
+
+  useEffect(() => {
+    if (typeof onNoValueRows !== 'function') return
+    if (loadToken <= 0 || !datesValid) {
+      onNoValueRows(reportGroup, [])
+    } else {
+      onNoValueRows(reportGroup, noValues)
+    }
+  }, [onNoValueRows, reportGroup, noValues, loadToken, datesValid])
+
+  useEffect(() => {
+    if (typeof onNoValueRows !== 'function') return undefined
+    return () => {
+      onNoValueRows(reportGroup, [])
+    }
+  }, [onNoValueRows, reportGroup])
 
   const handleExport = useCallback(async () => {
     if (!datesValid || notConfigured || !loadToken) return
@@ -154,10 +353,6 @@ export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate,
       setExporting(false)
     }
   }, [datesValid, notConfigured, fromDate, toDate, reportGroup, loadToken, warehouseId])
-
-  const grandTotal = totals || {
-    opening_stock: 0, closing_stock: 0, purchase_amount: 0, returned_to_wholesale: 0, sales_amount: 0,
-  }
 
   const hasRequestedReport = loadToken > 0
   const showTable = hasRequestedReport && !loading && !error && !notConfigured && datesValid
@@ -256,8 +451,21 @@ export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate,
                     </td>
                   </tr>
                 )}
-                {items.map((it, idx) => (
-                  <tr key={it.family || idx} className="war-tr">
+                {items.length > 0 && withValues.length === 0 && noValues.length > 0 && (
+                  <tr className="war-tr">
+                    <td className="war-td" colSpan={7}>
+                      <div className="wsr-callout wsr-callout--info" style={{ margin: 0, border: 'none' }} role="status">
+                        <span className="wsr-callout__body">
+                          All families in this list have <strong>no</strong> opening, purchase, return, closing, or
+                          sales amounts for {dateLabel || 'this range'}. They are listed under{' '}
+                          <strong>No period activity</strong> {onNoValueRows ? 'in the section below' : 'below'}.
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {withValues.map((it, idx) => (
+                  <tr key={`${it.family || 'row'}-${idx}`} className="war-tr">
                     <td className="war-td wsr-td--sr">{idx + 1}</td>
                     <td className="war-td wsr-td--item">{it.family || '—'}</td>
                     <td className="war-td">{formatCurrency(it.opening_stock)}</td>
@@ -268,7 +476,7 @@ export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate,
                   </tr>
                 ))}
               </tbody>
-              {items.length > 0 && (
+              {withValues.length > 0 && (
                 <tfoot>
                   <tr className="war-tr war-tr--total">
                     <td className="war-td wsr-td--sr" />
@@ -285,9 +493,25 @@ export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate,
           </div>
           <div className="wsr-meta">
             <div className="wsr-meta__item">Group:<strong>{reportGroup}</strong></div>
-            <div className="wsr-meta__item">Families:<strong>{items.length}</strong></div>
+            <div className="wsr-meta__item">Families (total):<strong>{items.length}</strong></div>
+            {noValues.length > 0 && (
+              <div className="wsr-meta__item">With amounts:<strong>{withValues.length}</strong></div>
+            )}
+            {noValues.length > 0 && (
+              <div className="wsr-meta__item">No period activity:<strong>{noValues.length}</strong></div>
+            )}
             <div className="wsr-meta__item">Source:<strong>Zoho (live)</strong></div>
           </div>
+          {onNoValueRows == null && noValues.length > 0 && (
+            <div className="wsr-no-activity-embed">
+              <h3 className="wsr-subsection-heading">No period activity</h3>
+              <p className="wsr-no-activity__intro">
+                Zoho families that appear in this group but have no opening, purchase, return, closing, or sales
+                values for the selected range.
+              </p>
+              <WeeklyNoActivityFamilyTable rows={noValues} showSourceColumn={false} />
+            </div>
+          )}
         </>
       )}
     </section>

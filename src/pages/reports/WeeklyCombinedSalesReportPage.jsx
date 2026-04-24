@@ -1,8 +1,10 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import {
   WeeklySalesReportSection,
+  WeeklyNoActivityReportSection,
   defaultWeekRange,
   formatDateLabel,
+  SOURCE_GROUP_LABELS,
 } from './WeeklySalesReportPage'
 import { useWarehouses } from '../../hooks/useWarehouses'
 import './WeeklyAdsReportPage.css'
@@ -19,6 +21,10 @@ export function WeeklyCombinedSalesReportPage() {
   const [toDate, setToDate]           = useState(initial.to)
   const [warehouseId, setWarehouseId] = useState('')
   const [loadToken, setLoadToken]     = useState(0)
+  const [noValueByGroup, setNoValueByGroup] = useState({
+    slow_moving: [],
+    other_family: [],
+  })
 
   const { warehouses, loading: whLoading } = useWarehouses()
 
@@ -34,6 +40,40 @@ export function WeeklyCombinedSalesReportPage() {
     setLoadToken(0)
   }, [fromDate, toDate, warehouseId])
 
+  useEffect(() => {
+    if (loadToken === 0) {
+      setNoValueByGroup({ slow_moving: [], other_family: [] })
+    }
+  }, [loadToken])
+
+  const onNoValueRows = useCallback((group, rows) => {
+    const next = Array.isArray(rows) ? rows : []
+    setNoValueByGroup((prev) => ({ ...prev, [group]: next }))
+  }, [])
+
+  const noActivityMerged = useMemo(() => {
+    const out = []
+    for (const g of ['slow_moving', 'other_family']) {
+      const list = noValueByGroup[g] || []
+      const label = SOURCE_GROUP_LABELS[g] || g
+      for (let i = 0; i < list.length; i++) {
+        const it = list[i]
+        out.push({
+          ...it,
+          _sourceGroup: g,
+          _sourceLabel: label,
+          _rowKey: `${g}::${it.family || 'u'}::${i}`,
+        })
+      }
+    }
+    return out.sort((a, b) => {
+      const fa = (a.family || '').toLowerCase()
+      const fb = (b.family || '').toLowerCase()
+      if (fa !== fb) return fa.localeCompare(fb)
+      return (a._sourceLabel || '').localeCompare(b._sourceLabel || '')
+    })
+  }, [noValueByGroup])
+
   // Label for the currently-selected warehouse (used in section context)
   const selectedWarehouse = warehouses.find((w) => w.warehouse_id === warehouseId)
 
@@ -43,7 +83,7 @@ export function WeeklyCombinedSalesReportPage() {
         <div>
           <h1 className="war-page__title">Weekly Sales Reports</h1>
           <p className="war-page__sub">
-            Live Zoho-sourced family summaries — Slow Moving &amp; Other Family
+            Live Zoho-sourced family summaries — Slow moving, other family, and no-period-activity families
           </p>
         </div>
       </div>
@@ -136,6 +176,7 @@ export function WeeklyCombinedSalesReportPage() {
         datesValid={datesValid}
         warehouseId={activeWhId}
         loadToken={loadToken}
+        onNoValueRows={onNoValueRows}
       />
 
       {/* Divider */}
@@ -150,7 +191,10 @@ export function WeeklyCombinedSalesReportPage() {
         datesValid={datesValid}
         warehouseId={activeWhId}
         loadToken={loadToken}
+        onNoValueRows={onNoValueRows}
       />
+
+      <WeeklyNoActivityReportSection dateLabel={dateLabel} mergedRows={noActivityMerged} />
     </div>
   )
 }
