@@ -89,10 +89,13 @@ function parseNum(v) {
 
 /**
  * Normalise a raw Zoho Books invoice or credit note row.
- * Zoho Books invoice list fields:
- *   sub_total  → taxable amount (before tax)
- *   tax_total  → total VAT on the invoice
- *   total      → gross amount (sub_total + tax_total)
+ *
+ * VAT is ALWAYS calculated at the KSA rate (15%) of sub_total.
+ * Zoho Books does not store VAT amounts for this organisation, so we
+ * never trust tax_total — we derive it ourselves.
+ *   taxable_amount = sub_total
+ *   tax_amount     = sub_total × 15%
+ *   total          = sub_total × 1.15
  */
 function normaliseRow(row) {
   const status = row.status ? String(row.status).toLowerCase() : ''
@@ -101,9 +104,9 @@ function normaliseRow(row) {
   const customerId   = row.customer_id   || row.contact_id  || ''
   const customerName = row.customer_name || row.contact_name || 'Unknown'
 
-  const subTotal  = parseNum(row.sub_total   ?? row.amount_before_tax ?? 0)
-  const taxAmount = parseNum(row.tax_total   ?? row.tax_amount        ?? 0)
-  const total     = parseNum(row.total       ?? row.invoice_total     ?? 0)
+  const subTotal  = parseNum(row.sub_total ?? row.amount_before_tax ?? 0)
+  const taxAmount = subTotal * KSA_VAT_RATE
+  const total     = subTotal + taxAmount
 
   return {
     customer_id:    customerId,
@@ -139,8 +142,7 @@ function aggregateByCustomer(rows) {
 function grandTotals(rows) {
   let taxable = 0, tax = 0, total = 0
   for (const r of rows) { taxable += r.taxable_amount; tax += r.tax_amount; total += r.total }
-  // If Zoho returned 0 for tax (missing field), fall back to 15% rate
-  return { taxable, tax, effective_tax: tax > 0 ? tax : taxable * KSA_VAT_RATE, total }
+  return { taxable, tax, total }
 }
 
 // ── Route handlers ────────────────────────────────────────────────────────────
@@ -216,10 +218,10 @@ async function getVatReport(req, res) {
         credit_notes: creditNoteRows,
         totals: {
           invoice_taxable: invTotals.taxable,
-          invoice_tax:     invTotals.effective_tax,
+          invoice_tax:     invTotals.tax,
           invoice_total:   invTotals.total,
           cn_taxable:      cnTotals.taxable,
-          cn_tax:          cnTotals.effective_tax,
+          cn_tax:          cnTotals.tax,
           cn_total:        cnTotals.total,
         },
         meta: {

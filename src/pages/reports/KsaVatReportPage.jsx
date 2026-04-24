@@ -190,9 +190,7 @@ export function KsaVatReportPage() {
     if (!totals) return null
     return calcVatSummary({
       invoiceTaxable: totals.invoice_taxable || 0,
-      invoiceTax:     totals.invoice_tax     || 0,
       cnTaxable:      totals.cn_taxable      || 0,
-      cnTax:          totals.cn_tax          || 0,
       otherInputVat:  otherVatNum,
     })
   }, [totals, otherVatNum])
@@ -401,7 +399,7 @@ export function KsaVatReportPage() {
                 <VatSummaryRow
                   label="Output VAT from Invoices"
                   value={formatSAR(vatSummary.outputVat)}
-                  note={vatSummary.invoiceTaxUsedRate ? '(calculated at 15%)' : '(from Zoho)'}
+                  note="(@ 15%)"
                 />
                 <VatSummaryRow
                   label="Total Taxable Credit Notes"
@@ -410,7 +408,7 @@ export function KsaVatReportPage() {
                 <VatSummaryRow
                   label="VAT Adjustment from Credit Notes"
                   value={formatSAR(vatSummary.cnVatAdjustment)}
-                  note={vatSummary.cnTaxUsedRate ? '(calculated at 15%)' : '(from Zoho)'}
+                  note="(@ 15%)"
                 />
                 <VatSummaryRow
                   label="Net Output VAT"

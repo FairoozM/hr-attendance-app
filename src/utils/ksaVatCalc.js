@@ -25,18 +25,14 @@ export function formatSAR(val) {
 }
 
 /**
- * Resolve the effective VAT amount for a group of documents.
+ * Compute VAT at the KSA rate on a taxable amount.
+ * VAT is always calculated — Zoho does not store tax amounts for this org.
  *
- * If Zoho returned a non-zero `zohoTaxAmount`, use it directly.
- * Otherwise derive it as `taxableAmount × KSA_VAT_RATE`.
- *
- * @param {number} taxableAmount  Sum of taxable (sub-total) amounts
- * @param {number} zohoTaxAmount  Sum of tax amounts as returned by Zoho
+ * @param {number} taxableAmount
  * @returns {number}
  */
-export function resolveVatAmount(taxableAmount, zohoTaxAmount) {
-  if (zohoTaxAmount > 0) return zohoTaxAmount
-  return taxableAmount * KSA_VAT_RATE
+export function resolveVatAmount(taxableAmount) {
+  return (Number(taxableAmount) || 0) * KSA_VAT_RATE
 }
 
 /**
@@ -60,18 +56,13 @@ export function resolveVatAmount(taxableAmount, zohoTaxAmount) {
  *   cnTaxUsedRate:      boolean,
  * }}
  */
-export function calcVatSummary({ invoiceTaxable, invoiceTax, cnTaxable, cnTax, otherInputVat }) {
+export function calcVatSummary({ invoiceTaxable, cnTaxable, otherInputVat }) {
   const taxable  = Number(invoiceTaxable) || 0
-  const invTax   = Number(invoiceTax)     || 0
   const cnTaxAmt = Number(cnTaxable)      || 0
-  const cnTaxIn  = Number(cnTax)          || 0
   const other    = Number(otherInputVat)  || 0
 
-  const invoiceTaxUsedRate = invTax === 0 && taxable > 0
-  const cnTaxUsedRate      = cnTaxIn === 0 && cnTaxAmt > 0
-
-  const outputVat       = resolveVatAmount(taxable,  invTax)
-  const cnVatAdjustment = resolveVatAmount(cnTaxAmt, cnTaxIn)
+  const outputVat       = resolveVatAmount(taxable)
+  const cnVatAdjustment = resolveVatAmount(cnTaxAmt)
   const netOutputVat    = outputVat - cnVatAdjustment
   const netVatPayable   = netOutputVat - other
 
@@ -79,10 +70,8 @@ export function calcVatSummary({ invoiceTaxable, invoiceTax, cnTaxable, cnTax, o
     outputVat,
     cnVatAdjustment,
     netOutputVat,
-    otherInputVat:      other,
+    otherInputVat: other,
     netVatPayable,
-    invoiceTaxUsedRate,
-    cnTaxUsedRate,
   }
 }
 
