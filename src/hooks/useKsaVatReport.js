@@ -24,15 +24,25 @@ export function useVatCustomers() {
   const [customers, setCustomers] = useState(_cachedContacts || [])
   const [loading, setLoading]     = useState(_cachedContacts === null)
   const [error, setError]         = useState(null)
+  const [tick, setTick]           = useState(0)   // bump to force re-fetch
+
+  const refreshCustomers = useCallback(() => {
+    _cachedContacts = null   // clear module-level session cache
+    setTick((t) => t + 1)
+  }, [])
 
   useEffect(() => {
-    if (_cachedContacts !== null) {
+    if (_cachedContacts !== null && tick === 0) {
       setCustomers(_cachedContacts)
       setLoading(false)
       return
     }
     let cancelled = false
-    api.get('/api/taxation/vat/customers')
+    setLoading(true)
+    setError(null)
+    // bust=1 tells the backend to skip its 30-min cache too
+    const url = tick > 0 ? '/api/taxation/vat/customers?bust=1' : '/api/taxation/vat/customers'
+    api.get(url)
       .then((data) => {
         if (cancelled) return
         const list = Array.isArray(data?.contacts) ? data.contacts : []
@@ -47,9 +57,10 @@ export function useVatCustomers() {
         if (!cancelled) setLoading(false)
       })
     return () => { cancelled = true }
-  }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick])
 
-  return { customers, loading, error }
+  return { customers, loading, error, refreshCustomers }
 }
 
 // ── VAT report hook ──────────────────────────────────────────────────────────

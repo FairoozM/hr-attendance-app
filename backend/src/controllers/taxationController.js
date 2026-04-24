@@ -145,8 +145,9 @@ function grandTotals(rows) {
 
 // ── Route handlers ────────────────────────────────────────────────────────────
 
-async function getVatCustomers(_req, res) {
+async function getVatCustomers(req, res) {
   try {
+    if (req.query.bust === '1') _customerCache = null   // force fresh fetch
     const contacts = await getCachedCustomers()
     return res.json({ contacts })
   } catch (err) {

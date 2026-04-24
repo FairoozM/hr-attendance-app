@@ -166,7 +166,7 @@ export function KsaVatReportPage() {
   const [customerId, setCustomerId]   = useState('')
   const [otherInputVat, setOtherInputVat] = useState('')
 
-  const { customers, loading: customersLoading } = useVatCustomers()
+  const { customers, loading: customersLoading, refreshCustomers } = useVatCustomers()
 
   const {
     invoices, creditNotes, totals, meta,
@@ -285,7 +285,7 @@ export function KsaVatReportPage() {
             <button
               type="button"
               className="war-btn war-btn--ghost war-btn--sm"
-              onClick={refetch}
+              onClick={() => { refreshCustomers(); refetch() }}
               disabled={loading || !datesValid}
             >
               {loading ? 'Loading…' : 'Refresh'}
