@@ -79,11 +79,15 @@ async function fetchSalesByCustomer(fromDate, toDate, customerId = null) {
     try {
       json = await zohoApiRequest(`${BOOKS_V3}/reports/salesbycustomer`, params)
     } catch (err) {
-      // Code 57 = missing ZohoBooks.reports.READ scope — surface clearly
       const code = err?.zohoCode ?? err?.body?.code ?? err?.code
       if (code === 57 || String(code) === '57' || err?.status === 401) {
         console.warn('[zoho-books] salesbycustomer report: missing ZohoBooks.reports.READ scope — will fall back to invoice list')
         return { rows: [], truncated: false, pages: 0, scopeError: true }
+      }
+      // 404 / "Invalid URL" means the endpoint doesn't exist in this region — fall back
+      if (err?.status === 404 || code === 5 || String(code) === '5') {
+        console.warn('[zoho-books] salesbycustomer report: endpoint not found — falling back to invoice list')
+        return { rows: [], truncated: false, pages: 0, scopeError: false }
       }
       throw err
     }
@@ -130,57 +134,12 @@ async function fetchInvoices(fromDate, toDate, customerId = null) {
 // ── Credit Notes ──────────────────────────────────────────────────────────
 
 /**
- * Fetch the "Credit Notes by Customer" report from Zoho Books.
- * Falls back to the list endpoint — credit notes are typically small (<500 total).
+ * Fetch credit notes for the given date range.
+ * Zoho Books has no pre-aggregated credit notes report endpoint — we use the
+ * list endpoint directly. Credit notes are small (typically <500 per quarter)
+ * so 1-3 pages load in 1-3 seconds.
  */
 async function fetchCreditNotesByCustomer(fromDate, toDate, customerId = null) {
-  const params = new URLSearchParams()
-  if (fromDate)    params.set('from_date',   fromDate)
-  if (toDate)      params.set('to_date',     toDate)
-  if (customerId)  params.set('customer_id', String(customerId))
-
-  const t0 = Date.now()
-  let page = 1
-  const allRows = []
-  let truncated = false
-
-  while (page <= 10) {
-    params.set('page', String(page))
-    let json
-    try {
-      json = await zohoApiRequest(`${BOOKS_V3}/reports/creditnotes`, params)
-    } catch (err) {
-      const code = err?.zohoCode ?? err?.body?.code ?? err?.code
-      if (code === 57 || String(code) === '57' || err?.status === 401) {
-        console.warn('[zoho-books] creditnotes report: missing scope — falling back to list')
-        break
-      }
-      throw err
-    }
-
-    const pageRows =
-      json?.creditnotes_by_customer ??
-      json?.credit_notes_by_customer ??
-      json?.creditnotes ??
-      json?.report_rows ??
-      []
-
-    if (!Array.isArray(pageRows) || pageRows.length === 0) break
-
-    allRows.push(...pageRows)
-
-    const hasMore = json?.page_context?.has_more_page === true
-    if (!hasMore) break
-    if (page >= 10) { truncated = true; break }
-    page++
-  }
-
-  if (allRows.length > 0) {
-    console.log(`[zoho-books] creditnotes-report: ${allRows.length} in ${page} page(s) — ${Date.now() - t0}ms`)
-    return { rows: allRows, truncated, pages: page }
-  }
-
-  // Fall back to raw list if report endpoint returned nothing or lacked scope
   return fetchCreditNotesList(fromDate, toDate, customerId)
 }
 
