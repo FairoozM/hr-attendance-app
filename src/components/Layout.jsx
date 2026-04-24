@@ -445,6 +445,7 @@ export function Layout() {
     if (location.pathname.startsWith('/reports/weekly-report/slow-moving'))  return 'Weekly Slow Moving Sales Report'
     if (location.pathname.startsWith('/reports/weekly-report/other-family')) return 'Weekly Other Family Sales Report'
     if (location.pathname.startsWith('/reports')) return 'Reports'
+    if (location.pathname.startsWith('/taxation/ksa-vat')) return 'KSA VAT Tax'
     if (location.pathname.startsWith('/admin/item-report-groups')) return 'Item Report Groups'
     if (location.pathname === '/projects/dashboard') return 'AI Dashboard'
     if (location.pathname.startsWith('/projects/')) return 'Today\'s Plan'
@@ -478,6 +479,12 @@ export function Layout() {
 
   const managementItems = [
     can('document_expiry', 'view') && { label: 'Document Expiry Tracker', to: '/management/document-expiry' },
+  ].filter(Boolean)
+
+  const isTaxationActive = location.pathname.startsWith('/taxation')
+
+  const TAXATION_ITEMS = [
+    hasWeeklyReportsAccess && { label: 'KSA VAT Tax', to: '/taxation/ksa-vat' },
   ].filter(Boolean)
 
   const REPORTS_ITEMS = [
@@ -523,6 +530,11 @@ export function Layout() {
       group: 'Weekly Report',
       searchHint: 'weekly ads slow moving other family sales inventory performance reports zoho',
     })),
+    ...TAXATION_ITEMS.map(i => ({
+      ...i,
+      group: 'Taxation',
+      searchHint: 'ksa vat tax quarterly filing invoices credit notes zoho books',
+    })),
     ...adminNavItems.map(i => ({
       ...i,
       group: 'Admin',
@@ -532,7 +544,7 @@ export function Layout() {
           : '',
     })),
     { label: 'My Account', to: '/account', group: 'Account' },
-  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, managementItems, REPORTS_ITEMS])
+  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, managementItems, REPORTS_ITEMS, TAXATION_ITEMS])
 
   const showSidebarBackdrop = isSidebarOpen && navMode === 'full'
 
@@ -647,7 +659,20 @@ export function Layout() {
                   </NavGroup>
                 )}
 
-                <NavGroup label="Amazon" hint="Reserved" isActive={false} />
+                {TAXATION_ITEMS.length > 0 && (
+                  <NavGroup label="Taxation" hint="KSA VAT" isActive={isTaxationActive}>
+                    {TAXATION_ITEMS.map((item) => (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        className={subLinkClass}
+                      >
+                        <span className="nav-group__link-dot" aria-hidden />
+                        {item.label}
+                      </NavLink>
+                    ))}
+                  </NavGroup>
+                )}
 
                 {isAdmin && (
                   <>

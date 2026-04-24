@@ -34,6 +34,7 @@ import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
 import { WeeklyAdsReportPage } from './pages/reports/WeeklyAdsReportPage'
 import { WeeklySalesReportPage } from './pages/reports/WeeklySalesReportPage'
 import { WeeklyCombinedSalesReportPage } from './pages/reports/WeeklyCombinedSalesReportPage'
+import { KsaVatReportPage } from './pages/reports/KsaVatReportPage'
 import ProjectsIndexPage from './pages/projects/ProjectsIndexPage'
 import ProjectDetailPage from './pages/projects/ProjectDetailPage'
 import ProjectDashboardPage from './pages/projects/ProjectDashboardPage'
@@ -237,6 +238,18 @@ function AppContent() {
               }
             />
           </Route>
+        </Route>
+
+        {/* Taxation Module */}
+        <Route path="taxation">
+          <Route
+            path="ksa-vat"
+            element={
+              <PermissionGuard module="weekly_reports" action="view">
+                <KsaVatReportPage />
+              </PermissionGuard>
+            }
+          />
         </Route>
 
         {/* Influencers Module */}
