@@ -75,7 +75,18 @@ async function fetchSalesByCustomer(fromDate, toDate, customerId = null) {
 
   while (page <= 10) {
     params.set('page', String(page))
-    const json = await zohoApiRequest(`${BOOKS_V3}/reports/salesbycustomer`, params)
+    let json
+    try {
+      json = await zohoApiRequest(`${BOOKS_V3}/reports/salesbycustomer`, params)
+    } catch (err) {
+      // Code 57 = missing ZohoBooks.reports.READ scope — surface clearly
+      const code = err?.zohoCode ?? err?.body?.code ?? err?.code
+      if (code === 57 || String(code) === '57' || err?.status === 401) {
+        console.warn('[zoho-books] salesbycustomer report: missing ZohoBooks.reports.READ scope — will fall back to invoice list')
+        return { rows: [], truncated: false, pages: 0, scopeError: true }
+      }
+      throw err
+    }
 
     // Zoho Books uses different top-level keys for different report responses
     const pageRows =
@@ -135,7 +146,17 @@ async function fetchCreditNotesByCustomer(fromDate, toDate, customerId = null) {
 
   while (page <= 10) {
     params.set('page', String(page))
-    const json = await zohoApiRequest(`${BOOKS_V3}/reports/creditnotes`, params)
+    let json
+    try {
+      json = await zohoApiRequest(`${BOOKS_V3}/reports/creditnotes`, params)
+    } catch (err) {
+      const code = err?.zohoCode ?? err?.body?.code ?? err?.code
+      if (code === 57 || String(code) === '57' || err?.status === 401) {
+        console.warn('[zoho-books] creditnotes report: missing scope — falling back to list')
+        break
+      }
+      throw err
+    }
 
     const pageRows =
       json?.creditnotes_by_customer ??
@@ -159,7 +180,7 @@ async function fetchCreditNotesByCustomer(fromDate, toDate, customerId = null) {
     return { rows: allRows, truncated, pages: page }
   }
 
-  // Fall back to raw list if report endpoint returned nothing
+  // Fall back to raw list if report endpoint returned nothing or lacked scope
   return fetchCreditNotesList(fromDate, toDate, customerId)
 }
 

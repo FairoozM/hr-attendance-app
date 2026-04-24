@@ -178,10 +178,30 @@ async function getVatReport(req, res) {
       ])
 
       let invoiceSource = salesResult
-      if (salesResult.rows.length === 0 && !salesResult.truncated) {
-        // Report endpoint returned nothing — fall back to list (single customer only)
-        console.log('[taxation] salesbycustomer report empty, falling back to invoice list')
+
+      if (salesResult.scopeError) {
+        // ZohoBooks.reports.READ scope is missing.
+        // Fall back to raw invoice list only when a single customer is selected
+        // (keeps response under 30s). For "All Customers" this would timeout — reject early.
+        if (!customerId) {
+          throw Object.assign(
+            new Error(
+              'The Zoho refresh token is missing the ZohoBooks.reports.READ scope, ' +
+              'which is required to load totals for all customers efficiently. ' +
+              'Please select a specific customer, or re-issue the Zoho OAuth token with ' +
+              'ZohoBooks.reports.READ scope added.'
+            ),
+            { code: 'ZOHO_SCOPE_MISSING', status: 503 }
+          )
+        }
+        console.log('[taxation] salesbycustomer scope error, falling back to invoice list for single customer')
         invoiceSource = await fetchInvoices(range.from_date, range.to_date, customerId)
+      } else if (salesResult.rows.length === 0 && !salesResult.truncated) {
+        // Report endpoint returned nothing (no data for this period) — also try list
+        if (customerId) {
+          console.log('[taxation] salesbycustomer report empty, falling back to invoice list')
+          invoiceSource = await fetchInvoices(range.from_date, range.to_date, customerId)
+        }
       }
 
       console.log(
@@ -221,6 +241,9 @@ async function getVatReport(req, res) {
     return res.json(result)
   } catch (err) {
     const zohoCode = err?.zohoCode ?? err?.body?.code ?? err?.code
+    if (err?.code === 'ZOHO_SCOPE_MISSING') {
+      return res.status(503).json({ code: 'ZOHO_SCOPE_MISSING', message: err.message })
+    }
     if (zohoCode === 57 || String(zohoCode) === '57' || err?.status === 401) {
       return res.status(503).json({
         code: 'ZOHO_NOT_CONFIGURED',
@@ -228,7 +251,7 @@ async function getVatReport(req, res) {
           'Zoho Books API access is not authorized. ' +
           'The current refresh token does not include ZohoBooks scopes. ' +
           'Please re-issue the Zoho OAuth token with: ' +
-          'ZohoBooks.invoices.READ, ZohoBooks.creditnotes.READ, ZohoBooks.contacts.READ',
+          'ZohoBooks.invoices.READ, ZohoBooks.creditnotes.READ, ZohoBooks.contacts.READ, ZohoBooks.reports.READ',
       })
     }
     return handleZohoError(res, err, 'getVatReport')

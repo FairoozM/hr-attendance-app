@@ -118,9 +118,9 @@ export function useKsaVatReport({ fromDate, toDate, customerId = null }) {
     } catch (err) {
       if (err?.name === 'AbortError') return
       const code = err?.body?.code
-      if (code === 'ZOHO_NOT_CONFIGURED' || err?.status === 503) {
+      if (code === 'ZOHO_NOT_CONFIGURED' || code === 'ZOHO_SCOPE_MISSING' || err?.status === 503) {
         setNotConfigured(true)
-        setError(err.message || 'Zoho source not configured')
+        setError(err?.body?.message || err.message || 'Zoho source not configured')
       } else {
         setError(err.message || 'Failed to load VAT report')
       }

@@ -303,7 +303,9 @@ export function KsaVatReportPage() {
       </section>
 
       {/* ── Error / not-configured states ── */}
-      {notConfigured && <NotConfiguredCallout message={error} />}
+      {notConfigured && (
+        <NotConfiguredCallout message={error} />
+      )}
       {error && !notConfigured && <ErrorCallout message={error} onRetry={refetch} />}
       {loading && (
         <section className="war-section">
