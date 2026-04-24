@@ -3,11 +3,9 @@
  * is the Zoho adapter (not Deluge webhooks).
  *
  * For each `item_report_groups` member, intersect with the Zoho catalog. **Family**
- * is display metadata. **closing_stock** is current on-hand from Items API;
- * **period columns** (sold, purchases, returns) are summed from Invoices, Bills, and
- * vendor credits. **Opening** (Phase 4) is a **TEMPORARY** stand-in: same as current
- * `stock_on_hand` as `closing_stock` until a true period opening exists; not derived
- * from transactions (see `weeklyReportZohoLineMerge.applyTransactionMapsToRow`).
+ * is display metadata. On-hand **quantities** come from Items; period movement (sold, purchases, returns) from
+ * reports and vendor credits. The API then exposes **monetary** opening / closing (qty × `purchase_rate` or `rate`)
+ * and currency amounts; movement qtys are not returned on family rows.
  */
 
 const { fetchAllItemsRaw } = require('../integrations/zoho/zohoAdapter')
@@ -22,6 +20,7 @@ const {
   buildItemIdToSkuMap,
   sumLinesToMap,
   sumAmountsToMap,
+  mapLookupForReportRow,
   applyTransactionMapsToRow,
 } = require('./weeklyReportZohoLineMerge')
 const {
@@ -164,6 +163,26 @@ function parseZohoStockOnHand(item) {
 }
 
 /**
+ * Per-unit **cost** for stock value: `purchase_rate`, else `selling` `rate`, else 0.
+ * @param {object} item
+ * @returns {number}
+ */
+function parseZohoUnitCost(item) {
+  if (!item || typeof item !== 'object') return 0
+  const pr = item.purchase_rate
+  if (pr != null && pr !== '') {
+    const n = parseQty(pr)
+    if (n > 0) return n
+  }
+  const r = item.rate
+  if (r != null && r !== '') {
+    const n = parseQty(r)
+    if (n > 0) return n
+  }
+  return 0
+}
+
+/**
  * @param {object} zohoItem
  * @param {string} fromDate
  * @param {string} toDate
@@ -173,8 +192,8 @@ function parseZohoStockOnHand(item) {
 function zohoItemToPlaceholderReportRow(zohoItem, fromDate, toDate, familyFieldId) {
   const n = normalizeZohoInventoryItem(zohoItem, familyFieldId)
   const sh = parseZohoStockOnHand(zohoItem)
-  // Period numbers filled in fetchZohoItemRowsForGroupMembers. opening_stock: TEMP same as
-  // closing (see applyTransactionMapsToRow — it does not overwrite opening).
+  const unitCost = parseZohoUnitCost(zohoItem)
+  // stock fields are **quantities** until `applyZohoWeeklyValueColumns` in fetchZohoItemRowsForGroupMembers
   return {
     sku: n.sku,
     item_name: n.name,
@@ -185,6 +204,7 @@ function zohoItemToPlaceholderReportRow(zohoItem, fromDate, toDate, familyFieldI
     purchases: 0,
     returned_to_wholesale: 0,
     sold: 0,
+    _unit_cost: unitCost,
     _zoho: {
       from_date: fromDate,
       to_date: toDate,
@@ -287,7 +307,7 @@ function findZohoItemForMember(member, maps) {
 
 /**
  * Aggregates individual item-level rows (one per Zoho item) into one summary
- * row per family. All numeric fields are summed; `item_count` is added.
+ * row per family. Sums only currency / value fields (no qty columns).
  *
  * @param {object[]} itemRows - output of the main item-matching loop
  * @returns {object[]} one row per distinct family value, sorted by family name
@@ -302,23 +322,17 @@ function aggregateByFamily(itemRows) {
     if (!acc) {
       acc = {
         family: familyDisplay,
-        item_count: 0,
         opening_stock: 0,
         closing_stock: 0,
-        sold: 0,
         sales_amount: 0,
-        purchases: 0,
         purchase_amount: 0,
         returned_to_wholesale: 0,
       }
       map.set(key, acc)
     }
-    acc.item_count += 1
     acc.opening_stock += row.opening_stock == null || Number.isNaN(Number(row.opening_stock)) ? 0 : Number(row.opening_stock)
     acc.closing_stock += row.closing_stock || 0
-    acc.sold += row.sold || 0
     acc.sales_amount += row.sales_amount || 0
-    acc.purchases += row.purchases || 0
     acc.purchase_amount += row.purchase_amount || 0
     acc.returned_to_wholesale += row.returned_to_wholesale || 0
   }
@@ -504,9 +518,30 @@ async function fetchZohoItemRowsForGroupMembers(
     purchLines.map((a) => ({ item_id: a.item_id, sku: a.sku, name: a.name, item_total: a.item_total })),
     idToSku
   )
+  const retAmountMap = sumAmountsToMap(
+    retLines.map((a) => ({ item_id: a.item_id, sku: a.sku, name: a.name, item_total: a.item_total })),
+    idToSku
+  )
 
   for (const row of out) {
     applyTransactionMapsToRow(row, sm, pm, rm, salesAmountMap, purchAmountMap)
+  }
+
+  for (const row of out) {
+    const cost = row._unit_cost != null && Number.isFinite(row._unit_cost) ? row._unit_cost : 0
+    const qC = Number(row.closing_stock) || 0
+    const p = Number(row.purchases) || 0
+    const s = Number(row.sold) || 0
+    const rQty = Number(row.returned_to_wholesale) || 0
+    const rFromVc = mapLookupForReportRow(retAmountMap, row)
+    const rMoney = rFromVc > 0 ? rFromVc : rQty * cost
+    const qO = qC - p + s + rQty
+    row.opening_stock = qO * cost
+    row.closing_stock = qC * cost
+    row.returned_to_wholesale = rMoney
+    delete row.purchases
+    delete row.sold
+    delete row._unit_cost
   }
 
   // Collapse individual item rows into one summary row per family
@@ -525,7 +560,7 @@ async function fetchZohoItemRowsForGroupMembers(
       sales_source_count: salesLines.length,
       purchases_source_count: purchLines.length,
       credits_source_count: retLines.length,
-      opening_stock_is_temporary_fallback: true,
+      opening_stock_derived: true,
       vendor_filter_applied: vfa,
       report_vendor: { vendorId: rv.vendorId, vendorName: rv.vendorName, source: rv.source },
       sales: {
@@ -559,6 +594,7 @@ module.exports = {
   _internals: {
     zohoItemToPlaceholderReportRow,
     parseZohoStockOnHand,
+    parseZohoUnitCost,
     buildZohoLookupMaps,
     findZohoItemForMember,
     findZohoItemsForMember,

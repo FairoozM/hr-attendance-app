@@ -12,11 +12,11 @@ import { useAuth } from '../contexts/AuthContext'
  *   present in API responses, may be `""`). Not the same as app `report_group` —
  *   use `item_report_groups` for membership; keep `family` for display / future
  *   Excel export columns.
- * @property {number|null} opening_stock
- * @property {number|null} purchases
- * @property {number|null} returned_to_wholesale
- * @property {number|null} closing_stock
- * @property {number|null} sold
+ * @property {number|null} opening_stock  — value (stock qty × Zoho cost), not units
+ * @property {number|null} closing_stock  — value
+ * @property {number|null} purchase_amount
+ * @property {number|null} returned_to_wholesale  — value (credits) when available, else × cost
+ * @property {number|null} sales_amount
  */
 
 /**
@@ -26,8 +26,8 @@ import { useAuth } from '../contexts/AuthContext'
  *   {
  *     report_group, from_date, to_date,
  *     items:  (ZohoReportRow[]) ,
- *     totals: { opening_stock, purchases, returned_to_wholesale,
- *               closing_stock, sold }
+ *     totals: { opening_stock, closing_stock, purchase_amount,
+ *               returned_to_wholesale, sales_amount }
  *   }
  *
  * The hook returns:

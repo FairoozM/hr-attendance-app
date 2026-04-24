@@ -16,7 +16,12 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const ExcelJS = require('exceljs')
+const { clearReportCache } = require('../src/services/weeklyReportCache')
 const { mockModule, freshRequire, makeReqRes, captureConsole } = require('./_helpers')
+
+test.beforeEach(() => {
+  clearReportCache()
+})
 
 function makeError(code, message, extra = {}) {
   const e = new Error(message)
@@ -109,10 +114,10 @@ test('weeklyReports: empty result returns 200 with all-zero Grand Total', async 
   assert.deepEqual(res.body.items, [])
   assert.deepEqual(res.body.totals, {
     opening_stock: 0,
-    purchases: 0,
-    returned_to_wholesale: 0,
     closing_stock: 0,
-    sold: 0,
+    purchase_amount: 0,
+    returned_to_wholesale: 0,
+    sales_amount: 0,
   })
   assert.equal(res.body.report_group, 'slow_moving')
 })
@@ -120,8 +125,8 @@ test('weeklyReports: empty result returns 200 with all-zero Grand Total', async 
 test('weeklyReports: Grand Total sums Zoho-provided numbers verbatim', async () => {
   const ctrl = loadController({
     getInventoryByGroup: wrapItems([
-      { sku: 'A', item_name: 'A', family: 'ZDS', opening_stock: 100, purchases: 10, returned_to_wholesale: 1, closing_stock: 109, sold: 0 },
-      { sku: 'B', item_name: 'B', family: 'LIFEP', opening_stock:  50, purchases:  5, returned_to_wholesale: 0, closing_stock:  45, sold: 10 },
+      { family: 'ZDS', opening_stock: 100, purchase_amount: 10, returned_to_wholesale: 1, closing_stock: 109, sales_amount: 0 },
+      { family: 'LIFEP', opening_stock:  50, purchase_amount:  5, returned_to_wholesale: 0, closing_stock:  45, sales_amount: 10 },
     ]),
     listGroupKeys: async () => ['slow_moving'],
   })
@@ -132,25 +137,22 @@ test('weeklyReports: Grand Total sums Zoho-provided numbers verbatim', async () 
   assert.equal(res.body.items[1].family, 'LIFEP')
   assert.deepEqual(res.body.totals, {
     opening_stock: 150,
-    purchases: 15,
+    purchase_amount: 15,
     returned_to_wholesale: 1,
     closing_stock: 154,
-    sold: 10,
+    sales_amount: 10,
   })
 })
 
 test('weeklyReports: export.xlsx uses the same getInventoryByGroup + items as JSON (adapter pipeline)', async () => {
   const sharedItems = [
     {
-      sku: 'SKU-1',
-      item_name: 'ExportPipelineLabel',
-      item_id: '99',
       family: 'Fam',
       opening_stock: 1,
-      purchases: 2,
+      purchase_amount: 2,
       returned_to_wholesale: 0,
       closing_stock: 4,
-      sold: 3,
+      sales_amount: 3,
       _zoho: { from_date: '2026-01-01', to_date: '2026-01-07', family: 'Fam' },
     },
   ]
@@ -166,9 +168,11 @@ test('weeklyReports: export.xlsx uses the same getInventoryByGroup + items as JS
   const { req, res } = makeReqRes({ params: { group: 'slow_moving' }, query: VALID })
   await ctrl.getReportByGroup(req, res)
   assert.equal(res.statusCode, 200)
-  assert.strictEqual(res.body.items, sharedItems)
+  assert.equal(res.body.items.length, 1)
+  assert.equal(res.body.items[0].family, 'Fam')
   const expected = { group: 'slow_moving', from: '2026-01-01', to: '2026-01-07' }
   assert.deepEqual(invCalls[0], expected)
+  clearReportCache('slow_moving', '2026-01-01', '2026-01-07')
 
   const { req: req2, res: res2 } = makeReqRes({ params: { group: 'slow_moving' }, query: VALID })
   res2.setHeader = () => {}
@@ -179,14 +183,14 @@ test('weeklyReports: export.xlsx uses the same getInventoryByGroup + items as JS
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(res2.body)
   const sheet = wb.getWorksheet('Report')
-  assert.equal(String(sheet.getCell('B5').value), 'ExportPipelineLabel')
-  assert.equal(Number(sheet.getCell('G5').value), 3)
+  assert.equal(String(sheet.getCell('B5').value), 'Fam')
+  assert.equal(Number(sheet.getCell('G5').value), 3) // sales_amount
   const totalRow = 5 + res.body.items.length
   assert.equal(Number(sheet.getCell(`C${totalRow}`).value), res.body.totals.opening_stock)
-  assert.equal(Number(sheet.getCell(`D${totalRow}`).value), res.body.totals.purchases)
-  assert.equal(Number(sheet.getCell(`E${totalRow}`).value), res.body.totals.returned_to_wholesale)
-  assert.equal(Number(sheet.getCell(`F${totalRow}`).value), res.body.totals.closing_stock)
-  assert.equal(Number(sheet.getCell(`G${totalRow}`).value), res.body.totals.sold)
+  assert.equal(Number(sheet.getCell(`D${totalRow}`).value), res.body.totals.closing_stock)
+  assert.equal(Number(sheet.getCell(`E${totalRow}`).value), res.body.totals.purchase_amount)
+  assert.equal(Number(sheet.getCell(`F${totalRow}`).value), res.body.totals.returned_to_wholesale)
+  assert.equal(Number(sheet.getCell(`G${totalRow}`).value), res.body.totals.sales_amount)
 })
 
 test('weeklyReports: other_family export.xlsx uses same getInventoryByGroup + totals as JSON', async () => {
@@ -195,7 +199,7 @@ test('weeklyReports: other_family export.xlsx uses same getInventoryByGroup + to
     invCalls.push({ group, from, to })
     return {
       items: [
-        { sku: 'O1', item_name: 'OtherFam', family: 'X', opening_stock: 0, purchases: 0, returned_to_wholesale: 0, closing_stock: 0, sold: 0 },
+        { family: 'X', opening_stock: 0, purchase_amount: 0, returned_to_wholesale: 0, closing_stock: 0, sales_amount: 0 },
       ],
       reportMeta: { warnings: [] },
     }
@@ -208,6 +212,7 @@ test('weeklyReports: other_family export.xlsx uses same getInventoryByGroup + to
   await ctrl.getReportByGroup(req, res)
   assert.equal(res.statusCode, 200)
   assert.equal(res.body.report_group, 'other_family')
+  clearReportCache('other_family', '2026-01-01', '2026-01-07')
   const { req: req2, res: res2 } = makeReqRes({ params: { group: 'other_family' }, query: VALID })
   res2.setHeader = () => {}
   await ctrl.exportReportByGroupXlsx(req2, res2)
@@ -219,7 +224,7 @@ test('weeklyReports: other_family export.xlsx uses same getInventoryByGroup + to
   const sheet = wb.getWorksheet('Report')
   const totalRow = 5 + res.body.items.length
   assert.equal(Number(sheet.getCell(`C${totalRow}`).value), res.body.totals.opening_stock)
-  assert.equal(Number(sheet.getCell(`G${totalRow}`).value), res.body.totals.sold)
+  assert.equal(Number(sheet.getCell(`G${totalRow}`).value), res.body.totals.sales_amount)
 })
 
 test('weeklyReports: empty export xlsx grand total matches API totals (all zeros)', async () => {
@@ -237,10 +242,10 @@ test('weeklyReports: empty export xlsx grand total matches API totals (all zeros
   const sheet = wb.getWorksheet('Report')
   assert.equal(String(sheet.getCell('B5').value), 'Grand Total')
   assert.equal(Number(sheet.getCell('C5').value), res.body.totals.opening_stock)
-  assert.equal(Number(sheet.getCell('D5').value), res.body.totals.purchases)
-  assert.equal(Number(sheet.getCell('E5').value), res.body.totals.returned_to_wholesale)
-  assert.equal(Number(sheet.getCell('F5').value), res.body.totals.closing_stock)
-  assert.equal(Number(sheet.getCell('G5').value), res.body.totals.sold)
+  assert.equal(Number(sheet.getCell('D5').value), res.body.totals.closing_stock)
+  assert.equal(Number(sheet.getCell('E5').value), res.body.totals.purchase_amount)
+  assert.equal(Number(sheet.getCell('F5').value), res.body.totals.returned_to_wholesale)
+  assert.equal(Number(sheet.getCell('G5').value), res.body.totals.sales_amount)
 })
 
 // ---------------------------------------------------------------------------
@@ -308,7 +313,7 @@ test('weeklyReports: legacy /slow-moving keeps same response shape', async () =>
   const ctrl = loadController({
     getInventoryByGroup: async (group) =>
       group === 'slow_moving'
-        ? { items: [{ sku: 'A', item_name: 'A', family: '', opening_stock: 5, purchases: 0, returned_to_wholesale: 0, closing_stock: 5, sold: 0 }], reportMeta: { warnings: [] } }
+        ? { items: [{ sku: 'A', item_name: 'A', family: '', opening_stock: 5, purchase_amount: 0, returned_to_wholesale: 0, closing_stock: 5, sales_amount: 0 }], reportMeta: { warnings: [] } }
         : { items: [], reportMeta: { warnings: [] } },
     listGroupKeys: async () => ['slow_moving'],
   })

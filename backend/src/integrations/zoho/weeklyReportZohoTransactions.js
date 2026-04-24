@@ -334,6 +334,7 @@ async function getVendorCredits(fromDate, toDate, vendorId, opts = {}) {
           name: li.name,
           sku,
           quantity: parseLineQty(li.quantity),
+          item_total: parseLineQty(li.item_total),
         })
       }
     }

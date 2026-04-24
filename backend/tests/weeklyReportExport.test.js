@@ -16,39 +16,37 @@ const {
 test('sumReportGrandTotals matches display summation of Zoho rows', () => {
   const items = [
     {
-      sku: 'A',
       opening_stock: 100,
-      purchases: 10,
+      purchase_amount: 10,
       returned_to_wholesale: 1,
       closing_stock: 109,
-      sold: 0,
+      sales_amount: 0,
     },
     {
-      sku: 'B',
       opening_stock: 50.5,
-      purchases: 5,
+      purchase_amount: 5,
       returned_to_wholesale: 0,
       closing_stock: 45,
-      sold: 10,
+      sales_amount: 10,
     },
   ]
   const t = sumReportGrandTotals(items)
   assert.deepEqual(t, {
     opening_stock: 150.5,
-    purchases: 15,
+    purchase_amount: 15,
     returned_to_wholesale: 1,
     closing_stock: 154,
-    sold: 10,
+    sales_amount: 10,
   })
 })
 
 test('sumReportGrandTotals: any null in a column makes that total null', () => {
   const t = sumReportGrandTotals([
-    { opening_stock: 1, purchases: 0, returned_to_wholesale: 0, closing_stock: 0, sold: 0 },
-    { opening_stock: null, purchases: 0, returned_to_wholesale: 0, closing_stock: 0, sold: 0 },
+    { opening_stock: 1, purchase_amount: 0, returned_to_wholesale: 0, closing_stock: 0, sales_amount: 0 },
+    { opening_stock: null, purchase_amount: 0, returned_to_wholesale: 0, closing_stock: 0, sales_amount: 0 },
   ])
   assert.equal(t.opening_stock, null)
-  assert.equal(t.purchases, 0)
+  assert.equal(t.purchase_amount, 0)
 })
 
 test('getExportDownloadFilename uses documented slug for slow / other', () => {
@@ -124,14 +122,12 @@ test('getExportSheetTitleForGroup uses ECOMMERCE… titles for known groups', ()
 test('buildWeeklyReportXlsxBuffer: populated report opens in ExcelJS with title + data + total', async () => {
   const items = [
     {
-      sku: '6294021009331',
-      item_name: 'ZDS-1-8L',
       family: 'ZDS',
       opening_stock: 1,
-      purchases: 0,
+      purchase_amount: 0,
       returned_to_wholesale: 0,
       closing_stock: 2,
-      sold: 3,
+      sales_amount: 3,
     },
   ]
   const totals = sumReportGrandTotals(items)
@@ -159,11 +155,11 @@ test('buildWeeklyReportXlsxBuffer: populated report opens in ExcelJS with title 
   assert.match(period, /14.*Apr.*2026/i)
   assert.match(period, /20.*Apr.*2026/i)
   assert.equal(String(sheet.getCell('A4').value), 'SR. NO')
-  assert.equal(String(sheet.getCell('B4').value), 'ITEM')
-  assert.equal(String(sheet.getCell('B5').value), 'ZDS-1-8L')
+  assert.equal(String(sheet.getCell('B4').value), 'FAMILY')
+  assert.equal(String(sheet.getCell('B5').value), 'ZDS')
   const gt = String(sheet.getCell('B6').value)
   assert.equal(gt, 'Grand Total')
-  assert.equal(Number(sheet.getCell('G5').value), 3) // SOLD for row 1
+  assert.equal(Number(sheet.getCell('G5').value), 3) // Sales Amount
 })
 
 test('buildWeeklyReportXlsxBuffer: empty data still has header + zero grand total', async () => {
@@ -181,20 +177,18 @@ test('buildWeeklyReportXlsxBuffer: empty data still has header + zero grand tota
   const sheet = wb.getWorksheet('Report')
   assert.equal(String(sheet.getCell('A1').value), 'ECOMMERCE OTHER FAMILY SALES REPORT')
   assert.equal(String(sheet.getCell('B5').value), 'Grand Total')
-  assert.equal(Number(sheet.getCell('C5').value), 0) // first numeric col of total row
+  assert.equal(Number(sheet.getCell('C5').value), 0) // Opening Stock
 })
 
 test('buildWeeklyReportXlsxBuffer: _zoho metadata on items does not affect columns', async () => {
   const items = [
     {
-      sku: 'S1',
-      item_name: 'WithZohoMeta',
       family: 'F',
       opening_stock: 0,
-      purchases: 0,
+      purchase_amount: 0,
       returned_to_wholesale: 0,
       closing_stock: 5,
-      sold: 0,
+      sales_amount: 0,
       _zoho: { from_date: '2026-01-01', to_date: '2026-01-07', family: 'F' },
     },
   ]
@@ -207,22 +201,20 @@ test('buildWeeklyReportXlsxBuffer: _zoho metadata on items does not affect colum
   })
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(buf)
-  assert.equal(String(wb.getWorksheet('Report').getCell('B5').value), 'WithZohoMeta')
-  assert.equal(Number(wb.getWorksheet('Report').getCell('F5').value), 5) // closing_stock
+  assert.equal(String(wb.getWorksheet('Report').getCell('B5').value), 'F')
+  assert.equal(Number(wb.getWorksheet('Report').getCell('D5').value), 5) // closing_stock
 })
 
 test('buildWeeklyReportXlsxBuffer: special characters in item name round-trip', async () => {
   const weird = 'Test "Quote" <tag> & 陶'
   const items = [
     {
-      sku: 'S',
-      item_name: weird,
-      family: '',
+      family: weird,
       opening_stock: 0,
-      purchases: 0,
+      purchase_amount: 0,
       returned_to_wholesale: 0,
       closing_stock: 0,
-      sold: 0,
+      sales_amount: 0,
     },
   ]
   const buf = await buildWeeklyReportXlsxBuffer({
@@ -235,20 +227,18 @@ test('buildWeeklyReportXlsxBuffer: special characters in item name round-trip', 
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(buf)
   const v = String(wb.getWorksheet('Report').getCell('B5').value)
-  assert.equal(v, weird)
+  assert.equal(v, weird) // FAMILY cell
 })
 
 test('buildWeeklyReportXlsxBuffer: many rows are written', async () => {
   const n = 1200
   const items = Array.from({ length: n }, (_, i) => ({
-    sku: `K-${i}`,
-    item_name: `Item ${i}`,
-    family: 'F',
+    family: `F-${i}`,
     opening_stock: 1,
-    purchases: 0,
+    purchase_amount: 0,
     returned_to_wholesale: 0,
     closing_stock: 1,
-    sold: 0,
+    sales_amount: 0,
   }))
   const totals = sumReportGrandTotals(items)
   const t0 = Date.now()
@@ -264,7 +254,7 @@ test('buildWeeklyReportXlsxBuffer: many rows are written', async () => {
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(buf)
   const sheet = wb.getWorksheet('Report')
-  assert.equal(String(sheet.getCell('B5').value), 'Item 0')
-  assert.equal(String(sheet.getCell('B' + (5 + n - 1)).value), `Item ${n - 1}`)
+  assert.equal(String(sheet.getCell('B5').value), 'F-0')
+  assert.equal(String(sheet.getCell('B' + (5 + n - 1)).value), `F-${n - 1}`)
   if (ms > 120_000) assert.fail(`export took ${ms}ms (unreasonably slow)`)
 })

@@ -155,8 +155,7 @@ export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate,
   }, [datesValid, notConfigured, fromDate, toDate, reportGroup])
 
   const grandTotal = totals || {
-    item_count: 0, closing_stock: 0, purchases: 0, purchase_amount: 0,
-    returned_to_wholesale: 0, sold: 0, sales_amount: 0,
+    opening_stock: 0, closing_stock: 0, purchase_amount: 0, returned_to_wholesale: 0, sales_amount: 0,
   }
 
   const showTable = !loading && !error && !notConfigured && datesValid
@@ -212,19 +211,17 @@ export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate,
                 <tr>
                   <th className="war-th wsr-th--sr">SR. NO</th>
                   <th className="war-th wsr-th--item">FAMILY</th>
-                  <th className="war-th">Active Items</th>
+                  <th className="war-th">Opening Stock</th>
                   <th className="war-th">Closing Stock</th>
-                  <th className="war-th">Purchases Qty</th>
                   <th className="war-th">Purchase Amount</th>
                   <th className="war-th">Returned to Wholesale</th>
-                  <th className="war-th">SOLD Qty</th>
                   <th className="war-th">Sales Amount</th>
                 </tr>
               </thead>
               <tbody>
                 {items.length === 0 && (
                   <tr className="war-tr">
-                    <td className="war-td" colSpan={9}>
+                    <td className="war-td" colSpan={7}>
                       <div className="wsr-empty">
                         <strong>No families found for this date range.</strong>
                         <span className="wsr-empty__sub">
@@ -239,12 +236,10 @@ export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate,
                   <tr key={it.family || idx} className="war-tr">
                     <td className="war-td wsr-td--sr">{idx + 1}</td>
                     <td className="war-td wsr-td--item">{it.family || '—'}</td>
-                    <td className="war-td">{formatNum(it.item_count)}</td>
-                    <td className="war-td">{formatNum(it.closing_stock)}</td>
-                    <td className="war-td">{formatNum(it.purchases)}</td>
+                    <td className="war-td">{formatCurrency(it.opening_stock)}</td>
+                    <td className="war-td">{formatCurrency(it.closing_stock)}</td>
                     <td className="war-td">{formatCurrency(it.purchase_amount)}</td>
-                    <td className="war-td">{formatNum(it.returned_to_wholesale)}</td>
-                    <td className="war-td">{formatNum(it.sold)}</td>
+                    <td className="war-td">{formatCurrency(it.returned_to_wholesale)}</td>
                     <td className="war-td">{formatCurrency(it.sales_amount)}</td>
                   </tr>
                 ))}
@@ -254,12 +249,10 @@ export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate,
                   <tr className="war-tr war-tr--total">
                     <td className="war-td wsr-td--sr" />
                     <td className="war-td wsr-td--item">Grand Total</td>
-                    <td className="war-td">{formatNum(grandTotal.item_count)}</td>
-                    <td className="war-td">{formatNum(grandTotal.closing_stock)}</td>
-                    <td className="war-td">{formatNum(grandTotal.purchases)}</td>
+                    <td className="war-td">{formatCurrency(grandTotal.opening_stock)}</td>
+                    <td className="war-td">{formatCurrency(grandTotal.closing_stock)}</td>
                     <td className="war-td">{formatCurrency(grandTotal.purchase_amount)}</td>
-                    <td className="war-td">{formatNum(grandTotal.returned_to_wholesale)}</td>
-                    <td className="war-td">{formatNum(grandTotal.sold)}</td>
+                    <td className="war-td">{formatCurrency(grandTotal.returned_to_wholesale)}</td>
                     <td className="war-td">{formatCurrency(grandTotal.sales_amount)}</td>
                   </tr>
                 </tfoot>

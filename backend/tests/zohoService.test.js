@@ -14,10 +14,10 @@ const sampleRows = [
     item_id: '100',
     family: 'F1',
     opening_stock: 10,
-    purchases: 1,
+    purchase_amount: 0,
     returned_to_wholesale: 0,
     closing_stock: 9,
-    sold: 2,
+    sales_amount: 0,
   },
   {
     sku: 'B',
@@ -25,10 +25,10 @@ const sampleRows = [
     item_id: '101',
     family: '',
     opening_stock: 3,
-    purchases: 0,
+    purchase_amount: 0,
     returned_to_wholesale: 0,
     closing_stock: 3,
-    sold: 0,
+    sales_amount: 0,
   },
 ]
 
@@ -92,8 +92,8 @@ test('zohoService._internals.validateAndNormaliseItem accepts a complete row', (
   const { item, errors } = zoho._internals.validateAndNormaliseItem(
     {
       sku: 'FL-001', item_name: 'FL Shine', family: 'ZDS',
-      opening_stock: 100, purchases: 5, returned_to_wholesale: 0,
-      closing_stock: 95, sold: 10,
+      opening_stock: 100, purchase_amount: 5, returned_to_wholesale: 0,
+      closing_stock: 95, sales_amount: 10,
       _zoho: { from_date: '2026-01-01', to_date: '2026-01-07' },
     },
     0
@@ -102,7 +102,8 @@ test('zohoService._internals.validateAndNormaliseItem accepts a complete row', (
   assert.equal(item.sku, 'FL-001')
   assert.equal(item.family, 'ZDS')
   assert.equal(item.opening_stock, 100)
-  assert.equal(item.sold, 10)
+  assert.equal(item.sales_amount, 10)
+  assert.equal(item.purchase_amount, 5)
   assert.equal(item._zoho.family, 'ZDS')
   assert.equal(item._zoho.from_date, '2026-01-01')
   assert.equal(item._zoho.to_date, '2026-01-07')
@@ -111,7 +112,7 @@ test('zohoService._internals.validateAndNormaliseItem accepts a complete row', (
 test('zohoService._internals.validateAndNormaliseItem: explicit null = N/A (null) for a numeric', () => {
   const zoho = loadZoho()
   const { item, errors } = zoho._internals.validateAndNormaliseItem(
-    { sku: 'X', family: '', opening_stock: null, closing_stock: 0, purchases: 0, returned_to_wholesale: 0, sold: 0 },
+    { sku: 'X', family: '', opening_stock: null, closing_stock: 0, purchase_amount: 0, returned_to_wholesale: 0, sales_amount: 0 },
     0
   )
   assert.equal(errors.length, 0)
@@ -126,23 +127,23 @@ test('zohoService._internals.validateAndNormaliseItem: absent numerics default t
   )
   assert.equal(errors.length, 0)
   assert.equal(item.opening_stock, 0)
-  assert.equal(item.purchases, 0)
-  assert.equal(item.sold, 0)
+  assert.equal(item.purchase_amount, 0)
+  assert.equal(item.sales_amount, 0)
 })
 
-test('zohoService._internals.validateAndNormaliseItem rejects missing family key', () => {
+test('zohoService._internals.validateAndNormaliseItem: item row without family key uses ""', () => {
   const zoho = loadZoho()
   const { item, errors } = zoho._internals.validateAndNormaliseItem({
-    sku: 'X', opening_stock: 0, purchases: 0, returned_to_wholesale: 0, closing_stock: 0, sold: 0,
+    sku: 'X', opening_stock: 0, purchase_amount: 0, returned_to_wholesale: 0, closing_stock: 0, sales_amount: 0,
   }, 0)
-  assert.equal(item, null)
-  assert.ok(errors.some((e) => /"family" is required/.test(e)))
+  assert.equal(errors.length, 0)
+  assert.equal(item.family, '')
 })
 
 test('zohoService._internals.validateAndNormaliseItem accepts family as empty string', () => {
   const zoho = loadZoho()
   const { item, errors } = zoho._internals.validateAndNormaliseItem(
-    { sku: 'X', family: '', opening_stock: 0, purchases: 0, returned_to_wholesale: 0, closing_stock: 0, sold: 0 },
+    { sku: 'X', family: '', opening_stock: 0, purchase_amount: 0, returned_to_wholesale: 0, closing_stock: 0, sales_amount: 0 },
     0
   )
   assert.equal(errors.length, 0)
@@ -153,7 +154,7 @@ test('zohoService._internals.validateAndNormaliseItem accepts family as empty st
 test('zohoService._internals.validateAndNormaliseItem rejects non-string family', () => {
   const zoho = loadZoho()
   const { item, errors } = zoho._internals.validateAndNormaliseItem(
-    { sku: 'X', family: 99, opening_stock: 0, purchases: 0, returned_to_wholesale: 0, closing_stock: 0, sold: 0 },
+    { sku: 'X', family: 99, opening_stock: 0, purchase_amount: 0, returned_to_wholesale: 0, closing_stock: 0, sales_amount: 0 },
     0
   )
   assert.equal(item, null)
@@ -163,7 +164,7 @@ test('zohoService._internals.validateAndNormaliseItem rejects non-string family'
 test('zohoService._internals.validateAndNormaliseItem rejects null family', () => {
   const zoho = loadZoho()
   const { item, errors } = zoho._internals.validateAndNormaliseItem(
-    { sku: 'X', family: null, opening_stock: 0, purchases: 0, returned_to_wholesale: 0, closing_stock: 0, sold: 0 },
+    { sku: 'X', family: null, opening_stock: 0, purchase_amount: 0, returned_to_wholesale: 0, closing_stock: 0, sales_amount: 0 },
     0
   )
   assert.equal(item, null)
@@ -191,8 +192,8 @@ test('zohoService._internals.validateAndNormaliseItem rejects non-numeric stock 
   const zoho = loadZoho()
   const cases = [
     { opening_stock: '100' },
-    { sold: true },
-    { purchases: NaN },
+    { sales_amount: true },
+    { purchase_amount: NaN },
     { closing_stock: Infinity },
   ]
   for (const extra of cases) {
@@ -252,8 +253,8 @@ test('zohoService: row missing sku in fetch payload → WEBHOOK_INVALID_RESPONSE
   const zoho = loadZoho(
     [{ sku: 'A' }],
     { fetchRows: [
-      { sku: 'A', item_name: 'Ok', item_id: '1', family: '', opening_stock: 0, purchases: 0, returned_to_wholesale: 0, closing_stock: 0, sold: 0 },
-      { sku: '',  item_name: 'Bad', item_id: '2', family: '', opening_stock: 0, purchases: 0, returned_to_wholesale: 0, closing_stock: 0, sold: 0 },
+      { sku: 'A', item_name: 'Ok', item_id: '1', family: '', opening_stock: 0, purchase_amount: 0, returned_to_wholesale: 0, closing_stock: 0, sales_amount: 0 },
+      { family: null, item_name: 'Bad', item_id: '2', sku: '', opening_stock: 0, purchase_amount: 0, returned_to_wholesale: 0, closing_stock: 0, sales_amount: 0 },
     ] }
   )
   await assert.rejects(
@@ -289,7 +290,7 @@ test('zohoService: intersection (members ∩ Zoho) — mocked data returns only 
   const zoho = loadZoho(
     [{ sku: 'A' }],
     { fetchRows: [
-      { sku: 'A', item_name: 'A', item_id: '1', family: 'F', opening_stock: 1, purchases: 0, returned_to_wholesale: 0, closing_stock: 1, sold: 0 },
+      { sku: 'A', item_name: 'A', item_id: '1', family: 'F', opening_stock: 1, purchase_amount: 0, returned_to_wholesale: 0, closing_stock: 1, sales_amount: 0 },
     ] }
   )
   const { items } = await zoho.getInventoryByGroup('slow_moving', '2026-01-01', '2026-01-07')
@@ -307,10 +308,10 @@ test('zohoService: placeholder numbers round-trip for member', async () => {
         item_id: '101',
         family: 'X',
         opening_stock: 3,
-        purchases: 0,
+        purchase_amount: 0,
         returned_to_wholesale: 0,
         closing_stock: 3,
-        sold: 0,
+        sales_amount: 0,
         _zoho: { from_date: '2026-01-01', to_date: '2026-01-07', family: 'X' },
       },
     ] }
@@ -319,8 +320,8 @@ test('zohoService: placeholder numbers round-trip for member', async () => {
   assert.equal(items.length, 1)
   assert.equal(items[0].opening_stock, 3)
   assert.equal(items[0].closing_stock, 3)
-  assert.equal(items[0].purchases, 0)
-  assert.equal(items[0].sold, 0)
+  assert.equal(items[0].purchase_amount, 0)
+  assert.equal(items[0].sales_amount, 0)
   assert.equal(items[0].family, 'X')
   assert.equal(items[0]._zoho.family, 'X')
   assert.equal(items[0]._zoho.from_date, '2026-01-01')

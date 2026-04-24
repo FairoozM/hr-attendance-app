@@ -22,13 +22,10 @@ const { getVendorConfigForGroup } = require('./weeklyReportVendorConfig')
 
 const MAX_REPORTED_ERRORS = 10
 const NUMERIC_FIELDS = [
-  'item_count',
   'opening_stock',
-  'purchases',
+  'closing_stock',
   'purchase_amount',
   'returned_to_wholesale',
-  'closing_stock',
-  'sold',
   'sales_amount',
 ]
 

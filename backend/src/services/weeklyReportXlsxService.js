@@ -6,8 +6,11 @@
 
 const { buildBusinessTableXlsxBuffer } = require('../utils/businessTableXlsx')
 
+/** 2dp currency / stock value in Excel (no symbol — org may use any currency) */
+const WEEKLY_REPORT_CURRENCY_NUMFMT = '#,##0.00'
+
 /**
- * Family-level column layout for Zoho weekly stock-movement reports.
+ * Family-level column layout for Zoho weekly reports (value columns only: no item/qty movement).
  * Each row is one Zoho Family (aggregated from individual items).
  */
 const WEEKLY_STOCK_MOVEMENT_XLSX_COLUMNS = [
@@ -19,13 +22,11 @@ const WEEKLY_STOCK_MOVEMENT_XLSX_COLUMNS = [
     getValue: (row) => row.family || '—',
     grandTotalText: 'Grand Total',
   },
-  { header: 'Active Items', width: 14, type: 'sum', key: 'item_count' },
-  { header: 'Closing Stock', width: 16, type: 'sum', key: 'closing_stock' },
-  { header: 'Purchases Qty', width: 16, type: 'sum', key: 'purchases' },
-  { header: 'Purchase Amount', width: 18, type: 'sum', key: 'purchase_amount' },
-  { header: 'Returned to Wholesale', width: 24, type: 'sum', key: 'returned_to_wholesale' },
-  { header: 'SOLD Qty', width: 12, type: 'sum', key: 'sold' },
-  { header: 'Sales Amount', width: 18, type: 'sum', key: 'sales_amount' },
+  { header: 'Opening Stock', width: 16, type: 'sum', key: 'opening_stock', numFmt: WEEKLY_REPORT_CURRENCY_NUMFMT },
+  { header: 'Closing Stock', width: 16, type: 'sum', key: 'closing_stock', numFmt: WEEKLY_REPORT_CURRENCY_NUMFMT },
+  { header: 'Purchase Amount', width: 18, type: 'sum', key: 'purchase_amount', numFmt: WEEKLY_REPORT_CURRENCY_NUMFMT },
+  { header: 'Returned to Wholesale', width: 24, type: 'sum', key: 'returned_to_wholesale', numFmt: WEEKLY_REPORT_CURRENCY_NUMFMT },
+  { header: 'Sales Amount', width: 18, type: 'sum', key: 'sales_amount', numFmt: WEEKLY_REPORT_CURRENCY_NUMFMT },
 ]
 
 /**
