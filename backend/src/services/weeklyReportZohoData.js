@@ -4,9 +4,10 @@
  *
  * For each `item_report_groups` member, intersect with the Zoho catalog. **Family**
  * is display metadata. On-hand **quantities** come from Items; period movement (sold, purchases, returns) from
- * reports and vendor credits. The API then exposes **monetary** opening / closing (qty × Zoho `rate` — the item’s
- * sales price) and other currency fields. If `rate` is missing or not positive, opening / closing (and
- * return amount when it would use qty × `rate`) are `null` instead of imputing from purchase rate.
+ * reports and vendor credits. The API then exposes **monetary** opening / closing and **purchase**
+ * (period purchase qty × Zoho `rate`, same sales price as stock) plus sales $ from the sales report, etc.
+ * If `rate` is missing or not positive, opening / closing and purchase $ (when qty &gt; 0) are `null`;
+ * return $ uses vendor line total when present, else qty × `rate` with the same rule.
  */
 
 const { fetchAllItemsRaw } = require('../integrations/zoho/zohoAdapter')
@@ -326,6 +327,7 @@ function aggregateByFamily(itemRows) {
         _openingNull: false,
         _closingNull: false,
         _returnedNull: false,
+        _purchaseNull: false,
       }
       map.set(key, acc)
     }
@@ -344,17 +346,23 @@ function aggregateByFamily(itemRows) {
     } else {
       acc.returned_to_wholesale += Number(row.returned_to_wholesale)
     }
+    if (row.purchase_amount == null || Number.isNaN(Number(row.purchase_amount))) {
+      acc._purchaseNull = true
+    } else {
+      acc.purchase_amount += Number(row.purchase_amount)
+    }
     acc.sales_amount += row.sales_amount || 0
-    acc.purchase_amount += row.purchase_amount || 0
   }
   const out = []
   for (const acc of map.values()) {
     if (acc._openingNull) acc.opening_stock = null
     if (acc._closingNull) acc.closing_stock = null
     if (acc._returnedNull) acc.returned_to_wholesale = null
+    if (acc._purchaseNull) acc.purchase_amount = null
     delete acc._openingNull
     delete acc._closingNull
     delete acc._returnedNull
+    delete acc._purchaseNull
     out.push(acc)
   }
   return out.sort((a, b) => a.family.localeCompare(b.family))
@@ -530,13 +538,8 @@ async function fetchZohoItemRowsForGroupMembers(
     retLines.map((a) => ({ item_id: a.item_id, sku: a.sku, name: a.name, quantity: a.quantity })),
     idToSku
   )
-  // Amount maps (currency): sum of item_total per item for sales and purchases
   const salesAmountMap = sumAmountsToMap(
     salesLines.map((a) => ({ item_id: a.item_id, sku: a.sku, name: a.name, item_total: a.item_total })),
-    idToSku
-  )
-  const purchAmountMap = sumAmountsToMap(
-    purchLines.map((a) => ({ item_id: a.item_id, sku: a.sku, name: a.name, item_total: a.item_total })),
     idToSku
   )
   const retAmountMap = sumAmountsToMap(
@@ -545,7 +548,7 @@ async function fetchZohoItemRowsForGroupMembers(
   )
 
   for (const row of out) {
-    applyTransactionMapsToRow(row, sm, pm, rm, salesAmountMap, purchAmountMap)
+    applyTransactionMapsToRow(row, sm, pm, rm, salesAmountMap, null)
   }
 
   for (const row of out) {
@@ -561,9 +564,11 @@ async function fetchZohoItemRowsForGroupMembers(
     if (canValueStock) {
       row.opening_stock = qO * unit
       row.closing_stock = qC * unit
+      row.purchase_amount = Math.round(p * unit * 100) / 100
     } else {
       row.opening_stock = null
       row.closing_stock = null
+      row.purchase_amount = p > 0 ? null : 0
     }
     if (rFromVc > 0) {
       row.returned_to_wholesale = rFromVc

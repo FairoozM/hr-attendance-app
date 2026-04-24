@@ -14,7 +14,7 @@ import { useAuth } from '../contexts/AuthContext'
  *   Excel export columns.
  * @property {number|null} opening_stock  — value (stock qty × Zoho sales `rate`), not units
  * @property {number|null} closing_stock  — value
- * @property {number|null} purchase_amount
+ * @property {number|null} purchase_amount  — period purchase qty × Zoho item `rate`
  * @property {number|null} returned_to_wholesale  — value (credits) when available, else × cost
  * @property {number|null} sales_amount  — from Zoho Sales by Item, gross of VAT
  */

@@ -81,11 +81,11 @@ test('fetchZohoItemRowsForGroupMembers: stock columns are monetary, debug + tota
   )
   assert.equal(items.length, 1)
   const row = items[0]
-  // qO = 7 - 2 + 3 + 1 = 9 → opening value 9×1; closing 7×1; returns use VC line total 5
+  // qO = 7 - 2 + 3 + 1 = 9 → opening value 9×1; closing 7×1; purchase $ = qty 2 × item rate 1; returns use VC line total 5
   assert.equal(row.opening_stock, 9)
   assert.equal(row.closing_stock, 7)
   assert.equal(row.sales_amount, 30)
-  assert.equal(row.purchase_amount, 20)
+  assert.equal(row.purchase_amount, 2)
   assert.equal(row.returned_to_wholesale, 5)
   const td = reportMeta.transaction_debug
   assert.equal(td.sales_source_count, 1)
@@ -94,7 +94,7 @@ test('fetchZohoItemRowsForGroupMembers: stock columns are monetary, debug + tota
   assert.equal(td.opening_stock_derived, true)
   const totals = sumReportGrandTotals(items)
   assert.equal(totals.sales_amount, 30)
-  assert.equal(totals.purchase_amount, 20)
+  assert.equal(totals.purchase_amount, 2)
   assert.equal(totals.returned_to_wholesale, 5)
   assert.equal(totals.opening_stock, 9)
   assert.equal(totals.closing_stock, 7)

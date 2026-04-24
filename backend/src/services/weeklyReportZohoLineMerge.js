@@ -115,7 +115,8 @@ function mapLookupForReportRow(m, row) {
  * @param {Map<string, number>} purchMap        - quantity purchased
  * @param {Map<string, number>} retMap          - quantity returned
  * @param {Map<string, number>} [salesAmountMap]  - invoice item_total (currency)
- * @param {Map<string, number>} [purchAmountMap]  - purchase item_total (currency)
+ * @param {Map<string, number> | null} [purchAmountMap]  - purchase $ from Zoho; omit (null) when the caller
+ *   overwrites with qty × item rate (e.g. weekly Zoho report).
  */
 function applyTransactionMapsToRow(row, soldMap, purchMap, retMap, salesAmountMap, purchAmountMap) {
   row.sold = mapLookupForReportRow(soldMap, row)
