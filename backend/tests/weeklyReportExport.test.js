@@ -40,13 +40,21 @@ test('sumReportGrandTotals matches display summation of Zoho rows', () => {
   })
 })
 
-test('sumReportGrandTotals: any null in a column makes that total null', () => {
+test('sumReportGrandTotals: null rows are skipped; others still sum', () => {
   const t = sumReportGrandTotals([
     { opening_stock: 1, purchase_amount: 0, returned_to_wholesale: 0, closing_stock: 0, sales_amount: 0 },
     { opening_stock: null, purchase_amount: 0, returned_to_wholesale: 0, closing_stock: 0, sales_amount: 0 },
   ])
-  assert.equal(t.opening_stock, null)
+  assert.equal(t.opening_stock, 1)
   assert.equal(t.purchase_amount, 0)
+})
+
+test('sumReportGrandTotals: all null in a column → total null', () => {
+  const t = sumReportGrandTotals([
+    { opening_stock: null, purchase_amount: null, returned_to_wholesale: 0, closing_stock: 0, sales_amount: 0 },
+  ])
+  assert.equal(t.opening_stock, null)
+  assert.equal(t.purchase_amount, null)
 })
 
 test('getExportDownloadFilename uses documented slug for slow / other', () => {
