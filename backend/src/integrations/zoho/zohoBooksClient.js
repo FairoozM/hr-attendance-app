@@ -24,9 +24,9 @@
 const { zohoApiRequest, fetchListPaginated } = require('./zohoInventoryClient')
 
 const BOOKS_V3   = '/books/v3'
-const MAX_PAGES  = 20          // 20 × 200 = 4,000 invoices hard cap (~12s parallel)
-const BATCH_SIZE = 5           // concurrent page requests per batch
-const MAX_CN_PAGES = 10        // credit notes are small, sequential is fine
+const MAX_PAGES    = 20    // 20 × 200 = 4,000 invoices hard cap
+const BATCH_SIZE   = 10   // concurrent page requests per batch (was 5)
+const MAX_CN_PAGES = 10   // credit notes are small, sequential is fine
 
 // ── Customers ──────────────────────────────────────────────────────────────
 
@@ -74,50 +74,56 @@ async function fetchInvoices(fromDate, toDate, customerId = null) {
     return p
   }
 
-  // ── Page 1 ──
-  const page1Json = await zohoApiRequest(`${BOOKS_V3}/invoices`, pageParams(1))
-  const page1Rows = page1Json?.invoices ?? []
-  const allRows   = [...page1Rows]
-
-  const hasMore = page1Json?.page_context?.has_more_page === true
-  if (!hasMore) {
-    console.log(`[zoho-books] invoices: ${allRows.length} rows in 1 page — ${Date.now() - t0}ms`)
-    return { rows: allRows, truncated: false, pages: 1 }
-  }
-
-  // Estimate total pages from page_context.total (record count) if available
-  const totalRecords = Number(page1Json?.page_context?.total ?? 0)
-  const perPage      = page1Rows.length || 200
-  const estimatedPages = totalRecords > 0
-    ? Math.min(Math.ceil(totalRecords / perPage), MAX_PAGES)
-    : MAX_PAGES
-
-  // ── Pages 2…estimatedPages in parallel batches ──
-  const remainingPageNums = []
-  for (let p = 2; p <= estimatedPages; p++) remainingPageNums.push(p)
-
-  let fetchedPages = 1
+  // ── Fire the first BATCH_SIZE pages simultaneously ──
+  // Most queries fit in 1-5 pages so this eliminates the sequential
+  // "page 1 first, then rest" delay entirely.
+  let fetchedPages = 0
   let truncated    = false
+  const allRows    = []
 
-  for (let i = 0; i < remainingPageNums.length; i += BATCH_SIZE) {
-    const batch = remainingPageNums.slice(i, i + BATCH_SIZE)
+  let nextPage = 1
+  while (nextPage <= MAX_PAGES) {
+    const pagesToFetch = []
+    for (let p = nextPage; p < nextPage + BATCH_SIZE && p <= MAX_PAGES; p++) {
+      pagesToFetch.push(p)
+    }
+    nextPage += BATCH_SIZE
+
     const results = await Promise.all(
-      batch.map((p) =>
+      pagesToFetch.map((p) =>
         zohoApiRequest(`${BOOKS_V3}/invoices`, pageParams(p))
-          .then((json) => ({ rows: json?.invoices ?? [], hasMore: json?.page_context?.has_more_page === true }))
-          .catch(() => ({ rows: [], hasMore: false }))
+          .then((json) => ({
+            rows:    json?.invoices ?? [],
+            hasMore: json?.page_context?.has_more_page === true,
+            total:   Number(json?.page_context?.total ?? 0),
+          }))
+          .catch(() => ({ rows: [], hasMore: false, total: 0 }))
       )
     )
 
+    let doneEarly = false
     for (const result of results) {
-      allRows.push(...result.rows)
       fetchedPages++
-      // Stop early if Zoho says no more pages
-      if (!result.hasMore && result.rows.length < perPage) break
+      allRows.push(...result.rows)
+
+      // If Zoho says no more pages, or returned an empty page, stop
+      if (!result.hasMore || result.rows.length === 0) {
+        doneEarly = true
+        break
+      }
+
+      // Use total record count to skip unnecessary future fetches
+      if (result.total > 0) {
+        const perPage     = result.rows.length || 200
+        const totalPages  = Math.ceil(result.total / perPage)
+        if (fetchedPages >= Math.min(totalPages, MAX_PAGES)) {
+          doneEarly = true
+          break
+        }
+      }
     }
 
-    // If last page in batch had no data, we're done
-    if (results[results.length - 1].rows.length === 0) break
+    if (doneEarly) break
   }
 
   if (fetchedPages >= MAX_PAGES) truncated = true

@@ -20,7 +20,7 @@ const KSA_VAT_RATE = 0.15
 
 // ── Customer cache (5 min TTL) ───────────────────────────────────────────────
 let _customerCache = null
-const CUSTOMER_CACHE_TTL_MS = 5 * 60 * 1000
+const CUSTOMER_CACHE_TTL_MS = 30 * 60 * 1000  // 30 min — customer list rarely changes
 
 async function getCachedCustomers() {
   if (_customerCache && Date.now() < _customerCache.expiresAt) return _customerCache.contacts
@@ -31,7 +31,7 @@ async function getCachedCustomers() {
 }
 
 // ── VAT report cache (2 min TTL + in-flight dedup) ───────────────────────────
-const VAT_CACHE_TTL_MS = 2 * 60 * 1000
+const VAT_CACHE_TTL_MS = 10 * 60 * 1000  // 10 min — VAT data rarely changes mid-session
 const _vatCache    = new Map()
 const _vatInFlight = new Map()
 
