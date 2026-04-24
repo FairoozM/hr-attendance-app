@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { fetchBinary, downloadBlob } from '../../api/client'
 import { useWeeklySalesReport } from '../../hooks/useWeeklySalesReport'
 import './WeeklyAdsReportPage.css'
@@ -126,18 +126,19 @@ export function ErrorCallout({ message, onRetry, validationErrors }) {
  *   toDate       – YYYY-MM-DD (controlled by parent)
  *   datesValid   – boolean from parent so the section doesn't double-validate
  *   warehouseId  – optional Zoho warehouse_id to filter by
+ *   loadToken      – parent increments when user runs "Load report" (positive value triggers fetch)
  */
-export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate, datesValid, warehouseId = null }) {
+export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate, datesValid, warehouseId = null, loadToken = 0 }) {
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState('')
 
   const { items, totals, zoho, loading, error, notConfigured, validationErrors, refetch } =
-    useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseId })
+    useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseId, loadToken })
 
   const dateLabel = formatDateLabel(fromDate, toDate)
 
   const handleExport = useCallback(async () => {
-    if (!datesValid || notConfigured) return
+    if (!datesValid || notConfigured || !loadToken) return
     setExporting(true)
     setExportError('')
     const qsParams = { from_date: fromDate, to_date: toDate }
@@ -152,13 +153,14 @@ export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate,
     } finally {
       setExporting(false)
     }
-  }, [datesValid, notConfigured, fromDate, toDate, reportGroup])
+  }, [datesValid, notConfigured, fromDate, toDate, reportGroup, loadToken, warehouseId])
 
   const grandTotal = totals || {
     opening_stock: 0, closing_stock: 0, purchase_amount: 0, returned_to_wholesale: 0, sales_amount: 0,
   }
 
-  const showTable = !loading && !error && !notConfigured && datesValid
+  const hasRequestedReport = loadToken > 0
+  const showTable = hasRequestedReport && !loading && !error && !notConfigured && datesValid
 
   return (
     <section className="war-section wsr-report-section">
@@ -173,7 +175,7 @@ export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate,
             type="button"
             className="war-btn war-btn--primary war-btn--sm"
             onClick={handleExport}
-            disabled={exporting || !datesValid || notConfigured}
+            disabled={exporting || !datesValid || notConfigured || !loadToken}
             aria-busy={exporting}
           >
             {exporting ? 'Exporting…' : 'Export Excel'}
@@ -182,7 +184,8 @@ export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate,
             type="button"
             className="war-btn war-btn--ghost war-btn--sm"
             onClick={refetch}
-            disabled={loading || !datesValid}
+            disabled={loading || !datesValid || !loadToken}
+            title={!loadToken ? 'Run Load report in the filters bar first' : 'Reload this table from Zoho'}
           >
             {loading ? 'Loading…' : 'Refresh'}
           </button>
@@ -198,10 +201,31 @@ export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate,
       {notConfigured && <NotConfiguredCallout message={error} />}
 
       {error && !notConfigured && (
-        <ErrorCallout message={error} onRetry={refetch} validationErrors={validationErrors} />
+        <ErrorCallout
+          message={error}
+          onRetry={loadToken > 0 ? refetch : undefined}
+          validationErrors={validationErrors}
+        />
       )}
 
-      {loading && <div className="wsr-loading">Loading from Zoho…</div>}
+      {loading && hasRequestedReport && (
+        <div className="wsr-processing" role="status" aria-live="polite">
+          <div className="wsr-processing__spinner" aria-hidden />
+          <div className="wsr-processing__text">
+            <span className="wsr-processing__title">Loading report</span>
+            <span className="wsr-processing__sub">Fetching from Zoho and building family rows…</span>
+          </div>
+        </div>
+      )}
+
+      {!hasRequestedReport && !loading && !error && !notConfigured && datesValid && (
+        <div className="wsr-idle" role="status">
+          <p className="wsr-idle__line">
+            <strong>Ready to load</strong> — set the date range (and warehouse if the page includes one), then click{' '}
+            <strong>Load report</strong> to fetch this section from Zoho.
+          </p>
+        </div>
+      )}
 
       {showTable && (
         <>
@@ -278,11 +302,16 @@ export function WeeklySalesReportPage({ reportGroup, title, subtitle }) {
   const initial = useMemo(defaultWeekRange, [])
   const [fromDate, setFromDate] = useState(initial.from)
   const [toDate, setToDate]     = useState(initial.to)
+  const [loadToken, setLoadToken] = useState(0)
 
   const handleFromChange = useCallback((e) => setFromDate(e.target.value), [])
   const handleToChange   = useCallback((e) => setToDate(e.target.value), [])
 
   const datesValid = Boolean(fromDate) && Boolean(toDate) && fromDate <= toDate
+
+  useEffect(() => {
+    setLoadToken(0)
+  }, [fromDate, toDate])
 
   return (
     <div className="war-page">
@@ -308,6 +337,16 @@ export function WeeklySalesReportPage({ reportGroup, title, subtitle }) {
                 value={toDate} min={fromDate || undefined} onChange={handleToChange} />
             </div>
           </div>
+          <div className="wsr-toolbar__actions">
+            <button
+              type="button"
+              className="war-btn war-btn--primary"
+              onClick={() => setLoadToken((n) => n + 1)}
+              disabled={!datesValid}
+            >
+              Load report
+            </button>
+          </div>
         </div>
         {!datesValid && (
           <div className="wsr-callout wsr-callout--warn">
@@ -323,6 +362,7 @@ export function WeeklySalesReportPage({ reportGroup, title, subtitle }) {
         fromDate={fromDate}
         toDate={toDate}
         datesValid={datesValid}
+        loadToken={loadToken}
       />
     </div>
   )

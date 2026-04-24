@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import {
   WeeklySalesReportSection,
   defaultWeekRange,
@@ -18,6 +18,7 @@ export function WeeklyCombinedSalesReportPage() {
   const [fromDate, setFromDate]       = useState(initial.from)
   const [toDate, setToDate]           = useState(initial.to)
   const [warehouseId, setWarehouseId] = useState('')
+  const [loadToken, setLoadToken]     = useState(0)
 
   const { warehouses, loading: whLoading } = useWarehouses()
 
@@ -28,6 +29,10 @@ export function WeeklyCombinedSalesReportPage() {
   const datesValid    = Boolean(fromDate) && Boolean(toDate) && fromDate <= toDate
   const dateLabel     = formatDateLabel(fromDate, toDate)
   const activeWhId    = warehouseId || null   // null = all warehouses (no filter)
+
+  useEffect(() => {
+    setLoadToken(0)
+  }, [fromDate, toDate, warehouseId])
 
   // Label for the currently-selected warehouse (used in section context)
   const selectedWarehouse = warehouses.find((w) => w.warehouse_id === warehouseId)
@@ -94,6 +99,17 @@ export function WeeklyCombinedSalesReportPage() {
             </div>
           </div>
 
+          <div className="wsr-filters__actions">
+            <button
+              type="button"
+              className="war-btn war-btn--primary"
+              onClick={() => setLoadToken((n) => n + 1)}
+              disabled={!datesValid}
+            >
+              Load report
+            </button>
+          </div>
+
           {dateLabel && <span className="wsr-date-badge">{dateLabel}</span>}
         </div>
 
@@ -119,6 +135,7 @@ export function WeeklyCombinedSalesReportPage() {
         toDate={toDate}
         datesValid={datesValid}
         warehouseId={activeWhId}
+        loadToken={loadToken}
       />
 
       {/* Divider */}
@@ -132,6 +149,7 @@ export function WeeklyCombinedSalesReportPage() {
         toDate={toDate}
         datesValid={datesValid}
         warehouseId={activeWhId}
+        loadToken={loadToken}
       />
     </div>
   )

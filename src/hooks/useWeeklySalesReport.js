@@ -36,8 +36,10 @@ import { useAuth } from '../contexts/AuthContext'
  *   - refetch() for manual reloads
  *   - notConfigured: true when the backend returns 503 ZOHO_NOT_CONFIGURED so
  *     the page can render a clear setup message instead of a generic error.
+ * @param {number} [loadToken=0] Incremented by the parent "Load report" action.
+ *   Fetches only run when `loadToken` is greater than 0 (or when `refetch` is used after a load).
  */
-export function useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseId = null }) {
+export function useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseId = null, loadToken = 0 }) {
   const { user } = useAuth()
   const [items, setItems] = useState([])
   const [totals, setTotals] = useState(null)
@@ -53,6 +55,7 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseI
   const abortRef = useRef(null)
 
   const fetchReport = useCallback(async () => {
+    if (!loadToken) return
     if (!user || !reportGroup || !fromDate || !toDate) {  // warehouseId is optional
       setItems([])
       setTotals(null)
@@ -119,18 +122,37 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseI
   // which would abort a running Zoho fetch and trigger a redundant re-request.
   // The API token is read from localStorage by api.get(), not from user itself.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id ?? null, reportGroup, fromDate, toDate, warehouseId ?? null])
+  }, [user?.id ?? null, reportGroup, fromDate, toDate, warehouseId ?? null, loadToken])
 
-  // Debounce: wait 400 ms after the last date/group change before firing.
-  // React StrictMode double-invoke is absorbed: the first timeout is cleared
-  // by the cleanup before it fires, so only one real request starts.
-  // We do NOT abort abortRef here — the backend cache deduplicates concurrent
-  // requests, so it is harmless for two fetches to race, and aborting here
-  // was causing a second setLoading(true) after the first response arrived.
+  // When the user resets the parent "load" (e.g. filters changed), clear UI and
+  // cancel in-flight fetches so a slow response cannot repopulate stale data.
   useEffect(() => {
-    const id = setTimeout(() => fetchReport(), 400)
+    if (loadToken !== 0) return
+    if (abortRef.current) {
+      try {
+        abortRef.current.abort()
+      } catch {
+        /* ignore */
+      }
+    }
+    setItems([])
+    setTotals(null)
+    setZoho(null)
+    setError(null)
+    setNotConfigured(false)
+    setValidationErrors([])
+    setLoading(false)
+  }, [loadToken])
+
+  // Fetch only after the user (or "Refresh") explicitly requested a run:
+  // `loadToken` increments on "Load report"; we debounce 400ms like before.
+  const fetchRef = useRef(fetchReport)
+  fetchRef.current = fetchReport
+  useEffect(() => {
+    if (loadToken <= 0) return
+    const id = setTimeout(() => fetchRef.current(), 400)
     return () => clearTimeout(id)
-  }, [fetchReport])
+  }, [loadToken])
 
   return {
     items,
