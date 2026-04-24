@@ -22,6 +22,16 @@ const WEEKLY_STOCK_MOVEMENT_XLSX_COLUMNS = [
     getValue: (row) => row.family || '—',
     grandTotalText: 'Grand Total',
   },
+  {
+    header: 'Zoho item id (photo ref)',
+    width: 20,
+    type: 'rowText',
+    getValue: (row) =>
+      row.zoho_representative_item_id != null && String(row.zoho_representative_item_id).trim() !== ''
+        ? String(row.zoho_representative_item_id)
+        : '—',
+    grandTotalText: '—',
+  },
   { header: 'Opening Stock', width: 16, type: 'sum', key: 'opening_stock', numFmt: WEEKLY_REPORT_CURRENCY_NUMFMT },
   { header: 'Purchase Amount', width: 18, type: 'sum', key: 'purchase_amount', numFmt: WEEKLY_REPORT_CURRENCY_NUMFMT },
   { header: 'Returned to Wholesale', width: 24, type: 'sum', key: 'returned_to_wholesale', numFmt: WEEKLY_REPORT_CURRENCY_NUMFMT },

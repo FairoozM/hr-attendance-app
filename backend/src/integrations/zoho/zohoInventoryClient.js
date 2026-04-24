@@ -5,7 +5,7 @@
 
 const { getZohoAccessToken, isInvalidAccessTokenResponse } = require('./zohoOAuth')
 const { readZohoConfig, INVENTORY_V1 } = require('./zohoConfig')
-const { httpsRequestJson } = require('./zohoHttp')
+const { httpsRequestJson, httpsRequestBuffer } = require('./zohoHttp')
 
 const DEFAULT_PER_PAGE = 200
 const MAX_ITEMS_PAGES = 50
@@ -197,4 +197,57 @@ async function fetchListPaginated(path, listKey, maxPages = 50, extraParams = nu
   return { rows: all, truncated: true, pages: maxPages }
 }
 
-module.exports = { zohoApiRequest, listAllItems, fetchListPaginated }
+/**
+ * Raw bytes for a Zoho product image (GET /items/{id}/image).
+ * @param {string} itemId - Zoho item_id
+ * @returns {Promise<{ buffer: Buffer, contentType: string } | null>} null if Zoho has no image (404)
+ */
+async function fetchZohoItemImageBuffer(itemId) {
+  const c = readZohoConfig()
+  if (c.code !== 'ok') {
+    const e = new Error('Zoho not configured')
+    e.code = 'ZOHO_NOT_CONFIGURED'
+    throw e
+  }
+  const id = String(itemId || '').trim()
+  if (!id || !/^[0-9A-Za-z._-]{1,64}$/.test(id)) {
+    const e = new Error('Invalid Zoho item id for image request')
+    e.code = 'ZOHO_INVALID_ITEM_ID'
+    throw e
+  }
+  const p = new URLSearchParams()
+  p.set('organization_id', c.organizationId)
+  const path = `${INVENTORY_V1}/items/${encodeURIComponent(id)}/image`
+  const u = new URL(c.apiBase + path)
+  u.search = p.toString()
+  const doReq = (token) =>
+    httpsRequestBuffer(u.toString(), {
+      timeoutMs: c.timeoutMs,
+      headers: { Authorization: `Zoho-oauthtoken ${token}` },
+    })
+  let token = await getZohoAccessToken()
+  let { status, body, headers: resHeaders } = await doReq(token)
+  if (isInvalidAccessTokenResponse(status, body.toString('utf8'))) {
+    token = await getZohoAccessToken({ force: true })
+    ;({ status, body, headers: resHeaders } = await doReq(token))
+  }
+  if (status === 404) return null
+  if (status < 200 || status >= 300) {
+    const e = new Error(
+      `Zoho Inventory item image HTTP ${status}: ${(body && body.toString('utf8').slice(0, 200)) || ''}`
+    )
+    e.code = 'ZOHO_API_ERROR'
+    e.httpStatus = status
+    throw e
+  }
+  if (!body || body.length === 0) {
+    return null
+  }
+  const raw = resHeaders && resHeaders['content-type']
+  const contentType = raw
+    ? String(raw).split(';')[0].trim() || 'image/jpeg'
+    : 'image/jpeg'
+  return { buffer: body, contentType }
+}
+
+module.exports = { zohoApiRequest, listAllItems, fetchListPaginated, fetchZohoItemImageBuffer }

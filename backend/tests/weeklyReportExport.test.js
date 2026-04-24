@@ -167,7 +167,8 @@ test('buildWeeklyReportXlsxBuffer: populated report opens in ExcelJS with title 
   assert.equal(String(sheet.getCell('B5').value), 'ZDS')
   const gt = String(sheet.getCell('B6').value)
   assert.equal(gt, 'Grand Total')
-  assert.equal(Number(sheet.getCell('G5').value), 3) // Sales Amount
+  assert.equal(String(sheet.getCell('C4').value), 'Zoho item id (photo ref)')
+  assert.equal(Number(sheet.getCell('H5').value), 3) // Sales Amount
 })
 
 test('buildWeeklyReportXlsxBuffer: empty data still has header + zero grand total', async () => {
@@ -185,7 +186,7 @@ test('buildWeeklyReportXlsxBuffer: empty data still has header + zero grand tota
   const sheet = wb.getWorksheet('Report')
   assert.equal(String(sheet.getCell('A1').value), 'ECOMMERCE OTHER FAMILY SALES REPORT')
   assert.equal(String(sheet.getCell('B5').value), 'Grand Total')
-  assert.equal(Number(sheet.getCell('C5').value), 0) // Opening Stock
+  assert.equal(Number(sheet.getCell('D5').value), 0) // Opening Stock
 })
 
 test('buildWeeklyReportXlsxBuffer: _zoho metadata on items does not affect columns', async () => {
@@ -210,7 +211,7 @@ test('buildWeeklyReportXlsxBuffer: _zoho metadata on items does not affect colum
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(buf)
   assert.equal(String(wb.getWorksheet('Report').getCell('B5').value), 'F')
-  assert.equal(Number(wb.getWorksheet('Report').getCell('F5').value), 5) // closing_stock (after purchase / returns)
+  assert.equal(Number(wb.getWorksheet('Report').getCell('G5').value), 5) // closing_stock (after purchase / returns)
 })
 
 test('buildWeeklyReportXlsxBuffer: special characters in item name round-trip', async () => {

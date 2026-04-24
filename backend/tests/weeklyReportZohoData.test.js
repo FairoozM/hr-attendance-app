@@ -2,7 +2,9 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { mockModule, freshRequire } = require('./_helpers')
 const { sumReportGrandTotals } = require('../src/utils/weeklyReportTotals')
-const { buildZohoLookupMaps, findZohoItemForMember } = require('../src/services/weeklyReportZohoData')._internals
+const { buildZohoLookupMaps, findZohoItemForMember, aggregateByFamily } = require(
+  '../src/services/weeklyReportZohoData'
+)._internals
 
 const VENDOR = '4265011000000080014'
 
@@ -410,4 +412,21 @@ test('fetchZohoItemRowsForGroupMembers: other_family skips unmapped if family is
   assert.ok(names.includes('InOther'))
   assert.ok(names.includes('ZohoOnly (not found in groups)'))
   assert.ok(!names.some((n) => n.includes('InSlow') && n.includes('not found in groups')), 'InSlow in slow_moving must not be labeled (not found in groups)')
+})
+
+test('aggregateByFamily: zoho_representative_item_id prefers first item with has_image in family', () => {
+  const rows = [
+    { family: 'Fam1', item_id: '10', sales_amount: 0, _zoho: { has_image: false } },
+    { family: 'Fam1', item_id: '20', sales_amount: 1, _zoho: { has_image: true } },
+  ]
+  const [one] = aggregateByFamily(rows)
+  assert.equal(one.zoho_representative_item_id, '20')
+})
+
+test('aggregateByFamily: zoho_representative_item_id falls back to first item_id', () => {
+  const rows = [
+    { family: 'F', item_id: '99', sales_amount: 0, _zoho: { has_image: false } },
+  ]
+  const [one] = aggregateByFamily(rows)
+  assert.equal(one.zoho_representative_item_id, '99')
 })

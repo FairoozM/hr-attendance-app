@@ -5,6 +5,7 @@ const { ZOHO_WEEKLY_REPORT_INTEGRATION }              = require('../services/wee
 const { mergeZohoWithVendorContext }                 = require('../services/weeklyReportVendorConfig')
 const { getCachedReport }                             = require('../services/weeklyReportCache')
 const { fetchWarehouses }                             = require('../integrations/zoho/zohoWarehouses')
+const { fetchZohoItemImageBuffer }                    = require('../integrations/zoho/zohoInventoryClient')
 const {
   buildWeeklyReportXlsxBuffer,
   getExportSheetTitleForGroup,
@@ -164,7 +165,10 @@ async function listAvailableGroups(_req, res) {
  *
  * Each item in `items` has string `family` (Zoho Family custom field) and may
  * include `_zoho: { from_date, to_date, family }` (Family duplicated for
- * metadata). Business report groups are never inferred from `family` — membership
+ * metadata). **Family-level rows** also include `zoho_representative_item_id`
+ * (string): one Zoho catalog `item_id` in that family, used to load a product
+ * image via `GET /api/weekly-reports/zoho-item-images/:itemId`.
+ * Business report groups are never inferred from `family` — membership
  * is solely from `item_report_groups` vs `sku` (and legacy `item_name` fallback
  * when the member row has no SKU).
  */
@@ -300,9 +304,34 @@ async function exportReportByGroupXlsx(req, res) {
   }
 }
 
+/**
+ * GET /api/weekly-reports/zoho-item-images/:itemId
+ * Proxies Zoho `GET /inventory/v1/items/{id}/image` (Bearer auth in SPA cannot load Zoho
+ * directly). Each family row includes `zoho_representative_item_id` for one catalog item
+ * in that Zoho family (prefer an item with an image in Zoho when available).
+ */
+async function getZohoItemImage(req, res) {
+  const { itemId } = req.params
+  try {
+    const out = await fetchZohoItemImageBuffer(itemId)
+    if (!out) {
+      return res.status(404).end()
+    }
+    res.setHeader('Content-Type', out.contentType)
+    res.setHeader('Cache-Control', 'private, max-age=300')
+    return res.status(200).send(out.buffer)
+  } catch (err) {
+    if (err.code === 'ZOHO_INVALID_ITEM_ID') {
+      return res.status(400).json({ error: err.message, code: err.code })
+    }
+    return handleZohoError(res, err, 'getZohoItemImage')
+  }
+}
+
 module.exports = {
   listAvailableGroups,
   getWarehouses,
+  getZohoItemImage,
   getReportByGroup,
   getSlowMovingReport,
   exportReportByGroupXlsx,

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { fetchBinary, downloadBlob } from '../../api/client'
 import { useWeeklySalesReport } from '../../hooks/useWeeklySalesReport'
 import './WeeklyAdsReportPage.css'
@@ -188,6 +188,85 @@ export function ErrorCallout({ message, onRetry, validationErrors }) {
   )
 }
 
+const ZOHO_ITEM_IMAGE_PATH = '/api/weekly-reports/zoho-item-images'
+
+/**
+ * One Zoho catalog image per family (`zoho_representative_item_id`); fetches with Bearer auth
+ * and lazy-loads when the cell scrolls into view.
+ */
+export function ZohoItemThumb({ itemId }) {
+  const [src, setSrc] = useState(null)
+  const [failed, setFailed] = useState(false)
+  const objRef = useRef(null)
+  const cellRef = useRef(null)
+
+  useLayoutEffect(() => {
+    if (objRef.current) {
+      URL.revokeObjectURL(objRef.current)
+      objRef.current = null
+    }
+    setSrc(null)
+    setFailed(false)
+    if (!itemId) return undefined
+
+    let cancelled = false
+    const go = async () => {
+      try {
+        const { blob } = await fetchBinary(
+          `${ZOHO_ITEM_IMAGE_PATH}/${encodeURIComponent(String(itemId))}`
+        )
+        if (cancelled) return
+        const u = URL.createObjectURL(blob)
+        if (objRef.current) URL.revokeObjectURL(objRef.current)
+        objRef.current = u
+        setSrc(u)
+        setFailed(false)
+      } catch {
+        if (!cancelled) setFailed(true)
+      }
+    }
+
+    const node = cellRef.current
+    if (!node) {
+      return undefined
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries[0].isIntersecting) return
+        io.disconnect()
+        go()
+      },
+      { rootMargin: '120px', threshold: 0.01 }
+    )
+    io.observe(node)
+    return () => {
+      cancelled = true
+      io.disconnect()
+    }
+  }, [itemId])
+
+  useEffect(
+    () => () => {
+      if (objRef.current) {
+        URL.revokeObjectURL(objRef.current)
+        objRef.current = null
+      }
+    },
+    []
+  )
+
+  if (!itemId) {
+    return <span className="wsr-td--dash">—</span>
+  }
+  return (
+    <div className="wsr-item-thumb-wrap" ref={cellRef}>
+      {src && !failed ? <img src={src} alt="" className="wsr-item-thumb" width={48} height={48} /> : null}
+      {failed ? <span className="wsr-td--dash">—</span> : null}
+      {!src && !failed ? <span className="wsr-item-thumb__ph" aria-hidden /> : null}
+    </div>
+  )
+}
+
 /**
  * Renders a read-only sub-table of families with no amounts for the period
  * (same money columns, filled with "—" for all metrics).
@@ -207,6 +286,7 @@ export function WeeklyNoActivityFamilyTable({ rows, showSourceColumn }) {
             <th className="war-th wsr-th--sr">SR. NO</th>
             {showSourceColumn && <th className="war-th">Source</th>}
             <th className="war-th wsr-th--item">FAMILY</th>
+            <th className="war-th wsr-th--photo">Photo</th>
             <th className="war-th">Opening Stock</th>
             <th className="war-th">Purchase Amount</th>
             <th className="war-th">Returned to Wholesale</th>
@@ -232,6 +312,9 @@ export function WeeklyNoActivityFamilyTable({ rows, showSourceColumn }) {
                   </td>
                 )}
                 <td className="war-td wsr-td--item">{it.family || '—'}</td>
+                <td className="war-td wsr-td--photo">
+                  <ZohoItemThumb itemId={it.zoho_representative_item_id} />
+                </td>
                 <td className="war-td wsr-td--dash">—</td>
                 <td className="war-td wsr-td--dash">—</td>
                 <td className="war-td wsr-td--dash">—</td>
@@ -430,6 +513,7 @@ export function WeeklySalesReportSection({
                 <tr>
                   <th className="war-th wsr-th--sr">SR. NO</th>
                   <th className="war-th wsr-th--item">FAMILY</th>
+                  <th className="war-th wsr-th--photo">Photo</th>
                   <th className="war-th">Opening Stock</th>
                   <th className="war-th">Purchase Amount</th>
                   <th className="war-th">Returned to Wholesale</th>
@@ -440,7 +524,7 @@ export function WeeklySalesReportSection({
               <tbody>
                 {items.length === 0 && (
                   <tr className="war-tr">
-                    <td className="war-td" colSpan={7}>
+                    <td className="war-td" colSpan={8}>
                       <div className="wsr-empty">
                         <strong>No families found for this date range.</strong>
                         <span className="wsr-empty__sub">
@@ -453,7 +537,7 @@ export function WeeklySalesReportSection({
                 )}
                 {items.length > 0 && withValues.length === 0 && noValues.length > 0 && (
                   <tr className="war-tr">
-                    <td className="war-td" colSpan={7}>
+                    <td className="war-td" colSpan={8}>
                       <div className="wsr-callout wsr-callout--info" style={{ margin: 0, border: 'none' }} role="status">
                         <span className="wsr-callout__body">
                           All families in this list have <strong>no</strong> opening, purchase, return, closing, or
@@ -468,6 +552,9 @@ export function WeeklySalesReportSection({
                   <tr key={`${it.family || 'row'}-${idx}`} className="war-tr">
                     <td className="war-td wsr-td--sr">{idx + 1}</td>
                     <td className="war-td wsr-td--item">{it.family || '—'}</td>
+                    <td className="war-td wsr-td--photo">
+                      <ZohoItemThumb itemId={it.zoho_representative_item_id} />
+                    </td>
                     <td className="war-td">{formatCurrency(it.opening_stock)}</td>
                     <td className="war-td">{formatCurrency(it.purchase_amount)}</td>
                     <td className="war-td">{formatCurrency(it.returned_to_wholesale)}</td>
@@ -481,6 +568,7 @@ export function WeeklySalesReportSection({
                   <tr className="war-tr war-tr--total">
                     <td className="war-td wsr-td--sr" />
                     <td className="war-td wsr-td--item">Grand Total</td>
+                    <td className="war-td wsr-td--photo" />
                     <td className="war-td">{formatCurrency(grandTotal.opening_stock)}</td>
                     <td className="war-td">{formatCurrency(grandTotal.purchase_amount)}</td>
                     <td className="war-td">{formatCurrency(grandTotal.returned_to_wholesale)}</td>

@@ -229,6 +229,10 @@ function zohoItemToPlaceholderReportRow(zohoItem, fromDate, toDate, familyFieldI
   const sh = parseZohoStockOnHand(zohoItem)
   const unitSales = parseZohoUnitSalesPrice(zohoItem) ?? parseZohoUnitPurchasePrice(zohoItem)
   // stock fields are **quantities** until the value pass in `fetchZohoItemRowsForGroupMembers`
+  const hasImage =
+    zohoItem &&
+    zohoItem.image_id != null &&
+    zohoItem.image_id !== ''
   return {
     sku: n.sku,
     item_name: n.name,
@@ -244,6 +248,7 @@ function zohoItemToPlaceholderReportRow(zohoItem, fromDate, toDate, familyFieldI
       from_date: fromDate,
       to_date: toDate,
       family: n.family,
+      has_image: !!hasImage,
     },
   }
 }
@@ -369,8 +374,17 @@ function aggregateByFamily(itemRows) {
         _closingN: 0,
         _returnedN: 0,
         _purchaseN: 0,
+        _repAny: null,
+        _repWithImg: null,
       }
       map.set(key, acc)
+    }
+    const iid = row.item_id != null && String(row.item_id).trim() !== '' ? String(row.item_id).trim() : ''
+    if (iid) {
+      if (acc._repAny == null) acc._repAny = iid
+      if (row._zoho && row._zoho.has_image && acc._repWithImg == null) {
+        acc._repWithImg = iid
+      }
     }
     if (isUsable(row.opening_stock)) {
       acc.opening_stock += Number(row.opening_stock)
@@ -396,6 +410,9 @@ function aggregateByFamily(itemRows) {
     if (acc._closingN === 0) acc.closing_stock = null
     if (acc._returnedN === 0) acc.returned_to_wholesale = null
     if (acc._purchaseN === 0) acc.purchase_amount = null
+    acc.zoho_representative_item_id = acc._repWithImg || acc._repAny || null
+    delete acc._repAny
+    delete acc._repWithImg
     delete acc._openingN
     delete acc._closingN
     delete acc._returnedN

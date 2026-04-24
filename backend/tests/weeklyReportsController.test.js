@@ -333,3 +333,35 @@ test('weeklyReports: listAvailableGroups returns active groups', async () => {
   await ctrl.listAvailableGroups(req, res)
   assert.deepEqual(res.body.groups, ['other_family', 'slow_moving'])
 })
+
+test('getZohoItemImage: proxies Zoho image buffer with 200', async (t) => {
+  const r1 = mockModule('../src/integrations/zoho/zohoInventoryClient', {
+    fetchZohoItemImageBuffer: async (id) => {
+      assert.equal(id, '4815000000044208')
+      return { buffer: Buffer.from([0xff, 0xd8, 0xff]), contentType: 'image/jpeg' }
+    },
+  })
+  t.after(r1)
+  const ctrl = freshRequire('../src/controllers/weeklyReportsController')
+  const { req, res } = makeReqRes({ params: { itemId: '4815000000044208' } })
+  res.setHeader = () => {}
+  await ctrl.getZohoItemImage(req, res)
+  assert.equal(res.statusCode, 200)
+  assert.ok(Buffer.isBuffer(res.body))
+  assert.equal(res.body.length, 3)
+})
+
+test('getZohoItemImage: 404 when Zoho has no image', async (t) => {
+  const r1 = mockModule('../src/integrations/zoho/zohoInventoryClient', {
+    fetchZohoItemImageBuffer: async () => null,
+  })
+  t.after(r1)
+  const ctrl = freshRequire('../src/controllers/weeklyReportsController')
+  const { req, res } = makeReqRes({ params: { itemId: '999' } })
+  res.setHeader = () => {}
+  res.end = () => {
+    res.headersSent = true
+  }
+  await ctrl.getZohoItemImage(req, res)
+  assert.equal(res.statusCode, 404)
+})

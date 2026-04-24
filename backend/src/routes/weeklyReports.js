@@ -3,6 +3,7 @@ const { requirePermission } = require('../middleware/auth')
 const {
   listAvailableGroups,
   getWarehouses,
+  getZohoItemImage,
   getReportByGroup,
   getSlowMovingReport,
   exportReportByGroupXlsx,
@@ -15,6 +16,13 @@ router.get('/groups', requirePermission('weekly_reports', 'view'), listAvailable
 
 // Zoho warehouse list for the filter dropdown
 router.get('/warehouses', requirePermission('weekly_reports', 'view'), getWarehouses)
+
+// Thumbnail: one Zoho item image per family (item id from report row `zoho_representative_item_id`)
+router.get(
+  '/zoho-item-images/:itemId',
+  requirePermission('weekly_reports', 'view'),
+  getZohoItemImage
+)
 
 // Excel export (real .xlsx) — more specific than /by-group/:group
 // GET /api/weekly-reports/by-group/:group/export.xlsx?from_date&to_date
