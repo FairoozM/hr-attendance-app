@@ -143,7 +143,7 @@ async function listAllItems() {
  *  - `maxPages` is reached (sets `truncated: true`)
  *
  * @param {string} path - e.g. `${INVENTORY_V1}/invoices`
- * @param {string} listKey - response array key, e.g. `invoices`, `bills`, `vendor_credits`
+ * @param {string} listKey - response array key, e.g. `invoices`, `bills`, `vendorcredits`
  * @param {number} [maxPages=50] - hard safety cap; if reached, `truncated: true` in result
  * @param {URLSearchParams | null} [extraParams] - additional Zoho filter params merged into every page request (e.g. date range)
  * @returns {Promise<{ rows: object[], truncated: boolean, pages: number }>}

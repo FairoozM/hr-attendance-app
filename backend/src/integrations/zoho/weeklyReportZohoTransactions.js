@@ -66,6 +66,36 @@ function matchesReportVendor(actualId, expectedId, actualName, expectedName) {
 }
 
 /**
+ * List responses often omit `line_items`; a single line is sometimes a lone object, not an array.
+ * @param {unknown} lineItems
+ * @returns {object[]}
+ */
+function normalizeZohoLineItems(lineItems) {
+  if (lineItems == null) return []
+  if (Array.isArray(lineItems)) return lineItems
+  if (typeof lineItems === 'object' && (lineItems.item_id != null || lineItems.line_item_id != null)) {
+    return [lineItems]
+  }
+  return []
+}
+
+/**
+ * `vendor_credits_contact_id` may line up with `vendor_id` or the list field `customer_id` (Zoho's vendor contact id on the document).
+ * @param {object} vc
+ * @param {string|undefined} expectedVendorId
+ * @param {string|undefined} expectedVendorName
+ */
+function matchesVendorCreditDocument(vc, expectedVendorId, expectedVendorName) {
+  if (matchesReportVendor(vc.vendor_id, expectedVendorId, vc.vendor_name, expectedVendorName)) {
+    return true
+  }
+  if (expectedVendorId && String(expectedVendorId).trim() !== '' && vc && vc.customer_id != null) {
+    if (String(vc.customer_id).trim() === String(expectedVendorId).trim()) return true
+  }
+  return false
+}
+
+/**
  * Per-item sales totals for the date range using the Zoho "Sales by Item" report.
  *
  * Why this endpoint instead of /invoices list:
@@ -258,23 +288,51 @@ async function getVendorCredits(fromDate, toDate, vendorId, opts = {}) {
   const vid = vendorId != null && String(vendorId).trim() !== '' ? String(vendorId).trim() : undefined
   const vname2 = vname
   const t0 = Date.now()
+  const detailById = new Map()
+  const fetchVendorCreditDetail = (creditId) => {
+    if (!creditId) return Promise.resolve(null)
+    const id = String(creditId)
+    if (detailById.has(id)) return detailById.get(id)
+    const p = (async () => {
+      try {
+        const p2 = new URLSearchParams()
+        const json = await zohoApiRequest(
+          `${INVENTORY_V1}/vendorcredits/${encodeURIComponent(id)}`,
+          p2
+        )
+        return (json && json.vendor_credit) || null
+      } catch (e) {
+        onW(`GET /vendorcredits/${id} — ${e && e.message ? e.message : String(e)}`)
+        return null
+      }
+    })()
+    detailById.set(id, p)
+    return p
+  }
   try {
     // Vendor credits are served from the module-level TTL cache (fetchAllVendorCreditsRaw).
+    // Zoho's **list** response may omit `line_items`; in that case load each doc with GET /vendorcredits/{id} (Zoho API docs show line items on the single-record response).
     const rows = await fetchAllVendorCreditsRaw()
     console.log(`[zoho-timing] vendorcredits: ${rows.length} docs, cache, ${Date.now() - t0}ms`)
     const lineRows = []
     for (const vc of rows) {
       if (!isNotVoidStatus(vc)) continue
       if (!isDateInRangeIncl(vc.date, fromDate, toDate)) continue
-      if (!matchesReportVendor(vc.vendor_id, vid, vc.vendor_name, vname2)) continue
-      const lines = Array.isArray(vc.line_items) ? vc.line_items : []
+      if (!matchesVendorCreditDocument(vc, vid, vname2)) continue
+      let lines = normalizeZohoLineItems(vc.line_items)
+      if (lines.length === 0 && vc.vendor_credit_id) {
+        const full = await fetchVendorCreditDetail(vc.vendor_credit_id)
+        if (full) lines = normalizeZohoLineItems(full.line_items)
+      }
       for (const li of lines) {
+        const sku = li.sku && String(li.sku).trim() ? String(li.sku).trim() : ''
         lineRows.push({
           type: 'vendor_credit',
           document_id: vc.vendor_credit_id,
           document_date: vc.date,
           item_id: li.item_id,
           name: li.name,
+          sku,
           quantity: parseLineQty(li.quantity),
         })
       }
@@ -298,5 +356,10 @@ module.exports = {
   getPurchases,
   getVendorCredits,
   isDateInRangeIncl,
-  _internals: { parseLineQty, matchesReportVendor },
+  _internals: {
+    parseLineQty,
+    matchesReportVendor,
+    normalizeZohoLineItems,
+    matchesVendorCreditDocument,
+  },
 }

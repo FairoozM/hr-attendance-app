@@ -53,7 +53,8 @@ async function fetchAllVendorCreditsRaw() {
     return _vcCache.vcs
   }
   if (_vcInFlight) return _vcInFlight
-  _vcInFlight = fetchListPaginated(`${INVENTORY_V1}/vendorcredits`, 'vendor_credits', 50, null)
+  // Zoho returns the array under `vendorcredits` (not `vendor_credits`); wrong key = always empty.
+  _vcInFlight = fetchListPaginated(`${INVENTORY_V1}/vendorcredits`, 'vendorcredits', 50, null)
     .then(({ rows }) => {
       if (CACHE_TTL_MS > 0) {
         _vcCache = { vcs: rows, expiresAt: Date.now() + CACHE_TTL_MS }

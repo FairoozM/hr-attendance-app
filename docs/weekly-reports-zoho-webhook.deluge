@@ -274,7 +274,7 @@ long sum_vendor_credit_quantity(string item_id, string from_date, string to_date
     ];
 
     total = 0;
-    for each  vc in ifnull(resp.get("vendor_credits"), List())
+    for each  vc in ifnull(resp.get("vendorcredits"), List())
     {
         for each  line in ifnull(vc.get("line_items"), List())
         {

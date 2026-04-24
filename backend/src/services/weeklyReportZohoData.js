@@ -303,6 +303,7 @@ function aggregateByFamily(itemRows) {
       acc = {
         family: familyDisplay,
         item_count: 0,
+        opening_stock: 0,
         closing_stock: 0,
         sold: 0,
         sales_amount: 0,
@@ -313,6 +314,7 @@ function aggregateByFamily(itemRows) {
       map.set(key, acc)
     }
     acc.item_count += 1
+    acc.opening_stock += row.opening_stock == null || Number.isNaN(Number(row.opening_stock)) ? 0 : Number(row.opening_stock)
     acc.closing_stock += row.closing_stock || 0
     acc.sold += row.sold || 0
     acc.sales_amount += row.sales_amount || 0
@@ -490,7 +492,7 @@ async function fetchZohoItemRowsForGroupMembers(
     idToSku
   )
   const rm = sumLinesToMap(
-    retLines.map((a) => ({ item_id: a.item_id, name: a.name, quantity: a.quantity })),
+    retLines.map((a) => ({ item_id: a.item_id, sku: a.sku, name: a.name, quantity: a.quantity })),
     idToSku
   )
   // Amount maps (currency): sum of item_total per item for sales and purchases

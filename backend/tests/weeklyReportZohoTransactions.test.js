@@ -12,6 +12,7 @@ function clearZohoTransactionModules() {
   for (const f of [
     path.join(__dirname, '../src/integrations/zoho/weeklyReportZohoTransactions.js'),
     path.join(__dirname, '../src/integrations/zoho/zohoInventoryClient.js'),
+    path.join(__dirname, '../src/integrations/zoho/zohoTransactionsCache.js'),
   ]) {
     try {
       const p = require.resolve(f)
@@ -36,23 +37,28 @@ test('matchesReportVendor: name when vendor id is empty', () => {
   assert.equal(matchesReportVendor(undefined, '', 'Other', 'acme ltd'), false)
 })
 
-test('getPurchases: only bills for vendor 4265011000000080014 (mocked list)', async () => {
+test('getPurchases: uses Purchases by Item report (all vendors; mocked purchasesbyitem)', async () => {
   clearZohoTransactionModules()
   mockModule('../src/integrations/zoho/zohoInventoryClient', {
-    fetchListPaginated: async () => ({
-      rows: [
-        { bill_id: '1', date: '2026-01-02', status: 'open', vendor_id: VENDOR, vendor_name: 'V', line_items: [{ item_id: '1', name: 'I', quantity: 5 }] },
-        { bill_id: '2', date: '2026-01-02', status: 'open', vendor_id: 'other', vendor_name: 'O', line_items: [{ item_id: '1', name: 'I', quantity: 9 }] },
-      ],
-      truncated: false,
-      pages: 1,
-    }),
+    zohoApiRequest: async (p) => {
+      if (String(p).includes('purchasesbyitem')) {
+        return {
+          code: 0,
+          page_context: { has_more_page: false },
+          purchases_by_item: [
+            { purchase: [{ item_id: '1', item_name: 'I', quantity_purchased: 5, amount: 10, item: { sku: 'SK' } }] },
+            { purchase: [{ item_id: '1', item_name: 'I', quantity_purchased: 9, item: { sku: 'SK' } }] },
+          ],
+        }
+      }
+      throw new Error('unexpected zoho path in getPurchases test: ' + p)
+    },
   })
   const m = freshRequire('../src/integrations/zoho/weeklyReportZohoTransactions')
   const r = await m.getPurchases('2026-01-01', '2026-01-31', VENDOR, {})
-  assert.equal(r.lines.length, 1)
-  assert.equal(r.line_count, 1)
-  assert.equal(r.lines[0].quantity, 5)
+  // Both purchase rows for item 1 are included (purchases are not vendor-sliced in this path).
+  assert.equal(r.line_count, 2)
+  assert.equal(r.lines.reduce((s, l) => s + l.quantity, 0), 14)
 })
 
 test('getVendorCredits: only credits for vendor 4265011000000080014 (mocked list)', async () => {
@@ -74,13 +80,43 @@ test('getVendorCredits: only credits for vendor 4265011000000080014 (mocked list
   assert.equal(r.lines[0].quantity, 2)
 })
 
-test('getSales: includes all customers (no vendor), mocked invoices', async () => {
+test('getVendorCredits: list without line_items fetches GET /vendorcredits/:id', async () => {
   clearZohoTransactionModules()
   mockModule('../src/integrations/zoho/zohoInventoryClient', {
     fetchListPaginated: async () => ({
       rows: [
-        { invoice_id: 'i1', date: '2026-01-04', status: 'paid', line_items: [{ item_id: '1', name: 'A', quantity: 1 }] },
-        { invoice_id: 'i2', date: '2026-01-04', status: 'paid', line_items: [{ item_id: '2', name: 'B', quantity: 4 }] },
+        { vendor_credit_id: 'c1', date: '2026-01-03', status: 'open', vendor_id: VENDOR, vendor_name: 'V' },
+      ],
+      truncated: false,
+      pages: 1,
+    }),
+    zohoApiRequest: async (p) => {
+      if (String(p).includes('vendorcredits/c1') && !String(p).includes('vendorcredits/c1/')) {
+        return {
+          code: 0,
+          vendor_credit: {
+            vendor_credit_id: 'c1',
+            line_items: [{ item_id: '99', name: 'I', quantity: 4, sku: 'S-KU' }],
+          },
+        }
+      }
+      throw new Error('unexpected zoho path ' + p)
+    },
+  })
+  const m = freshRequire('../src/integrations/zoho/weeklyReportZohoTransactions')
+  const r = await m.getVendorCredits('2026-01-01', '2026-01-31', VENDOR, {})
+  assert.equal(r.line_count, 1)
+  assert.equal(r.lines[0].quantity, 4)
+  assert.equal(r.lines[0].sku, 'S-KU')
+})
+
+test('getSales: Sales by Item report (mocked salesbyitem)', async () => {
+  clearZohoTransactionModules()
+  mockModule('../src/integrations/zoho/zohoInventoryClient', {
+    fetchListPaginated: async () => ({
+      rows: [
+        { item_id: '1', item_name: 'A', quantity_sold: 1, amount: 1, item: { sku: 'A1' } },
+        { item_id: '2', item_name: 'B', quantity_sold: 4, amount: 4, item: { sku: 'B1' } },
       ],
       truncated: false,
       pages: 1,
