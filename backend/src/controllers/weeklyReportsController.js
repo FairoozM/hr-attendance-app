@@ -4,6 +4,7 @@ const { sumReportGrandTotals }                        = require('../utils/weekly
 const { ZOHO_WEEKLY_REPORT_INTEGRATION }              = require('../services/weeklyReportZohoData')
 const { mergeZohoWithVendorContext }                 = require('../services/weeklyReportVendorConfig')
 const { getCachedReport }                             = require('../services/weeklyReportCache')
+const { fetchWarehouses }                             = require('../integrations/zoho/zohoWarehouses')
 const {
   buildWeeklyReportXlsxBuffer,
   getExportSheetTitleForGroup,
@@ -42,12 +43,25 @@ function validateDateRange(req, res) {
  *    immediately, no Zoho round-trip. This covers StrictMode double-fire, Export + View
  *    fired together, and rapid Refresh clicks.
  */
-async function loadWeeklyReportPayload(group, fromDate, toDate) {
+/**
+ * GET /api/weekly-reports/warehouses
+ * Returns all Zoho Inventory warehouses for the org (cached 5 min on the backend).
+ */
+async function getWarehouses(_req, res) {
+  try {
+    const warehouses = await fetchWarehouses()
+    return res.json({ warehouses })
+  } catch (err) {
+    return handleZohoError(res, err, 'getWarehouses')
+  }
+}
+
+async function loadWeeklyReportPayload(group, fromDate, toDate, warehouseId = null) {
   return getCachedReport(group, fromDate, toDate, async () => {
-    const { items, reportMeta } = await getInventoryByGroup(group, fromDate, toDate)
+    const { items, reportMeta } = await getInventoryByGroup(group, fromDate, toDate, warehouseId)
     const totals = sumReportGrandTotals(items)
     return { items, totals, reportMeta: reportMeta || { warnings: [] } }
-  })
+  }, warehouseId)
 }
 
 function attachReportMetaToZoho(zohoObj, reportMeta) {
@@ -159,6 +173,10 @@ async function getReportByGroup(req, res) {
   const range = validateDateRange(req, res)
   if (!range) return
 
+  const warehouseId = req.query.warehouse_id && String(req.query.warehouse_id).trim() !== ''
+    ? String(req.query.warehouse_id).trim()
+    : null
+
   let validGroups
   try {
     validGroups = await listGroupKeys()
@@ -176,16 +194,18 @@ async function getReportByGroup(req, res) {
     const { items, totals, reportMeta } = await loadWeeklyReportPayload(
       group,
       range.from_date,
-      range.to_date
+      range.to_date,
+      warehouseId
     )
     const zoho = attachReportMetaToZoho(
       mergeZohoWithVendorContext(ZOHO_WEEKLY_REPORT_INTEGRATION, group),
       reportMeta
     )
     return res.json({
-      report_group: group,
-      from_date:    range.from_date,
-      to_date:      range.to_date,
+      report_group:  group,
+      from_date:     range.from_date,
+      to_date:       range.to_date,
+      warehouse_id:  warehouseId || null,
       items,
       totals,
       zoho,
@@ -237,6 +257,10 @@ async function exportReportByGroupXlsx(req, res) {
   const range = validateDateRange(req, res)
   if (!range) return
 
+  const warehouseId = req.query.warehouse_id && String(req.query.warehouse_id).trim() !== ''
+    ? String(req.query.warehouse_id).trim()
+    : null
+
   let validGroups
   try {
     validGroups = await listGroupKeys()
@@ -254,7 +278,8 @@ async function exportReportByGroupXlsx(req, res) {
     const { items, totals } = await loadWeeklyReportPayload(
       group,
       range.from_date,
-      range.to_date
+      range.to_date,
+      warehouseId
     )
     const buffer = await buildWeeklyReportXlsxBuffer({
       sheetTitle: getExportSheetTitleForGroup(group),
@@ -277,6 +302,7 @@ async function exportReportByGroupXlsx(req, res) {
 
 module.exports = {
   listAvailableGroups,
+  getWarehouses,
   getReportByGroup,
   getSlowMovingReport,
   exportReportByGroupXlsx,

@@ -26,8 +26,10 @@ const inFlight = new Map()
 /** @type {Map<string, { result: any, expiresAt: number }>} */
 const resultCache = new Map()
 
-function makeKey(group, fromDate, toDate) {
-  return `${group}::${fromDate}::${toDate}`
+function makeKey(group, fromDate, toDate, warehouseId = null) {
+  return warehouseId
+    ? `${group}::${fromDate}::${toDate}::wh:${warehouseId}`
+    : `${group}::${fromDate}::${toDate}`
 }
 
 /**
@@ -37,10 +39,11 @@ function makeKey(group, fromDate, toDate) {
  * @param {string} fromDate
  * @param {string} toDate
  * @param {() => Promise<any>} generateFn - called at most once per cache miss
+ * @param {string|null} [warehouseId]
  * @returns {Promise<any>}
  */
-async function getCachedReport(group, fromDate, toDate, generateFn) {
-  const key = makeKey(group, fromDate, toDate)
+async function getCachedReport(group, fromDate, toDate, generateFn, warehouseId = null) {
+  const key = makeKey(group, fromDate, toDate, warehouseId)
   const now = Date.now()
 
   // 1. Warm cache hit
@@ -82,9 +85,9 @@ async function getCachedReport(group, fromDate, toDate, generateFn) {
  * @param {string} [fromDate]
  * @param {string} [toDate]
  */
-function clearReportCache(group, fromDate, toDate) {
+function clearReportCache(group, fromDate, toDate, warehouseId = null) {
   if (group && fromDate && toDate) {
-    resultCache.delete(makeKey(group, fromDate, toDate))
+    resultCache.delete(makeKey(group, fromDate, toDate, warehouseId))
   } else {
     resultCache.clear()
   }

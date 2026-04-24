@@ -2,6 +2,7 @@ const express = require('express')
 const { requirePermission } = require('../middleware/auth')
 const {
   listAvailableGroups,
+  getWarehouses,
   getReportByGroup,
   getSlowMovingReport,
   exportReportByGroupXlsx,
@@ -11,6 +12,9 @@ const router = express.Router()
 
 // Generic: list available report groups (driven by item_report_groups table)
 router.get('/groups', requirePermission('weekly_reports', 'view'), listAvailableGroups)
+
+// Zoho warehouse list for the filter dropdown
+router.get('/warehouses', requirePermission('weekly_reports', 'view'), getWarehouses)
 
 // Excel export (real .xlsx) — more specific than /by-group/:group
 // GET /api/weekly-reports/by-group/:group/export.xlsx?from_date&to_date

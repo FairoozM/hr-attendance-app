@@ -216,7 +216,7 @@ function buildMatcher(members) {
  * Membership first (`item_report_groups`), then Zoho-adapter data for matching
  * items only (intersection). Rows and grand totals in the API match this list.
  */
-async function getInventoryByGroup(group, fromDate, toDate) {
+async function getInventoryByGroup(group, fromDate, toDate, warehouseId = null) {
   const members = await listMembersOfGroup(group)
   if (members.length === 0) {
     return { items: [], reportMeta: { warnings: [] } }
@@ -228,7 +228,8 @@ async function getInventoryByGroup(group, fromDate, toDate) {
     fromDate,
     toDate,
     vendorConfig,
-    group
+    group,
+    warehouseId
   )
 
   const items = []

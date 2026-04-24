@@ -340,7 +340,8 @@ async function fetchZohoItemRowsForGroupMembers(
   fromDate,
   toDate,
   _vendorConfig = null,
-  reportGroup = ''
+  reportGroup = '',
+  warehouseId = null
 ) {
   void _vendorConfig
   const cfg = readZohoConfig()
@@ -380,8 +381,8 @@ async function fetchZohoItemRowsForGroupMembers(
   const t0All = Date.now()
   const [raw, salesR, purchR, vcR] = await Promise.all([
     fetchAllItemsRaw(),
-    getSales(fromDate, toDate, { onWarning }),
-    getPurchases(fromDate, toDate, rv.vendorId, { vendorName: rv.vendorName, onWarning }),
+    getSales(fromDate, toDate, { onWarning, warehouseId }),
+    getPurchases(fromDate, toDate, rv.vendorId, { vendorName: rv.vendorName, onWarning, warehouseId }),
     getVendorCredits(fromDate, toDate, rv.vendorId, { vendorName: rv.vendorName, onWarning }),
   ])
   console.log(

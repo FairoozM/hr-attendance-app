@@ -81,11 +81,13 @@ function matchesReportVendor(actualId, expectedId, actualName, expectedName) {
  */
 async function getSales(fromDate, toDate, opts = {}) {
   const onW = typeof opts.onWarning === 'function' ? opts.onWarning : () => {}
+  const warehouseId = opts.warehouseId && String(opts.warehouseId).trim() !== '' ? String(opts.warehouseId).trim() : null
   const t0 = Date.now()
   try {
     const dateParams = new URLSearchParams()
     if (fromDate) dateParams.set('from_date', fromDate)
     if (toDate) dateParams.set('to_date', toDate)
+    if (warehouseId) dateParams.set('warehouse_id', warehouseId)
 
     const { rows, truncated, pages } = await fetchListPaginated(
       `${INVENTORY_V1}/reports/salesbyitem`,
@@ -135,7 +137,7 @@ async function getSales(fromDate, toDate, opts = {}) {
  * @param {string} toDate    YYYY-MM-DD
  * @returns {Promise<{ rows: object[], truncated: boolean, pages: number }>}
  */
-async function fetchPurchasesByItemReport(fromDate, toDate) {
+async function fetchPurchasesByItemReport(fromDate, toDate, warehouseId = null) {
   const allItems = []
   let page = 1
   const maxPages = MAX_DEFAULT_PAGES
@@ -144,6 +146,7 @@ async function fetchPurchasesByItemReport(fromDate, toDate) {
     const p = new URLSearchParams()
     if (fromDate) p.set('from_date', fromDate)
     if (toDate) p.set('to_date', toDate)
+    if (warehouseId) p.set('warehouse_id', warehouseId)
     p.set('page', String(page))
     p.set('per_page', '200')
     const json = await zohoApiRequest(`${INVENTORY_V1}/reports/purchasesbyitem`, p)
@@ -174,13 +177,13 @@ let _purchasesReportCache = null
 let _purchasesReportInFlight = null
 const PURCHASES_CACHE_TTL_MS = 5 * 60 * 1000
 
-async function fetchPurchasesByItemReportCached(fromDate, toDate) {
-  const key = `${fromDate}::${toDate}`
+async function fetchPurchasesByItemReportCached(fromDate, toDate, warehouseId = null) {
+  const key = `${fromDate}::${toDate}::${warehouseId || ''}`
   if (_purchasesReportCache && _purchasesReportCache.key === key && Date.now() < _purchasesReportCache.expiresAt) {
     return _purchasesReportCache.rows
   }
   if (_purchasesReportInFlight && _purchasesReportInFlight.key === key) return _purchasesReportInFlight.promise
-  const promise = fetchPurchasesByItemReport(fromDate, toDate).then(({ rows }) => {
+  const promise = fetchPurchasesByItemReport(fromDate, toDate, warehouseId).then(({ rows }) => {
     _purchasesReportCache = { key, rows, expiresAt: Date.now() + PURCHASES_CACHE_TTL_MS }
     _purchasesReportInFlight = null
     return rows
@@ -201,9 +204,10 @@ async function fetchPurchasesByItemReportCached(fromDate, toDate) {
  */
 async function getPurchases(fromDate, toDate, _vendorId, opts = {}) {
   const onW = typeof opts.onWarning === 'function' ? opts.onWarning : () => {}
+  const warehouseId = opts.warehouseId && String(opts.warehouseId).trim() !== '' ? String(opts.warehouseId).trim() : null
   const t0 = Date.now()
   try {
-    const rows = await fetchPurchasesByItemReportCached(fromDate, toDate)
+    const rows = await fetchPurchasesByItemReportCached(fromDate, toDate, warehouseId)
     console.log(`[zoho-timing] purchasesbyitem (cached): ${rows.length} items, ${Date.now() - t0}ms`)
 
     // Normalise into the same line shape used by sumLinesToMap / sumAmountsToMap

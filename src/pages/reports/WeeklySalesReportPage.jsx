@@ -125,13 +125,14 @@ export function ErrorCallout({ message, onRetry, validationErrors }) {
  *   fromDate     – YYYY-MM-DD (controlled by parent)
  *   toDate       – YYYY-MM-DD (controlled by parent)
  *   datesValid   – boolean from parent so the section doesn't double-validate
+ *   warehouseId  – optional Zoho warehouse_id to filter by
  */
-export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate, datesValid }) {
+export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate, datesValid, warehouseId = null }) {
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState('')
 
   const { items, totals, zoho, loading, error, notConfigured, validationErrors, refetch } =
-    useWeeklySalesReport({ reportGroup, fromDate, toDate })
+    useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseId })
 
   const dateLabel = formatDateLabel(fromDate, toDate)
 
@@ -139,7 +140,9 @@ export function WeeklySalesReportSection({ reportGroup, title, fromDate, toDate,
     if (!datesValid || notConfigured) return
     setExporting(true)
     setExportError('')
-    const qs = new URLSearchParams({ from_date: fromDate, to_date: toDate }).toString()
+    const qsParams = { from_date: fromDate, to_date: toDate }
+    if (warehouseId && String(warehouseId).trim() !== '') qsParams.warehouse_id = String(warehouseId).trim()
+    const qs = new URLSearchParams(qsParams).toString()
     const path = `/api/weekly-reports/by-group/${encodeURIComponent(reportGroup)}/export.xlsx?${qs}`
     try {
       const { blob, filename } = await fetchBinary(path)

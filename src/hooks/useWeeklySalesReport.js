@@ -37,7 +37,7 @@ import { useAuth } from '../contexts/AuthContext'
  *   - notConfigured: true when the backend returns 503 ZOHO_NOT_CONFIGURED so
  *     the page can render a clear setup message instead of a generic error.
  */
-export function useWeeklySalesReport({ reportGroup, fromDate, toDate }) {
+export function useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseId = null }) {
   const { user } = useAuth()
   const [items, setItems] = useState([])
   const [totals, setTotals] = useState(null)
@@ -53,7 +53,7 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate }) {
   const abortRef = useRef(null)
 
   const fetchReport = useCallback(async () => {
-    if (!user || !reportGroup || !fromDate || !toDate) {
+    if (!user || !reportGroup || !fromDate || !toDate) {  // warehouseId is optional
       setItems([])
       setTotals(null)
       setZoho(null)
@@ -73,7 +73,11 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate }) {
     setNotConfigured(false)
     setValidationErrors([])
     try {
-      const qs = new URLSearchParams({ from_date: fromDate, to_date: toDate }).toString()
+      const qsParams = { from_date: fromDate, to_date: toDate }
+      if (warehouseId && String(warehouseId).trim() !== '') {
+        qsParams.warehouse_id = String(warehouseId).trim()
+      }
+      const qs = new URLSearchParams(qsParams).toString()
       const data = await api.get(
         `/api/weekly-reports/by-group/${encodeURIComponent(reportGroup)}?${qs}`,
         { signal: controller.signal }
@@ -115,7 +119,7 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate }) {
   // which would abort a running Zoho fetch and trigger a redundant re-request.
   // The API token is read from localStorage by api.get(), not from user itself.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id ?? null, reportGroup, fromDate, toDate])
+  }, [user?.id ?? null, reportGroup, fromDate, toDate, warehouseId ?? null])
 
   // Debounce: wait 400 ms after the last date/group change before firing.
   // React StrictMode double-invoke is absorbed: the first timeout is cleared
