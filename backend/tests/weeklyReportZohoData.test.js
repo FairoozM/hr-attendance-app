@@ -282,10 +282,16 @@ test('fetchZohoItemRowsForGroupMembers: other_family adds Zoho families not in i
     getPurchases: async () => ({ lines: noLines, line_count: 0, list_truncated: false, error: null }),
     getVendorCredits: async () => ({ lines: noLines, line_count: 0, list_truncated: false, error: null }),
   })
+  const r4 = mockModule('../src/services/itemReportGroupsService', {
+    listAllActiveMemberRows: async () => [
+      { id: 1, sku: '', item_id: '', item_name: 'mappedfam', report_group: 'other_family', active: true, notes: '' },
+    ],
+  })
   t.after(() => {
     r1()
     r2()
     r3()
+    r4()
     if (prevN === undefined) delete process.env.NODE_ENV
     else process.env.NODE_ENV = prevN
     if (prevR === undefined) delete process.env.REPORT_VENDOR_ID
@@ -312,4 +318,96 @@ test('fetchZohoItemRowsForGroupMembers: other_family adds Zoho families not in i
     names.some((n) => n === 'OrphanFam (not found in groups)'),
     'Zoho-only family includes suffix from NOT_FOUND_IN_GROUPS'
   )
+})
+
+test('fetchZohoItemRowsForGroupMembers: other_family skips unmapped if family is only in another report group (e.g. slow_moving)', async (t) => {
+  const prevN = process.env.NODE_ENV
+  const prevR = process.env.REPORT_VENDOR_ID
+  const prevJ = process.env.WEEKLY_REPORT_VENDORS_JSON
+  const prevC = process.env.WEEKLY_REPORT_VENDOR_CREDITS_CONTACT_ID
+  process.env.NODE_ENV = 'test'
+  process.env.REPORT_VENDOR_ID = VENDOR
+  delete process.env.WEEKLY_REPORT_VENDORS_JSON
+  delete process.env.WEEKLY_REPORT_VENDOR_CREDITS_CONTACT_ID
+  const salesLines = [
+    { item_id: '1', name: 'A', quantity: 0, item_total: 0, document_id: 'i0' },
+    { item_id: '2', name: 'B', quantity: 0, item_total: 0, document_id: 'i0' },
+    { item_id: '3', name: 'C', quantity: 0, item_total: 0, document_id: 'i0' },
+  ]
+  const noLines = []
+  const r1 = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: 'cf1' }),
+    orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
+  })
+  const r2 = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchAllItemsRaw: async () => [
+      {
+        sku: 'S1',
+        name: 'A',
+        item_id: '1',
+        status: 'active',
+        stock_on_hand: 1,
+        rate: 1,
+        custom_fields: [{ customfield_id: 'cf1', value: 'InOther', label: 'Family' }],
+      },
+      {
+        sku: 'S2',
+        name: 'B',
+        item_id: '2',
+        status: 'active',
+        stock_on_hand: 1,
+        rate: 1,
+        custom_fields: [{ customfield_id: 'cf1', value: 'InSlow', label: 'Family' }],
+      },
+      {
+        sku: 'S3',
+        name: 'C',
+        item_id: '3',
+        status: 'active',
+        stock_on_hand: 1,
+        rate: 1,
+        custom_fields: [{ customfield_id: 'cf1', value: 'ZohoOnly', label: 'Family' }],
+      },
+    ],
+  })
+  const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
+    getSales: async () => ({ lines: salesLines, line_count: salesLines.length, list_truncated: false, error: null }),
+    getPurchases: async () => ({ lines: noLines, line_count: 0, list_truncated: false, error: null }),
+    getVendorCredits: async () => ({ lines: noLines, line_count: 0, list_truncated: false, error: null }),
+  })
+  const r4 = mockModule('../src/services/itemReportGroupsService', {
+    listAllActiveMemberRows: async () => [
+      { id: 1, sku: '', item_id: '', item_name: 'inother', report_group: 'other_family', active: true, notes: '' },
+      { id: 2, sku: '', item_id: '', item_name: 'inslow', report_group: 'slow_moving', active: true, notes: '' },
+    ],
+  })
+  t.after(() => {
+    r1()
+    r2()
+    r3()
+    r4()
+    if (prevN === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = prevN
+    if (prevR === undefined) delete process.env.REPORT_VENDOR_ID
+    else process.env.REPORT_VENDOR_ID = prevR
+    if (prevJ === undefined) delete process.env.WEEKLY_REPORT_VENDORS_JSON
+    else process.env.WEEKLY_REPORT_VENDORS_JSON = prevJ
+    if (prevC === undefined) delete process.env.WEEKLY_REPORT_VENDOR_CREDITS_CONTACT_ID
+    else process.env.WEEKLY_REPORT_VENDOR_CREDITS_CONTACT_ID = prevC
+    const resolved = require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })
+    delete require.cache[resolved]
+  })
+  const m = freshRequire('../src/services/weeklyReportZohoData')
+  const { items } = await m.fetchZohoItemRowsForGroupMembers(
+    [{ item_name: 'inother' }],
+    '2026-01-01',
+    '2026-01-31',
+    null,
+    'other_family'
+  )
+  const names = items.map((r) => r.family)
+  assert.equal(items.length, 2, 'InOther + ZohoOnly; InSlow is claimed by slow_moving and must not appear as unmapped')
+  assert.ok(names.includes('InOther'))
+  assert.ok(names.includes('ZohoOnly (not found in groups)'))
+  assert.ok(!names.some((n) => n.includes('InSlow') && n.includes('not found in groups')), 'InSlow in slow_moving must not be labeled (not found in groups)')
 })

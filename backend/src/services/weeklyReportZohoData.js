@@ -31,6 +31,7 @@ const {
   assertReportVendorResolvedIfRequired,
   isReportVendorOptional,
 } = require('./weeklyReportReportVendor')
+const { listAllActiveMemberRows } = require('./itemReportGroupsService')
 
 /**
  * Map Zoho Inventory path → required OAuth scope. The single source of truth
@@ -493,10 +494,16 @@ async function fetchZohoItemRowsForGroupMembers(
 
   const maps = buildZohoLookupMaps(raw, familyFieldId)
 
-  /** Zoho family keys (lowercase) matched by at least one item_report_groups member for this run */
+  /**
+   * For other_family "not in groups" Zoho families: a family is only unmapped if no **active**
+   * `item_report_groups` row in **any** report_group (slow_moving, other_family, …) resolves to
+   * at least one Zoho item with that Family — otherwise the family would repeat under other_family
+   * even when it is only listed under e.g. slow_moving.
+   */
   const claimedFamilyKeys = new Set()
   if (reportGroup === 'other_family') {
-    for (const m of members) {
+    const allGroupRows = await listAllActiveMemberRows()
+    for (const m of allGroupRows) {
       const zohoMatches = findZohoItemsForMember(m, maps)
       for (const z of zohoMatches) {
         if (z.status && String(z.status).toLowerCase() === 'inactive') continue
@@ -531,7 +538,7 @@ async function fetchZohoItemRowsForGroupMembers(
     }
   }
 
-  // other_family: include every Zoho family that was not covered by any DB mapping, with a clear label
+  // other_family: Zoho families with no item_report_groups row in any group — label so ops can add mappings
   if (reportGroup === 'other_family' && maps.byFamily && maps.byFamily.size > 0) {
     let addedUnmapped = 0
     for (const [fk, famItems] of maps.byFamily) {
@@ -552,7 +559,7 @@ async function fetchZohoItemRowsForGroupMembers(
     }
     if (addedUnmapped > 0) {
       console.log(
-        `[weekly-report] group "other_family": +${addedUnmapped} Zoho item row(s) from families not in item_report_groups (label: …${NOT_FOUND_IN_GROUPS_SUFFIX})`
+        `[weekly-report] group "other_family": +${addedUnmapped} Zoho item row(s) from families in no item_report_groups row in any group (label: …${NOT_FOUND_IN_GROUPS_SUFFIX})`
       )
     }
   }
