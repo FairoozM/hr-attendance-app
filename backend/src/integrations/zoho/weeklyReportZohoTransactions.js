@@ -20,6 +20,57 @@ const { fetchAllVendorCreditsRaw } = require('./zohoTransactionsCache')
 
 const MAX_DEFAULT_PAGES = 50
 
+/** KSA default 15% — overridable via `WEEKLY_REPORT_SALES_VAT_RATE` (e.g. `0.05` for GCC). */
+function resolveWeeklyReportSalesVatRate() {
+  const raw = process.env.WEEKLY_REPORT_SALES_VAT_RATE
+  if (raw === undefined || String(raw).trim() === '') return 0.15
+  const n = parseFloat(String(raw).replace(/,/g, '').trim())
+  if (!Number.isFinite(n) || n < 0) return 0.15
+  return n
+}
+
+/**
+ * "Sales by Item" report: `amount` is usually **pre-tax** (Zoho). Build the gross
+ * (tax-inclusive) figure for the weekly `sales_amount` column. Prefer a tax-inclusive
+ * or gross field if Zoho sends one; else `amount` + per-row tax lines; else apply
+ * `WEEKLY_REPORT_SALES_VAT_RATE` to `amount` (default 15% when Zoho does not
+ * return line tax on this report).
+ *
+ * @param {object} r - one row from `/inventory/v1/reports/salesbyitem` `sales[]`
+ * @param {number} vatRate - from resolveWeeklyReportSalesVatRate()
+ * @see docs/weekly-report-zoho-transactions.md
+ */
+function itemTotalGrossFromSalesByItemRow(r, vatRate) {
+  if (!r || typeof r !== 'object') return 0
+  const p = (v) => {
+    if (v == null) return 0
+    if (v === '') return 0
+    if (typeof v === 'number' && Number.isFinite(v)) return v
+    return parseLineQty(v)
+  }
+  for (const k of [
+    'gross_amount',
+    'gross',
+    'amount_inclusive',
+    'amount_inclusive_of_tax',
+    'sales_inclusive',
+    'sales_with_tax',
+    'inclusive_total',
+  ]) {
+    if (r[k] != null && r[k] !== '' && p(r[k]) > 0) {
+      return p(r[k])
+    }
+  }
+  const base = typeof r.amount === 'number' && Number.isFinite(r.amount) ? r.amount : p(r.amount)
+  if (base <= 0) return 0
+  const lineTax = p(r.item_tax) + p(r.line_tax) + p(r.total_tax) + p(r.vat) + p(r.igst) + p(r.sgst) + p(r.cgst) + p(r.tax) + p(r.tax_amount)
+  if (lineTax > 0) return base + lineTax
+  if (Number.isFinite(vatRate) && vatRate > 0) {
+    return base * (1 + vatRate)
+  }
+  return base
+}
+
 /**
  * @param {string|undefined} iso
  * @param {string} from - YYYY-MM-DD
@@ -102,7 +153,8 @@ function matchesVendorCreditDocument(vc, expectedVendorId, expectedVendorName) {
  *   The /invoices list API does NOT return line_items — you would need a separate
  *   GET /invoices/:id per invoice (hundreds of calls). The /reports/salesbyitem
  *   endpoint returns pre-aggregated quantity_sold + amount per item in a single
- *   paginated call, which is ~100× faster.
+ *   paginated call, which is ~100× faster. `amount` is converted to a **gross
+ *   (tax-inclusive) line value** for `item_total` (see `itemTotalGrossFromSalesByItemRow`).
  *
  * @param {string} fromDate  YYYY-MM-DD
  * @param {string} toDate    YYYY-MM-DD
@@ -130,16 +182,19 @@ async function getSales(fromDate, toDate, opts = {}) {
       onW('Sales by Item report may be incomplete: pagination cap reached. Narrow the date range.')
     }
 
+    const vatRate = resolveWeeklyReportSalesVatRate()
+
     // Normalise into the same line shape used by sumLinesToMap / sumAmountsToMap.
     // `sku` is available directly from `row.item.sku` which lets lineCanonicalKey
     // skip the item_id→sku lookup and key by s:<sku> directly.
+    // `item_total` is always **gross of VAT** (see itemTotalGrossFromSalesByItemRow).
     const lineRows = rows.map((r) => ({
       type: 'sales_report',
       item_id: r.item_id || '',
       name: r.item_name || '',
       sku: (r.item && r.item.sku) ? String(r.item.sku).trim() : '',
       quantity: typeof r.quantity_sold === 'number' ? r.quantity_sold : parseLineQty(r.quantity_sold),
-      item_total: typeof r.amount === 'number' ? r.amount : parseLineQty(r.amount),
+      item_total: Math.round(itemTotalGrossFromSalesByItemRow(r, vatRate) * 100) / 100,
     }))
 
     return {
@@ -362,5 +417,7 @@ module.exports = {
     matchesReportVendor,
     normalizeZohoLineItems,
     matchesVendorCreditDocument,
+    itemTotalGrossFromSalesByItemRow,
+    resolveWeeklyReportSalesVatRate,
   },
 }

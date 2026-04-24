@@ -6,7 +6,9 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const path = require('path')
 const { mockModule, freshRequire } = require('./_helpers')
-const { _internals: { matchesReportVendor } } = require('../src/integrations/zoho/weeklyReportZohoTransactions')
+const {
+  _internals: { matchesReportVendor, itemTotalGrossFromSalesByItemRow, resolveWeeklyReportSalesVatRate },
+} = require('../src/integrations/zoho/weeklyReportZohoTransactions')
 
 function clearZohoTransactionModules() {
   for (const f of [
@@ -111,6 +113,8 @@ test('getVendorCredits: list without line_items fetches GET /vendorcredits/:id',
 })
 
 test('getSales: Sales by Item report (mocked salesbyitem)', async () => {
+  const prevV = process.env.WEEKLY_REPORT_SALES_VAT_RATE
+  process.env.WEEKLY_REPORT_SALES_VAT_RATE = '0.15'
   clearZohoTransactionModules()
   mockModule('../src/integrations/zoho/zohoInventoryClient', {
     fetchListPaginated: async () => ({
@@ -126,6 +130,22 @@ test('getSales: Sales by Item report (mocked salesbyitem)', async () => {
   const r = await m.getSales('2026-01-01', '2026-01-31', {})
   assert.equal(r.line_count, 2)
   assert.equal(r.lines.reduce((s, l) => s + l.quantity, 0), 5)
+  // amount is ex-VAT; default +15% → 1.15 and 4.6
+  assert.equal(r.lines[0].item_total, 1.15)
+  assert.equal(r.lines[1].item_total, 4.6)
+  if (prevV === undefined) delete process.env.WEEKLY_REPORT_SALES_VAT_RATE
+  else process.env.WEEKLY_REPORT_SALES_VAT_RATE = prevV
+})
+
+test('itemTotalGrossFromSalesByItemRow: row tax, gross field, env 0', () => {
+  assert.equal(itemTotalGrossFromSalesByItemRow({ amount: 100, item_tax: 5 }, 0.15), 105)
+  assert.equal(itemTotalGrossFromSalesByItemRow({ amount: 10, gross_amount: 12.5 }, 0.15), 12.5)
+  const prevV = process.env.WEEKLY_REPORT_SALES_VAT_RATE
+  process.env.WEEKLY_REPORT_SALES_VAT_RATE = '0'
+  assert.equal(resolveWeeklyReportSalesVatRate(), 0)
+  assert.equal(itemTotalGrossFromSalesByItemRow({ amount: 200 }, 0), 200)
+  if (prevV === undefined) delete process.env.WEEKLY_REPORT_SALES_VAT_RATE
+  else process.env.WEEKLY_REPORT_SALES_VAT_RATE = prevV
 })
 
 test('assertReportVendorResolvedIfRequired: throws when vendor missing and not optional', () => {

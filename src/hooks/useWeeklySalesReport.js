@@ -16,7 +16,7 @@ import { useAuth } from '../contexts/AuthContext'
  * @property {number|null} closing_stock  — value
  * @property {number|null} purchase_amount
  * @property {number|null} returned_to_wholesale  — value (credits) when available, else × cost
- * @property {number|null} sales_amount
+ * @property {number|null} sales_amount  — from Zoho Sales by Item, gross of VAT
  */
 
 /**
