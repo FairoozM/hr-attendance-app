@@ -3,6 +3,7 @@ const s3Service = require('../services/s3Service')
 const {
   fetchInstagramBusinessProfile,
   normalizeInstagramUsername,
+  isInstagramGraphConfigured,
 } = require('../services/instagramService')
 
 const MAX_INSIGHT_IMAGES = 6
@@ -345,6 +346,101 @@ async function getInsightsImageSignedUrls(req, res) {
   }
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * Batch-refresh `instagram.picUrl` (and `followersCount` when present) for many influencers
+ * in one request. Throttled to protect Meta rate limits. Requires Graph env when actually syncing.
+ */
+async function batchRefreshInstagramProfilePictures(req, res) {
+  try {
+    const onlyMissing = req.body && req.body.onlyMissing !== false
+    const max = Math.min(
+      200,
+      Math.max(1, Number.parseInt(String(req.body?.max ?? 100), 10) || 100),
+    )
+    const delayMs = Math.min(
+      2000,
+      Math.max(0, Number.parseInt(String(req.body?.delayMs ?? 400), 10) || 400),
+    )
+
+    if (!isInstagramGraphConfigured()) {
+      return res.json({
+        success: true,
+        graphConfigured: false,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+        message:
+          'Instagram Graph API is not configured. Set META_ACCESS_TOKEN and INSTAGRAM_BUSINESS_ACCOUNT_ID on the server.',
+        results: [],
+      })
+    }
+
+    const list = await influencersService.getInfluencers()
+    const byId = new Map(
+      (list || []).map((r) => (r && r.id != null ? [String(r.id), { ...r }] : null)).filter(Boolean),
+    )
+    if (!byId.size) {
+      return res.json({
+        success: true,
+        graphConfigured: true,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+        message: 'No influencers in the list.',
+        results: [],
+      })
+    }
+
+    const toProcess = []
+    for (const row of byId.values()) {
+      const h = normalizeInstagramUsername(row.instagram && row.instagram.handle)
+      if (!h) continue
+      if (onlyMissing && row.instagram && row.instagram.picUrl) continue
+      toProcess.push({ id: String(row.id), handle: h })
+    }
+
+    const capped = toProcess.slice(0, max)
+    let updated = 0
+    const results = []
+    for (const { id, handle } of capped) {
+      const gr = await fetchInstagramBusinessProfile(handle)
+      const row = byId.get(id)
+      if (gr.success) {
+        row.instagram = { ...(row.instagram || {}), picUrl: gr.profilePictureUrl != null ? gr.profilePictureUrl : null }
+        if (gr.followersCount != null) row.followersCount = gr.followersCount
+        row.updatedAt = new Date().toISOString()
+        updated += 1
+        results.push({ id, handle, success: true, profilePictureUrl: gr.profilePictureUrl || null })
+      } else {
+        results.push({ id, handle, success: false, errorCode: gr.errorCode, errorMessage: gr.errorMessage })
+      }
+      if (delayMs > 0) await sleep(delayMs)
+    }
+
+    const next = (list || []).map((r) => (r && r.id != null ? byId.get(String(r.id)) || r : r))
+    if (updated > 0) {
+      await influencersService.replaceInfluencers(next)
+    }
+
+    return res.json({
+      success: true,
+      graphConfigured: true,
+      updated,
+      skipped: toProcess.length - capped.length,
+      failed: results.filter((x) => !x.success).length,
+      results,
+    })
+  } catch (err) {
+    console.error('[influencers] batch Instagram refresh error:', err)
+    return res.status(500).json({
+      error: 'Failed to batch-refresh Instagram profile pictures',
+      detail: err && err.message ? String(err.message).slice(0, 240) : undefined,
+    })
+  }
+}
+
 /**
  * Fetches Business Discovery data and persists `instagram.picUrl` (and optional `followersCount`) on success.
  * Returns a normalized graph payload without raw Meta error objects.
@@ -395,4 +491,5 @@ module.exports = {
   getInsightsImageUploadUrlsBatch,
   getInsightsImageSignedUrls,
   refreshInstagramProfileFromGraph,
+  batchRefreshInstagramProfilePictures,
 }

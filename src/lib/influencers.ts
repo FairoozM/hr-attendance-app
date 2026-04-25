@@ -117,6 +117,37 @@ export const deleteInfluencer = (id: string) =>
     method: "DELETE",
   })
 
+/** Batch-load profile picture URLs from Instagram Graph API (server must have Meta env). */
+export async function batchRefreshInstagramProfilePictures(params?: {
+  onlyMissing?: boolean
+  max?: number
+  delayMs?: number
+}): Promise<{
+  success: boolean
+  graphConfigured: boolean
+  updated: number
+  skipped?: number
+  failed: number
+  message?: string
+  results: Array<{
+    id: string
+    handle: string
+    success: boolean
+    profilePictureUrl?: string | null
+    errorCode?: string
+    errorMessage?: string
+  }>
+}> {
+  return apiFetch("/api/influencers/instagram/batch-refresh", {
+    method: "POST",
+    body: JSON.stringify({
+      onlyMissing: params?.onlyMissing !== false,
+      max: params?.max ?? 100,
+      delayMs: params?.delayMs ?? 400,
+    }),
+  })
+}
+
 export async function fetchInsightsImageUrls(
   influencerId: string,
 ): Promise<{ key: string; url: string }[]> {
