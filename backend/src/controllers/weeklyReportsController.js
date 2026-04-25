@@ -327,6 +327,11 @@ async function exportReportByGroupXlsx(req, res) {
   const excludeWarehouseId = req.query.exclude_warehouse_id && String(req.query.exclude_warehouse_id).trim() !== ''
     ? String(req.query.exclude_warehouse_id).trim()
     : null
+  const salesSort = String(req.query.sales_sort || '').trim().toLowerCase() === 'asc'
+    ? 'asc'
+    : String(req.query.sales_sort || '').trim().toLowerCase() === 'desc'
+      ? 'desc'
+      : null
 
   let validGroups
   try {
@@ -349,11 +354,18 @@ async function exportReportByGroupXlsx(req, res) {
       warehouseId,
       excludeWarehouseId
     )
+    const exportItems = salesSort
+      ? [...items].sort((a, b) => {
+          const av = Number(a && a.sales_amount) || 0
+          const bv = Number(b && b.sales_amount) || 0
+          return salesSort === 'asc' ? av - bv : bv - av
+        })
+      : items
     const buffer = await buildWeeklyReportXlsxBuffer({
       sheetTitle: getExportSheetTitleForGroup(group),
       fromDate:   range.from_date,
       toDate:     range.to_date,
-      items,
+      items: exportItems,
       totals,
       fetchImageForItem: async (row) => {
         const raw = row && row.zoho_representative_item_id

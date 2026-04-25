@@ -613,6 +613,7 @@ export function WeeklySalesReportSection({
     const qsParams = { from_date: fromDate, to_date: toDate }
     if (warehouseId && String(warehouseId).trim() !== '') qsParams.warehouse_id = String(warehouseId).trim()
     if (excludeWarehouseId && String(excludeWarehouseId).trim() !== '') qsParams.exclude_warehouse_id = String(excludeWarehouseId).trim()
+    if (enableSalesSort) qsParams.sales_sort = salesSort === 'asc' ? 'asc' : 'desc'
     const qs = new URLSearchParams(qsParams).toString()
     const path = `/api/weekly-reports/by-group/${encodeURIComponent(reportGroup)}/export.xlsx?${qs}`
     try {
@@ -623,7 +624,7 @@ export function WeeklySalesReportSection({
     } finally {
       setExporting(false)
     }
-  }, [datesValid, notConfigured, fromDate, toDate, reportGroup, loadToken, warehouseId, excludeWarehouseId])
+  }, [datesValid, notConfigured, fromDate, toDate, reportGroup, loadToken, warehouseId, excludeWarehouseId, enableSalesSort, salesSort])
 
   const hasRequestedReport = loadToken > 0
   const showTable = hasRequestedReport && !loading && !error && !notConfigured && datesValid
