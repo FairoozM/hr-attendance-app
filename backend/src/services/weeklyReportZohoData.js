@@ -591,7 +591,7 @@ async function fetchZohoItemRowsForGroupMembers(
   // When excludeWarehouseId is set (Damaged warehouse exclusion), also fetch that
   // warehouse's items and sales so we can subtract them from the totals.
   const t0All = Date.now()
-  const [raw, scopedItems, salesR, purchR, vcR, damagedItems, damagedSalesR] = await Promise.all([
+  const [raw, scopedItems, salesRRaw, purchR, vcR, damagedItems, damagedSalesR] = await Promise.all([
     fetchAllItemsRaw(),
     warehouseId ? fetchItemsRawForWarehouse(warehouseId) : Promise.resolve([]),
     getSales(fromDate, toDate, { onWarning, warehouseId }),
@@ -602,6 +602,23 @@ async function fetchZohoItemRowsForGroupMembers(
       ? getSales(fromDate, toDate, { warehouseId: excludeWarehouseId })
       : Promise.resolve({ lines: [] }),
   ])
+  let salesR = salesRRaw
+  // Zoho `salesbyitem` can return an empty warehouse-scoped result for some non-damaged
+  // warehouses even when global sales exist in the same range. Avoid zeroing normal sections.
+  if (
+    warehouseId &&
+    !excludeWarehouseId &&
+    salesR &&
+    !salesR.error &&
+    Array.isArray(salesR.lines) &&
+    salesR.lines.length === 0
+  ) {
+    const salesFallback = await getSales(fromDate, toDate, { onWarning })
+    if (!salesFallback.error && Array.isArray(salesFallback.lines) && salesFallback.lines.length > 0) {
+      salesR = salesFallback
+      onWarning(`Warehouse-filtered sales were empty for warehouse_id=${warehouseId}; using global sales fallback.`)
+    }
+  }
   console.log(
     `[zoho-timing] parallel fetch ${Date.now() - t0All}ms — ` +
     `items=${raw.length}, invoices=${salesR.document_count ?? 0}, ` +
