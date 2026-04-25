@@ -3,8 +3,8 @@
  * `/inventory/v1/items/{id}/image`. Waterfall: biggest primary pot → biggest secondary
  * → cookware set → other → frying (last). Size from L + cm in SKU + name.
  */
-const REPRESENTATIVE_IMAGE_SELECTION_VERSION = 5
-const REPRESENTATIVE_IMAGE_CACHE_VERSION = 3
+const REPRESENTATIVE_IMAGE_SELECTION_VERSION = 6
+const REPRESENTATIVE_IMAGE_CACHE_VERSION = 4
 
 const BONUS_IMAGE = 40
 const BONUS_ACTIVE = 20
@@ -25,6 +25,8 @@ const CM_BONUS = 2
 
 const ORG_40 = /lifep\d+[\s-]+40|lifeps\d*[\s-]+40/i
 const ORG_40P = /lifep\d*s[\s-]+40p|lifeps\d*s[\s-]+40p/i
+/** e.g. FLCM-40P-RED — soup/40P line in FLCM Family (Zoho org SKU). */
+const ORG_FLCM_40P = /flcm[\s-]+40p|flcm\w*[\s-]40p/i
 
 const RE_SOUP_POT =
   /(soup|stock|stew|(?:cook(?:ing)))[\s-]+pot|souppot|stockpot|stewpot|stew\s*pot|stewpot|stock\s*pot/i
@@ -71,7 +73,7 @@ function isPrimaryType(t) {
   if (!t) return false
   if (RE_SOUP_POT.test(t) && !/cooking[\s-]+set/i.test(t)) return true
   if (RE_PRIMARY.test(t)) return true
-  if (ORG_40.test(t) || ORG_40P.test(t)) return true
+  if (ORG_40.test(t) || ORG_40P.test(t) || ORG_FLCM_40P.test(t)) return true
   return false
 }
 

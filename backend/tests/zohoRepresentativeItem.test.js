@@ -71,6 +71,18 @@ test('Family E: soup no image, casserole with image — pick casserole (fetchabl
   assert.equal(r.zoho_representative_item_id, '2')
 })
 
+test('FLCM-40P-RED: primary pot over same-family fry child SKU in FLCM line', () => {
+  const r = selectRepresentativeZohoItemForFamily(
+    [
+      { iid: '1', row: row('FLCM-FP-1', 'Fry 2', true) },
+      { iid: '2', row: row('FLCM-40P-RED', 'Stock', true) },
+    ],
+    { familyLabel: 'FLCM' }
+  )
+  assert.equal(r.zoho_representative_item_id, '2')
+  assert.match(r.zoho_representative_sku || '', /FLCM-40P-RED/i)
+})
+
 test('LIF* -FP- in SKU (no "fry pan" in name) is penalized like a fry line', () => {
   const fp = scoreZohoNameSkuText('LIFEP17-FP-1', 'Fry 2')
   const stock = scoreZohoNameSkuText('LIFEP17-40-BLUE', 'Stock')
