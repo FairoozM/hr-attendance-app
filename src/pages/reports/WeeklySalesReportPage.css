@@ -466,3 +466,139 @@
 .wsr-damaged-group .wsr-section-divider {
   background: rgba(245, 158, 11, 0.2);
 }
+
+.wsr-family-link {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.wsr-family-link:hover {
+  color: #1d4ed8;
+}
+
+.wsr-tr--selected {
+  background: #eff6ff;
+}
+
+.wsr-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+  z-index: 70;
+}
+
+.wsr-drawer-backdrop.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.wsr-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  width: min(560px, 100vw);
+  background: #fff;
+  border-left: 1px solid var(--border-color, #e5e9f2);
+  box-shadow: -8px 0 30px rgba(15, 23, 42, 0.2);
+  transform: translateX(100%);
+  transition: transform 220ms ease;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+}
+
+.wsr-drawer.is-open {
+  transform: translateX(0);
+}
+
+.wsr-drawer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border-color, #e5e9f2);
+}
+
+.wsr-drawer__header h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.wsr-drawer__body {
+  overflow: auto;
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.wsr-drawer-card {
+  border: 1px solid var(--border-color, #e5e9f2);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.wsr-drawer-card__title {
+  margin: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-color, #e5e9f2);
+  font-size: 15px;
+}
+
+.wsr-drawer-table-wrap {
+  overflow-x: auto;
+}
+
+.wsr-drawer-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.wsr-drawer-table th,
+.wsr-drawer-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #eef2f7;
+  text-align: left;
+  vertical-align: top;
+}
+
+.wsr-drawer-product-name {
+  font-weight: 600;
+}
+
+.wsr-drawer-product-sku {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.wsr-drawer-totals {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  font-size: 13px;
+}
+
+.wsr-drawer-empty,
+.wsr-drawer-loading,
+.wsr-drawer-error {
+  padding: 12px;
+  color: #64748b;
+}
+
+@media (max-width: 768px) {
+  .wsr-drawer {
+    width: 100vw;
+  }
+}

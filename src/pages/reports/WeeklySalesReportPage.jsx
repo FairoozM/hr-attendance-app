@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { fetchBinary, downloadBlob } from '../../api/client'
+import { api, fetchBinary, downloadBlob } from '../../api/client'
 import { useWeeklySalesReport } from '../../hooks/useWeeklySalesReport'
 import { ZOHO_REP_IMAGE_QUERY_VERSION } from '../../config/zohoRepImageVersion'
 import {
@@ -25,6 +25,57 @@ export function formatCurrency(val) {
   if (!Number.isFinite(n)) return '—'
   if (n === 0) return '-'
   return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function sumBy(rows, key) {
+  return (rows || []).reduce((acc, r) => acc + (Number(r?.[key]) || 0), 0)
+}
+
+function FamilyDetailsSection({ title, qtyLabel, priceLabel, amountLabel, rows, qtyKey, priceKey, amountKey, emptyText }) {
+  const totalQty = sumBy(rows, qtyKey)
+  const totalAmount = sumBy(rows, amountKey)
+  return (
+    <section className="wsr-drawer-card">
+      <h4 className="wsr-drawer-card__title">{title}</h4>
+      {rows.length === 0 ? (
+        <div className="wsr-drawer-empty">{emptyText}</div>
+      ) : (
+        <>
+          <div className="wsr-drawer-table-wrap">
+            <table className="wsr-drawer-table">
+              <thead>
+                <tr>
+                  <th>Photo</th>
+                  <th>Product</th>
+                  <th>{qtyLabel}</th>
+                  <th>{priceLabel}</th>
+                  <th>{amountLabel}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={`${r.item_id || r.sku || 'p'}-${i}`}>
+                    <td><ZohoItemThumb itemId={r.item_id} /></td>
+                    <td className="wsr-drawer-product-cell">
+                      <div className="wsr-drawer-product-name">{r.item_name || '—'}</div>
+                      <div className="wsr-drawer-product-sku">{r.sku || '—'}</div>
+                    </td>
+                    <td>{formatCurrency(r[qtyKey])}</td>
+                    <td>{formatCurrency(r[priceKey])}</td>
+                    <td>{formatCurrency(r[amountKey])}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="wsr-drawer-totals">
+            <span>Total quantity: <strong>{formatCurrency(totalQty)}</strong></span>
+            <span>Total amount: <strong>{formatCurrency(totalAmount)}</strong></span>
+          </div>
+        </>
+      )}
+    </section>
+  )
 }
 
 export function formatDateLabel(start, end) {
@@ -455,6 +506,10 @@ export function WeeklySalesReportSection({
 }) {
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState('')
+  const [selectedFamily, setSelectedFamily] = useState('')
+  const [drawerLoading, setDrawerLoading] = useState(false)
+  const [drawerError, setDrawerError] = useState('')
+  const [drawerItems, setDrawerItems] = useState([])
 
   const { items, loading, error, notConfigured, validationErrors, refetch } =
     useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseId, excludeWarehouseId, loadToken })
@@ -471,6 +526,22 @@ export function WeeklySalesReportSection({
     [withValues]
   )
 
+  const selectedFamilySet = useMemo(
+    () => new Set(withValues.map((r) => String(r.family || '').trim())),
+    [withValues]
+  )
+
+  const drawerSections = useMemo(() => {
+    const list = Array.isArray(drawerItems) ? drawerItems : []
+    return {
+      opening: list.filter((r) => (Number(r.opening_qty) || 0) > 0),
+      purchase: list.filter((r) => (Number(r.purchase_qty) || 0) > 0),
+      returned: list.filter((r) => (Number(r.returned_qty) || 0) > 0),
+      closing: list.filter((r) => (Number(r.closing_qty) || 0) > 0),
+      sales: list.filter((r) => (Number(r.sold_qty) || 0) > 0),
+    }
+  }, [drawerItems])
+
   useEffect(() => {
     if (typeof onNoValueRows !== 'function') return
     if (loadToken <= 0 || !datesValid) {
@@ -486,6 +557,42 @@ export function WeeklySalesReportSection({
       onNoValueRows(reportGroup, [])
     }
   }, [onNoValueRows, reportGroup])
+
+  useEffect(() => {
+    if (!selectedFamily) return
+    if (!selectedFamilySet.has(selectedFamily)) {
+      setSelectedFamily('')
+      setDrawerItems([])
+      setDrawerError('')
+      setDrawerLoading(false)
+    }
+  }, [selectedFamily, selectedFamilySet])
+
+  useEffect(() => {
+    if (!selectedFamily || !loadToken || !datesValid) return
+    let cancelled = false
+    const run = async () => {
+      setDrawerLoading(true)
+      setDrawerError('')
+      try {
+        const qsParams = { from_date: fromDate, to_date: toDate, family: selectedFamily }
+        if (warehouseId && String(warehouseId).trim() !== '') qsParams.warehouse_id = String(warehouseId).trim()
+        if (excludeWarehouseId && String(excludeWarehouseId).trim() !== '') qsParams.exclude_warehouse_id = String(excludeWarehouseId).trim()
+        const qs = new URLSearchParams(qsParams).toString()
+        const data = await api.get(`/api/weekly-reports/by-group/${encodeURIComponent(reportGroup)}/family-details?${qs}`)
+        if (cancelled) return
+        setDrawerItems(Array.isArray(data?.items) ? data.items : [])
+      } catch (err) {
+        if (cancelled) return
+        setDrawerItems([])
+        setDrawerError(err?.message || 'Failed to load family details')
+      } finally {
+        if (!cancelled) setDrawerLoading(false)
+      }
+    }
+    run()
+    return () => { cancelled = true }
+  }, [selectedFamily, reportGroup, fromDate, toDate, warehouseId, excludeWarehouseId, loadToken, datesValid])
 
   const handleExport = useCallback(async () => {
     if (!datesValid || notConfigured || !loadToken) return
@@ -618,9 +725,22 @@ export function WeeklySalesReportSection({
                   </tr>
                 )}
                 {withValues.map((it, idx) => (
-                  <tr key={`${it.family || 'row'}-${idx}`} className="war-tr">
+                  <tr
+                    key={`${it.family || 'row'}-${idx}`}
+                    className={`war-tr ${selectedFamily && selectedFamily === (it.family || '') ? 'wsr-tr--selected' : ''}`}
+                  >
                     <td className="war-td wsr-td--sr">{idx + 1}</td>
-                    <td className="war-td wsr-td--item">{it.family || '—'}</td>
+                    <td className="war-td wsr-td--item">
+                      {it.family ? (
+                        <button
+                          type="button"
+                          className="wsr-family-link"
+                          onClick={() => setSelectedFamily(String(it.family))}
+                        >
+                          {it.family}
+                        </button>
+                      ) : '—'}
+                    </td>
                     <td className="war-td wsr-td--photo">
                       <ZohoItemThumb itemId={it.zoho_representative_item_id} />
                     </td>
@@ -671,6 +791,81 @@ export function WeeklySalesReportSection({
           )}
         </>
       )}
+      <div
+        className={`wsr-drawer-backdrop ${selectedFamily ? 'is-open' : ''}`}
+        onClick={() => setSelectedFamily('')}
+      />
+      <aside className={`wsr-drawer ${selectedFamily ? 'is-open' : ''}`} aria-hidden={!selectedFamily}>
+        <div className="wsr-drawer__header">
+          <h3>Family Details: {selectedFamily || '—'}</h3>
+          <button type="button" className="war-btn war-btn--ghost war-btn--sm" onClick={() => setSelectedFamily('')}>
+            Close
+          </button>
+        </div>
+        <div className="wsr-drawer__body">
+          {drawerLoading && <div className="wsr-drawer-loading">Loading family details…</div>}
+          {!drawerLoading && drawerError && <div className="wsr-drawer-error">{drawerError}</div>}
+          {!drawerLoading && !drawerError && selectedFamily && (
+            <>
+              <FamilyDetailsSection
+                title="Opening Stock"
+                qtyLabel="Quantity"
+                priceLabel="Sales Price"
+                amountLabel="Total Amount"
+                rows={drawerSections.opening}
+                qtyKey="opening_qty"
+                priceKey="opening_price"
+                amountKey="opening_amount"
+                emptyText="No opening stock for this family in this period."
+              />
+              <FamilyDetailsSection
+                title="Purchase"
+                qtyLabel="Quantity"
+                priceLabel="Purchase Price"
+                amountLabel="Total Amount"
+                rows={drawerSections.purchase}
+                qtyKey="purchase_qty"
+                priceKey="purchase_price"
+                amountKey="purchase_amount"
+                emptyText="No purchase activity for this family in this period."
+              />
+              <FamilyDetailsSection
+                title="Vendor Credits / Returned to Wholesale"
+                qtyLabel="Quantity Returned"
+                priceLabel="Price"
+                amountLabel="Total Amount"
+                rows={drawerSections.returned}
+                qtyKey="returned_qty"
+                priceKey="returned_price"
+                amountKey="returned_amount"
+                emptyText="No returned-to-wholesale activity for this family in this period."
+              />
+              <FamilyDetailsSection
+                title="Closing Stock"
+                qtyLabel="Quantity"
+                priceLabel="Sales Price"
+                amountLabel="Total Amount"
+                rows={drawerSections.closing}
+                qtyKey="closing_qty"
+                priceKey="closing_price"
+                amountKey="closing_amount"
+                emptyText="No closing stock for this family in this period."
+              />
+              <FamilyDetailsSection
+                title="Sales"
+                qtyLabel="Quantity Sold"
+                priceLabel="Sales Price"
+                amountLabel="Total Amount"
+                rows={drawerSections.sales}
+                qtyKey="sold_qty"
+                priceKey="sold_price"
+                amountKey="sales_amount"
+                emptyText="No sales activity for this family in this period."
+              />
+            </>
+          )}
+        </div>
+      </aside>
     </section>
   )
 }

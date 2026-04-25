@@ -1,4 +1,4 @@
-const { getInventoryByGroup } = require('../services/zohoService')
+const { getInventoryByGroup, getFamilyDetailsByGroup } = require('../services/zohoService')
 const { listGroupKeys }                               = require('../services/itemReportGroupsService')
 const { sumReportGrandTotals }                        = require('../utils/weeklyReportTotals')
 const { ZOHO_WEEKLY_REPORT_INTEGRATION }              = require('../services/weeklyReportZohoData')
@@ -226,6 +226,60 @@ async function getReportByGroup(req, res) {
 }
 
 /**
+ * GET /api/weekly-reports/by-group/:group/family-details?from_date&to_date&family=...
+ */
+async function getFamilyDetailsByGroupController(req, res) {
+  const { group } = req.params
+  const range = validateDateRange(req, res)
+  if (!range) return
+  const family = req.query.family && String(req.query.family).trim() !== ''
+    ? String(req.query.family).trim()
+    : null
+  if (!family) {
+    return res.status(400).json({ error: 'Missing required query parameter: family' })
+  }
+  const warehouseId = req.query.warehouse_id && String(req.query.warehouse_id).trim() !== ''
+    ? String(req.query.warehouse_id).trim()
+    : null
+  const excludeWarehouseId = req.query.exclude_warehouse_id && String(req.query.exclude_warehouse_id).trim() !== ''
+    ? String(req.query.exclude_warehouse_id).trim()
+    : null
+  let validGroups
+  try {
+    validGroups = await listGroupKeys()
+  } catch (err) {
+    console.error('[weeklyReports] getFamilyDetailsByGroup listGroupKeys error:', err.message)
+    return res.status(500).json({ error: 'Failed to validate report group' })
+  }
+  if (!validGroups.includes(group)) {
+    return res.status(404).json({
+      error: `Unknown report_group '${group}'. Available: ${validGroups.join(', ') || '(none)'}`,
+    })
+  }
+  try {
+    const out = await getFamilyDetailsByGroup(
+      group,
+      family,
+      range.from_date,
+      range.to_date,
+      warehouseId,
+      excludeWarehouseId
+    )
+    return res.json({
+      report_group: group,
+      family,
+      from_date: range.from_date,
+      to_date: range.to_date,
+      warehouse_id: warehouseId || null,
+      exclude_warehouse_id: excludeWarehouseId || null,
+      items: Array.isArray(out.items) ? out.items : [],
+    })
+  } catch (err) {
+    return handleZohoError(res, err, `getFamilyDetailsByGroup(${group})`)
+  }
+}
+
+/**
  * GET /api/weekly-reports/slow-moving?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD
  *
  * Legacy route — kept for backward compatibility. Uses the same
@@ -383,6 +437,7 @@ module.exports = {
   getWarehouses,
   getZohoItemImage,
   getReportByGroup,
+  getFamilyDetailsByGroupController,
   getSlowMovingReport,
   exportReportByGroupXlsx,
   /** @internal debug route + tests — same payload path as public JSON/Excel */

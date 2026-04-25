@@ -5,6 +5,7 @@ const {
   getWarehouses,
   getZohoItemImage,
   getReportByGroup,
+  getFamilyDetailsByGroupController,
   getSlowMovingReport,
   exportReportByGroupXlsx,
 } = require('../controllers/weeklyReportsController')
@@ -30,6 +31,12 @@ router.get(
   '/by-group/:group/export.xlsx',
   requirePermission('weekly_reports', 'view'),
   exportReportByGroupXlsx
+)
+
+router.get(
+  '/by-group/:group/family-details',
+  requirePermission('weekly_reports', 'view'),
+  getFamilyDetailsByGroupController
 )
 
 // Generic: per-group weekly Zoho-sourced report

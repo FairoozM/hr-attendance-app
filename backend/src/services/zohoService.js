@@ -277,6 +277,37 @@ async function getInventoryByGroup(group, fromDate, toDate, warehouseId = null, 
   return { items, reportMeta: fetchMeta && typeof fetchMeta === 'object' ? fetchMeta : { warnings: [] } }
 }
 
+/**
+ * Item-level drill-down details for one family inside a report group/date range.
+ */
+async function getFamilyDetailsByGroup(
+  group,
+  family,
+  fromDate,
+  toDate,
+  warehouseId = null,
+  excludeWarehouseId = null
+) {
+  const familyKey = String(family || '').trim().toLowerCase()
+  const members = await listMembersOfGroup(group)
+  if (members.length === 0 && group !== 'other_family') {
+    return { family, items: [] }
+  }
+  const vendorConfig = getVendorConfigForGroup(group)
+  const { itemDetails = [] } = await fetchZohoItemRowsForGroupMembers(
+    members,
+    fromDate,
+    toDate,
+    vendorConfig,
+    group,
+    warehouseId,
+    excludeWarehouseId,
+    { includeItemDetails: true }
+  )
+  const items = itemDetails.filter((r) => String(r.family_display || r.family || '').trim().toLowerCase() === familyKey)
+  return { family, items }
+}
+
 async function getSlowMovingInventory(fromDate, toDate) {
   const { items } = await getInventoryByGroup('slow_moving', fromDate, toDate)
   return items
@@ -284,6 +315,7 @@ async function getSlowMovingInventory(fromDate, toDate) {
 
 module.exports = {
   getInventoryByGroup,
+  getFamilyDetailsByGroup,
   getSlowMovingInventory,
   _internals: {
     validateAndNormaliseItem,

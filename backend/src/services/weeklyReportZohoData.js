@@ -549,8 +549,10 @@ async function fetchZohoItemRowsForGroupMembers(
   _vendorConfig = null,
   reportGroup = '',
   warehouseId = null,
-  excludeWarehouseId = null
+  excludeWarehouseId = null,
+  options = {}
 ) {
+  const includeItemDetails = !!(options && options.includeItemDetails)
   void _vendorConfig
   const cfg = readZohoConfig()
   if (cfg.code !== 'ok') {
@@ -854,6 +856,8 @@ async function fetchZohoItemRowsForGroupMembers(
     applyTransactionMapsToRow(row, sm, pm, rm, salesAmountMap, null)
   }
 
+  /** @type {Array<object>} */
+  const itemDetails = []
   for (const row of out) {
     const zItem = row.sku
       ? skuToZohoItem.get(String(row.sku).trim().toLowerCase()) || null
@@ -867,6 +871,36 @@ async function fetchZohoItemRowsForGroupMembers(
     const rQty = Number(row.returned_to_wholesale) || 0
     const rFromVc = mapLookupForReportRow(retAmountMap, row)
     const qO = qC - p + s + rQty
+    const salesPrice = parseZohoUnitSalesPrice(zItem) ?? unit
+    const purchasePrice = parseZohoUnitPurchasePrice(zItem) ?? unit
+    const returnedPrice = canValueStock ? unit : null
+    const returnedAmount = rQty > 0
+      ? (canValueStock ? Math.round(rQty * unit * 100) / 100 : (rFromVc > 0 ? rFromVc : null))
+      : 0
+    if (includeItemDetails) {
+      itemDetails.push({
+        family: row.family || '',
+        family_display: row._familyDisplayOverride || row.family || '',
+        sku: row.sku || '',
+        item_name: row.item_name || '',
+        item_id: row.item_id || '',
+        opening_qty: qO,
+        opening_price: salesPrice,
+        opening_amount: canValueStock ? qO * unit : null,
+        purchase_qty: p,
+        purchase_price: purchasePrice,
+        purchase_amount: canValueStock ? Math.round(p * unit * 100) / 100 : (p > 0 ? null : 0),
+        returned_qty: rQty,
+        returned_price: returnedPrice,
+        returned_amount: returnedAmount,
+        closing_qty: qC,
+        closing_price: salesPrice,
+        closing_amount: canValueStock ? qC * unit : null,
+        sold_qty: s,
+        sold_price: salesPrice,
+        sales_amount: Number(row.sales_amount) || 0,
+      })
+    }
     if (canValueStock) {
       row.opening_stock = qO * unit
       row.closing_stock = qC * unit
@@ -879,15 +913,7 @@ async function fetchZohoItemRowsForGroupMembers(
     // Returned to wholesale: **vendor-credit quantity × same unit price as sales/stock** (Zoho
     // item `rate` / `purchase_rate`, else implied from period sales $ / sold). This matches
     // the Sales Amount column (pre-tax) logic. If no unit price, fall back to line total on the VC.
-    if (rQty > 0) {
-      if (canValueStock) {
-        row.returned_to_wholesale = Math.round(rQty * unit * 100) / 100
-      } else {
-        row.returned_to_wholesale = rFromVc > 0 ? rFromVc : null
-      }
-    } else {
-      row.returned_to_wholesale = 0
-    }
+    row.returned_to_wholesale = returnedAmount
     delete row.purchases
     delete row.sold
     delete row._unit_sales_price
@@ -937,7 +963,7 @@ async function fetchZohoItemRowsForGroupMembers(
     }
   }
 
-  return { items: familyRows, reportMeta }
+  return { items: familyRows, reportMeta, itemDetails: includeItemDetails ? itemDetails : undefined }
 }
 
 module.exports = {
