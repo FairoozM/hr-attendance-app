@@ -530,3 +530,58 @@ test('aggregateByFamily: Zoho soup SKU in same Family (not in report rows) still
   })
   assert.equal(one.zoho_representative_item_id, '2')
 })
+
+test('aggregateByFamily: pinned LIFEP5-32N-GREEN merged from bySku when absent from byFamily (Zoho Family mismatch)', () => {
+  const rows = [
+    {
+      family: 'LIFEP5',
+      item_id: '99',
+      sku: 'LIFEP5-WRONG-LINE',
+      item_name: 'line in report',
+      sales_amount: 0,
+      _zoho: { has_image: true, is_active: true },
+    },
+  ]
+  const byFamily = new Map([
+    [
+      'lifep5',
+      [
+        {
+          item_id: '99',
+          sku: 'LIFEP5-WRONG-LINE',
+          name: 'line in report',
+          image_id: '1',
+          status: 'active',
+        },
+      ],
+    ],
+  ])
+  const bySku = new Map()
+  bySku.set('lifep5-wrong-line', {
+    item_id: '99',
+    sku: 'LIFEP5-WRONG-LINE',
+    name: 'line in report',
+    image_id: '1',
+    status: 'active',
+  })
+  bySku.set('lifep5-32n-green', {
+    item_id: 'GREEN_PIN',
+    sku: 'LIFEP5-32N-GREEN',
+    name: 'Pinned green',
+    image_id: 'g',
+    status: 'active',
+  })
+  const [one] = aggregateByFamily(rows, {
+    byFamily,
+    bySku,
+    familyFieldId: null,
+    fromDate: '2026-01-01',
+    toDate: '2026-01-31',
+  })
+  assert.equal(
+    one.zoho_representative_item_id,
+    'GREEN_PIN',
+    'must use catalog bySku for pinned family→SKU when that item is not in byFamily',
+  )
+  assert.match(String(one.zoho_representative_sku || ''), /LIFEP5-32N-GREEN/i)
+})

@@ -26,7 +26,11 @@ const {
   mapLookupForReportRow,
   applyTransactionMapsToRow,
 } = require('./weeklyReportZohoLineMerge')
-const { selectRepresentativeZohoItemForFamily } = require('./zohoRepresentativeItem')
+const {
+  selectRepresentativeZohoItemForFamily,
+  getPinnedRepresentativeSkuForFamilyLabel,
+  normalizeSkuKey,
+} = require('./zohoRepresentativeItem')
 const {
   getResolvedReportVendor,
   assertReportVendorResolvedIfRequired,
@@ -384,8 +388,47 @@ function mergeZohoFamilyRepCandidates(acc, byFamily, familyFieldId, fromDate, to
 }
 
 /**
+ * Pinned LIFEP* family→SKU images must work even when that item is not indexed under
+ * the same Zoho Family custom value (so it never appears in `mergeZohoFamilyRepCandidates`).
+ * Resolve the SKU from the full `bySku` map and add one rep candidate.
+ *
+ * @param {object} acc
+ * @param {{ byFamily?: Map, bySku?: Map, familyFieldId?: string | null, fromDate: string, toDate: string }} zohoCatalogCtx
+ */
+function mergePinnedThumbnailIfNeeded(acc, zohoCatalogCtx) {
+  if (!acc || !zohoCatalogCtx || !zohoCatalogCtx.bySku) return
+  const pin = getPinnedRepresentativeSkuForFamilyLabel(acc.family)
+  if (!pin) return
+  const want = normalizeSkuKey(pin)
+  const cands = acc._repCandidates
+  if (!cands) return
+  if (cands.some((c) => c && c.row && normalizeSkuKey(c.row.sku) === want)) return
+  const { bySku } = zohoCatalogCtx
+  let z =
+    (typeof bySku.get === 'function' && (bySku.get(String(pin).trim().toLowerCase()) || bySku.get(want))) || null
+  if (!z) {
+    for (const it of bySku.values()) {
+      if (it && it.sku != null && normalizeSkuKey(String(it.sku)) === want) {
+        z = it
+        break
+      }
+    }
+  }
+  if (!z || z.item_id == null || String(z.item_id).trim() === '') return
+  const iid = String(z.item_id).trim()
+  if (cands.some((c) => c && c.iid === iid)) return
+  const row = zohoItemToPlaceholderReportRow(
+    z,
+    zohoCatalogCtx.fromDate,
+    zohoCatalogCtx.toDate,
+    zohoCatalogCtx.familyFieldId != null ? zohoCatalogCtx.familyFieldId : null
+  )
+  cands.push({ iid, row })
+}
+
+/**
  * @param {object[]} itemRows - output of the main item-matching loop
- * @param {{ byFamily?: Map<string, object[]>, familyFieldId?: string | null, fromDate?: string, toDate?: string } | null} [zohoCatalogCtx] - if set, every Zoho item in each family can contribute a thumbnail candidate (fix: soup SKUs not in the report still win over fry lines in the same Family)
+ * @param {{ byFamily?: Map<string, object[]>, bySku?: Map<string, object>, familyFieldId?: string | null, fromDate?: string, toDate?: string } | null} [zohoCatalogCtx] - if set, every Zoho item in each family can contribute a thumbnail candidate, and pinned LIFEP* SKUs are merged from bySku if missing (item may be outside the Family field in Zoho)
  * @returns {object[]} one row per distinct family value, sorted by family name
  */
 function aggregateByFamily(itemRows, zohoCatalogCtx = null) {
@@ -439,20 +482,18 @@ function aggregateByFamily(itemRows, zohoCatalogCtx = null) {
     }
     acc.sales_amount += row.sales_amount || 0
   }
-  if (
-    zohoCatalogCtx &&
-    zohoCatalogCtx.byFamily &&
-    zohoCatalogCtx.fromDate &&
-    zohoCatalogCtx.toDate
-  ) {
+  if (zohoCatalogCtx && zohoCatalogCtx.fromDate && zohoCatalogCtx.toDate) {
     for (const acc of map.values()) {
-      mergeZohoFamilyRepCandidates(
-        acc,
-        zohoCatalogCtx.byFamily,
-        zohoCatalogCtx.familyFieldId != null ? zohoCatalogCtx.familyFieldId : null,
-        zohoCatalogCtx.fromDate,
-        zohoCatalogCtx.toDate
-      )
+      if (zohoCatalogCtx.byFamily) {
+        mergeZohoFamilyRepCandidates(
+          acc,
+          zohoCatalogCtx.byFamily,
+          zohoCatalogCtx.familyFieldId != null ? zohoCatalogCtx.familyFieldId : null,
+          zohoCatalogCtx.fromDate,
+          zohoCatalogCtx.toDate
+        )
+      }
+      mergePinnedThumbnailIfNeeded(acc, zohoCatalogCtx)
     }
   }
   const out = []
@@ -766,6 +807,7 @@ async function fetchZohoItemRowsForGroupMembers(
   // also considers every Zoho item in the same Family (byFamily), not only group members.
   const familyRows = aggregateByFamily(out, {
     byFamily: maps.byFamily,
+    bySku: maps.bySku,
     familyFieldId,
     fromDate,
     toDate,

@@ -4,7 +4,7 @@
  * (see `FAMILY_TO_REPRESENTATIVE_SKU`). Otherwise: waterfall — biggest primary pot →
  * biggest secondary → cookware set → other → frying (last). Size from L + cm in SKU + name.
  */
-const REPRESENTATIVE_IMAGE_SELECTION_VERSION = 8
+const REPRESENTATIVE_IMAGE_SELECTION_VERSION = 9
 const REPRESENTATIVE_IMAGE_CACHE_VERSION = 4
 
 /** Same as `weeklyReportZohoData` — family display can include this suffix for unmapped Zoho families. */
@@ -334,6 +334,17 @@ function normalizeSkuKey(s) {
 }
 
 /**
+ * Pinned thumbnail SKU for this family label, or null (see `FAMILY_TO_REPRESENTATIVE_SKU`).
+ * @param {string} [familyLabel]
+ * @returns {string|null}
+ */
+function getPinnedRepresentativeSkuForFamilyLabel(familyLabel) {
+  const k = familyKeyForSkuOverride(familyLabel)
+  if (!k) return null
+  return FAMILY_TO_REPRESENTATIVE_SKU[k] || null
+}
+
+/**
  * @param {Array<{ iid: string, row: object }>} candidates
  * @param {string} targetSku
  * @returns {object|undefined} raw candidate
@@ -498,6 +509,8 @@ module.exports = {
   PENALTY_FRY,
   normalizeZohoTextForScoring,
   normalizeText,
+  normalizeSkuKey,
+  getPinnedRepresentativeSkuForFamilyLabel,
   classifyRepresentativeType,
   extractCapacityLiters,
   extractDiameterCm,
