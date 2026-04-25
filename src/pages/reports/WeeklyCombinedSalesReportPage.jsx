@@ -238,6 +238,7 @@ export function WeeklyCombinedSalesReportPage() {
         datesValid={datesValid}
         warehouseId={activeWhId}
         excludeWarehouseId={mainExcludeWhId}
+        enableSalesSort
         loadToken={loadToken}
         onNoValueRows={onNoValueRows}
       />
@@ -254,6 +255,7 @@ export function WeeklyCombinedSalesReportPage() {
         datesValid={datesValid}
         warehouseId={activeWhId}
         excludeWarehouseId={mainExcludeWhId}
+        enableSalesSort
         loadToken={loadToken}
         onNoValueRows={onNoValueRows}
       />

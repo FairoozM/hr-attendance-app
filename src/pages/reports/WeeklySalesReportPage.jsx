@@ -501,6 +501,7 @@ export function WeeklySalesReportSection({
   datesValid,
   warehouseId = null,
   excludeWarehouseId = null,
+  enableSalesSort = false,
   loadToken = 0,
   onNoValueRows = null,
 }) {
@@ -510,6 +511,7 @@ export function WeeklySalesReportSection({
   const [drawerLoading, setDrawerLoading] = useState(false)
   const [drawerError, setDrawerError] = useState('')
   const [drawerItems, setDrawerItems] = useState([])
+  const [salesSort, setSalesSort] = useState('desc')
 
   const { items, loading, error, notConfigured, validationErrors, refetch } =
     useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseId, excludeWarehouseId, loadToken })
@@ -525,6 +527,16 @@ export function WeeklySalesReportSection({
     () => sumWeeklyFamilyRowTotals(withValues),
     [withValues]
   )
+  const displayRows = useMemo(() => {
+    if (!enableSalesSort) return withValues
+    const rows = [...withValues]
+    rows.sort((a, b) => {
+      const av = Number(a?.sales_amount) || 0
+      const bv = Number(b?.sales_amount) || 0
+      return salesSort === 'asc' ? av - bv : bv - av
+    })
+    return rows
+  }, [withValues, enableSalesSort, salesSort])
 
   const selectedFamilySet = useMemo(
     () => new Set(withValues.map((r) => String(r.family || '').trim())),
@@ -625,6 +637,17 @@ export function WeeklySalesReportSection({
           {dateLabel && <span className="wsr-section-header__date">{dateLabel}</span>}
         </div>
         <div className="wsr-section-header__actions">
+          {enableSalesSort && withValues.length > 1 && (
+            <select
+              className="war-input wsr-sales-sort-select"
+              value={salesSort}
+              onChange={(e) => setSalesSort(e.target.value === 'asc' ? 'asc' : 'desc')}
+              title="Sort by Sales Amount"
+            >
+              <option value="desc">Sales High → Low</option>
+              <option value="asc">Sales Low → High</option>
+            </select>
+          )}
           <button
             type="button"
             className="war-btn war-btn--primary war-btn--sm"
@@ -724,7 +747,7 @@ export function WeeklySalesReportSection({
                     </td>
                   </tr>
                 )}
-                {withValues.map((it, idx) => (
+                {displayRows.map((it, idx) => (
                   <tr
                     key={`${it.family || 'row'}-${idx}`}
                     className={`war-tr ${selectedFamily && selectedFamily === (it.family || '') ? 'wsr-tr--selected' : ''}`}
