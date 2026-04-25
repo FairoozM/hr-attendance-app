@@ -531,7 +531,7 @@ test('aggregateByFamily: Zoho soup SKU in same Family (not in report rows) still
   assert.equal(one.zoho_representative_item_id, '2')
 })
 
-test('aggregateByFamily: pinned LIFEP5-32N-GREEN merged from bySku when absent from byFamily (Zoho Family mismatch)', () => {
+test('aggregateByFamily: pinned LIFEP5 pot SKU merged from bySku when absent from byFamily (Zoho Family mismatch)', () => {
   const rows = [
     {
       family: 'LIFEP5',
@@ -564,10 +564,10 @@ test('aggregateByFamily: pinned LIFEP5-32N-GREEN merged from bySku when absent f
     image_id: '1',
     status: 'active',
   })
-  bySku.set('lifep5-32n-green', {
+  bySku.set('6290360931623', {
     item_id: 'GREEN_PIN',
-    sku: 'LIFEP5-32N-GREEN',
-    name: 'Pinned green',
+    sku: '6290360931623',
+    name: 'Pinned LIFEP5 pot',
     image_id: 'g',
     status: 'active',
   })
@@ -583,7 +583,7 @@ test('aggregateByFamily: pinned LIFEP5-32N-GREEN merged from bySku when absent f
     'GREEN_PIN',
     'must use catalog bySku for pinned family→SKU when that item is not in byFamily',
   )
-  assert.match(String(one.zoho_representative_sku || ''), /LIFEP5-32N-GREEN/i)
+  assert.match(String(one.zoho_representative_sku || ''), /6290360931623/)
 })
 
 
@@ -636,4 +636,15 @@ test('aggregateByFamily: pinned LIFEP12 pot SKU is used for thumbnail', () => {
   })
   assert.equal(one.zoho_representative_item_id, 'LIFEP12_PIN')
   assert.equal(String(one.zoho_representative_sku || ''), '6294021002943')
+})
+
+
+test('aggregateByFamily: global rule prefers core pot SKU over SAU sauce SKU', () => {
+  const rows = [
+    { family: 'LIFEP9', item_id: 'POT', sku: 'LIFEP9-20-GREEN', item_name: 'LIFEP9-20-GREEN', sales_amount: 0, _zoho: { has_image: true, is_active: true } },
+    { family: 'LIFEP9', item_id: 'SAU', sku: 'LIFEP9SAU16-GREEN', item_name: 'LIFEP9SAU16-GREEN', sales_amount: 0, _zoho: { has_image: true, is_active: true } },
+  ]
+  const [one] = aggregateByFamily(rows)
+  assert.equal(one.zoho_representative_item_id, 'POT')
+  assert.equal(String(one.zoho_representative_sku || ''), 'LIFEP9-20-GREEN')
 })

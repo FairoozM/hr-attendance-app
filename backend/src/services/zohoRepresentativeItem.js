@@ -16,7 +16,7 @@ const FAMILY_LABEL_SUFFIX_NOT_IN_GROUPS = ' (not found in groups)'
  */
 const FAMILY_TO_REPRESENTATIVE_SKU = Object.freeze({
   lifep17s: 'LIFEP17S-40P-BEIGE',
-  lifep5: 'LIFEP5-32N-GREEN',
+  lifep5: '6290360931623',
   lifep2: 'LIFEP2-32-BEIGE',
   lifep12: '6294021002943',
 })
@@ -48,6 +48,8 @@ const RE_SOUP_POT =
 const RE_PRIMARY = /(casserole|dutch\W*oven|\bhandi\b)/i
 
 const RE_SECONDARY = /(milk|sauce)[\s-]+pot|milkpot|saucepot|saucepan\w*|\bsauce\s*pan\b|sauce[\s-]+pan|milk[\s-]pot|milkpot/i
+const RE_SAUCE_TOKEN = /\bsauce\b|\bsau\b|(?:^|[^a-z])sau\d*/i
+const RE_LIFEP_CORE_POT = /\blifep\d+[a-z]*[\s-]*\d{1,2}(?:n|p)?\b|\blifep\d+[a-z]*\d{1,2}(?:n|p)?\b/i
 const RE_COOKWARE_SET = new RegExp(
   'cookware[\\s-]+set|cooking[\\s-]+set|pots[\\s-]and[\\s-]pans[\\s-]+set|piece[\\s-]+set' +
     '|set[\\s-]of' +
@@ -122,7 +124,16 @@ function classifyRepresentativeType(sku, name) {
   const t = combinedText(sku, name)
   if (!t) return 'other'
   if (isPrimaryType(t)) return 'primary_pot'
-  if (RE_SECONDARY.test(t)) return 'secondary_pot'
+  // Global heuristic: LIFEP core-size SKUs are pot lines unless explicitly sauce/fry/set.
+  if (
+    RE_LIFEP_CORE_POT.test(t) &&
+    !RE_SAUCE_TOKEN.test(t) &&
+    !isFryingType(t) &&
+    !RE_COOKWARE_SET.test(t)
+  ) {
+    return 'primary_pot'
+  }
+  if (RE_SECONDARY.test(t) || RE_SAUCE_TOKEN.test(t)) return 'secondary_pot'
   if (isFryingType(t)) return 'frying'
   if (RE_COOKWARE_SET.test(t)) return 'cookware_set'
   return 'other'
