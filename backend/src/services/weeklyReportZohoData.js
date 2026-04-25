@@ -431,22 +431,56 @@ function catalogNameLooksLikeStockpot(s) {
 }
 
 /**
+ * @param {string} [s]
+ * @returns {string}
+ */
+function zohoCompactName(s) {
+  return String(s || '')
+    .toUpperCase()
+    .replace(/[\s\-_\.]/g, '')
+}
+
+/**
+ * The weekly report “code” is often the Zoho **Family** value (e.g. LIFEP7S), but item
+ * SKUs are internal barcodes — the old logic only read SKUs, so LIF* families never
+ * received the “set / pot” hint.
+ * @param {string} [family] — Zoho Family custom field
+ * @returns {boolean} true for LIFEP7S, LIFEP7, and similar; false otherwise
+ */
+function zohoFamilyLooksLikeLifepSetOrBase(family) {
+  const c = zohoCompactName(family)
+  if (!c) return false
+  if (/(FRY|F-P|WOK|SKI|SKL|GRILL|FPAN$)/.test(c)) return false
+  if (/(LIFE|LIF)P\d+S$/.test(c)) return true
+  if (/(LIFE|LIF)P\d+$/.test(c)) return true
+  return false
+}
+
+/**
  * SKU-only hints: many orgs encode fry vs pot in the SKU (e.g. *SP / *CASS / *POT
  * for pots; *F / *FP / *FRY for pans).
  * @param {string} [sku]
  * @returns {boolean}
  */
-function skuHintLooksLikePot(sku) {
-  const c = String(sku || '')
-    .toUpperCase()
-    .replace(/[\s\-_\.]/g, '')
+function skuHintLooksLikePotFromSku(sku) {
+  const c = zohoCompactName(sku)
   if (!c) return false
   if (/(POT|CASS|STK|STOCK|STEWS|BIRY|MARM|SOUP|COC(?!A)|BRAIS|BRAI|STWPOT)/.test(c)) return true
   if (/(SPS$|POTS$|STKS$|STOCKS$|POTK|SPOT$)/.test(c)) return true
   if (/LIF?P\w*\d*SP$|LIF?P\w*STK|LIF?P\w*POT/i.test(c)) return true
   if (/K(?![A-Z]*FRY)POT|POTC|PC\d+POT|PCCASS|PCASS/i.test(c)) return true
-  // e.g. LIFEP7S: (LIFE|LIF)P + digits + S = multi-piece set; prefer over single fry SKUs in same family.
   if (/(LIFE|LIF)P\d+S$/.test(c) && !/(FRY|F-P|WOK|SKL|SKI)/.test(c)) return true
+  return false
+}
+
+/**
+ * @param {string} [sku]
+ * @param {string} [family] — from Zoho Family field (same as row.family)
+ * @returns {boolean}
+ */
+function skuHintLooksLikePot(sku, family) {
+  if (skuHintLooksLikePotFromSku(sku)) return true
+  if (zohoFamilyLooksLikeLifepSetOrBase(family)) return true
   return false
 }
 
@@ -455,9 +489,7 @@ function skuHintLooksLikePot(sku) {
  * @returns {boolean}
  */
 function skuHintLooksLikeFry(sku) {
-  const c = String(sku || '')
-    .toUpperCase()
-    .replace(/[\s\-_\.]/g, '')
+  const c = zohoCompactName(sku)
   if (!c) return false
   if (/(FRYP|FRYING|F-PAN|FRY-PAN|FRYPAN|SKL|WOK$|FRY$|FRY-)/.test(c)) return true
   if (/(FRY0|FRY1|FRY2|FRY3|FRY4|FRY5|FRY6|FRY7|FRY8|FRY9|FP\d)/.test(c) && c.length < 32) {
@@ -477,15 +509,36 @@ function catalogThumbKind(row) {
   if (!row || !row._zoho || !row._zoho.has_image) return THUMB_CLASS.neutral
   const name = String(row.item_name != null ? row.item_name : '')
   const sku = String(row.sku != null ? row.sku : '')
+  const family = String(row.family != null ? row.family : '')
   const t = `${sku} ${name}`.trim()
-
-  const potSku = skuHintLooksLikePot(sku)
-  const frySku = skuHintLooksLikeFry(sku)
-  if (potSku && !frySku) return THUMB_CLASS.pot
-  if (frySku && !potSku) return THUMB_CLASS.fry
 
   const anyPot = catalogNameLooksLikeStockpot(t) || catalogNameLooksLikeAnyPot(t)
   const anyFry = catalogNameLooksLikeFrying(t) && !catalogNameLooksLikeStockpot(t)
+
+  const potFromSku = skuHintLooksLikePotFromSku(sku)
+  const fromLif = zohoFamilyLooksLikeLifepSetOrBase(family)
+  const lup = /^LUP$/i.test(family.trim())
+
+  // A fry-only product name in Zoho for this line stays “fry” for the image even if the
+  // Zoho **Family** says LIFEP* (the Family groups mixed SKUs; the fry listing is a fry line).
+  if (fromLif && !potFromSku && anyFry && !anyPot) {
+    return THUMB_CLASS.fry
+  }
+  if (lup && !potFromSku && anyFry && !anyPot) {
+    return THUMB_CLASS.fry
+  }
+
+  const potFromFamily = fromLif || lup
+  const potSku2 = potFromSku || fromLif || lup
+  const frySku = skuHintLooksLikeFry(sku)
+  if (potSku2 && !frySku) return THUMB_CLASS.pot
+  if (frySku && !potSku2) return THUMB_CLASS.fry
+  if (potSku2 && frySku) {
+    if (anyFry && !anyPot && !potFromSku && fromLif) return THUMB_CLASS.fry
+    if (anyPot) return THUMB_CLASS.pot
+    if (!anyFry) return THUMB_CLASS.pot
+    return THUMB_CLASS.fry
+  }
 
   if (anyPot && !anyFry) return THUMB_CLASS.pot
   if (anyFry && !anyPot) return THUMB_CLASS.fry
@@ -496,6 +549,9 @@ function catalogThumbKind(row) {
       }
     }
     if (anyPot) return THUMB_CLASS.pot
+  }
+  if (potFromFamily && !anyFry) {
+    return THUMB_CLASS.pot
   }
   return THUMB_CLASS.neutral
 }
@@ -536,7 +592,11 @@ function catalogThumbnailPriorityScore(row) {
   const s = `${row.sku != null ? row.sku : ''} ${row.item_name != null ? row.item_name : ''}`
   if (!s.trim()) return THUMB_SCORE.NEUTRAL
   if (catalogNameLooksLikeStockpot(s) && !catalogNameLooksLikeFrying(s)) return THUMB_SCORE.STOCKPOT
-  if (catalogNameLooksLikeAnyPot(s) && !catalogNameLooksLikeFrying(s) && (skuHintLooksLikePot(String(row.sku)) || !skuHintLooksLikeFry(String(row.sku)))) {
+  if (
+    catalogNameLooksLikeAnyPot(s) &&
+    !catalogNameLooksLikeFrying(s) &&
+    (skuHintLooksLikePot(String(row.sku), String(row.family != null ? row.family : '')) || !skuHintLooksLikeFry(String(row.sku)))
+  ) {
     return THUMB_SCORE.STOCKPOT
   }
   if (catalogNameLooksLikeFrying(s) && !catalogNameLooksLikeAnyPot(s)) return THUMB_SCORE.FRYING

@@ -440,10 +440,28 @@ test('aggregateByFamily: thumbnail prefers stock pot / casserole over frying pan
   assert.equal(one.zoho_representative_item_id, '2')
 })
 
-test('aggregateByFamily: LIFEP7S set SKU preferred over LIFEP7 fry-style name in same family', () => {
+test('aggregateByFamily: LIFEP7S SKU in item row preferred over LIFEP7 fry-style name in same family', () => {
   const rows = [
     { family: 'F', item_id: '1', sku: 'LIFEP7', item_name: 'Frying pan 3pcs', sales_amount: 0, _zoho: { has_image: true } },
     { family: 'F', item_id: '2', sku: 'LIFEP7S', item_name: 'Cookware set 5', sales_amount: 0, _zoho: { has_image: true } },
+  ]
+  const [one] = aggregateByFamily(rows)
+  assert.equal(one.zoho_representative_item_id, '2')
+})
+
+test('aggregateByFamily: Zoho Family LIFEP7S (not SKU) + barcodes picks non-fry line for thumb', () => {
+  const rows = [
+    { family: 'LIFEP7S', item_id: '1', sku: 'Z-100', item_name: 'Frying pan 3pcs', sales_amount: 0, _zoho: { has_image: true } },
+    { family: 'LIFEP7S', item_id: '2', sku: 'Z-200', item_name: 'Saucepan 2pc', sales_amount: 0, _zoho: { has_image: true } },
+  ]
+  const [one] = aggregateByFamily(rows)
+  assert.equal(one.zoho_representative_item_id, '2')
+})
+
+test('aggregateByFamily: Zoho Family LIFEP7 + barcodes picks stock pot line for thumb', () => {
+  const rows = [
+    { family: 'LIFEP7', item_id: '1', sku: 'A-1', item_name: 'Fry pan 2', sales_amount: 0, _zoho: { has_image: true } },
+    { family: 'LIFEP7', item_id: '2', sku: 'A-2', item_name: 'Stock pot 6L', sales_amount: 0, _zoho: { has_image: true } },
   ]
   const [one] = aggregateByFamily(rows)
   assert.equal(one.zoho_representative_item_id, '2')
