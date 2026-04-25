@@ -2,7 +2,11 @@ import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } fr
 import { useSearchParams } from 'react-router-dom'
 import { fetchBinary, downloadBlob } from '../../api/client'
 import { useWeeklySalesReport } from '../../hooks/useWeeklySalesReport'
-import { getCachedZohoItemBlob, setCachedZohoItemBlob } from '../../utils/zohoWeeklyItemImageCache'
+import {
+  getCachedZohoItemBlob,
+  setCachedZohoItemBlob,
+  ZOHO_WEEKLY_THUMB_CLIENT_CACHE_ENABLED,
+} from '../../utils/zohoWeeklyItemImageCache'
 import './WeeklyAdsReportPage.css'
 import './WeeklySalesReportPage.css'
 
@@ -271,7 +275,7 @@ export function ZohoItemThumb({ itemId }) {
           ? fromMem
           : (await fetchBinary(
               `${ZOHO_ITEM_IMAGE_PATH}/${encodeURIComponent(String(itemId))}`,
-              { cache: 'default' }
+              { cache: ZOHO_WEEKLY_THUMB_CLIENT_CACHE_ENABLED ? 'default' : 'no-store' }
             )).blob
         if (cancelled) return
         if (!fromMem) {

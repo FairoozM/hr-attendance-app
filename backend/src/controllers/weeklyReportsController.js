@@ -326,7 +326,12 @@ async function getZohoItemImage(req, res) {
     }
     zohoItemImageCache.set(itemId, out)
     res.setHeader('Content-Type', out.contentType)
-    res.setHeader('Cache-Control', `private, max-age=${zohoItemImageCache.MAX_AGE_SEC}`)
+    if (zohoItemImageCache.IMAGE_CACHE_ENABLED) {
+      res.setHeader('Cache-Control', `private, max-age=${zohoItemImageCache.MAX_AGE_SEC}`)
+    } else {
+      // Match disabled client: avoid stale browser proxy responses while testing new rep-item id.
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+    }
     return res.status(200).send(out.buffer)
   } catch (err) {
     if (err.code === 'ZOHO_INVALID_ITEM_ID') {

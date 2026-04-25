@@ -1,7 +1,11 @@
 /**
  * Client-side cache for Zoho item thumbnails in the weekly report.
  * Complements server + HTTP cache so repeated loads / remounts avoid refetching.
+ *
+ * Set to `true` to re-enable 2h in-memory cache for thumbs (and use `cache: 'default'`
+ * in `fetchBinary` from `ZohoItemThumb`).
  */
+export const ZOHO_WEEKLY_THUMB_CLIENT_CACHE_ENABLED = false
 
 const TTL_MS = 2 * 60 * 60 * 1000 // 2 hours
 const MAX_ENTRIES = 800
@@ -25,6 +29,7 @@ function evict() {
  * @returns {Blob | null}
  */
 export function getCachedZohoItemBlob(itemId) {
+  if (!ZOHO_WEEKLY_THUMB_CLIENT_CACHE_ENABLED) return null
   const k = String(itemId ?? '').trim()
   if (!k) return null
   const e = store.get(k)
@@ -41,6 +46,7 @@ export function getCachedZohoItemBlob(itemId) {
  * @param {Blob} blob
  */
 export function setCachedZohoItemBlob(itemId, blob) {
+  if (!ZOHO_WEEKLY_THUMB_CLIENT_CACHE_ENABLED) return
   const k = String(itemId ?? '').trim()
   if (!k) return
   evict()

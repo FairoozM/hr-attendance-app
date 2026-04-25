@@ -399,7 +399,13 @@ test('getZohoItemImage: second GET serves from in-memory cache (one Zoho fetch)'
   res2.setHeader = () => {}
   res2.status = (c) => { res2.statusCode = c; return res2 }
   await ctrl.getZohoItemImage(req, res2)
-  assert.equal(zohoFetches, 1, 'Zoho should only be called once for the same item id')
+  assert.equal(
+    zohoFetches,
+    zohoItemImageCache.IMAGE_CACHE_ENABLED ? 1 : 2,
+    zohoItemImageCache.IMAGE_CACHE_ENABLED
+      ? 'Zoho should only be called once for the same item id when in-memory image cache is on'
+      : 'Zoho is called on each request when in-memory image cache is off'
+  )
   assert.ok(Buffer.isBuffer(res2.body))
   assert.equal(res2.body.length, 3)
 })
