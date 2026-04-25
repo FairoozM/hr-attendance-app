@@ -502,3 +502,31 @@ test('aggregateByFamily: LIFEP17-40-BLUE (soup pot variant) preferred over FP fr
   const [one] = aggregateByFamily(rows)
   assert.equal(one.zoho_representative_item_id, '2')
 })
+
+test('aggregateByFamily: Zoho soup SKU in same Family (not in report rows) still wins over fry line', () => {
+  const rows = [
+    { family: 'LIFEP17', item_id: '1', sku: 'LIFEP17-FP-1', item_name: 'Fry 2', sales_amount: 0, _zoho: { has_image: true } },
+  ]
+  const byFamily = new Map([
+    [
+      'lifep17',
+      [
+        {
+          item_id: '2',
+          sku: 'LIFEP17-40-BLUE',
+          name: 'Stock pot 40',
+          image_id: 'zimg2',
+          status: 'active',
+          cf_family: 'LIFEP17',
+        },
+      ],
+    ],
+  ])
+  const [one] = aggregateByFamily(rows, {
+    byFamily,
+    familyFieldId: null,
+    fromDate: '2026-01-01',
+    toDate: '2026-01-31',
+  })
+  assert.equal(one.zoho_representative_item_id, '2')
+})

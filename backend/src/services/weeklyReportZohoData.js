@@ -345,13 +345,6 @@ function findZohoItemForMember(member, maps) {
   return findZohoItemsForMember(member, maps)[0] || null
 }
 
-/**
- * Aggregates individual item-level rows (one per Zoho item) into one summary
- * row per family. Sums only currency / value fields (no qty columns).
- *
- * @param {object[]} itemRows - output of the main item-matching loop
- * @returns {object[]} one row per distinct family value, sorted by family name
- */
 const NOT_FOUND_IN_GROUPS_SUFFIX = ' (not found in groups)'
 
 /**
@@ -687,7 +680,58 @@ function catalogThumbnailPriorityScore(row) {
   return THUMB_SCORE.NEUTRAL
 }
 
-function aggregateByFamily(itemRows) {
+/**
+ * @param {object} acc - family accumulator (has `family` display string)
+ * @returns {string} key for `maps.byFamily` (Zoho family value, lowercased)
+ */
+function zohoByFamilyKeyFromAcc(acc) {
+  if (!acc || acc.family == null) return ''
+  let s = String(acc.family)
+  if (s.endsWith(NOT_FOUND_IN_GROUPS_SUFFIX)) {
+    s = s.slice(0, -NOT_FOUND_IN_GROUPS_SUFFIX.length).trim()
+  }
+  return s ? s.trim().toLowerCase() : ''
+}
+
+/**
+ * Thumbnail pick must consider **all** Zoho items in a Family, not only SKUs in `item_report_groups`
+ * (e.g. soup LIFEP17-40-BLUE may be absent from the group while a fry line is listed).
+ * @param {object} acc
+ * @param {Map<string, object[]> | undefined} byFamily
+ * @param {string | null} familyFieldId
+ * @param {string} fromDate
+ * @param {string} toDate
+ */
+function mergeZohoFamilyImageCandidatesForThumb(acc, byFamily, familyFieldId, fromDate, toDate) {
+  if (!byFamily || typeof byFamily.get !== 'function' || !acc) return
+  const fk = zohoByFamilyKeyFromAcc(acc)
+  if (!fk) return
+  const famItems = byFamily.get(fk)
+  if (!Array.isArray(famItems) || famItems.length === 0) return
+  const seen = new Set(
+    (acc._imageCandidates || []).map((c) => c && c.iid).filter(Boolean)
+  )
+  for (const z of famItems) {
+    if (!z || (z.status && String(z.status).toLowerCase() === 'inactive')) continue
+    const iid = z.item_id != null && String(z.item_id).trim() !== '' ? String(z.item_id).trim() : ''
+    if (!iid || seen.has(iid)) continue
+    const hasImage = z.image_id != null && z.image_id !== ''
+    if (!hasImage) continue
+    const row = zohoItemToPlaceholderReportRow(z, fromDate, toDate, familyFieldId)
+    const score = catalogThumbnailPriorityScore(row)
+    if (score >= 0) {
+      acc._imageCandidates.push({ iid, row })
+      seen.add(iid)
+    }
+  }
+}
+
+/**
+ * @param {object[]} itemRows - output of the main item-matching loop
+ * @param {{ byFamily?: Map<string, object[]>, familyFieldId?: string | null, fromDate?: string, toDate?: string } | null} [zohoCatalogCtx] - if set, every Zoho item in each family can contribute a thumbnail candidate (fix: soup SKUs not in the report still win over fry lines in the same Family)
+ * @returns {object[]} one row per distinct family value, sorted by family name
+ */
+function aggregateByFamily(itemRows, zohoCatalogCtx = null) {
   /** @type {Map<string, object>} family (lowercase key) → accumulator */
   const map = new Map()
   const isUsable = (v) => v != null && !Number.isNaN(Number(v))
@@ -739,6 +783,22 @@ function aggregateByFamily(itemRows) {
       acc._purchaseN += 1
     }
     acc.sales_amount += row.sales_amount || 0
+  }
+  if (
+    zohoCatalogCtx &&
+    zohoCatalogCtx.byFamily &&
+    zohoCatalogCtx.fromDate &&
+    zohoCatalogCtx.toDate
+  ) {
+    for (const acc of map.values()) {
+      mergeZohoFamilyImageCandidatesForThumb(
+        acc,
+        zohoCatalogCtx.byFamily,
+        zohoCatalogCtx.familyFieldId != null ? zohoCatalogCtx.familyFieldId : null,
+        zohoCatalogCtx.fromDate,
+        zohoCatalogCtx.toDate
+      )
+    }
   }
   const out = []
   for (const acc of map.values()) {
@@ -1035,8 +1095,14 @@ async function fetchZohoItemRowsForGroupMembers(
     delete row._unit_sales_price
   }
 
-  // Collapse individual item rows into one summary row per family
-  const familyRows = aggregateByFamily(out)
+  // Collapse individual item rows into one summary row per family. Thumbnail rep id
+  // also considers every Zoho item in the same Family (byFamily), not only group members.
+  const familyRows = aggregateByFamily(out, {
+    byFamily: maps.byFamily,
+    familyFieldId,
+    fromDate,
+    toDate,
+  })
   console.log(
     `[weekly-report] group "${reportGroup}": aggregated ${out.length} item rows → ${familyRows.length} family rows`
   )
