@@ -493,3 +493,12 @@ test('aggregateByFamily: LIFEP7 + soup pot in item_name wins over fry (soup imag
   const [one] = aggregateByFamily(rows)
   assert.equal(one.zoho_representative_item_id, '2')
 })
+
+test('aggregateByFamily: LIFEP17-40-BLUE (soup pot variant) preferred over FP fry SKU in same family', () => {
+  const rows = [
+    { family: 'LIFEP17', item_id: '1', sku: 'LIFEP17-FP-1', item_name: 'Fry 2', sales_amount: 0, _zoho: { has_image: true } },
+    { family: 'LIFEP17', item_id: '2', sku: 'LIFEP17-40-BLUE', item_name: 'Stock', sales_amount: 0, _zoho: { has_image: true } },
+  ]
+  const [one] = aggregateByFamily(rows)
+  assert.equal(one.zoho_representative_item_id, '2')
+})

@@ -457,6 +457,8 @@ function zohoSoupStockPotImageScore(row) {
   const tLower = t.toLowerCase()
   if (!t.trim()) return 0
   let n = 0
+  if (/(LIFE|LIF)P\d*S?-\s*40\s*-/i.test(String(row.sku != null ? row.sku : ''))) n += 120000
+  if (/(LIFE|LIF)P(17|7)S?40(?!.*(FRY|F-P|FRY-))/i.test(skuU)) n += 120000
   if (catalogNameLooksLikeStockpot(t)) n += 80000
   if (/(SOUP|STEWS?|BIRY|MARM|STKPT|STKPOT|STOCKP|SPOT$|CASS|DUTCHPOT|SAUCEP(?!A))/i.test(skuU)) n += 50000
   if (/(SOUP|STEWS?|BIRY|CASS|STK|STWPOT|SPOT|BIRI)/.test(nameU) && /(POT|STK|BIRI|BIRY|CASS|SP$)/.test(nameU)) n += 35000
@@ -504,6 +506,7 @@ function zohoFamilyLooksLikeLifepSetOrBase(family) {
  * @returns {boolean}
  */
 function skuHintLooksLikePotFromSku(sku) {
+  const s = String(sku != null ? sku : '')
   const c = zohoCompactName(sku)
   if (!c) return false
   if (/(POT|CASS|STK|STOCK|STEWS|BIRY|MARM|SOUP|COC(?!A)|BRAIS|BRAI|STWPOT)/.test(c)) return true
@@ -511,6 +514,10 @@ function skuHintLooksLikePotFromSku(sku) {
   if (/LIF?P\w*\d*SP$|LIF?P\w*STK|LIF?P\w*POT/i.test(c)) return true
   if (/K(?![A-Z]*FRY)POT|POTC|PC\d+POT|PCCASS|PCASS/i.test(c)) return true
   if (/(LIFE|LIF)P\d+S$/.test(c) && !/(FRY|F-P|WOK|SKL|SKI)/.test(c)) return true
+  // e.g. LIFEP17-40-BLUE (stock/soup) → compact "LIFEP1740…"; 40 in org = pot line, not a fry suffix.
+  if (/(LIFE|LIF)P\d*S?-\s*40\s*-/i.test(s)) return true
+  if (/(LIFE|LIF)P(17|7)40(?!.*(FRY|F-P|FP(?!L)|FRY-))/i.test(c)) return true
+  if (/(LIFE|LIF)P(17|7)S?40(?!.*(FRY|F-P|FRY-))/i.test(c)) return true
   return false
 }
 
