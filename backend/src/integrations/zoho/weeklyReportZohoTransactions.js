@@ -20,7 +20,7 @@ const { fetchAllVendorCreditsRaw } = require('./zohoTransactionsCache')
 
 const MAX_DEFAULT_PAGES = 50
 
-/** KSA default 15% — overridable via `WEEKLY_REPORT_SALES_VAT_RATE` (e.g. `0.05` for GCC). */
+/** Reserved for future use; weekly sales $ uses pre-tax `amount` only (see `itemTotalNetFromSalesByItemRow`). */
 function resolveWeeklyReportSalesVatRate() {
   const raw = process.env.WEEKLY_REPORT_SALES_VAT_RATE
   if (raw === undefined || String(raw).trim() === '') return 0.15
@@ -30,17 +30,13 @@ function resolveWeeklyReportSalesVatRate() {
 }
 
 /**
- * "Sales by Item" report: `amount` is usually **pre-tax** (Zoho). Build the gross
- * (tax-inclusive) figure for the weekly `sales_amount` column. Prefer a tax-inclusive
- * or gross field if Zoho sends one; else `amount` + per-row tax lines; else apply
- * `WEEKLY_REPORT_SALES_VAT_RATE` to `amount` (default 15% when Zoho does not
- * return line tax on this report).
+ * "Sales by Item" report line total for the weekly `sales_amount` column: use Zoho’s
+ * **pre-tax** value only. Prefer explicit tax-exclusive fields when present, else
+ * `amount` from the report. Does **not** add line tax, VAT, or `WEEKLY_REPORT_SALES_VAT_RATE`.
  *
  * @param {object} r - one row from `/inventory/v1/reports/salesbyitem` `sales[]`
- * @param {number} vatRate - from resolveWeeklyReportSalesVatRate()
- * @see docs/weekly-report-zoho-transactions.md
  */
-function itemTotalGrossFromSalesByItemRow(r, vatRate) {
+function itemTotalNetFromSalesByItemRow(r) {
   if (!r || typeof r !== 'object') return 0
   const p = (v) => {
     if (v == null) return 0
@@ -49,26 +45,19 @@ function itemTotalGrossFromSalesByItemRow(r, vatRate) {
     return parseLineQty(v)
   }
   for (const k of [
-    'gross_amount',
-    'gross',
-    'amount_inclusive',
-    'amount_inclusive_of_tax',
-    'sales_inclusive',
-    'sales_with_tax',
-    'inclusive_total',
+    'amount_excluding_tax',
+    'tax_exclusive_amount',
+    'exclusive_amount',
+    'net_amount',
   ]) {
-    if (r[k] != null && r[k] !== '' && p(r[k]) > 0) {
-      return p(r[k])
-    }
+    if (r[k] == null || r[k] === '') continue
+    const v = p(r[k])
+    if (Number.isFinite(v)) return v
   }
-  const base = typeof r.amount === 'number' && Number.isFinite(r.amount) ? r.amount : p(r.amount)
-  if (base <= 0) return 0
-  const lineTax = p(r.item_tax) + p(r.line_tax) + p(r.total_tax) + p(r.vat) + p(r.igst) + p(r.sgst) + p(r.cgst) + p(r.tax) + p(r.tax_amount)
-  if (lineTax > 0) return base + lineTax
-  if (Number.isFinite(vatRate) && vatRate > 0) {
-    return base * (1 + vatRate)
+  if (typeof r.amount === 'number' && Number.isFinite(r.amount)) {
+    return r.amount
   }
-  return base
+  return p(r.amount)
 }
 
 /**
@@ -153,8 +142,8 @@ function matchesVendorCreditDocument(vc, expectedVendorId, expectedVendorName) {
  *   The /invoices list API does NOT return line_items — you would need a separate
  *   GET /invoices/:id per invoice (hundreds of calls). The /reports/salesbyitem
  *   endpoint returns pre-aggregated quantity_sold + amount per item in a single
- *   paginated call, which is ~100× faster. `amount` is converted to a **gross
- *   (tax-inclusive) line value** for `item_total` (see `itemTotalGrossFromSalesByItemRow`).
+ *   paginated call, which is ~100× faster. `item_total` is Zoho’s pre-tax
+ *   `amount` (no VAT added in code) — see `itemTotalNetFromSalesByItemRow`.
  *
  * @param {string} fromDate  YYYY-MM-DD
  * @param {string} toDate    YYYY-MM-DD
@@ -182,19 +171,17 @@ async function getSales(fromDate, toDate, opts = {}) {
       onW('Sales by Item report may be incomplete: pagination cap reached. Narrow the date range.')
     }
 
-    const vatRate = resolveWeeklyReportSalesVatRate()
-
     // Normalise into the same line shape used by sumLinesToMap / sumAmountsToMap.
     // `sku` is available directly from `row.item.sku` which lets lineCanonicalKey
     // skip the item_id→sku lookup and key by s:<sku> directly.
-    // `item_total` is always **gross of VAT** (see itemTotalGrossFromSalesByItemRow).
+    // `item_total` = Zoho pre-tax amount (no added tax) — see itemTotalNetFromSalesByItemRow.
     const lineRows = rows.map((r) => ({
       type: 'sales_report',
       item_id: r.item_id || '',
       name: r.item_name || '',
       sku: (r.item && r.item.sku) ? String(r.item.sku).trim() : '',
       quantity: typeof r.quantity_sold === 'number' ? r.quantity_sold : parseLineQty(r.quantity_sold),
-      item_total: Math.round(itemTotalGrossFromSalesByItemRow(r, vatRate) * 100) / 100,
+      item_total: Math.round(itemTotalNetFromSalesByItemRow(r) * 100) / 100,
     }))
 
     return {
@@ -417,7 +404,9 @@ module.exports = {
     matchesReportVendor,
     normalizeZohoLineItems,
     matchesVendorCreditDocument,
-    itemTotalGrossFromSalesByItemRow,
+    itemTotalNetFromSalesByItemRow,
+    /** @deprecated use itemTotalNetFromSalesByItemRow (pre-tax only) */
+    itemTotalGrossFromSalesByItemRow: (r) => itemTotalNetFromSalesByItemRow(r),
     resolveWeeklyReportSalesVatRate,
   },
 }

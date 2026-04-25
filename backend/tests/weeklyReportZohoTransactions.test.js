@@ -7,7 +7,7 @@ const assert = require('node:assert/strict')
 const path = require('path')
 const { mockModule, freshRequire } = require('./_helpers')
 const {
-  _internals: { matchesReportVendor, itemTotalGrossFromSalesByItemRow, resolveWeeklyReportSalesVatRate },
+  _internals: { matchesReportVendor, itemTotalNetFromSalesByItemRow, resolveWeeklyReportSalesVatRate },
 } = require('../src/integrations/zoho/weeklyReportZohoTransactions')
 
 function clearZohoTransactionModules() {
@@ -130,20 +130,20 @@ test('getSales: Sales by Item report (mocked salesbyitem)', async () => {
   const r = await m.getSales('2026-01-01', '2026-01-31', {})
   assert.equal(r.line_count, 2)
   assert.equal(r.lines.reduce((s, l) => s + l.quantity, 0), 5)
-  // amount is ex-VAT; default +15% → 1.15 and 4.6
-  assert.equal(r.lines[0].item_total, 1.15)
-  assert.equal(r.lines[1].item_total, 4.6)
+  // amount from Zoho as-is (pre-tax; no +VAT in code)
+  assert.equal(r.lines[0].item_total, 1)
+  assert.equal(r.lines[1].item_total, 4)
   if (prevV === undefined) delete process.env.WEEKLY_REPORT_SALES_VAT_RATE
   else process.env.WEEKLY_REPORT_SALES_VAT_RATE = prevV
 })
 
-test('itemTotalGrossFromSalesByItemRow: row tax, gross field, env 0', () => {
-  assert.equal(itemTotalGrossFromSalesByItemRow({ amount: 100, item_tax: 5 }, 0.15), 105)
-  assert.equal(itemTotalGrossFromSalesByItemRow({ amount: 10, gross_amount: 12.5 }, 0.15), 12.5)
+test('itemTotalNetFromSalesByItemRow: ignores tax and gross; uses pre-tax amount', () => {
+  assert.equal(itemTotalNetFromSalesByItemRow({ amount: 100, item_tax: 5 }), 100, 'no line tax added')
+  assert.equal(itemTotalNetFromSalesByItemRow({ amount: 10, gross_amount: 12.5 }), 10, 'amount over gross_inclusive')
   const prevV = process.env.WEEKLY_REPORT_SALES_VAT_RATE
   process.env.WEEKLY_REPORT_SALES_VAT_RATE = '0'
   assert.equal(resolveWeeklyReportSalesVatRate(), 0)
-  assert.equal(itemTotalGrossFromSalesByItemRow({ amount: 200 }, 0), 200)
+  assert.equal(itemTotalNetFromSalesByItemRow({ amount: 200 }), 200, 'no env VAT multiplier on amount')
   if (prevV === undefined) delete process.env.WEEKLY_REPORT_SALES_VAT_RATE
   else process.env.WEEKLY_REPORT_SALES_VAT_RATE = prevV
 })

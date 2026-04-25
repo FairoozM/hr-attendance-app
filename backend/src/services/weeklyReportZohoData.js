@@ -5,7 +5,7 @@
  * For each `item_report_groups` member, intersect with the Zoho catalog. **Family**
  * is display metadata. On-hand **quantities** come from Items; period movement (sold, purchases, returns) from
  * reports and vendor credits. The API then exposes **monetary** opening / closing and **purchase**
- * (period purchase qty × Zoho `rate`, same sales price as stock) plus sales $ from the sales report, etc.
+ * (period purchase qty × Zoho `rate`, same sales price as stock) plus **pre-tax** sales $ from Zoho Sales by Item (`amount` — no added VAT in code), etc.
  * If no unit can be resolved (Zoho `rate` / `purchase_rate`, or implied `sales_amount/sold` for the
  * item), opening / closing and purchase $ (when period purchase qty is positive) are `null`;
  * return $ uses vendor line total when present, else qty × `rate` with the same rule.
