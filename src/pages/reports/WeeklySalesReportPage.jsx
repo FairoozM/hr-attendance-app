@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { fetchBinary, downloadBlob } from '../../api/client'
 import { useWeeklySalesReport } from '../../hooks/useWeeklySalesReport'
 import { getCachedZohoItemBlob, setCachedZohoItemBlob } from '../../utils/zohoWeeklyItemImageCache'
@@ -116,6 +117,58 @@ export function defaultWeekRange() {
   end.setDate(start.getDate() + 6)
   const iso = (x) => x.toISOString().slice(0, 10)
   return { from: iso(start), to: iso(end) }
+}
+
+/** URL query keys for persisting filters across refresh (shared weekly report pages). */
+export const WEEKLY_REPORT_QUERY = {
+  from: 'from',
+  to: 'to',
+  load: 'load',
+  warehouse: 'warehouse',
+}
+
+/**
+ * Read date range, optional warehouse, and "already loaded" flag from the current URL.
+ * When params are missing or invalid, returns `defaultRange` for dates and `loadToken: 0`.
+ */
+export function parseWeeklyReportFiltersFromSearchParams(searchParams, defaultRange, options = {}) {
+  const { includeWarehouse = false } = options
+  const def = defaultRange
+  const f = searchParams.get(WEEKLY_REPORT_QUERY.from)
+  const t = searchParams.get(WEEKLY_REPORT_QUERY.to)
+  const base = { from: def.from, to: def.to, loadToken: 0 }
+  if (includeWarehouse) {
+    base.warehouse = searchParams.get(WEEKLY_REPORT_QUERY.warehouse) || ''
+  }
+  if (!f || !t || f > t) {
+    return base
+  }
+  const out = {
+    from: f,
+    to: t,
+    loadToken: searchParams.get(WEEKLY_REPORT_QUERY.load) === '1' ? 1 : 0,
+  }
+  if (includeWarehouse) {
+    out.warehouse = searchParams.get(WEEKLY_REPORT_QUERY.warehouse) || ''
+  }
+  return out
+}
+
+/**
+ * @param {{ from: string, to: string, warehouse?: string, loaded: boolean }} opts
+ * @returns {URLSearchParams}
+ */
+export function buildWeeklyReportFilterSearchParams({ from, to, warehouse, loaded }) {
+  const p = new URLSearchParams()
+  p.set(WEEKLY_REPORT_QUERY.from, from)
+  p.set(WEEKLY_REPORT_QUERY.to, to)
+  if (warehouse && String(warehouse).trim() !== '') {
+    p.set(WEEKLY_REPORT_QUERY.warehouse, String(warehouse).trim())
+  }
+  if (loaded) {
+    p.set(WEEKLY_REPORT_QUERY.load, '1')
+  }
+  return p
 }
 
 export function defaultExportXlsxName(reportGroup, fromDate, toDate) {
@@ -619,19 +672,51 @@ export function WeeklySalesReportSection({
  * direct links to /slow-moving or /other-family if needed).
  */
 export function WeeklySalesReportPage({ reportGroup, title, subtitle }) {
-  const initial = useMemo(defaultWeekRange, [])
-  const [fromDate, setFromDate] = useState(initial.from)
-  const [toDate, setToDate]     = useState(initial.to)
-  const [loadToken, setLoadToken] = useState(0)
+  const def = useMemo(() => defaultWeekRange(), [])
+  const [searchParams, setSearchParams] = useSearchParams()
+  const parsed = useMemo(
+    () => parseWeeklyReportFiltersFromSearchParams(searchParams, def, { includeWarehouse: false }),
+    [searchParams, def],
+  )
+  const [fromDate, setFromDate] = useState(parsed.from)
+  const [toDate, setToDate]     = useState(parsed.to)
+  const [loadToken, setLoadToken] = useState(parsed.loadToken)
 
-  const handleFromChange = useCallback((e) => setFromDate(e.target.value), [])
-  const handleToChange   = useCallback((e) => setToDate(e.target.value), [])
+  const writeUrl = useCallback(
+    (from, to, { loaded = false } = {}) => {
+      setSearchParams(buildWeeklyReportFilterSearchParams({ from, to, warehouse: '', loaded }), {
+        replace: true,
+      })
+    },
+    [setSearchParams],
+  )
+
+  const handleFromChange = useCallback(
+    (e) => {
+      const v = e.target.value
+      setFromDate(v)
+      setLoadToken(0)
+      writeUrl(v, toDate, { loaded: false })
+    },
+    [toDate, writeUrl],
+  )
+  const handleToChange   = useCallback(
+    (e) => {
+      const v = e.target.value
+      setToDate(v)
+      setLoadToken(0)
+      writeUrl(fromDate, v, { loaded: false })
+    },
+    [fromDate, writeUrl],
+  )
 
   const datesValid = Boolean(fromDate) && Boolean(toDate) && fromDate <= toDate
 
-  useEffect(() => {
-    setLoadToken(0)
-  }, [fromDate, toDate])
+  const handleLoadReport = useCallback(() => {
+    if (!fromDate || !toDate) return
+    setLoadToken((n) => n + 1)
+    writeUrl(fromDate, toDate, { loaded: true })
+  }, [fromDate, toDate, writeUrl])
 
   return (
     <div className="war-page">
@@ -661,7 +746,7 @@ export function WeeklySalesReportPage({ reportGroup, title, subtitle }) {
             <button
               type="button"
               className="war-btn war-btn--primary"
-              onClick={() => setLoadToken((n) => n + 1)}
+              onClick={handleLoadReport}
               disabled={!datesValid}
             >
               Load report

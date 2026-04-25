@@ -1,10 +1,13 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   WeeklySalesReportSection,
   WeeklyNoActivityReportSection,
   defaultWeekRange,
   formatDateLabel,
   SOURCE_GROUP_LABELS,
+  buildWeeklyReportFilterSearchParams,
+  parseWeeklyReportFiltersFromSearchParams,
 } from './WeeklySalesReportPage'
 import { useWarehouses } from '../../hooks/useWarehouses'
 import './WeeklyAdsReportPage.css'
@@ -16,11 +19,16 @@ import './WeeklySalesReportPage.css'
  * Each section fetches its own data independently and has its own Export / Refresh controls.
  */
 export function WeeklyCombinedSalesReportPage() {
-  const initial = useMemo(defaultWeekRange, [])
-  const [fromDate, setFromDate]       = useState(initial.from)
-  const [toDate, setToDate]           = useState(initial.to)
-  const [warehouseId, setWarehouseId] = useState('')
-  const [loadToken, setLoadToken]     = useState(0)
+  const def = useMemo(() => defaultWeekRange(), [])
+  const [searchParams, setSearchParams] = useSearchParams()
+  const parsed = useMemo(
+    () => parseWeeklyReportFiltersFromSearchParams(searchParams, def, { includeWarehouse: true }),
+    [searchParams, def],
+  )
+  const [fromDate, setFromDate]       = useState(parsed.from)
+  const [toDate, setToDate]           = useState(parsed.to)
+  const [warehouseId, setWarehouseId] = useState(parsed.warehouse)
+  const [loadToken, setLoadToken]     = useState(parsed.loadToken)
   const [noValueByGroup, setNoValueByGroup] = useState({
     slow_moving: [],
     other_family: [],
@@ -28,17 +36,53 @@ export function WeeklyCombinedSalesReportPage() {
 
   const { warehouses, loading: whLoading } = useWarehouses()
 
-  const handleFromChange      = useCallback((e) => setFromDate(e.target.value), [])
-  const handleToChange        = useCallback((e) => setToDate(e.target.value), [])
-  const handleWarehouseChange = useCallback((e) => setWarehouseId(e.target.value), [])
+  const writeUrl = useCallback(
+    (from, to, wh, { loaded = false } = {}) => {
+      setSearchParams(
+        buildWeeklyReportFilterSearchParams({ from, to, warehouse: wh, loaded }),
+        { replace: true },
+      )
+    },
+    [setSearchParams],
+  )
+
+  const handleFromChange = useCallback(
+    (e) => {
+      const v = e.target.value
+      setFromDate(v)
+      setLoadToken(0)
+      writeUrl(v, toDate, warehouseId, { loaded: false })
+    },
+    [toDate, warehouseId, writeUrl],
+  )
+  const handleToChange = useCallback(
+    (e) => {
+      const v = e.target.value
+      setToDate(v)
+      setLoadToken(0)
+      writeUrl(fromDate, v, warehouseId, { loaded: false })
+    },
+    [fromDate, warehouseId, writeUrl],
+  )
+  const handleWarehouseChange = useCallback(
+    (e) => {
+      const v = e.target.value
+      setWarehouseId(v)
+      setLoadToken(0)
+      writeUrl(fromDate, toDate, v, { loaded: false })
+    },
+    [fromDate, toDate, writeUrl],
+  )
+
+  const handleLoadReport = useCallback(() => {
+    if (!fromDate || !toDate) return
+    setLoadToken((n) => n + 1)
+    writeUrl(fromDate, toDate, warehouseId, { loaded: true })
+  }, [fromDate, toDate, warehouseId, writeUrl])
 
   const datesValid    = Boolean(fromDate) && Boolean(toDate) && fromDate <= toDate
   const dateLabel     = formatDateLabel(fromDate, toDate)
   const activeWhId    = warehouseId || null   // null = all warehouses (no filter)
-
-  useEffect(() => {
-    setLoadToken(0)
-  }, [fromDate, toDate, warehouseId])
 
   useEffect(() => {
     if (loadToken === 0) {
@@ -143,7 +187,7 @@ export function WeeklyCombinedSalesReportPage() {
             <button
               type="button"
               className="war-btn war-btn--primary"
-              onClick={() => setLoadToken((n) => n + 1)}
+              onClick={handleLoadReport}
               disabled={!datesValid}
             >
               Load report
