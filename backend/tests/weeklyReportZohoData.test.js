@@ -585,3 +585,55 @@ test('aggregateByFamily: pinned LIFEP5-32N-GREEN merged from bySku when absent f
   )
   assert.match(String(one.zoho_representative_sku || ''), /LIFEP5-32N-GREEN/i)
 })
+
+
+test('aggregateByFamily: pinned LIFEP12 pot SKU is used for thumbnail', () => {
+  const rows = [
+    {
+      family: 'LIFEP12',
+      item_id: '99',
+      sku: 'LIFEP12-RANDOM',
+      item_name: 'line in report',
+      sales_amount: 0,
+      _zoho: { has_image: true, is_active: true },
+    },
+  ]
+  const byFamily = new Map([
+    [
+      'lifep12',
+      [
+        {
+          item_id: '99',
+          sku: 'LIFEP12-RANDOM',
+          name: 'line in report',
+          image_id: '1',
+          status: 'active',
+        },
+      ],
+    ],
+  ])
+  const bySku = new Map()
+  bySku.set('lifep12-random', {
+    item_id: '99',
+    sku: 'LIFEP12-RANDOM',
+    name: 'line in report',
+    image_id: '1',
+    status: 'active',
+  })
+  bySku.set('6294021002943', {
+    item_id: 'LIFEP12_PIN',
+    sku: '6294021002943',
+    name: 'LIFEP12-10GOLD pot',
+    image_id: 'p',
+    status: 'active',
+  })
+  const [one] = aggregateByFamily(rows, {
+    byFamily,
+    bySku,
+    familyFieldId: null,
+    fromDate: '2026-01-01',
+    toDate: '2026-01-31',
+  })
+  assert.equal(one.zoho_representative_item_id, 'LIFEP12_PIN')
+  assert.equal(String(one.zoho_representative_sku || ''), '6294021002943')
+})

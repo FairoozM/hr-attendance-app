@@ -5,7 +5,7 @@
  * biggest secondary → cookware set → other → frying (last). Size from L + cm in SKU + name.
  */
 const REPRESENTATIVE_IMAGE_SELECTION_VERSION = 9
-const REPRESENTATIVE_IMAGE_CACHE_VERSION = 4
+const REPRESENTATIVE_IMAGE_CACHE_VERSION = 5
 
 /** Same as `weeklyReportZohoData` — family display can include this suffix for unmapped Zoho families. */
 const FAMILY_LABEL_SUFFIX_NOT_IN_GROUPS = ' (not found in groups)'
@@ -18,6 +18,7 @@ const FAMILY_TO_REPRESENTATIVE_SKU = Object.freeze({
   lifep17s: 'LIFEP17S-40P-BEIGE',
   lifep5: 'LIFEP5-32N-GREEN',
   lifep2: 'LIFEP2-32-BEIGE',
+  lifep12: '6294021002943',
 })
 
 const BONUS_IMAGE = 40
