@@ -159,17 +159,20 @@ function parseFilenameFromContentDisposition(header) {
 /**
  * GET a binary response (e.g. .xlsx) with the same auth as other API calls.
  * On error, attempts to parse JSON error bodies from the API.
+ * @param {string} path
+ * @param {{ cache?: RequestCache }} [options] — pass `{ cache: 'default' }` to allow browser HTTP cache (e.g. weekly report thumbnails with long `max-age` from the server).
  */
-export async function fetchBinary(path) {
+export async function fetchBinary(path, options = {}) {
   const p = normalizeApiPath(path)
   const url = p.startsWith('http') ? p : resolveApiUrl(p)
+  const cache = options.cache != null ? options.cache : 'no-store'
   const res = await fetch(url, {
     method: 'GET',
     headers: {
       Accept: '*/*',
       ...getAuthHeaders(),
     },
-    cache: 'no-store',
+    cache,
   })
   if (!res.ok) {
     const text = await res.text()

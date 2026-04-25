@@ -335,13 +335,18 @@ test('weeklyReports: listAvailableGroups returns active groups', async () => {
 })
 
 test('getZohoItemImage: proxies Zoho image buffer with 200', async (t) => {
+  const zohoItemImageCache = require('../src/services/zohoItemImageCache')
+  zohoItemImageCache.clear()
   const r1 = mockModule('../src/integrations/zoho/zohoInventoryClient', {
     fetchZohoItemImageBuffer: async (id) => {
       assert.equal(id, '4815000000044208')
       return { buffer: Buffer.from([0xff, 0xd8, 0xff]), contentType: 'image/jpeg' }
     },
   })
-  t.after(r1)
+  t.after(() => {
+    r1()
+    zohoItemImageCache.clear()
+  })
   const ctrl = freshRequire('../src/controllers/weeklyReportsController')
   const { req, res } = makeReqRes({ params: { itemId: '4815000000044208' } })
   res.setHeader = () => {}
@@ -352,10 +357,15 @@ test('getZohoItemImage: proxies Zoho image buffer with 200', async (t) => {
 })
 
 test('getZohoItemImage: 404 when Zoho has no image', async (t) => {
+  const zohoItemImageCache = require('../src/services/zohoItemImageCache')
+  zohoItemImageCache.clear()
   const r1 = mockModule('../src/integrations/zoho/zohoInventoryClient', {
     fetchZohoItemImageBuffer: async () => null,
   })
-  t.after(r1)
+  t.after(() => {
+    r1()
+    zohoItemImageCache.clear()
+  })
   const ctrl = freshRequire('../src/controllers/weeklyReportsController')
   const { req, res } = makeReqRes({ params: { itemId: '999' } })
   res.setHeader = () => {}
@@ -364,4 +374,32 @@ test('getZohoItemImage: 404 when Zoho has no image', async (t) => {
   }
   await ctrl.getZohoItemImage(req, res)
   assert.equal(res.statusCode, 404)
+})
+
+test('getZohoItemImage: second GET serves from in-memory cache (one Zoho fetch)', async (t) => {
+  const zohoItemImageCache = require('../src/services/zohoItemImageCache')
+  zohoItemImageCache.clear()
+  let zohoFetches = 0
+  const r1 = mockModule('../src/integrations/zoho/zohoInventoryClient', {
+    fetchZohoItemImageBuffer: async (id) => {
+      zohoFetches += 1
+      assert.equal(id, '111')
+      return { buffer: Buffer.from([1, 2, 3]), contentType: 'image/png' }
+    },
+  })
+  t.after(() => {
+    r1()
+    zohoItemImageCache.clear()
+  })
+  const ctrl = freshRequire('../src/controllers/weeklyReportsController')
+  const { req, res: res1 } = makeReqRes({ params: { itemId: '111' } })
+  res1.setHeader = () => {}
+  await ctrl.getZohoItemImage(req, res1)
+  const res2 = { ...res1, body: undefined, statusCode: 200, headersSent: false, send(payload) { this.body = payload; this.headersSent = true; return this } }
+  res2.setHeader = () => {}
+  res2.status = (c) => { res2.statusCode = c; return res2 }
+  await ctrl.getZohoItemImage(req, res2)
+  assert.equal(zohoFetches, 1, 'Zoho should only be called once for the same item id')
+  assert.ok(Buffer.isBuffer(res2.body))
+  assert.equal(res2.body.length, 3)
 })

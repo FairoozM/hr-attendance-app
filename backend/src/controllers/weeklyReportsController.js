@@ -6,6 +6,7 @@ const { mergeZohoWithVendorContext }                 = require('../services/week
 const { getCachedReport }                             = require('../services/weeklyReportCache')
 const { fetchWarehouses }                             = require('../integrations/zoho/zohoWarehouses')
 const { fetchZohoItemImageBuffer }                    = require('../integrations/zoho/zohoInventoryClient')
+const zohoItemImageCache                              = require('../services/zohoItemImageCache')
 const {
   buildWeeklyReportXlsxBuffer,
   getExportSheetTitleForGroup,
@@ -313,12 +314,19 @@ async function exportReportByGroupXlsx(req, res) {
 async function getZohoItemImage(req, res) {
   const { itemId } = req.params
   try {
+    const cached = zohoItemImageCache.get(itemId)
+    if (cached) {
+      res.setHeader('Content-Type', cached.contentType)
+      res.setHeader('Cache-Control', `private, max-age=${zohoItemImageCache.MAX_AGE_SEC}`)
+      return res.status(200).send(cached.buffer)
+    }
     const out = await fetchZohoItemImageBuffer(itemId)
     if (!out) {
       return res.status(404).end()
     }
+    zohoItemImageCache.set(itemId, out)
     res.setHeader('Content-Type', out.contentType)
-    res.setHeader('Cache-Control', 'private, max-age=300')
+    res.setHeader('Cache-Control', `private, max-age=${zohoItemImageCache.MAX_AGE_SEC}`)
     return res.status(200).send(out.buffer)
   } catch (err) {
     if (err.code === 'ZOHO_INVALID_ITEM_ID') {

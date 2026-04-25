@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { fetchBinary, downloadBlob } from '../../api/client'
 import { useWeeklySalesReport } from '../../hooks/useWeeklySalesReport'
+import { getCachedZohoItemBlob, setCachedZohoItemBlob } from '../../utils/zohoWeeklyItemImageCache'
 import './WeeklyAdsReportPage.css'
 import './WeeklySalesReportPage.css'
 
@@ -212,10 +213,17 @@ export function ZohoItemThumb({ itemId }) {
     let cancelled = false
     const go = async () => {
       try {
-        const { blob } = await fetchBinary(
-          `${ZOHO_ITEM_IMAGE_PATH}/${encodeURIComponent(String(itemId))}`
-        )
+        const fromMem = getCachedZohoItemBlob(itemId)
+        const blob = fromMem
+          ? fromMem
+          : (await fetchBinary(
+              `${ZOHO_ITEM_IMAGE_PATH}/${encodeURIComponent(String(itemId))}`,
+              { cache: 'default' }
+            )).blob
         if (cancelled) return
+        if (!fromMem) {
+          setCachedZohoItemBlob(itemId, blob)
+        }
         const u = URL.createObjectURL(blob)
         if (objRef.current) URL.revokeObjectURL(objRef.current)
         objRef.current = u
