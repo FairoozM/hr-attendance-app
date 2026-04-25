@@ -1,4 +1,4 @@
-const { getInventoryByGroup, getFamilyDetailsByGroup } = require('../services/zohoService')
+const { getInventoryByGroup } = require('../services/zohoService')
 const { listGroupKeys }                               = require('../services/itemReportGroupsService')
 const { sumReportGrandTotals }                        = require('../utils/weeklyReportTotals')
 const { ZOHO_WEEKLY_REPORT_INTEGRATION }              = require('../services/weeklyReportZohoData')
@@ -60,9 +60,16 @@ async function getWarehouses(_req, res) {
 
 async function loadWeeklyReportPayload(group, fromDate, toDate, warehouseId = null, excludeWarehouseId = null) {
   return getCachedReport(group, fromDate, toDate, async () => {
-    const { items, reportMeta } = await getInventoryByGroup(group, fromDate, toDate, warehouseId, excludeWarehouseId)
+    const { items, reportMeta, itemDetails } = await getInventoryByGroup(
+      group,
+      fromDate,
+      toDate,
+      warehouseId,
+      excludeWarehouseId,
+      { includeItemDetails: true }
+    )
     const totals = sumReportGrandTotals(items)
-    return { items, totals, reportMeta: reportMeta || { warnings: [] } }
+    return { items, totals, reportMeta: reportMeta || { warnings: [] }, itemDetails: itemDetails || [] }
   }, warehouseId, excludeWarehouseId)
 }
 
@@ -275,14 +282,17 @@ async function getFamilyDetailsByGroupController(req, res) {
     })
   }
   try {
-    const out = await getFamilyDetailsByGroup(
+    const payload = await loadWeeklyReportPayload(
       group,
-      family,
       range.from_date,
       range.to_date,
       warehouseId,
       excludeWarehouseId
     )
+    const familyKey = String(family || '').trim().toLowerCase()
+    const items = Array.isArray(payload.itemDetails)
+      ? payload.itemDetails.filter((r) => String(r.family_display || r.family || '').trim().toLowerCase() === familyKey)
+      : []
     return res.json({
       report_group: group,
       family,
@@ -290,7 +300,7 @@ async function getFamilyDetailsByGroupController(req, res) {
       to_date: range.to_date,
       warehouse_id: warehouseId || null,
       exclude_warehouse_id: excludeWarehouseId || null,
-      items: Array.isArray(out.items) ? out.items : [],
+      items,
     })
   } catch (err) {
     return handleZohoError(res, err, `getFamilyDetailsByGroup(${group})`)

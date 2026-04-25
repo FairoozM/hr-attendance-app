@@ -144,6 +144,46 @@ test('weeklyReports: Grand Total sums Zoho-provided numbers verbatim', async () 
   })
 })
 
+test('weeklyReports: family-details filters cached report itemDetails without a second Zoho fetch', async () => {
+  const invCalls = []
+  const getInventoryByGroup = async (group, from, to, warehouseId, excludeWarehouseId, options) => {
+    invCalls.push({ group, from, to, warehouseId, excludeWarehouseId, options })
+    return {
+      items: [
+        { family: 'LIFEP17S', opening_stock: 1, purchase_amount: 0, returned_to_wholesale: 0, closing_stock: 1, sales_amount: 0 },
+      ],
+      itemDetails: [
+        { family: 'LIFEP17S', family_display: 'LIFEP17S', sku: 'A', item_name: 'A', opening_qty: 1 },
+        { family: 'OTHER', family_display: 'OTHER', sku: 'B', item_name: 'B', opening_qty: 1 },
+      ],
+      reportMeta: { warnings: [] },
+    }
+  }
+  const ctrl = loadController({
+    getInventoryByGroup,
+    listGroupKeys: async () => ['slow_moving'],
+  })
+  {
+    const { req, res } = makeReqRes({
+      params: { group: 'slow_moving' },
+      query: { ...VALID, exclude_warehouse_id: 'damaged' },
+    })
+    await ctrl.getReportByGroup(req, res)
+    assert.equal(res.statusCode, 200)
+  }
+  {
+    const { req, res } = makeReqRes({
+      params: { group: 'slow_moving' },
+      query: { ...VALID, exclude_warehouse_id: 'damaged', family: 'LIFEP17S' },
+    })
+    await ctrl.getFamilyDetailsByGroupController(req, res)
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.body.items.map((r) => r.sku), ['A'])
+  }
+  assert.equal(invCalls.length, 1)
+  assert.equal(invCalls[0].options.includeItemDetails, true)
+})
+
 test('weeklyReports: export.xlsx uses the same getInventoryByGroup + items as JSON (adapter pipeline)', async () => {
   const sharedItems = [
     {
