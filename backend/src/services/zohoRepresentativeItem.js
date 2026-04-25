@@ -4,7 +4,7 @@
  * over similar-looking frying-pan packshots. Zoho parent/child variation is not always exposed
  * on list items — we use SKU + name + has_image + active only.
  */
-const REPRESENTATIVE_IMAGE_SELECTION_VERSION = 3
+const REPRESENTATIVE_IMAGE_SELECTION_VERSION = 4
 const BONUS_IMAGE = 25
 const BONUS_ACTIVE = 10
 const TIER1 = 100
@@ -31,6 +31,8 @@ function normalizeZohoTextForScoring(s) {
 
 /** Zoho / org naming: soup–stock (–40) line vs child fry SKU (LIF…–FP) in the same family. */
 const RE_ORG_LIFEP_40 = /lifep\d+[\s-]+40|lifeps\d*[\s-]+40/i
+/** e.g. LIFEP17S-40P-BEIGE → lifep17s 40p … (S-series soup; prefer over FP child). */
+const RE_ORG_LIFEP_40P = /lifep\d*s[\s-]+40p|lifeps\d*s[\s-]+40p/i
 
 const RE_TIER1 =
   /(soup[\s-]*pot|souppot|stock[\s-]*pot|stockpot|stew[\s-]*pot|stewpot|cook(?:ing)?[\s-]*pot|casserole|dutch[\s-]*oven|handi|stew\s*pot)/i
@@ -58,7 +60,7 @@ function scoreZohoNameSkuText(sku, name) {
   }
   const detail = []
 
-  const orgLifep40 = RE_ORG_LIFEP_40.test(t)
+  const orgLifep40 = RE_ORG_LIFEP_40.test(t) || RE_ORG_LIFEP_40P.test(t)
   const tier1 = RE_TIER1.test(t) || orgLifep40
   const tier2 = !tier1 && RE_TIER2.test(t)
   const tier3 = !tier1 && !tier2 && isTier3Pot(t)
@@ -66,7 +68,9 @@ function scoreZohoNameSkuText(sku, name) {
   let text = 0
   if (tier1) {
     text = TIER1
-    detail.push(RE_TIER1.test(t) ? 'tier1' : 'org_lifep_40')
+    detail.push(
+      RE_TIER1.test(t) ? 'tier1' : RE_ORG_LIFEP_40P.test(t) ? 'org_lifep_40p' : 'org_lifep_40'
+    )
   } else if (tier2) {
     text = TIER2
     detail.push('tier2')
@@ -102,6 +106,7 @@ function scoreZohoNameSkuText(sku, name) {
     /(lif|life)ep/i.test(t) &&
     /\bfp\b/.test(t) &&
     !RE_ORG_LIFEP_40.test(t) &&
+    !RE_ORG_LIFEP_40P.test(t) &&
     !RE_TIER1.test(t) &&
     !RE_TIER2.test(t)
   ) {
