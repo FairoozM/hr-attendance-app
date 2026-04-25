@@ -8,8 +8,8 @@
  *  3) Sauce / milk pot
  *  4) Any other subtype (deterministic fallback)
  */
-const REPRESENTATIVE_IMAGE_SELECTION_VERSION = 12
-const REPRESENTATIVE_IMAGE_CACHE_VERSION = 8
+const REPRESENTATIVE_IMAGE_SELECTION_VERSION = 13
+const REPRESENTATIVE_IMAGE_CACHE_VERSION = 9
 
 /** Same as `weeklyReportZohoData` — family display can include this suffix for unmapped Zoho families. */
 const FAMILY_LABEL_SUFFIX_NOT_IN_GROUPS = ' (not found in groups)'
@@ -18,7 +18,11 @@ const FAMILY_LABEL_SUFFIX_NOT_IN_GROUPS = ' (not found in groups)'
  * When set, the weekly report / Excel thumbnail uses that Zoho item (match on `row.sku`)
  * instead of the default waterfall. Keys: normalized family label (see `familyKeyForSkuOverride`).
  */
-const FAMILY_TO_REPRESENTATIVE_SKU = Object.freeze({})
+const FAMILY_TO_REPRESENTATIVE_SKU = Object.freeze({
+  // LIFEP17S family includes SAUP17S sauce-pan lines under the same Family key.
+  // Pin to a known single soup-pot SKU to avoid SAU items winning.
+  lifep17s: '6294021007023', // LIFEP17-40-BLUE
+})
 
 const BONUS_IMAGE = 40
 const BONUS_ACTIVE = 20
