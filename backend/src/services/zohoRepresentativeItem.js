@@ -8,8 +8,8 @@
  *  3) Sauce / milk pot
  *  4) Any other subtype (deterministic fallback)
  */
-const REPRESENTATIVE_IMAGE_SELECTION_VERSION = 11
-const REPRESENTATIVE_IMAGE_CACHE_VERSION = 7
+const REPRESENTATIVE_IMAGE_SELECTION_VERSION = 12
+const REPRESENTATIVE_IMAGE_CACHE_VERSION = 8
 
 /** Same as `weeklyReportZohoData` — family display can include this suffix for unmapped Zoho families. */
 const FAMILY_LABEL_SUFFIX_NOT_IN_GROUPS = ' (not found in groups)'
@@ -48,7 +48,23 @@ const RE_PRIMARY = /(casserole|dutch\W*oven|\bhandi\b)/i
 
 const RE_SECONDARY = /(milk|sauce)[\s-]+pot|milkpot|saucepot|saucepan\w*|\bsauce\s*pan\b|sauce[\s-]+pan|milk[\s-]pot|milkpot/i
 const RE_SAUCE_TOKEN = /\bsauce\b|\bsau\b|(?:^|[^a-z])sau\d*/i
-const RE_LIFEP_CORE_POT = /\blifep\d+[a-z]*[\s-]*\d{1,2}(?:n|p)?\b|\blifep\d+[a-z]*\d{1,2}(?:n|p)?\b/i
+/**
+ * LIFEP single-pot pattern: LIFEP<family><sep><2-digit-size><letter…>
+ * where the 2-digit size is DIRECTLY attached to a colour/letter (no trailing space).
+ *
+ * Why `[\s-]+` (1 or more) instead of `[\s-]*` (0 or more):
+ *   Without it the regex engine can backtrack `\d+` to consume only "1" from "17s",
+ *   then `\d{2}` matches "7s" — creating a false match for LIFEP17S-24-BLACK.
+ *   Requiring at least one separator prevents that collapse.
+ *
+ * Why `\d{2}` (exactly 2 digits):
+ *   Pieces-count sizes like "6" (LIFEP17S-6-*) are 1 digit and must NOT match.
+ *   Real LIFEP pot diameters (10, 16, 24, 32, 40 …) are always 2 digits.
+ *
+ * Negative lookahead blocks tokens that look like colours but are subtype codes:
+ *   fset (3FSET = 3-piece frying set), fp (6FP = 6 frying pans), set (117SET).
+ */
+const RE_LIFEP_CORE_POT = /\blifep\d+[a-z]*[\s-]+\d{2}(?=[a-z])(?!fset\b|fp\b|set\b)/i
 const RE_SHALLOW_POT = /\bshallow[\s-]*pot\b/i
 const RE_COOKWARE_SET = new RegExp(
   'cookware[\\s-]+set|cooking[\\s-]+set|pots[\\s-]and[\\s-]pans[\\s-]+set|piece[\\s-]+set' +
@@ -65,7 +81,8 @@ const RE_COOKWARE_SET = new RegExp(
  */
 const RE_SIZE_POT = /\b(1[4-9]|[2-3][0-9]|4[0-2])p\b/i
 
-const RE_FRY = /fry(?:ing)?\s*pan|fry-?pan|fry\W*pan|frypan|grill[\s-]*pan|dosa\W*pan|dosa\W*tawa|crepe\W*pan|griddle|مقلاة|milk\W*pan(?!\W*pot)/i
+// \d+fset\b catches "Nfset" tokens (e.g. LIFEP17S-3FSET = 3-piece frying set)
+const RE_FRY = /fry(?:ing)?\s*pan|fry-?pan|fry\W*pan|frypan|grill[\s-]*pan|dosa\W*pan|dosa\W*tawa|crepe\W*pan|griddle|مقلاة|milk\W*pan(?!\W*pot)|\d+fset\b/i
 const RE_WOK = /\b(wok|skillet|tawa)\b/
 const RE_GENERIC_PAN = /\bpan(s)?\b/i
 const LIFP_FP = /(lif|life)ep/i
