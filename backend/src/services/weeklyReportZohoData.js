@@ -589,8 +589,9 @@ async function fetchZohoItemRowsForGroupMembers(
   // When excludeWarehouseId is set (Damaged warehouse exclusion), also fetch that
   // warehouse's items and sales so we can subtract them from the totals.
   const t0All = Date.now()
-  const [raw, salesR, purchR, vcR, damagedItems, damagedSalesR] = await Promise.all([
-    warehouseId ? fetchItemsRawForWarehouse(warehouseId) : fetchAllItemsRaw(),
+  const [raw, scopedItems, salesR, purchR, vcR, damagedItems, damagedSalesR] = await Promise.all([
+    fetchAllItemsRaw(),
+    warehouseId ? fetchItemsRawForWarehouse(warehouseId) : Promise.resolve([]),
     getSales(fromDate, toDate, { onWarning, warehouseId }),
     getPurchases(fromDate, toDate, rv.vendorId, { vendorName: rv.vendorName, onWarning, warehouseId, reportGroup }),
     getVendorCredits(fromDate, toDate, rv.vendorId, { vendorName: rv.vendorName, onWarning }),
@@ -604,8 +605,28 @@ async function fetchZohoItemRowsForGroupMembers(
     `items=${raw.length}, invoices=${salesR.document_count ?? 0}, ` +
     `bills=${purchR ? (purchR.document_count ?? 0) : 0}, ` +
     `vendorcredits=${vcR ? (vcR.document_count ?? 0) : 0}` +
+    (warehouseId ? `, scoped_items=${scopedItems.length}` : '') +
     (excludeWarehouseId ? `, damaged_items=${damagedItems.length}, damaged_sales=${(damagedSalesR.lines || []).length}` : '')
   )
+
+  // Selected-warehouse stock map (item_id → qty). This lets us keep representative
+  // thumbnail selection from the full catalog while still valuing stock by warehouse.
+  /** @type {Map<string, number> | null} */
+  const scopedStockByItemId = warehouseId && scopedItems.length > 0
+    ? (() => {
+        const m = new Map()
+        for (const item of scopedItems) {
+          if (!item || !item.item_id) continue
+          const qty = item.warehouse_stock_on_hand != null
+            ? Number(item.warehouse_stock_on_hand)
+            : Number(item.stock_on_hand || 0)
+          if (Number.isFinite(qty)) {
+            m.set(String(item.item_id), Math.max(0, qty))
+          }
+        }
+        return m
+      })()
+    : null
 
   // Build a damaged-warehouse stock map (item_id → qty to subtract from stock_on_hand).
   // Zoho returns `warehouse_stock_on_hand` when the items endpoint receives `warehouse_id`.
@@ -720,6 +741,16 @@ async function fetchZohoItemRowsForGroupMembers(
     `[weekly-report] group "${reportGroup}": ${members.length} DB members → ${out.length} Zoho rows` +
     (skipReasons.length ? ` | skipped: ${skipReasons.join(' | ')}` : '')
   )
+
+  // Override opening/closing qty with selected-warehouse stock when warehouse filter is set.
+  if (scopedStockByItemId) {
+    for (const row of out) {
+      const itemId = row.item_id ? String(row.item_id) : ''
+      const qty = itemId ? (scopedStockByItemId.get(itemId) || 0) : 0
+      row.opening_stock = qty
+      row.closing_stock = qty
+    }
+  }
 
   if (out.length === 0) {
     console.log(`[weekly-report] group "${reportGroup}": no active items matched — returning empty`)
