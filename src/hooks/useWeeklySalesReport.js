@@ -20,6 +20,7 @@ import { useAuth } from '../contexts/AuthContext'
  * @property {number} [zoho_representative_image_selection_version]  Bumps when scoring rules
  *   change; clients can key image caches on this + `item_id`.
  * @property {string} [zoho_representative_reason]  When the backend enables it (e.g. debug), why this item won.
+ * @property {number} [zoho_representative_score]  Computed total score (category + size + bonuses) for the pick.
  * @property {number|null} opening_stock  — value (stock qty × Zoho sales `rate`), not units
  * @property {number|null} closing_stock  — value
  * @property {number|null} purchase_amount  — period purchase qty × Zoho item `rate`

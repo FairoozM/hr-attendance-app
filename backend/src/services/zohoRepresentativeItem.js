@@ -1,52 +1,277 @@
 /**
- * Deterministic “family product shot” for Zoho weekly reports: pick one `item_id` (and SKU / name)
- * to fetch `/inventory/v1/items/{id}/image`. Scoring prefers soup / stock / casserole / saucepan
- * over similar-looking frying-pan packshots. Zoho parent/child variation is not always exposed
- * on list items — we use SKU + name + has_image + active only.
+ * Deterministic family thumbnail for Zoho weekly reports: pick one `item_id` for
+ * `/inventory/v1/items/{id}/image`. Waterfall: biggest primary pot → biggest secondary
+ * → cookware set → other → frying (last). Size from L + cm in SKU + name.
  */
-const REPRESENTATIVE_IMAGE_SELECTION_VERSION = 4
-const BONUS_IMAGE = 25
-const BONUS_ACTIVE = 10
-const TIER1 = 100
-const TIER2 = 60
-const TIER3_POT = 30
-const PENALTY_FRY = -80
-const PENALTY_GENERIC_PAN = -30
+const REPRESENTATIVE_IMAGE_SELECTION_VERSION = 5
+const REPRESENTATIVE_IMAGE_CACHE_VERSION = 3
 
-let _debugLogRemaining = 5
+const BONUS_IMAGE = 40
+const BONUS_ACTIVE = 20
+
+const BASE = {
+  primary_pot: 1000,
+  secondary_pot: 700,
+  cookware_set: 300,
+  other: 100,
+  frying: -300,
+}
+
+const PENALTY_FRY_ADD = 150
+const PENALTY_COOKWARE_WHEN_POT_IN_FAMILY = 200
+const PENALTY_GENERIC_PAN = 50
+const LITER_BONUS = 20
+const CM_BONUS = 2
+
+const ORG_40 = /lifep\d+[\s-]+40|lifeps\d*[\s-]+40/i
+const ORG_40P = /lifep\d*s[\s-]+40p|lifeps\d*s[\s-]+40p/i
+
+const RE_SOUP_POT =
+  /(soup|stock|stew|(?:cook(?:ing)))[\s-]+pot|souppot|stockpot|stewpot|stew\s*pot|stewpot|stock\s*pot/i
+const RE_PRIMARY = /(casserole|dutch\W*oven|\bhandi\b)/i
+
+const RE_SECONDARY = /(milk|sauce)[\s-]+pot|milkpot|saucepot|saucepan\w*|\bsauce\s*pan\b|sauce[\s-]+pan|milk[\s-]pot|milkpot/i
+const RE_COOKWARE_SET = new RegExp(
+  'cookware[\\s-]+set|cooking[\\s-]+set|pots[\\s-]and[\\s-]pans[\\s-]+set|piece[\\s-]+set' +
+    '|set[\\s-]of' +
+    '|\\b\\d+\\s*pcs?\\b|\\b(6|8|10|12|14|16|18|20|24|28|32)(\\s|-)*pcs?\\b' +
+    '|set[\\s-]\\d+',
+  'i'
+)
+
+const RE_FRY = /fry(?:ing)?\s*pan|fry-?pan|fry\W*pan|frypan|grill[\s-]*pan|dosa\W*pan|dosa\W*tawa|crepe\W*pan|griddle|مقلاة|milk\W*pan(?!\W*pot)/i
+const RE_WOK = /\b(wok|skillet|tawa)\b/
+const RE_GENERIC_PAN = /\bpan(s)?\b/i
+const LIFP_FP = /(lif|life)ep/i
+const LIFP_FP_TOK = /\bfp\b/
+
+const _logRemaining = 10
+let _debugLogRemaining = _logRemaining
 const isRepDebug = () => process.env.WEEKLY_REPORT_ZOHO_REP_DEBUG === '1'
 
-const REPRESENTATIVE_IMAGE_CACHE_VERSION = 2
-
-function normalizeZohoTextForScoring(s) {
+function normalizeText(s) {
   if (s == null) return ''
   return String(s)
     .toLowerCase()
     .replace(/[-_]+/g, ' ')
-    .replace(/\s+/g, ' ')
     .replace(/[,'"]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }
 
-/** Zoho / org naming: soup–stock (–40) line vs child fry SKU (LIF…–FP) in the same family. */
-const RE_ORG_LIFEP_40 = /lifep\d+[\s-]+40|lifeps\d*[\s-]+40/i
-/** e.g. LIFEP17S-40P-BEIGE → lifep17s 40p … (S-series soup; prefer over FP child). */
-const RE_ORG_LIFEP_40P = /lifep\d*s[\s-]+40p|lifeps\d*s[\s-]+40p/i
-
-const RE_TIER1 =
-  /(soup[\s-]*pot|souppot|stock[\s-]*pot|stockpot|stew[\s-]*pot|stewpot|cook(?:ing)?[\s-]*pot|casserole|dutch[\s-]*oven|handi|stew\s*pot)/i
-const RE_TIER2 = /(milk[\s-]+pot|sauce[\s-]+pot|saucepan\w*|\bsauce\s+pan\b)/i
-function isTier3Pot(t) {
-  if (RE_TIER1.test(t) || RE_TIER2.test(t)) return false
-  if (/(coffee|butter(?!y)|butter\W*milk|honey|soap|paint|flower|plant|nursery)\s+pot|teapot|tea\s*pot(?!\s*holder)/.test(t)) {
-    return false
-  }
-  return /\b(pot|pots)\b/.test(t) && !/spotify|potion|i\.pot\./.test(t)
+function combinedText(sku, name) {
+  return `${normalizeText(sku)} ${normalizeText(name)}`.replace(/\s+/g, ' ').trim()
 }
 
-const RE_HARD_FRY =
-  /(fry(?:ing)?\s*pan|fry-?pan|frypan|fry[\s-]+pan|grill[\s-]*pan|dosa\W*pan|dosa\W*tawa|tawa|milk\W*pan(?!\W*pot)|griddle|crepe\W*pan|مقلاة|wok|skillet)/i
+/**
+ * @param {string} t
+ * @returns {boolean}
+ */
+function isPrimaryType(t) {
+  if (!t) return false
+  if (RE_SOUP_POT.test(t) && !/cooking[\s-]+set/i.test(t)) return true
+  if (RE_PRIMARY.test(t)) return true
+  if (ORG_40.test(t) || ORG_40P.test(t)) return true
+  return false
+}
+
+/**
+ * @param {string} t
+ * @returns {boolean}
+ */
+function isLifepFryChild(t) {
+  return LIFP_FP.test(t) && LIFP_FP_TOK.test(t) && !ORG_40.test(t) && !ORG_40P.test(t)
+}
+
+/**
+ * @param {string} t
+ * @returns {boolean}
+ */
+function isFryingType(t) {
+  if (!t) return false
+  if (isPrimaryType(t) || RE_SECONDARY.test(t)) return false
+  if (isLifepFryChild(t)) return true
+  if (RE_FRY.test(t)) return true
+  if (RE_WOK.test(t)) return true
+  return false
+}
+
+/**
+ * @param {string} sku
+ * @param {string} name
+ * @returns {'primary_pot'|'secondary_pot'|'cookware_set'|'frying'|'other'}
+ */
+function classifyRepresentativeType(sku, name) {
+  const t = combinedText(sku, name)
+  if (!t) return 'other'
+  if (isPrimaryType(t)) return 'primary_pot'
+  if (RE_SECONDARY.test(t)) return 'secondary_pot'
+  if (isFryingType(t)) return 'frying'
+  if (RE_COOKWARE_SET.test(t)) return 'cookware_set'
+  return 'other'
+}
+
+function findAllRe(t, re, cap) {
+  const out = []
+  const rx = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g')
+  let m
+  while ((m = rx.exec(t)) != null) {
+    const n = cap(m)
+    if (n != null && Number.isFinite(n)) out.push(n)
+  }
+  return out
+}
+
+/**
+ * @param {string} sku
+ * @param {string} name
+ * @returns {number|null}
+ */
+function extractCapacityLiters(sku, name) {
+  const t = combinedText(sku, name)
+  if (!t) return null
+  const vals = [
+    ...findAllRe(
+      t,
+      /(\d+(?:[.,]\d+)?)\s*(l|lt|litre|liters?|litre)\b/gi,
+      (m) => parseFloat(String(m[1]).replace(',', '.'))
+    ),
+    ...findAllRe(
+      t,
+      /(\d+(?:[.,]\d+)?)\s*L\b/gi,
+      (m) => parseFloat(String(m[1]).replace(',', '.'))
+    ),
+  ]
+  if (!vals.length) return null
+  return Math.max(...vals)
+}
+
+/**
+ * @param {string} sku
+ * @param {string} name
+ * @returns {number|null}
+ */
+function extractDiameterCm(sku, name) {
+  const t = combinedText(sku, name)
+  if (!t) return null
+  const vals = [
+    ...findAllRe(t, /(\d+(?:[.,]\d+)?)\s*cm\b/gi, (m) => parseFloat(String(m[1]).replace(',', '.'))),
+    ...findAllRe(
+      t,
+      /\bcm[:\s-]*(\d+(?:[.,]\d+)?)\b/gi,
+      (m) => parseFloat(String(m[1]).replace(',', '.'))
+    ),
+  ]
+  // Bare 2-digit width often means cm in titles (e.g. "Frying pan 28") but not 6/8/10/12 pcs.
+  if (!vals.length) {
+    const m = t.match(/\b(1[4-9]|[2-3][0-9]|4[0-2])\b\s*$/i)
+    if (m) {
+      const n = parseInt(m[1], 10)
+      if (n >= 14 && n <= 42 && !/\b\d{1,2}\s*pcs?/i.test(t)) {
+        vals.push(n)
+      }
+    }
+  }
+  if (!vals.length) return null
+  return Math.max(...vals)
+}
+
+/**
+ * @param {string} sku
+ * @param {string} name
+ * @returns {{ liters: number|null, cm: number|null }}
+ */
+function extractRepresentativeSize(sku, name) {
+  return { liters: extractCapacityLiters(sku, name), cm: extractDiameterCm(sku, name) }
+}
+
+/**
+ * @param {object} c
+ */
+function rowToView(c) {
+  const iid = String(c.iid != null ? c.iid : '').trim()
+  const row = c && c.row
+  if (!row) {
+    return { c, iid, sku: '', item_name: '', fullText: '', cat: 'other', liters: null, cm: null, hasImage: false, isActive: true }
+  }
+  const sku = String(row.sku != null ? row.sku : '')
+  const itemName = String(row.item_name != null ? row.item_name : '')
+  const fullText = combinedText(sku, itemName)
+  return {
+    c,
+    iid,
+    sku,
+    item_name: itemName,
+    fullText,
+    cat: classifyRepresentativeType(sku, itemName),
+    liters: extractCapacityLiters(sku, itemName),
+    cm: extractDiameterCm(sku, itemName),
+    hasImage: !!(row._zoho && row._zoho.has_image),
+    isActive: row._zoho && Object.prototype.hasOwnProperty.call(row._zoho, 'is_active') ? row._zoho.is_active : true,
+  }
+}
+
+function compareStratum(a, b) {
+  const aL = a.liters != null ? a.liters : -1e9
+  const bL = b.liters != null ? b.liters : -1e9
+  if (bL !== aL) return bL - aL
+  const aC = a.cm != null ? a.cm : -1e9
+  const bC = b.cm != null ? b.cm : -1e9
+  if (bC !== aC) return bC - aC
+  if (a.hasImage !== b.hasImage) return (b.hasImage ? 1 : 0) - (a.hasImage ? 1 : 0)
+  if (a.isActive !== b.isActive) return (b.isActive ? 1 : 0) - (a.isActive ? 1 : 0)
+  const ka = `${a.sku} ${a.item_name}`.toLowerCase()
+  const kb = `${b.sku} ${b.item_name}`.toLowerCase()
+  if (ka !== kb) return ka < kb ? -1 : 1
+  return String(a.iid).localeCompare(String(b.iid), 'en')
+}
+
+/**
+ * @param {object} v view
+ * @param {object} fam
+ * @param {boolean} [forDisplayOnly]
+ * @returns {number}
+ */
+function scoreRepresentativeItem(v, fam, forDisplayOnly) {
+  const t = v.fullText
+  const cat = v.cat
+  const base = BASE[cat] != null ? BASE[cat] : 0
+  const L = v.liters != null ? v.liters * LITER_BONUS : 0
+  const Cm = v.cm != null ? v.cm * CM_BONUS : 0
+  const img = v.hasImage ? BONUS_IMAGE : 0
+  const act = v.isActive ? BONUS_ACTIVE : 0
+  let pen = 0
+  if (cat === 'frying' && (isFryingType(t) || isLifepFryChild(t))) {
+    if (!/souppot|soup\W*pot|stock\W*pot|stockpot/i.test(t)) pen += PENALTY_FRY_ADD
+  }
+  if (cat === 'cookware_set' && (fam.hasPrimary || fam.hasSecondary) && forDisplayOnly) {
+    pen += PENALTY_COOKWARE_WHEN_POT_IN_FAMILY
+  }
+  if (cat === 'other' && t) {
+    if (RE_GENERIC_PAN.test(t) && !/saucepan|sauce\W*pan|sauce\W*pot|milk\W*pot/i.test(t) && !isPrimaryType(t)) {
+      if (!/soup|stock|stew|dutch|casserole|milk|sauce\W*pot|handi/i.test(t)) pen += PENALTY_GENERIC_PAN
+    }
+  }
+  return base + L + Cm + img + act - pen
+}
+
+function firstInStratum(views, cat) {
+  const f = views.filter((v) => v.cat === cat)
+  if (!f.length) return undefined
+  f.sort(compareStratum)
+  return f[0]
+}
+
+/**
+ * @param {Array<{ iid: string, row: object }>} candidates
+ * @returns {object|undefined} chosen view
+ */
+function pickByWaterfall(candidates) {
+  const views = candidates.map(rowToView).filter((v) => v && v.iid)
+  if (views.length === 0) return undefined
+  const s = (cat) => firstInStratum(views, cat)
+  return s('primary_pot') || s('secondary_pot') || s('cookware_set') || s('other') || s('frying')
+}
 
 /**
  * @param {string} sku
@@ -54,72 +279,18 @@ const RE_HARD_FRY =
  * @returns {{ text: number, detail: string[] }}
  */
 function scoreZohoNameSkuText(sku, name) {
-  const t = `${normalizeZohoTextForScoring(sku)} ${normalizeZohoTextForScoring(name)}`.replace(/\s+/g, ' ').trim()
+  const t = combinedText(sku, name)
   if (!t) {
     return { text: 0, detail: ['(empty)'] }
   }
-  const detail = []
-
-  const orgLifep40 = RE_ORG_LIFEP_40.test(t) || RE_ORG_LIFEP_40P.test(t)
-  const tier1 = RE_TIER1.test(t) || orgLifep40
-  const tier2 = !tier1 && RE_TIER2.test(t)
-  const tier3 = !tier1 && !tier2 && isTier3Pot(t)
-
-  let text = 0
-  if (tier1) {
-    text = TIER1
-    detail.push(
-      RE_TIER1.test(t) ? 'tier1' : RE_ORG_LIFEP_40P.test(t) ? 'org_lifep_40p' : 'org_lifep_40'
-    )
-  } else if (tier2) {
-    text = TIER2
-    detail.push('tier2')
-  } else if (tier3) {
-    text = TIER3_POT
-    detail.push('tier3_pot')
-  }
-
-  if (RE_HARD_FRY.test(t)) {
-    text += PENALTY_FRY
-    detail.push('fry_tawa(−80)')
-  } else {
-    const isSaucep = /\bsaucepan\w*|\bsauce\s+pan\b/.test(t)
-    const isFryShape = /fry(ing)?\W*pan|fry-?pan|fry\W*pan|grill\W*pan|dosa|tawa|wok|skillet|milk\W*pot|soup|stock|stew/.test(
-      t
-    )
-    if (!isSaucep && !isFryShape) {
-      const toks = t.split(/\s+/).filter(Boolean)
-      if (toks.some((w) => w === 'pan' || w === 'pans')) {
-        if (!toks.includes('saucepan') && !t.includes('sauce pan')) {
-          text += PENALTY_GENERIC_PAN
-          detail.push('generic_pan(−30)')
-        }
-      }
-    }
-  }
-
-  // LIF* … -FP- … (hyphens → spaces): "lifep17 fp 1" — org fry-child SKUs, not "fry pan" in the name.
-  if (
-    !RE_HARD_FRY.test(t) &&
-    !tier1 &&
-    !tier2 &&
-    /(lif|life)ep/i.test(t) &&
-    /\bfp\b/.test(t) &&
-    !RE_ORG_LIFEP_40.test(t) &&
-    !RE_ORG_LIFEP_40P.test(t) &&
-    !RE_TIER1.test(t) &&
-    !RE_TIER2.test(t)
-  ) {
-    text += PENALTY_FRY
-    detail.push('org_fry_sku_fp(−80)')
-  }
-
-  return { text, detail }
+  const cat = classifyRepresentativeType(sku, name)
+  const b = BASE[cat] != null ? BASE[cat] : 0
+  return { text: b, detail: [cat, `base=${b}`] }
 }
 
-function scoreZohoItemForFamilyThumb(c, iidFallback = '') {
-  const row = c && c.row
-  if (!row) {
+function scoreZohoItemForFamilyThumb(c) {
+  const v = rowToView(c)
+  if (!c || !c.row) {
     return {
       total: -1e6,
       text: 0,
@@ -127,28 +298,19 @@ function scoreZohoItemForFamilyThumb(c, iidFallback = '') {
       activeBonus: 0,
       hasImage: false,
       isActive: true,
+      iid: null,
       reasonParts: ['(no row)'],
     }
   }
-  const sku = String(row.sku != null ? row.sku : '')
-  const name = String(row.item_name != null ? row.item_name : '')
-  const { text, detail } = scoreZohoNameSkuText(sku, name)
-  const hasImage = !!(row._zoho && row._zoho.has_image)
-  const isActive = row._zoho && Object.prototype.hasOwnProperty.call(row._zoho, 'is_active') ? row._zoho.is_active : true
-  const imageBonus = hasImage ? BONUS_IMAGE : 0
-  const activeBonus = isActive ? BONUS_ACTIVE : 0
-  const total = text + imageBonus + activeBonus
   return {
-    total,
-    text,
-    imageBonus,
-    activeBonus,
-    hasImage,
-    isActive,
-    sku,
-    name,
-    iid: String(c.iid != null ? c.iid : iidFallback),
-    reasonParts: detail,
+    total: 0,
+    text: 0,
+    imageBonus: v.hasImage ? BONUS_IMAGE : 0,
+    activeBonus: v.isActive ? BONUS_ACTIVE : 0,
+    hasImage: v.hasImage,
+    isActive: v.isActive,
+    iid: v.iid,
+    reasonParts: [v.cat],
   }
 }
 
@@ -157,17 +319,18 @@ function scoreZohoItemForFamilyThumb(c, iidFallback = '') {
  * @param {{ familyLabel?: string }} [ctx]
  */
 function selectRepresentativeZohoItemForFamily(candidates, ctx = {}) {
-  const v = {
+  const out = {
     zoho_representative_item_id: null,
     zoho_representative_sku: null,
     zoho_representative_name: null,
     zoho_representative_reason: '',
+    zoho_representative_score: null,
     zoho_representative_image_selection_version: REPRESENTATIVE_IMAGE_SELECTION_VERSION,
     _rejected: null,
   }
   if (!Array.isArray(candidates) || candidates.length === 0) {
-    v.zoho_representative_reason = `v${REPRESENTATIVE_IMAGE_SELECTION_VERSION}:no_candidates`
-    return v
+    out.zoho_representative_reason = `v${REPRESENTATIVE_IMAGE_SELECTION_VERSION}:no_candidates`
+    return out
   }
   const byIid = new Map()
   for (const c of candidates) {
@@ -176,54 +339,80 @@ function selectRepresentativeZohoItemForFamily(candidates, ctx = {}) {
   }
   const uniq = [...byIid.values()]
   if (uniq.length === 0) {
-    v.zoho_representative_reason = `v${REPRESENTATIVE_IMAGE_SELECTION_VERSION}:empty`
-    return v
+    out.zoho_representative_reason = `v${REPRESENTATIVE_IMAGE_SELECTION_VERSION}:empty`
+    return out
   }
 
-  const scored = uniq.map((c) => {
-    const s = scoreZohoItemForFamilyThumb(c)
-    return { c, s }
-  })
-
-  const withImage = scored.filter((x) => x.s.hasImage)
-  const pool = withImage.length > 0 ? withImage : scored
-
-  const sorted = pool.slice().sort((A, B) => {
-    if (B.s.total !== A.s.total) return B.s.total - A.s.total
-    if (B.s.hasImage !== A.s.hasImage) return (B.s.hasImage ? 1 : 0) - (A.s.hasImage ? 1 : 0)
-    if (B.s.isActive !== A.s.isActive) return (B.s.isActive ? 1 : 0) - (A.s.isActive ? 1 : 0)
-    const ka = `${A.s.sku} ${A.s.name}`.toLowerCase()
-    const kb = `${B.s.sku} ${B.s.name}`.toLowerCase()
-    if (ka !== kb) return ka < kb ? -1 : 1
-    return String(A.s.iid).localeCompare(String(B.s.iid), 'en')
-  })
-
-  const w = sorted[0]
-  const s = w.s
-  v.zoho_representative_item_id = s.iid
-  v.zoho_representative_sku = s.sku || null
-  v.zoho_representative_name = s.name || null
-  v.zoho_representative_reason = `v${REPRESENTATIVE_IMAGE_SELECTION_VERSION} total=${s.total} text=${s.text} image=${s.imageBonus} act=${s.activeBonus} [${(s.reasonParts && s.reasonParts.join(', ')) || '—'}]${withImage.length ? '' : '; pool=no_image_in_family'}`
-
-  const others = pool.filter((x) => x !== w).map((x) => x.s)
-  const friers = others.filter((o) => RE_HARD_FRY.test((o.sku + ' ' + o.name).toLowerCase()))
-  if (friers.length) {
-    const top = friers.sort((a, b) => b.total - a.total || String(a.sku).localeCompare(String(b.sku)))[0]
-    v._rejected = `${top.sku || 'no-sku'} total=${top.total}`
+  const allViews = uniq.map(rowToView)
+  const fam = {
+    hasPrimary: allViews.some((w) => w.cat === 'primary_pot'),
+    hasSecondary: allViews.some((w) => w.cat === 'secondary_pot'),
   }
 
-  const fam = (ctx && ctx.familyLabel) || 'unknown'
+  const w = pickByWaterfall(uniq)
+  if (!w) {
+    out.zoho_representative_reason = `v${REPRESENTATIVE_IMAGE_SELECTION_VERSION}:no_winner`
+    return out
+  }
+  const total = scoreRepresentativeItem(w, fam, true)
+  out.zoho_representative_item_id = w.iid
+  out.zoho_representative_sku = w.sku || null
+  out.zoho_representative_name = w.item_name || null
+  out.zoho_representative_score = Math.round(total * 100) / 100
+  const cookwareBeaten = allViews.some(
+    (x) => x.cat === 'cookware_set' && w.cat !== 'cookware_set' && (fam.hasPrimary || fam.hasSecondary)
+  )
+  out.zoho_representative_reason =
+    `v${REPRESENTATIVE_IMAGE_SELECTION_VERSION} ` +
+    `cat=${w.cat} ` +
+    `L=${w.liters == null ? '—' : w.liters} ` +
+    `cm=${w.cm == null ? '—' : w.cm} ` +
+    `img=${w.hasImage ? 1 : 0} ` +
+    `act=${w.isActive ? 1 : 0} ` +
+    `score=${out.zoho_representative_score}` +
+    (cookwareBeaten ? ' ;cookware_set_rejected:family_has_individual_pot' : '')
+
+  if (cookwareBeaten) {
+    out._rejected = 'cookware_set_not_used_individual_pot_present'
+  }
+
+  const famL = (ctx && ctx.familyLabel) || 'unknown'
   if (isRepDebug() && _debugLogRemaining > 0) {
     _debugLogRemaining -= 1
     // eslint-disable-next-line no-console
     console.log(
-      `[zoho-rep] family=${fam} -> item=${s.iid} sku=${s.sku || '—'} name=${(s.name || '—').slice(0, 64)}` +
-        ` | ${v.zoho_representative_reason}` +
-        (v._rejected ? ` | not_using=${v._rejected}` : '')
+      `[zoho-rep] family=${famL} | chosen_sku=${w.sku || '—'} | chosen_name=${(w.item_name || '—').slice(0, 64)}` +
+        ` | category=${w.cat} | liters_L=${w.liters == null ? '—' : w.liters} | diameter_cm=${w.cm == null ? '—' : w.cm} | ` +
+        `selected_reason=${out.zoho_representative_reason}` +
+        (cookwareBeaten ? ' | cookware_set_rejected:yes' : ' | cookware_set_rejected:no')
     )
   }
 
-  return v
+  return out
+}
+
+function normalizeZohoTextForScoring(s) {
+  return normalizeText(s)
+}
+
+const TIER1 = RE_SOUP_POT
+const TIER2 = RE_SECONDARY
+const TIER3_POT = 30
+const PENALTY_FRY = 300
+
+/**
+ * @param {object} itemCandidate
+ * @param {Array} familyCandidates
+ * @returns {number}
+ */
+function publicScore(itemCandidate, familyCandidates) {
+  const v = rowToView(itemCandidate)
+  const views = (familyCandidates || []).map(rowToView)
+  const fam = {
+    hasPrimary: views.some((x) => x.cat === 'primary_pot'),
+    hasSecondary: views.some((x) => x.cat === 'secondary_pot'),
+  }
+  return scoreRepresentativeItem(v, fam, true)
 }
 
 module.exports = {
@@ -234,6 +423,12 @@ module.exports = {
   TIER3_POT,
   PENALTY_FRY,
   normalizeZohoTextForScoring,
+  normalizeText,
+  classifyRepresentativeType,
+  extractCapacityLiters,
+  extractDiameterCm,
+  extractRepresentativeSize,
+  scoreRepresentativeItem: publicScore,
   scoreZohoNameSkuText,
   scoreZohoItemForFamilyThumb,
   selectRepresentativeZohoItemForFamily,

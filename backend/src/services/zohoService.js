@@ -194,6 +194,11 @@ function validateAndNormaliseItem(raw, index) {
     if (zreason != null && String(zreason).trim() !== '') {
       item.zoho_representative_reason = String(zreason).trim()
     }
+    const zscore = raw.zoho_representative_score
+    if (zscore != null && (typeof zscore === 'number' || (typeof zscore === 'string' && zscore.trim() !== ''))) {
+      const n = typeof zscore === 'number' ? zscore : parseFloat(String(zscore).trim())
+      if (Number.isFinite(n)) item.zoho_representative_score = n
+    }
   }
   if (raw._zoho && typeof raw._zoho === 'object' && !Array.isArray(raw._zoho)) {
     item._zoho = {

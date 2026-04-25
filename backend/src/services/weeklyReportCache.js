@@ -11,10 +11,11 @@
  * Only errors are NOT cached. A failed request clears itself from inFlight and
  * lets the next caller retry.
  *
- * Cache key  : "<group>::<fromDate>::<toDate>"
+ * Cache key  : "v<repSelVer>::<group>::<fromDate>::<toDate>..." (busts on representative rule changes)
  * Disable    : set WEEKLY_REPORT_CACHE_TTL_MS=0
  */
 
+const { REPRESENTATIVE_IMAGE_SELECTION_VERSION } = require('./zohoRepresentativeItem')
 const CACHE_TTL_MS =
   process.env.WEEKLY_REPORT_CACHE_TTL_MS !== undefined
     ? Math.max(0, parseInt(process.env.WEEKLY_REPORT_CACHE_TTL_MS, 10) || 0)
@@ -27,9 +28,10 @@ const inFlight = new Map()
 const resultCache = new Map()
 
 function makeKey(group, fromDate, toDate, warehouseId = null) {
+  const v = `v${String(REPRESENTATIVE_IMAGE_SELECTION_VERSION || 0)}`
   return warehouseId
-    ? `${group}::${fromDate}::${toDate}::wh:${warehouseId}`
-    : `${group}::${fromDate}::${toDate}`
+    ? `${v}::${group}::${fromDate}::${toDate}::wh:${warehouseId}`
+    : `${v}::${group}::${fromDate}::${toDate}`
 }
 
 /**

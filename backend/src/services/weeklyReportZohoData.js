@@ -465,6 +465,9 @@ function aggregateByFamily(itemRows, zohoCatalogCtx = null) {
     acc.zoho_representative_item_id = rep.zoho_representative_item_id || acc._repAny || null
     acc.zoho_representative_sku = rep.zoho_representative_sku
     acc.zoho_representative_name = rep.zoho_representative_name
+    if (rep.zoho_representative_score != null && Number.isFinite(Number(rep.zoho_representative_score))) {
+      acc.zoho_representative_score = rep.zoho_representative_score
+    }
     acc.zoho_representative_image_selection_version = rep.zoho_representative_image_selection_version
     if (
       process.env.WEEKLY_REPORT_ZOHO_REP_DEBUG === '1' ||
@@ -825,6 +828,10 @@ module.exports = {
     aggregateByFamily,
     selectRepresentativeZohoItemForFamily: require('./zohoRepresentativeItem').selectRepresentativeZohoItemForFamily,
     scoreZohoNameSkuText: require('./zohoRepresentativeItem').scoreZohoNameSkuText,
+    classifyRepresentativeType: require('./zohoRepresentativeItem').classifyRepresentativeType,
+    extractCapacityLiters: require('./zohoRepresentativeItem').extractCapacityLiters,
+    extractDiameterCm: require('./zohoRepresentativeItem').extractDiameterCm,
+    extractRepresentativeSize: require('./zohoRepresentativeItem').extractRepresentativeSize,
     parseQty,
     NOT_FOUND_IN_GROUPS_SUFFIX,
   },

@@ -1,6 +1,6 @@
 /**
  * In-memory cache for Zoho Inventory item images (weekly report thumbnails).
- * Key includes representative-selection version (see `zohoRepresentativeItem.js`) so rules
+ * Key includes `REPRESENTATIVE_IMAGE_CACHE_VERSION` (see `zohoRepresentativeItem.js`) so rules
  * can be bumped without serving stale image proxy rows across versions.
  */
 const { REPRESENTATIVE_IMAGE_CACHE_VERSION } = require('./zohoRepresentativeItem')
