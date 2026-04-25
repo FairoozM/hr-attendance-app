@@ -354,6 +354,62 @@ function findZohoItemForMember(member, maps) {
  */
 const NOT_FOUND_IN_GROUPS_SUFFIX = ' (not found in groups)'
 
+/**
+ * Picks a higher score for the weekly report "family" thumbnail: prefer
+ * stockpots / casseroles (visually distinct per family) over frying / skillet
+ * product shots when the catalog name suggests both exist with images.
+ * (Images are still served via the existing /zoho-item-images cache.)
+ */
+const THUMB_SCORE = { STOCKPOT: 100, NEUTRAL: 50, FRYING: 1 }
+
+/**
+ * @param {string} s
+ * @returns {boolean}
+ */
+function catalogNameLooksLikeFrying(s) {
+  if (!s || !String(s).trim()) return false
+  const t = String(s).toLowerCase()
+  if (/\b(fry(ing)?-?pan|frypan|frying\s*pan|skillet|wok|grill\s*pan|grillpan)\b/i.test(t)) return true
+  if (/\b(crape|crepe)\s*pan\b/i.test(t)) return true
+  // "Fry set" / "F pan set" style SKUs, but not "stock pot set" / "soup pot"
+  if (/(^|[^a-z0-9])f(ry|rying)?\s*([\-_/]|\s+)?(pan|set)([^a-z]|$)/i.test(t) && !/stock|soup|casserole|dutch/i.test(t)) {
+    return true
+  }
+  return false
+}
+
+/**
+ * @param {string} s
+ * @returns {boolean}
+ */
+function catalogNameLooksLikeStockpot(s) {
+  if (!s || !String(s).trim()) return false
+  const t = String(s).toLowerCase()
+  if (/\b(stock[\s-]*pot|stockpot|soup[\s-]*pot|casserole|dutch[\s-]*oven|stew(ing)?\s*pot)\b/i.test(t)) {
+    return true
+  }
+  if (/\b(pressure|multi|slow)\s*cooker\b/i.test(t) && !catalogNameLooksLikeFrying(t)) return true
+  if (/(قدر|ستوك|شوربة)/i.test(t)) return true
+  return false
+}
+
+/**
+ * @param {{ sku?: string, item_name?: string, _zoho?: { has_image?: boolean } }} row
+ * @returns {number}  1 = frying, 50 = unknown, 100 = stockpot — higher wins for the thumbnail.
+ */
+function catalogThumbnailPriorityScore(row) {
+  if (!row || !row._zoho || !row._zoho.has_image) return -1
+  const s = `${row.sku != null ? row.sku : ''} ${row.item_name != null ? row.item_name : ''}`
+  if (!s.trim()) return THUMB_SCORE.NEUTRAL
+  if (catalogNameLooksLikeStockpot(s) && !catalogNameLooksLikeFrying(s)) return THUMB_SCORE.STOCKPOT
+  if (catalogNameLooksLikeFrying(s) && !catalogNameLooksLikeStockpot(s)) return THUMB_SCORE.FRYING
+  if (catalogNameLooksLikeStockpot(s) && catalogNameLooksLikeFrying(s)) {
+    // Ambiguous: prefer the stronger stockpot signal
+    return THUMB_SCORE.STOCKPOT
+  }
+  return THUMB_SCORE.NEUTRAL
+}
+
 function aggregateByFamily(itemRows) {
   /** @type {Map<string, object>} family (lowercase key) → accumulator */
   const map = new Map()
@@ -375,15 +431,20 @@ function aggregateByFamily(itemRows) {
         _returnedN: 0,
         _purchaseN: 0,
         _repAny: null,
-        _repWithImg: null,
+        _repImgBest: null, // { iid, score } — best catalog photo among items with has_image
       }
       map.set(key, acc)
     }
     const iid = row.item_id != null && String(row.item_id).trim() !== '' ? String(row.item_id).trim() : ''
     if (iid) {
       if (acc._repAny == null) acc._repAny = iid
-      if (row._zoho && row._zoho.has_image && acc._repWithImg == null) {
-        acc._repWithImg = iid
+      if (row._zoho && row._zoho.has_image) {
+        const score = catalogThumbnailPriorityScore(row)
+        if (score >= 0) {
+          if (acc._repImgBest == null || score > acc._repImgBest.score) {
+            acc._repImgBest = { iid, score }
+          }
+        }
       }
     }
     if (isUsable(row.opening_stock)) {
@@ -410,9 +471,10 @@ function aggregateByFamily(itemRows) {
     if (acc._closingN === 0) acc.closing_stock = null
     if (acc._returnedN === 0) acc.returned_to_wholesale = null
     if (acc._purchaseN === 0) acc.purchase_amount = null
-    acc.zoho_representative_item_id = acc._repWithImg || acc._repAny || null
+    acc.zoho_representative_item_id =
+      (acc._repImgBest && acc._repImgBest.iid) || acc._repAny || null
     delete acc._repAny
-    delete acc._repWithImg
+    delete acc._repImgBest
     delete acc._openingN
     delete acc._closingN
     delete acc._returnedN
@@ -756,6 +818,7 @@ module.exports = {
     findZohoItemForMember,
     findZohoItemsForMember,
     aggregateByFamily,
+    catalogThumbnailPriorityScore,
     parseQty,
     NOT_FOUND_IN_GROUPS_SUFFIX,
   },

@@ -430,3 +430,21 @@ test('aggregateByFamily: zoho_representative_item_id falls back to first item_id
   const [one] = aggregateByFamily(rows)
   assert.equal(one.zoho_representative_item_id, '99')
 })
+
+test('aggregateByFamily: thumbnail prefers stock pot / casserole over frying pan when both have images', () => {
+  const rows = [
+    { family: 'F', item_id: '1', item_name: 'Frying pan set 3pcs', sales_amount: 0, _zoho: { has_image: true } },
+    { family: 'F', item_id: '2', item_name: 'Stock pot set 4pcs', sales_amount: 1, _zoho: { has_image: true } },
+  ]
+  const [one] = aggregateByFamily(rows)
+  assert.equal(one.zoho_representative_item_id, '2')
+})
+
+test('aggregateByFamily: thumbnail with only frying-style items keeps first (same score)', () => {
+  const rows = [
+    { family: 'F', item_id: '1', item_name: 'Frying pan 28', sales_amount: 0, _zoho: { has_image: true } },
+    { family: 'F', item_id: '2', item_name: 'Skillet 20cm', sales_amount: 0, _zoho: { has_image: true } },
+  ]
+  const [one] = aggregateByFamily(rows)
+  assert.equal(one.zoho_representative_item_id, '1')
+})
