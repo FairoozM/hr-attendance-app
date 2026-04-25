@@ -791,10 +791,15 @@ async function fetchZohoItemRowsForGroupMembers(
       row.closing_stock = null
       row.purchase_amount = p > 0 ? null : 0
     }
-    if (rFromVc > 0) {
-      row.returned_to_wholesale = rFromVc
-    } else if (rQty > 0) {
-      row.returned_to_wholesale = canValueStock ? rQty * unit : null
+    // Returned to wholesale: **vendor-credit quantity × same unit price as sales/stock** (Zoho
+    // item `rate` / `purchase_rate`, else implied from period sales $ / sold). This matches
+    // the Sales Amount column (pre-tax) logic. If no unit price, fall back to line total on the VC.
+    if (rQty > 0) {
+      if (canValueStock) {
+        row.returned_to_wholesale = Math.round(rQty * unit * 100) / 100
+      } else {
+        row.returned_to_wholesale = rFromVc > 0 ? rFromVc : null
+      }
     } else {
       row.returned_to_wholesale = 0
     }

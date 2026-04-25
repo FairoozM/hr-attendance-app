@@ -83,12 +83,12 @@ test('fetchZohoItemRowsForGroupMembers: stock columns are monetary, debug + tota
   )
   assert.equal(items.length, 1)
   const row = items[0]
-  // qO = 7 - 2 + 3 + 1 = 9 → opening value 9×1; closing 7×1; purchase $ = qty 2 × item rate 1; returns use VC line total 5
+  // qO = 7 - 2 + 3 + 1 = 9 → opening value 9×1; closing 7×1; purchase $ = qty 2 × item rate 1; returns = VC qty 1 × unit 1
   assert.equal(row.opening_stock, 9)
   assert.equal(row.closing_stock, 7)
   assert.equal(row.sales_amount, 30)
   assert.equal(row.purchase_amount, 2)
-  assert.equal(row.returned_to_wholesale, 5)
+  assert.equal(row.returned_to_wholesale, 1)
   const td = reportMeta.transaction_debug
   assert.equal(td.sales_source_count, 1)
   assert.equal(td.purchases_source_count, 1)
@@ -97,12 +97,12 @@ test('fetchZohoItemRowsForGroupMembers: stock columns are monetary, debug + tota
   const totals = sumReportGrandTotals(items)
   assert.equal(totals.sales_amount, 30)
   assert.equal(totals.purchase_amount, 2)
-  assert.equal(totals.returned_to_wholesale, 5)
+  assert.equal(totals.returned_to_wholesale, 1)
   assert.equal(totals.opening_stock, 9)
   assert.equal(totals.closing_stock, 7)
 })
 
-test('fetchZohoItemRowsForGroupMembers: purchase_rate used when selling rate absent; VC line amount for returns', async (t) => {
+test('fetchZohoItemRowsForGroupMembers: purchase_rate used when selling rate absent; returns = qty × unit (not raw VC line total)', async (t) => {
   const prevN = process.env.NODE_ENV
   const prevR = process.env.REPORT_VENDOR_ID
   const prevJ = process.env.WEEKLY_REPORT_VENDORS_JSON
@@ -163,14 +163,14 @@ test('fetchZohoItemRowsForGroupMembers: purchase_rate used when selling rate abs
   )
   assert.equal(items.length, 1)
   const row = items[0]
-  // qO = 5 - 0 + 1 + 1 = 7 qty; unit = purchase_rate 99
+  // qO = 5 - 0 + 1 + 1 = 7 qty; unit = purchase_rate 99; returns = 1 × 99 (not VC line 4.5)
   assert.equal(row.opening_stock, 693)
   assert.equal(row.closing_stock, 495)
-  assert.equal(row.returned_to_wholesale, 4.5)
+  assert.equal(row.returned_to_wholesale, 99)
   const totals = sumReportGrandTotals(items)
   assert.equal(totals.opening_stock, 693)
   assert.equal(totals.closing_stock, 495)
-  assert.equal(totals.returned_to_wholesale, 4.5)
+  assert.equal(totals.returned_to_wholesale, 99)
 })
 
 test('fetchZohoItemRowsForGroupMembers: implied unit from sales when Zoho has no item rate or purchase_rate', async (t) => {

@@ -7,7 +7,13 @@ const assert = require('node:assert/strict')
 const path = require('path')
 const { mockModule, freshRequire } = require('./_helpers')
 const {
-  _internals: { matchesReportVendor, itemTotalNetFromSalesByItemRow, resolveWeeklyReportSalesVatRate },
+  _internals: {
+    matchesReportVendor,
+    itemTotalNetFromSalesByItemRow,
+    resolveWeeklyReportSalesVatRate,
+    matchesVendorCreditDocument,
+    normalizeVendorCreditLineItem,
+  },
 } = require('../src/integrations/zoho/weeklyReportZohoTransactions')
 
 function clearZohoTransactionModules() {
@@ -37,6 +43,37 @@ test('matchesReportVendor: purchase/credit line only for REPORT_VENDOR_ID', () =
 test('matchesReportVendor: name when vendor id is empty', () => {
   assert.equal(matchesReportVendor(undefined, '', 'Acme Ltd', 'acme ltd'), true)
   assert.equal(matchesReportVendor(undefined, '', 'Other', 'acme ltd'), false)
+})
+
+test('matchesVendorCreditDocument: contact_id matches configured vendor (contact) id', () => {
+  const id = '5012000000000999'
+  assert.equal(
+    matchesVendorCreditDocument(
+      { vendor_id: 'x', contact_id: id, customer_id: 'y' },
+      id,
+      undefined,
+    ),
+    true,
+  )
+  assert.equal(
+    matchesVendorCreditDocument(
+      { vendor_id: 'x', vendor_contact_id: id, customer_id: 'y' },
+      id,
+      undefined,
+    ),
+    true,
+  )
+})
+
+test('normalizeVendorCreditLineItem: reads sku from nested line.item', () => {
+  const n = normalizeVendorCreditLineItem({
+    quantity: 2,
+    item: { item_id: 'A1', sku: 'NESTED-SK', name: 'Nested name' },
+  })
+  assert.equal(n.sku, 'NESTED-SK')
+  assert.equal(n.item_id, 'A1')
+  assert.equal(n.quantity, 2)
+  assert.equal(n.name, 'Nested name')
 })
 
 test('getPurchases: uses Purchases by Item report (all vendors; mocked purchasesbyitem)', async () => {

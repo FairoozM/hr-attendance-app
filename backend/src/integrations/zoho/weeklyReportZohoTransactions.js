@@ -129,10 +129,84 @@ function matchesVendorCreditDocument(vc, expectedVendorId, expectedVendorName) {
   if (matchesReportVendor(vc.vendor_id, expectedVendorId, vc.vendor_name, expectedVendorName)) {
     return true
   }
-  if (expectedVendorId && String(expectedVendorId).trim() !== '' && vc && vc.customer_id != null) {
-    if (String(vc.customer_id).trim() === String(expectedVendorId).trim()) return true
+  const exp = expectedVendorId && String(expectedVendorId).trim() !== '' ? String(expectedVendorId).trim() : ''
+  if (!exp || !vc) return false
+  // Contact id from WEEKLY_REPORT_VENDORS_JSON / vendor_credits_contact_id may sit on
+  // customer_id, contact_id, or vendor_contact_id depending on org / API version.
+  for (const k of ['customer_id', 'contact_id', 'vendor_contact_id', 'contact_person_id']) {
+    if (vc[k] != null && String(vc[k]).trim() === exp) return true
   }
   return false
+}
+
+/**
+ * Best-effort line amount on a vendor credit line (Zoho field names vary).
+ * Weekly report also values returns as **qty × item sales price**; this is a fallback.
+ * @param {object} li
+ */
+function parseVendorCreditLineDollarAmount(li) {
+  if (!li || typeof li !== 'object') return 0
+  const p = (v) => {
+    if (v == null) return 0
+    if (v === '') return 0
+    if (typeof v === 'number' && Number.isFinite(v)) return v
+    return parseLineQty(v)
+  }
+  for (const k of [
+    'item_total',
+    'line_item_total',
+    'line_total',
+    'bcy_line_item_total',
+    'bcy_item_total',
+    'item_sub_total',
+    'sub_total',
+    'bcy_sub_total',
+    'total',
+  ]) {
+    if (li[k] == null || li[k] === '') continue
+    const a = p(li[k])
+    if (a > 0) return a
+  }
+  const q = p(li.quantity) || p(li.qty) || 0
+  for (const rk of ['rate', 'sales_rate', 'item_rate', 'bcy_rate', 'item_rate_formatted', 'item_price']) {
+    if (li[rk] == null || li[rk] === '') continue
+    const rate = p(li[rk])
+    if (q > 0 && rate > 0) {
+      return Math.round(q * rate * 100) / 100
+    }
+  }
+  return 0
+}
+
+/**
+ * @param {object} li
+ * @returns {{ item_id: string, name: string, sku: string, quantity: number, item_total: number }}
+ */
+function normalizeVendorCreditLineItem(li) {
+  if (!li || typeof li !== 'object') {
+    return { item_id: '', name: '', sku: '', quantity: 0, item_total: 0 }
+  }
+  const it = li.item && typeof li.item === 'object' ? li.item : null
+  const itemId =
+    li.item_id != null && String(li.item_id).trim() !== ''
+      ? String(li.item_id).trim()
+      : it && it.item_id != null
+        ? String(it.item_id).trim()
+        : ''
+  const sku = (() => {
+    if (li.sku != null && String(li.sku).trim() !== '') return String(li.sku).trim()
+    if (it && it.sku != null && String(it.sku).trim() !== '') return String(it.sku).trim()
+    return ''
+  })()
+  const name =
+    (li.name && String(li.name)) ||
+    (li.item_name && String(li.item_name)) ||
+    (it && it.name && String(it.name)) ||
+    (it && it.item_name && String(it.item_name)) ||
+    ''
+  const quantity = parseLineQty(li.quantity != null ? li.quantity : li.qty)
+  const item_total = parseVendorCreditLineDollarAmount(li)
+  return { item_id: itemId, name, sku, quantity, item_total }
 }
 
 /**
@@ -367,16 +441,16 @@ async function getVendorCredits(fromDate, toDate, vendorId, opts = {}) {
         if (full) lines = normalizeZohoLineItems(full.line_items)
       }
       for (const li of lines) {
-        const sku = li.sku && String(li.sku).trim() ? String(li.sku).trim() : ''
+        const n = normalizeVendorCreditLineItem(li)
         lineRows.push({
           type: 'vendor_credit',
           document_id: vc.vendor_credit_id,
           document_date: vc.date,
-          item_id: li.item_id,
-          name: li.name,
-          sku,
-          quantity: parseLineQty(li.quantity),
-          item_total: parseLineQty(li.item_total),
+          item_id: n.item_id,
+          name: n.name,
+          sku: n.sku,
+          quantity: n.quantity,
+          item_total: n.item_total,
         })
       }
     }
@@ -404,6 +478,8 @@ module.exports = {
     matchesReportVendor,
     normalizeZohoLineItems,
     matchesVendorCreditDocument,
+    normalizeVendorCreditLineItem,
+    parseVendorCreditLineDollarAmount,
     itemTotalNetFromSalesByItemRow,
     /** @deprecated use itemTotalNetFromSalesByItemRow (pre-tax only) */
     itemTotalGrossFromSalesByItemRow: (r) => itemTotalNetFromSalesByItemRow(r),
