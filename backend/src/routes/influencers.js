@@ -28,6 +28,13 @@ router.post(
   requireInfluencersWrite,
   influencersController.getInsightsImageUploadUrlsBatch,
 )
+router.post(
+  '/:id/instagram/refresh-profile',
+  attachAuth,
+  requireAuth,
+  requireInfluencersWrite,
+  influencersController.refreshInstagramProfileFromGraph,
+)
 router.patch('/:id', attachAuth, requireAuth, requireInfluencersWrite, influencersController.updateInfluencer)
 router.delete(
   '/:id',

@@ -3,6 +3,7 @@ import { apiFetch } from "./api"
 export type InfluencerSocial = {
   handle?: string
   url?: string
+  /** When set, prefer this over the `/api/instagram-proxy` avatar. Populated from Graph API Business Discovery `profile_picture_url` when the API returns it. */
   picUrl?: string
 }
 

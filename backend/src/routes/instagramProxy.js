@@ -2,6 +2,10 @@ const express = require('express')
 const https = require('https')
 const router = express.Router()
 
+// Note: this route uses legacy HTML / web_profile_info reads for on-the-fly avatars. Official,
+// storable profile picture URLs should come from Instagram Graph API Business Discovery and be
+// saved on the influencer as `instagram.picUrl` (see `../services/instagramService.js`).
+
 // In-memory cache: username → { picUrl, fullName, followersCount, timestamp }
 const cache = new Map()
 const CACHE_TTL_MS = 60 * 60 * 1000 // 1 hour
