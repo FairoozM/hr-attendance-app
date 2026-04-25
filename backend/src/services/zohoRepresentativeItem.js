@@ -8,8 +8,8 @@
  *  3) Sauce / milk pot
  *  4) Any other subtype (deterministic fallback)
  */
-const REPRESENTATIVE_IMAGE_SELECTION_VERSION = 10
-const REPRESENTATIVE_IMAGE_CACHE_VERSION = 6
+const REPRESENTATIVE_IMAGE_SELECTION_VERSION = 11
+const REPRESENTATIVE_IMAGE_CACHE_VERSION = 7
 
 /** Same as `weeklyReportZohoData` — family display can include this suffix for unmapped Zoho families. */
 const FAMILY_LABEL_SUFFIX_NOT_IN_GROUPS = ' (not found in groups)'
@@ -57,6 +57,13 @@ const RE_COOKWARE_SET = new RegExp(
     '|set[\\s-]\\d+',
   'i'
 )
+
+/**
+ * Items named e.g. "SPHM-S-16P-BEIGE", "STA-24P-DARKGRAY", "SPF-20P-GREEN" use a
+ * `<size>P` suffix that means "single soup pot" across many Zoho catalog families.
+ * Range 14–42 cm avoids confusion with piece-count numbers (6, 8, 10, 12).
+ */
+const RE_SIZE_POT = /\b(1[4-9]|[2-3][0-9]|4[0-2])p\b/i
 
 const RE_FRY = /fry(?:ing)?\s*pan|fry-?pan|fry\W*pan|frypan|grill[\s-]*pan|dosa\W*pan|dosa\W*tawa|crepe\W*pan|griddle|مقلاة|milk\W*pan(?!\W*pot)/i
 const RE_WOK = /\b(wok|skillet|tawa)\b/
@@ -140,6 +147,17 @@ function classifyRepresentativeType(sku, name) {
   ) {
     return 'primary_pot'
   }
+  // "<size>P" suffix (e.g. 16P, 20P, 24P, 28P) is the Zoho catalog convention for a single
+  // soup pot across families like SPF, SPHM-S, STA, etc.
+  if (
+    RE_SIZE_POT.test(t) &&
+    !RE_SAUCE_TOKEN.test(t) &&
+    !isFryingType(t) &&
+    !RE_COOKWARE_SET.test(t) &&
+    !RE_SHALLOW_POT.test(t)
+  ) {
+    return 'primary_pot'
+  }
   if (RE_SECONDARY.test(t) || RE_SAUCE_TOKEN.test(t)) return 'secondary_pot'
   if (isFryingType(t)) return 'frying'
   if (RE_COOKWARE_SET.test(t)) return 'cookware_set'
@@ -212,8 +230,14 @@ function extractDiameterCm(sku, name) {
     if (m2) vals.push(parseInt(m2[1], 10))
   }
   if (!vals.length) {
-    const m3 = t.match(/\blifep\d+[a-z]*\s+(1[4-9]|[2-3][0-9]|4[0-2])(?:p|n)?\b/i)
+    const m3 = t.match(/\blifep\d+[a-z]*\s+(1[4-9]|[2-3][0-9]|4[0-2])(?:p|n)?/i)
     if (m3) vals.push(parseInt(m3[1], 10))
+  }
+  // <size>P suffix (e.g. 16P, 24P, 28P) — Zoho convention for single-pot diameter.
+  // Must run after the explicit-unit and LIFEP fallbacks to avoid double-counting.
+  if (!vals.length) {
+    const m4 = t.match(/\b(1[4-9]|[2-3][0-9]|4[0-2])p\b/i)
+    if (m4) vals.push(parseInt(m4[1], 10))
   }
   if (!vals.length) return null
   return Math.max(...vals)

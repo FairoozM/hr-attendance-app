@@ -515,7 +515,7 @@ test('aggregateByFamily: Zoho soup SKU in same Family (not in report rows) still
           item_id: '2',
           sku: 'LIFEP17-40-BLUE',
           name: 'Stock pot 40',
-          image_id: 'zimg2',
+          image_document_id: 'zimg2',
           status: 'active',
           cf_family: 'LIFEP17',
         },
@@ -591,4 +591,41 @@ test('aggregateByFamily: families with unrelated subtypes fall back deterministi
   ]
   const [one] = aggregateByFamily(rows)
   assert.equal(one.zoho_representative_item_id, '1')
+})
+
+// ----- <size>P suffix = single soup pot -----
+
+test('aggregateByFamily: <size>P suffix items (SPF-16P, STA-24P) are classified as primary_pot', () => {
+  // SPF family: mix of <size>P pots, plain items, and a frying set
+  const rows = [
+    { family: 'SPF', item_id: 'FSET', sku: 'SPF2FSET-GRAY', item_name: 'SPF2FSET-GRAY', sales_amount: 0, _zoho: { has_image: true, is_active: true } },
+    { family: 'SPF', item_id: 'P16', sku: 'SPF-16P-GRAY', item_name: 'SPF-16P-GRAY', sales_amount: 0, _zoho: { has_image: true, is_active: true } },
+    { family: 'SPF', item_id: 'P24', sku: 'SPF-24P-GREEN', item_name: 'SPF-24P-GREEN', sales_amount: 0, _zoho: { has_image: true, is_active: true } },
+  ]
+  const [one] = aggregateByFamily(rows)
+  // 24P beats 16P (larger size); both beat the non-P frying set
+  assert.equal(one.zoho_representative_item_id, 'P24')
+  assert.equal(String(one.zoho_representative_sku || ''), 'SPF-24P-GREEN')
+})
+
+test('aggregateByFamily: SPHM-S <size>P pot beats sauce pan (SAU)', () => {
+  const rows = [
+    { family: 'SPHM-S', item_id: 'SAU', sku: 'SPHM-S-SAU-16-BLACK', item_name: 'SPHM-S-SAU-16-BLACK', sales_amount: 0, _zoho: { has_image: true, is_active: true } },
+    { family: 'SPHM-S', item_id: 'P16', sku: 'SPHM-S-16P-BEIGE', item_name: 'SPHM-S-16P-BEIGE', sales_amount: 0, _zoho: { has_image: true, is_active: true } },
+    { family: 'SPHM-S', item_id: 'P28', sku: 'SPHM-S-28P-BLACK', item_name: 'SPHM-S-28P-BLACK', sales_amount: 0, _zoho: { has_image: true, is_active: true } },
+  ]
+  const [one] = aggregateByFamily(rows)
+  // Largest pot (28P) must win over the sauce pan
+  assert.equal(one.zoho_representative_item_id, 'P28')
+})
+
+test('aggregateByFamily: STA <size>P pot beats inactive cookware set', () => {
+  const rows = [
+    { family: 'STA', item_id: 'CSET', sku: 'COOKWARE SET', item_name: 'STA-6-3-PEACH', sales_amount: 0, _zoho: { has_image: true, is_active: false } },
+    { family: 'STA', item_id: 'P20', sku: 'STA-20P-LIGHTGRAY', item_name: 'STA-20P-LIGHTGRAY', sales_amount: 0, _zoho: { has_image: true, is_active: true } },
+    { family: 'STA', item_id: 'P28', sku: 'STA-28P-DARKGRAY', item_name: 'STA-28P-DARKGRAY', sales_amount: 0, _zoho: { has_image: true, is_active: true } },
+  ]
+  const [one] = aggregateByFamily(rows)
+  // Largest pot (28P) must win; the cookware set is inactive and lower priority anyway
+  assert.equal(one.zoho_representative_item_id, 'P28')
 })

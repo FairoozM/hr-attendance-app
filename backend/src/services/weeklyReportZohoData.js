@@ -236,10 +236,11 @@ function zohoItemToPlaceholderReportRow(zohoItem, fromDate, toDate, familyFieldI
   const sh = parseZohoStockOnHand(zohoItem)
   const unitSales = parseZohoUnitSalesPrice(zohoItem) ?? parseZohoUnitPurchasePrice(zohoItem)
   // stock fields are **quantities** until the value pass in `fetchZohoItemRowsForGroupMembers`
+  // Zoho list API returns `image_document_id` / `image_name` — NOT `image_id`.
   const hasImage =
     zohoItem &&
-    zohoItem.image_id != null &&
-    zohoItem.image_id !== ''
+    ((zohoItem.image_document_id != null && zohoItem.image_document_id !== '') ||
+      (zohoItem.image_name != null && zohoItem.image_name !== ''))
   return {
     sku: n.sku,
     item_name: n.name,
