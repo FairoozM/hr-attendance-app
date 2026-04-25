@@ -23,7 +23,6 @@ const {
   buildItemIdToSkuMap,
   sumLinesToMap,
   sumAmountsToMap,
-  subtractMaps,
   mapLookupForReportRow,
   applyTransactionMapsToRow,
 } = require('./weeklyReportZohoLineMerge')
@@ -798,23 +797,10 @@ async function fetchZohoItemRowsForGroupMembers(
     idToSku
   )
 
-  // Subtract damaged-warehouse sales so the main sections reflect non-damaged data only.
-  if (excludeWarehouseId && damagedSalesR && Array.isArray(damagedSalesR.lines)) {
-    const dLines = damagedSalesR.lines
-    const damagedSm = sumLinesToMap(
-      dLines.map((a) => ({ item_id: a.item_id, name: a.name, quantity: a.quantity })),
-      idToSku
-    )
-    const damagedAmountMap = sumAmountsToMap(
-      dLines.map((a) => ({ item_id: a.item_id, sku: a.sku, name: a.name, item_total: a.item_total })),
-      idToSku
-    )
-    sm = subtractMaps(sm, damagedSm)
-    salesAmountMap = subtractMaps(salesAmountMap, damagedAmountMap)
-    if (damagedSm.size > 0) {
-      console.log(`[weekly-report] excludeWarehouseId=${excludeWarehouseId}: subtracted ${dLines.length} damaged sales lines from totals`)
-    }
-  }
+  // NOTE: do not subtract damaged sales from the unfiltered sales-by-item result.
+  // In this Zoho org, `warehouse_id`-scoped sales can overlap in a way that causes
+  // undercounting in the main sections when we do (all - damaged) by SKU.
+  void damagedSalesR
 
   // Subtract damaged-warehouse stock from each item's opening/closing qty.
   if (damagedStockByItemId && damagedStockByItemId.size > 0) {
