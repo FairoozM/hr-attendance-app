@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } fr
 import { useSearchParams } from 'react-router-dom'
 import { fetchBinary, downloadBlob } from '../../api/client'
 import { useWeeklySalesReport } from '../../hooks/useWeeklySalesReport'
+import { ZOHO_REP_IMAGE_QUERY_VERSION } from '../../config/zohoRepImageVersion'
 import {
   getCachedZohoItemBlob,
   setCachedZohoItemBlob,
@@ -271,12 +272,13 @@ export function ZohoItemThumb({ itemId }) {
     const go = async () => {
       try {
         const fromMem = getCachedZohoItemBlob(itemId)
+        const q = new URLSearchParams()
+        q.set('r', String(ZOHO_REP_IMAGE_QUERY_VERSION))
+        const url = `${ZOHO_ITEM_IMAGE_PATH}/${encodeURIComponent(String(itemId))}?${q.toString()}`
         const blob = fromMem
           ? fromMem
-          : (await fetchBinary(
-              `${ZOHO_ITEM_IMAGE_PATH}/${encodeURIComponent(String(itemId))}`,
-              { cache: ZOHO_WEEKLY_THUMB_CLIENT_CACHE_ENABLED ? 'default' : 'no-store' }
-            )).blob
+          : (await fetchBinary(url, { cache: ZOHO_WEEKLY_THUMB_CLIENT_CACHE_ENABLED ? 'default' : 'no-store' }))
+            .blob
         if (cancelled) return
         if (!fromMem) {
           setCachedZohoItemBlob(itemId, blob)

@@ -1,17 +1,20 @@
 /**
  * In-memory cache for Zoho Inventory item images (weekly report thumbnails).
- * Avoids hitting Zoho on every browser refresh; TTL matches HTTP Cache-Control.
- *
- * Temporarily set to false to bypass cache (new rep-item thumbnails show immediately;
- * re-enable to true to restore 2h in-memory + HTTP `max-age` behaviour).
+ * Key includes representative-selection version (see `zohoRepresentativeItem.js`) so rules
+ * can be bumped without serving stale image proxy rows across versions.
  */
-const IMAGE_CACHE_ENABLED = false
+const { REPRESENTATIVE_IMAGE_CACHE_VERSION } = require('./zohoRepresentativeItem')
+const IMAGE_CACHE_ENABLED = true
 
-const TTL_MS = 2 * 60 * 60 * 1000 // 2 hours
+const TTL_MS = 3 * 60 * 60 * 1000 // 3 hours
 const MAX_ENTRIES = 1500
 
 /** @type {Map<string, { buffer: Buffer, contentType: string, storedAt: number }>} */
 const store = new Map()
+
+function keyFor(itemId) {
+  return `r${String(REPRESENTATIVE_IMAGE_CACHE_VERSION || 0)}:${String(itemId || '').trim()}`
+}
 
 function evictIfNeeded() {
   if (store.size < MAX_ENTRIES) return
@@ -30,8 +33,8 @@ function evictIfNeeded() {
  */
 function get(itemId) {
   if (!IMAGE_CACHE_ENABLED) return null
-  const k = String(itemId || '').trim()
-  if (!k) return null
+  if (!String(itemId || '').trim()) return null
+  const k = keyFor(itemId)
   const e = store.get(k)
   if (!e) return null
   if (Date.now() - e.storedAt > TTL_MS) {
@@ -47,8 +50,8 @@ function get(itemId) {
  */
 function set(itemId, payload) {
   if (!IMAGE_CACHE_ENABLED) return
-  const k = String(itemId || '').trim()
-  if (!k || !payload || !payload.buffer) return
+  if (!String(itemId || '').trim() || !payload || !payload.buffer) return
+  const k = keyFor(itemId)
   evictIfNeeded()
   store.set(k, {
     buffer: payload.buffer,

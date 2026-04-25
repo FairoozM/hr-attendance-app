@@ -313,8 +313,9 @@ async function exportReportByGroupXlsx(req, res) {
  */
 async function getZohoItemImage(req, res) {
   const { itemId } = req.params
+  const noCache = req.query && (String(req.query.bust) === '1' || String(req.query.nocache) === '1')
   try {
-    const cached = zohoItemImageCache.get(itemId)
+    const cached = noCache ? null : zohoItemImageCache.get(itemId)
     if (cached) {
       res.setHeader('Content-Type', cached.contentType)
       res.setHeader('Cache-Control', `private, max-age=${zohoItemImageCache.MAX_AGE_SEC}`)
@@ -324,12 +325,13 @@ async function getZohoItemImage(req, res) {
     if (!out) {
       return res.status(404).end()
     }
-    zohoItemImageCache.set(itemId, out)
+    if (!noCache) zohoItemImageCache.set(itemId, out)
     res.setHeader('Content-Type', out.contentType)
-    if (zohoItemImageCache.IMAGE_CACHE_ENABLED) {
+    if (noCache) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+    } else if (zohoItemImageCache.IMAGE_CACHE_ENABLED) {
       res.setHeader('Cache-Control', `private, max-age=${zohoItemImageCache.MAX_AGE_SEC}`)
     } else {
-      // Match disabled client: avoid stale browser proxy responses while testing new rep-item id.
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
     }
     return res.status(200).send(out.buffer)

@@ -2,7 +2,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { mockModule, freshRequire } = require('./_helpers')
 const { sumReportGrandTotals } = require('../src/utils/weeklyReportTotals')
-const { buildZohoLookupMaps, findZohoItemForMember, aggregateByFamily } = require(
+const { buildZohoLookupMaps, findZohoItemForMember, aggregateByFamily, scoreZohoNameSkuText } = require(
   '../src/services/weeklyReportZohoData'
 )._internals
 

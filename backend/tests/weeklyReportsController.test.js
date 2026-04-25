@@ -184,13 +184,14 @@ test('weeklyReports: export.xlsx uses the same getInventoryByGroup + items as JS
   await wb.xlsx.load(res2.body)
   const sheet = wb.getWorksheet('Report')
   assert.equal(String(sheet.getCell('B5').value), 'Fam')
-  assert.equal(Number(sheet.getCell('G5').value), 3) // sales_amount
+  // Columns: C = Zoho photo item id, D..H = monetary columns (ending with Sales in H)
+  assert.equal(Number(sheet.getCell('H5').value), 3) // sales_amount
   const totalRow = 5 + res.body.items.length
-  assert.equal(Number(sheet.getCell(`C${totalRow}`).value), res.body.totals.opening_stock)
-  assert.equal(Number(sheet.getCell(`D${totalRow}`).value), res.body.totals.purchase_amount)
-  assert.equal(Number(sheet.getCell(`E${totalRow}`).value), res.body.totals.returned_to_wholesale)
-  assert.equal(Number(sheet.getCell(`F${totalRow}`).value), res.body.totals.closing_stock)
-  assert.equal(Number(sheet.getCell(`G${totalRow}`).value), res.body.totals.sales_amount)
+  assert.equal(Number(sheet.getCell(`D${totalRow}`).value), res.body.totals.opening_stock)
+  assert.equal(Number(sheet.getCell(`E${totalRow}`).value), res.body.totals.purchase_amount)
+  assert.equal(Number(sheet.getCell(`F${totalRow}`).value), res.body.totals.returned_to_wholesale)
+  assert.equal(Number(sheet.getCell(`G${totalRow}`).value), res.body.totals.closing_stock)
+  assert.equal(Number(sheet.getCell(`H${totalRow}`).value), res.body.totals.sales_amount)
 })
 
 test('weeklyReports: other_family export.xlsx uses same getInventoryByGroup + totals as JSON', async () => {
@@ -223,8 +224,8 @@ test('weeklyReports: other_family export.xlsx uses same getInventoryByGroup + to
   await wb.xlsx.load(res2.body)
   const sheet = wb.getWorksheet('Report')
   const totalRow = 5 + res.body.items.length
-  assert.equal(Number(sheet.getCell(`C${totalRow}`).value), res.body.totals.opening_stock)
-  assert.equal(Number(sheet.getCell(`G${totalRow}`).value), res.body.totals.sales_amount)
+  assert.equal(Number(sheet.getCell(`D${totalRow}`).value), res.body.totals.opening_stock)
+  assert.equal(Number(sheet.getCell(`H${totalRow}`).value), res.body.totals.sales_amount)
 })
 
 test('weeklyReports: empty export xlsx grand total matches API totals (all zeros)', async () => {
@@ -241,11 +242,11 @@ test('weeklyReports: empty export xlsx grand total matches API totals (all zeros
   await wb.xlsx.load(res2.body)
   const sheet = wb.getWorksheet('Report')
   assert.equal(String(sheet.getCell('B5').value), 'Grand Total')
-  assert.equal(Number(sheet.getCell('C5').value), res.body.totals.opening_stock)
-  assert.equal(Number(sheet.getCell('D5').value), res.body.totals.purchase_amount)
-  assert.equal(Number(sheet.getCell('E5').value), res.body.totals.returned_to_wholesale)
-  assert.equal(Number(sheet.getCell('F5').value), res.body.totals.closing_stock)
-  assert.equal(Number(sheet.getCell('G5').value), res.body.totals.sales_amount)
+  assert.equal(Number(sheet.getCell('D5').value), res.body.totals.opening_stock)
+  assert.equal(Number(sheet.getCell('E5').value), res.body.totals.purchase_amount)
+  assert.equal(Number(sheet.getCell('F5').value), res.body.totals.returned_to_wholesale)
+  assert.equal(Number(sheet.getCell('G5').value), res.body.totals.closing_stock)
+  assert.equal(Number(sheet.getCell('H5').value), res.body.totals.sales_amount)
 })
 
 // ---------------------------------------------------------------------------

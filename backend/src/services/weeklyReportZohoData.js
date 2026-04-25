@@ -26,6 +26,7 @@ const {
   mapLookupForReportRow,
   applyTransactionMapsToRow,
 } = require('./weeklyReportZohoLineMerge')
+const { selectRepresentativeZohoItemForFamily } = require('./zohoRepresentativeItem')
 const {
   getResolvedReportVendor,
   assertReportVendorResolvedIfRequired,
@@ -249,6 +250,7 @@ function zohoItemToPlaceholderReportRow(zohoItem, fromDate, toDate, familyFieldI
       to_date: toDate,
       family: n.family,
       has_image: !!hasImage,
+      is_active: !zohoItem.status || String(zohoItem.status).toLowerCase() !== 'inactive',
     },
   }
 }
@@ -348,339 +350,6 @@ function findZohoItemForMember(member, maps) {
 const NOT_FOUND_IN_GROUPS_SUFFIX = ' (not found in groups)'
 
 /**
- * Family thumbnail: prefer real pots (stock, soup, casserole, generic “pot” sets) over
- * skillets / woks. When a family has at least one “pot” candidate and one “fry”
- * candidate with catalog images, **only the pot / non-fry** pool is considered, so
- * frying product shots are not used as the family image when a pot exists in Zoho.
- * LIFEP* / LUP: the Zoho **Family** field (not just SKU) is a pot-line hint; we must
- * not mark every line “fry” from item_name alone, or the picker has no `hasPot`. If
- * every line is still `fry` (e.g. FRY in all SKUs), we tie-break on text (stock/5+ pc).
- * (Served through /zoho-item-images; cache per item_id.)
- */
-const THUMB_SCORE = { STOCKPOT: 100, NEUTRAL: 50, FRYING: 1 }
-
-const THUMB_CLASS = { pot: 'pot', fry: 'fry', neutral: 'neutral' }
-
-/**
- * @param {string} s
- * @returns {boolean}
- */
-function catalogNameLooksLikeFrying(s) {
-  if (!s || !String(s).trim()) return false
-  const t = String(s).toLowerCase()
-  if (/\b(fry(ing)?-?pan|frypan|frying\s*pan|skillet|wok|tawa|grill\s*pan|grillpan|cr[eê]pe\s*pan|تاوا|مقلاة\s*واقية)\b/i.test(t)) {
-    return true
-  }
-  if (/\b(crape|crepe)\s*pan\b/i.test(t)) return true
-  if (/(^|[^a-z0-9])f(ry|rying)?\s*([\-_/]|\s+)?(pan|set)([^a-z]|$)/i.test(t) && !/stock|soup|casserole|dutch|pot(tery|s|ted)?/i.test(t)) {
-    return true
-  }
-  return false
-}
-
-/**
- * Broader than before: any catalog hint that the pack is a pot, casserole, or
- * not a dedicated fry pan. Used to **exclude** fry SKUs from the shortlist when
- * a pot is present in the same family.
- * @param {string} s
- * @returns {boolean}
- */
-function catalogNameLooksLikeAnyPot(s) {
-  if (catalogNameLooksLikeStockpot(s)) return true
-  if (!s || !String(s).trim()) return false
-  const t = String(s).toLowerCase()
-  if (/(^|[^a-z0-9])pot(s|tery)?\b|pot-?set|set\s*of\s*pots?|pots?\s*set|multi-?pot/i.test(t)) {
-    if (/(coffee|tea|milk|espresso|butter|honey|soap|paint)\s*(pot|kettle|jar)/i.test(t) && !/(cook(ing|ware)?|soup|stock|large|deep|biryani|family|kitchen)/i.test(t)) {
-      return false
-    }
-    if (/(fry|frying|skillet|wok|grill\s*pan)/i.test(t) && /(soup|stock|stew|5|4|3|2)\s*pcs?/i.test(t)) {
-      // "fry" might appear in a combined listing; still has pot
-      return true
-    }
-    return !/\b(fry(ing)?|wok|skillet|tawa|grill\s*pan|مقلاة|صاج)\b/i.test(t) || /(soup|stock|stew|biryani|dutch|deep|sauce(?!pan))/.test(t)
-  }
-  if (/(biryani|paella|tagine|marmite)\b/i.test(t) && !/(fry(ing)?|wok|skillet)\b/i.test(t)) return true
-  if (/(طقم|قدر|تانجر|طنجر|وعاء\s*الطبخ|وعاء\s*عميق|قدور|طنجرة|طنجير)/.test(s)) {
-    if (!/مقلاة|صاج|wok|skillet/i.test(t)) return true
-  }
-  if (/(cook(ing|ware)?\s*set|kitchen(ware)?\s*set)(?![\s\S]{0,20}(fry(ing)?|wok|skillet))/i.test(t)) {
-    if (!/fry(ing)?\s*pan|skillet|wok|grill\s*pan|مقلاة|صاج|تاوا/i.test(t)) return true
-  }
-  return false
-}
-
-/**
- * @param {string} s
- * @returns {boolean}
- */
-function catalogNameLooksLikeStockpot(s) {
-  if (!s || !String(s).trim()) return false
-  const t = String(s).toLowerCase()
-  const raw = String(s)
-  if (/\b(stock[\s-]*pot|stockpot|soup[\s-]*pot|souppot|soups?\s*\.{0,3}\s*pot|stew(ing)?\s*pot|stk[\s_-]*pot|sp-?pot|casserole|dutch[\s-]*oven|saucepan|saucepans?|سوب\s*بوت)\b/i.test(t)) {
-    return true
-  }
-  if (/(?:soup|stew|stock(?!s)|biry(ani)?|sauce(?!s)|shorba|سوپ|شوربة|شوربه|مرق)(?:.|\n){0,50}(?:قِ?در|وعاء|بوت|بَان|مِقلاة\s*واقية|طنجر|طاجن|حلّ?ة|جَدر|dutch|litre|ltr|^\d+\s*L\b|liters?)/i.test(t)) {
-    if (!/coffee|tea(?!\s*pot)|butter(?!\s*pot|fly)|milk\s*pot(?!\s*lar)/i.test(t)) return true
-  }
-  if (/(?:قِ?در|وعاء|طنجر|طاجن|حلّ?ة|جَدر|ستوك)(?:.|\n){0,40}(?:soup|stew|stock|شوربة|biry(ani)?|سوپ)/i.test(t)) {
-    if (!/مقلاة|fry(ing)?|wok|skillet/i.test(t)) return true
-  }
-  if (/\b(pressure|multi|slow|electric|rice)\s*cooker\b/i.test(t) && !/(fry(ing)?|wok|skillet)\b/.test(t)) {
-    return true
-  }
-  if (/(قدر|ستوك|شوربة|مقلوبة|غلي|طنج(رة|ن)?|طنجر|طاجن|وعاء|حل(ّ|ه)?\s*ه|حلة|جدر(ة|ه)?)/i.test(raw)) {
-    return true
-  }
-  return false
-}
-
-/**
- * Strong numeric preference for the weekly family thumbnail when the Zoho **item** text
- * clearly points at soup / stock / stew / Arabic pot lines (customer cataloguing varies).
- * Used as the **first** sort key for LIFEP* and LUP families.
- * @param {{ sku?: string, item_name?: string }} row
- * @returns {number}
- */
-function zohoSoupStockPotImageScore(row) {
-  if (!row) return 0
-  const skuU = zohoCompactName(String(row.sku != null ? row.sku : ''))
-  const nameU = zohoCompactName(String(row.sku != null ? row.sku : '') + String(row.item_name != null ? row.item_name : ''))
-  const t = `${row.sku != null ? row.sku : ''} ${row.item_name != null ? row.item_name : ''}`
-  const tLower = t.toLowerCase()
-  if (!t.trim()) return 0
-  let n = 0
-  if (/(LIFE|LIF)P\d*S?-\s*40\s*-/i.test(String(row.sku != null ? row.sku : ''))) n += 120000
-  if (/(LIFE|LIF)P(17|7)S?40(?!.*(FRY|F-P|FRY-))/i.test(skuU)) n += 120000
-  if (catalogNameLooksLikeStockpot(t)) n += 80000
-  if (/(SOUP|STEWS?|BIRY|MARM|STKPT|STKPOT|STOCKP|SPOT$|CASS|DUTCHPOT|SAUCEP(?!A))/i.test(skuU)) n += 50000
-  if (/(SOUP|STEWS?|BIRY|CASS|STK|STWPOT|SPOT|BIRI)/.test(nameU) && /(POT|STK|BIRI|BIRY|CASS|SP$)/.test(nameU)) n += 35000
-  if (/(soupp?ot|soup\W*\.?\W*pt|soup\W*pot|soups?\W+with\W*pot|stock\W*pot|stew\W*pot|sauce[\s-]*pans?|biry(ani)?\W*(pot|set)?|dutch(?!\s*oven\s*fry)\s*ov)/i.test(t)) n += 70000
-  if (/(شوربة|شوربه|سوب|الشوربة|سوب|مرق\W*ال?|وعاء\s*ال(شوربة|سوب)|قِ?در(\s*ال(شوربة|سوب))?|قِ?در(\s*شوربة|سوب|حساء|مرق)|طنجر(ة|ه)?\s*(شوربة|soup|حساء)|بِطنجان|مِقلی)/.test(t)) n += 65000
-  if (/(soup|stew(?!\s*stick|ard)|biry(ani|ani)?|tagine|marmite|سوپ|شوربة|مرق)(.|\n){0,40}(l(?![a-z])|litre|ltr|قدر|وعاء|pot)/i.test(t) || /(l(?![a-z])|litre|pot|قِ?در|وعاء|طنج|جدر|جال)(.|\n){0,30}(soup|stew|biry(ani)?|شوربة|مرق)/i.test(t)) n += 45000
-  if (/\b(3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|24)\s*(p\s*c|pc|pce|piece|pcs|pzs|pack|pc\.|p\/c|قطع|قطع)/.test(tLower) && /(cook(ware|ing)?\s*set|kitchen(ware)?\s*set|assort|combo|طقم|set\s+\d|multi)/.test(tLower) && !/\b(1|2|two|double)\s*(fry|frying|wok|skillet|مقلاة|صاج|pc\W*fry)/.test(tLower)) {
-    n += 12000
-  }
-  if (/(^|[^a-z])soup($|[^a-z])|chicken\s*soup|vegetable\s*soup|lentil|minestrone|bisque|broth(?!t)/i.test(t) && /(قِ?در|جدر|طنج|حلة|saucepan|pot(?!ter)|\d{1,2}\s*L|litre|ltr|cm\s*\d)/.test(t)) n += 25000
-  if (/(fry(ing)?|wok|skillet|مقلاة|مقلی|grill\s*pan|fry-?pan|تاو|صاج|تاج)/i.test(t) && n < 30000) n = Math.max(0, n - 25000)
-  return n
-}
-
-/**
- * @param {string} [s]
- * @returns {string}
- */
-function zohoCompactName(s) {
-  return String(s || '')
-    .toUpperCase()
-    .replace(/[\s\-_\.]/g, '')
-}
-
-/**
- * The weekly report “code” is often the Zoho **Family** value (e.g. LIFEP7S), but item
- * SKUs are internal barcodes — the old logic only read SKUs, so LIF* families never
- * received the “set / pot” hint.
- * @param {string} [family] — Zoho Family custom field
- * @returns {boolean} true for LIFEP7S, LIFEP7, and similar; false otherwise
- */
-function zohoFamilyLooksLikeLifepSetOrBase(family) {
-  const c = zohoCompactName(family)
-  if (!c) return false
-  if (/(FRY|F-P|WOK|SKI|SKL|GRILL|FPAN$)/.test(c)) return false
-  if (/(LIFE|LIF)P\d+S$/.test(c)) return true
-  if (/(LIFE|LIF)P\d+$/.test(c)) return true
-  return false
-}
-
-/**
- * SKU-only hints: many orgs encode fry vs pot in the SKU (e.g. *SP / *CASS / *POT
- * for pots; *F / *FP / *FRY for pans).
- * @param {string} [sku]
- * @returns {boolean}
- */
-function skuHintLooksLikePotFromSku(sku) {
-  const s = String(sku != null ? sku : '')
-  const c = zohoCompactName(sku)
-  if (!c) return false
-  if (/(POT|CASS|STK|STOCK|STEWS|BIRY|MARM|SOUP|COC(?!A)|BRAIS|BRAI|STWPOT)/.test(c)) return true
-  if (/(SPS$|POTS$|STKS$|STOCKS$|POTK|SPOT$)/.test(c)) return true
-  if (/LIF?P\w*\d*SP$|LIF?P\w*STK|LIF?P\w*POT/i.test(c)) return true
-  if (/K(?![A-Z]*FRY)POT|POTC|PC\d+POT|PCCASS|PCASS/i.test(c)) return true
-  if (/(LIFE|LIF)P\d+S$/.test(c) && !/(FRY|F-P|WOK|SKL|SKI)/.test(c)) return true
-  // e.g. LIFEP17-40-BLUE (stock/soup) → compact "LIFEP1740…"; 40 in org = pot line, not a fry suffix.
-  if (/(LIFE|LIF)P\d*S?-\s*40\s*-/i.test(s)) return true
-  if (/(LIFE|LIF)P(17|7)40(?!.*(FRY|F-P|FP(?!L)|FRY-))/i.test(c)) return true
-  if (/(LIFE|LIF)P(17|7)S?40(?!.*(FRY|F-P|FRY-))/i.test(c)) return true
-  return false
-}
-
-/**
- * @param {string} [sku]
- * @param {string} [family] — from Zoho Family field (same as row.family)
- * @returns {boolean}
- */
-function skuHintLooksLikePot(sku, family) {
-  if (skuHintLooksLikePotFromSku(sku)) return true
-  if (zohoFamilyLooksLikeLifepSetOrBase(family)) return true
-  return false
-}
-
-/**
- * @param {string} [sku]
- * @returns {boolean}
- */
-function skuHintLooksLikeFry(sku) {
-  const c = zohoCompactName(sku)
-  if (!c) return false
-  if (/(FRYP|FRYING|F-PAN|FRY-PAN|FRYPAN|SKL|WOK$|FRY$|FRY-)/.test(c)) return true
-  if (/(FRY0|FRY1|FRY2|FRY3|FRY4|FRY5|FRY6|FRY7|FRY8|FRY9|FP\d)/.test(c) && c.length < 32) {
-    if (!/POT|CASS|STK|STOCK|STW|BIRY|MARM|SPOT$|STKS$/.test(c)) return true
-  }
-  if (/(LIF?P\w*F$|LIF?P\w*FR$|LIF?P\w*FRY$)/.test(c)) return true
-  if (/(WOK$|SKILL|GRILL?PAN)/.test(c)) return true
-  return /SKL|FRY$|WOK$|SKILLET$/.test(c) && c.length < 32
-}
-
-/**
- * Coarse 3-way class for filtering which candidates may represent the family photo.
- * @param {{ sku?: string, item_name?: string, _zoho?: { has_image?: boolean } }} row
- * @returns {'pot'|'fry'|'neutral'}
- */
-function catalogThumbKind(row) {
-  if (!row || !row._zoho || !row._zoho.has_image) return THUMB_CLASS.neutral
-  const name = String(row.item_name != null ? row.item_name : '')
-  const sku = String(row.sku != null ? row.sku : '')
-  const family = String(row.family != null ? row.family : '')
-  const t = `${sku} ${name}`.trim()
-
-  const anyPot = catalogNameLooksLikeStockpot(t) || catalogNameLooksLikeAnyPot(t)
-  const anyFry = catalogNameLooksLikeFrying(t) && !catalogNameLooksLikeStockpot(t)
-
-  const potFromSku = skuHintLooksLikePotFromSku(sku)
-  const fromLif = zohoFamilyLooksLikeLifepSetOrBase(family)
-  const lup = /^LUP$/i.test(family.trim())
-
-  // Do **not** force “fry” here for LIF* / LUP + fry-only item names. That made every
-  // candidate `fry`, so the family picker never saw `hasPot` and could only choose a
-  // frying shot. Rely on potSku2 (incl. Zoho Family) + `pickRepresentativeZohoItemId` +
-  // `catalogThumbnailPriorityScore` to prefer pot/stock names among lines.
-
-  const potFromFamily = fromLif || lup
-  const potSku2 = potFromSku || fromLif || lup
-  const frySku = skuHintLooksLikeFry(sku)
-  if (potSku2 && !frySku) return THUMB_CLASS.pot
-  if (frySku && !potSku2) return THUMB_CLASS.fry
-  if (potSku2 && frySku) {
-    if (anyFry && !anyPot && !potFromSku && fromLif) return THUMB_CLASS.fry
-    if (anyPot) return THUMB_CLASS.pot
-    if (!anyFry) return THUMB_CLASS.pot
-    return THUMB_CLASS.fry
-  }
-
-  if (anyPot && !anyFry) return THUMB_CLASS.pot
-  if (anyFry && !anyPot) return THUMB_CLASS.fry
-  if (anyPot && anyFry) {
-    if (catalogNameLooksLikeStockpot(t) && catalogNameLooksLikeFrying(t)) {
-      if (/(soup|stock|stew|pot|casserole|dutch)/i.test(t) && t.indexOf('fry') >= 0) {
-        return THUMB_CLASS.pot
-      }
-    }
-    if (anyPot) return THUMB_CLASS.pot
-  }
-  if (potFromFamily && !anyFry) {
-    return THUMB_CLASS.pot
-  }
-  return THUMB_CLASS.neutral
-}
-
-/**
- * When the whole LIF* / LUP group is still `fry` (e.g. FRY in every item SKU from Zoho),
- * pick the line whose text looks most like a stock / multi-piece / kitchen set, not
- * a 1–2pc pan listing.
- * @param {{ sku?: string, item_name?: string, _zoho?: object }} row
- * @returns {number} higher = prefer for family thumbnail
- */
-function zohoLifepFamilyTiebreakRowScore(row) {
-  if (!row) return 0
-  const t = `${row.sku != null ? row.sku : ''} ${row.item_name != null ? row.item_name : ''}`.toLowerCase()
-  if (!t.trim()) return 0
-  let n = 0
-  if (/\b(stock|soup|saucep|sauce\s*pan|casserole|biry|stew|biryani|dutch|litre|l(?![a-z])|ltr|قدر|طنج|وعاء)/i.test(t)) n += 90
-  if (/\b(cookware|kitchen|assort|combo|multi-?cook|deep\s*pot)\b/.test(t)) n += 35
-  if (/\b(3|4|5|6|7|8|9|10|11|12)\s*(p\s*c|pc|pce|piece|part|pzs|قطع)/.test(t)) n += 22
-  if (/\b(1|2)\s*(\+|\&|and|\+)\s*(1|2|3|4|5)/.test(t) && /pcs?|p\s*c|set/i.test(t)) n += 5
-  if (/\b(1|2|one|two|single|double)\s*(p\s*c|pc|pack)\b.*\b(fry|wok|skillet|pan|مقلاة)/.test(t)) n -= 35
-  if (/(fry(ing)?|wok|skillet|tawa|grill\s*pan|مقلاة|صاج|تاوا|تاو|بير)/.test(t)) n -= 12
-  return n
-}
-
-/**
- * @param {{ iid: string, row: object }[]} candidates
- * @returns {string|null}
- */
-function pickRepresentativeZohoItemId(candidates) {
-  if (!Array.isArray(candidates) || !candidates.length) return null
-  const met = candidates.map((c) => {
-    const kind = catalogThumbKind(c.row)
-    const score = catalogThumbnailPriorityScore(c.row)
-    return { iid: c.iid, row: c.row, kind, score: score < 0 ? 0 : score }
-  })
-  const hasPot = met.some((m) => m.kind === THUMB_CLASS.pot)
-  const hasFry = met.some((m) => m.kind === THUMB_CLASS.fry)
-  const hasNeutral = met.some((m) => m.kind === THUMB_CLASS.neutral)
-
-  const famRef = String(candidates[0].row && candidates[0].row.family != null ? candidates[0].row.family : '')
-  const isLifepLupForTie = zohoFamilyLooksLikeLifepSetOrBase(famRef) || /^LUP$/i.test(famRef.trim())
-
-  let pool = met
-  if (hasPot) {
-    pool = met.filter((m) => m.kind !== THUMB_CLASS.fry)
-  } else if (hasFry && hasNeutral) {
-    pool = met.filter((m) => m.kind !== THUMB_CLASS.fry)
-  }
-  if (pool.length === 0) pool = met
-
-  if (isLifepLupForTie) {
-    const sorted = [...pool].sort((a, b) => {
-      const soupB = zohoSoupStockPotImageScore(b.row)
-      const soupA = zohoSoupStockPotImageScore(a.row)
-      if (soupB !== soupA) return soupB < soupA ? -1 : 1
-      const tbreak = zohoLifepFamilyTiebreakRowScore(b.row) - zohoLifepFamilyTiebreakRowScore(a.row)
-      if (tbreak !== 0) return tbreak < 0 ? -1 : 1
-      if (b.score !== a.score) return b.score < a.score ? -1 : 1
-      return String(a.iid).localeCompare(String(b.iid))
-    })
-    return sorted[0].iid
-  }
-
-  pool.sort((a, b) => b.score - a.score || String(a.iid).localeCompare(String(b.iid)))
-  return pool[0].iid
-}
-
-/**
- * @param {{ sku?: string, item_name?: string, _zoho?: { has_image?: boolean } }} row
- * @returns {number}  1 = frying, 50 = unknown, 100 = stockpot — higher wins for the thumbnail.
- */
-function catalogThumbnailPriorityScore(row) {
-  if (!row || !row._zoho || !row._zoho.has_image) return -1
-  const s = `${row.sku != null ? row.sku : ''} ${row.item_name != null ? row.item_name : ''}`
-  if (!s.trim()) return THUMB_SCORE.NEUTRAL
-  if (catalogNameLooksLikeStockpot(s) && !catalogNameLooksLikeFrying(s)) return THUMB_SCORE.STOCKPOT
-  if (
-    catalogNameLooksLikeAnyPot(s) &&
-    !catalogNameLooksLikeFrying(s) &&
-    (skuHintLooksLikePot(String(row.sku), String(row.family != null ? row.family : '')) || !skuHintLooksLikeFry(String(row.sku)))
-  ) {
-    return THUMB_SCORE.STOCKPOT
-  }
-  if (catalogNameLooksLikeFrying(s) && !catalogNameLooksLikeAnyPot(s)) return THUMB_SCORE.FRYING
-  if (catalogNameLooksLikeAnyPot(s) && catalogNameLooksLikeFrying(s) && (catalogNameLooksLikeStockpot(s) || /(soup|stock|stew|pot(tery|s|ted)?\b|casserole)/i.test(s))) {
-    return THUMB_SCORE.STOCKPOT
-  }
-  return THUMB_SCORE.NEUTRAL
-}
-
-/**
  * @param {object} acc - family accumulator (has `family` display string)
  * @returns {string} key for `maps.byFamily` (Zoho family value, lowercased)
  */
@@ -694,35 +363,23 @@ function zohoByFamilyKeyFromAcc(acc) {
 }
 
 /**
- * Thumbnail pick must consider **all** Zoho items in a Family, not only SKUs in `item_report_groups`
- * (e.g. soup LIFEP17-40-BLUE may be absent from the group while a fry line is listed).
- * @param {object} acc
- * @param {Map<string, object[]> | undefined} byFamily
- * @param {string | null} familyFieldId
- * @param {string} fromDate
- * @param {string} toDate
+ * Add every Zoho line in this Family to representative candidates (active + inactive, with or
+ * without image). Selection uses `zohoRepresentativeItem.js` (text score + has_image + active + tiebreak).
  */
-function mergeZohoFamilyImageCandidatesForThumb(acc, byFamily, familyFieldId, fromDate, toDate) {
+function mergeZohoFamilyRepCandidates(acc, byFamily, familyFieldId, fromDate, toDate) {
   if (!byFamily || typeof byFamily.get !== 'function' || !acc) return
   const fk = zohoByFamilyKeyFromAcc(acc)
   if (!fk) return
   const famItems = byFamily.get(fk)
   if (!Array.isArray(famItems) || famItems.length === 0) return
-  const seen = new Set(
-    (acc._imageCandidates || []).map((c) => c && c.iid).filter(Boolean)
-  )
+  const seen = new Set((acc._repCandidates || []).map((c) => c && c.iid).filter(Boolean))
   for (const z of famItems) {
-    if (!z || (z.status && String(z.status).toLowerCase() === 'inactive')) continue
+    if (!z) continue
     const iid = z.item_id != null && String(z.item_id).trim() !== '' ? String(z.item_id).trim() : ''
     if (!iid || seen.has(iid)) continue
-    const hasImage = z.image_id != null && z.image_id !== ''
-    if (!hasImage) continue
     const row = zohoItemToPlaceholderReportRow(z, fromDate, toDate, familyFieldId)
-    const score = catalogThumbnailPriorityScore(row)
-    if (score >= 0) {
-      acc._imageCandidates.push({ iid, row })
-      seen.add(iid)
-    }
+    acc._repCandidates.push({ iid, row })
+    seen.add(iid)
   }
 }
 
@@ -752,18 +409,16 @@ function aggregateByFamily(itemRows, zohoCatalogCtx = null) {
         _returnedN: 0,
         _purchaseN: 0,
         _repAny: null,
-        _imageCandidates: /** @type {{ iid: string, row: object }[]} */ ([]),
+        _repCandidates: /** @type {{ iid: string, row: object }[]} */ ([]),
       }
       map.set(key, acc)
     }
     const iid = row.item_id != null && String(row.item_id).trim() !== '' ? String(row.item_id).trim() : ''
     if (iid) {
       if (acc._repAny == null) acc._repAny = iid
-      if (row._zoho && row._zoho.has_image) {
-        const score = catalogThumbnailPriorityScore(row)
-        if (score >= 0) {
-          acc._imageCandidates.push({ iid, row })
-        }
+      if (row._zoho) {
+        const seen = new Set((acc._repCandidates || []).map((c) => c.iid))
+        if (!seen.has(iid)) acc._repCandidates.push({ iid, row })
       }
     }
     if (isUsable(row.opening_stock)) {
@@ -791,7 +446,7 @@ function aggregateByFamily(itemRows, zohoCatalogCtx = null) {
     zohoCatalogCtx.toDate
   ) {
     for (const acc of map.values()) {
-      mergeZohoFamilyImageCandidatesForThumb(
+      mergeZohoFamilyRepCandidates(
         acc,
         zohoCatalogCtx.byFamily,
         zohoCatalogCtx.familyFieldId != null ? zohoCatalogCtx.familyFieldId : null,
@@ -806,10 +461,19 @@ function aggregateByFamily(itemRows, zohoCatalogCtx = null) {
     if (acc._closingN === 0) acc.closing_stock = null
     if (acc._returnedN === 0) acc.returned_to_wholesale = null
     if (acc._purchaseN === 0) acc.purchase_amount = null
-    acc.zoho_representative_item_id =
-      pickRepresentativeZohoItemId(acc._imageCandidates) || acc._repAny || null
+    const rep = selectRepresentativeZohoItemForFamily(acc._repCandidates, { familyLabel: acc.family })
+    acc.zoho_representative_item_id = rep.zoho_representative_item_id || acc._repAny || null
+    acc.zoho_representative_sku = rep.zoho_representative_sku
+    acc.zoho_representative_name = rep.zoho_representative_name
+    acc.zoho_representative_image_selection_version = rep.zoho_representative_image_selection_version
+    if (
+      process.env.WEEKLY_REPORT_ZOHO_REP_DEBUG === '1' ||
+      (process.env.NODE_ENV !== 'production' && process.env.WEEKLY_REPORT_EXPOSE_REP_REASON === '1')
+    ) {
+      acc.zoho_representative_reason = rep.zoho_representative_reason
+    }
     delete acc._repAny
-    delete acc._imageCandidates
+    delete acc._repCandidates
     delete acc._openingN
     delete acc._closingN
     delete acc._returnedN
@@ -1159,7 +823,8 @@ module.exports = {
     findZohoItemForMember,
     findZohoItemsForMember,
     aggregateByFamily,
-    catalogThumbnailPriorityScore,
+    selectRepresentativeZohoItemForFamily: require('./zohoRepresentativeItem').selectRepresentativeZohoItemForFamily,
+    scoreZohoNameSkuText: require('./zohoRepresentativeItem').scoreZohoNameSkuText,
     parseQty,
     NOT_FOUND_IN_GROUPS_SUFFIX,
   },

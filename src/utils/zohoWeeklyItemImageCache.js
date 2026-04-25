@@ -1,14 +1,17 @@
 /**
  * Client-side cache for Zoho item thumbnails in the weekly report.
- * Complements server + HTTP cache so repeated loads / remounts avoid refetching.
- *
- * Set to `true` to re-enable 2h in-memory cache for thumbs (and use `cache: 'default'`
- * in `fetchBinary` from `ZohoItemThumb`).
+ * Keyed by `version:itemId` to align with backend `zohoRepresentativeItem` selection.
  */
-export const ZOHO_WEEKLY_THUMB_CLIENT_CACHE_ENABLED = false
+import { ZOHO_REP_IMAGE_QUERY_VERSION } from '../config/zohoRepImageVersion'
 
-const TTL_MS = 2 * 60 * 60 * 1000 // 2 hours
+export const ZOHO_WEEKLY_THUMB_CLIENT_CACHE_ENABLED = true
+
+const TTL_MS = 3 * 60 * 60 * 1000 // 3 hours
 const MAX_ENTRIES = 800
+
+function vKey(itemId) {
+  return `v${ZOHO_REP_IMAGE_QUERY_VERSION}:${String(itemId ?? '').trim()}`
+}
 
 /** @type {Map<string, { blob: Blob, exp: number }>} */
 const store = new Map()
@@ -30,8 +33,8 @@ function evict() {
  */
 export function getCachedZohoItemBlob(itemId) {
   if (!ZOHO_WEEKLY_THUMB_CLIENT_CACHE_ENABLED) return null
-  const k = String(itemId ?? '').trim()
-  if (!k) return null
+  const k = vKey(itemId)
+  if (k.length < 4) return null
   const e = store.get(k)
   if (!e) return null
   if (Date.now() > e.exp) {
@@ -47,8 +50,8 @@ export function getCachedZohoItemBlob(itemId) {
  */
 export function setCachedZohoItemBlob(itemId, blob) {
   if (!ZOHO_WEEKLY_THUMB_CLIENT_CACHE_ENABLED) return
-  const k = String(itemId ?? '').trim()
-  if (!k) return
+  const k = vKey(itemId)
+  if (k.length < 4) return
   evict()
   store.set(k, { blob, exp: Date.now() + TTL_MS })
 }

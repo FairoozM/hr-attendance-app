@@ -177,6 +177,23 @@ function validateAndNormaliseItem(raw, index) {
     if (zrid != null && String(zrid).trim() !== '') {
       item.zoho_representative_item_id = String(zrid).trim()
     }
+    const zsku = raw.zoho_representative_sku
+    if (zsku != null && String(zsku).trim() !== '') {
+      item.zoho_representative_sku = String(zsku).trim()
+    }
+    const zn = raw.zoho_representative_name
+    if (zn != null && String(zn).trim() !== '') {
+      item.zoho_representative_name = String(zn).trim()
+    }
+    const zver = raw.zoho_representative_image_selection_version
+    if (zver != null && (typeof zver === 'number' || (typeof zver === 'string' && zver.trim() !== ''))) {
+      item.zoho_representative_image_selection_version =
+        typeof zver === 'number' ? zver : parseInt(String(zver).trim(), 10) || 0
+    }
+    const zreason = raw.zoho_representative_reason
+    if (zreason != null && String(zreason).trim() !== '') {
+      item.zoho_representative_reason = String(zreason).trim()
+    }
   }
   if (raw._zoho && typeof raw._zoho === 'object' && !Array.isArray(raw._zoho)) {
     item._zoho = {

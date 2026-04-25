@@ -12,8 +12,14 @@ import { useAuth } from '../contexts/AuthContext'
  *   present in API responses, may be `""`). Not the same as app `report_group` —
  *   use `item_report_groups` for membership; keep `family` for display / future
  *   Excel export columns.
- * @property {string|null} [zoho_representative_item_id]  One Zoho `item_id` in this
- *   family (prefer an item with a catalog `image_id`), for `/api/weekly-reports/zoho-item-images/:id`.
+ * @property {string|null} [zoho_representative_item_id]  Chosen Zoho `item_id` for the
+ *   family thumbnail (`/api/weekly-reports/zoho-item-images/:id`). Picked by
+ *   soup/stock/casserole/saucepan-style scoring; see backend `zohoRepresentativeItem`.
+ * @property {string|null} [zoho_representative_sku]  SKU of that representative (optional, display/debug).
+ * @property {string|null} [zoho_representative_name]  Zoho item `name` for that pick (optional).
+ * @property {number} [zoho_representative_image_selection_version]  Bumps when scoring rules
+ *   change; clients can key image caches on this + `item_id`.
+ * @property {string} [zoho_representative_reason]  When the backend enables it (e.g. debug), why this item won.
  * @property {number|null} opening_stock  — value (stock qty × Zoho sales `rate`), not units
  * @property {number|null} closing_stock  — value
  * @property {number|null} purchase_amount  — period purchase qty × Zoho item `rate`
