@@ -4,8 +4,11 @@
  * (see `FAMILY_TO_REPRESENTATIVE_SKU`). Otherwise: waterfall — biggest primary pot →
  * biggest secondary → cookware set → other → frying (last). Size from L + cm in SKU + name.
  */
-const REPRESENTATIVE_IMAGE_SELECTION_VERSION = 7
+const REPRESENTATIVE_IMAGE_SELECTION_VERSION = 8
 const REPRESENTATIVE_IMAGE_CACHE_VERSION = 4
+
+/** Same as `weeklyReportZohoData` — family display can include this suffix for unmapped Zoho families. */
+const FAMILY_LABEL_SUFFIX_NOT_IN_GROUPS = ' (not found in groups)'
 
 /**
  * When set, the weekly report / Excel thumbnail uses that Zoho item (match on `row.sku`)
@@ -302,16 +305,32 @@ function scoreZohoNameSkuText(sku, name) {
 }
 
 /**
- * e.g. "LIFEP5 Family" / "LIFEP5" → "lifep5" for `FAMILY_TO_REPRESENTATIVE_SKU` lookup
+ * e.g. "LIFEP5 Family" / "LIFEP5" / "LIFEP5 (not found in groups)" → "lifep5" for `FAMILY_TO_REPRESENTATIVE_SKU` lookup
  * @param {string} [familyLabel]
  * @returns {string}
  */
 function familyKeyForSkuOverride(familyLabel) {
   if (familyLabel == null || String(familyLabel).trim() === '') return ''
-  let s = normalizeText(familyLabel)
+  let s = String(familyLabel).trim()
+  if (s.endsWith(FAMILY_LABEL_SUFFIX_NOT_IN_GROUPS)) {
+    s = s.slice(0, -FAMILY_LABEL_SUFFIX_NOT_IN_GROUPS.length).trim()
+  }
+  s = normalizeText(s)
   s = s.replace(/\s+family\s*$/i, '').trim()
   s = s.replace(/\s/g, '')
   return s
+}
+
+/**
+ * Collapse internal spaces so `LIFEP5- 32N -GREEN` still matches the pinned SKU.
+ * @param {string} s
+ * @returns {string}
+ */
+function normalizeSkuKey(s) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
 }
 
 /**
@@ -320,11 +339,11 @@ function familyKeyForSkuOverride(familyLabel) {
  * @returns {object|undefined} raw candidate
  */
 function findCandidateBySku(candidates, targetSku) {
-  const want = String(targetSku).trim().toLowerCase()
+  const want = normalizeSkuKey(targetSku)
   if (!want) return undefined
   for (const c of candidates) {
-    const sku = c && c.row && c.row.sku != null ? String(c.row.sku).trim() : ''
-    if (sku && sku.toLowerCase() === want) return c
+    const sku = c && c.row && c.row.sku != null ? String(c.row.sku) : ''
+    if (normalizeSkuKey(sku) === want) return c
   }
   return undefined
 }

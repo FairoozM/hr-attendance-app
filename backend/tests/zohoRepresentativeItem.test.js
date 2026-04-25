@@ -186,6 +186,28 @@ test('LIFEP5 Family: SKU override LIFEP5-32N-GREEN (label with " Family" suffix)
   assert.match(r.zoho_representative_sku || '', /LIFEP5-32N-GREEN/i)
 })
 
+test('LIFEP5: SKU override still applies when Zoho family label has (not found in groups) suffix', () => {
+  const r = selectRepresentativeZohoItemForFamily(
+    [
+      { iid: '1', row: row('LIFEP5-OTHER', 'x', true) },
+      { iid: 'g', row: row('LIFEP5-32N-GREEN', 'Green 32N', true) },
+    ],
+    { familyLabel: 'LIFEP5 (not found in groups)' }
+  )
+  assert.equal(r.zoho_representative_item_id, 'g', 'must not treat suffix as part of family key')
+})
+
+test('SKU match ignores internal spaces in Zoho catalog SKU', () => {
+  const r = selectRepresentativeZohoItemForFamily(
+    [
+      { iid: '1', row: row('LIFEP2-OTHER', 'x', true) },
+      { iid: 'b', row: row('LIFEP2-32- BEIGE', 'Beige 32 with spaces in sku', true) },
+    ],
+    { familyLabel: 'LIFEP2' }
+  )
+  assert.equal(r.zoho_representative_item_id, 'b')
+})
+
 test('LIFEP2: SKU override LIFEP2-32-BEIGE', () => {
   const r = selectRepresentativeZohoItemForFamily(
     [
