@@ -156,8 +156,10 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseI
     setLoading(false)
   }, [loadToken])
 
-  // Fetch only after the user (or "Refresh") explicitly requested a run:
-  // `loadToken` increments on "Load report"; we debounce 400ms like before.
+  // Fetch after the user clicks "Load report", and also when active filter inputs
+  // change while a report is already loaded (e.g. warehouse list resolves later and
+  // excludeWarehouseId becomes available). This fixes first-load stale splits where
+  // the initial request runs without the final warehouse/exclusion params.
   const fetchRef = useRef(fetchReport)
   fetchRef.current = fetchReport
   useEffect(() => {
@@ -165,7 +167,15 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseI
     setLoading(true)
     const id = setTimeout(() => fetchRef.current(), 400)
     return () => clearTimeout(id)
-  }, [loadToken])
+  }, [
+    loadToken,
+    reportGroup,
+    fromDate,
+    toDate,
+    warehouseId ?? null,
+    excludeWarehouseId ?? null,
+    user?.id ?? null,
+  ])
 
   return {
     items,
