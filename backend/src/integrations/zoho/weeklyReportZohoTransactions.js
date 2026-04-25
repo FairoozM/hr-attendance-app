@@ -8,15 +8,18 @@
  * - SOLD = sum of `line_items.quantity` on **Invoices** with `date` in [from,to],
  *   `status` not `void` (invoices in draft with stock impact depend on your org; we
  *   only exclude void by default).
- * - Purchases = same on **Bills** for the configured vendor.
+ * - Purchases = **Bills** `line_items` (unfiltered to vendor by default, or the contact
+ *   in `WEEKLY_REPORT_PURCHASES_*` / JSON when `by_contact_id`). **Not** the
+ *   Purchases-by-Item report, which can mirror return-like per-item numbers.
  * - Returned to wholesale = same on **Vendor Credits** for the configured vendor.
  * - List responses are **paginated**; we may truncate after `maxPages` and set `truncated`.
  */
 
 const { fetchListPaginated, zohoApiRequest } = require('./zohoInventoryClient')
 const { INVENTORY_V1 } = require('./zohoConfig')
-// Vendor credits are still loaded from the bills/vc cache (no report endpoint for them).
-const { fetchAllVendorCreditsRaw } = require('./zohoTransactionsCache')
+// Bills and vendor credits: full lists are cached; filter in memory by date / vendor.
+const { fetchAllBillsRaw, fetchAllVendorCreditsRaw } = require('./zohoTransactionsCache')
+const { getVendorConfigForGroup } = require('../../services/weeklyReportVendorConfig')
 
 const MAX_DEFAULT_PAGES = 50
 
@@ -137,6 +140,22 @@ function matchesVendorCreditDocument(vc, expectedVendorId, expectedVendorName) {
     if (vc[k] != null && String(vc[k]).trim() === exp) return true
   }
   return false
+}
+
+/**
+ * Bills: match `vendor_id` / `vendor_name` or the same contact-id fields as vendor credits.
+ * Used when `WEEKLY_REPORT_PURCHASES_MODE=by_contact_id`.
+ * @param {object} bill
+ * @param {string|undefined} expectedVendorId
+ * @param {string|undefined} expectedVendorName
+ */
+function matchesBillDocument(bill, expectedVendorId, expectedVendorName) {
+  if (!bill) return false
+  if (matchesReportVendor(bill.vendor_id, expectedVendorId, bill.vendor_name, expectedVendorName)) {
+    return true
+  }
+  if (expectedVendorName && String(expectedVendorName).trim() !== '') return false
+  return matchesVendorCreditDocument(bill, expectedVendorId, undefined)
 }
 
 /**
@@ -273,103 +292,94 @@ async function getSales(fromDate, toDate, opts = {}) {
 }
 
 /**
- * Fetch all purchase rows from the Zoho "Purchases by Item" report for a date range.
+ * Purchase **line items** from Zoho `GET /inventory/v1/bills` (not the Purchases-by-Item
+ * report): bill lines are actual purchases, whereas the report can show per-item figures
+ * that line up with vendor-credit return qty and **duplicate the same $** as
+ * "Returned to wholesale" in the same period.
  *
- * The response nests items inside `purchases_by_item[n].purchase[]`, unlike
- * `salesbyitem` which has a flat `sales[]` array. We flatten across all groups
- * and pages into a single array.
- *
- * @param {string} fromDate  YYYY-MM-DD
- * @param {string} toDate    YYYY-MM-DD
- * @returns {Promise<{ rows: object[], truncated: boolean, pages: number }>}
- */
-async function fetchPurchasesByItemReport(fromDate, toDate, warehouseId = null) {
-  const allItems = []
-  let page = 1
-  const maxPages = MAX_DEFAULT_PAGES
-  const t0 = Date.now()
-  while (page <= maxPages) {
-    const p = new URLSearchParams()
-    if (fromDate) p.set('from_date', fromDate)
-    if (toDate) p.set('to_date', toDate)
-    if (warehouseId) p.set('warehouse_id', warehouseId)
-    p.set('page', String(page))
-    p.set('per_page', '200')
-    const json = await zohoApiRequest(`${INVENTORY_V1}/reports/purchasesbyitem`, p)
-    // Response shape: purchases_by_item: [{ purchase: [{item_id, item_name, quantity_purchased, amount, item:{sku}}] }]
-    const groups = Array.isArray(json.purchases_by_item) ? json.purchases_by_item : []
-    let pageCount = 0
-    for (const group of groups) {
-      const items = Array.isArray(group.purchase) ? group.purchase : []
-      pageCount += items.length
-      allItems.push(...items)
-    }
-    const hasMore = json.page_context && json.page_context.has_more_page === true
-    if (!hasMore || pageCount === 0) {
-      console.log(`[zoho-timing] purchasesbyitem: ${allItems.length} items, ${page} page(s), ${Date.now() - t0}ms`)
-      return { rows: allItems, truncated: false, pages: page }
-    }
-    if (page === maxPages) {
-      console.warn(`[zoho-timing] purchasesbyitem: safety limit ${maxPages} pages reached — ${allItems.length} items, TRUNCATED`)
-      return { rows: allItems, truncated: true, pages: maxPages }
-    }
-    page++
-  }
-  return { rows: allItems, truncated: false, pages: page - 1 }
-}
-
-/** Module-level cache so repeated report calls within 5 min share one fetch. */
-let _purchasesReportCache = null
-let _purchasesReportInFlight = null
-const PURCHASES_CACHE_TTL_MS = 5 * 60 * 1000
-
-async function fetchPurchasesByItemReportCached(fromDate, toDate, warehouseId = null) {
-  const key = `${fromDate}::${toDate}::${warehouseId || ''}`
-  if (_purchasesReportCache && _purchasesReportCache.key === key && Date.now() < _purchasesReportCache.expiresAt) {
-    return _purchasesReportCache.rows
-  }
-  if (_purchasesReportInFlight && _purchasesReportInFlight.key === key) return _purchasesReportInFlight.promise
-  const promise = fetchPurchasesByItemReport(fromDate, toDate, warehouseId).then(({ rows }) => {
-    _purchasesReportCache = { key, rows, expiresAt: Date.now() + PURCHASES_CACHE_TTL_MS }
-    _purchasesReportInFlight = null
-    return rows
-  }).catch((e) => { _purchasesReportInFlight = null; throw e })
-  _purchasesReportInFlight = { key, promise }
-  return promise
-}
-
-/**
- * Per-item purchase totals for the date range using the Zoho "Purchases by Item" report.
- * Returns all vendors (no vendor filter) — grouping by family already provides the
- * right level of aggregation for the weekly report.
+ * **Default (unfiltered):** all vendors’ bills in the date range — same intent as the old
+ * sales-by-item report usage. For `WEEKLY_REPORT_PURCHASES_MODE=by_contact_id` (+ contact id
+ * in env or `WEEKLY_REPORT_VENDORS_JSON`), only bills for that contact/vendor.
  *
  * @param {string} fromDate
  * @param {string} toDate
- * @param {string | undefined} _vendorId — kept for API compatibility, ignored
- * @param {{ onWarning?: (s: string) => void }} [opts]
+ * @param {string | undefined} _vendorId — API compatibility; bill scope uses JSON/env purchase mode, not the report-vendor id
+ * @param {{ onWarning?: (s: string) => void, reportGroup?: string }} [opts]
  */
 async function getPurchases(fromDate, toDate, _vendorId, opts = {}) {
+  void _vendorId
   const onW = typeof opts.onWarning === 'function' ? opts.onWarning : () => {}
-  const warehouseId = opts.warehouseId && String(opts.warehouseId).trim() !== '' ? String(opts.warehouseId).trim() : null
   const t0 = Date.now()
+  const cfg = getVendorConfigForGroup(String(opts.reportGroup || ''))
+  const pMode =
+    cfg.purchases && String(cfg.purchases.mode).toLowerCase() === 'by_contact_id' ? 'by_contact_id' : 'unfiltered'
+  const pContact =
+    pMode === 'by_contact_id' && cfg.purchases && cfg.purchases.contact_id
+      ? String(cfg.purchases.contact_id).trim()
+      : ''
+  if (pMode === 'by_contact_id' && !pContact) {
+    onW('WEEKLY_REPORT_PURCHASES_MODE=by_contact_id but no contact_id set; using all vendors for purchases.')
+  }
+  const filterBill =
+    pMode === 'by_contact_id' && pContact
+      ? (b) => matchesBillDocument(b, pContact, undefined)
+      : () => true
+  const detailById = new Map()
+  const fetchBillDetail = (billId) => {
+    if (!billId) return Promise.resolve(null)
+    const id = String(billId)
+    if (detailById.has(id)) return detailById.get(id)
+    const p = (async () => {
+      try {
+        const p2 = new URLSearchParams()
+        const json = await zohoApiRequest(`${INVENTORY_V1}/bills/${encodeURIComponent(id)}`, p2)
+        return (json && json.bill) || null
+      } catch (e) {
+        onW(`GET /bills/${id} — ${e && e.message ? e.message : String(e)}`)
+        return null
+      }
+    })()
+    detailById.set(id, p)
+    return p
+  }
   try {
-    const rows = await fetchPurchasesByItemReportCached(fromDate, toDate, warehouseId)
-    console.log(`[zoho-timing] purchasesbyitem (cached): ${rows.length} items, ${Date.now() - t0}ms`)
-
-    // Normalise into the same line shape used by sumLinesToMap / sumAmountsToMap
-    const lineRows = rows.map((r) => ({
-      type: 'purchases_report',
-      item_id: r.item_id || '',
-      name: r.item_name || '',
-      sku: (r.item && r.item.sku) ? String(r.item.sku).trim() : '',
-      quantity: typeof r.quantity_purchased === 'number' ? r.quantity_purchased : parseLineQty(r.quantity_purchased),
-      item_total: typeof r.amount === 'number' ? r.amount : parseLineQty(r.amount),
-    }))
-
+    const rows = await fetchAllBillsRaw()
+    console.log(`[zoho-timing] bills: ${rows.length} docs, cache, ${Date.now() - t0}ms`)
+    const lineRows = []
+    let billsInRange = 0
+    for (const bill of rows) {
+      if (!isNotVoidStatus(bill)) continue
+      const rawD = bill && (bill.date != null ? bill.date : bill.bill_date)
+      const bdate = rawD != null ? String(rawD) : ''
+      if (!isDateInRangeIncl(bdate, fromDate, toDate)) continue
+      if (!filterBill(bill)) continue
+      let lines = normalizeZohoLineItems(bill.line_items)
+      const bid = bill.bill_id != null && String(bill.bill_id).trim() !== '' ? String(bill.bill_id).trim() : ''
+      if (lines.length === 0 && bid) {
+        const full = await fetchBillDetail(bid)
+        if (full) lines = normalizeZohoLineItems(full.line_items)
+      }
+      if (lines.length === 0) continue
+      billsInRange += 1
+      const docDate = bdate.length >= 10 ? bdate.slice(0, 10) : bdate
+      for (const li of lines) {
+        const n = normalizeVendorCreditLineItem(li)
+        lineRows.push({
+          type: 'bill',
+          document_id: bid,
+          document_date: docDate,
+          item_id: n.item_id,
+          name: n.name,
+          sku: n.sku,
+          quantity: n.quantity,
+          item_total: n.item_total,
+        })
+      }
+    }
     return {
       lines: lineRows,
       line_count: lineRows.length,
-      document_count: rows.length,
+      document_count: billsInRange,
       list_truncated: false,
       list_pages: 0,
       error: null,
@@ -478,6 +488,7 @@ module.exports = {
     matchesReportVendor,
     normalizeZohoLineItems,
     matchesVendorCreditDocument,
+    matchesBillDocument,
     normalizeVendorCreditLineItem,
     parseVendorCreditLineDollarAmount,
     itemTotalNetFromSalesByItemRow,

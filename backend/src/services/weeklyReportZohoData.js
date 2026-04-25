@@ -109,7 +109,9 @@ const ZOHO_WEEKLY_REPORT_INTEGRATION = {
     /** TEMPORARY (Phase 4): duplicate of `stock_on_hand` / `closing_from_items_api`; not ledger-backed */
     opening_stock: 'TEMPORARY: current stock_on_hand (same as closing) — not "stock on from_date."',
     sales_source: 'GET /invoices, all customers, date in [from_date,to_date], not void; line item quantities',
-    purchases_source: 'GET /bills, filtered to REPORT vendor (REPORT_VENDOR_ID/NAME or group config); line item quantities',
+    purchases_source:
+      'GET /bills line_items, date in range; all vendors unless WEEKLY_REPORT_PURCHASES_MODE=by_contact_id ' +
+      '(then contact from env or WEEKLY_REPORT_VENDORS_JSON). Not the Purchases-by-Item report.',
     returns_source: 'GET /vendorcredits, same vendor; line item quantities',
   },
   documentation: 'docs/zoho-inventory-api-coverage.md, docs/weekly-report-zoho-transactions.md',
@@ -586,7 +588,7 @@ async function fetchZohoItemRowsForGroupMembers(
   const [raw, salesR, purchR, vcR] = await Promise.all([
     fetchAllItemsRaw(),
     getSales(fromDate, toDate, { onWarning, warehouseId }),
-    getPurchases(fromDate, toDate, rv.vendorId, { vendorName: rv.vendorName, onWarning, warehouseId }),
+    getPurchases(fromDate, toDate, rv.vendorId, { vendorName: rv.vendorName, onWarning, warehouseId, reportGroup }),
     getVendorCredits(fromDate, toDate, rv.vendorId, { vendorName: rv.vendorName, onWarning }),
   ])
   console.log(

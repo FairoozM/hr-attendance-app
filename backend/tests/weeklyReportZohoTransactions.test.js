@@ -76,28 +76,36 @@ test('normalizeVendorCreditLineItem: reads sku from nested line.item', () => {
   assert.equal(n.name, 'Nested name')
 })
 
-test('getPurchases: uses Purchases by Item report (all vendors; mocked purchasesbyitem)', async () => {
+test('getPurchases: uses Bill line items (unfiltered; mocked fetchAllBillsRaw)', async () => {
   clearZohoTransactionModules()
-  mockModule('../src/integrations/zoho/zohoInventoryClient', {
-    zohoApiRequest: async (p) => {
-      if (String(p).includes('purchasesbyitem')) {
-        return {
-          code: 0,
-          page_context: { has_more_page: false },
-          purchases_by_item: [
-            { purchase: [{ item_id: '1', item_name: 'I', quantity_purchased: 5, amount: 10, item: { sku: 'SK' } }] },
-            { purchase: [{ item_id: '1', item_name: 'I', quantity_purchased: 9, item: { sku: 'SK' } }] },
-          ],
-        }
-      }
-      throw new Error('unexpected zoho path in getPurchases test: ' + p)
-    },
+  mockModule('../src/integrations/zoho/zohoTransactionsCache', {
+    fetchAllBillsRaw: async () => [
+      {
+        bill_id: 'b1',
+        date: '2026-01-15',
+        status: 'open',
+        vendor_id: 'v1',
+        line_items: [{ item_id: '1', name: 'I', quantity: 5, item: { sku: 'SK' } }],
+      },
+      {
+        bill_id: 'b2',
+        date: '2026-01-20',
+        status: 'open',
+        vendor_id: 'v2',
+        line_items: [{ item_id: '1', name: 'I', quantity: 9, item: { sku: 'SK' } }],
+      },
+    ],
+    fetchAllVendorCreditsRaw: async () => [],
+    clearBillsCache: () => {},
+    clearVendorCreditsCache: () => {},
   })
   const m = freshRequire('../src/integrations/zoho/weeklyReportZohoTransactions')
   const r = await m.getPurchases('2026-01-01', '2026-01-31', VENDOR, {})
-  // Both purchase rows for item 1 are included (purchases are not vendor-sliced in this path).
+  // Both bill lines for item 1 (all vendors in default unfiltered mode).
   assert.equal(r.line_count, 2)
+  assert.equal(r.document_count, 2)
   assert.equal(r.lines.reduce((s, l) => s + l.quantity, 0), 14)
+  assert.equal(r.lines[0].type, 'bill')
 })
 
 test('getVendorCredits: only credits for vendor 4265011000000080014 (mocked list)', async () => {

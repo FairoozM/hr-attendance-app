@@ -8,7 +8,7 @@ when `item_report_groups` rows are filled from Zoho Inventory REST v1.
 | Report column | Zoho source | Filter |
 |---------------|-------------|--------|
 | `sold` | `GET /inventory/v1/invoices` — `line_items` | Invoice `date` in `[from_date, to_date]`, `status` ≠ `void` (all customers / all sales) |
-| `purchases` | `GET /inventory/v1/bills` — `line_items` | Same date rule; `vendor_id` or `vendor_name` matches the **report vendor** (see env below) |
+| `purchases` | `GET /inventory/v1/bills` — `line_items` | Same date rule; **all vendors** by default (not the Purchases-by-Item report). With `WEEKLY_REPORT_PURCHASES_MODE=by_contact_id` + contact id, only that vendor’s bills. |
 | `returned_to_wholesale` | `GET /inventory/v1/vendorcredits` — `line_items` (list response array key is `vendor_credits`); if lines are omitted in the list payload, the backend uses `GET /vendorcredits/{id}` for matching docs. | Date in range; `vendor_id` (or `customer_id` if it matches the configured id) and **report vendor** |
 | `closing_stock` | `GET /inventory/v1/items` (existing row join) | Current on-hand (e.g. `stock_on_hand` or fallbacks) at **request** time, not a historical `to_date` snapshot |
 | `opening_stock` | *Derived* | **Not** read as “stock on `from_date`” from a history API. Computed as `closing − purchases + sold + returned_to_wholesale` so the five numeric columns on each row are internally consistent with the period line totals. |
