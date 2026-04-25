@@ -117,7 +117,7 @@ test('zohoService._internals.validateAndNormaliseItem: family row keeps zoho_rep
       zoho_representative_item_id: '4815000000123456',
       zoho_representative_sku: 'LIF-REP-1',
       zoho_representative_name: 'Representative name',
-      zoho_representative_image_selection_version: 6,
+      zoho_representative_image_selection_version: 7,
       zoho_representative_score: 1200.5,
       zoho_representative_reason: 'v2:debug',
       opening_stock: 1,
@@ -132,7 +132,7 @@ test('zohoService._internals.validateAndNormaliseItem: family row keeps zoho_rep
   assert.equal(item.zoho_representative_item_id, '4815000000123456')
   assert.equal(item.zoho_representative_sku, 'LIF-REP-1')
   assert.equal(item.zoho_representative_name, 'Representative name')
-  assert.equal(item.zoho_representative_image_selection_version, 6)
+  assert.equal(item.zoho_representative_image_selection_version, 7)
   assert.equal(item.zoho_representative_score, 1200.5)
   assert.equal(item.zoho_representative_reason, 'v2:debug')
   assert.ok(!item.sku)

@@ -160,3 +160,40 @@ test('Acc6: only frying: largest cm last resort', () => {
   )
   assert.equal(r.zoho_representative_item_id, '2')
 })
+
+test('LIFEP17S: SKU override LIFEP17S-40P-BEIGE beats default waterfall', () => {
+  const r = selectRepresentativeZohoItemForFamily(
+    [
+      { iid: 'soup', row: row('LIFEP17S-50-STOCK', 'LIFEP17S Stock 50L', true) },
+      { iid: 'beige', row: row('LIFEP17S-40P-BEIGE', 'LIFEP17S 40P Beige', true) },
+    ],
+    { familyLabel: 'LIFEP17S' }
+  )
+  assert.equal(r.zoho_representative_item_id, 'beige')
+  assert.match(r.zoho_representative_sku || '', /LIFEP17S-40P-BEIGE/i)
+  assert.match(r.zoho_representative_reason || '', /fixed_sku/)
+})
+
+test('LIFEP5 Family: SKU override LIFEP5-32N-GREEN (label with " Family" suffix)', () => {
+  const r = selectRepresentativeZohoItemForFamily(
+    [
+      { iid: '1', row: row('LIFEP5-OTHER', 'x', true) },
+      { iid: 'g', row: row('LIFEP5-32N-GREEN', 'Green 32N', true) },
+    ],
+    { familyLabel: 'LIFEP5 Family' }
+  )
+  assert.equal(r.zoho_representative_item_id, 'g')
+  assert.match(r.zoho_representative_sku || '', /LIFEP5-32N-GREEN/i)
+})
+
+test('LIFEP2: SKU override LIFEP2-32-BEIGE', () => {
+  const r = selectRepresentativeZohoItemForFamily(
+    [
+      { iid: '1', row: row('LIFEP2-40-BEIGE', 'Other', true) },
+      { iid: 'b', row: row('LIFEP2-32-BEIGE', 'Beige 32', true) },
+    ],
+    { familyLabel: 'LIFEP2' }
+  )
+  assert.equal(r.zoho_representative_item_id, 'b')
+  assert.match(r.zoho_representative_sku || '', /LIFEP2-32-BEIGE/i)
+})

@@ -1,10 +1,21 @@
 /**
  * Deterministic family thumbnail for Zoho weekly reports: pick one `item_id` for
- * `/inventory/v1/items/{id}/image`. Waterfall: biggest primary pot → biggest secondary
- * → cookware set → other → frying (last). Size from L + cm in SKU + name.
+ * `/inventory/v1/items/{id}/image`. Some families are pinned to a specific catalog SKU
+ * (see `FAMILY_TO_REPRESENTATIVE_SKU`). Otherwise: waterfall — biggest primary pot →
+ * biggest secondary → cookware set → other → frying (last). Size from L + cm in SKU + name.
  */
-const REPRESENTATIVE_IMAGE_SELECTION_VERSION = 6
+const REPRESENTATIVE_IMAGE_SELECTION_VERSION = 7
 const REPRESENTATIVE_IMAGE_CACHE_VERSION = 4
+
+/**
+ * When set, the weekly report / Excel thumbnail uses that Zoho item (match on `row.sku`)
+ * instead of the default waterfall. Keys: normalized family label (see `familyKeyForSkuOverride`).
+ */
+const FAMILY_TO_REPRESENTATIVE_SKU = Object.freeze({
+  lifep17s: 'LIFEP17S-40P-BEIGE',
+  lifep5: 'LIFEP5-32N-GREEN',
+  lifep2: 'LIFEP2-32-BEIGE',
+})
 
 const BONUS_IMAGE = 40
 const BONUS_ACTIVE = 20
@@ -290,6 +301,34 @@ function scoreZohoNameSkuText(sku, name) {
   return { text: b, detail: [cat, `base=${b}`] }
 }
 
+/**
+ * e.g. "LIFEP5 Family" / "LIFEP5" → "lifep5" for `FAMILY_TO_REPRESENTATIVE_SKU` lookup
+ * @param {string} [familyLabel]
+ * @returns {string}
+ */
+function familyKeyForSkuOverride(familyLabel) {
+  if (familyLabel == null || String(familyLabel).trim() === '') return ''
+  let s = normalizeText(familyLabel)
+  s = s.replace(/\s+family\s*$/i, '').trim()
+  s = s.replace(/\s/g, '')
+  return s
+}
+
+/**
+ * @param {Array<{ iid: string, row: object }>} candidates
+ * @param {string} targetSku
+ * @returns {object|undefined} raw candidate
+ */
+function findCandidateBySku(candidates, targetSku) {
+  const want = String(targetSku).trim().toLowerCase()
+  if (!want) return undefined
+  for (const c of candidates) {
+    const sku = c && c.row && c.row.sku != null ? String(c.row.sku).trim() : ''
+    if (sku && sku.toLowerCase() === want) return c
+  }
+  return undefined
+}
+
 function scoreZohoItemForFamilyThumb(c) {
   const v = rowToView(c)
   if (!c || !c.row) {
@@ -347,11 +386,22 @@ function selectRepresentativeZohoItemForFamily(candidates, ctx = {}) {
 
   const allViews = uniq.map(rowToView)
   const fam = {
-    hasPrimary: allViews.some((w) => w.cat === 'primary_pot'),
-    hasSecondary: allViews.some((w) => w.cat === 'secondary_pot'),
+    hasPrimary: allViews.some((x) => x.cat === 'primary_pot'),
+    hasSecondary: allViews.some((x) => x.cat === 'secondary_pot'),
   }
 
-  const w = pickByWaterfall(uniq)
+  const famKey = familyKeyForSkuOverride((ctx && ctx.familyLabel) || '')
+  const forcedSku = FAMILY_TO_REPRESENTATIVE_SKU[famKey]
+  let w
+  let usedSkuOverride = false
+  if (forcedSku) {
+    const cForced = findCandidateBySku(uniq, forcedSku)
+    if (cForced) {
+      w = rowToView(cForced)
+      usedSkuOverride = true
+    }
+  }
+  if (!w) w = pickByWaterfall(uniq)
   if (!w) {
     out.zoho_representative_reason = `v${REPRESENTATIVE_IMAGE_SELECTION_VERSION}:no_winner`
     return out
@@ -364,14 +414,17 @@ function selectRepresentativeZohoItemForFamily(candidates, ctx = {}) {
   const cookwareBeaten = allViews.some(
     (x) => x.cat === 'cookware_set' && w.cat !== 'cookware_set' && (fam.hasPrimary || fam.hasSecondary)
   )
+  const overrideNote = usedSkuOverride && forcedSku ? ` sku_override=${forcedSku}` : ''
   out.zoho_representative_reason =
     `v${REPRESENTATIVE_IMAGE_SELECTION_VERSION} ` +
+    (usedSkuOverride ? 'fixed_sku ' : '') +
     `cat=${w.cat} ` +
     `L=${w.liters == null ? '—' : w.liters} ` +
     `cm=${w.cm == null ? '—' : w.cm} ` +
     `img=${w.hasImage ? 1 : 0} ` +
     `act=${w.isActive ? 1 : 0} ` +
     `score=${out.zoho_representative_score}` +
+    overrideNote +
     (cookwareBeaten ? ' ;cookware_set_rejected:family_has_individual_pot' : '')
 
   if (cookwareBeaten) {
