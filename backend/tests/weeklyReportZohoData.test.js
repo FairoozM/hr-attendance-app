@@ -440,6 +440,15 @@ test('aggregateByFamily: thumbnail prefers stock pot / casserole over frying pan
   assert.equal(one.zoho_representative_item_id, '2')
 })
 
+test('aggregateByFamily: LIFEP7S set SKU preferred over LIFEP7 fry-style name in same family', () => {
+  const rows = [
+    { family: 'F', item_id: '1', sku: 'LIFEP7', item_name: 'Frying pan 3pcs', sales_amount: 0, _zoho: { has_image: true } },
+    { family: 'F', item_id: '2', sku: 'LIFEP7S', item_name: 'Cookware set 5', sales_amount: 0, _zoho: { has_image: true } },
+  ]
+  const [one] = aggregateByFamily(rows)
+  assert.equal(one.zoho_representative_item_id, '2')
+})
+
 test('aggregateByFamily: thumbnail with only frying-style items keeps first (same score)', () => {
   const rows = [
     { family: 'F', item_id: '1', item_name: 'Frying pan 28', sales_amount: 0, _zoho: { has_image: true } },

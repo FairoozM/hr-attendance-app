@@ -355,12 +355,15 @@ function findZohoItemForMember(member, maps) {
 const NOT_FOUND_IN_GROUPS_SUFFIX = ' (not found in groups)'
 
 /**
- * Picks a higher score for the weekly report "family" thumbnail: prefer
- * stockpots / casseroles (visually distinct per family) over frying / skillet
- * product shots when the catalog name suggests both exist with images.
- * (Images are still served via the existing /zoho-item-images cache.)
+ * Family thumbnail: prefer real pots (stock, soup, casserole, generic “pot” sets) over
+ * skillets / woks. When a family has at least one “pot” candidate and one “fry”
+ * candidate with catalog images, **only the pot / non-fry** pool is considered, so
+ * frying product shots are not used as the family image when a pot exists in Zoho.
+ * (Served through existing /zoho-item-images; cache unchanged per item_id.)
  */
 const THUMB_SCORE = { STOCKPOT: 100, NEUTRAL: 50, FRYING: 1 }
+
+const THUMB_CLASS = { pot: 'pot', fry: 'fry', neutral: 'neutral' }
 
 /**
  * @param {string} s
@@ -369,11 +372,43 @@ const THUMB_SCORE = { STOCKPOT: 100, NEUTRAL: 50, FRYING: 1 }
 function catalogNameLooksLikeFrying(s) {
   if (!s || !String(s).trim()) return false
   const t = String(s).toLowerCase()
-  if (/\b(fry(ing)?-?pan|frypan|frying\s*pan|skillet|wok|grill\s*pan|grillpan)\b/i.test(t)) return true
-  if (/\b(crape|crepe)\s*pan\b/i.test(t)) return true
-  // "Fry set" / "F pan set" style SKUs, but not "stock pot set" / "soup pot"
-  if (/(^|[^a-z0-9])f(ry|rying)?\s*([\-_/]|\s+)?(pan|set)([^a-z]|$)/i.test(t) && !/stock|soup|casserole|dutch/i.test(t)) {
+  if (/\b(fry(ing)?-?pan|frypan|frying\s*pan|skillet|wok|tawa|grill\s*pan|grillpan|cr[eê]pe\s*pan|تاوا|مقلاة\s*واقية)\b/i.test(t)) {
     return true
+  }
+  if (/\b(crape|crepe)\s*pan\b/i.test(t)) return true
+  if (/(^|[^a-z0-9])f(ry|rying)?\s*([\-_/]|\s+)?(pan|set)([^a-z]|$)/i.test(t) && !/stock|soup|casserole|dutch|pot(tery|s|ted)?/i.test(t)) {
+    return true
+  }
+  return false
+}
+
+/**
+ * Broader than before: any catalog hint that the pack is a pot, casserole, or
+ * not a dedicated fry pan. Used to **exclude** fry SKUs from the shortlist when
+ * a pot is present in the same family.
+ * @param {string} s
+ * @returns {boolean}
+ */
+function catalogNameLooksLikeAnyPot(s) {
+  if (catalogNameLooksLikeStockpot(s)) return true
+  if (!s || !String(s).trim()) return false
+  const t = String(s).toLowerCase()
+  if (/(^|[^a-z0-9])pot(s|tery)?\b|pot-?set|set\s*of\s*pots?|pots?\s*set|multi-?pot/i.test(t)) {
+    if (/(coffee|tea|milk|espresso|butter|honey|soap|paint)\s*(pot|kettle|jar)/i.test(t) && !/(cook(ing|ware)?|soup|stock|large|deep|biryani|family|kitchen)/i.test(t)) {
+      return false
+    }
+    if (/(fry|frying|skillet|wok|grill\s*pan)/i.test(t) && /(soup|stock|stew|5|4|3|2)\s*pcs?/i.test(t)) {
+      // "fry" might appear in a combined listing; still has pot
+      return true
+    }
+    return !/\b(fry(ing)?|wok|skillet|tawa|grill\s*pan|مقلاة|صاج)\b/i.test(t) || /(soup|stock|stew|biryani|dutch|deep|sauce(?!pan))/.test(t)
+  }
+  if (/(biryani|paella|tagine|marmite)\b/i.test(t) && !/(fry(ing)?|wok|skillet)\b/i.test(t)) return true
+  if (/(طقم|قدر|تانجر|طنجر|وعاء\s*الطبخ|وعاء\s*عميق|قدور|طنجرة|طنجير)/.test(s)) {
+    if (!/مقلاة|صاج|wok|skillet/i.test(t)) return true
+  }
+  if (/(cook(ing|ware)?\s*set|kitchen(ware)?\s*set)(?![\s\S]{0,20}(fry(ing)?|wok|skillet))/i.test(t)) {
+    if (!/fry(ing)?\s*pan|skillet|wok|grill\s*pan|مقلاة|صاج|تاوا/i.test(t)) return true
   }
   return false
 }
@@ -385,12 +420,111 @@ function catalogNameLooksLikeFrying(s) {
 function catalogNameLooksLikeStockpot(s) {
   if (!s || !String(s).trim()) return false
   const t = String(s).toLowerCase()
-  if (/\b(stock[\s-]*pot|stockpot|soup[\s-]*pot|casserole|dutch[\s-]*oven|stew(ing)?\s*pot)\b/i.test(t)) {
+  if (/\b(stock[\s-]*pot|stockpot|soup[\s-]*pot|casserole|dutch[\s-]*oven|stew(ing)?\s*pot|saucepan|saucepans?)\b/i.test(t)) {
     return true
   }
-  if (/\b(pressure|multi|slow)\s*cooker\b/i.test(t) && !catalogNameLooksLikeFrying(t)) return true
-  if (/(قدر|ستوك|شوربة)/i.test(t)) return true
+  if (/\b(pressure|multi|slow|electric|rice)\s*cooker\b/i.test(t) && !/(fry(ing)?|wok|skillet)\b/.test(t)) {
+    return true
+  }
+  if (/(قدر|ستوك|شوربة|مقلوبة|غلي)/i.test(t)) return true
   return false
+}
+
+/**
+ * SKU-only hints: many orgs encode fry vs pot in the SKU (e.g. *SP / *CASS / *POT
+ * for pots; *F / *FP / *FRY for pans).
+ * @param {string} [sku]
+ * @returns {boolean}
+ */
+function skuHintLooksLikePot(sku) {
+  const c = String(sku || '')
+    .toUpperCase()
+    .replace(/[\s\-_\.]/g, '')
+  if (!c) return false
+  if (/(POT|CASS|STK|STOCK|STEWS|BIRY|MARM|SOUP|COC(?!A)|BRAIS|BRAI|STWPOT)/.test(c)) return true
+  if (/(SPS$|POTS$|STKS$|STOCKS$|POTK|SPOT$)/.test(c)) return true
+  if (/LIF?P\w*\d*SP$|LIF?P\w*STK|LIF?P\w*POT/i.test(c)) return true
+  if (/K(?![A-Z]*FRY)POT|POTC|PC\d+POT|PCCASS|PCASS/i.test(c)) return true
+  // e.g. LIFEP7S: (LIFE|LIF)P + digits + S = multi-piece set; prefer over single fry SKUs in same family.
+  if (/(LIFE|LIF)P\d+S$/.test(c) && !/(FRY|F-P|WOK|SKL|SKI)/.test(c)) return true
+  return false
+}
+
+/**
+ * @param {string} [sku]
+ * @returns {boolean}
+ */
+function skuHintLooksLikeFry(sku) {
+  const c = String(sku || '')
+    .toUpperCase()
+    .replace(/[\s\-_\.]/g, '')
+  if (!c) return false
+  if (/(FRYP|FRYING|F-PAN|FRY-PAN|FRYPAN|SKL|WOK$|FRY$|FRY-)/.test(c)) return true
+  if (/(FRY0|FRY1|FRY2|FRY3|FRY4|FRY5|FRY6|FRY7|FRY8|FRY9|FP\d)/.test(c) && c.length < 32) {
+    if (!/POT|CASS|STK|STOCK|STW|BIRY|MARM|SPOT$|STKS$/.test(c)) return true
+  }
+  if (/(LIF?P\w*F$|LIF?P\w*FR$|LIF?P\w*FRY$)/.test(c)) return true
+  if (/(WOK$|SKILL|GRILL?PAN)/.test(c)) return true
+  return /SKL|FRY$|WOK$|SKILLET$/.test(c) && c.length < 32
+}
+
+/**
+ * Coarse 3-way class for filtering which candidates may represent the family photo.
+ * @param {{ sku?: string, item_name?: string, _zoho?: { has_image?: boolean } }} row
+ * @returns {'pot'|'fry'|'neutral'}
+ */
+function catalogThumbKind(row) {
+  if (!row || !row._zoho || !row._zoho.has_image) return THUMB_CLASS.neutral
+  const name = String(row.item_name != null ? row.item_name : '')
+  const sku = String(row.sku != null ? row.sku : '')
+  const t = `${sku} ${name}`.trim()
+
+  const potSku = skuHintLooksLikePot(sku)
+  const frySku = skuHintLooksLikeFry(sku)
+  if (potSku && !frySku) return THUMB_CLASS.pot
+  if (frySku && !potSku) return THUMB_CLASS.fry
+
+  const anyPot = catalogNameLooksLikeStockpot(t) || catalogNameLooksLikeAnyPot(t)
+  const anyFry = catalogNameLooksLikeFrying(t) && !catalogNameLooksLikeStockpot(t)
+
+  if (anyPot && !anyFry) return THUMB_CLASS.pot
+  if (anyFry && !anyPot) return THUMB_CLASS.fry
+  if (anyPot && anyFry) {
+    if (catalogNameLooksLikeStockpot(t) && catalogNameLooksLikeFrying(t)) {
+      if (/(soup|stock|stew|pot|casserole|dutch)/i.test(t) && t.indexOf('fry') >= 0) {
+        return THUMB_CLASS.pot
+      }
+    }
+    if (anyPot) return THUMB_CLASS.pot
+  }
+  return THUMB_CLASS.neutral
+}
+
+/**
+ * @param {{ iid: string, row: object }[]} candidates
+ * @returns {string|null}
+ */
+function pickRepresentativeZohoItemId(candidates) {
+  if (!Array.isArray(candidates) || !candidates.length) return null
+  const met = candidates.map((c) => {
+    const kind = catalogThumbKind(c.row)
+    const score = catalogThumbnailPriorityScore(c.row)
+    return { iid: c.iid, row: c.row, kind, score: score < 0 ? 0 : score }
+  })
+  const hasPot = met.some((m) => m.kind === THUMB_CLASS.pot)
+  const hasFry = met.some((m) => m.kind === THUMB_CLASS.fry)
+  const hasNeutral = met.some((m) => m.kind === THUMB_CLASS.neutral)
+
+  let pool = met
+  if (hasPot) {
+    pool = met.filter((m) => m.kind !== THUMB_CLASS.fry)
+  } else if (hasFry && hasNeutral) {
+    pool = met.filter((m) => m.kind !== THUMB_CLASS.fry)
+  }
+  if (pool.length === 0) pool = met
+
+  pool.sort((a, b) => b.score - a.score || String(a.iid).localeCompare(String(b.iid)))
+  return pool[0].iid
 }
 
 /**
@@ -402,9 +536,11 @@ function catalogThumbnailPriorityScore(row) {
   const s = `${row.sku != null ? row.sku : ''} ${row.item_name != null ? row.item_name : ''}`
   if (!s.trim()) return THUMB_SCORE.NEUTRAL
   if (catalogNameLooksLikeStockpot(s) && !catalogNameLooksLikeFrying(s)) return THUMB_SCORE.STOCKPOT
-  if (catalogNameLooksLikeFrying(s) && !catalogNameLooksLikeStockpot(s)) return THUMB_SCORE.FRYING
-  if (catalogNameLooksLikeStockpot(s) && catalogNameLooksLikeFrying(s)) {
-    // Ambiguous: prefer the stronger stockpot signal
+  if (catalogNameLooksLikeAnyPot(s) && !catalogNameLooksLikeFrying(s) && (skuHintLooksLikePot(String(row.sku)) || !skuHintLooksLikeFry(String(row.sku)))) {
+    return THUMB_SCORE.STOCKPOT
+  }
+  if (catalogNameLooksLikeFrying(s) && !catalogNameLooksLikeAnyPot(s)) return THUMB_SCORE.FRYING
+  if (catalogNameLooksLikeAnyPot(s) && catalogNameLooksLikeFrying(s) && (catalogNameLooksLikeStockpot(s) || /(soup|stock|stew|pot(tery|s|ted)?\b|casserole)/i.test(s))) {
     return THUMB_SCORE.STOCKPOT
   }
   return THUMB_SCORE.NEUTRAL
@@ -431,7 +567,7 @@ function aggregateByFamily(itemRows) {
         _returnedN: 0,
         _purchaseN: 0,
         _repAny: null,
-        _repImgBest: null, // { iid, score } — best catalog photo among items with has_image
+        _imageCandidates: /** @type {{ iid: string, row: object }[]} */ ([]),
       }
       map.set(key, acc)
     }
@@ -441,9 +577,7 @@ function aggregateByFamily(itemRows) {
       if (row._zoho && row._zoho.has_image) {
         const score = catalogThumbnailPriorityScore(row)
         if (score >= 0) {
-          if (acc._repImgBest == null || score > acc._repImgBest.score) {
-            acc._repImgBest = { iid, score }
-          }
+          acc._imageCandidates.push({ iid, row })
         }
       }
     }
@@ -472,9 +606,9 @@ function aggregateByFamily(itemRows) {
     if (acc._returnedN === 0) acc.returned_to_wholesale = null
     if (acc._purchaseN === 0) acc.purchase_amount = null
     acc.zoho_representative_item_id =
-      (acc._repImgBest && acc._repImgBest.iid) || acc._repAny || null
+      pickRepresentativeZohoItemId(acc._imageCandidates) || acc._repAny || null
     delete acc._repAny
-    delete acc._repImgBest
+    delete acc._imageCandidates
     delete acc._openingN
     delete acc._closingN
     delete acc._returnedN
