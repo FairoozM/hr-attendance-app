@@ -1,11 +1,15 @@
 /**
  * Deterministic family thumbnail for Zoho weekly reports: pick one `item_id` for
- * `/inventory/v1/items/{id}/image`. Some families are pinned to a specific catalog SKU
- * (see `FAMILY_TO_REPRESENTATIVE_SKU`). Otherwise: waterfall — biggest primary pot →
- * biggest secondary → cookware set → other → frying (last). Size from L + cm in SKU + name.
+ * `/inventory/v1/items/{id}/image`.
+ *
+ * Global priority:
+ *  1) Largest single soup pot
+ *  2) Cookware set
+ *  3) Sauce / milk pot
+ *  4) Any other subtype (deterministic fallback)
  */
-const REPRESENTATIVE_IMAGE_SELECTION_VERSION = 9
-const REPRESENTATIVE_IMAGE_CACHE_VERSION = 5
+const REPRESENTATIVE_IMAGE_SELECTION_VERSION = 10
+const REPRESENTATIVE_IMAGE_CACHE_VERSION = 6
 
 /** Same as `weeklyReportZohoData` — family display can include this suffix for unmapped Zoho families. */
 const FAMILY_LABEL_SUFFIX_NOT_IN_GROUPS = ' (not found in groups)'
@@ -14,12 +18,7 @@ const FAMILY_LABEL_SUFFIX_NOT_IN_GROUPS = ' (not found in groups)'
  * When set, the weekly report / Excel thumbnail uses that Zoho item (match on `row.sku`)
  * instead of the default waterfall. Keys: normalized family label (see `familyKeyForSkuOverride`).
  */
-const FAMILY_TO_REPRESENTATIVE_SKU = Object.freeze({
-  lifep17s: 'LIFEP17S-40P-BEIGE',
-  lifep5: '6290360931623',
-  lifep2: 'LIFEP2-32-BEIGE',
-  lifep12: '6294021002943',
-})
+const FAMILY_TO_REPRESENTATIVE_SKU = Object.freeze({})
 
 const BONUS_IMAGE = 40
 const BONUS_ACTIVE = 20
@@ -50,6 +49,7 @@ const RE_PRIMARY = /(casserole|dutch\W*oven|\bhandi\b)/i
 const RE_SECONDARY = /(milk|sauce)[\s-]+pot|milkpot|saucepot|saucepan\w*|\bsauce\s*pan\b|sauce[\s-]+pan|milk[\s-]pot|milkpot/i
 const RE_SAUCE_TOKEN = /\bsauce\b|\bsau\b|(?:^|[^a-z])sau\d*/i
 const RE_LIFEP_CORE_POT = /\blifep\d+[a-z]*[\s-]*\d{1,2}(?:n|p)?\b|\blifep\d+[a-z]*\d{1,2}(?:n|p)?\b/i
+const RE_SHALLOW_POT = /\bshallow[\s-]*pot\b/i
 const RE_COOKWARE_SET = new RegExp(
   'cookware[\\s-]+set|cooking[\\s-]+set|pots[\\s-]and[\\s-]pans[\\s-]+set|piece[\\s-]+set' +
     '|set[\\s-]of' +
@@ -123,13 +123,20 @@ function isFryingType(t) {
 function classifyRepresentativeType(sku, name) {
   const t = combinedText(sku, name)
   if (!t) return 'other'
-  if (isPrimaryType(t)) return 'primary_pot'
-  // Global heuristic: LIFEP core-size SKUs are pot lines unless explicitly sauce/fry/set.
+  if (
+    (isPrimaryType(t) || RE_SOUP_POT.test(t)) &&
+    !RE_COOKWARE_SET.test(t) &&
+    !RE_SAUCE_TOKEN.test(t) &&
+    !isFryingType(t) &&
+    !RE_SHALLOW_POT.test(t)
+  ) return 'primary_pot'
+  // LIFEP core-size SKUs are single soup-pot lines unless explicitly another subtype.
   if (
     RE_LIFEP_CORE_POT.test(t) &&
     !RE_SAUCE_TOKEN.test(t) &&
     !isFryingType(t) &&
-    !RE_COOKWARE_SET.test(t)
+    !RE_COOKWARE_SET.test(t) &&
+    !RE_SHALLOW_POT.test(t)
   ) {
     return 'primary_pot'
   }
@@ -200,6 +207,14 @@ function extractDiameterCm(sku, name) {
       }
     }
   }
+  if (!vals.length) {
+    const m2 = t.match(/-(1[4-9]|[2-3][0-9]|4[0-2])(?:p|n)?(?:\b|-)/i)
+    if (m2) vals.push(parseInt(m2[1], 10))
+  }
+  if (!vals.length) {
+    const m3 = t.match(/\blifep\d+[a-z]*\s+(1[4-9]|[2-3][0-9]|4[0-2])(?:p|n)?\b/i)
+    if (m3) vals.push(parseInt(m3[1], 10))
+  }
   if (!vals.length) return null
   return Math.max(...vals)
 }
@@ -254,6 +269,15 @@ function compareStratum(a, b) {
   return String(a.iid).localeCompare(String(b.iid), 'en')
 }
 
+function compareNonSoup(a, b) {
+  if (a.hasImage !== b.hasImage) return (b.hasImage ? 1 : 0) - (a.hasImage ? 1 : 0)
+  if (a.isActive !== b.isActive) return (b.isActive ? 1 : 0) - (a.isActive ? 1 : 0)
+  const ka = `${a.sku} ${a.item_name}`.toLowerCase()
+  const kb = `${b.sku} ${b.item_name}`.toLowerCase()
+  if (ka !== kb) return ka < kb ? -1 : 1
+  return String(a.iid).localeCompare(String(b.iid), 'en')
+}
+
 /**
  * @param {object} v view
  * @param {object} fam
@@ -297,8 +321,17 @@ function firstInStratum(views, cat) {
 function pickByWaterfall(candidates) {
   const views = candidates.map(rowToView).filter((v) => v && v.iid)
   if (views.length === 0) return undefined
-  const s = (cat) => firstInStratum(views, cat)
-  return s('primary_pot') || s('secondary_pot') || s('cookware_set') || s('other') || s('frying')
+  const soup = views.filter((v) => v.cat === 'primary_pot').sort(compareStratum)
+  if (soup.length) return soup[0]
+  const set = views.filter((v) => v.cat === 'cookware_set').sort(compareNonSoup)
+  if (set.length) return set[0]
+  const sauce = views.filter((v) => v.cat === 'secondary_pot').sort(compareNonSoup)
+  if (sauce.length) return sauce[0]
+  const other = views.filter((v) => v.cat === 'other').sort(compareNonSoup)
+  if (other.length) return other[0]
+  const frying = views.filter((v) => v.cat === 'frying').sort(compareNonSoup)
+  if (frying.length) return frying[0]
+  return undefined
 }
 
 /**
@@ -426,24 +459,13 @@ function selectRepresentativeZohoItemForFamily(candidates, ctx = {}) {
     return out
   }
 
+  let w
   const allViews = uniq.map(rowToView)
   const fam = {
     hasPrimary: allViews.some((x) => x.cat === 'primary_pot'),
     hasSecondary: allViews.some((x) => x.cat === 'secondary_pot'),
   }
-
-  const famKey = familyKeyForSkuOverride((ctx && ctx.familyLabel) || '')
-  const forcedSku = FAMILY_TO_REPRESENTATIVE_SKU[famKey]
-  let w
-  let usedSkuOverride = false
-  if (forcedSku) {
-    const cForced = findCandidateBySku(uniq, forcedSku)
-    if (cForced) {
-      w = rowToView(cForced)
-      usedSkuOverride = true
-    }
-  }
-  if (!w) w = pickByWaterfall(uniq)
+  w = pickByWaterfall(uniq)
   if (!w) {
     out.zoho_representative_reason = `v${REPRESENTATIVE_IMAGE_SELECTION_VERSION}:no_winner`
     return out
@@ -456,17 +478,14 @@ function selectRepresentativeZohoItemForFamily(candidates, ctx = {}) {
   const cookwareBeaten = allViews.some(
     (x) => x.cat === 'cookware_set' && w.cat !== 'cookware_set' && (fam.hasPrimary || fam.hasSecondary)
   )
-  const overrideNote = usedSkuOverride && forcedSku ? ` sku_override=${forcedSku}` : ''
   out.zoho_representative_reason =
     `v${REPRESENTATIVE_IMAGE_SELECTION_VERSION} ` +
-    (usedSkuOverride ? 'fixed_sku ' : '') +
     `cat=${w.cat} ` +
     `L=${w.liters == null ? '—' : w.liters} ` +
     `cm=${w.cm == null ? '—' : w.cm} ` +
     `img=${w.hasImage ? 1 : 0} ` +
     `act=${w.isActive ? 1 : 0} ` +
     `score=${out.zoho_representative_score}` +
-    overrideNote +
     (cookwareBeaten ? ' ;cookware_set_rejected:family_has_individual_pot' : '')
 
   if (cookwareBeaten) {

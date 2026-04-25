@@ -531,120 +531,64 @@ test('aggregateByFamily: Zoho soup SKU in same Family (not in report rows) still
   assert.equal(one.zoho_representative_item_id, '2')
 })
 
-test('aggregateByFamily: pinned LIFEP5 pot SKU merged from bySku when absent from byFamily (Zoho Family mismatch)', () => {
+test('aggregateByFamily: picks largest single soup pot over sauce and smaller sizes', () => {
   const rows = [
     {
-      family: 'LIFEP5',
-      item_id: '99',
-      sku: 'LIFEP5-WRONG-LINE',
-      item_name: 'line in report',
+      family: 'LIFEP7S',
+      item_id: 'A',
+      sku: 'LIFEP7S-24P-GREEN',
+      item_name: 'Soup Pot 24 cm',
       sales_amount: 0,
       _zoho: { has_image: true, is_active: true },
     },
-  ]
-  const byFamily = new Map([
-    [
-      'lifep5',
-      [
-        {
-          item_id: '99',
-          sku: 'LIFEP5-WRONG-LINE',
-          name: 'line in report',
-          image_id: '1',
-          status: 'active',
-        },
-      ],
-    ],
-  ])
-  const bySku = new Map()
-  bySku.set('lifep5-wrong-line', {
-    item_id: '99',
-    sku: 'LIFEP5-WRONG-LINE',
-    name: 'line in report',
-    image_id: '1',
-    status: 'active',
-  })
-  bySku.set('6290360931623', {
-    item_id: 'GREEN_PIN',
-    sku: '6290360931623',
-    name: 'Pinned LIFEP5 pot',
-    image_id: 'g',
-    status: 'active',
-  })
-  const [one] = aggregateByFamily(rows, {
-    byFamily,
-    bySku,
-    familyFieldId: null,
-    fromDate: '2026-01-01',
-    toDate: '2026-01-31',
-  })
-  assert.equal(
-    one.zoho_representative_item_id,
-    'GREEN_PIN',
-    'must use catalog bySku for pinned family→SKU when that item is not in byFamily',
-  )
-  assert.match(String(one.zoho_representative_sku || ''), /6290360931623/)
-})
-
-
-test('aggregateByFamily: pinned LIFEP12 pot SKU is used for thumbnail', () => {
-  const rows = [
     {
-      family: 'LIFEP12',
-      item_id: '99',
-      sku: 'LIFEP12-RANDOM',
-      item_name: 'line in report',
+      family: 'LIFEP7S',
+      item_id: 'B',
+      sku: 'LIFEP7S-40P-BLACK',
+      item_name: 'Soup Pot 40 cm',
       sales_amount: 0,
       _zoho: { has_image: true, is_active: true },
     },
-  ]
-  const byFamily = new Map([
-    [
-      'lifep12',
-      [
-        {
-          item_id: '99',
-          sku: 'LIFEP12-RANDOM',
-          name: 'line in report',
-          image_id: '1',
-          status: 'active',
-        },
-      ],
-    ],
-  ])
-  const bySku = new Map()
-  bySku.set('lifep12-random', {
-    item_id: '99',
-    sku: 'LIFEP12-RANDOM',
-    name: 'line in report',
-    image_id: '1',
-    status: 'active',
-  })
-  bySku.set('6294021002943', {
-    item_id: 'LIFEP12_PIN',
-    sku: '6294021002943',
-    name: 'LIFEP12-10GOLD pot',
-    image_id: 'p',
-    status: 'active',
-  })
-  const [one] = aggregateByFamily(rows, {
-    byFamily,
-    bySku,
-    familyFieldId: null,
-    fromDate: '2026-01-01',
-    toDate: '2026-01-31',
-  })
-  assert.equal(one.zoho_representative_item_id, 'LIFEP12_PIN')
-  assert.equal(String(one.zoho_representative_sku || ''), '6294021002943')
-})
-
-
-test('aggregateByFamily: global rule prefers core pot SKU over SAU sauce SKU', () => {
-  const rows = [
-    { family: 'LIFEP9', item_id: 'POT', sku: 'LIFEP9-20-GREEN', item_name: 'LIFEP9-20-GREEN', sales_amount: 0, _zoho: { has_image: true, is_active: true } },
-    { family: 'LIFEP9', item_id: 'SAU', sku: 'LIFEP9SAU16-GREEN', item_name: 'LIFEP9SAU16-GREEN', sales_amount: 0, _zoho: { has_image: true, is_active: true } },
+    {
+      family: 'LIFEP7S',
+      item_id: 'C',
+      sku: 'LIFEP7SSAU16-GREEN',
+      item_name: 'Sauce Pot 16 cm',
+      sales_amount: 0,
+      _zoho: { has_image: true, is_active: true },
+    },
   ]
   const [one] = aggregateByFamily(rows)
-  assert.equal(one.zoho_representative_item_id, 'POT')
-  assert.equal(String(one.zoho_representative_sku || ''), 'LIFEP9-20-GREEN')
+  assert.equal(one.zoho_representative_item_id, 'B')
+  assert.equal(String(one.zoho_representative_sku || ''), 'LIFEP7S-40P-BLACK')
+})
+
+test('aggregateByFamily: LIFEP soup SKUs pick largest numeric size even without cm token', () => {
+  const rows = [
+    { family: 'LIFEP7S', item_id: '24', sku: '6294021002608', item_name: 'LIFEP7S-24P-GREEN', sales_amount: 0, _zoho: { has_image: true, is_active: true } },
+    { family: 'LIFEP7S', item_id: '40', sku: '6294021002721', item_name: 'LIFEP7S-40P-GREEN', sales_amount: 0, _zoho: { has_image: true, is_active: true } },
+  ]
+  const [one] = aggregateByFamily(rows)
+  assert.equal(one.zoho_representative_item_id, '40')
+  assert.equal(String(one.zoho_representative_sku || ''), '6294021002721')
+})
+
+
+test('aggregateByFamily: falls back to cookware set when no soup pot exists', () => {
+  const rows = [
+    { family: 'F', item_id: 'SET', sku: 'COOK-10PCS', item_name: 'Cookware set 10pcs', sales_amount: 0, _zoho: { has_image: true, is_active: true } },
+    { family: 'F', item_id: 'SAU', sku: 'SAU-16', item_name: 'Sauce pan 16', sales_amount: 0, _zoho: { has_image: true, is_active: true } },
+    { family: 'F', item_id: 'FRY', sku: 'FRY-28', item_name: 'Frying pan 28', sales_amount: 0, _zoho: { has_image: true, is_active: true } },
+  ]
+  const [one] = aggregateByFamily(rows)
+  assert.equal(one.zoho_representative_item_id, 'SET')
+})
+
+test('aggregateByFamily: families with unrelated subtypes fall back deterministically', () => {
+  const rows = [
+    { family: 'R Trolley', item_id: '2', sku: 'TROLLEY-B', item_name: 'R Trolley Black', sales_amount: 0, _zoho: { has_image: true, is_active: true } },
+    { family: 'R Trolley', item_id: '1', sku: 'TROLLEY-A', item_name: 'R Trolley Silver', sales_amount: 0, _zoho: { has_image: true, is_active: true } },
+  ]
+  const [one] = aggregateByFamily(rows)
+  assert.equal(one.zoho_representative_item_id, '1')
 })
