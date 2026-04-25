@@ -167,8 +167,10 @@ test('buildWeeklyReportXlsxBuffer: populated report opens in ExcelJS with title 
   assert.equal(String(sheet.getCell('B5').value), 'ZDS')
   const gt = String(sheet.getCell('B6').value)
   assert.equal(gt, 'Grand Total')
-  assert.equal(String(sheet.getCell('C4').value), 'Zoho item id (photo ref)')
-  assert.equal(Number(sheet.getCell('H5').value), 3) // Sales Amount
+  assert.equal(String(sheet.getCell('C4').value), 'Photo')
+  assert.equal(String(sheet.getCell('D4').value), 'Zoho item id (photo ref)')
+  assert.equal(String(sheet.getCell('C5').value), '—')
+  assert.equal(Number(sheet.getCell('I5').value), 3) // Sales Amount
 })
 
 test('buildWeeklyReportXlsxBuffer: empty data still has header + zero grand total', async () => {
@@ -186,7 +188,7 @@ test('buildWeeklyReportXlsxBuffer: empty data still has header + zero grand tota
   const sheet = wb.getWorksheet('Report')
   assert.equal(String(sheet.getCell('A1').value), 'ECOMMERCE OTHER FAMILY SALES REPORT')
   assert.equal(String(sheet.getCell('B5').value), 'Grand Total')
-  assert.equal(Number(sheet.getCell('D5').value), 0) // Opening Stock
+  assert.equal(Number(sheet.getCell('E5').value), 0) // Opening Stock
 })
 
 test('buildWeeklyReportXlsxBuffer: _zoho metadata on items does not affect columns', async () => {
@@ -211,7 +213,7 @@ test('buildWeeklyReportXlsxBuffer: _zoho metadata on items does not affect colum
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(buf)
   assert.equal(String(wb.getWorksheet('Report').getCell('B5').value), 'F')
-  assert.equal(Number(wb.getWorksheet('Report').getCell('G5').value), 5) // closing_stock (after purchase / returns)
+  assert.equal(Number(wb.getWorksheet('Report').getCell('H5').value), 5) // closing_stock (after purchase / returns)
 })
 
 test('buildWeeklyReportXlsxBuffer: special characters in item name round-trip', async () => {
@@ -266,4 +268,38 @@ test('buildWeeklyReportXlsxBuffer: many rows are written', async () => {
   assert.equal(String(sheet.getCell('B5').value), 'F-0')
   assert.equal(String(sheet.getCell('B' + (5 + n - 1)).value), `F-${n - 1}`)
   if (ms > 120_000) assert.fail(`export took ${ms}ms (unreasonably slow)`)
+})
+
+// Minimal 1×1 PNG (valid for ExcelJS addImage)
+const ONE_PX_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/6X9nRkAAAAASUVORK5CYII=',
+  'base64',
+)
+
+test('buildWeeklyReportXlsxBuffer: fetchImageForItem embeds image and leaves Photo cell empty', async () => {
+  const items = [
+    {
+      family: 'F',
+      zoho_representative_item_id: '42',
+      opening_stock: 0,
+      purchase_amount: 0,
+      returned_to_wholesale: 0,
+      closing_stock: 0,
+      sales_amount: 0,
+    },
+  ]
+  const buf = await buildWeeklyReportXlsxBuffer({
+    sheetTitle: 'ECOMMERCE SLOW MOVING SALES REPORT',
+    fromDate: '2026-01-01',
+    toDate: '2026-01-07',
+    items,
+    totals: sumReportGrandTotals(items),
+    fetchImageForItem: async () => ({ buffer: ONE_PX_PNG, extension: 'png' }),
+  })
+  const wb = new ExcelJS.Workbook()
+  await wb.xlsx.load(buf)
+  const sheet = wb.getWorksheet('Report')
+  assert.equal(sheet.getCell('C5').value, null)
+  const mediaCount = (wb.model && wb.model.media && wb.model.media.length) || 0
+  assert.ok(mediaCount >= 1, 'workbook should contain at least one embedded image in media[]')
 })

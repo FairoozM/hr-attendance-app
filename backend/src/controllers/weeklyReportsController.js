@@ -292,6 +292,22 @@ async function exportReportByGroupXlsx(req, res) {
       toDate:     range.to_date,
       items,
       totals,
+      fetchImageForItem: async (row) => {
+        const raw = row && row.zoho_representative_item_id
+        if (raw == null || String(raw).trim() === '') return null
+        const out = await fetchZohoItemImageBuffer(String(raw).trim())
+        if (!out || !out.buffer || out.buffer.length === 0) return null
+        const ct = String(out.contentType || '').toLowerCase()
+        let ext = 'jpeg'
+        if (ct.includes('png')) ext = 'png'
+        else if (ct.includes('gif')) ext = 'gif'
+        else if (ct.includes('jpeg') || ct.includes('jpg')) ext = 'jpeg'
+        else {
+          // ExcelJS embeds only png / jpeg / gif; skip e.g. image/webp
+          return null
+        }
+        return { buffer: out.buffer, extension: ext }
+      },
     })
     const filename = getExportDownloadFilename(group, range.from_date, range.to_date)
     res.setHeader(

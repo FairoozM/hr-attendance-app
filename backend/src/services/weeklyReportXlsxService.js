@@ -23,6 +23,12 @@ const WEEKLY_STOCK_MOVEMENT_XLSX_COLUMNS = [
     grandTotalText: 'Grand Total',
   },
   {
+    header: 'Photo',
+    width: 12,
+    type: 'image',
+    grandTotalText: '\u00A0',
+  },
+  {
     header: 'Zoho item id (photo ref)',
     width: 20,
     type: 'rowText',
@@ -46,6 +52,7 @@ const WEEKLY_STOCK_MOVEMENT_XLSX_COLUMNS = [
  * @param {string} params.toDate
  * @param {object[]} params.items
  * @param {object} params.totals
+ * @param {(item: object) => Promise<null|{ buffer: import('buffer').Buffer, extension: 'png'|'jpeg'|'gif' }>} [params.fetchImageForItem] — for Zoho product thumbnails in the Photo column
  * @returns {Promise<Buffer>}
  */
 function buildWeeklyReportXlsxBuffer(params) {
