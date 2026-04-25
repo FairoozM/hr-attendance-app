@@ -423,14 +423,52 @@ function catalogNameLooksLikeAnyPot(s) {
 function catalogNameLooksLikeStockpot(s) {
   if (!s || !String(s).trim()) return false
   const t = String(s).toLowerCase()
-  if (/\b(stock[\s-]*pot|stockpot|soup[\s-]*pot|casserole|dutch[\s-]*oven|stew(ing)?\s*pot|saucepan|saucepans?)\b/i.test(t)) {
+  const raw = String(s)
+  if (/\b(stock[\s-]*pot|stockpot|soup[\s-]*pot|souppot|soups?\s*\.{0,3}\s*pot|stew(ing)?\s*pot|stk[\s_-]*pot|sp-?pot|casserole|dutch[\s-]*oven|saucepan|saucepans?|سوب\s*بوت)\b/i.test(t)) {
     return true
+  }
+  if (/(?:soup|stew|stock(?!s)|biry(ani)?|sauce(?!s)|shorba|سوپ|شوربة|شوربه|مرق)(?:.|\n){0,50}(?:قِ?در|وعاء|بوت|بَان|مِقلاة\s*واقية|طنجر|طاجن|حلّ?ة|جَدر|dutch|litre|ltr|^\d+\s*L\b|liters?)/i.test(t)) {
+    if (!/coffee|tea(?!\s*pot)|butter(?!\s*pot|fly)|milk\s*pot(?!\s*lar)/i.test(t)) return true
+  }
+  if (/(?:قِ?در|وعاء|طنجر|طاجن|حلّ?ة|جَدر|ستوك)(?:.|\n){0,40}(?:soup|stew|stock|شوربة|biry(ani)?|سوپ)/i.test(t)) {
+    if (!/مقلاة|fry(ing)?|wok|skillet/i.test(t)) return true
   }
   if (/\b(pressure|multi|slow|electric|rice)\s*cooker\b/i.test(t) && !/(fry(ing)?|wok|skillet)\b/.test(t)) {
     return true
   }
-  if (/(قدر|ستوك|شوربة|مقلوبة|غلي)/i.test(t)) return true
+  if (/(قدر|ستوك|شوربة|مقلوبة|غلي|طنج(رة|ن)?|طنجر|طاجن|وعاء|حل(ّ|ه)?\s*ه|حلة|جدر(ة|ه)?)/i.test(raw)) {
+    return true
+  }
   return false
+}
+
+/**
+ * Strong numeric preference for the weekly family thumbnail when the Zoho **item** text
+ * clearly points at soup / stock / stew / Arabic pot lines (customer cataloguing varies).
+ * Used as the **first** sort key for LIFEP* and LUP families.
+ * @param {{ sku?: string, item_name?: string }} row
+ * @returns {number}
+ */
+function zohoSoupStockPotImageScore(row) {
+  if (!row) return 0
+  const skuU = zohoCompactName(String(row.sku != null ? row.sku : ''))
+  const nameU = zohoCompactName(String(row.sku != null ? row.sku : '') + String(row.item_name != null ? row.item_name : ''))
+  const t = `${row.sku != null ? row.sku : ''} ${row.item_name != null ? row.item_name : ''}`
+  const tLower = t.toLowerCase()
+  if (!t.trim()) return 0
+  let n = 0
+  if (catalogNameLooksLikeStockpot(t)) n += 80000
+  if (/(SOUP|STEWS?|BIRY|MARM|STKPT|STKPOT|STOCKP|SPOT$|CASS|DUTCHPOT|SAUCEP(?!A))/i.test(skuU)) n += 50000
+  if (/(SOUP|STEWS?|BIRY|CASS|STK|STWPOT|SPOT|BIRI)/.test(nameU) && /(POT|STK|BIRI|BIRY|CASS|SP$)/.test(nameU)) n += 35000
+  if (/(soupp?ot|soup\W*\.?\W*pt|soup\W*pot|soups?\W+with\W*pot|stock\W*pot|stew\W*pot|sauce[\s-]*pans?|biry(ani)?\W*(pot|set)?|dutch(?!\s*oven\s*fry)\s*ov)/i.test(t)) n += 70000
+  if (/(شوربة|شوربه|سوب|الشوربة|سوب|مرق\W*ال?|وعاء\s*ال(شوربة|سوب)|قِ?در(\s*ال(شوربة|سوب))?|قِ?در(\s*شوربة|سوب|حساء|مرق)|طنجر(ة|ه)?\s*(شوربة|soup|حساء)|بِطنجان|مِقلی)/.test(t)) n += 65000
+  if (/(soup|stew(?!\s*stick|ard)|biry(ani|ani)?|tagine|marmite|سوپ|شوربة|مرق)(.|\n){0,40}(l(?![a-z])|litre|ltr|قدر|وعاء|pot)/i.test(t) || /(l(?![a-z])|litre|pot|قِ?در|وعاء|طنج|جدر|جال)(.|\n){0,30}(soup|stew|biry(ani)?|شوربة|مرق)/i.test(t)) n += 45000
+  if (/\b(3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|24)\s*(p\s*c|pc|pce|piece|pcs|pzs|pack|pc\.|p\/c|قطع|قطع)/.test(tLower) && /(cook(ware|ing)?\s*set|kitchen(ware)?\s*set|assort|combo|طقم|set\s+\d|multi)/.test(tLower) && !/\b(1|2|two|double)\s*(fry|frying|wok|skillet|مقلاة|صاج|pc\W*fry)/.test(tLower)) {
+    n += 12000
+  }
+  if (/(^|[^a-z])soup($|[^a-z])|chicken\s*soup|vegetable\s*soup|lentil|minestrone|bisque|broth(?!t)/i.test(t) && /(قِ?در|جدر|طنج|حلة|saucepan|pot(?!ter)|\d{1,2}\s*L|litre|ltr|cm\s*\d)/.test(t)) n += 25000
+  if (/(fry(ing)?|wok|skillet|مقلاة|مقلی|grill\s*pan|fry-?pan|تاو|صاج|تاج)/i.test(t) && n < 30000) n = Math.max(0, n - 25000)
+  return n
 }
 
 /**
@@ -602,14 +640,17 @@ function pickRepresentativeZohoItemId(candidates) {
   }
   if (pool.length === 0) pool = met
 
-  if (isLifepLupForTie && pool.length > 1 && met.every((m) => m.kind === THUMB_CLASS.fry)) {
-    const scored = pool
-      .map((m) => ({ ...m, tbreak: zohoLifepFamilyTiebreakRowScore(m.row) }))
-      .sort(
-        (a, b) =>
-          b.tbreak - a.tbreak || b.score - a.score || String(a.iid).localeCompare(String(b.iid))
-      )
-    return scored[0].iid
+  if (isLifepLupForTie) {
+    const sorted = [...pool].sort((a, b) => {
+      const soupB = zohoSoupStockPotImageScore(b.row)
+      const soupA = zohoSoupStockPotImageScore(a.row)
+      if (soupB !== soupA) return soupB < soupA ? -1 : 1
+      const tbreak = zohoLifepFamilyTiebreakRowScore(b.row) - zohoLifepFamilyTiebreakRowScore(a.row)
+      if (tbreak !== 0) return tbreak < 0 ? -1 : 1
+      if (b.score !== a.score) return b.score < a.score ? -1 : 1
+      return String(a.iid).localeCompare(String(b.iid))
+    })
+    return sorted[0].iid
   }
 
   pool.sort((a, b) => b.score - a.score || String(a.iid).localeCompare(String(b.iid)))

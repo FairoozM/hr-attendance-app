@@ -484,3 +484,12 @@ test('aggregateByFamily: LIFEP7 + FRY in every SKU: tie-break picks text with st
   const [one] = aggregateByFamily(rows)
   assert.equal(one.zoho_representative_item_id, 'b')
 })
+
+test('aggregateByFamily: LIFEP7 + soup pot in item_name wins over fry (soup image score first)', () => {
+  const rows = [
+    { family: 'LIFEP7', item_id: '1', sku: 'Z-1', item_name: '2pc fry pan black', sales_amount: 0, _zoho: { has_image: true } },
+    { family: 'LIFEP7', item_id: '2', sku: 'Z-2', item_name: 'Soup pot 6L with glass lid', sales_amount: 0, _zoho: { has_image: true } },
+  ]
+  const [one] = aggregateByFamily(rows)
+  assert.equal(one.zoho_representative_item_id, '2')
+})
