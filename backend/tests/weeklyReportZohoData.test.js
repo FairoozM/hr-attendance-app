@@ -2,7 +2,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { mockModule, freshRequire } = require('./_helpers')
 const { sumReportGrandTotals } = require('../src/utils/weeklyReportTotals')
-const { buildZohoLookupMaps, findZohoItemForMember, aggregateByFamily, scoreZohoNameSkuText } = require(
+const { buildZohoLookupMaps, findZohoItemForMember, aggregateByFamily, scoreZohoNameSkuText, buildWeeklyReportScope } = require(
   '../src/services/weeklyReportZohoData'
 )._internals
 
@@ -18,6 +18,25 @@ test('findZohoItemForMember: by sku, then item_id, then name', () => {
   assert.equal(findZohoItemForMember({ item_id: '20' }, maps), raw[1])
   assert.equal(findZohoItemForMember({ item_name: 'N1' }, maps), raw[0])
   assert.equal(findZohoItemForMember({ item_name: 'no' }, maps), null)
+})
+
+test('buildWeeklyReportScope: explicit include beats exclusion and non-damaged excludes only', () => {
+  assert.deepEqual(buildWeeklyReportScope(null, 'damaged'), {
+    kind: 'all_non_damaged',
+    warehouseId: null,
+    excludeWarehouseId: 'damaged',
+    transactionFilter: { excludeWarehouseId: 'damaged' },
+    stockWarehouseId: null,
+    subtractStockWarehouseId: 'damaged',
+  })
+  assert.deepEqual(buildWeeklyReportScope('main', 'damaged'), {
+    kind: 'single_warehouse',
+    warehouseId: 'main',
+    excludeWarehouseId: null,
+    transactionFilter: { warehouseId: 'main' },
+    stockWarehouseId: 'main',
+    subtractStockWarehouseId: null,
+  })
 })
 
 test('fetchZohoItemRowsForGroupMembers: stock columns are monetary, debug + totals = sumReportGrandTotals', async (t) => {
@@ -100,6 +119,91 @@ test('fetchZohoItemRowsForGroupMembers: stock columns are monetary, debug + tota
   assert.equal(totals.returned_to_wholesale, 1)
   assert.equal(totals.opening_stock, 9)
   assert.equal(totals.closing_stock, 7)
+})
+
+test('fetchZohoItemRowsForGroupMembers: all_non_damaged scope filters every metric consistently', async (t) => {
+  const prevN = process.env.NODE_ENV
+  const prevR = process.env.REPORT_VENDOR_ID
+  const prevJ = process.env.WEEKLY_REPORT_VENDORS_JSON
+  const prevC = process.env.WEEKLY_REPORT_VENDOR_CREDITS_CONTACT_ID
+  process.env.NODE_ENV = 'test'
+  process.env.REPORT_VENDOR_ID = VENDOR
+  delete process.env.WEEKLY_REPORT_VENDORS_JSON
+  delete process.env.WEEKLY_REPORT_VENDOR_CREDITS_CONTACT_ID
+  const calls = { sales: null, purchases: null, credits: null }
+  const r1 = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: 'cf1' }),
+    orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
+  })
+  const r2 = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchAllItemsRaw: async () => [
+      {
+        sku: 'S1',
+        name: 'N1',
+        item_id: '10',
+        status: 'active',
+        stock_on_hand: 10,
+        rate: 2,
+        custom_fields: [{ customfield_id: 'cf1', value: 'Fam', label: 'Family' }],
+      },
+    ],
+    fetchItemsRawForWarehouse: async (warehouseId) => {
+      assert.equal(warehouseId, 'damaged')
+      return [{ sku: 'S1', name: 'N1', item_id: '10', status: 'active', warehouse_stock_on_hand: 4 }]
+    },
+  })
+  const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
+    getSales: async (from, to, opts) => {
+      calls.sales = opts
+      return { lines: [{ item_id: '10', name: 'N1', quantity: 3, item_total: 30 }], line_count: 1, list_truncated: false, error: null }
+    },
+    getPurchases: async (from, to, vendorId, opts) => {
+      assert.equal(String(vendorId), VENDOR)
+      calls.purchases = opts
+      return { lines: [{ item_id: '10', name: 'N1', quantity: 2, item_total: 20 }], line_count: 1, list_truncated: false, error: null }
+    },
+    getVendorCredits: async (from, to, vendorId, opts) => {
+      assert.equal(String(vendorId), VENDOR)
+      calls.credits = opts
+      return { lines: [{ item_id: '10', name: 'N1', quantity: 1, item_total: 10 }], line_count: 1, list_truncated: false, error: null }
+    },
+  })
+  t.after(() => {
+    r1()
+    r2()
+    r3()
+    if (prevN === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = prevN
+    if (prevR === undefined) delete process.env.REPORT_VENDOR_ID
+    else process.env.REPORT_VENDOR_ID = prevR
+    if (prevJ === undefined) delete process.env.WEEKLY_REPORT_VENDORS_JSON
+    else process.env.WEEKLY_REPORT_VENDORS_JSON = prevJ
+    if (prevC === undefined) delete process.env.WEEKLY_REPORT_VENDOR_CREDITS_CONTACT_ID
+    else process.env.WEEKLY_REPORT_VENDOR_CREDITS_CONTACT_ID = prevC
+    const resolved = require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })
+    delete require.cache[resolved]
+  })
+  const m = freshRequire('../src/services/weeklyReportZohoData')
+  const { items, reportMeta } = await m.fetchZohoItemRowsForGroupMembers(
+    [{ sku: 'S1' }],
+    '2026-01-01',
+    '2026-01-31',
+    null,
+    'slow_moving',
+    null,
+    'damaged'
+  )
+  assert.equal(calls.sales.excludeWarehouseId, 'damaged')
+  assert.equal(calls.purchases.excludeWarehouseId, 'damaged')
+  assert.equal(calls.credits.excludeWarehouseId, 'damaged')
+  const row = items[0]
+  // closing qty = global 10 - damaged 4 = 6; opening qty = 6 - purchases 2 + sold 3 + returns 1 = 8; unit = 2
+  assert.equal(row.closing_stock, 12)
+  assert.equal(row.opening_stock, 16)
+  assert.equal(row.purchase_amount, 4)
+  assert.equal(row.returned_to_wholesale, 2)
+  assert.equal(row.sales_amount, 30)
+  assert.equal(reportMeta.transaction_debug.report_scope.kind, 'all_non_damaged')
 })
 
 test('fetchZohoItemRowsForGroupMembers: purchase_rate used when selling rate absent; returns = qty × unit (not raw VC line total)', async (t) => {

@@ -13,6 +13,7 @@ const {
     resolveWeeklyReportSalesVatRate,
     matchesVendorCreditDocument,
     normalizeVendorCreditLineItem,
+    makeWarehouseLineFilter,
   },
 } = require('../src/integrations/zoho/weeklyReportZohoTransactions')
 
@@ -74,6 +75,17 @@ test('normalizeVendorCreditLineItem: reads sku from nested line.item', () => {
   assert.equal(n.item_id, 'A1')
   assert.equal(n.quantity, 2)
   assert.equal(n.name, 'Nested name')
+})
+
+test('makeWarehouseLineFilter: includes or excludes by line warehouse_id', () => {
+  const normal = makeWarehouseLineFilter({ excludeWarehouseId: 'damaged' })
+  assert.equal(normal({ warehouse_id: 'main' }, {}), true)
+  assert.equal(normal({ warehouse_id: 'damaged' }, {}), false)
+  assert.equal(normal({}, {}), false)
+
+  const damagedOnly = makeWarehouseLineFilter({ warehouseId: 'damaged' })
+  assert.equal(damagedOnly({ warehouse_id: 'damaged' }, {}), true)
+  assert.equal(damagedOnly({ warehouse_id: 'main' }, {}), false)
 })
 
 test('getPurchases: uses Bill line items (unfiltered; mocked fetchAllBillsRaw)', async () => {
@@ -157,27 +169,43 @@ test('getVendorCredits: list without line_items fetches GET /vendorcredits/:id',
   assert.equal(r.lines[0].sku, 'S-KU')
 })
 
-test('getSales: Sales by Item report (mocked salesbyitem)', async () => {
+test('getSales: invoice detail lines filtered by warehouse', async () => {
   const prevV = process.env.WEEKLY_REPORT_SALES_VAT_RATE
   process.env.WEEKLY_REPORT_SALES_VAT_RATE = '0.15'
   clearZohoTransactionModules()
   mockModule('../src/integrations/zoho/zohoInventoryClient', {
-    fetchListPaginated: async () => ({
-      rows: [
-        { item_id: '1', item_name: 'A', quantity_sold: 1, amount: 1, item: { sku: 'A1' } },
-        { item_id: '2', item_name: 'B', quantity_sold: 4, amount: 4, item: { sku: 'B1' } },
-      ],
-      truncated: false,
-      pages: 1,
-    }),
+    fetchListPaginated: async (url, key) => {
+      assert.ok(String(url).includes('/invoices'))
+      assert.equal(key, 'invoices')
+      return {
+        rows: [
+          { invoice_id: 'inv1', date: '2026-01-03', status: 'sent' },
+        ],
+        truncated: false,
+        pages: 1,
+      }
+    },
+    zohoApiRequest: async (p) => {
+      assert.ok(String(p).includes('/invoices/inv1'))
+      return {
+        invoice: {
+          invoice_id: 'inv1',
+          date: '2026-01-03',
+          status: 'sent',
+          line_items: [
+            { item_id: '1', name: 'A', sku: 'A1', quantity: 1, item_total: 10, warehouse_id: 'main' },
+            { item_id: '2', name: 'B', sku: 'B1', quantity: 4, item_total: 40, warehouse_id: 'damaged' },
+          ],
+        },
+      }
+    },
   })
   const m = freshRequire('../src/integrations/zoho/weeklyReportZohoTransactions')
-  const r = await m.getSales('2026-01-01', '2026-01-31', {})
-  assert.equal(r.line_count, 2)
-  assert.equal(r.lines.reduce((s, l) => s + l.quantity, 0), 5)
-  // amount from Zoho as-is (pre-tax; no +VAT in code)
-  assert.equal(r.lines[0].item_total, 1)
-  assert.equal(r.lines[1].item_total, 4)
+  const r = await m.getSales('2026-01-01', '2026-01-31', { excludeWarehouseId: 'damaged' })
+  assert.equal(r.line_count, 1)
+  assert.equal(r.lines[0].quantity, 1)
+  assert.equal(r.lines[0].item_total, 10)
+  assert.equal(r.lines[0].warehouse_id, 'main')
   if (prevV === undefined) delete process.env.WEEKLY_REPORT_SALES_VAT_RATE
   else process.env.WEEKLY_REPORT_SALES_VAT_RATE = prevV
 })

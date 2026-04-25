@@ -77,6 +77,24 @@ function attachReportMetaToZoho(zohoObj, reportMeta) {
   return o
 }
 
+const WEEKLY_VISIBLE_VALUE_KEYS = [
+  'opening_stock',
+  'closing_stock',
+  'purchase_amount',
+  'returned_to_wholesale',
+  'sales_amount',
+]
+
+function weeklyReportRowHasVisibleValue(row) {
+  if (!row || typeof row !== 'object') return false
+  return WEEKLY_VISIBLE_VALUE_KEYS.some((key) => {
+    const v = row[key]
+    if (v == null) return false
+    const n = Number(v)
+    return Number.isFinite(n) && n !== 0
+  })
+}
+
 function handleZohoError(res, err, ctx) {
   const isDev = process.env.NODE_ENV !== 'production'
   console.error(
@@ -347,26 +365,28 @@ async function exportReportByGroupXlsx(req, res) {
   }
 
   try {
-    const { items, totals } = await loadWeeklyReportPayload(
+    const { items } = await loadWeeklyReportPayload(
       group,
       range.from_date,
       range.to_date,
       warehouseId,
       excludeWarehouseId
     )
+    const visibleItems = Array.isArray(items) ? items.filter(weeklyReportRowHasVisibleValue) : []
     const exportItems = salesSort
-      ? [...items].sort((a, b) => {
+      ? [...visibleItems].sort((a, b) => {
           const av = Number(a && a.sales_amount) || 0
           const bv = Number(b && b.sales_amount) || 0
           return salesSort === 'asc' ? av - bv : bv - av
         })
-      : items
+      : visibleItems
+    const exportTotals = sumReportGrandTotals(exportItems)
     const buffer = await buildWeeklyReportXlsxBuffer({
       sheetTitle: getExportSheetTitleForGroup(group),
       fromDate:   range.from_date,
       toDate:     range.to_date,
       items: exportItems,
-      totals,
+      totals: exportTotals,
       fetchImageForItem: async (row) => {
         const raw = row && row.zoho_representative_item_id
         if (raw == null || String(raw).trim() === '') return null

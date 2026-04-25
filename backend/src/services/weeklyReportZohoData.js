@@ -530,6 +530,43 @@ function aggregateByFamily(itemRows, zohoCatalogCtx = null) {
   return out.sort((a, b) => a.family.localeCompare(b.family))
 }
 
+function normalizeWarehouseId(v) {
+  return v == null || String(v).trim() === '' ? null : String(v).trim()
+}
+
+function buildWeeklyReportScope(warehouseId, excludeWarehouseId) {
+  const includeId = normalizeWarehouseId(warehouseId)
+  const excludeId = normalizeWarehouseId(excludeWarehouseId)
+  if (includeId) {
+    return {
+      kind: 'single_warehouse',
+      warehouseId: includeId,
+      excludeWarehouseId: null,
+      transactionFilter: { warehouseId: includeId },
+      stockWarehouseId: includeId,
+      subtractStockWarehouseId: null,
+    }
+  }
+  if (excludeId) {
+    return {
+      kind: 'all_non_damaged',
+      warehouseId: null,
+      excludeWarehouseId: excludeId,
+      transactionFilter: { excludeWarehouseId: excludeId },
+      stockWarehouseId: null,
+      subtractStockWarehouseId: excludeId,
+    }
+  }
+  return {
+    kind: 'all_warehouses',
+    warehouseId: null,
+    excludeWarehouseId: null,
+    transactionFilter: {},
+    stockWarehouseId: null,
+    subtractStockWarehouseId: null,
+  }
+}
+
 /**
  * Fetches all Zoho items, then for each `item_report_groups` member in order
  * includes at most one report row if a matching Zoho line exists. Members with
@@ -584,48 +621,41 @@ async function fetchZohoItemRowsForGroupMembers(
       'WEEKLY_REPORT_VENDOR_OPTIONAL=1: no REPORT_VENDOR_ID / group vendor / name — purchases and returned_to_wholesale are 0.'
     )
   }
+  const reportScope = buildWeeklyReportScope(warehouseId, excludeWarehouseId)
 
   // Fetch items AND all transactions in parallel — items (20 pages, ~27s) used to
   // take 27 extra seconds before transactions could even start.  Running them
   // concurrently means total time = max(items, invoices) instead of items + invoices.
-  // When excludeWarehouseId is set (Damaged warehouse exclusion), also fetch that
-  // warehouse's items and sales so we can subtract them from the totals.
+  // Scope-specific stock and transaction filters are built once above so the
+  // screen, drawer, and export all consume the same warehouse split.
   const t0All = Date.now()
-  const [raw, scopedItems, salesRRaw, purchR, vcR, damagedItems, damagedSalesR] = await Promise.all([
+  const [raw, scopedItems, salesR, purchR, vcR, damagedItems] = await Promise.all([
     fetchAllItemsRaw(),
-    warehouseId ? fetchItemsRawForWarehouse(warehouseId) : Promise.resolve([]),
-    getSales(fromDate, toDate, { onWarning, warehouseId }),
-    getPurchases(fromDate, toDate, rv.vendorId, { vendorName: rv.vendorName, onWarning, warehouseId, reportGroup }),
-    getVendorCredits(fromDate, toDate, rv.vendorId, { vendorName: rv.vendorName, onWarning }),
-    excludeWarehouseId ? fetchItemsRawForWarehouse(excludeWarehouseId) : Promise.resolve([]),
-    excludeWarehouseId
-      ? getSales(fromDate, toDate, { warehouseId: excludeWarehouseId })
-      : Promise.resolve({ lines: [] }),
+    reportScope.stockWarehouseId ? fetchItemsRawForWarehouse(reportScope.stockWarehouseId) : Promise.resolve([]),
+    getSales(fromDate, toDate, { onWarning, ...reportScope.transactionFilter }),
+    getPurchases(fromDate, toDate, rv.vendorId, {
+      vendorName: rv.vendorName,
+      onWarning,
+      reportGroup,
+      ...reportScope.transactionFilter,
+    }),
+    getVendorCredits(fromDate, toDate, rv.vendorId, {
+      vendorName: rv.vendorName,
+      onWarning,
+      ...reportScope.transactionFilter,
+    }),
+    reportScope.subtractStockWarehouseId
+      ? fetchItemsRawForWarehouse(reportScope.subtractStockWarehouseId)
+      : Promise.resolve([]),
   ])
-  let salesR = salesRRaw
-  // Zoho `salesbyitem` can return an empty warehouse-scoped result for some non-damaged
-  // warehouses even when global sales exist in the same range. Avoid zeroing normal sections.
-  if (
-    warehouseId &&
-    !excludeWarehouseId &&
-    salesR &&
-    !salesR.error &&
-    Array.isArray(salesR.lines) &&
-    salesR.lines.length === 0
-  ) {
-    const salesFallback = await getSales(fromDate, toDate, { onWarning })
-    if (!salesFallback.error && Array.isArray(salesFallback.lines) && salesFallback.lines.length > 0) {
-      salesR = salesFallback
-      onWarning(`Warehouse-filtered sales were empty for warehouse_id=${warehouseId}; using global sales fallback.`)
-    }
-  }
   console.log(
     `[zoho-timing] parallel fetch ${Date.now() - t0All}ms — ` +
+    `scope=${reportScope.kind}, ` +
     `items=${raw.length}, invoices=${salesR.document_count ?? 0}, ` +
     `bills=${purchR ? (purchR.document_count ?? 0) : 0}, ` +
     `vendorcredits=${vcR ? (vcR.document_count ?? 0) : 0}` +
-    (warehouseId ? `, scoped_items=${scopedItems.length}` : '') +
-    (excludeWarehouseId ? `, damaged_items=${damagedItems.length}, damaged_sales=${(damagedSalesR.lines || []).length}` : '')
+    (reportScope.stockWarehouseId ? `, scoped_items=${scopedItems.length}` : '') +
+    (reportScope.subtractStockWarehouseId ? `, excluded_items=${damagedItems.length}` : '')
   )
 
   // Selected-warehouse stock map (item_id → qty). This lets us keep representative
@@ -647,10 +677,10 @@ async function fetchZohoItemRowsForGroupMembers(
       })()
     : null
 
-  // Build a damaged-warehouse stock map (item_id → qty to subtract from stock_on_hand).
+  // Build an excluded-warehouse stock map (item_id -> qty to subtract from stock_on_hand).
   // Zoho returns `warehouse_stock_on_hand` when the items endpoint receives `warehouse_id`.
   /** @type {Map<string, number> | null} */
-  const damagedStockByItemId = excludeWarehouseId && damagedItems.length > 0
+  const damagedStockByItemId = reportScope.subtractStockWarehouseId && damagedItems.length > 0
     ? (() => {
         const m = new Map()
         for (const item of damagedItems) {
@@ -825,8 +855,9 @@ async function fetchZohoItemRowsForGroupMembers(
   const purchLines = (purchR && purchR.lines) || []
   const retLines = (vcR && vcR.lines) || []
 
-  // Build total-warehouse transaction maps
-  let sm = sumLinesToMap(
+  // Build scoped transaction maps. The upstream transaction fetchers already
+  // applied the same include/exclude warehouse rule for sales, purchases, and credits.
+  const sm = sumLinesToMap(
     salesLines.map((a) => ({ item_id: a.item_id, name: a.name, quantity: a.quantity })),
     idToSku
   )
@@ -838,7 +869,7 @@ async function fetchZohoItemRowsForGroupMembers(
     retLines.map((a) => ({ item_id: a.item_id, sku: a.sku, name: a.name, quantity: a.quantity })),
     idToSku
   )
-  let salesAmountMap = sumAmountsToMap(
+  const salesAmountMap = sumAmountsToMap(
     salesLines.map((a) => ({ item_id: a.item_id, sku: a.sku, name: a.name, item_total: a.item_total })),
     idToSku
   )
@@ -847,12 +878,7 @@ async function fetchZohoItemRowsForGroupMembers(
     idToSku
   )
 
-  // NOTE: do not subtract damaged sales from the unfiltered sales-by-item result.
-  // In this Zoho org, `warehouse_id`-scoped sales can overlap in a way that causes
-  // undercounting in the main sections when we do (all - damaged) by SKU.
-  void damagedSalesR
-
-  // Subtract damaged-warehouse stock from each item's opening/closing qty.
+  // Subtract excluded-warehouse stock from each item's opening/closing qty.
   if (damagedStockByItemId && damagedStockByItemId.size > 0) {
     let subtracted = 0
     for (const row of out) {
@@ -865,7 +891,7 @@ async function fetchZohoItemRowsForGroupMembers(
       }
     }
     if (subtracted > 0) {
-      console.log(`[weekly-report] excludeWarehouseId=${excludeWarehouseId}: subtracted damaged stock from ${subtracted} item row(s)`)
+      console.log(`[weekly-report] excludeWarehouseId=${reportScope.subtractStockWarehouseId}: subtracted excluded stock from ${subtracted} item row(s)`)
     }
   }
 
@@ -956,6 +982,11 @@ async function fetchZohoItemRowsForGroupMembers(
   if (isDevDebug) {
     const vfa = !!(rv.vendorId || rv.vendorName)
     reportMeta.transaction_debug = {
+      report_scope: {
+        kind: reportScope.kind,
+        warehouse_id: reportScope.warehouseId,
+        exclude_warehouse_id: reportScope.excludeWarehouseId,
+      },
       sales_source_count: salesLines.length,
       purchases_source_count: purchLines.length,
       credits_source_count: retLines.length,
@@ -1001,6 +1032,7 @@ module.exports = {
     findZohoItemForMember,
     findZohoItemsForMember,
     aggregateByFamily,
+    buildWeeklyReportScope,
     selectRepresentativeZohoItemForFamily: require('./zohoRepresentativeItem').selectRepresentativeZohoItemForFamily,
     scoreZohoNameSkuText: require('./zohoRepresentativeItem').scoreZohoNameSkuText,
     classifyRepresentativeType: require('./zohoRepresentativeItem').classifyRepresentativeType,
