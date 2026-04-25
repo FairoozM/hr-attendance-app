@@ -11,7 +11,7 @@
  * return $ uses vendor line total when present, else qty × `rate` with the same rule.
  */
 
-const { fetchAllItemsRaw } = require('../integrations/zoho/zohoAdapter')
+const { fetchAllItemsRaw, fetchItemsRawForWarehouse } = require('../integrations/zoho/zohoAdapter')
 const { readZohoConfig, orgEnvHint } = require('../integrations/zoho/zohoConfig')
 const { normalizeZohoInventoryItem, parseFamilyFromZohoItem } = require('../integrations/zoho/zohoItemFamily')
 const {
@@ -23,6 +23,7 @@ const {
   buildItemIdToSkuMap,
   sumLinesToMap,
   sumAmountsToMap,
+  subtractMaps,
   mapLookupForReportRow,
   applyTransactionMapsToRow,
 } = require('./weeklyReportZohoLineMerge')
@@ -548,7 +549,8 @@ async function fetchZohoItemRowsForGroupMembers(
   toDate,
   _vendorConfig = null,
   reportGroup = '',
-  warehouseId = null
+  warehouseId = null,
+  excludeWarehouseId = null
 ) {
   void _vendorConfig
   const cfg = readZohoConfig()
@@ -585,19 +587,45 @@ async function fetchZohoItemRowsForGroupMembers(
   // Fetch items AND all transactions in parallel — items (20 pages, ~27s) used to
   // take 27 extra seconds before transactions could even start.  Running them
   // concurrently means total time = max(items, invoices) instead of items + invoices.
+  // When excludeWarehouseId is set (Damaged warehouse exclusion), also fetch that
+  // warehouse's items and sales so we can subtract them from the totals.
   const t0All = Date.now()
-  const [raw, salesR, purchR, vcR] = await Promise.all([
+  const [raw, salesR, purchR, vcR, damagedItems, damagedSalesR] = await Promise.all([
     fetchAllItemsRaw(),
     getSales(fromDate, toDate, { onWarning, warehouseId }),
     getPurchases(fromDate, toDate, rv.vendorId, { vendorName: rv.vendorName, onWarning, warehouseId, reportGroup }),
     getVendorCredits(fromDate, toDate, rv.vendorId, { vendorName: rv.vendorName, onWarning }),
+    excludeWarehouseId ? fetchItemsRawForWarehouse(excludeWarehouseId) : Promise.resolve([]),
+    excludeWarehouseId
+      ? getSales(fromDate, toDate, { warehouseId: excludeWarehouseId })
+      : Promise.resolve({ lines: [] }),
   ])
   console.log(
     `[zoho-timing] parallel fetch ${Date.now() - t0All}ms — ` +
     `items=${raw.length}, invoices=${salesR.document_count ?? 0}, ` +
     `bills=${purchR ? (purchR.document_count ?? 0) : 0}, ` +
-    `vendorcredits=${vcR ? (vcR.document_count ?? 0) : 0}`
+    `vendorcredits=${vcR ? (vcR.document_count ?? 0) : 0}` +
+    (excludeWarehouseId ? `, damaged_items=${damagedItems.length}, damaged_sales=${(damagedSalesR.lines || []).length}` : '')
   )
+
+  // Build a damaged-warehouse stock map (item_id → qty to subtract from stock_on_hand).
+  // Zoho returns `warehouse_stock_on_hand` when the items endpoint receives `warehouse_id`.
+  /** @type {Map<string, number> | null} */
+  const damagedStockByItemId = excludeWarehouseId && damagedItems.length > 0
+    ? (() => {
+        const m = new Map()
+        for (const item of damagedItems) {
+          if (!item || !item.item_id) continue
+          const qty = item.warehouse_stock_on_hand != null
+            ? Number(item.warehouse_stock_on_hand)
+            : Number(item.stock_on_hand || 0)
+          if (Number.isFinite(qty) && qty > 0) {
+            m.set(String(item.item_id), qty)
+          }
+        }
+        return m
+      })()
+    : null
 
   // If ZOHO_FAMILY_CUSTOMFIELD_ID is not set, scan the first 100 items for a
   // custom field with label "Family" and log the id once.
@@ -747,7 +775,9 @@ async function fetchZohoItemRowsForGroupMembers(
   const salesLines = (salesR && salesR.lines) || []
   const purchLines = (purchR && purchR.lines) || []
   const retLines = (vcR && vcR.lines) || []
-  const sm = sumLinesToMap(
+
+  // Build total-warehouse transaction maps
+  let sm = sumLinesToMap(
     salesLines.map((a) => ({ item_id: a.item_id, name: a.name, quantity: a.quantity })),
     idToSku
   )
@@ -759,7 +789,7 @@ async function fetchZohoItemRowsForGroupMembers(
     retLines.map((a) => ({ item_id: a.item_id, sku: a.sku, name: a.name, quantity: a.quantity })),
     idToSku
   )
-  const salesAmountMap = sumAmountsToMap(
+  let salesAmountMap = sumAmountsToMap(
     salesLines.map((a) => ({ item_id: a.item_id, sku: a.sku, name: a.name, item_total: a.item_total })),
     idToSku
   )
@@ -767,6 +797,41 @@ async function fetchZohoItemRowsForGroupMembers(
     retLines.map((a) => ({ item_id: a.item_id, sku: a.sku, name: a.name, item_total: a.item_total })),
     idToSku
   )
+
+  // Subtract damaged-warehouse sales so the main sections reflect non-damaged data only.
+  if (excludeWarehouseId && damagedSalesR && Array.isArray(damagedSalesR.lines)) {
+    const dLines = damagedSalesR.lines
+    const damagedSm = sumLinesToMap(
+      dLines.map((a) => ({ item_id: a.item_id, name: a.name, quantity: a.quantity })),
+      idToSku
+    )
+    const damagedAmountMap = sumAmountsToMap(
+      dLines.map((a) => ({ item_id: a.item_id, sku: a.sku, name: a.name, item_total: a.item_total })),
+      idToSku
+    )
+    sm = subtractMaps(sm, damagedSm)
+    salesAmountMap = subtractMaps(salesAmountMap, damagedAmountMap)
+    if (damagedSm.size > 0) {
+      console.log(`[weekly-report] excludeWarehouseId=${excludeWarehouseId}: subtracted ${dLines.length} damaged sales lines from totals`)
+    }
+  }
+
+  // Subtract damaged-warehouse stock from each item's opening/closing qty.
+  if (damagedStockByItemId && damagedStockByItemId.size > 0) {
+    let subtracted = 0
+    for (const row of out) {
+      if (!row.item_id) continue
+      const damagedQty = damagedStockByItemId.get(String(row.item_id)) || 0
+      if (damagedQty > 0) {
+        row.opening_stock = Math.max(0, Number(row.opening_stock || 0) - damagedQty)
+        row.closing_stock = Math.max(0, Number(row.closing_stock || 0) - damagedQty)
+        subtracted++
+      }
+    }
+    if (subtracted > 0) {
+      console.log(`[weekly-report] excludeWarehouseId=${excludeWarehouseId}: subtracted damaged stock from ${subtracted} item row(s)`)
+    }
+  }
 
   for (const row of out) {
     applyTransactionMapsToRow(row, sm, pm, rm, salesAmountMap, null)

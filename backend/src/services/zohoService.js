@@ -241,7 +241,7 @@ function buildMatcher(members) {
  * Membership first (`item_report_groups`), then Zoho-adapter data for matching
  * items only (intersection). Rows and grand totals in the API match this list.
  */
-async function getInventoryByGroup(group, fromDate, toDate, warehouseId = null) {
+async function getInventoryByGroup(group, fromDate, toDate, warehouseId = null, excludeWarehouseId = null) {
   const members = await listMembersOfGroup(group)
   // other_family: still call Zoho so we can list families that exist in Zoho but have no
   // item_report_groups row, with a "(not found in groups)" label (see weeklyReportZohoData).
@@ -256,7 +256,8 @@ async function getInventoryByGroup(group, fromDate, toDate, warehouseId = null) 
     toDate,
     vendorConfig,
     group,
-    warehouseId
+    warehouseId,
+    excludeWarehouseId
   )
 
   const items = []

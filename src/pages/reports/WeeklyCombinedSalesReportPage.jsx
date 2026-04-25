@@ -36,6 +36,20 @@ export function WeeklyCombinedSalesReportPage() {
 
   const { warehouses, loading: whLoading } = useWarehouses()
 
+  // Automatically detect the "Damaged" warehouse so it can be:
+  //   1. Excluded from the main sections (subtracted by the backend)
+  //   2. Shown in its own dedicated 4th section at the bottom
+  const damagedWh = useMemo(
+    () => warehouses.find((w) => /damaged/i.test(w.warehouse_name || '')),
+    [warehouses],
+  )
+
+  // Non-damaged warehouses shown in the dropdown — Damaged has its own section
+  const mainWarehouses = useMemo(
+    () => warehouses.filter((w) => !(/damaged/i.test(w.warehouse_name || ''))),
+    [warehouses],
+  )
+
   const writeUrl = useCallback(
     (from, to, wh, { loaded = false } = {}) => {
       setSearchParams(
@@ -83,6 +97,10 @@ export function WeeklyCombinedSalesReportPage() {
   const datesValid    = Boolean(fromDate) && Boolean(toDate) && fromDate <= toDate
   const dateLabel     = formatDateLabel(fromDate, toDate)
   const activeWhId    = warehouseId || null   // null = all warehouses (no filter)
+
+  // When "All Warehouses" is selected and a Damaged warehouse exists, pass its id
+  // as exclude_warehouse_id so the backend subtracts it from the main sections.
+  const mainExcludeWhId = !activeWhId && damagedWh ? damagedWh.warehouse_id : null
 
   useEffect(() => {
     if (loadToken === 0) {
@@ -173,7 +191,7 @@ export function WeeklyCombinedSalesReportPage() {
                 disabled={whLoading}
               >
                 <option value="">All Warehouses</option>
-                {warehouses.map((w) => (
+                {mainWarehouses.map((w) => (
                   <option key={w.warehouse_id} value={w.warehouse_id}>
                     {w.warehouse_name}{w.is_primary ? ' ★' : ''}
                   </option>
@@ -219,6 +237,7 @@ export function WeeklyCombinedSalesReportPage() {
         toDate={toDate}
         datesValid={datesValid}
         warehouseId={activeWhId}
+        excludeWarehouseId={mainExcludeWhId}
         loadToken={loadToken}
         onNoValueRows={onNoValueRows}
       />
@@ -234,11 +253,54 @@ export function WeeklyCombinedSalesReportPage() {
         toDate={toDate}
         datesValid={datesValid}
         warehouseId={activeWhId}
+        excludeWarehouseId={mainExcludeWhId}
         loadToken={loadToken}
         onNoValueRows={onNoValueRows}
       />
 
       <WeeklyNoActivityReportSection dateLabel={dateLabel} mergedRows={noActivityMerged} />
+
+      {/* ── Damaged Warehouse section ───────────────────────────────────
+           Always shown at the bottom (independent of the warehouse filter).
+           Data is fetched filtered to damagedWh.warehouse_id so only movements
+           recorded against that warehouse are shown here.
+      ─────────────────────────────────────────────────────────────── */}
+      {damagedWh && (
+        <>
+          <div className="wsr-section-divider" aria-hidden />
+          <div className="wsr-damaged-group">
+            <div className="war-page__header wsr-damaged-group__header">
+              <div>
+                <h2 className="war-page__title wsr-damaged-group__title">
+                  {damagedWh.warehouse_name}
+                </h2>
+                <p className="war-page__sub">
+                  Entries recorded against the Damaged warehouse — excluded from the main sections above.
+                </p>
+              </div>
+            </div>
+            <WeeklySalesReportSection
+              reportGroup="slow_moving"
+              title="Slow Moving (Damaged)"
+              fromDate={fromDate}
+              toDate={toDate}
+              datesValid={datesValid}
+              warehouseId={damagedWh.warehouse_id}
+              loadToken={loadToken}
+            />
+            <div className="wsr-section-divider" aria-hidden />
+            <WeeklySalesReportSection
+              reportGroup="other_family"
+              title="Other Family (Damaged)"
+              fromDate={fromDate}
+              toDate={toDate}
+              datesValid={datesValid}
+              warehouseId={damagedWh.warehouse_id}
+              loadToken={loadToken}
+            />
+          </div>
+        </>
+      )}
     </div>
   )
 }

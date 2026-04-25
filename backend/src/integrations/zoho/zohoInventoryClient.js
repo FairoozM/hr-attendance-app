@@ -250,4 +250,44 @@ async function fetchZohoItemImageBuffer(itemId) {
   return { buffer: body, contentType }
 }
 
-module.exports = { zohoApiRequest, listAllItems, fetchListPaginated, fetchZohoItemImageBuffer }
+/**
+ * Fetch all items for a specific warehouse. Same pagination as `listAllItems`,
+ * but adds `warehouse_id` so Zoho returns per-warehouse `warehouse_stock_on_hand`.
+ *
+ * @param {string} warehouseId
+ * @returns {Promise<object[]>}
+ */
+async function listItemsForWarehouse(warehouseId) {
+  const c = readZohoConfig()
+  if (c.code !== 'ok') {
+    const e = new Error('Zoho not configured')
+    e.code = 'ZOHO_NOT_CONFIGURED'
+    throw e
+  }
+  const per = DEFAULT_PER_PAGE
+  const wid = String(warehouseId).trim()
+  const all = []
+  const t0 = Date.now()
+  for (let page = 1; page <= MAX_ITEMS_PAGES; page += 1) {
+    const p = new URLSearchParams()
+    p.set('organization_id', c.organizationId)
+    p.set('page', String(page))
+    p.set('per_page', String(per))
+    p.set('warehouse_id', wid)
+    const json = await zohoApiRequest(`${INVENTORY_V1}/items`, p, 'GET')
+    const list = (json && json.items) || (json && json.item) || []
+    const pageItems = Array.isArray(list) ? list : []
+    for (const it of pageItems) all.push(it)
+    const hasMore =
+      json &&
+      json.page_context &&
+      json.page_context.has_more_page === true
+    if (!hasMore || pageItems.length === 0 || pageItems.length < per) {
+      console.log(`[zoho-items-wh] wh=${wid}: ${all.length} items in ${page} page(s) — ${Date.now() - t0}ms`)
+      break
+    }
+  }
+  return all
+}
+
+module.exports = { zohoApiRequest, listAllItems, listItemsForWarehouse, fetchListPaginated, fetchZohoItemImageBuffer }

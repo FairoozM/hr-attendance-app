@@ -48,7 +48,7 @@ import { useAuth } from '../contexts/AuthContext'
  * @param {number} [loadToken=0] Incremented by the parent "Load report" action.
  *   Fetches only run when `loadToken` is greater than 0 (or when `refetch` is used after a load).
  */
-export function useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseId = null, loadToken = 0 }) {
+export function useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseId = null, excludeWarehouseId = null, loadToken = 0 }) {
   const { user } = useAuth()
   const [items, setItems] = useState([])
   const [totals, setTotals] = useState(null)
@@ -88,6 +88,9 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseI
       const qsParams = { from_date: fromDate, to_date: toDate }
       if (warehouseId && String(warehouseId).trim() !== '') {
         qsParams.warehouse_id = String(warehouseId).trim()
+      }
+      if (excludeWarehouseId && String(excludeWarehouseId).trim() !== '') {
+        qsParams.exclude_warehouse_id = String(excludeWarehouseId).trim()
       }
       const qs = new URLSearchParams(qsParams).toString()
       const data = await api.get(
@@ -131,7 +134,7 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseI
   // which would abort a running Zoho fetch and trigger a redundant re-request.
   // The API token is read from localStorage by api.get(), not from user itself.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id ?? null, reportGroup, fromDate, toDate, warehouseId ?? null, loadToken])
+  }, [user?.id ?? null, reportGroup, fromDate, toDate, warehouseId ?? null, excludeWarehouseId ?? null, loadToken])
 
   // When the user resets the parent "load" (e.g. filters changed), clear UI and
   // cancel in-flight fetches so a slow response cannot repopulate stale data.

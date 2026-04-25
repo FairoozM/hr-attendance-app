@@ -58,12 +58,12 @@ async function getWarehouses(_req, res) {
   }
 }
 
-async function loadWeeklyReportPayload(group, fromDate, toDate, warehouseId = null) {
+async function loadWeeklyReportPayload(group, fromDate, toDate, warehouseId = null, excludeWarehouseId = null) {
   return getCachedReport(group, fromDate, toDate, async () => {
-    const { items, reportMeta } = await getInventoryByGroup(group, fromDate, toDate, warehouseId)
+    const { items, reportMeta } = await getInventoryByGroup(group, fromDate, toDate, warehouseId, excludeWarehouseId)
     const totals = sumReportGrandTotals(items)
     return { items, totals, reportMeta: reportMeta || { warnings: [] } }
-  }, warehouseId)
+  }, warehouseId, excludeWarehouseId)
 }
 
 function attachReportMetaToZoho(zohoObj, reportMeta) {
@@ -181,6 +181,9 @@ async function getReportByGroup(req, res) {
   const warehouseId = req.query.warehouse_id && String(req.query.warehouse_id).trim() !== ''
     ? String(req.query.warehouse_id).trim()
     : null
+  const excludeWarehouseId = req.query.exclude_warehouse_id && String(req.query.exclude_warehouse_id).trim() !== ''
+    ? String(req.query.exclude_warehouse_id).trim()
+    : null
 
   let validGroups
   try {
@@ -200,17 +203,19 @@ async function getReportByGroup(req, res) {
       group,
       range.from_date,
       range.to_date,
-      warehouseId
+      warehouseId,
+      excludeWarehouseId
     )
     const zoho = attachReportMetaToZoho(
       mergeZohoWithVendorContext(ZOHO_WEEKLY_REPORT_INTEGRATION, group),
       reportMeta
     )
     return res.json({
-      report_group:  group,
-      from_date:     range.from_date,
-      to_date:       range.to_date,
-      warehouse_id:  warehouseId || null,
+      report_group:          group,
+      from_date:             range.from_date,
+      to_date:               range.to_date,
+      warehouse_id:          warehouseId || null,
+      exclude_warehouse_id:  excludeWarehouseId || null,
       items,
       totals,
       zoho,
@@ -265,6 +270,9 @@ async function exportReportByGroupXlsx(req, res) {
   const warehouseId = req.query.warehouse_id && String(req.query.warehouse_id).trim() !== ''
     ? String(req.query.warehouse_id).trim()
     : null
+  const excludeWarehouseId = req.query.exclude_warehouse_id && String(req.query.exclude_warehouse_id).trim() !== ''
+    ? String(req.query.exclude_warehouse_id).trim()
+    : null
 
   let validGroups
   try {
@@ -284,7 +292,8 @@ async function exportReportByGroupXlsx(req, res) {
       group,
       range.from_date,
       range.to_date,
-      warehouseId
+      warehouseId,
+      excludeWarehouseId
     )
     const buffer = await buildWeeklyReportXlsxBuffer({
       sheetTitle: getExportSheetTitleForGroup(group),

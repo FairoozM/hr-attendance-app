@@ -27,11 +27,13 @@ const inFlight = new Map()
 /** @type {Map<string, { result: any, expiresAt: number }>} */
 const resultCache = new Map()
 
-function makeKey(group, fromDate, toDate, warehouseId = null) {
+function makeKey(group, fromDate, toDate, warehouseId = null, excludeWarehouseId = null) {
   const v = `v${String(REPRESENTATIVE_IMAGE_SELECTION_VERSION || 0)}`
-  return warehouseId
+  let key = warehouseId
     ? `${v}::${group}::${fromDate}::${toDate}::wh:${warehouseId}`
     : `${v}::${group}::${fromDate}::${toDate}`
+  if (excludeWarehouseId) key += `::excl:${excludeWarehouseId}`
+  return key
 }
 
 /**
@@ -44,8 +46,8 @@ function makeKey(group, fromDate, toDate, warehouseId = null) {
  * @param {string|null} [warehouseId]
  * @returns {Promise<any>}
  */
-async function getCachedReport(group, fromDate, toDate, generateFn, warehouseId = null) {
-  const key = makeKey(group, fromDate, toDate, warehouseId)
+async function getCachedReport(group, fromDate, toDate, generateFn, warehouseId = null, excludeWarehouseId = null) {
+  const key = makeKey(group, fromDate, toDate, warehouseId, excludeWarehouseId)
   const now = Date.now()
 
   // 1. Warm cache hit
@@ -87,9 +89,9 @@ async function getCachedReport(group, fromDate, toDate, generateFn, warehouseId 
  * @param {string} [fromDate]
  * @param {string} [toDate]
  */
-function clearReportCache(group, fromDate, toDate, warehouseId = null) {
+function clearReportCache(group, fromDate, toDate, warehouseId = null, excludeWarehouseId = null) {
   if (group && fromDate && toDate) {
-    resultCache.delete(makeKey(group, fromDate, toDate, warehouseId))
+    resultCache.delete(makeKey(group, fromDate, toDate, warehouseId, excludeWarehouseId))
   } else {
     resultCache.clear()
   }

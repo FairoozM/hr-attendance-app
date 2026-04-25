@@ -442,3 +442,27 @@
     opacity: 1;
   }
 }
+
+/* ── Damaged Warehouse group wrapper ─────────────────────────────── */
+.wsr-damaged-group {
+  border: 2px solid #f59e0b;
+  border-radius: 10px;
+  padding: 0 0 8px;
+  margin-top: 8px;
+  background: rgba(251, 191, 36, 0.04);
+}
+
+.wsr-damaged-group__header {
+  border-bottom: 1px solid rgba(245, 158, 11, 0.25);
+  padding: 16px 20px 12px;
+  margin-bottom: 0;
+}
+
+.wsr-damaged-group__title {
+  color: #b45309 !important;
+  font-size: 1.1rem !important;
+}
+
+.wsr-damaged-group .wsr-section-divider {
+  background: rgba(245, 158, 11, 0.2);
+}

@@ -126,11 +126,29 @@ function applyTransactionMapsToRow(row, soldMap, purchMap, retMap, salesAmountMa
   row.purchase_amount = purchAmountMap ? mapLookupForReportRow(purchAmountMap, row) : 0
 }
 
+/**
+ * Return a new Map equal to `total` minus `subtract`, clamped to ≥ 0.
+ * Used to exclude a specific warehouse's contribution from the all-warehouse totals.
+ *
+ * @param {Map<string, number>} total
+ * @param {Map<string, number>} subtract
+ * @returns {Map<string, number>}
+ */
+function subtractMaps(total, subtract) {
+  if (!subtract || subtract.size === 0) return total
+  const result = new Map(total)
+  for (const [k, v] of subtract) {
+    result.set(k, Math.max(0, (result.get(k) || 0) - v))
+  }
+  return result
+}
+
 module.exports = {
   buildItemIdToSkuMap,
   lineCanonicalKey,
   sumLinesToMap,
   sumAmountsToMap,
+  subtractMaps,
   mapLookupForReportRow,
   applyTransactionMapsToRow,
   _internals: { parseLineQty, lineCanonicalKey },

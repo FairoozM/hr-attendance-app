@@ -16,7 +16,7 @@
  * `zohoService` for response-shape backward compatibility; semantically = invalid Zoho data.
  */
 
-const { listAllItems, zohoApiRequest, fetchListPaginated } = require('./zohoInventoryClient')
+const { listAllItems, listItemsForWarehouse, zohoApiRequest, fetchListPaginated } = require('./zohoInventoryClient')
 const {
   getSales,
   getPurchases,
@@ -105,6 +105,36 @@ function clearItemsCache() {
 }
 
 /**
+ * Per-warehouse item cache: short TTL, keyed by warehouse_id string.
+ * @type {Map<string, { items: object[], expiresAt: number }>}
+ */
+const _warehouseItemsCache = new Map()
+
+/**
+ * Fetch all items scoped to a single warehouse. Used to compute warehouse-specific
+ * `stock_on_hand` for the Damaged warehouse exclusion feature.
+ *
+ * Zoho returns `warehouse_stock_on_hand` (+ `stock_on_hand` = total) when
+ * `warehouse_id` is supplied to the items endpoint.
+ *
+ * Cached separately from the global `fetchAllItemsRaw` cache.
+ *
+ * @param {string} warehouseId
+ * @returns {Promise<object[]>}
+ */
+async function fetchItemsRawForWarehouse(warehouseId) {
+  const wid = String(warehouseId || '').trim()
+  if (!wid) return []
+  const hit = _warehouseItemsCache.get(wid)
+  if (hit && Date.now() < hit.expiresAt) return hit.items
+  const items = await listItemsForWarehouse(wid)
+  if (ITEMS_CACHE_TTL_MS > 0) {
+    _warehouseItemsCache.set(wid, { items, expiresAt: Date.now() + ITEMS_CACHE_TTL_MS })
+  }
+  return items
+}
+
+/**
  * Same data as `fetchAllItemsRaw`, mapped to {@link ZohoNormalizedItem} with
  * the Family custom field parsed from `custom_fields` (see `zohoItemFamily.js`).
  * Uses `fetchAllItemsRaw` (not `listAllItems` directly) so that concurrent callers
@@ -129,6 +159,7 @@ function getZohoConfigOrNotConfigured() {
 
 module.exports = {
   fetchAllItemsRaw,
+  fetchItemsRawForWarehouse,
   clearItemsCache,
   fetchAllBillsRaw,
   clearBillsCache,

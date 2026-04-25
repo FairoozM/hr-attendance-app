@@ -449,6 +449,7 @@ export function WeeklySalesReportSection({
   toDate,
   datesValid,
   warehouseId = null,
+  excludeWarehouseId = null,
   loadToken = 0,
   onNoValueRows = null,
 }) {
@@ -456,7 +457,7 @@ export function WeeklySalesReportSection({
   const [exportError, setExportError] = useState('')
 
   const { items, loading, error, notConfigured, validationErrors, refetch } =
-    useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseId, loadToken })
+    useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseId, excludeWarehouseId, loadToken })
 
   const dateLabel = formatDateLabel(fromDate, toDate)
 
@@ -492,6 +493,7 @@ export function WeeklySalesReportSection({
     setExportError('')
     const qsParams = { from_date: fromDate, to_date: toDate }
     if (warehouseId && String(warehouseId).trim() !== '') qsParams.warehouse_id = String(warehouseId).trim()
+    if (excludeWarehouseId && String(excludeWarehouseId).trim() !== '') qsParams.exclude_warehouse_id = String(excludeWarehouseId).trim()
     const qs = new URLSearchParams(qsParams).toString()
     const path = `/api/weekly-reports/by-group/${encodeURIComponent(reportGroup)}/export.xlsx?${qs}`
     try {
@@ -502,7 +504,7 @@ export function WeeklySalesReportSection({
     } finally {
       setExporting(false)
     }
-  }, [datesValid, notConfigured, fromDate, toDate, reportGroup, loadToken, warehouseId])
+  }, [datesValid, notConfigured, fromDate, toDate, reportGroup, loadToken, warehouseId, excludeWarehouseId])
 
   const hasRequestedReport = loadToken > 0
   const showTable = hasRequestedReport && !loading && !error && !notConfigured && datesValid
