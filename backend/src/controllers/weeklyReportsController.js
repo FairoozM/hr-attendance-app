@@ -295,8 +295,15 @@ async function exportReportByGroupXlsx(req, res) {
       fetchImageForItem: async (row) => {
         const raw = row && row.zoho_representative_item_id
         if (raw == null || String(raw).trim() === '') return null
-        const out = await fetchZohoItemImageBuffer(String(raw).trim())
+        const id = String(raw).trim()
+
+        // Reuse in-process image cache populated by thumbnail proxy requests.
+        // This makes repeated exports and post-UI-load exports nearly instant.
+        const cached = zohoItemImageCache.get(id)
+        const source = cached && cached.buffer && cached.buffer.length > 0 ? cached : null
+        const out = source ?? await fetchZohoItemImageBuffer(id)
         if (!out || !out.buffer || out.buffer.length === 0) return null
+
         const ct = String(out.contentType || '').toLowerCase()
         let ext = 'jpeg'
         if (ct.includes('png')) ext = 'png'
@@ -306,6 +313,9 @@ async function exportReportByGroupXlsx(req, res) {
           // ExcelJS embeds only png / jpeg / gif; skip e.g. image/webp
           return null
         }
+
+        // Write back to cache so subsequent thumbnail requests and exports are fast.
+        if (!source) zohoItemImageCache.set(id, out)
         return { buffer: out.buffer, extension: ext }
       },
     })

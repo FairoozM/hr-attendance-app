@@ -18,6 +18,28 @@
 
 const ExcelJS = require('exceljs')
 
+/**
+ * Run `tasks` (array of zero-arg async functions) with at most `limit` running at once.
+ * Returns results in the same order as `tasks`.
+ * @param {Array<() => Promise<any>>} tasks
+ * @param {number} limit
+ * @returns {Promise<any[]>}
+ */
+async function promiseConcurrent(tasks, limit) {
+  if (!tasks.length) return []
+  const results = new Array(tasks.length)
+  let next = 0
+  async function worker() {
+    while (next < tasks.length) {
+      const i = next++
+      // eslint-disable-next-line no-await-in-loop
+      results[i] = await tasks[i]()
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker))
+  return results
+}
+
 const THIN = { style: 'thin', color: { argb: 'FF7F7F7F' } }
 const MEDIUM = { style: 'medium', color: { argb: 'FF4A5568' } }
 
@@ -140,14 +162,18 @@ async function buildBusinessTableXlsxBuffer(p) {
   let imagePayloads = null
   if (hasImageCol) {
     if (typeof fetchImageForItem === 'function' && items.length) {
-      imagePayloads = await Promise.all(
-        items.map((item, i) =>
+      // Limit concurrency to avoid overwhelming the upstream API (Zoho) with dozens of
+      // simultaneous requests, which causes timeouts and missing images.
+      const IMAGE_FETCH_CONCURRENCY = 5
+      imagePayloads = await promiseConcurrent(
+        items.map((item, i) => () =>
           fetchImageForItem(item, i).catch(() => {
             // eslint-disable-next-line no-console
             console.warn('[businessTableXlsx] fetchImageForItem failed for row', i)
             return null
           })
-        )
+        ),
+        IMAGE_FETCH_CONCURRENCY
       )
     } else {
       imagePayloads = items.map(() => null)
