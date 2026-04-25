@@ -475,3 +475,12 @@ test('aggregateByFamily: thumbnail with only frying-style items keeps first (sam
   const [one] = aggregateByFamily(rows)
   assert.equal(one.zoho_representative_item_id, '1')
 })
+
+test('aggregateByFamily: LIFEP7 + FRY in every SKU: tie-break picks text with stock/soup over pure fry', () => {
+  const rows = [
+    { family: 'LIFEP7', item_id: 'a', sku: 'X-FRY-1', item_name: 'Fry pan 2pc', sales_amount: 0, _zoho: { has_image: true } },
+    { family: 'LIFEP7', item_id: 'b', sku: 'X-FRY-2', item_name: 'Stock pot 5L + glass lid', sales_amount: 0, _zoho: { has_image: true } },
+  ]
+  const [one] = aggregateByFamily(rows)
+  assert.equal(one.zoho_representative_item_id, 'b')
+})

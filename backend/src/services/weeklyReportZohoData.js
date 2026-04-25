@@ -359,7 +359,10 @@ const NOT_FOUND_IN_GROUPS_SUFFIX = ' (not found in groups)'
  * skillets / woks. When a family has at least one “pot” candidate and one “fry”
  * candidate with catalog images, **only the pot / non-fry** pool is considered, so
  * frying product shots are not used as the family image when a pot exists in Zoho.
- * (Served through existing /zoho-item-images; cache unchanged per item_id.)
+ * LIFEP* / LUP: the Zoho **Family** field (not just SKU) is a pot-line hint; we must
+ * not mark every line “fry” from item_name alone, or the picker has no `hasPot`. If
+ * every line is still `fry` (e.g. FRY in all SKUs), we tie-break on text (stock/5+ pc).
+ * (Served through /zoho-item-images; cache per item_id.)
  */
 const THUMB_SCORE = { STOCKPOT: 100, NEUTRAL: 50, FRYING: 1 }
 
@@ -519,14 +522,10 @@ function catalogThumbKind(row) {
   const fromLif = zohoFamilyLooksLikeLifepSetOrBase(family)
   const lup = /^LUP$/i.test(family.trim())
 
-  // A fry-only product name in Zoho for this line stays “fry” for the image even if the
-  // Zoho **Family** says LIFEP* (the Family groups mixed SKUs; the fry listing is a fry line).
-  if (fromLif && !potFromSku && anyFry && !anyPot) {
-    return THUMB_CLASS.fry
-  }
-  if (lup && !potFromSku && anyFry && !anyPot) {
-    return THUMB_CLASS.fry
-  }
+  // Do **not** force “fry” here for LIF* / LUP + fry-only item names. That made every
+  // candidate `fry`, so the family picker never saw `hasPot` and could only choose a
+  // frying shot. Rely on potSku2 (incl. Zoho Family) + `pickRepresentativeZohoItemId` +
+  // `catalogThumbnailPriorityScore` to prefer pot/stock names among lines.
 
   const potFromFamily = fromLif || lup
   const potSku2 = potFromSku || fromLif || lup
@@ -557,6 +556,27 @@ function catalogThumbKind(row) {
 }
 
 /**
+ * When the whole LIF* / LUP group is still `fry` (e.g. FRY in every item SKU from Zoho),
+ * pick the line whose text looks most like a stock / multi-piece / kitchen set, not
+ * a 1–2pc pan listing.
+ * @param {{ sku?: string, item_name?: string, _zoho?: object }} row
+ * @returns {number} higher = prefer for family thumbnail
+ */
+function zohoLifepFamilyTiebreakRowScore(row) {
+  if (!row) return 0
+  const t = `${row.sku != null ? row.sku : ''} ${row.item_name != null ? row.item_name : ''}`.toLowerCase()
+  if (!t.trim()) return 0
+  let n = 0
+  if (/\b(stock|soup|saucep|sauce\s*pan|casserole|biry|stew|biryani|dutch|litre|l(?![a-z])|ltr|قدر|طنج|وعاء)/i.test(t)) n += 90
+  if (/\b(cookware|kitchen|assort|combo|multi-?cook|deep\s*pot)\b/.test(t)) n += 35
+  if (/\b(3|4|5|6|7|8|9|10|11|12)\s*(p\s*c|pc|pce|piece|part|pzs|قطع)/.test(t)) n += 22
+  if (/\b(1|2)\s*(\+|\&|and|\+)\s*(1|2|3|4|5)/.test(t) && /pcs?|p\s*c|set/i.test(t)) n += 5
+  if (/\b(1|2|one|two|single|double)\s*(p\s*c|pc|pack)\b.*\b(fry|wok|skillet|pan|مقلاة)/.test(t)) n -= 35
+  if (/(fry(ing)?|wok|skillet|tawa|grill\s*pan|مقلاة|صاج|تاوا|تاو|بير)/.test(t)) n -= 12
+  return n
+}
+
+/**
  * @param {{ iid: string, row: object }[]} candidates
  * @returns {string|null}
  */
@@ -571,6 +591,9 @@ function pickRepresentativeZohoItemId(candidates) {
   const hasFry = met.some((m) => m.kind === THUMB_CLASS.fry)
   const hasNeutral = met.some((m) => m.kind === THUMB_CLASS.neutral)
 
+  const famRef = String(candidates[0].row && candidates[0].row.family != null ? candidates[0].row.family : '')
+  const isLifepLupForTie = zohoFamilyLooksLikeLifepSetOrBase(famRef) || /^LUP$/i.test(famRef.trim())
+
   let pool = met
   if (hasPot) {
     pool = met.filter((m) => m.kind !== THUMB_CLASS.fry)
@@ -578,6 +601,16 @@ function pickRepresentativeZohoItemId(candidates) {
     pool = met.filter((m) => m.kind !== THUMB_CLASS.fry)
   }
   if (pool.length === 0) pool = met
+
+  if (isLifepLupForTie && pool.length > 1 && met.every((m) => m.kind === THUMB_CLASS.fry)) {
+    const scored = pool
+      .map((m) => ({ ...m, tbreak: zohoLifepFamilyTiebreakRowScore(m.row) }))
+      .sort(
+        (a, b) =>
+          b.tbreak - a.tbreak || b.score - a.score || String(a.iid).localeCompare(String(b.iid))
+      )
+    return scored[0].iid
+  }
 
   pool.sort((a, b) => b.score - a.score || String(a.iid).localeCompare(String(b.iid)))
   return pool[0].iid
