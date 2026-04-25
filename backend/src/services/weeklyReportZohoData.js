@@ -591,7 +591,7 @@ async function fetchZohoItemRowsForGroupMembers(
   // warehouse's items and sales so we can subtract them from the totals.
   const t0All = Date.now()
   const [raw, salesR, purchR, vcR, damagedItems, damagedSalesR] = await Promise.all([
-    fetchAllItemsRaw(),
+    warehouseId ? fetchItemsRawForWarehouse(warehouseId) : fetchAllItemsRaw(),
     getSales(fromDate, toDate, { onWarning, warehouseId }),
     getPurchases(fromDate, toDate, rv.vendorId, { vendorName: rv.vendorName, onWarning, warehouseId, reportGroup }),
     getVendorCredits(fromDate, toDate, rv.vendorId, { vendorName: rv.vendorName, onWarning }),
