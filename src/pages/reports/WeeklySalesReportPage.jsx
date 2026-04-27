@@ -46,6 +46,30 @@ function itemDetailsToDrawerSections(list) {
   }
 }
 
+function normalizeWarehouseId(v) {
+  return v == null || String(v).trim() === '' ? '' : String(v).trim()
+}
+
+function fallbackWarehouseLabel(warehouseId) {
+  const id = normalizeWarehouseId(warehouseId)
+  return id || 'All'
+}
+
+function parseFamilyDetailsWarehouses(data, fallbackWarehouse) {
+  if (Array.isArray(data?.warehouses) && data.warehouses.length > 0) {
+    return data.warehouses.map((w) => ({
+      warehouse_id: normalizeWarehouseId(w?.warehouse_id || fallbackWarehouse?.warehouse_id),
+      warehouse_name: w?.warehouse_name || fallbackWarehouse?.warehouse_name || fallbackWarehouseLabel(w?.warehouse_id),
+      items: Array.isArray(w?.items) ? w.items : [],
+    }))
+  }
+  return [{
+    warehouse_id: normalizeWarehouseId(fallbackWarehouse?.warehouse_id),
+    warehouse_name: fallbackWarehouse?.warehouse_name || fallbackWarehouseLabel(fallbackWarehouse?.warehouse_id),
+    items: Array.isArray(data?.items) ? data.items : [],
+  }]
+}
+
 function FamilyDetailsSection({ title, qtyLabel, priceLabel, amountLabel, rows, qtyKey, priceKey, amountKey, emptyText }) {
   const totalQty = sumBy(rows, qtyKey)
   const totalAmount = sumBy(rows, amountKey)
@@ -525,6 +549,8 @@ export function WeeklySalesReportSection({
   const [selectedFamily, setSelectedFamily] = useState('')
   const [drawerLoading, setDrawerLoading] = useState(false)
   const [drawerError, setDrawerError] = useState('')
+  const [drawerWarnings, setDrawerWarnings] = useState([])
+  const [drawerProgress, setDrawerProgress] = useState({ loaded: 0, total: 0, current: '' })
   /** @type {Array<{ warehouse_id: string, warehouse_name: string, items: object[] }>} */
   const [drawerWarehouses, setDrawerWarehouses] = useState([])
   const [salesSort, setSalesSort] = useState('desc')
@@ -581,6 +607,8 @@ export function WeeklySalesReportSection({
       setSelectedFamily('')
       setDrawerWarehouses([])
       setDrawerError('')
+      setDrawerWarnings([])
+      setDrawerProgress({ loaded: 0, total: 0, current: '' })
       setDrawerLoading(false)
     }
   }, [selectedFamily, selectedFamilySet])
@@ -588,32 +616,107 @@ export function WeeklySalesReportSection({
   useEffect(() => {
     if (!selectedFamily || !loadToken || !datesValid) return
     let cancelled = false
+    const controller = new AbortController()
     const run = async () => {
       setDrawerLoading(true)
       setDrawerError('')
+      setDrawerWarnings([])
+      setDrawerProgress({ loaded: 0, total: 0, current: '' })
+      setDrawerWarehouses([])
       try {
-        const qsParams = { from_date: fromDate, to_date: toDate, family: selectedFamily }
-        if (warehouseId && String(warehouseId).trim() !== '') qsParams.warehouse_id = String(warehouseId).trim()
-        if (excludeWarehouseId && String(excludeWarehouseId).trim() !== '') qsParams.exclude_warehouse_id = String(excludeWarehouseId).trim()
-        const qs = new URLSearchParams(qsParams).toString()
-        const data = await api.get(`/api/weekly-reports/by-group/${encodeURIComponent(reportGroup)}/family-details?${qs}`)
+        const selectedWarehouseId = normalizeWarehouseId(warehouseId)
+        const excludedWarehouseId = normalizeWarehouseId(excludeWarehouseId)
+        let targets = []
+        try {
+          const whData = await api.get('/api/weekly-reports/warehouses', { signal: controller.signal })
+          const allWarehouses = Array.isArray(whData?.warehouses) ? whData.warehouses : []
+          if (selectedWarehouseId) {
+            const found = allWarehouses.find((w) => normalizeWarehouseId(w?.warehouse_id) === selectedWarehouseId)
+            targets = [{
+              warehouse_id: selectedWarehouseId,
+              warehouse_name: found?.warehouse_name || fallbackWarehouseLabel(selectedWarehouseId),
+            }]
+          } else {
+            targets = allWarehouses
+              .filter((w) => normalizeWarehouseId(w?.warehouse_id))
+              .filter((w) => normalizeWarehouseId(w?.warehouse_id) !== excludedWarehouseId)
+              .map((w) => ({
+                warehouse_id: normalizeWarehouseId(w.warehouse_id),
+                warehouse_name: w.warehouse_name || fallbackWarehouseLabel(w.warehouse_id),
+              }))
+          }
+        } catch (err) {
+          if (err?.name === 'AbortError') return
+          if (!selectedWarehouseId) throw err
+          targets = [{ warehouse_id: selectedWarehouseId, warehouse_name: fallbackWarehouseLabel(selectedWarehouseId) }]
+          setDrawerWarnings([`Warehouse list could not be loaded; using selected warehouse ${selectedWarehouseId}.`])
+        }
+
         if (cancelled) return
-        const whs = Array.isArray(data?.warehouses) && data.warehouses.length
-          ? data.warehouses
-          : (Array.isArray(data?.items) && data.items.length
-              ? [{ warehouse_id: '', warehouse_name: 'All', items: data.items }]
-              : [])
-        setDrawerWarehouses(whs)
+        if (targets.length === 0) {
+          setDrawerProgress({ loaded: 0, total: 0, current: '' })
+          setDrawerWarehouses([])
+          return
+        }
+
+        setDrawerProgress({ loaded: 0, total: targets.length, current: targets[0].warehouse_name })
+
+        for (let i = 0; i < targets.length; i += 1) {
+          const target = targets[i]
+          if (cancelled) return
+          setDrawerProgress({ loaded: i, total: targets.length, current: target.warehouse_name })
+          try {
+            const qsParams = {
+              from_date: fromDate,
+              to_date: toDate,
+              family: selectedFamily,
+              warehouse_id: target.warehouse_id,
+            }
+            const qs = new URLSearchParams(qsParams).toString()
+            const data = await api.get(
+              `/api/weekly-reports/by-group/${encodeURIComponent(reportGroup)}/family-details?${qs}`,
+              { signal: controller.signal }
+            )
+            if (cancelled) return
+            const whs = parseFamilyDetailsWarehouses(data, target)
+            setDrawerWarehouses((prev) => {
+              const existing = new Set(prev.map((w) => normalizeWarehouseId(w.warehouse_id)))
+              const next = whs.filter((w) => !existing.has(normalizeWarehouseId(w.warehouse_id)))
+              return [...prev, ...next]
+            })
+          } catch (err) {
+            if (err?.name === 'AbortError') return
+            if (cancelled) return
+            setDrawerWarnings((prev) => [
+              ...prev,
+              `${target.warehouse_name || target.warehouse_id}: ${err?.message || 'Failed to load warehouse details'}`,
+            ])
+          } finally {
+            if (!cancelled) {
+              setDrawerProgress({
+                loaded: i + 1,
+                total: targets.length,
+                current: targets[i + 1]?.warehouse_name || '',
+              })
+            }
+          }
+        }
+        if (cancelled) return
       } catch (err) {
         if (cancelled) return
         setDrawerWarehouses([])
+        setDrawerWarnings([])
+        setDrawerProgress({ loaded: 0, total: 0, current: '' })
         setDrawerError(err?.message || 'Failed to load family details')
       } finally {
         if (!cancelled) setDrawerLoading(false)
       }
     }
     run()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
   }, [selectedFamily, reportGroup, fromDate, toDate, warehouseId, excludeWarehouseId, loadToken, datesValid])
 
   const handleExport = useCallback(async () => {
@@ -840,17 +943,33 @@ export function WeeklySalesReportSection({
           {drawerLoading && (
             <div className="wsr-drawer-loading">
               Loading per-warehouse family details from Zoho…
-              <span className="wsr-drawer-loading__sub"> This may take longer when you have many warehouses. </span>
+              {drawerProgress.total > 0 && (
+                <span className="wsr-drawer-loading__sub">
+                  Loaded {drawerProgress.loaded} of {drawerProgress.total}
+                  {drawerProgress.current ? ` — now loading ${drawerProgress.current}` : ''}.
+                </span>
+              )}
+              {drawerProgress.total === 0 && (
+                <span className="wsr-drawer-loading__sub">Resolving warehouses…</span>
+              )}
             </div>
           )}
           {!drawerLoading && drawerError && <div className="wsr-drawer-error">{drawerError}</div>}
-          {!drawerLoading && !drawerError && selectedFamily && (
-            drawerWarehouses.length === 0 ? (
+          {!drawerError && drawerWarnings.length > 0 && (
+            <div className="wsr-drawer-warning" role="status">
+              <strong>Some warehouses could not be loaded.</strong>
+              {drawerWarnings.map((w, i) => (
+                <span key={`${w}-${i}`}>{w}</span>
+              ))}
+            </div>
+          )}
+          {!drawerError && selectedFamily && (
+            drawerWarehouses.length === 0 && !drawerLoading ? (
               <div className="wsr-drawer-empty wsr-drawer-empty--soft">
                 <strong>No warehouses returned for this view.</strong>
                 <span className="wsr-empty__sub">No Zoho locations matched, or the response was empty.</span>
               </div>
-            ) : (
+            ) : drawerWarehouses.length > 0 ? (
               drawerWarehouses.map((wh) => {
                 const wkey = wh.warehouse_id != null && String(wh.warehouse_id) !== '' ? wh.warehouse_id : wh.warehouse_name
                 const d = itemDetailsToDrawerSections(wh.items)
@@ -919,7 +1038,7 @@ export function WeeklySalesReportSection({
                   </details>
                 )
               })
-            )
+            ) : null
           )}
         </div>
       </aside>
