@@ -638,6 +638,313 @@ function buildWeeklyReportScope(warehouseId, excludeWarehouseId) {
   }
 }
 
+function normalizeFamilyKey(v) {
+  let s = v == null ? '' : String(v).trim()
+  if (s.endsWith(NOT_FOUND_IN_GROUPS_SUFFIX)) {
+    s = s.slice(0, -NOT_FOUND_IN_GROUPS_SUFFIX.length).trim()
+  }
+  return s.toLowerCase()
+}
+
+function parseWarehouseStockFromLocationOnly(item, warehouseId) {
+  const loc = findItemLocation(item, warehouseId)
+  if (!loc) return 0
+  for (const k of [
+    'location_stock_on_hand',
+    'warehouse_stock_on_hand',
+    'location_available_stock',
+    'warehouse_available_stock',
+    'location_actual_available_stock',
+    'warehouse_actual_available_stock',
+  ]) {
+    const n = parseOptionalQty(loc[k])
+    if (n != null) return Math.max(0, n)
+  }
+  return 0
+}
+
+function makeMatrixCell() {
+  return { qty: 0, amount: 0, price: null }
+}
+
+function addMatrixValue(row, warehouseId, qty, amount, price = null) {
+  const wid = normalizeWarehouseId(warehouseId)
+  if (!wid) return
+  if (!row.warehouses[wid]) row.warehouses[wid] = makeMatrixCell()
+  const cell = row.warehouses[wid]
+  const q = Number(qty) || 0
+  const a = Number(amount) || 0
+  cell.qty += q
+  cell.amount += a
+  if (price != null && Number.isFinite(Number(price)) && Number(price) > 0) {
+    cell.price = Number(price)
+  }
+  row.total_qty += q
+  row.total_amount += a
+}
+
+function makeMatrixItemRow(item, unitSalesPrice, unitPurchasePrice) {
+  return {
+    item_id: item.item_id != null ? String(item.item_id) : '',
+    sku: item.sku != null ? String(item.sku) : '',
+    item_name: item.name != null ? String(item.name) : '',
+    sales_price: unitSalesPrice,
+    purchase_price: unitPurchasePrice,
+    warehouses: {},
+    total_qty: 0,
+    total_amount: 0,
+  }
+}
+
+function finaliseMatrixRows(rows, warehouseIds) {
+  return rows
+    .map((row) => {
+      const out = { ...row, warehouses: { ...row.warehouses } }
+      for (const wid of warehouseIds) {
+        if (!out.warehouses[wid]) out.warehouses[wid] = makeMatrixCell()
+        for (const k of ['qty', 'amount']) {
+          const n = Number(out.warehouses[wid][k]) || 0
+          out.warehouses[wid][k] = Math.round(n * 100) / 100
+        }
+      }
+      out.total_qty = Math.round((Number(out.total_qty) || 0) * 100) / 100
+      out.total_amount = Math.round((Number(out.total_amount) || 0) * 100) / 100
+      return out
+    })
+    .filter((row) => Math.abs(Number(row.total_qty) || 0) > 0 || Math.abs(Number(row.total_amount) || 0) > 0)
+}
+
+function buildMatrixSection(key, title, rows, warehouseIds) {
+  const finalRows = finaliseMatrixRows(rows, warehouseIds)
+  const totalsByWarehouse = {}
+  for (const wid of warehouseIds) totalsByWarehouse[wid] = { qty: 0, amount: 0 }
+  let totalQty = 0
+  let totalAmount = 0
+  for (const row of finalRows) {
+    totalQty += Number(row.total_qty) || 0
+    totalAmount += Number(row.total_amount) || 0
+    for (const wid of warehouseIds) {
+      const cell = row.warehouses[wid] || {}
+      totalsByWarehouse[wid].qty += Number(cell.qty) || 0
+      totalsByWarehouse[wid].amount += Number(cell.amount) || 0
+    }
+  }
+  for (const wid of warehouseIds) {
+    totalsByWarehouse[wid].qty = Math.round(totalsByWarehouse[wid].qty * 100) / 100
+    totalsByWarehouse[wid].amount = Math.round(totalsByWarehouse[wid].amount * 100) / 100
+  }
+  return {
+    key,
+    title,
+    rows: finalRows,
+    totals_by_warehouse: totalsByWarehouse,
+    total_qty: Math.round(totalQty * 100) / 100,
+    total_amount: Math.round(totalAmount * 100) / 100,
+  }
+}
+
+function lineItemKey(line) {
+  if (!line || typeof line !== 'object') return ''
+  if (line.item_id != null && String(line.item_id).trim() !== '') return `id:${String(line.item_id).trim()}`
+  if (line.sku != null && String(line.sku).trim() !== '') return `sku:${String(line.sku).trim().toLowerCase()}`
+  if (line.name != null && String(line.name).trim() !== '') return `name:${String(line.name).trim().toLowerCase()}`
+  return ''
+}
+
+function addLineToMatrix(rowsByItemKey, lines, qtyKey, amountKey, priceResolver) {
+  for (const line of Array.isArray(lines) ? lines : []) {
+    const wid = normalizeWarehouseId(line && line.warehouse_id)
+    if (!wid) continue
+    const key = lineItemKey(line)
+    const row = key ? rowsByItemKey.get(key) : null
+    if (!row) continue
+    const qty = Number(line.quantity) || 0
+    if (qty <= 0) continue
+    const price = typeof priceResolver === 'function' ? priceResolver(row, line) : null
+    const lineAmount = Number(line.item_total) || 0
+    const amount = amountKey === 'line_total'
+      ? lineAmount
+      : price != null && Number.isFinite(Number(price))
+        ? qty * Number(price)
+        : lineAmount
+    addMatrixValue(row[qtyKey], wid, qty, amount, price)
+  }
+}
+
+async function buildFamilyWarehouseMatrixForGroupMembers(
+  members,
+  fromDate,
+  toDate,
+  _vendorConfig = null,
+  reportGroup = '',
+  family = '',
+  warehouses = [],
+  warehouseId = null,
+  excludeWarehouseId = null
+) {
+  void _vendorConfig
+  const familyKey = normalizeFamilyKey(family)
+  const targetWarehouses = (Array.isArray(warehouses) ? warehouses : [])
+    .map((w) => ({
+      warehouse_id: normalizeWarehouseId(w && w.warehouse_id),
+      warehouse_name: (w && w.warehouse_name && String(w.warehouse_name)) || normalizeWarehouseId(w && w.warehouse_id) || '',
+    }))
+    .filter((w) => w.warehouse_id)
+    .filter((w) => !warehouseId || w.warehouse_id === normalizeWarehouseId(warehouseId))
+    .filter((w) => !excludeWarehouseId || w.warehouse_id !== normalizeWarehouseId(excludeWarehouseId))
+
+  const warehouseIds = targetWarehouses.map((w) => w.warehouse_id)
+  const warehouseIdSet = new Set(warehouseIds)
+  const warnings = []
+  const onWarning = (w) => {
+    if (w) warnings.push(enrichZohoWarning(w))
+  }
+
+  assertReportVendorResolvedIfRequired(reportGroup)
+  const rv = getResolvedReportVendor(reportGroup)
+  const cfg = readZohoConfig()
+  if (cfg.code !== 'ok') {
+    const missing = Array.isArray(cfg.missing) ? cfg.missing : []
+    const e = new Error(
+      missing.length
+        ? `Zoho source not configured. Missing env vars: ${missing.join(', ')} (org alias accepted: ZOHO_INVENTORY_ORGANIZATION_ID).`
+        : `Zoho source not configured. Set ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN, and ${orgEnvHint()}.`
+    )
+    e.code = 'ZOHO_NOT_CONFIGURED'
+    e.missing = missing
+    throw e
+  }
+  const familyFieldId = cfg.familyCustomFieldId
+  const reportScope = buildWeeklyReportScope(warehouseId, excludeWarehouseId)
+  const [raw, salesR, purchR, vcR] = await Promise.all([
+    fetchAllItemsRaw(),
+    getSales(fromDate, toDate, { onWarning, ...reportScope.transactionFilter }),
+    getPurchases(fromDate, toDate, rv.vendorId, {
+      vendorName: rv.vendorName,
+      onWarning,
+      reportGroup,
+      includeWarehouseDetail: true,
+      ...reportScope.transactionFilter,
+    }),
+    getVendorCredits(fromDate, toDate, rv.vendorId, {
+      vendorName: rv.vendorName,
+      onWarning,
+      includeWarehouseDetail: true,
+      ...reportScope.transactionFilter,
+    }),
+  ])
+
+  if (salesR.error) onWarning(`Sales (invoices) not loaded: ${(salesR.error && salesR.error.message) || salesR.error}`)
+  if (purchR.error) onWarning(`Purchases (bills) not loaded: ${(purchR.error && purchR.error.message) || purchR.error}`)
+  if (vcR.error) onWarning(`Vendor credits not loaded: ${(vcR.error && vcR.error.message) || vcR.error}`)
+
+  const maps = buildZohoLookupMaps(raw, familyFieldId)
+  const familyItems = []
+  const seenItemIds = new Set()
+  for (const member of Array.isArray(members) ? members : []) {
+    for (const item of findZohoItemsForMember(member, maps)) {
+      if (!item || (item.status && String(item.status).toLowerCase() === 'inactive')) continue
+      const parsedFamily = parseFamilyFromZohoItem(item, familyFieldId)
+      if (familyKey && normalizeFamilyKey(parsedFamily) !== familyKey) continue
+      const iid = item.item_id != null ? String(item.item_id).trim() : ''
+      if (iid && seenItemIds.has(iid)) continue
+      if (iid) seenItemIds.add(iid)
+      familyItems.push(item)
+    }
+  }
+  if (familyItems.length === 0 && maps.byFamily && maps.byFamily.has(familyKey)) {
+    for (const item of maps.byFamily.get(familyKey) || []) {
+      if (!item || (item.status && String(item.status).toLowerCase() === 'inactive')) continue
+      const iid = item.item_id != null ? String(item.item_id).trim() : ''
+      if (iid && seenItemIds.has(iid)) continue
+      if (iid) seenItemIds.add(iid)
+      familyItems.push(item)
+    }
+  }
+
+  const matrixRows = []
+  const rowsByItemKey = new Map()
+  for (const item of familyItems) {
+    const salesPrice = parseZohoUnitSalesPrice(item) ?? parseZohoUnitPurchasePrice(item)
+    const purchasePrice = parseZohoUnitPurchasePrice(item) ?? salesPrice
+    const entry = {
+      item,
+      salesPrice,
+      purchasePrice,
+      opening: makeMatrixItemRow(item, salesPrice, purchasePrice),
+      purchase: makeMatrixItemRow(item, salesPrice, purchasePrice),
+      returned: makeMatrixItemRow(item, salesPrice, purchasePrice),
+      closing: makeMatrixItemRow(item, salesPrice, purchasePrice),
+      sales: makeMatrixItemRow(item, salesPrice, purchasePrice),
+    }
+    matrixRows.push(entry)
+    for (const key of [
+      item.item_id != null && String(item.item_id).trim() !== '' ? `id:${String(item.item_id).trim()}` : '',
+      item.sku != null && String(item.sku).trim() !== '' ? `sku:${String(item.sku).trim().toLowerCase()}` : '',
+      item.name != null && String(item.name).trim() !== '' ? `name:${String(item.name).trim().toLowerCase()}` : '',
+    ]) {
+      if (key && !rowsByItemKey.has(key)) rowsByItemKey.set(key, entry)
+    }
+  }
+
+  addLineToMatrix(rowsByItemKey, purchR.lines, 'purchase', 'unit_price', (row) => row.purchasePrice)
+  addLineToMatrix(rowsByItemKey, vcR.lines, 'returned', 'unit_price', (row, line) => {
+    if (row.salesPrice != null) return row.salesPrice
+    const qty = Number(line.quantity) || 0
+    const amount = Number(line.item_total) || 0
+    return qty > 0 && amount > 0 ? amount / qty : null
+  })
+  addLineToMatrix(rowsByItemKey, salesR.lines, 'sales', 'line_total', (row, line) => {
+    const qty = Number(line.quantity) || 0
+    const amount = Number(line.item_total) || 0
+    if (qty > 0 && amount > 0) return amount / qty
+    return row.salesPrice
+  })
+
+  for (const row of matrixRows) {
+    for (const wid of warehouseIds) {
+      const closingQty = parseWarehouseStockFromLocationOnly(row.item, wid)
+      if (closingQty > 0) {
+        addMatrixValue(row.closing, wid, closingQty, row.salesPrice != null ? closingQty * row.salesPrice : 0, row.salesPrice)
+      }
+      const purchaseQty = Number(row.purchase.warehouses[wid]?.qty) || 0
+      const soldQty = Number(row.sales.warehouses[wid]?.qty) || 0
+      const returnedQty = Number(row.returned.warehouses[wid]?.qty) || 0
+      const openingQty = closingQty - purchaseQty + soldQty + returnedQty
+      if (openingQty > 0 || closingQty > 0 || purchaseQty > 0 || soldQty > 0 || returnedQty > 0) {
+        addMatrixValue(row.opening, wid, Math.max(0, openingQty), row.salesPrice != null ? Math.max(0, openingQty) * row.salesPrice : 0, row.salesPrice)
+      }
+    }
+  }
+
+  const sections = {
+    opening: buildMatrixSection('opening', 'Opening Stock', matrixRows.map((r) => r.opening), warehouseIds),
+    purchase: buildMatrixSection('purchase', 'Purchase', matrixRows.map((r) => r.purchase), warehouseIds),
+    returned: buildMatrixSection('returned', 'Vendor Credits / Returned to Wholesale', matrixRows.map((r) => r.returned), warehouseIds),
+    closing: buildMatrixSection('closing', 'Closing Stock', matrixRows.map((r) => r.closing), warehouseIds),
+    sales: buildMatrixSection('sales', 'Sales', matrixRows.map((r) => r.sales), warehouseIds),
+  }
+
+  const flatItems = Object.values(sections)
+    .flatMap((section) => section.rows.map((row) => ({
+      family,
+      family_display: family,
+      sku: row.sku,
+      item_name: row.item_name,
+      item_id: row.item_id,
+      [`${section.key}_qty`]: row.total_qty,
+      [`${section.key}_amount`]: row.total_amount,
+    })))
+
+  return {
+    family,
+    warehouses: targetWarehouses,
+    sections,
+    items: flatItems,
+    reportMeta: { warnings: [...new Set(warnings)].filter(Boolean) },
+  }
+}
+
 /**
  * Fetches all Zoho items, then for each `item_report_groups` member in order
  * includes at most one report row if a matching Zoho line exists. Members with
@@ -1084,6 +1391,7 @@ async function fetchZohoItemRowsForGroupMembers(
 module.exports = {
   NOT_FOUND_IN_GROUPS_SUFFIX,
   fetchZohoItemRowsForGroupMembers,
+  buildFamilyWarehouseMatrixForGroupMembers,
   ZOHO_WEEKLY_REPORT_INTEGRATION,
   /**
    * @see parseFamilyFromZohoItem
@@ -1101,6 +1409,7 @@ module.exports = {
     findZohoItemsForMember,
     aggregateByFamily,
     buildWeeklyReportScope,
+    buildFamilyWarehouseMatrixForGroupMembers,
     selectRepresentativeZohoItemForFamily: require('./zohoRepresentativeItem').selectRepresentativeZohoItemForFamily,
     scoreZohoNameSkuText: require('./zohoRepresentativeItem').scoreZohoNameSkuText,
     classifyRepresentativeType: require('./zohoRepresentativeItem').classifyRepresentativeType,

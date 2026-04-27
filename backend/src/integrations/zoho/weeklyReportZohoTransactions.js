@@ -423,7 +423,11 @@ async function getPurchases(fromDate, toDate, _vendorId, opts = {}) {
   void _vendorId
   const onW = typeof opts.onWarning === 'function' ? opts.onWarning : () => {}
   const lineFilter = makeWarehouseLineFilter(opts)
-  const needsWarehouseDetail = !!(normalizeWarehouseId(opts.warehouseId) || normalizeWarehouseId(opts.excludeWarehouseId))
+  const needsWarehouseDetail = !!(
+    opts.includeWarehouseDetail ||
+    normalizeWarehouseId(opts.warehouseId) ||
+    normalizeWarehouseId(opts.excludeWarehouseId)
+  )
   const t0 = Date.now()
   const cfg = getVendorConfigForGroup(String(opts.reportGroup || ''))
   const pMode =
@@ -523,7 +527,11 @@ async function getPurchases(fromDate, toDate, _vendorId, opts = {}) {
 async function getVendorCredits(fromDate, toDate, vendorId, opts = {}) {
   const onW = typeof opts.onWarning === 'function' ? opts.onWarning : () => {}
   const lineFilter = makeWarehouseLineFilter(opts)
-  const needsWarehouseDetail = !!(normalizeWarehouseId(opts.warehouseId) || normalizeWarehouseId(opts.excludeWarehouseId))
+  const needsWarehouseDetail = !!(
+    opts.includeWarehouseDetail ||
+    normalizeWarehouseId(opts.warehouseId) ||
+    normalizeWarehouseId(opts.excludeWarehouseId)
+  )
   const vname = opts.vendorName
   if ((vendorId == null || String(vendorId).trim() === '') && !vname) {
     return {

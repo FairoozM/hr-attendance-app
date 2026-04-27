@@ -1,4 +1,4 @@
-const { getInventoryByGroup } = require('../services/zohoService')
+const { getInventoryByGroup, getFamilyWarehouseMatrixByGroup } = require('../services/zohoService')
 const { listGroupKeys }                               = require('../services/itemReportGroupsService')
 const { sumReportGrandTotals }                        = require('../utils/weeklyReportTotals')
 const { ZOHO_WEEKLY_REPORT_INTEGRATION }              = require('../services/weeklyReportZohoData')
@@ -324,14 +324,6 @@ async function buildFamilyDetailsWarehousesPayload(
   filterWarehouseId,
   excludeWarehouseId
 ) {
-  const familyKey   = String(family || '').trim().toLowerCase()
-  const filterByFam = (itemDetails) => {
-    if (!Array.isArray(itemDetails)) return []
-    return itemDetails.filter(
-      (r) => String(r.family_display || r.family || '').trim().toLowerCase() === familyKey
-    )
-  }
-
   const normEx = excludeWarehouseId && String(excludeWarehouseId).trim() !== ''
     ? String(excludeWarehouseId).trim()
     : null
@@ -362,23 +354,15 @@ async function buildFamilyDetailsWarehousesPayload(
       }))
   }
 
-  const warehouses = await mapWithConcurrency(targets, FAMILY_WAREHOUSE_CONCURRENCY, async (wh) => {
-    const { itemDetails = [] } = await getInventoryByGroup(
-      group,
-      fromDate,
-      toDate,
-      wh.warehouse_id,
-      null,
-      { includeItemDetails: true }
-    )
-    return {
-      warehouse_id:   wh.warehouse_id,
-      warehouse_name: wh.warehouse_name,
-      items:          filterByFam(itemDetails),
-    }
-  })
-
-  return { warehouses }
+  return getFamilyWarehouseMatrixByGroup(
+    group,
+    family,
+    fromDate,
+    toDate,
+    targets,
+    normF,
+    normEx
+  )
 }
 
 /**
@@ -438,7 +422,7 @@ async function getFamilyDetailsByGroupController(req, res) {
   }
 
   const p = (async () => {
-    const { warehouses } = await buildFamilyDetailsWarehousesPayload(
+    const matrix = await buildFamilyDetailsWarehousesPayload(
       group,
       range.from_date,
       range.to_date,
@@ -446,7 +430,8 @@ async function getFamilyDetailsByGroupController(req, res) {
       filterWarehouseId,
       excludeWarehouseId
     )
-    const items = warehouses[0] && Array.isArray(warehouses[0].items) ? warehouses[0].items : []
+    const warehouses = Array.isArray(matrix.warehouses) ? matrix.warehouses : []
+    const items = Array.isArray(matrix.items) ? matrix.items : []
     return {
       report_group:         group,
       family,
@@ -455,7 +440,12 @@ async function getFamilyDetailsByGroupController(req, res) {
       warehouse_id:         filterWarehouseId || null,
       exclude_warehouse_id: excludeWarehouseId || null,
       warehouses,
-      items, // back-compat: first block only; prefer `warehouses` in the UI
+      sections:             matrix.sections || {},
+      items, // back-compat-ish: flattened section rows; prefer `sections` in the UI
+      zoho:                 attachReportMetaToZoho(
+        mergeZohoWithVendorContext(ZOHO_WEEKLY_REPORT_INTEGRATION, group),
+        matrix.reportMeta || { warnings: [] }
+      ),
     }
   })()
 

@@ -17,7 +17,10 @@
  */
 
 const { listMembersOfGroup } = require('./itemReportGroupsService')
-const { fetchZohoItemRowsForGroupMembers } = require('./weeklyReportZohoData')
+const {
+  fetchZohoItemRowsForGroupMembers,
+  buildFamilyWarehouseMatrixForGroupMembers,
+} = require('./weeklyReportZohoData')
 const { getVendorConfigForGroup } = require('./weeklyReportVendorConfig')
 
 const MAX_REPORTED_ERRORS = 10
@@ -313,6 +316,33 @@ async function getFamilyDetailsByGroup(
   return { family, items }
 }
 
+async function getFamilyWarehouseMatrixByGroup(
+  group,
+  family,
+  fromDate,
+  toDate,
+  warehouses,
+  warehouseId = null,
+  excludeWarehouseId = null
+) {
+  const members = await listMembersOfGroup(group)
+  if (members.length === 0 && group !== 'other_family') {
+    return { family, warehouses: [], sections: {}, items: [], reportMeta: { warnings: [] } }
+  }
+  const vendorConfig = getVendorConfigForGroup(group)
+  return buildFamilyWarehouseMatrixForGroupMembers(
+    members,
+    fromDate,
+    toDate,
+    vendorConfig,
+    group,
+    family,
+    warehouses,
+    warehouseId,
+    excludeWarehouseId
+  )
+}
+
 async function getSlowMovingInventory(fromDate, toDate) {
   const { items } = await getInventoryByGroup('slow_moving', fromDate, toDate)
   return items
@@ -321,6 +351,7 @@ async function getSlowMovingInventory(fromDate, toDate) {
 module.exports = {
   getInventoryByGroup,
   getFamilyDetailsByGroup,
+  getFamilyWarehouseMatrixByGroup,
   getSlowMovingInventory,
   _internals: {
     validateAndNormaliseItem,

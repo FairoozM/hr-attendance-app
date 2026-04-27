@@ -35,9 +35,10 @@ function makeError(code, message, extra = {}) {
   return e
 }
 
-function loadController({ getInventoryByGroup, listGroupKeys, fetchWarehouses } = {}) {
+function loadController({ getInventoryByGroup, getFamilyWarehouseMatrixByGroup, listGroupKeys, fetchWarehouses } = {}) {
   mockModule('../src/services/zohoService', {
     getInventoryByGroup,
+    getFamilyWarehouseMatrixByGroup,
   })
   mockModule('../src/services/itemReportGroupsService', {
     listGroupKeys,
@@ -156,8 +157,9 @@ test('weeklyReports: Grand Total sums Zoho-provided numbers verbatim', async () 
   })
 })
 
-test('weeklyReports: family-details returns warehouses[] and one getInventory per target WH', async () => {
+test('weeklyReports: family-details returns matrix payload without per-warehouse getInventory reloads', async () => {
   const invCalls = []
+  const matrixCalls = []
   const getInventoryByGroup = async (group, from, to, warehouseId, excludeWarehouseId, options) => {
     invCalls.push({ group, from, to, warehouseId, excludeWarehouseId, options })
     return {
@@ -171,8 +173,36 @@ test('weeklyReports: family-details returns warehouses[] and one getInventory pe
       reportMeta: { warnings: [] },
     }
   }
+  const getFamilyWarehouseMatrixByGroup = async (group, family, from, to, warehouses, warehouseId, excludeWarehouseId) => {
+    matrixCalls.push({ group, family, from, to, warehouses, warehouseId, excludeWarehouseId })
+    return {
+      family,
+      warehouses,
+      sections: {
+        opening: {
+          key: 'opening',
+          title: 'Opening Stock',
+          rows: [
+            {
+              item_id: 'I1',
+              sku: 'A',
+              item_name: 'A',
+              warehouses: { W1: { qty: 1, amount: 10, price: 10 } },
+              total_qty: 1,
+              total_amount: 10,
+            },
+          ],
+          total_qty: 1,
+          total_amount: 10,
+        },
+      },
+      items: [{ family, sku: 'A', item_name: 'A', item_id: 'I1', opening_qty: 1, opening_amount: 10 }],
+      reportMeta: { warnings: [] },
+    }
+  }
   const ctrl = loadController({
     getInventoryByGroup,
+    getFamilyWarehouseMatrixByGroup,
     listGroupKeys: async () => ['slow_moving'],
   })
   {
@@ -194,29 +224,30 @@ test('weeklyReports: family-details returns warehouses[] and one getInventory pe
     assert.equal(Array.isArray(res.body.warehouses), true)
     assert.equal(res.body.warehouses.length, 1)
     assert.equal(res.body.warehouses[0].warehouse_id, 'W1')
-    assert.deepEqual(res.body.warehouses[0].items.map((r) => r.sku), ['A'])
+    assert.equal(res.body.sections.opening.rows[0].warehouses.W1.qty, 1)
   }
-  // getReport: 1 call (global exclude-damaged). family-details: 1 call for W1 only (per-WH, no global exclude)
-  assert.equal(invCalls.length, 2)
-  assert.equal(invCalls[1].options.includeItemDetails, true)
-  assert.equal(invCalls[1].warehouseId, 'W1')
-  assert.equal(invCalls[1].excludeWarehouseId, null)
+  // getReport: 1 call. family-details: one matrix call, not one getInventory call per warehouse.
+  assert.equal(invCalls.length, 1)
+  assert.equal(matrixCalls.length, 1)
+  assert.equal(matrixCalls[0].warehouseId, null)
+  assert.equal(matrixCalls[0].excludeWarehouseId, 'damaged')
 })
 
-test('weeklyReports: family-details with warehouse_id uses one WH block and one getInventory', async () => {
-  const invCalls = []
-  const getInventoryByGroup = async (group, from, to, warehouseId, excludeWarehouseId, options) => {
-    invCalls.push({ group, from, to, warehouseId, excludeWarehouseId, options })
+test('weeklyReports: family-details with warehouse_id uses one matrix block for selected warehouse', async () => {
+  const matrixCalls = []
+  const getFamilyWarehouseMatrixByGroup = async (group, family, from, to, warehouses, warehouseId, excludeWarehouseId) => {
+    matrixCalls.push({ group, family, from, to, warehouses, warehouseId, excludeWarehouseId })
     return {
+      family,
+      warehouses,
+      sections: {},
       items: [],
-      itemDetails: [
-        { family: 'F', family_display: 'F', sku: 'S', item_name: 'N', opening_qty: 1 },
-      ],
       reportMeta: { warnings: [] },
     }
   }
   const ctrl = loadController({
-    getInventoryByGroup,
+    getInventoryByGroup: emptyZoho,
+    getFamilyWarehouseMatrixByGroup,
     listGroupKeys: async () => ['slow_moving'],
     fetchWarehouses: async () => [
       { warehouse_id: 'W9', warehouse_name: 'Picked' },
@@ -231,8 +262,8 @@ test('weeklyReports: family-details with warehouse_id uses one WH block and one 
   assert.equal(res.body.warehouses.length, 1)
   assert.equal(res.body.warehouses[0].warehouse_id, 'W9')
   assert.equal(res.body.warehouses[0].warehouse_name, 'Picked')
-  assert.equal(invCalls.length, 1)
-  assert.equal(invCalls[0].warehouseId, 'W9')
+  assert.equal(matrixCalls.length, 1)
+  assert.equal(matrixCalls[0].warehouseId, 'W9')
 })
 
 test('weeklyReports: export.xlsx uses the same getInventoryByGroup + items as JSON (adapter pipeline)', async () => {

@@ -80,6 +80,89 @@ function summarizeWarehouseFamilyDetails(items) {
   }
 }
 
+function hasMatrixSections(sections) {
+  return !!sections && typeof sections === 'object' && ['opening', 'purchase', 'returned', 'closing', 'sales'].some(
+    (key) => Array.isArray(sections?.[key]?.rows)
+  )
+}
+
+function sectionRows(section) {
+  return Array.isArray(section?.rows) ? section.rows : []
+}
+
+function matrixCell(row, warehouseId) {
+  const wid = normalizeWarehouseId(warehouseId)
+  return (row?.warehouses && row.warehouses[wid]) || { qty: 0, amount: 0, price: null }
+}
+
+function FamilyDetailsMatrixSection({ section, warehouses, emptyText }) {
+  const rows = sectionRows(section)
+  return (
+    <section className="wsr-drawer-card wsr-matrix-card">
+      <h4 className="wsr-drawer-card__title">{section?.title || 'Details'}</h4>
+      {rows.length === 0 ? (
+        <div className="wsr-drawer-empty">{emptyText}</div>
+      ) : (
+        <div className="wsr-matrix-table-wrap">
+          <table className="wsr-matrix-table">
+            <thead>
+              <tr>
+                <th className="wsr-matrix-table__product">Product</th>
+                {warehouses.map((wh) => (
+                  <th key={wh.warehouse_id}>{wh.warehouse_name || wh.warehouse_id}</th>
+                ))}
+                <th>Total Qty</th>
+                <th>Total Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={`${section?.key || 'section'}-${row.item_id || row.sku || row.item_name}`}>
+                  <td className="wsr-matrix-table__product">
+                    <div className="wsr-drawer-product-name">{row.item_name || '—'}</div>
+                    <div className="wsr-drawer-product-sku">{row.sku || '—'}</div>
+                  </td>
+                  {warehouses.map((wh) => {
+                    const cell = matrixCell(row, wh.warehouse_id)
+                    return (
+                      <td key={wh.warehouse_id}>
+                        <div className="wsr-matrix-cell">
+                          <strong>{formatNum(cell.qty)}</strong>
+                          <span>{formatCurrency(cell.amount)}</span>
+                        </div>
+                      </td>
+                    )
+                  })}
+                  <td><strong>{formatNum(row.total_qty)}</strong></td>
+                  <td><strong>{formatCurrency(row.total_amount)}</strong></td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>Total</td>
+                {warehouses.map((wh) => {
+                  const total = section?.totals_by_warehouse?.[normalizeWarehouseId(wh.warehouse_id)] || { qty: 0, amount: 0 }
+                  return (
+                    <td key={wh.warehouse_id}>
+                      <div className="wsr-matrix-cell">
+                        <strong>{formatNum(total.qty)}</strong>
+                        <span>{formatCurrency(total.amount)}</span>
+                      </div>
+                    </td>
+                  )
+                })}
+                <td>{formatNum(section?.total_qty)}</td>
+                <td>{formatCurrency(section?.total_amount)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}
+
 function FamilyDetailsSection({ title, qtyLabel, priceLabel, amountLabel, rows, qtyKey, priceKey, amountKey, emptyText }) {
   const totalQty = sumBy(rows, qtyKey)
   const totalAmount = sumBy(rows, amountKey)
@@ -563,6 +646,7 @@ export function WeeklySalesReportSection({
   const [drawerProgress, setDrawerProgress] = useState({ loaded: 0, total: 0, current: '' })
   /** @type {Array<{ warehouse_id: string, warehouse_name: string, items: object[] }>} */
   const [drawerWarehouses, setDrawerWarehouses] = useState([])
+  const [drawerMatrix, setDrawerMatrix] = useState(null)
   const [salesSort, setSalesSort] = useState('desc')
 
   const { items, loading, error, notConfigured, validationErrors, refetch } =
@@ -616,6 +700,7 @@ export function WeeklySalesReportSection({
     if (!selectedFamilySet.has(selectedFamily)) {
       setSelectedFamily('')
       setDrawerWarehouses([])
+      setDrawerMatrix(null)
       setDrawerError('')
       setDrawerWarnings([])
       setDrawerProgress({ loaded: 0, total: 0, current: '' })
@@ -631,90 +716,33 @@ export function WeeklySalesReportSection({
       setDrawerLoading(true)
       setDrawerError('')
       setDrawerWarnings([])
-      setDrawerProgress({ loaded: 0, total: 0, current: '' })
+      setDrawerProgress({ loaded: 0, total: 1, current: 'family details' })
       setDrawerWarehouses([])
+      setDrawerMatrix(null)
       try {
-        const selectedWarehouseId = normalizeWarehouseId(warehouseId)
-        const excludedWarehouseId = normalizeWarehouseId(excludeWarehouseId)
-        let targets = []
-        try {
-          const whData = await api.get('/api/weekly-reports/warehouses', { signal: controller.signal })
-          const allWarehouses = Array.isArray(whData?.warehouses) ? whData.warehouses : []
-          if (selectedWarehouseId) {
-            const found = allWarehouses.find((w) => normalizeWarehouseId(w?.warehouse_id) === selectedWarehouseId)
-            targets = [{
-              warehouse_id: selectedWarehouseId,
-              warehouse_name: found?.warehouse_name || fallbackWarehouseLabel(selectedWarehouseId),
-            }]
-          } else {
-            targets = allWarehouses
-              .filter((w) => normalizeWarehouseId(w?.warehouse_id))
-              .filter((w) => normalizeWarehouseId(w?.warehouse_id) !== excludedWarehouseId)
-              .map((w) => ({
-                warehouse_id: normalizeWarehouseId(w.warehouse_id),
-                warehouse_name: w.warehouse_name || fallbackWarehouseLabel(w.warehouse_id),
-              }))
-          }
-        } catch (err) {
-          if (err?.name === 'AbortError') return
-          if (!selectedWarehouseId) throw err
-          targets = [{ warehouse_id: selectedWarehouseId, warehouse_name: fallbackWarehouseLabel(selectedWarehouseId) }]
-          setDrawerWarnings([`Warehouse list could not be loaded; using selected warehouse ${selectedWarehouseId}.`])
+        const qsParams = {
+          from_date: fromDate,
+          to_date: toDate,
+          family: selectedFamily,
         }
-
+        if (warehouseId && String(warehouseId).trim() !== '') qsParams.warehouse_id = String(warehouseId).trim()
+        if (excludeWarehouseId && String(excludeWarehouseId).trim() !== '') qsParams.exclude_warehouse_id = String(excludeWarehouseId).trim()
+        const qs = new URLSearchParams(qsParams).toString()
+        const data = await api.get(
+          `/api/weekly-reports/by-group/${encodeURIComponent(reportGroup)}/family-details?${qs}`,
+          { signal: controller.signal }
+        )
         if (cancelled) return
-        if (targets.length === 0) {
-          setDrawerProgress({ loaded: 0, total: 0, current: '' })
-          setDrawerWarehouses([])
-          return
-        }
-
-        setDrawerProgress({ loaded: 0, total: targets.length, current: targets[0].warehouse_name })
-
-        for (let i = 0; i < targets.length; i += 1) {
-          const target = targets[i]
-          if (cancelled) return
-          setDrawerProgress({ loaded: i, total: targets.length, current: target.warehouse_name })
-          try {
-            const qsParams = {
-              from_date: fromDate,
-              to_date: toDate,
-              family: selectedFamily,
-              warehouse_id: target.warehouse_id,
-            }
-            const qs = new URLSearchParams(qsParams).toString()
-            const data = await api.get(
-              `/api/weekly-reports/by-group/${encodeURIComponent(reportGroup)}/family-details?${qs}`,
-              { signal: controller.signal }
-            )
-            if (cancelled) return
-            const whs = parseFamilyDetailsWarehouses(data, target)
-            setDrawerWarehouses((prev) => {
-              const existing = new Set(prev.map((w) => normalizeWarehouseId(w.warehouse_id)))
-              const next = whs.filter((w) => !existing.has(normalizeWarehouseId(w.warehouse_id)))
-              return [...prev, ...next]
-            })
-          } catch (err) {
-            if (err?.name === 'AbortError') return
-            if (cancelled) return
-            setDrawerWarnings((prev) => [
-              ...prev,
-              `${target.warehouse_name || target.warehouse_id}: ${err?.message || 'Failed to load warehouse details'}`,
-            ])
-          } finally {
-            if (!cancelled) {
-              setDrawerProgress({
-                loaded: i + 1,
-                total: targets.length,
-                current: targets[i + 1]?.warehouse_name || '',
-              })
-            }
-          }
-        }
-        if (cancelled) return
+        const whs = Array.isArray(data?.warehouses) ? data.warehouses : parseFamilyDetailsWarehouses(data, null)
+        setDrawerWarehouses(whs)
+        setDrawerMatrix(hasMatrixSections(data?.sections) ? { sections: data.sections, warehouses: whs } : null)
+        const warnings = Array.isArray(data?.zoho?.warnings) ? data.zoho.warnings : []
+        setDrawerWarnings(warnings)
+        setDrawerProgress({ loaded: 1, total: 1, current: '' })
       } catch (err) {
         if (cancelled) return
         setDrawerWarehouses([])
+        setDrawerMatrix(null)
         setDrawerWarnings([])
         setDrawerProgress({ loaded: 0, total: 0, current: '' })
         setDrawerError(err?.message || 'Failed to load family details')
@@ -728,6 +756,15 @@ export function WeeklySalesReportSection({
       controller.abort()
     }
   }, [selectedFamily, reportGroup, fromDate, toDate, warehouseId, excludeWarehouseId, loadToken, datesValid])
+
+  useEffect(() => {
+    if (!selectedFamily) return undefined
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [selectedFamily])
 
   const handleExport = useCallback(async () => {
     if (!datesValid || notConfigured || !loadToken) return
@@ -952,11 +989,10 @@ export function WeeklySalesReportSection({
         <div className="wsr-drawer__body">
           {drawerLoading && (
             <div className="wsr-drawer-loading">
-              Loading per-warehouse family details from Zoho…
+              Loading family warehouse matrix from Zoho…
               {drawerProgress.total > 0 && (
                 <span className="wsr-drawer-loading__sub">
-                  Loaded {drawerProgress.loaded} of {drawerProgress.total}
-                  {drawerProgress.current ? ` — now loading ${drawerProgress.current}` : ''}.
+                  {drawerProgress.loaded > 0 ? 'Loaded details.' : 'Building warehouse split…'}
                 </span>
               )}
               {drawerProgress.total === 0 && (
@@ -974,7 +1010,35 @@ export function WeeklySalesReportSection({
             </div>
           )}
           {!drawerError && selectedFamily && (
-            drawerWarehouses.length === 0 && !drawerLoading ? (
+            drawerMatrix ? (
+              <div className="wsr-matrix-sections">
+                <FamilyDetailsMatrixSection
+                  section={drawerMatrix.sections.opening}
+                  warehouses={drawerMatrix.warehouses}
+                  emptyText="No opening stock for this family in this period."
+                />
+                <FamilyDetailsMatrixSection
+                  section={drawerMatrix.sections.purchase}
+                  warehouses={drawerMatrix.warehouses}
+                  emptyText="No purchase activity for this family in this period."
+                />
+                <FamilyDetailsMatrixSection
+                  section={drawerMatrix.sections.returned}
+                  warehouses={drawerMatrix.warehouses}
+                  emptyText="No returned-to-wholesale activity for this family in this period."
+                />
+                <FamilyDetailsMatrixSection
+                  section={drawerMatrix.sections.closing}
+                  warehouses={drawerMatrix.warehouses}
+                  emptyText="No closing stock for this family in this period."
+                />
+                <FamilyDetailsMatrixSection
+                  section={drawerMatrix.sections.sales}
+                  warehouses={drawerMatrix.warehouses}
+                  emptyText="No sales activity for this family in this period."
+                />
+              </div>
+            ) : drawerWarehouses.length === 0 && !drawerLoading ? (
               <div className="wsr-drawer-empty wsr-drawer-empty--soft">
                 <strong>No warehouses returned for this view.</strong>
                 <span className="wsr-empty__sub">No Zoho locations matched, or the response was empty.</span>

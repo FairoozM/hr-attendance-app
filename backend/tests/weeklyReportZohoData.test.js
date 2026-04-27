@@ -2,7 +2,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { mockModule, freshRequire } = require('./_helpers')
 const { sumReportGrandTotals } = require('../src/utils/weeklyReportTotals')
-const { buildZohoLookupMaps, findZohoItemForMember, aggregateByFamily, scoreZohoNameSkuText, buildWeeklyReportScope, parseWarehouseScopedStockOnHand } = require(
+const { buildZohoLookupMaps, findZohoItemForMember, aggregateByFamily, scoreZohoNameSkuText, buildWeeklyReportScope, parseWarehouseScopedStockOnHand, buildFamilyWarehouseMatrixForGroupMembers } = require(
   '../src/services/weeklyReportZohoData'
 )._internals
 
@@ -53,6 +53,77 @@ test('parseWarehouseScopedStockOnHand: reads direct location fields and matching
     stock_on_hand: 11,
     locations: [{ location_id: 'loc-1', location_stock_on_hand: 4 }],
   }, 'missing'), 11)
+})
+
+test('buildFamilyWarehouseMatrixForGroupMembers: splits stock and sales by Zoho locations in one pass', async (t) => {
+  const prevN = process.env.NODE_ENV
+  const prevR = process.env.REPORT_VENDOR_ID
+  const prevO = process.env.WEEKLY_REPORT_VENDOR_OPTIONAL
+  process.env.NODE_ENV = 'test'
+  process.env.REPORT_VENDOR_ID = VENDOR
+  delete process.env.WEEKLY_REPORT_VENDOR_OPTIONAL
+  const r1 = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: 'cf1' }),
+    orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
+  })
+  const r2 = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchAllItemsRaw: async () => [
+      {
+        sku: 'ZDS-1-6L',
+        name: 'ZDS-1-6L',
+        item_id: '10',
+        status: 'active',
+        rate: 75,
+        custom_fields: [{ customfield_id: 'cf1', value: 'LIFEP2', label: 'Family' }],
+        locations: [
+          { location_id: 'life', location_name: 'LIFE SMILE', location_stock_on_hand: 3 },
+          { location_id: 'exports', location_name: 'E-COMMERCE EXPORTS', location_stock_on_hand: 22 },
+        ],
+      },
+    ],
+  })
+  const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
+    getSales: async () => ({
+      lines: [{ item_id: '10', sku: 'ZDS-1-6L', name: 'ZDS-1-6L', quantity: 1, item_total: 75, warehouse_id: 'life' }],
+      line_count: 1,
+      list_truncated: false,
+      error: null,
+    }),
+    getPurchases: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getVendorCredits: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+  })
+  t.after(() => {
+    r1()
+    r2()
+    r3()
+    if (prevN === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = prevN
+    if (prevR === undefined) delete process.env.REPORT_VENDOR_ID
+    else process.env.REPORT_VENDOR_ID = prevR
+    if (prevO === undefined) delete process.env.WEEKLY_REPORT_VENDOR_OPTIONAL
+    else process.env.WEEKLY_REPORT_VENDOR_OPTIONAL = prevO
+    const resolved = require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })
+    delete require.cache[resolved]
+  })
+  const m = freshRequire('../src/services/weeklyReportZohoData')
+  const matrix = await m.buildFamilyWarehouseMatrixForGroupMembers(
+    [{ item_name: 'LIFEP2' }],
+    '2026-01-01',
+    '2026-01-31',
+    null,
+    'slow_moving',
+    'LIFEP2',
+    [
+      { warehouse_id: 'life', warehouse_name: 'LIFE SMILE' },
+      { warehouse_id: 'exports', warehouse_name: 'E-COMMERCE EXPORTS' },
+    ]
+  )
+  assert.equal(matrix.sections.closing.rows[0].warehouses.life.qty, 3)
+  assert.equal(matrix.sections.closing.rows[0].warehouses.exports.qty, 22)
+  assert.equal(matrix.sections.sales.rows[0].warehouses.life.qty, 1)
+  assert.equal(matrix.sections.sales.rows[0].warehouses.exports.qty, 0)
+  assert.equal(matrix.sections.opening.rows[0].warehouses.life.qty, 4)
+  assert.equal(matrix.sections.opening.rows[0].warehouses.exports.qty, 22)
 })
 
 test('fetchZohoItemRowsForGroupMembers: stock columns are monetary, debug + totals = sumReportGrandTotals', async (t) => {
