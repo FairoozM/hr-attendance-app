@@ -126,6 +126,82 @@ test('buildFamilyWarehouseMatrixForGroupMembers: splits stock and sales by Zoho 
   assert.equal(matrix.sections.opening.rows[0].warehouses.exports.qty, 22)
 })
 
+test('buildFamilyWarehouseMatrixForGroupMembers: hydrates item details when list rows omit locations[]', async (t) => {
+  const prevN = process.env.NODE_ENV
+  const prevR = process.env.REPORT_VENDOR_ID
+  process.env.NODE_ENV = 'test'
+  process.env.REPORT_VENDOR_ID = VENDOR
+  const r1 = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: 'cf1' }),
+    orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
+  })
+  const r2 = mockModule('../src/integrations/zoho/zohoAdapter', {
+    INVENTORY_V1: '/inventory/v1',
+    fetchAllItemsRaw: async () => [
+      {
+        sku: 'NSEL-18',
+        name: 'NSEL-18',
+        item_id: '18',
+        status: 'active',
+        rate: 470,
+        stock_on_hand: 92,
+        custom_fields: [{ customfield_id: 'cf1', value: 'NSEL', label: 'Family' }],
+      },
+      {
+        sku: 'NSEL-20',
+        name: 'NSEL-20',
+        item_id: '20',
+        status: 'active',
+        rate: 100,
+        stock_on_hand: 10,
+        custom_fields: [{ customfield_id: 'cf1', value: 'NSEL', label: 'Family' }],
+      },
+    ],
+    zohoApiRequest: async (path) => {
+      if (String(path).includes('/items/18')) {
+        return { item: { item_id: '18', locations: [{ location_id: 'life', location_stock_on_hand: 92 }] } }
+      }
+      if (String(path).includes('/items/20')) {
+        return { item: { item_id: '20', locations: [{ location_id: 'exports', location_stock_on_hand: 10 }] } }
+      }
+      throw new Error(`unexpected path ${path}`)
+    },
+  })
+  const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
+    getSales: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getPurchases: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getVendorCredits: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+  })
+  t.after(() => {
+    r1()
+    r2()
+    r3()
+    if (prevN === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = prevN
+    if (prevR === undefined) delete process.env.REPORT_VENDOR_ID
+    else process.env.REPORT_VENDOR_ID = prevR
+    const resolved = require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })
+    delete require.cache[resolved]
+  })
+  const m = freshRequire('../src/services/weeklyReportZohoData')
+  const matrix = await m.buildFamilyWarehouseMatrixForGroupMembers(
+    [{ item_name: 'NSEL' }],
+    '2026-01-01',
+    '2026-01-31',
+    null,
+    'slow_moving',
+    'NSEL',
+    [
+      { warehouse_id: 'life', warehouse_name: 'LIFE SMILE' },
+      { warehouse_id: 'exports', warehouse_name: 'E-COMMERCE EXPORTS' },
+    ]
+  )
+  assert.equal(matrix.sections.closing.rows.length, 2)
+  assert.equal(matrix.sections.closing.total_amount, 44240)
+  assert.equal(matrix.sections.closing.rows.find((r) => r.sku === 'NSEL-18').warehouses.life.qty, 92)
+  assert.equal(matrix.sections.closing.rows.find((r) => r.sku === 'NSEL-20').warehouses.exports.qty, 10)
+})
+
 test('fetchZohoItemRowsForGroupMembers: stock columns are monetary, debug + totals = sumReportGrandTotals', async (t) => {
   const prevN = process.env.NODE_ENV
   const prevR = process.env.REPORT_VENDOR_ID

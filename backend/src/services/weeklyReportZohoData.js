@@ -11,7 +11,7 @@
  * return $ uses vendor line total when present, else qty × `rate` with the same rule.
  */
 
-const { fetchAllItemsRaw, fetchItemsRawForWarehouse } = require('../integrations/zoho/zohoAdapter')
+const { fetchAllItemsRaw, fetchItemsRawForWarehouse, zohoApiRequest, INVENTORY_V1 } = require('../integrations/zoho/zohoAdapter')
 const { readZohoConfig, orgEnvHint } = require('../integrations/zoho/zohoConfig')
 const { normalizeZohoInventoryItem, parseFamilyFromZohoItem } = require('../integrations/zoho/zohoItemFamily')
 const {
@@ -430,6 +430,9 @@ function findZohoItemForMember(member, maps) {
 }
 
 const NOT_FOUND_IN_GROUPS_SUFFIX = ' (not found in groups)'
+const FAMILY_ITEM_DETAIL_CONCURRENCY = 3
+const FAMILY_ITEM_DETAIL_CACHE_TTL_MS = 5 * 60 * 1000
+const _familyItemDetailCache = new Map()
 
 /**
  * @param {object} acc - family accumulator (has `family` display string)
@@ -771,6 +774,56 @@ function addLineToMatrix(rowsByItemKey, lines, qtyKey, amountKey, priceResolver)
   }
 }
 
+async function mapWithLimit(list, limit, fn) {
+  if (!Array.isArray(list) || list.length === 0) return []
+  const out = new Array(list.length)
+  let next = 0
+  async function worker() {
+    for (;;) {
+      const i = next
+      next += 1
+      if (i >= list.length) return
+      out[i] = await fn(list[i], i)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, limit), list.length) }, worker))
+  return out
+}
+
+async function fetchZohoItemDetail(itemId, onWarning) {
+  const id = normalizeWarehouseId(itemId)
+  if (!id) return null
+  const hit = _familyItemDetailCache.get(id)
+  if (hit && Date.now() < hit.expiresAt) return hit.item
+  if (typeof zohoApiRequest !== 'function') return null
+  try {
+    const json = await zohoApiRequest(`${INVENTORY_V1}/items/${encodeURIComponent(id)}`)
+    const item = (json && json.item) || null
+    if (item && typeof item === 'object') {
+      _familyItemDetailCache.set(id, { item, expiresAt: Date.now() + FAMILY_ITEM_DETAIL_CACHE_TTL_MS })
+      return item
+    }
+  } catch (err) {
+    if (typeof onWarning === 'function') {
+      onWarning(`GET /items/${id} — ${(err && err.message) || String(err)}`)
+    }
+  }
+  return null
+}
+
+async function hydrateFamilyItemsWithLocations(items, onWarning) {
+  const list = Array.isArray(items) ? items : []
+  return mapWithLimit(list, FAMILY_ITEM_DETAIL_CONCURRENCY, async (item) => {
+    if (!item || typeof item !== 'object') return item
+    if (Array.isArray(item.locations) && item.locations.length > 0) return item
+    const id = item.item_id != null ? String(item.item_id).trim() : ''
+    if (!id) return item
+    const detail = await fetchZohoItemDetail(id, onWarning)
+    if (!detail || typeof detail !== 'object') return item
+    return { ...item, ...detail }
+  })
+}
+
 async function buildFamilyWarehouseMatrixForGroupMembers(
   members,
   fromDate,
@@ -862,9 +915,10 @@ async function buildFamilyWarehouseMatrixForGroupMembers(
     }
   }
 
+  const hydratedFamilyItems = await hydrateFamilyItemsWithLocations(familyItems, onWarning)
   const matrixRows = []
   const rowsByItemKey = new Map()
-  for (const item of familyItems) {
+  for (const item of hydratedFamilyItems) {
     const salesPrice = parseZohoUnitSalesPrice(item) ?? parseZohoUnitPurchasePrice(item)
     const purchasePrice = parseZohoUnitPurchasePrice(item) ?? salesPrice
     const entry = {
