@@ -662,3 +662,58 @@
 :root[data-theme='light'] .al-toast--success {
   color: #15803d;
 }
+
+.al-toast--error {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #b91c1c;
+}
+
+.al-toast--info {
+  background: rgba(14, 165, 233, 0.12);
+  border: 1px solid rgba(14, 165, 233, 0.35);
+  color: #0369a1;
+}
+
+.al-filter-bar--sticky {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--page-bg, var(--theme-base));
+  padding: 0.4rem 0 0.5rem;
+  border-bottom: 1px solid var(--border-subtle, transparent);
+}
+
+.al-stat-card__icon--dot {
+  border-radius: 10px;
+  width: 8px;
+  height: 32px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+
+.al-row__acts--grouped {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.al-row__act--dest {
+  margin-left: 0.15rem;
+}
+
+.al-empty-state {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+}
+
+.al-empty-state__icon--calm {
+  width: 2.5rem;
+  height: 2.5rem;
+  margin: 0 auto 0.75rem;
+  border-radius: 50%;
+  background: var(--theme-surface-soft, rgba(0, 0, 0, 0.04));
+  border: 1px solid var(--theme-border-subtle);
+}

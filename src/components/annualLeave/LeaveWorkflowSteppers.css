@@ -1,0 +1,124 @@
+.alw-stepper-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 1024px) {
+  .alw-stepper-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.alw-stepper {
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem;
+  background: var(--theme-glass-soft, rgba(255, 255, 255, 0.03));
+}
+
+.alw-stepper--muted .alw-stepper__head,
+.alw-stepper--rejected .alw-stepper__head,
+.alw-stepper__head {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted, #94a3b8);
+  margin: 0 0 0.4rem;
+}
+
+.alw-stepper__summary {
+  font-size: 0.8rem;
+  color: var(--text-muted, #94a3b8);
+  margin: 0 0 0.5rem;
+}
+
+.alw-stepper__na {
+  font-size: 0.8rem;
+  color: var(--text-muted, #94a3b8);
+  margin: 0;
+  line-height: 1.45;
+}
+
+.alw-stepper--rejected p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-primary, #e2e8f0);
+}
+
+.alw-stepper__track {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.alw-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.alw-step__n {
+  flex: 0 0 1.3rem;
+  width: 1.3rem;
+  height: 1.3rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: var(--alw-inactive, rgba(100, 116, 139, 0.35));
+  color: #e2e8f0;
+}
+
+.alw-step--done .alw-step__n {
+  background: #15803d;
+  color: #fff;
+}
+
+.alw-step--active .alw-step__n {
+  background: #1d4ed8;
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35);
+}
+
+.alw-step--upcoming {
+  opacity: 0.55;
+}
+
+.alw-step--future {
+  opacity: 0.45;
+  font-style: italic;
+}
+
+.alw-step__text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  line-height: 1.25;
+}
+
+.alw-step__label {
+  font-weight: 600;
+  color: var(--text-primary, #e2e8f0);
+}
+
+.alw-step__sub {
+  font-size: 0.72rem;
+  color: var(--text-muted, #94a3b8);
+  font-weight: 400;
+}
+
+.alw-footnote {
+  font-size: 0.7rem;
+  color: var(--text-muted, #94a3b8);
+  margin: 0.4rem 0 0;
+  line-height: 1.4;
+}
