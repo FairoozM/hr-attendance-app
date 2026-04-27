@@ -9,6 +9,10 @@ const { httpsRequestJson, httpsRequestBuffer } = require('./zohoHttp')
 
 const DEFAULT_PER_PAGE = 200
 const MAX_ITEMS_PAGES = 50
+const ITEMS_PAGE_BATCH_SIZE =
+  process.env.ZOHO_ITEMS_PAGE_BATCH_SIZE !== undefined
+    ? Math.max(1, parseInt(process.env.ZOHO_ITEMS_PAGE_BATCH_SIZE, 10) || 1)
+    : 8
 
 /**
  * @param {string} path - must start with / e.g. /inventory/v1/items
@@ -83,11 +87,43 @@ async function zohoApiRequest(path, searchParams, method, body) {
   return json
 }
 
+function makeItemsPageParams(page, per, warehouseId = null) {
+  const c = readZohoConfig()
+  const p = new URLSearchParams()
+  p.set('organization_id', c.organizationId)
+  p.set('page', String(page))
+  p.set('per_page', String(per))
+  if (warehouseId) p.set('warehouse_id', String(warehouseId).trim())
+  return p
+}
+
+async function fetchItemsPage(page, per, warehouseId = null) {
+  const json = await zohoApiRequest(`${INVENTORY_V1}/items`, makeItemsPageParams(page, per, warehouseId), 'GET')
+  const list = (json && json.items) || (json && json.item) || []
+  const pageItems = Array.isArray(list) ? list : []
+  const hasMore =
+    json &&
+    json.page_context &&
+    json.page_context.has_more_page === true
+  const total = Number(json && json.page_context && json.page_context.total)
+  return {
+    page,
+    items: pageItems,
+    hasMore,
+    total: Number.isFinite(total) && total > 0 ? total : 0,
+  }
+}
+
 /**
- * Fetch all items with pagination. Raw Zoho `items` objects only.
+ * Fetch Inventory items with bounded parallel pagination.
+ * Page 1 is fetched first so we can use Zoho's page_context.total when present,
+ * then the remaining pages are fetched in batches. This keeps cold weekly-report
+ * loads under CloudFront's timeout while avoiding 50 simultaneous Zoho requests.
+ *
+ * @param {string|null} warehouseId
  * @returns {Promise<object[]>}
  */
-async function listAllItems() {
+async function listItemsPaged(warehouseId = null) {
   const c = readZohoConfig()
   if (c.code !== 'ok') {
     const e = new Error('Zoho not configured')
@@ -97,38 +133,63 @@ async function listAllItems() {
   const per = DEFAULT_PER_PAGE
   const all = []
   const t0 = Date.now()
-  for (let page = 1; page <= MAX_ITEMS_PAGES; page += 1) {
-    console.log(`[zoho-items] fetching page ${page}/${MAX_ITEMS_PAGES}…`)
-    const p = new URLSearchParams()
-    p.set('organization_id', c.organizationId)
-    p.set('page', String(page))
-    p.set('per_page', String(per))
-    const json = await zohoApiRequest(`${INVENTORY_V1}/items`, p, 'GET')
-    const list = (json && json.items) || (json && json.item) || []
-    const pageItems = Array.isArray(list) ? list : []
-    for (const it of pageItems) all.push(it)
+  const label = warehouseId ? `[zoho-items-wh] wh=${warehouseId}` : '[zoho-items]'
 
-    const hasMore =
-      json &&
-      json.page_context &&
-      json.page_context.has_more_page === true
-    if (!hasMore || pageItems.length === 0 || pageItems.length < per) {
-      console.log(
-        `[zoho-items] fetched ${all.length} items in ${page} page(s) — ${Date.now() - t0}ms`
-      )
-      break
-    }
+  console.log(`${label} fetching page 1/${MAX_ITEMS_PAGES}…`)
+  const first = await fetchItemsPage(1, per, warehouseId)
+  all.push(...first.items)
 
-    if (page === MAX_ITEMS_PAGES) {
-      const e = new Error(
-        `[zoho-items] safety limit reached: items pagination exceeded ${MAX_ITEMS_PAGES} pages. ` +
-        `Fetched ${all.length} items so far. Narrow your item catalog or raise MAX_ITEMS_PAGES.`
-      )
-      e.code = 'ZOHO_PAGINATION_LIMIT'
-      throw e
-    }
+  if (!first.hasMore || first.items.length === 0 || first.items.length < per) {
+    console.log(`${label}: ${all.length} items in 1 page(s) — ${Date.now() - t0}ms`)
+    return all
   }
+
+  const estimatedPages = first.total > 0
+    ? Math.min(Math.ceil(first.total / per), MAX_ITEMS_PAGES)
+    : MAX_ITEMS_PAGES
+
+  let fetchedPages = 1
+  let hitPaginationLimit = false
+  for (let start = 2; start <= estimatedPages; start += ITEMS_PAGE_BATCH_SIZE) {
+    const pages = []
+    for (let p = start; p < start + ITEMS_PAGE_BATCH_SIZE && p <= estimatedPages; p += 1) {
+      pages.push(p)
+    }
+    console.log(`${label} fetching pages ${pages[0]}-${pages[pages.length - 1]}/${estimatedPages}…`)
+    const results = await Promise.all(pages.map((p) => fetchItemsPage(p, per, warehouseId)))
+
+    let stop = false
+    for (const result of results) {
+      fetchedPages += 1
+      all.push(...result.items)
+      hitPaginationLimit = result.page >= MAX_ITEMS_PAGES && result.hasMore
+      if (!result.hasMore || result.items.length === 0 || result.items.length < per) {
+        stop = true
+        break
+      }
+    }
+    if (stop) break
+  }
+
+  if (hitPaginationLimit) {
+    const e = new Error(
+      `[zoho-items] safety limit reached: items pagination exceeded ${MAX_ITEMS_PAGES} pages. ` +
+      `Fetched ${all.length} items so far. Narrow your item catalog or raise MAX_ITEMS_PAGES.`
+    )
+    e.code = 'ZOHO_PAGINATION_LIMIT'
+    throw e
+  }
+
+  console.log(`${label}: ${all.length} items in ${fetchedPages} page(s) — ${Date.now() - t0}ms`)
   return all
+}
+
+/**
+ * Fetch all items with pagination. Raw Zoho `items` objects only.
+ * @returns {Promise<object[]>}
+ */
+async function listAllItems() {
+  return listItemsPaged(null)
 }
 
 /**
@@ -258,36 +319,8 @@ async function fetchZohoItemImageBuffer(itemId) {
  * @returns {Promise<object[]>}
  */
 async function listItemsForWarehouse(warehouseId) {
-  const c = readZohoConfig()
-  if (c.code !== 'ok') {
-    const e = new Error('Zoho not configured')
-    e.code = 'ZOHO_NOT_CONFIGURED'
-    throw e
-  }
-  const per = DEFAULT_PER_PAGE
   const wid = String(warehouseId).trim()
-  const all = []
-  const t0 = Date.now()
-  for (let page = 1; page <= MAX_ITEMS_PAGES; page += 1) {
-    const p = new URLSearchParams()
-    p.set('organization_id', c.organizationId)
-    p.set('page', String(page))
-    p.set('per_page', String(per))
-    p.set('warehouse_id', wid)
-    const json = await zohoApiRequest(`${INVENTORY_V1}/items`, p, 'GET')
-    const list = (json && json.items) || (json && json.item) || []
-    const pageItems = Array.isArray(list) ? list : []
-    for (const it of pageItems) all.push(it)
-    const hasMore =
-      json &&
-      json.page_context &&
-      json.page_context.has_more_page === true
-    if (!hasMore || pageItems.length === 0 || pageItems.length < per) {
-      console.log(`[zoho-items-wh] wh=${wid}: ${all.length} items in ${page} page(s) — ${Date.now() - t0}ms`)
-      break
-    }
-  }
-  return all
+  return listItemsPaged(wid)
 }
 
 module.exports = { zohoApiRequest, listAllItems, listItemsForWarehouse, fetchListPaginated, fetchZohoItemImageBuffer }
