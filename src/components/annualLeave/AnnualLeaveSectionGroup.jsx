@@ -27,11 +27,13 @@ export function AnnualLeaveSectionGroup({
   alternateCandidates,
   empLoading,
   updateRequest,
-  onStatusChange,
   onConfirmReturn,
   onExtend,
   onDelete,
   onEditStart,
+  onApprove,
+  onReject,
+  onOpenNote,
   onPreviewLeaveLetter,
   onDownloadLeaveLetter,
   onRegenerateLeaveLetter,
@@ -40,9 +42,7 @@ export function AnnualLeaveSectionGroup({
   onShopRescheduleOpen,
   onShopApplyOpen,
   onShopMarkCompleteOpen,
-  onShopSaveAdminNote,
   onOpenEmployeeShop,
-  onPushAnnualLeaveToPayments,
 }) {
   const [collapsed, setCollapsed] = useState(false)
   const color = sectionHeadDot(sectionKey)
@@ -101,11 +101,13 @@ export function AnnualLeaveSectionGroup({
                     isAdmin={isAdmin}
                     isEmployee={isEmployee}
                     canEmployeeEditPending={!!canEmployeeEditPending}
-                    onStatusChange={onStatusChange}
                     onConfirmReturn={onConfirmReturn}
                     onExtend={onExtend}
                     onDelete={onDelete}
                     onEdit={onEditStart}
+                    onApprove={onApprove}
+                    onReject={onReject}
+                    onOpenNote={onOpenNote}
                     expanded={expandedId === row.id}
                     onToggle={() => onToggle(row.id)}
                     onPreviewLeaveLetter={onPreviewLeaveLetter}
@@ -116,9 +118,7 @@ export function AnnualLeaveSectionGroup({
                     onShopRescheduleOpen={onShopRescheduleOpen}
                     onShopApplyOpen={onShopApplyOpen}
                     onShopMarkCompleteOpen={onShopMarkCompleteOpen}
-                    onShopSaveAdminNote={onShopSaveAdminNote}
                     onOpenEmployeeShop={onOpenEmployeeShop}
-                    onPushAnnualLeaveToPayments={onPushAnnualLeaveToPayments}
                   />
                 )
               )}

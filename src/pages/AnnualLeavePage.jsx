@@ -5,16 +5,17 @@ import { useAnnualLeave } from '../hooks/useAnnualLeave'
 import { AnnualLeaveSalaryPage } from './AnnualLeaveSalaryPage'
 import { fmtISO } from '../utils/dateFormat'
 import { alDaysBetween } from '../utils/annualLeaveUtils'
-import { buildAnnualLeavePaymentPayload } from '../utils/paymentUtils'
 import { openAnnualLeaveLetterPreview, downloadAnnualLeaveLetterPdf } from '../api/annualLeaveDocuments'
 import {
   EmployeeShopVisitModal,
   ShopVisitRescheduleModal,
   ShopVisitConfirmModal,
-  ShopApplyCalculatorModal,
   ShopMarkCompleteModal,
   shopVisitFilterMatch,
 } from '../components/annualLeave/ShopVisitWorkflow'
+import { ApplySalaryModal } from '../components/annualLeave/ApplySalaryModal'
+import { AdminShopNoteModal } from '../components/annualLeave/AdminShopNoteModal'
+import { LeavePendingDecisionModal } from '../components/annualLeave/LeavePendingDecisionModal'
 import { AnnualLeaveHeader } from '../components/annualLeave/AnnualLeaveHeader'
 import { AnnualLeaveStats } from '../components/annualLeave/AnnualLeaveStats'
 import { AnnualLeaveFilters } from '../components/annualLeave/AnnualLeaveFilters'
@@ -72,8 +73,8 @@ export function AnnualLeavePage() {
   const [shopApplyRow, setShopApplyRow] = useState(null)
   const [shopCompleteRow, setShopCompleteRow] = useState(null)
   const [employeeShopRow, setEmployeeShopRow] = useState(null)
-  const [applyCalcSubmitting, setApplyCalcSubmitting] = useState(false)
-  const [applyCalcError, setApplyCalcError] = useState('')
+  const [decisionModal, setDecisionModal] = useState(null)
+  const [adminNoteRow, setAdminNoteRow] = useState(null)
   const [markCompleteSubmitting, setMarkCompleteSubmitting] = useState(false)
   const [markCompleteErr, setMarkCompleteErr] = useState('')
   const [sortBy, setSortBy] = useState('from_date')
@@ -211,25 +212,6 @@ export function AnnualLeavePage() {
     setEditingRow(null)
   }, [])
 
-  const onStatusChange = useCallback(
-    async (row, nextStatus) => {
-      if (nextStatus === row.status) return
-      try {
-        await updateRequest(row.id, {
-          employee_id: row.employee_id,
-          alternate_employee_id: row.alternate_employee_id,
-          from_date: fmtISO(row.from_date),
-          to_date: fmtISO(row.to_date),
-          reason: row.reason,
-          status: nextStatus,
-        })
-      } catch (e) {
-        window.alert(e.message || 'Update failed')
-      }
-    },
-    [updateRequest]
-  )
-
   const onDelete = useCallback(
     async (id) => {
       if (!window.confirm('Delete this leave request?')) return
@@ -261,34 +243,36 @@ export function AnnualLeavePage() {
   )
 
   const handleOpenApplyCalc = useCallback((row) => {
-    setApplyCalcError('')
     setShopApplyRow(row)
   }, [])
 
-  const handleApplyCalculatorSubmit = useCallback(
+  const applyCalculatorToRequest = useCallback(
     async (id) => {
-      setApplyCalcError('')
-      setApplyCalcSubmitting(true)
-      try {
-        await applyShopVisitCalculator(id)
-        setShopApplyRow(null)
-        showToast('Calculator snapshot applied.', 'success')
-      } catch (e) {
-        const msg = e?.message || 'Failed to apply'
-        if (e?.status === 409) {
-          setApplyCalcError(
-            e?.message ||
-              'No saved annual leave salary calculation for this employee. Save one in Leave Salary Calculator first.'
-          )
-        } else {
-          setApplyCalcError(msg)
-          showToast(msg, 'error')
-        }
-      } finally {
-        setApplyCalcSubmitting(false)
-      }
+      await applyShopVisitCalculator(id)
+      showToast('Salary applied to this handover.', 'success')
     },
     [applyShopVisitCalculator, showToast]
+  )
+
+  const handleDecision = useCallback(
+    async (row, nextStatus) => {
+      if (nextStatus === row.status) return
+      try {
+        await updateRequest(row.id, {
+          employee_id: row.employee_id,
+          alternate_employee_id: row.alternate_employee_id,
+          from_date: fmtISO(row.from_date),
+          to_date: fmtISO(row.to_date),
+          reason: row.reason,
+          status: nextStatus,
+        })
+        showToast(nextStatus === 'Approved' ? 'Request approved.' : 'Request rejected.', 'success')
+      } catch (e) {
+        window.alert(e.message || 'Update failed')
+        throw e
+      }
+    },
+    [updateRequest, showToast]
   )
 
   const handleOpenMarkComplete = useCallback((row) => {
@@ -321,33 +305,17 @@ export function AnnualLeavePage() {
     [patchShopVisitAdminNote]
   )
 
-  const handlePushAnnualLeaveToPayments = useCallback(
-    (request) => {
-      const due = request.to_date || request.expected_return_date
-      const payload = buildAnnualLeavePaymentPayload({
-        sourceReferenceId: `annual-leave-${request.id}`,
-        employeeName: request.full_name,
-        dueDate: due,
-        amount: request.calculated_leave_amount,
-        notes: 'From Annual Leave (Management → Payments integration not connected in this build).',
-      })
-      if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
-        console.info('[annual-leave] buildAnnualLeavePaymentPayload', payload)
-      }
-      showToast('Payments integration is not connected yet. Payload is prepared for when the API is available.', 'info')
-    },
-    [showToast]
-  )
-
   const tableRowProps = {
     isAdmin,
     isEmployee,
     canEmployeeEditPending,
-    onStatusChange,
     onConfirmReturn: (r) => setConfirmRow(r),
     onExtend: (r) => setExtendRow(r),
     onDelete,
     onEdit: onEditStart,
+    onApprove: (r) => setDecisionModal({ row: r, type: 'approve' }),
+    onReject: (r) => setDecisionModal({ row: r, type: 'reject' }),
+    onOpenNote: (r) => setAdminNoteRow(r),
     onPreviewLeaveLetter: handlePreviewLeaveLetter,
     onDownloadLeaveLetter: handleDownloadLeaveLetter,
     onRegenerateLeaveLetter: handleRegenerateLeaveLetter,
@@ -356,9 +324,7 @@ export function AnnualLeavePage() {
     onShopRescheduleOpen: (r) => setShopRescheduleRow(r),
     onShopApplyOpen: handleOpenApplyCalc,
     onShopMarkCompleteOpen: handleOpenMarkComplete,
-    onShopSaveAdminNote: handleShopSaveAdminNote,
     onOpenEmployeeShop: (r) => setEmployeeShopRow(r),
-    onPushAnnualLeaveToPayments: handlePushAnnualLeaveToPayments,
   }
 
   const sectionProps = {
@@ -543,15 +509,25 @@ export function AnnualLeavePage() {
         />
       )}
       {shopApplyRow && (
-        <ShopApplyCalculatorModal
+        <ApplySalaryModal
           row={shopApplyRow}
-          onApply={handleApplyCalculatorSubmit}
-          onClose={() => {
-            setShopApplyRow(null)
-            setApplyCalcError('')
-          }}
-          applying={applyCalcSubmitting}
-          applyError={applyCalcError}
+          onClose={() => setShopApplyRow(null)}
+          onApply={applyCalculatorToRequest}
+        />
+      )}
+      {decisionModal && (
+        <LeavePendingDecisionModal
+          row={decisionModal.row}
+          type={decisionModal.type}
+          onClose={() => setDecisionModal(null)}
+          onConfirm={handleDecision}
+        />
+      )}
+      {adminNoteRow && (
+        <AdminShopNoteModal
+          row={adminNoteRow}
+          onClose={() => setAdminNoteRow(null)}
+          onSave={handleShopSaveAdminNote}
         />
       )}
       {shopCompleteRow && (

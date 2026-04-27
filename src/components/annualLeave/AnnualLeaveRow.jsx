@@ -1,7 +1,6 @@
 import { fmtDMY } from '../../utils/dateFormat'
 import { alDaysBetween, alPeriodDate } from '../../utils/annualLeaveUtils'
-import { leaveStatusDisplay, shopWorkflowLabel } from './annualLeaveLabels'
-import { ShopWorkflowBadge } from './ShopVisitWorkflow'
+import { leaveStatusDisplay } from './annualLeaveLabels'
 import { AnnualLeaveDetailsPanel } from './AnnualLeaveDetailsPanel'
 import { IconEdit, IconTrash, IconChevron } from './annualLeaveRowIcons'
 import { EmpAvatar } from './EmpAvatar'
@@ -12,11 +11,13 @@ export function AnnualLeaveRow({
   isAdmin,
   isEmployee,
   canEmployeeEditPending,
-  onStatusChange,
-  onConfirmReturn,
-  onExtend,
   onDelete,
   onEdit,
+  onApprove,
+  onReject,
+  onOpenNote,
+  onConfirmReturn,
+  onExtend,
   expanded,
   onToggle,
   onPreviewLeaveLetter,
@@ -27,14 +28,10 @@ export function AnnualLeaveRow({
   onShopRescheduleOpen,
   onShopApplyOpen,
   onShopMarkCompleteOpen,
-  onShopSaveAdminNote,
   onOpenEmployeeShop,
-  onPushAnnualLeaveToPayments,
 }) {
   const es = row.effective_status || row.status
   const leaveDays = row.leave_days ?? alDaysBetween(row.from_date, row.to_date)
-  const canConfirm = isAdmin && ['Ongoing', 'ReturnPending', 'Overstayed'].includes(es) && !row.actual_return_date
-  const canExtend = isAdmin && ['Approved', 'Ongoing'].includes(es)
   const employeeCanEditThis = canEmployeeEditPending && row.status === 'Pending'
   const showActions = isAdmin || employeeCanEditThis
 
@@ -68,11 +65,6 @@ export function AnnualLeaveRow({
         <td>
           <div className="al-row__status-stack" title={leaveStatusDisplay(es)}>
             <StatusBadge status={es} labelOverride={leaveStatusDisplay(es)} />
-            {row.status === 'Approved' && (
-              <div className="al-row__shop-badge" title={shopWorkflowLabel(row)}>
-                <ShopWorkflowBadge row={row} />
-              </div>
-            )}
           </div>
         </td>
         <td className="al-row__ret">
@@ -87,34 +79,6 @@ export function AnnualLeaveRow({
         {showActions && (
           <td onClick={(e) => e.stopPropagation()}>
             <div className="al-row__acts al-row__acts--grouped">
-              {row.status === 'Pending' && isAdmin && (
-                <button
-                  className="al-btn al-btn--approve"
-                  onClick={() => onStatusChange(row, 'Approved')}
-                  type="button"
-                >
-                  Approve
-                </button>
-              )}
-              {row.status === 'Pending' && isAdmin && (
-                <button
-                  className="al-btn al-btn--ghost al-btn--sm"
-                  type="button"
-                  onClick={() => onStatusChange(row, 'Rejected')}
-                >
-                  Reject
-                </button>
-              )}
-              {canConfirm && (
-                <button className="al-btn al-btn--success" onClick={() => onConfirmReturn(row)} type="button">
-                  Return
-                </button>
-              )}
-              {canExtend && (
-                <button className="al-btn al-btn--extend" onClick={() => onExtend(row)} type="button">
-                  Extend
-                </button>
-              )}
               {(isAdmin || employeeCanEditThis) && (
                 <button className="al-icon-btn al-icon-btn--edit" title="Edit" onClick={() => onEdit(row)} type="button">
                   <IconEdit />
@@ -149,13 +113,17 @@ export function AnnualLeaveRow({
                 onPreviewLeaveLetter={onPreviewLeaveLetter}
                 onDownloadLeaveLetter={onDownloadLeaveLetter}
                 onRegenerateLeaveLetter={onRegenerateLeaveLetter}
+                onApprove={onApprove}
+                onReject={onReject}
+                onEdit={onEdit}
+                onOpenEmployeeShop={onOpenEmployeeShop}
                 onShopConfirmOpen={onShopConfirmOpen}
                 onShopRescheduleOpen={onShopRescheduleOpen}
-                onShopApplyOpen={onShopApplyOpen}
+                onApplySalaryOpen={onShopApplyOpen}
                 onShopMarkCompleteOpen={onShopMarkCompleteOpen}
-                onShopSaveAdminNote={onShopSaveAdminNote}
-                onOpenEmployeeShop={onOpenEmployeeShop}
-                onPushAnnualLeaveToPayments={onPushAnnualLeaveToPayments}
+                onConfirmReturn={onConfirmReturn}
+                onExtend={onExtend}
+                onOpenNote={onOpenNote}
               />
             </div>
           </td>

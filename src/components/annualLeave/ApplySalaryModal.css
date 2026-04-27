@@ -1,0 +1,58 @@
+.al-asm {
+  max-width: 30rem;
+}
+
+.al-asm__lede,
+.al-asm__alert {
+  font-size: 0.9rem;
+  line-height: 1.4;
+  margin: 0 0 0.9rem;
+  color: var(--text-muted, #64748b);
+  padding: 0 1.25rem;
+}
+
+.al-asm__alert {
+  color: var(--text, #0f172a);
+  background: var(--theme-surface-soft, rgba(251, 191, 36, 0.12));
+  border-radius: var(--radius-sm, 8px);
+  padding: 0.6rem 0.75rem;
+  margin: 0 1.25rem 0.75rem;
+}
+
+.al-asm__body .al-asm__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0 1.25rem 0.5rem;
+}
+
+.al-asm__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.al-asm__field input {
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+}
+
+.al-asm__result {
+  font-size: 0.85rem;
+  margin: 0 1.25rem 0.75rem;
+  color: var(--text);
+}
+
+.al-asm__body .al-modal__actions--sticky,
+.al-asm__body {
+  margin-top: auto;
+}
+
+.al-asm .al-modal__body-scroll {
+  max-height: min(55vh, 22rem);
+}
