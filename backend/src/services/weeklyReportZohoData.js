@@ -663,6 +663,28 @@ function parseWarehouseStockFromLocationOnly(item, warehouseId) {
   return 0
 }
 
+function itemHasValidLocationData(item) {
+  if (!item || typeof item !== 'object') return false
+  // Must have the locations array
+  if (!Array.isArray(item.locations) || item.locations.length === 0) return false
+  // At least one location must have valid stock fields
+  for (const loc of item.locations) {
+    if (!loc || typeof loc !== 'object') continue
+    for (const k of [
+      'location_stock_on_hand',
+      'warehouse_stock_on_hand',
+      'location_available_stock',
+      'warehouse_available_stock',
+      'location_actual_available_stock',
+      'warehouse_actual_available_stock',
+    ]) {
+      const n = parseOptionalQty(loc[k])
+      if (n != null) return true
+    }
+  }
+  return false
+}
+
 function makeMatrixCell() {
   return { qty: 0, amount: 0, price: null }
 }
@@ -862,9 +884,20 @@ async function buildFamilyWarehouseMatrixForGroupMembers(
     }
   }
 
+  // CRITICAL: Only include items with valid per-warehouse stock data (locations[] array).
+  // Items without locations[] can't be accurately shown in a warehouse breakdown.
+  const validFamilyItems = familyItems.filter(item => itemHasValidLocationData(item))
+  
+  if (validFamilyItems.length === 0) {
+    console.warn(`[matrix] Family "${family}": none of the ${familyItems.length} item(s) have valid locations[] data for warehouse breakdown`)
+  }
+  if (validFamilyItems.length < familyItems.length) {
+    console.log(`[matrix] Family "${family}": filtered ${familyItems.length - validFamilyItems.length} item(s) without valid location data (${validFamilyItems.length} remaining)`)
+  }
+  
   const matrixRows = []
   const rowsByItemKey = new Map()
-  for (const item of familyItems) {
+  for (const item of validFamilyItems) {
     const salesPrice = parseZohoUnitSalesPrice(item) ?? parseZohoUnitPurchasePrice(item)
     const purchasePrice = parseZohoUnitPurchasePrice(item) ?? salesPrice
     const entry = {
@@ -936,6 +969,15 @@ async function buildFamilyWarehouseMatrixForGroupMembers(
       [`${section.key}_amount`]: row.total_amount,
     })))
 
+  // Add warning if items were filtered out due to missing location data
+  if (validFamilyItems.length < familyItems.length) {
+    const filtered = familyItems.length - validFamilyItems.length
+    warnings.push(
+      `${filtered} item(s) excluded from warehouse breakdown: missing per-warehouse stock data (locations[] array not provided by Zoho API). ` +
+      `These items cannot be accurately shown in a warehouse-specific view.`
+    )
+  }
+  
   return {
     family,
     warehouses: targetWarehouses,
