@@ -126,7 +126,7 @@ test('buildFamilyWarehouseMatrixForGroupMembers: splits stock and sales by Zoho 
   assert.equal(matrix.sections.opening.rows[0].warehouses.exports.qty, 22)
 })
 
-test('buildFamilyWarehouseMatrixForGroupMembers: hydrates item details when list rows omit locations[]', async (t) => {
+test('buildFamilyWarehouseMatrixForGroupMembers: uses per-warehouse items API when list rows omit locations[]', async (t) => {
   const prevN = process.env.NODE_ENV
   const prevR = process.env.REPORT_VENDOR_ID
   process.env.NODE_ENV = 'test'
@@ -157,14 +157,14 @@ test('buildFamilyWarehouseMatrixForGroupMembers: hydrates item details when list
         custom_fields: [{ customfield_id: 'cf1', value: 'NSEL', label: 'Family' }],
       },
     ],
-    zohoApiRequest: async (path) => {
-      if (String(path).includes('/items/18')) {
-        return { item: { item_id: '18', locations: [{ location_id: 'life', location_stock_on_hand: 92 }] } }
+    fetchItemsRawForWarehouse: async (wid) => {
+      if (wid === 'life') {
+        return [{ item_id: '18', warehouse_stock_on_hand: 92 }]
       }
-      if (String(path).includes('/items/20')) {
-        return { item: { item_id: '20', locations: [{ location_id: 'exports', location_stock_on_hand: 10 }] } }
+      if (wid === 'exports') {
+        return [{ item_id: '20', warehouse_stock_on_hand: 10 }]
       }
-      throw new Error(`unexpected path ${path}`)
+      return []
     },
   })
   const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {

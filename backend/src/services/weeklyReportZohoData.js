@@ -663,27 +663,6 @@ function parseWarehouseStockFromLocationOnly(item, warehouseId) {
   return 0
 }
 
-function itemHasValidLocationData(item) {
-  if (!item || typeof item !== 'object') return false
-  // Must have the locations array
-  if (!Array.isArray(item.locations) || item.locations.length === 0) return false
-  // At least one location must have valid stock fields
-  for (const loc of item.locations) {
-    if (!loc || typeof loc !== 'object') continue
-    for (const k of [
-      'location_stock_on_hand',
-      'warehouse_stock_on_hand',
-      'location_available_stock',
-      'warehouse_available_stock',
-      'location_actual_available_stock',
-      'warehouse_actual_available_stock',
-    ]) {
-      const n = parseOptionalQty(loc[k])
-      if (n != null) return true
-    }
-  }
-  return false
-}
 
 function makeMatrixCell() {
   return { qty: 0, amount: 0, price: null }
@@ -838,7 +817,20 @@ async function buildFamilyWarehouseMatrixForGroupMembers(
   }
   const familyFieldId = cfg.familyCustomFieldId
   const reportScope = buildWeeklyReportScope(warehouseId, excludeWarehouseId)
-  const [raw, salesR, purchR, vcR] = await Promise.all([
+  
+  // Fetch items, transactions, AND per-warehouse item stock lists in parallel.
+  // `fetchItemsRawForWarehouse(wid)` reliably returns per-warehouse stock
+  // (unlike the unfiltered list which often omits locations[]).
+  const canFetchWarehouseItems = typeof fetchItemsRawForWarehouse === 'function'
+  const warehouseStockPromises = canFetchWarehouseItems
+    ? warehouseIds.map(wid =>
+        fetchItemsRawForWarehouse(wid)
+          .then(items => ({ wid, items, error: null }))
+          .catch(err => ({ wid, items: [], error: err }))
+      )
+    : []
+  
+  const [raw, salesR, purchR, vcR, ...warehouseStockResults] = await Promise.all([
     fetchAllItemsRaw(),
     getSales(fromDate, toDate, { onWarning, ...reportScope.transactionFilter }),
     getPurchases(fromDate, toDate, rv.vendorId, {
@@ -854,11 +846,32 @@ async function buildFamilyWarehouseMatrixForGroupMembers(
       includeWarehouseDetail: true,
       ...reportScope.transactionFilter,
     }),
+    ...warehouseStockPromises,
   ])
 
   if (salesR.error) onWarning(`Sales (invoices) not loaded: ${(salesR.error && salesR.error.message) || salesR.error}`)
   if (purchR.error) onWarning(`Purchases (bills) not loaded: ${(purchR.error && purchR.error.message) || purchR.error}`)
   if (vcR.error) onWarning(`Vendor credits not loaded: ${(vcR.error && vcR.error.message) || vcR.error}`)
+  
+  // Build reliable per-warehouse stock map: { itemId: { warehouseId: qty } }
+  // This uses Zoho's warehouse-filtered items endpoint which always returns
+  // correct per-warehouse stock, regardless of whether locations[] is set.
+  const stockByItemByWarehouse = new Map()
+  for (const { wid, items, error } of warehouseStockResults) {
+    if (error) {
+      onWarning(`Warehouse stock (${wid}) not loaded: ${(error && error.message) || error}`)
+      continue
+    }
+    for (const it of Array.isArray(items) ? items : []) {
+      if (!it || !it.item_id) continue
+      const iid = String(it.item_id)
+      const qty = parseWarehouseScopedStockOnHand(it, wid)
+      if (!Number.isFinite(qty)) continue
+      if (!stockByItemByWarehouse.has(iid)) stockByItemByWarehouse.set(iid, new Map())
+      stockByItemByWarehouse.get(iid).set(wid, Math.max(0, qty))
+    }
+  }
+  console.log(`[matrix] Family "${family}": loaded per-warehouse stock for ${stockByItemByWarehouse.size} item(s) across ${warehouseIds.length} warehouse(s)`)
 
   const maps = buildZohoLookupMaps(raw, familyFieldId)
   const familyItems = []
@@ -884,20 +897,9 @@ async function buildFamilyWarehouseMatrixForGroupMembers(
     }
   }
 
-  // CRITICAL: Only include items with valid per-warehouse stock data (locations[] array).
-  // Items without locations[] can't be accurately shown in a warehouse breakdown.
-  const validFamilyItems = familyItems.filter(item => itemHasValidLocationData(item))
-  
-  if (validFamilyItems.length === 0) {
-    console.warn(`[matrix] Family "${family}": none of the ${familyItems.length} item(s) have valid locations[] data for warehouse breakdown`)
-  }
-  if (validFamilyItems.length < familyItems.length) {
-    console.log(`[matrix] Family "${family}": filtered ${familyItems.length - validFamilyItems.length} item(s) without valid location data (${validFamilyItems.length} remaining)`)
-  }
-  
   const matrixRows = []
   const rowsByItemKey = new Map()
-  for (const item of validFamilyItems) {
+  for (const item of familyItems) {
     const salesPrice = parseZohoUnitSalesPrice(item) ?? parseZohoUnitPurchasePrice(item)
     const purchasePrice = parseZohoUnitPurchasePrice(item) ?? salesPrice
     const entry = {
@@ -935,8 +937,17 @@ async function buildFamilyWarehouseMatrixForGroupMembers(
   })
 
   for (const row of matrixRows) {
+    const iid = row.item?.item_id != null ? String(row.item.item_id) : ''
+    const stockByWh = iid ? stockByItemByWarehouse.get(iid) : null
+    
     for (const wid of warehouseIds) {
-      const closingQty = parseWarehouseStockFromLocationOnly(row.item, wid)
+      // Use reliable per-warehouse stock from warehouse-filtered API (fallback to locations[] if missing)
+      let closingQty = stockByWh ? (stockByWh.get(wid) || 0) : 0
+      if (closingQty === 0) {
+        // Fallback to locations[] parsing for items that had data there
+        closingQty = parseWarehouseStockFromLocationOnly(row.item, wid)
+      }
+      
       if (closingQty > 0) {
         addMatrixValue(row.closing, wid, closingQty, row.salesPrice != null ? closingQty * row.salesPrice : 0, row.salesPrice)
       }
@@ -969,15 +980,6 @@ async function buildFamilyWarehouseMatrixForGroupMembers(
       [`${section.key}_amount`]: row.total_amount,
     })))
 
-  // Add warning if items were filtered out due to missing location data
-  if (validFamilyItems.length < familyItems.length) {
-    const filtered = familyItems.length - validFamilyItems.length
-    warnings.push(
-      `${filtered} item(s) excluded from warehouse breakdown: missing per-warehouse stock data (locations[] array not provided by Zoho API). ` +
-      `These items cannot be accurately shown in a warehouse-specific view.`
-    )
-  }
-  
   return {
     family,
     warehouses: targetWarehouses,
