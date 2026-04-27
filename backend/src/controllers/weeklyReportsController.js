@@ -16,7 +16,7 @@ const {
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 /** Family-details drawer: per-warehouse fetches, bounded for Zoho rate safety */
-const FAMILY_WAREHOUSE_CONCURRENCY  = 3
+const FAMILY_WAREHOUSE_CONCURRENCY  = 1
 const FAMILY_DETAILS_CACHE_TTL_MS  = 90_000
 const _familyDetailsCache  = new Map()   // key → { result, expiresAt }
 const _familyDetailsFlight = new Map()   // key → Promise<result>

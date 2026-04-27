@@ -12,7 +12,18 @@ const MAX_ITEMS_PAGES = 50
 const ITEMS_PAGE_BATCH_SIZE =
   process.env.ZOHO_ITEMS_PAGE_BATCH_SIZE !== undefined
     ? Math.max(1, parseInt(process.env.ZOHO_ITEMS_PAGE_BATCH_SIZE, 10) || 1)
-    : 8
+    : 2
+const ZOHO_RATE_LIMIT_RETRY_DELAYS_MS = [1500, 3000, 6000, 10000]
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isZohoInProcessLimit(status, body) {
+  if (status === 429) return true
+  if (!body || typeof body !== 'string') return false
+  return body.includes('"code":1070') || body.includes("'code':1070") || body.includes('maximum number of in process requests')
+}
 
 /**
  * @param {string} path - must start with / e.g. /inventory/v1/items
@@ -39,23 +50,28 @@ async function zohoApiRequest(path, searchParams, method, body) {
   // (e.g. missing scope / Zoho code 57) are NOT retried — refreshing won't
   // fix scope problems and we'd just burn an extra token call per request.
   let token = await getZohoAccessToken()
-  let { status, body: resBody } = await httpsRequestJson(u.toString(), {
+  const doRequest = () => httpsRequestJson(u.toString(), {
     method: method || 'GET',
     body: body || undefined,
     timeoutMs: c.timeoutMs,
     headers: { Authorization: `Zoho-oauthtoken ${token}` },
   })
+  let { status, body: resBody } = await doRequest()
   if (isInvalidAccessTokenResponse(status, resBody)) {
     console.warn(
       `[zoho-auth] retrying after invalid access token — ${path.split('?')[0]}`
     )
     token = await getZohoAccessToken({ force: true })
-    ;({ status, body: resBody } = await httpsRequestJson(u.toString(), {
-      method: method || 'GET',
-      body: body || undefined,
-      timeoutMs: c.timeoutMs,
-      headers: { Authorization: `Zoho-oauthtoken ${token}` },
-    }))
+    ;({ status, body: resBody } = await doRequest())
+  }
+
+  for (const delayMs of ZOHO_RATE_LIMIT_RETRY_DELAYS_MS) {
+    if (!isZohoInProcessLimit(status, resBody)) break
+    console.warn(
+      `[zoho-rate-limit] ${path.split('?')[0]} hit Zoho in-process limit; retrying in ${delayMs}ms`
+    )
+    await sleep(delayMs)
+    ;({ status, body: resBody } = await doRequest())
   }
 
   if (status < 200 || status >= 300) {
