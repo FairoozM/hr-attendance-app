@@ -17,7 +17,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 /** Family-details drawer: per-warehouse fetches, bounded for Zoho rate safety */
 const FAMILY_WAREHOUSE_CONCURRENCY  = 1
-const FAMILY_DETAILS_CACHE_TTL_MS  = 90_000
+const FAMILY_DETAILS_CACHE_TTL_MS  = 15 * 60 * 1000
 const _familyDetailsCache  = new Map()   // key → { result, expiresAt }
 const _familyDetailsFlight = new Map()   // key → Promise<result>
 
@@ -156,6 +156,14 @@ function weeklyReportRowHasVisibleValue(row) {
   })
 }
 
+function isZohoDailyRateLimit(err) {
+  if (!err) return false
+  const msg = String(err.message || '')
+  if (err.httpStatus === 429 && /maximum call rate limit of \d/.test(msg)) return true
+  if (/"code":45/.test(msg)) return true
+  return false
+}
+
 function handleZohoError(res, err, ctx) {
   const isDev = process.env.NODE_ENV !== 'production'
   console.error(
@@ -164,6 +172,13 @@ function handleZohoError(res, err, ctx) {
     err.code ? `code=${err.code}` : '',
     err.missing && err.missing.length ? `missing=${err.missing.join(',')}` : ''
   )
+  if (isZohoDailyRateLimit(err)) {
+    return res.status(429).json({
+      error: 'Zoho API daily quota exceeded (10,000 calls/day). This resets at midnight UTC. The app will resume automatically once the quota renews.',
+      code: 'ZOHO_DAILY_RATE_LIMIT',
+      user_action: 'Please wait until the daily Zoho quota resets, then retry.',
+    })
+  }
   switch (err.code) {
     case 'ZOHO_NOT_CONFIGURED': {
       const body = { error: err.message, code: err.code }

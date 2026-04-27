@@ -19,7 +19,7 @@ const { REPRESENTATIVE_IMAGE_SELECTION_VERSION } = require('./zohoRepresentative
 const CACHE_TTL_MS =
   process.env.WEEKLY_REPORT_CACHE_TTL_MS !== undefined
     ? Math.max(0, parseInt(process.env.WEEKLY_REPORT_CACHE_TTL_MS, 10) || 0)
-    : 2 * 60 * 1000 // 2 minutes
+    : 15 * 60 * 1000 // 15 minutes (conserves Zoho's 10k/day API quota)
 
 /** @type {Map<string, Promise<any>>} */
 const inFlight = new Map()
