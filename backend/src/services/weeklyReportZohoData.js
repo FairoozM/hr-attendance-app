@@ -666,19 +666,14 @@ function parseWarehouseStockFromLocationOnly(item, warehouseId) {
   return 0
 }
 
-function makeMatrixCell(enableDebug = false) {
-  const cell = { qty: 0, amount: 0, price: null }
-  if (enableDebug) {
-    cell._debug_sources = []
-  }
-  return cell
+function makeMatrixCell() {
+  return { qty: 0, amount: 0, price: null }
 }
 
-function addMatrixValue(row, warehouseId, qty, amount, price = null, debugSource = null) {
+function addMatrixValue(row, warehouseId, qty, amount, price = null) {
   const wid = normalizeWarehouseId(warehouseId)
   if (!wid) return
-  const enableDebug = debugSource != null
-  if (!row.warehouses[wid]) row.warehouses[wid] = makeMatrixCell(enableDebug)
+  if (!row.warehouses[wid]) row.warehouses[wid] = makeMatrixCell()
   const cell = row.warehouses[wid]
   const q = Number(qty) || 0
   const a = Number(amount) || 0
@@ -686,9 +681,6 @@ function addMatrixValue(row, warehouseId, qty, amount, price = null, debugSource
   cell.amount += a
   if (price != null && Number.isFinite(Number(price)) && Number(price) > 0) {
     cell.price = Number(price)
-  }
-  if (enableDebug && debugSource && Array.isArray(cell._debug_sources)) {
-    cell._debug_sources.push(debugSource)
   }
   row.total_qty += q
   row.total_amount += a
@@ -710,15 +702,13 @@ function makeMatrixItemRow(item, unitSalesPrice, unitPurchasePrice) {
 function finaliseMatrixRows(rows, warehouseIds) {
   return rows
     .map((row) => {
-      const out = { ...row, warehouses: {} }
+      const out = { ...row, warehouses: { ...row.warehouses } }
       for (const wid of warehouseIds) {
-        const sourceCell = row.warehouses[wid] || {}
-        const cell = makeMatrixCell()
-        cell.qty = Math.round((Number(sourceCell.qty) || 0) * 100) / 100
-        cell.amount = Math.round((Number(sourceCell.amount) || 0) * 100) / 100
-        cell.price = sourceCell.price
-        // Strip debug data from output
-        out.warehouses[wid] = cell
+        if (!out.warehouses[wid]) out.warehouses[wid] = makeMatrixCell()
+        for (const k of ['qty', 'amount']) {
+          const n = Number(out.warehouses[wid][k]) || 0
+          out.warehouses[wid][k] = Math.round(n * 100) / 100
+        }
       }
       out.total_qty = Math.round((Number(out.total_qty) || 0) * 100) / 100
       out.total_amount = Math.round((Number(out.total_amount) || 0) * 100) / 100
@@ -764,8 +754,7 @@ function lineItemKey(line) {
   return ''
 }
 
-function addLineToMatrix(rowsByItemKey, lines, qtyKey, amountKey, priceResolver, enableDebug = false) {
-  const isDevDebug = process.env.NODE_ENV !== 'production' || process.env.WEEKLY_REPORT_VENDOR_DEBUG === '1'
+function addLineToMatrix(rowsByItemKey, lines, qtyKey, amountKey, priceResolver) {
   for (const line of Array.isArray(lines) ? lines : []) {
     const wid = normalizeWarehouseId(line && line.warehouse_id)
     if (!wid) continue
@@ -781,19 +770,7 @@ function addLineToMatrix(rowsByItemKey, lines, qtyKey, amountKey, priceResolver,
       : price != null && Number.isFinite(Number(price))
         ? qty * Number(price)
         : lineAmount
-    
-    const debugSource = (enableDebug && isDevDebug) ? {
-      document_id: line.document_id,
-      date: line.date,
-      qty,
-      amount,
-    } : null
-    
-    if (enableDebug && isDevDebug && qtyKey === 'sales') {
-      console.log(`[matrix-debug] Adding ${qtyKey} line: SKU=${row.item?.sku || 'n/a'} qty=${qty} wh=${wid} doc=${line.document_id || 'n/a'}`)
-    }
-    
-    addMatrixValue(row[qtyKey], wid, qty, amount, price, debugSource)
+    addMatrixValue(row[qtyKey], wid, qty, amount, price)
   }
 }
 
@@ -964,23 +941,20 @@ async function buildFamilyWarehouseMatrixForGroupMembers(
     }
   }
 
-  addLineToMatrix(rowsByItemKey, purchR.lines, 'purchase', 'unit_price', (row) => row.purchasePrice, false)
+  addLineToMatrix(rowsByItemKey, purchR.lines, 'purchase', 'unit_price', (row) => row.purchasePrice)
   addLineToMatrix(rowsByItemKey, vcR.lines, 'returned', 'unit_price', (row, line) => {
     if (row.salesPrice != null) return row.salesPrice
     const qty = Number(line.quantity) || 0
     const amount = Number(line.item_total) || 0
     return qty > 0 && amount > 0 ? amount / qty : null
-  }, false)
+  })
   addLineToMatrix(rowsByItemKey, salesR.lines, 'sales', 'line_total', (row, line) => {
     const qty = Number(line.quantity) || 0
     const amount = Number(line.item_total) || 0
     if (qty > 0 && amount > 0) return amount / qty
     return row.salesPrice
-  }, true)
+  })
 
-  const isDevDebug = process.env.NODE_ENV !== 'production' || process.env.WEEKLY_REPORT_VENDOR_DEBUG === '1'
-  const discrepancies = []
-  
   for (const row of matrixRows) {
     for (const wid of warehouseIds) {
       const closingQty = parseWarehouseStockFromLocationOnly(row.item, wid)
@@ -991,45 +965,6 @@ async function buildFamilyWarehouseMatrixForGroupMembers(
       const soldQty = Number(row.sales.warehouses[wid]?.qty) || 0
       const returnedQty = Number(row.returned.warehouses[wid]?.qty) || 0
       const openingQty = closingQty - purchaseQty + soldQty + returnedQty
-      
-      // Detect inventory discrepancies
-      if (openingQty > 0 && closingQty === 0 && purchaseQty === 0) {
-        const whName = targetWarehouses.find(w => w.warehouse_id === wid)?.warehouse_name || wid
-        const discrepancy = {
-          sku: row.item?.sku || 'n/a',
-          item_name: row.item?.name || 'n/a',
-          item_id: row.item?.item_id || 'n/a',
-          warehouse_id: wid,
-          warehouse_name: whName,
-          derived_opening_qty: Math.round(openingQty * 100) / 100,
-          closing_qty: 0,
-          sales_qty: Math.round(soldQty * 100) / 100,
-          purchase_qty: 0,
-          returned_qty: Math.round(returnedQty * 100) / 100,
-        }
-        
-        // Add transaction sources if available
-        const salesCell = row.sales.warehouses[wid]
-        if (salesCell && Array.isArray(salesCell._debug_sources)) {
-          discrepancy.sales_transactions = salesCell._debug_sources.map(s => ({
-            document_id: s.document_id,
-            date: s.date,
-            qty: s.qty,
-          }))
-        }
-        
-        discrepancies.push(discrepancy)
-        
-        if (isDevDebug) {
-          console.warn(
-            `[matrix-discrepancy] SKU=${discrepancy.sku} Warehouse=${whName}: ` +
-            `Derived opening stock is ${discrepancy.derived_opening_qty} units but closing stock is 0 with no purchases. ` +
-            `This suggests ${discrepancy.sales_qty} units were sold from non-existent inventory. ` +
-            `Sales docs: ${discrepancy.sales_transactions ? discrepancy.sales_transactions.map(t => t.document_id).join(', ') : 'n/a'}`
-          )
-        }
-      }
-      
       if (openingQty > 0 || closingQty > 0 || purchaseQty > 0 || soldQty > 0 || returnedQty > 0) {
         addMatrixValue(row.opening, wid, Math.max(0, openingQty), row.salesPrice != null ? Math.max(0, openingQty) * row.salesPrice : 0, row.salesPrice)
       }
@@ -1055,19 +990,12 @@ async function buildFamilyWarehouseMatrixForGroupMembers(
       [`${section.key}_amount`]: row.total_amount,
     })))
 
-  const reportMeta = { warnings: [...new Set(warnings)].filter(Boolean) }
-  
-  if (isDevDebug && discrepancies.length > 0) {
-    reportMeta.inventory_discrepancies = discrepancies
-    console.log(`[matrix-debug] Found ${discrepancies.length} inventory discrepancy(ies) for family "${family}"`)
-  }
-  
   return {
     family,
     warehouses: targetWarehouses,
     sections,
     items: flatItems,
-    reportMeta,
+    reportMeta: { warnings: [...new Set(warnings)].filter(Boolean) },
   }
 }
 
@@ -1152,7 +1080,7 @@ async function fetchZohoItemRowsForGroupMembers(
       ? fetchItemsRawForWarehouse(reportScope.subtractStockWarehouseId)
       : Promise.resolve([]),
   ])
-    console.log(
+  console.log(
     `[zoho-timing] parallel fetch ${Date.now() - t0All}ms — ` +
     `scope=${reportScope.kind}, ` +
     `items=${raw.length}, invoices=${salesR.document_count ?? 0}, ` +
@@ -1249,14 +1177,14 @@ async function fetchZohoItemRowsForGroupMembers(
     }
     for (const z of zohoMatches) {
       // Skip inactive items — report only active inventory
-    if (z.status && String(z.status).toLowerCase() === 'inactive') continue
-    const sk = typeof z.sku === 'string' ? z.sku.trim() : ''
+      if (z.status && String(z.status).toLowerCase() === 'inactive') continue
+      const sk = typeof z.sku === 'string' ? z.sku.trim() : ''
       if (!sk) {
         skipReasons.push(`"${z.name || label}" — no SKU in Zoho`)
         continue
       }
       includedItemSkus.add(String(sk).trim().toLowerCase())
-    out.push(zohoItemToPlaceholderReportRow(z, fromDate, toDate, familyFieldId))
+      out.push(zohoItemToPlaceholderReportRow(z, fromDate, toDate, familyFieldId))
     }
   }
 
@@ -1381,7 +1309,7 @@ async function fetchZohoItemRowsForGroupMembers(
   // Subtract excluded-warehouse stock from each item's opening/closing qty.
   if (damagedStockByItemId && damagedStockByItemId.size > 0) {
     let subtracted = 0
-  for (const row of out) {
+    for (const row of out) {
       if (!row.item_id) continue
       const damagedQty = damagedStockByItemId.get(String(row.item_id)) || 0
       if (damagedQty > 0) {
