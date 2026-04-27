@@ -597,6 +597,63 @@
   color: #64748b;
 }
 
+/* Per-warehouse groupings inside the family details drawer (WeeklySalesReportPage) */
+.wsr-drawer-warehouse {
+  border: 1px solid var(--border-color, #e5e9f2);
+  border-radius: 10px;
+  background: var(--panel-bg, #fff);
+  overflow: hidden;
+}
+
+.wsr-drawer-warehouse + .wsr-drawer-warehouse {
+  margin-top: 4px;
+}
+
+.wsr-drawer-warehouse__summary {
+  list-style: none;
+  margin: 0;
+  padding: 10px 12px;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  user-select: none;
+  background: #f1f5f9;
+  border-bottom: 1px solid var(--border-color, #e5e9f2);
+}
+
+.wsr-drawer-warehouse[open] .wsr-drawer-warehouse__summary {
+  border-bottom-color: var(--border-color, #e5e9f2);
+}
+
+.wsr-drawer-warehouse__name {
+  display: block;
+  width: 100%;
+}
+
+.wsr-drawer-warehouse__inner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 0 0;
+  background: var(--panel-bg, #fff);
+}
+
+.wsr-drawer-warehouse__inner .wsr-drawer-card {
+  background: #fafbfc;
+}
+
+.wsr-drawer-loading__sub {
+  display: block;
+  font-size: 12px;
+  color: #64748b;
+  font-weight: normal;
+  margin-top: 4px;
+}
+
+.wsr-drawer-empty--soft {
+  line-height: 1.4;
+}
+
 .wsr-sales-sort-select {
   min-width: 150px;
   height: 34px;

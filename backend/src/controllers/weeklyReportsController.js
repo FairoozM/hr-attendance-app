@@ -15,6 +15,60 @@ const {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
+/** Family-details drawer: per-warehouse fetches, bounded for Zoho rate safety */
+const FAMILY_WAREHOUSE_CONCURRENCY  = 3
+const FAMILY_DETAILS_CACHE_TTL_MS  = 90_000
+const _familyDetailsCache  = new Map()   // key → { result, expiresAt }
+const _familyDetailsFlight = new Map()   // key → Promise<result>
+
+function makeFamilyDetailsCacheKey(group, from, to, family, warehouseId, excludeWarehouseId) {
+  return [
+    'fd',
+    group,
+    from,
+    to,
+    String(family || '').trim().toLowerCase(),
+    normalizeQueryWhId(warehouseId),
+    normalizeQueryWhId(excludeWarehouseId),
+  ].join(':')
+}
+
+function normalizeQueryWhId(v) {
+  if (v == null || String(v).trim() === '') return 'none'
+  return String(v).trim()
+}
+
+/**
+ * Run up to `limit` async jobs in parallel, queueing the rest.
+ * @template T
+ * @param {T[]} list
+ * @param {number} limit
+ * @param {(x: T, i: number) => Promise<R>} fn
+ * @returns {Promise<R[]>}
+ * @template R
+ */
+async function mapWithConcurrency(list, limit, fn) {
+  if (list.length === 0) return []
+  const n   = list.length
+  const out = new Array(n)
+  const lim = Math.max(1, Math.min(Math.floor(Number(limit) || 1) || 1, n))
+  const lock = { i: 0 }
+  const worker = async () => {
+    for (;;) {
+      const taskIndex = lock.i++
+      if (taskIndex >= n) return
+      out[taskIndex] = await fn(list[taskIndex], taskIndex)
+    }
+  }
+  await Promise.all(Array.from({ length: lim }, () => worker()))
+  return out
+}
+
+function clearFamilyDetailsWarehouseCache() {
+  _familyDetailsCache.clear()
+  _familyDetailsFlight.clear()
+}
+
 function validateDateRange(req, res) {
   const { from_date, to_date } = req.query
   if (!from_date || !to_date) {
@@ -251,7 +305,85 @@ async function getReportByGroup(req, res) {
 }
 
 /**
+ * For each target warehouse, runs getInventoryByGroup(…, wh, null) — true
+ * per-warehouse stock + transactions, not the global "exclude" scope.
+ *
+ * @param {string} group
+ * @param {string} fromDate
+ * @param {string} toDate
+ * @param {string} family
+ * @param {string|null} filterWarehouseId  - main filter: only this warehouse, or all when null
+ * @param {string|null} excludeWarehouseId - from Zoho list, omit this id when not filtering to one WH
+ * @returns {Promise<{ warehouses: Array<{ warehouse_id: string, warehouse_name: string, items: object[] }> }>}
+ */
+async function buildFamilyDetailsWarehousesPayload(
+  group,
+  fromDate,
+  toDate,
+  family,
+  filterWarehouseId,
+  excludeWarehouseId
+) {
+  const familyKey   = String(family || '').trim().toLowerCase()
+  const filterByFam = (itemDetails) => {
+    if (!Array.isArray(itemDetails)) return []
+    return itemDetails.filter(
+      (r) => String(r.family_display || r.family || '').trim().toLowerCase() === familyKey
+    )
+  }
+
+  const normEx = excludeWarehouseId && String(excludeWarehouseId).trim() !== ''
+    ? String(excludeWarehouseId).trim()
+    : null
+  const normF  = filterWarehouseId && String(filterWarehouseId).trim() !== ''
+    ? String(filterWarehouseId).trim()
+    : null
+
+  /** @type {Array<{ warehouse_id: string, warehouse_name: string }>} */
+  let targets = []
+  if (normF) {
+    const allW  = await fetchWarehouses()
+    const found = Array.isArray(allW)
+      ? allW.find((w) => w && String(w.warehouse_id) === normF)
+      : null
+    targets = [
+      { warehouse_id: normF, warehouse_name: (found && found.warehouse_name) || normF },
+    ]
+  } else {
+    const allW = await fetchWarehouses()
+    if (!Array.isArray(allW) || allW.length === 0) {
+      return { warehouses: [] }
+    }
+    targets = allW
+      .filter((w) => w && String(w.warehouse_id) !== (normEx || '___never___'))
+      .map((w) => ({
+        warehouse_id:   String(w.warehouse_id),
+        warehouse_name: String(w.warehouse_name || w.warehouse_id),
+      }))
+  }
+
+  const warehouses = await mapWithConcurrency(targets, FAMILY_WAREHOUSE_CONCURRENCY, async (wh) => {
+    const { itemDetails = [] } = await getInventoryByGroup(
+      group,
+      fromDate,
+      toDate,
+      wh.warehouse_id,
+      null,
+      { includeItemDetails: true }
+    )
+    return {
+      warehouse_id:   wh.warehouse_id,
+      warehouse_name: wh.warehouse_name,
+      items:          filterByFam(itemDetails),
+    }
+  })
+
+  return { warehouses }
+}
+
+/**
  * GET /api/weekly-reports/by-group/:group/family-details?from_date&to_date&family=...
+ * Response always includes `warehouses[]`. `items` is the first warehouse’s rows (back-compat).
  */
 async function getFamilyDetailsByGroupController(req, res) {
   const { group } = req.params
@@ -263,7 +395,7 @@ async function getFamilyDetailsByGroupController(req, res) {
   if (!family) {
     return res.status(400).json({ error: 'Missing required query parameter: family' })
   }
-  const warehouseId = req.query.warehouse_id && String(req.query.warehouse_id).trim() !== ''
+  const filterWarehouseId = req.query.warehouse_id && String(req.query.warehouse_id).trim() !== ''
     ? String(req.query.warehouse_id).trim()
     : null
   const excludeWarehouseId = req.query.exclude_warehouse_id && String(req.query.exclude_warehouse_id).trim() !== ''
@@ -281,27 +413,64 @@ async function getFamilyDetailsByGroupController(req, res) {
       error: `Unknown report_group '${group}'. Available: ${validGroups.join(', ') || '(none)'}`,
     })
   }
-  try {
-    const payload = await loadWeeklyReportPayload(
+
+  const cacheKey = makeFamilyDetailsCacheKey(
+    group,
+    range.from_date,
+    range.to_date,
+    family,
+    filterWarehouseId,
+    excludeWarehouseId
+  )
+  if (_familyDetailsCache.has(cacheKey)) {
+    const c = _familyDetailsCache.get(cacheKey)
+    if (c && Date.now() < c.expiresAt) {
+      return res.json(c.body)
+    }
+  }
+  if (_familyDetailsFlight.has(cacheKey)) {
+    try {
+      const body = await _familyDetailsFlight.get(cacheKey)
+      return res.json(body)
+    } catch (err) {
+      return handleZohoError(res, err, `getFamilyDetailsByGroup(${group})`)
+    }
+  }
+
+  const p = (async () => {
+    const { warehouses } = await buildFamilyDetailsWarehousesPayload(
       group,
       range.from_date,
       range.to_date,
-      warehouseId,
+      family,
+      filterWarehouseId,
       excludeWarehouseId
     )
-    const familyKey = String(family || '').trim().toLowerCase()
-    const items = Array.isArray(payload.itemDetails)
-      ? payload.itemDetails.filter((r) => String(r.family_display || r.family || '').trim().toLowerCase() === familyKey)
-      : []
-    return res.json({
-      report_group: group,
+    const items = warehouses[0] && Array.isArray(warehouses[0].items) ? warehouses[0].items : []
+    return {
+      report_group:         group,
       family,
-      from_date: range.from_date,
-      to_date: range.to_date,
-      warehouse_id: warehouseId || null,
+      from_date:            range.from_date,
+      to_date:              range.to_date,
+      warehouse_id:         filterWarehouseId || null,
       exclude_warehouse_id: excludeWarehouseId || null,
-      items,
-    })
+      warehouses,
+      items, // back-compat: first block only; prefer `warehouses` in the UI
+    }
+  })()
+
+  _familyDetailsFlight.set(cacheKey, p)
+  p.then(
+    (body) => {
+      _familyDetailsFlight.delete(cacheKey)
+      _familyDetailsCache.set(cacheKey, { body, expiresAt: Date.now() + FAMILY_DETAILS_CACHE_TTL_MS })
+    },
+    () => { _familyDetailsFlight.delete(cacheKey) }
+  )
+
+  try {
+    const body = await p
+    return res.json(body)
   } catch (err) {
     return handleZohoError(res, err, `getFamilyDetailsByGroup(${group})`)
   }
@@ -486,4 +655,9 @@ module.exports = {
   loadWeeklyReportPayload,
   validateDateRange,
   handleZohoError,
+  clearFamilyDetailsWarehouseCache,
+  /** @internal for unit tests */
+  _internals: {
+    buildFamilyDetailsWarehousesPayload,
+  },
 }

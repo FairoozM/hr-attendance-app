@@ -19,6 +19,11 @@ const ExcelJS = require('exceljs')
 const { clearReportCache } = require('../src/services/weeklyReportCache')
 const { mockModule, freshRequire, makeReqRes, captureConsole } = require('./_helpers')
 
+const DEFAULT_MOCK_WAREHOUSES = [
+  { warehouse_id: 'W1', warehouse_name: 'Main' },
+  { warehouse_id: 'damaged', warehouse_name: 'Damaged' },
+]
+
 test.beforeEach(() => {
   clearReportCache()
 })
@@ -30,14 +35,21 @@ function makeError(code, message, extra = {}) {
   return e
 }
 
-function loadController({ getInventoryByGroup, listGroupKeys }) {
+function loadController({ getInventoryByGroup, listGroupKeys, fetchWarehouses } = {}) {
   mockModule('../src/services/zohoService', {
     getInventoryByGroup,
   })
   mockModule('../src/services/itemReportGroupsService', {
     listGroupKeys,
   })
-  return freshRequire('../src/controllers/weeklyReportsController')
+  mockModule('../src/integrations/zoho/zohoWarehouses', {
+    fetchWarehouses: fetchWarehouses || (async () => DEFAULT_MOCK_WAREHOUSES),
+  })
+  const ctrl = freshRequire('../src/controllers/weeklyReportsController')
+  if (typeof ctrl.clearFamilyDetailsWarehouseCache === 'function') {
+    ctrl.clearFamilyDetailsWarehouseCache()
+  }
+  return ctrl
 }
 
 const VALID = { from_date: '2026-01-01', to_date: '2026-01-07' }
@@ -144,7 +156,7 @@ test('weeklyReports: Grand Total sums Zoho-provided numbers verbatim', async () 
   })
 })
 
-test('weeklyReports: family-details filters cached report itemDetails without a second Zoho fetch', async () => {
+test('weeklyReports: family-details returns warehouses[] and one getInventory per target WH', async () => {
   const invCalls = []
   const getInventoryByGroup = async (group, from, to, warehouseId, excludeWarehouseId, options) => {
     invCalls.push({ group, from, to, warehouseId, excludeWarehouseId, options })
@@ -179,9 +191,48 @@ test('weeklyReports: family-details filters cached report itemDetails without a 
     await ctrl.getFamilyDetailsByGroupController(req, res)
     assert.equal(res.statusCode, 200)
     assert.deepEqual(res.body.items.map((r) => r.sku), ['A'])
+    assert.equal(Array.isArray(res.body.warehouses), true)
+    assert.equal(res.body.warehouses.length, 1)
+    assert.equal(res.body.warehouses[0].warehouse_id, 'W1')
+    assert.deepEqual(res.body.warehouses[0].items.map((r) => r.sku), ['A'])
   }
+  // getReport: 1 call (global exclude-damaged). family-details: 1 call for W1 only (per-WH, no global exclude)
+  assert.equal(invCalls.length, 2)
+  assert.equal(invCalls[1].options.includeItemDetails, true)
+  assert.equal(invCalls[1].warehouseId, 'W1')
+  assert.equal(invCalls[1].excludeWarehouseId, null)
+})
+
+test('weeklyReports: family-details with warehouse_id uses one WH block and one getInventory', async () => {
+  const invCalls = []
+  const getInventoryByGroup = async (group, from, to, warehouseId, excludeWarehouseId, options) => {
+    invCalls.push({ group, from, to, warehouseId, excludeWarehouseId, options })
+    return {
+      items: [],
+      itemDetails: [
+        { family: 'F', family_display: 'F', sku: 'S', item_name: 'N', opening_qty: 1 },
+      ],
+      reportMeta: { warnings: [] },
+    }
+  }
+  const ctrl = loadController({
+    getInventoryByGroup,
+    listGroupKeys: async () => ['slow_moving'],
+    fetchWarehouses: async () => [
+      { warehouse_id: 'W9', warehouse_name: 'Picked' },
+    ],
+  })
+  const { req, res } = makeReqRes({
+    params: { group: 'slow_moving' },
+    query: { ...VALID, family: 'F', warehouse_id: 'W9' },
+  })
+  await ctrl.getFamilyDetailsByGroupController(req, res)
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.warehouses.length, 1)
+  assert.equal(res.body.warehouses[0].warehouse_id, 'W9')
+  assert.equal(res.body.warehouses[0].warehouse_name, 'Picked')
   assert.equal(invCalls.length, 1)
-  assert.equal(invCalls[0].options.includeItemDetails, true)
+  assert.equal(invCalls[0].warehouseId, 'W9')
 })
 
 test('weeklyReports: export.xlsx uses the same getInventoryByGroup + items as JSON (adapter pipeline)', async () => {
