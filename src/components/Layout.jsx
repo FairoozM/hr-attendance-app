@@ -439,6 +439,7 @@ export function Layout() {
     if (location.pathname.startsWith('/lists/sim-cards')) return 'Sim Cards List'
     if (location.pathname.startsWith('/influencers')) return 'Influencers'
     if (location.pathname.startsWith('/account')) return 'My Account'
+    if (location.pathname.startsWith('/management/payments')) return 'Company payments'
     if (location.pathname.startsWith('/management/document-expiry')) return 'Document Expiry Tracker'
     if (location.pathname.startsWith('/reports/weekly-report/weekly-ads'))   return 'Weekly Ads Report'
     if (location.pathname.startsWith('/reports/weekly-report/sales'))        return 'Weekly Sales Reports'
@@ -479,6 +480,7 @@ export function Layout() {
 
   const managementItems = [
     can('document_expiry', 'view') && { label: 'Document Expiry Tracker', to: '/management/document-expiry' },
+    can('document_expiry', 'view') && { label: 'Payments', to: '/management/payments' },
   ].filter(Boolean)
 
   const isTaxationActive = location.pathname.startsWith('/taxation')
@@ -524,7 +526,16 @@ export function Layout() {
     ...listsItems.map(i => ({ ...i, group: 'Lists' })),
     ...INFLUENCER_ITEMS.map(i => ({ ...i, group: 'Influencers' })),
     ...(isAdmin ? PLANNER_NAV_ITEMS.map(i => ({ ...i, group: 'AI Planner', searchHint: 'planner projects tasks ai' })) : []),
-    ...managementItems.map(i => ({ ...i, group: 'Management' })),
+    ...managementItems.map(i => ({
+      ...i,
+      group: 'Management',
+      searchHint:
+        i.to === '/management/payments'
+          ? 'company payments asad main shop expense salary vat bill subscription supplier'
+          : i.to === '/management/document-expiry'
+            ? 'document licence trade license vat compliance expiry'
+            : '',
+    })),
     ...REPORTS_ITEMS.map(i => ({
       ...i,
       group: 'Weekly Report',

@@ -31,6 +31,7 @@ import { AgreementsPage } from './pages/influencers/AgreementsPage'
 import { ReportsPage } from './pages/influencers/ReportsPage'
 import { SimCardsPage } from './pages/SimCardsPage'
 import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
+import { PaymentsPage as CompanyPaymentsPage } from './pages/management/PaymentsPage'
 import { WeeklyAdsReportPage } from './pages/reports/WeeklyAdsReportPage'
 import { WeeklySalesReportPage } from './pages/reports/WeeklySalesReportPage'
 import { WeeklyCombinedSalesReportPage } from './pages/reports/WeeklyCombinedSalesReportPage'
@@ -172,6 +173,14 @@ function AppContent() {
           element={
             <PermissionGuard module="document_expiry" action="view">
               <DocumentExpiryPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="management/payments"
+          element={
+            <PermissionGuard module="document_expiry" action="view">
+              <CompanyPaymentsPage />
             </PermissionGuard>
           }
         />
