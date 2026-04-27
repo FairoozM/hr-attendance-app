@@ -110,8 +110,26 @@ function resolveLineWarehouseId(line, doc) {
   return (
     normalizeWarehouseId(line && line.warehouse_id) ||
     normalizeWarehouseId(line && line.warehouse && line.warehouse.warehouse_id) ||
+    normalizeWarehouseId(line && line.location_id) ||
+    normalizeWarehouseId(line && line.location && line.location.location_id) ||
     normalizeWarehouseId(doc && doc.warehouse_id) ||
-    normalizeWarehouseId(doc && doc.warehouse && doc.warehouse.warehouse_id)
+    normalizeWarehouseId(doc && doc.warehouse && doc.warehouse.warehouse_id) ||
+    normalizeWarehouseId(doc && doc.location_id) ||
+    normalizeWarehouseId(doc && doc.location && doc.location.location_id)
+  )
+}
+
+function resolveLineWarehouseName(line, doc) {
+  return (
+    (line && line.warehouse_name && String(line.warehouse_name)) ||
+    (line && line.warehouse && line.warehouse.warehouse_name && String(line.warehouse.warehouse_name)) ||
+    (line && line.location_name && String(line.location_name)) ||
+    (line && line.location && line.location.location_name && String(line.location.location_name)) ||
+    (doc && doc.warehouse_name && String(doc.warehouse_name)) ||
+    (doc && doc.warehouse && doc.warehouse.warehouse_name && String(doc.warehouse.warehouse_name)) ||
+    (doc && doc.location_name && String(doc.location_name)) ||
+    (doc && doc.location && doc.location.location_name && String(doc.location.location_name)) ||
+    ''
   )
 }
 
@@ -273,10 +291,7 @@ function normalizeVendorCreditLineItem(li) {
   const quantity = parseLineQty(li.quantity != null ? li.quantity : li.qty)
   const item_total = parseVendorCreditLineDollarAmount(li)
   const warehouse_id = resolveLineWarehouseId(li, null)
-  const warehouse_name =
-    (li.warehouse_name && String(li.warehouse_name)) ||
-    (li.warehouse && li.warehouse.warehouse_name && String(li.warehouse.warehouse_name)) ||
-    ''
+  const warehouse_name = resolveLineWarehouseName(li, null)
   return { item_id: itemId, name, sku, quantity, item_total, warehouse_id, warehouse_name }
 }
 
@@ -345,7 +360,7 @@ async function getSalesUncached(fromDate, toDate, opts = {}) {
           quantity: n.quantity,
           item_total: n.item_total,
           warehouse_id: resolveLineWarehouseId(li, inv),
-          warehouse_name: n.warehouse_name || (inv && inv.warehouse_name ? String(inv.warehouse_name) : ''),
+          warehouse_name: n.warehouse_name || resolveLineWarehouseName(li, inv),
         })
       }
     }
@@ -479,7 +494,7 @@ async function getPurchases(fromDate, toDate, _vendorId, opts = {}) {
           quantity: n.quantity,
           item_total: n.item_total,
           warehouse_id: resolveLineWarehouseId(li, lineDoc),
-          warehouse_name: n.warehouse_name || (lineDoc && lineDoc.warehouse_name ? String(lineDoc.warehouse_name) : ''),
+          warehouse_name: n.warehouse_name || resolveLineWarehouseName(li, lineDoc),
         })
       }
     }
@@ -576,7 +591,7 @@ async function getVendorCredits(fromDate, toDate, vendorId, opts = {}) {
           quantity: n.quantity,
           item_total: n.item_total,
           warehouse_id: resolveLineWarehouseId(li, lineDoc),
-          warehouse_name: n.warehouse_name || (lineDoc && lineDoc.warehouse_name ? String(lineDoc.warehouse_name) : ''),
+          warehouse_name: n.warehouse_name || resolveLineWarehouseName(li, lineDoc),
         })
       }
     }
@@ -606,6 +621,7 @@ module.exports = {
     matchesVendorCreditDocument,
     matchesBillDocument,
     normalizeVendorCreditLineItem,
+    resolveLineWarehouseName,
     parseVendorCreditLineDollarAmount,
     normalizeWarehouseId,
     resolveLineWarehouseId,

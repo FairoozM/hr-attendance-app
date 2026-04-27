@@ -88,6 +88,30 @@ test('makeWarehouseLineFilter: includes or excludes by line warehouse_id', () =>
   assert.equal(damagedOnly({ warehouse_id: 'main' }, {}), false)
 })
 
+test('makeWarehouseLineFilter: includes or excludes by Zoho location_id', () => {
+  const normal = makeWarehouseLineFilter({ excludeWarehouseId: 'damaged' })
+  assert.equal(normal({ location_id: 'main' }, {}), true)
+  assert.equal(normal({ location: { location_id: 'damaged' } }, {}), false)
+  assert.equal(normal({}, { location_id: 'main' }), true)
+
+  const mainOnly = makeWarehouseLineFilter({ warehouseId: 'main' })
+  assert.equal(mainOnly({ location_id: 'main' }, {}), true)
+  assert.equal(mainOnly({ warehouse_id: 'damaged', location_id: 'main' }, {}), false)
+  assert.equal(mainOnly({}, { location: { location_id: 'main' } }), true)
+})
+
+test('normalizeVendorCreditLineItem: exposes warehouse fields from Zoho location fields', () => {
+  const n = normalizeVendorCreditLineItem({
+    item_id: 'A1',
+    name: 'Item',
+    quantity: 2,
+    location_id: 'loc-1',
+    location_name: 'Riyadh Warehouse',
+  })
+  assert.equal(n.warehouse_id, 'loc-1')
+  assert.equal(n.warehouse_name, 'Riyadh Warehouse')
+})
+
 test('getPurchases: uses Bill line items (unfiltered; mocked fetchAllBillsRaw)', async () => {
   clearZohoTransactionModules()
   mockModule('../src/integrations/zoho/zohoTransactionsCache', {

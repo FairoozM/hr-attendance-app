@@ -2,7 +2,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { mockModule, freshRequire } = require('./_helpers')
 const { sumReportGrandTotals } = require('../src/utils/weeklyReportTotals')
-const { buildZohoLookupMaps, findZohoItemForMember, aggregateByFamily, scoreZohoNameSkuText, buildWeeklyReportScope } = require(
+const { buildZohoLookupMaps, findZohoItemForMember, aggregateByFamily, scoreZohoNameSkuText, buildWeeklyReportScope, parseWarehouseScopedStockOnHand } = require(
   '../src/services/weeklyReportZohoData'
 )._internals
 
@@ -37,6 +37,22 @@ test('buildWeeklyReportScope: explicit include beats exclusion and non-damaged e
     stockWarehouseId: 'main',
     subtractStockWarehouseId: null,
   })
+})
+
+test('parseWarehouseScopedStockOnHand: reads direct location fields and matching locations[]', () => {
+  assert.equal(parseWarehouseScopedStockOnHand({ location_stock_on_hand: '6.5' }, 'loc-1'), 6.5)
+  assert.equal(parseWarehouseScopedStockOnHand({
+    item_id: '10',
+    stock_on_hand: 99,
+    locations: [
+      { location_id: 'loc-1', location_stock_on_hand: 4 },
+      { warehouse_id: 'loc-2', warehouse_stock_on_hand: '8' },
+    ],
+  }, 'loc-2'), 8)
+  assert.equal(parseWarehouseScopedStockOnHand({
+    stock_on_hand: 11,
+    locations: [{ location_id: 'loc-1', location_stock_on_hand: 4 }],
+  }, 'missing'), 11)
 })
 
 test('fetchZohoItemRowsForGroupMembers: stock columns are monetary, debug + totals = sumReportGrandTotals', async (t) => {

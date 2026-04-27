@@ -173,6 +173,81 @@ function parseZohoStockOnHand(item) {
   return 0
 }
 
+function normalizeWarehouseId(v) {
+  return v == null || String(v).trim() === '' ? null : String(v).trim()
+}
+
+function parseOptionalQty(v) {
+  if (v === undefined || v === null || v === '') return null
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  if (typeof v === 'string' && v.trim() !== '') {
+    const n = parseFloat(String(v).replace(/,/g, ''))
+    return Number.isFinite(n) ? n : null
+  }
+  return null
+}
+
+function idsMatch(a, b) {
+  const aa = normalizeWarehouseId(a)
+  const bb = normalizeWarehouseId(b)
+  return !!aa && !!bb && aa === bb
+}
+
+function findItemLocation(item, warehouseId) {
+  if (!item || typeof item !== 'object' || !Array.isArray(item.locations)) return null
+  return item.locations.find((loc) => (
+    loc
+    && (
+      idsMatch(loc.location_id, warehouseId)
+      || idsMatch(loc.warehouse_id, warehouseId)
+      || idsMatch(loc.location && loc.location.location_id, warehouseId)
+      || idsMatch(loc.warehouse && loc.warehouse.warehouse_id, warehouseId)
+    )
+  )) || null
+}
+
+/**
+ * Quantity for one warehouse/location from a Zoho Inventory item.
+ * Zoho's multi-warehouse API may expose either older `warehouse_*` fields,
+ * newer `location_*` fields, or a `locations[]` array.
+ *
+ * @param {object} item
+ * @param {string|null} warehouseId
+ * @returns {number}
+ */
+function parseWarehouseScopedStockOnHand(item, warehouseId = null) {
+  if (!item || typeof item !== 'object') return 0
+
+  for (const k of [
+    'warehouse_stock_on_hand',
+    'location_stock_on_hand',
+    'warehouse_available_stock',
+    'location_available_stock',
+    'warehouse_actual_available_stock',
+    'location_actual_available_stock',
+  ]) {
+    const n = parseOptionalQty(item[k])
+    if (n != null) return n
+  }
+
+  const loc = findItemLocation(item, warehouseId)
+  if (loc) {
+    for (const k of [
+      'location_stock_on_hand',
+      'warehouse_stock_on_hand',
+      'location_available_stock',
+      'warehouse_available_stock',
+      'location_actual_available_stock',
+      'warehouse_actual_available_stock',
+    ]) {
+      const n = parseOptionalQty(loc[k])
+      if (n != null) return n
+    }
+  }
+
+  return parseZohoStockOnHand(item)
+}
+
 /**
  * Per-unit **selling** (list) price from the Zoho Inventory item (`rate`).
  * @param {object} item
@@ -530,10 +605,6 @@ function aggregateByFamily(itemRows, zohoCatalogCtx = null) {
   return out.sort((a, b) => a.family.localeCompare(b.family))
 }
 
-function normalizeWarehouseId(v) {
-  return v == null || String(v).trim() === '' ? null : String(v).trim()
-}
-
 function buildWeeklyReportScope(warehouseId, excludeWarehouseId) {
   const includeId = normalizeWarehouseId(warehouseId)
   const excludeId = normalizeWarehouseId(excludeWarehouseId)
@@ -666,9 +737,7 @@ async function fetchZohoItemRowsForGroupMembers(
         const m = new Map()
         for (const item of scopedItems) {
           if (!item || !item.item_id) continue
-          const qty = item.warehouse_stock_on_hand != null
-            ? Number(item.warehouse_stock_on_hand)
-            : Number(item.stock_on_hand || 0)
+          const qty = parseWarehouseScopedStockOnHand(item, warehouseId)
           if (Number.isFinite(qty)) {
             m.set(String(item.item_id), Math.max(0, qty))
           }
@@ -685,9 +754,7 @@ async function fetchZohoItemRowsForGroupMembers(
         const m = new Map()
         for (const item of damagedItems) {
           if (!item || !item.item_id) continue
-          const qty = item.warehouse_stock_on_hand != null
-            ? Number(item.warehouse_stock_on_hand)
-            : Number(item.stock_on_hand || 0)
+          const qty = parseWarehouseScopedStockOnHand(item, reportScope.subtractStockWarehouseId)
           if (Number.isFinite(qty) && qty > 0) {
             m.set(String(item.item_id), qty)
           }
@@ -1025,6 +1092,7 @@ module.exports = {
   _internals: {
     zohoItemToPlaceholderReportRow,
     parseZohoStockOnHand,
+    parseWarehouseScopedStockOnHand,
     parseZohoUnitSalesPrice,
     parseZohoUnitPurchasePrice,
     resolveUnitPriceForStockValuation,

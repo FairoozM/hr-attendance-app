@@ -109,7 +109,14 @@ function makeItemsPageParams(page, per, warehouseId = null) {
   p.set('organization_id', c.organizationId)
   p.set('page', String(page))
   p.set('per_page', String(per))
-  if (warehouseId) p.set('warehouse_id', String(warehouseId).trim())
+  if (warehouseId) {
+    const id = String(warehouseId).trim()
+    // Zoho's newer multi-location API uses location_id, while older orgs and
+    // existing code paths may still accept warehouse_id. Send both; Zoho ignores
+    // unknown/duplicate-compatible filters in the orgs we support.
+    p.set('warehouse_id', id)
+    p.set('location_id', id)
+  }
   return p
 }
 

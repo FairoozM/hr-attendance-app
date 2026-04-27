@@ -70,6 +70,16 @@ function parseFamilyDetailsWarehouses(data, fallbackWarehouse) {
   }]
 }
 
+function summarizeWarehouseFamilyDetails(items) {
+  const rows = Array.isArray(items) ? items : []
+  return {
+    openingQty: sumBy(rows, 'opening_qty'),
+    closingQty: sumBy(rows, 'closing_qty'),
+    soldQty: sumBy(rows, 'sold_qty'),
+    salesAmount: sumBy(rows, 'sales_amount'),
+  }
+}
+
 function FamilyDetailsSection({ title, qtyLabel, priceLabel, amountLabel, rows, qtyKey, priceKey, amountKey, emptyText }) {
   const totalQty = sumBy(rows, qtyKey)
   const totalAmount = sumBy(rows, amountKey)
@@ -973,10 +983,17 @@ export function WeeklySalesReportSection({
               drawerWarehouses.map((wh) => {
                 const wkey = wh.warehouse_id != null && String(wh.warehouse_id) !== '' ? wh.warehouse_id : wh.warehouse_name
                 const d = itemDetailsToDrawerSections(wh.items)
+                const summary = summarizeWarehouseFamilyDetails(wh.items)
                 return (
                   <details key={wkey} className="wsr-drawer-warehouse" open>
                     <summary className="wsr-drawer-warehouse__summary">
                       <span className="wsr-drawer-warehouse__name">{wh.warehouse_name || wh.warehouse_id || 'Warehouse'}</span>
+                      <span className="wsr-drawer-warehouse__stats" aria-label="Warehouse totals">
+                        <span>Opening Qty <strong>{formatNum(summary.openingQty)}</strong></span>
+                        <span>Closing Qty <strong>{formatNum(summary.closingQty)}</strong></span>
+                        <span>Sold Qty <strong>{formatNum(summary.soldQty)}</strong></span>
+                        <span>Sales <strong>{formatCurrency(summary.salesAmount)}</strong></span>
+                      </span>
                     </summary>
                     <div className="wsr-drawer-warehouse__inner">
                       <FamilyDetailsSection
