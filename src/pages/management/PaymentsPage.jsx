@@ -38,6 +38,7 @@ export function PaymentsPage() {
     markPaymentDone,
     addAttachment,
     setPaymentProof,
+    removePayment,
   } = useCompanyPayments()
 
   const [filters, setFilters] = useState(EMPTY)
@@ -86,6 +87,13 @@ export function PaymentsPage() {
       setActiveId(null)
     }
   }, [payments])
+
+  const handleDelete = useCallback((id, title) => {
+    if (window.confirm(`Delete "${title}"? This cannot be undone.`)) {
+      removePayment(id)
+      if (activeId === id) setActiveId(null)
+    }
+  }, [removePayment, activeId])
 
   const handleSave = useCallback(
     async (form) => {
@@ -215,7 +223,12 @@ export function PaymentsPage() {
         </button>
       </div>
 
-      <PaymentsTable rows={rows} onRowClick={(p) => setActiveId(p.id)} />
+      <PaymentsTable
+        rows={rows}
+        onRowClick={(p) => setActiveId(p.id)}
+        onEdit={canEdit ? (id) => openEdit(id) : undefined}
+        onDelete={canEdit ? handleDelete : undefined}
+      />
 
       <PaymentFormModal
         open={formOpen}

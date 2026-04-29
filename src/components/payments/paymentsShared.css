@@ -133,6 +133,41 @@
   opacity: 0.65;
 }
 
+.pay-actions-cell {
+  white-space: nowrap;
+  padding: 0.3rem 0.5rem !important;
+}
+
+.pay-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.pay-action-btn + .pay-action-btn {
+  margin-left: 4px;
+}
+
+.pay-action-btn--edit:hover {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #2563eb;
+}
+
+.pay-action-btn--delete:hover {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #dc2626;
+}
+
 .pay-urgency-badge,
 .pay-status-badge,
 .pay-priority-badge {
