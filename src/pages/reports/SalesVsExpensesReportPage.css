@@ -735,6 +735,10 @@
   background: #f8fafc;
 }
 
+.sve-report.is-capturing .sve-date-range-separator {
+  display: none !important;
+}
+
 .sve-report.is-capturing .sve-date-input-wrap:has(.sve-input--date-end-empty) .sve-date-range-separator,
 .sve-report.is-capturing .sve-date-input-wrap:has(.sve-input--date-end-empty) .sve-input--date-end-empty {
   display: none !important;
