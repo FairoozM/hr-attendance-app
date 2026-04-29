@@ -281,10 +281,10 @@
 .sve-date-box {
   display: flex;
   flex-direction: row;
-  align-items: stretch;
+  align-items: center;
   width: 100%;
   min-width: 0;
-  min-height: 2.25rem;
+  height: 36px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   background: #fff;
@@ -338,8 +338,8 @@
   appearance: none;
   box-sizing: border-box;
   padding: 0 8px;
-  height: 2.25rem;
-  line-height: 2.25rem;
+  height: 36px;
+  line-height: 36px;
   font-size: 13px;
 }
 
@@ -348,7 +348,7 @@
   min-width: 4.25rem;
   display: flex;
   align-items: center;
-  align-self: stretch;
+  height: 100%;
   background: #f8fafc;
 }
 
@@ -853,32 +853,40 @@
   color: #334155;
 }
 
-/* flex cell wrapper — forces html2canvas to centre content */
+/* ── Export table row fixed height — every row is exactly 52 px tall ── */
+.sve-exp-table tbody tr { height: 52px; }
+.sve-exp-table thead tr { height: 36px; }
+
+/* flex cell wrapper — full-height flex column so html2canvas centres correctly */
 .sve-exp-cell {
   display: flex;
   align-items: center;
-  min-height: 40px;
-  padding: 8px 12px;
+  height: 100%;
+  min-height: 52px;   /* matches tbody tr height */
+  padding: 0 12px;
   font-size: 13px;
-  line-height: 1.2;
+  line-height: 1;
   box-sizing: border-box;
 }
+.sve-exp-table thead .sve-exp-cell { min-height: 36px; }
 .sve-exp-cell--center { justify-content: center; }
 .sve-exp-cell--right  { justify-content: flex-end; }
 
 .sve-exp-td-c { text-align: center; }
 
+/* Date pill — fixed size so every row looks identical */
 .sve-exp-date-box {
   display: inline-flex;
   flex-direction: row;
-  align-items: stretch;
-  vertical-align: middle;
-  min-height: 2.35rem;
+  align-items: center;          /* centre children, not stretch */
+  height: 36px;                 /* fixed — same for every row */
+  width: 130px;                 /* fixed width — no per-row variance */
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   overflow: hidden;
   background: #fff;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  flex-shrink: 0;
 }
 
 .sve-exp-weekday-pill {
@@ -892,22 +900,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  text-align: center;
+  height: 100%;
   line-height: 1;
 }
 
 .sve-exp-date-main {
   flex: 1;
-  min-width: 3.5rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 10px;
+  height: 100%;
+  padding: 0 8px;
   font-weight: 600;
+  font-size: 12px;
   color: #334155;
   background: #f8fafc;
-  text-align: center;
-  line-height: 1.25;
+  line-height: 1;
 }
 
 .sve-exp-date-main:not(:last-child) {
@@ -917,11 +925,14 @@
 .sve-exp-cat {
   display: inline-flex;
   align-items: center;
-  padding: 4px 10px;
+  justify-content: center;
+  height: 26px;           /* fixed badge height */
+  padding: 0 10px;
   border-radius: 5px;
   font-size: 11px;
   font-weight: 600;
   line-height: 1;
+  white-space: nowrap;
 }
 .sve-exp-cat--green  { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
 .sve-exp-cat--orange { background: #fff7ed; color: #f97316; border: 1px solid #fed7aa; }
@@ -933,7 +944,8 @@
 .sve-exp-amt--red    { color: #ef4444; }
 
 .sve-exp-total td { font-weight: 800; font-size: 14px; }
-.sve-exp-total td .sve-exp-cell { font-weight: 800; font-size: 14px; }
+.sve-exp-total { height: 44px; }
+.sve-exp-total td .sve-exp-cell { font-weight: 800; font-size: 14px; min-height: 44px; }
 .sve-exp-total--green  td { background: #f0fdf4; }
 .sve-exp-total--orange td { background: #fff7ed; }
 .sve-exp-total--red    td { background: #fff1f2; }
