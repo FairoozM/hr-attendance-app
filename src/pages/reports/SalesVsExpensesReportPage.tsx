@@ -139,9 +139,11 @@ function ExportSection({
             return (
             <tr key={row.id}>
               <td className="sve-exp-td-c">{i + 1}</td>
-              <td className="sve-exp-td-c sve-exp-date-cell">
-                <span className="sve-exp-date-main">{row.date || "—"}</span>
-                {wd ? <span className="sve-exp-date-weekday">{wd}</span> : null}
+              <td className="sve-exp-td-c">
+                <div className="sve-exp-date-box">
+                  {wd ? <span className="sve-exp-weekday-pill">{wd}</span> : null}
+                  <span className="sve-exp-date-main">{row.date || "—"}</span>
+                </div>
               </td>
               <td>{row.description || "—"}</td>
               <td className="sve-exp-td-c">
@@ -257,9 +259,14 @@ function TransactionTable({ rows, color, label, categoryLabel, periodIso, onUpda
             <tr key={row.id}>
               <td className="sve-td-center">{i + 1}</td>
               <td>
-                <div className="sve-date-cell">
+                <div className="sve-date-box">
+                  {dateWd ? (
+                    <span className="sve-date-weekday-pill" title={dateWd}>
+                      {dateWd}
+                    </span>
+                  ) : null}
                   <input
-                    className="sve-input"
+                    className="sve-input sve-input--date-inline"
                     value={row.date}
                     onChange={(e) => {
                       const digits = e.target.value.replace(/\D/g, "").slice(0, 4);
@@ -271,7 +278,6 @@ function TransactionTable({ rows, color, label, categoryLabel, periodIso, onUpda
                     placeholder="DD/MM"
                     maxLength={5}
                   />
-                  {dateWd ? <span className="sve-date-weekday">{dateWd}</span> : null}
                 </div>
               </td>
               <td>
