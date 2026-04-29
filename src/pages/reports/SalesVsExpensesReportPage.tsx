@@ -145,7 +145,7 @@ function ExportSection({
 function ExportView({ innerRef, period, sales, costs, expenses, totals }: ExportViewProps) {
   const kpis = [
     { color: "green",  icon: "↗",  label: "Total Sales",    value: fmt(totals.sales),     note: "Gross revenue" },
-    { color: "orange", icon: "📦", label: "Total Cost",     value: fmt(totals.costs),     note: "COGS" },
+    { color: "orange", icon: "🏷️", label: "Total Cost",     value: fmt(totals.costs),     note: "COGS" },
     { color: "red",    icon: "▤",  label: "Total Expense",  value: fmt(totals.expenses),  note: "Operating expenses" },
     { color: "blue",   icon: "💰", label: "Net Profit",     value: fmt(totals.netProfit), note: `Margin: ${totals.margin.toFixed(1)}%` },
   ];
@@ -495,7 +495,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
 
           <div className="sve-kpi sve-kpi--orange">
             <div className="sve-kpi-content">
-              <div className="sve-kpi-icon">📦</div>
+              <div className="sve-kpi-icon">🏷️</div>
               <div>
                 <div className="sve-kpi-label">Total Cost</div>
                 <div className="sve-kpi-value">{fmt(totals.costs)}</div>
