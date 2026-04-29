@@ -15,6 +15,7 @@ interface ReportTotals {
   sales: number;
   costs: number;
   expenses: number;
+  grossProfit: number;
   netProfit: number;
   margin: number;
 }
@@ -181,6 +182,15 @@ function ExportSection({
   );
 }
 
+function ExportProfitStrip({ label, value, tone }: { label: string; value: number; tone: "blue" | "teal" }) {
+  return (
+    <div className={`sve-exp-profit-strip sve-exp-profit-strip--${tone}`}>
+      <span>{label}:</span>
+      <strong>{fmt(value)}</strong>
+    </div>
+  );
+}
+
 function ExportView({ innerRef, periodLabel, periodIso, sales, costs, expenses, totals }: ExportViewProps) {
   const kpis = [
     { color: "green",  icon: "↗",  label: "Total Sales",    value: fmt(totals.sales),     note: "Gross revenue" },
@@ -229,7 +239,9 @@ function ExportView({ innerRef, periodLabel, periodIso, sales, costs, expenses, 
           <div className="sve-exp-card-title">Transaction Details</div>
           <ExportSection rows={sales}    color="green"  label="Sales Transactions"   categoryLabel="Sales"    periodIso={periodIso} />
           <ExportSection rows={costs}    color="orange" label="Item Cost Transactions" categoryLabel="Item Cost" periodIso={periodIso} />
+          <ExportProfitStrip label="Gross Profit" value={totals.grossProfit} tone="blue" />
           <ExportSection rows={expenses} color="red"    label="Expense Transactions" categoryLabel="Expense" periodIso={periodIso} />
+          <ExportProfitStrip label="Net Profit" value={totals.netProfit} tone="teal" />
         </div>
       </div>
     </div>
@@ -353,6 +365,15 @@ function TransactionTable({ rows, color, label, categoryLabel, periodIso, onUpda
   );
 }
 
+function ProfitStrip({ label, value, tone }: { label: string; value: number; tone: "blue" | "teal" }) {
+  return (
+    <div className={`sve-profit-strip sve-profit-strip--${tone}`}>
+      <span>{label}:</span>
+      <strong>{fmt(value)}</strong>
+    </div>
+  );
+}
+
 /* ── Main page ── */
 const SalesVsExpensesReportPage: React.FC = () => {
   const [period, setPeriod] = useState(() => {
@@ -374,9 +395,10 @@ const SalesVsExpensesReportPage: React.FC = () => {
     const s = sales.reduce((sum, t) => sum + toNum(t.amount), 0);
     const c = costs.reduce((sum, t) => sum + toNum(t.amount), 0);
     const e = expenses.reduce((sum, t) => sum + toNum(t.amount), 0);
+    const gross = s - c;
     const net = s - c - e;
     const margin = s > 0 ? (net / s) * 100 : 0;
-    return { sales: s, costs: c, expenses: e, netProfit: net, margin };
+    return { sales: s, costs: c, expenses: e, grossProfit: gross, netProfit: net, margin };
   }, [sales, costs, expenses]);
 
   const periodLabel = useMemo(() => {
@@ -583,6 +605,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
             onAdd={makeAdder(setCosts)}
             onRemove={makeRemover(setCosts)}
           />
+          <ProfitStrip label="Gross Profit" value={totals.grossProfit} tone="blue" />
           <TransactionTable
             rows={expenses}
             color="red"
@@ -593,6 +616,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
             onAdd={makeAdder(setExpenses)}
             onRemove={makeRemover(setExpenses)}
           />
+          <ProfitStrip label="Net Profit" value={totals.netProfit} tone="teal" />
         </div>
 
         {/* ── Actions ── */}
