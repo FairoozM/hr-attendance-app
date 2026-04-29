@@ -276,7 +276,7 @@
 
 .sve-td-center { text-align: center; }
 
-/* Weekday (left) + date input — single framed control */
+/* Date input (left) + weekday pill (right) — single framed control */
 .sve-date-box {
   display: flex;
   flex-direction: row;
@@ -299,7 +299,6 @@
   letter-spacing: 0.02em;
   color: #4338ca;
   background: linear-gradient(180deg, #eef2ff 0%, #e0e7ff 100%);
-  border-right: 1px solid #c7d2fe;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -332,6 +331,10 @@
   border-radius: 0 !important;
   box-shadow: none !important;
   background: #f8fafc !important;
+}
+
+.sve-date-box .sve-input--date-inline:not(:last-child) {
+  border-right: 1px solid #c7d2fe !important;
 }
 
 .sve-input--date-inline:focus {
@@ -848,7 +851,6 @@
   font-weight: 700;
   color: #4338ca;
   background: linear-gradient(180deg, #eef2ff 0%, #e0e7ff 100%);
-  border-right: 1px solid #c7d2fe;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -864,6 +866,10 @@
   color: #334155;
   background: #f8fafc;
   text-align: center;
+}
+
+.sve-exp-date-main:not(:last-child) {
+  border-right: 1px solid #c7d2fe;
 }
 
 .sve-exp-cat {
