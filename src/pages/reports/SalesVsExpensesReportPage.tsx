@@ -1,4 +1,6 @@
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useRef } from "react";
+import html2canvas from "html2canvas";
+import { jsPDF } from "jspdf";
 import "./SalesVsExpensesReportPage.css";
 
 /* ── Types ── */
@@ -42,7 +44,7 @@ function fmt(n: number) {
     minimumFractionDigits: cents === 0 ? 0 : 2,
     maximumFractionDigits: 2,
   });
-  return `${n < 0 ? "-" : ""}$${formatted}`;
+  return `${n < 0 ? "-" : ""}${formatted}`;
 }
 
 const STORAGE_KEY = "sve_report_history_v1";
@@ -87,6 +89,138 @@ const DEMO_EXPENSES: Transaction[] = [
   { id: uid(), date: "28/05", description: "Miscellaneous", amount: "280" },
 ];
 
+/* ── Hidden export-only view (captured by html2canvas) ── */
+interface ExportViewProps {
+  innerRef: React.RefObject<HTMLDivElement>;
+  period: string;
+  sales: Transaction[];
+  costs: Transaction[];
+  expenses: Transaction[];
+  totals: ReportTotals;
+}
+
+function ExportSection({
+  rows, color, label, categoryLabel,
+}: { rows: Transaction[]; color: string; label: string; categoryLabel: string }) {
+  const total = rows.reduce((s, t) => s + toNum(t.amount), 0);
+  return (
+    <>
+      <div className={`sve-exp-section sve-exp-section--${color}`}>
+        <span className={`sve-exp-dot sve-exp-dot--${color}`} />
+        {label}
+      </div>
+      <table className="sve-exp-table">
+        <thead>
+          <tr>
+            <th style={{ width: "5%" }}>#</th>
+            <th style={{ width: "11%" }}>Date</th>
+            <th>Description</th>
+            <th style={{ width: "20%" }}>Category</th>
+            <th style={{ width: "20%" }}>Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.filter(r => r.description || toNum(r.amount)).map((row, i) => (
+            <tr key={row.id}>
+              <td className="sve-exp-td-c">{i + 1}</td>
+              <td className="sve-exp-td-c">{row.date || "—"}</td>
+              <td>{row.description || "—"}</td>
+              <td className="sve-exp-td-c">
+                <span className={`sve-exp-cat sve-exp-cat--${color}`}>{categoryLabel}</span>
+              </td>
+              <td className={`sve-exp-amt sve-exp-amt--${color}`}>{fmt(toNum(row.amount))}</td>
+            </tr>
+          ))}
+          <tr className={`sve-exp-total sve-exp-total--${color}`}>
+            <td colSpan={3}>TOTAL {categoryLabel.toUpperCase()}</td>
+            <td />
+            <td className={`sve-exp-amt sve-exp-amt--${color}`}>{fmt(total)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </>
+  );
+}
+
+function ExportView({ innerRef, period, sales, costs, expenses, totals }: ExportViewProps) {
+  const kpis = [
+    { color: "green",  icon: "↗",  label: "Total Sales",    value: fmt(totals.sales),     note: "Gross revenue" },
+    { color: "orange", icon: "📦", label: "Total Cost",     value: fmt(totals.costs),     note: "COGS" },
+    { color: "red",    icon: "▤",  label: "Total Expense",  value: fmt(totals.expenses),  note: "Operating expenses" },
+    { color: "blue",   icon: "💰", label: "Net Profit",     value: fmt(totals.netProfit), note: `Margin: ${totals.margin.toFixed(1)}%` },
+  ];
+  return (
+    <div ref={innerRef} className="sve-export-wrap">
+      <div className="sve-exp-report">
+        {/* Header */}
+        <div className="sve-exp-header">
+          <div>
+            <div className="sve-exp-badge">Financial Overview</div>
+            <h1 className="sve-exp-title">Sales <span className="sve-exp-vs">vs</span> Expenses</h1>
+            <div className="sve-exp-subtitle">Track your financial performance and key metrics</div>
+          </div>
+          <div className="sve-exp-period-box">
+            <div className="sve-exp-period-icon">▣</div>
+            <div>
+              <div className="sve-exp-period-label">Reporting Period</div>
+              <div className="sve-exp-period-date">{period}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* KPIs */}
+        <div className="sve-exp-kpi-grid">
+          {kpis.map((k) => (
+            <div key={k.label} className={`sve-exp-kpi sve-exp-kpi--${k.color}`}>
+              <div className="sve-exp-kpi-inner">
+                <div className={`sve-exp-kpi-icon sve-exp-kpi-icon--${k.color}`}>{k.icon}</div>
+                <div>
+                  <div className="sve-exp-kpi-label">{k.label}</div>
+                  <div className={`sve-exp-kpi-value sve-exp-kpi-value--${k.color}`}>{k.value}</div>
+                </div>
+              </div>
+              <div className="sve-exp-kpi-line" />
+              <div className="sve-exp-kpi-note">{k.note}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Tables */}
+        <div className="sve-exp-card">
+          <div className="sve-exp-card-title">Transaction Details</div>
+          <ExportSection rows={sales}    color="green"  label="Sales Transactions"   categoryLabel="Sales"   />
+          <ExportSection rows={costs}    color="orange" label="Cost Transactions"    categoryLabel="Cost"    />
+          <ExportSection rows={expenses} color="red"    label="Expense Transactions" categoryLabel="Expense" />
+        </div>
+
+        {/* Summary bar */}
+        <div className="sve-exp-summary">
+          <div className="sve-exp-sum-box">
+            <div className="sve-exp-sum-label">Net Profit</div>
+            <div className="sve-exp-sum-value sve-exp-sum-value--green">{fmt(totals.netProfit)}</div>
+          </div>
+          <div className="sve-exp-sum-box">
+            <div className="sve-exp-sum-label">● Total Sales</div>
+            <div className="sve-exp-sum-value">{fmt(totals.sales)}</div>
+          </div>
+          <div className="sve-exp-sum-box">
+            <div className="sve-exp-sum-label">● Total Cost</div>
+            <div className="sve-exp-sum-value">{fmt(totals.costs)}</div>
+          </div>
+          <div className="sve-exp-sum-box">
+            <div className="sve-exp-sum-label">● Total Expense</div>
+            <div className="sve-exp-sum-value">{fmt(totals.expenses)}</div>
+          </div>
+          <div className="sve-exp-sum-box">
+            <div className="sve-exp-sum-label">Profit Margin</div>
+            <div className="sve-exp-sum-value sve-exp-sum-value--blue">{totals.margin.toFixed(1)}%</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Transaction table sub-component ── */
 type Color = "green" | "orange" | "red";
 
@@ -127,8 +261,15 @@ function TransactionTable({ rows, color, label, categoryLabel, onUpdate, onAdd, 
                 <input
                   className="sve-input"
                   value={row.date}
-                  onChange={(e) => onUpdate(row.id, "date", e.target.value)}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, "").slice(0, 4);
+                    const formatted = digits.length > 2
+                      ? `${digits.slice(0, 2)}/${digits.slice(2)}`
+                      : digits;
+                    onUpdate(row.id, "date", formatted);
+                  }}
                   placeholder="DD/MM"
+                  maxLength={5}
                 />
               </td>
               <td>
@@ -197,6 +338,8 @@ const SalesVsExpensesReportPage: React.FC = () => {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
 
   /* Derived totals */
   const totals = useMemo<ReportTotals>(() => {
@@ -260,6 +403,44 @@ const SalesVsExpensesReportPage: React.FC = () => {
     });
   }, []);
 
+  const captureCanvas = useCallback(async () => {
+    if (!exportRef.current) throw new Error("Export ref not ready");
+    return html2canvas(exportRef.current, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: "#f5f7fb",
+      logging: false,
+    });
+  }, []);
+
+  const exportAsImage = useCallback(async () => {
+    setExporting(true);
+    try {
+      const canvas = await captureCanvas();
+      const link = document.createElement("a");
+      link.download = `sales-vs-expenses-${periodLabel.replace(/\s/g, "-")}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    } finally {
+      setExporting(false);
+    }
+  }, [captureCanvas, periodLabel]);
+
+  const exportAsPdf = useCallback(async () => {
+    setExporting(true);
+    try {
+      const canvas = await captureCanvas();
+      const imgData = canvas.toDataURL("image/png");
+      const pxW = canvas.width / 2;
+      const pxH = canvas.height / 2;
+      const pdf = new jsPDF({ orientation: pxW > pxH ? "landscape" : "portrait", unit: "px", format: [pxW, pxH] });
+      pdf.addImage(imgData, "PNG", 0, 0, pxW, pxH);
+      pdf.save(`sales-vs-expenses-${periodLabel.replace(/\s/g, "-")}.pdf`);
+    } finally {
+      setExporting(false);
+    }
+  }, [captureCanvas, periodLabel]);
+
   const loadRecord = useCallback((record: SavedReport) => {
     setSales(record.sales.map((t) => ({ ...t, id: uid() })));
     setCosts(record.costs.map((t) => ({ ...t, id: uid() })));
@@ -314,7 +495,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
 
           <div className="sve-kpi sve-kpi--orange">
             <div className="sve-kpi-content">
-              <div className="sve-kpi-icon">🛒</div>
+              <div className="sve-kpi-icon">📦</div>
               <div>
                 <div className="sve-kpi-label">Total Cost</div>
                 <div className="sve-kpi-value">{fmt(totals.costs)}</div>
@@ -419,6 +600,24 @@ const SalesVsExpensesReportPage: React.FC = () => {
           >
             📋 History ({history.length})
           </button>
+          <div className="sve-export-group">
+            <button
+              type="button"
+              className="sve-btn sve-btn--export"
+              onClick={exportAsPdf}
+              disabled={exporting}
+            >
+              {exporting ? "Exporting…" : "⬇ Export PDF"}
+            </button>
+            <button
+              type="button"
+              className="sve-btn sve-btn--export"
+              onClick={exportAsImage}
+              disabled={exporting}
+            >
+              {exporting ? "Exporting…" : "🖼 Export Image"}
+            </button>
+          </div>
           {savedMsg && <span className="sve-save-msg">{savedMsg}</span>}
         </div>
 
@@ -492,6 +691,16 @@ const SalesVsExpensesReportPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Hidden export-only render (off-screen, captured by html2canvas) */}
+      <ExportView
+        innerRef={exportRef}
+        period={periodLabel}
+        sales={sales}
+        costs={costs}
+        expenses={expenses}
+        totals={totals}
+      />
     </div>
   );
 };
