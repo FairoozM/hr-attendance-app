@@ -127,7 +127,7 @@ function ExportSection({
         <thead>
           <tr>
             <th style={{ width: "5%" }}>#</th>
-            <th style={{ width: "13%" }}>Date</th>
+            <th style={{ width: "22%" }}>Date</th>
             <th>Description</th>
             <th style={{ width: "20%" }}>Category</th>
             <th style={{ width: "20%" }}>Amount (AED)</th>
@@ -245,7 +245,7 @@ function TransactionTable({ rows, color, label, categoryLabel, periodIso, onUpda
         <thead>
           <tr>
             <th style={{ width: "5%" }}>#</th>
-            <th style={{ width: "14%" }}>Date</th>
+            <th style={{ width: "22%" }}>Date</th>
             <th>Description</th>
             <th style={{ width: "20%" }}>Category</th>
             <th style={{ width: "20%" }}>Amount (AED)</th>

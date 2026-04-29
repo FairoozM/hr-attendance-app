@@ -293,10 +293,9 @@
 }
 
 .sve-date-weekday-pill {
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 7rem;
-  padding: 0 9px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 0 10px;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -306,8 +305,7 @@
   align-items: center;
   justify-content: center;
   text-align: center;
-  line-height: 1.2;
-  word-break: break-word;
+  line-height: 1;
 }
 
 .sve-input {
@@ -874,10 +872,9 @@
 }
 
 .sve-exp-weekday-pill {
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 7rem;
-  padding: 0 9px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 0 10px;
   font-size: 10px;
   font-weight: 700;
   color: #4338ca;
@@ -886,8 +883,7 @@
   align-items: center;
   justify-content: center;
   text-align: center;
-  line-height: 1.2;
-  word-break: break-word;
+  line-height: 1;
 }
 
 .sve-exp-date-main {
