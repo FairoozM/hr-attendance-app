@@ -834,10 +834,9 @@
 .sve-exp-table th,
 .sve-exp-table td {
   border: 1px solid #d8dee8;
-  padding: 9px 13px;
+  padding: 0;
   font-size: 13px;
   vertical-align: middle;
-  line-height: 1.35;
 }
 
 .sve-exp-table th {
@@ -846,15 +845,26 @@
   font-size: 10px;
   font-weight: 800;
   text-transform: uppercase;
-  text-align: center;
   letter-spacing: 0.06em;
 }
 
 .sve-exp-table td {
   background: #fff;
   color: #334155;
-  vertical-align: middle;
 }
+
+/* flex cell wrapper — forces html2canvas to centre content */
+.sve-exp-cell {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.2;
+  box-sizing: border-box;
+}
+.sve-exp-cell--center { justify-content: center; }
+.sve-exp-cell--right  { justify-content: flex-end; }
 
 .sve-exp-td-c { text-align: center; }
 
@@ -905,23 +915,25 @@
 }
 
 .sve-exp-cat {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   padding: 4px 10px;
   border-radius: 5px;
   font-size: 11px;
   font-weight: 600;
-  vertical-align: middle;
+  line-height: 1;
 }
 .sve-exp-cat--green  { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
 .sve-exp-cat--orange { background: #fff7ed; color: #f97316; border: 1px solid #fed7aa; }
 .sve-exp-cat--red    { background: #fff1f2; color: #ef4444; border: 1px solid #fecaca; }
 
-.sve-exp-amt { text-align: right; font-weight: 800; font-size: 13px; }
+.sve-exp-amt { font-weight: 800; font-size: 13px; }
 .sve-exp-amt--green  { color: #16a34a; }
 .sve-exp-amt--orange { color: #f97316; }
 .sve-exp-amt--red    { color: #ef4444; }
 
 .sve-exp-total td { font-weight: 800; font-size: 14px; }
+.sve-exp-total td .sve-exp-cell { font-weight: 800; font-size: 14px; }
 .sve-exp-total--green  td { background: #f0fdf4; }
 .sve-exp-total--orange td { background: #fff7ed; }
 .sve-exp-total--red    td { background: #fff1f2; }

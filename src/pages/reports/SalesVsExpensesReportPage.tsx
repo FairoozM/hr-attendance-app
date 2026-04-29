@@ -126,11 +126,11 @@ function ExportSection({
       <table className="sve-exp-table">
         <thead>
           <tr>
-            <th style={{ width: "5%" }}>#</th>
-            <th style={{ width: "22%" }}>Date</th>
-            <th>Description</th>
-            <th style={{ width: "20%" }}>Category</th>
-            <th style={{ width: "20%" }}>Amount (AED)</th>
+            <th style={{ width: "5%" }}><div className="sve-exp-cell sve-exp-cell--center">#</div></th>
+            <th style={{ width: "22%" }}><div className="sve-exp-cell sve-exp-cell--center">Date</div></th>
+            <th><div className="sve-exp-cell">Description</div></th>
+            <th style={{ width: "20%" }}><div className="sve-exp-cell sve-exp-cell--center">Category</div></th>
+            <th style={{ width: "20%" }}><div className="sve-exp-cell sve-exp-cell--right">Amount (AED)</div></th>
           </tr>
         </thead>
         <tbody>
@@ -138,25 +138,39 @@ function ExportSection({
             const wd = weekdayLabelForDdMm(periodIso, row.date);
             return (
             <tr key={row.id}>
-              <td className="sve-exp-td-c">{i + 1}</td>
-              <td className="sve-exp-td-c">
-                <div className="sve-exp-date-box">
-                  <span className="sve-exp-date-main">{row.date || "—"}</span>
-                  {wd ? <span className="sve-exp-weekday-pill">{wd}</span> : null}
+              <td>
+                <div className="sve-exp-cell sve-exp-cell--center">{i + 1}</div>
+              </td>
+              <td>
+                <div className="sve-exp-cell sve-exp-cell--center">
+                  <div className="sve-exp-date-box">
+                    <span className="sve-exp-date-main">{row.date || "—"}</span>
+                    {wd ? <span className="sve-exp-weekday-pill">{wd}</span> : null}
+                  </div>
                 </div>
               </td>
-              <td>{row.description || "—"}</td>
-              <td className="sve-exp-td-c">
-                <span className={`sve-exp-cat sve-exp-cat--${color}`}>{categoryLabel}</span>
+              <td>
+                <div className="sve-exp-cell">{row.description || "—"}</div>
               </td>
-              <td className={`sve-exp-amt sve-exp-amt--${color}`}>{fmt(toNum(row.amount))}</td>
+              <td>
+                <div className="sve-exp-cell sve-exp-cell--center">
+                  <span className={`sve-exp-cat sve-exp-cat--${color}`}>{categoryLabel}</span>
+                </div>
+              </td>
+              <td className={`sve-exp-amt sve-exp-amt--${color}`}>
+                <div className="sve-exp-cell sve-exp-cell--right">{fmt(toNum(row.amount))}</div>
+              </td>
             </tr>
             );
           })}
           <tr className={`sve-exp-total sve-exp-total--${color}`}>
-            <td colSpan={3}>TOTAL {categoryLabel.toUpperCase()}</td>
+            <td colSpan={3}>
+              <div className="sve-exp-cell">TOTAL {categoryLabel.toUpperCase()}</div>
+            </td>
             <td />
-            <td className={`sve-exp-amt sve-exp-amt--${color}`}>{fmt(total)}</td>
+            <td className={`sve-exp-amt sve-exp-amt--${color}`}>
+              <div className="sve-exp-cell sve-exp-cell--right">{fmt(total)}</div>
+            </td>
           </tr>
         </tbody>
       </table>
