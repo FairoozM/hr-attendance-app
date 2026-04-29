@@ -863,18 +863,42 @@
 .sve-exp-dot--orange { background: #f97316; }
 .sve-exp-dot--red    { background: #ef4444; }
 
-.sve-exp-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-
-.sve-exp-table th,
-.sve-exp-table td {
-  border: 1px solid #d8dee8;
-  padding: 0;
-  font-size: 13px;
-  vertical-align: middle;
+.sve-exp-grid {
+  width: 100%;
+  border-top: 1px solid #d8dee8;
+  border-left: 1px solid #d8dee8;
+  background: #d8dee8;
 }
 
-.sve-exp-table th {
+.sve-exp-grid-row {
+  display: grid;
+  grid-template-columns: 5% 22% 1fr 20% 20%;
+  min-height: 52px;
+  background: #fff;
+}
+
+.sve-exp-grid-row--head {
+  min-height: 36px;
   background: #f8fafc;
+}
+
+.sve-exp-grid-cell {
+  display: grid;
+  align-items: center;
+  min-height: 52px;
+  padding: 0 12px;
+  border-right: 1px solid #d8dee8;
+  border-bottom: 1px solid #d8dee8;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1;
+  box-sizing: border-box;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.sve-exp-grid-row--head .sve-exp-grid-cell {
+  min-height: 36px;
   color: #334155;
   font-size: 10px;
   font-weight: 800;
@@ -882,58 +906,32 @@
   letter-spacing: 0.06em;
 }
 
-.sve-exp-table td {
-  background: #fff;
-  color: #334155;
-}
-
-/* ── Export table ── */
-.sve-exp-table tbody tr,
-.sve-exp-table tbody td { height: 52px; }
-.sve-exp-table thead tr,
-.sve-exp-table thead th { height: 36px; }
-
-/*
- * Cell wrappers use PADDING — not flex — because html2canvas does not apply
- * align-items:center on flex containers inside <td>.
- * All padding values are calculated so content is exactly centred.
- */
-
-/* Default: single-line text, line-height fills the 52 px row */
-.sve-exp-cell {
-  display: block;
-  height: 52px;
-  padding: 0 12px;
-  line-height: 52px;
-  font-size: 13px;
-  box-sizing: border-box;
-  overflow: hidden;
-  white-space: nowrap;
-}
-.sve-exp-table thead .sve-exp-cell {
-  height: 36px;
-  line-height: 36px;
-  font-size: 10px;
-}
-.sve-exp-cell--center { text-align: center; }
-.sve-exp-cell--right  { text-align: right; }
-
-/* Badge cell: badge is 26 px tall → pad (52-26)/2 = 13 px top & bottom */
-.sve-exp-cell--badge {
-  padding-top: 13px;
-  padding-bottom: 13px;
-  line-height: 26px;
+.sve-exp-grid-cell--center {
+  justify-items: center;
   text-align: center;
 }
 
-/* Date cell: pill is 36 px tall → pad (52-36)/2 = 8 px top & bottom */
-.sve-exp-cell--date {
-  padding-top: 8px;
-  padding-bottom: 8px;
-  line-height: 36px;
+.sve-exp-grid-cell--right {
+  justify-items: end;
+  text-align: right;
 }
 
-.sve-exp-td-c { text-align: center; }
+.sve-exp-grid-row--total {
+  grid-template-columns: 1fr 20%;
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.sve-exp-grid-row--total .sve-exp-grid-cell {
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.sve-exp-grid-row--green  { background: #f0fdf4; }
+.sve-exp-grid-row--orange { background: #fff7ed; }
+.sve-exp-grid-row--red    { background: #fff1f2; }
 
 /* Date pill — inline-block only; html2canvas is unreliable with flex here */
 .sve-exp-date-box {

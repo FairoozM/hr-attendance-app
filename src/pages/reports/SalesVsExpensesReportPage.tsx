@@ -124,60 +124,44 @@ function ExportSection({
         <span className={`sve-exp-dot sve-exp-dot--${color}`} />
         {label}
       </div>
-      <table className="sve-exp-table">
-        <thead>
-          <tr>
-            <th style={{ width: "5%" }}><div className="sve-exp-cell sve-exp-cell--center">#</div></th>
-            <th style={{ width: "22%" }}><div className="sve-exp-cell sve-exp-cell--center">Date</div></th>
-            <th><div className="sve-exp-cell">Description</div></th>
-            <th style={{ width: "20%" }}><div className="sve-exp-cell sve-exp-cell--center">Category</div></th>
-            <th style={{ width: "20%" }}><div className="sve-exp-cell sve-exp-cell--right">Amount (AED)</div></th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.filter(r => r.description || toNum(r.amount)).map((row, i) => {
-            const wd = weekdayLabelForDdMm(periodIso, row.date);
-            return (
-            <tr key={row.id}>
-              <td>
-                {/* line-height:52px centres single-line text */}
-                <div className="sve-exp-cell sve-exp-cell--center">{i + 1}</div>
-              </td>
-              <td>
-                {/* padding:(52-36)/2=8px centres 36px pill */}
-                <div className="sve-exp-cell sve-exp-cell--date sve-exp-cell--center">
-                  <div className="sve-exp-date-box">
-                    <span className="sve-exp-date-main">{row.date || "—"}</span>
-                    {wd ? <span className="sve-exp-weekday-pill">{wd}</span> : null}
-                  </div>
+      <div className="sve-exp-grid" role="table" aria-label={label}>
+        <div className="sve-exp-grid-row sve-exp-grid-row--head" role="row">
+          <div className="sve-exp-grid-cell sve-exp-grid-cell--center" role="columnheader">#</div>
+          <div className="sve-exp-grid-cell sve-exp-grid-cell--center" role="columnheader">Date</div>
+          <div className="sve-exp-grid-cell" role="columnheader">Description</div>
+          <div className="sve-exp-grid-cell sve-exp-grid-cell--center" role="columnheader">Category</div>
+          <div className="sve-exp-grid-cell sve-exp-grid-cell--right" role="columnheader">Amount (AED)</div>
+        </div>
+        {rows.filter(r => r.description || toNum(r.amount)).map((row, i) => {
+          const wd = weekdayLabelForDdMm(periodIso, row.date);
+          return (
+            <div className="sve-exp-grid-row" role="row" key={row.id}>
+              <div className="sve-exp-grid-cell sve-exp-grid-cell--center" role="cell">{i + 1}</div>
+              <div className="sve-exp-grid-cell sve-exp-grid-cell--center" role="cell">
+                <div className="sve-exp-date-box">
+                  <span className="sve-exp-date-main">{row.date || "—"}</span>
+                  {wd ? <span className="sve-exp-weekday-pill">{wd}</span> : null}
                 </div>
-              </td>
-              <td>
-                <div className="sve-exp-cell">{row.description || "—"}</div>
-              </td>
-              <td>
-                {/* padding:(52-26)/2=13px centres 26px badge */}
-                <div className="sve-exp-cell sve-exp-cell--badge">
-                  <span className={`sve-exp-cat sve-exp-cat--${color}`}>{categoryLabel}</span>
-                </div>
-              </td>
-              <td className={`sve-exp-amt sve-exp-amt--${color}`}>
-                <div className="sve-exp-cell sve-exp-cell--right">{fmt(toNum(row.amount))}</div>
-              </td>
-            </tr>
-            );
-          })}
-          <tr className={`sve-exp-total sve-exp-total--${color}`}>
-            <td colSpan={3}>
-              <div className="sve-exp-cell">TOTAL {categoryLabel.toUpperCase()}</div>
-            </td>
-            <td />
-            <td className={`sve-exp-amt sve-exp-amt--${color}`}>
-              <div className="sve-exp-cell sve-exp-cell--right">{fmt(total)}</div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+              </div>
+              <div className="sve-exp-grid-cell" role="cell">{row.description || "—"}</div>
+              <div className="sve-exp-grid-cell sve-exp-grid-cell--center" role="cell">
+                <span className={`sve-exp-cat sve-exp-cat--${color}`}>{categoryLabel}</span>
+              </div>
+              <div className={`sve-exp-grid-cell sve-exp-grid-cell--right sve-exp-amt sve-exp-amt--${color}`} role="cell">
+                {fmt(toNum(row.amount))}
+              </div>
+            </div>
+          );
+        })}
+        <div className={`sve-exp-grid-row sve-exp-grid-row--total sve-exp-grid-row--${color}`} role="row">
+          <div className="sve-exp-grid-cell sve-exp-grid-cell--total-label" role="cell">
+            TOTAL {categoryLabel.toUpperCase()}
+          </div>
+          <div className={`sve-exp-grid-cell sve-exp-grid-cell--right sve-exp-amt sve-exp-amt--${color}`} role="cell">
+            {fmt(total)}
+          </div>
+        </div>
+      </div>
     </>
   );
 }
