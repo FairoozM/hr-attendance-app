@@ -855,9 +855,11 @@
 }
 
 /* ── Single-statement grid (export only) ──
- * Every row has a hard pixel height and every cell uses line-height centering
- * because html2canvas cannot resolve percentage heights or flex alignment
- * inside table/td layouts. This layout avoids both.
+ * Each row is a CSS grid; each cell is a flex container that vertically
+ * centres its content. We intentionally use flex+align-items here instead
+ * of line-height centring because the date cell can render a fraction of a
+ * pixel taller than the other cells, which stretches the whole grid track
+ * and pushes line-height-centred text to the top in html2canvas.
  */
 .sve-exp-statement {
   width: 100%;
@@ -867,15 +869,18 @@
 .sve-exp-statement-row {
   display: grid;
   grid-template-columns: 6% 18% 1fr 18% 18%;
+  align-items: stretch;
   background: #fff;
   border-bottom: 1px solid #e5e7eb;
 }
 
 .sve-exp-statement-cell {
+  display: flex;
+  align-items: center;
   min-height: 48px;
   padding: 0 16px;
-  line-height: 48px;
   font-size: 13px;
+  line-height: 1.25;
   color: #334155;
   box-sizing: border-box;
   overflow: hidden;
@@ -888,8 +893,8 @@
   border-right: none;
 }
 
-.sve-exp-statement-cell--center { text-align: center; }
-.sve-exp-statement-cell--right  { text-align: right; }
+.sve-exp-statement-cell--center { justify-content: center; text-align: center; }
+.sve-exp-statement-cell--right  { justify-content: flex-end; text-align: right; }
 
 .sve-exp-statement-row--head {
   background: #f8fafc;
@@ -898,7 +903,6 @@
 
 .sve-exp-statement-cell--head {
   min-height: 38px;
-  line-height: 38px;
   font-size: 10px;
   font-weight: 800;
   color: #64748b;
@@ -926,26 +930,22 @@
 
 .sve-exp-statement-cell--section {
   min-height: 42px;
-  line-height: 42px;
   padding: 0 16px;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   border-right: none;
+  justify-content: flex-start;
 }
 
 .sve-exp-statement-row--section-sales   .sve-exp-statement-cell--section { color: #16a34a; background: linear-gradient(90deg, #ecfdf5 0%, #f8fafc 60%); }
 .sve-exp-statement-row--section-cost    .sve-exp-statement-cell--section { color: #f97316; background: linear-gradient(90deg, #fff7ed 0%, #f8fafc 60%); }
 .sve-exp-statement-row--section-expense .sve-exp-statement-cell--section { color: #ef4444; background: linear-gradient(90deg, #fff1f2 0%, #f8fafc 60%); }
 
-/* Date cell keeps the fixed-size date/weekday pill vertically centred.
- * The row is 48 px; the pill is 36 px; padding (48-36)/2 = 6 px.
- */
+/* Date cell — pill stays 36 px; flex centring handles the vertical math */
 .sve-exp-statement-cell--date {
-  padding-top: 6px;
-  padding-bottom: 6px;
-  line-height: 36px;
+  padding: 0 12px;
 }
 
 /* Profit strip rows span the full width */
@@ -956,8 +956,8 @@
 
 .sve-exp-statement-cell--profit {
   min-height: 48px;
-  line-height: 48px;
   padding: 0 18px;
+  justify-content: flex-end;
   text-align: right;
   font-size: 15px;
   font-weight: 800;
@@ -984,8 +984,8 @@
 }
 .sve-exp-statement-cell--ratio {
   min-height: 32px;
-  line-height: 32px;
   padding: 0 18px;
+  justify-content: flex-end;
   text-align: right;
   font-size: 11px;
   font-weight: 600;
