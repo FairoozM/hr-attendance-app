@@ -378,6 +378,32 @@
 .sve-input--orange:focus { border-color: #f97316; box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.12); }
 .sve-input--red:focus { border-color: #ef4444; box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12); }
 
+.sve-capture-text {
+  display: none;
+  width: 100%;
+  min-height: 36px;
+  align-items: center;
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sve-capture-text--date {
+  justify-content: center;
+  min-height: 36px;
+  font-size: 13px;
+  text-align: center;
+}
+
+.sve-capture-text--amount {
+  justify-content: flex-end;
+  text-align: right;
+  font-weight: 800;
+}
+
 .sve-category {
   display: inline-block;
   padding: 5px 12px;
@@ -660,6 +686,18 @@
 .sve-report.is-capturing .sve-period-input,
 .sve-report.is-capturing .sve-save-msg {
   display: none !important;
+}
+
+.sve-report.is-capturing .sve-input {
+  display: none !important;
+}
+
+.sve-report.is-capturing .sve-capture-text {
+  display: flex !important;
+}
+
+.sve-report.is-capturing .sve-date-input-wrap {
+  background: #f8fafc;
 }
 
 /* Collapse the trailing action column so the captured tables don't have an

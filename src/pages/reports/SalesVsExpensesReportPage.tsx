@@ -158,6 +158,7 @@ function TransactionTable({ rows, color, label, categoryLabel, periodIso, onUpda
                       placeholder="DD/MM"
                       maxLength={5}
                     />
+                    <span className="sve-capture-text sve-capture-text--date">{row.date || "—"}</span>
                   </div>
                   {dateWd ? (
                     <span className="sve-date-weekday-pill" title={dateWd}>
@@ -173,6 +174,7 @@ function TransactionTable({ rows, color, label, categoryLabel, periodIso, onUpda
                   onChange={(e) => onUpdate(row.id, "description", e.target.value)}
                   placeholder="Description"
                 />
+                <span className="sve-capture-text">{row.description || "—"}</span>
               </td>
               <td className="sve-td-center">
                 <span className={`sve-category sve-category--${color}`}>{categoryLabel}</span>
@@ -187,6 +189,9 @@ function TransactionTable({ rows, color, label, categoryLabel, periodIso, onUpda
                   onChange={(e) => onUpdate(row.id, "amount", e.target.value)}
                   placeholder="0.00"
                 />
+                <span className={`sve-capture-text sve-capture-text--amount sve-clr-${color}`}>
+                  {row.amount ? fmt(toNum(row.amount)) : "—"}
+                </span>
               </td>
               <td className="sve-td-center">
                 <button
