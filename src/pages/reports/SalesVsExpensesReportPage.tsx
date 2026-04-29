@@ -116,7 +116,7 @@ function ExportSection({
             <th style={{ width: "11%" }}>Date</th>
             <th>Description</th>
             <th style={{ width: "20%" }}>Category</th>
-            <th style={{ width: "20%" }}>Amount</th>
+            <th style={{ width: "20%" }}>Amount (AED)</th>
           </tr>
         </thead>
         <tbody>
@@ -145,7 +145,7 @@ function ExportSection({
 function ExportView({ innerRef, period, sales, costs, expenses, totals }: ExportViewProps) {
   const kpis = [
     { color: "green",  icon: "↗",  label: "Total Sales",    value: fmt(totals.sales),     note: "Gross revenue" },
-    { color: "orange", icon: "🏷️", label: "Total Cost",     value: fmt(totals.costs),     note: "COGS" },
+    { color: "orange", icon: "🏷️", label: "Total Item Cost", value: fmt(totals.costs),     note: "COGS" },
     { color: "red",    icon: "▤",  label: "Total Expense",  value: fmt(totals.expenses),  note: "Operating expenses" },
     { color: "blue",   icon: "💰", label: "Net Profit",     value: fmt(totals.netProfit), note: `Margin: ${totals.margin.toFixed(1)}%` },
   ];
@@ -189,32 +189,8 @@ function ExportView({ innerRef, period, sales, costs, expenses, totals }: Export
         <div className="sve-exp-card">
           <div className="sve-exp-card-title">Transaction Details</div>
           <ExportSection rows={sales}    color="green"  label="Sales Transactions"   categoryLabel="Sales"   />
-          <ExportSection rows={costs}    color="orange" label="Cost Transactions"    categoryLabel="Cost"    />
+          <ExportSection rows={costs}    color="orange" label="Item Cost Transactions" categoryLabel="Item Cost" />
           <ExportSection rows={expenses} color="red"    label="Expense Transactions" categoryLabel="Expense" />
-        </div>
-
-        {/* Summary bar */}
-        <div className="sve-exp-summary">
-          <div className="sve-exp-sum-box">
-            <div className="sve-exp-sum-label">Net Profit</div>
-            <div className="sve-exp-sum-value sve-exp-sum-value--green">{fmt(totals.netProfit)}</div>
-          </div>
-          <div className="sve-exp-sum-box">
-            <div className="sve-exp-sum-label">● Total Sales</div>
-            <div className="sve-exp-sum-value">{fmt(totals.sales)}</div>
-          </div>
-          <div className="sve-exp-sum-box">
-            <div className="sve-exp-sum-label">● Total Cost</div>
-            <div className="sve-exp-sum-value">{fmt(totals.costs)}</div>
-          </div>
-          <div className="sve-exp-sum-box">
-            <div className="sve-exp-sum-label">● Total Expense</div>
-            <div className="sve-exp-sum-value">{fmt(totals.expenses)}</div>
-          </div>
-          <div className="sve-exp-sum-box">
-            <div className="sve-exp-sum-label">Profit Margin</div>
-            <div className="sve-exp-sum-value sve-exp-sum-value--blue">{totals.margin.toFixed(1)}%</div>
-          </div>
         </div>
       </div>
     </div>
@@ -249,7 +225,7 @@ function TransactionTable({ rows, color, label, categoryLabel, onUpdate, onAdd, 
             <th style={{ width: "11%" }}>Date</th>
             <th>Description</th>
             <th style={{ width: "20%" }}>Category</th>
-            <th style={{ width: "20%" }}>Amount ($)</th>
+            <th style={{ width: "20%" }}>Amount (AED)</th>
             <th style={{ width: "5%" }} />
           </tr>
         </thead>
@@ -497,7 +473,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
             <div className="sve-kpi-content">
               <div className="sve-kpi-icon">🏷️</div>
               <div>
-                <div className="sve-kpi-label">Total Cost</div>
+                <div className="sve-kpi-label">Total Item Cost</div>
                 <div className="sve-kpi-value">{fmt(totals.costs)}</div>
               </div>
             </div>
@@ -547,8 +523,8 @@ const SalesVsExpensesReportPage: React.FC = () => {
           <TransactionTable
             rows={costs}
             color="orange"
-            label="Cost Transactions"
-            categoryLabel="Cost"
+            label="Item Cost Transactions"
+            categoryLabel="Item Cost"
             onUpdate={makeUpdater(setCosts)}
             onAdd={makeAdder(setCosts)}
             onRemove={makeRemover(setCosts)}
@@ -562,30 +538,6 @@ const SalesVsExpensesReportPage: React.FC = () => {
             onAdd={makeAdder(setExpenses)}
             onRemove={makeRemover(setExpenses)}
           />
-        </div>
-
-        {/* ── Footer Summary ── */}
-        <div className="sve-summary">
-          <div className="sve-summary-box">
-            <div className="sve-summary-label">Net Profit</div>
-            <div className="sve-summary-value sve-summary-value--green">{fmt(totals.netProfit)}</div>
-          </div>
-          <div className="sve-summary-box">
-            <div className="sve-summary-label">● Total Sales</div>
-            <div className="sve-summary-value">{fmt(totals.sales)}</div>
-          </div>
-          <div className="sve-summary-box">
-            <div className="sve-summary-label">● Total Cost</div>
-            <div className="sve-summary-value">{fmt(totals.costs)}</div>
-          </div>
-          <div className="sve-summary-box">
-            <div className="sve-summary-label">● Total Expense</div>
-            <div className="sve-summary-value">{fmt(totals.expenses)}</div>
-          </div>
-          <div className="sve-summary-box">
-            <div className="sve-summary-label">Profit Margin</div>
-            <div className="sve-summary-value sve-summary-value--blue">{totals.margin.toFixed(1)}%</div>
-          </div>
         </div>
 
         {/* ── Actions ── */}
@@ -678,7 +630,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
                     <div className="sve-history__item-body">
                       <div className="sve-history__totals">
                         <div><span>Total Sales</span><b className="sve-clr-green">{fmt(r.totals.sales)}</b></div>
-                        <div><span>Total Cost</span><b className="sve-clr-orange">{fmt(r.totals.costs)}</b></div>
+                        <div><span>Total Item Cost</span><b className="sve-clr-orange">{fmt(r.totals.costs)}</b></div>
                         <div><span>Total Expense</span><b className="sve-clr-red">{fmt(r.totals.expenses)}</b></div>
                         <div><span>Net Profit</span><b className="sve-clr-blue">{fmt(r.totals.netProfit)}</b></div>
                         <div><span>Profit Margin</span><b>{r.totals.margin.toFixed(1)}%</b></div>
