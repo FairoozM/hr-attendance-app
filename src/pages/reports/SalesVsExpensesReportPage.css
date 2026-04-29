@@ -853,27 +853,51 @@
   color: #334155;
 }
 
-/* ── Export table: hard pixel heights everywhere — html2canvas cannot resolve height:100% ── */
+/* ── Export table ── */
 .sve-exp-table tbody tr,
 .sve-exp-table tbody td { height: 52px; }
 .sve-exp-table thead tr,
 .sve-exp-table thead th { height: 36px; }
 
-/* Cell wrapper — explicit px height, NOT height:100% */
+/*
+ * Cell wrappers use PADDING — not flex — because html2canvas does not apply
+ * align-items:center on flex containers inside <td>.
+ * All padding values are calculated so content is exactly centred.
+ */
+
+/* Default: single-line text, line-height fills the 52 px row */
 .sve-exp-cell {
-  display: flex;
-  align-items: center;
+  display: block;
   height: 52px;
   padding: 0 12px;
+  line-height: 52px;
   font-size: 13px;
-  line-height: 1;
   box-sizing: border-box;
+  overflow: hidden;
+  white-space: nowrap;
 }
 .sve-exp-table thead .sve-exp-cell {
   height: 36px;
+  line-height: 36px;
+  font-size: 10px;
 }
-.sve-exp-cell--center { justify-content: center; }
-.sve-exp-cell--right  { justify-content: flex-end; }
+.sve-exp-cell--center { text-align: center; }
+.sve-exp-cell--right  { text-align: right; }
+
+/* Badge cell: badge is 26 px tall → pad (52-26)/2 = 13 px top & bottom */
+.sve-exp-cell--badge {
+  padding-top: 13px;
+  padding-bottom: 13px;
+  line-height: 26px;
+  text-align: center;
+}
+
+/* Date cell: pill is 36 px tall → pad (52-36)/2 = 8 px top & bottom */
+.sve-exp-cell--date {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  line-height: 36px;
+}
 
 .sve-exp-td-c { text-align: center; }
 
@@ -948,7 +972,12 @@
 
 .sve-exp-total td,
 .sve-exp-total tr { height: 44px; font-weight: 800; font-size: 14px; }
-.sve-exp-total td .sve-exp-cell { height: 44px; font-weight: 800; font-size: 14px; }
+.sve-exp-total td .sve-exp-cell {
+  height: 44px;
+  line-height: 44px;
+  font-size: 14px;
+  font-weight: 800;
+}
 .sve-exp-total--green  td { background: #f0fdf4; }
 .sve-exp-total--orange td { background: #fff7ed; }
 .sve-exp-total--red    td { background: #fff1f2; }

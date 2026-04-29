@@ -139,10 +139,12 @@ function ExportSection({
             return (
             <tr key={row.id}>
               <td>
+                {/* line-height:52px centres single-line text */}
                 <div className="sve-exp-cell sve-exp-cell--center">{i + 1}</div>
               </td>
               <td>
-                <div className="sve-exp-cell sve-exp-cell--center">
+                {/* padding:(52-36)/2=8px centres 36px pill */}
+                <div className="sve-exp-cell sve-exp-cell--date sve-exp-cell--center">
                   <div className="sve-exp-date-box">
                     <span className="sve-exp-date-main">{row.date || "—"}</span>
                     {wd ? <span className="sve-exp-weekday-pill">{wd}</span> : null}
@@ -153,7 +155,8 @@ function ExportSection({
                 <div className="sve-exp-cell">{row.description || "—"}</div>
               </td>
               <td>
-                <div className="sve-exp-cell sve-exp-cell--center">
+                {/* padding:(52-26)/2=13px centres 26px badge */}
+                <div className="sve-exp-cell sve-exp-cell--badge">
                   <span className={`sve-exp-cat sve-exp-cat--${color}`}>{categoryLabel}</span>
                 </div>
               </td>
