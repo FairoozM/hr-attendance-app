@@ -1,0 +1,499 @@
+import React, { useState, useCallback, useMemo } from "react";
+import "./SalesVsExpensesReportPage.css";
+
+/* ── Types ── */
+interface Transaction {
+  id: string;
+  date: string;
+  description: string;
+  amount: string;
+}
+
+interface ReportTotals {
+  sales: number;
+  costs: number;
+  expenses: number;
+  netProfit: number;
+  margin: number;
+}
+
+interface SavedReport {
+  id: string;
+  period: string;
+  savedAt: string;
+  sales: Transaction[];
+  costs: Transaction[];
+  expenses: Transaction[];
+  totals: ReportTotals;
+}
+
+/* ── Utilities ── */
+function uid() {
+  return `t_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+function toNum(v: string) {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : 0;
+}
+function fmt(n: number) {
+  const abs = Math.abs(n);
+  const cents = Math.round((abs % 1) * 100);
+  const formatted = abs.toLocaleString("en-US", {
+    minimumFractionDigits: cents === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  });
+  return `${n < 0 ? "-" : ""}$${formatted}`;
+}
+
+const STORAGE_KEY = "sve_report_history_v1";
+
+function loadHistory(): SavedReport[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const p = JSON.parse(raw);
+    return Array.isArray(p) ? p : [];
+  } catch {
+    return [];
+  }
+}
+function persistHistory(rows: SavedReport[]) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(rows)); } catch { /* noop */ }
+}
+
+function emptyRow(): Transaction {
+  return { id: uid(), date: "", description: "", amount: "" };
+}
+
+const DEMO_SALES: Transaction[] = [
+  { id: uid(), date: "01/05", description: "Product Sales", amount: "1250" },
+  { id: uid(), date: "05/05", description: "Online Sales", amount: "2340.75" },
+  { id: uid(), date: "10/05", description: "Wholesale Order", amount: "4800" },
+  { id: uid(), date: "15/05", description: "Retail Sales", amount: "2150" },
+  { id: uid(), date: "20/05", description: "Service Income", amount: "3200" },
+  { id: uid(), date: "25/05", description: "Other Income", amount: "710" },
+];
+const DEMO_COSTS: Transaction[] = [
+  { id: uid(), date: "02/05", description: "Product Purchase", amount: "1850" },
+  { id: uid(), date: "08/05", description: "Raw Materials", amount: "1420.50" },
+  { id: uid(), date: "15/05", description: "Packaging", amount: "950" },
+  { id: uid(), date: "22/05", description: "Shipping & Freight", amount: "700" },
+];
+const DEMO_EXPENSES: Transaction[] = [
+  { id: uid(), date: "03/05", description: "Office Rent", amount: "800" },
+  { id: uid(), date: "07/05", description: "Utilities", amount: "320.25" },
+  { id: uid(), date: "12/05", description: "Marketing", amount: "450" },
+  { id: uid(), date: "18/05", description: "Salaries", amount: "500" },
+  { id: uid(), date: "28/05", description: "Miscellaneous", amount: "280" },
+];
+
+/* ── Transaction table sub-component ── */
+type Color = "green" | "orange" | "red";
+
+interface TransactionTableProps {
+  rows: Transaction[];
+  color: Color;
+  label: string;
+  categoryLabel: string;
+  onUpdate: (id: string, field: keyof Transaction, value: string) => void;
+  onAdd: () => void;
+  onRemove: (id: string) => void;
+}
+
+function TransactionTable({ rows, color, label, categoryLabel, onUpdate, onAdd, onRemove }: TransactionTableProps) {
+  const total = rows.reduce((sum, t) => sum + toNum(t.amount), 0);
+  return (
+    <>
+      <div className={`sve-section-title sve-section-title--${color}`}>
+        <span className={`sve-dot sve-dot--${color}`} />
+        {label}
+      </div>
+      <table className="sve-table">
+        <thead>
+          <tr>
+            <th style={{ width: "5%" }}>#</th>
+            <th style={{ width: "11%" }}>Date</th>
+            <th>Description</th>
+            <th style={{ width: "20%" }}>Category</th>
+            <th style={{ width: "20%" }}>Amount ($)</th>
+            <th style={{ width: "5%" }} />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={row.id}>
+              <td className="sve-td-center">{i + 1}</td>
+              <td>
+                <input
+                  className="sve-input"
+                  value={row.date}
+                  onChange={(e) => onUpdate(row.id, "date", e.target.value)}
+                  placeholder="DD/MM"
+                />
+              </td>
+              <td>
+                <input
+                  className="sve-input"
+                  value={row.description}
+                  onChange={(e) => onUpdate(row.id, "description", e.target.value)}
+                  placeholder="Description"
+                />
+              </td>
+              <td className="sve-td-center">
+                <span className={`sve-category sve-category--${color}`}>{categoryLabel}</span>
+              </td>
+              <td>
+                <input
+                  className={`sve-input sve-input--amount sve-input--${color}`}
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={row.amount}
+                  onChange={(e) => onUpdate(row.id, "amount", e.target.value)}
+                  placeholder="0.00"
+                />
+              </td>
+              <td className="sve-td-center">
+                <button
+                  type="button"
+                  className="sve-remove-btn"
+                  onClick={() => onRemove(row.id)}
+                  title="Remove row"
+                >
+                  ✕
+                </button>
+              </td>
+            </tr>
+          ))}
+          <tr className={`sve-total-row sve-total-row--${color}`}>
+            <td colSpan={3} style={{ fontWeight: 800, fontSize: "0.95rem" }}>
+              TOTAL {categoryLabel.toUpperCase()}
+            </td>
+            <td />
+            <td className={`sve-amount sve-amount--${color}`}>{fmt(total)}</td>
+            <td />
+          </tr>
+        </tbody>
+      </table>
+      <div className="sve-add-row-wrap">
+        <button type="button" className={`sve-add-btn sve-add-btn--${color}`} onClick={onAdd}>
+          + Add row
+        </button>
+      </div>
+    </>
+  );
+}
+
+/* ── Main page ── */
+const SalesVsExpensesReportPage: React.FC = () => {
+  const [period, setPeriod] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [sales, setSales] = useState<Transaction[]>(DEMO_SALES);
+  const [costs, setCosts] = useState<Transaction[]>(DEMO_COSTS);
+  const [expenses, setExpenses] = useState<Transaction[]>(DEMO_EXPENSES);
+  const [history, setHistory] = useState<SavedReport[]>(loadHistory);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
+
+  /* Derived totals */
+  const totals = useMemo<ReportTotals>(() => {
+    const s = sales.reduce((sum, t) => sum + toNum(t.amount), 0);
+    const c = costs.reduce((sum, t) => sum + toNum(t.amount), 0);
+    const e = expenses.reduce((sum, t) => sum + toNum(t.amount), 0);
+    const net = s - c - e;
+    const margin = s > 0 ? (net / s) * 100 : 0;
+    return { sales: s, costs: c, expenses: e, netProfit: net, margin };
+  }, [sales, costs, expenses]);
+
+  const periodLabel = useMemo(() => {
+    if (!period) return "—";
+    try {
+      return new Date(`${period}-01T12:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    } catch { return period; }
+  }, [period]);
+
+  /* Row handlers */
+  const makeUpdater = useCallback(
+    (setter: React.Dispatch<React.SetStateAction<Transaction[]>>) =>
+      (id: string, field: keyof Transaction, value: string) =>
+        setter((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r))),
+    []
+  );
+  const makeAdder = useCallback(
+    (setter: React.Dispatch<React.SetStateAction<Transaction[]>>) => () =>
+      setter((prev) => [...prev, emptyRow()]),
+    []
+  );
+  const makeRemover = useCallback(
+    (setter: React.Dispatch<React.SetStateAction<Transaction[]>>) => (id: string) =>
+      setter((prev) => prev.filter((r) => r.id !== id)),
+    []
+  );
+
+  /* Save */
+  const handleSave = useCallback(() => {
+    const record: SavedReport = {
+      id: uid(),
+      period: periodLabel,
+      savedAt: new Date().toISOString(),
+      sales: sales.map((t) => ({ ...t })),
+      costs: costs.map((t) => ({ ...t })),
+      expenses: expenses.map((t) => ({ ...t })),
+      totals: { ...totals },
+    };
+    const next = [record, ...history];
+    setHistory(next);
+    persistHistory(next);
+    setSavedMsg(`Report for "${periodLabel}" saved.`);
+    setTimeout(() => setSavedMsg(null), 3000);
+  }, [periodLabel, sales, costs, expenses, totals, history]);
+
+  const deleteRecord = useCallback((id: string) => {
+    if (!window.confirm("Delete this saved report?")) return;
+    setHistory((prev) => {
+      const next = prev.filter((r) => r.id !== id);
+      persistHistory(next);
+      return next;
+    });
+  }, []);
+
+  const loadRecord = useCallback((record: SavedReport) => {
+    setSales(record.sales.map((t) => ({ ...t, id: uid() })));
+    setCosts(record.costs.map((t) => ({ ...t, id: uid() })));
+    setExpenses(record.expenses.map((t) => ({ ...t, id: uid() })));
+    setHistoryOpen(false);
+    setSavedMsg(`Loaded report: "${record.period}"`);
+    setTimeout(() => setSavedMsg(null), 3000);
+  }, []);
+
+  return (
+    <div className="sve-page">
+      <div className="sve-report">
+
+        {/* ── Header ── */}
+        <div className="sve-header">
+          <div>
+            <div className="sve-badge">Financial Overview</div>
+            <h1 className="sve-title">
+              Sales <span className="sve-title-vs">vs</span> Expenses
+            </h1>
+            <div className="sve-subtitle">Track your financial performance and key metrics</div>
+          </div>
+
+          <div className="sve-period-box">
+            <div className="sve-period-icon">▣</div>
+            <div>
+              <div className="sve-period-label">Reporting Period</div>
+              <input
+                type="month"
+                className="sve-period-input"
+                value={period}
+                onChange={(e) => setPeriod(e.target.value)}
+              />
+              <div className="sve-period-date">{periodLabel}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── KPI Cards ── */}
+        <div className="sve-kpi-grid">
+          <div className="sve-kpi sve-kpi--green">
+            <div className="sve-kpi-content">
+              <div className="sve-kpi-icon">↗</div>
+              <div>
+                <div className="sve-kpi-label">Total Sales</div>
+                <div className="sve-kpi-value">{fmt(totals.sales)}</div>
+              </div>
+            </div>
+            <div className="sve-kpi-line" />
+            <div className="sve-kpi-change">Gross revenue</div>
+          </div>
+
+          <div className="sve-kpi sve-kpi--orange">
+            <div className="sve-kpi-content">
+              <div className="sve-kpi-icon">🛒</div>
+              <div>
+                <div className="sve-kpi-label">Total Cost</div>
+                <div className="sve-kpi-value">{fmt(totals.costs)}</div>
+              </div>
+            </div>
+            <div className="sve-kpi-line" />
+            <div className="sve-kpi-change">COGS</div>
+          </div>
+
+          <div className="sve-kpi sve-kpi--red">
+            <div className="sve-kpi-content">
+              <div className="sve-kpi-icon">▤</div>
+              <div>
+                <div className="sve-kpi-label">Total Expense</div>
+                <div className="sve-kpi-value">{fmt(totals.expenses)}</div>
+              </div>
+            </div>
+            <div className="sve-kpi-line" />
+            <div className="sve-kpi-change">Operating expenses</div>
+          </div>
+
+          <div className="sve-kpi sve-kpi--blue">
+            <div className="sve-kpi-content">
+              <div className="sve-kpi-icon">💰</div>
+              <div>
+                <div className="sve-kpi-label">Net Profit</div>
+                <div className="sve-kpi-value">{fmt(totals.netProfit)}</div>
+              </div>
+            </div>
+            <div className="sve-kpi-line" />
+            <div className="sve-kpi-change">
+              Margin: <b>{totals.margin.toFixed(1)}%</b>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Transaction Tables ── */}
+        <div className="sve-transaction-card">
+          <div className="sve-card-title">Transaction Details</div>
+          <TransactionTable
+            rows={sales}
+            color="green"
+            label="Sales Transactions"
+            categoryLabel="Sales"
+            onUpdate={makeUpdater(setSales)}
+            onAdd={makeAdder(setSales)}
+            onRemove={makeRemover(setSales)}
+          />
+          <TransactionTable
+            rows={costs}
+            color="orange"
+            label="Cost Transactions"
+            categoryLabel="Cost"
+            onUpdate={makeUpdater(setCosts)}
+            onAdd={makeAdder(setCosts)}
+            onRemove={makeRemover(setCosts)}
+          />
+          <TransactionTable
+            rows={expenses}
+            color="red"
+            label="Expense Transactions"
+            categoryLabel="Expense"
+            onUpdate={makeUpdater(setExpenses)}
+            onAdd={makeAdder(setExpenses)}
+            onRemove={makeRemover(setExpenses)}
+          />
+        </div>
+
+        {/* ── Footer Summary ── */}
+        <div className="sve-summary">
+          <div className="sve-summary-box">
+            <div className="sve-summary-label">Net Profit</div>
+            <div className="sve-summary-value sve-summary-value--green">{fmt(totals.netProfit)}</div>
+          </div>
+          <div className="sve-summary-box">
+            <div className="sve-summary-label">● Total Sales</div>
+            <div className="sve-summary-value">{fmt(totals.sales)}</div>
+          </div>
+          <div className="sve-summary-box">
+            <div className="sve-summary-label">● Total Cost</div>
+            <div className="sve-summary-value">{fmt(totals.costs)}</div>
+          </div>
+          <div className="sve-summary-box">
+            <div className="sve-summary-label">● Total Expense</div>
+            <div className="sve-summary-value">{fmt(totals.expenses)}</div>
+          </div>
+          <div className="sve-summary-box">
+            <div className="sve-summary-label">Profit Margin</div>
+            <div className="sve-summary-value sve-summary-value--blue">{totals.margin.toFixed(1)}%</div>
+          </div>
+        </div>
+
+        {/* ── Actions ── */}
+        <div className="sve-actions">
+          <button type="button" className="sve-btn sve-btn--primary" onClick={handleSave}>
+            💾 Save Report
+          </button>
+          <button
+            type="button"
+            className="sve-btn sve-btn--outline"
+            onClick={() => setHistoryOpen((v) => !v)}
+          >
+            📋 History ({history.length})
+          </button>
+          {savedMsg && <span className="sve-save-msg">{savedMsg}</span>}
+        </div>
+
+        {/* ── History Panel ── */}
+        {historyOpen && (
+          <div className="sve-history">
+            <div className="sve-history__title">Saved Reports</div>
+            {history.length === 0 ? (
+              <div className="sve-history__empty">No saved reports yet. Hit "Save Report" to record a snapshot.</div>
+            ) : (
+              history.map((r) => (
+                <div key={r.id} className="sve-history__item">
+                  <div
+                    className="sve-history__item-header"
+                    onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                  >
+                    <div className="sve-history__item-meta">
+                      <strong>{r.period}</strong>
+                      <span className="sve-history__item-date">
+                        Saved{" "}
+                        {new Date(r.savedAt).toLocaleDateString(undefined, {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        })}
+                      </span>
+                    </div>
+                    <div className="sve-history__item-kpis">
+                      <span className="sve-history__kpi sve-history__kpi--green">
+                        Sales: {fmt(r.totals.sales)}
+                      </span>
+                      <span className="sve-history__kpi sve-history__kpi--blue">
+                        Profit: {fmt(r.totals.netProfit)}
+                      </span>
+                    </div>
+                    <div className="sve-history__item-actions" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        className="sve-btn sve-btn--sm sve-btn--outline"
+                        onClick={() => loadRecord(r)}
+                      >
+                        Load
+                      </button>
+                      <button
+                        type="button"
+                        className="sve-btn sve-btn--sm sve-btn--danger"
+                        onClick={() => deleteRecord(r.id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                    <span className="sve-history__chevron">
+                      {expandedId === r.id ? "▲" : "▼"}
+                    </span>
+                  </div>
+
+                  {expandedId === r.id && (
+                    <div className="sve-history__item-body">
+                      <div className="sve-history__totals">
+                        <div><span>Total Sales</span><b className="sve-clr-green">{fmt(r.totals.sales)}</b></div>
+                        <div><span>Total Cost</span><b className="sve-clr-orange">{fmt(r.totals.costs)}</b></div>
+                        <div><span>Total Expense</span><b className="sve-clr-red">{fmt(r.totals.expenses)}</b></div>
+                        <div><span>Net Profit</span><b className="sve-clr-blue">{fmt(r.totals.netProfit)}</b></div>
+                        <div><span>Profit Margin</span><b>{r.totals.margin.toFixed(1)}%</b></div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default SalesVsExpensesReportPage;
