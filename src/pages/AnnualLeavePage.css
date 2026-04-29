@@ -1,27 +1,32 @@
 /* ── Sub-tabs ── */
 .al-tabs {
   display: flex;
-  gap: 0;
+  gap: 0.35rem;
   border-bottom: 1px solid var(--border-subtle);
   margin-bottom: 1.5rem;
+  padding-bottom: 0.45rem;
+  flex-wrap: wrap;
 }
 
 .al-tab {
-  padding: 0.6rem 1.3rem;
+  padding: 0.58rem 1rem;
   font-size: 0.88rem;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-muted);
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
+  background: var(--theme-surface-soft);
+  border: 1px solid var(--theme-border-subtle);
+  border-radius: 999px;
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
   font-family: inherit;
 }
 
-.al-tab:hover { color: var(--text); }
-.al-tab--active { color: var(--accent); border-bottom-color: var(--accent); }
+.al-tab:hover { color: var(--text); border-color: var(--theme-border-strong); }
+.al-tab--active {
+  color: var(--theme-text-inverse);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--primary-hover) 100%);
+  border-color: transparent;
+}
 
 /* ── Dashboard ── */
 .al-dashboard {
@@ -145,6 +150,10 @@
   margin-bottom: 0.75rem;
   flex-wrap: wrap;
   justify-content: space-between;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--theme-border-subtle);
+  border-radius: var(--radius);
+  background: var(--theme-surface-soft);
 }
 
 .al-filter-bar__right {
@@ -179,7 +188,7 @@
 }
 
 .al-filter-tab {
-  padding: 0.3rem 0.85rem;
+  padding: 0.36rem 0.9rem;
   border-radius: 999px;
   font-size: 0.8rem;
   font-weight: 600;
@@ -208,7 +217,7 @@
 .al-filter-tab--active .al-filter-tab__count { background: color-mix(in srgb, var(--theme-text-inverse) 26%, transparent); }
 
 .al-search {
-  padding: 0.45rem 0.85rem;
+  padding: 0.48rem 0.85rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   font-size: 0.875rem;
@@ -227,7 +236,7 @@
 .al-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--glass-border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -318,6 +327,11 @@
 
 .al-row__acts    { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .al-row__chevron { color: var(--text-muted); font-size: 0.7rem; text-align: right; }
+
+:root[data-theme='comfort'] .al-filter-bar {
+  background: var(--theme-surface-raised);
+  border-color: var(--theme-border);
+}
 
 /* Avatar */
 .al-avatar {

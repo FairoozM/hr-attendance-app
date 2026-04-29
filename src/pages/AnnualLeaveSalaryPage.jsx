@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { api } from '../api/client'
 import { useEmployees } from '../hooks/useEmployees'
+import { useCompanyPayments } from '../hooks/useCompanyPayments'
+import { buildAnnualLeavePaymentPayload } from '../utils/paymentUtils'
 import { fmtDMY } from '../utils/dateFormat'
 import './AnnualLeaveSalaryPage.css'
 
@@ -122,6 +124,7 @@ function HistoryTable({ rows, editingId, onEdit, onDelete, showEmployee = false 
 
 export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmployees }) {
   const { employees: fetchedEmployees } = useEmployees()
+  const { payments, addPayment } = useCompanyPayments()
   const employees = (propEmployees && propEmployees.length > 0) ? propEmployees : fetchedEmployees
   const [empSearch, setEmpSearch] = useState('')
   const [selectedEmp, setSelectedEmp] = useState(null)
@@ -135,7 +138,26 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
   const [allHistLoading, setAllHistLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState(null)
+  const [pipelineMsg, setPipelineMsg] = useState(null)
+  const [pipelineSending, setPipelineSending] = useState(false)
+  const [lastSavedRecord, setLastSavedRecord] = useState(null)
   const [editingId, setEditingId] = useState(null)
+
+  const summaryInitials = useMemo(() => {
+    const name = String(selectedEmp?.name || '').trim()
+    if (!name) return '?'
+    const parts = name.split(/\s+/).filter(Boolean)
+    const initials = parts.slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('')
+    return initials || name[0].toUpperCase()
+  }, [selectedEmp])
+
+  const isLastSavedInPipeline = useMemo(() => {
+    if (!lastSavedRecord?.id) return false
+    const sourceReferenceId = String(lastSavedRecord.id)
+    return payments.some(
+      (p) => p.sourceModule === 'Annual Leave' && String(p.sourceReferenceId || '') === sourceReferenceId
+    )
+  }, [lastSavedRecord, payments])
 
   // ── Filtered employee list (always visible when there's a search query) ──
   const filteredEmps = useMemo(() => {
@@ -190,6 +212,8 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
     }))
     setOverrides({})
     setEditingId(null)
+    setLastSavedRecord(null)
+    setPipelineMsg(null)
     setSaveMsg(null)
   }, [])
 
@@ -222,13 +246,40 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
   useEffect(() => { loadAllHistory() }, [loadAllHistory])
 
   // ── Save ──
-  const handleSave = useCallback(async () => {
+  const sendToPipelineForRecord = useCallback((record) => {
+    if (!selectedEmp || !record?.id) {
+      setPipelineMsg({ type: 'error', text: 'Save a calculation first.' })
+      return false
+    }
+    const sourceReferenceId = String(record.id)
+    const duplicate = payments.find(
+      (p) => p.sourceModule === 'Annual Leave' && String(p.sourceReferenceId || '') === sourceReferenceId
+    )
+    if (duplicate) {
+      setPipelineMsg({ type: 'info', text: 'This calculation is already in the payment pipeline.' })
+      return true
+    }
+    const payload = buildAnnualLeavePaymentPayload({
+      sourceReferenceId,
+      employeeName: selectedEmp.name || 'Employee',
+      dueDate: record.calculationDate || calc.calculationDate,
+      amount: toNum(record.grandTotal),
+      currency: 'AED',
+      notes: `Generated from annual leave salary record #${sourceReferenceId}`,
+    })
+    addPayment(payload)
+    setPipelineMsg({ type: 'success', text: 'Added to payment pipeline.' })
+    return true
+  }, [addPayment, calc.calculationDate, payments, selectedEmp])
+
+  const handleSave = useCallback(async (sendToPipelineAfterSave = false) => {
     if (!selectedEmp) return setSaveMsg({ type: 'error', text: 'Please select an employee first.' })
     const monthly = toNum(calc.monthlySalary)
     if (monthly <= 0) return setSaveMsg({ type: 'error', text: 'Monthly salary must be greater than 0.' })
 
     setSaving(true)
     setSaveMsg(null)
+    setPipelineMsg(null)
     try {
       const payload = {
         employee_id: selectedEmp.id,
@@ -245,22 +296,42 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
         grand_total: derived.total,
         remarks: calc.remarks,
       }
+      let savedRecord = null
       if (editingId) {
-        await api.put(`/api/annual-leave-salary/${editingId}`, payload)
+        const updated = await api.put(`/api/annual-leave-salary/${editingId}`, payload)
+        if (updated?.id != null) {
+          savedRecord = {
+            id: updated.id,
+            calculationDate: updated.calculation_date?.slice(0, 10) || calc.calculationDate,
+            grandTotal: updated.grand_total ?? derived.total,
+          }
+          setLastSavedRecord(savedRecord)
+        }
         setSaveMsg({ type: 'success', text: 'Record updated successfully.' })
       } else {
-        await api.post('/api/annual-leave-salary', payload)
+        const created = await api.post('/api/annual-leave-salary', payload)
+        if (created?.id != null) {
+          savedRecord = {
+            id: created.id,
+            calculationDate: created.calculation_date?.slice(0, 10) || calc.calculationDate,
+            grandTotal: created.grand_total ?? derived.total,
+          }
+          setLastSavedRecord(savedRecord)
+        }
         setSaveMsg({ type: 'success', text: 'Calculation saved successfully.' })
         setEditingId(null)
       }
       await loadHistory(selectedEmp.id)
       await loadAllHistory()
+      if (sendToPipelineAfterSave && savedRecord) {
+        sendToPipelineForRecord(savedRecord)
+      }
     } catch (err) {
       setSaveMsg({ type: 'error', text: err.message || 'Failed to save.' })
     } finally {
       setSaving(false)
     }
-  }, [selectedEmp, calc, derived, editingId, loadHistory, loadAllHistory])
+  }, [selectedEmp, calc, derived, editingId, loadHistory, loadAllHistory, sendToPipelineForRecord])
 
   // ── Delete a history record ──
   const handleDelete = useCallback(async (id) => {
@@ -299,6 +370,12 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
       remarks: row.remarks ?? '',
     })
     setOverrides({ perDayRate: true, runningMonthAmount: true, leaveSalaryAmount: true, grandTotal: true })
+    setLastSavedRecord({
+      id: row.id,
+      calculationDate: row.calculation_date?.slice(0, 10) || '',
+      grandTotal: row.grand_total ?? 0,
+    })
+    setPipelineMsg(null)
     setSaveMsg(null)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [employees])
@@ -310,8 +387,22 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
     setOverrides({})
     setDivisionDays(30)
     setCustomDivDays('')
+    setLastSavedRecord(null)
+    setPipelineMsg(null)
     setSaveMsg(null)
   }, [])
+
+  const handleSendToPipeline = useCallback(() => {
+    if (!lastSavedRecord?.id) return
+    setPipelineSending(true)
+    try {
+      sendToPipelineForRecord(lastSavedRecord)
+    } catch (err) {
+      setPipelineMsg({ type: 'error', text: err?.message || 'Failed to add to payment pipeline.' })
+    } finally {
+      setPipelineSending(false)
+    }
+  }, [lastSavedRecord, sendToPipelineForRecord])
 
   // ── Print ──
   const handlePrint = useCallback(() => { window.print() }, [])
@@ -634,68 +725,108 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
               {saveMsg && (
                 <div className={`als-alert als-alert--${saveMsg.type}`}>{saveMsg.text}</div>
               )}
+              {pipelineMsg && (
+                <div className={`als-alert als-alert--${pipelineMsg.type === 'error' ? 'error' : pipelineMsg.type === 'info' ? 'info' : 'success'}`}>
+                  {pipelineMsg.text}
+                </div>
+              )}
               <div className="als-save-row">
                 <button
                   className="als-btn als-btn--primary als-btn--lg"
-                  onClick={handleSave}
+                  onClick={() => handleSave(false)}
                   disabled={saving}
                 >
                   {saving ? 'Saving…' : (editingId ? '💾 Update Record' : '💾 Save Calculation')}
+                </button>
+                <button
+                  className="als-btn als-btn--primary"
+                  onClick={() => handleSave(true)}
+                  disabled={saving}
+                >
+                  {saving ? 'Saving…' : (editingId ? 'Update + Send to Pipeline' : 'Save + Send to Pipeline')}
                 </button>
                 {editingId && (
                   <button className="als-btn als-btn--outline" onClick={handleNew}>
                     Cancel Edit
                   </button>
                 )}
+                <button
+                  className="als-btn als-btn--outline"
+                  onClick={handleSendToPipeline}
+                  disabled={pipelineSending || !selectedEmp || !lastSavedRecord?.id || isLastSavedInPipeline}
+                  title={
+                    !lastSavedRecord?.id
+                      ? 'Save first'
+                      : isLastSavedInPipeline
+                        ? 'This record is already in the payment pipeline'
+                        : 'Send saved calculation to company payments pipeline'
+                  }
+                >
+                  {pipelineSending ? 'Sending…' : isLastSavedInPipeline ? 'Already in Pipeline' : 'Send to Payment Pipeline'}
+                </button>
               </div>
             </div>
 
             {/* Right: summary */}
             <div className="als-summary-panel">
               <div className="als-summary-card">
-                <div className="als-summary-card__head">
-                  <span>📊</span>
-                  <span>Calculation Summary</span>
-                </div>
-                <div className="als-summary-card__emp">
-                  {selectedEmp.name}
-                  <span>{selectedEmp.employeeId} · {selectedEmp.department}</span>
-                </div>
-                <div className="als-summary-card__date">
-                  Date: {dateLabel(calc.calculationDate)}
+                <div className="als-summary-top">
+                  <div className="als-summary-card__head">
+                    <span>Calculation Summary</span>
+                  </div>
+                  <div className="als-summary-date-pill">{dateLabel(calc.calculationDate)}</div>
                 </div>
 
-                <div className="als-summary-rows">
-                  <div className="als-summary-row">
+                <div className="als-summary-identity">
+                  <div className="als-summary-avatar">{summaryInitials}</div>
+                  <div className="als-summary-card__emp">
+                    {selectedEmp.name}
+                    <span>{selectedEmp.employeeId} · {selectedEmp.department}</span>
+                  </div>
+                </div>
+
+                <div className="als-summary-kpis">
+                  <div className="als-summary-kpi">
                     <span>Monthly Salary</span>
-                    <span>AED {fmt(calc.monthlySalary)}</span>
+                    <strong>AED {fmt(calc.monthlySalary)}</strong>
                   </div>
-                  <div className="als-summary-row">
-                    <span>Per Day Rate (÷{derived.divisor})</span>
-                    <span>AED {fmt(derived.perDay)}</span>
+                  <div className="als-summary-kpi">
+                    <span>Per Day (÷{derived.divisor})</span>
+                    <strong>AED {fmt(derived.perDay)}</strong>
                   </div>
-                  <div className="als-summary-divider" />
-                  <div className="als-summary-row">
-                    <span>Running Month ({toNum(calc.runningMonthDays)} days)</span>
-                    <span>AED {fmt(derived.rmAmt)}</span>
+                </div>
+
+                <div className="als-summary-breakdown">
+                  <div className="als-summary-breakdown__row">
+                    <div>
+                      <span className="als-summary-breakdown__label">Running month</span>
+                      <span className="als-summary-breakdown__meta">{toNum(calc.runningMonthDays)} days worked</span>
+                    </div>
+                    <strong>AED {fmt(derived.rmAmt)}</strong>
                   </div>
-                  <div className="als-summary-row">
-                    <span>Leave Salary ({toNum(calc.leaveDaysToPay)} days)</span>
-                    <span>AED {fmt(derived.lAmt)}</span>
+                  <div className="als-summary-breakdown__row">
+                    <div>
+                      <span className="als-summary-breakdown__label">Leave salary</span>
+                      <span className="als-summary-breakdown__meta">{toNum(calc.leaveDaysToPay)} days</span>
+                    </div>
+                    <strong>AED {fmt(derived.lAmt)}</strong>
                   </div>
                   {toNum(calc.otherAdditions) > 0 && (
-                    <div className="als-summary-row als-summary-row--add">
-                      <span>+ Other Additions</span>
-                      <span>AED {fmt(calc.otherAdditions)}</span>
+                    <div className="als-summary-breakdown__row als-summary-breakdown__row--add">
+                      <div>
+                        <span className="als-summary-breakdown__label">Other additions</span>
+                      </div>
+                      <strong>+ AED {fmt(calc.otherAdditions)}</strong>
                     </div>
                   )}
                   {toNum(calc.otherDeductions) > 0 && (
-                    <div className="als-summary-row als-summary-row--ded">
-                      <span>− Other Deductions</span>
-                      <span>AED {fmt(calc.otherDeductions)}</span>
+                    <div className="als-summary-breakdown__row als-summary-breakdown__row--ded">
+                      <div>
+                        <span className="als-summary-breakdown__label">Other deductions</span>
+                      </div>
+                      <strong>− AED {fmt(calc.otherDeductions)}</strong>
                     </div>
                   )}
-                  <div className="als-summary-divider" />
                 </div>
 
                 <div className="als-summary-total">

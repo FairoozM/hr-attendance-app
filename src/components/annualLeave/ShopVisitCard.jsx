@@ -56,6 +56,33 @@ export function ShopVisitCard({
     ['PendingSubmission', 'Submitted'].includes(sv) &&
     !['Completed', 'Cancelled'].includes(sv)
 
+  const adminNextStep = isAdmin
+    ? (
+      sv === 'Submitted'
+        ? {
+            label: 'Confirm visit',
+            hint: 'Next step: confirm the employee submitted visit details.',
+            onClick: () => onConfirm(row),
+            className: 'al-btn al-btn--success al-btn--sm',
+          }
+        : sv === 'Confirmed'
+          ? {
+              label: 'Apply salary calculator',
+              hint: 'Next step: pull the latest leave salary amount into this request.',
+              onClick: () => onApplyCalculatorOpen(row),
+              className: 'al-btn al-btn--ghost al-btn--sm',
+            }
+          : sv === 'MoneyCalculated'
+            ? {
+                label: 'Mark shop visit completed',
+                hint: 'Final step: mark this workflow completed after handover.',
+                onClick: () => onMarkCompleteOpen(row),
+                className: 'al-btn al-btn--primary al-btn--sm',
+              }
+            : null
+    )
+    : null
+
   return (
     <div className="al-sv-card sv-admin">
       <div className="al-sv-card__title-row">
@@ -64,6 +91,25 @@ export function ShopVisitCard({
       </div>
 
       <p className="al-sv-card__next">{nextShopActionHint(row)}</p>
+
+      {employeeCanSubmit && onOpenEmployeeShop && (
+        <div className="al-sv-card__next-action">
+          <span className="al-sv-card__group-label">Your next action</span>
+          <button type="button" className="al-btn al-btn--primary al-btn--sm" onClick={() => onOpenEmployeeShop(row)}>
+            {sv === 'Submitted' ? 'Edit submitted visit' : 'Submit main shop visit'}
+          </button>
+        </div>
+      )}
+
+      {adminNextStep && (
+        <div className="al-sv-card__next-action">
+          <span className="al-sv-card__group-label">Recommended next action</span>
+          <p className="al-sv-card__next-hint">{adminNextStep.hint}</p>
+          <button type="button" className={adminNextStep.className} onClick={adminNextStep.onClick}>
+            {adminNextStep.label}
+          </button>
+        </div>
+      )}
 
       <div className="sv-admin__grid">
         <div>
@@ -125,17 +171,9 @@ export function ShopVisitCard({
         </div>
       )}
 
-      {employeeCanSubmit && onOpenEmployeeShop && (
-        <div className="al-sv-card__employee-cta">
-          <button type="button" className="al-btn al-btn--primary al-btn--sm" onClick={() => onOpenEmployeeShop(row)}>
-            {sv === 'Submitted' ? 'Edit submitted visit' : 'Submit main shop visit'}
-          </button>
-        </div>
-      )}
-
       {isAdmin && (
         <div className="al-sv-card__admin-actions">
-          <span className="al-sv-card__group-label">Admin actions</span>
+          <span className="al-sv-card__group-label">Other admin actions</span>
           <div className="sv-admin__actions">
             {sv === 'Submitted' && (
               <button type="button" className="al-btn al-btn--success al-btn--sm" onClick={() => onConfirm(row)}>
