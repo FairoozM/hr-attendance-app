@@ -166,7 +166,7 @@ async function getVatCustomers(req, res) {
         message: 'Zoho Books API access is not authorized. Re-issue the Zoho OAuth token with ZohoBooks.contacts.READ scope.',
       })
     }
-    return handleZohoError(res, err, 'getVatCustomers')
+    return await handleZohoError(res, err, 'getVatCustomers')
   }
 }
 
@@ -255,7 +255,7 @@ async function getVatReport(req, res) {
           'ZohoBooks.invoices.READ, ZohoBooks.creditnotes.READ, ZohoBooks.contacts.READ',
       })
     }
-    return handleZohoError(res, err, 'getVatReport')
+    return await handleZohoError(res, err, 'getVatReport')
   }
 }
 

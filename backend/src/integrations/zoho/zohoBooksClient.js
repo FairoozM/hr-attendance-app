@@ -25,7 +25,7 @@ const { zohoApiRequest, fetchListPaginated } = require('./zohoInventoryClient')
 
 const BOOKS_V3   = '/books/v3'
 const MAX_PAGES    = 20    // 20 × 200 = 4,000 invoices hard cap
-const BATCH_SIZE   = 10   // concurrent page requests per batch (was 5)
+const BATCH_SIZE   = 6   // concurrent page requests — lower burst vs Zoho daily quota
 const MAX_CN_PAGES = 10   // credit notes are small, sequential is fine
 
 // ── Customers ──────────────────────────────────────────────────────────────

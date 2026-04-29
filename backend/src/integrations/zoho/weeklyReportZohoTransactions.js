@@ -22,11 +22,56 @@ const { fetchAllBillsRaw, fetchAllVendorCreditsRaw } = require('./zohoTransactio
 const { getVendorConfigForGroup } = require('../../services/weeklyReportVendorConfig')
 
 const MAX_DEFAULT_PAGES = 50
-const DETAIL_CONCURRENCY = 6
+/** Lower than before to reduce burst traffic against Zoho’s daily quota. */
+const DETAIL_CONCURRENCY = 4
 const SALES_DETAIL_CACHE_TTL_MS =
   process.env.ZOHO_ITEMS_CACHE_TTL_MS !== undefined
     ? Math.max(0, parseInt(process.env.ZOHO_ITEMS_CACHE_TTL_MS, 10) || 0)
     : 5 * 60 * 1000
+
+/**
+ * Cross-request TTL cache for GET /invoices/{id}, /bills/{id}, /vendorcredits/{id}.
+ * Without this, each weekly report refresh re-fetches hundreds of documents.
+ * Default 30 min (longer than list caches).
+ */
+const DOCUMENT_DETAIL_CACHE_TTL_MS =
+  process.env.ZOHO_DOCUMENT_DETAIL_CACHE_TTL_MS !== undefined
+    ? Math.max(0, parseInt(process.env.ZOHO_DOCUMENT_DETAIL_CACHE_TTL_MS, 10) || 0)
+    : 30 * 60 * 1000
+
+const MAX_DOCUMENT_DETAIL_CACHE_ENTRIES = 4000
+
+/** @type {Map<string, { doc: object, expiresAt: number }>} */
+const _invoiceDetailById = new Map()
+/** @type {Map<string, { doc: object, expiresAt: number }>} */
+const _billDetailById = new Map()
+/** @type {Map<string, { doc: object, expiresAt: number }>} */
+const _vendorCreditDetailById = new Map()
+
+function trimDocCache(m) {
+  while (m.size >= MAX_DOCUMENT_DETAIL_CACHE_ENTRIES) {
+    const k = m.keys().next().value
+    m.delete(k)
+  }
+}
+
+function getCachedDocDetail(m, id) {
+  const k = String(id || '')
+  const hit = m.get(k)
+  if (!hit) return null
+  if (Date.now() >= hit.expiresAt) {
+    m.delete(k)
+    return null
+  }
+  return hit.doc
+}
+
+function setCachedDocDetail(m, id, doc) {
+  if (!DOCUMENT_DETAIL_CACHE_TTL_MS || !doc || !id) return
+  trimDocCache(m)
+  m.set(String(id), { doc, expiresAt: Date.now() + DOCUMENT_DETAIL_CACHE_TTL_MS })
+}
+
 const _salesDetailCache = new Map()
 const _salesDetailInFlight = new Map()
 
@@ -295,16 +340,89 @@ function normalizeVendorCreditLineItem(li) {
   return { item_id: itemId, name, sku, quantity, item_total, warehouse_id, warehouse_name }
 }
 
-/**
- * Sales line items from Zoho invoices. Invoice detail lines carry `warehouse_id`,
- * so this source can split normal and Damaged warehouse sales consistently.
- *
- * @param {string} fromDate  YYYY-MM-DD
- * @param {string} toDate    YYYY-MM-DD
- * @param {{ onWarning?: (s: string) => void, warehouseId?: string, excludeWarehouseId?: string }} [opts]
- * @returns {Promise<{ lines: object[], document_count: number, list_truncated: boolean, list_pages: number, error: Error|null }>}
- */
-async function getSalesUncached(fromDate, toDate, opts = {}) {
+function makeSalesByItemKey(r) {
+  const itemId = r && r.item_id != null ? String(r.item_id).trim() : ''
+  if (itemId) return `id:${itemId}`
+  const sku = r && r.sku != null ? String(r.sku).trim().toLowerCase() : ''
+  if (sku) return `sku:${sku}`
+  const nm = r && (r.name != null || r.item_name != null)
+    ? String(r.name != null ? r.name : r.item_name).trim().toLowerCase()
+    : ''
+  return nm ? `name:${nm}` : ''
+}
+
+function normalizeSalesByItemLine(r, forcedWarehouseId = '') {
+  const item_id = r && r.item_id != null ? String(r.item_id).trim() : ''
+  const sku = r && r.sku != null ? String(r.sku).trim() : ''
+  const name = r && (r.name != null || r.item_name != null)
+    ? String(r.name != null ? r.name : r.item_name).trim()
+    : ''
+  const quantity = parseLineQty(
+    r && (r.quantity != null ? r.quantity : (r.qty != null ? r.qty : (r.quantity_sold != null ? r.quantity_sold : r.sold_quantity)))
+  )
+  const item_total = itemTotalNetFromSalesByItemRow(r)
+  return {
+    type: 'sales_by_item',
+    document_id: '',
+    document_date: '',
+    item_id,
+    name,
+    sku,
+    quantity: Math.max(0, quantity),
+    item_total: Math.max(0, item_total),
+    warehouse_id: forcedWarehouseId || '',
+    warehouse_name: '',
+  }
+}
+
+async function fetchSalesByItemRows(fromDate, toDate, warehouseId = '') {
+  const params = new URLSearchParams()
+  if (fromDate) params.set('from_date', fromDate)
+  if (toDate) params.set('to_date', toDate)
+  if (warehouseId) params.set('warehouse_id', warehouseId)
+  const { rows, truncated, pages } = await fetchListPaginated(
+    `${INVENTORY_V1}/reports/salesbyitem`,
+    'sales',
+    MAX_DEFAULT_PAGES,
+    params
+  )
+  return { rows, truncated, pages }
+}
+
+function subtractSalesByItemLines(allLines, minusLines) {
+  const m = new Map()
+  for (const line of allLines) {
+    const k = makeSalesByItemKey(line)
+    if (!k) continue
+    if (!m.has(k)) m.set(k, { ...line })
+    else {
+      const cur = m.get(k)
+      cur.quantity += Number(line.quantity) || 0
+      cur.item_total += Number(line.item_total) || 0
+    }
+  }
+  for (const line of minusLines) {
+    const k = makeSalesByItemKey(line)
+    if (!k || !m.has(k)) continue
+    const cur = m.get(k)
+    cur.quantity -= Number(line.quantity) || 0
+    cur.item_total -= Number(line.item_total) || 0
+  }
+  const out = []
+  for (const v of m.values()) {
+    const q = Math.round((Number(v.quantity) || 0) * 100) / 100
+    const a = Math.round((Number(v.item_total) || 0) * 100) / 100
+    if (q <= 0 && Math.abs(a) < 0.005) continue
+    out.push({
+      ...v,
+      quantity: q > 0 ? q : 0,
+      item_total: a > 0 ? a : 0,
+    })
+  }
+  return out
+}
+
+async function getSalesFromInvoicesSlow(fromDate, toDate, opts = {}) {
   const onW = typeof opts.onWarning === 'function' ? opts.onWarning : () => {}
   const lineFilter = makeWarehouseLineFilter(opts)
   const t0 = Date.now()
@@ -333,11 +451,17 @@ async function getSalesUncached(fromDate, toDate, opts = {}) {
       const iid = inv.invoice_id != null && String(inv.invoice_id).trim() !== '' ? String(inv.invoice_id).trim() : ''
       let full = inv
       if (iid && normalizeZohoLineItems(inv.line_items).length === 0) {
-        try {
-          const json = await zohoApiRequest(`${INVENTORY_V1}/invoices/${encodeURIComponent(iid)}`)
-          full = (json && json.invoice) || inv
-        } catch (e) {
-          onW(`GET /invoices/${iid} - ${e && e.message ? e.message : String(e)}`)
+        const cached = getCachedDocDetail(_invoiceDetailById, iid)
+        if (cached) {
+          full = cached
+        } else {
+          try {
+            const json = await zohoApiRequest(`${INVENTORY_V1}/invoices/${encodeURIComponent(iid)}`)
+            full = (json && json.invoice) || inv
+            if (full && full !== inv) setCachedDocDetail(_invoiceDetailById, iid, full)
+          } catch (e) {
+            onW(`GET /invoices/${iid} - ${e && e.message ? e.message : String(e)}`)
+          }
         }
       }
       return full
@@ -377,6 +501,73 @@ async function getSalesUncached(fromDate, toDate, opts = {}) {
   } catch (e) {
     onW(e && e.message ? e.message : String(e))
     return { lines: [], line_count: 0, document_count: 0, list_truncated: false, list_pages: 0, error: e }
+  }
+}
+
+/**
+ * Sales line items for weekly report.
+ *
+ * Fast path: `/reports/salesbyitem` (pre-aggregated by item, no per-invoice fan-out).
+ * Fallback path: invoice detail fan-out (`/invoices/{id}`) for compatibility when
+ * sales-by-item is unavailable.
+ *
+ * For `excludeWarehouseId`, computes:
+ *   all-warehouses sales_by_item  minus  excluded-warehouse sales_by_item.
+ */
+async function getSalesUncached(fromDate, toDate, opts = {}) {
+  const onW = typeof opts.onWarning === 'function' ? opts.onWarning : () => {}
+  const includeId = normalizeWarehouseId(opts.warehouseId)
+  const excludeId = normalizeWarehouseId(opts.excludeWarehouseId)
+  const t0 = Date.now()
+
+  try {
+    if (includeId) {
+      const rep = await fetchSalesByItemRows(fromDate, toDate, includeId)
+      const lines = (rep.rows || []).map((r) => normalizeSalesByItemLine(r, includeId))
+      console.log(`[zoho-timing] salesbyitem include:${includeId} rows=${lines.length}, pages=${rep.pages}, ${Date.now() - t0}ms`)
+      return {
+        lines,
+        line_count: lines.length,
+        document_count: lines.length,
+        list_truncated: !!rep.truncated,
+        list_pages: rep.pages || 0,
+        error: null,
+      }
+    }
+
+    if (excludeId) {
+      const [allRep, exRep] = await Promise.all([
+        fetchSalesByItemRows(fromDate, toDate, ''),
+        fetchSalesByItemRows(fromDate, toDate, excludeId),
+      ])
+      const allLines = (allRep.rows || []).map((r) => normalizeSalesByItemLine(r, ''))
+      const exLines = (exRep.rows || []).map((r) => normalizeSalesByItemLine(r, excludeId))
+      const lines = subtractSalesByItemLines(allLines, exLines)
+      console.log(`[zoho-timing] salesbyitem exclude:${excludeId} all=${allLines.length} minus=${exLines.length} out=${lines.length}, ${Date.now() - t0}ms`)
+      return {
+        lines,
+        line_count: lines.length,
+        document_count: lines.length,
+        list_truncated: !!(allRep.truncated || exRep.truncated),
+        list_pages: Math.max(allRep.pages || 0, exRep.pages || 0),
+        error: null,
+      }
+    }
+
+    const rep = await fetchSalesByItemRows(fromDate, toDate, '')
+    const lines = (rep.rows || []).map((r) => normalizeSalesByItemLine(r, ''))
+    console.log(`[zoho-timing] salesbyitem rows=${lines.length}, pages=${rep.pages}, ${Date.now() - t0}ms`)
+    return {
+      lines,
+      line_count: lines.length,
+      document_count: lines.length,
+      list_truncated: !!rep.truncated,
+      list_pages: rep.pages || 0,
+      error: null,
+    }
+  } catch (fastErr) {
+    onW(`Sales by Item fast path failed; using invoice detail fallback. ${fastErr && fastErr.message ? fastErr.message : String(fastErr)}`)
+    return getSalesFromInvoicesSlow(fromDate, toDate, opts)
   }
 }
 
@@ -448,11 +639,15 @@ async function getPurchases(fromDate, toDate, _vendorId, opts = {}) {
     if (!billId) return Promise.resolve(null)
     const id = String(billId)
     if (detailById.has(id)) return detailById.get(id)
+    const cached = getCachedDocDetail(_billDetailById, id)
+    if (cached) return Promise.resolve(cached)
     const p = (async () => {
       try {
         const p2 = new URLSearchParams()
         const json = await zohoApiRequest(`${INVENTORY_V1}/bills/${encodeURIComponent(id)}`, p2)
-        return (json && json.bill) || null
+        const bill = (json && json.bill) || null
+        if (bill) setCachedDocDetail(_billDetailById, id, bill)
+        return bill
       } catch (e) {
         onW(`GET /bills/${id} — ${e && e.message ? e.message : String(e)}`)
         return null
@@ -551,6 +746,8 @@ async function getVendorCredits(fromDate, toDate, vendorId, opts = {}) {
     if (!creditId) return Promise.resolve(null)
     const id = String(creditId)
     if (detailById.has(id)) return detailById.get(id)
+    const cached = getCachedDocDetail(_vendorCreditDetailById, id)
+    if (cached) return Promise.resolve(cached)
     const p = (async () => {
       try {
         const p2 = new URLSearchParams()
@@ -558,7 +755,9 @@ async function getVendorCredits(fromDate, toDate, vendorId, opts = {}) {
           `${INVENTORY_V1}/vendorcredits/${encodeURIComponent(id)}`,
           p2
         )
-        return (json && json.vendor_credit) || null
+        const vc = (json && json.vendor_credit) || null
+        if (vc) setCachedDocDetail(_vendorCreditDetailById, id, vc)
+        return vc
       } catch (e) {
         onW(`GET /vendorcredits/${id} — ${e && e.message ? e.message : String(e)}`)
         return null

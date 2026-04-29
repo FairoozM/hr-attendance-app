@@ -36,7 +36,8 @@ import { useAuth } from '../contexts/AuthContext'
  *     report_group, from_date, to_date,
  *     items:  (ZohoReportRow[]) ,
  *     totals: { opening_stock, closing_stock, purchase_amount,
- *               returned_to_wholesale, sales_amount }
+ *               returned_to_wholesale, sales_amount },
+ *     zoho: { ..., api_usage_today?: { successful_calls, utc_day, daily_limit } }
  *   }
  *
  * The hook returns:
@@ -48,8 +49,18 @@ import { useAuth } from '../contexts/AuthContext'
  * @param {number} [loadToken=0] Incremented by the parent "Load report" action.
  *   Fetches only run when `loadToken` is greater than 0 (or when `refetch` is used after a load).
  */
-export function useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseId = null, excludeWarehouseId = null, loadToken = 0 }) {
+export function useWeeklySalesReport({
+  reportGroup,
+  fromDate,
+  toDate,
+  warehouseId = null,
+  excludeWarehouseId = null,
+  loadToken = 0,
+  onFetchSettled = undefined,
+}) {
   const { user } = useAuth()
+  const onFetchSettledRef = useRef(onFetchSettled)
+  onFetchSettledRef.current = onFetchSettled
   const [items, setItems] = useState([])
   const [totals, setTotals] = useState(null)
   const [zoho, setZoho] = useState(null)
@@ -57,6 +68,7 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseI
   const [error, setError] = useState(null)
   const [notConfigured, setNotConfigured] = useState(false)
   const [validationErrors, setValidationErrors] = useState([])
+  const [errorHint, setErrorHint] = useState('')
 
   // Tracks the AbortController for the current in-flight request so that a
   // second call (e.g. from React StrictMode double-invoke in development) can
@@ -82,8 +94,10 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseI
 
     setLoading(true)
     setError(null)
+    setErrorHint('')
     setNotConfigured(false)
     setValidationErrors([])
+    let fetchSettled = false
     try {
       const qsParams = { from_date: fromDate, to_date: toDate }
       if (warehouseId && String(warehouseId).trim() !== '') {
@@ -100,25 +114,34 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseI
       setItems(Array.isArray(data?.items) ? data.items : [])
       setTotals(data?.totals || null)
       setZoho(data?.zoho && typeof data.zoho === 'object' ? data.zoho : null)
+      fetchSettled = true
     } catch (err) {
       // Aborted by a subsequent fetchReport call — let that new call own the
       // loading state; don't touch state here.
       if (err?.name === 'AbortError') return
-      const code = err?.body?.code
-      if (code === 'ZOHO_NOT_CONFIGURED' || err?.status === 503) {
+      const body = err?.body && typeof err.body === 'object' ? err.body : null
+      const code = body?.code
+      const zohoFromErr = body?.zoho && typeof body.zoho === 'object' ? body.zoho : null
+      fetchSettled = true
+      if (code === 'ZOHO_NOT_CONFIGURED') {
         setNotConfigured(true)
         setError(err.message || 'Zoho source not configured')
+        setErrorHint('')
+        setZoho(null)
+        setValidationErrors([])
       } else if (code === 'WEBHOOK_INVALID_RESPONSE') {
         setError(err.message || 'Zoho webhook returned an invalid response')
-        setValidationErrors(
-          Array.isArray(err?.body?.validation_errors) ? err.body.validation_errors : []
-        )
+        setErrorHint('')
+        setValidationErrors(Array.isArray(body?.validation_errors) ? body.validation_errors : [])
+        setZoho(null)
       } else {
         setError(err.message || 'Failed to load report')
+        setErrorHint(typeof body?.user_action === 'string' ? body.user_action : '')
+        setZoho(zohoFromErr)
+        setValidationErrors([])
       }
       setItems([])
       setTotals(null)
-      setZoho(null)
     } finally {
       // Only clear the spinner if this invocation still owns the controller.
       // If another fetchReport() started in the meantime it already set
@@ -126,6 +149,16 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseI
       // so we must not override that with setLoading(false).
       if (abortRef.current === controller) {
         setLoading(false)
+        if (
+          fetchSettled &&
+          typeof onFetchSettledRef.current === 'function'
+        ) {
+          try {
+            onFetchSettledRef.current()
+          } catch {
+            /* ignore */
+          }
+        }
       }
     }
   // Depend on user.id rather than the full user object so that an identity-
@@ -151,6 +184,7 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseI
     setTotals(null)
     setZoho(null)
     setError(null)
+    setErrorHint('')
     setNotConfigured(false)
     setValidationErrors([])
     setLoading(false)
@@ -183,6 +217,7 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseI
     zoho,
     loading,
     error,
+    errorHint,
     notConfigured,
     validationErrors,
     refetch: fetchReport,

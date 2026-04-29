@@ -35,6 +35,16 @@ function makeError(code, message, extra = {}) {
   return e
 }
 
+const MOCK_ZOHO_GUARD = {
+  syncPausedUntil: null,
+  perMinuteLimit: 70,
+  dailyLimit: 9000,
+  warningLimit: 7000,
+  safeStopLimit: 8500,
+  cacheEnabled: true,
+  limits: { minuteWindowSize: 0 },
+}
+
 function loadController({ getInventoryByGroup, getFamilyWarehouseMatrixByGroup, listGroupKeys, fetchWarehouses } = {}) {
   mockModule('../src/services/zohoService', {
     getInventoryByGroup,
@@ -42,6 +52,10 @@ function loadController({ getInventoryByGroup, getFamilyWarehouseMatrixByGroup, 
   })
   mockModule('../src/services/itemReportGroupsService', {
     listGroupKeys,
+  })
+  mockModule('../src/services/zohoApiClient', {
+    getDailySuccessCount: async () => 0,
+    getZohoGuardStatus: () => MOCK_ZOHO_GUARD,
   })
   mockModule('../src/integrations/zoho/zohoWarehouses', {
     fetchWarehouses: fetchWarehouses || (async () => DEFAULT_MOCK_WAREHOUSES),
@@ -133,6 +147,11 @@ test('weeklyReports: empty result returns 200 with all-zero Grand Total', async 
     sales_amount: 0,
   })
   assert.equal(res.body.report_group, 'slow_moving')
+  assert.ok(res.body.zoho && res.body.zoho.api_usage_today)
+  assert.equal(res.body.zoho.api_usage_today.successful_calls, 0)
+  assert.equal(res.body.zoho.api_usage_today.daily_limit, MOCK_ZOHO_GUARD.dailyLimit)
+  assert.equal(res.body.zoho.per_minute_limit, MOCK_ZOHO_GUARD.perMinuteLimit)
+  assert.match(res.body.zoho.api_usage_today.utc_day, /^\d{4}-\d{2}-\d{2}$/)
 })
 
 test('weeklyReports: Grand Total sums Zoho-provided numbers verbatim', async () => {
@@ -531,4 +550,88 @@ test('getZohoItemImage: second GET serves from in-memory cache (one Zoho fetch)'
   )
   assert.ok(Buffer.isBuffer(res2.body))
   assert.equal(res2.body.length, 3)
+})
+
+test('weeklyReports: family-details cold block skips fetchWarehouses and matrix when prefetch missing + BLOCK=1', async (t) => {
+  const prevBlock = process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS
+  process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS = '1'
+  let warehouseCalls = 0
+  let matrixCalls = 0
+  const restorePeek = mockModule('../src/services/weeklyReportPrefetchStash', {
+    peekWeeklyReportPrefetchBundle: () => null,
+  })
+  t.after(() => {
+    restorePeek()
+    if (prevBlock === undefined) delete process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS
+    else process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS = prevBlock
+    const resolved = require.resolve('../src/controllers/weeklyReportsController', { paths: [__dirname] })
+    delete require.cache[resolved]
+  })
+  const ctrl = loadController({
+    getInventoryByGroup: emptyZoho,
+    getFamilyWarehouseMatrixByGroup: async () => {
+      matrixCalls += 1
+      return { family: 'X', warehouses: [], sections: {}, items: [], reportMeta: {} }
+    },
+    listGroupKeys: async () => ['slow_moving'],
+    fetchWarehouses: async () => {
+      warehouseCalls += 1
+      return DEFAULT_MOCK_WAREHOUSES
+    },
+  })
+  const { req, res } = makeReqRes({
+    params: { group: 'slow_moving' },
+    query: { ...VALID, family: 'LIFEP7S' },
+  })
+  await ctrl.getFamilyDetailsByGroupController(req, res)
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.meta.fallbackReason, 'prefetch_bundle_missing')
+  assert.equal(res.body.meta.usedPrefetch, false)
+  assert.equal(warehouseCalls, 0, 'fetchWarehouses must not run on cold block')
+  assert.equal(matrixCalls, 0, 'getFamilyWarehouseMatrixByGroup must not run when controller cold-blocks')
+})
+
+test('weeklyReports: family-details with BLOCK=0 still loads warehouses when prefetch missing', async (t) => {
+  const prevBlock = process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS
+  delete process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS
+  let warehouseCalls = 0
+  const restorePeek = mockModule('../src/services/weeklyReportPrefetchStash', {
+    peekWeeklyReportPrefetchBundle: () => null,
+  })
+  t.after(() => {
+    restorePeek()
+    if (prevBlock === undefined) delete process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS
+    else process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS = prevBlock
+    const resolved = require.resolve('../src/controllers/weeklyReportsController', { paths: [__dirname] })
+    delete require.cache[resolved]
+  })
+  let matrixCalls = 0
+  const ctrl = loadController({
+    getInventoryByGroup: emptyZoho,
+    getFamilyWarehouseMatrixByGroup: async () => {
+      matrixCalls += 1
+      return {
+        family: 'LIFEP7S',
+        warehouses: [{ warehouse_id: 'W1', warehouse_name: 'Main' }],
+        sections: { opening: { rows: [], total_qty: 0, total_amount: 0 } },
+        items: [],
+        totals: {},
+        meta: { usedPrefetch: false },
+        reportMeta: { warnings: [] },
+      }
+    },
+    listGroupKeys: async () => ['slow_moving'],
+    fetchWarehouses: async () => {
+      warehouseCalls += 1
+      return DEFAULT_MOCK_WAREHOUSES
+    },
+  })
+  const { req, res } = makeReqRes({
+    params: { group: 'slow_moving' },
+    query: { ...VALID, family: 'LIFEP7S' },
+  })
+  await ctrl.getFamilyDetailsByGroupController(req, res)
+  assert.equal(res.statusCode, 200)
+  assert.equal(warehouseCalls, 1)
+  assert.equal(matrixCalls, 1)
 })

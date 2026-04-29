@@ -20,7 +20,11 @@ const { listMembersOfGroup } = require('./itemReportGroupsService')
 const {
   fetchZohoItemRowsForGroupMembers,
   buildFamilyWarehouseMatrixForGroupMembers,
+  coldBlockedFamilyDetailsMatrixPayload,
+  _internals: zohoDataInternals,
 } = require('./weeklyReportZohoData')
+const { peekWeeklyReportPrefetchBundle } = require('./weeklyReportPrefetchStash')
+const { makeKey } = require('./weeklyReportCache')
 const { getVendorConfigForGroup } = require('./weeklyReportVendorConfig')
 
 const MAX_REPORTED_ERRORS = 10
@@ -202,6 +206,19 @@ function validateAndNormaliseItem(raw, index) {
       const n = typeof zscore === 'number' ? zscore : parseFloat(String(zscore).trim())
       if (Number.isFinite(n)) item.zoho_representative_score = n
     }
+    const passthroughStr = ['stock_total_source', 'stock_total_fallback_reason', 'calculation_version']
+    for (const k of passthroughStr) {
+      const v = raw[k]
+      if (v != null && typeof v === 'string' && String(v).trim() !== '') {
+        item[k] = String(v).trim()
+      }
+    }
+    for (const q of ['opening_qty', 'closing_qty']) {
+      const v = raw[q]
+      if (v !== undefined && v !== null && Number.isFinite(Number(v))) {
+        item[q] = Math.round(Number(v) * 100) / 100
+      }
+    }
   }
   if (raw._zoho && typeof raw._zoho === 'object' && !Array.isArray(raw._zoho)) {
     item._zoho = {
@@ -325,11 +342,62 @@ async function getFamilyWarehouseMatrixByGroup(
   warehouseId = null,
   excludeWarehouseId = null
 ) {
+  const cacheKey = makeKey(group, fromDate, toDate, warehouseId, excludeWarehouseId)
+  const prefetchBundle = peekWeeklyReportPrefetchBundle(group, fromDate, toDate, warehouseId, excludeWarehouseId)
+  if (!prefetchBundle && process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS === '1') {
+    console.warn(
+      JSON.stringify({
+        msg: 'family_details_blocked_no_prefetch',
+        family,
+        cacheKey,
+      })
+    )
+    return coldBlockedFamilyDetailsMatrixPayload({ family, warehouses })
+  }
+
   const members = await listMembersOfGroup(group)
   if (members.length === 0 && group !== 'other_family') {
     return { family, warehouses: [], sections: {}, items: [], reportMeta: { warnings: [] } }
   }
   const vendorConfig = getVendorConfigForGroup(group)
+
+  const { familyRowKeyFromDisplay } = zohoDataInternals
+  const wantKey = prefetchBundle ? familyRowKeyFromDisplay(family) : null
+
+  // Per-SKU rows from the main report — drives the sidebar's SKU set (exact same
+  // items, quantities, and valuations, no re-derivation from Zoho raw).
+  let skuItemRows = null
+  if (prefetchBundle && Array.isArray(prefetchBundle.itemRows) && prefetchBundle.itemRows.length > 0) {
+    const filtered = prefetchBundle.itemRows.filter((r) => {
+      const fd = r.family_display || r.family || ''
+      return familyRowKeyFromDisplay(fd) === wantKey
+    })
+    if (filtered.length > 0) {
+      skuItemRows = filtered
+      console.log(JSON.stringify({ msg: 'sidebar_skuItemRows_ready', family, count: skuItemRows.length }))
+    } else {
+      console.warn(JSON.stringify({ msg: 'sidebar_skuItemRows_empty', family, itemRowsTotal: prefetchBundle.itemRows.length }))
+    }
+  }
+
+  // Aggregated family row — final-level totals override (belt-and-suspenders on top of per-SKU patch).
+  let familyMainRows = null
+  if (prefetchBundle && Array.isArray(prefetchBundle.familyRows) && prefetchBundle.familyRows.length > 0) {
+    const filtered = prefetchBundle.familyRows.filter(
+      (r) => familyRowKeyFromDisplay(r._familyDisplayOverride || r.family || '') === wantKey
+    )
+    if (filtered.length > 0) familyMainRows = filtered
+  }
+
+  const matrixOptions = prefetchBundle
+    ? {
+        prefetched: prefetchBundle,
+        hydrateLocations: true, // sidebar warm path: fetch item locations for closing stock warehouse breakdown
+        ...(skuItemRows    ? { skuItemRows }    : {}),
+        ...(familyMainRows ? { familyMainRows } : {}),
+      }
+    : {}
+
   return buildFamilyWarehouseMatrixForGroupMembers(
     members,
     fromDate,
@@ -339,7 +407,8 @@ async function getFamilyWarehouseMatrixByGroup(
     family,
     warehouses,
     warehouseId,
-    excludeWarehouseId
+    excludeWarehouseId,
+    matrixOptions
   )
 }
 

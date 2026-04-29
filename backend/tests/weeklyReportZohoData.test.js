@@ -126,6 +126,76 @@ test('buildFamilyWarehouseMatrixForGroupMembers: splits stock and sales by Zoho 
   assert.equal(matrix.sections.opening.rows[0].warehouses.exports.qty, 22)
 })
 
+test('buildFamilyWarehouseMatrixForGroupMembers: closing shows zero qty when stock depleted but sales exist', async (t) => {
+  const prevN = process.env.NODE_ENV
+  const prevR = process.env.REPORT_VENDOR_ID
+  process.env.NODE_ENV = 'test'
+  process.env.REPORT_VENDOR_ID = VENDOR
+  const r1 = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: 'cf1' }),
+    orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
+  })
+  const r2 = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchAllItemsRaw: async () => [
+      {
+        sku: 'DEP-1',
+        name: 'DEP-1',
+        item_id: 'dep1',
+        status: 'active',
+        rate: 100,
+        custom_fields: [{ customfield_id: 'cf1', value: 'DEPF', label: 'Family' }],
+        locations: [{ location_id: 'life', location_name: 'LIFE SMILE', location_stock_on_hand: 0 }],
+      },
+    ],
+  })
+  const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
+    getSales: async () => ({
+      lines: [
+        {
+          item_id: 'dep1',
+          sku: 'DEP-1',
+          name: 'DEP-1',
+          quantity: 1,
+          item_total: 100,
+          warehouse_id: 'life',
+        },
+      ],
+      line_count: 1,
+      list_truncated: false,
+      error: null,
+    }),
+    getPurchases: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getVendorCredits: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+  })
+  t.after(() => {
+    r1()
+    r2()
+    r3()
+    if (prevN === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = prevN
+    if (prevR === undefined) delete process.env.REPORT_VENDOR_ID
+    else process.env.REPORT_VENDOR_ID = prevR
+    const resolved = require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })
+    delete require.cache[resolved]
+  })
+  const m = freshRequire('../src/services/weeklyReportZohoData')
+  const matrix = await m.buildFamilyWarehouseMatrixForGroupMembers(
+    [{ item_name: 'DEPF' }],
+    '2026-01-01',
+    '2026-01-31',
+    null,
+    'slow_moving',
+    'DEPF',
+    [{ warehouse_id: 'life', warehouse_name: 'LIFE SMILE' }]
+  )
+  assert.equal(matrix.sections.closing.rows.length, 1)
+  assert.equal(matrix.sections.closing.rows[0].warehouses.life.qty, 0)
+  assert.equal(matrix.sections.closing.rows[0].total_qty, 0)
+  assert.equal(matrix.sections.opening.rows.length, 1)
+  assert.equal(matrix.sections.opening.rows[0].warehouses.life.qty, 1)
+  assert.equal(Object.prototype.hasOwnProperty.call(matrix.sections.closing.rows[0], 'force_include'), false)
+})
+
 test('buildFamilyWarehouseMatrixForGroupMembers: hydrates item details when list rows omit locations[]', async (t) => {
   const prevN = process.env.NODE_ENV
   const prevR = process.env.REPORT_VENDOR_ID
@@ -895,4 +965,583 @@ test('aggregateByFamily: STA <size>P pot beats inactive cookware set', () => {
   const [one] = aggregateByFamily(rows)
   // Largest pot (28P) must win; the cookware set is inactive and lower priority anyway
   assert.equal(one.zoho_representative_item_id, 'P28')
+})
+
+// ----- matrix family-row totals (aligned with sidebar) -----
+
+const stockInternals = require('../src/services/weeklyReportZohoData')._internals
+const { makeKey } = require('../src/services/weeklyReportCache')
+const { STOCK_REPORT_CACHE_VERSION } = require('../src/services/weeklyReportStockTotalsConfig')
+
+test('weeklyReportCache makeKey includes stock cache version suffix', () => {
+  assert.ok(makeKey('slow_moving', '2026-01-01', '2026-01-07').includes(`sv:${STOCK_REPORT_CACHE_VERSION}`))
+})
+
+test('extractMatrixTotalsFromSections matches section totals', () => {
+  const sections = {
+    opening: { total_qty: 5, total_amount: 2536 },
+    closing: { total_qty: 0, total_amount: 0 },
+    sales: { total_qty: 5, total_amount: 2757.39 },
+  }
+  const t = stockInternals.extractMatrixTotalsFromSections(sections)
+  assert.equal(t.openingAmount, 2536)
+  assert.equal(t.closingAmount, 0)
+  assert.equal(t.salesAmount, 2757.39)
+})
+
+test('applyMatrixTotalsToFamilyRows: applies warehouse_matrix totals when flag on', () => {
+  const out = [{ family: 'LIFEP7S', opening_stock: 446355, closing_stock: 2757 }]
+  const agg = [{ family: 'LIFEP7S', opening_stock: 446355, closing_stock: 2757, sales_amount: 443819 }]
+  const matrix = {
+    totals: {
+      openingQty: 5,
+      openingAmount: 2536,
+      closingQty: 0,
+      closingAmount: 0,
+      salesQty: 5,
+      salesAmount: 2757.39,
+    },
+    meta: {
+      hasLocationStockData: true,
+      locationStockSkuCount: 4,
+      missingLocationStockSkuCount: 0,
+      usedFallback: false,
+    },
+  }
+  const map = new Map([['lifep7s', matrix]])
+  const [row] = stockInternals.applyMatrixTotalsToFamilyRows(agg, map, out, {
+    flagEnabled: true,
+    fromDate: '2026-01-01',
+    toDate: '2026-01-07',
+    reportGroup: 'slow_moving',
+  })
+  assert.equal(row.opening_stock, 2536)
+  assert.equal(row.closing_stock, 0)
+  assert.equal(row.opening_qty, 5)
+  assert.equal(row.closing_qty, 0)
+  assert.equal(row.sales_amount, 443819)
+  assert.equal(row.stock_total_source, 'warehouse_matrix')
+})
+
+test('applyMatrixTotalsToFamilyRows: keeps legacy when flag off', () => {
+  const out = [{ family: 'F', opening_stock: 100, closing_stock: 50 }]
+  const agg = [{ family: 'F', opening_stock: 100, closing_stock: 50, sales_amount: 10 }]
+  const matrix = {
+    totals: { openingQty: 1, openingAmount: 99, closingQty: 0, closingAmount: 0, salesQty: 1, salesAmount: 10 },
+    meta: { hasLocationStockData: true, locationStockSkuCount: 1, missingLocationStockSkuCount: 0, usedFallback: false },
+  }
+  const map = new Map([['f', matrix]])
+  const [row] = stockInternals.applyMatrixTotalsToFamilyRows(agg, map, out, {
+    flagEnabled: false,
+    fromDate: '2026-01-01',
+    toDate: '2026-01-07',
+    reportGroup: 'g',
+  })
+  assert.equal(row.opening_stock, 100)
+  assert.equal(row.stock_total_source, 'legacy_global_stock')
+  assert.equal(row.stock_total_fallback_reason, 'feature_disabled')
+})
+
+test('applyMatrixTotalsToFamilyRows: fallback when no location stock data', () => {
+  const out = [{ family: 'F', opening_stock: 100, closing_stock: 50 }]
+  const agg = [{ family: 'F', opening_stock: 100, closing_stock: 50, sales_amount: 10 }]
+  const matrix = {
+    totals: { openingQty: 0, openingAmount: 0, closingQty: 0, closingAmount: 0, salesQty: 0, salesAmount: 0 },
+    meta: {
+      hasLocationStockData: false,
+      locationStockSkuCount: 0,
+      missingLocationStockSkuCount: 3,
+      usedFallback: true,
+    },
+  }
+  const map = new Map([['f', matrix]])
+  const [row] = stockInternals.applyMatrixTotalsToFamilyRows(agg, map, out, {
+    flagEnabled: true,
+    fromDate: '2026-01-01',
+    toDate: '2026-01-07',
+    reportGroup: 'g',
+  })
+  assert.equal(row.opening_stock, 100)
+  assert.equal(row.stock_total_fallback_reason, 'no_location_stock_data')
+})
+
+test('getMatrixFallbackReason basic codes', () => {
+  assert.equal(stockInternals.getMatrixFallbackReason(null, false), 'feature_disabled')
+  assert.equal(stockInternals.getMatrixFallbackReason(null, true), 'missing_matrix')
+})
+
+test('coldBlockedFamilyDetailsMatrixPayload: empty totals and prefetch_bundle_missing meta', () => {
+  const m = require('../src/services/weeklyReportZohoData')
+  const p = m.coldBlockedFamilyDetailsMatrixPayload({
+    family: 'LIFEP7S',
+    warehouses: [{ warehouse_id: 'life', warehouse_name: 'LIFE SMILE' }],
+  })
+  assert.equal(p.meta.usedPrefetch, false)
+  assert.equal(p.meta.usedFallback, true)
+  assert.equal(p.meta.fallbackReason, 'prefetch_bundle_missing')
+  assert.equal(p.totals.openingAmount, 0)
+  assert.equal(p.sections.opening.total_qty, 0)
+  assert.equal(p.sections.opening.totals_by_warehouse.life.qty, 0)
+  assert.equal(p.sections.opening.totals_by_warehouse.life.amount, 0)
+  assert.match(String(p.reportMeta.warnings[0]), /main report first/i)
+})
+
+test('buildFamilyWarehouseMatrixForGroupMembers: familyMainRows override totals to match main report', async (t) => {
+  const prevN = process.env.NODE_ENV
+  const prevR = process.env.REPORT_VENDOR_ID
+  process.env.NODE_ENV = 'test'
+  process.env.REPORT_VENDOR_ID = VENDOR
+  const r1 = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: 'cf1' }),
+    orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
+  })
+  const r2 = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchAllItemsRaw: async () => [{
+      sku: 'LIFEP7S-24P',
+      name: 'LIFEP7S-24P',
+      item_id: '99',
+      status: 'active',
+      rate: 50,
+      custom_fields: [{ customfield_id: 'cf1', value: 'LIFEP7S', label: 'Family' }],
+      locations: [
+        { location_id: 'wh1', location_name: 'WH1', location_stock_on_hand: 3 },
+      ],
+    }],
+  })
+  const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
+    getSales: async () => ({ lines: [{ item_id: '99', quantity: 1, item_total: 50, warehouse_id: 'wh1' }], line_count: 1, list_truncated: false, error: null }),
+    getPurchases: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getVendorCredits: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+  })
+  t.after(() => {
+    r1(); r2(); r3()
+    if (prevN === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = prevN
+    if (prevR === undefined) delete process.env.REPORT_VENDOR_ID; else process.env.REPORT_VENDOR_ID = prevR
+    delete require.cache[require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })]
+  })
+  const m = freshRequire('../src/services/weeklyReportZohoData')
+  // Simulate main report family row with higher totals (e.g. global stock, not just locations[])
+  const mainFamilyRow = {
+    family: 'LIFEP7S',
+    opening_stock: 9999,
+    closing_stock: 8888,
+    opening_qty: 200,
+    closing_qty: 180,
+    sales_amount: 50000,
+    stock_total_source: 'warehouse_matrix',
+  }
+  const matrix = await m.buildFamilyWarehouseMatrixForGroupMembers(
+    [{ sku: 'LIFEP7S-24P' }],
+    '2026-01-01',
+    '2026-01-07',
+    null,
+    'slow_moving',
+    'LIFEP7S',
+    [{ warehouse_id: 'wh1', warehouse_name: 'WH1' }],
+    null,
+    null,
+    {
+      prefetched: { raw: [], salesR: { lines: [], line_count: 0, list_truncated: false, error: null }, purchR: { lines: [], line_count: 0, list_truncated: false, error: null }, vcR: { lines: [], line_count: 0, list_truncated: false, error: null } },
+      familyMainRows: [mainFamilyRow],
+    }
+  )
+  assert.equal(matrix.totals.openingAmount, 9999, 'openingAmount must match main report family row')
+  assert.equal(matrix.totals.closingAmount, 8888)
+  assert.equal(matrix.totals.openingQty, 200)
+  assert.equal(matrix.totals.closingQty, 180)
+  assert.equal(matrix.totals.salesAmount, 50000)
+  assert.equal(matrix.meta.totalsSource, 'main_report_family_row')
+})
+
+test('buildFamilyWarehouseMatrixForGroupMembers: totalsSource = matrix_sections when no familyMainRows', async (t) => {
+  const prevN = process.env.NODE_ENV
+  const prevR = process.env.REPORT_VENDOR_ID
+  process.env.NODE_ENV = 'test'
+  process.env.REPORT_VENDOR_ID = VENDOR
+  const r1 = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: 'cf1' }),
+    orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
+  })
+  const r2 = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchAllItemsRaw: async () => [{
+      sku: 'LIFEP7S-24P', name: 'LIFEP7S-24P', item_id: '99', status: 'active', rate: 50,
+      custom_fields: [{ customfield_id: 'cf1', value: 'LIFEP7S', label: 'Family' }],
+      locations: [{ location_id: 'wh1', location_stock_on_hand: 5 }],
+    }],
+  })
+  const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
+    getSales: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getPurchases: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getVendorCredits: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+  })
+  t.after(() => {
+    r1(); r2(); r3()
+    if (prevN === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = prevN
+    if (prevR === undefined) delete process.env.REPORT_VENDOR_ID; else process.env.REPORT_VENDOR_ID = prevR
+    delete require.cache[require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })]
+  })
+  const m = freshRequire('../src/services/weeklyReportZohoData')
+  const matrix = await m.buildFamilyWarehouseMatrixForGroupMembers(
+    [{ sku: 'LIFEP7S-24P' }], '2026-01-01', '2026-01-07', null, 'slow_moving', 'LIFEP7S',
+    [{ warehouse_id: 'wh1', warehouse_name: 'WH1' }], null, null,
+    { prefetched: { raw: [], salesR: { lines: [], line_count: 0, list_truncated: false, error: null }, purchR: { lines: [], line_count: 0, list_truncated: false, error: null }, vcR: { lines: [], line_count: 0, list_truncated: false, error: null } } }
+  )
+  assert.equal(matrix.meta.totalsSource, 'matrix_sections')
+})
+
+test('buildFamilyWarehouseMatrixForGroupMembers: skuItemRows drives SKU set — item missing from members still appears', async (t) => {
+  const prevN = process.env.NODE_ENV
+  const prevR = process.env.REPORT_VENDOR_ID
+  process.env.NODE_ENV = 'test'
+  process.env.REPORT_VENDOR_ID = VENDOR
+  // raw has two items; members only knows about one; skuItemRows has both
+  const r1 = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: 'cf1' }),
+    orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
+  })
+  const RAW_ITEMS = [
+    {
+      sku: 'FAM-SKU1', name: 'FAM-SKU1', item_id: '101', status: 'active', rate: 10,
+      custom_fields: [{ customfield_id: 'cf1', value: 'FAM', label: 'Family' }],
+      locations: [{ location_id: 'wh1', location_stock_on_hand: 5 }],
+    },
+    {
+      sku: 'FAM-SKU2', name: 'FAM-SKU2', item_id: '102', status: 'active', rate: 20,
+      custom_fields: [{ customfield_id: 'cf1', value: 'FAM', label: 'Family' }],
+      locations: [{ location_id: 'wh1', location_stock_on_hand: 3 }],
+    },
+  ]
+  const r2 = mockModule('../src/integrations/zoho/zohoAdapter', { fetchAllItemsRaw: async () => RAW_ITEMS })
+  const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
+    getSales: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getPurchases: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getVendorCredits: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+  })
+  t.after(() => {
+    r1(); r2(); r3()
+    if (prevN === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = prevN
+    if (prevR === undefined) delete process.env.REPORT_VENDOR_ID; else process.env.REPORT_VENDOR_ID = prevR
+    delete require.cache[require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })]
+  })
+  const m = freshRequire('../src/services/weeklyReportZohoData')
+
+  const prefetched = { raw: RAW_ITEMS, salesR: { lines: [], line_count: 0, list_truncated: false, error: null }, purchR: { lines: [], line_count: 0, list_truncated: false, error: null }, vcR: { lines: [], line_count: 0, list_truncated: false, error: null } }
+  // skuItemRows has BOTH SKUs (exact set from main report)
+  const skuItemRows = [
+    { sku: 'FAM-SKU1', item_id: '101', family: 'FAM', family_display: 'FAM', opening_qty: 5, opening_amount: 50, closing_qty: 5, closing_amount: 50, sales_amount: 0 },
+    { sku: 'FAM-SKU2', item_id: '102', family: 'FAM', family_display: 'FAM', opening_qty: 3, opening_amount: 60, closing_qty: 3, closing_amount: 60, sales_amount: 0 },
+  ]
+
+  const matrix = await m.buildFamilyWarehouseMatrixForGroupMembers(
+    [{ sku: 'FAM-SKU1' }],  // members only has SKU1
+    '2026-01-01', '2026-01-07', null, 'slow_moving', 'FAM',
+    [{ warehouse_id: 'wh1', warehouse_name: 'WH1' }], null, null,
+    { prefetched, skuItemRows }
+  )
+
+  // Both SKUs must appear in the closing section
+  const closingSkus = matrix.sections.closing.rows.map(r => r.sku)
+  assert.ok(closingSkus.includes('FAM-SKU1'), 'FAM-SKU1 must appear in closing')
+  assert.ok(closingSkus.includes('FAM-SKU2'), 'FAM-SKU2 must appear in closing — even though not in members')
+  assert.equal(matrix.sections.closing.rows.length, 2)
+  // Totals from main report per-SKU rows: 50 + 60 = 110
+  assert.equal(matrix.totals.closingAmount, 110)
+  assert.equal(matrix.meta.totalsSource, 'skuItemRows_patch', 'totalsSource must indicate per-SKU patch was applied')
+})
+
+test('buildFamilyWarehouseMatrixForGroupMembers: skuItemRows patch overrides location-derived totals per SKU', async (t) => {
+  const prevN = process.env.NODE_ENV
+  const prevR = process.env.REPORT_VENDOR_ID
+  process.env.NODE_ENV = 'test'
+  process.env.REPORT_VENDOR_ID = VENDOR
+  const r1 = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: 'cf1' }),
+    orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
+  })
+  // Item has locations[] qty=3 but main report computed closing_qty=10 (different because global stock differs)
+  const RAW = [{
+    sku: 'MISMATCH-SKU', name: 'MISMATCH-SKU', item_id: '201', status: 'active', rate: 100,
+    custom_fields: [{ customfield_id: 'cf1', value: 'FAM2', label: 'Family' }],
+    locations: [{ location_id: 'wh1', location_stock_on_hand: 3 }],
+  }]
+  const r2 = mockModule('../src/integrations/zoho/zohoAdapter', { fetchAllItemsRaw: async () => RAW })
+  const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
+    getSales: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getPurchases: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getVendorCredits: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+  })
+  t.after(() => {
+    r1(); r2(); r3()
+    if (prevN === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = prevN
+    if (prevR === undefined) delete process.env.REPORT_VENDOR_ID; else process.env.REPORT_VENDOR_ID = prevR
+    delete require.cache[require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })]
+  })
+  const m = freshRequire('../src/services/weeklyReportZohoData')
+  const prefetched = { raw: RAW, salesR: { lines: [], line_count: 0, list_truncated: false, error: null }, purchR: { lines: [], line_count: 0, list_truncated: false, error: null }, vcR: { lines: [], line_count: 0, list_truncated: false, error: null } }
+  const skuItemRows = [{
+    sku: 'MISMATCH-SKU', item_id: '201', family: 'FAM2', family_display: 'FAM2',
+    opening_qty: 10, opening_amount: 1000,
+    closing_qty: 10, closing_amount: 1000,
+    sales_amount: 500,
+  }]
+
+  const matrix = await m.buildFamilyWarehouseMatrixForGroupMembers(
+    [{ sku: 'MISMATCH-SKU' }], '2026-01-01', '2026-01-07', null, 'slow_moving', 'FAM2',
+    [{ warehouse_id: 'wh1', warehouse_name: 'WH1' }], null, null,
+    { prefetched, skuItemRows }
+  )
+
+  // Per-SKU total must come from skuItemRows (1000), not from locations qty=3 * rate=100=300
+  const closingRow = matrix.sections.closing.rows[0]
+  assert.equal(closingRow.total_qty,    10,   'closing_qty patched from skuItemRows')
+  assert.equal(closingRow.total_amount, 1000, 'closing_amount patched from skuItemRows')
+  assert.equal(matrix.sections.closing.total_qty,    10)
+  assert.equal(matrix.sections.closing.total_amount, 1000)
+  // Per-warehouse still reflects locations[] best-effort
+  assert.equal(closingRow.warehouses.wh1.qty, 3, 'per-warehouse qty from locations (best effort)')
+})
+
+test('applyUnassignedWarehouseDistribution: closing uses gap approach; other sections consolidate to __unassigned__', (t) => {
+  void t
+  const m = require('../src/services/weeklyReportZohoData')
+  const { applyUnassignedWarehouseDistribution, UNASSIGNED_WID } = m._internals
+
+  const sections = {
+    closing: {
+      key: 'closing',
+      rows: [{
+        sku: 'TEST-SKU', item_name: 'Test', item_id: '1',
+        total_qty: 40, total_amount: 1000,
+        warehouses: { wh1: { qty: 3, amount: 75 } },
+        force_include: true,
+      }],
+      total_qty: 40, total_amount: 1000,
+      totals_by_warehouse: { wh1: { qty: 3, amount: 75 } },
+    },
+    opening: {
+      key: 'opening',
+      rows: [{
+        sku: 'TEST-SKU', item_name: 'Test', item_id: '1',
+        total_qty: 44, total_amount: 1100,
+        warehouses: { wh1: { qty: 3, amount: 75 } },
+      }],
+      total_qty: 44, total_amount: 1100,
+      totals_by_warehouse: { wh1: { qty: 3, amount: 75 } },
+    },
+    sales: {
+      key: 'sales',
+      rows: [{
+        sku: 'TEST-SKU', item_name: 'Test', item_id: '1',
+        total_qty: 1, total_amount: 500,
+        warehouses: { wh1: { qty: 1, amount: 25 } },
+      }],
+      total_qty: 1, total_amount: 500,
+      totals_by_warehouse: { wh1: { qty: 1, amount: 25 } },
+    },
+    purchase: {
+      key: 'purchase',
+      rows: [{
+        sku: 'TEST-SKU', item_name: 'Test', item_id: '1',
+        total_qty: 5, total_amount: 125,
+        warehouses: { wh1: { qty: 5, amount: 125 } },
+      }],
+      total_qty: 5, total_amount: 125,
+      totals_by_warehouse: { wh1: { qty: 5, amount: 125 } },
+    },
+    returned: {
+      key: 'returned',
+      rows: [],
+      total_qty: 0, total_amount: 0,
+      totals_by_warehouse: { wh1: { qty: 0, amount: 0 } },
+    },
+  }
+
+  const dist = applyUnassignedWarehouseDistribution(sections, ['wh1'])
+
+  // ─ Closing: gap-based (wh1=3, total=40 → unassigned=37)
+  const closingRow = sections.closing.rows[0]
+  assert.equal(closingRow.warehouses.wh1.qty,                 3,    'closing wh1 qty kept')
+  assert.equal(closingRow.warehouses[UNASSIGNED_WID].qty,     37,   'closing gap = 40-3')
+  assert.equal(closingRow.warehouses[UNASSIGNED_WID].amount,  925,  'closing amount gap = 1000-75')
+  assert.equal(closingRow.total_qty,    40,   'closing total_qty unchanged')
+  assert.equal(closingRow.total_amount, 1000, 'closing total_amount unchanged')
+  assert.equal(sections.closing.totals_by_warehouse[UNASSIGNED_WID].qty, 37)
+
+  // ─ Opening: ALL qty consolidated into __unassigned__, wh1 zeroed
+  const openingRow = sections.opening.rows[0]
+  assert.equal(openingRow.warehouses.wh1.qty,                0,   'opening wh1 zeroed')
+  assert.equal(openingRow.warehouses[UNASSIGNED_WID].qty,    44,  'opening ALL qty → unassigned')
+  assert.equal(openingRow.warehouses[UNASSIGNED_WID].amount, 1100)
+  assert.equal(openingRow.total_qty,    44,   'opening total_qty unchanged')
+  assert.equal(openingRow.total_amount, 1100, 'opening total_amount unchanged')
+  assert.equal(sections.opening.totals_by_warehouse.wh1.qty, 0,   'opening section wh1 zeroed')
+  assert.equal(sections.opening.totals_by_warehouse[UNASSIGNED_WID].qty, 44)
+
+  // ─ Sales: ALL consolidated into __unassigned__
+  const salesRow = sections.sales.rows[0]
+  assert.equal(salesRow.warehouses.wh1.qty,                0, 'sales wh1 zeroed')
+  assert.equal(salesRow.warehouses[UNASSIGNED_WID].qty,    1, 'sales ALL qty → unassigned')
+  assert.equal(salesRow.warehouses[UNASSIGNED_WID].amount, 500)
+
+  // ─ Purchase: ALL consolidated into __unassigned__
+  const purchaseRow = sections.purchase.rows[0]
+  assert.equal(purchaseRow.warehouses.wh1.qty,                0, 'purchase wh1 zeroed')
+  assert.equal(purchaseRow.warehouses[UNASSIGNED_WID].qty,    5, 'purchase ALL qty → unassigned')
+  assert.equal(purchaseRow.warehouses[UNASSIGNED_WID].amount, 125)
+
+  // ─ Distribution meta (based on closing section)
+  assert.equal(dist.distributionStatus, 'partial')
+  assert.equal(dist.distributedQty,     3)
+  assert.equal(dist.undistributedQty,   37)
+  assert.equal(dist.hasUnassigned,      true)
+})
+
+test('applyUnassignedWarehouseDistribution: distributionStatus=complete when fully distributed', (t) => {
+  void t
+  const { applyUnassignedWarehouseDistribution, UNASSIGNED_WID } = require('../src/services/weeklyReportZohoData')._internals
+
+  const sections = {
+    closing: {
+      key: 'closing',
+      rows: [{ sku: 'SKU1', total_qty: 5, total_amount: 100, warehouses: { wh1: { qty: 5, amount: 100 } } }],
+      total_qty: 5, total_amount: 100,
+      totals_by_warehouse: { wh1: { qty: 5, amount: 100 } },
+    },
+    opening: {
+      key: 'opening', rows: [], total_qty: 0, total_amount: 0, totals_by_warehouse: {},
+    },
+    sales: {
+      key: 'sales', rows: [], total_qty: 0, total_amount: 0, totals_by_warehouse: {},
+    },
+  }
+
+  const dist = applyUnassignedWarehouseDistribution(sections, ['wh1'])
+
+  assert.equal(dist.distributionStatus, 'complete')
+  assert.equal(dist.hasUnassigned, false)
+  assert.equal(dist.undistributedQty, 0)
+  // No unassigned cell added
+  assert.ok(!sections.closing.rows[0].warehouses[UNASSIGNED_WID], 'no unassigned cell when fully distributed')
+})
+
+test('applyUnassignedWarehouseDistribution: distributionStatus=missing when no location data', (t) => {
+  void t
+  const { applyUnassignedWarehouseDistribution, UNASSIGNED_WID } = require('../src/services/weeklyReportZohoData')._internals
+
+  const sections = {
+    closing: {
+      key: 'closing',
+      rows: [{ sku: 'SKU1', total_qty: 10, total_amount: 200, warehouses: { wh1: { qty: 0, amount: 0 } } }],
+      total_qty: 10, total_amount: 200,
+      totals_by_warehouse: { wh1: { qty: 0, amount: 0 } },
+    },
+    opening: { key: 'opening', rows: [], total_qty: 0, total_amount: 0, totals_by_warehouse: {} },
+    sales:   { key: 'sales',   rows: [], total_qty: 0, total_amount: 0, totals_by_warehouse: {} },
+  }
+
+  const dist = applyUnassignedWarehouseDistribution(sections, ['wh1'])
+
+  assert.equal(dist.distributionStatus, 'missing')
+  assert.equal(dist.distributedQty,   0)
+  assert.equal(dist.undistributedQty, 10)
+  assert.equal(sections.closing.rows[0].warehouses[UNASSIGNED_WID].qty, 10)
+})
+
+test('buildFamilyWarehouseMatrixForGroupMembers: __unassigned__ column in response when locations incomplete', async (t) => {
+  const prevN = process.env.NODE_ENV
+  const prevR = process.env.REPORT_VENDOR_ID
+  process.env.NODE_ENV = 'test'
+  process.env.REPORT_VENDOR_ID = VENDOR
+  const r1 = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: 'cf1' }),
+    orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
+  })
+  // Item has no locations (no warehouse breakdown available)
+  const RAW_NO_LOC = [{
+    sku: 'FAM3-SKU', name: 'FAM3-SKU', item_id: '300', status: 'active', rate: 100,
+    custom_fields: [{ customfield_id: 'cf1', value: 'FAM3', label: 'Family' }],
+    locations: [],
+  }]
+  const r2 = mockModule('../src/integrations/zoho/zohoAdapter', { fetchAllItemsRaw: async () => RAW_NO_LOC })
+  const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
+    getSales: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getPurchases: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getVendorCredits: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+  })
+  t.after(() => {
+    r1(); r2(); r3()
+    if (prevN === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = prevN
+    if (prevR === undefined) delete process.env.REPORT_VENDOR_ID; else process.env.REPORT_VENDOR_ID = prevR
+    delete require.cache[require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })]
+  })
+  const m = freshRequire('../src/services/weeklyReportZohoData')
+  const { UNASSIGNED_WID } = m._internals
+
+  const prefetched = { raw: RAW_NO_LOC, salesR: { lines: [], line_count: 0, list_truncated: false, error: null }, purchR: { lines: [], line_count: 0, list_truncated: false, error: null }, vcR: { lines: [], line_count: 0, list_truncated: false, error: null } }
+  const skuItemRows = [{ sku: 'FAM3-SKU', item_id: '300', family: 'FAM3', family_display: 'FAM3',
+    opening_qty: 20, opening_amount: 2000, closing_qty: 15, closing_amount: 1500, sales_amount: 500 }]
+
+  const matrix = await m.buildFamilyWarehouseMatrixForGroupMembers(
+    [{ sku: 'FAM3-SKU' }], '2026-01-01', '2026-01-07', null, 'slow_moving', 'FAM3',
+    [{ warehouse_id: 'wh1', warehouse_name: 'WH1' }], null, null,
+    { prefetched, skuItemRows }
+  )
+
+  // Totals must be unchanged from skuItemRows
+  assert.equal(matrix.totals.closingQty,    15,   'closing qty from main report')
+  assert.equal(matrix.totals.closingAmount, 1500, 'closing amount from main report')
+  assert.equal(matrix.totals.openingQty,    20)
+  assert.equal(matrix.totals.openingAmount, 2000)
+
+  // Warehouse list must include __unassigned__
+  const whIds = matrix.warehouses.map(w => w.warehouse_id)
+  assert.ok(whIds.includes(UNASSIGNED_WID), '__unassigned__ warehouse must be in the warehouses list')
+
+  // Closing section: row must have unassigned cell with full qty (nothing in locations)
+  const closingRow = matrix.sections.closing.rows[0]
+  assert.ok(closingRow, 'closing row must exist')
+  assert.equal(closingRow.warehouses[UNASSIGNED_WID].qty,    15,   'all closing qty is unassigned')
+  assert.equal(closingRow.warehouses[UNASSIGNED_WID].amount, 1500, 'all closing amount is unassigned')
+
+  // row total must not be changed
+  assert.equal(closingRow.total_qty,    15)
+  assert.equal(closingRow.total_amount, 1500)
+
+  // distributionStatus should be 'missing'
+  assert.equal(matrix.meta.distributionStatus, 'missing')
+  assert.equal(matrix.meta.undistributedQty,   15)
+})
+
+test('buildFamilyWarehouseMatrixForGroupMembers: explicit prefetched option incomplete throws', async (t) => {
+  const prevN = process.env.NODE_ENV
+  const prevR = process.env.REPORT_VENDOR_ID
+  process.env.NODE_ENV = 'test'
+  process.env.REPORT_VENDOR_ID = VENDOR
+  const r1 = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: 'cf1' }),
+    orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
+  })
+  const r2 = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchAllItemsRaw: async () => {
+      throw new Error('fetchAllItemsRaw must not run when prefetched bundle incomplete')
+    },
+  })
+  t.after(() => {
+    r1()
+    r2()
+    if (prevN === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = prevN
+    if (prevR === undefined) delete process.env.REPORT_VENDOR_ID
+    else process.env.REPORT_VENDOR_ID = prevR
+    const resolved = require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })
+    delete require.cache[resolved]
+  })
+  const m = freshRequire('../src/services/weeklyReportZohoData')
+  await assert.rejects(
+    () =>
+      m.buildFamilyWarehouseMatrixForGroupMembers([], '2026-01-01', '2026-01-07', null, 'slow_moving', 'F', [], null, null, {
+        prefetched: {},
+      }),
+    (err) => err.code === 'PREFETCH_BUNDLE_INCOMPLETE'
+  )
 })

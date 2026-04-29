@@ -27,6 +27,39 @@ export function formatCurrency(val) {
   return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+/** Zoho guard + UTC-day successful API count (from report JSON or GET /weekly-reports/zoho-api-usage). */
+export function ZohoUsageInline({ zoho }) {
+  const u = zoho?.api_usage_today
+  const pm = zoho?.per_minute_limit
+  if (!u && !Number.isFinite(Number(pm))) return null
+  const calls =
+    u && u.successful_calls != null && Number.isFinite(Number(u.successful_calls))
+      ? Number(u.successful_calls)
+      : '—'
+  const dailyOk = u && Number.isFinite(Number(u.daily_limit))
+  return (
+    <>
+      {u ? (
+        <div className="wsr-meta__item" title={u.utc_day ? `UTC calendar day ${u.utc_day}` : ''}>
+          Zoho API calls today (UTC):
+          <strong>
+            {calls}
+            {dailyOk ? <> / {Number(u.daily_limit)}</> : null}
+          </strong>
+          {u.count_unavailable ? (
+            <span className="wsr-zoho-usage-muted"> (DB count unavailable)</span>
+          ) : null}
+        </div>
+      ) : null}
+      {Number.isFinite(Number(pm)) ? (
+        <div className="wsr-meta__item">
+          Per-minute guard:<strong>{Number(pm)}</strong>/ 60s
+        </div>
+      ) : null}
+    </>
+  )
+}
+
 function sumBy(rows, key) {
   return (rows || []).reduce((acc, r) => acc + (Number(r?.[key]) || 0), 0)
 }
@@ -316,15 +349,16 @@ export const WEEKLY_REPORT_QUERY = {
 }
 
 /**
- * Read date range, optional warehouse, and "already loaded" flag from the current URL.
- * When params are missing or invalid, returns `defaultRange` for dates and `loadToken: 0`.
+ * Read date range and optional warehouse from the current URL.
+ * Does **not** imply any report fetch — `loadToken` must stay in React state and only
+ * increments when the user clicks "Load report" (refresh must not auto-fetch).
  */
 export function parseWeeklyReportFiltersFromSearchParams(searchParams, defaultRange, options = {}) {
   const { includeWarehouse = false } = options
   const def = defaultRange
   const f = searchParams.get(WEEKLY_REPORT_QUERY.from)
   const t = searchParams.get(WEEKLY_REPORT_QUERY.to)
-  const base = { from: def.from, to: def.to, loadToken: 0 }
+  const base = { from: def.from, to: def.to }
   if (includeWarehouse) {
     base.warehouse = searchParams.get(WEEKLY_REPORT_QUERY.warehouse) || ''
   }
@@ -334,7 +368,6 @@ export function parseWeeklyReportFiltersFromSearchParams(searchParams, defaultRa
   const out = {
     from: f,
     to: t,
-    loadToken: searchParams.get(WEEKLY_REPORT_QUERY.load) === '1' ? 1 : 0,
   }
   if (includeWarehouse) {
     out.warehouse = searchParams.get(WEEKLY_REPORT_QUERY.warehouse) || ''
@@ -343,18 +376,15 @@ export function parseWeeklyReportFiltersFromSearchParams(searchParams, defaultRa
 }
 
 /**
- * @param {{ from: string, to: string, warehouse?: string, loaded: boolean }} opts
+ * @param {{ from: string, to: string, warehouse?: string }} opts
  * @returns {URLSearchParams}
  */
-export function buildWeeklyReportFilterSearchParams({ from, to, warehouse, loaded }) {
+export function buildWeeklyReportFilterSearchParams({ from, to, warehouse }) {
   const p = new URLSearchParams()
   p.set(WEEKLY_REPORT_QUERY.from, from)
   p.set(WEEKLY_REPORT_QUERY.to, to)
   if (warehouse && String(warehouse).trim() !== '') {
     p.set(WEEKLY_REPORT_QUERY.warehouse, String(warehouse).trim())
-  }
-  if (loaded) {
-    p.set(WEEKLY_REPORT_QUERY.load, '1')
   }
   return p
 }
@@ -385,7 +415,7 @@ export function NotConfiguredCallout({ message }) {
   )
 }
 
-export function ErrorCallout({ message, onRetry, validationErrors }) {
+export function ErrorCallout({ message, hint, onRetry, validationErrors }) {
   const hasValidation = Array.isArray(validationErrors) && validationErrors.length > 0
   return (
     <div className="wsr-callout wsr-callout--error" role="alert">
@@ -393,6 +423,7 @@ export function ErrorCallout({ message, onRetry, validationErrors }) {
         {hasValidation ? 'Zoho returned an invalid response' : 'Failed to load report'}
       </span>
       <div className="wsr-callout__body">{message || 'Unknown error'}</div>
+      {hint ? <div className="wsr-callout__hint">{hint}</div> : null}
       {hasValidation && (
         <details className="wsr-callout__details" open>
           <summary>
@@ -636,6 +667,7 @@ export function WeeklySalesReportSection({
   enableSalesSort = false,
   loadToken = 0,
   onNoValueRows = null,
+  onReportFetchSettled = undefined,
 }) {
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState('')
@@ -649,8 +681,16 @@ export function WeeklySalesReportSection({
   const [drawerMatrix, setDrawerMatrix] = useState(null)
   const [salesSort, setSalesSort] = useState('desc')
 
-  const { items, loading, error, notConfigured, validationErrors, refetch } =
-    useWeeklySalesReport({ reportGroup, fromDate, toDate, warehouseId, excludeWarehouseId, loadToken })
+  const { items, loading, error, errorHint, notConfigured, validationErrors, refetch, zoho } =
+    useWeeklySalesReport({
+      reportGroup,
+      fromDate,
+      toDate,
+      warehouseId,
+      excludeWarehouseId,
+      loadToken,
+      onFetchSettled: onReportFetchSettled,
+    })
 
   const dateLabel = formatDateLabel(fromDate, toDate)
 
@@ -839,11 +879,19 @@ export function WeeklySalesReportSection({
       {notConfigured && <NotConfiguredCallout message={error} />}
 
       {error && !notConfigured && (
-        <ErrorCallout
-          message={error}
-          onRetry={loadToken > 0 ? refetch : undefined}
-          validationErrors={validationErrors}
-        />
+        <>
+          <ErrorCallout
+            message={error}
+            hint={errorHint}
+            onRetry={loadToken > 0 ? refetch : undefined}
+            validationErrors={validationErrors}
+          />
+          {(zoho?.api_usage_today || Number.isFinite(Number(zoho?.per_minute_limit))) && (
+            <div className="wsr-meta wsr-meta--quota" role="status">
+              <ZohoUsageInline zoho={zoho} />
+            </div>
+          )}
+        </>
       )}
 
       {loading && hasRequestedReport && (
@@ -962,6 +1010,7 @@ export function WeeklySalesReportSection({
               <div className="wsr-meta__item">No period activity:<strong>{noValues.length}</strong></div>
             )}
             <div className="wsr-meta__item">Source:<strong>Zoho (live)</strong></div>
+            <ZohoUsageInline zoho={zoho} />
           </div>
           {onNoValueRows == null && noValues.length > 0 && (
             <div className="wsr-no-activity-embed">
@@ -1140,23 +1189,31 @@ export function WeeklySalesReportPage({ reportGroup, title, subtitle }) {
   )
   const [fromDate, setFromDate] = useState(parsed.from)
   const [toDate, setToDate]     = useState(parsed.to)
-  const [loadToken, setLoadToken] = useState(parsed.loadToken)
+  const [loadToken, setLoadToken] = useState(0)
 
   const writeUrl = useCallback(
-    (from, to, { loaded = false } = {}) => {
-      setSearchParams(buildWeeklyReportFilterSearchParams({ from, to, warehouse: '', loaded }), {
+    (from, to) => {
+      setSearchParams(buildWeeklyReportFilterSearchParams({ from, to, warehouse: '' }), {
         replace: true,
       })
     },
     [setSearchParams],
   )
 
+  // Legacy URLs used ?load=1; strip it so refresh never implied "already loaded".
+  useEffect(() => {
+    if (searchParams.get(WEEKLY_REPORT_QUERY.load) == null) return
+    const p = new URLSearchParams(searchParams)
+    p.delete(WEEKLY_REPORT_QUERY.load)
+    setSearchParams(p, { replace: true })
+  }, [searchParams, setSearchParams])
+
   const handleFromChange = useCallback(
     (e) => {
       const v = e.target.value
       setFromDate(v)
       setLoadToken(0)
-      writeUrl(v, toDate, { loaded: false })
+      writeUrl(v, toDate)
     },
     [toDate, writeUrl],
   )
@@ -1165,18 +1222,39 @@ export function WeeklySalesReportPage({ reportGroup, title, subtitle }) {
       const v = e.target.value
       setToDate(v)
       setLoadToken(0)
-      writeUrl(fromDate, v, { loaded: false })
+      writeUrl(fromDate, v)
     },
     [fromDate, writeUrl],
   )
 
   const datesValid = Boolean(fromDate) && Boolean(toDate) && fromDate <= toDate
 
+  const [filtersUsageZoho, setFiltersUsageZoho] = useState(null)
+
   const handleLoadReport = useCallback(() => {
     if (!fromDate || !toDate) return
     setLoadToken((n) => n + 1)
-    writeUrl(fromDate, toDate, { loaded: true })
+    writeUrl(fromDate, toDate)
   }, [fromDate, toDate, writeUrl])
+
+  useEffect(() => {
+    if (loadToken <= 0) {
+      setFiltersUsageZoho(null)
+      return
+    }
+    let cancelled = false
+    api
+      .get('/api/weekly-reports/zoho-api-usage')
+      .then((d) => {
+        if (!cancelled && d?.zoho) setFiltersUsageZoho(d.zoho)
+      })
+      .catch(() => {
+        if (!cancelled) setFiltersUsageZoho(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [loadToken])
 
   return (
     <div className="war-page">
@@ -1217,6 +1295,14 @@ export function WeeklySalesReportPage({ reportGroup, title, subtitle }) {
           <div className="wsr-callout wsr-callout--warn">
             <span className="wsr-callout__title">Invalid date range</span>
             <div className="wsr-callout__body">Pick a From date ≤ To date.</div>
+          </div>
+        )}
+
+        {loadToken > 0 && filtersUsageZoho && (
+          <div className="wsr-zoho-usage-banner" role="status">
+            <div className="wsr-meta wsr-meta--banner">
+              <ZohoUsageInline zoho={filtersUsageZoho} />
+            </div>
           </div>
         )}
       </section>

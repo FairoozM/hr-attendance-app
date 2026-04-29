@@ -230,6 +230,28 @@
   margin-top: 12px;
 }
 
+.wsr-meta--quota {
+  margin-top: 4px;
+}
+
+.wsr-meta--banner {
+  margin-top: 0;
+}
+
+.wsr-zoho-usage-banner {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text-primary, #1e2d4e) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text-primary, #1e2d4e) 12%, transparent);
+}
+
+.wsr-zoho-usage-muted {
+  font-weight: 400;
+  font-size: 12.5px;
+  opacity: 0.88;
+}
+
 .wsr-meta__item strong {
   color: var(--text-primary, #1e2d4e);
   font-weight: 600;

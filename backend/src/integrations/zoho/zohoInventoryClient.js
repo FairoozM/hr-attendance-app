@@ -1,106 +1,40 @@
 /**
  * Low-level Zoho Inventory REST v1 client (data transport only).
- * No report semantics — that lives in weeklyReportZohoData.js.
+ * All HTTP traffic goes through services/zohoApiClient.js (limits, cache, logs).
  */
 
-const { getZohoAccessToken, isInvalidAccessTokenResponse } = require('./zohoOAuth')
 const { readZohoConfig, INVENTORY_V1 } = require('./zohoConfig')
-const { httpsRequestJson, httpsRequestBuffer } = require('./zohoHttp')
+const {
+  zohoInventoryJsonRequest,
+  zohoInventoryBufferRequest,
+  zohoBooksJsonRequest,
+} = require('../../services/zohoApiClient')
 
 const DEFAULT_PER_PAGE = 200
 const MAX_ITEMS_PAGES = 50
+
+/** When false (default), list requests use filter_by=Status.Active — fewer rows/pages vs fetching all SKUs. */
+function itemsIncludeInactive() {
+  return String(process.env.ZOHO_ITEMS_INCLUDE_INACTIVE || '').trim() === '1'
+}
 const ITEMS_PAGE_BATCH_SIZE =
   process.env.ZOHO_ITEMS_PAGE_BATCH_SIZE !== undefined
     ? Math.max(1, parseInt(process.env.ZOHO_ITEMS_PAGE_BATCH_SIZE, 10) || 1)
     : 2
-const ZOHO_RATE_LIMIT_RETRY_DELAYS_MS = [1500, 3000, 6000, 10000]
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-function isZohoInProcessLimit(status, body) {
-  if (status === 429) return true
-  if (!body || typeof body !== 'string') return false
-  return body.includes('"code":1070') || body.includes("'code':1070") || body.includes('maximum number of in process requests')
-}
 
 /**
  * @param {string} path - must start with / e.g. /inventory/v1/items
  * @param {URLSearchParams} [searchParams]
  * @param {string} [method]
  * @param {string} [body]
+ * @param {object} [meta] - forwarded to zohoApiClient (critical, skipCache, cacheKey, …)
  */
-async function zohoApiRequest(path, searchParams, method, body) {
-  const c = readZohoConfig()
-  if (c.code !== 'ok') {
-    const e = new Error('Zoho not configured')
-    e.code = 'ZOHO_NOT_CONFIGURED'
-    throw e
+async function zohoApiRequest(path, searchParams, method, body, meta) {
+  const m = meta || {}
+  if (String(path).startsWith('/books/')) {
+    return zohoBooksJsonRequest(path, searchParams, method, body, m)
   }
-  if (!searchParams) searchParams = new URLSearchParams()
-  if (!searchParams.get('organization_id')) {
-    searchParams.set('organization_id', c.organizationId)
-  }
-  const u = new URL(c.apiBase + path)
-  u.search = searchParams.toString()
-
-  // One-shot 401 retry guard: if Zoho rejects the cached access token with
-  // INVALID_OAUTHTOKEN, force a single refresh and retry once. Other 401s
-  // (e.g. missing scope / Zoho code 57) are NOT retried — refreshing won't
-  // fix scope problems and we'd just burn an extra token call per request.
-  let token = await getZohoAccessToken()
-  const doRequest = () => httpsRequestJson(u.toString(), {
-    method: method || 'GET',
-    body: body || undefined,
-    timeoutMs: c.timeoutMs,
-    headers: { Authorization: `Zoho-oauthtoken ${token}` },
-  })
-  let { status, body: resBody } = await doRequest()
-  if (isInvalidAccessTokenResponse(status, resBody)) {
-    console.warn(
-      `[zoho-auth] retrying after invalid access token — ${path.split('?')[0]}`
-    )
-    token = await getZohoAccessToken({ force: true })
-    ;({ status, body: resBody } = await doRequest())
-  }
-
-  for (const delayMs of ZOHO_RATE_LIMIT_RETRY_DELAYS_MS) {
-    if (!isZohoInProcessLimit(status, resBody)) break
-    console.warn(
-      `[zoho-rate-limit] ${path.split('?')[0]} hit Zoho in-process limit; retrying in ${delayMs}ms`
-    )
-    await sleep(delayMs)
-    ;({ status, body: resBody } = await doRequest())
-  }
-
-  if (status < 200 || status >= 300) {
-    const e = new Error(
-      `Zoho Inventory API HTTP ${status} for ${path.split('?')[0]}: ${(resBody || '').slice(0, 500)}`
-    )
-    e.code = 'ZOHO_API_ERROR'
-    e.httpStatus = status
-    e.zohoPath = path
-    throw e
-  }
-  let json
-  try {
-    json = JSON.parse(resBody)
-  } catch (err) {
-    const e = new Error('Zoho response is not valid JSON')
-    e.code = 'ZOHO_API_ERROR'
-    e.cause = err
-    throw e
-  }
-  if (json && typeof json === 'object' && 'code' in json && String(json.code) !== '0') {
-    const e = new Error(
-      `Zoho API application error: code ${json.code} — ${json.message || resBody?.slice(0, 200)}`
-    )
-    e.code = 'ZOHO_API_ERROR'
-    e.zohoResponse = json
-    throw e
-  }
-  return json
+  return zohoInventoryJsonRequest(path, searchParams, method, body, m)
 }
 
 function makeItemsPageParams(page, per, warehouseId = null) {
@@ -109,11 +43,11 @@ function makeItemsPageParams(page, per, warehouseId = null) {
   p.set('organization_id', c.organizationId)
   p.set('page', String(page))
   p.set('per_page', String(per))
+  if (!itemsIncludeInactive()) {
+    p.set('filter_by', 'Status.Active')
+  }
   if (warehouseId) {
     const id = String(warehouseId).trim()
-    // Zoho's newer multi-location API uses location_id, while older orgs and
-    // existing code paths may still accept warehouse_id. Send both; Zoho ignores
-    // unknown/duplicate-compatible filters in the orgs we support.
     p.set('warehouse_id', id)
     p.set('location_id', id)
   }
@@ -121,7 +55,19 @@ function makeItemsPageParams(page, per, warehouseId = null) {
 }
 
 async function fetchItemsPage(page, per, warehouseId = null) {
-  const json = await zohoApiRequest(`${INVENTORY_V1}/items`, makeItemsPageParams(page, per, warehouseId), 'GET')
+  const scope = itemsIncludeInactive() ? 'all' : 'active'
+  const meta = {
+    cacheCategory: 'items_list',
+    cacheKey: `zoho:items_list:p${page}:per${per}:wh${warehouseId || 'all'}:${scope}`,
+    source: 'inventory_items_page',
+  }
+  const json = await zohoInventoryJsonRequest(
+    `${INVENTORY_V1}/items`,
+    makeItemsPageParams(page, per, warehouseId),
+    'GET',
+    undefined,
+    meta
+  )
   const list = (json && json.items) || (json && json.item) || []
   const pageItems = Array.isArray(list) ? list : []
   const hasMore =
@@ -137,15 +83,6 @@ async function fetchItemsPage(page, per, warehouseId = null) {
   }
 }
 
-/**
- * Fetch Inventory items with bounded parallel pagination.
- * Page 1 is fetched first so we can use Zoho's page_context.total when present,
- * then the remaining pages are fetched in batches. This keeps cold weekly-report
- * loads under CloudFront's timeout while avoiding 50 simultaneous Zoho requests.
- *
- * @param {string|null} warehouseId
- * @returns {Promise<object[]>}
- */
 async function listItemsPaged(warehouseId = null) {
   const c = readZohoConfig()
   if (c.code !== 'ok') {
@@ -207,31 +144,10 @@ async function listItemsPaged(warehouseId = null) {
   return all
 }
 
-/**
- * Fetch all items with pagination. Raw Zoho `items` objects only.
- * @returns {Promise<object[]>}
- */
 async function listAllItems() {
   return listItemsPaged(null)
 }
 
-/**
- * Paginate a list endpoint that returns a JSON object with an array at `listKey`.
- * **Assumption:** `page` / `per_page` (default 200) per Zoho Inventory v1.
- * Large orgs may have many pages — see `docs/weekly-report-zoho-transactions.md`.
- *
- * Pagination stops when ANY of these are true:
- *  - `page_context.has_more_page` is false or absent
- *  - the page returned fewer items than `per_page`
- *  - the page returned an empty array
- *  - `maxPages` is reached (sets `truncated: true`)
- *
- * @param {string} path - e.g. `${INVENTORY_V1}/invoices`
- * @param {string} listKey - response array key, e.g. `invoices`, `bills`, `vendor_credits`
- * @param {number} [maxPages=50] - hard safety cap; if reached, `truncated: true` in result
- * @param {URLSearchParams | null} [extraParams] - additional Zoho filter params merged into every page request (e.g. date range)
- * @returns {Promise<{ rows: object[], truncated: boolean, pages: number }>}
- */
 async function fetchListPaginated(path, listKey, maxPages = 50, extraParams = null) {
   const c = readZohoConfig()
   if (c.code !== 'ok') {
@@ -253,7 +169,12 @@ async function fetchListPaginated(path, listKey, maxPages = 50, extraParams = nu
         p.set(k, v)
       }
     }
-    const json = await zohoApiRequest(path, p, 'GET')
+    const reqFn = endpoint.startsWith('/books/') ? zohoBooksJsonRequest : zohoInventoryJsonRequest
+    const json = await reqFn(path, p, 'GET', undefined, {
+      source: endpoint.startsWith('/books/') ? 'books_fetch_list' : 'inventory_fetch_list',
+      cacheCategory: 'sales_orders',
+      cacheKey: `zoho:list:${endpoint}:p${page}:${extraParams ? extraParams.toString() : ''}`,
+    })
     const list = json && json[listKey]
     const pageItems = Array.isArray(list) ? list : []
     for (const it of pageItems) all.push(it)
@@ -281,11 +202,6 @@ async function fetchListPaginated(path, listKey, maxPages = 50, extraParams = nu
   return { rows: all, truncated: true, pages: maxPages }
 }
 
-/**
- * Raw bytes for a Zoho product image (GET /items/{id}/image).
- * @param {string} itemId - Zoho item_id
- * @returns {Promise<{ buffer: Buffer, contentType: string } | null>} null if Zoho has no image (404)
- */
 async function fetchZohoItemImageBuffer(itemId) {
   const c = readZohoConfig()
   if (c.code !== 'ok') {
@@ -301,20 +217,10 @@ async function fetchZohoItemImageBuffer(itemId) {
   }
   const p = new URLSearchParams()
   p.set('organization_id', c.organizationId)
-  const path = `${INVENTORY_V1}/items/${encodeURIComponent(id)}/image`
-  const u = new URL(c.apiBase + path)
-  u.search = p.toString()
-  const doReq = (token) =>
-    httpsRequestBuffer(u.toString(), {
-      timeoutMs: c.timeoutMs,
-      headers: { Authorization: `Zoho-oauthtoken ${token}` },
-    })
-  let token = await getZohoAccessToken()
-  let { status, body, headers: resHeaders } = await doReq(token)
-  if (isInvalidAccessTokenResponse(status, body.toString('utf8'))) {
-    token = await getZohoAccessToken({ force: true })
-    ;({ status, body, headers: resHeaders } = await doReq(token))
-  }
+  const imagePath = `${INVENTORY_V1}/items/${encodeURIComponent(id)}/image`
+  const { status, body, contentType } = await zohoInventoryBufferRequest(imagePath, p, {
+    source: 'inventory_image',
+  })
   if (status === 404) return null
   if (status < 200 || status >= 300) {
     const e = new Error(
@@ -327,20 +233,9 @@ async function fetchZohoItemImageBuffer(itemId) {
   if (!body || body.length === 0) {
     return null
   }
-  const raw = resHeaders && resHeaders['content-type']
-  const contentType = raw
-    ? String(raw).split(';')[0].trim() || 'image/jpeg'
-    : 'image/jpeg'
-  return { buffer: body, contentType }
+  return { buffer: body, contentType: contentType || 'image/jpeg' }
 }
 
-/**
- * Fetch all items for a specific warehouse. Same pagination as `listAllItems`,
- * but adds `warehouse_id` so Zoho returns per-warehouse `warehouse_stock_on_hand`.
- *
- * @param {string} warehouseId
- * @returns {Promise<object[]>}
- */
 async function listItemsForWarehouse(warehouseId) {
   const wid = String(warehouseId).trim()
   return listItemsPaged(wid)

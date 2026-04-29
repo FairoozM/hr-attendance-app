@@ -793,6 +793,12 @@ async function testConnection() {
   } catch (e) {
     console.error('[db] ensureItemReportGroupsImportLogTable skipped/failed (non-fatal):', e.message || e)
   }
+  try {
+    const { ensureZohoApiTables } = require('../services/zohoApiStore')
+    await ensureZohoApiTables()
+  } catch (e) {
+    console.error('[db] ensureZohoApiTables skipped/failed (non-fatal):', e.message || e)
+  }
 }
 
 async function ensureProjectsTable() {

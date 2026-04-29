@@ -6,7 +6,12 @@
 const { listGroupKeys } = require('../services/itemReportGroupsService')
 const { ZOHO_WEEKLY_REPORT_INTEGRATION } = require('../services/weeklyReportZohoData')
 const { mergeZohoWithVendorContext } = require('../services/weeklyReportVendorConfig')
-const { loadWeeklyReportPayload, validateDateRange, handleZohoError } = require('./weeklyReportsController')
+const {
+  loadWeeklyReportPayload,
+  validateDateRange,
+  handleZohoError,
+  attachZohoApiUsageToday,
+} = require('./weeklyReportsController')
 
 /**
  * @param {object} item
@@ -61,10 +66,11 @@ async function getWeeklyReportDebugByGroup(req, res) {
   try {
     const { items, totals, reportMeta } = await loadWeeklyReportPayload(group, range.from_date, range.to_date)
     const rows = (items || []).map(attachRowDebug)
-    const zoho = attachReportMetaToZoho(
+    let zoho = attachReportMetaToZoho(
       mergeZohoWithVendorContext(ZOHO_WEEKLY_REPORT_INTEGRATION, group),
       reportMeta
     )
+    zoho = await attachZohoApiUsageToday(zoho)
     return res.json({
       report_group: group,
       from_date: range.from_date,
@@ -78,7 +84,7 @@ async function getWeeklyReportDebugByGroup(req, res) {
       },
     })
   } catch (err) {
-    return handleZohoError(res, err, `getWeeklyReportDebugByGroup(${group})`)
+    return await handleZohoError(res, err, `getWeeklyReportDebugByGroup(${group})`)
   }
 }
 

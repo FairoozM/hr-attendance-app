@@ -364,3 +364,188 @@ test('zohoService: placeholder numbers round-trip for member', async () => {
   assert.equal(items[0]._zoho.from_date, '2026-01-01')
   assert.equal(items[0]._zoho.to_date, '2026-01-07')
 })
+
+test('zohoService: getFamilyWarehouseMatrixByGroup cold block runs before members/matrix (BLOCK=1)', async () => {
+  const prevBlock = process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS
+  process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS = '1'
+  const restorePeek = mockModule('../src/services/weeklyReportPrefetchStash', {
+    peekWeeklyReportPrefetchBundle: () => null,
+  })
+  let listCalls = 0
+  mockModule('../src/services/itemReportGroupsService', {
+    listMembersOfGroup: async () => {
+      listCalls += 1
+      return [{ sku: 'A' }]
+    },
+    listGroupKeys: async () => ['slow_moving'],
+  })
+  const wrzdResolved = require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })
+  delete require.cache[wrzdResolved]
+  const { coldBlockedFamilyDetailsMatrixPayload } = require('../src/services/weeklyReportZohoData')
+  mockModule('../src/services/weeklyReportZohoData', {
+    fetchZohoItemRowsForGroupMembers: async () => ({ items: [], reportMeta: {} }),
+    buildFamilyWarehouseMatrixForGroupMembers: async () => {
+      throw new Error('buildFamilyWarehouseMatrixForGroupMembers must not run when cold blocked')
+    },
+    coldBlockedFamilyDetailsMatrixPayload,
+  })
+  const zoho = freshRequire('../src/services/zohoService')
+  const out = await zoho.getFamilyWarehouseMatrixByGroup(
+    'slow_moving',
+    'LIFEP7S',
+    '2026-01-01',
+    '2026-01-07',
+    [{ warehouse_id: 'w1', warehouse_name: 'W1' }],
+    null,
+    null
+  )
+  restorePeek()
+  if (prevBlock === undefined) delete process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS
+  else process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS = prevBlock
+  delete require.cache[require.resolve('../src/services/zohoService', { paths: [__dirname] })]
+  delete require.cache[wrzdResolved]
+  assert.equal(listCalls, 0)
+  assert.equal(out.meta.fallbackReason, 'prefetch_bundle_missing')
+  assert.equal(out.meta.usedPrefetch, false)
+})
+
+test('zohoService: getFamilyWarehouseMatrixByGroup passes familyMainRows from stash so totals match main report', async (t) => {
+  void t
+  const prevBlock = process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS
+  delete process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS
+
+  const mainFamilyRow = {
+    family: 'LIFEP7S',
+    opening_stock: 9999,
+    closing_stock: 8888,
+    opening_qty: 200,
+    closing_qty: 180,
+    sales_amount: 50000,
+    stock_total_source: 'warehouse_matrix',
+  }
+
+  const prefetchBundle = {
+    raw: [],
+    salesR: { lines: [], line_count: 0, list_truncated: false, error: null },
+    purchR: { lines: [], line_count: 0, list_truncated: false, error: null },
+    vcR:    { lines: [], line_count: 0, list_truncated: false, error: null },
+    familyRows: [mainFamilyRow],
+  }
+
+  const restorePeek = mockModule('../src/services/weeklyReportPrefetchStash', {
+    peekWeeklyReportPrefetchBundle: () => prefetchBundle,
+  })
+
+  let capturedOptions = null
+  const restoreWrzd = mockModule('../src/services/weeklyReportZohoData', {
+    fetchZohoItemRowsForGroupMembers: async () => ({ items: [], reportMeta: {} }),
+    buildFamilyWarehouseMatrixForGroupMembers: async (_members, _f, _t, _vc, _g, _fam, _wh, _wid, _exwid, opts) => {
+      capturedOptions = opts
+      return {
+        family: 'LIFEP7S',
+        warehouses: [],
+        sections: {},
+        items: [],
+        totals: { openingAmount: 9999, closingAmount: 8888, openingQty: 200, closingQty: 180, salesAmount: 50000, salesQty: 0 },
+        meta: { usedPrefetch: true, totalsSource: 'main_report_family_row' },
+        reportMeta: { warnings: [] },
+      }
+    },
+    coldBlockedFamilyDetailsMatrixPayload: () => { throw new Error('cold block must not run') },
+    _internals: {
+      familyRowKeyFromDisplay: (v) => String(v || '').toLowerCase().trim(),
+    },
+  })
+
+  mockModule('../src/services/itemReportGroupsService', {
+    listMembersOfGroup: async () => [{ sku: 'LIFEP7S-24P' }],
+    listGroupKeys: async () => ['slow_moving'],
+  })
+
+  const zoho = freshRequire('../src/services/zohoService')
+  const out = await zoho.getFamilyWarehouseMatrixByGroup(
+    'slow_moving',
+    'LIFEP7S',
+    '2026-01-01',
+    '2026-01-07',
+    [{ warehouse_id: 'wh1', warehouse_name: 'WH1' }],
+    null,
+    null
+  )
+
+  restorePeek()
+  restoreWrzd()
+  if (prevBlock === undefined) delete process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS
+  else process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS = prevBlock
+  delete require.cache[require.resolve('../src/services/zohoService', { paths: [__dirname] })]
+  delete require.cache[require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })]
+
+  assert.ok(capturedOptions, 'matrix builder options must have been captured')
+  assert.ok(Array.isArray(capturedOptions.familyMainRows), 'familyMainRows must be passed as array')
+  assert.equal(capturedOptions.familyMainRows.length, 1)
+  assert.equal(capturedOptions.familyMainRows[0].opening_stock, 9999)
+  assert.equal(out.totals.openingAmount, 9999, 'totals must match main report family row')
+})
+
+test('zohoService: getFamilyWarehouseMatrixByGroup passes skuItemRows (per-SKU rows) from stash', async (t) => {
+  void t
+  const prevBlock = process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS
+  delete process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS
+
+  const perSkuRows = [
+    { sku: 'LIFEP7S-24P', item_id: '11', family: 'LIFEP7S', family_display: 'LIFEP7S',
+      opening_qty: 50, opening_amount: 2500, closing_qty: 40, closing_amount: 2000, sales_amount: 500 },
+    { sku: 'LIFEP7S-12P', item_id: '12', family: 'LIFEP7S', family_display: 'LIFEP7S',
+      opening_qty: 20, opening_amount: 1000, closing_qty: 15, closing_amount: 750, sales_amount: 250 },
+  ]
+
+  const prefetchBundle = {
+    raw: [],
+    salesR: { lines: [], line_count: 0, list_truncated: false, error: null },
+    purchR: { lines: [], line_count: 0, list_truncated: false, error: null },
+    vcR:    { lines: [], line_count: 0, list_truncated: false, error: null },
+    itemRows: perSkuRows,
+    familyRows: [],
+  }
+
+  const restorePeek = mockModule('../src/services/weeklyReportPrefetchStash', {
+    peekWeeklyReportPrefetchBundle: () => prefetchBundle,
+  })
+
+  let capturedOptions = null
+  const restoreWrzd = mockModule('../src/services/weeklyReportZohoData', {
+    fetchZohoItemRowsForGroupMembers: async () => ({ items: [], reportMeta: {} }),
+    buildFamilyWarehouseMatrixForGroupMembers: async (_m, _f, _t, _vc, _g, _fam, _wh, _wid, _exwid, opts) => {
+      capturedOptions = opts
+      return { family: 'LIFEP7S', warehouses: [], sections: {}, items: [], totals: {}, meta: {}, reportMeta: { warnings: [] } }
+    },
+    coldBlockedFamilyDetailsMatrixPayload: () => { throw new Error('should not cold-block') },
+    _internals: {
+      familyRowKeyFromDisplay: (v) => String(v || '').toLowerCase().trim(),
+    },
+  })
+
+  mockModule('../src/services/itemReportGroupsService', {
+    listMembersOfGroup: async () => [{ sku: 'LIFEP7S-24P' }],
+    listGroupKeys: async () => ['slow_moving'],
+  })
+
+  const zoho = freshRequire('../src/services/zohoService')
+  await zoho.getFamilyWarehouseMatrixByGroup(
+    'slow_moving', 'LIFEP7S', '2026-01-01', '2026-01-07',
+    [{ warehouse_id: 'wh1', warehouse_name: 'WH1' }], null, null
+  )
+
+  restorePeek()
+  restoreWrzd()
+  if (prevBlock === undefined) delete process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS
+  else process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS = prevBlock
+  delete require.cache[require.resolve('../src/services/zohoService', { paths: [__dirname] })]
+  delete require.cache[require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })]
+
+  assert.ok(capturedOptions, 'options must be captured')
+  assert.ok(Array.isArray(capturedOptions.skuItemRows), 'skuItemRows must be an array')
+  assert.equal(capturedOptions.skuItemRows.length, 2, 'both per-SKU rows for LIFEP7S must be passed')
+  assert.equal(capturedOptions.skuItemRows[0].sku, 'LIFEP7S-24P')
+  assert.equal(capturedOptions.skuItemRows[1].sku, 'LIFEP7S-12P')
+})

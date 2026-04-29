@@ -11,11 +11,12 @@
  * Only errors are NOT cached. A failed request clears itself from inFlight and
  * lets the next caller retry.
  *
- * Cache key  : "v<repSelVer>::<group>::<fromDate>::<toDate>..." (busts on representative rule changes)
+ * Cache key  : "v<repSelVer>::<group>::<fromDate>::<toDate>::...::<stockVer>" (stock totals / representative bust)
  * Disable    : set WEEKLY_REPORT_CACHE_TTL_MS=0
  */
 
 const { REPRESENTATIVE_IMAGE_SELECTION_VERSION } = require('./zohoRepresentativeItem')
+const { STOCK_REPORT_CACHE_VERSION } = require('./weeklyReportStockTotalsConfig')
 const CACHE_TTL_MS =
   process.env.WEEKLY_REPORT_CACHE_TTL_MS !== undefined
     ? Math.max(0, parseInt(process.env.WEEKLY_REPORT_CACHE_TTL_MS, 10) || 0)
@@ -33,6 +34,7 @@ function makeKey(group, fromDate, toDate, warehouseId = null, excludeWarehouseId
     ? `${v}::${group}::${fromDate}::${toDate}::wh:${warehouseId}`
     : `${v}::${group}::${fromDate}::${toDate}`
   if (excludeWarehouseId) key += `::excl:${excludeWarehouseId}`
+  key += `::sv:${STOCK_REPORT_CACHE_VERSION}`
   return key
 }
 

@@ -1,11 +1,14 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { api } from '../../api/client'
 import {
   WeeklySalesReportSection,
   WeeklyNoActivityReportSection,
   defaultWeekRange,
   formatDateLabel,
   SOURCE_GROUP_LABELS,
+  WEEKLY_REPORT_QUERY,
+  ZohoUsageInline,
   buildWeeklyReportFilterSearchParams,
   parseWeeklyReportFiltersFromSearchParams,
 } from './WeeklySalesReportPage'
@@ -16,7 +19,8 @@ import './WeeklySalesReportPage.css'
 /**
  * Combined page that shows both the Slow Moving and Other Family weekly
  * sales reports side-by-side under one shared date range picker + warehouse filter.
- * Each section fetches its own data independently and has its own Export / Refresh controls.
+ * Sections load **one after another** (Slow Moving → Other Family → Damaged Slow → Damaged Other)
+ * so concurrent Zoho calls do not blow the per-minute guard (default 70/min).
  */
 export function WeeklyCombinedSalesReportPage() {
   const def = useMemo(() => defaultWeekRange(), [])
@@ -28,11 +32,17 @@ export function WeeklyCombinedSalesReportPage() {
   const [fromDate, setFromDate]       = useState(parsed.from)
   const [toDate, setToDate]           = useState(parsed.to)
   const [warehouseId, setWarehouseId] = useState(parsed.warehouse)
-  const [loadToken, setLoadToken]     = useState(parsed.loadToken)
+  const [loadToken, setLoadToken]     = useState(0)
+  /** Sequential gates so only one weekly report fetch runs at a time across this page. */
+  const [allowOtherFamilyMain, setAllowOtherFamilyMain] = useState(false)
+  const [allowDamagedSlow, setAllowDamagedSlow] = useState(false)
+  const [allowDamagedOther, setAllowDamagedOther] = useState(false)
   const [noValueByGroup, setNoValueByGroup] = useState({
     slow_moving: [],
     other_family: [],
   })
+  /** Quota snapshot for filters bar (GET /weekly-reports/zoho-api-usage) — visible as soon as user clicks Load report. */
+  const [filtersUsageZoho, setFiltersUsageZoho] = useState(null)
 
   const { warehouses, loading: whLoading } = useWarehouses()
 
@@ -51,21 +61,26 @@ export function WeeklyCombinedSalesReportPage() {
   )
 
   const writeUrl = useCallback(
-    (from, to, wh, { loaded = false } = {}) => {
-      setSearchParams(
-        buildWeeklyReportFilterSearchParams({ from, to, warehouse: wh, loaded }),
-        { replace: true },
-      )
+    (from, to, wh) => {
+      setSearchParams(buildWeeklyReportFilterSearchParams({ from, to, warehouse: wh }), { replace: true })
     },
     [setSearchParams],
   )
+
+  // Legacy ?load=1 meant "already loaded" and caused auto-fetch on refresh — remove it.
+  useEffect(() => {
+    if (searchParams.get(WEEKLY_REPORT_QUERY.load) == null) return
+    const p = new URLSearchParams(searchParams)
+    p.delete(WEEKLY_REPORT_QUERY.load)
+    setSearchParams(p, { replace: true })
+  }, [searchParams, setSearchParams])
 
   const handleFromChange = useCallback(
     (e) => {
       const v = e.target.value
       setFromDate(v)
       setLoadToken(0)
-      writeUrl(v, toDate, warehouseId, { loaded: false })
+      writeUrl(v, toDate, warehouseId)
     },
     [toDate, warehouseId, writeUrl],
   )
@@ -74,7 +89,7 @@ export function WeeklyCombinedSalesReportPage() {
       const v = e.target.value
       setToDate(v)
       setLoadToken(0)
-      writeUrl(fromDate, v, warehouseId, { loaded: false })
+      writeUrl(fromDate, v, warehouseId)
     },
     [fromDate, warehouseId, writeUrl],
   )
@@ -83,15 +98,18 @@ export function WeeklyCombinedSalesReportPage() {
       const v = e.target.value
       setWarehouseId(v)
       setLoadToken(0)
-      writeUrl(fromDate, toDate, v, { loaded: false })
+      writeUrl(fromDate, toDate, v)
     },
     [fromDate, toDate, writeUrl],
   )
 
   const handleLoadReport = useCallback(() => {
     if (!fromDate || !toDate) return
+    setAllowOtherFamilyMain(false)
+    setAllowDamagedSlow(false)
+    setAllowDamagedOther(false)
     setLoadToken((n) => n + 1)
-    writeUrl(fromDate, toDate, warehouseId, { loaded: true })
+    writeUrl(fromDate, toDate, warehouseId)
   }, [fromDate, toDate, warehouseId, writeUrl])
 
   const datesValid    = Boolean(fromDate) && Boolean(toDate) && fromDate <= toDate
@@ -105,6 +123,28 @@ export function WeeklyCombinedSalesReportPage() {
   useEffect(() => {
     if (loadToken === 0) {
       setNoValueByGroup({ slow_moving: [], other_family: [] })
+      setAllowOtherFamilyMain(false)
+      setAllowDamagedSlow(false)
+      setAllowDamagedOther(false)
+    }
+  }, [loadToken])
+
+  useEffect(() => {
+    if (loadToken <= 0) {
+      setFiltersUsageZoho(null)
+      return
+    }
+    let cancelled = false
+    api
+      .get('/api/weekly-reports/zoho-api-usage')
+      .then((d) => {
+        if (!cancelled && d?.zoho) setFiltersUsageZoho(d.zoho)
+      })
+      .catch(() => {
+        if (!cancelled) setFiltersUsageZoho(null)
+      })
+    return () => {
+      cancelled = true
     }
   }, [loadToken])
 
@@ -227,6 +267,14 @@ export function WeeklyCombinedSalesReportPage() {
             Filtered to: <strong>{selectedWarehouse.warehouse_name}</strong>
           </div>
         )}
+
+        {loadToken > 0 && filtersUsageZoho && (
+          <div className="wsr-zoho-usage-banner" role="status">
+            <div className="wsr-meta wsr-meta--banner">
+              <ZohoUsageInline zoho={filtersUsageZoho} />
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Slow Moving section */}
@@ -240,6 +288,7 @@ export function WeeklyCombinedSalesReportPage() {
         excludeWarehouseId={mainExcludeWhId}
         enableSalesSort
         loadToken={loadToken}
+        onReportFetchSettled={() => setAllowOtherFamilyMain(true)}
         onNoValueRows={onNoValueRows}
       />
 
@@ -256,7 +305,8 @@ export function WeeklyCombinedSalesReportPage() {
         warehouseId={activeWhId}
         excludeWarehouseId={mainExcludeWhId}
         enableSalesSort
-        loadToken={loadToken}
+        loadToken={allowOtherFamilyMain ? loadToken : 0}
+        onReportFetchSettled={() => setAllowDamagedSlow(true)}
         onNoValueRows={onNoValueRows}
       />
 
@@ -288,7 +338,8 @@ export function WeeklyCombinedSalesReportPage() {
               toDate={toDate}
               datesValid={datesValid}
               warehouseId={damagedWh.warehouse_id}
-              loadToken={loadToken}
+              loadToken={allowDamagedSlow ? loadToken : 0}
+              onReportFetchSettled={() => setAllowDamagedOther(true)}
             />
             <div className="wsr-section-divider" aria-hidden />
             <WeeklySalesReportSection
@@ -298,7 +349,7 @@ export function WeeklyCombinedSalesReportPage() {
               toDate={toDate}
               datesValid={datesValid}
               warehouseId={damagedWh.warehouse_id}
-              loadToken={loadToken}
+              loadToken={allowDamagedOther ? loadToken : 0}
             />
           </div>
         </>

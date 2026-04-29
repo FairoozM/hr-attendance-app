@@ -35,6 +35,16 @@ async function startServer() {
   try {
     await testConnection()
     console.log('[boot] Database ready.')
+
+    if (/^(1|true|yes)$/i.test(String(process.env.ZOHO_AUTO_SYNC_ON_START || ''))) {
+      console.log('[zoho] ZOHO_AUTO_SYNC_ON_START=1 — background items refresh scheduled')
+      setImmediate(() => {
+        const { fetchAllItemsRaw } = require('./integrations/zoho/zohoAdapter')
+        fetchAllItemsRaw().catch((err) => {
+          console.error('[zoho] ZOHO_AUTO_SYNC_ON_START fetch failed:', err.message || err)
+        })
+      })
+    }
   } catch (err) {
     console.error('Database startup failed:', err.message)
     if (err.stack) console.error(err.stack)

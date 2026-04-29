@@ -3,6 +3,7 @@ const { requirePermission } = require('../middleware/auth')
 const {
   listAvailableGroups,
   getWarehouses,
+  getZohoApiUsageSnapshot,
   getZohoItemImage,
   getReportByGroup,
   getFamilyDetailsByGroupController,
@@ -38,6 +39,9 @@ router.get(
   requirePermission('weekly_reports', 'view'),
   getFamilyDetailsByGroupController
 )
+
+// Quota snapshot only (no report/items fetch) — for filters bar UI
+router.get('/zoho-api-usage', requirePermission('weekly_reports', 'view'), getZohoApiUsageSnapshot)
 
 // Generic: per-group weekly Zoho-sourced report
 // GET /api/weekly-reports/by-group/:group?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD

@@ -3,7 +3,9 @@ const { listGroupKeys }                               = require('../services/ite
 const { sumReportGrandTotals }                        = require('../utils/weeklyReportTotals')
 const { ZOHO_WEEKLY_REPORT_INTEGRATION }              = require('../services/weeklyReportZohoData')
 const { mergeZohoWithVendorContext }                 = require('../services/weeklyReportVendorConfig')
-const { getCachedReport }                             = require('../services/weeklyReportCache')
+const { getCachedReport, makeKey }                  = require('../services/weeklyReportCache')
+const { peekWeeklyReportPrefetchBundle }            = require('../services/weeklyReportPrefetchStash')
+const { coldBlockedFamilyDetailsMatrixPayload }    = require('../services/weeklyReportZohoData')
 const { fetchWarehouses }                             = require('../integrations/zoho/zohoWarehouses')
 const { fetchZohoItemImageBuffer }                    = require('../integrations/zoho/zohoInventoryClient')
 const zohoItemImageCache                              = require('../services/zohoItemImageCache')
@@ -12,6 +14,8 @@ const {
   getExportSheetTitleForGroup,
   getExportDownloadFilename,
 } = require('../services/weeklyReportXlsxService')
+const { getDailySuccessCount, getZohoGuardStatus } = require('../services/zohoApiClient')
+const { STOCK_REPORT_CACHE_VERSION } = require('../services/weeklyReportStockTotalsConfig')
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -30,6 +34,7 @@ function makeFamilyDetailsCacheKey(group, from, to, family, warehouseId, exclude
     String(family || '').trim().toLowerCase(),
     normalizeQueryWhId(warehouseId),
     normalizeQueryWhId(excludeWarehouseId),
+    `sv:${STOCK_REPORT_CACHE_VERSION}`,
   ].join(':')
 }
 
@@ -108,7 +113,7 @@ async function getWarehouses(_req, res) {
     const warehouses = await fetchWarehouses()
     return res.json({ warehouses })
   } catch (err) {
-    return handleZohoError(res, err, 'getWarehouses')
+    return await handleZohoError(res, err, 'getWarehouses')
   }
 }
 
@@ -135,7 +140,68 @@ function attachReportMetaToZoho(zohoObj, reportMeta) {
   if (reportMeta && reportMeta.transaction_debug) {
     o.transaction_debug = reportMeta.transaction_debug
   }
+  if (reportMeta && typeof reportMeta === 'object') {
+    for (const k of [
+      'calculation_version',
+      'generated_at',
+      'stock_totals_family_row_mode',
+      'weekly_report_prefetch_bundle_stashed',
+      'family_matrix_family_builds_used_prefetch_source',
+    ]) {
+      if (reportMeta[k] != null && reportMeta[k] !== '') o[k] = reportMeta[k]
+    }
+  }
   return o
+}
+
+function utcDayString() {
+  const d = new Date()
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+}
+
+/**
+ * Adds Zoho guard snapshot + successful outbound API call count (UTC day) for weekly report JSON.
+ * Always sets `api_usage_today` + `per_minute_limit` so the SPA can show limits even if the
+ * usage table query fails; `successful_calls` stays null when the count cannot be read.
+ */
+async function attachZohoApiUsageToday(zohoObj) {
+  const base = zohoObj && typeof zohoObj === 'object' ? zohoObj : {}
+  const guard = getZohoGuardStatus()
+  const out = {
+    ...base,
+    per_minute_limit: guard.perMinuteLimit,
+    api_usage_today: {
+      utc_day: utcDayString(),
+      daily_limit: guard.dailyLimit,
+      successful_calls: null,
+    },
+  }
+  try {
+    out.api_usage_today.successful_calls = await getDailySuccessCount()
+  } catch (err) {
+    console.warn('[weeklyReports] attachZohoApiUsageToday:', err.message)
+    out.api_usage_today.count_unavailable = true
+  }
+  return out
+}
+
+/** Minimal `{ zoho }` shape for rate-limit / quota error JSON bodies. */
+async function zohoQuotaSnapshotForErrors() {
+  return attachZohoApiUsageToday({})
+}
+
+/**
+ * GET /api/weekly-reports/zoho-api-usage — lightweight quota snapshot for the filters bar
+ * (no Zoho catalog/report fetch).
+ */
+async function getZohoApiUsageSnapshot(_req, res) {
+  try {
+    const zoho = await attachZohoApiUsageToday({})
+    return res.json({ zoho })
+  } catch (err) {
+    console.error('[weeklyReports] getZohoApiUsageSnapshot:', err.message)
+    return res.status(500).json({ error: 'Failed to load Zoho API usage' })
+  }
 }
 
 const WEEKLY_VISIBLE_VALUE_KEYS = [
@@ -164,7 +230,7 @@ function isZohoDailyRateLimit(err) {
   return false
 }
 
-function handleZohoError(res, err, ctx) {
+async function handleZohoError(res, err, ctx) {
   const isDev = process.env.NODE_ENV !== 'production'
   console.error(
     `[weeklyReports] ${ctx} error:`,
@@ -229,6 +295,40 @@ function handleZohoError(res, err, ctx) {
     case 'ZOHO_WEBHOOK_HTTP_ERROR':
     case 'ZOHO_WEBHOOK_NETWORK_ERROR':
       return res.status(502).json({ error: err.message, code: err.code })
+    case 'ZOHO_DAILY_BUDGET_EXCEEDED':
+    case 'ZOHO_DAILY_LIMIT': {
+      const zoho = await zohoQuotaSnapshotForErrors()
+      return res.status(429).json({
+        error:
+          err.message ||
+          'This server reached its configured Zoho API call budget for today (UTC).',
+        code: err.code || 'ZOHO_DAILY_LIMIT',
+        user_action:
+          'Wait until UTC midnight or tune ZOHO_DAILY_CALL_LIMIT / Zoho plan.',
+        zoho,
+      })
+    }
+    case 'ZOHO_SAFE_STOP':
+    case 'ZOHO_RATE_MINUTE_LIMIT': {
+      const zoho = await zohoQuotaSnapshotForErrors()
+      return res.status(429).json({
+        error: err.message || 'Zoho API rate or safe-stop limit.',
+        code: err.code,
+        user_action:
+          err.code === 'ZOHO_RATE_MINUTE_LIMIT'
+            ? 'Wait about one minute for the per-minute window to reset. The combined Weekly Sales page loads Slow Moving first, then Other Family.'
+            : undefined,
+        zoho,
+      })
+    }
+    case 'ZOHO_SYNC_PAUSED': {
+      const zoho = await zohoQuotaSnapshotForErrors()
+      return res.status(503).json({
+        error: err.message || 'Zoho sync paused after HTTP 429.',
+        code: 'ZOHO_SYNC_PAUSED',
+        zoho,
+      })
+    }
     default:
       return res.status(502).json({
         error: err.message || 'Failed to fetch report from Zoho',
@@ -300,10 +400,11 @@ async function getReportByGroup(req, res) {
       warehouseId,
       excludeWarehouseId
     )
-    const zoho = attachReportMetaToZoho(
+    let zoho = attachReportMetaToZoho(
       mergeZohoWithVendorContext(ZOHO_WEEKLY_REPORT_INTEGRATION, group),
       reportMeta
     )
+    zoho = await attachZohoApiUsageToday(zoho)
     return res.json({
       report_group:          group,
       from_date:             range.from_date,
@@ -312,10 +413,22 @@ async function getReportByGroup(req, res) {
       exclude_warehouse_id:  excludeWarehouseId || null,
       items,
       totals,
+      calculation_version:   (reportMeta && reportMeta.calculation_version) || STOCK_REPORT_CACHE_VERSION,
+      generated_at:          reportMeta && reportMeta.generated_at ? reportMeta.generated_at : null,
+      stock_totals_family_row_mode:
+        reportMeta && reportMeta.stock_totals_family_row_mode ? reportMeta.stock_totals_family_row_mode : null,
+      weekly_report_prefetch_bundle_stashed:
+        reportMeta && typeof reportMeta.weekly_report_prefetch_bundle_stashed === 'boolean'
+          ? reportMeta.weekly_report_prefetch_bundle_stashed
+          : null,
+      family_matrix_family_builds_used_prefetch_source:
+        reportMeta && reportMeta.family_matrix_family_builds_used_prefetch_source != null
+          ? reportMeta.family_matrix_family_builds_used_prefetch_source
+          : null,
       zoho,
     })
   } catch (err) {
-    return handleZohoError(res, err, `getReportByGroup(${group})`)
+    return await handleZohoError(res, err, `getReportByGroup(${group})`)
   }
 }
 
@@ -345,6 +458,22 @@ async function buildFamilyDetailsWarehousesPayload(
   const normF  = filterWarehouseId && String(filterWarehouseId).trim() !== ''
     ? String(filterWarehouseId).trim()
     : null
+
+  const prefetchBundle = peekWeeklyReportPrefetchBundle(group, fromDate, toDate, normF, normEx)
+  const cacheKey = makeKey(group, fromDate, toDate, normF, normEx)
+  if (!prefetchBundle && process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS === '1') {
+    console.warn(
+      JSON.stringify({
+        msg: 'family_details_blocked_no_prefetch',
+        family,
+        cacheKey,
+      })
+    )
+    const coldTargets = normF
+      ? [{ warehouse_id: normF, warehouse_name: normF }]
+      : []
+    return coldBlockedFamilyDetailsMatrixPayload({ family, warehouses: coldTargets })
+  }
 
   /** @type {Array<{ warehouse_id: string, warehouse_name: string }>} */
   let targets = []
@@ -432,7 +561,7 @@ async function getFamilyDetailsByGroupController(req, res) {
       const body = await _familyDetailsFlight.get(cacheKey)
       return res.json(body)
     } catch (err) {
-      return handleZohoError(res, err, `getFamilyDetailsByGroup(${group})`)
+      return await handleZohoError(res, err, `getFamilyDetailsByGroup(${group})`)
     }
   }
 
@@ -457,9 +586,15 @@ async function getFamilyDetailsByGroupController(req, res) {
       warehouses,
       sections:             matrix.sections || {},
       items, // back-compat-ish: flattened section rows; prefer `sections` in the UI
-      zoho:                 attachReportMetaToZoho(
-        mergeZohoWithVendorContext(ZOHO_WEEKLY_REPORT_INTEGRATION, group),
-        matrix.reportMeta || { warnings: [] }
+      calculation_version: STOCK_REPORT_CACHE_VERSION,
+      generated_at:        new Date().toISOString(),
+      totals:               matrix.totals || null,
+      meta:                 matrix.meta || null,
+      zoho:                 await attachZohoApiUsageToday(
+        attachReportMetaToZoho(
+          mergeZohoWithVendorContext(ZOHO_WEEKLY_REPORT_INTEGRATION, group),
+          matrix.reportMeta || { warnings: [] }
+        )
       ),
     }
   })()
@@ -477,7 +612,7 @@ async function getFamilyDetailsByGroupController(req, res) {
     const body = await p
     return res.json(body)
   } catch (err) {
-    return handleZohoError(res, err, `getFamilyDetailsByGroup(${group})`)
+    return await handleZohoError(res, err, `getFamilyDetailsByGroup(${group})`)
   }
 }
 
@@ -498,18 +633,32 @@ async function getSlowMovingReport(req, res) {
       range.from_date,
       range.to_date
     )
+    let zohoSm = attachReportMetaToZoho(
+      mergeZohoWithVendorContext(ZOHO_WEEKLY_REPORT_INTEGRATION, 'slow_moving'),
+      reportMeta
+    )
+    zohoSm = await attachZohoApiUsageToday(zohoSm)
     return res.json({
       from_date: range.from_date,
       to_date:   range.to_date,
       items,
       totals,
-      zoho: attachReportMetaToZoho(
-        mergeZohoWithVendorContext(ZOHO_WEEKLY_REPORT_INTEGRATION, 'slow_moving'),
-        reportMeta
-      ),
+      calculation_version: (reportMeta && reportMeta.calculation_version) || STOCK_REPORT_CACHE_VERSION,
+      generated_at: reportMeta && reportMeta.generated_at ? reportMeta.generated_at : null,
+      stock_totals_family_row_mode:
+        reportMeta && reportMeta.stock_totals_family_row_mode ? reportMeta.stock_totals_family_row_mode : null,
+      weekly_report_prefetch_bundle_stashed:
+        reportMeta && typeof reportMeta.weekly_report_prefetch_bundle_stashed === 'boolean'
+          ? reportMeta.weekly_report_prefetch_bundle_stashed
+          : null,
+      family_matrix_family_builds_used_prefetch_source:
+        reportMeta && reportMeta.family_matrix_family_builds_used_prefetch_source != null
+          ? reportMeta.family_matrix_family_builds_used_prefetch_source
+          : null,
+      zoho: zohoSm,
     })
   } catch (err) {
-    return handleZohoError(res, err, 'getSlowMovingReport')
+    return await handleZohoError(res, err, 'getSlowMovingReport')
   }
 }
 
@@ -606,7 +755,7 @@ async function exportReportByGroupXlsx(req, res) {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
     return res.status(200).send(buffer)
   } catch (err) {
-    return handleZohoError(res, err, `exportReportByGroupXlsx(${group})`)
+    return await handleZohoError(res, err, `exportReportByGroupXlsx(${group})`)
   }
 }
 
@@ -644,13 +793,14 @@ async function getZohoItemImage(req, res) {
     if (err.code === 'ZOHO_INVALID_ITEM_ID') {
       return res.status(400).json({ error: err.message, code: err.code })
     }
-    return handleZohoError(res, err, 'getZohoItemImage')
+    return await handleZohoError(res, err, 'getZohoItemImage')
   }
 }
 
 module.exports = {
   listAvailableGroups,
   getWarehouses,
+  getZohoApiUsageSnapshot,
   getZohoItemImage,
   getReportByGroup,
   getFamilyDetailsByGroupController,
@@ -661,6 +811,7 @@ module.exports = {
   validateDateRange,
   handleZohoError,
   clearFamilyDetailsWarehouseCache,
+  attachZohoApiUsageToday,
   /** @internal for unit tests */
   _internals: {
     buildFamilyDetailsWarehousesPayload,

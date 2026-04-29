@@ -104,6 +104,11 @@ function clearItemsCache() {
   _itemsCache = null
 }
 
+/** Clear per-warehouse item list caches (call with clearItemsCache on full catalog refresh). */
+function clearWarehouseItemsCaches() {
+  _warehouseItemsCache.clear()
+}
+
 /**
  * Per-warehouse item cache: short TTL, keyed by warehouse_id string.
  * @type {Map<string, { items: object[], expiresAt: number }>}
@@ -161,6 +166,7 @@ module.exports = {
   fetchAllItemsRaw,
   fetchItemsRawForWarehouse,
   clearItemsCache,
+  clearWarehouseItemsCaches,
   fetchAllBillsRaw,
   clearBillsCache,
   fetchAllVendorCreditsRaw,

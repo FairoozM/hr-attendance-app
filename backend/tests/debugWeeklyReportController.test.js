@@ -72,9 +72,22 @@ test('getWeeklyReportDebugByGroup: rows, totals, row_debug, zoho, report_debug',
   const r2 = mockModule('../src/services/itemReportGroupsService', {
     listGroupKeys: async () => ['slow_moving', 'other_family'],
   })
+  const r3 = mockModule('../src/services/zohoApiClient', {
+    getDailySuccessCount: async () => 0,
+    getZohoGuardStatus: () => ({
+      syncPausedUntil: null,
+      perMinuteLimit: 70,
+      dailyLimit: 9000,
+      warningLimit: 7000,
+      safeStopLimit: 8500,
+      cacheEnabled: true,
+      limits: { minuteWindowSize: 0 },
+    }),
+  })
   t.after(() => {
     r1()
     r2()
+    r3()
   })
 
   delete require.cache[require.resolve(pathToTests('../src/controllers/weeklyReportsController.js'))]
@@ -93,6 +106,8 @@ test('getWeeklyReportDebugByGroup: rows, totals, row_debug, zoho, report_debug',
   assert.equal(res.body.rows[0].row_debug._zoho.from_date, '2026-01-01')
   assert.equal(res.body.zoho && res.body.zoho.data_source, 'zoho_inventory_rest_v1')
   assert.equal(res.body.zoho && res.body.zoho.transaction_debug && res.body.zoho.transaction_debug.sales_source_count, 1)
+  assert.equal(res.body.zoho.api_usage_today.successful_calls, 0)
+  assert.equal(res.body.zoho.api_usage_today.daily_limit, 9000)
   assert.equal(res.body.report_debug.transaction_debug.sales_source_count, 1)
   assert.ok(res.body.report_debug.warnings.includes('w1'))
 })

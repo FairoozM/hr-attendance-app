@@ -37,6 +37,9 @@ const {
   isReportVendorOptional,
 } = require('./weeklyReportReportVendor')
 const { listAllActiveMemberRows } = require('./itemReportGroupsService')
+const { fetchWarehouses } = require('../integrations/zoho/zohoWarehouses')
+const { STOCK_REPORT_CACHE_VERSION, useMatrixTotalsForFamilyRows } = require('./weeklyReportStockTotalsConfig')
+const { stashWeeklyReportPrefetchBundle } = require('./weeklyReportPrefetchStash')
 
 /**
  * Map Zoho Inventory path → required OAuth scope. The single source of truth
@@ -194,8 +197,16 @@ function idsMatch(a, b) {
 }
 
 function findItemLocation(item, warehouseId) {
-  if (!item || typeof item !== 'object' || !Array.isArray(item.locations)) return null
-  return item.locations.find((loc) => (
+  if (!item || typeof item !== 'object') return null
+  // Zoho detail API returns `item.warehouses[]` with warehouse_stock_on_hand.
+  // Older code also checked `item.locations[]` — support both.
+  const list = Array.isArray(item.warehouses) && item.warehouses.length > 0
+    ? item.warehouses
+    : Array.isArray(item.locations) && item.locations.length > 0
+      ? item.locations
+      : null
+  if (!list) return null
+  return list.find((loc) => (
     loc
     && (
       idsMatch(loc.location_id, warehouseId)
@@ -696,6 +707,8 @@ function makeMatrixItemRow(item, unitSalesPrice, unitPurchasePrice) {
     warehouses: {},
     total_qty: 0,
     total_amount: 0,
+    /** When true, row is kept even if totals are zero (e.g. closing stock depleted). */
+    force_include: false,
   }
 }
 
@@ -714,7 +727,13 @@ function finaliseMatrixRows(rows, warehouseIds) {
       out.total_amount = Math.round((Number(out.total_amount) || 0) * 100) / 100
       return out
     })
-    .filter((row) => Math.abs(Number(row.total_qty) || 0) > 0 || Math.abs(Number(row.total_amount) || 0) > 0)
+    .filter(
+      (row) =>
+        row.force_include === true ||
+        Math.abs(Number(row.total_qty) || 0) > 0 ||
+        Math.abs(Number(row.total_amount) || 0) > 0
+    )
+    .map(({ force_include: _fi, ...rest }) => rest)
 }
 
 function buildMatrixSection(key, title, rows, warehouseIds) {
@@ -744,6 +763,135 @@ function buildMatrixSection(key, title, rows, warehouseIds) {
     total_qty: Math.round(totalQty * 100) / 100,
     total_amount: Math.round(totalAmount * 100) / 100,
   }
+}
+
+/**
+ * Virtual warehouse ID used when qty/amount in a per-SKU row cannot be attributed to
+ * any known warehouse (item.locations[] is absent or incomplete).
+ * Exposed so the frontend can render it as a distinct "Unassigned Warehouse" column.
+ */
+const UNASSIGNED_WID           = '__unassigned__'
+const UNASSIGNED_WAREHOUSE_NAME = 'Unassigned Warehouse'
+
+/**
+ * Warehouse distribution policy (applied after per-SKU totals are patched from main report):
+ *
+ *  opening / purchase / returned / sales
+ *    → Warehouse breakdown NOT needed (user does not require it).
+ *    → All qty/amount for these sections is routed to the "__unassigned__" virtual column.
+ *      Known warehouse cells are zeroed out.  Row total_qty / total_amount are NEVER changed.
+ *
+ *  closing
+ *    → Per-warehouse breakdown IS required (actual stock-on-hand per location).
+ *    → Warehouse cells are filled from item.locations[] (prefetched raw).
+ *    → Any gap (items without location data) goes into "__unassigned__".
+ *    → Row total_qty / total_amount are NEVER changed.
+ *
+ * Only call this when skuItemRows patch was applied (totals are main-report authoritative).
+ *
+ * @param {object}   sections     - matrix sections (mutated in-place)
+ * @param {string[]} warehouseIds - known warehouse IDs already in the sections
+ * @returns {{ distributionStatus, distributedQty, undistributedQty, hasUnassigned }}
+ */
+function applyUnassignedWarehouseDistribution(sections, warehouseIds) {
+  const EPSILON = 0.005
+  let hasUnassigned = false
+
+  // ── Sections where warehouse breakdown is NOT needed ──────────────────────
+  // Consolidate all per-row qty/amount into __unassigned__, zero known warehouses.
+  for (const key of ['opening', 'purchase', 'returned', 'sales']) {
+    const section = sections[key]
+    if (!section || !Array.isArray(section.rows)) continue
+
+    let sectionUnassignedQty    = 0
+    let sectionUnassignedAmount = 0
+
+    for (const row of section.rows) {
+      const rowQty    = Number(row.total_qty)    || 0
+      const rowAmount = Number(row.total_amount) || 0
+
+      // Zero out known warehouse cells
+      if (row.warehouses) {
+        for (const wid of warehouseIds) {
+          if (row.warehouses[wid]) row.warehouses[wid] = { qty: 0, amount: 0 }
+        }
+      }
+
+      // Route entire row to __unassigned__
+      if (rowQty > EPSILON || Math.abs(rowAmount) > EPSILON) {
+        if (!row.warehouses) row.warehouses = {}
+        row.warehouses[UNASSIGNED_WID] = {
+          qty:    Math.round(rowQty    * 100) / 100,
+          amount: Math.round(rowAmount * 100) / 100,
+        }
+        sectionUnassignedQty    += rowQty
+        sectionUnassignedAmount += rowAmount
+        hasUnassigned = true
+      }
+    }
+
+    // Reset known warehouse totals; set unassigned total
+    if (!section.totals_by_warehouse) section.totals_by_warehouse = {}
+    for (const wid of warehouseIds) {
+      section.totals_by_warehouse[wid] = { qty: 0, amount: 0 }
+    }
+    if (sectionUnassignedQty > EPSILON || Math.abs(sectionUnassignedAmount) > EPSILON) {
+      section.totals_by_warehouse[UNASSIGNED_WID] = {
+        qty:    Math.round(sectionUnassignedQty    * 100) / 100,
+        amount: Math.round(sectionUnassignedAmount * 100) / 100,
+      }
+    }
+  }
+
+  // ── Closing stock: per-warehouse distribution required ────────────────────
+  // Warehouse cells come from item.locations[] (already populated by the matrix builder).
+  // Any gap (items without location data) goes to __unassigned__.
+  let totalClosingDistributed   = 0
+  let totalClosingUndistributed = 0
+
+  const closing = sections.closing
+  if (closing && Array.isArray(closing.rows)) {
+    let sectionUndistQty    = 0
+    let sectionUndistAmount = 0
+
+    for (const row of closing.rows) {
+      const whs = row.warehouses || {}
+      const distributedQty    = warehouseIds.reduce((s, wid) => s + (Number(whs[wid] ? whs[wid].qty    : 0) || 0), 0)
+      const distributedAmount = warehouseIds.reduce((s, wid) => s + (Number(whs[wid] ? whs[wid].amount : 0) || 0), 0)
+      const undistQty    = (Number(row.total_qty)    || 0) - distributedQty
+      const undistAmount = (Number(row.total_amount) || 0) - distributedAmount
+
+      if (Math.abs(undistQty) > EPSILON || Math.abs(undistAmount) > EPSILON) {
+        if (!row.warehouses) row.warehouses = {}
+        row.warehouses[UNASSIGNED_WID] = {
+          qty:    Math.round(undistQty    * 100) / 100,
+          amount: Math.round(undistAmount * 100) / 100,
+        }
+        sectionUndistQty    += undistQty
+        sectionUndistAmount += undistAmount
+        hasUnassigned = true
+      }
+
+      totalClosingDistributed   += distributedQty
+      totalClosingUndistributed += undistQty
+    }
+
+    if (Math.abs(sectionUndistQty) > EPSILON || Math.abs(sectionUndistAmount) > EPSILON) {
+      if (!closing.totals_by_warehouse) closing.totals_by_warehouse = {}
+      closing.totals_by_warehouse[UNASSIGNED_WID] = {
+        qty:    Math.round(sectionUndistQty    * 100) / 100,
+        amount: Math.round(sectionUndistAmount * 100) / 100,
+      }
+    }
+  }
+
+  const distributedQty   = Math.round(totalClosingDistributed   * 100) / 100
+  const undistributedQty = Math.round(totalClosingUndistributed * 100) / 100
+  const distributionStatus =
+    Math.abs(undistributedQty)        < EPSILON ? 'complete' :
+    Math.abs(totalClosingDistributed) < EPSILON ? 'missing'  : 'partial'
+
+  return { distributionStatus, distributedQty, undistributedQty, hasUnassigned }
 }
 
 function lineItemKey(line) {
@@ -811,17 +959,279 @@ async function fetchZohoItemDetail(itemId, onWarning) {
   return null
 }
 
-async function hydrateFamilyItemsWithLocations(items, onWarning) {
+async function hydrateFamilyItemsWithLocations(items, onWarning, { blockColdZoho = false } = {}) {
   const list = Array.isArray(items) ? items : []
   return mapWithLimit(list, FAMILY_ITEM_DETAIL_CONCURRENCY, async (item) => {
     if (!item || typeof item !== 'object') return item
+    // Skip if the item already has per-warehouse stock data (from a previous detail fetch).
+    // Zoho detail API returns item.warehouses[] with warehouse_stock_on_hand.
+    if (
+      Array.isArray(item.warehouses) && item.warehouses.length > 0 &&
+      item.warehouses.some(w => w && w.warehouse_stock_on_hand !== undefined)
+    ) return item
     if (Array.isArray(item.locations) && item.locations.length > 0) return item
+    if (blockColdZoho) {
+      return item
+    }
     const id = item.item_id != null ? String(item.item_id).trim() : ''
     if (!id) return item
     const detail = await fetchZohoItemDetail(id, onWarning)
     if (!detail || typeof detail !== 'object') return item
-    return { ...item, ...detail }
+    // Mutate the original object so the prefetch stash (which holds a reference to the same
+    // raw[] array) also gains locations[] — enabling warehouse-wise closing stock in the sidebar
+    // without any extra Zoho API calls when the sidebar is opened after the main report.
+    Object.assign(item, detail)
+    return item
   })
+}
+
+/** Same key as aggregateByFamily: lowercased display string (see familyDisplay.toLowerCase()). */
+function familyRowKeyFromDisplay(fd) {
+  return String(fd || '').trim().toLowerCase()
+}
+
+function extractMatrixTotalsFromSections(sections) {
+  const op = sections.opening || {}
+  const cl = sections.closing || {}
+  const sa = sections.sales || {}
+  return {
+    openingQty: Math.round((Number(op.total_qty) || 0) * 100) / 100,
+    openingAmount: Math.round((Number(op.total_amount) || 0) * 100) / 100,
+    closingQty: Math.round((Number(cl.total_qty) || 0) * 100) / 100,
+    closingAmount: Math.round((Number(cl.total_amount) || 0) * 100) / 100,
+    salesQty: Math.round((Number(sa.total_qty) || 0) * 100) / 100,
+    salesAmount: Math.round((Number(sa.total_amount) || 0) * 100) / 100,
+  }
+}
+
+/** Empty matrix totals for cold-blocked family-details responses (no Zoho fetch). */
+function emptyMatrixTotals() {
+  return {
+    openingQty: 0,
+    openingAmount: 0,
+    closingQty: 0,
+    closingAmount: 0,
+    salesQty: 0,
+    salesAmount: 0,
+  }
+}
+
+/**
+ * Response shape when family-details is blocked because the prefetch stash is empty
+ * (`BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS=1`). Avoids a cold Zoho pull; user should load main report first.
+ *
+ * @param {{ family: string, warehouses: Array<{ warehouse_id?: string, warehouse_name?: string }> }} params
+ */
+function coldBlockedFamilyDetailsMatrixPayload(params) {
+  const family = params && params.family != null ? String(params.family) : ''
+  const tw = params && Array.isArray(params.warehouses) ? params.warehouses : []
+  const warehouseIds = tw.map((w) => normalizeWarehouseId(w && w.warehouse_id)).filter(Boolean)
+  const totalsByWarehouse = {}
+  for (const wid of warehouseIds) {
+    totalsByWarehouse[wid] = { qty: 0, amount: 0 }
+  }
+  const emptySection = (key, title) => ({
+    key,
+    title,
+    rows: [],
+    totals_by_warehouse: { ...totalsByWarehouse },
+    total_qty: 0,
+    total_amount: 0,
+  })
+  return {
+    family,
+    warehouses: tw
+      .map((w) => ({
+        warehouse_id: normalizeWarehouseId(w && w.warehouse_id),
+        warehouse_name:
+          (w && w.warehouse_name && String(w.warehouse_name)) || normalizeWarehouseId(w && w.warehouse_id) || '',
+      }))
+      .filter((w) => w.warehouse_id),
+    sections: {
+      opening: emptySection('opening', 'Opening Stock'),
+      purchase: emptySection('purchase', 'Purchase'),
+      returned: emptySection('returned', 'Vendor Credits / Returned to Wholesale'),
+      closing: emptySection('closing', 'Closing Stock'),
+      sales: emptySection('sales', 'Sales'),
+    },
+    items: [],
+    totals: emptyMatrixTotals(),
+    meta: {
+      hasLocationStockData: false,
+      locationStockSkuCount: 0,
+      missingLocationStockSkuCount: 0,
+      usedPrefetch: false,
+      usedFallback: true,
+      fallbackReason: 'prefetch_bundle_missing',
+    },
+    reportMeta: {
+      warnings: ['Load the main report first to view family details.'],
+    },
+  }
+}
+
+function computeMatrixLocationStockMeta(hydratedFamilyItems, warehouseIds) {
+  let locationStockSkuCount = 0
+  let missingLocationStockSkuCount = 0
+  for (const item of hydratedFamilyItems || []) {
+    let sumLoc = 0
+    for (const wid of warehouseIds) {
+      sumLoc += parseWarehouseStockFromLocationOnly(item, wid)
+    }
+    const hasLocationsArray = Array.isArray(item.locations) && item.locations.length > 0
+    if (hasLocationsArray || sumLoc > 0) {
+      locationStockSkuCount += 1
+    } else {
+      missingLocationStockSkuCount += 1
+    }
+  }
+  const hasLocationStockData = locationStockSkuCount > 0
+  return { locationStockSkuCount, missingLocationStockSkuCount, hasLocationStockData }
+}
+
+function isValidMatrixTotals(totals) {
+  return (
+    totals &&
+    typeof totals === 'object' &&
+    Number.isFinite(Number(totals.openingQty)) &&
+    Number.isFinite(Number(totals.openingAmount)) &&
+    Number.isFinite(Number(totals.closingQty)) &&
+    Number.isFinite(Number(totals.closingAmount))
+  )
+}
+
+function getMatrixFallbackReason(matrix, flagEnabled) {
+  if (!flagEnabled) return 'feature_disabled'
+  if (!matrix) return 'missing_matrix'
+  if (!matrix.totals) return 'missing_matrix_totals'
+  if (!isValidMatrixTotals(matrix.totals)) return 'invalid_matrix_totals'
+  if (!matrix.meta || matrix.meta.hasLocationStockData !== true) return 'no_location_stock_data'
+  return 'unknown'
+}
+
+function collectUniqueFamilyDisplayKeysFromOut(outRows) {
+  const set = new Set()
+  for (const row of outRows || []) {
+    const fd = row._familyDisplayOverride || row.family
+    if (fd != null && String(fd).trim() !== '') set.add(String(fd).trim())
+  }
+  return [...set]
+}
+
+function legacyFamilyStockTotalsFromItemRows(outRows, familyDisplay) {
+  const want = familyRowKeyFromDisplay(familyDisplay)
+  let opening = 0
+  let closing = 0
+  let openingHas = false
+  let closingHas = false
+  let skuCount = 0
+  for (const row of outRows || []) {
+    const fd = row._familyDisplayOverride || row.family || ''
+    if (familyRowKeyFromDisplay(fd) !== want) continue
+    skuCount += 1
+    const o = row.opening_stock
+    const c = row.closing_stock
+    if (o != null && !Number.isNaN(Number(o))) {
+      opening += Number(o)
+      openingHas = true
+    }
+    if (c != null && !Number.isNaN(Number(c))) {
+      closing += Number(c)
+      closingHas = true
+    }
+  }
+  return {
+    opening: openingHas ? opening : null,
+    closing: closingHas ? closing : null,
+    skuCount,
+  }
+}
+
+const FAMILY_STOCK_MISMATCH_LOG_CAP = 12
+
+function applyMatrixTotalsToFamilyRows(familyRows, matrixByFamilyKey, outItemRows, reportCtx) {
+  const { flagEnabled, fromDate, toDate, reportGroup } = reportCtx
+  let mismatchLogs = 0
+  return familyRows.map((fr) => {
+    const familyDisplay = fr.family || ''
+    const lk = familyRowKeyFromDisplay(familyDisplay)
+    const matrix = matrixByFamilyKey.get(lk)
+    const legacy = legacyFamilyStockTotalsFromItemRows(outItemRows, familyDisplay)
+    const reason = getMatrixFallbackReason(matrix, flagEnabled)
+    if (
+      flagEnabled &&
+      matrix &&
+      isValidMatrixTotals(matrix.totals) &&
+      matrix.meta &&
+      matrix.meta.hasLocationStockData === true
+    ) {
+      const t = matrix.totals
+      const openingDiff = Math.abs((Number(legacy.opening) || 0) - (Number(t.openingAmount) || 0))
+      const closingDiff = Math.abs((Number(legacy.closing) || 0) - (Number(t.closingAmount) || 0))
+      if (mismatchLogs < FAMILY_STOCK_MISMATCH_LOG_CAP && (openingDiff > 0.01 || closingDiff > 0.01)) {
+        mismatchLogs += 1
+        console.warn(
+          JSON.stringify({
+            msg: 'family_stock_total_mismatch',
+            familyName: familyDisplay,
+            openingLegacyAmount: legacy.opening,
+            openingMatrixAmount: t.openingAmount,
+            openingDiff,
+            closingLegacyAmount: legacy.closing,
+            closingMatrixAmount: t.closingAmount,
+            closingDiff,
+            skuCount: legacy.skuCount,
+            locationStockSkuCount: matrix.meta.locationStockSkuCount,
+            missingLocationStockSkuCount: matrix.meta.missingLocationStockSkuCount,
+            reportDateRange: { fromDate, toDate },
+            reportGroup,
+            source: 'aggregateByFamily',
+          })
+        )
+      }
+      return {
+        ...fr,
+        opening_stock: t.openingAmount,
+        closing_stock: t.closingAmount,
+        opening_qty: t.openingQty,
+        closing_qty: t.closingQty,
+        stock_total_source: 'warehouse_matrix',
+        calculation_version: STOCK_REPORT_CACHE_VERSION,
+      }
+    }
+    return {
+      ...fr,
+      calculation_version: STOCK_REPORT_CACHE_VERSION,
+      stock_total_source: 'legacy_global_stock',
+      stock_total_fallback_reason: reason,
+    }
+  })
+}
+
+async function resolveMatrixWarehouseTargetsForReport(filterWarehouseId, excludeWarehouseId) {
+  const normEx =
+    excludeWarehouseId && String(excludeWarehouseId).trim() !== ''
+      ? String(excludeWarehouseId).trim()
+      : null
+  const normF =
+    filterWarehouseId && String(filterWarehouseId).trim() !== ''
+      ? String(filterWarehouseId).trim()
+      : null
+  if (normF) {
+    const allW = await fetchWarehouses()
+    const found = Array.isArray(allW) ? allW.find((w) => w && String(w.warehouse_id) === normF) : null
+    return [
+      { warehouse_id: normF, warehouse_name: (found && found.warehouse_name) || normF },
+    ]
+  }
+  const allW = await fetchWarehouses()
+  if (!Array.isArray(allW) || allW.length === 0) return []
+  return allW
+    .filter((w) => w && String(w.warehouse_id) !== (normEx || '___never___'))
+    .map((w) => ({
+      warehouse_id: String(w.warehouse_id),
+      warehouse_name: String(w.warehouse_name || w.warehouse_id),
+    }))
 }
 
 async function buildFamilyWarehouseMatrixForGroupMembers(
@@ -833,9 +1243,33 @@ async function buildFamilyWarehouseMatrixForGroupMembers(
   family = '',
   warehouses = [],
   warehouseId = null,
-  excludeWarehouseId = null
+  excludeWarehouseId = null,
+  options = {}
 ) {
   void _vendorConfig
+  const prefetched =
+    options &&
+    typeof options === 'object' &&
+    options.prefetched &&
+    typeof options.prefetched === 'object'
+      ? options.prefetched
+      : null
+  const explicitPrefetchOption =
+    options != null &&
+    typeof options === 'object' &&
+    Object.prototype.hasOwnProperty.call(options, 'prefetched')
+
+  const blockColdZoho = process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS === '1'
+
+  if (blockColdZoho && !explicitPrefetchOption) {
+    console.warn(
+      JSON.stringify({ msg: 'ZOHO_CALL_BLOCKED_NO_PREFETCH', fn: 'buildFamilyWarehouseMatrixForGroupMembers', family })
+    )
+    const e = new Error('MATRIX_BUILD_BLOCKED_NO_PREFETCH: cold family-details build is blocked when BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS=1')
+    e.code = 'MATRIX_BUILD_BLOCKED_NO_PREFETCH'
+    throw e
+  }
+
   const familyKey = normalizeFamilyKey(family)
   const targetWarehouses = (Array.isArray(warehouses) ? warehouses : [])
     .map((w) => ({
@@ -847,7 +1281,6 @@ async function buildFamilyWarehouseMatrixForGroupMembers(
     .filter((w) => !excludeWarehouseId || w.warehouse_id !== normalizeWarehouseId(excludeWarehouseId))
 
   const warehouseIds = targetWarehouses.map((w) => w.warehouse_id)
-  const warehouseIdSet = new Set(warehouseIds)
   const warnings = []
   const onWarning = (w) => {
     if (w) warnings.push(enrichZohoWarning(w))
@@ -869,53 +1302,133 @@ async function buildFamilyWarehouseMatrixForGroupMembers(
   }
   const familyFieldId = cfg.familyCustomFieldId
   const reportScope = buildWeeklyReportScope(warehouseId, excludeWarehouseId)
-  const [raw, salesR, purchR, vcR] = await Promise.all([
-    fetchAllItemsRaw(),
-    getSales(fromDate, toDate, { onWarning, ...reportScope.transactionFilter }),
-    getPurchases(fromDate, toDate, rv.vendorId, {
-      vendorName: rv.vendorName,
-      onWarning,
-      reportGroup,
-      includeWarehouseDetail: true,
-      ...reportScope.transactionFilter,
-    }),
-    getVendorCredits(fromDate, toDate, rv.vendorId, {
-      vendorName: rv.vendorName,
-      onWarning,
-      includeWarehouseDetail: true,
-      ...reportScope.transactionFilter,
-    }),
-  ])
+  let raw
+  let salesR
+  let purchR
+  let vcR
+  if (explicitPrefetchOption) {
+    if (
+      !prefetched ||
+      !Array.isArray(prefetched.raw) ||
+      prefetched.salesR == null ||
+      typeof prefetched.salesR !== 'object'
+    ) {
+      const e = new Error(
+        'Family matrix: prefetched bundle is incomplete (expected raw items array and salesR).'
+      )
+      e.code = 'PREFETCH_BUNDLE_INCOMPLETE'
+      throw e
+    }
+    raw = prefetched.raw
+    salesR = prefetched.salesR
+    purchR = prefetched.purchR || { lines: [], line_count: 0, list_truncated: false, error: null }
+    vcR = prefetched.vcR || { lines: [], line_count: 0, list_truncated: false, error: null }
+  } else {
+    ;[raw, salesR, purchR, vcR] = await Promise.all([
+      fetchAllItemsRaw(),
+      getSales(fromDate, toDate, { onWarning, ...reportScope.transactionFilter }),
+      getPurchases(fromDate, toDate, rv.vendorId, {
+        vendorName: rv.vendorName,
+        onWarning,
+        reportGroup,
+        includeWarehouseDetail: true,
+        ...reportScope.transactionFilter,
+      }),
+      getVendorCredits(fromDate, toDate, rv.vendorId, {
+        vendorName: rv.vendorName,
+        onWarning,
+        includeWarehouseDetail: true,
+        ...reportScope.transactionFilter,
+      }),
+    ])
+  }
 
   if (salesR.error) onWarning(`Sales (invoices) not loaded: ${(salesR.error && salesR.error.message) || salesR.error}`)
   if (purchR.error) onWarning(`Purchases (bills) not loaded: ${(purchR.error && purchR.error.message) || purchR.error}`)
   if (vcR.error) onWarning(`Vendor credits not loaded: ${(vcR.error && vcR.error.message) || vcR.error}`)
 
-  const maps = buildZohoLookupMaps(raw, familyFieldId)
+  // Per-SKU rows from the main report (set by zohoService when prefetch bundle has itemRows).
+  // When present these drive the SKU set so the sidebar shows exactly the same items as the
+  // main table — no re-derivation from member lists or raw Zoho items.
+  const skuItemRows =
+    options &&
+    typeof options === 'object' &&
+    Array.isArray(options.skuItemRows) &&
+    options.skuItemRows.length > 0
+      ? options.skuItemRows
+      : null
+
   const familyItems = []
   const seenItemIds = new Set()
-  for (const member of Array.isArray(members) ? members : []) {
-    for (const item of findZohoItemsForMember(member, maps)) {
-      if (!item || (item.status && String(item.status).toLowerCase() === 'inactive')) continue
-      const parsedFamily = parseFamilyFromZohoItem(item, familyFieldId)
-      if (familyKey && normalizeFamilyKey(parsedFamily) !== familyKey) continue
-      const iid = item.item_id != null ? String(item.item_id).trim() : ''
-      if (iid && seenItemIds.has(iid)) continue
-      if (iid) seenItemIds.add(iid)
-      familyItems.push(item)
+
+  if (skuItemRows) {
+    // Build fast lookup from prefetched raw items so we can get locations[] for each SKU.
+    const rawBySku = new Map()
+    const rawById  = new Map()
+    for (const item of (raw || [])) {
+      if (!item) continue
+      const sk = item.sku      ? String(item.sku).trim().toLowerCase()      : ''
+      const id = item.item_id ? String(item.item_id).trim()              : ''
+      if (sk) rawBySku.set(sk, item)
+      if (id) rawById.set(id, item)
     }
-  }
-  if (familyItems.length === 0 && maps.byFamily && maps.byFamily.has(familyKey)) {
-    for (const item of maps.byFamily.get(familyKey) || []) {
-      if (!item || (item.status && String(item.status).toLowerCase() === 'inactive')) continue
-      const iid = item.item_id != null ? String(item.item_id).trim() : ''
+    for (const sr of skuItemRows) {
+      const sk = String(sr.sku      || '').trim().toLowerCase()
+      const id = String(sr.item_id  || '').trim()
+      const rawItem = (sk && rawBySku.get(sk)) || (id && rawById.get(id)) || null
+      if (!rawItem) {
+        // SKU from main report not found in raw — include a placeholder so the row
+        // still appears in the sidebar (totals will be patched from skuItemRows below).
+        const placeholder = {
+          sku:      sr.sku      || '',
+          name:     sr.item_name || sr.sku || '',
+          item_id:  sr.item_id  || '',
+          status:   'active',
+          rate:     null,
+          locations: [],
+          _placeholder: true,
+        }
+        onWarning(`SKU "${sr.sku}" from main report not found in prefetched raw — warehouse breakdown unavailable`)
+        familyItems.push(placeholder)
+        continue
+      }
+      const iid = rawItem.item_id ? String(rawItem.item_id).trim() : ''
       if (iid && seenItemIds.has(iid)) continue
       if (iid) seenItemIds.add(iid)
-      familyItems.push(item)
+      familyItems.push(rawItem)
+    }
+  } else {
+    // Original path: derive SKU set from group members + raw Zoho item lookup.
+    const maps = buildZohoLookupMaps(raw, familyFieldId)
+    for (const member of Array.isArray(members) ? members : []) {
+      for (const item of findZohoItemsForMember(member, maps)) {
+        if (!item || (item.status && String(item.status).toLowerCase() === 'inactive')) continue
+        const parsedFamily = parseFamilyFromZohoItem(item, familyFieldId)
+        if (familyKey && normalizeFamilyKey(parsedFamily) !== familyKey) continue
+        const iid = item.item_id != null ? String(item.item_id).trim() : ''
+        if (iid && seenItemIds.has(iid)) continue
+        if (iid) seenItemIds.add(iid)
+        familyItems.push(item)
+      }
+    }
+    if (familyItems.length === 0 && maps.byFamily && maps.byFamily.has(familyKey)) {
+      for (const item of maps.byFamily.get(familyKey) || []) {
+        if (!item || (item.status && String(item.status).toLowerCase() === 'inactive')) continue
+        const iid = item.item_id != null ? String(item.item_id).trim() : ''
+        if (iid && seenItemIds.has(iid)) continue
+        if (iid) seenItemIds.add(iid)
+        familyItems.push(item)
+      }
     }
   }
 
-  const hydratedFamilyItems = await hydrateFamilyItemsWithLocations(familyItems, onWarning)
+  // Block location hydration unless the caller explicitly opts in (sidebar warm path).
+  // Main report's internal matrix build does NOT set hydrateLocations, keeping it fast.
+  // The sidebar service (zohoService) sets hydrateLocations:true so closing stock
+  // gets per-warehouse data from fetchZohoItemDetail without slowing the main report.
+  const hydrateLocations = !!(options && options.hydrateLocations)
+  const blockHydration = blockColdZoho && !hydrateLocations
+  const hydratedFamilyItems = await hydrateFamilyItemsWithLocations(familyItems, onWarning, { blockColdZoho: blockHydration })
   const matrixRows = []
   const rowsByItemKey = new Map()
   for (const item of hydratedFamilyItems) {
@@ -958,17 +1471,78 @@ async function buildFamilyWarehouseMatrixForGroupMembers(
   for (const row of matrixRows) {
     for (const wid of warehouseIds) {
       const closingQty = parseWarehouseStockFromLocationOnly(row.item, wid)
-      if (closingQty > 0) {
-        addMatrixValue(row.closing, wid, closingQty, row.salesPrice != null ? closingQty * row.salesPrice : 0, row.salesPrice)
-      }
       const purchaseQty = Number(row.purchase.warehouses[wid]?.qty) || 0
       const soldQty = Number(row.sales.warehouses[wid]?.qty) || 0
       const returnedQty = Number(row.returned.warehouses[wid]?.qty) || 0
       const openingQty = closingQty - purchaseQty + soldQty + returnedQty
-      if (openingQty > 0 || closingQty > 0 || purchaseQty > 0 || soldQty > 0 || returnedQty > 0) {
-        addMatrixValue(row.opening, wid, Math.max(0, openingQty), row.salesPrice != null ? Math.max(0, openingQty) * row.salesPrice : 0, row.salesPrice)
+      const cellActivity =
+        openingQty > 0 ||
+        closingQty > 0 ||
+        purchaseQty > 0 ||
+        soldQty > 0 ||
+        returnedQty > 0
+
+      if (cellActivity) {
+        addMatrixValue(
+          row.opening,
+          wid,
+          Math.max(0, openingQty),
+          row.salesPrice != null ? Math.max(0, openingQty) * row.salesPrice : 0,
+          row.salesPrice
+        )
+        addMatrixValue(
+          row.closing,
+          wid,
+          closingQty,
+          row.salesPrice != null ? closingQty * row.salesPrice : 0,
+          row.salesPrice
+        )
+        row.closing.force_include = true
       }
     }
+  }
+
+  // When per-SKU main-report rows are available, patch every matrix row's total_qty /
+  // total_amount with the authoritative values from the main report BEFORE sections are
+  // built so that section totals (sum of row totals) also match exactly.
+  if (skuItemRows && skuItemRows.length > 0) {
+    const srBySku = new Map()
+    const srById  = new Map()
+    for (const sr of skuItemRows) {
+      const k  = String(sr.sku      || '').trim().toLowerCase()
+      const id = String(sr.item_id  || '').trim()
+      if (k)  srBySku.set(k,  sr)
+      if (id) srById.set(id, sr)
+    }
+    let patchedCount = 0
+    let missCount    = 0
+    for (const row of matrixRows) {
+      const sku = row.item.sku      ? String(row.item.sku).trim().toLowerCase()      : ''
+      const id  = row.item.item_id  ? String(row.item.item_id).trim()               : ''
+      const sr  = (sku && srBySku.get(sku)) || (id && srById.get(id)) || null
+      if (!sr) { missCount++; continue }
+      patchedCount++
+
+      const openingQty    = Number(sr.opening_qty)   || 0
+      const openingAmount = sr.opening_amount  != null ? Number(sr.opening_amount)  : 0
+      const closingQty    = Number(sr.closing_qty)   || 0
+      const closingAmount = sr.closing_amount  != null ? Number(sr.closing_amount)  : 0
+      const salesAmount   = Number(sr.sales_amount)  || 0
+
+      row.opening.total_qty    = openingQty
+      row.opening.total_amount = openingAmount
+      row.closing.total_qty    = closingQty
+      row.closing.total_amount = closingAmount
+      // Ensure closing rows are not filtered out even when all warehouses show 0
+      if (closingQty > 0 || closingAmount > 0) row.closing.force_include = true
+      // Keep per-warehouse sales qty from transaction lines (accurate); only override amount
+      row.sales.total_amount = salesAmount
+    }
+    if (missCount > 0) {
+      console.warn(JSON.stringify({ msg: 'SKU_MISMATCH_PATCH', family, missCount, patchedCount }))
+      onWarning(`SKU_MISMATCH: ${missCount} matrix row(s) could not be matched to main-report per-SKU rows`)
+    }
+    console.log(JSON.stringify({ msg: 'skuItemRows_patch_applied', family, patchedCount, missCount }))
   }
 
   const sections = {
@@ -990,11 +1564,77 @@ async function buildFamilyWarehouseMatrixForGroupMembers(
       [`${section.key}_amount`]: row.total_amount,
     })))
 
+  // Reconcile warehouse distribution: attribute undistributed qty/amount to a virtual
+  // "Unassigned Warehouse" column when skuItemRows patch was used.
+  const distributionMeta = skuItemRows && skuItemRows.length > 0
+    ? applyUnassignedWarehouseDistribution(sections, warehouseIds)
+    : { distributionStatus: null, distributedQty: 0, undistributedQty: 0, hasUnassigned: false }
+
+  const locMeta = computeMatrixLocationStockMeta(hydratedFamilyItems, warehouseIds)
+  const matrixTotals = extractMatrixTotalsFromSections(sections)
+
+  // When the caller supplies pre-computed family rows from the main report, use
+  // those as authoritative totals so sidebar ≡ main table (single source of truth).
+  const familyMainRows =
+    options &&
+    typeof options === 'object' &&
+    Array.isArray(options.familyMainRows) &&
+    options.familyMainRows.length > 0
+      ? options.familyMainRows
+      : null
+
+  let totals
+  // totalsSource tells the caller where the numbers came from:
+  //   main_report_family_row  — aggregated family row (belt-and-suspenders override)
+  //   skuItemRows_patch       — per-SKU rows from main report (patched before sections)
+  //   matrix_sections         — raw matrix computation (legacy path, no main-report alignment)
+  let totalsSource = skuItemRows && skuItemRows.length > 0 ? 'skuItemRows_patch' : 'matrix_sections'
+  if (familyMainRows) {
+    const fr = familyMainRows[0]
+    const openingAmount = Number(fr.opening_stock) || 0
+    const closingAmount = Number(fr.closing_stock) || 0
+    const openingQty    = Number(fr.opening_qty)   || 0
+    const closingQty    = Number(fr.closing_qty)   || 0
+    const salesAmount   = Number(fr.sales_amount)  || 0
+    const salesQty      = matrixTotals.salesQty      // preserve matrix sales qty (transactions)
+    totals = {
+      openingQty:    Math.round(openingQty  * 100) / 100,
+      openingAmount: Math.round(openingAmount * 100) / 100,
+      closingQty:    Math.round(closingQty  * 100) / 100,
+      closingAmount: Math.round(closingAmount * 100) / 100,
+      salesQty:      Math.round(salesQty    * 100) / 100,
+      salesAmount:   Math.round(salesAmount * 100) / 100,
+    }
+    totalsSource = 'main_report_family_row'
+  } else {
+    totals = matrixTotals
+    // totalsSource already set above (skuItemRows_patch or matrix_sections); don't overwrite
+  }
+
+  const meta = {
+    hasLocationStockData: locMeta.hasLocationStockData,
+    locationStockSkuCount: locMeta.locationStockSkuCount,
+    missingLocationStockSkuCount: locMeta.missingLocationStockSkuCount,
+    usedFallback: locMeta.missingLocationStockSkuCount > 0,
+    usedPrefetch: explicitPrefetchOption === true && !!(prefetched && prefetched.raw),
+    totalsSource,
+    distributionStatus:  distributionMeta.distributionStatus,
+    distributedQty:      distributionMeta.distributedQty,
+    undistributedQty:    distributionMeta.undistributedQty,
+  }
+
+  // Append virtual "Unassigned Warehouse" column to the warehouse list when gaps exist.
+  const responseWarehouses = distributionMeta.hasUnassigned
+    ? [...targetWarehouses, { warehouse_id: UNASSIGNED_WID, warehouse_name: UNASSIGNED_WAREHOUSE_NAME }]
+    : targetWarehouses
+
   return {
     family,
-    warehouses: targetWarehouses,
+    warehouses: responseWarehouses,
     sections,
     items: flatItems,
+    totals,
+    meta,
     reportMeta: { warnings: [...new Set(warnings)].filter(Boolean) },
   }
 }
@@ -1069,11 +1709,13 @@ async function fetchZohoItemRowsForGroupMembers(
       vendorName: rv.vendorName,
       onWarning,
       reportGroup,
+      includeWarehouseDetail: true,
       ...reportScope.transactionFilter,
     }),
     getVendorCredits(fromDate, toDate, rv.vendorId, {
       vendorName: rv.vendorName,
       onWarning,
+      includeWarehouseDetail: true,
       ...reportScope.transactionFilter,
     }),
     reportScope.subtractStockWarehouseId
@@ -1089,6 +1731,19 @@ async function fetchZohoItemRowsForGroupMembers(
     (reportScope.stockWarehouseId ? `, scoped_items=${scopedItems.length}` : '') +
     (reportScope.subtractStockWarehouseId ? `, excluded_items=${damagedItems.length}` : '')
   )
+
+  let prefetchBundleStashed = false
+  try {
+    stashWeeklyReportPrefetchBundle(reportGroup, fromDate, toDate, warehouseId, excludeWarehouseId, {
+      raw,
+      salesR,
+      purchR,
+      vcR,
+    })
+    prefetchBundleStashed = true
+  } catch (stashErr) {
+    console.warn('[weekly-report] prefetch bundle stash failed:', (stashErr && stashErr.message) || stashErr)
+  }
 
   // Selected-warehouse stock map (item_id → qty). This lets us keep representative
   // thumbnail selection from the full catalog while still valuing stock by warehouse.
@@ -1348,30 +2003,30 @@ async function fetchZohoItemRowsForGroupMembers(
     const returnedAmount = rQty > 0
       ? (canValueStock ? Math.round(rQty * unit * 100) / 100 : (rFromVc > 0 ? rFromVc : null))
       : 0
-    if (includeItemDetails) {
-      itemDetails.push({
-        family: row.family || '',
-        family_display: row._familyDisplayOverride || row.family || '',
-        sku: row.sku || '',
-        item_name: row.item_name || '',
-        item_id: row.item_id || '',
-        opening_qty: qO,
-        opening_price: salesPrice,
-        opening_amount: canValueStock ? qO * unit : null,
-        purchase_qty: p,
-        purchase_price: purchasePrice,
-        purchase_amount: canValueStock ? Math.round(p * unit * 100) / 100 : (p > 0 ? null : 0),
-        returned_qty: rQty,
-        returned_price: returnedPrice,
-        returned_amount: returnedAmount,
-        closing_qty: qC,
-        closing_price: salesPrice,
-        closing_amount: canValueStock ? qC * unit : null,
-        sold_qty: s,
-        sold_price: salesPrice,
-        sales_amount: Number(row.sales_amount) || 0,
-      })
-    }
+    // Always push into itemDetails so the prefetch stash can expose per-SKU rows
+    // to the sidebar (exact SKU set, exact quantities, exact valuations).
+    itemDetails.push({
+      family: row.family || '',
+      family_display: row._familyDisplayOverride || row.family || '',
+      sku: row.sku || '',
+      item_name: row.item_name || '',
+      item_id: row.item_id || '',
+      opening_qty: qO,
+      opening_price: salesPrice,
+      opening_amount: canValueStock ? qO * unit : null,
+      purchase_qty: p,
+      purchase_price: purchasePrice,
+      purchase_amount: canValueStock ? Math.round(p * unit * 100) / 100 : (p > 0 ? null : 0),
+      returned_qty: rQty,
+      returned_price: returnedPrice,
+      returned_amount: returnedAmount,
+      closing_qty: qC,
+      closing_price: salesPrice,
+      closing_amount: canValueStock ? qC * unit : null,
+      sold_qty: s,
+      sold_price: salesPrice,
+      sales_amount: Number(row.sales_amount) || 0,
+    })
     if (canValueStock) {
       row.opening_stock = qO * unit
       row.closing_stock = qC * unit
@@ -1390,22 +2045,134 @@ async function fetchZohoItemRowsForGroupMembers(
     delete row._unit_sales_price
   }
 
+  const flagMatrixTotals = useMatrixTotalsForFamilyRows()
+  /** @type {Map<string, object>} */
+  const matrixByFamilyKey = new Map()
+  let matrixFamilyBuildCount = 0
+  if (flagMatrixTotals && out.length > 0) {
+    try {
+      const warehouseTargets = await resolveMatrixWarehouseTargetsForReport(warehouseId, excludeWarehouseId)
+
+      // ── Pre-index transaction lines by family key ────────────────────────
+      // Without this, each of N family matrix builds scans ALL lines → O(N×lines).
+      // With the index, scanning is O(lines) once, then O(family_lines) per build.
+      const _itemIdToFamKey = new Map()
+      const _skuToFamKey    = new Map()
+      if (Array.isArray(raw)) {
+        for (const it of raw) {
+          if (!it) continue
+          const fk = familyRowKeyFromDisplay(parseFamilyFromZohoItem(it, familyFieldId))
+          if (fk && it.item_id) _itemIdToFamKey.set(String(it.item_id).trim(), fk)
+          if (fk && it.sku)     _skuToFamKey.set(String(it.sku).trim().toLowerCase(), fk)
+        }
+      }
+      function _famKeyForLine(line) {
+        if (!line) return null
+        const id = line.item_id != null ? String(line.item_id).trim() : ''
+        if (id && _itemIdToFamKey.has(id)) return _itemIdToFamKey.get(id)
+        const sk = line.sku != null ? String(line.sku).trim().toLowerCase() : ''
+        if (sk && _skuToFamKey.has(sk)) return _skuToFamKey.get(sk)
+        return null
+      }
+      const _salesByFam = new Map()
+      const _purchByFam = new Map()
+      const _vcByFam    = new Map()
+      for (const [map, lines] of [
+        [_salesByFam, (salesR && salesR.lines) || []],
+        [_purchByFam, (purchR && purchR.lines) || []],
+        [_vcByFam,    (vcR   && vcR.lines)    || []],
+      ]) {
+        for (const line of lines) {
+          const k = _famKeyForLine(line)
+          if (!k) continue
+          if (!map.has(k)) map.set(k, [])
+          map.get(k).push(line)
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
+      const prefetchedBundle = { raw, salesR, purchR, vcR }
+      const familyDisplays = collectUniqueFamilyDisplayKeysFromOut(out)
+      for (const famDisplay of familyDisplays) {
+        try {
+          const fKey = familyRowKeyFromDisplay(famDisplay)
+          // Pass only this family's lines so the matrix builder doesn't scan everything
+          const familyPrefetched = {
+            ...prefetchedBundle,
+            salesR: { ...salesR, lines: _salesByFam.get(fKey) || [] },
+            purchR: { ...purchR, lines: _purchByFam.get(fKey) || [] },
+            vcR:    { ...vcR,    lines: _vcByFam.get(fKey)    || [] },
+          }
+          const matrix = await buildFamilyWarehouseMatrixForGroupMembers(
+            members,
+            fromDate,
+            toDate,
+            _vendorConfig,
+            reportGroup,
+            famDisplay,
+            warehouseTargets,
+            warehouseId,
+            excludeWarehouseId,
+            { prefetched: familyPrefetched }
+          )
+          matrixByFamilyKey.set(familyRowKeyFromDisplay(famDisplay), matrix)
+          matrixFamilyBuildCount += 1
+        } catch (e) {
+          const msg = (e && e.message) || String(e)
+          console.warn(`[weekly-report] matrix family totals skipped for "${famDisplay}": ${msg}`)
+          warnings.push(`Matrix family totals unavailable for "${famDisplay}": ${msg}`)
+        }
+      }
+    } catch (e) {
+      const msg = (e && e.message) || String(e)
+      console.warn('[weekly-report] matrix warehouse targets failed:', msg)
+      warnings.push(`Matrix warehouse list failed: ${msg}`)
+    }
+  }
+
   // Collapse individual item rows into one summary row per family. Thumbnail rep id
   // also considers every Zoho item in the same Family (byFamily), not only group members.
-  const familyRows = aggregateByFamily(out, {
+  const familyRowsAgg = aggregateByFamily(out, {
     byFamily: maps.byFamily,
     bySku: maps.bySku,
     familyFieldId,
     fromDate,
     toDate,
   })
+  const familyRows = applyMatrixTotalsToFamilyRows(familyRowsAgg, matrixByFamilyKey, out, {
+    flagEnabled: flagMatrixTotals,
+    fromDate,
+    toDate,
+    reportGroup,
+  })
   console.log(
     `[weekly-report] group "${reportGroup}": aggregated ${out.length} item rows → ${familyRows.length} family rows`
   )
 
+  // Re-stash with familyRows AND per-SKU itemDetails so sidebar uses exact same
+  // SKU set, quantities, and valuations as the main report (single source of truth).
+  try {
+    stashWeeklyReportPrefetchBundle(reportGroup, fromDate, toDate, warehouseId, excludeWarehouseId, {
+      raw,
+      salesR,
+      purchR,
+      vcR,
+      familyRows,
+      itemRows: itemDetails,
+    })
+  } catch (stashErr) {
+    console.warn('[weekly-report] prefetch bundle re-stash (with familyRows+itemRows) failed:', (stashErr && stashErr.message) || stashErr)
+  }
+
   const isDevDebug = process.env.NODE_ENV !== 'production' || process.env.WEEKLY_REPORT_VENDOR_DEBUG === '1'
   const reportMeta = {
     warnings: [...new Set(warnings)].filter(Boolean),
+    calculation_version: STOCK_REPORT_CACHE_VERSION,
+    generated_at: new Date().toISOString(),
+    stock_totals_family_row_mode: flagMatrixTotals ? 'matrix_when_available' : 'legacy_only',
+    weekly_report_prefetch_bundle_stashed: prefetchBundleStashed,
+    family_matrix_family_builds_used_prefetch_source:
+      flagMatrixTotals && matrixFamilyBuildCount > 0 ? matrixFamilyBuildCount : 0,
   }
   if (isDevDebug) {
     const vfa = !!(rv.vendorId || rv.vendorName)
@@ -1446,12 +2213,24 @@ module.exports = {
   NOT_FOUND_IN_GROUPS_SUFFIX,
   fetchZohoItemRowsForGroupMembers,
   buildFamilyWarehouseMatrixForGroupMembers,
+  emptyMatrixTotals,
+  coldBlockedFamilyDetailsMatrixPayload,
   ZOHO_WEEKLY_REPORT_INTEGRATION,
   /**
    * @see parseFamilyFromZohoItem
    */
   pickFamilyValue: parseFamilyFromZohoItem,
   _internals: {
+    UNASSIGNED_WID,
+    UNASSIGNED_WAREHOUSE_NAME,
+    applyUnassignedWarehouseDistribution,
+    applyMatrixTotalsToFamilyRows,
+    extractMatrixTotalsFromSections,
+    emptyMatrixTotals,
+    coldBlockedFamilyDetailsMatrixPayload,
+    familyRowKeyFromDisplay,
+    getMatrixFallbackReason,
+    isValidMatrixTotals,
     zohoItemToPlaceholderReportRow,
     parseZohoStockOnHand,
     parseWarehouseScopedStockOnHand,
