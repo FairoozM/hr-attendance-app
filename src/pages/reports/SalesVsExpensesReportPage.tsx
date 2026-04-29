@@ -73,11 +73,12 @@ function weekdayLabelForDateValue(periodIso: string, value: string): string | nu
   return endDay ? `${startDay} - ${endDay}` : startDay;
 }
 
-function formatRowDateInput(value: string) {
-  const digits = value.replace(/\D/g, "").slice(0, 8);
-  const formatPart = (part: string) => (part.length > 2 ? `${part.slice(0, 2)}/${part.slice(2)}` : part);
-  const start = formatPart(digits.slice(0, 4));
-  const end = formatPart(digits.slice(4, 8));
+function formatDdMmInput(value: string) {
+  const digits = value.replace(/\D/g, "").slice(0, 4);
+  return digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits;
+}
+
+function composeRowDate(start: string, end: string) {
   return end ? `${start} - ${end}` : start;
 }
 
@@ -179,6 +180,7 @@ function TransactionTable({ rows, color, label, categoryLabel, periodIso, onUpda
         <tbody>
           {rows.map((row, i) => {
             const dateWd = weekdayLabelForDateValue(periodIso, row.date);
+            const [dateStart = "", dateEnd = ""] = datePartsFromRowDate(row.date);
             return (
             <tr key={row.id}>
               <td className="sve-td-center">{i + 1}</td>
@@ -186,13 +188,23 @@ function TransactionTable({ rows, color, label, categoryLabel, periodIso, onUpda
                 <div className="sve-date-box">
                   <div className="sve-date-input-wrap">
                     <input
-                      className="sve-input sve-input--date-inline"
-                      value={row.date}
+                      className="sve-input sve-input--date-part"
+                      value={dateStart}
                       onChange={(e) => {
-                        onUpdate(row.id, "date", formatRowDateInput(e.target.value));
+                        onUpdate(row.id, "date", composeRowDate(formatDdMmInput(e.target.value), dateEnd));
                       }}
-                      placeholder="DD/MM or DD/MM - DD/MM"
-                      maxLength={13}
+                      placeholder="DD/MM"
+                      maxLength={5}
+                    />
+                    <span className="sve-date-range-separator">-</span>
+                    <input
+                      className="sve-input sve-input--date-part"
+                      value={dateEnd}
+                      onChange={(e) => {
+                        onUpdate(row.id, "date", composeRowDate(dateStart, formatDdMmInput(e.target.value)));
+                      }}
+                      placeholder="To"
+                      maxLength={5}
                     />
                     <span className="sve-capture-text sve-capture-text--date">{row.date || "—"}</span>
                   </div>

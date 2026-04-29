@@ -353,9 +353,9 @@
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
 }
 
-.sve-input--date-inline {
-  flex: 1;
-  width: 100%;
+.sve-input--date-part {
+  flex: 1 1 0;
+  width: 0;
   min-width: 0;
   border: none !important;
   border-radius: 0 !important;
@@ -368,7 +368,16 @@
   padding: 0 6px;
   height: 36px;
   line-height: 36px;
-  font-size: 13.8px;
+  font-size: 12.6px;
+  text-align: center;
+}
+
+.sve-date-range-separator {
+  flex: 0 0 8px;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 36px;
   text-align: center;
 }
 
@@ -393,7 +402,7 @@
   box-shadow: inset 0 0 0 2px rgba(99, 102, 241, 0.35);
 }
 
-.sve-input--date-inline:focus {
+.sve-input--date-part:focus {
   outline: none !important;
   box-shadow: none !important;
 }
