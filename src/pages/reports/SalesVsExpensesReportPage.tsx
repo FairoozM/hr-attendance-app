@@ -61,12 +61,19 @@ function weekdayForDdMm(periodIso: string, ddmm: string): string | null {
   return d.toLocaleDateString("en-US", { weekday: "long" });
 }
 
-function datePartsFromRowDate(value: string) {
-  return value.match(/\d{1,2}\/\d{1,2}/g)?.slice(0, 2) ?? [];
+function datePartsFromRowDate(value: string): [string, string] {
+  const [rawStart = "", rawEnd = ""] = value.split(" - ");
+  return [rawStart.trim(), rawEnd.trim()];
+}
+
+function completeDdMm(value: string) {
+  return /^\d{1,2}\/\d{1,2}$/.test(value.trim()) ? value.trim() : "";
 }
 
 function weekdayLabelForDateValue(periodIso: string, value: string): string | null {
-  const [start, end] = datePartsFromRowDate(value);
+  const [rawStart, rawEnd] = datePartsFromRowDate(value);
+  const start = completeDdMm(rawStart);
+  const end = completeDdMm(rawEnd);
   const startDay = start ? weekdayForDdMm(periodIso, start) : null;
   if (!startDay) return null;
   const endDay = end ? weekdayForDdMm(periodIso, end) : null;
