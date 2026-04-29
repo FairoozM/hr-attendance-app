@@ -103,185 +103,6 @@ const DEMO_EXPENSES: Transaction[] = [
   { id: uid(), date: "28/05", description: "Miscellaneous", amount: "280" },
 ];
 
-/* ── Hidden export-only view (captured by html2canvas) ── */
-interface ExportViewProps {
-  innerRef: React.RefObject<HTMLDivElement>;
-  periodLabel: string;
-  periodIso: string;
-  sales: Transaction[];
-  costs: Transaction[];
-  expenses: Transaction[];
-  totals: ReportTotals;
-}
-
-interface StatementLine {
-  id: string;
-  sr: number;
-  date: string;
-  weekday: string | null;
-  description: string;
-  sales: number | null;
-  expense: number | null;
-}
-
-interface StatementGroup {
-  id: string;
-  label: string;
-  tone: "sales" | "cost" | "expense";
-  rows: StatementLine[];
-  total: number;
-  totalSide: "sales" | "expense";
-}
-
-function ExportStatement({
-  sales, costs, expenses, totals, periodIso,
-}: { sales: Transaction[]; costs: Transaction[]; expenses: Transaction[]; totals: ReportTotals; periodIso: string }) {
-  function buildLines(rows: Transaction[], side: "sales" | "expense"): StatementLine[] {
-    return rows
-      .filter((r) => r.description || toNum(r.amount))
-      .map((r, i) => ({
-        id: r.id,
-        sr: i + 1,
-        date: r.date || "—",
-        weekday: weekdayLabelForDdMm(periodIso, r.date),
-        description: r.description || "—",
-        sales: side === "sales" ? toNum(r.amount) : null,
-        expense: side === "expense" ? toNum(r.amount) : null,
-      }));
-  }
-
-  const groups: StatementGroup[] = [
-    { id: "sales",    label: "Sales",          tone: "sales",   rows: buildLines(sales, "sales"),    total: totals.sales,    totalSide: "sales"   },
-    { id: "cost",     label: "Item Cost (COGS)", tone: "cost",  rows: buildLines(costs, "expense"),  total: totals.costs,    totalSide: "expense" },
-    { id: "expense",  label: "Other Expenses",  tone: "expense", rows: buildLines(expenses, "expense"), total: totals.expenses, totalSide: "expense" },
-  ];
-
-  return (
-    <div className="sve-exp-statement" role="table" aria-label="Sales, Item Cost & Expenses">
-      <div className="sve-exp-statement-row sve-exp-statement-row--head" role="row">
-        <div className="sve-exp-statement-cell sve-exp-statement-cell--head sve-exp-statement-cell--center">SR.</div>
-        <div className="sve-exp-statement-cell sve-exp-statement-cell--head sve-exp-statement-cell--center">Date</div>
-        <div className="sve-exp-statement-cell sve-exp-statement-cell--head">Description</div>
-        <div className="sve-exp-statement-cell sve-exp-statement-cell--head sve-exp-statement-cell--right sve-exp-statement-cell--sales">Sales</div>
-        <div className="sve-exp-statement-cell sve-exp-statement-cell--head sve-exp-statement-cell--right sve-exp-statement-cell--expense">Expense</div>
-      </div>
-
-      {groups.map((group, gIndex) => (
-        <React.Fragment key={group.id}>
-          <div className={`sve-exp-statement-row sve-exp-statement-row--section sve-exp-statement-row--section-${group.tone}`} role="row">
-            <div className="sve-exp-statement-cell sve-exp-statement-cell--section">
-              {group.label.toUpperCase()}
-            </div>
-          </div>
-
-          {group.rows.map((row) => (
-            <div className="sve-exp-statement-row" role="row" key={row.id}>
-              <div className="sve-exp-statement-cell sve-exp-statement-cell--center">{row.sr}</div>
-              <div className="sve-exp-statement-cell sve-exp-statement-cell--center sve-exp-statement-cell--date">
-                <div className="sve-exp-date-box">
-                  <span className="sve-exp-date-main">{row.date}</span>
-                  {row.weekday ? <span className="sve-exp-weekday-pill">{row.weekday}</span> : null}
-                </div>
-              </div>
-              <div className="sve-exp-statement-cell">{row.description}</div>
-              <div className="sve-exp-statement-cell sve-exp-statement-cell--right sve-exp-statement-cell--sales">
-                {row.sales != null ? fmt(row.sales) : <span className="sve-exp-statement-dash">-</span>}
-              </div>
-              <div className="sve-exp-statement-cell sve-exp-statement-cell--right sve-exp-statement-cell--expense">
-                {row.expense != null ? fmt(row.expense) : <span className="sve-exp-statement-dash">-</span>}
-              </div>
-            </div>
-          ))}
-
-          {gIndex === 1 ? (
-            <div className="sve-exp-statement-row sve-exp-statement-row--profit sve-exp-statement-row--profit-blue" role="row">
-              <div className="sve-exp-statement-cell sve-exp-statement-cell--profit">
-                <span>Gross Profit:</span>
-                <strong>{fmt(totals.grossProfit)}</strong>
-              </div>
-            </div>
-          ) : null}
-        </React.Fragment>
-      ))}
-
-      <div className="sve-exp-statement-row sve-exp-statement-row--profit sve-exp-statement-row--profit-teal" role="row">
-        <div className="sve-exp-statement-cell sve-exp-statement-cell--profit">
-          <span>Net Profit:</span>
-          <strong>{fmt(totals.netProfit)}</strong>
-        </div>
-      </div>
-
-      <div className="sve-exp-statement-row sve-exp-statement-row--ratio" role="row">
-        <div className="sve-exp-statement-cell sve-exp-statement-cell--ratio">
-          Total cost ratio: {totals.sales > 0 ? ((totals.costs + totals.expenses) / totals.sales * 100).toFixed(1) : "0.0"}%
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ExportView({ innerRef, periodLabel, periodIso, sales, costs, expenses, totals }: ExportViewProps) {
-  const kpis = [
-    { color: "green",  icon: "↗",  label: "Total Sales",    value: fmt(totals.sales),     note: "Gross revenue" },
-    { color: "orange", icon: "🏷️", label: "Total Item Cost", value: fmt(totals.costs),     note: "COGS" },
-    { color: "red",    icon: "▤",  label: "Total Expense",  value: fmt(totals.expenses),  note: "Operating expenses" },
-    { color: "blue",   icon: "💰", label: "Net Profit",     value: fmt(totals.netProfit), note: `Margin: ${totals.margin.toFixed(1)}%` },
-  ];
-  return (
-    <div ref={innerRef} className="sve-export-wrap">
-      <div className="sve-exp-report">
-        {/* Header */}
-        <div className="sve-exp-header">
-          <div>
-            <div className="sve-exp-badge">Financial Overview</div>
-            <h1 className="sve-exp-title">Sales <span className="sve-exp-vs">vs</span> Expenses</h1>
-            <div className="sve-exp-subtitle">Track your financial performance and key metrics</div>
-          </div>
-          <div className="sve-exp-period-box">
-            <div className="sve-exp-period-icon">▣</div>
-            <div>
-              <div className="sve-exp-period-label">Reporting Period</div>
-              <div className="sve-exp-period-date">{periodLabel}</div>
-            </div>
-          </div>
-        </div>
-
-        {/* KPIs */}
-        <div className="sve-exp-kpi-grid">
-          {kpis.map((k) => (
-            <div key={k.label} className={`sve-exp-kpi sve-exp-kpi--${k.color}`}>
-              <div className="sve-exp-kpi-inner">
-                <div className={`sve-exp-kpi-icon sve-exp-kpi-icon--${k.color}`}>{k.icon}</div>
-                <div>
-                  <div className="sve-exp-kpi-label">{k.label}</div>
-                  <div className={`sve-exp-kpi-value sve-exp-kpi-value--${k.color}`}>{k.value}</div>
-                </div>
-              </div>
-              <div className="sve-exp-kpi-line" />
-              <div className="sve-exp-kpi-note">{k.note}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Statement */}
-        <div className="sve-exp-card">
-          <div className="sve-exp-card-title sve-exp-card-title--statement">
-            <span>Sales, Item Cost &amp; Expenses</span>
-            <span className="sve-exp-card-title-note">Amounts in AED</span>
-          </div>
-          <ExportStatement
-            sales={sales}
-            costs={costs}
-            expenses={expenses}
-            totals={totals}
-            periodIso={periodIso}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ── Transaction table sub-component ── */
 type Color = "green" | "orange" | "red";
 
@@ -422,7 +243,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
-  const exportRef = useRef<HTMLDivElement>(null);
+  const reportRef = useRef<HTMLDivElement>(null);
 
   /* Derived totals */
   const totals = useMemo<ReportTotals>(() => {
@@ -488,13 +309,21 @@ const SalesVsExpensesReportPage: React.FC = () => {
   }, []);
 
   const captureCanvas = useCallback(async () => {
-    if (!exportRef.current) throw new Error("Export ref not ready");
-    return html2canvas(exportRef.current, {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: "#f5f7fb",
-      logging: false,
-    });
+    if (!reportRef.current) throw new Error("Report ref not ready");
+    const target = reportRef.current;
+    target.classList.add("is-capturing");
+    // give the browser a frame to apply the class before html2canvas snapshots
+    await new Promise<void>((r) => requestAnimationFrame(() => r()));
+    try {
+      return await html2canvas(target, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+      });
+    } finally {
+      target.classList.remove("is-capturing");
+    }
   }, []);
 
   const exportAsImage = useCallback(async () => {
@@ -536,7 +365,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
 
   return (
     <div className="sve-page">
-      <div className="sve-report">
+      <div className="sve-report" ref={reportRef}>
 
         {/* ── Header ── */}
         <div className="sve-header">
@@ -756,17 +585,6 @@ const SalesVsExpensesReportPage: React.FC = () => {
           </div>
         )}
       </div>
-
-      {/* Hidden export-only render (off-screen, captured by html2canvas) */}
-      <ExportView
-        innerRef={exportRef}
-        periodLabel={periodLabel}
-        periodIso={period}
-        sales={sales}
-        costs={costs}
-        expenses={expenses}
-        totals={totals}
-      />
     </div>
   );
 };
