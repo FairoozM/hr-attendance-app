@@ -49,7 +49,7 @@ function fmt(n: number) {
 }
 
 /** periodIso = YYYY-MM; ddmm = DD/MM — uses the reporting-period year for calendar date */
-function weekdayLabelForDdMm(periodIso: string, ddmm: string): string | null {
+function weekdayForDdMm(periodIso: string, ddmm: string): string | null {
   const year = parseInt(periodIso.slice(0, 4), 10);
   const m = ddmm.trim().match(/^(\d{1,2})\/(\d{1,2})$/);
   if (!m || !Number.isFinite(year)) return null;
@@ -59,6 +59,26 @@ function weekdayLabelForDdMm(periodIso: string, ddmm: string): string | null {
   const d = new Date(year, month - 1, day);
   if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) return null;
   return d.toLocaleDateString("en-US", { weekday: "long" });
+}
+
+function datePartsFromRowDate(value: string) {
+  return value.match(/\d{1,2}\/\d{1,2}/g)?.slice(0, 2) ?? [];
+}
+
+function weekdayLabelForDateValue(periodIso: string, value: string): string | null {
+  const [start, end] = datePartsFromRowDate(value);
+  const startDay = start ? weekdayForDdMm(periodIso, start) : null;
+  if (!startDay) return null;
+  const endDay = end ? weekdayForDdMm(periodIso, end) : null;
+  return endDay ? `${startDay} - ${endDay}` : startDay;
+}
+
+function formatRowDateInput(value: string) {
+  const digits = value.replace(/\D/g, "").slice(0, 8);
+  const formatPart = (part: string) => (part.length > 2 ? `${part.slice(0, 2)}/${part.slice(2)}` : part);
+  const start = formatPart(digits.slice(0, 4));
+  const end = formatPart(digits.slice(4, 8));
+  return end ? `${start} - ${end}` : start;
 }
 
 const STORAGE_KEY = "sve_report_history_v1";
@@ -158,7 +178,7 @@ function TransactionTable({ rows, color, label, categoryLabel, periodIso, onUpda
         </thead>
         <tbody>
           {rows.map((row, i) => {
-            const dateWd = weekdayLabelForDdMm(periodIso, row.date);
+            const dateWd = weekdayLabelForDateValue(periodIso, row.date);
             return (
             <tr key={row.id}>
               <td className="sve-td-center">{i + 1}</td>
@@ -169,14 +189,10 @@ function TransactionTable({ rows, color, label, categoryLabel, periodIso, onUpda
                       className="sve-input sve-input--date-inline"
                       value={row.date}
                       onChange={(e) => {
-                        const digits = e.target.value.replace(/\D/g, "").slice(0, 4);
-                        const formatted = digits.length > 2
-                          ? `${digits.slice(0, 2)}/${digits.slice(2)}`
-                          : digits;
-                        onUpdate(row.id, "date", formatted);
+                        onUpdate(row.id, "date", formatRowDateInput(e.target.value));
                       }}
-                      placeholder="DD/MM"
-                      maxLength={5}
+                      placeholder="DD/MM or DD/MM - DD/MM"
+                      maxLength={13}
                     />
                     <span className="sve-capture-text sve-capture-text--date">{row.date || "—"}</span>
                   </div>
