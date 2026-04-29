@@ -276,6 +276,21 @@
 
 .sve-td-center { text-align: center; }
 
+.sve-date-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.sve-date-weekday {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #64748b;
+  line-height: 1.2;
+}
+
 .sve-input {
   width: 100%;
   border: 1px solid #e2e8f0;
@@ -780,6 +795,27 @@
 .sve-exp-table td { background: #fff; color: #334155; }
 
 .sve-exp-td-c { text-align: center; }
+
+.sve-exp-date-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.sve-exp-date-main {
+  font-weight: 600;
+  color: #334155;
+}
+
+.sve-exp-date-weekday {
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748b;
+  line-height: 1.2;
+}
 
 .sve-exp-cat {
   display: inline-block;

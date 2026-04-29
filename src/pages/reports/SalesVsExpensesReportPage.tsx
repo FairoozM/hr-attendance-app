@@ -47,6 +47,19 @@ function fmt(n: number) {
   return `${n < 0 ? "-" : ""}${formatted}`;
 }
 
+/** periodIso = YYYY-MM (month picker); ddmm = DD/MM — uses year from period for calendar date */
+function weekdayLabelForDdMm(periodIso: string, ddmm: string): string | null {
+  const year = parseInt(periodIso.slice(0, 4), 10);
+  const m = ddmm.trim().match(/^(\d{1,2})\/(\d{1,2})$/);
+  if (!m || !Number.isFinite(year)) return null;
+  const day = parseInt(m[1], 10);
+  const month = parseInt(m[2], 10);
+  if (day < 1 || day > 31 || month < 1 || month > 12) return null;
+  const d = new Date(year, month - 1, day);
+  if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) return null;
+  return d.toLocaleDateString("en-US", { weekday: "long" });
+}
+
 const STORAGE_KEY = "sve_report_history_v1";
 
 function loadHistory(): SavedReport[] {
@@ -92,7 +105,8 @@ const DEMO_EXPENSES: Transaction[] = [
 /* ── Hidden export-only view (captured by html2canvas) ── */
 interface ExportViewProps {
   innerRef: React.RefObject<HTMLDivElement>;
-  period: string;
+  periodLabel: string;
+  periodIso: string;
   sales: Transaction[];
   costs: Transaction[];
   expenses: Transaction[];
@@ -100,8 +114,8 @@ interface ExportViewProps {
 }
 
 function ExportSection({
-  rows, color, label, categoryLabel,
-}: { rows: Transaction[]; color: string; label: string; categoryLabel: string }) {
+  rows, color, label, categoryLabel, periodIso,
+}: { rows: Transaction[]; color: string; label: string; categoryLabel: string; periodIso: string }) {
   const total = rows.reduce((s, t) => s + toNum(t.amount), 0);
   return (
     <>
@@ -113,24 +127,30 @@ function ExportSection({
         <thead>
           <tr>
             <th style={{ width: "5%" }}>#</th>
-            <th style={{ width: "11%" }}>Date</th>
+            <th style={{ width: "13%" }}>Date</th>
             <th>Description</th>
             <th style={{ width: "20%" }}>Category</th>
             <th style={{ width: "20%" }}>Amount (AED)</th>
           </tr>
         </thead>
         <tbody>
-          {rows.filter(r => r.description || toNum(r.amount)).map((row, i) => (
+          {rows.filter(r => r.description || toNum(r.amount)).map((row, i) => {
+            const wd = weekdayLabelForDdMm(periodIso, row.date);
+            return (
             <tr key={row.id}>
               <td className="sve-exp-td-c">{i + 1}</td>
-              <td className="sve-exp-td-c">{row.date || "—"}</td>
+              <td className="sve-exp-td-c sve-exp-date-cell">
+                <span className="sve-exp-date-main">{row.date || "—"}</span>
+                {wd ? <span className="sve-exp-date-weekday">{wd}</span> : null}
+              </td>
               <td>{row.description || "—"}</td>
               <td className="sve-exp-td-c">
                 <span className={`sve-exp-cat sve-exp-cat--${color}`}>{categoryLabel}</span>
               </td>
               <td className={`sve-exp-amt sve-exp-amt--${color}`}>{fmt(toNum(row.amount))}</td>
             </tr>
-          ))}
+            );
+          })}
           <tr className={`sve-exp-total sve-exp-total--${color}`}>
             <td colSpan={3}>TOTAL {categoryLabel.toUpperCase()}</td>
             <td />
@@ -142,7 +162,7 @@ function ExportSection({
   );
 }
 
-function ExportView({ innerRef, period, sales, costs, expenses, totals }: ExportViewProps) {
+function ExportView({ innerRef, periodLabel, periodIso, sales, costs, expenses, totals }: ExportViewProps) {
   const kpis = [
     { color: "green",  icon: "↗",  label: "Total Sales",    value: fmt(totals.sales),     note: "Gross revenue" },
     { color: "orange", icon: "🏷️", label: "Total Item Cost", value: fmt(totals.costs),     note: "COGS" },
@@ -163,7 +183,7 @@ function ExportView({ innerRef, period, sales, costs, expenses, totals }: Export
             <div className="sve-exp-period-icon">▣</div>
             <div>
               <div className="sve-exp-period-label">Reporting Period</div>
-              <div className="sve-exp-period-date">{period}</div>
+              <div className="sve-exp-period-date">{periodLabel}</div>
             </div>
           </div>
         </div>
@@ -188,9 +208,9 @@ function ExportView({ innerRef, period, sales, costs, expenses, totals }: Export
         {/* Tables */}
         <div className="sve-exp-card">
           <div className="sve-exp-card-title">Transaction Details</div>
-          <ExportSection rows={sales}    color="green"  label="Sales Transactions"   categoryLabel="Sales"   />
-          <ExportSection rows={costs}    color="orange" label="Item Cost Transactions" categoryLabel="Item Cost" />
-          <ExportSection rows={expenses} color="red"    label="Expense Transactions" categoryLabel="Expense" />
+          <ExportSection rows={sales}    color="green"  label="Sales Transactions"   categoryLabel="Sales"    periodIso={periodIso} />
+          <ExportSection rows={costs}    color="orange" label="Item Cost Transactions" categoryLabel="Item Cost" periodIso={periodIso} />
+          <ExportSection rows={expenses} color="red"    label="Expense Transactions" categoryLabel="Expense" periodIso={periodIso} />
         </div>
       </div>
     </div>
@@ -205,12 +225,13 @@ interface TransactionTableProps {
   color: Color;
   label: string;
   categoryLabel: string;
+  periodIso: string;
   onUpdate: (id: string, field: keyof Transaction, value: string) => void;
   onAdd: () => void;
   onRemove: (id: string) => void;
 }
 
-function TransactionTable({ rows, color, label, categoryLabel, onUpdate, onAdd, onRemove }: TransactionTableProps) {
+function TransactionTable({ rows, color, label, categoryLabel, periodIso, onUpdate, onAdd, onRemove }: TransactionTableProps) {
   const total = rows.reduce((sum, t) => sum + toNum(t.amount), 0);
   return (
     <>
@@ -222,7 +243,7 @@ function TransactionTable({ rows, color, label, categoryLabel, onUpdate, onAdd, 
         <thead>
           <tr>
             <th style={{ width: "5%" }}>#</th>
-            <th style={{ width: "11%" }}>Date</th>
+            <th style={{ width: "14%" }}>Date</th>
             <th>Description</th>
             <th style={{ width: "20%" }}>Category</th>
             <th style={{ width: "20%" }}>Amount (AED)</th>
@@ -230,23 +251,28 @@ function TransactionTable({ rows, color, label, categoryLabel, onUpdate, onAdd, 
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, i) => (
+          {rows.map((row, i) => {
+            const dateWd = weekdayLabelForDdMm(periodIso, row.date);
+            return (
             <tr key={row.id}>
               <td className="sve-td-center">{i + 1}</td>
               <td>
-                <input
-                  className="sve-input"
-                  value={row.date}
-                  onChange={(e) => {
-                    const digits = e.target.value.replace(/\D/g, "").slice(0, 4);
-                    const formatted = digits.length > 2
-                      ? `${digits.slice(0, 2)}/${digits.slice(2)}`
-                      : digits;
-                    onUpdate(row.id, "date", formatted);
-                  }}
-                  placeholder="DD/MM"
-                  maxLength={5}
-                />
+                <div className="sve-date-cell">
+                  <input
+                    className="sve-input"
+                    value={row.date}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, "").slice(0, 4);
+                      const formatted = digits.length > 2
+                        ? `${digits.slice(0, 2)}/${digits.slice(2)}`
+                        : digits;
+                      onUpdate(row.id, "date", formatted);
+                    }}
+                    placeholder="DD/MM"
+                    maxLength={5}
+                  />
+                  {dateWd ? <span className="sve-date-weekday">{dateWd}</span> : null}
+                </div>
               </td>
               <td>
                 <input
@@ -281,7 +307,8 @@ function TransactionTable({ rows, color, label, categoryLabel, onUpdate, onAdd, 
                 </button>
               </td>
             </tr>
-          ))}
+            );
+          })}
           <tr className={`sve-total-row sve-total-row--${color}`}>
             <td colSpan={3} style={{ fontWeight: 800, fontSize: "0.95rem" }}>
               TOTAL {categoryLabel.toUpperCase()}
@@ -516,6 +543,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
             color="green"
             label="Sales Transactions"
             categoryLabel="Sales"
+            periodIso={period}
             onUpdate={makeUpdater(setSales)}
             onAdd={makeAdder(setSales)}
             onRemove={makeRemover(setSales)}
@@ -525,6 +553,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
             color="orange"
             label="Item Cost Transactions"
             categoryLabel="Item Cost"
+            periodIso={period}
             onUpdate={makeUpdater(setCosts)}
             onAdd={makeAdder(setCosts)}
             onRemove={makeRemover(setCosts)}
@@ -534,6 +563,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
             color="red"
             label="Expense Transactions"
             categoryLabel="Expense"
+            periodIso={period}
             onUpdate={makeUpdater(setExpenses)}
             onAdd={makeAdder(setExpenses)}
             onRemove={makeRemover(setExpenses)}
@@ -647,7 +677,8 @@ const SalesVsExpensesReportPage: React.FC = () => {
       {/* Hidden export-only render (off-screen, captured by html2canvas) */}
       <ExportView
         innerRef={exportRef}
-        period={periodLabel}
+        periodLabel={periodLabel}
+        periodIso={period}
         sales={sales}
         costs={costs}
         expenses={expenses}
