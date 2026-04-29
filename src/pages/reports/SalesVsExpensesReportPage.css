@@ -853,34 +853,37 @@
   color: #334155;
 }
 
-/* ── Export table row fixed height — every row is exactly 52 px tall ── */
-.sve-exp-table tbody tr { height: 52px; }
-.sve-exp-table thead tr { height: 36px; }
+/* ── Export table: hard pixel heights everywhere — html2canvas cannot resolve height:100% ── */
+.sve-exp-table tbody tr,
+.sve-exp-table tbody td { height: 52px; }
+.sve-exp-table thead tr,
+.sve-exp-table thead th { height: 36px; }
 
-/* flex cell wrapper — full-height flex column so html2canvas centres correctly */
+/* Cell wrapper — explicit px height, NOT height:100% */
 .sve-exp-cell {
   display: flex;
   align-items: center;
-  height: 100%;
-  min-height: 52px;   /* matches tbody tr height */
+  height: 52px;
   padding: 0 12px;
   font-size: 13px;
   line-height: 1;
   box-sizing: border-box;
 }
-.sve-exp-table thead .sve-exp-cell { min-height: 36px; }
+.sve-exp-table thead .sve-exp-cell {
+  height: 36px;
+}
 .sve-exp-cell--center { justify-content: center; }
 .sve-exp-cell--right  { justify-content: flex-end; }
 
 .sve-exp-td-c { text-align: center; }
 
-/* Date pill — fixed size so every row looks identical */
+/* Date pill — fixed px dimensions, no height:100% */
 .sve-exp-date-box {
   display: inline-flex;
   flex-direction: row;
-  align-items: center;          /* centre children, not stretch */
-  height: 36px;                 /* fixed — same for every row */
-  width: 130px;                 /* fixed width — no per-row variance */
+  align-items: center;
+  height: 36px;
+  width: 130px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   overflow: hidden;
@@ -900,7 +903,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100%;
+  height: 36px;
   line-height: 1;
 }
 
@@ -909,7 +912,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100%;
+  height: 36px;
   padding: 0 8px;
   font-weight: 600;
   font-size: 12px;
@@ -943,9 +946,9 @@
 .sve-exp-amt--orange { color: #f97316; }
 .sve-exp-amt--red    { color: #ef4444; }
 
-.sve-exp-total td { font-weight: 800; font-size: 14px; }
-.sve-exp-total { height: 44px; }
-.sve-exp-total td .sve-exp-cell { font-weight: 800; font-size: 14px; min-height: 44px; }
+.sve-exp-total td,
+.sve-exp-total tr { height: 44px; font-weight: 800; font-size: 14px; }
+.sve-exp-total td .sve-exp-cell { height: 44px; font-weight: 800; font-size: 14px; }
 .sve-exp-total--green  td { background: #f0fdf4; }
 .sve-exp-total--orange td { background: #fff7ed; }
 .sve-exp-total--red    td { background: #fff1f2; }
