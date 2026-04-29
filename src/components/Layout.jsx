@@ -445,6 +445,7 @@ export function Layout() {
     if (location.pathname.startsWith('/reports/weekly-report/sales'))        return 'Weekly Sales Reports'
     if (location.pathname.startsWith('/reports/weekly-report/slow-moving'))  return 'Weekly Slow Moving Sales Report'
     if (location.pathname.startsWith('/reports/weekly-report/other-family')) return 'Weekly Other Family Sales Report'
+    if (location.pathname.startsWith('/reports/sales-vs-expenses')) return 'Sales vs Expenses'
     if (location.pathname.startsWith('/reports')) return 'Reports'
     if (location.pathname.startsWith('/taxation/ksa-vat')) return 'KSA VAT Tax'
     if (location.pathname.startsWith('/admin/item-report-groups')) return 'Item Report Groups'
@@ -492,6 +493,7 @@ export function Layout() {
   const REPORTS_ITEMS = [
     hasWeeklyReportsAccess && { label: 'Weekly Ads Report',    to: '/reports/weekly-report/weekly-ads' },
     hasWeeklyReportsAccess && { label: 'Weekly Sales Reports', to: '/reports/weekly-report/sales'      },
+    hasWeeklyReportsAccess && { label: 'Sales vs Expenses',    to: '/reports/sales-vs-expenses'        },
   ].filter(Boolean)
 
   const focusedSectionConfig = useMemo(() => {

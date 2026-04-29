@@ -36,6 +36,7 @@ import { WeeklyAdsReportPage } from './pages/reports/WeeklyAdsReportPage'
 import { WeeklySalesReportPage } from './pages/reports/WeeklySalesReportPage'
 import { WeeklyCombinedSalesReportPage } from './pages/reports/WeeklyCombinedSalesReportPage'
 import { KsaVatReportPage } from './pages/reports/KsaVatReportPage'
+import SalesVsExpensesReportPage from './pages/reports/SalesVsExpensesReportPage'
 import ProjectsIndexPage from './pages/projects/ProjectsIndexPage'
 import ProjectDetailPage from './pages/projects/ProjectDetailPage'
 import ProjectDashboardPage from './pages/projects/ProjectDashboardPage'
@@ -203,6 +204,14 @@ function AppContent() {
 
         {/* Reports Module */}
         <Route path="reports">
+          <Route
+            path="sales-vs-expenses"
+            element={
+              <PermissionGuard module="weekly_reports" action="view">
+                <SalesVsExpensesReportPage />
+              </PermissionGuard>
+            }
+          />
           <Route path="weekly-report">
             <Route
               path="weekly-ads"
