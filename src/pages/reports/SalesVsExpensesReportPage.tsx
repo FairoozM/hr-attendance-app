@@ -177,10 +177,10 @@ function TransactionTable({ rows, color, label, categoryLabel, periodIso, onUpda
         <thead>
           <tr>
             <th style={{ width: "5%" }}>#</th>
-            <th style={{ width: "22%" }}>Date</th>
+            <th style={{ width: "30%" }}>Date</th>
             <th>Description</th>
-            <th style={{ width: "20%" }}>Category</th>
-            <th style={{ width: "20%" }}>Amount (AED)</th>
+            <th style={{ width: "13%" }}>Category</th>
+            <th style={{ width: "19%" }}>Amount (AED)</th>
             <th style={{ width: "5%" }} />
           </tr>
         </thead>
@@ -205,7 +205,7 @@ function TransactionTable({ rows, color, label, categoryLabel, periodIso, onUpda
                     />
                     <span className="sve-date-range-separator">-</span>
                     <input
-                      className="sve-input sve-input--date-part"
+                      className={`sve-input sve-input--date-part ${dateEnd ? "" : "sve-input--date-end-empty"}`}
                       value={dateEnd}
                       onChange={(e) => {
                         onUpdate(row.id, "date", composeRowDate(dateStart, formatDdMmInput(e.target.value)));

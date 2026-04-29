@@ -318,8 +318,8 @@
 }
 
 .sve-date-weekday-pill {
-  flex: 0 0 44%;
-  width: 44%;
+  flex: 0 0 40%;
+  width: 40%;
   height: 36px;
   white-space: nowrap;
   padding: 0 4px;
@@ -368,12 +368,12 @@
   padding: 0 6px;
   height: 36px;
   line-height: 36px;
-  font-size: 12.6px;
+  font-size: 13.4px;
   text-align: center;
 }
 
 .sve-date-range-separator {
-  flex: 0 0 8px;
+  flex: 0 0 10px;
   color: #94a3b8;
   font-size: 12px;
   font-weight: 800;
@@ -382,8 +382,8 @@
 }
 
 .sve-date-input-wrap {
-  flex: 0 0 56%;
-  width: 56%;
+  flex: 0 0 60%;
+  width: 60%;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -428,7 +428,7 @@
 .sve-capture-text--date {
   justify-content: center;
   min-height: 36px;
-  font-size: 13.8px;
+  font-size: 14.2px;
   text-align: center;
 }
 
@@ -733,6 +733,11 @@
 
 .sve-report.is-capturing .sve-date-input-wrap {
   background: #f8fafc;
+}
+
+.sve-report.is-capturing .sve-date-input-wrap:has(.sve-input--date-end-empty) .sve-date-range-separator,
+.sve-report.is-capturing .sve-date-input-wrap:has(.sve-input--date-end-empty) .sve-input--date-end-empty {
+  display: none !important;
 }
 
 /* Collapse the trailing action column so the captured tables don't have an
