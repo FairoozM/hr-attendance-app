@@ -114,63 +114,108 @@ interface ExportViewProps {
   totals: ReportTotals;
 }
 
-function ExportSection({
-  rows, color, label, categoryLabel, periodIso,
-}: { rows: Transaction[]; color: string; label: string; categoryLabel: string; periodIso: string }) {
-  const total = rows.reduce((s, t) => s + toNum(t.amount), 0);
-  return (
-    <>
-      <div className={`sve-exp-section sve-exp-section--${color}`}>
-        <span className={`sve-exp-dot sve-exp-dot--${color}`} />
-        {label}
-      </div>
-      <div className="sve-exp-grid" role="table" aria-label={label}>
-        <div className="sve-exp-grid-row sve-exp-grid-row--head" role="row">
-          <div className="sve-exp-grid-cell sve-exp-grid-cell--center" role="columnheader">#</div>
-          <div className="sve-exp-grid-cell sve-exp-grid-cell--center" role="columnheader">Date</div>
-          <div className="sve-exp-grid-cell" role="columnheader">Description</div>
-          <div className="sve-exp-grid-cell sve-exp-grid-cell--center" role="columnheader">Category</div>
-          <div className="sve-exp-grid-cell sve-exp-grid-cell--right" role="columnheader">Amount (AED)</div>
-        </div>
-        {rows.filter(r => r.description || toNum(r.amount)).map((row, i) => {
-          const wd = weekdayLabelForDdMm(periodIso, row.date);
-          return (
-            <div className="sve-exp-grid-row" role="row" key={row.id}>
-              <div className="sve-exp-grid-cell sve-exp-grid-cell--center" role="cell">{i + 1}</div>
-              <div className="sve-exp-grid-cell sve-exp-grid-cell--center" role="cell">
-                <div className="sve-exp-date-box">
-                  <span className="sve-exp-date-main">{row.date || "—"}</span>
-                  {wd ? <span className="sve-exp-weekday-pill">{wd}</span> : null}
-                </div>
-              </div>
-              <div className="sve-exp-grid-cell" role="cell">{row.description || "—"}</div>
-              <div className="sve-exp-grid-cell sve-exp-grid-cell--center" role="cell">
-                <span className={`sve-exp-cat sve-exp-cat--${color}`}>{categoryLabel}</span>
-              </div>
-              <div className={`sve-exp-grid-cell sve-exp-grid-cell--right sve-exp-amt sve-exp-amt--${color}`} role="cell">
-                {fmt(toNum(row.amount))}
-              </div>
-            </div>
-          );
-        })}
-        <div className={`sve-exp-grid-row sve-exp-grid-row--total sve-exp-grid-row--${color}`} role="row">
-          <div className="sve-exp-grid-cell sve-exp-grid-cell--total-label" role="cell">
-            TOTAL {categoryLabel.toUpperCase()}
-          </div>
-          <div className={`sve-exp-grid-cell sve-exp-grid-cell--right sve-exp-amt sve-exp-amt--${color}`} role="cell">
-            {fmt(total)}
-          </div>
-        </div>
-      </div>
-    </>
-  );
+interface StatementLine {
+  id: string;
+  sr: number;
+  date: string;
+  weekday: string | null;
+  description: string;
+  sales: number | null;
+  expense: number | null;
 }
 
-function ExportProfitStrip({ label, value, tone }: { label: string; value: number; tone: "blue" | "teal" }) {
+interface StatementGroup {
+  id: string;
+  label: string;
+  tone: "sales" | "cost" | "expense";
+  rows: StatementLine[];
+  total: number;
+  totalSide: "sales" | "expense";
+}
+
+function ExportStatement({
+  sales, costs, expenses, totals, periodIso,
+}: { sales: Transaction[]; costs: Transaction[]; expenses: Transaction[]; totals: ReportTotals; periodIso: string }) {
+  function buildLines(rows: Transaction[], side: "sales" | "expense"): StatementLine[] {
+    return rows
+      .filter((r) => r.description || toNum(r.amount))
+      .map((r, i) => ({
+        id: r.id,
+        sr: i + 1,
+        date: r.date || "—",
+        weekday: weekdayLabelForDdMm(periodIso, r.date),
+        description: r.description || "—",
+        sales: side === "sales" ? toNum(r.amount) : null,
+        expense: side === "expense" ? toNum(r.amount) : null,
+      }));
+  }
+
+  const groups: StatementGroup[] = [
+    { id: "sales",    label: "Sales",          tone: "sales",   rows: buildLines(sales, "sales"),    total: totals.sales,    totalSide: "sales"   },
+    { id: "cost",     label: "Item Cost (COGS)", tone: "cost",  rows: buildLines(costs, "expense"),  total: totals.costs,    totalSide: "expense" },
+    { id: "expense",  label: "Other Expenses",  tone: "expense", rows: buildLines(expenses, "expense"), total: totals.expenses, totalSide: "expense" },
+  ];
+
   return (
-    <div className={`sve-exp-profit-strip sve-exp-profit-strip--${tone}`}>
-      <span>{label}:</span>
-      <strong>{fmt(value)}</strong>
+    <div className="sve-exp-statement" role="table" aria-label="Sales, Item Cost & Expenses">
+      <div className="sve-exp-statement-row sve-exp-statement-row--head" role="row">
+        <div className="sve-exp-statement-cell sve-exp-statement-cell--head sve-exp-statement-cell--center">SR.</div>
+        <div className="sve-exp-statement-cell sve-exp-statement-cell--head sve-exp-statement-cell--center">Date</div>
+        <div className="sve-exp-statement-cell sve-exp-statement-cell--head">Description</div>
+        <div className="sve-exp-statement-cell sve-exp-statement-cell--head sve-exp-statement-cell--right sve-exp-statement-cell--sales">Sales</div>
+        <div className="sve-exp-statement-cell sve-exp-statement-cell--head sve-exp-statement-cell--right sve-exp-statement-cell--expense">Expense</div>
+      </div>
+
+      {groups.map((group, gIndex) => (
+        <React.Fragment key={group.id}>
+          <div className={`sve-exp-statement-row sve-exp-statement-row--section sve-exp-statement-row--section-${group.tone}`} role="row">
+            <div className="sve-exp-statement-cell sve-exp-statement-cell--section">
+              {group.label.toUpperCase()}
+            </div>
+          </div>
+
+          {group.rows.map((row) => (
+            <div className="sve-exp-statement-row" role="row" key={row.id}>
+              <div className="sve-exp-statement-cell sve-exp-statement-cell--center">{row.sr}</div>
+              <div className="sve-exp-statement-cell sve-exp-statement-cell--center sve-exp-statement-cell--date">
+                <div className="sve-exp-date-box">
+                  <span className="sve-exp-date-main">{row.date}</span>
+                  {row.weekday ? <span className="sve-exp-weekday-pill">{row.weekday}</span> : null}
+                </div>
+              </div>
+              <div className="sve-exp-statement-cell">{row.description}</div>
+              <div className="sve-exp-statement-cell sve-exp-statement-cell--right sve-exp-statement-cell--sales">
+                {row.sales != null ? fmt(row.sales) : <span className="sve-exp-statement-dash">-</span>}
+              </div>
+              <div className="sve-exp-statement-cell sve-exp-statement-cell--right sve-exp-statement-cell--expense">
+                {row.expense != null ? fmt(row.expense) : <span className="sve-exp-statement-dash">-</span>}
+              </div>
+            </div>
+          ))}
+
+          {gIndex === 1 ? (
+            <div className="sve-exp-statement-row sve-exp-statement-row--profit sve-exp-statement-row--profit-blue" role="row">
+              <div className="sve-exp-statement-cell sve-exp-statement-cell--profit">
+                <span>Gross Profit:</span>
+                <strong>{fmt(totals.grossProfit)}</strong>
+              </div>
+            </div>
+          ) : null}
+        </React.Fragment>
+      ))}
+
+      <div className="sve-exp-statement-row sve-exp-statement-row--profit sve-exp-statement-row--profit-teal" role="row">
+        <div className="sve-exp-statement-cell sve-exp-statement-cell--profit">
+          <span>Net Profit:</span>
+          <strong>{fmt(totals.netProfit)}</strong>
+        </div>
+      </div>
+
+      <div className="sve-exp-statement-row sve-exp-statement-row--ratio" role="row">
+        <div className="sve-exp-statement-cell sve-exp-statement-cell--ratio">
+          Total cost ratio: {totals.sales > 0 ? ((totals.costs + totals.expenses) / totals.sales * 100).toFixed(1) : "0.0"}%
+        </div>
+      </div>
     </div>
   );
 }
@@ -218,14 +263,19 @@ function ExportView({ innerRef, periodLabel, periodIso, sales, costs, expenses, 
           ))}
         </div>
 
-        {/* Tables */}
+        {/* Statement */}
         <div className="sve-exp-card">
-          <div className="sve-exp-card-title">Transaction Details</div>
-          <ExportSection rows={sales}    color="green"  label="Sales Transactions"   categoryLabel="Sales"    periodIso={periodIso} />
-          <ExportSection rows={costs}    color="orange" label="Item Cost Transactions" categoryLabel="Item Cost" periodIso={periodIso} />
-          <ExportProfitStrip label="Gross Profit" value={totals.grossProfit} tone="blue" />
-          <ExportSection rows={expenses} color="red"    label="Expense Transactions" categoryLabel="Expense" periodIso={periodIso} />
-          <ExportProfitStrip label="Net Profit" value={totals.netProfit} tone="teal" />
+          <div className="sve-exp-card-title sve-exp-card-title--statement">
+            <span>Sales, Item Cost &amp; Expenses</span>
+            <span className="sve-exp-card-title-note">Amounts in AED</span>
+          </div>
+          <ExportStatement
+            sales={sales}
+            costs={costs}
+            expenses={expenses}
+            totals={totals}
+            periodIso={periodIso}
+          />
         </div>
       </div>
     </div>
