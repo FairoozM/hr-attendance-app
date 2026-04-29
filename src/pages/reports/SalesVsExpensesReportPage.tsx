@@ -260,19 +260,21 @@ function TransactionTable({ rows, color, label, categoryLabel, periodIso, onUpda
               <td className="sve-td-center">{i + 1}</td>
               <td>
                 <div className="sve-date-box">
-                  <input
-                    className="sve-input sve-input--date-inline"
-                    value={row.date}
-                    onChange={(e) => {
-                      const digits = e.target.value.replace(/\D/g, "").slice(0, 4);
-                      const formatted = digits.length > 2
-                        ? `${digits.slice(0, 2)}/${digits.slice(2)}`
-                        : digits;
-                      onUpdate(row.id, "date", formatted);
-                    }}
-                    placeholder="DD/MM"
-                    maxLength={5}
-                  />
+                  <div className="sve-date-input-wrap">
+                    <input
+                      className="sve-input sve-input--date-inline"
+                      value={row.date}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/g, "").slice(0, 4);
+                        const formatted = digits.length > 2
+                          ? `${digits.slice(0, 2)}/${digits.slice(2)}`
+                          : digits;
+                        onUpdate(row.id, "date", formatted);
+                      }}
+                      placeholder="DD/MM"
+                      maxLength={5}
+                    />
+                  </div>
                   {dateWd ? (
                     <span className="sve-date-weekday-pill" title={dateWd}>
                       {dateWd}
