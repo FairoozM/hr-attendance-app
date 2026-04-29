@@ -25,8 +25,12 @@ const EMPTY_CALC = {
 
 function fmt(n) {
   const num = parseFloat(n)
-  if (!Number.isFinite(num)) return '0.00'
-  return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  if (!Number.isFinite(num)) return '0'
+  const cents = Math.round((num % 1) * 100)
+  return num.toLocaleString('en-US', {
+    minimumFractionDigits: cents === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  })
 }
 
 function toNum(v) {
