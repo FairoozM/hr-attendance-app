@@ -69,7 +69,7 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  min-width: 300px;
+  min-width: 430px;
   background: #fff;
   border: 1px solid #dfe5ee;
   border-radius: 10px;
@@ -110,6 +110,31 @@
   margin-bottom: 4px;
   width: 100%;
 }
+
+.sve-period-range {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.sve-period-range__field {
+  display: grid;
+  gap: 4px;
+}
+
+.sve-period-range__field span {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.sve-period-range .sve-period-input {
+  margin-bottom: 0;
+}
+
 .sve-period-input:focus {
   outline: none;
   border-color: #2563eb;
@@ -683,6 +708,7 @@
 .sve-report.is-capturing .sve-add-row-wrap,
 .sve-report.is-capturing .sve-actions,
 .sve-report.is-capturing .sve-history,
+.sve-report.is-capturing .sve-period-range,
 .sve-report.is-capturing .sve-period-input,
 .sve-report.is-capturing .sve-save-msg {
   display: none !important;

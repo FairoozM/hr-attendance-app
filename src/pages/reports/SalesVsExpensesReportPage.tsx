@@ -48,7 +48,7 @@ function fmt(n: number) {
   return `${n < 0 ? "-" : ""}${formatted}`;
 }
 
-/** periodIso = YYYY-MM (month picker); ddmm = DD/MM — uses year from period for calendar date */
+/** periodIso = YYYY-MM; ddmm = DD/MM — uses the reporting-period year for calendar date */
 function weekdayLabelForDdMm(periodIso: string, ddmm: string): string | null {
   const year = parseInt(periodIso.slice(0, 4), 10);
   const m = ddmm.trim().match(/^(\d{1,2})\/(\d{1,2})$/);
@@ -79,6 +79,26 @@ function persistHistory(rows: SavedReport[]) {
 
 function emptyRow(): Transaction {
   return { id: uid(), date: "", description: "", amount: "" };
+}
+
+function isoDate(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function formatDateRangeLabel(start: string, end: string) {
+  const fmtDate = (iso: string) => {
+    if (!iso) return "—";
+    try {
+      return new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      });
+    } catch {
+      return iso;
+    }
+  };
+  return `${fmtDate(start)} - ${fmtDate(end)}`;
 }
 
 const DEMO_SALES: Transaction[] = [
@@ -236,9 +256,13 @@ function ProfitStrip({ label, value, tone }: { label: string; value: number; ton
 
 /* ── Main page ── */
 const SalesVsExpensesReportPage: React.FC = () => {
-  const [period, setPeriod] = useState(() => {
+  const [periodStart, setPeriodStart] = useState(() => {
     const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    return isoDate(new Date(d.getFullYear(), d.getMonth(), 1));
+  });
+  const [periodEnd, setPeriodEnd] = useState(() => {
+    const d = new Date();
+    return isoDate(new Date(d.getFullYear(), d.getMonth() + 1, 0));
   });
   const [sales, setSales] = useState<Transaction[]>(DEMO_SALES);
   const [costs, setCosts] = useState<Transaction[]>(DEMO_COSTS);
@@ -262,11 +286,10 @@ const SalesVsExpensesReportPage: React.FC = () => {
   }, [sales, costs, expenses]);
 
   const periodLabel = useMemo(() => {
-    if (!period) return "—";
-    try {
-      return new Date(`${period}-01T12:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" });
-    } catch { return period; }
-  }, [period]);
+    return formatDateRangeLabel(periodStart, periodEnd);
+  }, [periodStart, periodEnd]);
+
+  const periodIso = useMemo(() => (periodStart ? periodStart.slice(0, 7) : ""), [periodStart]);
 
   /* Row handlers */
   const makeUpdater = useCallback(
@@ -386,12 +409,26 @@ const SalesVsExpensesReportPage: React.FC = () => {
             <div className="sve-period-icon">▣</div>
             <div>
               <div className="sve-period-label">Reporting Period</div>
-              <input
-                type="month"
-                className="sve-period-input"
-                value={period}
-                onChange={(e) => setPeriod(e.target.value)}
-              />
+              <div className="sve-period-range">
+                <label className="sve-period-range__field">
+                  <span>From</span>
+                  <input
+                    type="date"
+                    className="sve-period-input"
+                    value={periodStart}
+                    onChange={(e) => setPeriodStart(e.target.value)}
+                  />
+                </label>
+                <label className="sve-period-range__field">
+                  <span>To</span>
+                  <input
+                    type="date"
+                    className="sve-period-input"
+                    value={periodEnd}
+                    onChange={(e) => setPeriodEnd(e.target.value)}
+                  />
+                </label>
+              </div>
               <div className="sve-period-date">{periodLabel}</div>
             </div>
           </div>
@@ -458,7 +495,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
             color="green"
             label="Sales Transactions"
             categoryLabel="Sales"
-            periodIso={period}
+            periodIso={periodIso}
             onUpdate={makeUpdater(setSales)}
             onAdd={makeAdder(setSales)}
             onRemove={makeRemover(setSales)}
@@ -468,7 +505,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
             color="orange"
             label="Item Cost Transactions"
             categoryLabel="Item Cost"
-            periodIso={period}
+            periodIso={periodIso}
             onUpdate={makeUpdater(setCosts)}
             onAdd={makeAdder(setCosts)}
             onRemove={makeRemover(setCosts)}
@@ -479,7 +516,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
             color="red"
             label="Expense Transactions"
             categoryLabel="Expense"
-            periodIso={period}
+            periodIso={periodIso}
             onUpdate={makeUpdater(setExpenses)}
             onAdd={makeAdder(setExpenses)}
             onRemove={makeRemover(setExpenses)}
