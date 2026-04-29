@@ -776,7 +776,8 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
               <div className="als-summary-card">
                 <div className="als-summary-top">
                   <div className="als-summary-card__head">
-                    <span>Calculation Summary</span>
+                    <span className="als-summary-card__head-sub">Calculation</span>
+                    <span className="als-summary-card__head-main">Summary</span>
                   </div>
                   <div className="als-summary-date-pill">{dateLabel(calc.calculationDate)}</div>
                 </div>
@@ -790,11 +791,11 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
                 </div>
 
                 <div className="als-summary-kpis">
-                  <div className="als-summary-kpi">
+                  <div className="als-summary-kpi als-summary-kpi--green">
                     <span>Monthly Salary</span>
                     <strong>AED {fmt(calc.monthlySalary)}</strong>
                   </div>
-                  <div className="als-summary-kpi">
+                  <div className="als-summary-kpi als-summary-kpi--blue">
                     <span>Per Day (÷{derived.divisor})</span>
                     <strong>AED {fmt(derived.perDay)}</strong>
                   </div>
@@ -803,14 +804,14 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
                 <div className="als-summary-breakdown">
                   <div className="als-summary-breakdown__row">
                     <div>
-                      <span className="als-summary-breakdown__label">Running month</span>
+                      <span className="als-summary-breakdown__label">Running Month</span>
                       <span className="als-summary-breakdown__meta">{toNum(calc.runningMonthDays)} days worked</span>
                     </div>
                     <strong>AED {fmt(derived.rmAmt)}</strong>
                   </div>
                   <div className="als-summary-breakdown__row">
                     <div>
-                      <span className="als-summary-breakdown__label">Leave salary</span>
+                      <span className="als-summary-breakdown__label">Leave Salary</span>
                       <span className="als-summary-breakdown__meta">{toNum(calc.leaveDaysToPay)} days</span>
                     </div>
                     <strong>AED {fmt(derived.lAmt)}</strong>
@@ -818,7 +819,7 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
                   {toNum(calc.otherAdditions) > 0 && (
                     <div className="als-summary-breakdown__row als-summary-breakdown__row--add">
                       <div>
-                        <span className="als-summary-breakdown__label">Other additions</span>
+                        <span className="als-summary-breakdown__label">Other Additions</span>
                       </div>
                       <strong>+ AED {fmt(calc.otherAdditions)}</strong>
                     </div>
@@ -826,7 +827,7 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
                   {toNum(calc.otherDeductions) > 0 && (
                     <div className="als-summary-breakdown__row als-summary-breakdown__row--ded">
                       <div>
-                        <span className="als-summary-breakdown__label">Other deductions</span>
+                        <span className="als-summary-breakdown__label">Other Deductions</span>
                       </div>
                       <strong>− AED {fmt(calc.otherDeductions)}</strong>
                     </div>
@@ -834,8 +835,11 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
                 </div>
 
                 <div className="als-summary-total">
-                  <span>Grand Total</span>
-                  <span>AED {fmt(derived.total)}</span>
+                  <div>
+                    <span className="als-summary-total__label">Grand Total</span>
+                    <span className="als-summary-total__sub">All amounts are in AED</span>
+                  </div>
+                  <span className="als-summary-total__amount">AED {fmt(derived.total)}</span>
                 </div>
 
                 {calc.remarks && (
