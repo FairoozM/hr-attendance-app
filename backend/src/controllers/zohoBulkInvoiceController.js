@@ -5,6 +5,7 @@ const {
   upsertItems,
   findItemsBySkus,
   findItemsByNames,
+  getItemCacheStats,
   findInvoiceByReference,
   insertInvoiceLog,
 } = require('../services/zohoBulkInvoiceStore')
@@ -81,6 +82,7 @@ async function validateSkus(req, res) {
   if (!Array.isArray(req.body && req.body.skus)) {
     return res.status(400).json({ error: 'Input must be { skus: string[] }' })
   }
+  const cache = await getItemCacheStats()
   const requested = uniqueStrings(req.body.skus)
   const foundRows = await findItemsBySkus(requested)
   const foundBySku = firstRowByLowerValue(foundRows, (row) => row.sku)
@@ -99,6 +101,7 @@ async function validateSkus(req, res) {
       found: found.length,
       missing: missing.length,
     },
+    cache,
     usage: await usageSnapshot(),
   })
 }
@@ -107,6 +110,7 @@ async function validateNames(req, res) {
   if (!Array.isArray(req.body && req.body.names)) {
     return res.status(400).json({ error: 'Input must be { names: string[] }' })
   }
+  const cache = await getItemCacheStats()
   const requested = uniqueStrings(req.body.names)
   const foundRows = await findItemsByNames(requested)
   const foundByName = firstRowByLowerValue(foundRows, (row) => row.name)
@@ -125,6 +129,7 @@ async function validateNames(req, res) {
       found: found.length,
       missing: missing.length,
     },
+    cache,
     usage: await usageSnapshot(),
   })
 }
@@ -161,6 +166,7 @@ async function syncItems(req, res) {
       pages_fetched: pagesFetched,
       items_synced: itemsSynced,
       api_calls_used: pagesFetched,
+      cache: await getItemCacheStats(),
       usage: await usageSnapshot(),
     })
   } catch (err) {

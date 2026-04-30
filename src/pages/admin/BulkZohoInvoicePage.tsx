@@ -9,6 +9,11 @@ type Usage = {
   per_minute_limit?: number
 }
 
+type CacheStats = {
+  total_items?: number
+  last_synced_at?: string | null
+}
+
 type CachedItem = {
   sku: string
   item_id: string
@@ -108,6 +113,7 @@ export default function BulkZohoInvoicePage() {
   const [lines, setLines] = useState<InvoiceLine[]>([])
   const [missing, setMissing] = useState<string[]>([])
   const [usage, setUsage] = useState<Usage | null>(null)
+  const [cache, setCache] = useState<CacheStats | null>(null)
   const [loading, setLoading] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -167,6 +173,12 @@ export default function BulkZohoInvoicePage() {
       setLines(nextLines)
       setMissing(nextMissing)
       if (data?.usage) setUsage(data.usage)
+      if (data?.cache) setCache(data.cache)
+      if ((data?.cache?.total_items ?? 0) === 0 && parsed.names.length > 0) {
+        setError('Zoho item cache is empty. Click "Sync Items From Zoho" once, then validate again.')
+      } else if (nextMissing.length === parsed.names.length && parsed.names.length > 0) {
+        setError('No item names matched the local Zoho cache. Check exact Zoho item names, or sync items if Zoho was updated recently.')
+      }
     } catch (err: any) {
       setError(err?.message || 'Failed to validate item names.')
     } finally {
@@ -181,8 +193,9 @@ export default function BulkZohoInvoicePage() {
     try {
       const data = await api.post('/api/zoho/items/sync', {})
       if (data?.usage) setUsage(data.usage)
-      setSuccess(`Synced ${data?.items_synced ?? 0} items from ${data?.pages_fetched ?? 0} page(s). API calls used: ${data?.api_calls_used ?? 0}.`)
+      if (data?.cache) setCache(data.cache)
       await validate()
+      setSuccess(`Synced ${data?.items_synced ?? 0} items from ${data?.pages_fetched ?? 0} page(s). API calls used: ${data?.api_calls_used ?? 0}.`)
     } catch (err: any) {
       setError(err?.message || 'Failed to sync Zoho items.')
     } finally {
@@ -298,12 +311,13 @@ export default function BulkZohoInvoicePage() {
           </div>
           <div className="bzi-actions">
             <button className="bzi-btn bzi-btn--primary" disabled={loading !== '' || parsed.unique === 0} onClick={validate}>{loading === 'validate' ? 'Validating…' : 'Validate Item Names'}</button>
-            <button className="bzi-btn bzi-btn--ghost" disabled={loading !== '' || missing.length === 0} onClick={syncItems}>{loading === 'sync' ? 'Syncing…' : 'Sync Items From Zoho'}</button>
+            <button className="bzi-btn bzi-btn--ghost" disabled={loading !== '' || (missing.length === 0 && parsed.unique === 0)} onClick={syncItems}>{loading === 'sync' ? 'Syncing…' : 'Sync Items From Zoho'}</button>
             <button className="bzi-btn bzi-btn--ghost" disabled={loading !== '' || lines.length === 0 || parsedQuantities.valid === 0} onClick={applyPastedQuantities}>Apply Quantities</button>
             <button className="bzi-btn bzi-btn--ghost" disabled={lines.length === 0 && missing.length === 0} onClick={() => exportValidationCsv(lines, missing)}>Export Validation CSV</button>
             <button className="bzi-btn bzi-btn--primary" disabled={createDisabled} onClick={() => setConfirmOpen(true)}>{loading === 'create' ? 'Creating…' : 'Create Invoice'}</button>
           </div>
           <p className="bzi-muted" style={{ marginTop: 12 }}>Estimated Zoho API calls: Validate item names: 0 · Create Invoice: 1 · Sync Items: only if manually clicked.</p>
+          {cache && <p className="bzi-muted" style={{ marginTop: 8 }}>Local Zoho item cache: {cache.total_items ?? 0} item(s){cache.last_synced_at ? ` · Last synced ${new Date(cache.last_synced_at).toLocaleString()}` : ''}</p>}
           {missing.length > 0 && <div className="bzi-callout bzi-callout--error"><strong>Missing Item Names</strong><div className="bzi-missing-list">{missing.join(', ')}</div></div>}
           {readyCount > 0 && missing.length === 0 && <div className="bzi-callout bzi-callout--success">{readyCount} item(s) ready for invoice creation.</div>}
           {error && <div className="bzi-callout bzi-callout--error">{error}</div>}

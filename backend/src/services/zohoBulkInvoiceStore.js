@@ -138,6 +138,17 @@ async function findItemsByNames(names) {
   return rows
 }
 
+async function getItemCacheStats() {
+  const { rows } = await query(`
+    SELECT COUNT(*)::int AS total_items, MAX(last_synced_at) AS last_synced_at
+    FROM zoho_item_cache
+  `)
+  return {
+    total_items: Number(rows[0]?.total_items) || 0,
+    last_synced_at: rows[0]?.last_synced_at || null,
+  }
+}
+
 async function findInvoiceByReference(referenceNumber) {
   const ref = cleanSku(referenceNumber)
   if (!ref) return null
@@ -184,6 +195,7 @@ module.exports = {
   upsertItems,
   findItemsBySkus,
   findItemsByNames,
+  getItemCacheStats,
   findInvoiceByReference,
   insertInvoiceLog,
 }
