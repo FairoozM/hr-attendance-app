@@ -3,6 +3,16 @@ const {
   fetchItemById,
   fetchZohoItemImageBuffer,
 } = require('../integrations/zoho/zohoInventoryClient')
+const { readZohoConfig } = require('../integrations/zoho/zohoConfig')
+const { normalizeZohoInventoryItem, parseFamilyFromZohoItem } = require('../integrations/zoho/zohoItemFamily')
+const { listAllActiveMemberRows } = require('../services/itemReportGroupsService')
+const {
+  _internals: {
+    buildZohoLookupMaps,
+    findZohoItemsForMember,
+    aggregateByFamily,
+  },
+} = require('../services/weeklyReportZohoData')
 const zohoItemImageCache = require('../services/zohoItemImageCache')
 
 const MAX_SKUS = 1000
@@ -36,15 +46,15 @@ function uniqueSkus(input) {
 }
 
 function pickItemSku(item) {
-  return cleanSku(item && (item.sku || item.item_code || item.code))
+  return cleanSku(item && (item.sku || item.item_code || item.code || item.zoho_representative_sku))
 }
 
 function pickItemName(item) {
-  return cleanSku(item && (item.name || item.item_name || item.description))
+  return cleanSku(item && (item.name || item.item_name || item.description || item.zoho_representative_name || item.family))
 }
 
 function pickItemId(item) {
-  return cleanSku(item && (item.item_id || item.id))
+  return cleanSku(item && (item.item_id || item.id || item.zoho_representative_item_id))
 }
 
 function itemLooksActive(item) {
@@ -53,19 +63,111 @@ function itemLooksActive(item) {
 }
 
 async function buildSkuMap() {
+  const c = readZohoConfig()
+  const familyFieldId = c.code === 'ok' ? c.familyCustomFieldId : null
   const items = await listAllItems()
+  const maps = buildZohoLookupMaps(items, familyFieldId)
   const map = new Map()
+
+  function addLookup(key, item, prefer = false) {
+    const norm = normalizeSku(key)
+    if (!norm || !item || !pickItemId(item)) return
+    const existing = map.get(norm)
+    if (
+      prefer ||
+      !existing ||
+      (!itemLooksActive(existing) && itemLooksActive(item)) ||
+      (!extractImageReference(existing) && extractImageReference(item))
+    ) {
+      map.set(norm, item)
+    }
+  }
+
   for (const item of Array.isArray(items) ? items : []) {
     const sku = pickItemSku(item)
     const itemId = pickItemId(item)
-    if (!sku || !itemId) continue
-    const key = normalizeSku(sku)
-    const existing = map.get(key)
-    if (!existing || (!itemLooksActive(existing) && itemLooksActive(item))) {
-      map.set(key, item)
+    const name = pickItemName(item)
+    const family = parseFamilyFromZohoItem(item, familyFieldId)
+    addLookup(sku, item)
+    addLookup(itemId, item)
+    addLookup(name, item)
+    if (family) {
+      const familyRepresentative = resolveRepresentativeForZohoItems([item], maps, familyFieldId, family)
+      addLookup(family, familyRepresentative || item, true)
     }
   }
+
+  const members = await listAllActiveMemberRows()
+  for (const member of members) {
+    const matches = findZohoItemsForMember(member, maps)
+      .filter((item) => item && !(item.status && String(item.status).toLowerCase() === 'inactive'))
+    const representative = resolveRepresentativeForZohoItems(
+      matches,
+      maps,
+      familyFieldId,
+      member.item_name || member.sku || member.item_id || ''
+    )
+    if (!representative) continue
+    addLookup(member.sku, representative, true)
+    addLookup(member.item_id, representative, true)
+    addLookup(member.item_name, representative, true)
+  }
+
   return map
+}
+
+function zohoItemToImageLookupRow(zohoItem, familyFieldId) {
+  const n = normalizeZohoInventoryItem(zohoItem, familyFieldId)
+  const hasImage =
+    zohoItem &&
+    ((zohoItem.image_document_id != null && zohoItem.image_document_id !== '') ||
+      (zohoItem.image_name != null && zohoItem.image_name !== ''))
+  return {
+    sku: n.sku,
+    item_name: n.name,
+    item_id: n.item_id,
+    family: n.family,
+    opening_stock: 0,
+    closing_stock: 0,
+    purchase_amount: 0,
+    returned_to_wholesale: 0,
+    sales_amount: 0,
+    _zoho: {
+      from_date: '1970-01-01',
+      to_date: '1970-01-01',
+      family: n.family,
+      has_image: !!hasImage,
+      is_active: !zohoItem.status || String(zohoItem.status).toLowerCase() !== 'inactive',
+    },
+  }
+}
+
+function resolveRepresentativeForZohoItems(zohoItems, maps, familyFieldId, fallbackLabel) {
+  const rows = (Array.isArray(zohoItems) ? zohoItems : [])
+    .filter((item) => item && pickItemId(item))
+    .map((item) => zohoItemToImageLookupRow(item, familyFieldId))
+  if (rows.length === 0) return null
+  const familyRows = aggregateByFamily(rows, {
+    byFamily: maps.byFamily,
+    bySku: maps.bySku,
+    familyFieldId,
+    fromDate: '1970-01-01',
+    toDate: '1970-01-01',
+  })
+  const target = cleanSku(fallbackLabel).toLowerCase()
+  const selected =
+    (target && familyRows.find((row) => cleanSku(row.family).toLowerCase() === target)) ||
+    familyRows[0]
+  if (!selected || !selected.zoho_representative_item_id) return zohoItems[0] || null
+  return {
+    item_id: selected.zoho_representative_item_id,
+    sku: selected.zoho_representative_sku || '',
+    name: selected.zoho_representative_name || selected.family || fallbackLabel || '',
+    item_name: selected.zoho_representative_name || selected.family || fallbackLabel || '',
+    family: selected.family || fallbackLabel || '',
+    image_document_id: 'representative',
+    status: 'active',
+  }
 }
 
 async function getSkuMap() {
