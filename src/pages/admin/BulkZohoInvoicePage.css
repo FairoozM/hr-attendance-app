@@ -90,7 +90,7 @@
 
 .bzi-paste-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.8fr);
+  grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(220px, 0.8fr));
   gap: 16px;
   align-items: start;
 }

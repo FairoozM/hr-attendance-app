@@ -70,6 +70,21 @@ function parseQuantityText(text: string) {
   return { pasted: rawLines.map((line) => line.trim()).filter(Boolean).length, valid: values.length, invalid, values }
 }
 
+function parseRateText(text: string) {
+  const rawLines = text.split(/\r?\n/)
+  const values: number[] = []
+  let invalid = 0
+  for (const rawLine of rawLines) {
+    const firstCell = rawLine.split('\t')[0]
+    const cleaned = firstCell.trim().replace(/,/g, '')
+    if (!cleaned) continue
+    const n = Number(cleaned)
+    if (Number.isFinite(n) && n >= 0) values.push(n)
+    else invalid += 1
+  }
+  return { pasted: rawLines.map((line) => line.trim()).filter(Boolean).length, valid: values.length, invalid, values }
+}
+
 function csvEscape(value: unknown) {
   const s = String(value ?? '')
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
@@ -99,6 +114,7 @@ function exportValidationCsv(lines: InvoiceLine[], missing: string[]) {
 export default function BulkZohoInvoicePage() {
   const [itemNameText, setItemNameText] = useState('')
   const [quantityText, setQuantityText] = useState('')
+  const [rateText, setRateText] = useState('')
   const [customerId, setCustomerId] = useState('')
   const [date, setDate] = useState(todayIso())
   const [dueDate, setDueDate] = useState(todayIso())
@@ -121,6 +137,7 @@ export default function BulkZohoInvoicePage() {
 
   const parsed = useMemo(() => parseItemNameText(itemNameText), [itemNameText])
   const parsedQuantities = useMemo(() => parseQuantityText(quantityText), [quantityText])
+  const parsedRates = useMemo(() => parseRateText(rateText), [rateText])
   const readyCount = lines.filter((line) => line.status === 'Ready').length
   const createDisabled = loading !== '' || !customerId.trim() || !warehouseId.trim() || lines.length === 0 || missing.length > 0
 
@@ -163,7 +180,7 @@ export default function BulkZohoInvoicePage() {
           item_id: item.item_id,
           name: item.name,
           quantity: parsedQuantities.values[index] || 1,
-          rate: defaultRate.trim() !== '' ? Number(defaultRate) || 0 : Number(item.rate) || 0,
+          rate: parsedRates.values[index] ?? (defaultRate.trim() !== '' ? Number(defaultRate) || 0 : Number(item.rate) || 0),
           discount: 0,
           tax_id: item.tax_id || defaultTaxId,
           warehouse_id: warehouseId,
@@ -184,7 +201,7 @@ export default function BulkZohoInvoicePage() {
     } finally {
       setLoading('')
     }
-  }, [parsed.names, parsedQuantities.values, defaultRate, defaultTaxId, warehouseId])
+  }, [parsed.names, parsedQuantities.values, parsedRates.values, defaultRate, defaultTaxId, warehouseId])
 
   const syncItems = useCallback(async () => {
     setLoading('sync')
@@ -214,6 +231,14 @@ export default function BulkZohoInvoicePage() {
       quantity: parsedQuantities.values[index] || line.quantity,
     })))
   }, [lines.length, parsedQuantities.values])
+
+  const applyPastedRates = useCallback(() => {
+    if (lines.length === 0 || parsedRates.values.length === 0) return
+    setLines((prev) => prev.map((line, index) => ({
+      ...line,
+      rate: parsedRates.values[index] ?? line.rate,
+    })))
+  }, [lines.length, parsedRates.values])
 
   const createInvoice = useCallback(async () => {
     setConfirmOpen(false)
@@ -288,7 +313,7 @@ export default function BulkZohoInvoicePage() {
         </section>
 
         <section className="bzi-card">
-          <h2 className="bzi-card-title">Item Name & Quantity Input</h2>
+          <h2 className="bzi-card-title">Item Name, Quantity & Rate Input</h2>
           <div className="bzi-paste-grid">
             <div>
               <label className="bzi-label" htmlFor="bzi-item-name-textarea">Item Name Input</label>
@@ -299,6 +324,11 @@ export default function BulkZohoInvoicePage() {
               <textarea id="bzi-quantity-textarea" className="bzi-textarea" value={quantityText} onChange={(e) => setQuantityText(e.target.value)} placeholder={'1\n2\n5'} />
               <p className="bzi-muted" style={{ marginTop: 8 }}>Paste one quantity per line from Excel. Row 1 matches the first unique item name.</p>
             </div>
+            <div>
+              <label className="bzi-label" htmlFor="bzi-rate-textarea">Rate Input</label>
+              <textarea id="bzi-rate-textarea" className="bzi-textarea" value={rateText} onChange={(e) => setRateText(e.target.value)} placeholder={'31\n45.5\n0'} />
+              <p className="bzi-muted" style={{ marginTop: 8 }}>Paste one rate per line from Excel. Blank rows use default/cache rate.</p>
+            </div>
           </div>
           <div className="bzi-counter-row" style={{ marginTop: 12 }}>
             <span className="bzi-counter">Pasted: {parsed.pasted}</span>
@@ -306,6 +336,8 @@ export default function BulkZohoInvoicePage() {
             <span className="bzi-counter">Duplicates: {parsed.duplicates}</span>
             <span className="bzi-counter">Quantities: {parsedQuantities.valid}</span>
             <span className="bzi-counter">Invalid Qty: {parsedQuantities.invalid}</span>
+            <span className="bzi-counter">Rates: {parsedRates.valid}</span>
+            <span className="bzi-counter">Invalid Rate: {parsedRates.invalid}</span>
             <span className="bzi-counter bzi-counter--missing">Missing: {missing.length}</span>
             <span className="bzi-counter bzi-counter--ready">Ready: {readyCount}</span>
           </div>
@@ -313,6 +345,7 @@ export default function BulkZohoInvoicePage() {
             <button className="bzi-btn bzi-btn--primary" disabled={loading !== '' || parsed.unique === 0} onClick={validate}>{loading === 'validate' ? 'Validating…' : 'Validate Item Names'}</button>
             <button className="bzi-btn bzi-btn--ghost" disabled={loading !== '' || (missing.length === 0 && parsed.unique === 0)} onClick={syncItems}>{loading === 'sync' ? 'Syncing…' : 'Sync Items From Zoho'}</button>
             <button className="bzi-btn bzi-btn--ghost" disabled={loading !== '' || lines.length === 0 || parsedQuantities.valid === 0} onClick={applyPastedQuantities}>Apply Quantities</button>
+            <button className="bzi-btn bzi-btn--ghost" disabled={loading !== '' || lines.length === 0 || parsedRates.valid === 0} onClick={applyPastedRates}>Apply Rates</button>
             <button className="bzi-btn bzi-btn--ghost" disabled={lines.length === 0 && missing.length === 0} onClick={() => exportValidationCsv(lines, missing)}>Export Validation CSV</button>
             <button className="bzi-btn bzi-btn--primary" disabled={createDisabled} onClick={() => setConfirmOpen(true)}>{loading === 'create' ? 'Creating…' : 'Create Invoice'}</button>
           </div>
