@@ -4,11 +4,12 @@ const { getDailySuccessCount, getZohoGuardStatus } = require('../services/zohoAp
 const {
   upsertItems,
   findItemsBySkus,
+  findItemsByNames,
   findInvoiceByReference,
   insertInvoiceLog,
 } = require('../services/zohoBulkInvoiceStore')
 
-const MAX_SKUS = 1000
+const MAX_ITEMS = 1000
 const ITEMS_PER_PAGE = 200
 const MAX_SYNC_PAGES = 80
 
@@ -16,18 +17,18 @@ function clean(value) {
   return String(value == null ? '' : value).trim()
 }
 
-function uniqueSkus(input) {
+function uniqueStrings(input) {
   const source = Array.isArray(input) ? input : []
   const seen = new Set()
   const out = []
   for (const raw of source) {
-    const sku = clean(raw)
-    if (!sku) continue
-    const key = sku.toLowerCase()
+    const value = clean(raw)
+    if (!value) continue
+    const key = value.toLowerCase()
     if (seen.has(key)) continue
     seen.add(key)
-    out.push(sku)
-    if (out.length >= MAX_SKUS) break
+    out.push(value)
+    if (out.length >= MAX_ITEMS) break
   }
   return out
 }
@@ -67,19 +68,54 @@ function mapCacheRow(row) {
   }
 }
 
+function firstRowByLowerValue(rows, getValue) {
+  const out = new Map()
+  for (const row of rows) {
+    const key = clean(getValue(row)).toLowerCase()
+    if (key && !out.has(key)) out.set(key, row)
+  }
+  return out
+}
+
 async function validateSkus(req, res) {
   if (!Array.isArray(req.body && req.body.skus)) {
     return res.status(400).json({ error: 'Input must be { skus: string[] }' })
   }
-  const requested = uniqueSkus(req.body.skus)
+  const requested = uniqueStrings(req.body.skus)
   const foundRows = await findItemsBySkus(requested)
-  const foundBySku = new Map(foundRows.map((row) => [String(row.sku).toLowerCase(), row]))
+  const foundBySku = firstRowByLowerValue(foundRows, (row) => row.sku)
   const found = []
   const missing = []
   for (const sku of requested) {
     const row = foundBySku.get(sku.toLowerCase())
     if (row) found.push(mapCacheRow(row))
     else missing.push(sku)
+  }
+  return res.json({
+    found,
+    missing,
+    summary: {
+      requested: requested.length,
+      found: found.length,
+      missing: missing.length,
+    },
+    usage: await usageSnapshot(),
+  })
+}
+
+async function validateNames(req, res) {
+  if (!Array.isArray(req.body && req.body.names)) {
+    return res.status(400).json({ error: 'Input must be { names: string[] }' })
+  }
+  const requested = uniqueStrings(req.body.names)
+  const foundRows = await findItemsByNames(requested)
+  const foundByName = firstRowByLowerValue(foundRows, (row) => row.name)
+  const found = []
+  const missing = []
+  for (const name of requested) {
+    const row = foundByName.get(name.toLowerCase())
+    if (row) found.push(mapCacheRow(row))
+    else missing.push(name)
   }
   return res.json({
     found,
@@ -252,6 +288,7 @@ async function bulkCreateInvoice(req, res) {
 
 module.exports = {
   validateSkus,
+  validateNames,
   syncItems,
   bulkCreateInvoice,
 }

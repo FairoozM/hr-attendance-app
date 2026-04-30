@@ -18,6 +18,7 @@ async function ensureZohoBulkInvoiceTables() {
     )
   `)
   await query(`CREATE INDEX IF NOT EXISTS idx_zoho_item_cache_sku_lower ON zoho_item_cache (LOWER(sku))`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_zoho_item_cache_name_lower ON zoho_item_cache (LOWER(name))`)
   await query(`CREATE INDEX IF NOT EXISTS idx_zoho_item_cache_item_id ON zoho_item_cache (item_id)`)
 
   await query(`
@@ -122,6 +123,21 @@ async function findItemsBySkus(skus) {
   return rows
 }
 
+async function findItemsByNames(names) {
+  const clean = Array.from(new Set((Array.isArray(names) ? names : []).map(cleanSku).filter(Boolean)))
+  if (!clean.length) return []
+  const { rows } = await query(
+    `
+    SELECT sku, item_id, name, rate::float AS rate, tax_id, unit, status, last_synced_at
+    FROM zoho_item_cache
+    WHERE LOWER(name) = ANY($1::text[])
+    ORDER BY name ASC, sku ASC
+    `,
+    [clean.map((name) => name.toLowerCase())]
+  )
+  return rows
+}
+
 async function findInvoiceByReference(referenceNumber) {
   const ref = cleanSku(referenceNumber)
   if (!ref) return null
@@ -167,6 +183,7 @@ module.exports = {
   ensureZohoBulkInvoiceTables,
   upsertItems,
   findItemsBySkus,
+  findItemsByNames,
   findInvoiceByReference,
   insertInvoiceLog,
 }

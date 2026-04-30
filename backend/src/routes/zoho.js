@@ -35,6 +35,11 @@ router.post(
   zohoBulkInvoiceController.validateSkus
 )
 router.post(
+  '/items/validate-names',
+  requireAdmin,
+  zohoBulkInvoiceController.validateNames
+)
+router.post(
   '/items/sync',
   requireAdmin,
   zohoBulkInvoiceController.syncItems

@@ -33,21 +33,21 @@ type InvoiceLine = {
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
 
-function parseSkuText(text: string) {
+function parseItemNameText(text: string) {
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
   const seen = new Set<string>()
-  const skus: string[] = []
+  const names: string[] = []
   let duplicates = 0
-  for (const sku of lines) {
-    const key = sku.toLowerCase()
+  for (const name of lines) {
+    const key = name.toLowerCase()
     if (seen.has(key)) {
       duplicates += 1
       continue
     }
     seen.add(key)
-    skus.push(sku)
+    names.push(name)
   }
-  return { pasted: lines.length, unique: skus.length, duplicates, skus }
+  return { pasted: lines.length, unique: names.length, duplicates, names }
 }
 
 function parseQuantityText(text: string) {
@@ -71,12 +71,12 @@ function csvEscape(value: unknown) {
 }
 
 function exportValidationCsv(lines: InvoiceLine[], missing: string[]) {
-  const rows = [['Sr No', 'SKU', 'Zoho Item Name', 'Zoho Item ID', 'Quantity', 'Rate', 'Discount', 'Tax ID', 'Warehouse ID', 'Status']]
+  const rows = [['Sr No', 'Zoho Item Name', 'SKU', 'Zoho Item ID', 'Quantity', 'Rate', 'Discount', 'Tax ID', 'Warehouse ID', 'Status']]
   lines.forEach((line, index) => {
     rows.push([
       String(index + 1),
-      line.sku,
       line.name,
+      line.sku,
       line.item_id,
       String(line.quantity),
       String(line.rate),
@@ -86,13 +86,13 @@ function exportValidationCsv(lines: InvoiceLine[], missing: string[]) {
       line.status,
     ])
   })
-  missing.forEach((sku, index) => rows.push([String(lines.length + index + 1), sku, '', '', '', '', '', '', '', 'Missing']))
+  missing.forEach((name, index) => rows.push([String(lines.length + index + 1), name, '', '', '', '', '', '', '', 'Missing']))
   const csv = `${rows.map((row) => row.map(csvEscape).join(',')).join('\r\n')}\r\n`
   downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), 'bulk_invoice_validation.csv')
 }
 
 export default function BulkZohoInvoicePage() {
-  const [skuText, setSkuText] = useState('')
+  const [itemNameText, setItemNameText] = useState('')
   const [quantityText, setQuantityText] = useState('')
   const [customerId, setCustomerId] = useState('')
   const [date, setDate] = useState(todayIso())
@@ -103,7 +103,6 @@ export default function BulkZohoInvoicePage() {
   const [notes, setNotes] = useState('')
   const [taxMode, setTaxMode] = useState<'inclusive' | 'exclusive'>('exclusive')
   const [defaultTaxId, setDefaultTaxId] = useState('')
-  const [defaultQuantity, setDefaultQuantity] = useState(1)
   const [defaultRate, setDefaultRate] = useState('')
 
   const [lines, setLines] = useState<InvoiceLine[]>([])
@@ -114,7 +113,7 @@ export default function BulkZohoInvoicePage() {
   const [success, setSuccess] = useState('')
   const [confirmOpen, setConfirmOpen] = useState(false)
 
-  const parsed = useMemo(() => parseSkuText(skuText), [skuText])
+  const parsed = useMemo(() => parseItemNameText(itemNameText), [itemNameText])
   const parsedQuantities = useMemo(() => parseQuantityText(quantityText), [quantityText])
   const readyCount = lines.filter((line) => line.status === 'Ready').length
   const createDisabled = loading !== '' || !customerId.trim() || !warehouseId.trim() || lines.length === 0 || missing.length > 0
@@ -141,23 +140,23 @@ export default function BulkZohoInvoicePage() {
     setError('')
     setSuccess('')
     try {
-      const data = await api.post('/api/zoho/items/validate-skus', { skus: parsed.skus })
+      const data = await api.post('/api/zoho/items/validate-names', { names: parsed.names })
       const found: CachedItem[] = Array.isArray(data?.found) ? data.found : []
-      const foundBySku = new Map(found.map((item) => [item.sku.toLowerCase(), item]))
+      const foundByName = new Map(found.map((item) => [item.name.toLowerCase(), item]))
       const nextLines: InvoiceLine[] = []
       const nextMissing: string[] = []
-      for (let index = 0; index < parsed.skus.length; index += 1) {
-        const sku = parsed.skus[index]
-        const item = foundBySku.get(sku.toLowerCase())
+      for (let index = 0; index < parsed.names.length; index += 1) {
+        const name = parsed.names[index]
+        const item = foundByName.get(name.toLowerCase())
         if (!item) {
-          nextMissing.push(sku)
+          nextMissing.push(name)
           continue
         }
         nextLines.push({
-          sku,
+          sku: item.sku,
           item_id: item.item_id,
           name: item.name,
-          quantity: parsedQuantities.values[index] || (Number(defaultQuantity) > 0 ? Number(defaultQuantity) : 1),
+          quantity: parsedQuantities.values[index] || 1,
           rate: defaultRate.trim() !== '' ? Number(defaultRate) || 0 : Number(item.rate) || 0,
           discount: 0,
           tax_id: item.tax_id || defaultTaxId,
@@ -169,11 +168,11 @@ export default function BulkZohoInvoicePage() {
       setMissing(nextMissing)
       if (data?.usage) setUsage(data.usage)
     } catch (err: any) {
-      setError(err?.message || 'Failed to validate SKUs.')
+      setError(err?.message || 'Failed to validate item names.')
     } finally {
       setLoading('')
     }
-  }, [parsed.skus, parsedQuantities.values, defaultQuantity, defaultRate, defaultTaxId, warehouseId])
+  }, [parsed.names, parsedQuantities.values, defaultRate, defaultTaxId, warehouseId])
 
   const syncItems = useCallback(async () => {
     setLoading('sync')
@@ -247,7 +246,7 @@ export default function BulkZohoInvoicePage() {
           <div>
             <div className="bzi-eyebrow">Admin · Zoho</div>
             <h1 className="bzi-title">Bulk Zoho Invoice</h1>
-            <p className="bzi-subtitle">Paste SKUs, validate from local cache, then create one Zoho invoice with all lines.</p>
+            <p className="bzi-subtitle">Paste item names, validate from local cache, then create one Zoho invoice with all lines.</p>
           </div>
           {usage && (
             <div className="bzi-usage">
@@ -270,23 +269,22 @@ export default function BulkZohoInvoicePage() {
             <label className="bzi-field"><span className="bzi-label">Reference Number</span><input className="bzi-input" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} /></label>
             <label className="bzi-field"><span className="bzi-label">Tax Mode</span><select className="bzi-select" value={taxMode} onChange={(e) => setTaxMode(e.target.value as 'inclusive' | 'exclusive')}><option value="exclusive">Exclusive</option><option value="inclusive">Inclusive</option></select></label>
             <label className="bzi-field"><span className="bzi-label">Default Tax ID</span><input className="bzi-input" value={defaultTaxId} onChange={(e) => setDefaultTaxId(e.target.value)} /></label>
-            <label className="bzi-field"><span className="bzi-label">Default Quantity</span><input className="bzi-input" type="number" min="0.01" step="0.01" value={defaultQuantity} onChange={(e) => setDefaultQuantity(Number(e.target.value) || 1)} /></label>
             <label className="bzi-field"><span className="bzi-label">Default Rate Optional</span><input className="bzi-input" type="number" min="0" step="0.01" value={defaultRate} onChange={(e) => setDefaultRate(e.target.value)} placeholder="Use cache rate if blank" /></label>
             <label className="bzi-field bzi-field--wide"><span className="bzi-label">Notes</span><input className="bzi-input" value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
           </div>
         </section>
 
         <section className="bzi-card">
-          <h2 className="bzi-card-title">SKU & Quantity Input</h2>
+          <h2 className="bzi-card-title">Item Name & Quantity Input</h2>
           <div className="bzi-paste-grid">
             <div>
-              <label className="bzi-label" htmlFor="bzi-sku-textarea">SKU Input</label>
-              <textarea id="bzi-sku-textarea" className="bzi-textarea" value={skuText} onChange={(e) => setSkuText(e.target.value)} placeholder={'SKU-001\nSKU-002\nSKU-003'} />
+              <label className="bzi-label" htmlFor="bzi-item-name-textarea">Item Name Input</label>
+              <textarea id="bzi-item-name-textarea" className="bzi-textarea" value={itemNameText} onChange={(e) => setItemNameText(e.target.value)} placeholder={'Item Name 1\nItem Name 2\nItem Name 3'} />
             </div>
             <div>
               <label className="bzi-label" htmlFor="bzi-quantity-textarea">Quantity Input</label>
               <textarea id="bzi-quantity-textarea" className="bzi-textarea" value={quantityText} onChange={(e) => setQuantityText(e.target.value)} placeholder={'1\n2\n5'} />
-              <p className="bzi-muted" style={{ marginTop: 8 }}>Paste one quantity per line from Excel. Row 1 matches the first unique SKU.</p>
+              <p className="bzi-muted" style={{ marginTop: 8 }}>Paste one quantity per line from Excel. Row 1 matches the first unique item name.</p>
             </div>
           </div>
           <div className="bzi-counter-row" style={{ marginTop: 12 }}>
@@ -299,15 +297,15 @@ export default function BulkZohoInvoicePage() {
             <span className="bzi-counter bzi-counter--ready">Ready: {readyCount}</span>
           </div>
           <div className="bzi-actions">
-            <button className="bzi-btn bzi-btn--primary" disabled={loading !== '' || parsed.unique === 0} onClick={validate}>{loading === 'validate' ? 'Validating…' : 'Validate SKUs'}</button>
+            <button className="bzi-btn bzi-btn--primary" disabled={loading !== '' || parsed.unique === 0} onClick={validate}>{loading === 'validate' ? 'Validating…' : 'Validate Item Names'}</button>
             <button className="bzi-btn bzi-btn--ghost" disabled={loading !== '' || missing.length === 0} onClick={syncItems}>{loading === 'sync' ? 'Syncing…' : 'Sync Items From Zoho'}</button>
             <button className="bzi-btn bzi-btn--ghost" disabled={loading !== '' || lines.length === 0 || parsedQuantities.valid === 0} onClick={applyPastedQuantities}>Apply Quantities</button>
             <button className="bzi-btn bzi-btn--ghost" disabled={lines.length === 0 && missing.length === 0} onClick={() => exportValidationCsv(lines, missing)}>Export Validation CSV</button>
             <button className="bzi-btn bzi-btn--primary" disabled={createDisabled} onClick={() => setConfirmOpen(true)}>{loading === 'create' ? 'Creating…' : 'Create Invoice'}</button>
           </div>
-          <p className="bzi-muted" style={{ marginTop: 12 }}>Estimated Zoho API calls: Validate SKUs: 0 · Create Invoice: 1 · Sync Items: only if manually clicked.</p>
-          {missing.length > 0 && <div className="bzi-callout bzi-callout--error"><strong>Missing SKUs</strong><div className="bzi-missing-list">{missing.join(', ')}</div></div>}
-          {readyCount > 0 && missing.length === 0 && <div className="bzi-callout bzi-callout--success">{readyCount} SKU(s) ready for invoice creation.</div>}
+          <p className="bzi-muted" style={{ marginTop: 12 }}>Estimated Zoho API calls: Validate item names: 0 · Create Invoice: 1 · Sync Items: only if manually clicked.</p>
+          {missing.length > 0 && <div className="bzi-callout bzi-callout--error"><strong>Missing Item Names</strong><div className="bzi-missing-list">{missing.join(', ')}</div></div>}
+          {readyCount > 0 && missing.length === 0 && <div className="bzi-callout bzi-callout--success">{readyCount} item(s) ready for invoice creation.</div>}
           {error && <div className="bzi-callout bzi-callout--error">{error}</div>}
           {success && <div className="bzi-callout bzi-callout--success">{success}</div>}
         </section>
@@ -316,15 +314,15 @@ export default function BulkZohoInvoicePage() {
           <h2 className="bzi-card-title">Editable Line Items</h2>
           <div className="bzi-table-wrap">
             <table className="bzi-table">
-              <thead><tr><th>Sr No</th><th>SKU</th><th>Zoho Item Name</th><th>Zoho Item ID</th><th>Quantity</th><th>Rate</th><th>Discount</th><th>Tax ID</th><th>Warehouse ID</th><th>Status</th></tr></thead>
+              <thead><tr><th>Sr No</th><th>Zoho Item Name</th><th>SKU</th><th>Zoho Item ID</th><th>Quantity</th><th>Rate</th><th>Discount</th><th>Tax ID</th><th>Warehouse ID</th><th>Status</th></tr></thead>
               <tbody>
                 {lines.length === 0 ? (
-                  <tr><td colSpan={10} className="bzi-muted">Validate SKUs to build invoice lines.</td></tr>
+                  <tr><td colSpan={10} className="bzi-muted">Validate item names to build invoice lines.</td></tr>
                 ) : lines.map((line, index) => (
                   <tr key={`${line.sku}-${line.item_id}-${index}`}>
                     <td>{index + 1}</td>
-                    <td>{line.sku}</td>
                     <td>{line.name}</td>
+                    <td>{line.sku}</td>
                     <td>{line.item_id}</td>
                     <td><input className="bzi-table-input" type="number" min="0.01" step="0.01" value={line.quantity} onChange={(e) => updateLine(index, { quantity: Number(e.target.value) || 0 })} /></td>
                     <td><input className="bzi-table-input" type="number" min="0" step="0.01" value={line.rate} onChange={(e) => updateLine(index, { rate: Number(e.target.value) || 0 })} /></td>
