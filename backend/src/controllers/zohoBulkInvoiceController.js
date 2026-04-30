@@ -230,6 +230,12 @@ function buildInvoicePayload(body, normalizedLines) {
   return payload
 }
 
+function buildZohoJsonStringBody(payload) {
+  const form = new URLSearchParams()
+  form.set('JSONString', JSON.stringify(payload))
+  return form.toString()
+}
+
 async function bulkCreateInvoice(req, res) {
   const body = req.body || {}
   const referenceNumber = clean(body.reference_number)
@@ -255,7 +261,7 @@ async function bulkCreateInvoice(req, res) {
 
   const payload = buildInvoicePayload(body, normalizedLines)
   try {
-    const json = await zohoApiRequest(`${INVENTORY_V1}/invoices`, new URLSearchParams(), 'POST', JSON.stringify(payload), {
+    const json = await zohoApiRequest(`${INVENTORY_V1}/invoices`, new URLSearchParams(), 'POST', buildZohoJsonStringBody(payload), {
       source: 'bulk_invoice_create',
       skipCache: true,
     })
