@@ -445,6 +445,7 @@ export function Layout() {
     if (location.pathname.startsWith('/reports/weekly-report/sales'))        return 'Weekly Sales Reports'
     if (location.pathname.startsWith('/reports/weekly-report/slow-moving'))  return 'Weekly Slow Moving Sales Report'
     if (location.pathname.startsWith('/reports/weekly-report/other-family')) return 'Weekly Other Family Sales Report'
+    if (location.pathname.startsWith('/reports/zoho-item-images')) return 'Zoho Item Image Fetcher'
     if (location.pathname.startsWith('/reports/sales-vs-expenses')) return 'Sales vs Expenses'
     if (location.pathname.startsWith('/reports')) return 'Reports'
     if (location.pathname.startsWith('/taxation/ksa-vat')) return 'KSA VAT Tax'
@@ -494,6 +495,7 @@ export function Layout() {
     hasWeeklyReportsAccess && { label: 'Weekly Ads Report',    to: '/reports/weekly-report/weekly-ads' },
     hasWeeklyReportsAccess && { label: 'Weekly Sales Reports', to: '/reports/weekly-report/sales'      },
     hasWeeklyReportsAccess && { label: 'Sales vs Expenses',    to: '/reports/sales-vs-expenses'        },
+    hasWeeklyReportsAccess && { label: 'Zoho Item Images',     to: '/reports/zoho-item-images'         },
   ].filter(Boolean)
 
   const focusedSectionConfig = useMemo(() => {
@@ -541,7 +543,7 @@ export function Layout() {
     ...REPORTS_ITEMS.map(i => ({
       ...i,
       group: 'Weekly Report',
-      searchHint: 'weekly ads slow moving other family sales inventory performance reports zoho',
+      searchHint: 'weekly ads slow moving other family sales inventory performance reports zoho sku item images',
     })),
     ...TAXATION_ITEMS.map(i => ({
       ...i,

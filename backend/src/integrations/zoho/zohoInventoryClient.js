@@ -148,6 +148,35 @@ async function listAllItems() {
   return listItemsPaged(null)
 }
 
+async function fetchItemById(itemId) {
+  const c = readZohoConfig()
+  if (c.code !== 'ok') {
+    const e = new Error('Zoho not configured')
+    e.code = 'ZOHO_NOT_CONFIGURED'
+    throw e
+  }
+  const id = String(itemId || '').trim()
+  if (!id || !/^[0-9A-Za-z._-]{1,64}$/.test(id)) {
+    const e = new Error('Invalid Zoho item id')
+    e.code = 'ZOHO_INVALID_ITEM_ID'
+    throw e
+  }
+  const p = new URLSearchParams()
+  p.set('organization_id', c.organizationId)
+  const json = await zohoInventoryJsonRequest(
+    `${INVENTORY_V1}/items/${encodeURIComponent(id)}`,
+    p,
+    'GET',
+    undefined,
+    {
+      cacheCategory: 'item_detail',
+      cacheKey: `zoho:item_detail:${id}`,
+      source: 'inventory_item_detail',
+    }
+  )
+  return (json && json.item) || json
+}
+
 async function fetchListPaginated(path, listKey, maxPages = 50, extraParams = null) {
   const c = readZohoConfig()
   if (c.code !== 'ok') {
@@ -241,4 +270,11 @@ async function listItemsForWarehouse(warehouseId) {
   return listItemsPaged(wid)
 }
 
-module.exports = { zohoApiRequest, listAllItems, listItemsForWarehouse, fetchListPaginated, fetchZohoItemImageBuffer }
+module.exports = {
+  zohoApiRequest,
+  listAllItems,
+  listItemsForWarehouse,
+  fetchListPaginated,
+  fetchItemById,
+  fetchZohoItemImageBuffer,
+}
