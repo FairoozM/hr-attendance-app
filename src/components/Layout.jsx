@@ -418,7 +418,7 @@ export function Layout() {
     isEmployee ? '/account' : can('attendance', 'view') ? '/attendance' : '/account'
 
   const HR_ROUTES = ['/employees', '/attendance', '/annual-leave']
-  const ADMIN_NAV_ROUTES = ['/settings', '/roles-permissions', '/admin']
+  const ADMIN_NAV_ROUTES = ['/settings', '/roles-permissions', '/admin/item-report-groups']
   const LISTS_ROUTES = ['/lists/sim-cards']
   const isHrActive = HR_ROUTES.some(r => location.pathname.startsWith(r))
   const isAdminNavActive = isAdmin && ADMIN_NAV_ROUTES.some(r => location.pathname.startsWith(r))
@@ -426,6 +426,7 @@ export function Layout() {
   const isInfluencersActive = location.pathname.startsWith('/influencers')
   const isManagementActive = location.pathname.startsWith('/management')
   const isReportsActive = location.pathname.startsWith('/reports')
+  const isZohoActive = location.pathname.startsWith('/admin/zoho')
   const hasAnyInfluencerAccess = hasAnyModulePermission(user, 'influencers')
   const hasAnyListsAccess = hasAnyModulePermission(user, 'sim_cards')
   const hasAnyManagementAccess = hasAnyModulePermission(user, 'document_expiry')
@@ -476,6 +477,8 @@ export function Layout() {
     isAdmin && { label: 'Settings', to: '/settings' },
     isAdmin && { label: 'Roles & Permissions', to: '/roles-permissions' },
     isAdmin && { label: 'Item Report Groups', to: '/admin/item-report-groups' },
+  ].filter(Boolean)
+  const zohoItems = [
     isAdmin && { label: 'Bulk Zoho Invoice', to: '/admin/zoho/bulk-invoice' },
   ].filter(Boolean)
   const listsItems = [
@@ -513,6 +516,7 @@ export function Layout() {
       },
       management: { title: 'Management', items: withIcons(managementItems) },
       reports: { title: 'Reports', items: withIcons(REPORTS_ITEMS) },
+      zoho: { title: 'Zoho', items: withIcons(zohoItems) },
     }
     return sections[focusedSection] || null
   }, [
@@ -524,6 +528,7 @@ export function Layout() {
     isAdmin,
     managementItems,
     REPORTS_ITEMS,
+    zohoItems,
   ])
 
   // Flat list of every link shown in the sidebar (sidebar + topbar search). Keep in sync with nav groups above.
@@ -552,18 +557,21 @@ export function Layout() {
       group: 'Taxation',
       searchHint: 'ksa vat tax quarterly filing invoices credit notes zoho books',
     })),
+    ...zohoItems.map(i => ({
+      ...i,
+      group: 'Zoho',
+      searchHint: 'bulk zoho invoice sku customer warehouse line items inventory',
+    })),
     ...adminNavItems.map(i => ({
       ...i,
       group: 'Admin',
       searchHint:
         i.to === '/admin/item-report-groups'
           ? 'item report groups slow moving other family weekly mapping zoho sku'
-          : i.to === '/admin/zoho/bulk-invoice'
-            ? 'bulk zoho invoice sku customer warehouse line items'
           : '',
     })),
     { label: 'My Account', to: '/account', group: 'Account' },
-  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, managementItems, REPORTS_ITEMS, TAXATION_ITEMS])
+  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, managementItems, REPORTS_ITEMS, TAXATION_ITEMS, zohoItems])
 
   const showSidebarBackdrop = isSidebarOpen && navMode === 'full'
 
@@ -750,6 +758,27 @@ export function Layout() {
                           to={item.to}
                           className={subLinkClass}
                           onClick={() => openFocusedSection('reports')}
+                        >
+                          <span className="nav-group__link-dot" aria-hidden />
+                          {item.label}
+                        </NavLink>
+                      ))}
+                    </NavGroup>
+                  </>
+                )}
+
+                {zohoItems.length > 0 && (
+                  <>
+                    <div className="app-sidebar__section-label" role="presentation">
+                      Zoho
+                    </div>
+                    <NavGroup label="Zoho" hint="Inventory & invoices" isActive={isZohoActive}>
+                      {zohoItems.map(item => (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          className={subLinkClass}
+                          onClick={() => openFocusedSection('zoho')}
                         >
                           <span className="nav-group__link-dot" aria-hidden />
                           {item.label}
