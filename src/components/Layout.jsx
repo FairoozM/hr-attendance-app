@@ -449,6 +449,7 @@ export function Layout() {
     if (location.pathname.startsWith('/reports/sales-vs-expenses')) return 'Sales vs Expenses'
     if (location.pathname.startsWith('/reports')) return 'Reports'
     if (location.pathname.startsWith('/taxation/ksa-vat')) return 'KSA VAT Tax'
+    if (location.pathname.startsWith('/admin/zoho/bulk-invoice')) return 'Bulk Zoho Invoice'
     if (location.pathname.startsWith('/admin/item-report-groups')) return 'Item Report Groups'
     if (location.pathname === '/projects/dashboard') return 'AI Dashboard'
     if (location.pathname.startsWith('/projects/')) return 'Today\'s Plan'
@@ -475,6 +476,7 @@ export function Layout() {
     isAdmin && { label: 'Settings', to: '/settings' },
     isAdmin && { label: 'Roles & Permissions', to: '/roles-permissions' },
     isAdmin && { label: 'Item Report Groups', to: '/admin/item-report-groups' },
+    isAdmin && { label: 'Bulk Zoho Invoice', to: '/admin/zoho/bulk-invoice' },
   ].filter(Boolean)
   const listsItems = [
     can('sim_cards', 'view') && { label: 'Sim Cards List', to: '/lists/sim-cards' },
@@ -556,6 +558,8 @@ export function Layout() {
       searchHint:
         i.to === '/admin/item-report-groups'
           ? 'item report groups slow moving other family weekly mapping zoho sku'
+          : i.to === '/admin/zoho/bulk-invoice'
+            ? 'bulk zoho invoice sku customer warehouse line items'
           : '',
     })),
     { label: 'My Account', to: '/account', group: 'Account' },

@@ -799,6 +799,12 @@ async function testConnection() {
   } catch (e) {
     console.error('[db] ensureZohoApiTables skipped/failed (non-fatal):', e.message || e)
   }
+  try {
+    const { ensureZohoBulkInvoiceTables } = require('../services/zohoBulkInvoiceStore')
+    await ensureZohoBulkInvoiceTables()
+  } catch (e) {
+    console.error('[db] ensureZohoBulkInvoiceTables skipped/failed (non-fatal):', e.message || e)
+  }
 }
 
 async function ensureProjectsTable() {

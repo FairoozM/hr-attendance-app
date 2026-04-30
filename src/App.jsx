@@ -17,6 +17,7 @@ import { AnnualLeavePage } from './pages/AnnualLeavePage'
 import { EmployeeProfileAdminPage } from './pages/EmployeeProfileAdminPage'
 import { RolesPermissionsPage } from './pages/RolesPermissionsPage'
 import { ItemReportGroupsAdminPage } from './pages/admin/ItemReportGroupsAdminPage'
+import BulkZohoInvoicePage from './pages/admin/BulkZohoInvoicePage'
 import { InfluencerListPage } from './pages/influencers/InfluencerListPage'
 import { AddInfluencerPage } from './pages/influencers/AddInfluencerPage'
 import { PipelinePage } from './pages/influencers/PipelinePage'
@@ -196,6 +197,14 @@ function AppContent() {
         />
         <Route path="roles-permissions" element={<RolesPermissionsPage />} />
         <Route path="admin/item-report-groups" element={<ItemReportGroupsAdminPage />} />
+        <Route
+          path="admin/zoho/bulk-invoice"
+          element={
+            <PermissionGuard module="weekly_reports" action="view">
+              <BulkZohoInvoicePage />
+            </PermissionGuard>
+          }
+        />
 
         {/* AI Planner Module */}
         <Route path="projects" element={<ProjectsIndexPage />} />

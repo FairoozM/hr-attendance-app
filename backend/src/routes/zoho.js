@@ -5,6 +5,7 @@ const express = require('express')
 const { requireAuth, requireAdmin, requirePermission } = require('../middleware/auth')
 const zohoAdminController = require('../controllers/zohoAdminController')
 const zohoItemImagesController = require('../controllers/zohoItemImagesController')
+const zohoBulkInvoiceController = require('../controllers/zohoBulkInvoiceController')
 
 const router = express.Router()
 
@@ -27,6 +28,21 @@ router.get(
   '/items/images/:itemId/download',
   requirePermission('weekly_reports', 'view'),
   zohoItemImagesController.downloadImage
+)
+router.post(
+  '/items/validate-skus',
+  requireAdmin,
+  zohoBulkInvoiceController.validateSkus
+)
+router.post(
+  '/items/sync',
+  requireAdmin,
+  zohoBulkInvoiceController.syncItems
+)
+router.post(
+  '/invoices/bulk-create',
+  requireAdmin,
+  zohoBulkInvoiceController.bulkCreateInvoice
 )
 
 router.get('/usage/today', requireAuth, requireAdmin, zohoAdminController.getUsageToday)
