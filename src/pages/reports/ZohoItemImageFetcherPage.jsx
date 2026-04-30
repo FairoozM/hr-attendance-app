@@ -56,6 +56,36 @@ function statusClass(status) {
   return 'zif-status zif-status--error'
 }
 
+function normalizeUsage(payload) {
+  if (!payload) return null
+  if (payload.dailyLimit || payload.successfulCalls != null) return payload
+  const zoho = payload.zoho || payload
+  const day = zoho.api_usage_today || {}
+  return {
+    dailyLimit: day.daily_limit,
+    successfulCalls: day.successful_calls,
+    utcDay: day.utc_day,
+    perMinuteLimit: zoho.per_minute_limit,
+    countUnavailable: day.count_unavailable,
+  }
+}
+
+function imageExt(contentType) {
+  const ct = String(contentType || '').toLowerCase()
+  if (ct.includes('png')) return 'png'
+  if (ct.includes('webp')) return 'webp'
+  if (ct.includes('gif')) return 'gif'
+  return 'jpg'
+}
+
+function safeDownloadBase(value) {
+  return String(value || 'item')
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 120) || 'item'
+}
+
 function LazyZohoImage({ row }) {
   const [src, setSrc] = useState('')
   const [failed, setFailed] = useState(false)
@@ -108,7 +138,7 @@ function LazyZohoImage({ row }) {
 
   return (
     <div className="zif-thumb" ref={cellRef}>
-      {src && !failed ? <img src={src} alt={row.sku || 'Item image'} /> : null}
+      {src && !failed ? <img src={src} alt={row.itemName || 'Item image'} /> : null}
       {!src && !failed && row.status === 'Found' ? <span>Loading…</span> : null}
       {(failed || row.status !== 'Found') ? <span>—</span> : null}
     </div>
@@ -123,10 +153,26 @@ export function ZohoItemImageFetcherPage() {
   const [total, setTotal] = useState(0)
   const [error, setError] = useState('')
   const [exporting, setExporting] = useState('')
+  const [usage, setUsage] = useState(null)
 
   const parsed = useMemo(() => parseSkuText(text), [text])
   const counts = useMemo(() => countStatuses(results), [results])
   const progressPct = total > 0 ? Math.round((processed / total) * 100) : 0
+
+  useEffect(() => {
+    let cancelled = false
+    api
+      .get('/api/weekly-reports/zoho-api-usage')
+      .then((data) => {
+        if (!cancelled) setUsage(normalizeUsage(data))
+      })
+      .catch(() => {
+        if (!cancelled) setUsage(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const handleFetch = useCallback(async () => {
     const { skus } = parseSkuText(text)
@@ -149,6 +195,7 @@ export function ZohoItemImageFetcherPage() {
         const batchResults = Array.isArray(data?.results) ? data.results : []
         all.push(...batchResults)
         setResults([...all])
+        if (data?.usage) setUsage(normalizeUsage(data.usage))
         setProcessed((prev) => Math.min(skus.length, prev + batch.length))
       }
     } catch (err) {
@@ -240,9 +287,22 @@ export function ZohoItemImageFetcherPage() {
             onClick={() => handleExport('zip')}
             disabled={loading || exporting !== '' || results.length === 0}
           >
-            {exporting === 'zip' ? 'Exporting ZIP…' : 'Export Results ZIP'}
+            {exporting === 'zip' ? 'Preparing Images…' : 'Download All Images ZIP'}
           </button>
         </div>
+
+        {usage ? (
+          <div className="zif-usage" aria-live="polite">
+            <span>Zoho API daily usage</span>
+            <strong>
+              {usage.successfulCalls == null ? '—' : Number(usage.successfulCalls).toLocaleString('en-US')}
+              {usage.dailyLimit ? ` / ${Number(usage.dailyLimit).toLocaleString('en-US')}` : ''}
+            </strong>
+            {usage.perMinuteLimit ? <span>Per minute limit: {usage.perMinuteLimit}</span> : null}
+            {usage.utcDay ? <span>UTC day: {usage.utcDay}</span> : null}
+            {usage.countUnavailable ? <span>Usage count unavailable</span> : null}
+          </div>
+        ) : null}
 
         {loading ? (
           <div className="zif-progress" aria-live="polite">
@@ -276,20 +336,16 @@ export function ZohoItemImageFetcherPage() {
             <table className="zif-table">
               <thead>
                 <tr>
-                  <th>SKU</th>
                   <th>Item Name</th>
-                  <th>Zoho Item ID</th>
                   <th>Image Preview</th>
-                  <th>Image URL / Download</th>
+                  <th>Download</th>
                   <th>Status</th>
                 </tr>
               </thead>
               <tbody>
                 {results.map((row, index) => (
-                  <tr key={`${row.sku || 'sku'}-${row.itemId || index}-${index}`}>
-                    <td className="zif-cell-strong">{row.sku || '—'}</td>
-                    <td>{row.itemName || '—'}</td>
-                    <td className="zif-mono">{row.itemId || '—'}</td>
+                  <tr key={`${row.itemName || row.sku || 'item'}-${row.itemId || index}-${index}`}>
+                    <td className="zif-cell-strong">{row.itemName || '—'}</td>
                     <td><LazyZohoImage row={row} /></td>
                     <td>
                       {row.imageUrl ? (
@@ -298,8 +354,9 @@ export function ZohoItemImageFetcherPage() {
                           className="zif-link-btn"
                           onClick={async () => {
                             try {
-                              const { blob, filename } = await fetchBinary(row.imageUrl)
-                              downloadBlob(blob, filename || `${row.sku || row.itemId || 'item'}.jpg`)
+                              const { blob, contentType } = await fetchBinary(row.imageUrl)
+                              const name = `${safeDownloadBase(row.itemName || row.sku || row.itemId)}.${imageExt(contentType)}`
+                              downloadBlob(blob, name)
                             } catch (err) {
                               setError(err?.message || 'Failed to download image.')
                             }

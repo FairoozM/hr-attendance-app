@@ -1,6 +1,5 @@
 const {
   listAllItems,
-  fetchItemById,
   fetchZohoItemImageBuffer,
 } = require('../integrations/zoho/zohoInventoryClient')
 const { readZohoConfig } = require('../integrations/zoho/zohoConfig')
@@ -14,6 +13,7 @@ const {
   },
 } = require('../services/weeklyReportZohoData')
 const zohoItemImageCache = require('../services/zohoItemImageCache')
+const { getDailySuccessCount, getZohoGuardStatus } = require('../services/zohoApiClient')
 
 const MAX_SKUS = 1000
 const DEFAULT_CONCURRENCY = 10
@@ -217,6 +217,22 @@ function extractImageReference(item) {
   return null
 }
 
+async function getZohoUsageSnapshot() {
+  const guard = getZohoGuardStatus()
+  const out = {
+    perMinuteLimit: guard.perMinuteLimit,
+    dailyLimit: guard.dailyLimit,
+    successfulCalls: null,
+    utcDay: new Date().toISOString().slice(0, 10),
+  }
+  try {
+    out.successfulCalls = await getDailySuccessCount()
+  } catch (err) {
+    out.countUnavailable = true
+  }
+  return out
+}
+
 function publicImagePath(itemId) {
   return `/api/zoho/items/images/${encodeURIComponent(String(itemId))}/download`
 }
@@ -270,9 +286,18 @@ async function fetchOneSku(sku, skuMap) {
     }
 
     const itemId = pickItemId(itemSummary)
-    const detail = await fetchItemById(itemId)
-    const itemName = pickItemName(detail) || pickItemName(itemSummary)
-    const imageReference = extractImageReference(detail)
+    const itemName = pickItemName(itemSummary)
+    const imageReference = extractImageReference(itemSummary)
+
+    if (!imageReference) {
+      return {
+        ...base,
+        itemName,
+        itemId,
+        status: 'No Image',
+        message: 'Item found, but Zoho catalog metadata has no image reference',
+      }
+    }
 
     const cached = zohoItemImageCache.get(itemId)
     const image = cached || (await fetchZohoItemImageBuffer(itemId))
@@ -290,7 +315,7 @@ async function fetchOneSku(sku, skuMap) {
 
     return {
       ...base,
-      sku: pickItemSku(detail) || pickItemSku(itemSummary) || sku,
+      sku: pickItemSku(itemSummary) || sku,
       itemName,
       itemId,
       imageUrl: publicImagePath(itemId),
@@ -329,6 +354,7 @@ async function fetchImages(req, res) {
     return res.json({
       results,
       summary: summarize(results),
+      usage: await getZohoUsageSnapshot(),
       meta: {
         inputCount: req.body.skus.length,
         uniqueCount: skus.length,
@@ -352,13 +378,11 @@ function normalizeResults(input) {
 }
 
 function buildCsv(results) {
-  const headers = ['SKU', 'Item Name', 'Zoho Item ID', 'Image URL', 'Status', 'Message']
+  const headers = ['Item Name', 'Image URL', 'Status', 'Message']
   const lines = [headers.map(csvEscape).join(',')]
   for (const row of normalizeResults(results)) {
     lines.push([
-      row.sku,
       row.itemName,
-      row.itemId,
       row.imageUrl || row.imageReference,
       row.status,
       row.message,
@@ -389,7 +413,7 @@ function extensionFor(contentType) {
 }
 
 function uniqueImageName(row, contentType, used) {
-  const base = sanitizeFilename(row.sku || row.itemId || 'item')
+  const base = sanitizeFilename(row.itemName || row.sku || row.itemId || 'item')
   const ext = extensionFor(contentType)
   let name = `${base}.${ext}`
   let n = 2

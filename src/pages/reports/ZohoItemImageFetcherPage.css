@@ -91,6 +91,24 @@
   transition: width 180ms ease;
 }
 
+.zif-usage {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(74, 124, 255, 0.18);
+  border-radius: 12px;
+  background: rgba(74, 124, 255, 0.07);
+  color: var(--text-secondary, #64748b);
+  font-size: 13px;
+}
+
+.zif-usage strong {
+  color: var(--text-primary, #0f172a);
+}
+
 .zif-table-wrap {
   overflow: auto;
   border: 1px solid var(--zif-border);
@@ -100,7 +118,7 @@
 
 .zif-table {
   width: 100%;
-  min-width: 980px;
+  min-width: 720px;
   border-collapse: collapse;
   font-size: 13px;
 }
