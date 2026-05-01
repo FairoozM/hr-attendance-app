@@ -30,6 +30,116 @@ export function formatNumber(value, options = {}) {
   return new Intl.NumberFormat('en-US').format(n)
 }
 
+export function addDays(dateString, days) {
+  const date = new Date(`${dateString}T00:00:00`)
+  date.setDate(date.getDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
+export function getDayNumber(startDate, date) {
+  if (!startDate || !date) return null
+  const start = new Date(`${startDate}T00:00:00`).getTime()
+  const current = new Date(`${date}T00:00:00`).getTime()
+  if (Number.isNaN(start) || Number.isNaN(current)) return null
+  return Math.floor((current - start) / 86_400_000) + 1
+}
+
+export function getVideoContractKey(record = {}) {
+  if (record.contractId) return String(record.contractId)
+  const influencerId = record.influencerId || 'unknown'
+  const video = record.postUrl || record.videoTitle || record.campaignName || 'video'
+  const startDate = record.contractStartDate || record.date || 'no-date'
+  return `${influencerId}::${String(video).trim().toLowerCase()}::${startDate}`
+}
+
+export function getPerformanceRecordKey(record = {}) {
+  return `${getVideoContractKey(record)}::${record.date || 'no-date'}`
+}
+
+export function dedupePerformanceRecords(records = []) {
+  const byKey = new Map()
+  records.forEach((record) => {
+    const key = getPerformanceRecordKey(record)
+    const current = byKey.get(key)
+    if (!current) {
+      byKey.set(key, record)
+      return
+    }
+    const currentTime = new Date(current.updatedAt || current.createdAt || 0).getTime()
+    const nextTime = new Date(record.updatedAt || record.createdAt || 0).getTime()
+    byKey.set(key, nextTime >= currentTime ? record : current)
+  })
+  return Array.from(byKey.values())
+}
+
+export function getVideoContractTimelines(records = [], influencers = [], daysFallback = 5) {
+  const influencersById = new Map(influencers.map((item) => [String(item.id), item]))
+  const grouped = new Map()
+
+  dedupePerformanceRecords(records).forEach((record) => {
+    const key = getVideoContractKey(record)
+    const current = grouped.get(key) || {
+      id: key,
+      influencerId: record.influencerId,
+      influencer: influencersById.get(String(record.influencerId)),
+      platform: record.platform,
+      videoTitle: record.videoTitle || record.campaignName || 'Contracted video',
+      postUrl: record.postUrl || '',
+      campaignName: record.campaignName || 'Campaign',
+      contractStartDate: record.contractStartDate || record.date,
+      monitoringDays: toNumber(record.monitoringDays) || daysFallback,
+      records: [],
+      totals: {
+        views: 0,
+        likes: 0,
+        comments: 0,
+        shares: 0,
+        saves: 0,
+        cost: 0,
+      },
+    }
+
+    current.records.push(record)
+    current.contractStartDate = current.contractStartDate < record.date ? current.contractStartDate : (record.contractStartDate || record.date)
+    current.monitoringDays = Math.max(current.monitoringDays, toNumber(record.monitoringDays) || daysFallback)
+    current.totals.views += toNumber(record.views)
+    current.totals.likes += toNumber(record.likes)
+    current.totals.comments += toNumber(record.comments)
+    current.totals.shares += toNumber(record.shares)
+    current.totals.saves += toNumber(record.saves)
+    current.totals.cost += toNumber(record.cost)
+    grouped.set(key, current)
+  })
+
+  return Array.from(grouped.values())
+    .map((contract) => {
+      const orderedRecords = [...contract.records].sort((a, b) => a.date.localeCompare(b.date))
+      const startDate = contract.contractStartDate || orderedRecords[0]?.date
+      const monitoringDays = Math.max(4, Math.min(7, toNumber(contract.monitoringDays) || daysFallback))
+      const days = Array.from({ length: monitoringDays }, (_, index) => {
+        const date = addDays(startDate, index)
+        const record = orderedRecords.find((item) => item.date === date)
+        return {
+          dayNumber: index + 1,
+          date,
+          record,
+          isRecorded: Boolean(record),
+        }
+      })
+      const latest = orderedRecords[orderedRecords.length - 1]
+      return {
+        ...contract,
+        contractStartDate: startDate,
+        monitoringDays,
+        days,
+        latest,
+        recordedDays: days.filter((item) => item.isRecorded).length,
+        averageEngagementRate: calculateEngagementRate(contract.totals),
+      }
+    })
+    .sort((a, b) => String(b.latest?.date || '').localeCompare(String(a.latest?.date || '')))
+}
+
 export function getTopInfluencer(records = [], influencers = []) {
   const byId = new Map()
   records.forEach((record) => {
@@ -118,8 +228,14 @@ export function getHighestEngagementRecord(records = [], influencers = []) {
 }
 
 export function normalizePerformanceRecord(record) {
+  const contractStartDate = record.contractStartDate || record.date
+  const contractId = record.contractId || getVideoContractKey({ ...record, contractStartDate })
   const normalized = {
     ...record,
+    contractId,
+    contractStartDate,
+    monitoringDays: Math.max(4, Math.min(7, toNumber(record.monitoringDays) || 5)),
+    videoTitle: record.videoTitle || record.campaignName || 'Contracted video',
     views: toNumber(record.views),
     likes: toNumber(record.likes),
     comments: toNumber(record.comments),
@@ -223,26 +339,32 @@ export const mockInfluencers = [
 
 export function createMockPerformanceRecords(influencers = mockInfluencers) {
   const today = new Date()
-  const day = (offset) => {
+  const day = (offsetFromToday) => {
     const date = new Date(today)
-    date.setDate(today.getDate() - offset)
+    date.setDate(today.getDate() - offsetFromToday)
     return date.toISOString().slice(0, 10)
   }
 
   return influencers.slice(0, 6).flatMap((influencer, influencerIndex) => (
-    [0, 1, 2, 3, 4].map((offset) => {
-      const views = 42000 + influencerIndex * 17500 + offset * 6300
+    [0, 1, 2, 3, 4].map((dayIndex) => {
+      const contractStartDate = day(4)
+      const recordDate = addDays(contractStartDate, dayIndex)
+      const views = 42000 + influencerIndex * 17500 + dayIndex * 6300
       const likes = Math.round(views * (0.045 + influencerIndex * 0.006))
       const comments = Math.round(views * 0.0045)
       const shares = Math.round(views * 0.003)
       const saves = Math.round(views * 0.0022)
       const record = {
-        id: `perf-${influencer.id}-${offset}`,
+        id: `perf-${influencer.id}-${dayIndex}`,
+        contractId: `contract-${influencer.id}-${contractStartDate}`,
         influencerId: influencer.id,
-        date: day(offset),
+        date: recordDate,
         platform: influencer.platform,
-        postUrl: `https://example.com/${influencer.username.replace('@', '')}/${offset + 1}`,
+        postUrl: `https://example.com/${influencer.username.replace('@', '')}/weekly-video`,
         campaignName: influencer.assignedCampaign,
+        videoTitle: `${influencer.assignedCampaign} weekly video`,
+        contractStartDate,
+        monitoringDays: 5,
         views,
         likes,
         comments,
@@ -252,7 +374,7 @@ export function createMockPerformanceRecords(influencers = mockInfluencers) {
         storyViews: Math.round(views * 0.28),
         engagementRate: 0,
         cost: 1200 + influencerIndex * 450,
-        notes: offset === 0 ? 'Strong first-day lift from creator stories.' : '',
+        notes: dayIndex === 0 ? 'Day 1 baseline after upload.' : '',
         screenshotUrl: '',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),

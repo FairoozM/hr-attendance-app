@@ -1,4 +1,5 @@
-import { CalendarDays, Heart, MessageCircle, Share2, Sparkles, UsersRound, Video } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { CalendarDays, Heart, MessageCircle, Share2, UsersRound, Video } from 'lucide-react'
 import { formatNumber } from '../../utils/influencerPerformanceUtils'
 
 function initials(name) {
@@ -10,6 +11,12 @@ function initials(name) {
     .join('') || 'IN'
 }
 
+function displayHandle(username) {
+  const value = String(username || '').trim()
+  if (!value) return '@creator'
+  return value.startsWith('@') ? value : `@${value}`
+}
+
 function statusClass(status) {
   if (status === 'Completed') return 'ip-status ip-status--completed'
   if (status === 'Paused') return 'ip-status ip-status--paused'
@@ -17,12 +24,19 @@ function statusClass(status) {
 }
 
 export function InfluencerCard({ influencer, latestRecord }) {
+  const [imageError, setImageError] = useState(false)
+  const showImage = Boolean(influencer.profileImage) && !imageError
+
+  useEffect(() => {
+    setImageError(false)
+  }, [influencer.profileImage])
+
   return (
     <article className="ip-influencer-card">
       <div className="ip-influencer-card__top">
         <div className="ip-avatar">
-          {influencer.profileImage ? (
-            <img src={influencer.profileImage} alt={influencer.name} />
+          {showImage ? (
+            <img src={influencer.profileImage} alt="" onError={() => setImageError(true)} />
           ) : (
             <span>{initials(influencer.name)}</span>
           )}
@@ -31,14 +45,11 @@ export function InfluencerCard({ influencer, latestRecord }) {
       </div>
 
       <div className="ip-influencer-card__body">
-        <div>
+        <div className="ip-influencer-card__identity">
           <h3>{influencer.name}</h3>
-          <p>{influencer.username}</p>
+          <p>{displayHandle(influencer.username)}</p>
         </div>
-        <div className="ip-platform-pill">
-          <Sparkles size={14} />
-          {influencer.platform}
-        </div>
+        <div className="ip-platform-pill">{influencer.platform}</div>
       </div>
 
       <div className="ip-influencer-card__meta">

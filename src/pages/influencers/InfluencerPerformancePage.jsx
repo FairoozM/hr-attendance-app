@@ -1,17 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Download, Filter, Gauge, Plus, RefreshCw, Search, X } from 'lucide-react'
+import { Download, Gauge, RefreshCw, Save, Search, X } from 'lucide-react'
 import { useInfluencers } from '../../contexts/InfluencersContext'
-import { InfluencerCard } from '../../components/influencers/InfluencerCard'
 import { InfluencerCharts } from '../../components/influencers/InfluencerCharts'
-import { InfluencerDashboardCards } from '../../components/influencers/InfluencerDashboardCards'
-import { InfluencerPerformanceForm } from '../../components/influencers/InfluencerPerformanceForm'
+import { InfluencerContractTimeline } from '../../components/influencers/InfluencerContractTimeline'
 import { InfluencerPerformanceTable } from '../../components/influencers/InfluencerPerformanceTable'
 import {
   createInfluencerFromAppRecord,
   createMockPerformanceRecords,
+  dedupePerformanceRecords,
   formatNumber,
-  INFLUENCER_PERFORMANCE_STATUSES,
-  INFLUENCER_PLATFORMS,
+  getDayNumber,
+  getVideoContractTimelines,
   mockInfluencers,
   normalizePerformanceRecord,
   toNumber,
@@ -21,24 +20,13 @@ import './InfluencerPerformancePage.css'
 
 const STORAGE_KEY = 'hr-influencer-performance-v1'
 
-const defaultFilters = {
-  query: '',
-  startDate: '',
-  endDate: '',
-  influencerId: 'all',
-  platform: 'all',
-  campaign: 'all',
-  status: 'all',
-  performance: 'all',
-}
-
 function loadStoredRecords() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return null
-    return parsed.map(normalizePerformanceRecord)
+    return dedupePerformanceRecords(parsed.map(normalizePerformanceRecord))
   } catch {
     return null
   }
@@ -69,9 +57,9 @@ function compareValues(a, b, direction) {
 export function InfluencerPerformancePage() {
   const { influencers: appInfluencers = [], loading: influencersLoading } = useInfluencers()
   const [records, setRecords] = useState(null)
-  const [filters, setFilters] = useState(defaultFilters)
   const [sort, setSort] = useState({ key: 'date', direction: 'desc' })
   const [editingRecord, setEditingRecord] = useState(null)
+  const [editingContract, setEditingContract] = useState(null)
   const [viewRecord, setViewRecord] = useState(null)
 
   const influencers = useMemo(() => {
@@ -97,72 +85,28 @@ export function InfluencerPerformancePage() {
     if (records) saveRecords(records)
   }, [records])
 
-  const allRecords = records || []
-  const today = new Date().toISOString().slice(0, 10)
-
-  const campaigns = useMemo(() => (
-    Array.from(new Set([
-      ...influencers.map((item) => item.assignedCampaign).filter(Boolean),
-      ...allRecords.map((item) => item.campaignName).filter(Boolean),
-    ])).sort()
-  ), [influencers, allRecords])
-
-  const latestRecordByInfluencer = useMemo(() => {
-    const map = new Map()
-    allRecords.forEach((record) => {
-      const current = map.get(String(record.influencerId))
-      if (!current || record.date > current.date) map.set(String(record.influencerId), record)
-    })
-    return map
-  }, [allRecords])
+  const allRecords = useMemo(() => dedupePerformanceRecords(records || []), [records])
 
   const filteredRecords = useMemo(() => {
-    const q = filters.query.trim().toLowerCase()
-    const visible = allRecords.filter((record) => {
-      const influencer = influencersById.get(String(record.influencerId))
-      const status = influencer?.status || 'Active'
-      const haystack = `${influencer?.name || ''} ${influencer?.username || ''} ${record.platform} ${record.campaignName}`.toLowerCase()
-      if (q && !haystack.includes(q)) return false
-      if (filters.startDate && record.date < filters.startDate) return false
-      if (filters.endDate && record.date > filters.endDate) return false
-      if (filters.influencerId !== 'all' && String(record.influencerId) !== String(filters.influencerId)) return false
-      if (filters.platform !== 'all' && record.platform !== filters.platform) return false
-      if (filters.campaign !== 'all' && record.campaignName !== filters.campaign) return false
-      if (filters.status !== 'all' && status !== filters.status) return false
-      return true
-    })
-
-    const performanceSorted = [...visible].sort((a, b) => (
-      filters.performance === 'lowest'
-        ? toNumber(a.engagementRate) - toNumber(b.engagementRate)
-        : toNumber(b.engagementRate) - toNumber(a.engagementRate)
-    ))
-    const performanceFiltered = filters.performance === 'all' ? visible : performanceSorted.slice(0, 8)
-
-    return performanceFiltered.sort((a, b) => {
+    return [...allRecords].sort((a, b) => {
       const influencerA = influencersById.get(String(a.influencerId))
       const influencerB = influencersById.get(String(b.influencerId))
-      const valueA = sort.key === 'influencer' ? influencerA?.name : a[sort.key]
-      const valueB = sort.key === 'influencer' ? influencerB?.name : b[sort.key]
+      const valueA =
+        sort.key === 'influencer' ? influencerA?.name :
+          sort.key === 'dayNumber' ? getDayNumber(a.contractStartDate, a.date) :
+            a[sort.key]
+      const valueB =
+        sort.key === 'influencer' ? influencerB?.name :
+          sort.key === 'dayNumber' ? getDayNumber(b.contractStartDate, b.date) :
+            b[sort.key]
       return compareValues(valueA, valueB, sort.direction)
     })
-  }, [allRecords, filters, influencersById, sort])
+  }, [allRecords, influencersById, sort])
 
-  const visibleInfluencers = useMemo(() => (
-    influencers.filter((influencer) => {
-      if (filters.influencerId !== 'all' && String(influencer.id) !== String(filters.influencerId)) return false
-      if (filters.platform !== 'all' && influencer.platform !== filters.platform) return false
-      if (filters.campaign !== 'all' && influencer.assignedCampaign !== filters.campaign) return false
-      if (filters.status !== 'all' && influencer.status !== filters.status) return false
-      if (!filters.query.trim()) return true
-      const q = filters.query.trim().toLowerCase()
-      return `${influencer.name} ${influencer.username} ${influencer.niche} ${influencer.assignedCampaign}`.toLowerCase().includes(q)
-    })
-  ), [filters, influencers])
-
-  function setFilter(key, value) {
-    setFilters((prev) => ({ ...prev, [key]: value }))
-  }
+  const videoContracts = useMemo(
+    () => getVideoContractTimelines(filteredRecords, influencers),
+    [filteredRecords, influencers],
+  )
 
   function handleSort(key) {
     setSort((prev) => ({
@@ -174,6 +118,16 @@ export function InfluencerPerformancePage() {
   function handleSubmit(record) {
     setRecords((prev) => {
       const list = prev || []
+      const sameDayIndex = list.findIndex((item) => (
+        item.id === record.id ||
+        (
+          item.contractId === record.contractId &&
+          item.date === record.date
+        )
+      ))
+      if (sameDayIndex >= 0) {
+        return list.map((item, index) => index === sameDayIndex ? { ...record, id: item.id || record.id || makeRecordId() } : item)
+      }
       if (record.id) {
         return list.map((item) => item.id === record.id ? record : item)
       }
@@ -191,6 +145,25 @@ export function InfluencerPerformancePage() {
     if (editingRecord?.id === id) setEditingRecord(null)
   }
 
+  function handleSaveContractEdit() {
+    if (!editingContract?.selectedInfluencerId) return
+    const selectedInfluencer = influencersById.get(String(editingContract.selectedInfluencerId))
+    if (!selectedInfluencer) return
+    const contractRecordIds = new Set((editingContract.contract.records || []).map((record) => record.id))
+    setRecords((prev) => (prev || []).map((record) => (
+      contractRecordIds.has(record.id)
+        ? {
+            ...record,
+            influencerId: selectedInfluencer.id,
+            platform: selectedInfluencer.platform,
+            campaignName: record.campaignName || selectedInfluencer.assignedCampaign,
+            updatedAt: new Date().toISOString(),
+          }
+        : record
+    )))
+    setEditingContract(null)
+  }
+
   function resetDemoData() {
     const seeded = createMockPerformanceRecords(influencers)
     setRecords(seeded)
@@ -204,109 +177,25 @@ export function InfluencerPerformancePage() {
         <div>
           <span className="ip-eyebrow"><Gauge size={15} /> Marketing / Social Media</span>
           <h1 className="inf-page-title">Influencer Performance</h1>
-          <p className="inf-page-subtitle">Track daily creator views, engagement, cost, and campaign lift from one claymorphic dashboard.</p>
+          <p className="inf-page-subtitle">Track one contracted video per influencer across 4-5 consecutive daily performance checks.</p>
         </div>
         <div className="inf-page-actions">
           <button type="button" className="inf-btn inf-btn--ghost" onClick={resetDemoData}>
             <RefreshCw size={15} /> Reset mock data
           </button>
-          <a className="inf-btn inf-btn--primary" href="#ip-performance-form">
-            <Plus size={15} /> Add daily numbers
-          </a>
         </div>
       </header>
 
-      <InfluencerDashboardCards influencers={influencers} records={allRecords} today={today} />
-
-      <section className="ip-filter-panel">
-        <div className="ip-search-box">
-          <Search size={17} />
-          <input value={filters.query} onChange={(event) => setFilter('query', event.target.value)} placeholder="Search influencer, handle, campaign, platform..." />
-        </div>
-
-        <div className="ip-filter-grid">
-          <label>
-            <span>Date from</span>
-            <input type="date" value={filters.startDate} onChange={(event) => setFilter('startDate', event.target.value)} />
-          </label>
-          <label>
-            <span>Date to</span>
-            <input type="date" value={filters.endDate} onChange={(event) => setFilter('endDate', event.target.value)} />
-          </label>
-          <label>
-            <span>Influencer</span>
-            <select value={filters.influencerId} onChange={(event) => setFilter('influencerId', event.target.value)}>
-              <option value="all">All influencers</option>
-              {influencers.map((influencer) => (
-                <option key={influencer.id} value={influencer.id}>{influencer.name}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Platform</span>
-            <select value={filters.platform} onChange={(event) => setFilter('platform', event.target.value)}>
-              <option value="all">All platforms</option>
-              {INFLUENCER_PLATFORMS.map((platform) => (
-                <option key={platform} value={platform}>{platform}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Campaign</span>
-            <select value={filters.campaign} onChange={(event) => setFilter('campaign', event.target.value)}>
-              <option value="all">All campaigns</option>
-              {campaigns.map((campaign) => (
-                <option key={campaign} value={campaign}>{campaign}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Status</span>
-            <select value={filters.status} onChange={(event) => setFilter('status', event.target.value)}>
-              <option value="all">All statuses</option>
-              {INFLUENCER_PERFORMANCE_STATUSES.map((status) => (
-                <option key={status} value={status}>{status}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Performance</span>
-            <select value={filters.performance} onChange={(event) => setFilter('performance', event.target.value)}>
-              <option value="all">All records</option>
-              <option value="best">Best performance</option>
-              <option value="lowest">Lowest performance</option>
-            </select>
-          </label>
-        </div>
-
-        <div className="ip-filter-panel__footer">
-          <span><Filter size={14} /> Showing {formatNumber(filteredRecords.length)} records and {formatNumber(visibleInfluencers.length)} influencers</span>
-          <button type="button" className="inf-btn inf-btn--ghost inf-btn--sm" onClick={() => setFilters(defaultFilters)}>
-            <X size={14} /> Clear filters
-          </button>
-        </div>
-      </section>
-
-      <section className="ip-influencer-grid" aria-label="Influencer cards">
-        {visibleInfluencers.map((influencer) => (
-          <InfluencerCard
-            key={influencer.id}
-            influencer={influencer}
-            latestRecord={latestRecordByInfluencer.get(String(influencer.id))}
-          />
-        ))}
-      </section>
-
-      <InfluencerCharts records={filteredRecords} influencersById={influencersById} />
-
-      <div id="ip-performance-form">
-        <InfluencerPerformanceForm
-          influencers={influencers}
-          editingRecord={editingRecord}
-          onSubmit={handleSubmit}
-          onCancelEdit={() => setEditingRecord(null)}
-        />
-      </div>
+      <InfluencerContractTimeline
+        contracts={videoContracts}
+        onEditRecord={setEditingRecord}
+        onDeleteRecord={handleDelete}
+        onEditContract={(contract) => setEditingContract({
+          contract,
+          selectedInfluencerId: contract.influencerId,
+          query: contract.influencer?.name || '',
+        })}
+      />
 
       <InfluencerPerformanceTable
         records={filteredRecords}
@@ -317,6 +206,8 @@ export function InfluencerPerformancePage() {
         onEdit={setEditingRecord}
         onDelete={handleDelete}
       />
+
+      <InfluencerCharts records={filteredRecords} influencersById={influencersById} />
 
       {viewRecord ? (
         <div className="ip-modal-backdrop" role="presentation" onClick={() => setViewRecord(null)}>
@@ -352,6 +243,144 @@ export function InfluencerPerformancePage() {
             {viewRecord.postUrl ? <a className="ip-modal__link" href={viewRecord.postUrl} target="_blank" rel="noopener noreferrer">Open post link</a> : null}
             {viewRecord.notes ? <p className="ip-modal__notes">{viewRecord.notes}</p> : null}
             {viewRecord.screenshotUrl ? <p className="ip-modal__notes">Screenshot: {viewRecord.screenshotUrl}</p> : null}
+          </section>
+        </div>
+      ) : null}
+
+      {editingRecord ? (
+        <div className="ip-modal-backdrop" role="presentation" onClick={() => setEditingRecord(null)}>
+          <section className="ip-modal ip-edit-modal" role="dialog" aria-modal="true" aria-label="Edit performance record" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="ip-modal__close" onClick={() => setEditingRecord(null)} aria-label="Close edit record">
+              <X size={18} />
+            </button>
+            <div className="ip-section-heading">
+              <span className="ip-section-heading__icon"><Save size={18} /></span>
+              <div>
+                <h2>Edit Day {getDayNumber(editingRecord.contractStartDate, editingRecord.date) || 1}</h2>
+                <p>{influencersById.get(String(editingRecord.influencerId))?.name || 'Influencer'} · {editingRecord.campaignName}</p>
+              </div>
+            </div>
+
+            <div className="ip-edit-grid">
+              {[
+                ['Date', 'date', 'date'],
+                ['Views', 'views', 'number'],
+                ['Shares', 'shares', 'number'],
+                ['Likes', 'likes', 'number'],
+                ['Comments', 'comments', 'number'],
+                ['Saves', 'saves', 'number'],
+                ['Followers gained', 'followersGained', 'number'],
+                ['Cost', 'cost', 'number'],
+              ].map(([label, key, type]) => (
+                <label key={key} className="ip-field">
+                  <span>{label}</span>
+                  <input
+                    className="ip-control"
+                    type={type}
+                    min={type === 'number' ? '0' : undefined}
+                    step={key === 'cost' ? '0.01' : undefined}
+                    value={editingRecord[key] ?? ''}
+                    onChange={(event) => setEditingRecord((prev) => ({ ...prev, [key]: event.target.value }))}
+                  />
+                </label>
+              ))}
+            </div>
+
+            <label className="ip-field">
+              <span>Notes</span>
+              <textarea
+                className="ip-control ip-control--textarea"
+                value={editingRecord.notes || ''}
+                onChange={(event) => setEditingRecord((prev) => ({ ...prev, notes: event.target.value }))}
+              />
+            </label>
+
+            <div className="ip-form__footer">
+              <div className="ip-form__hint">Editing only opens when you click a day/row edit icon.</div>
+              <div className="ip-form__actions">
+                <button type="button" className="inf-btn inf-btn--ghost" onClick={() => setEditingRecord(null)}>
+                  <X size={15} /> Cancel
+                </button>
+                <button
+                  type="button"
+                  className="inf-btn inf-btn--primary"
+                  onClick={() => handleSubmit(normalizePerformanceRecord(editingRecord))}
+                >
+                  <Save size={15} /> Save
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {editingContract ? (
+        <div className="ip-modal-backdrop" role="presentation" onClick={() => setEditingContract(null)}>
+          <section className="ip-modal ip-contract-edit-modal" role="dialog" aria-modal="true" aria-label="Edit contract influencer" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="ip-modal__close" onClick={() => setEditingContract(null)} aria-label="Close contract edit">
+              <X size={18} />
+            </button>
+            <div className="ip-section-heading">
+              <span className="ip-section-heading__icon"><Search size={18} /></span>
+              <div>
+                <h2>Edit contract influencer</h2>
+                <p>Search the influencer list. Followers are fetched automatically from the selected profile.</p>
+              </div>
+            </div>
+
+            <label className="ip-field">
+              <span>Search influencer</span>
+              <input
+                className="ip-control"
+                value={editingContract.query}
+                onChange={(event) => setEditingContract((prev) => ({ ...prev, query: event.target.value }))}
+                placeholder="Type influencer name, handle, or platform"
+              />
+            </label>
+
+            <div className="ip-influencer-picker">
+              {influencers
+                .filter((influencer) => {
+                  const q = editingContract.query.trim().toLowerCase()
+                  if (!q) return true
+                  return `${influencer.name} ${influencer.username} ${influencer.platform}`.toLowerCase().includes(q)
+                })
+                .slice(0, 12)
+                .map((influencer) => (
+                  <button
+                    key={influencer.id}
+                    type="button"
+                    className={`ip-influencer-picker__item ${String(editingContract.selectedInfluencerId) === String(influencer.id) ? 'ip-influencer-picker__item--active' : ''}`}
+                    onClick={() => setEditingContract((prev) => ({ ...prev, selectedInfluencerId: influencer.id, query: influencer.name }))}
+                  >
+                    <span>
+                      <strong>{influencer.name}</strong>
+                      <em>{influencer.username} · {influencer.platform}</em>
+                    </span>
+                    <b>{formatNumber(influencer.followers)} followers</b>
+                  </button>
+                ))}
+            </div>
+
+            {influencersById.get(String(editingContract.selectedInfluencerId)) ? (
+              <div className="ip-selected-influencer">
+                <span>Selected</span>
+                <strong>{influencersById.get(String(editingContract.selectedInfluencerId)).name}</strong>
+                <em>{formatNumber(influencersById.get(String(editingContract.selectedInfluencerId)).followers)} followers will show in the monitor.</em>
+              </div>
+            ) : null}
+
+            <div className="ip-form__footer">
+              <div className="ip-form__hint">This updates all saved days for this video contract.</div>
+              <div className="ip-form__actions">
+                <button type="button" className="inf-btn inf-btn--ghost" onClick={() => setEditingContract(null)}>
+                  <X size={15} /> Cancel
+                </button>
+                <button type="button" className="inf-btn inf-btn--primary" onClick={handleSaveContractEdit}>
+                  <Save size={15} /> Save influencer
+                </button>
+              </div>
+            </div>
           </section>
         </div>
       ) : null}
