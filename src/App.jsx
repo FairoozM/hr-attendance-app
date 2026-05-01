@@ -30,6 +30,7 @@ import { ShootSchedulePage } from './pages/influencers/ShootSchedulePage'
 import { PaymentsPage } from './pages/influencers/PaymentsPage'
 import { AgreementsPage } from './pages/influencers/AgreementsPage'
 import { ReportsPage } from './pages/influencers/ReportsPage'
+import { InfluencerPerformancePage } from './pages/influencers/InfluencerPerformancePage'
 import { SimCardsPage } from './pages/SimCardsPage'
 import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
 import { PaymentsPage as CompanyPaymentsPage } from './pages/management/PaymentsPage'
@@ -323,6 +324,11 @@ function AppContent() {
           <Route path="reports" element={
             <PermissionGuard module="influencers" action="view">
               <ReportsPage />
+            </PermissionGuard>
+          } />
+          <Route path="performance" element={
+            <PermissionGuard module="influencers" action="view">
+              <InfluencerPerformancePage />
             </PermissionGuard>
           } />
           <Route path=":id" element={

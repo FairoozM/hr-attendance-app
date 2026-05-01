@@ -438,6 +438,7 @@ export function Layout() {
     if (location.pathname.startsWith('/settings')) return 'Settings'
     if (location.pathname.startsWith('/roles-permissions')) return 'Roles & Permissions'
     if (location.pathname.startsWith('/lists/sim-cards')) return 'Sim Cards List'
+    if (location.pathname.startsWith('/influencers/performance')) return 'Influencer Performance'
     if (location.pathname.startsWith('/influencers')) return 'Influencers'
     if (location.pathname.startsWith('/account')) return 'My Account'
     if (location.pathname.startsWith('/management/payments')) return 'Company payments'
@@ -464,6 +465,7 @@ export function Layout() {
     can('influencers', 'view') && { label: 'Shoot Schedule', to: '/influencers/schedule' },
     can('influencers', 'agreements') && { label: 'Agreements', to: '/influencers/agreements' },
     can('influencers', 'payments') && { label: 'Payments', to: '/influencers/payments' },
+    can('influencers', 'view') && { label: 'Performance', to: '/influencers/performance' },
     can('influencers', 'view') && { label: 'Reports', to: '/influencers/reports' },
   ].filter(Boolean)
 
@@ -509,7 +511,7 @@ export function Layout() {
       hr: { title: 'HR', items: withIcons(hrItems) },
       admin: { title: 'Admin', items: withIcons(adminNavItems) },
       lists: { title: 'Lists', items: withIcons(listsItems) },
-      influencers: { title: 'Influencers', items: withIcons(INFLUENCER_ITEMS) },
+      influencers: { title: 'Marketing / Social Media', items: withIcons(INFLUENCER_ITEMS) },
       planner: {
         title: 'Planner',
         items: withIcons(isAdmin ? PLANNER_NAV_ITEMS : []),
@@ -535,7 +537,7 @@ export function Layout() {
   const allNavItems = useMemo(() => [
     ...hrItems.map(i => ({ ...i, group: 'HR' })),
     ...listsItems.map(i => ({ ...i, group: 'Lists' })),
-    ...INFLUENCER_ITEMS.map(i => ({ ...i, group: 'Influencers' })),
+    ...INFLUENCER_ITEMS.map(i => ({ ...i, group: 'Marketing / Social Media' })),
     ...(isAdmin ? PLANNER_NAV_ITEMS.map(i => ({ ...i, group: 'AI Planner', searchHint: 'planner projects tasks ai' })) : []),
     ...managementItems.map(i => ({
       ...i,
@@ -671,7 +673,7 @@ export function Layout() {
                 )}
 
                 {hasAnyInfluencerAccess && (
-                  <NavGroup label="Influencers" hint="Creator ops" isActive={isInfluencersActive}>
+                  <NavGroup label="Marketing / Social Media" hint="Creator ops" isActive={isInfluencersActive}>
                     {INFLUENCER_ITEMS.map(item => (
                       <NavLink
                         key={item.to}
