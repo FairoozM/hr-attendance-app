@@ -39,6 +39,10 @@ const DEFAULT_ROW = () => ({ spend: '', clicks: '', sales: '' })
 const DEFAULT_ROWS = () =>
   Object.fromEntries(MARKETPLACES.map((m) => [m, DEFAULT_ROW()]))
 
+function getMarketplaceNames(rows = {}) {
+  return Object.keys(rows).filter(Boolean)
+}
+
 function EmptyState() {
   return (
     <div className="war-empty">
@@ -53,15 +57,16 @@ function EmptyState() {
 }
 
 function ReportTable({ rows, title, dateLabel }) {
+  const marketplaces = useMemo(() => getMarketplaceNames(rows), [rows])
   const totals = useMemo(() => {
     let spend = 0, clicks = 0, sales = 0
-    MARKETPLACES.forEach((m) => {
+    marketplaces.forEach((m) => {
       spend += parseFloat(rows[m]?.spend) || 0
       clicks += parseFloat(rows[m]?.clicks) || 0
       sales += parseFloat(rows[m]?.sales) || 0
     })
     return { spend, clicks, sales }
-  }, [rows])
+  }, [marketplaces, rows])
 
   const totalAcos = calcAcos(totals.spend, totals.sales)
 
@@ -84,7 +89,7 @@ function ReportTable({ rows, title, dateLabel }) {
             </tr>
           </thead>
           <tbody>
-            {MARKETPLACES.map((m) => {
+            {marketplaces.map((m) => {
               const r = rows[m] || DEFAULT_ROW()
               const acos = calcAcos(r.spend, r.sales)
               const isDanger = acos !== null && parseFloat(acos) > ACOS_THRESHOLD
@@ -120,16 +125,17 @@ function ReportTable({ rows, title, dateLabel }) {
 
 function HistoryCard({ entry, onDelete, onEdit }) {
   const [expanded, setExpanded] = useState(false)
+  const marketplaces = useMemo(() => getMarketplaceNames(entry.rows), [entry.rows])
 
   const totals = useMemo(() => {
     let spend = 0, clicks = 0, sales = 0
-    MARKETPLACES.forEach((m) => {
+    marketplaces.forEach((m) => {
       spend += parseFloat(entry.rows[m]?.spend) || 0
       clicks += parseFloat(entry.rows[m]?.clicks) || 0
       sales += parseFloat(entry.rows[m]?.sales) || 0
     })
     return { spend, clicks, sales }
-  }, [entry.rows])
+  }, [entry.rows, marketplaces])
 
   const totalAcos = calcAcos(totals.spend, totals.sales)
   const acosNum = totalAcos !== null ? parseFloat(totalAcos) : null
@@ -246,6 +252,8 @@ export function WeeklyAdsReportPage() {
   const [rows, setRows] = useState(DEFAULT_ROWS)
   const [notes, setNotes] = useState('')
   const [saved, setSaved] = useState(false)
+  const [newMarketplace, setNewMarketplace] = useState('')
+  const [marketplaceError, setMarketplaceError] = useState('')
 
   const updateRow = useCallback((marketplace, field, value) => {
     setRows((prev) => ({
@@ -255,15 +263,33 @@ export function WeeklyAdsReportPage() {
     setSaved(false)
   }, [])
 
+  const marketplaceNames = useMemo(() => getMarketplaceNames(rows), [rows])
+
+  const handleAddMarketplace = useCallback(() => {
+    const name = newMarketplace.trim().replace(/\s+/g, ' ')
+    if (!name) {
+      setMarketplaceError('Enter marketplace name')
+      return
+    }
+    if (marketplaceNames.some((item) => item.toLowerCase() === name.toLowerCase())) {
+      setMarketplaceError('Marketplace already exists')
+      return
+    }
+    setRows((prev) => ({ ...prev, [name]: DEFAULT_ROW() }))
+    setNewMarketplace('')
+    setMarketplaceError('')
+    setSaved(false)
+  }, [marketplaceNames, newMarketplace])
+
   const totals = useMemo(() => {
     let spend = 0, clicks = 0, sales = 0
-    MARKETPLACES.forEach((m) => {
+    marketplaceNames.forEach((m) => {
       spend += parseFloat(rows[m]?.spend) || 0
       clicks += parseFloat(rows[m]?.clicks) || 0
       sales += parseFloat(rows[m]?.sales) || 0
     })
     return { spend, clicks, sales }
-  }, [rows])
+  }, [marketplaceNames, rows])
 
   const totalAcos = calcAcos(totals.spend, totals.sales)
 
@@ -284,6 +310,8 @@ export function WeeklyAdsReportPage() {
     setRows(DEFAULT_ROWS())
     setNotes('')
     setSaved(false)
+    setNewMarketplace('')
+    setMarketplaceError('')
   }, [])
 
   const handleEdit = useCallback((entry) => {
@@ -294,6 +322,8 @@ export function WeeklyAdsReportPage() {
     setRows(JSON.parse(JSON.stringify(entry.rows || DEFAULT_ROWS())))
     setNotes(entry.notes || '')
     setSaved(false)
+    setNewMarketplace('')
+    setMarketplaceError('')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [])
 
@@ -323,6 +353,8 @@ export function WeeklyAdsReportPage() {
       setEndDate(nextEnd)
       setRows(DEFAULT_ROWS())
       setNotes('')
+      setNewMarketplace('')
+      setMarketplaceError('')
     }
     setTimeout(() => setSaved(false), 3000)
   }
@@ -343,6 +375,8 @@ export function WeeklyAdsReportPage() {
     setNotes('')
     setEditingId(null)
     setSaved(false)
+    setNewMarketplace('')
+    setMarketplaceError('')
   }
 
   const dateLabel = startDate && endDate ? getWeekLabel(startDate, endDate) : ''
@@ -414,7 +448,7 @@ export function WeeklyAdsReportPage() {
               </tr>
             </thead>
             <tbody>
-              {MARKETPLACES.map((m) => {
+              {marketplaceNames.map((m) => {
                 const r = rows[m]
                 const acos = calcAcos(r.spend, r.sales)
                 const isDanger = acos !== null && parseFloat(acos) > ACOS_THRESHOLD
@@ -476,6 +510,33 @@ export function WeeklyAdsReportPage() {
               </tr>
             </tfoot>
           </table>
+        </div>
+
+        <div className="war-marketplace-add">
+          <div className="war-form-field">
+            <label className="war-label" htmlFor="war-new-marketplace">Add marketplace</label>
+            <input
+              id="war-new-marketplace"
+              type="text"
+              className="war-input"
+              value={newMarketplace}
+              onChange={(e) => {
+                setNewMarketplace(e.target.value)
+                if (marketplaceError) setMarketplaceError('')
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  handleAddMarketplace()
+                }
+              }}
+              placeholder="e.g. Meta Ads, Google Ads, Carrefour"
+            />
+            {marketplaceError && <span className="war-marketplace-add__error">{marketplaceError}</span>}
+          </div>
+          <button type="button" className="war-btn war-btn--ghost" onClick={handleAddMarketplace}>
+            Add marketplace
+          </button>
         </div>
 
         <div className="war-form-notes">
