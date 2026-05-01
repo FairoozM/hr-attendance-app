@@ -2051,8 +2051,14 @@
 }
 
 .ip-add-record-modal .ip-field > span {
+  display: block;
   font-size: 0.62rem;
   letter-spacing: 0.07em;
+  line-height: 1.15;
+  min-height: 0.72rem;
+  overflow-wrap: normal;
+  text-align: left;
+  white-space: nowrap;
 }
 
 .ip-add-record-modal .ip-control {
@@ -2087,8 +2093,24 @@
   gap: 0.5rem;
 }
 
+.ip-add-record-modal .ip-metric-grid .ip-field,
+.ip-add-record-modal .ip-form-inline--dates .ip-field,
+.ip-add-record-modal .ip-form-bottom-grid .ip-field {
+  display: grid;
+  grid-template-rows: 1.45rem auto;
+  align-content: start;
+}
+
+.ip-add-record-modal .ip-metric-grid .ip-field > span,
+.ip-add-record-modal .ip-form-inline--dates .ip-field > span,
+.ip-add-record-modal .ip-form-bottom-grid .ip-field > span {
+  align-self: end;
+  min-height: auto;
+}
+
 .ip-add-record-modal .ip-control--metric {
   font-size: 0.9rem;
+  text-align: left;
 }
 
 .ip-add-record-modal .ip-control--textarea {
