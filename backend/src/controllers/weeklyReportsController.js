@@ -3,7 +3,7 @@ const { listGroupKeys }                               = require('../services/ite
 const { sumReportGrandTotals }                        = require('../utils/weeklyReportTotals')
 const { ZOHO_WEEKLY_REPORT_INTEGRATION }              = require('../services/weeklyReportZohoData')
 const { mergeZohoWithVendorContext }                 = require('../services/weeklyReportVendorConfig')
-const { getCachedReport, makeKey }                  = require('../services/weeklyReportCache')
+const { getCachedReport, clearReportCache, makeKey } = require('../services/weeklyReportCache')
 const { peekWeeklyReportPrefetchBundle }            = require('../services/weeklyReportPrefetchStash')
 const { coldBlockedFamilyDetailsMatrixPayload }    = require('../services/weeklyReportZohoData')
 const { fetchWarehouses }                             = require('../integrations/zoho/zohoWarehouses')
@@ -243,6 +243,13 @@ function safeExportSlug(value) {
     .slice(0, 80) || 'family'
 }
 
+function isPrefetchMissingFallback(body) {
+  return body &&
+    body.meta &&
+    body.meta.usedFallback === true &&
+    body.meta.fallbackReason === 'prefetch_bundle_missing'
+}
+
 function isZohoDailyRateLimit(err) {
   if (!err) return false
   const msg = String(err.message || '')
@@ -480,20 +487,35 @@ async function buildFamilyDetailsWarehousesPayload(
     ? String(filterWarehouseId).trim()
     : null
 
-  const prefetchBundle = peekWeeklyReportPrefetchBundle(group, fromDate, toDate, normF, normEx)
+  let prefetchBundle = peekWeeklyReportPrefetchBundle(group, fromDate, toDate, normF, normEx)
   const cacheKey = makeKey(group, fromDate, toDate, normF, normEx)
   if (!prefetchBundle && process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS === '1') {
     console.warn(
       JSON.stringify({
-        msg: 'family_details_blocked_no_prefetch',
+        msg: 'family_details_prefetch_missing_rewarm',
         family,
         cacheKey,
       })
     )
-    const coldTargets = normF
-      ? [{ warehouse_id: normF, warehouse_name: normF }]
-      : []
-    return coldBlockedFamilyDetailsMatrixPayload({ family, warehouses: coldTargets })
+    // The browser can keep a loaded main table open after the backend prefetch
+    // stash expires or after a deploy restart. Rebuild the main report once so
+    // family details can recover instead of showing an empty fallback matrix.
+    clearReportCache(group, fromDate, toDate, normF, normEx)
+    await loadWeeklyReportPayload(group, fromDate, toDate, normF, normEx)
+    prefetchBundle = peekWeeklyReportPrefetchBundle(group, fromDate, toDate, normF, normEx)
+    if (!prefetchBundle) {
+      console.warn(
+        JSON.stringify({
+          msg: 'family_details_blocked_no_prefetch_after_rewarm',
+          family,
+          cacheKey,
+        })
+      )
+      const coldTargets = normF
+        ? [{ warehouse_id: normF, warehouse_name: normF }]
+        : []
+      return coldBlockedFamilyDetailsMatrixPayload({ family, warehouses: coldTargets })
+    }
   }
 
   /** @type {Array<{ warehouse_id: string, warehouse_name: string }>} */
@@ -595,7 +617,9 @@ async function loadFamilyDetailsBody(group, range, family, filterWarehouseId, ex
   p.then(
     (body) => {
       _familyDetailsFlight.delete(cacheKey)
-      _familyDetailsCache.set(cacheKey, { body, expiresAt: Date.now() + FAMILY_DETAILS_CACHE_TTL_MS })
+      if (!isPrefetchMissingFallback(body)) {
+        _familyDetailsCache.set(cacheKey, { body, expiresAt: Date.now() + FAMILY_DETAILS_CACHE_TTL_MS })
+      }
     },
     () => { _familyDetailsFlight.delete(cacheKey) }
   )

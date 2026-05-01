@@ -7,8 +7,13 @@
 
 const { makeKey } = require('./weeklyReportCache')
 
-/** Align with weekly report result cache default (15m); independent short TTL if env is 0. */
-const TTL_MS = 15 * 60 * 1000
+/** Align with weekly report result cache TTL; keep a short independent TTL if report cache is disabled. */
+const DEFAULT_TTL_MS = 15 * 60 * 1000
+const REPORT_CACHE_TTL_MS =
+  process.env.WEEKLY_REPORT_CACHE_TTL_MS !== undefined
+    ? Math.max(0, parseInt(process.env.WEEKLY_REPORT_CACHE_TTL_MS, 10) || 0)
+    : DEFAULT_TTL_MS
+const TTL_MS = REPORT_CACHE_TTL_MS > 0 ? REPORT_CACHE_TTL_MS : DEFAULT_TTL_MS
 
 /** @type {Map<string, { bundle: object, expiresAt: number }>} */
 const stash = new Map()
