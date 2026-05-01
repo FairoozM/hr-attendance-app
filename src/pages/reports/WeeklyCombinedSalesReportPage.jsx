@@ -338,6 +338,7 @@ export function WeeklyCombinedSalesReportPage() {
               toDate={toDate}
               datesValid={datesValid}
               warehouseId={damagedWh.warehouse_id}
+              suppressSalesAmount
               loadToken={allowDamagedSlow ? loadToken : 0}
               onReportFetchSettled={() => setAllowDamagedOther(true)}
             />
@@ -349,6 +350,7 @@ export function WeeklyCombinedSalesReportPage() {
               toDate={toDate}
               datesValid={datesValid}
               warehouseId={damagedWh.warehouse_id}
+              suppressSalesAmount
               loadToken={allowDamagedOther ? loadToken : 0}
             />
           </div>

@@ -665,6 +665,7 @@ export function WeeklySalesReportSection({
   warehouseId = null,
   excludeWarehouseId = null,
   enableSalesSort = false,
+  suppressSalesAmount = false,
   loadToken = 0,
   onNoValueRows = null,
   onReportFetchSettled = undefined,
@@ -693,10 +694,17 @@ export function WeeklySalesReportSection({
     })
 
   const dateLabel = formatDateLabel(fromDate, toDate)
+  const reportItems = useMemo(() => {
+    if (!suppressSalesAmount) return items
+    return (items || []).map((item) => ({
+      ...item,
+      sales_amount: null,
+    }))
+  }, [items, suppressSalesAmount])
 
   const { withValues, noValues } = useMemo(
-    () => partitionWeeklyFamilyItems(items),
-    [items]
+    () => partitionWeeklyFamilyItems(reportItems),
+    [reportItems]
   )
 
   const grandTotal = useMemo(
@@ -814,6 +822,7 @@ export function WeeklySalesReportSection({
     if (warehouseId && String(warehouseId).trim() !== '') qsParams.warehouse_id = String(warehouseId).trim()
     if (excludeWarehouseId && String(excludeWarehouseId).trim() !== '') qsParams.exclude_warehouse_id = String(excludeWarehouseId).trim()
     if (enableSalesSort) qsParams.sales_sort = salesSort === 'asc' ? 'asc' : 'desc'
+    if (suppressSalesAmount) qsParams.suppress_sales_amount = '1'
     const qs = new URLSearchParams(qsParams).toString()
     const path = `/api/weekly-reports/by-group/${encodeURIComponent(reportGroup)}/export.xlsx?${qs}`
     try {
@@ -824,7 +833,7 @@ export function WeeklySalesReportSection({
     } finally {
       setExporting(false)
     }
-  }, [datesValid, notConfigured, fromDate, toDate, reportGroup, loadToken, warehouseId, excludeWarehouseId, enableSalesSort, salesSort])
+  }, [datesValid, notConfigured, fromDate, toDate, reportGroup, loadToken, warehouseId, excludeWarehouseId, enableSalesSort, salesSort, suppressSalesAmount])
 
   const hasRequestedReport = loadToken > 0
   const showTable = hasRequestedReport && !loading && !error && !notConfigured && datesValid
@@ -1002,7 +1011,7 @@ export function WeeklySalesReportSection({
           </div>
           <div className="wsr-meta">
             <div className="wsr-meta__item">Group:<strong>{reportGroup}</strong></div>
-            <div className="wsr-meta__item">Families (total):<strong>{items.length}</strong></div>
+            <div className="wsr-meta__item">Families (total):<strong>{reportItems.length}</strong></div>
             {noValues.length > 0 && (
               <div className="wsr-meta__item">With amounts:<strong>{withValues.length}</strong></div>
             )}

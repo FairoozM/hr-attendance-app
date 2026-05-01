@@ -628,6 +628,7 @@ function buildWeeklyReportScope(warehouseId, excludeWarehouseId) {
       warehouseId: includeId,
       excludeWarehouseId: null,
       transactionFilter: { warehouseId: includeId },
+      salesTransactionFilter: { warehouseId: includeId },
       stockWarehouseId: includeId,
       subtractStockWarehouseId: null,
     }
@@ -638,6 +639,9 @@ function buildWeeklyReportScope(warehouseId, excludeWarehouseId) {
       warehouseId: null,
       excludeWarehouseId: excludeId,
       transactionFilter: { excludeWarehouseId: excludeId },
+      // Sales are business-wide for this report. Damaged is excluded only from stock /
+      // purchase / return warehouse splits, not from top-level sales totals.
+      salesTransactionFilter: {},
       stockWarehouseId: null,
       subtractStockWarehouseId: excludeId,
     }
@@ -647,6 +651,7 @@ function buildWeeklyReportScope(warehouseId, excludeWarehouseId) {
     warehouseId: null,
     excludeWarehouseId: null,
     transactionFilter: {},
+    salesTransactionFilter: {},
     stockWarehouseId: null,
     subtractStockWarehouseId: null,
   }
@@ -1704,7 +1709,7 @@ async function fetchZohoItemRowsForGroupMembers(
   const [raw, scopedItems, salesR, purchR, vcR, damagedItems] = await Promise.all([
     fetchAllItemsRaw(),
     reportScope.stockWarehouseId ? fetchItemsRawForWarehouse(reportScope.stockWarehouseId) : Promise.resolve([]),
-    getSales(fromDate, toDate, { onWarning, ...reportScope.transactionFilter }),
+    getSales(fromDate, toDate, { onWarning, ...reportScope.salesTransactionFilter }),
     getPurchases(fromDate, toDate, rv.vendorId, {
       vendorName: rv.vendorName,
       onWarning,
@@ -1938,8 +1943,8 @@ async function fetchZohoItemRowsForGroupMembers(
   const purchLines = (purchR && purchR.lines) || []
   const retLines = (vcR && vcR.lines) || []
 
-  // Build scoped transaction maps. The upstream transaction fetchers already
-  // applied the same include/exclude warehouse rule for sales, purchases, and credits.
+  // Build scoped transaction maps. Sales keep the sales-specific scope above;
+  // purchases and credits keep the stock/warehouse include-exclude scope.
   const sm = sumLinesToMap(
     salesLines.map((a) => ({ item_id: a.item_id, name: a.name, quantity: a.quantity })),
     idToSku

@@ -222,6 +222,17 @@ function weeklyReportRowHasVisibleValue(row) {
   })
 }
 
+function shouldSuppressSalesAmount(req) {
+  const raw = req && req.query ? req.query.suppress_sales_amount : null
+  return raw === '1' || raw === 'true' || raw === true
+}
+
+function withoutSalesAmounts(items) {
+  return Array.isArray(items)
+    ? items.map((item) => ({ ...item, sales_amount: null }))
+    : []
+}
+
 function isZohoDailyRateLimit(err) {
   if (!err) return false
   const msg = String(err.message || '')
@@ -705,7 +716,8 @@ async function exportReportByGroupXlsx(req, res) {
       warehouseId,
       excludeWarehouseId
     )
-    const visibleItems = Array.isArray(items) ? items.filter(weeklyReportRowHasVisibleValue) : []
+    const exportSourceItems = shouldSuppressSalesAmount(req) ? withoutSalesAmounts(items) : items
+    const visibleItems = Array.isArray(exportSourceItems) ? exportSourceItems.filter(weeklyReportRowHasVisibleValue) : []
     const exportItems = salesSort
       ? [...visibleItems].sort((a, b) => {
           const av = Number(a && a.sales_amount) || 0
