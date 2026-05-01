@@ -61,6 +61,7 @@ export function InfluencerPerformancePage() {
   const [editingRecord, setEditingRecord] = useState(null)
   const [editingContract, setEditingContract] = useState(null)
   const [viewRecord, setViewRecord] = useState(null)
+  const [activeMonitorInfluencerId, setActiveMonitorInfluencerId] = useState(null)
 
   const influencers = useMemo(() => {
     if (appInfluencers.length > 0) {
@@ -107,6 +108,11 @@ export function InfluencerPerformancePage() {
     () => getVideoContractTimelines(filteredRecords, influencers),
     [filteredRecords, influencers],
   )
+
+  const activeMonitorContracts = useMemo(() => {
+    if (!activeMonitorInfluencerId) return []
+    return videoContracts.filter((contract) => String(contract.influencerId) === String(activeMonitorInfluencerId))
+  }, [activeMonitorInfluencerId, videoContracts])
 
   function handleSort(key) {
     setSort((prev) => ({
@@ -161,6 +167,7 @@ export function InfluencerPerformancePage() {
           }
         : record
     )))
+    setActiveMonitorInfluencerId(selectedInfluencer.id)
     setEditingContract(null)
   }
 
@@ -169,6 +176,7 @@ export function InfluencerPerformancePage() {
     setRecords(seeded)
     setEditingRecord(null)
     setViewRecord(null)
+    setActiveMonitorInfluencerId(null)
   }
 
   return (
@@ -186,17 +194,6 @@ export function InfluencerPerformancePage() {
         </div>
       </header>
 
-      <InfluencerContractTimeline
-        contracts={videoContracts}
-        onEditRecord={setEditingRecord}
-        onDeleteRecord={handleDelete}
-        onEditContract={(contract) => setEditingContract({
-          contract,
-          selectedInfluencerId: contract.influencerId,
-          query: contract.influencer?.name || '',
-        })}
-      />
-
       <InfluencerPerformanceTable
         records={filteredRecords}
         influencersById={influencersById}
@@ -205,7 +202,24 @@ export function InfluencerPerformancePage() {
         onView={setViewRecord}
         onEdit={setEditingRecord}
         onDelete={handleDelete}
+        activeMonitorInfluencerId={activeMonitorInfluencerId}
+        onToggleMonitor={(influencerId) => setActiveMonitorInfluencerId((current) => (
+          String(current) === String(influencerId) ? null : influencerId
+        ))}
       />
+
+      {activeMonitorContracts.length > 0 ? (
+        <InfluencerContractTimeline
+          contracts={activeMonitorContracts}
+          onEditRecord={setEditingRecord}
+          onDeleteRecord={handleDelete}
+          onEditContract={(contract) => setEditingContract({
+            contract,
+            selectedInfluencerId: contract.influencerId,
+            query: contract.influencer?.name || '',
+          })}
+        />
+      ) : null}
 
       <InfluencerCharts records={filteredRecords} influencersById={influencersById} />
 

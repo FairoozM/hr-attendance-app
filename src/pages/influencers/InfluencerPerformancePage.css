@@ -1781,7 +1781,7 @@
 }
 
 .ip-table tbody .ip-table__group-row {
-  cursor: pointer;
+  cursor: default;
   background:
     linear-gradient(90deg, rgba(0, 153, 204, 0.055), transparent 58%),
     rgba(255, 255, 255, 0.62);
@@ -1791,6 +1791,12 @@
   background:
     linear-gradient(90deg, rgba(0, 153, 204, 0.095), transparent 58%),
     rgba(255, 255, 255, 0.78);
+}
+
+.ip-table tbody .ip-table__group-row--active {
+  background:
+    linear-gradient(90deg, rgba(0, 153, 204, 0.14), transparent 60%),
+    rgba(236, 253, 255, 0.86);
 }
 
 .ip-table__group-row td {

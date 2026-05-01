@@ -20,7 +20,17 @@ function sortIndicator(sort, key) {
   return sort.direction === 'asc' ? ' ↑' : ' ↓'
 }
 
-export function InfluencerPerformanceTable({ records, influencersById, sort, onSort, onView, onEdit, onDelete }) {
+export function InfluencerPerformanceTable({
+  records,
+  influencersById,
+  sort,
+  onSort,
+  onView,
+  onEdit,
+  onDelete,
+  activeMonitorInfluencerId,
+  onToggleMonitor,
+}) {
   const [expandedInfluencers, setExpandedInfluencers] = useState(() => new Set())
 
   const groupedRecords = useMemo(() => {
@@ -55,15 +65,6 @@ export function InfluencerPerformanceTable({ records, influencersById, sort, onS
     }))
   }, [influencersById, records])
 
-  function toggleInfluencer(influencerId) {
-    setExpandedInfluencers((current) => {
-      const next = new Set(current)
-      if (next.has(influencerId)) next.delete(influencerId)
-      else next.add(influencerId)
-      return next
-    })
-  }
-
   return (
     <section className="ip-table-card">
       <div className="ip-section-heading">
@@ -95,11 +96,12 @@ export function InfluencerPerformanceTable({ records, influencersById, sort, onS
               </tr>
             ) : groupedRecords.map((group) => {
               const isExpanded = expandedInfluencers.has(group.id)
+              const isMonitorActive = String(activeMonitorInfluencerId) === String(group.id)
               const influencer = group.influencer
               const latestRecord = group.latestRecord
               return (
                 <Fragment key={group.id}>
-                  <tr key={group.id} className="ip-table__group-row" onClick={() => toggleInfluencer(group.id)}>
+                  <tr key={group.id} className={`ip-table__group-row ${isMonitorActive ? 'ip-table__group-row--active' : ''}`}>
                     <td>
                       <span className="ip-table__expand-label">
                         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -127,10 +129,16 @@ export function InfluencerPerformanceTable({ records, influencersById, sort, onS
                         className="inf-btn inf-btn--ghost inf-btn--xs ip-table__expand-btn"
                         onClick={(event) => {
                           event.stopPropagation()
-                          toggleInfluencer(group.id)
+                          setExpandedInfluencers((current) => {
+                            const next = new Set(current)
+                            if (isMonitorActive) next.delete(group.id)
+                            else next.add(group.id)
+                            return next
+                          })
+                          onToggleMonitor(group.id)
                         }}
                       >
-                        {isExpanded ? 'Hide' : 'Show'}
+                        {isMonitorActive ? 'Hide' : 'Show'}
                       </button>
                     </td>
                   </tr>
