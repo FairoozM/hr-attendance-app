@@ -36,9 +36,11 @@ function Field({ label, error, children, wide = false }) {
 export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit, onCancelEdit }) {
   const [form, setForm] = useState(emptyForm)
   const [errors, setErrors] = useState({})
+  const [influencerQuery, setInfluencerQuery] = useState('')
 
   useEffect(() => {
     if (editingRecord) {
+      const editedInfluencer = influencers.find((item) => String(item.id) === String(editingRecord.influencerId))
       setForm({
         ...emptyForm,
         ...editingRecord,
@@ -51,9 +53,11 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
         storyViews: String(editingRecord.storyViews ?? ''),
         cost: String(editingRecord.cost ?? ''),
       })
+      setInfluencerQuery(editedInfluencer?.name || '')
       setErrors({})
       return
     }
+    const defaultInfluencer = influencers.find((item) => String(item.id) === String(form.influencerId)) || influencers[0]
     setForm((prev) => ({
       ...emptyForm,
       influencerId: prev.influencerId || influencers[0]?.id || '',
@@ -62,6 +66,7 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
       videoTitle: influencers.find((item) => String(item.id) === String(prev.influencerId))?.assignedCampaign || influencers[0]?.assignedCampaign || '',
       contractStartDate: prev.contractStartDate || emptyForm.contractStartDate,
     }))
+    setInfluencerQuery((prev) => prev || defaultInfluencer?.name || '')
     setErrors({})
   }, [editingRecord, influencers])
 
@@ -69,6 +74,16 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
     () => influencers.find((item) => String(item.id) === String(form.influencerId)),
     [form.influencerId, influencers],
   )
+
+  const influencerMatches = useMemo(() => {
+    const q = influencerQuery.trim().toLowerCase()
+    return influencers
+      .filter((influencer) => {
+        if (!q) return true
+        return `${influencer.name} ${influencer.username} ${influencer.platform} ${influencer.assignedCampaign}`.toLowerCase().includes(q)
+      })
+      .slice(0, 8)
+  }, [influencerQuery, influencers])
 
   const engagementRate = calculateEngagementRate(form)
   const checkInDay = getDayNumber(form.contractStartDate || form.date, form.date)
@@ -103,6 +118,7 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
       videoTitle: influencer?.assignedCampaign || prev.videoTitle,
       contractStartDate: prev.contractStartDate || form.date,
     }))
+    setInfluencerQuery(influencer?.name || '')
     if (errors.influencerId) setErrors((prev) => ({ ...prev, influencerId: '' }))
   }
 
@@ -165,12 +181,31 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
 
             <div className="ip-form-stack">
               <Field label="Influencer" error={errors.influencerId}>
-                <select className="ip-control" value={form.influencerId} onChange={(event) => handleInfluencerChange(event.target.value)}>
-                  <option value="">Select influencer</option>
-                  {influencers.map((influencer) => (
-                    <option key={influencer.id} value={influencer.id}>{influencer.name}</option>
+                <input
+                  className="ip-control"
+                  value={influencerQuery}
+                  onChange={(event) => {
+                    setInfluencerQuery(event.target.value)
+                    if (form.influencerId) set('influencerId', '')
+                  }}
+                  placeholder="Search influencer name, handle, platform"
+                />
+                <div className="ip-form-influencer-results">
+                  {influencerMatches.map((influencer) => (
+                    <button
+                      key={influencer.id}
+                      type="button"
+                      className={`ip-form-influencer-result ${String(form.influencerId) === String(influencer.id) ? 'ip-form-influencer-result--active' : ''}`}
+                      onClick={() => handleInfluencerChange(influencer.id)}
+                    >
+                      <span>
+                        <strong>{influencer.name}</strong>
+                        <em>{influencer.username} · {influencer.platform}</em>
+                      </span>
+                      <b>{influencer.followers?.toLocaleString?.() || influencer.followers || 0} followers</b>
+                    </button>
                   ))}
-                </select>
+                </div>
               </Field>
 
               <div className="ip-form-inline">

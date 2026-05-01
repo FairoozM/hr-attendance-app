@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Download, Gauge, RefreshCw, Save, Search, X } from 'lucide-react'
+import { Download, Gauge, Plus, Save, Search, X } from 'lucide-react'
 import { useInfluencers } from '../../contexts/InfluencersContext'
 import { InfluencerCharts } from '../../components/influencers/InfluencerCharts'
 import { InfluencerContractTimeline } from '../../components/influencers/InfluencerContractTimeline'
+import { InfluencerPerformanceForm } from '../../components/influencers/InfluencerPerformanceForm'
 import { InfluencerPerformanceTable } from '../../components/influencers/InfluencerPerformanceTable'
 import {
   createInfluencerFromAppRecord,
@@ -61,6 +62,7 @@ export function InfluencerPerformancePage() {
   const [editingRecord, setEditingRecord] = useState(null)
   const [editingContract, setEditingContract] = useState(null)
   const [viewRecord, setViewRecord] = useState(null)
+  const [isAddRecordOpen, setIsAddRecordOpen] = useState(false)
   const [activeMonitorInfluencerId, setActiveMonitorInfluencerId] = useState(null)
 
   const influencers = useMemo(() => {
@@ -140,6 +142,7 @@ export function InfluencerPerformancePage() {
       return [{ ...record, id: makeRecordId() }, ...list]
     })
     setEditingRecord(null)
+    setIsAddRecordOpen(false)
   }
 
   function handleDelete(id) {
@@ -171,14 +174,6 @@ export function InfluencerPerformancePage() {
     setEditingContract(null)
   }
 
-  function resetDemoData() {
-    const seeded = createMockPerformanceRecords(influencers)
-    setRecords(seeded)
-    setEditingRecord(null)
-    setViewRecord(null)
-    setActiveMonitorInfluencerId(null)
-  }
-
   return (
     <div className="inf-page ip-page">
       <header className="inf-page-header ip-hero">
@@ -188,8 +183,8 @@ export function InfluencerPerformancePage() {
           <p className="inf-page-subtitle">Track one contracted video per influencer across 4-5 consecutive daily performance checks.</p>
         </div>
         <div className="inf-page-actions">
-          <button type="button" className="inf-btn inf-btn--ghost" onClick={resetDemoData}>
-            <RefreshCw size={15} /> Reset mock data
+          <button type="button" className="inf-btn inf-btn--primary" onClick={() => setIsAddRecordOpen(true)}>
+            <Plus size={15} /> Add new record
           </button>
         </div>
       </header>
@@ -222,6 +217,22 @@ export function InfluencerPerformancePage() {
       ) : null}
 
       <InfluencerCharts records={filteredRecords} influencersById={influencersById} />
+
+      {isAddRecordOpen ? (
+        <div className="ip-modal-backdrop" role="presentation" onClick={() => setIsAddRecordOpen(false)}>
+          <section className="ip-modal ip-add-record-modal" role="dialog" aria-modal="true" aria-label="Add performance record" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="ip-modal__close" onClick={() => setIsAddRecordOpen(false)} aria-label="Close add record">
+              <X size={18} />
+            </button>
+            <InfluencerPerformanceForm
+              influencers={influencers}
+              editingRecord={null}
+              onSubmit={handleSubmit}
+              onCancelEdit={() => setIsAddRecordOpen(false)}
+            />
+          </section>
+        </div>
+      ) : null}
 
       {viewRecord ? (
         <div className="ip-modal-backdrop" role="presentation" onClick={() => setViewRecord(null)}>
