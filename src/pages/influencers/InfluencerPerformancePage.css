@@ -2108,6 +2108,19 @@
   min-height: auto;
 }
 
+.ip-add-record-modal .ip-metric-grid .ip-field {
+  grid-template-rows: 1.8rem auto;
+}
+
+.ip-add-record-modal .ip-metric-grid .ip-field > span {
+  display: flex;
+  align-items: flex-end;
+  height: 1.8rem;
+  overflow: hidden;
+  line-height: 1.08;
+  white-space: normal;
+}
+
 .ip-add-record-modal .ip-control--metric {
   font-size: 0.9rem;
   text-align: left;
