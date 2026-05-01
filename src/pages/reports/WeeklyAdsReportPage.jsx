@@ -79,6 +79,10 @@ function EmptyState() {
   )
 }
 
+function EmptyDash() {
+  return <span className="war-empty-dash">—</span>
+}
+
 function ReportTable({ rows, title, dateLabel }) {
   const { adMarketplaces, salesOnlyMarketplaces } = useMemo(() => splitMarketplaceNames(rows), [rows])
   const adTotals = useMemo(() => calculateTotals(rows, adMarketplaces), [adMarketplaces, rows])
@@ -119,23 +123,23 @@ function ReportTable({ rows, title, dateLabel }) {
               return (
                 <tr key={m} className="war-tr">
                   <td className="war-td war-td--name">{m}</td>
-                  <td className="war-td">{r.spend ? formatNum(r.spend) : '—'}</td>
-                  <td className="war-td war-td--center">{r.clicks ? formatNum(r.clicks) : '—'}</td>
-                  <td className="war-td">{r.sales ? formatNum(r.sales) : '—'}</td>
+                  <td className="war-td">{r.spend ? formatNum(r.spend) : <EmptyDash />}</td>
+                  <td className="war-td war-td--center">{r.clicks ? formatNum(r.clicks) : <EmptyDash />}</td>
+                  <td className="war-td">{r.sales ? formatNum(r.sales) : <EmptyDash />}</td>
                   <td className={`war-td war-td--center${isDanger ? ' war-td--danger' : ''}`}>
-                    {acos !== null ? `${acos}%` : '—'}
+                    {acos !== null ? `${acos}%` : <EmptyDash />}
                   </td>
                 </tr>
               )
             })}
             {hasSalesOnlyRows ? (
               <tr className="war-tr war-tr--subtotal">
-                <td className="war-td war-td--name">ADS SUBTOTAL</td>
+                <td className="war-td war-td--name">SUBTOTAL</td>
                 <td className="war-td">{formatNum(adTotals.spend.toFixed(0))}</td>
                 <td className="war-td war-td--center">{formatNum(adTotals.clicks.toFixed(0))}</td>
                 <td className="war-td">{formatNum(adTotals.sales.toFixed(0))}</td>
                 <td className={`war-td war-td--center${adAcos !== null && parseFloat(adAcos) > ACOS_THRESHOLD ? ' war-td--danger' : ''}`}>
-                  {adAcos !== null ? `${adAcos}%` : '—'}
+                  {adAcos !== null ? `${adAcos}%` : <EmptyDash />}
                 </td>
               </tr>
             ) : null}
@@ -144,10 +148,10 @@ function ReportTable({ rows, title, dateLabel }) {
               return (
                 <tr key={m} className="war-tr war-tr--sales-only">
                   <td className="war-td war-td--name">{m}</td>
-                  <td className="war-td">—</td>
-                  <td className="war-td war-td--center">—</td>
-                  <td className="war-td">{r.sales ? formatNum(r.sales) : '—'}</td>
-                  <td className="war-td war-td--center">—</td>
+                  <td className="war-td"><EmptyDash /></td>
+                  <td className="war-td war-td--center"><EmptyDash /></td>
+                  <td className="war-td">{r.sales ? formatNum(r.sales) : <EmptyDash />}</td>
+                  <td className="war-td war-td--center"><EmptyDash /></td>
                 </tr>
               )
             })}
@@ -155,11 +159,11 @@ function ReportTable({ rows, title, dateLabel }) {
           <tfoot>
             <tr className="war-tr war-tr--total">
               <td className="war-td war-td--name">{hasSalesOnlyRows ? 'GRAND TOTAL' : 'TOTAL'}</td>
-              <td className="war-td">{formatNum(grandTotals.spend.toFixed(0))}</td>
-              <td className="war-td war-td--center">{formatNum(grandTotals.clicks.toFixed(0))}</td>
+              <td className="war-td">{hasSalesOnlyRows ? <EmptyDash /> : formatNum(grandTotals.spend.toFixed(0))}</td>
+              <td className="war-td war-td--center">{hasSalesOnlyRows ? <EmptyDash /> : formatNum(grandTotals.clicks.toFixed(0))}</td>
               <td className="war-td">{formatNum(grandTotals.sales.toFixed(0))}</td>
               <td className={`war-td war-td--center${totalAcos !== null && parseFloat(totalAcos) > ACOS_THRESHOLD ? ' war-td--danger' : ''}`}>
-                {totalAcos !== null ? `${totalAcos}%` : '—'}
+                {hasSalesOnlyRows ? <EmptyDash /> : totalAcos !== null ? `${totalAcos}%` : <EmptyDash />}
               </td>
             </tr>
           </tfoot>
@@ -302,10 +306,22 @@ export function WeeklyAdsReportPage() {
   const [salesOnlyMarketplaceError, setSalesOnlyMarketplaceError] = useState('')
 
   const updateRow = useCallback((marketplace, field, value) => {
-    setRows((prev) => ({
-      ...prev,
-      [marketplace]: { ...prev[marketplace], [field]: value },
-    }))
+    setRows((prev) => {
+      const existingRow = prev[marketplace] || DEFAULT_ROW()
+      return {
+        ...prev,
+        [marketplace]: { ...existingRow, [field]: value },
+      }
+    })
+    setSaved(false)
+  }, [])
+
+  const removeMarketplace = useCallback((marketplace) => {
+    setRows((prev) => {
+      const next = { ...prev }
+      delete next[marketplace]
+      return next
+    })
     setSaved(false)
   }, [])
 
@@ -352,6 +368,7 @@ export function WeeklyAdsReportPage() {
     sales: adTotals.sales + salesOnlyTotals.sales,
   }), [adTotals, salesOnlyTotals])
 
+  const adAcos = calcAcos(adTotals.spend, adTotals.sales)
   const totalAcos = calcAcos(totals.spend, totals.sales)
 
   const beginCreateNew = useCallback(() => {
@@ -518,19 +535,30 @@ export function WeeklyAdsReportPage() {
             </thead>
             <tbody>
               {adMarketplaces.map((m) => {
-                const r = rows[m]
+                const r = rows[m] || DEFAULT_ROW()
                 const acos = calcAcos(r.spend, r.sales)
                 const isDanger = acos !== null && parseFloat(acos) > ACOS_THRESHOLD
                 return (
                   <tr key={m} className="war-tr war-tr--input">
-                    <td className="war-td war-td--name">{m}</td>
+                    <td className="war-td war-td--name">
+                      <span className="war-marketplace-name">
+                        <span>{m}</span>
+                        <button
+                          type="button"
+                          className="war-marketplace-remove"
+                          onClick={() => removeMarketplace(m)}
+                          aria-label={`Remove ${m}`}
+                        >
+                          Remove
+                        </button>
+                      </span>
+                    </td>
                     <td className="war-td">
                       <input
-                        type="number"
-                        min="0"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
                         className="war-cell-input"
-                        value={r.spend}
+                        value={r.spend ?? ''}
                         onChange={(e) => updateRow(m, 'spend', e.target.value)}
                         placeholder="0"
                         aria-label={`${m} ads spend`}
@@ -538,11 +566,10 @@ export function WeeklyAdsReportPage() {
                     </td>
                     <td className="war-td war-td--center">
                       <input
-                        type="number"
-                        min="0"
-                        step="1"
+                        type="text"
+                        inputMode="numeric"
                         className="war-cell-input war-cell-input--center"
-                        value={r.clicks}
+                        value={r.clicks ?? ''}
                         onChange={(e) => updateRow(m, 'clicks', e.target.value)}
                         placeholder="0"
                         aria-label={`${m} clicks`}
@@ -550,53 +577,63 @@ export function WeeklyAdsReportPage() {
                     </td>
                     <td className="war-td">
                       <input
-                        type="number"
-                        min="0"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
                         className="war-cell-input"
-                        value={r.sales}
+                        value={r.sales ?? ''}
                         onChange={(e) => updateRow(m, 'sales', e.target.value)}
                         placeholder="0"
                         aria-label={`${m} net sales`}
                       />
                     </td>
                     <td className={`war-td war-td--center war-td--acos-calc${isDanger ? ' war-td--danger' : ''}`}>
-                      {acos !== null ? `${acos}%` : '—'}
+                      {acos !== null ? `${acos}%` : <EmptyDash />}
                     </td>
                   </tr>
                 )
               })}
               {salesOnlyMarketplaces.length > 0 ? (
                 <tr className="war-tr war-tr--subtotal">
-                  <td className="war-td war-td--name">ADS SUBTOTAL</td>
-                  <td className="war-td">{adTotals.spend > 0 ? formatNum(adTotals.spend.toFixed(0)) : '—'}</td>
-                  <td className="war-td war-td--center">{adTotals.clicks > 0 ? formatNum(adTotals.clicks.toFixed(0)) : '—'}</td>
-                  <td className="war-td">{adTotals.sales > 0 ? formatNum(adTotals.sales.toFixed(0)) : '—'}</td>
+                  <td className="war-td war-td--name">SUBTOTAL</td>
+                  <td className="war-td">{adTotals.spend > 0 ? formatNum(adTotals.spend.toFixed(0)) : <EmptyDash />}</td>
+                  <td className="war-td war-td--center">{adTotals.clicks > 0 ? formatNum(adTotals.clicks.toFixed(0)) : <EmptyDash />}</td>
+                  <td className="war-td">{adTotals.sales > 0 ? formatNum(adTotals.sales.toFixed(0)) : <EmptyDash />}</td>
                   <td className={`war-td war-td--center${adAcos !== null && parseFloat(adAcos) > ACOS_THRESHOLD ? ' war-td--danger' : ''}`}>
-                    {adAcos !== null ? `${adAcos}%` : '—'}
+                    {adAcos !== null ? `${adAcos}%` : <EmptyDash />}
                   </td>
                 </tr>
               ) : null}
               {salesOnlyMarketplaces.map((m) => {
-                const r = rows[m]
+                const r = rows[m] || DEFAULT_ROW({ salesOnly: true })
                 return (
                   <tr key={m} className="war-tr war-tr--input war-tr--sales-only">
-                    <td className="war-td war-td--name">{m}</td>
-                    <td className="war-td">—</td>
-                    <td className="war-td war-td--center">—</td>
+                    <td className="war-td war-td--name">
+                      <span className="war-marketplace-name">
+                        <span>{m}</span>
+                        <button
+                          type="button"
+                          className="war-marketplace-remove"
+                          onClick={() => removeMarketplace(m)}
+                          aria-label={`Remove ${m}`}
+                        >
+                          Remove
+                        </button>
+                      </span>
+                    </td>
+                    <td className="war-td"><EmptyDash /></td>
+                    <td className="war-td war-td--center"><EmptyDash /></td>
                     <td className="war-td">
                       <input
-                        type="number"
-                        min="0"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
                         className="war-cell-input"
-                        value={r.sales}
+                        value={r.sales ?? ''}
                         onChange={(e) => updateRow(m, 'sales', e.target.value)}
                         placeholder="0"
                         aria-label={`${m} net sales`}
                       />
                     </td>
-                    <td className="war-td war-td--center war-td--acos-calc">—</td>
+                    <td className="war-td war-td--center war-td--acos-calc"><EmptyDash /></td>
                   </tr>
                 )
               })}
@@ -604,11 +641,11 @@ export function WeeklyAdsReportPage() {
             <tfoot>
               <tr className="war-tr war-tr--total">
                 <td className="war-td war-td--name">{salesOnlyMarketplaces.length > 0 ? 'GRAND TOTAL' : 'TOTAL'}</td>
-                <td className="war-td">{totals.spend > 0 ? formatNum(totals.spend.toFixed(0)) : '—'}</td>
-                <td className="war-td war-td--center">{totals.clicks > 0 ? formatNum(totals.clicks.toFixed(0)) : '—'}</td>
-                <td className="war-td">{totals.sales > 0 ? formatNum(totals.sales.toFixed(0)) : '—'}</td>
+                <td className="war-td">{salesOnlyMarketplaces.length > 0 ? <EmptyDash /> : totals.spend > 0 ? formatNum(totals.spend.toFixed(0)) : <EmptyDash />}</td>
+                <td className="war-td war-td--center">{salesOnlyMarketplaces.length > 0 ? <EmptyDash /> : totals.clicks > 0 ? formatNum(totals.clicks.toFixed(0)) : <EmptyDash />}</td>
+                <td className="war-td">{totals.sales > 0 ? formatNum(totals.sales.toFixed(0)) : <EmptyDash />}</td>
                 <td className={`war-td war-td--center${totalAcos !== null && parseFloat(totalAcos) > ACOS_THRESHOLD ? ' war-td--danger' : ''}`}>
-                  {totalAcos !== null ? `${totalAcos}%` : '—'}
+                  {salesOnlyMarketplaces.length > 0 ? <EmptyDash /> : totalAcos !== null ? `${totalAcos}%` : <EmptyDash />}
                 </td>
               </tr>
             </tfoot>
@@ -707,7 +744,7 @@ export function WeeklyAdsReportPage() {
       </section>
 
       {/* ─── Live Preview ─── */}
-      {totals.spend > 0 && (
+      {(totals.spend > 0 || totals.sales > 0) && (
         <section className="war-section">
           <h2 className="war-section__title">Live Preview</h2>
           <ReportTable rows={rows} title={title} dateLabel={dateLabel} />
