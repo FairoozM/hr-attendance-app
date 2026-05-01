@@ -150,6 +150,12 @@
   background: rgba(255, 255, 255, 0.42);
 }
 
+.war-marketplace-add--sales-only {
+  margin-top: -12px;
+  border-color: rgba(92, 151, 191, 0.45);
+  background: rgba(232, 246, 255, 0.52);
+}
+
 .war-marketplace-add__error {
   color: #c0392b;
   font-size: 12px;
@@ -253,6 +259,18 @@
   border-bottom: none;
   font-size: 16px;
   padding: 20px 16px;
+}
+
+.war-tr--subtotal .war-td {
+  background: rgba(235, 240, 250, 0.72);
+  color: #33425f;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 14px 16px;
+}
+
+.war-tr--sales-only .war-td {
+  background: rgba(232, 246, 255, 0.38);
 }
 
 .war-tr:hover {
