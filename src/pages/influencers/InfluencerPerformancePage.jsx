@@ -69,8 +69,9 @@ export function InfluencerPerformancePage() {
     if (appInfluencers.length > 0) {
       return appInfluencers.map(createInfluencerFromAppRecord)
     }
+    if (influencersLoading) return []
     return mockInfluencers
-  }, [appInfluencers])
+  }, [appInfluencers, influencersLoading])
 
   const influencersById = useMemo(
     () => new Map(influencers.map((influencer) => [String(influencer.id), influencer])),
@@ -80,8 +81,8 @@ export function InfluencerPerformancePage() {
   useEffect(() => {
     if (records !== null || influencers.length === 0 || influencersLoading) return
     const stored = loadStoredRecords()
-    const hasMatchingStoredRecords = stored?.some((record) => influencersById.has(String(record.influencerId)))
-    setRecords(hasMatchingStoredRecords ? stored : createMockPerformanceRecords(influencers))
+    const matchingStoredRecords = stored?.filter((record) => influencersById.has(String(record.influencerId))) || []
+    setRecords(Array.isArray(stored) ? matchingStoredRecords : createMockPerformanceRecords(influencers))
   }, [influencers, influencersById, influencersLoading, records])
 
   useEffect(() => {

@@ -1706,6 +1706,15 @@
   font-size: 0.72rem;
 }
 
+.ip-form-influencer-empty {
+  padding: 0.65rem 0.75rem;
+  border: 1px dashed rgba(148, 163, 184, 0.38);
+  border-radius: 14px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 .ip-form-inline,
 .ip-form-bottom-grid {
   display: grid;
@@ -1963,9 +1972,10 @@
 }
 
 .ip-add-record-modal {
-  width: min(1120px, 100%);
-  max-height: min(88vh, 900px);
+  width: min(980px, 100%);
+  max-height: min(90vh, 820px);
   overflow: auto;
+  padding: 1rem;
 }
 
 .ip-add-record-modal .ip-form-panel {
@@ -1976,6 +1986,143 @@
   box-shadow: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+
+.ip-add-record-modal .ip-section-heading {
+  margin-bottom: 0.7rem;
+}
+
+.ip-add-record-modal .ip-section-heading__icon {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 12px;
+}
+
+.ip-add-record-modal .ip-section-heading h2 {
+  font-size: 0.95rem;
+}
+
+.ip-add-record-modal .ip-section-heading p {
+  margin-top: 0.1rem;
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.ip-add-record-modal .ip-form-layout {
+  grid-template-columns: minmax(260px, 0.9fr) minmax(420px, 1.35fr);
+  gap: 0.7rem;
+}
+
+.ip-add-record-modal .ip-form-section-card {
+  padding: 0.72rem;
+  border-radius: 18px;
+}
+
+.ip-add-record-modal .ip-form-section-card__head {
+  gap: 0.55rem;
+  margin-bottom: 0.65rem;
+  padding-bottom: 0.55rem;
+}
+
+.ip-add-record-modal .ip-form-section-card__head > span {
+  width: 1.65rem;
+  height: 1.65rem;
+  flex-basis: 1.65rem;
+  border-radius: 11px;
+  font-size: 0.72rem;
+}
+
+.ip-add-record-modal .ip-form-section-card__head h3 {
+  font-size: 0.92rem;
+}
+
+.ip-add-record-modal .ip-form-section-card__head p {
+  margin-top: 0.1rem;
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+.ip-add-record-modal .ip-form-stack {
+  gap: 0.55rem;
+}
+
+.ip-add-record-modal .ip-field {
+  gap: 0.25rem;
+}
+
+.ip-add-record-modal .ip-field > span {
+  font-size: 0.62rem;
+  letter-spacing: 0.07em;
+}
+
+.ip-add-record-modal .ip-control {
+  min-height: 2.25rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 12px;
+  font-size: 0.86rem;
+}
+
+.ip-add-record-modal .ip-control-icon svg {
+  left: 0.62rem;
+  width: 14px;
+  height: 14px;
+}
+
+.ip-add-record-modal .ip-control-icon .ip-control {
+  padding-left: 1.9rem;
+}
+
+.ip-add-record-modal .ip-form-inline,
+.ip-add-record-modal .ip-form-bottom-grid {
+  gap: 0.5rem;
+}
+
+.ip-add-record-modal .ip-form-inline--dates,
+.ip-add-record-modal .ip-form-bottom-grid,
+.ip-add-record-modal .ip-metric-grid {
+  margin-bottom: 0.55rem;
+}
+
+.ip-add-record-modal .ip-metric-grid {
+  gap: 0.5rem;
+}
+
+.ip-add-record-modal .ip-control--metric {
+  font-size: 0.9rem;
+}
+
+.ip-add-record-modal .ip-control--textarea {
+  min-height: 4.1rem;
+}
+
+.ip-add-record-modal .ip-file-control {
+  min-height: 2.25rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 12px;
+  font-size: 0.8rem;
+}
+
+.ip-add-record-modal .ip-form-influencer-results {
+  max-height: 6.8rem;
+  gap: 0.32rem;
+}
+
+.ip-add-record-modal .ip-form-influencer-result {
+  padding: 0.45rem 0.55rem;
+  border-radius: 11px;
+}
+
+.ip-add-record-modal .ip-form-influencer-result strong {
+  font-size: 0.82rem;
+}
+
+.ip-add-record-modal .ip-form-influencer-result em,
+.ip-add-record-modal .ip-form-influencer-result b {
+  font-size: 0.66rem;
+}
+
+.ip-add-record-modal .ip-form__footer {
+  margin-top: 0.75rem;
 }
 
 :root[data-theme='light'] .ip-contract-edit-modal,

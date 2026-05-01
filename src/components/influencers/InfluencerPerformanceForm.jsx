@@ -57,16 +57,15 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
       setErrors({})
       return
     }
-    const defaultInfluencer = influencers.find((item) => String(item.id) === String(form.influencerId)) || influencers[0]
     setForm((prev) => ({
       ...emptyForm,
-      influencerId: prev.influencerId || influencers[0]?.id || '',
-      platform: influencers.find((item) => String(item.id) === String(prev.influencerId))?.platform || influencers[0]?.platform || 'Instagram',
-      campaignName: influencers.find((item) => String(item.id) === String(prev.influencerId))?.assignedCampaign || influencers[0]?.assignedCampaign || '',
-      videoTitle: influencers.find((item) => String(item.id) === String(prev.influencerId))?.assignedCampaign || influencers[0]?.assignedCampaign || '',
+      influencerId: prev.influencerId || '',
+      platform: prev.platform || 'Instagram',
+      campaignName: prev.campaignName || '',
+      videoTitle: prev.videoTitle || '',
       contractStartDate: prev.contractStartDate || emptyForm.contractStartDate,
     }))
-    setInfluencerQuery((prev) => prev || defaultInfluencer?.name || '')
+    setInfluencerQuery('')
     setErrors({})
   }, [editingRecord, influencers])
 
@@ -77,9 +76,9 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
 
   const influencerMatches = useMemo(() => {
     const q = influencerQuery.trim().toLowerCase()
+    if (!q) return []
     return influencers
       .filter((influencer) => {
-        if (!q) return true
         return `${influencer.name} ${influencer.username} ${influencer.platform} ${influencer.assignedCampaign}`.toLowerCase().includes(q)
       })
       .slice(0, 8)
@@ -205,6 +204,9 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
                       <b>{influencer.followers?.toLocaleString?.() || influencer.followers || 0} followers</b>
                     </button>
                   ))}
+                  {influencerQuery.trim() && influencerMatches.length === 0 ? (
+                    <div className="ip-form-influencer-empty">No influencer found.</div>
+                  ) : null}
                 </div>
               </Field>
 
