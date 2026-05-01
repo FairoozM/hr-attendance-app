@@ -88,7 +88,20 @@ export function InfluencerPerformancePage() {
     if (records) saveRecords(records)
   }, [records])
 
-  const allRecords = useMemo(() => dedupePerformanceRecords(records || []), [records])
+  const allRecords = useMemo(() => (
+    dedupePerformanceRecords(records || []).filter((record) => influencersById.has(String(record.influencerId)))
+  ), [influencersById, records])
+
+  useEffect(() => {
+    if (!records || influencers.length === 0 || influencersLoading) return
+    const cleaned = dedupePerformanceRecords(records).filter((record) => influencersById.has(String(record.influencerId)))
+    if (cleaned.length !== records.length) {
+      setRecords(cleaned)
+      if (activeMonitorInfluencerId && !influencersById.has(String(activeMonitorInfluencerId))) {
+        setActiveMonitorInfluencerId(null)
+      }
+    }
+  }, [activeMonitorInfluencerId, influencers.length, influencersById, influencersLoading, records])
 
   const filteredRecords = useMemo(() => {
     return [...allRecords].sort((a, b) => {
