@@ -9,6 +9,7 @@ const {
   getFamilyDetailsByGroupController,
   getSlowMovingReport,
   exportReportByGroupXlsx,
+  exportFamilyClosingStockXlsx,
 } = require('../controllers/weeklyReportsController')
 
 const router = express.Router()
@@ -32,6 +33,12 @@ router.get(
   '/by-group/:group/export.xlsx',
   requirePermission('weekly_reports', 'view'),
   exportReportByGroupXlsx
+)
+
+router.get(
+  '/by-group/:group/family-details/closing-stock.xlsx',
+  requirePermission('weekly_reports', 'view'),
+  exportFamilyClosingStockXlsx
 )
 
 router.get(

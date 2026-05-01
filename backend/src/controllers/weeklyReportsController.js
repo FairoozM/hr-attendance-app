@@ -11,6 +11,7 @@ const { fetchZohoItemImageBuffer }                    = require('../integrations
 const zohoItemImageCache                              = require('../services/zohoItemImageCache')
 const {
   buildWeeklyReportXlsxBuffer,
+  buildFamilyClosingStockXlsxBuffer,
   getExportSheetTitleForGroup,
   getExportDownloadFilename,
 } = require('../services/weeklyReportXlsxService')
@@ -231,6 +232,15 @@ function withoutSalesAmounts(items) {
   return Array.isArray(items)
     ? items.map((item) => ({ ...item, sales_amount: null }))
     : []
+}
+
+function safeExportSlug(value) {
+  return String(value || 'family')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'family'
 }
 
 function isZohoDailyRateLimit(err) {
@@ -520,37 +530,13 @@ async function buildFamilyDetailsWarehousesPayload(
   )
 }
 
-/**
- * GET /api/weekly-reports/by-group/:group/family-details?from_date&to_date&family=...
- * Response always includes `warehouses[]`. `items` is the first warehouse’s rows (back-compat).
- */
-async function getFamilyDetailsByGroupController(req, res) {
-  const { group } = req.params
-  const range = validateDateRange(req, res)
-  if (!range) return
-  const family = req.query.family && String(req.query.family).trim() !== ''
-    ? String(req.query.family).trim()
-    : null
-  if (!family) {
-    return res.status(400).json({ error: 'Missing required query parameter: family' })
-  }
-  const filterWarehouseId = req.query.warehouse_id && String(req.query.warehouse_id).trim() !== ''
-    ? String(req.query.warehouse_id).trim()
-    : null
-  const excludeWarehouseId = req.query.exclude_warehouse_id && String(req.query.exclude_warehouse_id).trim() !== ''
-    ? String(req.query.exclude_warehouse_id).trim()
-    : null
+async function loadFamilyDetailsBody(group, range, family, filterWarehouseId, excludeWarehouseId) {
   let validGroups
-  try {
-    validGroups = await listGroupKeys()
-  } catch (err) {
-    console.error('[weeklyReports] getFamilyDetailsByGroup listGroupKeys error:', err.message)
-    return res.status(500).json({ error: 'Failed to validate report group' })
-  }
+  validGroups = await listGroupKeys()
   if (!validGroups.includes(group)) {
-    return res.status(404).json({
-      error: `Unknown report_group '${group}'. Available: ${validGroups.join(', ') || '(none)'}`,
-    })
+    const err = new Error(`Unknown report_group '${group}'. Available: ${validGroups.join(', ') || '(none)'}`)
+    err.httpStatus = 404
+    throw err
   }
 
   const cacheKey = makeFamilyDetailsCacheKey(
@@ -564,16 +550,11 @@ async function getFamilyDetailsByGroupController(req, res) {
   if (_familyDetailsCache.has(cacheKey)) {
     const c = _familyDetailsCache.get(cacheKey)
     if (c && Date.now() < c.expiresAt) {
-      return res.json(c.body)
+      return c.body
     }
   }
   if (_familyDetailsFlight.has(cacheKey)) {
-    try {
-      const body = await _familyDetailsFlight.get(cacheKey)
-      return res.json(body)
-    } catch (err) {
-      return await handleZohoError(res, err, `getFamilyDetailsByGroup(${group})`)
-    }
+    return _familyDetailsFlight.get(cacheKey)
   }
 
   const p = (async () => {
@@ -619,11 +600,77 @@ async function getFamilyDetailsByGroupController(req, res) {
     () => { _familyDetailsFlight.delete(cacheKey) }
   )
 
+  return p
+}
+
+function parseFamilyDetailsRequest(req, res) {
+  const { group } = req.params
+  const range = validateDateRange(req, res)
+  if (!range) return null
+  const family = req.query.family && String(req.query.family).trim() !== ''
+    ? String(req.query.family).trim()
+    : null
+  if (!family) {
+    res.status(400).json({ error: 'Missing required query parameter: family' })
+    return null
+  }
+  const filterWarehouseId = req.query.warehouse_id && String(req.query.warehouse_id).trim() !== ''
+    ? String(req.query.warehouse_id).trim()
+    : null
+  const excludeWarehouseId = req.query.exclude_warehouse_id && String(req.query.exclude_warehouse_id).trim() !== ''
+    ? String(req.query.exclude_warehouse_id).trim()
+    : null
+  return { group, range, family, filterWarehouseId, excludeWarehouseId }
+}
+
+/**
+ * GET /api/weekly-reports/by-group/:group/family-details?from_date&to_date&family=...
+ * Response always includes `warehouses[]`. `items` is the first warehouse’s rows (back-compat).
+ */
+async function getFamilyDetailsByGroupController(req, res) {
+  const parsed = parseFamilyDetailsRequest(req, res)
+  if (!parsed) return
+  const { group, range, family, filterWarehouseId, excludeWarehouseId } = parsed
   try {
-    const body = await p
+    const body = await loadFamilyDetailsBody(group, range, family, filterWarehouseId, excludeWarehouseId)
     return res.json(body)
   } catch (err) {
+    if (err && err.httpStatus === 404) {
+      return res.status(404).json({ error: err.message })
+    }
+    if (/Failed to validate report group/.test(err && err.message)) {
+      console.error('[weeklyReports] getFamilyDetailsByGroup listGroupKeys error:', err.message)
+      return res.status(500).json({ error: 'Failed to validate report group' })
+    }
     return await handleZohoError(res, err, `getFamilyDetailsByGroup(${group})`)
+  }
+}
+
+async function exportFamilyClosingStockXlsx(req, res) {
+  const parsed = parseFamilyDetailsRequest(req, res)
+  if (!parsed) return
+  const { group, range, family, filterWarehouseId, excludeWarehouseId } = parsed
+  try {
+    const body = await loadFamilyDetailsBody(group, range, family, filterWarehouseId, excludeWarehouseId)
+    const buffer = await buildFamilyClosingStockXlsxBuffer({
+      family,
+      fromDate: range.from_date,
+      toDate: range.to_date,
+      warehouses: Array.isArray(body?.warehouses) ? body.warehouses : [],
+      closingSection: body?.sections?.closing || {},
+    })
+    const filename = `weekly-${safeExportSlug(group)}-${safeExportSlug(family)}-closing-stock-${range.from_date}-to-${range.to_date}.xlsx`
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+    return res.status(200).send(buffer)
+  } catch (err) {
+    if (err && err.httpStatus === 404) {
+      return res.status(404).json({ error: err.message })
+    }
+    return await handleZohoError(res, err, `exportFamilyClosingStockXlsx(${group})`)
   }
 }
 
@@ -818,6 +865,7 @@ module.exports = {
   getFamilyDetailsByGroupController,
   getSlowMovingReport,
   exportReportByGroupXlsx,
+  exportFamilyClosingStockXlsx,
   /** @internal debug route + tests — same payload path as public JSON/Excel */
   loadWeeklyReportPayload,
   validateDateRange,

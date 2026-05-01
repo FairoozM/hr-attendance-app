@@ -681,6 +681,8 @@ export function WeeklySalesReportSection({
   const [drawerWarehouses, setDrawerWarehouses] = useState([])
   const [drawerMatrix, setDrawerMatrix] = useState(null)
   const [salesSort, setSalesSort] = useState('desc')
+  const [familyClosingExporting, setFamilyClosingExporting] = useState(false)
+  const [familyClosingExportError, setFamilyClosingExportError] = useState('')
 
   const { items, loading, error, errorHint, notConfigured, validationErrors, refetch, zoho } =
     useWeeklySalesReport({
@@ -753,6 +755,7 @@ export function WeeklySalesReportSection({
       setDrawerWarnings([])
       setDrawerProgress({ loaded: 0, total: 0, current: '' })
       setDrawerLoading(false)
+      setFamilyClosingExportError('')
     }
   }, [selectedFamily, selectedFamilySet])
 
@@ -834,6 +837,29 @@ export function WeeklySalesReportSection({
       setExporting(false)
     }
   }, [datesValid, notConfigured, fromDate, toDate, reportGroup, loadToken, warehouseId, excludeWarehouseId, enableSalesSort, salesSort, suppressSalesAmount])
+
+  const handleFamilyClosingStockExport = useCallback(async () => {
+    if (!selectedFamily || !datesValid || notConfigured || !loadToken) return
+    setFamilyClosingExporting(true)
+    setFamilyClosingExportError('')
+    const qsParams = {
+      from_date: fromDate,
+      to_date: toDate,
+      family: selectedFamily,
+    }
+    if (warehouseId && String(warehouseId).trim() !== '') qsParams.warehouse_id = String(warehouseId).trim()
+    if (excludeWarehouseId && String(excludeWarehouseId).trim() !== '') qsParams.exclude_warehouse_id = String(excludeWarehouseId).trim()
+    const qs = new URLSearchParams(qsParams).toString()
+    const path = `/api/weekly-reports/by-group/${encodeURIComponent(reportGroup)}/family-details/closing-stock.xlsx?${qs}`
+    try {
+      const { blob, filename } = await fetchBinary(path)
+      downloadBlob(blob, filename || `weekly-${reportGroup}-${selectedFamily}-closing-stock.xlsx`)
+    } catch (err) {
+      setFamilyClosingExportError(err?.message || 'Closing stock export failed. Try again.')
+    } finally {
+      setFamilyClosingExporting(false)
+    }
+  }, [datesValid, notConfigured, fromDate, toDate, reportGroup, loadToken, warehouseId, excludeWarehouseId, selectedFamily])
 
   const hasRequestedReport = loadToken > 0
   const showTable = hasRequestedReport && !loading && !error && !notConfigured && datesValid
@@ -1040,11 +1066,25 @@ export function WeeklySalesReportSection({
       <aside className={`wsr-drawer ${selectedFamily ? 'is-open' : ''}`} aria-hidden={!selectedFamily}>
         <div className="wsr-drawer__header">
           <h3>Family Details: {selectedFamily || '—'}</h3>
-          <button type="button" className="war-btn war-btn--ghost war-btn--sm" onClick={() => setSelectedFamily('')}>
-            Close
-          </button>
+          <div className="wsr-drawer__actions">
+            <button
+              type="button"
+              className="war-btn war-btn--primary war-btn--sm"
+              onClick={handleFamilyClosingStockExport}
+              disabled={!selectedFamily || familyClosingExporting || drawerLoading || !datesValid || !loadToken}
+              aria-busy={familyClosingExporting}
+            >
+              {familyClosingExporting ? 'Exporting…' : 'Export Closing Stock'}
+            </button>
+            <button type="button" className="war-btn war-btn--ghost war-btn--sm" onClick={() => setSelectedFamily('')}>
+              Close
+            </button>
+          </div>
         </div>
         <div className="wsr-drawer__body">
+          {familyClosingExportError && (
+            <div className="wsr-drawer-error" role="alert">{familyClosingExportError}</div>
+          )}
           {drawerLoading && (
             <div className="wsr-drawer-loading">
               Loading family warehouse matrix from Zoho…

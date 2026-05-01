@@ -559,6 +559,12 @@
   font-size: 18px;
 }
 
+.wsr-drawer__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .wsr-drawer__body {
   flex: 1 1 auto;
   min-height: 0;
@@ -804,6 +810,20 @@
 @media (max-width: 768px) {
   .wsr-drawer {
     width: 100vw;
+  }
+
+  .wsr-drawer__header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .wsr-drawer__actions {
+    width: 100%;
+  }
+
+  .wsr-drawer__actions .war-btn {
+    justify-content: center;
+    flex: 1 1 0;
   }
 
   .wsr-drawer-warehouse__summary {
