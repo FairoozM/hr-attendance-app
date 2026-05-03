@@ -141,6 +141,29 @@
   box-shadow: var(--glass-shadow-panel);
 }
 
+/* Name + monthly totals stay fixed; day columns scroll horizontally */
+.attendance-grid-split {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  width: max-content;
+}
+
+.attendance-grid-frozen {
+  position: sticky;
+  left: 0;
+  z-index: 8;
+  flex-shrink: 0;
+  align-self: flex-start;
+  background: color-mix(in srgb, var(--theme-panel-bg) 94%, var(--theme-bg-canvas));
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+  box-shadow: 10px 0 32px rgba(15, 23, 42, 0.16);
+}
+
+.attendance-grid-days-wrap {
+  flex: 0 0 auto;
+}
+
 .attendance-grid {
   width: max-content;
   border-collapse: separate;
@@ -223,15 +246,11 @@
   width: 240px;
   min-width: 240px;
   max-width: 240px;
-  position: sticky;
-  left: 0;
-  z-index: 11;
   text-align: left;
   padding: 0.4rem 0;
   background: rgba(79, 70, 229, 0.2);
   border-right: 3px solid rgba(129, 140, 248, 0.4);
   box-shadow: 2px 0 12px rgba(15, 23, 42, 0.22);
-  isolation: isolate;
 }
 
 /* Summary column — amber tint */
@@ -239,14 +258,10 @@
   width: 11.25rem;
   min-width: 11.25rem;
   max-width: 11.25rem;
-  position: sticky;
-  left: 240px;
-  z-index: 11;
   text-align: center;
   background: rgba(251, 191, 36, 0.12);
   border-right: 3px solid rgba(251, 191, 36, 0.35);
   box-shadow: 2px 0 12px rgba(15, 23, 42, 0.22);
-  isolation: isolate;
 }
 
 /* Attendance column — green tint */
@@ -289,11 +304,8 @@
   line-height: 1.1;
 }
 
-/* Sticky employee column (body) */
+/* Employee name column (frozen pane — no per-cell sticky) */
 .attendance-grid__th--sticky {
-  position: sticky;
-  left: 0;
-  z-index: 10;
   background: rgba(79, 70, 229, 0.16);
   min-width: 240px;
   width: 240px;
@@ -302,13 +314,9 @@
   padding: 0.35rem 0;
   border-right: 3px solid rgba(129, 140, 248, 0.35);
   box-shadow: 2px 0 12px rgba(15, 23, 42, 0.18);
-  isolation: isolate;
 }
 
 .attendance-grid__td--sticky {
-  position: sticky;
-  left: 0;
-  z-index: 5;
   background: color-mix(in srgb, var(--theme-panel-bg) 90%, var(--theme-bg-canvas));
   min-width: 240px;
   width: 240px;
@@ -316,7 +324,6 @@
   padding: 0;
   border-right: 3px solid rgba(129, 140, 248, 0.25);
   box-shadow: 2px 0 12px rgba(15, 23, 42, 0.2);
-  isolation: isolate;
 }
 
 .attendance-grid__td--day {
@@ -345,30 +352,17 @@
 }
 
 .attendance-grid__th--summary {
-  position: sticky;
-  z-index: 10;
   background: rgba(251, 191, 36, 0.1);
   border-right: 1px solid rgba(251, 191, 36, 0.25);
-  isolation: isolate;
 }
 
 .attendance-grid__td--summary {
-  position: sticky;
-  z-index: 5;
   background: color-mix(in srgb, var(--theme-panel-bg) 90%, var(--theme-bg-canvas));
   border-right: 1px solid var(--border-subtle);
-  isolation: isolate;
 }
 
-.attendance-grid__summary-col--p   { left: 240px; }
-.attendance-grid__summary-col--a   { left: calc(240px + 2.25rem); }
-.attendance-grid__summary-col--sl  { left: calc(240px + 4.5rem); }
-.attendance-grid__summary-col--al  { left: calc(240px + 6.75rem); }
-.attendance-grid__summary-col--wh  {
-  left: calc(240px + 9rem);
+.attendance-grid__summary-col--wh {
   border-right: 3px solid rgba(251, 191, 36, 0.35);
-  box-shadow: 4px 0 12px rgba(15, 23, 42, 0.18);
-  isolation: isolate;
 }
 
 /* Summary value badges */

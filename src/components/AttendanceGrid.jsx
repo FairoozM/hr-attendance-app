@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, useCallback } from 'react'
+import { useState, useRef, useMemo, useCallback, useLayoutEffect } from 'react'
 import {
   STATUS_KEYS,
   STATUSES,
@@ -58,6 +58,7 @@ export function AttendanceGrid({
 }) {
   const days = useMemo(() => Array.from({ length: daysInMonth }, (_, i) => i + 1), [daysInMonth])
   const slFileInputRef = useRef(null)
+  const attendanceSplitRef = useRef(null)
   const [slUploadTarget, setSlUploadTarget] = useState(null)
 
   const [employeeSearch, setEmployeeSearch] = useState('')
@@ -179,6 +180,34 @@ export function AttendanceGrid({
       return passesDayFilters(emp)
     })
   }, [employees, employeeSearch, passesSummaryFilters, passesDayFilters])
+
+  /** Keep frozen (name + summary) rows aligned with day rows when SL rows grow taller */
+  useLayoutEffect(() => {
+    const root = attendanceSplitRef.current
+    if (!root) return undefined
+
+    function syncHeights() {
+      const frozenRows = root.querySelectorAll('.attendance-grid--frozen tbody tr')
+      const dayRows = root.querySelectorAll('.attendance-grid--days tbody tr')
+      if (!frozenRows.length || frozenRows.length !== dayRows.length) return
+      frozenRows.forEach((fr, i) => {
+        const dr = dayRows[i]
+        if (!dr) return
+        fr.style.height = ''
+        dr.style.height = ''
+        const h = Math.max(fr.getBoundingClientRect().height, dr.getBoundingClientRect().height)
+        fr.style.height = `${h}px`
+        dr.style.height = `${h}px`
+      })
+    }
+
+    syncHeights()
+    const ro = new ResizeObserver(() => syncHeights())
+    const frozenRows = root.querySelectorAll('.attendance-grid--frozen tbody tr')
+    const dayRows = root.querySelectorAll('.attendance-grid--days tbody tr')
+    ;[...frozenRows, ...dayRows].forEach((r) => ro.observe(r))
+    return () => ro.disconnect()
+  }, [displayEmployees, displayDays, attendance, cellViewMode, sickLeaveDocuments])
 
   const handleSummaryIncluded = useCallback((key, next) => {
     setSummaryIncluded((prev) => {
@@ -325,214 +354,261 @@ export function AttendanceGrid({
           tabIndex={-1}
           onChange={handleSickLeaveFileChange}
         />
-        <table className="attendance-grid" role="grid">
-          <thead>
-            <tr className="attendance-grid__header-row attendance-grid__header-row--group">
-              <th
-                colSpan={1}
-                className="attendance-grid__th attendance-grid__th--group attendance-grid__th--group-employee"
-              >
-                <div className="attendance-grid__header-employee-inner">Employee</div>
-              </th>
-              <th
-                colSpan={SUMMARY_STATUS_ORDER.length}
-                className="attendance-grid__th attendance-grid__th--group attendance-grid__th--group-summary"
-              >
-                Summary
-              </th>
-              <th
-                colSpan={displayDays.length}
-                className="attendance-grid__th attendance-grid__th--group attendance-grid__th--group-attendance"
-              >
-                Attendance
-              </th>
-            </tr>
-            <tr className="attendance-grid__header-row attendance-grid__header-row--sub">
-              <th className="attendance-grid__th attendance-grid__th--sticky attendance-grid__th--sub">
-                <div className="attendance-grid__header-employee-inner">Name / Dept</div>
-              </th>
-              {SUMMARY_STATUS_ORDER.map((key) => (
-                <th
-                  key={key}
-                  className={`attendance-grid__th attendance-grid__th--summary attendance-grid__summary-col--${key.toLowerCase()} attendance-grid__th--sub`}
-                  title={STATUSES[key].label}
-                >
-                  {key}
-                </th>
-              ))}
-              {displayDays.map((day) => {
-                const dayOfWeek = getDayOfWeek(year, month, day)
-                const dayName = DAY_NAMES_SHORT[dayOfWeek]
-                const isFirstVisibleDay = day === displayDays[0]
-                return (
+        <div className="attendance-grid-split" ref={attendanceSplitRef}>
+          <div className="attendance-grid-frozen">
+            <table
+              className="attendance-grid attendance-grid--frozen"
+              role="grid"
+              aria-label="Employees and monthly summary totals"
+            >
+              <thead>
+                <tr className="attendance-grid__header-row attendance-grid__header-row--group">
                   <th
-                    key={day}
-                    className={`attendance-grid__th attendance-grid__th--day attendance-grid__th--sub ${isFirstVisibleDay ? 'attendance-grid__th--day-first' : ''}`}
+                    colSpan={1}
+                    className="attendance-grid__th attendance-grid__th--group attendance-grid__th--group-employee"
                   >
-                    <div className="attendance-grid__th-day-inner">
-                      <span className="attendance-grid__day-name">{dayName}</span>
-                      <span className="attendance-grid__day-num">{day}</span>
-                    </div>
+                    <div className="attendance-grid__header-employee-inner">Employee</div>
                   </th>
-                )
-              })}
-            </tr>
-            <tr className="attendance-grid__header-row attendance-grid__header-row--filters">
-              <th className="attendance-grid__th attendance-grid__th--sticky attendance-grid__th--filter">
-                <span className="attendance-grid__filter-row-label">Filter</span>
-              </th>
-              {SUMMARY_STATUS_ORDER.map((key) => (
-                <th
-                  key={key}
-                  className={`attendance-grid__th attendance-grid__th--summary attendance-grid__summary-col--${key.toLowerCase()} attendance-grid__th--filter`}
-                >
-                  <ExcelStyleColumnFilter
-                    filterId={`att-sum-${key}`}
-                    openFilterId={openFilterId}
-                    onOpenFilterId={setOpenFilterId}
-                    ariaLabel={`Filter rows by ${key} month total`}
-                    options={summaryFilterOptionsByKey[key] || []}
-                    included={summaryIncluded[key]}
-                    onIncludedChange={(next) => handleSummaryIncluded(key, next)}
-                  />
-                </th>
-              ))}
-              {displayDays.map((day) => (
-                <th key={`f-${day}`} className="attendance-grid__th attendance-grid__th--day attendance-grid__th--filter">
-                  <ExcelStyleColumnFilter
-                    filterId={`att-day-${day}`}
-                    openFilterId={openFilterId}
-                    onOpenFilterId={setOpenFilterId}
-                    ariaLabel={`Filter rows by status on day ${day}`}
-                    options={dayFilterOptionsByDay[day] || []}
-                    included={dayIncluded[day]}
-                    onIncludedChange={(next) => handleDayIncluded(day, next)}
-                  />
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {displayEmployees.map((emp) => (
-              <tr key={emp.id}>
-                <td className="attendance-grid__td attendance-grid__td--sticky">
-                  <div className="attendance-grid__cell-employee">
-                    <span className="attendance-grid__name">{emp.name}</span>
-                    <span className="attendance-grid__dept">{emp.department}</span>
-                  </div>
-                </td>
-                {(() => {
-                  const summary = getEmployeeMonthSummary(
-                    attendance,
-                    emp.id,
-                    daysInMonth,
-                    year,
-                    month,
-                    weeklyHolidayDay
-                  )
-                  return SUMMARY_STATUS_ORDER.map((key) => (
-                    <td
+                  <th
+                    colSpan={SUMMARY_STATUS_ORDER.length}
+                    className="attendance-grid__th attendance-grid__th--group attendance-grid__th--group-summary"
+                  >
+                    Summary
+                  </th>
+                </tr>
+                <tr className="attendance-grid__header-row attendance-grid__header-row--sub">
+                  <th className="attendance-grid__th attendance-grid__th--sticky attendance-grid__th--sub">
+                    <div className="attendance-grid__header-employee-inner">Name / Dept</div>
+                  </th>
+                  {SUMMARY_STATUS_ORDER.map((key) => (
+                    <th
                       key={key}
-                      className={`attendance-grid__td attendance-grid__td--summary attendance-grid__summary-col--${key.toLowerCase()}`}
+                      className={`attendance-grid__th attendance-grid__th--summary attendance-grid__summary-col--${key.toLowerCase()} attendance-grid__th--sub`}
+                      title={STATUSES[key].label}
                     >
-                      <span
-                        className={`attendance-grid__summary-value attendance-grid__summary-value--${STATUSES[key].color}`}
-                      >
-                        {summary[key]}
-                      </span>
-                    </td>
-                  ))
-                })()}
-                {displayDays.map((day) => {
-                  const current = getEffectiveStatus(
-                    attendance,
-                    emp.id,
-                    day,
-                    year,
-                    month,
-                    weeklyHolidayDay
-                  )
-                  const colorClass = current ? `attendance-cell--${STATUSES[current].color}` : ''
-                  const isFirstVisibleDay = day === displayDays[0]
-                  const docUrl = sickLeaveDocuments[emp.id]?.[day]
-                  const showSlUpload = current === 'SL'
-                  const dimAbsentView =
-                    cellViewMode === 'absentOnly' && current !== 'A'
-                  return (
-                    <td
-                      key={day}
-                      className={`attendance-grid__td attendance-grid__td--day ${isFirstVisibleDay ? 'attendance-grid__td--day-first' : ''}${dimAbsentView ? ' attendance-grid__td--dim' : ''}`}
+                      {key}
+                    </th>
+                  ))}
+                </tr>
+                <tr className="attendance-grid__header-row attendance-grid__header-row--filters">
+                  <th className="attendance-grid__th attendance-grid__th--sticky attendance-grid__th--filter">
+                    <span className="attendance-grid__filter-row-label">Filter</span>
+                  </th>
+                  {SUMMARY_STATUS_ORDER.map((key) => (
+                    <th
+                      key={key}
+                      className={`attendance-grid__th attendance-grid__th--summary attendance-grid__summary-col--${key.toLowerCase()} attendance-grid__th--filter`}
                     >
-                      <div
-                        className={`attendance-cell-wrap${showSlUpload ? ' attendance-cell-wrap--with-sl' : ''}`}
-                      >
-                        <select
-                          className={`attendance-cell attendance-cell--select ${colorClass}${dimAbsentView ? ' attendance-cell--dimmed' : ''}`}
-                          value={current || ''}
-                          onChange={(e) => {
-                            const v = e.target.value
-                            setAttendanceFor(setAttendance, emp.id, day, v)
-                          }}
-                          title={current ? STATUSES[current].label : 'Select status'}
-                          aria-label={`Day ${day} status for ${emp.name}`}
-                        >
-                          <option value="">—</option>
-                          {STATUS_KEYS.map((k) => (
-                            <option key={k} value={k}>
-                              {k}
-                            </option>
-                          ))}
-                        </select>
-                        {showSlUpload && (
-                          <div className="attendance-sl-doc">
-                            {docUrl ? (
-                              <>
-                                <a
-                                  href={docUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="attendance-sl-doc__link"
-                                  title="Open medical certificate in a new tab"
-                                >
-                                  View file
-                                </a>
-                                {removeSickLeaveDocument ? (
-                                  <button
-                                    type="button"
-                                    className="attendance-sl-doc__delete"
-                                    title="Remove this file (you can upload a different one after)"
-                                    onClick={() => removeSickLeaveDocument(emp.id, day)}
-                                  >
-                                    Delete
-                                  </button>
-                                ) : null}
-                              </>
-                            ) : null}
-                            {uploadSickLeaveDocument ? (
-                              <button
-                                type="button"
-                                className={`attendance-sl-doc__add${docUrl ? ' attendance-sl-doc__add--replace' : ''}`}
-                                title={
-                                  docUrl
-                                    ? 'Replace with a different file (PDF or image)'
-                                    : 'Upload medical certificate (PDF or image)'
-                                }
-                                aria-label="Upload or replace medical certificate"
-                                onClick={() => openSickLeavePicker(emp.id, day)}
-                              >
-                                {docUrl ? 'Replace' : '+'}
-                              </button>
-                            ) : null}
-                          </div>
-                        )}
+                      <ExcelStyleColumnFilter
+                        filterId={`att-sum-${key}`}
+                        openFilterId={openFilterId}
+                        onOpenFilterId={setOpenFilterId}
+                        ariaLabel={`Filter rows by ${key} month total`}
+                        options={summaryFilterOptionsByKey[key] || []}
+                        included={summaryIncluded[key]}
+                        onIncludedChange={(next) => handleSummaryIncluded(key, next)}
+                      />
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {displayEmployees.map((emp) => (
+                  <tr key={emp.id}>
+                    <td className="attendance-grid__td attendance-grid__td--sticky">
+                      <div className="attendance-grid__cell-employee">
+                        <span className="attendance-grid__name">{emp.name}</span>
+                        <span className="attendance-grid__dept">{emp.department}</span>
                       </div>
                     </td>
-                  )
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                    {(() => {
+                      const summary = getEmployeeMonthSummary(
+                        attendance,
+                        emp.id,
+                        daysInMonth,
+                        year,
+                        month,
+                        weeklyHolidayDay
+                      )
+                      return SUMMARY_STATUS_ORDER.map((key) => (
+                        <td
+                          key={key}
+                          className={`attendance-grid__td attendance-grid__td--summary attendance-grid__summary-col--${key.toLowerCase()}`}
+                        >
+                          <span
+                            className={`attendance-grid__summary-value attendance-grid__summary-value--${STATUSES[key].color}`}
+                          >
+                            {summary[key]}
+                          </span>
+                        </td>
+                      ))
+                    })()}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="attendance-grid-days-wrap">
+            <table
+              className="attendance-grid attendance-grid--days"
+              role="grid"
+              aria-label="Daily attendance"
+            >
+              <thead>
+                <tr className="attendance-grid__header-row attendance-grid__header-row--group">
+                  <th
+                    colSpan={Math.max(displayDays.length, 1)}
+                    className="attendance-grid__th attendance-grid__th--group attendance-grid__th--group-attendance"
+                  >
+                    Attendance
+                  </th>
+                </tr>
+                <tr className="attendance-grid__header-row attendance-grid__header-row--sub">
+                  {displayDays.length === 0 ? (
+                    <th className="attendance-grid__th attendance-grid__th--day attendance-grid__th--sub attendance-grid__th--day-first">
+                      <div className="attendance-grid__th-day-inner">
+                        <span className="attendance-grid__day-name">—</span>
+                        <span className="attendance-grid__day-num"> </span>
+                      </div>
+                    </th>
+                  ) : (
+                    displayDays.map((day) => {
+                      const dayOfWeek = getDayOfWeek(year, month, day)
+                      const dayName = DAY_NAMES_SHORT[dayOfWeek]
+                      const isFirstVisibleDay = day === displayDays[0]
+                      return (
+                        <th
+                          key={day}
+                          className={`attendance-grid__th attendance-grid__th--day attendance-grid__th--sub ${isFirstVisibleDay ? 'attendance-grid__th--day-first' : ''}`}
+                        >
+                          <div className="attendance-grid__th-day-inner">
+                            <span className="attendance-grid__day-name">{dayName}</span>
+                            <span className="attendance-grid__day-num">{day}</span>
+                          </div>
+                        </th>
+                      )
+                    })
+                  )}
+                </tr>
+                <tr className="attendance-grid__header-row attendance-grid__header-row--filters">
+                  {displayDays.length === 0 ? (
+                    <th className="attendance-grid__th attendance-grid__th--day attendance-grid__th--filter attendance-grid__th--day-first" aria-hidden />
+                  ) : (
+                    displayDays.map((day) => (
+                      <th key={`f-${day}`} className="attendance-grid__th attendance-grid__th--day attendance-grid__th--filter">
+                        <ExcelStyleColumnFilter
+                          filterId={`att-day-${day}`}
+                          openFilterId={openFilterId}
+                          onOpenFilterId={setOpenFilterId}
+                          ariaLabel={`Filter rows by status on day ${day}`}
+                          options={dayFilterOptionsByDay[day] || []}
+                          included={dayIncluded[day]}
+                          onIncludedChange={(next) => handleDayIncluded(day, next)}
+                        />
+                      </th>
+                    ))
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {displayEmployees.map((emp) => (
+                  <tr key={emp.id}>
+                    {displayDays.length === 0 ? (
+                      <td className="attendance-grid__td attendance-grid__td--day attendance-grid__td--day-first" aria-hidden />
+                    ) : (
+                      displayDays.map((day) => {
+                        const current = getEffectiveStatus(
+                          attendance,
+                          emp.id,
+                          day,
+                          year,
+                          month,
+                          weeklyHolidayDay
+                        )
+                        const colorClass = current ? `attendance-cell--${STATUSES[current].color}` : ''
+                        const isFirstVisibleDay = day === displayDays[0]
+                        const docUrl = sickLeaveDocuments[emp.id]?.[day]
+                        const showSlUpload = current === 'SL'
+                        const dimAbsentView =
+                          cellViewMode === 'absentOnly' && current !== 'A'
+                        return (
+                          <td
+                            key={day}
+                            className={`attendance-grid__td attendance-grid__td--day ${isFirstVisibleDay ? 'attendance-grid__td--day-first' : ''}${dimAbsentView ? ' attendance-grid__td--dim' : ''}`}
+                          >
+                            <div
+                              className={`attendance-cell-wrap${showSlUpload ? ' attendance-cell-wrap--with-sl' : ''}`}
+                            >
+                              <select
+                                className={`attendance-cell attendance-cell--select ${colorClass}${dimAbsentView ? ' attendance-cell--dimmed' : ''}`}
+                                value={current || ''}
+                                onChange={(e) => {
+                                  const v = e.target.value
+                                  setAttendanceFor(setAttendance, emp.id, day, v)
+                                }}
+                                title={current ? STATUSES[current].label : 'Select status'}
+                                aria-label={`Day ${day} status for ${emp.name}`}
+                              >
+                                <option value="">—</option>
+                                {STATUS_KEYS.map((k) => (
+                                  <option key={k} value={k}>
+                                    {k}
+                                  </option>
+                                ))}
+                              </select>
+                              {showSlUpload && (
+                                <div className="attendance-sl-doc">
+                                  {docUrl ? (
+                                    <>
+                                      <a
+                                        href={docUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="attendance-sl-doc__link"
+                                        title="Open medical certificate in a new tab"
+                                      >
+                                        View file
+                                      </a>
+                                      {removeSickLeaveDocument ? (
+                                        <button
+                                          type="button"
+                                          className="attendance-sl-doc__delete"
+                                          title="Remove this file (you can upload a different one after)"
+                                          onClick={() => removeSickLeaveDocument(emp.id, day)}
+                                        >
+                                          Delete
+                                        </button>
+                                      ) : null}
+                                    </>
+                                  ) : null}
+                                  {uploadSickLeaveDocument ? (
+                                    <button
+                                      type="button"
+                                      className={`attendance-sl-doc__add${docUrl ? ' attendance-sl-doc__add--replace' : ''}`}
+                                      title={
+                                        docUrl
+                                          ? 'Replace with a different file (PDF or image)'
+                                          : 'Upload medical certificate (PDF or image)'
+                                      }
+                                      aria-label="Upload or replace medical certificate"
+                                      onClick={() => openSickLeavePicker(emp.id, day)}
+                                    >
+                                      {docUrl ? 'Replace' : '+'}
+                                    </button>
+                                  ) : null}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        )
+                      })
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
       {employees.length === 0 && (
         <p className="attendance-grid-empty">Add employees to record attendance.</p>
