@@ -13,24 +13,10 @@ function parseId(value) {
 function errorStatus(err) {
   if (!err) return 500
   if (['PLAN_NOT_FOUND'].includes(err.code)) return 404
-  if (['NO_VIGIL_UPLOAD', 'DUPLICATE_PO', 'NO_PO_LINES', 'ZOHO_VENDOR_NOT_CONFIGURED'].includes(err.code)) return 400
+  if (['NO_VIGIL_UPLOAD', 'NO_LOW_STOCK_ITEMS', 'DUPLICATE_PO', 'NO_PO_LINES', 'ZOHO_VENDOR_NOT_CONFIGURED'].includes(err.code)) return 400
   if (err.code === 'ZOHO_NOT_CONFIGURED') return 503
   if (String(err.code || '').startsWith('ZOHO_')) return 502
   return 500
-}
-
-async function syncLowStock(_req, res) {
-  try {
-    const summary = await service.syncLowStockFromZoho()
-    const items = await service.listLowStock()
-    res.json({ summary, items })
-  } catch (err) {
-    console.error('[purchase-planning] low-stock sync error:', err)
-    res.status(errorStatus(err)).json({
-      error: err.message || 'Failed to sync low stock items',
-      code: err.code || 'LOW_STOCK_SYNC_FAILED',
-    })
-  }
 }
 
 async function listLowStock(_req, res) {
@@ -39,6 +25,50 @@ async function listLowStock(_req, res) {
   } catch (err) {
     console.error('[purchase-planning] low-stock list error:', err)
     res.status(500).json({ error: 'Failed to load low stock items' })
+  }
+}
+
+async function uploadLowStockSkus(req, res) {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ error: 'Low-stock SKU file is required' })
+    }
+    const preview = service.previewLowStockUpload(req.file.buffer, req.file.originalname)
+    const shouldSave = String(req.body && req.body.save).toLowerCase() === 'true'
+    if (!shouldSave) {
+      return res.json({ saved: false, fileName: req.file.originalname, preview })
+    }
+    if (preview.summary.invalidRows > 0) {
+      return res.status(400).json({
+        error: 'Fix invalid SKU rows before saving the low-stock upload',
+        saved: false,
+        fileName: req.file.originalname,
+        preview,
+      })
+    }
+    const summary = await service.saveLowStockUpload({ rows: preview.rows })
+    const items = await service.listLowStock()
+    res.status(201).json({ saved: true, summary, items, preview })
+  } catch (err) {
+    console.error('[purchase-planning] low-stock upload error:', err)
+    res.status(err.code === 'CSV_PARSE_ERROR' || err.code === 'EXCEL_PARSE_ERROR' ? 400 : errorStatus(err)).json({
+      error: err.message || 'Failed to process low-stock SKU file',
+      code: err.code || 'LOW_STOCK_UPLOAD_FAILED',
+    })
+  }
+}
+
+async function refreshLowStockZoho(req, res) {
+  try {
+    const summary = await service.refreshLowStockZohoEnrichment()
+    const items = await service.listLowStock()
+    res.json({ summary, items })
+  } catch (err) {
+    console.error('[purchase-planning] low-stock Zoho refresh error:', err)
+    res.status(errorStatus(err)).json({
+      error: err.message || 'Failed to refresh low-stock Zoho enrichment',
+      code: err.code || 'LOW_STOCK_ZOHO_REFRESH_FAILED',
+    })
   }
 }
 
@@ -68,7 +98,7 @@ async function uploadVigilCsv(req, res) {
     res.status(201).json({ saved: true, upload, preview })
   } catch (err) {
     console.error('[purchase-planning] vigil upload error:', err)
-    res.status(err.code === 'CSV_PARSE_ERROR' ? 400 : 500).json({
+    res.status(err.code === 'CSV_PARSE_ERROR' || err.code === 'EXCEL_PARSE_ERROR' ? 400 : 500).json({
       error: err.message || 'Failed to process Vigil stock file',
       code: err.code || 'VIGIL_UPLOAD_FAILED',
     })
@@ -149,8 +179,9 @@ async function createZohoPo(req, res) {
 }
 
 module.exports = {
-  syncLowStock,
   listLowStock,
+  uploadLowStockSkus,
+  refreshLowStockZoho,
   uploadVigilCsv,
   listVigilUploads,
   generatePlan,

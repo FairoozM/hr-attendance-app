@@ -8,7 +8,10 @@ const {
   getParentSku,
   matchZohoSkuToVigil,
 } = require('../src/utils/purchasePlanningSkuMatcher')
-const { parseVigilExcel } = require('../src/services/purchasePlanningService')
+const {
+  parseVigilExcel,
+  previewLowStockUpload,
+} = require('../src/services/purchasePlanningService')
 
 test('normalizes SKU spacing, case, non-breaking spaces, and long dashes', () => {
   assert.equal(normalizeSku(' ab\u00A0cd — black  '), 'AB CD - BLACK')
@@ -62,4 +65,12 @@ test('parses Vigil Excel stock sheets', () => {
   assert.equal(parsed.summary.invalidRows, 1)
   assert.equal(parsed.rows[0].normalizedItemCode, 'ABC-BLACK')
   assert.equal(parsed.rows[0].availableStock, 5)
+})
+
+test('parses low-stock SKU upload without a header row', () => {
+  const parsed = previewLowStockUpload(Buffer.from('abc-black\nabc-blue\n'), 'low-stock.csv')
+
+  assert.equal(parsed.summary.validRows, 2)
+  assert.equal(parsed.rows[0].normalizedSku, 'ABC-BLACK')
+  assert.equal(parsed.rows[1].normalizedSku, 'ABC-BLUE')
 })

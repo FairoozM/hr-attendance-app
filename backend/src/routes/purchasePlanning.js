@@ -11,8 +11,9 @@ const upload = multer({
 
 router.use(auth.requireAuth, auth.requireAdmin)
 
-router.get('/low-stock/sync', ctrl.syncLowStock)
 router.get('/low-stock', ctrl.listLowStock)
+router.post('/low-stock-upload', upload.single('file'), ctrl.uploadLowStockSkus)
+router.post('/low-stock/refresh-zoho', ctrl.refreshLowStockZoho)
 
 router.post('/vigil-upload', upload.single('file'), ctrl.uploadVigilCsv)
 router.get('/vigil-uploads', ctrl.listVigilUploads)

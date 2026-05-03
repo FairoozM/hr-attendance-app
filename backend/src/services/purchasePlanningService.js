@@ -10,8 +10,6 @@ const { getSales } = require('../integrations/zoho/weeklyReportZohoTransactions'
 const { readZohoConfig, INVENTORY_V1 } = require('../integrations/zoho/zohoConfig')
 const { zohoApiRequest } = require('../integrations/zoho/zohoInventoryClient')
 
-const LOW_STOCK_THRESHOLD = 3
-
 function clean(value) {
   return String(value == null ? '' : value).trim()
 }
@@ -177,19 +175,69 @@ async function ensurePurchasePlanningTables() {
   await query(`CREATE INDEX IF NOT EXISTS idx_purchase_plan_items_sku ON purchase_plan_items(sku)`)
 }
 
-async function syncLowStockFromZoho() {
-  const items = await fetchAllItemsRaw()
-  const lowItems = items
-    .map((item) => ({
+function buildZohoItemIndex(items) {
+  const bySku = new Map()
+  for (const item of Array.isArray(items) ? items : []) {
+    const sku = normalizeSku(item.sku || item.item_code || item.code)
+    if (!sku || bySku.has(sku)) continue
+    bySku.set(sku, {
       sku: clean(item.sku || item.item_code || item.code),
       itemName: clean(item.name || item.item_name),
       zohoItemId: clean(item.item_id || item.id),
       currentZohoStock: resolveZohoStock(item),
-    }))
-    .filter((item) => item.sku && item.currentZohoStock < LOW_STOCK_THRESHOLD)
+    })
+  }
+  return bySku
+}
+
+async function enrichUploadedLowStockSkus(skus) {
+  const items = await fetchAllItemsRaw()
+  const bySku = buildZohoItemIndex(items)
+  return skus.map((rawSku) => {
+    const uploadedSku = clean(rawSku)
+    const match = bySku.get(normalizeSku(uploadedSku))
+    if (!match) {
+      return {
+        sku: uploadedSku,
+        itemName: '',
+        zohoItemId: '',
+        currentZohoStock: 0,
+        matchedInZoho: false,
+      }
+    }
+    return {
+      ...match,
+      sku: match.sku || uploadedSku,
+      matchedInZoho: true,
+    }
+  })
+}
+
+async function saveUploadedLowStockSkus(skus) {
+  const uniqueSkus = []
+  const seen = new Set()
+  for (const raw of Array.isArray(skus) ? skus : []) {
+    const sku = clean(raw)
+    const key = normalizeSku(sku)
+    if (!sku || seen.has(key)) continue
+    seen.add(key)
+    uniqueSkus.push(sku)
+  }
+  if (uniqueSkus.length === 0) {
+    return { uploaded: 0, matched: 0, unmatched: 0 }
+  }
+
+  const enriched = await enrichUploadedLowStockSkus(uniqueSkus)
+  const uploadedKeys = enriched.map((item) => normalizeSku(item.sku))
+
+  await query(`
+    UPDATE purchase_low_stock_items
+    SET status = 'ignored', updated_at = NOW()
+    WHERE status IN ('pending', 'planned')
+  `)
 
   let upserted = 0
-  for (const item of lowItems) {
+  for (const item of enriched) {
     const result = await query(
       `
         INSERT INTO purchase_low_stock_items
@@ -199,24 +247,68 @@ async function syncLowStockFromZoho() {
           item_name = EXCLUDED.item_name,
           zoho_item_id = EXCLUDED.zoho_item_id,
           current_zoho_stock = EXCLUDED.current_zoho_stock,
-          low_stock_detected_at = CASE
-            WHEN purchase_low_stock_items.current_zoho_stock >= $5 THEN NOW()
-            ELSE purchase_low_stock_items.low_stock_detected_at
-          END,
-          status = CASE
-            WHEN purchase_low_stock_items.status = 'ignored' THEN 'ignored'
-            WHEN purchase_low_stock_items.status = 'ordered' THEN 'ordered'
-            WHEN purchase_low_stock_items.status = 'planned' THEN 'planned'
-            ELSE 'pending'
-          END,
+          low_stock_detected_at = NOW(),
+          status = 'pending',
           updated_at = NOW()
         RETURNING id
       `,
-      [item.sku, item.itemName, item.zohoItemId, item.currentZohoStock, LOW_STOCK_THRESHOLD]
+      [item.sku, item.itemName, item.zohoItemId, item.currentZohoStock]
     )
     upserted += result.rowCount
   }
-  return { synced: upserted, detected: lowItems.length, threshold: LOW_STOCK_THRESHOLD }
+  return {
+    uploaded: upserted,
+    matched: enriched.filter((item) => item.matchedInZoho).length,
+    unmatched: enriched.filter((item) => !item.matchedInZoho).length,
+    uploadedKeys,
+  }
+}
+
+async function refreshLowStockZohoEnrichment() {
+  const current = await query(`
+    SELECT id, sku
+    FROM purchase_low_stock_items
+    WHERE status = 'pending'
+    ORDER BY sku ASC
+  `)
+  if (current.rows.length === 0) {
+    const err = new Error('Upload low-stock SKUs before refreshing Zoho enrichment')
+    err.code = 'NO_LOW_STOCK_ITEMS'
+    throw err
+  }
+
+  const enriched = await enrichUploadedLowStockSkus(current.rows.map((row) => row.sku))
+  let matched = 0
+  let unmatched = 0
+  for (let i = 0; i < current.rows.length; i += 1) {
+    const row = current.rows[i]
+    const item = enriched[i]
+    if (item && item.matchedInZoho) matched += 1
+    else unmatched += 1
+    await query(
+      `
+        UPDATE purchase_low_stock_items
+        SET
+          item_name = $2,
+          zoho_item_id = $3,
+          current_zoho_stock = $4,
+          updated_at = NOW()
+        WHERE id = $1
+      `,
+      [
+        row.id,
+        item && item.matchedInZoho ? item.itemName : '',
+        item && item.matchedInZoho ? item.zohoItemId : '',
+        item && item.matchedInZoho ? item.currentZohoStock : 0,
+      ]
+    )
+  }
+
+  return {
+    refreshed: current.rows.length,
+    matched,
+    unmatched,
+  }
 }
 
 async function listLowStock() {
@@ -236,6 +328,49 @@ function findHeader(headerIdx, candidates) {
     if (headerIdx.has(name)) return name
   }
   return ''
+}
+
+function parseTabularExcel(buffer) {
+  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: false })
+  const sheetName = workbook.SheetNames && workbook.SheetNames[0]
+  if (!sheetName) {
+    const err = new Error('Excel workbook does not contain any sheets')
+    err.code = 'EXCEL_PARSE_ERROR'
+    throw err
+  }
+  const worksheet = workbook.Sheets[sheetName]
+  const rows = XLSX.utils.sheet_to_json(worksheet, {
+    header: 1,
+    raw: false,
+    defval: '',
+    blankrows: false,
+  })
+  if (!rows.length) {
+    const err = new Error('Excel sheet is empty')
+    err.code = 'EXCEL_PARSE_ERROR'
+    throw err
+  }
+  const headers = rows[0].map((cell) => clean(cell))
+  if (!headers.length || headers.every((header) => !header)) {
+    const err = new Error('Excel header row is empty')
+    err.code = 'EXCEL_PARSE_ERROR'
+    throw err
+  }
+  const bodyRows = rows.slice(1)
+    .filter((row) => Array.isArray(row) && row.some((cell) => clean(cell) !== ''))
+    .map((row) => {
+      const out = row.map((cell) => clean(cell))
+      while (out.length < headers.length) out.push('')
+      out.length = headers.length
+      return out
+    })
+  return { headers, rows: bodyRows }
+}
+
+function parseTabularUpload(buffer, fileName = '') {
+  if (isExcelFile(fileName)) return parseTabularExcel(buffer)
+  const parsed = parseCsv(buffer.toString('utf8'))
+  return { headers: parsed.headers, rows: parsed.rows }
 }
 
 function parseVigilRows(headers, rawRows) {
@@ -294,40 +429,8 @@ function parseVigilCsv(text) {
 }
 
 function parseVigilExcel(buffer) {
-  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: false })
-  const sheetName = workbook.SheetNames && workbook.SheetNames[0]
-  if (!sheetName) {
-    const err = new Error('Excel workbook does not contain any sheets')
-    err.code = 'EXCEL_PARSE_ERROR'
-    throw err
-  }
-  const worksheet = workbook.Sheets[sheetName]
-  const rows = XLSX.utils.sheet_to_json(worksheet, {
-    header: 1,
-    raw: false,
-    defval: '',
-    blankrows: false,
-  })
-  if (!rows.length) {
-    const err = new Error('Excel sheet is empty')
-    err.code = 'EXCEL_PARSE_ERROR'
-    throw err
-  }
-  const headers = rows[0].map((cell) => clean(cell))
-  if (!headers.length || headers.every((header) => !header)) {
-    const err = new Error('Excel header row is empty')
-    err.code = 'EXCEL_PARSE_ERROR'
-    throw err
-  }
-  const bodyRows = rows.slice(1)
-    .filter((row) => Array.isArray(row) && row.some((cell) => clean(cell) !== ''))
-    .map((row) => {
-      const out = row.map((cell) => clean(cell))
-      while (out.length < headers.length) out.push('')
-      out.length = headers.length
-      return out
-    })
-  return parseVigilRows(headers, bodyRows)
+  const parsed = parseTabularExcel(buffer)
+  return parseVigilRows(parsed.headers, parsed.rows)
 }
 
 function isExcelFile(fileName) {
@@ -337,6 +440,55 @@ function isExcelFile(fileName) {
 async function previewVigilUpload(buffer, fileName = '') {
   if (isExcelFile(fileName)) return parseVigilExcel(buffer)
   return parseVigilCsv(buffer.toString('utf8'))
+}
+
+function parseLowStockRows(headers, rawRows) {
+  const headerIdx = indexHeaders(headers)
+  const skuHeader = findHeader(headerIdx, [
+    'sku',
+    'item code',
+    'item_code',
+    'itemcode',
+    'code',
+  ])
+  const sourceRows = skuHeader
+    ? rawRows.map((row, index) => ({ row, rowNumber: index + 2 }))
+    : [[headers[0] || '', ...headers.slice(1)], ...rawRows].map((row, index) => ({ row, rowNumber: index + 1 }))
+
+  const rows = sourceRows.map(({ row, rowNumber }) => {
+    const sku = skuHeader ? cellOf(row, headerIdx, skuHeader) : clean(row[0])
+    const errors = []
+    if (!sku) errors.push('Missing SKU')
+    return {
+      rowNumber,
+      sku: clean(sku),
+      normalizedSku: normalizeSku(sku),
+      errors,
+      valid: errors.length === 0,
+    }
+  })
+
+  return {
+    headers,
+    rows,
+    summary: {
+      rows: rows.length,
+      validRows: rows.filter((row) => row.valid).length,
+      invalidRows: rows.filter((row) => !row.valid).length,
+      skuHeader: skuHeader || 'first column',
+    },
+  }
+}
+
+function previewLowStockUpload(buffer, fileName = '') {
+  const parsed = parseTabularUpload(buffer, fileName)
+  return parseLowStockRows(parsed.headers, parsed.rows)
+}
+
+async function saveLowStockUpload({ rows }) {
+  const validRows = rows.filter((row) => row.valid)
+  const summary = await saveUploadedLowStockSkus(validRows.map((row) => row.sku))
+  return summary
 }
 
 async function saveVigilUpload({ fileName, uploadedBy, rows }) {
@@ -405,12 +557,17 @@ function nextPlanNumber() {
 async function generatePlan({ createdBy }) {
   const upload = await getLatestVigilUpload()
   if (!upload) {
-    const err = new Error('Upload a Vigil stock CSV before generating a purchase plan')
+    const err = new Error('Upload a Vigil stock file before generating a purchase plan')
     err.code = 'NO_VIGIL_UPLOAD'
     throw err
   }
 
   const lowStock = (await listLowStock()).filter((item) => item.status === 'pending')
+  if (lowStock.length === 0) {
+    const err = new Error('Upload low-stock SKUs before generating a purchase plan')
+    err.code = 'NO_LOW_STOCK_ITEMS'
+    throw err
+  }
   const vigilRows = Array.isArray(upload.parsed_rows) ? upload.parsed_rows : []
   const fromDate = isoDateDaysAgo(92)
   const toDate = todayIso()
@@ -658,8 +815,12 @@ async function createZohoPurchaseOrder(planId) {
 
 module.exports = {
   ensurePurchasePlanningTables,
-  syncLowStockFromZoho,
+  enrichUploadedLowStockSkus,
+  saveUploadedLowStockSkus,
+  refreshLowStockZohoEnrichment,
   listLowStock,
+  previewLowStockUpload,
+  saveLowStockUpload,
   previewVigilUpload,
   parseVigilExcel,
   saveVigilUpload,

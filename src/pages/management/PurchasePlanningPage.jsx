@@ -56,6 +56,103 @@ function SummaryCards({ plan, lowStock }) {
   )
 }
 
+function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy }) {
+  const [file, setFile] = useState(null)
+  const [preview, setPreview] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const submit = useCallback(async (save) => {
+    if (!file) return
+    setBusy(true)
+    setError('')
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('save', save ? 'true' : 'false')
+      const res = await api.postForm('/api/purchase-planning/low-stock-upload', form)
+      setPreview(res.preview)
+      if (res.saved) {
+        setFile(null)
+        onUploaded(res)
+      }
+    } catch (err) {
+      setError(err.message || 'Upload failed')
+      if (err.body?.preview) setPreview(err.body.preview)
+    } finally {
+      setBusy(false)
+    }
+  }, [file, onUploaded])
+
+  return (
+    <section className="pp-panel">
+      <div className="pp-panel__head">
+        <div>
+          <h2>Low Stock SKU Upload</h2>
+          <p>Upload the SKUs reported by the team. The app enriches only those SKUs from Zoho.</p>
+        </div>
+        <div className="pp-upload-actions">
+          <input type="file" accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => {
+            setFile(e.target.files?.[0] || null)
+            setPreview(null)
+            setError('')
+          }} />
+          <button className="btn" disabled={!file || busy} onClick={() => submit(false)}>Preview</button>
+          <button className="btn btn--primary" disabled={!file || busy || !preview || preview.summary.invalidRows > 0} onClick={() => submit(true)}>
+            Save low stock SKUs
+          </button>
+        </div>
+      </div>
+      {error && <div className="page-error">{error}</div>}
+      {preview && (
+        <div className="pp-preview">
+          <div className="pp-preview__meta">
+            <Badge tone={preview.summary.invalidRows ? 'danger' : 'success'}>
+              {preview.summary.validRows} valid / {preview.summary.invalidRows} invalid
+            </Badge>
+            <span>SKU column: {preview.summary.skuHeader || 'first column'}</span>
+          </div>
+          <div className="doc-table-wrap">
+            <table className="doc-table pp-preview-table">
+              <thead>
+                <tr>
+                  <th>Row</th>
+                  <th>SKU</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.rows.slice(0, 12).map((row) => (
+                  <tr key={row.rowNumber} className={!row.valid ? 'pp-row--invalid' : ''}>
+                    <td>{row.rowNumber}</td>
+                    <td>{row.sku || '-'}</td>
+                    <td>{row.valid ? <Badge tone="success">Valid</Badge> : <Badge tone="danger">{row.errors.join(', ')}</Badge>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      <div className="pp-upload-history">
+        <strong>Current low-stock set</strong>
+        <span>{lowStock.filter((item) => item.status === 'pending').length} pending SKUs ready for plan generation</span>
+      </div>
+      <div className="pp-upload-history">
+        <strong>Zoho enrichment</strong>
+        <span>Refresh item names, item IDs, and current stock for uploaded SKUs. May use Zoho API calls if the item cache is expired.</span>
+        <button
+          className="btn"
+          disabled={refreshBusy || lowStock.filter((item) => item.status === 'pending').length === 0}
+          onClick={onRefreshZoho}
+        >
+          Refresh Zoho item cache / enrich uploaded SKUs
+        </button>
+      </div>
+    </section>
+  )
+}
+
 function UploadPanel({ uploads, onUploaded }) {
   const [file, setFile] = useState(null)
   const [preview, setPreview] = useState(null)
@@ -292,16 +389,26 @@ export function PurchasePlanningPage() {
     return res.plan
   }, [])
 
-  const syncLowStock = useCallback(async () => {
-    setBusy('sync')
+  const handleLowStockUploaded = useCallback(async (res) => {
+    setLowStock(res.items || [])
+    await load()
+    setNotice(`Saved ${res.summary.uploaded} uploaded low-stock SKUs (${res.summary.matched} matched in Zoho, ${res.summary.unmatched} unmatched).`)
+  }, [load])
+
+  const refreshLowStockZoho = useCallback(async () => {
+    const ok = window.confirm(
+      'Refresh Zoho item cache / enrich uploaded SKUs? This may use Zoho API calls if the item cache is expired.'
+    )
+    if (!ok) return
+    setBusy('enrich-low')
     setError('')
     setNotice('')
     try {
-      const res = await api.get('/api/purchase-planning/low-stock/sync')
+      const res = await api.post('/api/purchase-planning/low-stock/refresh-zoho', {})
       setLowStock(res.items || [])
-      setNotice(`Synced ${res.summary.detected} low-stock SKUs from Zoho.`)
+      setNotice(`Refreshed ${res.summary.refreshed} uploaded SKUs (${res.summary.matched} matched in Zoho, ${res.summary.unmatched} unmatched).`)
     } catch (err) {
-      setError(err.message || 'Low-stock sync failed')
+      setError(err.message || 'Zoho enrichment refresh failed')
     } finally {
       setBusy('')
     }
@@ -375,12 +482,11 @@ export function PurchasePlanningPage() {
         <div>
           <h1 className="doc-page-title">Purchase Planning</h1>
           <p className="doc-page-subtitle">
-            Detect ecommerce SKUs below 3 pcs, match them to Vigil wholesale stock, calculate three-month usage,
+            Upload reported low-stock SKUs, enrich them from Zoho, match them to Vigil wholesale stock, calculate three-month usage,
             and create a reviewed draft before sending any PO to Zoho.
           </p>
         </div>
         <div className="pp-hero__actions">
-          <button className="btn" disabled={busy === 'sync'} onClick={syncLowStock}>Sync low stock</button>
           <button className="btn btn--primary" disabled={busy === 'generate'} onClick={generatePlan}>Generate Purchase Plan</button>
           <button className="btn btn--primary" disabled={!activePlan || activePlan.status === 'sent_to_zoho' || busy === 'po'} onClick={createPo}>
             Create PO in Zoho
@@ -392,6 +498,13 @@ export function PurchasePlanningPage() {
       {notice && <div className="pp-notice">{notice}</div>}
 
       <SummaryCards plan={activePlan} lowStock={lowStock} />
+
+      <LowStockUploadPanel
+        lowStock={lowStock}
+        onUploaded={handleLowStockUploaded}
+        onRefreshZoho={refreshLowStockZoho}
+        refreshBusy={busy === 'enrich-low'}
+      />
 
       <div className="pp-grid">
         <UploadPanel uploads={uploads} onUploaded={load} />
