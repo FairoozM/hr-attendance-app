@@ -16,11 +16,20 @@ import {
   seedEcommerceRows,
 } from './allPricesEcommerceUtils'
 
+function fmtShippingPurchaseDisplay(raw) {
+  if (raw === '' || raw == null) return '—'
+  const n = Number(raw)
+  if (!Number.isFinite(n)) return '—'
+  return fmtMoney(n, 2)
+}
+
 export function AllPricesPage() {
   const [rates, setRates] = useState(() => loadRates())
   const [rows, setRows] = useState(() => loadRows() || seedEcommerceRows())
   const [pasteText, setPasteText] = useState('')
   const [pasteFeedback, setPasteFeedback] = useState({ type: '', text: '' })
+  /** Row id whose shipping + purchase cells are editable; null = view-only for those columns */
+  const [editingRowId, setEditingRowId] = useState(null)
 
   useEffect(() => {
     saveRates(rates)
@@ -60,11 +69,17 @@ export function AllPricesPage() {
 
   const deleteRow = useCallback((id) => {
     if (!window.confirm('Remove this row from the price list?')) return
+    setEditingRowId((cur) => (cur === id ? null : cur))
     setRows((prev) => prev.filter((r) => r.id !== id))
+  }, [])
+
+  const toggleEditRow = useCallback((id) => {
+    setEditingRowId((cur) => (cur === id ? null : id))
   }, [])
 
   const resetToSeed = useCallback(() => {
     if (!window.confirm('Replace all rows with the default BRKH-64 template? Your edits will be lost.')) return
+    setEditingRowId(null)
     setRows(seedEcommerceRows())
   }, [])
 
@@ -86,6 +101,7 @@ export function AllPricesPage() {
       dateOfPrices: p.dateOfPrices || '',
     }))
     setRows(next)
+    setEditingRowId(null)
     setPasteFeedback({
       type: 'ok',
       text: `Replaced table with ${next.length} row(s)${skippedHeader ? ' (header row skipped)' : ''}.`,
@@ -294,7 +310,9 @@ export function AllPricesPage() {
                   Profit % of sales
                 </th>
                 <th scope="col">Date of prices</th>
-                <th scope="col" aria-label="Actions" />
+                <th scope="col" className="ap-ec-actions ap-ec-actions-head">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -307,6 +325,7 @@ export function AllPricesPage() {
                   row.shipping !== '' &&
                   Number.isFinite(purchaseNum) &&
                   Number.isFinite(shipNum)
+                const editCosts = editingRowId === row.id
 
                 return (
                   <tr key={row.id}>
@@ -336,24 +355,32 @@ export function AllPricesPage() {
                       <span className="ap-ec-num">{hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.advertisingAmount) : '—'}</span>
                     </td>
                     <td>
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={row.shipping}
-                        onChange={(e) => updateRow(row.id, { shipping: e.target.value })}
-                        aria-label="Shipping cost"
-                      />
+                      {editCosts ? (
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={row.shipping}
+                          onChange={(e) => updateRow(row.id, { shipping: e.target.value })}
+                          aria-label="Shipping cost"
+                        />
+                      ) : (
+                        <span className="ap-ec-num ap-ec-cell-readonly">{fmtShippingPurchaseDisplay(row.shipping)}</span>
+                      )}
                     </td>
                     <td className="col-purchase">
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={row.purchasePrice}
-                        onChange={(e) => updateRow(row.id, { purchasePrice: e.target.value })}
-                        aria-label="Purchase price ecommerce"
-                      />
+                      {editCosts ? (
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={row.purchasePrice}
+                          onChange={(e) => updateRow(row.id, { purchasePrice: e.target.value })}
+                          aria-label="Purchase price ecommerce"
+                        />
+                      ) : (
+                        <span className="ap-ec-num ap-ec-cell-readonly">{fmtShippingPurchaseDisplay(row.purchasePrice)}</span>
+                      )}
                     </td>
                     <td className="col-cost-sum">
                       <span className="ap-ec-num">{hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.totalCost) : '—'}</span>
@@ -373,9 +400,41 @@ export function AllPricesPage() {
                       />
                     </td>
                     <td className="ap-ec-actions">
-                      <button type="button" className="ap-ec-del" onClick={() => deleteRow(row.id)}>
-                        Remove
-                      </button>
+                      <div className="ap-ec-actions__inner">
+                        <button
+                          type="button"
+                          className="ap-ec-edit-btn"
+                          onClick={() => toggleEditRow(row.id)}
+                          aria-pressed={editCosts}
+                        >
+                          {editCosts ? 'Done' : 'Edit'}
+                        </button>
+                        <button
+                          type="button"
+                          className="ap-ec-trash"
+                          onClick={() => deleteRow(row.id)}
+                          aria-label="Remove row"
+                          title="Remove row"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            <line x1="10" y1="11" x2="10" y2="17" />
+                            <line x1="14" y1="11" x2="14" y2="17" />
+                          </svg>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 )

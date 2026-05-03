@@ -173,6 +173,7 @@
   table-layout: auto;
   border-collapse: collapse;
   font-size: 0.8rem;
+  border: 1px solid var(--glass-border);
 }
 
 .ap-ec-table thead th {
@@ -187,8 +188,13 @@
   text-transform: uppercase;
   color: var(--text-muted);
   border-bottom: 2px solid var(--glass-border);
+  border-right: 1px solid var(--glass-border);
   background: color-mix(in srgb, var(--theme-panel-bg, #0f172a) 92%, transparent);
   white-space: nowrap;
+}
+
+.ap-ec-table thead th:last-child {
+  border-right: none;
 }
 
 .ap-ec-table thead th:first-child,
@@ -227,9 +233,14 @@
 .ap-ec-table tbody td {
   padding: 0.45rem 0.5rem;
   border-bottom: 1px solid var(--glass-border);
+  border-right: 1px solid var(--glass-border);
   text-align: right;
   font-variant-numeric: tabular-nums;
   vertical-align: middle;
+}
+
+.ap-ec-table tbody td:last-child {
+  border-right: none;
 }
 
 .ap-ec-table tbody td:first-child {
@@ -280,13 +291,60 @@
   color: var(--text-muted);
 }
 
-.ap-ec-table .ap-ec-actions {
-  text-align: center;
+.ap-ec-table thead th.ap-ec-actions-head {
+  white-space: nowrap;
 }
 
-.ap-ec-table button.ap-ec-del {
-  padding: 0.25rem 0.45rem;
+.ap-ec-table .ap-ec-actions {
+  text-align: center;
+  vertical-align: middle;
+}
+
+.ap-ec-table .ap-ec-actions__inner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  flex-wrap: nowrap;
+}
+
+.ap-ec-table .ap-ec-cell-readonly {
+  display: block;
+  padding: 0.35rem 0.45rem;
+  min-height: calc(0.7rem + 1.6em);
+  line-height: 1.45;
+  box-sizing: border-box;
+}
+
+.ap-ec-table button.ap-ec-edit-btn {
+  padding: 0.28rem 0.55rem;
   font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-soft);
+  cursor: pointer;
+}
+
+.ap-ec-table button.ap-ec-edit-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+
+.ap-ec-table button.ap-ec-edit-btn[aria-pressed='true'] {
+  border-color: rgba(59, 130, 246, 0.45);
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--text);
+}
+
+.ap-ec-table button.ap-ec-trash {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
   border-radius: var(--radius-sm);
   border: 1px solid rgba(248, 113, 113, 0.35);
   background: rgba(248, 113, 113, 0.1);
@@ -294,7 +352,7 @@
   cursor: pointer;
 }
 
-.ap-ec-table button.ap-ec-del:hover {
+.ap-ec-table button.ap-ec-trash:hover {
   background: rgba(248, 113, 113, 0.2);
 }
 
