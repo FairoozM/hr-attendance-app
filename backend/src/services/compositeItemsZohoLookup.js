@@ -10,8 +10,100 @@ const {
   fetchItemById,
 } = require('../integrations/zoho/zohoInventoryClient')
 
+function trimStr(v) {
+  if (v == null) return ''
+  return String(v).trim()
+}
+
+/** Many orgs store EAN/UPC in `sku`; catalogue codes often live in name / part_number / CF. */
+function looksLikeNumericBarcode(s) {
+  const t = trimStr(s)
+  return t.length >= 8 && /^\d+$/.test(t)
+}
+
+function looksLikeCatalogCode(s) {
+  const t = trimStr(s)
+  if (t.length < 3) return false
+  return /[A-Za-z]/.test(t)
+}
+
+/** Prefer hyphenated letter+digit codes (e.g. LIFEP17S-24-BEIGE) over long marketing titles. */
+function scoreCatalogCandidate(s) {
+  const t = trimStr(s)
+  if (!looksLikeCatalogCode(t)) return -1
+  let score = 0
+  if (/^[A-Za-z]{2,}/.test(t)) score += 40
+  if (/-/.test(t)) score += 35
+  if (/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$/i.test(t)) score += 30
+  if (/\s{2,}/.test(t)) score -= 20
+  if (/\s/.test(t)) score -= 12
+  score -= Math.min(35, Math.max(0, t.length - 28))
+  return score
+}
+
+function pickDisplaySku(identifiers) {
+  let best = ''
+  let bestScore = -Infinity
+  for (const id of identifiers) {
+    const sc = scoreCatalogCandidate(id)
+    if (sc > bestScore) {
+      bestScore = sc
+      best = trimStr(id)
+    }
+  }
+  if (bestScore >= 0) return best
+  const barcodes = identifiers.filter(looksLikeNumericBarcode)
+  if (barcodes.length) return trimStr(barcodes[0])
+  return trimStr(identifiers[0]) || ''
+}
+
 /**
- * Composite mapped_lines often put EAN/barcode in `sku`. Resolve real SKU/name from Inventory item.
+ * Every string we might match against All Prices "Item no." (case-insensitive on client).
+ */
+function collectRawIdentifiers(item, mappedSku, mappedName) {
+  const out = []
+  const push = (v) => {
+    const t = trimStr(v)
+    if (t) out.push(t)
+  }
+
+  if (item && typeof item === 'object') {
+    push(item.sku)
+    push(item.part_number)
+    push(item.name)
+    push(item.item_name)
+    if (Array.isArray(item.custom_fields)) {
+      for (const cf of item.custom_fields) {
+        if (cf && cf.value != null) push(cf.value)
+      }
+    }
+    for (const k of Object.keys(item)) {
+      if (k.startsWith('cf_') && item[k] != null && typeof item[k] !== 'object') {
+        push(item[k])
+      }
+    }
+  }
+  push(mappedSku)
+  push(mappedName)
+  return out
+}
+
+function uniqueMatchKeys(identifiers, max = 32) {
+  const seen = new Set()
+  const keys = []
+  for (const id of identifiers) {
+    const t = trimStr(id)
+    const low = t.toLowerCase()
+    if (!t || seen.has(low)) continue
+    seen.add(low)
+    keys.push(t)
+    if (keys.length >= max) break
+  }
+  return keys
+}
+
+/**
+ * Composite mapped_lines often put EAN/barcode in `sku`. Resolve catalogue identifiers from GET /items/{id}.
  * @param {object[]} mappedRows - raw Zoho mapped_items
  */
 async function resolveComponentsFromMappedItems(mappedRows) {
@@ -45,14 +137,20 @@ async function resolveComponentsFromMappedItems(mappedRows) {
 
   return preliminary.map((c) => {
     const item = itemById.get(c.item_id)
-    const skuFromItem =
-      item && item.sku != null && String(item.sku).trim() ? String(item.sku).trim() : ''
-    const nameFromItem =
-      item && item.name != null && String(item.name).trim() ? String(item.name).trim() : ''
+    const identifiers = collectRawIdentifiers(item, c.sku_mapped, c.name_mapped)
+    const match_keys = uniqueMatchKeys(identifiers)
+    const sku = pickDisplaySku(identifiers)
+    const name =
+      trimStr(item && item.name) ||
+      trimStr(item && item.item_name) ||
+      trimStr(c.name_mapped) ||
+      sku
+
     return {
       item_id: c.item_id,
-      sku: skuFromItem || c.sku_mapped,
-      name: nameFromItem || c.name_mapped,
+      sku,
+      name,
+      match_keys,
       quantity: c.quantity,
       zoho_purchase_rate: c.zoho_purchase_rate,
     }

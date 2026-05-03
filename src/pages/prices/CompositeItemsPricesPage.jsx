@@ -15,7 +15,11 @@ import {
   STORAGE_KEY_RATES,
   STORAGE_KEY_ROWS,
 } from '../management/allPricesEcommerceUtils'
-import { buildPurchasePriceMap, computeBundleEconomics } from './compositeBundlePricingUtils'
+import {
+  buildPurchasePriceMap,
+  computeBundleEconomics,
+  findPurchaseForComponent,
+} from './compositeBundlePricingUtils'
 
 export function CompositeItemsPricesPage() {
   const [priceTick, setPriceTick] = useState(0)
@@ -67,10 +71,7 @@ export function CompositeItemsPricesPage() {
   const componentRows = useMemo(() => {
     if (!bundle?.components) return []
     return bundle.components.map((c) => {
-      const key = String(c.sku || '')
-        .trim()
-        .toLowerCase()
-      const purchase = key && purchaseMap.has(key) ? purchaseMap.get(key) : null
+      const purchase = findPurchaseForComponent(purchaseMap, c)
       const qty = Number(c.quantity) || 0
       const lineTotal = purchase != null && Number.isFinite(purchase) ? purchase * qty : null
       return {
@@ -297,7 +298,14 @@ export function CompositeItemsPricesPage() {
                   {componentRows.map((row, idx) => (
                     <tr key={`${row.item_id}-${idx}`}>
                       <td>{bundle.sku}</td>
-                      <td>{row.sku || '—'}</td>
+                      <td className="cb-component-cell">
+                        <span className="cb-component-cell__sku">{row.sku || '—'}</span>
+                        {row.name &&
+                        String(row.name).trim() &&
+                        String(row.name).trim().toLowerCase() !== String(row.sku || '').trim().toLowerCase() ? (
+                          <span className="cb-component-cell__name">{row.name}</span>
+                        ) : null}
+                      </td>
                       <td>{Number.isFinite(Number(row.quantity)) ? String(row.quantity) : '—'}</td>
                       <td>{row.missing ? <span className="cb-missing">—</span> : fmtMoney(row.purchaseFromList, 2)}</td>
                       <td>{row.lineTotal != null ? fmtMoney(row.lineTotal, 2) : '—'}</td>

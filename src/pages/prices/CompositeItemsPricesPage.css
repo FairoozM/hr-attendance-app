@@ -178,6 +178,25 @@
   margin-bottom: 0.65rem;
 }
 
+.cb-component-cell {
+  vertical-align: top;
+}
+
+.cb-component-cell__sku {
+  display: block;
+  font-variant-numeric: tabular-nums;
+}
+
+.cb-component-cell__name {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.76rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  line-height: 1.35;
+  white-space: normal;
+}
+
 .cb-bundle-table td.cb-na {
   color: var(--text-muted);
 }

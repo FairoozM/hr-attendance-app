@@ -13,14 +13,51 @@ export function buildPurchasePriceMap(rows) {
   const m = new Map()
   if (!Array.isArray(rows)) return m
   for (const r of rows) {
-    const k = String(r.itemNo || '')
-      .trim()
-      .toLowerCase()
-    if (!k) continue
+    const raw = String(r.itemNo || '').trim()
+    if (!raw) continue
     const p = Number(r.purchasePrice)
-    if (Number.isFinite(p)) m.set(k, p)
+    if (!Number.isFinite(p)) continue
+    for (const v of expandMatchVariants(raw)) {
+      if (!m.has(v)) m.set(v, p)
+    }
   }
   return m
+}
+
+/** Normalize keys the same way users type Item no. vs Zoho (spaces vs hyphens). */
+export function expandMatchVariants(raw) {
+  const t = String(raw || '').trim().toLowerCase()
+  if (!t) return []
+  const set = new Set([t])
+  set.add(t.replace(/\s+/g, '-'))
+  set.add(t.replace(/_/g, '-'))
+  set.add(t.replace(/\s+/g, ''))
+  return [...set].filter(Boolean)
+}
+
+/**
+ * Try Zoho match_keys + sku + name against the ecommerce price map.
+ * @param {Map<string, number>} purchaseMap — lower-case keys
+ * @param {{ sku?: string, name?: string, match_keys?: string[] }} component
+ */
+export function findPurchaseForComponent(purchaseMap, component) {
+  const rawKeys = []
+  if (Array.isArray(component.match_keys) && component.match_keys.length) {
+    rawKeys.push(...component.match_keys)
+  } else {
+    if (component.sku) rawKeys.push(component.sku)
+    if (component.name) rawKeys.push(component.name)
+  }
+
+  const tried = new Set()
+  for (const raw of rawKeys) {
+    for (const v of expandMatchVariants(raw)) {
+      if (tried.has(v)) continue
+      tried.add(v)
+      if (purchaseMap.has(v)) return purchaseMap.get(v)
+    }
+  }
+  return null
 }
 
 /**
