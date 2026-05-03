@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from 'react'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
+import { useAuth } from './contexts/AuthContext'
 import { SettingsContext } from './contexts/SettingsContext'
 import { InfluencersProvider } from './contexts/InfluencersContext'
 import { useAppSettings } from './hooks/useAppSettings'
@@ -26,6 +27,13 @@ function InfluencerIdToEditRedirect() {
   const { id } = useParams()
   return <Navigate to={`/influencers/${encodeURIComponent(id)}/edit`} replace />
 }
+
+function AdminOnly({ children }) {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  if (user.role !== 'admin') return <Navigate to="/account" replace />
+  return children
+}
 import { ShootSchedulePage } from './pages/influencers/ShootSchedulePage'
 import { PaymentsPage } from './pages/influencers/PaymentsPage'
 import { AgreementsPage } from './pages/influencers/AgreementsPage'
@@ -34,6 +42,7 @@ import { InfluencerPerformancePage } from './pages/influencers/InfluencerPerform
 import { SimCardsPage } from './pages/SimCardsPage'
 import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
 import { PaymentsPage as CompanyPaymentsPage } from './pages/management/PaymentsPage'
+import { PurchasePlanningPage } from './pages/management/PurchasePlanningPage'
 import { WeeklyAdsReportPage } from './pages/reports/WeeklyAdsReportPage'
 import { WeeklySalesReportPage } from './pages/reports/WeeklySalesReportPage'
 import { WeeklyCombinedSalesReportPage } from './pages/reports/WeeklyCombinedSalesReportPage'
@@ -186,6 +195,14 @@ function AppContent() {
             <PermissionGuard module="document_expiry" action="view">
               <CompanyPaymentsPage />
             </PermissionGuard>
+          }
+        />
+        <Route
+          path="management/purchase-planning"
+          element={
+            <AdminOnly>
+              <PurchasePlanningPage />
+            </AdminOnly>
           }
         />
         <Route

@@ -21,6 +21,7 @@ const itemReportGroupsRoutes = require('./routes/itemReportGroups')
 const taxationRoutes = require('./routes/taxation')
 const debugRoutes = require('./routes/debug')
 const zohoRoutes = require('./routes/zoho')
+const purchasePlanningRoutes = require('./routes/purchasePlanning')
 
 const app = express()
 
@@ -69,6 +70,7 @@ app.use('/api/weekly-reports', authMiddleware.attachAuth, weeklyReportsRoutes)
 app.use('/api/item-report-groups', authMiddleware.attachAuth, itemReportGroupsRoutes)
 app.use('/api/taxation', authMiddleware.attachAuth, taxationRoutes)
 app.use('/api/zoho', authMiddleware.attachAuth, zohoRoutes)
+app.use('/api/purchase-planning', authMiddleware.attachAuth, purchasePlanningRoutes)
 // TEMPORARY — Zoho debug (remove when stable)
 app.use('/api/debug', authMiddleware.attachAuth, debugRoutes)
 

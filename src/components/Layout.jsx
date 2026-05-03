@@ -429,7 +429,7 @@ export function Layout() {
   const isZohoActive = location.pathname.startsWith('/admin/zoho')
   const hasAnyInfluencerAccess = hasAnyModulePermission(user, 'influencers')
   const hasAnyListsAccess = hasAnyModulePermission(user, 'sim_cards')
-  const hasAnyManagementAccess = hasAnyModulePermission(user, 'document_expiry')
+  const hasAnyManagementAccess = hasAnyModulePermission(user, 'document_expiry') || isAdmin
   const hasWeeklyReportsAccess = can('weekly_reports', 'view')
   const currentSectionLabel = useMemo(() => {
     if (location.pathname.startsWith('/employees')) return 'Employees'
@@ -441,6 +441,7 @@ export function Layout() {
     if (location.pathname.startsWith('/influencers/performance')) return 'Influencer Performance'
     if (location.pathname.startsWith('/influencers')) return 'Influencers'
     if (location.pathname.startsWith('/account')) return 'My Account'
+    if (location.pathname.startsWith('/management/purchase-planning')) return 'Purchase Planning'
     if (location.pathname.startsWith('/management/payments')) return 'Company payments'
     if (location.pathname.startsWith('/management/document-expiry')) return 'Document Expiry Tracker'
     if (location.pathname.startsWith('/reports/weekly-report/weekly-ads'))   return 'Weekly Ads Report'
@@ -490,6 +491,7 @@ export function Layout() {
   const managementItems = [
     can('document_expiry', 'view') && { label: 'Document Expiry Tracker', to: '/management/document-expiry' },
     can('document_expiry', 'view') && { label: 'Payments', to: '/management/payments' },
+    isAdmin && { label: 'Purchase Planning', to: '/management/purchase-planning' },
   ].filter(Boolean)
 
   const isTaxationActive = location.pathname.startsWith('/taxation')
@@ -543,7 +545,9 @@ export function Layout() {
       ...i,
       group: 'Management',
       searchHint:
-        i.to === '/management/payments'
+        i.to === '/management/purchase-planning'
+          ? 'purchase planning low stock vigil csv wholesale replenishment zoho purchase order po'
+          : i.to === '/management/payments'
           ? 'company payments asad main shop expense salary vat bill subscription supplier'
           : i.to === '/management/document-expiry'
             ? 'document licence trade license vat compliance expiry'

@@ -805,6 +805,12 @@ async function testConnection() {
   } catch (e) {
     console.error('[db] ensureZohoBulkInvoiceTables skipped/failed (non-fatal):', e.message || e)
   }
+  try {
+    const { ensurePurchasePlanningTables } = require('../services/purchasePlanningService')
+    await ensurePurchasePlanningTables()
+  } catch (e) {
+    console.error('[db] ensurePurchasePlanningTables skipped/failed (non-fatal):', e.message || e)
+  }
 }
 
 async function ensureProjectsTable() {

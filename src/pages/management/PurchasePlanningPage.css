@@ -1,0 +1,216 @@
+.pp-page {
+  max-width: 1500px;
+}
+
+.pp-hero__actions,
+.pp-upload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.pp-summary {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.pp-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 1rem;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  background: var(--glass-bg);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+
+.pp-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.pp-panel__head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--text);
+}
+
+.pp-panel__head p {
+  margin: 0.25rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+
+.pp-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.pp-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: capitalize;
+  border: 1px solid currentColor;
+}
+
+.pp-badge--success {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+}
+
+.pp-badge--warning {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+}
+
+.pp-badge--danger {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+.pp-badge--muted {
+  color: var(--text-muted);
+  background: var(--theme-surface-soft);
+}
+
+.pp-notice {
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--success) 24%, transparent);
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+  color: var(--text);
+}
+
+.pp-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.pp-preview__meta,
+.pp-upload-history {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 0.9rem;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.pp-preview-table {
+  min-width: 720px;
+}
+
+.pp-plan-table {
+  min-width: 1500px;
+}
+
+.pp-row--invalid td {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+.pp-row--muted td {
+  color: var(--text-muted);
+  opacity: 0.72;
+}
+
+.pp-filters {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.pp-filters select {
+  min-height: 2.35rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--theme-border);
+  background: var(--theme-input-inner-bg);
+  color: var(--text);
+  padding: 0.45rem 0.65rem;
+}
+
+.pp-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.pp-qty-input {
+  width: 5.5rem;
+  min-height: 2rem;
+  border-radius: 0.65rem;
+  border: 1px solid var(--theme-border);
+  background: var(--theme-input-inner-bg);
+  color: var(--text);
+  padding: 0.3rem 0.45rem;
+}
+
+.pp-empty,
+.pp-empty-cell {
+  padding: 1rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.pp-plan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.pp-plan-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.25rem 0.7rem;
+  text-align: left;
+  color: var(--text);
+  border: 1px solid var(--theme-border);
+  border-radius: 0.9rem;
+  background: var(--theme-surface-soft);
+  padding: 0.8rem;
+  cursor: pointer;
+}
+
+.pp-plan-card span {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.pp-plan-card .pp-badge {
+  grid-row: span 2;
+  align-self: center;
+}
+
+.pp-plan-card--active {
+  border-color: color-mix(in srgb, var(--primary) 60%, var(--theme-border));
+  background: color-mix(in srgb, var(--primary) 12%, var(--theme-surface-soft));
+}
+
+.btn--sm {
+  min-height: 1.9rem;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.76rem;
+}
+
+@media (max-width: 1100px) {
+  .pp-summary,
+  .pp-grid {
+    grid-template-columns: 1fr;
+  }
+}
