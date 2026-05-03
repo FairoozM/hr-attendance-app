@@ -284,7 +284,11 @@ export function AllPricesPage() {
                 <th scope="col" className="col-purchase" title="Purchase price ecommerce">
                   Purchase price
                 </th>
-                <th scope="col">Purchase + VAT + comm. + adv. + shipping</th>
+                <th scope="col" className="col-cost-sum" title="Purchase + VAT + commission + advertising + shipping">
+                  Purchase + VAT + comm.
+                  <br />
+                  + adv. + shipping
+                </th>
                 <th scope="col">Sales − costs (profit)</th>
                 <th scope="col" className="col-accent">
                   Profit % of sales
@@ -319,10 +323,7 @@ export function AllPricesPage() {
                       {!hasInputs || computed.denominatorInvalid ? (
                         <span className="ap-ec-num">—</span>
                       ) : (
-                        <>
-                          <span className="ap-ec-num">{computed.salesPrice}</span>
-                          <div className="ap-ec-num--muted">raw {fmtMoney(computed.salesPriceRaw)}</div>
-                        </>
+                        <span className="ap-ec-num">{computed.salesPrice}</span>
                       )}
                     </td>
                     <td>
@@ -354,7 +355,7 @@ export function AllPricesPage() {
                         aria-label="Purchase price ecommerce"
                       />
                     </td>
-                    <td>
+                    <td className="col-cost-sum">
                       <span className="ap-ec-num">{hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.totalCost) : '—'}</span>
                     </td>
                     <td>

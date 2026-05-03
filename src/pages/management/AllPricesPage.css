@@ -169,7 +169,8 @@
 
 .ap-ec-table {
   width: 100%;
-  min-width: 1100px;
+  min-width: 1120px;
+  table-layout: auto;
   border-collapse: collapse;
   font-size: 0.8rem;
 }
@@ -193,6 +194,10 @@
 .ap-ec-table thead th:first-child,
 .ap-ec-table tbody td:first-child {
   text-align: left;
+  min-width: 12.5rem;
+  width: 12.5rem;
+  box-sizing: border-box;
+  white-space: nowrap;
 }
 
 .ap-ec-table thead th.col-purchase {
@@ -203,6 +208,16 @@
 .ap-ec-table thead th.col-accent {
   background: rgba(245, 158, 11, 0.14);
   color: var(--text-soft);
+}
+
+.ap-ec-table thead th.col-cost-sum {
+  white-space: normal;
+  line-height: 1.28;
+  vertical-align: bottom;
+}
+
+.ap-ec-table tbody td.col-cost-sum {
+  white-space: nowrap;
 }
 
 .ap-ec-table tbody tr:nth-child(even) td {
@@ -245,7 +260,13 @@
 }
 
 .ap-ec-table input.item-no-input {
+  display: block;
+  width: 100%;
+  min-width: 10.5rem;
+  max-width: 100%;
+  box-sizing: border-box;
   font-weight: 600;
+  font-variant-numeric: normal;
 }
 
 .ap-ec-table .ap-ec-num {
