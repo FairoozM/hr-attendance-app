@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { ChevronRight, Copy, CornerDownRight, CheckCircle2, Circle, ListTree, ExternalLink, Link2, Trash2, Repeat, LayoutDashboard, Sun } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
@@ -201,7 +202,8 @@ function TaskContextMenu({ task, sectionId, pos, onClose, onAddSubtask, onDelete
 
   const isDone = task.status === 'done'
 
-  return (
+  /** Portal to body so parent row opacity (e.g. .tbl-row.done) does not fade the menu. */
+  const menuEl = (
     <div
       ref={menuRef}
       className="task-ctx-menu"
@@ -252,6 +254,8 @@ function TaskContextMenu({ task, sectionId, pos, onClose, onAddSubtask, onDelete
       </button>
     </div>
   )
+
+  return createPortal(menuEl, document.body)
 }
 
 // ── Inline subtask input (appears below a task row) ───────────────────────────
@@ -766,29 +770,34 @@ function TaskRow({
 function InlineAddTask({ sectionId, onDone, onAdded }) {
   const { addTask } = useAIPlanner()
   const [title, setTitle] = useState('')
+  const titleRef = useRef('')
   const inputRef = useRef(null)
   const skipBlurClose = useRef(false)
 
+  titleRef.current = title
+
   useEffect(() => { inputRef.current?.focus() }, [])
 
-  function commit() {
-    const trimmed = title.trim()
-    if (trimmed) {
-      skipBlurClose.current = true
-      addTask({ title: trimmed, sectionId: sectionId ?? null })
-      setTitle('')
-      onAdded?.()
-      requestAnimationFrame(() => {
-        skipBlurClose.current = false
-        inputRef.current?.focus()
-      })
-    }
+  /** @param {{ closeAfter?: boolean }} opts closeAfter: blur / click-away — save then exit add row without stealing focus */
+  function commit(opts = {}) {
+    const { closeAfter = false } = opts
+    const trimmed = titleRef.current.trim()
+    if (!trimmed) return
+    skipBlurClose.current = true
+    addTask({ title: trimmed, sectionId: sectionId ?? null })
+    setTitle('')
+    onAdded?.()
+    requestAnimationFrame(() => {
+      skipBlurClose.current = false
+      if (closeAfter) onDone()
+      else inputRef.current?.focus()
+    })
   }
 
   function handleKeyDown(e) {
     if (e.key === 'Enter') {
       e.preventDefault()
-      commit()
+      commit({ closeAfter: false })
     }
     if (e.key === 'Escape') onDone()
   }
@@ -808,16 +817,35 @@ function InlineAddTask({ sectionId, onDone, onAdded }) {
           onKeyDown={handleKeyDown}
           onBlur={() => {
             if (skipBlurClose.current) return
-            if (!title.trim()) onDone()
+            const trimmed = titleRef.current.trim()
+            if (!trimmed) {
+              onDone()
+              return
+            }
+            window.setTimeout(() => {
+              if (skipBlurClose.current) return
+              if (!titleRef.current.trim()) return
+              commit({ closeAfter: true })
+            }, 0)
           }}
-          placeholder="Task name… Enter to add, Esc to cancel"
+          placeholder="Task name… Enter to add, click outside to save, Esc to cancel"
         />
       </div>
-      <div className="tbl-col tbl-col--cat tbl-col--pad" aria-hidden />
-      <div className="tbl-col tbl-col--due tbl-col--pad" aria-hidden />
-      <div className="tbl-col tbl-col--priority tbl-col--pad" aria-hidden />
-      <div className="tbl-col tbl-col--status tbl-col--pad" aria-hidden />
-      <div className="tbl-col tbl-col--score tbl-col--pad" aria-hidden />
+      <div className="tbl-col tbl-col--cat tbl-col--pad" aria-hidden>
+        <span className="tbl-add-row-hint">—</span>
+      </div>
+      <div className="tbl-col tbl-col--due tbl-col--pad" aria-hidden>
+        <span className="tbl-add-row-hint">—</span>
+      </div>
+      <div className="tbl-col tbl-col--priority tbl-col--pad" aria-hidden>
+        <span className="tbl-add-row-hint">—</span>
+      </div>
+      <div className="tbl-col tbl-col--status tbl-col--pad" aria-hidden>
+        <span className="tbl-add-row-hint">—</span>
+      </div>
+      <div className="tbl-col tbl-col--score tbl-col--pad" aria-hidden>
+        <span className="tbl-add-row-hint">—</span>
+      </div>
     </div>
   )
 }
@@ -1267,7 +1295,6 @@ export default function ProjectsIndexPage() {
 
   const afterInlineAdd = () => {
     setCatFilter('')
-    setListNav('all')
   }
 
   const greetingName = (user?.username || 'there').split('@')[0]
