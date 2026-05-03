@@ -43,6 +43,7 @@ import { SimCardsPage } from './pages/SimCardsPage'
 import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
 import { PaymentsPage as CompanyPaymentsPage } from './pages/management/PaymentsPage'
 import { PurchasePlanningPage } from './pages/management/PurchasePlanningPage'
+import { AllPricesPage } from './pages/management/AllPricesPage'
 import { WeeklyAdsReportPage } from './pages/reports/WeeklyAdsReportPage'
 import { WeeklySalesReportPage } from './pages/reports/WeeklySalesReportPage'
 import { WeeklyCombinedSalesReportPage } from './pages/reports/WeeklyCombinedSalesReportPage'
@@ -203,6 +204,14 @@ function AppContent() {
             <AdminOnly>
               <PurchasePlanningPage />
             </AdminOnly>
+          }
+        />
+        <Route
+          path="management/all-prices"
+          element={
+            <PermissionGuard module="document_expiry" action="view">
+              <AllPricesPage />
+            </PermissionGuard>
           }
         />
         <Route
