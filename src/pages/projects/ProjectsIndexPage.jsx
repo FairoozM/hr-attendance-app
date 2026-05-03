@@ -1073,7 +1073,11 @@ function SectionBlock({
                   />
                 ))}
                 <div
-                  className={`tbl-drop-tail ${draggingId && dragHint?.atEnd ? 'tbl-drop-tail--indicator' : ''}`}
+                  className={[
+                    'tbl-drop-tail',
+                    draggingId ? 'tbl-drop-tail--live' : 'tbl-drop-tail--collapsed',
+                    draggingId && dragHint?.atEnd ? 'tbl-drop-tail--indicator' : '',
+                  ].filter(Boolean).join(' ')}
                   onDragOver={(e) => {
                     e.preventDefault()
                     e.dataTransfer.dropEffect = 'move'

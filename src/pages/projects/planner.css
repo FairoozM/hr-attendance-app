@@ -2289,18 +2289,32 @@
     0 2px 8px color-mix(in srgb, var(--theme-primary) 35%, transparent);
 }
 
+/* End-of-list drop slot — only expanded while dragging so we don’t show a blank “row” above + Add task */
 .tbl-drop-tail {
-  min-height: 36px;
-  border-bottom: 1px solid var(--tbl-grid);
-  background: transparent;
   transition: background 0.12s, box-shadow 0.12s, min-height 0.12s;
 }
 
-.tbl-drop-tail:hover {
+.tbl-drop-tail--collapsed {
+  min-height: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.tbl-drop-tail--live {
+  min-height: 36px;
+  border-bottom: 1px solid var(--tbl-grid);
+  background: transparent;
+}
+
+.tbl-drop-tail--live:hover {
   background: rgba(99, 102, 241, 0.06);
 }
 
-.tbl-drop-tail--indicator {
+.tbl-drop-tail--live.tbl-drop-tail--indicator {
   min-height: 40px;
   background: color-mix(in srgb, var(--theme-primary) 12%, transparent);
   box-shadow: inset 0 3px 0 0 var(--theme-primary);
