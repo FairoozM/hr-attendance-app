@@ -2199,6 +2199,13 @@
   background: rgba(249,115,22,0.03);
 }
 
+/* Row + expanded subtasks share one drop target (subtask area sits outside .tbl-row) */
+.tbl-task-block {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
 /* ── Shared column base (vertical rules like Asana) ───────────────── */
 .tbl-row .tbl-col {
   border-right: 1px solid var(--tbl-grid);
@@ -2283,7 +2290,7 @@
 }
 
 .tbl-drop-tail {
-  min-height: 10px;
+  min-height: 36px;
   border-bottom: 1px solid var(--tbl-grid);
   background: transparent;
   transition: background 0.12s, box-shadow 0.12s, min-height 0.12s;
@@ -2294,7 +2301,7 @@
 }
 
 .tbl-drop-tail--indicator {
-  min-height: 14px;
+  min-height: 40px;
   background: color-mix(in srgb, var(--theme-primary) 12%, transparent);
   box-shadow: inset 0 3px 0 0 var(--theme-primary);
 }

@@ -448,8 +448,54 @@ function TaskRow({
 
   const closeCtx = useCallback(() => setCtxMenu(null), [])
 
+  /** Use main row band for before/after — includes pointer over expanded subtask area (below row). */
+  const handleTaskBlockDragOver = useCallback((e) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (!draggingId) return
+    const rowEl = rowRef.current
+    if (!rowEl) return
+    const rect = rowEl.getBoundingClientRect()
+    const beforeThisRow = e.clientY < rect.top + rect.height / 2
+    if (beforeThisRow) {
+      onDragHoverPosition?.({ beforeId: task.id, atEnd: false })
+    } else {
+      const idx = orderedTaskIds.indexOf(task.id)
+      const nextId = orderedTaskIds[idx + 1]
+      if (nextId) onDragHoverPosition?.({ beforeId: nextId, atEnd: false })
+      else onDragHoverPosition?.({ beforeId: null, atEnd: true })
+    }
+  }, [draggingId, task.id, orderedTaskIds, onDragHoverPosition])
+
+  const handleTaskBlockDrop = useCallback((e) => {
+    e.preventDefault()
+    const draggedId = e.dataTransfer.getData('text/plain')
+    if (!draggedId) return
+    if (draggedId === task.id) {
+      onDragState?.(null)
+      return
+    }
+    const rowEl = rowRef.current
+    if (!rowEl) return
+    const rect = rowEl.getBoundingClientRect()
+    const beforeThisRow = e.clientY < rect.top + rect.height / 2
+    let beforeTaskId
+    if (beforeThisRow) {
+      beforeTaskId = task.id
+    } else {
+      const idx = orderedTaskIds.indexOf(task.id)
+      beforeTaskId = orderedTaskIds[idx + 1] ?? null
+    }
+    reorderTasksInSection(sectionId, draggedId, beforeTaskId)
+    onDragState?.(null)
+  }, [task.id, orderedTaskIds, sectionId, reorderTasksInSection, onDragState])
+
   return (
-    <>
+    <div
+      className="tbl-task-block"
+      onDragOver={handleTaskBlockDragOver}
+      onDrop={handleTaskBlockDrop}
+    >
     <div
       ref={rowRef}
       className={`tbl-row ${task.status === 'done' ? 'done' : ''} ${task.status === 'blocked' ? 'blocked' : ''} ${task._hasUnresolvedDeps ? 'dep-blocked' : ''} ${detailsOpen ? 'tbl-row--details-open' : ''} ${isDragging ? 'tbl-row--dragging' : ''} ${showDropBeforeLine ? 'tbl-row--drop-before' : ''}`}
@@ -458,41 +504,6 @@ function TaskRow({
       onContextMenu={(e) => {
         e.preventDefault()
         setCtxMenu({ x: e.clientX, y: e.clientY })
-      }}
-      onDragOver={(e) => {
-        e.preventDefault()
-        e.dataTransfer.dropEffect = 'move'
-        if (!draggingId) return
-        const rect = e.currentTarget.getBoundingClientRect()
-        const beforeThisRow = e.clientY < rect.top + rect.height / 2
-        if (beforeThisRow) {
-          onDragHoverPosition?.({ beforeId: task.id, atEnd: false })
-        } else {
-          const idx = orderedTaskIds.indexOf(task.id)
-          const nextId = orderedTaskIds[idx + 1]
-          if (nextId) onDragHoverPosition?.({ beforeId: nextId, atEnd: false })
-          else onDragHoverPosition?.({ beforeId: null, atEnd: true })
-        }
-      }}
-      onDrop={(e) => {
-        e.preventDefault()
-        const draggedId = e.dataTransfer.getData('text/plain')
-        if (!draggedId) return
-        if (draggedId === task.id) {
-          onDragState?.(null)
-          return
-        }
-        const rect = e.currentTarget.getBoundingClientRect()
-        const beforeThisRow = e.clientY < rect.top + rect.height / 2
-        let beforeTaskId
-        if (beforeThisRow) {
-          beforeTaskId = task.id
-        } else {
-          const idx = orderedTaskIds.indexOf(task.id)
-          beforeTaskId = orderedTaskIds[idx + 1] ?? null
-        }
-        reorderTasksInSection(sectionId, draggedId, beforeTaskId)
-        onDragState?.(null)
       }}
     >
       {/* Grip: expand (if subtasks) + drag handle — draggable only on handle (row as target broke closest() check) */}
@@ -747,7 +758,7 @@ function TaskRow({
         )}
       </div>
     )}
-    </>
+    </div>
   )
 }
 
@@ -1041,7 +1052,24 @@ function SectionBlock({
               onAdded={onAfterAddTask}
             />
           ) : (
-            <button className="tbl-add-task-btn" onClick={() => setAdding(true)}>
+            <button
+              type="button"
+              className="tbl-add-task-btn"
+              onClick={() => setAdding(true)}
+              onDragOver={(e) => {
+                if (!draggingId || filtered.length === 0) return
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'move'
+                setDragHint({ beforeId: null, atEnd: true })
+              }}
+              onDrop={(e) => {
+                if (filtered.length === 0) return
+                e.preventDefault()
+                const id = e.dataTransfer.getData('text/plain')
+                if (id) reorderTasksInSection(sectionId, id, null)
+                setDraggingId(null)
+              }}
+            >
               + Add task
             </button>
           )}
