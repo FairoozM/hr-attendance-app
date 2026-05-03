@@ -370,6 +370,9 @@ function TaskRow({
   reorderTasksInSection,
   draggingId,
   onDragState,
+  orderedTaskIds = [],
+  showDropBeforeLine,
+  onDragHoverPosition,
   onDelete,
 }) {
   const { markDone, markTodo, updateTask, setActiveTaskId, activeTaskId } = useAIPlanner()
@@ -449,7 +452,7 @@ function TaskRow({
     <>
     <div
       ref={rowRef}
-      className={`tbl-row ${task.status === 'done' ? 'done' : ''} ${task.status === 'blocked' ? 'blocked' : ''} ${task._hasUnresolvedDeps ? 'dep-blocked' : ''} ${detailsOpen ? 'tbl-row--details-open' : ''} ${isDragging ? 'tbl-row--dragging' : ''}`}
+      className={`tbl-row ${task.status === 'done' ? 'done' : ''} ${task.status === 'blocked' ? 'blocked' : ''} ${task._hasUnresolvedDeps ? 'dep-blocked' : ''} ${detailsOpen ? 'tbl-row--details-open' : ''} ${isDragging ? 'tbl-row--dragging' : ''} ${showDropBeforeLine ? 'tbl-row--drop-before' : ''}`}
       role="row"
       data-task-id={task.id}
       onContextMenu={(e) => {
@@ -459,12 +462,36 @@ function TaskRow({
       onDragOver={(e) => {
         e.preventDefault()
         e.dataTransfer.dropEffect = 'move'
+        if (!draggingId) return
+        const rect = e.currentTarget.getBoundingClientRect()
+        const beforeThisRow = e.clientY < rect.top + rect.height / 2
+        if (beforeThisRow) {
+          onDragHoverPosition?.({ beforeId: task.id, atEnd: false })
+        } else {
+          const idx = orderedTaskIds.indexOf(task.id)
+          const nextId = orderedTaskIds[idx + 1]
+          if (nextId) onDragHoverPosition?.({ beforeId: nextId, atEnd: false })
+          else onDragHoverPosition?.({ beforeId: null, atEnd: true })
+        }
       }}
       onDrop={(e) => {
         e.preventDefault()
         const draggedId = e.dataTransfer.getData('text/plain')
-        if (!draggedId || draggedId === task.id) return
-        reorderTasksInSection(sectionId, draggedId, task.id)
+        if (!draggedId) return
+        if (draggedId === task.id) {
+          onDragState?.(null)
+          return
+        }
+        const rect = e.currentTarget.getBoundingClientRect()
+        const beforeThisRow = e.clientY < rect.top + rect.height / 2
+        let beforeTaskId
+        if (beforeThisRow) {
+          beforeTaskId = task.id
+        } else {
+          const idx = orderedTaskIds.indexOf(task.id)
+          beforeTaskId = orderedTaskIds[idx + 1] ?? null
+        }
+        reorderTasksInSection(sectionId, draggedId, beforeTaskId)
         onDragState?.(null)
       }}
     >
@@ -925,6 +952,7 @@ function SectionBlock({
   const [collapsed, setCollapsed] = useState(false)
   const [adding, setAdding]       = useState(false)
   const [draggingId, setDraggingId] = useState(null)
+  const [dragHint, setDragHint] = useState(null) // { beforeId: string | null, atEnd: boolean }
   const sectionId = section?.id ?? null
 
   const filtered = sectionTasksOrdered.filter((t) => {
@@ -933,6 +961,16 @@ function SectionBlock({
     if (catFilter && t.category?.id !== catFilter) return false
     return true
   })
+
+  const orderedTaskIds = filtered.map((t) => t.id)
+
+  useEffect(() => {
+    setDragHint(null)
+  }, [draggingId])
+
+  const reportDragHover = useCallback((hint) => {
+    setDragHint(hint)
+  }, [])
 
   return (
     <div className="tbl-section">
@@ -945,7 +983,15 @@ function SectionBlock({
       />
 
       {!collapsed && (
-        <div className="tbl-section__body">
+        <div
+          className="tbl-section__body"
+          onDragLeave={(e) => {
+            if (!draggingId) return
+            const rel = e.relatedTarget
+            if (rel && e.currentTarget.contains(rel)) return
+            setDragHint(null)
+          }}
+        >
           {/* Column header — shown once per section */}
           <TaskTableHeader />
 
@@ -962,14 +1008,18 @@ function SectionBlock({
                     reorderTasksInSection={reorderTasksInSection}
                     draggingId={draggingId}
                     onDragState={setDraggingId}
+                    orderedTaskIds={orderedTaskIds}
+                    showDropBeforeLine={Boolean(draggingId && dragHint?.beforeId === task.id)}
+                    onDragHoverPosition={reportDragHover}
                     onDelete={onDelete}
                   />
                 ))}
                 <div
-                  className="tbl-drop-tail"
+                  className={`tbl-drop-tail ${draggingId && dragHint?.atEnd ? 'tbl-drop-tail--indicator' : ''}`}
                   onDragOver={(e) => {
                     e.preventDefault()
                     e.dataTransfer.dropEffect = 'move'
+                    if (draggingId) setDragHint({ beforeId: null, atEnd: true })
                   }}
                   onDrop={(e) => {
                     e.preventDefault()

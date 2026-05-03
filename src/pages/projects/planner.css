@@ -2260,17 +2260,43 @@
 }
 
 .tbl-row--dragging {
-  opacity: 0.45;
+  opacity: 0.65;
+  background: var(--tbl-grid-hover);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--theme-primary) 45%, transparent);
+}
+
+/* Insertion line — shows exactly where the row will land (top edge of target slot) */
+.tbl-row--drop-before::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -1px;
+  height: 4px;
+  background: var(--theme-primary);
+  border-radius: 2px;
+  z-index: 4;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--theme-surface-raised, #fff) 70%, transparent),
+    0 2px 8px color-mix(in srgb, var(--theme-primary) 35%, transparent);
 }
 
 .tbl-drop-tail {
   min-height: 10px;
   border-bottom: 1px solid var(--tbl-grid);
   background: transparent;
+  transition: background 0.12s, box-shadow 0.12s, min-height 0.12s;
 }
 
 .tbl-drop-tail:hover {
   background: rgba(99, 102, 241, 0.06);
+}
+
+.tbl-drop-tail--indicator {
+  min-height: 14px;
+  background: color-mix(in srgb, var(--theme-primary) 12%, transparent);
+  box-shadow: inset 0 3px 0 0 var(--theme-primary);
 }
 
 .tbl-col--check {
