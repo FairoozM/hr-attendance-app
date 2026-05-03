@@ -301,9 +301,8 @@ export function AllPricesPage() {
                   Purchase price
                 </th>
                 <th scope="col" className="col-cost-sum" title="Purchase + VAT + commission + advertising + shipping">
-                  Purchase + VAT + comm.
-                  <br />
-                  + adv. + shipping
+                  <span className="ap-ec-th-cost-line">Purchase + VAT + comm.</span>
+                  <span className="ap-ec-th-cost-line">+ adv. + shipping</span>
                 </th>
                 <th scope="col">Sales − costs (profit)</th>
                 <th scope="col" className="col-accent">
