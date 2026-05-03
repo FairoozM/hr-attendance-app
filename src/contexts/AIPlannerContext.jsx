@@ -372,12 +372,15 @@ export function AIPlannerProvider({ children }) {
     }
     setRawTasks((prev) => {
       const inSec = prev.filter((t) => (t.sectionId ?? null) === sid)
-      const minL =
-        inSec.length > 0
-          ? Math.min(...inSec.map((t) => (t.listOrder != null ? t.listOrder : Number.MAX_SAFE_INTEGER)))
-          : 1_000_000
-      newTask.listOrder = minL - 1000
-      return [newTask, ...prev]
+      const numericOrders = inSec
+        .map((t) => t.listOrder)
+        .filter((lo) => lo != null && Number.isFinite(lo))
+      // Match reorderTasksInSection spacing (i * 1000); new tasks go at bottom like Asana.
+      newTask.listOrder =
+        numericOrders.length > 0
+          ? Math.max(...numericOrders) + 1000
+          : Math.max(0, inSec.length * 1000)
+      return [...prev, newTask]
     })
     return newTask
   }, [])

@@ -262,26 +262,33 @@ function TaskContextMenu({ task, sectionId, pos, onClose, onAddSubtask, onDelete
 function InlineSubtaskInput({ taskId, onDone }) {
   const { addSubtask } = useAIPlanner()
   const [value, setValue] = useState('')
+  const valueRef = useRef('')
   const inputRef = useRef(null)
   const skipBlur = useRef(false)
 
+  valueRef.current = value
+
   useEffect(() => { inputRef.current?.focus() }, [])
 
-  function commit() {
-    const t = value.trim()
-    if (t) {
-      skipBlur.current = true
-      addSubtask(taskId, t)
-      setValue('')
-      requestAnimationFrame(() => {
-        skipBlur.current = false
-        inputRef.current?.focus()
-      })
-    }
+  /** closeAfter: blur / click-away — save then leave editor (avoids losing text + matches task add UX) */
+  function commit(closeAfter = false) {
+    const t = valueRef.current.trim()
+    if (!t) return
+    skipBlur.current = true
+    addSubtask(taskId, t)
+    setValue('')
+    requestAnimationFrame(() => {
+      skipBlur.current = false
+      if (closeAfter) onDone()
+      else inputRef.current?.focus()
+    })
   }
 
   function handleKeyDown(e) {
-    if (e.key === 'Enter') { e.preventDefault(); commit() }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      commit(false)
+    }
     if (e.key === 'Escape') onDone()
   }
 
@@ -297,9 +304,18 @@ function InlineSubtaskInput({ taskId, onDone }) {
         onKeyDown={handleKeyDown}
         onBlur={() => {
           if (skipBlur.current) return
-          onDone()
+          const trimmed = valueRef.current.trim()
+          if (!trimmed) {
+            onDone()
+            return
+          }
+          window.setTimeout(() => {
+            if (skipBlur.current) return
+            if (!valueRef.current.trim()) return
+            commit(true)
+          }, 0)
         }}
-        placeholder="Subtask name… Enter to add, Esc to cancel"
+        placeholder="Subtask name… Enter to add another, click outside to save, Esc to cancel"
       />
     </div>
   )
@@ -730,7 +746,10 @@ function TaskRow({
           sectionId={sectionId}
           pos={ctxMenu}
           onClose={closeCtx}
-          onAddSubtask={() => setAddingSubtask(true)}
+          onAddSubtask={() => {
+            setSubtasksExpanded(true)
+            setAddingSubtask(true)
+          }}
           onDelete={onDelete}
         />
       )}
