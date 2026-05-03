@@ -1,5 +1,6 @@
 const { query, pool } = require('../db')
 const { parseCsv, indexHeaders, cellOf } = require('../utils/csv')
+const XLSX = require('xlsx')
 const {
   normalizeSku,
   matchZohoSkuToVigil,
@@ -237,9 +238,8 @@ function findHeader(headerIdx, candidates) {
   return ''
 }
 
-function parseVigilCsv(text) {
-  const parsed = parseCsv(text)
-  const headerIdx = indexHeaders(parsed.headers)
+function parseVigilRows(headers, rawRows) {
+  const headerIdx = indexHeaders(headers)
   const itemCodeHeader = findHeader(headerIdx, [
     'item code',
     'item_code',
@@ -258,7 +258,7 @@ function parseVigilCsv(text) {
     'quantity',
   ])
 
-  const rows = parsed.rows.map((raw, index) => {
+  const rows = rawRows.map((raw, index) => {
     const itemCode = itemCodeHeader ? cellOf(raw, headerIdx, itemCodeHeader) : ''
     const rawStock = stockHeader ? cellOf(raw, headerIdx, stockHeader) : ''
     const availableStock = toNumber(rawStock, NaN)
@@ -276,7 +276,7 @@ function parseVigilCsv(text) {
   })
 
   return {
-    headers: parsed.headers,
+    headers,
     rows,
     summary: {
       rows: rows.length,
@@ -288,7 +288,54 @@ function parseVigilCsv(text) {
   }
 }
 
-async function previewVigilUpload(buffer) {
+function parseVigilCsv(text) {
+  const parsed = parseCsv(text)
+  return parseVigilRows(parsed.headers, parsed.rows)
+}
+
+function parseVigilExcel(buffer) {
+  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: false })
+  const sheetName = workbook.SheetNames && workbook.SheetNames[0]
+  if (!sheetName) {
+    const err = new Error('Excel workbook does not contain any sheets')
+    err.code = 'EXCEL_PARSE_ERROR'
+    throw err
+  }
+  const worksheet = workbook.Sheets[sheetName]
+  const rows = XLSX.utils.sheet_to_json(worksheet, {
+    header: 1,
+    raw: false,
+    defval: '',
+    blankrows: false,
+  })
+  if (!rows.length) {
+    const err = new Error('Excel sheet is empty')
+    err.code = 'EXCEL_PARSE_ERROR'
+    throw err
+  }
+  const headers = rows[0].map((cell) => clean(cell))
+  if (!headers.length || headers.every((header) => !header)) {
+    const err = new Error('Excel header row is empty')
+    err.code = 'EXCEL_PARSE_ERROR'
+    throw err
+  }
+  const bodyRows = rows.slice(1)
+    .filter((row) => Array.isArray(row) && row.some((cell) => clean(cell) !== ''))
+    .map((row) => {
+      const out = row.map((cell) => clean(cell))
+      while (out.length < headers.length) out.push('')
+      out.length = headers.length
+      return out
+    })
+  return parseVigilRows(headers, bodyRows)
+}
+
+function isExcelFile(fileName) {
+  return /\.(xlsx|xls)$/i.test(clean(fileName))
+}
+
+async function previewVigilUpload(buffer, fileName = '') {
+  if (isExcelFile(fileName)) return parseVigilExcel(buffer)
   return parseVigilCsv(buffer.toString('utf8'))
 }
 
@@ -614,6 +661,7 @@ module.exports = {
   syncLowStockFromZoho,
   listLowStock,
   previewVigilUpload,
+  parseVigilExcel,
   saveVigilUpload,
   listVigilUploads,
   generatePlan,

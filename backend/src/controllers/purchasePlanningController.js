@@ -47,7 +47,7 @@ async function uploadVigilCsv(req, res) {
     if (!req.file || !req.file.buffer) {
       return res.status(400).json({ error: 'CSV file is required' })
     }
-    const preview = await service.previewVigilUpload(req.file.buffer)
+    const preview = await service.previewVigilUpload(req.file.buffer, req.file.originalname)
     const shouldSave = String(req.body && req.body.save).toLowerCase() === 'true'
     if (!shouldSave) {
       return res.json({ saved: false, fileName: req.file.originalname, preview })
@@ -69,7 +69,7 @@ async function uploadVigilCsv(req, res) {
   } catch (err) {
     console.error('[purchase-planning] vigil upload error:', err)
     res.status(err.code === 'CSV_PARSE_ERROR' ? 400 : 500).json({
-      error: err.message || 'Failed to process Vigil CSV',
+      error: err.message || 'Failed to process Vigil stock file',
       code: err.code || 'VIGIL_UPLOAD_FAILED',
     })
   }

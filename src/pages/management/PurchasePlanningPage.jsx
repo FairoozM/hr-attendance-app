@@ -88,11 +88,11 @@ function UploadPanel({ uploads, onUploaded }) {
     <section className="pp-panel">
       <div className="pp-panel__head">
         <div>
-          <h2>Vigil CSV Upload</h2>
-          <p>Preview wholesale stock rows before saving them as the active upload.</p>
+          <h2>Vigil Stock Upload</h2>
+          <p>Preview CSV or Excel wholesale stock rows before saving them as the active upload.</p>
         </div>
         <div className="pp-upload-actions">
-          <input type="file" accept=".csv,text/csv" onChange={(e) => {
+          <input type="file" accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => {
             setFile(e.target.files?.[0] || null)
             setPreview(null)
             setError('')
