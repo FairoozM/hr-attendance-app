@@ -425,30 +425,37 @@ function TaskRow({
   }
 
   const isDragging = draggingId === task.id
+  const rowRef = useRef(null)
+
+  const handleGripDragStart = useCallback((e) => {
+    e.stopPropagation()
+    e.dataTransfer.setData('text/plain', task.id)
+    e.dataTransfer.effectAllowed = 'move'
+    try {
+      const el = rowRef.current
+      if (el) {
+        const r = el.getBoundingClientRect()
+        e.dataTransfer.setDragImage(el, Math.min(48, r.width * 0.08), r.height / 2)
+      }
+    } catch {
+      /* setDragImage unsupported in some environments */
+    }
+    onDragState?.(task.id)
+  }, [task.id, onDragState])
 
   const closeCtx = useCallback(() => setCtxMenu(null), [])
 
   return (
     <>
     <div
+      ref={rowRef}
       className={`tbl-row ${task.status === 'done' ? 'done' : ''} ${task.status === 'blocked' ? 'blocked' : ''} ${task._hasUnresolvedDeps ? 'dep-blocked' : ''} ${detailsOpen ? 'tbl-row--details-open' : ''} ${isDragging ? 'tbl-row--dragging' : ''}`}
       role="row"
       data-task-id={task.id}
-      draggable
       onContextMenu={(e) => {
         e.preventDefault()
         setCtxMenu({ x: e.clientX, y: e.clientY })
       }}
-      onDragStart={(e) => {
-        if (!e.target.closest('.tbl-drag-handle')) {
-          e.preventDefault()
-          return
-        }
-        e.dataTransfer.setData('text/plain', task.id)
-        e.dataTransfer.effectAllowed = 'move'
-        onDragState?.(task.id)
-      }}
-      onDragEnd={() => onDragState?.(null)}
       onDragOver={(e) => {
         e.preventDefault()
         e.dataTransfer.dropEffect = 'move'
@@ -461,26 +468,34 @@ function TaskRow({
         onDragState?.(null)
       }}
     >
-      {/* Grip / collapse toggle — shows chevron when subtasks exist, drag dots otherwise */}
+      {/* Grip: expand (if subtasks) + drag handle — draggable only on handle (row as target broke closest() check) */}
       <div className="tbl-col tbl-col--grip">
-        {subTotal > 0 ? (
-          <button
-            type="button"
-            className={`tbl-expand-btn ${subtasksExpanded ? 'expanded' : ''}`}
-            onClick={(e) => { e.stopPropagation(); setSubtasksExpanded((v) => !v) }}
-            aria-label={subtasksExpanded ? 'Collapse subtasks' : 'Expand subtasks'}
+        <div className="tbl-grip-col">
+          {subTotal > 0 && (
+            <button
+              type="button"
+              className={`tbl-expand-btn ${subtasksExpanded ? 'expanded' : ''}`}
+              onClick={(e) => { e.stopPropagation(); setSubtasksExpanded((v) => !v) }}
+              aria-label={subtasksExpanded ? 'Collapse subtasks' : 'Expand subtasks'}
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
+                <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          )}
+          <span
+            className="tbl-drag-handle"
+            draggable
+            title="Drag to reorder"
+            aria-label="Drag to reorder task"
+            onDragStart={handleGripDragStart}
+            onDragEnd={() => onDragState?.(null)}
           >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
-              <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
-        ) : (
-          <span className="tbl-drag-handle" title="Drag to reorder" aria-label="Drag to reorder" aria-hidden>
             {[0, 1, 2, 3, 4, 5].map((i) => (
               <span key={i} className="tbl-drag-dot" />
             ))}
           </span>
-        )}
+        </div>
       </div>
 
       {/* Asana-style circle check */}
