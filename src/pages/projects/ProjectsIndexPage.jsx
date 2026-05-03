@@ -1,5 +1,7 @@
-import { useState, useRef, useEffect, useMemo, useCallback, Fragment } from 'react'
-import { ChevronRight, Copy, CornerDownRight, CheckCircle2, Circle, ListTree, ExternalLink, Link2, Trash2, Repeat } from 'lucide-react'
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
+import { Link } from 'react-router-dom'
+import { ChevronRight, Copy, CornerDownRight, CheckCircle2, Circle, ListTree, ExternalLink, Link2, Trash2, Repeat, LayoutDashboard, Sun } from 'lucide-react'
+import { useAuth } from '../../contexts/AuthContext'
 import { useAIPlanner } from '../../contexts/AIPlannerContext'
 import { AIAssistPanel } from '../../components/planner/AIAssistPanel'
 import { TaskDrawer } from '../../components/planner/TaskDrawer'
@@ -898,6 +900,8 @@ function SectionBlock({
   sectionTasksOrdered,
   statusFilter,
   catFilter,
+  dueTodayOnly,
+  todayIso,
   onOpenDatePicker,
   onAfterAddTask,
   reorderTasksInSection,
@@ -909,6 +913,7 @@ function SectionBlock({
   const sectionId = section?.id ?? null
 
   const filtered = sectionTasksOrdered.filter((t) => {
+    if (dueTodayOnly && (!t.dueDate || t.dueDate !== todayIso)) return false
     if (statusFilter !== 'all' && t.status !== statusFilter) return false
     if (catFilter && t.category?.id !== catFilter) return false
     return true
@@ -981,12 +986,17 @@ function SectionBlock({
   )
 }
 
-// ── Filter bar ────────────────────────────────────────────────────────────────
-const FILTER_OPTIONS = [
-  { id: 'all',     label: 'All' },
-  { id: 'todo',    label: 'To Do' },
-  { id: 'blocked', label: 'Blocked' },
-  { id: 'done',    label: 'Done' },
+/** Matches seeded Follow-Up section id */
+const FOLLOW_UP_SECTION_ID = 'sec-followup'
+
+/** Sidebar views → status filter + optional due-date / section scope */
+const LIST_NAV_ITEMS = [
+  { id: 'all',     label: 'All tasks',    icon: '⌂', status: 'all',     dueTodayOnly: false, followUpOnly: false },
+  { id: 'todo',    label: 'To do',        icon: '▣', status: 'todo',    dueTodayOnly: false, followUpOnly: false },
+  { id: 'blocked', label: 'Blocked',      icon: '⚠', status: 'blocked', dueTodayOnly: false, followUpOnly: false },
+  { id: 'done',    label: 'Completed',    icon: '✓', status: 'done',    dueTodayOnly: false, followUpOnly: false },
+  { id: 'today',   label: 'Due today',    icon: '◷', status: 'all',     dueTodayOnly: true,  followUpOnly: false },
+  { id: 'followup', label: 'Follow-up',   icon: '↗', status: 'all',     dueTodayOnly: false, followUpOnly: true },
 ]
 
 const CAT_FILTER_OPTIONS = [
@@ -997,6 +1007,77 @@ const CAT_FILTER_OPTIONS = [
   { id: 'marketing',     label: '📣 Marketing' },
   { id: 'admin',         label: '📋 Admin' },
 ]
+
+function PlannerTaskSidebar({
+  listNav,
+  onNav,
+  todoCount,
+  blockedCount,
+  doneCount,
+  dueTodayCount,
+  userLabel,
+}) {
+  const activeCls =
+    'w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-left text-[15px] font-semibold bg-white text-slate-900 shadow-sm ring-1 ring-slate-200 transition'
+  const idleCls =
+    'w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-left text-[15px] font-semibold text-slate-700 hover:bg-white/80 hover:text-slate-950 transition'
+
+  return (
+    <aside className="flex w-full shrink-0 flex-col rounded-[28px] bg-white/90 p-6 shadow-sm ring-1 ring-black/[0.04] lg:w-[300px] xl:w-[320px]">
+      <div className="mb-6 flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-emerald-600 text-lg text-white shadow-sm">
+            <span aria-hidden>▣</span>
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-[15px] font-bold leading-tight text-slate-950">{userLabel || 'Tasks'}</p>
+            <p className="truncate text-xs text-slate-400">AI Task Planner</p>
+          </div>
+        </div>
+      </div>
+
+      <p className="mb-2 px-1 text-[11px] font-bold uppercase tracking-wide text-slate-400">Views</p>
+      <nav className="space-y-1" aria-label="Task views">
+        {LIST_NAV_ITEMS.map((item) => {
+          const active = listNav === item.id
+          let badge = null
+          if (item.id === 'todo') badge = todoCount
+          else if (item.id === 'blocked') badge = blockedCount
+          else if (item.id === 'done') badge = doneCount
+          else if (item.id === 'today') badge = dueTodayCount
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className={active ? activeCls : idleCls}
+              onClick={() => onNav(item.id)}
+            >
+              <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg text-base ${active ? 'text-emerald-600' : 'text-slate-500'}`} aria-hidden>
+                {item.icon}
+              </span>
+              <span className="flex-1 truncate">{item.label}</span>
+              {badge != null && badge > 0 && (
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold tabular-nums text-slate-600">{badge}</span>
+              )}
+            </button>
+          )
+        })}
+      </nav>
+
+      <p className="mb-2 mt-8 px-1 text-[11px] font-bold uppercase tracking-wide text-slate-400">More</p>
+      <nav className="space-y-1">
+        <Link to="/projects/dashboard" className={`${idleCls} no-underline`}>
+          <LayoutDashboard size={18} className="shrink-0 text-slate-500" aria-hidden />
+          Dashboard
+        </Link>
+        <Link to="/projects/trash" className={`${idleCls} no-underline`}>
+          <span className="grid h-7 w-7 shrink-0 place-items-center text-base text-slate-500" aria-hidden>🗑</span>
+          Trash
+        </Link>
+      </nav>
+    </aside>
+  )
+}
 
 // ── Undo delete toast ─────────────────────────────────────────────────────────
 function UndoToast({ title, onUndo, onDismiss, secondsLeft }) {
@@ -1016,10 +1097,12 @@ function UndoToast({ title, onUndo, onDismiss, secondsLeft }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function ProjectsIndexPage() {
+  const { user } = useAuth()
   const { tasks, rawTasks, sections, addSection, updateTask, reorderTasksInSection, deleteTask, restoreTask } = useAIPlanner()
-  const [statusFilter, setStatusFilter] = useState('all')
+  const [listNav, setListNav] = useState('all')
   const [catFilter, setCatFilter]       = useState('')
   const [datePicker, setDatePicker]     = useState(null)
+  const [plannerTipVisible, setPlannerTipVisible] = useState(true)
   const [undoState, setUndoState]       = useState(null) // { taskId, title, secondsLeft }
   const undoTimerRef = useRef(null)
   const undoTickRef  = useRef(null)
@@ -1067,9 +1150,23 @@ export default function ProjectsIndexPage() {
   const todoCount    = tasks.filter((t) => t.status === 'todo').length
   const blockedCount = tasks.filter((t) => t.status === 'blocked').length
   const doneCount    = tasks.filter((t) => t.status === 'done').length
+  const todayIso     = new Date().toISOString().slice(0, 10)
+  const dueTodayCount = tasks.filter((t) => t.dueDate === todayIso && t.status !== 'done').length
+
+  const navCfg = useMemo(
+    () => LIST_NAV_ITEMS.find((x) => x.id === listNav) || LIST_NAV_ITEMS[0],
+    [listNav],
+  )
+  const statusFilter = navCfg.status
+  const dueTodayOnly = navCfg.dueTodayOnly
+  const followUpOnly = navCfg.followUpOnly
 
   const sortedSections = [...sections].sort((a, b) => a.order - b.order)
   const sectionIds     = new Set(sections.map((s) => s.id))
+
+  const sectionsForLayout = followUpOnly
+    ? sortedSections.filter((s) => s.id === FOLLOW_UP_SECTION_ID)
+    : sortedSections
 
   const datePickerTask = datePicker ? tasks.find((t) => t.id === datePicker.taskId) : null
 
@@ -1077,96 +1174,149 @@ export default function ProjectsIndexPage() {
 
   const afterInlineAdd = () => {
     setCatFilter('')
-    setStatusFilter('all')
+    setListNav('all')
   }
 
+  const greetingName = (user?.username || 'there').split('@')[0]
+  const headerDate   = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  })
+
   return (
-    <div className="aip-layout">
-      <div className="aip-main aip-main--list">
+    <div className="aip-layout aip-layout--asana">
+      <div className="flex min-h-full min-w-0 flex-1 flex-col gap-4 lg:flex-row lg:gap-5">
+        <PlannerTaskSidebar
+          listNav={listNav}
+          onNav={setListNav}
+          todoCount={todoCount}
+          blockedCount={blockedCount}
+          doneCount={doneCount}
+          dueTodayCount={dueTodayCount}
+          userLabel={user?.username || user?.email || 'Your workspace'}
+        />
 
-        {/* Page header */}
-        <div className="aip-page-header">
-          <div>
-            <h1 className="aip-page-title">AI Task Planner</h1>
-            <p className="aip-page-subtitle">
-              {todoCount} to do · {blockedCount} blocked · {doneCount} done — auto-prioritised by AI
-            </p>
-          </div>
-        </div>
+        <div className="aip-main aip-main--list aip-main--asana-shell relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-[28px] bg-white p-6 shadow-sm ring-1 ring-black/[0.04] md:p-8 lg:p-10">
 
-        {/* Quick Capture */}
-        <QuickCapture />
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-r from-emerald-50 via-lime-50 to-cyan-50" aria-hidden />
 
-        {/* Filter bar */}
-        <div className="aip-toolbar tbl-toolbar">
-          {FILTER_OPTIONS.map((f) => (
-            <button
-              key={f.id}
-              className={`aip-filter-btn ${statusFilter === f.id ? 'active' : ''}`}
-              onClick={() => setStatusFilter(f.id)}
-            >
-              {f.label}
-              {f.id !== 'all' && (
-                <span style={{ marginLeft: 4, fontSize: '0.68rem', opacity: 0.7 }}>
-                  {f.id === 'todo' ? todoCount : f.id === 'blocked' ? blockedCount : doneCount}
-                </span>
-              )}
-            </button>
-          ))}
-          <div style={{ marginLeft: 'auto' }}>
-            <select
-              className="aip-filter-btn"
-              value={catFilter}
-              onChange={(e) => setCatFilter(e.target.value)}
-              style={{ cursor: 'pointer' }}
-            >
-              {CAT_FILTER_OPTIONS.map((c) => (
-                <option key={c.id} value={c.id}>{c.label}</option>
+          <div className="relative flex flex-col gap-6">
+            {/* Page header */}
+            <header className="aip-page-header flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h1 className="aip-page-title flex flex-wrap items-center gap-2 text-slate-950">
+                  Good morning, {greetingName}! <Sun size={28} className="text-amber-400" strokeWidth={2} aria-hidden />
+                </h1>
+                <p className="aip-page-subtitle mt-1 text-lg text-slate-400">{headerDate}</p>
+                <p className="mt-2 text-sm text-slate-500">
+                  {todoCount} to do · {blockedCount} blocked · {doneCount} done — auto-prioritised by AI
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="sr-only" htmlFor="planner-cat-filter">Category</label>
+                <select
+                  id="planner-cat-filter"
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm outline-none ring-emerald-500/30 focus:ring-2"
+                  value={catFilter}
+                  onChange={(e) => setCatFilter(e.target.value)}
+                >
+                  {CAT_FILTER_OPTIONS.map((c) => (
+                    <option key={c.id} value={c.id}>{c.label}</option>
+                  ))}
+                </select>
+              </div>
+            </header>
+
+            {/* Mobile: same views as sidebar */}
+            <div className="flex gap-2 overflow-x-auto pb-1 lg:hidden" role="tablist" aria-label="Task views">
+              {LIST_NAV_ITEMS.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={listNav === item.id}
+                  className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                    listNav === item.id
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'bg-white text-slate-600 ring-1 ring-slate-200'
+                  }`}
+                  onClick={() => setListNav(item.id)}
+                >
+                  {item.label}
+                </button>
               ))}
-            </select>
+            </div>
+
+            {plannerTipVisible && (
+              <div className="flex items-start gap-4 rounded-2xl border border-slate-100 bg-white/90 px-4 py-4 shadow-sm backdrop-blur-sm">
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-slate-900 text-lg text-yellow-300" aria-hidden>
+                  ⚡
+                </div>
+                <p className="text-[15px] leading-relaxed text-slate-600">
+                  Pro tips: break work into steps, set due dates for recurring items, and use Follow-up for waiting-on tasks. You’ve got this!
+                </p>
+                <button
+                  type="button"
+                  className="ml-auto shrink-0 rounded-lg px-2 text-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  aria-label="Dismiss tip"
+                  onClick={() => setPlannerTipVisible(false)}
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
+            {/* Quick Capture */}
+            <QuickCapture />
+
+            {/* Section table list */}
+            <div className="tbl-sections-list">
+              {sectionsForLayout.map((sec) => (
+                <SectionBlock
+                  key={sec.id}
+                  section={sec}
+                  sectionTasksOrdered={orderTasksForListSection(
+                    rawTasks.filter((t) => (t.sectionId ?? null) === (sec.id ?? null)),
+                    enrichedById,
+                  )}
+                  statusFilter={statusFilter}
+                  catFilter={catFilter}
+                  dueTodayOnly={dueTodayOnly}
+                  todayIso={todayIso}
+                  onOpenDatePicker={(taskId, payload) => setDatePicker({ taskId, ...payload })}
+                  onAfterAddTask={afterInlineAdd}
+                  reorderTasksInSection={reorderTasksInSection}
+                  onDelete={deleteWithUndo}
+                />
+              ))}
+
+              {!followUpOnly && (
+                <SectionBlock
+                  section={{ id: null, title: 'No Section', color: '#94a3b8', order: 99999 }}
+                  sectionTasksOrdered={orderTasksForListSection(
+                    rawTasks.filter((t) => !t.sectionId || !sectionIds.has(t.sectionId)),
+                    enrichedById,
+                  )}
+                  statusFilter={statusFilter}
+                  catFilter={catFilter}
+                  dueTodayOnly={dueTodayOnly}
+                  todayIso={todayIso}
+                  onOpenDatePicker={(taskId, payload) => setDatePicker({ taskId, ...payload })}
+                  onAfterAddTask={afterInlineAdd}
+                  reorderTasksInSection={reorderTasksInSection}
+                  onDelete={deleteWithUndo}
+                />
+              )}
+            </div>
+
+            {/* Add section */}
+            <button className="tbl-add-section-btn" type="button" onClick={() => addSection('New Section')}>
+              + Add Section
+            </button>
           </div>
         </div>
-
-        {/* Section table list */}
-        <div className="tbl-sections-list">
-          {sortedSections.map((sec) => (
-            <SectionBlock
-              key={sec.id}
-              section={sec}
-              sectionTasksOrdered={orderTasksForListSection(
-                rawTasks.filter((t) => (t.sectionId ?? null) === (sec.id ?? null)),
-                enrichedById
-              )}
-              statusFilter={statusFilter}
-              catFilter={catFilter}
-              onOpenDatePicker={(taskId, payload) => setDatePicker({ taskId, ...payload })}
-              onAfterAddTask={afterInlineAdd}
-              reorderTasksInSection={reorderTasksInSection}
-              onDelete={deleteWithUndo}
-            />
-          ))}
-
-          {/* No-section bucket */}
-          <SectionBlock
-            section={{ id: null, title: 'No Section', color: '#94a3b8', order: 99999 }}
-            sectionTasksOrdered={orderTasksForListSection(
-              rawTasks.filter((t) => !t.sectionId || !sectionIds.has(t.sectionId)),
-              enrichedById
-            )}
-            statusFilter={statusFilter}
-            catFilter={catFilter}
-            onOpenDatePicker={(taskId, payload) => setDatePicker({ taskId, ...payload })}
-            onAfterAddTask={afterInlineAdd}
-            reorderTasksInSection={reorderTasksInSection}
-            onDelete={deleteWithUndo}
-          />
-        </div>
-
-        {/* Add section */}
-        <button className="tbl-add-section-btn" onClick={() => addSection('New Section')}>
-          + Add Section
-        </button>
-
       </div>
 
       <AIAssistPanel />
