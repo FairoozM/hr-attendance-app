@@ -213,6 +213,7 @@ function itemIconToken(label) {
 
 const DOC_URGENCY_LABEL = { expired: 'Expired', urgent: 'Urgent', 'due-soon': 'Due Soon' }
 const DOC_URGENCY_CLS   = { expired: 'notif-doc-badge--expired', urgent: 'notif-doc-badge--urgent', 'due-soon': 'notif-doc-badge--due-soon' }
+const BRAND_TITLE = 'Business Intelligence (BI) - Life Smile'
 
 function NotificationsBell({ docReminders = [] }) {
   const { items, unread, loading, refresh, markRead, markAllRead, dismiss } = useNotifications(true)
@@ -361,6 +362,7 @@ export function Layout() {
   const [focusedSection, setFocusedSection] = useState(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const { appTitle } = useSettings()
+  const displayAppTitle = appTitle || BRAND_TITLE
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -610,9 +612,14 @@ export function Layout() {
         <div className="app-sidebar__inner">
           <div className="app-sidebar__head">
             <div className="app-sidebar__brand-wrap">
-              <span className="app-sidebar__brand-badge">Creator-grade HR</span>
+              <img
+                src="/lifesmile-logo.png"
+                alt="Life Smile"
+                className="app-sidebar__brand-logo"
+              />
+              <span className="app-sidebar__brand-badge">Business Intelligence</span>
               <NavLink to={homePath} className="app-sidebar__brand" onClick={closeSidebar}>
-                {appTitle || 'HR Attendance'}
+                {displayAppTitle}
               </NavLink>
               <span className="app-sidebar__brand-subtitle">Premium operations workspace</span>
             </div>
@@ -894,9 +901,9 @@ export function Layout() {
 
           <div className="app-topbar__meta">
             <div className="app-topbar__chip">
-              <span className="app-topbar__chip-dot" aria-hidden />
-              <span className="app-topbar__chip-text" title={appTitle || 'HR Attendance'}>
-                {appTitle || 'HR Attendance'}
+              <img src="/lifesmile-logo.png" alt="" className="app-topbar__chip-logo" aria-hidden />
+              <span className="app-topbar__chip-text" title={displayAppTitle}>
+                {displayAppTitle}
               </span>
             </div>
             <div className="app-topbar__user-pill">

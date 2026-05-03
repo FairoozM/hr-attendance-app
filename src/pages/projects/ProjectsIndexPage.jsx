@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect, useMemo, useCallback, Fragment } from 'react'
-import { ChevronRight, Copy, CornerDownRight, CheckCircle2, Circle, ListTree, ExternalLink, Link2, Trash2 } from 'lucide-react'
+import { ChevronRight, Copy, CornerDownRight, CheckCircle2, Circle, ListTree, ExternalLink, Link2, Trash2, Repeat } from 'lucide-react'
 import { useAIPlanner } from '../../contexts/AIPlannerContext'
 import { AIAssistPanel } from '../../components/planner/AIAssistPanel'
 import { TaskDrawer } from '../../components/planner/TaskDrawer'
 import { PlannerDatePopover } from '../../components/planner/PlannerDatePopover'
 import { priorityLabel, formatTime, getCategoryById, PLANNER_CATEGORY_LIST } from '../../lib/aiEngine'
+import { effectiveRecurrence } from '../../lib/plannerRecurrence'
 import './planner.css'
 import './projects.css'
 
@@ -410,6 +411,7 @@ function TaskRow({
   const subTotal = task.subtasks?.length || 0
   const subDone = subTotal > 0 ? task.subtasks.filter((s) => s.done).length : 0
   const subPct = subTotal > 0 ? Math.round((subDone / subTotal) * 100) : 0
+  const repeats = effectiveRecurrence(task) !== 'none'
 
   function commitTitle() {
     const t = titleDraft.trim()
@@ -608,8 +610,22 @@ function TaskRow({
               scrollY: window.scrollY,
             })
           }}
+          aria-label={
+            dueLabel
+              ? repeats
+                ? `Due ${dueLabel.text}, recurring task`
+                : `Due ${dueLabel.text}`
+              : repeats
+                ? 'Set date, recurring task'
+                : 'Set date'
+          }
         >
-          {dueLabel ? dueLabel.text : 'Set date'}
+          <span className="tbl-due-btn__inner">
+            {dueLabel ? dueLabel.text : 'Set date'}
+            {repeats && (
+              <Repeat size={13} strokeWidth={2.35} className="tbl-due-repeat-icon" aria-hidden />
+            )}
+          </span>
         </button>
       </div>
 

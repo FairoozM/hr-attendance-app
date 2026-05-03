@@ -5,6 +5,8 @@ import { Modal } from '../components/Modal'
 import './Page.css'
 import './SettingsPage.css'
 
+const DEFAULT_APP_TITLE = 'Business Intelligence (BI) - Life Smile'
+
 export function SettingsPage({ onResetDemoData }) {
   const {
     companyName,
@@ -31,7 +33,7 @@ export function SettingsPage({ onResetDemoData }) {
 
   const handleSaveGeneral = () => {
     setCompanyName(generalCompany)
-    setAppTitle(generalTitle || 'HR Attendance')
+    setAppTitle(generalTitle || DEFAULT_APP_TITLE)
   }
 
   const openAddDept = () => {
@@ -94,7 +96,7 @@ export function SettingsPage({ onResetDemoData }) {
               className="settings-field__input"
               value={generalTitle}
               onChange={(e) => setGeneralTitle(e.target.value)}
-              placeholder="HR Attendance"
+              placeholder={DEFAULT_APP_TITLE}
             />
           </label>
           <div className="settings-card__actions">

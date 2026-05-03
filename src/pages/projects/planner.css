@@ -2686,6 +2686,17 @@
   text-overflow: ellipsis;
 }
 
+.tbl-due-btn__inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.tbl-due-repeat-icon {
+  flex-shrink: 0;
+}
+
 .tbl-due-btn:hover {
   background: rgba(255, 255, 255, 0.06);
 }
@@ -4117,4 +4128,499 @@
 
 :root[data-theme='dark'] .task-ctx-menu__divider {
   background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Solid black planner (list view): typography, rules, icons         ──
+   Gradient titles, grid vars, SVG strokes, and chip accents are handled
+   explicitly so nothing stays grey or off-theme red/green/purple. */
+
+/* Page title uses gradient clip — reset so black fill applies */
+.aip-main--list .aip-page-title {
+  background: none !important;
+  -webkit-background-clip: unset !important;
+  background-clip: unset !important;
+  color: #000 !important;
+  -webkit-text-fill-color: #000 !important;
+}
+
+.aip-main--list,
+.aip-main--list * {
+  color: #000 !important;
+  -webkit-text-fill-color: #000 !important;
+  text-shadow: none !important;
+  caret-color: #000 !important;
+}
+
+.aip-main--list svg {
+  color: #000 !important;
+}
+
+.aip-main--list :is(input, textarea, select, button),
+.aip-main--list :is(input, textarea, select, button)::placeholder {
+  color: #000 !important;
+  -webkit-text-fill-color: #000 !important;
+  opacity: 1 !important;
+}
+
+.aip-main--list :is(.tbl-row.done, .tbl-row--dragging, .tbl-check-placeholder, .tbl-drag-handle, .tbl-row-details, .tbl-row-delete) {
+  opacity: 1 !important;
+}
+
+/* Sheet grid + outer chrome */
+.aip-main--list .tbl-section__body {
+  --tbl-grid: #000 !important;
+  --tbl-grid-hover: rgba(0, 0, 0, 0.06) !important;
+  --tbl-sheet-bg: #fff !important;
+  --tbl-header-bg: #fff !important;
+}
+
+.aip-main--list :is(.tbl-section, .tbl-sec-header, .aip-capture, .aip-filter-btn) {
+  border-color: #000 !important;
+}
+
+.aip-main--list .aip-capture:focus-within {
+  border-color: #000 !important;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.18) !important;
+}
+
+.aip-main--list .tbl-sec-header::before {
+  background: #000 !important;
+}
+
+.aip-main--list .tbl-sec-chevron {
+  border-right-color: #000 !important;
+  border-bottom-color: #000 !important;
+}
+
+.aip-main--list .tbl-expand-btn,
+.aip-main--list .tbl-expand-btn:hover {
+  color: #000 !important;
+  background: transparent !important;
+}
+
+.aip-main--list .tbl-row:focus-visible {
+  box-shadow: inset 0 0 0 2px #000 !important;
+}
+
+.aip-main--list .tbl-row--details-open {
+  background: rgba(0, 0, 0, 0.05) !important;
+  box-shadow: inset 3px 0 0 0 #000 !important;
+}
+
+.aip-main--list .tbl-row--details-open .tbl-row-details {
+  color: #000 !important;
+  background: transparent !important;
+}
+
+.aip-main--list .tbl-row-details:hover {
+  color: #000 !important;
+  background: rgba(0, 0, 0, 0.06) !important;
+}
+
+.aip-main--list .tbl-drop-tail:hover {
+  background: rgba(0, 0, 0, 0.06) !important;
+}
+
+.aip-main--list .tbl-inline-title {
+  color: #000 !important;
+  background: transparent !important;
+  border-color: rgba(0, 0, 0, 0.25) !important;
+}
+
+.aip-main--list .tbl-inline-title:hover,
+.aip-main--list .tbl-inline-title:focus {
+  border-color: #000 !important;
+  box-shadow: none !important;
+  background: rgba(0, 0, 0, 0.03) !important;
+}
+
+.aip-main--list .tbl-inline-select {
+  color: #000 !important;
+  border-color: #000 !important;
+  background: #fff !important;
+}
+
+.aip-main--list .tbl-inline-select:focus {
+  border-color: #000 !important;
+  box-shadow: none !important;
+}
+
+.aip-main--list .tbl-task-title,
+.aip-main--list .tbl-row.done .tbl-task-title {
+  color: #000 !important;
+}
+
+.aip-main--list .tbl-due,
+.aip-main--list .tbl-due.overdue,
+.aip-main--list .tbl-due.today {
+  color: #000 !important;
+}
+
+.aip-main--list .tbl-score {
+  color: #000 !important;
+}
+
+.aip-main--list .tbl-cat-pill {
+  color: #000 !important;
+  background: #fff !important;
+  border: 1px solid #000 !important;
+}
+
+.aip-main--list .tbl-priority-dot__circle {
+  background: #000 !important;
+}
+
+.aip-main--list .tbl-priority-dot__label {
+  color: #000 !important;
+}
+
+.aip-main--list :is(.tbl-status-chip, .tbl-status-chip--todo, .tbl-status-chip--blocked, .tbl-status-chip--done) {
+  background: #fff !important;
+  color: #000 !important;
+  border: 1px solid #000 !important;
+}
+
+.aip-main--list :is(.tbl-indicator, .tbl-indicator--blocked, .tbl-indicator--dep, .tbl-indicator--attach, .tbl-indicator--sub, .tbl-indicator--deep) {
+  background: #fff !important;
+  color: #000 !important;
+  border: 1px solid #000 !important;
+}
+
+.aip-main--list .tbl-sub-progress {
+  background: rgba(0, 0, 0, 0.12) !important;
+}
+
+.aip-main--list .tbl-sub-progress__fill {
+  background: #000 !important;
+}
+
+.aip-main--list .tbl-subtask-badge {
+  color: #000 !important;
+  background: #fff !important;
+  border-color: #000 !important;
+}
+
+.aip-main--list .tbl-subtask-badge:hover {
+  color: #000 !important;
+  background: rgba(0, 0, 0, 0.06) !important;
+}
+
+.aip-main--list :is(.tbl-add-subtask-btn, .tbl-add-task-btn) {
+  color: #000 !important;
+}
+
+.aip-main--list :is(.tbl-add-subtask-btn:hover, .tbl-add-task-btn:hover) {
+  color: #000 !important;
+}
+
+.aip-main--list :is(.tbl-row.blocked, .tbl-row.dep-blocked) {
+  background: transparent !important;
+}
+
+.aip-main--list .tbl-row-delete:hover {
+  color: #000 !important;
+  background: rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Circle checks — black ring and fill; keep inner tick white via SVG attrs */
+.aip-main--list :is(.tbl-check, .tbl-check-placeholder, .tbl-subtask-row__check) {
+  border-color: #000 !important;
+}
+
+.aip-main--list .tbl-check:hover {
+  border-color: #000 !important;
+  background: transparent !important;
+}
+
+.aip-main--list .tbl-check.checked {
+  border-color: #000 !important;
+  background: #000 !important;
+}
+
+.aip-main--list .tbl-check__hover-mark {
+  color: #000 !important;
+}
+
+.aip-main--list .tbl-check:hover .tbl-check__hover-mark {
+  color: #000 !important;
+}
+
+.aip-main--list .tbl-subtask-row__check::before {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 4L3.5 6.5L9 1' stroke='%23000000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+}
+
+.aip-main--list .tbl-subtask-row__check:hover::before {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 4L3.5 6.5L9 1' stroke='%23000000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+}
+
+.aip-main--list .tbl-subtask-row__check:hover {
+  border-color: #000 !important;
+}
+
+.aip-main--list .tbl-subtask-row__check.checked {
+  background: #000 !important;
+  border-color: #000 !important;
+}
+
+.aip-main--list .tbl-subtask-row__title,
+:root[data-theme='light'] .aip-main--list .tbl-subtask-row__title,
+:root[data-theme='comfort'] .aip-main--list .tbl-subtask-row__title {
+  color: #000 !important;
+}
+
+.aip-main--list .tbl-subtask-input {
+  color: #000 !important;
+}
+
+.aip-main--list .tbl-subtask-input::placeholder {
+  color: #000 !important;
+  opacity: 0.85 !important;
+}
+
+.aip-main--list .tbl-subtask-input-icon {
+  color: #000 !important;
+}
+
+.aip-main--list .tbl-subtask-input-row {
+  border-left-color: #000 !important;
+}
+
+.aip-main--list .tbl-add-row {
+  background: #fff !important;
+}
+
+.aip-main--list .tbl-add-input::placeholder {
+  color: #000 !important;
+  opacity: 0.85 !important;
+}
+
+.aip-main--list .tbl-empty {
+  color: #000 !important;
+}
+
+.aip-main--list .tbl-add-section-btn:hover {
+  color: #000 !important;
+  border-color: #000 !important;
+}
+
+.aip-main--list .aip-filter-btn span {
+  opacity: 1 !important;
+}
+
+/* AI Assist sidebar on list page */
+.aip-layout:has(.aip-main--list) .aip-assist {
+  background: #fff !important;
+  border-left-color: #000 !important;
+}
+
+.aip-layout:has(.aip-main--list) .aip-assist,
+.aip-layout:has(.aip-main--list) .aip-assist * {
+  color: #000 !important;
+  -webkit-text-fill-color: #000 !important;
+}
+
+.aip-layout:has(.aip-main--list) .aip-assist [style*='linear-gradient'] {
+  background: #000 !important;
+}
+
+.aip-layout:has(.aip-main--list) .aip-assist .aip-suggestion {
+  border-left-color: #000 !important;
+  border: 1px solid #000 !important;
+  border-left-width: 3px !important;
+}
+
+.aip-layout:has(.aip-main--list) .aip-assist > div[style*='border'] {
+  border-color: #000 !important;
+}
+
+.aip-layout:has(.aip-main--list) .aip-assist div[style*='theme-surface-dark'] {
+  background: #fff !important;
+  border: 1px solid #000 !important;
+}
+
+/* Task drawer when opened from list layout */
+.aip-layout:has(.aip-main--list) .aip-drawer {
+  background: #fff !important;
+}
+
+.aip-layout:has(.aip-main--list) .aip-drawer,
+.aip-layout:has(.aip-main--list) .aip-drawer * {
+  color: #000 !important;
+  -webkit-text-fill-color: #000 !important;
+}
+
+.aip-layout:has(.aip-main--list) .aip-drawer__head,
+.aip-layout:has(.aip-main--list) .aip-drawer__block,
+.aip-layout:has(.aip-main--list) .aip-drawer__footer {
+  border-color: #000 !important;
+}
+
+.aip-layout:has(.aip-main--list) .aip-drawer__input,
+.aip-layout:has(.aip-main--list) .aip-drawer__textarea,
+.aip-layout:has(.aip-main--list) .aip-drawer__select {
+  border-color: #000 !important;
+  color: #000 !important;
+}
+
+.aip-layout:has(.aip-main--list) .aip-drawer__input:focus,
+.aip-layout:has(.aip-main--list) .aip-drawer__textarea:focus,
+.aip-layout:has(.aip-main--list) .aip-drawer__select:focus {
+  border-color: #000 !important;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.12) !important;
+}
+
+.aip-layout:has(.aip-main--list) .aip-drawer__close {
+  border-color: #000 !important;
+  color: #000 !important;
+}
+
+.aip-layout:has(.aip-main--list) .aip-drawer svg {
+  color: #000 !important;
+}
+
+.aip-layout:has(.aip-main--list) .aip-drawer .pm-btn-primary {
+  background: #000 !important;
+  color: #fff !important;
+  -webkit-text-fill-color: #fff !important;
+}
+
+.aip-layout:has(.aip-main--list) .aip-drawer .pm-btn-primary:hover {
+  background: #000 !important;
+  opacity: 0.88 !important;
+}
+
+.aip-layout:has(.aip-main--list) .aip-drawer .pm-btn-ghost {
+  background: #fff !important;
+  color: #000 !important;
+  border: 1px solid #000 !important;
+}
+
+.aip-layout:has(.aip-main--list) .aip-drawer .pm-btn-danger {
+  background: #fff !important;
+  color: #000 !important;
+  border: 1px solid #000 !important;
+}
+
+.aip-layout:has(.aip-main--list) .aip-drawer .pm-btn-danger:hover {
+  background: rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Right-click task menu (rendered inside list rows) */
+.aip-main--list .task-ctx-menu {
+  background: #fff !important;
+  border-color: #000 !important;
+}
+
+.aip-main--list .task-ctx-menu__divider {
+  background: #000 !important;
+  opacity: 0.18;
+}
+
+.aip-main--list .task-ctx-menu__item:hover {
+  background: rgba(0, 0, 0, 0.06) !important;
+  color: #000 !important;
+}
+
+.aip-main--list .task-ctx-menu__item--danger,
+.aip-main--list .task-ctx-menu__item--danger:hover {
+  color: #000 !important;
+  background: rgba(0, 0, 0, 0.04) !important;
+}
+
+.aip-main--list .task-ctx-menu__item svg {
+  color: #000 !important;
+  opacity: 1 !important;
+}
+
+/* Due-date popover (portaled; only used on task list) */
+.aip-date-popover {
+  background: #fff !important;
+  color: #000 !important;
+  border: 1px solid #000 !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18) !important;
+}
+
+.aip-date-popover,
+.aip-date-popover * {
+  color: #000 !important;
+  -webkit-text-fill-color: #000 !important;
+}
+
+.aip-date-popover svg {
+  color: inherit !important;
+}
+
+.aip-date-popover__sync-btn svg,
+.aip-date-popover__done svg {
+  color: #fff !important;
+}
+
+.aip-date-popover__input {
+  background: #fff !important;
+  color: #000 !important;
+  border-color: #000 !important;
+}
+
+.aip-date-popover__input:focus {
+  border-color: #000 !important;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.15) !important;
+}
+
+.aip-date-popover__nav-btn:hover {
+  background: rgba(0, 0, 0, 0.06) !important;
+  color: #000 !important;
+}
+
+.aip-date-popover__weekday,
+.aip-date-popover__cell--muted {
+  color: #000 !important;
+  opacity: 0.55 !important;
+}
+
+.aip-date-popover__cell {
+  color: #000 !important;
+}
+
+.aip-date-popover__cell--in-range {
+  background: rgba(0, 0, 0, 0.06) !important;
+}
+
+.aip-date-popover__cell--range-start .aip-date-popover__cell-num,
+.aip-date-popover__cell--range-end .aip-date-popover__cell-num,
+.aip-date-popover__cell--single .aip-date-popover__cell-num {
+  background: #000 !important;
+  color: #fff !important;
+  -webkit-text-fill-color: #fff !important;
+}
+
+.aip-date-popover__cell--range-end .aip-date-popover__cell-num {
+  box-shadow: 0 0 0 2px #fff !important;
+}
+
+.aip-date-popover__repeat {
+  border-color: rgba(0, 0, 0, 0.2) !important;
+}
+
+.aip-date-popover__repeat-select {
+  background: #fff !important;
+  color: #000 !important;
+  border-color: #000 !important;
+}
+
+.aip-date-popover__sync-btn,
+.aip-date-popover__done {
+  background: #000 !important;
+  color: #fff !important;
+  -webkit-text-fill-color: #fff !important;
+}
+
+.aip-date-popover__sync-btn:hover,
+.aip-date-popover__done:hover {
+  background: #000 !important;
+  opacity: 0.85 !important;
+}
+
+.aip-date-popover__clear:hover {
+  color: #000 !important;
+  background: rgba(0, 0, 0, 0.06) !important;
 }

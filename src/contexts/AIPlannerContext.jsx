@@ -8,6 +8,7 @@ import {
   detectEnergyType,
   parseQuickCapture,
 } from '../lib/aiEngine'
+import { spawnNextRecurrenceTask } from '../lib/plannerRecurrence'
 
 const STORAGE_KEY          = 'ai_planner_tasks_v2'
 const SECTIONS_STORAGE_KEY = 'ai_planner_sections_v2'
@@ -357,6 +358,8 @@ export function AIPlannerProvider({ children }) {
       status: 'todo',
       priority: 'medium',
       dueDate: null,
+      dueDateStart: null,
+      recurrence: 'none',
       estimatedMinutes: null,
       notes: '',
       subtasks: [],
@@ -426,8 +429,18 @@ export function AIPlannerProvider({ children }) {
   }, [])
 
   const markDone = useCallback((id) => {
-    updateTask(id, { status: 'done' })
-  }, [updateTask])
+    setRawTasks((prev) => {
+      const idx = prev.findIndex((t) => t.id === id)
+      if (idx === -1) return prev
+      const task = prev[idx]
+      const nextInstance = spawnNextRecurrenceTask(task)
+      const marked = prev.map((t) => (t.id === id ? { ...t, status: 'done' } : t))
+      if (!nextInstance) return marked
+      const out = [...marked]
+      out.splice(idx + 1, 0, nextInstance)
+      return out
+    })
+  }, [])
 
   const markTodo = useCallback((id) => {
     updateTask(id, { status: 'todo' })
