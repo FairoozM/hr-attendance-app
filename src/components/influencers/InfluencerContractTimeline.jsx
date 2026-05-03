@@ -42,7 +42,9 @@ function displayDate(date) {
 }
 
 function metricTotal(contract, key) {
-  return contract.days.reduce((sum, day) => sum + toNumber(day.record?.[key]), 0)
+  const fromDays = contract.days.reduce((sum, day) => sum + toNumber(day.record?.[key]), 0)
+  if (fromDays > 0) return fromDays
+  return toNumber(contract.totals?.[key])
 }
 
 function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContract }) {

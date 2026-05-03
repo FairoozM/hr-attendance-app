@@ -36,6 +36,36 @@ export function addDays(dateString, days) {
   return date.toISOString().slice(0, 10)
 }
 
+/** ISO calendar date YYYY-MM-DD slice (safe for comparisons). */
+export function isoDateSlice(value) {
+  if (value == null || value === '') return ''
+  return String(value).slice(0, 10)
+}
+
+/** Parse ISO date as UTC noon to avoid timezone shifting calendar days. */
+function parseIsoDateUtcMs(iso) {
+  const d = isoDateSlice(iso)
+  if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return NaN
+  const [y, month, day] = d.split('-').map(Number)
+  return Date.UTC(y, month - 1, day)
+}
+
+/** Whole calendar days from start → end (inclusive offset for matching timeline slots). */
+export function daysBetweenIso(startIso, endIso) {
+  const a = parseIsoDateUtcMs(startIso)
+  const b = parseIsoDateUtcMs(endIso)
+  if (Number.isNaN(a) || Number.isNaN(b)) return NaN
+  return Math.round((b - a) / 86_400_000)
+}
+
+export function minIsoDate(a, b) {
+  const ca = isoDateSlice(a)
+  const cb = isoDateSlice(b)
+  if (!ca) return cb
+  if (!cb) return ca
+  return ca <= cb ? ca : cb
+}
+
 export function getDayNumber(startDate, date) {
   if (!startDate || !date) return null
   const start = new Date(`${startDate}T00:00:00`).getTime()
@@ -100,7 +130,10 @@ export function getVideoContractTimelines(records = [], influencers = [], daysFa
     }
 
     current.records.push(record)
-    current.contractStartDate = current.contractStartDate < record.date ? current.contractStartDate : (record.contractStartDate || record.date)
+    current.contractStartDate = minIsoDate(
+      current.contractStartDate,
+      record.contractStartDate || record.date,
+    )
     current.monitoringDays = Math.max(current.monitoringDays, toNumber(record.monitoringDays) || daysFallback)
     current.totals.views += toNumber(record.views)
     current.totals.likes += toNumber(record.likes)
@@ -114,18 +147,34 @@ export function getVideoContractTimelines(records = [], influencers = [], daysFa
   return Array.from(grouped.values())
     .map((contract) => {
       const orderedRecords = [...contract.records].sort((a, b) => a.date.localeCompare(b.date))
-      const startDate = contract.contractStartDate || orderedRecords[0]?.date
+      const declaredStart = isoDateSlice(contract.contractStartDate) || isoDateSlice(orderedRecords[0]?.date)
+      const earliestCheckIn = orderedRecords.reduce(
+        (min, r) => minIsoDate(min, r.date),
+        isoDateSlice(orderedRecords[0]?.date),
+      )
+      // Anchor window so the earliest saved check-in always maps to a column (avoids empty HUD when
+      // contract start and check-in date were misaligned by a day or saved out of order).
+      const startDate = minIsoDate(declaredStart, earliestCheckIn) || declaredStart
       const monitoringDays = Math.max(4, Math.min(7, toNumber(contract.monitoringDays) || daysFallback))
-      const days = Array.from({ length: monitoringDays }, (_, index) => {
-        const date = addDays(startDate, index)
-        const record = orderedRecords.find((item) => item.date === date)
-        return {
-          dayNumber: index + 1,
-          date,
-          record,
-          isRecorded: Boolean(record),
+      const days = Array.from({ length: monitoringDays }, (_, index) => ({
+        dayNumber: index + 1,
+        date: addDays(startDate, index),
+        record: null,
+        isRecorded: false,
+      }))
+
+      orderedRecords.forEach((rec) => {
+        const offset = daysBetweenIso(startDate, rec.date)
+        if (!Number.isFinite(offset) || offset < 0 || offset >= monitoringDays) return
+        const existing = days[offset].record
+        const recTime = new Date(rec.updatedAt || rec.createdAt || 0).getTime()
+        const exTime = existing ? new Date(existing.updatedAt || existing.createdAt || 0).getTime() : -Infinity
+        if (!existing || recTime >= exTime) {
+          days[offset].record = rec
+          days[offset].isRecorded = true
         }
       })
+
       const latest = orderedRecords[orderedRecords.length - 1]
       return {
         ...contract,
@@ -228,10 +277,12 @@ export function getHighestEngagementRecord(records = [], influencers = []) {
 }
 
 export function normalizePerformanceRecord(record) {
-  const contractStartDate = record.contractStartDate || record.date
-  const contractId = record.contractId || getVideoContractKey({ ...record, contractStartDate })
+  const date = isoDateSlice(record.date) || record.date
+  const contractStartDate = isoDateSlice(record.contractStartDate || record.date) || record.contractStartDate || date
+  const contractId = record.contractId || getVideoContractKey({ ...record, contractStartDate, date })
   const normalized = {
     ...record,
+    date,
     contractId,
     contractStartDate,
     monitoringDays: Math.max(4, Math.min(7, toNumber(record.monitoringDays) || 5)),
