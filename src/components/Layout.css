@@ -2,10 +2,11 @@
   position: relative;
   min-height: 100vh;
   display: block;
-  padding: 1rem;
-  /* Vertical offset so rail sidebar clears the sticky topbar (hamburger stays in the top bar). */
+  /* No top padding — top bar is fixed flush to the viewport (Noon-style). */
+  padding: 0 1rem 1rem;
+  /* Reserved main-column offset below fixed topbar; tuned per breakpoint below. */
   --app-topbar-stack: 5.35rem;
-  /* Space between bottom of sticky header and top of rail panel (avoid radius / shadow overlap). */
+  /* Space between bottom of fixed header and top of rail panel */
   --app-rail-below-topbar: 0.75rem;
 }
 
@@ -51,7 +52,7 @@
 
 .app-sidebar {
   position: fixed;
-  inset: 1rem auto 1rem 1rem;
+  inset: calc(var(--app-topbar-stack) + 0.35rem) auto 1rem 1rem;
   z-index: 140;
   width: min(18.5rem, calc(100vw - 1.2rem));
   border-radius: 0.9rem;
@@ -85,8 +86,7 @@
 
 /* Dock rail below the top bar so nav + brand sit under the hamburger row (Noon-style). */
 .app-sidebar--rail.app-sidebar--open {
-  top: calc(1rem + var(--app-topbar-stack) + var(--app-rail-below-topbar));
-  /* Stay under the sticky header so large header radius does not paint over the rail */
+  top: calc(var(--app-topbar-stack) + var(--app-rail-below-topbar));
   z-index: 55;
 }
 
@@ -461,7 +461,9 @@
   position: relative;
   z-index: 1;
   width: 100%;
-  min-height: calc(100vh - 2rem);
+  /* Fixed topbar is out of flow — reserve space so main content doesn’t sit under it */
+  padding-top: var(--app-topbar-stack);
+  min-height: calc(100vh - 1rem);
   display: flex;
   flex-direction: column;
 }
@@ -480,17 +482,22 @@
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1rem 1.15rem;
-  border: 1px solid var(--theme-border);
-  border-radius: var(--radius-lg);
+  padding: 0.85rem 1.15rem;
+  box-sizing: border-box;
+  width: auto;
+  margin: 0;
+  left: 0;
+  right: 0;
+  border-radius: 0;
+  border: none;
+  border-bottom: 1px solid var(--theme-border);
   background: var(--theme-panel-bg);
-  box-shadow: var(--glass-shadow-panel);
-  position: sticky;
-  top: 1rem;
-  z-index: 70;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.12);
+  position: fixed;
+  top: 0;
+  z-index: 90;
   min-width: 0;
-  /* NOTE: NO will-change or transform here — those create a stacking context
-     that breaks position:sticky on any descendant in the page content below */
+  /* NOTE: NO will-change or transform — breaks descendant sticky in page content */
 }
 
 .app-topbar__left,
@@ -1275,28 +1282,24 @@
 
 @media (min-width: 1101px) {
   .app {
-    padding: 1.1rem;
+    padding: 0 1.1rem 1.1rem;
   }
 
   .app-shell {
     width: 100%;
-    min-height: calc(100vh - 2.2rem);
+    min-height: calc(100vh - 1.1rem);
   }
 }
 
 @media (max-width: 1100px) {
   .app {
-    padding: 0.85rem;
-  }
-
-  .app-topbar {
-    top: 0.85rem;
+    padding: 0 0.85rem 0.85rem;
   }
 }
 
 @media (max-width: 760px) {
   .app {
-    padding: 0.7rem;
+    padding: 0 0.7rem 0.7rem;
     --app-topbar-stack: 10.85rem;
   }
 
@@ -1304,7 +1307,6 @@
     flex-direction: column;
     align-items: stretch;
     gap: 0.8rem;
-    top: 0.7rem;
   }
 
   .app-topbar__left,
