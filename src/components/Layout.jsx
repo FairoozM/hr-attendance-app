@@ -427,6 +427,7 @@ export function Layout() {
   const isListsActive = LISTS_ROUTES.some(r => location.pathname.startsWith(r))
   const isInfluencersActive = location.pathname.startsWith('/influencers')
   const isManagementActive = location.pathname.startsWith('/management')
+  const isPricesActive = location.pathname.startsWith('/prices')
   const isReportsActive = location.pathname.startsWith('/reports')
   const isZohoActive = location.pathname.startsWith('/admin/zoho')
   const hasAnyInfluencerAccess = hasAnyModulePermission(user, 'influencers')
@@ -445,7 +446,7 @@ export function Layout() {
     if (location.pathname.startsWith('/account')) return 'My Account'
     if (location.pathname.startsWith('/management/purchase-planning')) return 'Purchase Planning'
     if (location.pathname.startsWith('/management/payments')) return 'Company payments'
-    if (location.pathname.startsWith('/management/all-prices')) return 'All Prices (UAE & KSA)'
+    if (location.pathname.startsWith('/prices/all-prices')) return 'All Prices (UAE & KSA)'
     if (location.pathname.startsWith('/management/document-expiry')) return 'Document Expiry Tracker'
     if (location.pathname.startsWith('/reports/weekly-report/weekly-ads'))   return 'Weekly Ads Report'
     if (location.pathname.startsWith('/reports/weekly-report/sales'))        return 'Weekly Sales Reports'
@@ -491,10 +492,15 @@ export function Layout() {
     can('sim_cards', 'view') && { label: 'Sim Cards List', to: '/lists/sim-cards' },
   ].filter(Boolean)
 
+  const pricesItems = [
+    can('document_expiry', 'view') && { label: 'All Prices (UAE & KSA)', to: '/prices/all-prices' },
+  ].filter(Boolean)
+
+  const hasAnyPricesAccess = pricesItems.length > 0
+
   const managementItems = [
     can('document_expiry', 'view') && { label: 'Document Expiry Tracker', to: '/management/document-expiry' },
     can('document_expiry', 'view') && { label: 'Payments', to: '/management/payments' },
-    can('document_expiry', 'view') && { label: 'All Prices (UAE & KSA)', to: '/management/all-prices' },
     isAdmin && { label: 'Purchase Planning', to: '/management/purchase-planning' },
   ].filter(Boolean)
 
@@ -523,6 +529,7 @@ export function Layout() {
         items: withIcons(isAdmin ? PLANNER_NAV_ITEMS : []),
       },
       management: { title: 'Management', items: withIcons(managementItems) },
+      prices: { title: 'Prices', items: withIcons(pricesItems) },
       reports: { title: 'Reports', items: withIcons(REPORTS_ITEMS) },
       zoho: { title: 'Zoho', items: withIcons(zohoItems) },
     }
@@ -535,6 +542,7 @@ export function Layout() {
     INFLUENCER_ITEMS,
     isAdmin,
     managementItems,
+    pricesItems,
     REPORTS_ITEMS,
     zohoItems,
   ])
@@ -545,6 +553,14 @@ export function Layout() {
     ...listsItems.map(i => ({ ...i, group: 'Lists' })),
     ...INFLUENCER_ITEMS.map(i => ({ ...i, group: 'Marketing / Social Media' })),
     ...(isAdmin ? PLANNER_NAV_ITEMS.map(i => ({ ...i, group: 'AI Planner', searchHint: 'planner projects tasks ai' })) : []),
+    ...pricesItems.map((i) => ({
+      ...i,
+      group: 'Prices',
+      searchHint:
+        i.to === '/prices/all-prices'
+          ? 'all prices uae ksa aed sar catalog sku zoho inventory pricing ecommerce'
+          : '',
+    })),
     ...managementItems.map(i => ({
       ...i,
       group: 'Management',
@@ -555,9 +571,7 @@ export function Layout() {
           ? 'company payments asad main shop expense salary vat bill subscription supplier'
           : i.to === '/management/document-expiry'
             ? 'document licence trade license vat compliance expiry'
-            : i.to === '/management/all-prices'
-              ? 'all prices uae ksa aed sar catalog sku zoho inventory pricing'
-              : '',
+            : '',
     })),
     ...REPORTS_ITEMS.map(i => ({
       ...i,
@@ -583,7 +597,7 @@ export function Layout() {
           : '',
     })),
     { label: 'My Account', to: '/account', group: 'Account' },
-  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, managementItems, REPORTS_ITEMS, TAXATION_ITEMS, zohoItems])
+  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, managementItems, pricesItems, REPORTS_ITEMS, TAXATION_ITEMS, zohoItems])
 
   const showSidebarBackdrop = isSidebarOpen && navMode === 'full'
 
@@ -716,6 +730,27 @@ export function Layout() {
                       </NavLink>
                     ))}
                   </NavGroup>
+                )}
+
+                {hasAnyPricesAccess && pricesItems.length > 0 && (
+                  <>
+                    <div className="app-sidebar__section-label" role="presentation">
+                      Prices
+                    </div>
+                    <NavGroup label="Prices" hint="UAE & KSA" isActive={isPricesActive}>
+                      {pricesItems.map((item) => (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          className={subLinkClass}
+                          onClick={() => openFocusedSection('prices')}
+                        >
+                          <span className="nav-group__link-dot" aria-hidden />
+                          {item.label}
+                        </NavLink>
+                      ))}
+                    </NavGroup>
+                  </>
                 )}
 
                 {isAdmin && (

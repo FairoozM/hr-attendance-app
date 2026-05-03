@@ -206,8 +206,9 @@ function AppContent() {
             </AdminOnly>
           }
         />
+        <Route path="management/all-prices" element={<Navigate to="/prices/all-prices" replace />} />
         <Route
-          path="management/all-prices"
+          path="prices/all-prices"
           element={
             <PermissionGuard module="document_expiry" action="view">
               <AllPricesPage />
