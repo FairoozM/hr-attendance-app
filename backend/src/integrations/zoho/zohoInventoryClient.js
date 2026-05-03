@@ -148,7 +148,11 @@ async function listAllItems() {
   return listItemsPaged(null)
 }
 
-async function fetchItemById(itemId) {
+/**
+ * @param {string} itemId
+ * @param {object} [meta] - forwarded to zohoApiClient (e.g. skipCache: true for BOM resolution)
+ */
+async function fetchItemById(itemId, meta = {}) {
   const c = readZohoConfig()
   if (c.code !== 'ok') {
     const e = new Error('Zoho not configured')
@@ -172,6 +176,7 @@ async function fetchItemById(itemId) {
       cacheCategory: 'item_detail',
       cacheKey: `zoho:item_detail:${id}`,
       source: 'inventory_item_detail',
+      ...meta,
     }
   )
   return (json && json.item) || json

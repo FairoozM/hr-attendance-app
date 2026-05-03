@@ -7,7 +7,57 @@ const { readZohoConfig } = require('../integrations/zoho/zohoConfig')
 const {
   fetchCompositeItemsList,
   fetchCompositeItemDetail,
+  fetchItemById,
 } = require('../integrations/zoho/zohoInventoryClient')
+
+/**
+ * Composite mapped_lines often put EAN/barcode in `sku`. Resolve real SKU/name from Inventory item.
+ * @param {object[]} mappedRows - raw Zoho mapped_items
+ */
+async function resolveComponentsFromMappedItems(mappedRows) {
+  const preliminary = mappedRows
+    .map((m) => ({
+      item_id: m.item_id != null ? String(m.item_id) : '',
+      sku_mapped: String(m.sku || '').trim(),
+      name_mapped: m.name != null ? String(m.name) : '',
+      quantity: Number(m.quantity),
+      zoho_purchase_rate:
+        m.purchase_rate != null && Number.isFinite(Number(m.purchase_rate))
+          ? Number(m.purchase_rate)
+          : null,
+    }))
+    .filter((c) => c.item_id && Number.isFinite(c.quantity) && c.quantity > 0)
+
+  const uniqueIds = [...new Set(preliminary.map((c) => c.item_id))]
+  const itemById = new Map()
+
+  await Promise.all(
+    uniqueIds.map(async (id) => {
+      try {
+        const raw = await fetchItemById(id, { skipCache: true })
+        itemById.set(id, raw && typeof raw === 'object' ? raw : null)
+      } catch (err) {
+        console.warn(`[composite-bom] GET /items/${id} failed:`, err.message || err)
+        itemById.set(id, null)
+      }
+    })
+  )
+
+  return preliminary.map((c) => {
+    const item = itemById.get(c.item_id)
+    const skuFromItem =
+      item && item.sku != null && String(item.sku).trim() ? String(item.sku).trim() : ''
+    const nameFromItem =
+      item && item.name != null && String(item.name).trim() ? String(item.name).trim() : ''
+    return {
+      item_id: c.item_id,
+      sku: skuFromItem || c.sku_mapped,
+      name: nameFromItem || c.name_mapped,
+      quantity: c.quantity,
+      zoho_purchase_rate: c.zoho_purchase_rate,
+    }
+  })
+}
 
 function pickCompositeMatch(rows, sku) {
   const needle = String(sku || '').trim().toLowerCase()
@@ -89,18 +139,7 @@ async function lookupCompositeItemBySku(rawSku) {
   const entity = detailJson && detailJson.composite_item ? detailJson.composite_item : detailJson
   const mapped = Array.isArray(entity.mapped_items) ? entity.mapped_items : []
 
-  const components = mapped
-    .map((m) => ({
-      item_id: m.item_id != null ? String(m.item_id) : '',
-      sku: String(m.sku || '').trim(),
-      name: m.name != null ? String(m.name) : '',
-      quantity: Number(m.quantity),
-      zoho_purchase_rate:
-        m.purchase_rate != null && Number.isFinite(Number(m.purchase_rate))
-          ? Number(m.purchase_rate)
-          : null,
-    }))
-    .filter((c) => c.item_id && Number.isFinite(c.quantity) && c.quantity > 0)
+  const components = await resolveComponentsFromMappedItems(mapped)
 
   if (!components.length) {
     const e = new Error(
