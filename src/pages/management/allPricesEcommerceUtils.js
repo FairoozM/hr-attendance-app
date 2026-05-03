@@ -150,3 +150,126 @@ export function fmtPct(n, digits = 1) {
   if (!Number.isFinite(x)) return '—'
   return `${x.toFixed(digits)}%`
 }
+
+/** Split Excel clipboard row into cells (tab-separated). */
+export function splitTsvLine(line) {
+  return String(line).split('\t').map((c) => c.trim())
+}
+
+/**
+ * Parse numeric cell from Excel (handles 26,83 → 26.83 and 1,234.56 thousands).
+ */
+export function normalizePastedNumber(str) {
+  let s = String(str ?? '').trim().replace(/\s/g, '')
+  if (!s || s === '—' || s === '-') return ''
+  const hasDot = s.includes('.')
+  const commaCount = (s.match(/,/g) || []).length
+  if (!hasDot && commaCount === 1 && /^-?\d+,\d+$/.test(s)) {
+    s = s.replace(',', '.')
+  } else {
+    s = s.replace(/,/g, '')
+  }
+  const n = Number(String(s).replace(/[^0-9.-]/g, ''))
+  return Number.isFinite(n) ? String(n) : ''
+}
+
+function parsePastedDate(str) {
+  const s = String(str ?? '').trim()
+  if (!s) return ''
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+  const m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/)
+  if (!m) return ''
+  let d = m[1].padStart(2, '0')
+  let mo = m[2].padStart(2, '0')
+  let y = m[3]
+  if (y.length === 2) y = Number(y) > 50 ? `19${y}` : `20${y}`
+  return `${y}-${mo}-${d}`
+}
+
+function rowLooksLikeHeader(cells) {
+  const joined = cells.join(' ').toLowerCase()
+  if (/item\s*no/.test(joined)) return true
+  if (/purchase.*price.*ecommerce/.test(joined)) return true
+  if (/sales\s*price|website.*noon/i.test(joined) && /vat|commission/i.test(joined)) return true
+  return false
+}
+
+/**
+ * One logical row for the app (ids assigned by caller).
+ * @typedef {{ itemNo: string, purchasePrice: string, shipping: string, dateOfPrices: string }} PastedRowPatch
+ */
+
+/**
+ * Parse Excel copy-paste (TSV). Supports:
+ * - Full sheet row: Item | Sales | VAT | Comm | Adv | Shipping | Purchase | … optional date last col
+ * - Three columns: Item | Purchase | Shipping
+ * - Two columns: Purchase | Shipping
+ * @returns {{ rows: PastedRowPatch[], skippedHeader: boolean, hint: string }}
+ */
+export function parseExcelTsvPaste(text) {
+  const raw = String(text ?? '').replace(/^\uFEFF/, '')
+  const lines = raw
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((l) => l.replace(/\s+$/, ''))
+    .filter((l) => l.length > 0)
+
+  if (lines.length === 0) {
+    return { rows: [], skippedHeader: false, hint: 'empty' }
+  }
+
+  let skippedHeader = false
+  let dataLines = lines
+  const firstCells = splitTsvLine(lines[0])
+  if (rowLooksLikeHeader(firstCells)) {
+    skippedHeader = true
+    dataLines = lines.slice(1)
+  }
+
+  const rows = []
+  for (const line of dataLines) {
+    const cells = splitTsvLine(line)
+    if (cells.length === 0 || cells.every((c) => c === '')) continue
+
+    let itemNo = ''
+    let purchasePrice = ''
+    let shipping = ''
+    let dateOfPrices = ''
+
+    const n = cells.length
+
+    if (n >= 7) {
+      itemNo = cells[0] != null ? String(cells[0]) : ''
+      shipping = normalizePastedNumber(cells[5])
+      purchasePrice = normalizePastedNumber(cells[6])
+      const last = cells[cells.length - 1]
+      const parsedEnd = parsePastedDate(last)
+      if (parsedEnd) dateOfPrices = parsedEnd
+      else if (cells[10] != null && String(cells[10]).trim()) {
+        const d10 = parsePastedDate(cells[10])
+        if (d10) dateOfPrices = d10
+      }
+    } else if (n >= 3) {
+      itemNo = cells[0] != null ? String(cells[0]) : ''
+      purchasePrice = normalizePastedNumber(cells[1])
+      shipping = normalizePastedNumber(cells[2])
+      if (cells[3] != null && String(cells[3]).trim()) {
+        const d = parsePastedDate(cells[3])
+        if (d) dateOfPrices = d
+      }
+    } else if (n === 2) {
+      purchasePrice = normalizePastedNumber(cells[0])
+      shipping = normalizePastedNumber(cells[1])
+    } else {
+      purchasePrice = normalizePastedNumber(cells[0])
+    }
+
+    rows.push({ itemNo, purchasePrice, shipping, dateOfPrices })
+  }
+
+  let hint = 'ok'
+  if (rows.length === 0) hint = 'no-data-rows'
+
+  return { rows, skippedHeader, hint }
+}

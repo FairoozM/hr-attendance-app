@@ -10,6 +10,7 @@ import {
   loadRates,
   loadRows,
   makeRowId,
+  parseExcelTsvPaste,
   saveRates,
   saveRows,
   seedEcommerceRows,
@@ -18,6 +19,8 @@ import {
 export function AllPricesPage() {
   const [rates, setRates] = useState(() => loadRates())
   const [rows, setRows] = useState(() => loadRows() || seedEcommerceRows())
+  const [pasteText, setPasteText] = useState('')
+  const [pasteFeedback, setPasteFeedback] = useState({ type: '', text: '' })
 
   useEffect(() => {
     saveRates(rates)
@@ -68,6 +71,63 @@ export function AllPricesPage() {
   const resetRates = useCallback(() => {
     setRates({ ...DEFAULT_RATES })
   }, [])
+
+  const applyPasteReplace = useCallback(() => {
+    const { rows: parsed, skippedHeader, hint } = parseExcelTsvPaste(pasteText)
+    if (hint === 'empty' || hint === 'no-data-rows') {
+      setPasteFeedback({ type: 'err', text: 'Paste Excel data first (tab-separated rows).' })
+      return
+    }
+    const next = parsed.map((p) => ({
+      id: makeRowId(),
+      itemNo: p.itemNo || '',
+      purchasePrice: p.purchasePrice || '',
+      shipping: p.shipping || '',
+      dateOfPrices: p.dateOfPrices || '',
+    }))
+    setRows(next)
+    setPasteFeedback({
+      type: 'ok',
+      text: `Replaced table with ${next.length} row(s)${skippedHeader ? ' (header row skipped)' : ''}.`,
+    })
+    setPasteText('')
+  }, [pasteText])
+
+  const applyPasteMerge = useCallback(() => {
+    const { rows: parsed, skippedHeader, hint } = parseExcelTsvPaste(pasteText)
+    if (hint === 'empty' || hint === 'no-data-rows') {
+      setPasteFeedback({ type: 'err', text: 'Paste Excel data first (tab-separated rows).' })
+      return
+    }
+    setRows((prev) => {
+      const out = [...prev]
+      parsed.forEach((p, i) => {
+        const patch = {
+          ...(p.itemNo !== '' ? { itemNo: p.itemNo } : {}),
+          ...(p.purchasePrice !== '' ? { purchasePrice: p.purchasePrice } : {}),
+          ...(p.shipping !== '' ? { shipping: p.shipping } : {}),
+          ...(p.dateOfPrices !== '' ? { dateOfPrices: p.dateOfPrices } : {}),
+        }
+        if (i < out.length) {
+          out[i] = { ...out[i], ...patch }
+        } else {
+          out.push({
+            id: makeRowId(),
+            itemNo: p.itemNo || '',
+            purchasePrice: p.purchasePrice || '',
+            shipping: p.shipping || '',
+            dateOfPrices: p.dateOfPrices || '',
+          })
+        }
+      })
+      return out
+    })
+    setPasteFeedback({
+      type: 'ok',
+      text: `Merged ${parsed.length} pasted row(s) into the table${skippedHeader ? ' (header skipped)' : ''}.`,
+    })
+    setPasteText('')
+  }, [pasteText])
 
   return (
     <div className="page ap-ec-page">
@@ -161,6 +221,52 @@ export function AllPricesPage() {
           <button type="button" className="btn btn--ghost" onClick={resetToSeed}>
             Reset to BRKH-64 template
           </button>
+        </div>
+
+        <div className="ap-ec-paste">
+          <div className="ap-ec-paste__head">
+            <div>
+              <h3>Bulk paste from Excel</h3>
+              <p className="ap-ec-paste__hint">
+                In Excel, select cells and copy (<kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>⌘</kbd>+<kbd>C</kbd>). Paste below —
+                columns must be <strong>tab-separated</strong> (Excel default). Supported layouts:{' '}
+                <strong>full row</strong> (item, sales, VAT, commission, advertising, shipping, purchase, …) — computed
+                columns are ignored; <strong>3 columns</strong>{' '}
+                <code>Item</code> · <code>Purchase</code> · <code>Shipping</code>; or{' '}
+                <strong>2 columns</strong> <code>Purchase</code> · <code>Shipping</code> (keeps existing item codes when
+                merging).
+              </p>
+            </div>
+          </div>
+          <label className="sr-only" htmlFor="ap-ec-paste-area">
+            Paste tab-separated data from Excel
+          </label>
+          <textarea
+            id="ap-ec-paste-area"
+            value={pasteText}
+            onChange={(e) => {
+              setPasteText(e.target.value)
+              if (pasteFeedback.text) setPasteFeedback({ type: '', text: '' })
+            }}
+            placeholder={`Example full sheet row (tabs between cells):\nBRKH-64-1\t120\t6\t18\t18\t21\t26.83\t...\n\nExample 3 columns:\nBRKH-64-1\t26.83\t21`}
+            spellCheck={false}
+          />
+          <div className="ap-ec-paste__actions">
+            <button type="button" className="btn btn--primary" onClick={applyPasteReplace}>
+              Replace all rows with paste
+            </button>
+            <button type="button" className="btn btn--ghost" onClick={applyPasteMerge}>
+              Fill into existing rows (top-down)
+            </button>
+            <button type="button" className="btn btn--ghost" onClick={() => { setPasteText(''); setPasteFeedback({ type: '', text: '' }) }}>
+              Clear box
+            </button>
+            {pasteFeedback.text ? (
+              <span className={`ap-ec-paste__msg ${pasteFeedback.type === 'err' ? 'ap-ec-paste__msg--err' : ''}`}>
+                {pasteFeedback.text}
+              </span>
+            ) : null}
+          </div>
         </div>
 
         <div className="ap-table-scroll">
