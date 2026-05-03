@@ -1,10 +1,38 @@
 const influencersService = require('../services/influencersService')
 const s3Service = require('../services/s3Service')
+const {
+  fetchInstagramBusinessProfile,
+  normalizeInstagramUsername,
+  isInstagramGraphConfigured,
+} = require('../services/instagramService')
 
 const MAX_INSIGHT_IMAGES = 6
 
 function isPlainObject(v) {
   return v != null && typeof v === 'object' && !Array.isArray(v)
+}
+
+/**
+ * Enrich `row` from Instagram Graph Business Discovery when the caller opts in.
+ * On API errors, does not clear an existing `instagram.picUrl` (only successful responses update it).
+ */
+async function applyOptionalInstagramGraphSync(row) {
+  const h = normalizeInstagramUsername(row && row.instagram && row.instagram.handle)
+  if (!h) {
+    return {
+      success: false,
+      username: '',
+      profilePictureUrl: null,
+      errorCode: 'NO_HANDLE',
+      errorMessage: 'No valid Instagram handle on this influencer.',
+    }
+  }
+  const gr = await fetchInstagramBusinessProfile(h)
+  if (gr.success) {
+    row.instagram = { ...(row.instagram || {}), picUrl: gr.profilePictureUrl != null ? gr.profilePictureUrl : null }
+    if (gr.followersCount != null) row.followersCount = gr.followersCount
+  }
+  return gr
 }
 
 function sanitizeInfluencerList(body) {
@@ -71,7 +99,10 @@ async function listInfluencers(req, res) {
 
 async function createInfluencer(req, res) {
   try {
-    const parsed = sanitizeSingleInfluencer(req.body)
+    const body = isPlainObject(req.body) ? { ...req.body } : {}
+    const syncFromGraph = body.syncInstagramFromGraph === true
+    delete body.syncInstagramFromGraph
+    const parsed = sanitizeSingleInfluencer(body)
     if (parsed.error) return res.status(400).json({ error: parsed.error })
     const rowPayload = { ...parsed.row }
     if (Array.isArray(rowPayload.insightsImageKeys)) {
@@ -81,8 +112,12 @@ async function createInfluencer(req, res) {
         rowPayload.id,
       )
     }
+    let instagramGraph = null
+    if (syncFromGraph) {
+      instagramGraph = await applyOptionalInstagramGraphSync(rowPayload)
+    }
     const row = await influencersService.addInfluencer(rowPayload)
-    res.status(201).json({ success: true, influencer: row })
+    res.status(201).json({ success: true, influencer: row, instagramGraph })
   } catch (err) {
     console.error('[influencers] create error:', err)
     res.status(500).json({
@@ -155,7 +190,10 @@ async function updateInfluencer(req, res) {
   try {
     const id = req.params.id != null ? String(req.params.id).trim() : ''
     if (!id) return res.status(400).json({ error: 'Missing influencer id' })
-    const parsed = sanitizeSingleInfluencer(req.body)
+    const body = isPlainObject(req.body) ? { ...req.body } : {}
+    const syncFromGraph = body.syncInstagramFromGraph === true
+    delete body.syncInstagramFromGraph
+    const parsed = sanitizeSingleInfluencer(body)
     if (parsed.error) return res.status(400).json({ error: parsed.error })
     const existing = await influencersService.getInfluencerById(id)
     if (!existing) {
@@ -165,14 +203,18 @@ async function updateInfluencer(req, res) {
     const safeRow = sanitizePatchRow(parsed.row, existing)
     const nextKeys = normalizeInsightsImageKeys(safeRow, existing, id)
     /** Merge with stored row so partial PATCH never wipes the record. */
-    const row = { ...existing, ...safeRow, id, insightsImageKeys: nextKeys }
+    let row = { ...existing, ...safeRow, id, insightsImageKeys: nextKeys }
+    let instagramGraph = null
+    if (syncFromGraph) {
+      instagramGraph = await applyOptionalInstagramGraphSync(row)
+    }
     await influencersService.upsertInfluencerById(id, row)
     for (const k of oldKeys) {
       if (!nextKeys.includes(k)) {
         await s3Service.deleteObjectIfExists(k).catch(() => {})
       }
     }
-    res.json({ success: true, influencer: row })
+    res.json({ success: true, influencer: row, instagramGraph })
   } catch (err) {
     console.error('[influencers] update error:', err)
     res.status(500).json({
@@ -304,6 +346,141 @@ async function getInsightsImageSignedUrls(req, res) {
   }
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * Batch-refresh `instagram.picUrl` (and `followersCount` when present) for many influencers
+ * in one request. Throttled to protect Meta rate limits. Requires Graph env when actually syncing.
+ */
+async function batchRefreshInstagramProfilePictures(req, res) {
+  try {
+    const onlyMissing = req.body && req.body.onlyMissing !== false
+    const max = Math.min(
+      200,
+      Math.max(1, Number.parseInt(String(req.body?.max ?? 100), 10) || 100),
+    )
+    const delayMs = Math.min(
+      2000,
+      Math.max(0, Number.parseInt(String(req.body?.delayMs ?? 400), 10) || 400),
+    )
+
+    if (!isInstagramGraphConfigured()) {
+      return res.json({
+        success: true,
+        graphConfigured: false,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+        message:
+          'Instagram Graph API is not configured. Set META_ACCESS_TOKEN and INSTAGRAM_BUSINESS_ACCOUNT_ID on the server.',
+        results: [],
+      })
+    }
+
+    const list = await influencersService.getInfluencers()
+    const byId = new Map(
+      (list || []).map((r) => (r && r.id != null ? [String(r.id), { ...r }] : null)).filter(Boolean),
+    )
+    if (!byId.size) {
+      return res.json({
+        success: true,
+        graphConfigured: true,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+        message: 'No influencers in the list.',
+        results: [],
+      })
+    }
+
+    const toProcess = []
+    for (const row of byId.values()) {
+      const h = normalizeInstagramUsername(row.instagram && row.instagram.handle)
+      if (!h) continue
+      if (onlyMissing && row.instagram && row.instagram.picUrl) continue
+      toProcess.push({ id: String(row.id), handle: h })
+    }
+
+    const capped = toProcess.slice(0, max)
+    let updated = 0
+    const results = []
+    for (const { id, handle } of capped) {
+      const gr = await fetchInstagramBusinessProfile(handle)
+      const row = byId.get(id)
+      if (gr.success) {
+        row.instagram = { ...(row.instagram || {}), picUrl: gr.profilePictureUrl != null ? gr.profilePictureUrl : null }
+        if (gr.followersCount != null) row.followersCount = gr.followersCount
+        row.updatedAt = new Date().toISOString()
+        updated += 1
+        results.push({ id, handle, success: true, profilePictureUrl: gr.profilePictureUrl || null })
+      } else {
+        results.push({ id, handle, success: false, errorCode: gr.errorCode, errorMessage: gr.errorMessage })
+      }
+      if (delayMs > 0) await sleep(delayMs)
+    }
+
+    const next = (list || []).map((r) => (r && r.id != null ? byId.get(String(r.id)) || r : r))
+    if (updated > 0) {
+      await influencersService.replaceInfluencers(next)
+    }
+
+    return res.json({
+      success: true,
+      graphConfigured: true,
+      updated,
+      skipped: toProcess.length - capped.length,
+      failed: results.filter((x) => !x.success).length,
+      results,
+    })
+  } catch (err) {
+    console.error('[influencers] batch Instagram refresh error:', err)
+    return res.status(500).json({
+      error: 'Failed to batch-refresh Instagram profile pictures',
+      detail: err && err.message ? String(err.message).slice(0, 240) : undefined,
+    })
+  }
+}
+
+/**
+ * Fetches Business Discovery data and persists `instagram.picUrl` (and optional `followersCount`) on success.
+ * Returns a normalized graph payload without raw Meta error objects.
+ */
+async function refreshInstagramProfileFromGraph(req, res) {
+  try {
+    const id = req.params.id != null ? String(req.params.id).trim() : ''
+    if (!id) return res.status(400).json({ error: 'Missing influencer id' })
+    const existing = await influencersService.getInfluencerById(id)
+    if (!existing) {
+      return res.status(404).json({ error: 'Influencer not found' })
+    }
+    const h = normalizeInstagramUsername(existing.instagram && existing.instagram.handle)
+    if (!h) {
+      return res.status(400).json({ error: 'No valid Instagram handle on this influencer' })
+    }
+    const gr = await fetchInstagramBusinessProfile(h)
+    if (gr.success) {
+      const row = {
+        ...existing,
+        instagram: {
+          ...(existing.instagram || {}),
+          picUrl: gr.profilePictureUrl != null ? gr.profilePictureUrl : null,
+        },
+        updatedAt: new Date().toISOString(),
+      }
+      if (gr.followersCount != null) row.followersCount = gr.followersCount
+      await influencersService.upsertInfluencerById(id, row)
+      return res.json({ success: true, graph: gr, influencer: row })
+    }
+    return res.json({ success: false, graph: gr })
+  } catch (err) {
+    console.error('[influencers] refresh Instagram graph error:', err)
+    return res.status(500).json({
+      error: 'Failed to refresh Instagram profile',
+      detail: err && err.message ? String(err.message).slice(0, 240) : undefined,
+    })
+  }
+}
+
 module.exports = {
   listInfluencers,
   createInfluencer,
@@ -313,4 +490,6 @@ module.exports = {
   getInsightsImageUploadUrl,
   getInsightsImageUploadUrlsBatch,
   getInsightsImageSignedUrls,
+  refreshInstagramProfileFromGraph,
+  batchRefreshInstagramProfilePictures,
 }

@@ -53,6 +53,7 @@ async function fetchAllVendorCreditsRaw() {
     return _vcCache.vcs
   }
   if (_vcInFlight) return _vcInFlight
+  // Zoho list response uses `vendor_credits` (with underscore). Using `vendorcredits` yields [].
   _vcInFlight = fetchListPaginated(`${INVENTORY_V1}/vendorcredits`, 'vendor_credits', 50, null)
     .then(({ rows }) => {
       if (CACHE_TTL_MS > 0) {

@@ -159,17 +159,20 @@ function parseFilenameFromContentDisposition(header) {
 /**
  * GET a binary response (e.g. .xlsx) with the same auth as other API calls.
  * On error, attempts to parse JSON error bodies from the API.
+ * @param {string} path
+ * @param {{ cache?: RequestCache }} [options] — pass `{ cache: 'default' }` to allow browser HTTP cache (e.g. weekly report thumbnails with long `max-age` from the server).
  */
-export async function fetchBinary(path) {
+export async function fetchBinary(path, options = {}) {
   const p = normalizeApiPath(path)
   const url = p.startsWith('http') ? p : resolveApiUrl(p)
+  const cache = options.cache != null ? options.cache : 'no-store'
   const res = await fetch(url, {
     method: 'GET',
     headers: {
       Accept: '*/*',
       ...getAuthHeaders(),
     },
-    cache: 'no-store',
+    cache,
   })
   if (!res.ok) {
     const text = await res.text()
@@ -195,6 +198,48 @@ export async function fetchBinary(path) {
     } catch {
       err.parsed = null
     }
+    throw err
+  }
+  const blob = await res.blob()
+  const filename = parseFilenameFromContentDisposition(
+    res.headers.get('content-disposition')
+  )
+  return { blob, filename, contentType: res.headers.get('content-type') }
+}
+
+/** POST JSON and receive a binary response (CSV, ZIP, XLSX, etc.) with auth. */
+export async function postBinary(path, body = null) {
+  const p = normalizeApiPath(path)
+  const url = p.startsWith('http') ? p : resolveApiUrl(p)
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Accept: '*/*',
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: body == null ? undefined : JSON.stringify(body),
+    cache: 'no-store',
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    let msg = res.statusText || 'Request failed'
+    const ct = (res.headers.get('content-type') || '').toLowerCase()
+    if (ct.includes('json')) {
+      try {
+        const j = JSON.parse(text)
+        if (j && typeof j.error === 'string') msg = j.error
+        if (j && j.code) msg = `${msg}${msg.includes(j.code) ? '' : ` (${j.code})`}`
+      } catch {
+        if (text) msg = text.slice(0, 200)
+      }
+    } else if (text) {
+      msg = text.slice(0, 200) || msg
+    }
+    const err = new Error(msg)
+    err.status = res.status
+    err.url = url
+    err.body = text
     throw err
   }
   const blob = await res.blob()

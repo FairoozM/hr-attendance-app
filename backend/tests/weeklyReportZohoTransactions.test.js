@@ -6,12 +6,22 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const path = require('path')
 const { mockModule, freshRequire } = require('./_helpers')
-const { _internals: { matchesReportVendor } } = require('../src/integrations/zoho/weeklyReportZohoTransactions')
+const {
+  _internals: {
+    matchesReportVendor,
+    itemTotalNetFromSalesByItemRow,
+    resolveWeeklyReportSalesVatRate,
+    matchesVendorCreditDocument,
+    normalizeVendorCreditLineItem,
+    makeWarehouseLineFilter,
+  },
+} = require('../src/integrations/zoho/weeklyReportZohoTransactions')
 
 function clearZohoTransactionModules() {
   for (const f of [
     path.join(__dirname, '../src/integrations/zoho/weeklyReportZohoTransactions.js'),
     path.join(__dirname, '../src/integrations/zoho/zohoInventoryClient.js'),
+    path.join(__dirname, '../src/integrations/zoho/zohoTransactionsCache.js'),
   ]) {
     try {
       const p = require.resolve(f)
@@ -36,23 +46,102 @@ test('matchesReportVendor: name when vendor id is empty', () => {
   assert.equal(matchesReportVendor(undefined, '', 'Other', 'acme ltd'), false)
 })
 
-test('getPurchases: only bills for vendor 4265011000000080014 (mocked list)', async () => {
+test('matchesVendorCreditDocument: contact_id matches configured vendor (contact) id', () => {
+  const id = '5012000000000999'
+  assert.equal(
+    matchesVendorCreditDocument(
+      { vendor_id: 'x', contact_id: id, customer_id: 'y' },
+      id,
+      undefined,
+    ),
+    true,
+  )
+  assert.equal(
+    matchesVendorCreditDocument(
+      { vendor_id: 'x', vendor_contact_id: id, customer_id: 'y' },
+      id,
+      undefined,
+    ),
+    true,
+  )
+})
+
+test('normalizeVendorCreditLineItem: reads sku from nested line.item', () => {
+  const n = normalizeVendorCreditLineItem({
+    quantity: 2,
+    item: { item_id: 'A1', sku: 'NESTED-SK', name: 'Nested name' },
+  })
+  assert.equal(n.sku, 'NESTED-SK')
+  assert.equal(n.item_id, 'A1')
+  assert.equal(n.quantity, 2)
+  assert.equal(n.name, 'Nested name')
+})
+
+test('makeWarehouseLineFilter: includes or excludes by line warehouse_id', () => {
+  const normal = makeWarehouseLineFilter({ excludeWarehouseId: 'damaged' })
+  assert.equal(normal({ warehouse_id: 'main' }, {}), true)
+  assert.equal(normal({ warehouse_id: 'damaged' }, {}), false)
+  assert.equal(normal({}, {}), false)
+
+  const damagedOnly = makeWarehouseLineFilter({ warehouseId: 'damaged' })
+  assert.equal(damagedOnly({ warehouse_id: 'damaged' }, {}), true)
+  assert.equal(damagedOnly({ warehouse_id: 'main' }, {}), false)
+})
+
+test('makeWarehouseLineFilter: includes or excludes by Zoho location_id', () => {
+  const normal = makeWarehouseLineFilter({ excludeWarehouseId: 'damaged' })
+  assert.equal(normal({ location_id: 'main' }, {}), true)
+  assert.equal(normal({ location: { location_id: 'damaged' } }, {}), false)
+  assert.equal(normal({}, { location_id: 'main' }), true)
+
+  const mainOnly = makeWarehouseLineFilter({ warehouseId: 'main' })
+  assert.equal(mainOnly({ location_id: 'main' }, {}), true)
+  assert.equal(mainOnly({ warehouse_id: 'damaged', location_id: 'main' }, {}), false)
+  assert.equal(mainOnly({}, { location: { location_id: 'main' } }), true)
+})
+
+test('normalizeVendorCreditLineItem: exposes warehouse fields from Zoho location fields', () => {
+  const n = normalizeVendorCreditLineItem({
+    item_id: 'A1',
+    name: 'Item',
+    quantity: 2,
+    location_id: 'loc-1',
+    location_name: 'Riyadh Warehouse',
+  })
+  assert.equal(n.warehouse_id, 'loc-1')
+  assert.equal(n.warehouse_name, 'Riyadh Warehouse')
+})
+
+test('getPurchases: uses Bill line items (unfiltered; mocked fetchAllBillsRaw)', async () => {
   clearZohoTransactionModules()
-  mockModule('../src/integrations/zoho/zohoInventoryClient', {
-    fetchListPaginated: async () => ({
-      rows: [
-        { bill_id: '1', date: '2026-01-02', status: 'open', vendor_id: VENDOR, vendor_name: 'V', line_items: [{ item_id: '1', name: 'I', quantity: 5 }] },
-        { bill_id: '2', date: '2026-01-02', status: 'open', vendor_id: 'other', vendor_name: 'O', line_items: [{ item_id: '1', name: 'I', quantity: 9 }] },
-      ],
-      truncated: false,
-      pages: 1,
-    }),
+  mockModule('../src/integrations/zoho/zohoTransactionsCache', {
+    fetchAllBillsRaw: async () => [
+      {
+        bill_id: 'b1',
+        date: '2026-01-15',
+        status: 'open',
+        vendor_id: 'v1',
+        line_items: [{ item_id: '1', name: 'I', quantity: 5, item: { sku: 'SK' } }],
+      },
+      {
+        bill_id: 'b2',
+        date: '2026-01-20',
+        status: 'open',
+        vendor_id: 'v2',
+        line_items: [{ item_id: '1', name: 'I', quantity: 9, item: { sku: 'SK' } }],
+      },
+    ],
+    fetchAllVendorCreditsRaw: async () => [],
+    clearBillsCache: () => {},
+    clearVendorCreditsCache: () => {},
   })
   const m = freshRequire('../src/integrations/zoho/weeklyReportZohoTransactions')
   const r = await m.getPurchases('2026-01-01', '2026-01-31', VENDOR, {})
-  assert.equal(r.lines.length, 1)
-  assert.equal(r.line_count, 1)
-  assert.equal(r.lines[0].quantity, 5)
+  // Both bill lines for item 1 (all vendors in default unfiltered mode).
+  assert.equal(r.line_count, 2)
+  assert.equal(r.document_count, 2)
+  assert.equal(r.lines.reduce((s, l) => s + l.quantity, 0), 14)
+  assert.equal(r.lines[0].type, 'bill')
 })
 
 test('getVendorCredits: only credits for vendor 4265011000000080014 (mocked list)', async () => {
@@ -74,22 +163,86 @@ test('getVendorCredits: only credits for vendor 4265011000000080014 (mocked list
   assert.equal(r.lines[0].quantity, 2)
 })
 
-test('getSales: includes all customers (no vendor), mocked invoices', async () => {
+test('getVendorCredits: list without line_items fetches GET /vendorcredits/:id', async () => {
   clearZohoTransactionModules()
   mockModule('../src/integrations/zoho/zohoInventoryClient', {
     fetchListPaginated: async () => ({
       rows: [
-        { invoice_id: 'i1', date: '2026-01-04', status: 'paid', line_items: [{ item_id: '1', name: 'A', quantity: 1 }] },
-        { invoice_id: 'i2', date: '2026-01-04', status: 'paid', line_items: [{ item_id: '2', name: 'B', quantity: 4 }] },
+        { vendor_credit_id: 'c1', date: '2026-01-03', status: 'open', vendor_id: VENDOR, vendor_name: 'V' },
       ],
       truncated: false,
       pages: 1,
     }),
+    zohoApiRequest: async (p) => {
+      if (String(p).includes('vendorcredits/c1') && !String(p).includes('vendorcredits/c1/')) {
+        return {
+          code: 0,
+          vendor_credit: {
+            vendor_credit_id: 'c1',
+            line_items: [{ item_id: '99', name: 'I', quantity: 4, sku: 'S-KU' }],
+          },
+        }
+      }
+      throw new Error('unexpected zoho path ' + p)
+    },
   })
   const m = freshRequire('../src/integrations/zoho/weeklyReportZohoTransactions')
-  const r = await m.getSales('2026-01-01', '2026-01-31', {})
-  assert.equal(r.line_count, 2)
-  assert.equal(r.lines.reduce((s, l) => s + l.quantity, 0), 5)
+  const r = await m.getVendorCredits('2026-01-01', '2026-01-31', VENDOR, {})
+  assert.equal(r.line_count, 1)
+  assert.equal(r.lines[0].quantity, 4)
+  assert.equal(r.lines[0].sku, 'S-KU')
+})
+
+test('getSales: invoice detail lines filtered by warehouse', async () => {
+  const prevV = process.env.WEEKLY_REPORT_SALES_VAT_RATE
+  process.env.WEEKLY_REPORT_SALES_VAT_RATE = '0.15'
+  clearZohoTransactionModules()
+  mockModule('../src/integrations/zoho/zohoInventoryClient', {
+    fetchListPaginated: async (url, key) => {
+      assert.ok(String(url).includes('/invoices'))
+      assert.equal(key, 'invoices')
+      return {
+        rows: [
+          { invoice_id: 'inv1', date: '2026-01-03', status: 'sent' },
+        ],
+        truncated: false,
+        pages: 1,
+      }
+    },
+    zohoApiRequest: async (p) => {
+      assert.ok(String(p).includes('/invoices/inv1'))
+      return {
+        invoice: {
+          invoice_id: 'inv1',
+          date: '2026-01-03',
+          status: 'sent',
+          line_items: [
+            { item_id: '1', name: 'A', sku: 'A1', quantity: 1, item_total: 10, warehouse_id: 'main' },
+            { item_id: '2', name: 'B', sku: 'B1', quantity: 4, item_total: 40, warehouse_id: 'damaged' },
+          ],
+        },
+      }
+    },
+  })
+  const m = freshRequire('../src/integrations/zoho/weeklyReportZohoTransactions')
+  const r = await m.getSales('2026-01-01', '2026-01-31', { excludeWarehouseId: 'damaged' })
+  assert.equal(r.line_count, 1)
+  assert.equal(r.lines[0].quantity, 1)
+  assert.equal(r.lines[0].item_total, 10)
+  assert.equal(r.lines[0].warehouse_id, 'main')
+  if (prevV === undefined) delete process.env.WEEKLY_REPORT_SALES_VAT_RATE
+  else process.env.WEEKLY_REPORT_SALES_VAT_RATE = prevV
+})
+
+test('itemTotalNetFromSalesByItemRow: ignores tax and gross; uses pre-tax amount', () => {
+  assert.equal(itemTotalNetFromSalesByItemRow({ amount: 100, item_tax: 5 }), 100, 'no line tax added')
+  assert.equal(itemTotalNetFromSalesByItemRow({ amount: 10, gross_amount: 12.5 }), 10, 'amount over gross_inclusive')
+  const prevV = process.env.WEEKLY_REPORT_SALES_VAT_RATE
+  process.env.WEEKLY_REPORT_SALES_VAT_RATE = '0'
+  assert.equal(resolveWeeklyReportSalesVatRate(), 0)
+  assert.equal(itemTotalNetFromSalesByItemRow({ amount: 200 }), 200, 'no env VAT multiplier on amount')
+  if (prevV === undefined) delete process.env.WEEKLY_REPORT_SALES_VAT_RATE
+  else process.env.WEEKLY_REPORT_SALES_VAT_RATE = prevV
 })
 
 test('assertReportVendorResolvedIfRequired: throws when vendor missing and not optional', () => {

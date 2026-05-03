@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from 'react'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
+import { useAuth } from './contexts/AuthContext'
 import { SettingsContext } from './contexts/SettingsContext'
 import { InfluencersProvider } from './contexts/InfluencersContext'
 import { useAppSettings } from './hooks/useAppSettings'
@@ -17,6 +18,7 @@ import { AnnualLeavePage } from './pages/AnnualLeavePage'
 import { EmployeeProfileAdminPage } from './pages/EmployeeProfileAdminPage'
 import { RolesPermissionsPage } from './pages/RolesPermissionsPage'
 import { ItemReportGroupsAdminPage } from './pages/admin/ItemReportGroupsAdminPage'
+import BulkZohoInvoicePage from './pages/admin/BulkZohoInvoicePage'
 import { InfluencerListPage } from './pages/influencers/InfluencerListPage'
 import { AddInfluencerPage } from './pages/influencers/AddInfluencerPage'
 import { PipelinePage } from './pages/influencers/PipelinePage'
@@ -25,15 +27,30 @@ function InfluencerIdToEditRedirect() {
   const { id } = useParams()
   return <Navigate to={`/influencers/${encodeURIComponent(id)}/edit`} replace />
 }
+
+function AdminOnly({ children }) {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  if (user.role !== 'admin') return <Navigate to="/account" replace />
+  return children
+}
 import { ShootSchedulePage } from './pages/influencers/ShootSchedulePage'
 import { PaymentsPage } from './pages/influencers/PaymentsPage'
 import { AgreementsPage } from './pages/influencers/AgreementsPage'
 import { ReportsPage } from './pages/influencers/ReportsPage'
+import { InfluencerPerformancePage } from './pages/influencers/InfluencerPerformancePage'
 import { SimCardsPage } from './pages/SimCardsPage'
 import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
+import { PaymentsPage as CompanyPaymentsPage } from './pages/management/PaymentsPage'
+import { PurchasePlanningPage } from './pages/management/PurchasePlanningPage'
+import { AllPricesPage } from './pages/management/AllPricesPage'
+import { CompositeItemsPricesPage } from './pages/prices/CompositeItemsPricesPage'
 import { WeeklyAdsReportPage } from './pages/reports/WeeklyAdsReportPage'
 import { WeeklySalesReportPage } from './pages/reports/WeeklySalesReportPage'
 import { WeeklyCombinedSalesReportPage } from './pages/reports/WeeklyCombinedSalesReportPage'
+import { KsaVatReportPage } from './pages/reports/KsaVatReportPage'
+import SalesVsExpensesReportPage from './pages/reports/SalesVsExpensesReportPage'
+import { ZohoItemImageFetcherPage } from './pages/reports/ZohoItemImageFetcherPage'
 import ProjectsIndexPage from './pages/projects/ProjectsIndexPage'
 import ProjectDetailPage from './pages/projects/ProjectDetailPage'
 import ProjectDashboardPage from './pages/projects/ProjectDashboardPage'
@@ -175,6 +192,39 @@ function AppContent() {
           }
         />
         <Route
+          path="management/payments"
+          element={
+            <PermissionGuard module="document_expiry" action="view">
+              <CompanyPaymentsPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="management/purchase-planning"
+          element={
+            <AdminOnly>
+              <PurchasePlanningPage />
+            </AdminOnly>
+          }
+        />
+        <Route path="management/all-prices" element={<Navigate to="/prices/all-prices" replace />} />
+        <Route
+          path="prices/all-prices"
+          element={
+            <PermissionGuard module="document_expiry" action="view">
+              <AllPricesPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="prices/composite-items"
+          element={
+            <PermissionGuard module="document_expiry" action="view">
+              <CompositeItemsPricesPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
           path="employees/:id/profile"
           element={
             <PermissionGuard module="employees" action="view">
@@ -184,6 +234,14 @@ function AppContent() {
         />
         <Route path="roles-permissions" element={<RolesPermissionsPage />} />
         <Route path="admin/item-report-groups" element={<ItemReportGroupsAdminPage />} />
+        <Route
+          path="admin/zoho/bulk-invoice"
+          element={
+            <PermissionGuard module="weekly_reports" action="view">
+              <BulkZohoInvoicePage />
+            </PermissionGuard>
+          }
+        />
 
         {/* AI Planner Module */}
         <Route path="projects" element={<ProjectsIndexPage />} />
@@ -193,6 +251,22 @@ function AppContent() {
 
         {/* Reports Module */}
         <Route path="reports">
+          <Route
+            path="sales-vs-expenses"
+            element={
+              <PermissionGuard module="weekly_reports" action="view">
+                <SalesVsExpensesReportPage />
+              </PermissionGuard>
+            }
+          />
+          <Route
+            path="zoho-item-images"
+            element={
+              <PermissionGuard module="weekly_reports" action="view">
+                <ZohoItemImageFetcherPage />
+              </PermissionGuard>
+            }
+          />
           <Route path="weekly-report">
             <Route
               path="weekly-ads"
@@ -239,6 +313,18 @@ function AppContent() {
           </Route>
         </Route>
 
+        {/* Taxation Module */}
+        <Route path="taxation">
+          <Route
+            path="ksa-vat"
+            element={
+              <PermissionGuard module="weekly_reports" action="view">
+                <KsaVatReportPage />
+              </PermissionGuard>
+            }
+          />
+        </Route>
+
         {/* Influencers Module */}
         <Route path="influencers">
           <Route path="list" element={
@@ -274,6 +360,11 @@ function AppContent() {
           <Route path="reports" element={
             <PermissionGuard module="influencers" action="view">
               <ReportsPage />
+            </PermissionGuard>
+          } />
+          <Route path="performance" element={
+            <PermissionGuard module="influencers" action="view">
+              <InfluencerPerformancePage />
             </PermissionGuard>
           } />
           <Route path=":id" element={

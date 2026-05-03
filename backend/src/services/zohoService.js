@@ -17,18 +17,22 @@
  */
 
 const { listMembersOfGroup } = require('./itemReportGroupsService')
-const { fetchZohoItemRowsForGroupMembers } = require('./weeklyReportZohoData')
+const {
+  fetchZohoItemRowsForGroupMembers,
+  buildFamilyWarehouseMatrixForGroupMembers,
+  coldBlockedFamilyDetailsMatrixPayload,
+  _internals: zohoDataInternals,
+} = require('./weeklyReportZohoData')
+const { peekWeeklyReportPrefetchBundle } = require('./weeklyReportPrefetchStash')
+const { makeKey } = require('./weeklyReportCache')
 const { getVendorConfigForGroup } = require('./weeklyReportVendorConfig')
 
 const MAX_REPORTED_ERRORS = 10
 const NUMERIC_FIELDS = [
-  'item_count',
   'opening_stock',
-  'purchases',
+  'closing_stock',
   'purchase_amount',
   'returned_to_wholesale',
-  'closing_stock',
-  'sold',
   'sales_amount',
 ]
 
@@ -174,6 +178,47 @@ function validateAndNormaliseItem(raw, index) {
     item.sku = sku
     item.item_name = itemName
     item.item_id = itemId
+  } else {
+    // aggregateByFamily sets this for Zoho product image lookup; do not drop it
+    const zrid = raw.zoho_representative_item_id
+    if (zrid != null && String(zrid).trim() !== '') {
+      item.zoho_representative_item_id = String(zrid).trim()
+    }
+    const zsku = raw.zoho_representative_sku
+    if (zsku != null && String(zsku).trim() !== '') {
+      item.zoho_representative_sku = String(zsku).trim()
+    }
+    const zn = raw.zoho_representative_name
+    if (zn != null && String(zn).trim() !== '') {
+      item.zoho_representative_name = String(zn).trim()
+    }
+    const zver = raw.zoho_representative_image_selection_version
+    if (zver != null && (typeof zver === 'number' || (typeof zver === 'string' && zver.trim() !== ''))) {
+      item.zoho_representative_image_selection_version =
+        typeof zver === 'number' ? zver : parseInt(String(zver).trim(), 10) || 0
+    }
+    const zreason = raw.zoho_representative_reason
+    if (zreason != null && String(zreason).trim() !== '') {
+      item.zoho_representative_reason = String(zreason).trim()
+    }
+    const zscore = raw.zoho_representative_score
+    if (zscore != null && (typeof zscore === 'number' || (typeof zscore === 'string' && zscore.trim() !== ''))) {
+      const n = typeof zscore === 'number' ? zscore : parseFloat(String(zscore).trim())
+      if (Number.isFinite(n)) item.zoho_representative_score = n
+    }
+    const passthroughStr = ['stock_total_source', 'stock_total_fallback_reason', 'calculation_version']
+    for (const k of passthroughStr) {
+      const v = raw[k]
+      if (v != null && typeof v === 'string' && String(v).trim() !== '') {
+        item[k] = String(v).trim()
+      }
+    }
+    for (const q of ['opening_qty', 'closing_qty']) {
+      const v = raw[q]
+      if (v !== undefined && v !== null && Number.isFinite(Number(v))) {
+        item[q] = Math.round(Number(v) * 100) / 100
+      }
+    }
   }
   if (raw._zoho && typeof raw._zoho === 'object' && !Array.isArray(raw._zoho)) {
     item._zoho = {
@@ -216,19 +261,24 @@ function buildMatcher(members) {
  * Membership first (`item_report_groups`), then Zoho-adapter data for matching
  * items only (intersection). Rows and grand totals in the API match this list.
  */
-async function getInventoryByGroup(group, fromDate, toDate) {
+async function getInventoryByGroup(group, fromDate, toDate, warehouseId = null, excludeWarehouseId = null, options = {}) {
   const members = await listMembersOfGroup(group)
-  if (members.length === 0) {
+  // other_family: still call Zoho so we can list families that exist in Zoho but have no
+  // item_report_groups row, with a "(not found in groups)" label (see weeklyReportZohoData).
+  if (members.length === 0 && group !== 'other_family') {
     return { items: [], reportMeta: { warnings: [] } }
   }
 
   const vendorConfig = getVendorConfigForGroup(group)
-  const { items: raw, reportMeta: fetchMeta } = await fetchZohoItemRowsForGroupMembers(
+  const { items: raw, reportMeta: fetchMeta, itemDetails } = await fetchZohoItemRowsForGroupMembers(
     members,
     fromDate,
     toDate,
     vendorConfig,
-    group
+    group,
+    warehouseId,
+    excludeWarehouseId,
+    options
   )
 
   const items = []
@@ -245,7 +295,121 @@ async function getInventoryByGroup(group, fromDate, toDate) {
 
   if (errors.length > 0) throw makeInvalidResponseError(errors)
 
-  return { items, reportMeta: fetchMeta && typeof fetchMeta === 'object' ? fetchMeta : { warnings: [] } }
+  return {
+    items,
+    reportMeta: fetchMeta && typeof fetchMeta === 'object' ? fetchMeta : { warnings: [] },
+    itemDetails: Array.isArray(itemDetails) ? itemDetails : [],
+  }
+}
+
+/**
+ * Item-level drill-down details for one family inside a report group/date range.
+ */
+async function getFamilyDetailsByGroup(
+  group,
+  family,
+  fromDate,
+  toDate,
+  warehouseId = null,
+  excludeWarehouseId = null
+) {
+  const familyKey = String(family || '').trim().toLowerCase()
+  const members = await listMembersOfGroup(group)
+  if (members.length === 0 && group !== 'other_family') {
+    return { family, items: [] }
+  }
+  const vendorConfig = getVendorConfigForGroup(group)
+  const { itemDetails = [] } = await fetchZohoItemRowsForGroupMembers(
+    members,
+    fromDate,
+    toDate,
+    vendorConfig,
+    group,
+    warehouseId,
+    excludeWarehouseId,
+    { includeItemDetails: true }
+  )
+  const items = itemDetails.filter((r) => String(r.family_display || r.family || '').trim().toLowerCase() === familyKey)
+  return { family, items }
+}
+
+async function getFamilyWarehouseMatrixByGroup(
+  group,
+  family,
+  fromDate,
+  toDate,
+  warehouses,
+  warehouseId = null,
+  excludeWarehouseId = null
+) {
+  const cacheKey = makeKey(group, fromDate, toDate, warehouseId, excludeWarehouseId)
+  const prefetchBundle = peekWeeklyReportPrefetchBundle(group, fromDate, toDate, warehouseId, excludeWarehouseId)
+  if (!prefetchBundle && process.env.BLOCK_COLD_FAMILY_DETAILS_PREFETCH_MISS === '1') {
+    console.warn(
+      JSON.stringify({
+        msg: 'family_details_blocked_no_prefetch',
+        family,
+        cacheKey,
+      })
+    )
+    return coldBlockedFamilyDetailsMatrixPayload({ family, warehouses })
+  }
+
+  const members = await listMembersOfGroup(group)
+  if (members.length === 0 && group !== 'other_family') {
+    return { family, warehouses: [], sections: {}, items: [], reportMeta: { warnings: [] } }
+  }
+  const vendorConfig = getVendorConfigForGroup(group)
+
+  const { familyRowKeyFromDisplay } = zohoDataInternals
+  const wantKey = prefetchBundle ? familyRowKeyFromDisplay(family) : null
+
+  // Per-SKU rows from the main report — drives the sidebar's SKU set (exact same
+  // items, quantities, and valuations, no re-derivation from Zoho raw).
+  let skuItemRows = null
+  if (prefetchBundle && Array.isArray(prefetchBundle.itemRows) && prefetchBundle.itemRows.length > 0) {
+    const filtered = prefetchBundle.itemRows.filter((r) => {
+      const fd = r.family_display || r.family || ''
+      return familyRowKeyFromDisplay(fd) === wantKey
+    })
+    if (filtered.length > 0) {
+      skuItemRows = filtered
+      console.log(JSON.stringify({ msg: 'sidebar_skuItemRows_ready', family, count: skuItemRows.length }))
+    } else {
+      console.warn(JSON.stringify({ msg: 'sidebar_skuItemRows_empty', family, itemRowsTotal: prefetchBundle.itemRows.length }))
+    }
+  }
+
+  // Aggregated family row — final-level totals override (belt-and-suspenders on top of per-SKU patch).
+  let familyMainRows = null
+  if (prefetchBundle && Array.isArray(prefetchBundle.familyRows) && prefetchBundle.familyRows.length > 0) {
+    const filtered = prefetchBundle.familyRows.filter(
+      (r) => familyRowKeyFromDisplay(r._familyDisplayOverride || r.family || '') === wantKey
+    )
+    if (filtered.length > 0) familyMainRows = filtered
+  }
+
+  const matrixOptions = prefetchBundle
+    ? {
+        prefetched: prefetchBundle,
+        hydrateLocations: true, // sidebar warm path: fetch item locations for closing stock warehouse breakdown
+        ...(skuItemRows    ? { skuItemRows }    : {}),
+        ...(familyMainRows ? { familyMainRows } : {}),
+      }
+    : {}
+
+  return buildFamilyWarehouseMatrixForGroupMembers(
+    members,
+    fromDate,
+    toDate,
+    vendorConfig,
+    group,
+    family,
+    warehouses,
+    warehouseId,
+    excludeWarehouseId,
+    matrixOptions
+  )
 }
 
 async function getSlowMovingInventory(fromDate, toDate) {
@@ -255,6 +419,8 @@ async function getSlowMovingInventory(fromDate, toDate) {
 
 module.exports = {
   getInventoryByGroup,
+  getFamilyDetailsByGroup,
+  getFamilyWarehouseMatrixByGroup,
   getSlowMovingInventory,
   _internals: {
     validateAndNormaliseItem,

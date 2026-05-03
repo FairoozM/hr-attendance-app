@@ -793,6 +793,24 @@ async function testConnection() {
   } catch (e) {
     console.error('[db] ensureItemReportGroupsImportLogTable skipped/failed (non-fatal):', e.message || e)
   }
+  try {
+    const { ensureZohoApiTables } = require('../services/zohoApiStore')
+    await ensureZohoApiTables()
+  } catch (e) {
+    console.error('[db] ensureZohoApiTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    const { ensureZohoBulkInvoiceTables } = require('../services/zohoBulkInvoiceStore')
+    await ensureZohoBulkInvoiceTables()
+  } catch (e) {
+    console.error('[db] ensureZohoBulkInvoiceTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    const { ensurePurchasePlanningTables } = require('../services/purchasePlanningService')
+    await ensurePurchasePlanningTables()
+  } catch (e) {
+    console.error('[db] ensurePurchasePlanningTables skipped/failed (non-fatal):', e.message || e)
+  }
 }
 
 async function ensureProjectsTable() {

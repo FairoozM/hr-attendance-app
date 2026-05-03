@@ -34,10 +34,37 @@ function addDays(dateStr, n) {
   return d.toISOString().slice(0, 10)
 }
 
-const DEFAULT_ROW = () => ({ spend: '', clicks: '', sales: '' })
+const DEFAULT_ROW = (overrides = {}) => ({ spend: '', clicks: '', sales: '', ...overrides })
 
 const DEFAULT_ROWS = () =>
   Object.fromEntries(MARKETPLACES.map((m) => [m, DEFAULT_ROW()]))
+
+function getMarketplaceNames(rows = {}) {
+  return Object.keys(rows).filter(Boolean)
+}
+
+function isSalesOnlyRow(row = {}) {
+  return row.salesOnly === true
+}
+
+function splitMarketplaceNames(rows = {}) {
+  const names = getMarketplaceNames(rows)
+  return {
+    adMarketplaces: names.filter((name) => !isSalesOnlyRow(rows[name])),
+    salesOnlyMarketplaces: names.filter((name) => isSalesOnlyRow(rows[name])),
+  }
+}
+
+function calculateTotals(rows = {}, names = []) {
+  return names.reduce((totals, name) => {
+    const row = rows[name] || DEFAULT_ROW()
+    return {
+      spend: totals.spend + (parseFloat(row.spend) || 0),
+      clicks: totals.clicks + (parseFloat(row.clicks) || 0),
+      sales: totals.sales + (parseFloat(row.sales) || 0),
+    }
+  }, { spend: 0, clicks: 0, sales: 0 })
+}
 
 function EmptyState() {
   return (
@@ -52,18 +79,23 @@ function EmptyState() {
   )
 }
 
-function ReportTable({ rows, title, dateLabel }) {
-  const totals = useMemo(() => {
-    let spend = 0, clicks = 0, sales = 0
-    MARKETPLACES.forEach((m) => {
-      spend += parseFloat(rows[m]?.spend) || 0
-      clicks += parseFloat(rows[m]?.clicks) || 0
-      sales += parseFloat(rows[m]?.sales) || 0
-    })
-    return { spend, clicks, sales }
-  }, [rows])
+function EmptyDash() {
+  return <span className="war-empty-dash">—</span>
+}
 
-  const totalAcos = calcAcos(totals.spend, totals.sales)
+function ReportTable({ rows, title, dateLabel }) {
+  const { adMarketplaces, salesOnlyMarketplaces } = useMemo(() => splitMarketplaceNames(rows), [rows])
+  const adTotals = useMemo(() => calculateTotals(rows, adMarketplaces), [adMarketplaces, rows])
+  const salesOnlyTotals = useMemo(() => calculateTotals(rows, salesOnlyMarketplaces), [rows, salesOnlyMarketplaces])
+  const grandTotals = useMemo(() => ({
+    spend: adTotals.spend,
+    clicks: adTotals.clicks,
+    sales: adTotals.sales + salesOnlyTotals.sales,
+  }), [adTotals, salesOnlyTotals])
+
+  const adAcos = calcAcos(adTotals.spend, adTotals.sales)
+  const totalAcos = calcAcos(grandTotals.spend, grandTotals.sales)
+  const hasSalesOnlyRows = salesOnlyMarketplaces.length > 0
 
   return (
     <div className="war-preview">
@@ -84,31 +116,54 @@ function ReportTable({ rows, title, dateLabel }) {
             </tr>
           </thead>
           <tbody>
-            {MARKETPLACES.map((m) => {
+            {adMarketplaces.map((m) => {
               const r = rows[m] || DEFAULT_ROW()
               const acos = calcAcos(r.spend, r.sales)
               const isDanger = acos !== null && parseFloat(acos) > ACOS_THRESHOLD
               return (
                 <tr key={m} className="war-tr">
                   <td className="war-td war-td--name">{m}</td>
-                  <td className="war-td">{r.spend ? formatNum(r.spend) : '—'}</td>
-                  <td className="war-td war-td--center">{r.clicks ? formatNum(r.clicks) : '—'}</td>
-                  <td className="war-td">{r.sales ? formatNum(r.sales) : '—'}</td>
+                  <td className="war-td">{r.spend ? formatNum(r.spend) : <EmptyDash />}</td>
+                  <td className="war-td war-td--center">{r.clicks ? formatNum(r.clicks) : <EmptyDash />}</td>
+                  <td className="war-td">{r.sales ? formatNum(r.sales) : <EmptyDash />}</td>
                   <td className={`war-td war-td--center${isDanger ? ' war-td--danger' : ''}`}>
-                    {acos !== null ? `${acos}%` : '—'}
+                    {acos !== null ? `${acos}%` : <EmptyDash />}
                   </td>
+                </tr>
+              )
+            })}
+            {hasSalesOnlyRows ? (
+              <tr className="war-tr war-tr--subtotal">
+                <td className="war-td war-td--name">SUBTOTAL</td>
+                <td className="war-td">{formatNum(adTotals.spend.toFixed(0))}</td>
+                <td className="war-td war-td--center">{formatNum(adTotals.clicks.toFixed(0))}</td>
+                <td className="war-td">{formatNum(adTotals.sales.toFixed(0))}</td>
+                <td className={`war-td war-td--center${adAcos !== null && parseFloat(adAcos) > ACOS_THRESHOLD ? ' war-td--danger' : ''}`}>
+                  {adAcos !== null ? `${adAcos}%` : <EmptyDash />}
+                </td>
+              </tr>
+            ) : null}
+            {salesOnlyMarketplaces.map((m) => {
+              const r = rows[m] || DEFAULT_ROW({ salesOnly: true })
+              return (
+                <tr key={m} className="war-tr war-tr--sales-only">
+                  <td className="war-td war-td--name">{m}</td>
+                  <td className="war-td"><EmptyDash /></td>
+                  <td className="war-td war-td--center"><EmptyDash /></td>
+                  <td className="war-td">{r.sales ? formatNum(r.sales) : <EmptyDash />}</td>
+                  <td className="war-td war-td--center"><EmptyDash /></td>
                 </tr>
               )
             })}
           </tbody>
           <tfoot>
             <tr className="war-tr war-tr--total">
-              <td className="war-td war-td--name">TOTAL</td>
-              <td className="war-td">{formatNum(totals.spend.toFixed(0))}</td>
-              <td className="war-td war-td--center">{formatNum(totals.clicks.toFixed(0))}</td>
-              <td className="war-td">{formatNum(totals.sales.toFixed(0))}</td>
+              <td className="war-td war-td--name">{hasSalesOnlyRows ? 'GRAND TOTAL' : 'TOTAL'}</td>
+              <td className="war-td">{hasSalesOnlyRows ? <EmptyDash /> : formatNum(grandTotals.spend.toFixed(0))}</td>
+              <td className="war-td war-td--center">{hasSalesOnlyRows ? <EmptyDash /> : formatNum(grandTotals.clicks.toFixed(0))}</td>
+              <td className="war-td">{formatNum(grandTotals.sales.toFixed(0))}</td>
               <td className={`war-td war-td--center${totalAcos !== null && parseFloat(totalAcos) > ACOS_THRESHOLD ? ' war-td--danger' : ''}`}>
-                {totalAcos !== null ? `${totalAcos}%` : '—'}
+                {hasSalesOnlyRows ? <EmptyDash /> : totalAcos !== null ? `${totalAcos}%` : <EmptyDash />}
               </td>
             </tr>
           </tfoot>
@@ -120,16 +175,15 @@ function ReportTable({ rows, title, dateLabel }) {
 
 function HistoryCard({ entry, onDelete, onEdit }) {
   const [expanded, setExpanded] = useState(false)
+  const { adMarketplaces, salesOnlyMarketplaces } = useMemo(() => splitMarketplaceNames(entry.rows), [entry.rows])
 
-  const totals = useMemo(() => {
-    let spend = 0, clicks = 0, sales = 0
-    MARKETPLACES.forEach((m) => {
-      spend += parseFloat(entry.rows[m]?.spend) || 0
-      clicks += parseFloat(entry.rows[m]?.clicks) || 0
-      sales += parseFloat(entry.rows[m]?.sales) || 0
-    })
-    return { spend, clicks, sales }
-  }, [entry.rows])
+  const adTotals = useMemo(() => calculateTotals(entry.rows, adMarketplaces), [adMarketplaces, entry.rows])
+  const salesOnlyTotals = useMemo(() => calculateTotals(entry.rows, salesOnlyMarketplaces), [entry.rows, salesOnlyMarketplaces])
+  const totals = useMemo(() => ({
+    spend: adTotals.spend,
+    clicks: adTotals.clicks,
+    sales: adTotals.sales + salesOnlyTotals.sales,
+  }), [adTotals, salesOnlyTotals])
 
   const totalAcos = calcAcos(totals.spend, totals.sales)
   const acosNum = totalAcos !== null ? parseFloat(totalAcos) : null
@@ -246,25 +300,75 @@ export function WeeklyAdsReportPage() {
   const [rows, setRows] = useState(DEFAULT_ROWS)
   const [notes, setNotes] = useState('')
   const [saved, setSaved] = useState(false)
+  const [newMarketplace, setNewMarketplace] = useState('')
+  const [marketplaceError, setMarketplaceError] = useState('')
+  const [newSalesOnlyMarketplace, setNewSalesOnlyMarketplace] = useState('')
+  const [salesOnlyMarketplaceError, setSalesOnlyMarketplaceError] = useState('')
 
   const updateRow = useCallback((marketplace, field, value) => {
-    setRows((prev) => ({
-      ...prev,
-      [marketplace]: { ...prev[marketplace], [field]: value },
-    }))
+    setRows((prev) => {
+      const existingRow = prev[marketplace] || DEFAULT_ROW()
+      return {
+        ...prev,
+        [marketplace]: { ...existingRow, [field]: value },
+      }
+    })
     setSaved(false)
   }, [])
 
-  const totals = useMemo(() => {
-    let spend = 0, clicks = 0, sales = 0
-    MARKETPLACES.forEach((m) => {
-      spend += parseFloat(rows[m]?.spend) || 0
-      clicks += parseFloat(rows[m]?.clicks) || 0
-      sales += parseFloat(rows[m]?.sales) || 0
+  const removeMarketplace = useCallback((marketplace) => {
+    setRows((prev) => {
+      const next = { ...prev }
+      delete next[marketplace]
+      return next
     })
-    return { spend, clicks, sales }
-  }, [rows])
+    setSaved(false)
+  }, [])
 
+  const { adMarketplaces, salesOnlyMarketplaces } = useMemo(() => splitMarketplaceNames(rows), [rows])
+  const marketplaceNames = useMemo(() => [...adMarketplaces, ...salesOnlyMarketplaces], [adMarketplaces, salesOnlyMarketplaces])
+
+  const handleAddMarketplace = useCallback(() => {
+    const name = newMarketplace.trim().replace(/\s+/g, ' ')
+    if (!name) {
+      setMarketplaceError('Enter marketplace name')
+      return
+    }
+    if (marketplaceNames.some((item) => item.toLowerCase() === name.toLowerCase())) {
+      setMarketplaceError('Marketplace already exists')
+      return
+    }
+    setRows((prev) => ({ ...prev, [name]: DEFAULT_ROW() }))
+    setNewMarketplace('')
+    setMarketplaceError('')
+    setSaved(false)
+  }, [marketplaceNames, newMarketplace])
+
+  const handleAddSalesOnlyMarketplace = useCallback(() => {
+    const name = newSalesOnlyMarketplace.trim().replace(/\s+/g, ' ')
+    if (!name) {
+      setSalesOnlyMarketplaceError('Enter marketplace name')
+      return
+    }
+    if (marketplaceNames.some((item) => item.toLowerCase() === name.toLowerCase())) {
+      setSalesOnlyMarketplaceError('Marketplace already exists')
+      return
+    }
+    setRows((prev) => ({ ...prev, [name]: DEFAULT_ROW({ salesOnly: true }) }))
+    setNewSalesOnlyMarketplace('')
+    setSalesOnlyMarketplaceError('')
+    setSaved(false)
+  }, [marketplaceNames, newSalesOnlyMarketplace])
+
+  const adTotals = useMemo(() => calculateTotals(rows, adMarketplaces), [adMarketplaces, rows])
+  const salesOnlyTotals = useMemo(() => calculateTotals(rows, salesOnlyMarketplaces), [rows, salesOnlyMarketplaces])
+  const totals = useMemo(() => ({
+    spend: adTotals.spend,
+    clicks: adTotals.clicks,
+    sales: adTotals.sales + salesOnlyTotals.sales,
+  }), [adTotals, salesOnlyTotals])
+
+  const adAcos = calcAcos(adTotals.spend, adTotals.sales)
   const totalAcos = calcAcos(totals.spend, totals.sales)
 
   const beginCreateNew = useCallback(() => {
@@ -284,6 +388,10 @@ export function WeeklyAdsReportPage() {
     setRows(DEFAULT_ROWS())
     setNotes('')
     setSaved(false)
+    setNewMarketplace('')
+    setMarketplaceError('')
+    setNewSalesOnlyMarketplace('')
+    setSalesOnlyMarketplaceError('')
   }, [])
 
   const handleEdit = useCallback((entry) => {
@@ -294,6 +402,10 @@ export function WeeklyAdsReportPage() {
     setRows(JSON.parse(JSON.stringify(entry.rows || DEFAULT_ROWS())))
     setNotes(entry.notes || '')
     setSaved(false)
+    setNewMarketplace('')
+    setMarketplaceError('')
+    setNewSalesOnlyMarketplace('')
+    setSalesOnlyMarketplaceError('')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [])
 
@@ -323,6 +435,10 @@ export function WeeklyAdsReportPage() {
       setEndDate(nextEnd)
       setRows(DEFAULT_ROWS())
       setNotes('')
+      setNewMarketplace('')
+      setMarketplaceError('')
+      setNewSalesOnlyMarketplace('')
+      setSalesOnlyMarketplaceError('')
     }
     setTimeout(() => setSaved(false), 3000)
   }
@@ -343,6 +459,10 @@ export function WeeklyAdsReportPage() {
     setNotes('')
     setEditingId(null)
     setSaved(false)
+    setNewMarketplace('')
+    setMarketplaceError('')
+    setNewSalesOnlyMarketplace('')
+    setSalesOnlyMarketplaceError('')
   }
 
   const dateLabel = startDate && endDate ? getWeekLabel(startDate, endDate) : ''
@@ -414,20 +534,31 @@ export function WeeklyAdsReportPage() {
               </tr>
             </thead>
             <tbody>
-              {MARKETPLACES.map((m) => {
-                const r = rows[m]
+              {adMarketplaces.map((m) => {
+                const r = rows[m] || DEFAULT_ROW()
                 const acos = calcAcos(r.spend, r.sales)
                 const isDanger = acos !== null && parseFloat(acos) > ACOS_THRESHOLD
                 return (
                   <tr key={m} className="war-tr war-tr--input">
-                    <td className="war-td war-td--name">{m}</td>
+                    <td className="war-td war-td--name">
+                      <span className="war-marketplace-name">
+                        <span>{m}</span>
+                        <button
+                          type="button"
+                          className="war-marketplace-remove"
+                          onClick={() => removeMarketplace(m)}
+                          aria-label={`Remove ${m}`}
+                        >
+                          Remove
+                        </button>
+                      </span>
+                    </td>
                     <td className="war-td">
                       <input
-                        type="number"
-                        min="0"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
                         className="war-cell-input"
-                        value={r.spend}
+                        value={r.spend ?? ''}
                         onChange={(e) => updateRow(m, 'spend', e.target.value)}
                         placeholder="0"
                         aria-label={`${m} ads spend`}
@@ -435,11 +566,10 @@ export function WeeklyAdsReportPage() {
                     </td>
                     <td className="war-td war-td--center">
                       <input
-                        type="number"
-                        min="0"
-                        step="1"
+                        type="text"
+                        inputMode="numeric"
                         className="war-cell-input war-cell-input--center"
-                        value={r.clicks}
+                        value={r.clicks ?? ''}
                         onChange={(e) => updateRow(m, 'clicks', e.target.value)}
                         placeholder="0"
                         aria-label={`${m} clicks`}
@@ -447,35 +577,133 @@ export function WeeklyAdsReportPage() {
                     </td>
                     <td className="war-td">
                       <input
-                        type="number"
-                        min="0"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
                         className="war-cell-input"
-                        value={r.sales}
+                        value={r.sales ?? ''}
                         onChange={(e) => updateRow(m, 'sales', e.target.value)}
                         placeholder="0"
                         aria-label={`${m} net sales`}
                       />
                     </td>
                     <td className={`war-td war-td--center war-td--acos-calc${isDanger ? ' war-td--danger' : ''}`}>
-                      {acos !== null ? `${acos}%` : '—'}
+                      {acos !== null ? `${acos}%` : <EmptyDash />}
                     </td>
+                  </tr>
+                )
+              })}
+              {salesOnlyMarketplaces.length > 0 ? (
+                <tr className="war-tr war-tr--subtotal">
+                  <td className="war-td war-td--name">SUBTOTAL</td>
+                  <td className="war-td">{adTotals.spend > 0 ? formatNum(adTotals.spend.toFixed(0)) : <EmptyDash />}</td>
+                  <td className="war-td war-td--center">{adTotals.clicks > 0 ? formatNum(adTotals.clicks.toFixed(0)) : <EmptyDash />}</td>
+                  <td className="war-td">{adTotals.sales > 0 ? formatNum(adTotals.sales.toFixed(0)) : <EmptyDash />}</td>
+                  <td className={`war-td war-td--center${adAcos !== null && parseFloat(adAcos) > ACOS_THRESHOLD ? ' war-td--danger' : ''}`}>
+                    {adAcos !== null ? `${adAcos}%` : <EmptyDash />}
+                  </td>
+                </tr>
+              ) : null}
+              {salesOnlyMarketplaces.map((m) => {
+                const r = rows[m] || DEFAULT_ROW({ salesOnly: true })
+                return (
+                  <tr key={m} className="war-tr war-tr--input war-tr--sales-only">
+                    <td className="war-td war-td--name">
+                      <span className="war-marketplace-name">
+                        <span>{m}</span>
+                        <button
+                          type="button"
+                          className="war-marketplace-remove"
+                          onClick={() => removeMarketplace(m)}
+                          aria-label={`Remove ${m}`}
+                        >
+                          Remove
+                        </button>
+                      </span>
+                    </td>
+                    <td className="war-td"><EmptyDash /></td>
+                    <td className="war-td war-td--center"><EmptyDash /></td>
+                    <td className="war-td">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        className="war-cell-input"
+                        value={r.sales ?? ''}
+                        onChange={(e) => updateRow(m, 'sales', e.target.value)}
+                        placeholder="0"
+                        aria-label={`${m} net sales`}
+                      />
+                    </td>
+                    <td className="war-td war-td--center war-td--acos-calc"><EmptyDash /></td>
                   </tr>
                 )
               })}
             </tbody>
             <tfoot>
               <tr className="war-tr war-tr--total">
-                <td className="war-td war-td--name">TOTAL</td>
-                <td className="war-td">{totals.spend > 0 ? formatNum(totals.spend.toFixed(0)) : '—'}</td>
-                <td className="war-td war-td--center">{totals.clicks > 0 ? formatNum(totals.clicks.toFixed(0)) : '—'}</td>
-                <td className="war-td">{totals.sales > 0 ? formatNum(totals.sales.toFixed(0)) : '—'}</td>
+                <td className="war-td war-td--name">{salesOnlyMarketplaces.length > 0 ? 'GRAND TOTAL' : 'TOTAL'}</td>
+                <td className="war-td">{salesOnlyMarketplaces.length > 0 ? <EmptyDash /> : totals.spend > 0 ? formatNum(totals.spend.toFixed(0)) : <EmptyDash />}</td>
+                <td className="war-td war-td--center">{salesOnlyMarketplaces.length > 0 ? <EmptyDash /> : totals.clicks > 0 ? formatNum(totals.clicks.toFixed(0)) : <EmptyDash />}</td>
+                <td className="war-td">{totals.sales > 0 ? formatNum(totals.sales.toFixed(0)) : <EmptyDash />}</td>
                 <td className={`war-td war-td--center${totalAcos !== null && parseFloat(totalAcos) > ACOS_THRESHOLD ? ' war-td--danger' : ''}`}>
-                  {totalAcos !== null ? `${totalAcos}%` : '—'}
+                  {salesOnlyMarketplaces.length > 0 ? <EmptyDash /> : totalAcos !== null ? `${totalAcos}%` : <EmptyDash />}
                 </td>
               </tr>
             </tfoot>
           </table>
+        </div>
+
+        <div className="war-marketplace-add">
+          <div className="war-form-field">
+            <label className="war-label" htmlFor="war-new-marketplace">Add marketplace</label>
+            <input
+              id="war-new-marketplace"
+              type="text"
+              className="war-input"
+              value={newMarketplace}
+              onChange={(e) => {
+                setNewMarketplace(e.target.value)
+                if (marketplaceError) setMarketplaceError('')
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  handleAddMarketplace()
+                }
+              }}
+              placeholder="e.g. Meta Ads, Google Ads, Carrefour"
+            />
+            {marketplaceError && <span className="war-marketplace-add__error">{marketplaceError}</span>}
+          </div>
+          <button type="button" className="war-btn war-btn--ghost" onClick={handleAddMarketplace}>
+            Add marketplace
+          </button>
+        </div>
+
+        <div className="war-marketplace-add war-marketplace-add--sales-only">
+          <div className="war-form-field">
+            <label className="war-label" htmlFor="war-new-sales-only-marketplace">Add marketplace without ad spend</label>
+            <input
+              id="war-new-sales-only-marketplace"
+              type="text"
+              className="war-input"
+              value={newSalesOnlyMarketplace}
+              onChange={(e) => {
+                setNewSalesOnlyMarketplace(e.target.value)
+                if (salesOnlyMarketplaceError) setSalesOnlyMarketplaceError('')
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  handleAddSalesOnlyMarketplace()
+                }
+              }}
+              placeholder="e.g. Website organic, Retail sales, POS"
+            />
+            {salesOnlyMarketplaceError && <span className="war-marketplace-add__error">{salesOnlyMarketplaceError}</span>}
+          </div>
+          <button type="button" className="war-btn war-btn--ghost" onClick={handleAddSalesOnlyMarketplace}>
+            Add after subtotal
+          </button>
         </div>
 
         <div className="war-form-notes">
@@ -516,7 +744,7 @@ export function WeeklyAdsReportPage() {
       </section>
 
       {/* ─── Live Preview ─── */}
-      {totals.spend > 0 && (
+      {(totals.spend > 0 || totals.sales > 0) && (
         <section className="war-section">
           <h2 className="war-section__title">Live Preview</h2>
           <ReportTable rows={rows} title={title} dateLabel={dateLabel} />

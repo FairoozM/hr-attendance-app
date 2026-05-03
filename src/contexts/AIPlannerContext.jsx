@@ -8,6 +8,7 @@ import {
   detectEnergyType,
   parseQuickCapture,
 } from '../lib/aiEngine'
+import { spawnNextRecurrenceTask } from '../lib/plannerRecurrence'
 
 const STORAGE_KEY          = 'ai_planner_tasks_v2'
 const SECTIONS_STORAGE_KEY = 'ai_planner_sections_v2'
@@ -357,6 +358,8 @@ export function AIPlannerProvider({ children }) {
       status: 'todo',
       priority: 'medium',
       dueDate: null,
+      dueDateStart: null,
+      recurrence: 'none',
       estimatedMinutes: null,
       notes: '',
       subtasks: [],
@@ -369,12 +372,15 @@ export function AIPlannerProvider({ children }) {
     }
     setRawTasks((prev) => {
       const inSec = prev.filter((t) => (t.sectionId ?? null) === sid)
-      const minL =
-        inSec.length > 0
-          ? Math.min(...inSec.map((t) => (t.listOrder != null ? t.listOrder : Number.MAX_SAFE_INTEGER)))
-          : 1_000_000
-      newTask.listOrder = minL - 1000
-      return [newTask, ...prev]
+      const numericOrders = inSec
+        .map((t) => t.listOrder)
+        .filter((lo) => lo != null && Number.isFinite(lo))
+      // Match reorderTasksInSection spacing (i * 1000); new tasks go at bottom like Asana.
+      newTask.listOrder =
+        numericOrders.length > 0
+          ? Math.max(...numericOrders) + 1000
+          : Math.max(0, inSec.length * 1000)
+      return [...prev, newTask]
     })
     return newTask
   }, [])
@@ -426,8 +432,18 @@ export function AIPlannerProvider({ children }) {
   }, [])
 
   const markDone = useCallback((id) => {
-    updateTask(id, { status: 'done' })
-  }, [updateTask])
+    setRawTasks((prev) => {
+      const idx = prev.findIndex((t) => t.id === id)
+      if (idx === -1) return prev
+      const task = prev[idx]
+      const nextInstance = spawnNextRecurrenceTask(task)
+      const marked = prev.map((t) => (t.id === id ? { ...t, status: 'done' } : t))
+      if (!nextInstance) return marked
+      const out = [...marked]
+      out.splice(idx + 1, 0, nextInstance)
+      return out
+    })
+  }, [])
 
   const markTodo = useCallback((id) => {
     updateTask(id, { status: 'todo' })

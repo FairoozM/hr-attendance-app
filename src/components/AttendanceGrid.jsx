@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, useCallback } from 'react'
+import { useState, useRef, useMemo, useCallback, useLayoutEffect } from 'react'
 import {
   STATUS_KEYS,
   STATUSES,
@@ -58,6 +58,7 @@ export function AttendanceGrid({
 }) {
   const days = useMemo(() => Array.from({ length: daysInMonth }, (_, i) => i + 1), [daysInMonth])
   const slFileInputRef = useRef(null)
+  const attendanceSplitRef = useRef(null)
   const [slUploadTarget, setSlUploadTarget] = useState(null)
 
   const [employeeSearch, setEmployeeSearch] = useState('')
@@ -179,6 +180,44 @@ export function AttendanceGrid({
       return passesDayFilters(emp)
     })
   }, [employees, employeeSearch, passesSummaryFilters, passesDayFilters])
+
+  /** Align employee / days / summary row heights when SL rows expand */
+  useLayoutEffect(() => {
+    const root = attendanceSplitRef.current
+    if (!root) return undefined
+
+    function syncHeights() {
+      const leftRows = root.querySelectorAll('.attendance-grid--frozen-left tbody tr')
+      const dayRows = root.querySelectorAll('.attendance-grid--days tbody tr')
+      const rightRows = root.querySelectorAll('.attendance-grid--frozen-right tbody tr')
+      const n = Math.min(leftRows.length, dayRows.length, rightRows.length)
+      if (!n) return
+      for (let i = 0; i < n; i++) {
+        const lr = leftRows[i]
+        const dr = dayRows[i]
+        const rr = rightRows[i]
+        lr.style.height = ''
+        dr.style.height = ''
+        rr.style.height = ''
+        const h = Math.max(
+          lr.getBoundingClientRect().height,
+          dr.getBoundingClientRect().height,
+          rr.getBoundingClientRect().height
+        )
+        lr.style.height = `${h}px`
+        dr.style.height = `${h}px`
+        rr.style.height = `${h}px`
+      }
+    }
+
+    syncHeights()
+    const ro = new ResizeObserver(() => syncHeights())
+    const leftRows = root.querySelectorAll('.attendance-grid--frozen-left tbody tr')
+    const dayRows = root.querySelectorAll('.attendance-grid--days tbody tr')
+    const rightRows = root.querySelectorAll('.attendance-grid--frozen-right tbody tr')
+    ;[...leftRows, ...dayRows, ...rightRows].forEach((r) => ro.observe(r))
+    return () => ro.disconnect()
+  }, [displayEmployees, displayDays, attendance, cellViewMode, sickLeaveDocuments])
 
   const handleSummaryIncluded = useCallback((key, next) => {
     setSummaryIncluded((prev) => {
@@ -325,7 +364,13 @@ export function AttendanceGrid({
           tabIndex={-1}
           onChange={handleSickLeaveFileChange}
         />
-        <table className="attendance-grid" role="grid">
+        <div className="attendance-grid-split" ref={attendanceSplitRef}>
+          <div className="attendance-grid-frozen attendance-grid-frozen--left">
+            <table
+              className="attendance-grid attendance-grid--frozen-left"
+              role="grid"
+              aria-label="Employees"
+            >
           <thead>
             <tr className="attendance-grid__header-row attendance-grid__header-row--group">
               <th
@@ -334,33 +379,57 @@ export function AttendanceGrid({
               >
                 <div className="attendance-grid__header-employee-inner">Employee</div>
               </th>
-              <th
-                colSpan={SUMMARY_STATUS_ORDER.length}
-                className="attendance-grid__th attendance-grid__th--group attendance-grid__th--group-summary"
-              >
-                Summary
-              </th>
-              <th
-                colSpan={displayDays.length}
+                </tr>
+                <tr className="attendance-grid__header-row attendance-grid__header-row--sub">
+                  <th className="attendance-grid__th attendance-grid__th--sticky attendance-grid__th--sub">
+                    <div className="attendance-grid__header-employee-inner">Name / Dept</div>
+                  </th>
+                </tr>
+                <tr className="attendance-grid__header-row attendance-grid__header-row--filters">
+                  <th className="attendance-grid__th attendance-grid__th--sticky attendance-grid__th--filter">
+                    <span className="attendance-grid__filter-row-label">Filter</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayEmployees.map((emp) => (
+                  <tr key={emp.id}>
+                    <td className="attendance-grid__td attendance-grid__td--sticky">
+                      <div className="attendance-grid__cell-employee">
+                        <span className="attendance-grid__name">{emp.name}</span>
+                        <span className="attendance-grid__dept">{emp.department}</span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="attendance-grid-days-wrap">
+            <table
+              className="attendance-grid attendance-grid--days"
+              role="grid"
+              aria-label="Daily attendance"
+            >
+              <thead>
+                <tr className="attendance-grid__header-row attendance-grid__header-row--group">
+                  <th
+                    colSpan={Math.max(displayDays.length, 1)}
                 className="attendance-grid__th attendance-grid__th--group attendance-grid__th--group-attendance"
               >
                 Attendance
               </th>
             </tr>
             <tr className="attendance-grid__header-row attendance-grid__header-row--sub">
-              <th className="attendance-grid__th attendance-grid__th--sticky attendance-grid__th--sub">
-                <div className="attendance-grid__header-employee-inner">Name / Dept</div>
+                  {displayDays.length === 0 ? (
+                    <th className="attendance-grid__th attendance-grid__th--day attendance-grid__th--sub attendance-grid__th--day-first">
+                      <div className="attendance-grid__th-day-inner">
+                        <span className="attendance-grid__day-name">—</span>
+                        <span className="attendance-grid__day-num"> </span>
+                      </div>
               </th>
-              {SUMMARY_STATUS_ORDER.map((key) => (
-                <th
-                  key={key}
-                  className={`attendance-grid__th attendance-grid__th--summary attendance-grid__summary-col--${key.toLowerCase()} attendance-grid__th--sub`}
-                  title={STATUSES[key].label}
-                >
-                  {key}
-                </th>
-              ))}
-              {displayDays.map((day) => {
+                  ) : (
+                    displayDays.map((day) => {
                 const dayOfWeek = getDayOfWeek(year, month, day)
                 const dayName = DAY_NAMES_SHORT[dayOfWeek]
                 const isFirstVisibleDay = day === displayDays[0]
@@ -375,29 +444,14 @@ export function AttendanceGrid({
                     </div>
                   </th>
                 )
-              })}
+                    })
+                  )}
             </tr>
             <tr className="attendance-grid__header-row attendance-grid__header-row--filters">
-              <th className="attendance-grid__th attendance-grid__th--sticky attendance-grid__th--filter">
-                <span className="attendance-grid__filter-row-label">Filter</span>
-              </th>
-              {SUMMARY_STATUS_ORDER.map((key) => (
-                <th
-                  key={key}
-                  className={`attendance-grid__th attendance-grid__th--summary attendance-grid__summary-col--${key.toLowerCase()} attendance-grid__th--filter`}
-                >
-                  <ExcelStyleColumnFilter
-                    filterId={`att-sum-${key}`}
-                    openFilterId={openFilterId}
-                    onOpenFilterId={setOpenFilterId}
-                    ariaLabel={`Filter rows by ${key} month total`}
-                    options={summaryFilterOptionsByKey[key] || []}
-                    included={summaryIncluded[key]}
-                    onIncludedChange={(next) => handleSummaryIncluded(key, next)}
-                  />
-                </th>
-              ))}
-              {displayDays.map((day) => (
+                  {displayDays.length === 0 ? (
+                    <th className="attendance-grid__th attendance-grid__th--day attendance-grid__th--filter attendance-grid__th--day-first" aria-hidden />
+                  ) : (
+                    displayDays.map((day) => (
                 <th key={`f-${day}`} className="attendance-grid__th attendance-grid__th--day attendance-grid__th--filter">
                   <ExcelStyleColumnFilter
                     filterId={`att-day-${day}`}
@@ -409,41 +463,17 @@ export function AttendanceGrid({
                     onIncludedChange={(next) => handleDayIncluded(day, next)}
                   />
                 </th>
-              ))}
+                    ))
+                  )}
             </tr>
           </thead>
           <tbody>
             {displayEmployees.map((emp) => (
               <tr key={emp.id}>
-                <td className="attendance-grid__td attendance-grid__td--sticky">
-                  <div className="attendance-grid__cell-employee">
-                    <span className="attendance-grid__name">{emp.name}</span>
-                    <span className="attendance-grid__dept">{emp.department}</span>
-                  </div>
-                </td>
-                {(() => {
-                  const summary = getEmployeeMonthSummary(
-                    attendance,
-                    emp.id,
-                    daysInMonth,
-                    year,
-                    month,
-                    weeklyHolidayDay
-                  )
-                  return SUMMARY_STATUS_ORDER.map((key) => (
-                    <td
-                      key={key}
-                      className={`attendance-grid__td attendance-grid__td--summary attendance-grid__summary-col--${key.toLowerCase()}`}
-                    >
-                      <span
-                        className={`attendance-grid__summary-value attendance-grid__summary-value--${STATUSES[key].color}`}
-                      >
-                        {summary[key]}
-                      </span>
-                    </td>
-                  ))
-                })()}
-                {displayDays.map((day) => {
+                    {displayDays.length === 0 ? (
+                      <td className="attendance-grid__td attendance-grid__td--day attendance-grid__td--day-first" aria-hidden />
+                    ) : (
+                      displayDays.map((day) => {
                   const current = getEffectiveStatus(
                     attendance,
                     emp.id,
@@ -528,11 +558,89 @@ export function AttendanceGrid({
                       </div>
                     </td>
                   )
-                })}
+                      })
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="attendance-grid-frozen attendance-grid-frozen--right">
+            <table
+              className="attendance-grid attendance-grid--frozen-right"
+              role="grid"
+              aria-label="Monthly summary totals"
+            >
+              <thead>
+                <tr className="attendance-grid__header-row attendance-grid__header-row--group">
+                  <th
+                    colSpan={SUMMARY_STATUS_ORDER.length}
+                    className="attendance-grid__th attendance-grid__th--group attendance-grid__th--group-summary"
+                  >
+                    Summary
+                  </th>
+                </tr>
+                <tr className="attendance-grid__header-row attendance-grid__header-row--sub">
+                  {SUMMARY_STATUS_ORDER.map((key) => (
+                    <th
+                      key={key}
+                      className={`attendance-grid__th attendance-grid__th--summary attendance-grid__summary-col--${key.toLowerCase()} attendance-grid__th--sub`}
+                      title={STATUSES[key].label}
+                    >
+                      {key}
+                    </th>
+                  ))}
+                </tr>
+                <tr className="attendance-grid__header-row attendance-grid__header-row--filters">
+                  {SUMMARY_STATUS_ORDER.map((key) => (
+                    <th
+                      key={key}
+                      className={`attendance-grid__th attendance-grid__th--summary attendance-grid__summary-col--${key.toLowerCase()} attendance-grid__th--filter`}
+                    >
+                      <ExcelStyleColumnFilter
+                        filterId={`att-sum-${key}`}
+                        openFilterId={openFilterId}
+                        onOpenFilterId={setOpenFilterId}
+                        ariaLabel={`Filter rows by ${key} month total`}
+                        options={summaryFilterOptionsByKey[key] || []}
+                        included={summaryIncluded[key]}
+                        onIncludedChange={(next) => handleSummaryIncluded(key, next)}
+                      />
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {displayEmployees.map((emp) => (
+                  <tr key={emp.id}>
+                    {(() => {
+                      const summary = getEmployeeMonthSummary(
+                        attendance,
+                        emp.id,
+                        daysInMonth,
+                        year,
+                        month,
+                        weeklyHolidayDay
+                      )
+                      return SUMMARY_STATUS_ORDER.map((key) => (
+                        <td
+                          key={key}
+                          className={`attendance-grid__td attendance-grid__td--summary attendance-grid__summary-col--${key.toLowerCase()}`}
+                        >
+                          <span
+                            className={`attendance-grid__summary-value attendance-grid__summary-value--${STATUSES[key].color}`}
+                          >
+                            {summary[key]}
+                          </span>
+                        </td>
+                      ))
+                    })()}
               </tr>
             ))}
           </tbody>
         </table>
+          </div>
+        </div>
       </div>
       {employees.length === 0 && (
         <p className="attendance-grid-empty">Add employees to record attendance.</p>

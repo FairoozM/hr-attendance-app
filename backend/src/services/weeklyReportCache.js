@@ -11,14 +11,16 @@
  * Only errors are NOT cached. A failed request clears itself from inFlight and
  * lets the next caller retry.
  *
- * Cache key  : "<group>::<fromDate>::<toDate>"
+ * Cache key  : "v<repSelVer>::<group>::<fromDate>::<toDate>::...::<stockVer>" (stock totals / representative bust)
  * Disable    : set WEEKLY_REPORT_CACHE_TTL_MS=0
  */
 
+const { REPRESENTATIVE_IMAGE_SELECTION_VERSION } = require('./zohoRepresentativeItem')
+const { STOCK_REPORT_CACHE_VERSION } = require('./weeklyReportStockTotalsConfig')
 const CACHE_TTL_MS =
   process.env.WEEKLY_REPORT_CACHE_TTL_MS !== undefined
     ? Math.max(0, parseInt(process.env.WEEKLY_REPORT_CACHE_TTL_MS, 10) || 0)
-    : 2 * 60 * 1000 // 2 minutes
+    : 15 * 60 * 1000 // 15 minutes (conserves Zoho's 10k/day API quota)
 
 /** @type {Map<string, Promise<any>>} */
 const inFlight = new Map()
@@ -26,8 +28,14 @@ const inFlight = new Map()
 /** @type {Map<string, { result: any, expiresAt: number }>} */
 const resultCache = new Map()
 
-function makeKey(group, fromDate, toDate) {
-  return `${group}::${fromDate}::${toDate}`
+function makeKey(group, fromDate, toDate, warehouseId = null, excludeWarehouseId = null) {
+  const v = `v${String(REPRESENTATIVE_IMAGE_SELECTION_VERSION || 0)}`
+  let key = warehouseId
+    ? `${v}::${group}::${fromDate}::${toDate}::wh:${warehouseId}`
+    : `${v}::${group}::${fromDate}::${toDate}`
+  if (excludeWarehouseId) key += `::excl:${excludeWarehouseId}`
+  key += `::sv:${STOCK_REPORT_CACHE_VERSION}`
+  return key
 }
 
 /**
@@ -37,10 +45,11 @@ function makeKey(group, fromDate, toDate) {
  * @param {string} fromDate
  * @param {string} toDate
  * @param {() => Promise<any>} generateFn - called at most once per cache miss
+ * @param {string|null} [warehouseId]
  * @returns {Promise<any>}
  */
-async function getCachedReport(group, fromDate, toDate, generateFn) {
-  const key = makeKey(group, fromDate, toDate)
+async function getCachedReport(group, fromDate, toDate, generateFn, warehouseId = null, excludeWarehouseId = null) {
+  const key = makeKey(group, fromDate, toDate, warehouseId, excludeWarehouseId)
   const now = Date.now()
 
   // 1. Warm cache hit
@@ -82,9 +91,9 @@ async function getCachedReport(group, fromDate, toDate, generateFn) {
  * @param {string} [fromDate]
  * @param {string} [toDate]
  */
-function clearReportCache(group, fromDate, toDate) {
+function clearReportCache(group, fromDate, toDate, warehouseId = null, excludeWarehouseId = null) {
   if (group && fromDate && toDate) {
-    resultCache.delete(makeKey(group, fromDate, toDate))
+    resultCache.delete(makeKey(group, fromDate, toDate, warehouseId, excludeWarehouseId))
   } else {
     resultCache.clear()
   }

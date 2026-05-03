@@ -1,10 +1,14 @@
-import { useState, useRef, useEffect, useMemo, useCallback, Fragment } from 'react'
-import { ChevronRight, Copy, CornerDownRight, CheckCircle2, Circle, ListTree, ExternalLink, Link2, Trash2 } from 'lucide-react'
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
+import { createPortal } from 'react-dom'
+import { Link } from 'react-router-dom'
+import { ChevronRight, Copy, CornerDownRight, CheckCircle2, Circle, ListTree, ExternalLink, Link2, Trash2, Repeat, LayoutDashboard, Sun } from 'lucide-react'
+import { useAuth } from '../../contexts/AuthContext'
 import { useAIPlanner } from '../../contexts/AIPlannerContext'
 import { AIAssistPanel } from '../../components/planner/AIAssistPanel'
 import { TaskDrawer } from '../../components/planner/TaskDrawer'
 import { PlannerDatePopover } from '../../components/planner/PlannerDatePopover'
 import { priorityLabel, formatTime, getCategoryById, PLANNER_CATEGORY_LIST } from '../../lib/aiEngine'
+import { effectiveRecurrence } from '../../lib/plannerRecurrence'
 import './planner.css'
 import './projects.css'
 
@@ -198,7 +202,8 @@ function TaskContextMenu({ task, sectionId, pos, onClose, onAddSubtask, onDelete
 
   const isDone = task.status === 'done'
 
-  return (
+  /** Portal to body so parent row opacity (e.g. .tbl-row.done) does not fade the menu. */
+  const menuEl = (
     <div
       ref={menuRef}
       className="task-ctx-menu"
@@ -249,32 +254,41 @@ function TaskContextMenu({ task, sectionId, pos, onClose, onAddSubtask, onDelete
       </button>
     </div>
   )
+
+  return createPortal(menuEl, document.body)
 }
 
 // ── Inline subtask input (appears below a task row) ───────────────────────────
 function InlineSubtaskInput({ taskId, onDone }) {
   const { addSubtask } = useAIPlanner()
   const [value, setValue] = useState('')
+  const valueRef = useRef('')
   const inputRef = useRef(null)
   const skipBlur = useRef(false)
 
+  valueRef.current = value
+
   useEffect(() => { inputRef.current?.focus() }, [])
 
-  function commit() {
-    const t = value.trim()
-    if (t) {
-      skipBlur.current = true
-      addSubtask(taskId, t)
-      setValue('')
-      requestAnimationFrame(() => {
-        skipBlur.current = false
-        inputRef.current?.focus()
-      })
-    }
+  /** closeAfter: blur / click-away — save then leave editor (avoids losing text + matches task add UX) */
+  function commit(closeAfter = false) {
+    const t = valueRef.current.trim()
+    if (!t) return
+    skipBlur.current = true
+    addSubtask(taskId, t)
+    setValue('')
+    requestAnimationFrame(() => {
+      skipBlur.current = false
+      if (closeAfter) onDone()
+      else inputRef.current?.focus()
+    })
   }
 
   function handleKeyDown(e) {
-    if (e.key === 'Enter') { e.preventDefault(); commit() }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      commit(false)
+    }
     if (e.key === 'Escape') onDone()
   }
 
@@ -290,9 +304,18 @@ function InlineSubtaskInput({ taskId, onDone }) {
         onKeyDown={handleKeyDown}
         onBlur={() => {
           if (skipBlur.current) return
-          onDone()
+          const trimmed = valueRef.current.trim()
+          if (!trimmed) {
+            onDone()
+            return
+          }
+          window.setTimeout(() => {
+            if (skipBlur.current) return
+            if (!valueRef.current.trim()) return
+            commit(true)
+          }, 0)
         }}
-        placeholder="Subtask name… Enter to add, Esc to cancel"
+        placeholder="Subtask name… Enter to add another, click outside to save, Esc to cancel"
       />
     </div>
   )
@@ -367,6 +390,9 @@ function TaskRow({
   reorderTasksInSection,
   draggingId,
   onDragState,
+  orderedTaskIds = [],
+  showDropBeforeLine,
+  onDragHoverPosition,
   onDelete,
 }) {
   const { markDone, markTodo, updateTask, setActiveTaskId, activeTaskId } = useAIPlanner()
@@ -410,6 +436,7 @@ function TaskRow({
   const subTotal = task.subtasks?.length || 0
   const subDone = subTotal > 0 ? task.subtasks.filter((s) => s.done).length : 0
   const subPct = subTotal > 0 ? Math.round((subDone / subTotal) * 100) : 0
+  const repeats = effectiveRecurrence(task) !== 'none'
 
   function commitTitle() {
     const t = titleDraft.trim()
@@ -421,62 +448,112 @@ function TaskRow({
   }
 
   const isDragging = draggingId === task.id
+  const rowRef = useRef(null)
+
+  const handleGripDragStart = useCallback((e) => {
+    e.stopPropagation()
+    e.dataTransfer.setData('text/plain', task.id)
+    e.dataTransfer.effectAllowed = 'move'
+    try {
+      const el = rowRef.current
+      if (el) {
+        const r = el.getBoundingClientRect()
+        e.dataTransfer.setDragImage(el, Math.min(48, r.width * 0.08), r.height / 2)
+      }
+    } catch {
+      /* setDragImage unsupported in some environments */
+    }
+    onDragState?.(task.id)
+  }, [task.id, onDragState])
 
   const closeCtx = useCallback(() => setCtxMenu(null), [])
 
+  /** Use main row band for before/after — includes pointer over expanded subtask area (below row). */
+  const handleTaskBlockDragOver = useCallback((e) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (!draggingId) return
+    const rowEl = rowRef.current
+    if (!rowEl) return
+    const rect = rowEl.getBoundingClientRect()
+    const beforeThisRow = e.clientY < rect.top + rect.height / 2
+    if (beforeThisRow) {
+      onDragHoverPosition?.({ beforeId: task.id, atEnd: false })
+    } else {
+      const idx = orderedTaskIds.indexOf(task.id)
+      const nextId = orderedTaskIds[idx + 1]
+      if (nextId) onDragHoverPosition?.({ beforeId: nextId, atEnd: false })
+      else onDragHoverPosition?.({ beforeId: null, atEnd: true })
+    }
+  }, [draggingId, task.id, orderedTaskIds, onDragHoverPosition])
+
+  const handleTaskBlockDrop = useCallback((e) => {
+    e.preventDefault()
+    const draggedId = e.dataTransfer.getData('text/plain')
+    if (!draggedId) return
+    if (draggedId === task.id) {
+      onDragState?.(null)
+      return
+    }
+    const rowEl = rowRef.current
+    if (!rowEl) return
+    const rect = rowEl.getBoundingClientRect()
+    const beforeThisRow = e.clientY < rect.top + rect.height / 2
+    let beforeTaskId
+    if (beforeThisRow) {
+      beforeTaskId = task.id
+    } else {
+      const idx = orderedTaskIds.indexOf(task.id)
+      beforeTaskId = orderedTaskIds[idx + 1] ?? null
+    }
+    reorderTasksInSection(sectionId, draggedId, beforeTaskId)
+    onDragState?.(null)
+  }, [task.id, orderedTaskIds, sectionId, reorderTasksInSection, onDragState])
+
   return (
-    <>
     <div
-      className={`tbl-row ${task.status === 'done' ? 'done' : ''} ${task.status === 'blocked' ? 'blocked' : ''} ${task._hasUnresolvedDeps ? 'dep-blocked' : ''} ${detailsOpen ? 'tbl-row--details-open' : ''} ${isDragging ? 'tbl-row--dragging' : ''}`}
+      className="tbl-task-block"
+      onDragOver={handleTaskBlockDragOver}
+      onDrop={handleTaskBlockDrop}
+    >
+    <div
+      ref={rowRef}
+      className={`tbl-row ${task.status === 'done' ? 'done' : ''} ${task.status === 'blocked' ? 'blocked' : ''} ${task._hasUnresolvedDeps ? 'dep-blocked' : ''} ${detailsOpen ? 'tbl-row--details-open' : ''} ${isDragging ? 'tbl-row--dragging' : ''} ${showDropBeforeLine ? 'tbl-row--drop-before' : ''}`}
       role="row"
       data-task-id={task.id}
-      draggable
       onContextMenu={(e) => {
         e.preventDefault()
         setCtxMenu({ x: e.clientX, y: e.clientY })
       }}
-      onDragStart={(e) => {
-        if (!e.target.closest('.tbl-drag-handle')) {
-          e.preventDefault()
-          return
-        }
-        e.dataTransfer.setData('text/plain', task.id)
-        e.dataTransfer.effectAllowed = 'move'
-        onDragState?.(task.id)
-      }}
-      onDragEnd={() => onDragState?.(null)}
-      onDragOver={(e) => {
-        e.preventDefault()
-        e.dataTransfer.dropEffect = 'move'
-      }}
-      onDrop={(e) => {
-        e.preventDefault()
-        const draggedId = e.dataTransfer.getData('text/plain')
-        if (!draggedId || draggedId === task.id) return
-        reorderTasksInSection(sectionId, draggedId, task.id)
-        onDragState?.(null)
-      }}
     >
-      {/* Grip / collapse toggle — shows chevron when subtasks exist, drag dots otherwise */}
+      {/* Grip: expand (if subtasks) + drag handle — draggable only on handle (row as target broke closest() check) */}
       <div className="tbl-col tbl-col--grip">
-        {subTotal > 0 ? (
-          <button
-            type="button"
-            className={`tbl-expand-btn ${subtasksExpanded ? 'expanded' : ''}`}
-            onClick={(e) => { e.stopPropagation(); setSubtasksExpanded((v) => !v) }}
-            aria-label={subtasksExpanded ? 'Collapse subtasks' : 'Expand subtasks'}
+        <div className="tbl-grip-col">
+          {subTotal > 0 && (
+            <button
+              type="button"
+              className={`tbl-expand-btn ${subtasksExpanded ? 'expanded' : ''}`}
+              onClick={(e) => { e.stopPropagation(); setSubtasksExpanded((v) => !v) }}
+              aria-label={subtasksExpanded ? 'Collapse subtasks' : 'Expand subtasks'}
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
+                <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          )}
+          <span
+            className="tbl-drag-handle"
+            draggable
+            title="Drag to reorder"
+            aria-label="Drag to reorder task"
+            onDragStart={handleGripDragStart}
+            onDragEnd={() => onDragState?.(null)}
           >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
-              <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
-        ) : (
-          <span className="tbl-drag-handle" title="Drag to reorder" aria-label="Drag to reorder" aria-hidden>
             {[0, 1, 2, 3, 4, 5].map((i) => (
               <span key={i} className="tbl-drag-dot" />
             ))}
           </span>
-        )}
+        </div>
       </div>
 
       {/* Asana-style circle check */}
@@ -608,8 +685,22 @@ function TaskRow({
               scrollY: window.scrollY,
             })
           }}
+          aria-label={
+            dueLabel
+              ? repeats
+                ? `Due ${dueLabel.text}, recurring task`
+                : `Due ${dueLabel.text}`
+              : repeats
+                ? 'Set date, recurring task'
+                : 'Set date'
+          }
         >
-          {dueLabel ? dueLabel.text : 'Set date'}
+          <span className="tbl-due-btn__inner">
+            {dueLabel ? dueLabel.text : 'Set date'}
+            {repeats && (
+              <Repeat size={13} strokeWidth={2.35} className="tbl-due-repeat-icon" aria-hidden />
+            )}
+          </span>
         </button>
       </div>
 
@@ -655,7 +746,10 @@ function TaskRow({
           sectionId={sectionId}
           pos={ctxMenu}
           onClose={closeCtx}
-          onAddSubtask={() => setAddingSubtask(true)}
+          onAddSubtask={() => {
+            setSubtasksExpanded(true)
+            setAddingSubtask(true)
+          }}
           onDelete={onDelete}
         />
       )}
@@ -687,7 +781,7 @@ function TaskRow({
         )}
       </div>
     )}
-    </>
+    </div>
   )
 }
 
@@ -695,29 +789,34 @@ function TaskRow({
 function InlineAddTask({ sectionId, onDone, onAdded }) {
   const { addTask } = useAIPlanner()
   const [title, setTitle] = useState('')
+  const titleRef = useRef('')
   const inputRef = useRef(null)
   const skipBlurClose = useRef(false)
 
+  titleRef.current = title
+
   useEffect(() => { inputRef.current?.focus() }, [])
 
-  function commit() {
-    const trimmed = title.trim()
-    if (trimmed) {
-      skipBlurClose.current = true
-      addTask({ title: trimmed, sectionId: sectionId ?? null })
-      setTitle('')
-      onAdded?.()
-      requestAnimationFrame(() => {
-        skipBlurClose.current = false
-        inputRef.current?.focus()
-      })
-    }
+  /** @param {{ closeAfter?: boolean }} opts closeAfter: blur / click-away — save then exit add row without stealing focus */
+  function commit(opts = {}) {
+    const { closeAfter = false } = opts
+    const trimmed = titleRef.current.trim()
+    if (!trimmed) return
+    skipBlurClose.current = true
+    addTask({ title: trimmed, sectionId: sectionId ?? null })
+    setTitle('')
+    onAdded?.()
+    requestAnimationFrame(() => {
+      skipBlurClose.current = false
+      if (closeAfter) onDone()
+      else inputRef.current?.focus()
+    })
   }
 
   function handleKeyDown(e) {
     if (e.key === 'Enter') {
       e.preventDefault()
-      commit()
+      commit({ closeAfter: false })
     }
     if (e.key === 'Escape') onDone()
   }
@@ -737,16 +836,35 @@ function InlineAddTask({ sectionId, onDone, onAdded }) {
           onKeyDown={handleKeyDown}
           onBlur={() => {
             if (skipBlurClose.current) return
-            if (!title.trim()) onDone()
+            const trimmed = titleRef.current.trim()
+            if (!trimmed) {
+              onDone()
+              return
+            }
+            window.setTimeout(() => {
+              if (skipBlurClose.current) return
+              if (!titleRef.current.trim()) return
+              commit({ closeAfter: true })
+            }, 0)
           }}
-          placeholder="Task name… Enter to add, Esc to cancel"
+          placeholder="Task name… Enter to add, click outside to save, Esc to cancel"
         />
       </div>
-      <div className="tbl-col tbl-col--cat tbl-col--pad" aria-hidden />
-      <div className="tbl-col tbl-col--due tbl-col--pad" aria-hidden />
-      <div className="tbl-col tbl-col--priority tbl-col--pad" aria-hidden />
-      <div className="tbl-col tbl-col--status tbl-col--pad" aria-hidden />
-      <div className="tbl-col tbl-col--score tbl-col--pad" aria-hidden />
+      <div className="tbl-col tbl-col--cat tbl-col--pad" aria-hidden>
+        <span className="tbl-add-row-hint">—</span>
+      </div>
+      <div className="tbl-col tbl-col--due tbl-col--pad" aria-hidden>
+        <span className="tbl-add-row-hint">—</span>
+      </div>
+      <div className="tbl-col tbl-col--priority tbl-col--pad" aria-hidden>
+        <span className="tbl-add-row-hint">—</span>
+      </div>
+      <div className="tbl-col tbl-col--status tbl-col--pad" aria-hidden>
+        <span className="tbl-add-row-hint">—</span>
+      </div>
+      <div className="tbl-col tbl-col--score tbl-col--pad" aria-hidden>
+        <span className="tbl-add-row-hint">—</span>
+      </div>
     </div>
   )
 }
@@ -882,6 +1000,8 @@ function SectionBlock({
   sectionTasksOrdered,
   statusFilter,
   catFilter,
+  dueTodayOnly,
+  todayIso,
   onOpenDatePicker,
   onAfterAddTask,
   reorderTasksInSection,
@@ -890,13 +1010,25 @@ function SectionBlock({
   const [collapsed, setCollapsed] = useState(false)
   const [adding, setAdding]       = useState(false)
   const [draggingId, setDraggingId] = useState(null)
+  const [dragHint, setDragHint] = useState(null) // { beforeId: string | null, atEnd: boolean }
   const sectionId = section?.id ?? null
 
   const filtered = sectionTasksOrdered.filter((t) => {
+    if (dueTodayOnly && (!t.dueDate || t.dueDate !== todayIso)) return false
     if (statusFilter !== 'all' && t.status !== statusFilter) return false
     if (catFilter && t.category?.id !== catFilter) return false
     return true
   })
+
+  const orderedTaskIds = filtered.map((t) => t.id)
+
+  useEffect(() => {
+    setDragHint(null)
+  }, [draggingId])
+
+  const reportDragHover = useCallback((hint) => {
+    setDragHint(hint)
+  }, [])
 
   return (
     <div className="tbl-section">
@@ -909,7 +1041,15 @@ function SectionBlock({
       />
 
       {!collapsed && (
-        <div className="tbl-section__body">
+        <div
+          className="tbl-section__body"
+          onDragLeave={(e) => {
+            if (!draggingId) return
+            const rel = e.relatedTarget
+            if (rel && e.currentTarget.contains(rel)) return
+            setDragHint(null)
+          }}
+        >
           {/* Column header — shown once per section */}
           <TaskTableHeader />
 
@@ -926,14 +1066,22 @@ function SectionBlock({
                     reorderTasksInSection={reorderTasksInSection}
                     draggingId={draggingId}
                     onDragState={setDraggingId}
+                    orderedTaskIds={orderedTaskIds}
+                    showDropBeforeLine={Boolean(draggingId && dragHint?.beforeId === task.id)}
+                    onDragHoverPosition={reportDragHover}
                     onDelete={onDelete}
                   />
                 ))}
                 <div
-                  className="tbl-drop-tail"
+                  className={[
+                    'tbl-drop-tail',
+                    draggingId ? 'tbl-drop-tail--live' : 'tbl-drop-tail--collapsed',
+                    draggingId && dragHint?.atEnd ? 'tbl-drop-tail--indicator' : '',
+                  ].filter(Boolean).join(' ')}
                   onDragOver={(e) => {
                     e.preventDefault()
                     e.dataTransfer.dropEffect = 'move'
+                    if (draggingId) setDragHint({ beforeId: null, atEnd: true })
                   }}
                   onDrop={(e) => {
                     e.preventDefault()
@@ -955,7 +1103,24 @@ function SectionBlock({
               onAdded={onAfterAddTask}
             />
           ) : (
-            <button className="tbl-add-task-btn" onClick={() => setAdding(true)}>
+            <button
+              type="button"
+              className="tbl-add-task-btn"
+              onClick={() => setAdding(true)}
+              onDragOver={(e) => {
+                if (!draggingId || filtered.length === 0) return
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'move'
+                setDragHint({ beforeId: null, atEnd: true })
+              }}
+              onDrop={(e) => {
+                if (filtered.length === 0) return
+                e.preventDefault()
+                const id = e.dataTransfer.getData('text/plain')
+                if (id) reorderTasksInSection(sectionId, id, null)
+                setDraggingId(null)
+              }}
+            >
               + Add task
             </button>
           )}
@@ -965,12 +1130,17 @@ function SectionBlock({
   )
 }
 
-// ── Filter bar ────────────────────────────────────────────────────────────────
-const FILTER_OPTIONS = [
-  { id: 'all',     label: 'All' },
-  { id: 'todo',    label: 'To Do' },
-  { id: 'blocked', label: 'Blocked' },
-  { id: 'done',    label: 'Done' },
+/** Matches seeded Follow-Up section id */
+const FOLLOW_UP_SECTION_ID = 'sec-followup'
+
+/** Sidebar views → status filter + optional due-date / section scope */
+const LIST_NAV_ITEMS = [
+  { id: 'all',     label: 'All tasks',    icon: '⌂', status: 'all',     dueTodayOnly: false, followUpOnly: false },
+  { id: 'todo',    label: 'To do',        icon: '▣', status: 'todo',    dueTodayOnly: false, followUpOnly: false },
+  { id: 'blocked', label: 'Blocked',      icon: '⚠', status: 'blocked', dueTodayOnly: false, followUpOnly: false },
+  { id: 'done',    label: 'Completed',    icon: '✓', status: 'done',    dueTodayOnly: false, followUpOnly: false },
+  { id: 'today',   label: 'Due today',    icon: '◷', status: 'all',     dueTodayOnly: true,  followUpOnly: false },
+  { id: 'followup', label: 'Follow-up',   icon: '↗', status: 'all',     dueTodayOnly: false, followUpOnly: true },
 ]
 
 const CAT_FILTER_OPTIONS = [
@@ -981,6 +1151,77 @@ const CAT_FILTER_OPTIONS = [
   { id: 'marketing',     label: '📣 Marketing' },
   { id: 'admin',         label: '📋 Admin' },
 ]
+
+function PlannerTaskSidebar({
+  listNav,
+  onNav,
+  todoCount,
+  blockedCount,
+  doneCount,
+  dueTodayCount,
+  userLabel,
+}) {
+  const activeCls =
+    'w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-left text-[15px] font-semibold bg-white text-slate-900 shadow-sm ring-1 ring-slate-200 transition'
+  const idleCls =
+    'w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-left text-[15px] font-semibold text-slate-700 hover:bg-white/80 hover:text-slate-950 transition'
+
+  return (
+    <aside className="planner-views-sidebar flex w-full shrink-0 flex-col rounded-[28px] bg-white/90 p-6 shadow-sm ring-1 ring-black/[0.04] lg:w-[300px] xl:w-[320px]">
+      <div className="mb-6 flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-emerald-600 text-lg text-white shadow-sm">
+            <span aria-hidden>▣</span>
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-[15px] font-bold leading-tight text-slate-950">{userLabel || 'Tasks'}</p>
+            <p className="truncate text-xs text-slate-400">AI Task Planner</p>
+          </div>
+        </div>
+      </div>
+
+      <p className="mb-2 px-1 text-[11px] font-bold uppercase tracking-wide text-slate-400">Views</p>
+      <nav className="space-y-1" aria-label="Task views">
+        {LIST_NAV_ITEMS.map((item) => {
+          const active = listNav === item.id
+          let badge = null
+          if (item.id === 'todo') badge = todoCount
+          else if (item.id === 'blocked') badge = blockedCount
+          else if (item.id === 'done') badge = doneCount
+          else if (item.id === 'today') badge = dueTodayCount
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className={active ? activeCls : idleCls}
+              onClick={() => onNav(item.id)}
+            >
+              <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg text-base ${active ? 'text-emerald-600' : 'text-slate-500'}`} aria-hidden>
+                {item.icon}
+              </span>
+              <span className="flex-1 truncate">{item.label}</span>
+              {badge != null && badge > 0 && (
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold tabular-nums text-slate-600">{badge}</span>
+              )}
+            </button>
+          )
+        })}
+      </nav>
+
+      <p className="mb-2 mt-8 px-1 text-[11px] font-bold uppercase tracking-wide text-slate-400">More</p>
+      <nav className="space-y-1">
+        <Link to="/projects/dashboard" className={`${idleCls} no-underline`}>
+          <LayoutDashboard size={18} className="shrink-0 text-slate-500" aria-hidden />
+          Dashboard
+        </Link>
+        <Link to="/projects/trash" className={`${idleCls} no-underline`}>
+          <span className="grid h-7 w-7 shrink-0 place-items-center text-base text-slate-500" aria-hidden>🗑</span>
+          Trash
+        </Link>
+      </nav>
+    </aside>
+  )
+}
 
 // ── Undo delete toast ─────────────────────────────────────────────────────────
 function UndoToast({ title, onUndo, onDismiss, secondsLeft }) {
@@ -1000,10 +1241,12 @@ function UndoToast({ title, onUndo, onDismiss, secondsLeft }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function ProjectsIndexPage() {
+  const { user } = useAuth()
   const { tasks, rawTasks, sections, addSection, updateTask, reorderTasksInSection, deleteTask, restoreTask } = useAIPlanner()
-  const [statusFilter, setStatusFilter] = useState('all')
+  const [listNav, setListNav] = useState('all')
   const [catFilter, setCatFilter]       = useState('')
   const [datePicker, setDatePicker]     = useState(null)
+  const [plannerTipVisible, setPlannerTipVisible] = useState(true)
   const [undoState, setUndoState]       = useState(null) // { taskId, title, secondsLeft }
   const undoTimerRef = useRef(null)
   const undoTickRef  = useRef(null)
@@ -1051,9 +1294,23 @@ export default function ProjectsIndexPage() {
   const todoCount    = tasks.filter((t) => t.status === 'todo').length
   const blockedCount = tasks.filter((t) => t.status === 'blocked').length
   const doneCount    = tasks.filter((t) => t.status === 'done').length
+  const todayIso     = new Date().toISOString().slice(0, 10)
+  const dueTodayCount = tasks.filter((t) => t.dueDate === todayIso && t.status !== 'done').length
+
+  const navCfg = useMemo(
+    () => LIST_NAV_ITEMS.find((x) => x.id === listNav) || LIST_NAV_ITEMS[0],
+    [listNav],
+  )
+  const statusFilter = navCfg.status
+  const dueTodayOnly = navCfg.dueTodayOnly
+  const followUpOnly = navCfg.followUpOnly
 
   const sortedSections = [...sections].sort((a, b) => a.order - b.order)
   const sectionIds     = new Set(sections.map((s) => s.id))
+
+  const sectionsForLayout = followUpOnly
+    ? sortedSections.filter((s) => s.id === FOLLOW_UP_SECTION_ID)
+    : sortedSections
 
   const datePickerTask = datePicker ? tasks.find((t) => t.id === datePicker.taskId) : null
 
@@ -1061,96 +1318,148 @@ export default function ProjectsIndexPage() {
 
   const afterInlineAdd = () => {
     setCatFilter('')
-    setStatusFilter('all')
   }
 
+  const greetingName = (user?.username || 'there').split('@')[0]
+  const headerDate   = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  })
+
   return (
-    <div className="aip-layout">
-      <div className="aip-main aip-main--list">
+    <div className="aip-layout aip-layout--asana">
+      <div className="flex min-h-full min-w-0 flex-1 flex-col gap-4 lg:flex-row lg:items-start lg:gap-5">
+        <PlannerTaskSidebar
+          listNav={listNav}
+          onNav={setListNav}
+          todoCount={todoCount}
+          blockedCount={blockedCount}
+          doneCount={doneCount}
+          dueTodayCount={dueTodayCount}
+          userLabel={user?.username || user?.email || 'Your workspace'}
+        />
 
-        {/* Page header */}
-        <div className="aip-page-header">
-          <div>
-            <h1 className="aip-page-title">AI Task Planner</h1>
-            <p className="aip-page-subtitle">
-              {todoCount} to do · {blockedCount} blocked · {doneCount} done — auto-prioritised by AI
-            </p>
-          </div>
-        </div>
+        <div className="aip-main aip-main--list aip-main--asana-shell relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-[28px] bg-white p-6 shadow-sm ring-1 ring-black/[0.04] md:p-8 lg:p-10">
 
-        {/* Quick Capture */}
-        <QuickCapture />
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-r from-emerald-50 via-lime-50 to-cyan-50" aria-hidden />
 
-        {/* Filter bar */}
-        <div className="aip-toolbar tbl-toolbar">
-          {FILTER_OPTIONS.map((f) => (
-            <button
-              key={f.id}
-              className={`aip-filter-btn ${statusFilter === f.id ? 'active' : ''}`}
-              onClick={() => setStatusFilter(f.id)}
-            >
-              {f.label}
-              {f.id !== 'all' && (
-                <span style={{ marginLeft: 4, fontSize: '0.68rem', opacity: 0.7 }}>
-                  {f.id === 'todo' ? todoCount : f.id === 'blocked' ? blockedCount : doneCount}
-                </span>
-              )}
-            </button>
-          ))}
-          <div style={{ marginLeft: 'auto' }}>
-            <select
-              className="aip-filter-btn"
-              value={catFilter}
-              onChange={(e) => setCatFilter(e.target.value)}
-              style={{ cursor: 'pointer' }}
-            >
-              {CAT_FILTER_OPTIONS.map((c) => (
-                <option key={c.id} value={c.id}>{c.label}</option>
+          <div className="relative flex flex-col gap-6">
+            {/* Page header */}
+            <header className="aip-page-header flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h1 className="aip-page-title flex flex-wrap items-center gap-2 text-slate-950">
+                  Good morning, {greetingName}! <Sun size={28} className="text-amber-400" strokeWidth={2} aria-hidden />
+                </h1>
+                <p className="aip-page-subtitle mt-1 text-lg text-slate-400">{headerDate}</p>
+                <p className="mt-2 text-sm text-slate-500">
+                  {todoCount} to do · {blockedCount} blocked · {doneCount} done — auto-prioritised by AI
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="sr-only" htmlFor="planner-cat-filter">Category</label>
+                <select
+                  id="planner-cat-filter"
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm outline-none ring-emerald-500/30 focus:ring-2"
+                  value={catFilter}
+                  onChange={(e) => setCatFilter(e.target.value)}
+                >
+                  {CAT_FILTER_OPTIONS.map((c) => (
+                    <option key={c.id} value={c.id}>{c.label}</option>
+                  ))}
+                </select>
+              </div>
+            </header>
+
+            {/* Mobile: same views as sidebar */}
+            <div className="flex gap-2 overflow-x-auto pb-1 lg:hidden" role="tablist" aria-label="Task views">
+              {LIST_NAV_ITEMS.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={listNav === item.id}
+                  className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                    listNav === item.id
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'bg-white text-slate-600 ring-1 ring-slate-200'
+                  }`}
+                  onClick={() => setListNav(item.id)}
+                >
+                  {item.label}
+                </button>
               ))}
-            </select>
+            </div>
+
+            {plannerTipVisible && (
+              <div className="flex items-start gap-4 rounded-2xl border border-slate-100 bg-white/90 px-4 py-4 shadow-sm backdrop-blur-sm">
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-slate-900 text-lg text-yellow-300" aria-hidden>
+                  ⚡
+                </div>
+                <p className="text-[15px] leading-relaxed text-slate-600">
+                  Pro tips: break work into steps, set due dates for recurring items, and use Follow-up for waiting-on tasks. You’ve got this!
+                </p>
+                <button
+                  type="button"
+                  className="ml-auto shrink-0 rounded-lg px-2 text-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  aria-label="Dismiss tip"
+                  onClick={() => setPlannerTipVisible(false)}
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
+            {/* Quick Capture */}
+            <QuickCapture />
+
+            {/* Section table list */}
+            <div className="tbl-sections-list">
+              {sectionsForLayout.map((sec) => (
+                <SectionBlock
+                  key={sec.id}
+                  section={sec}
+                  sectionTasksOrdered={orderTasksForListSection(
+                    rawTasks.filter((t) => (t.sectionId ?? null) === (sec.id ?? null)),
+                    enrichedById,
+                  )}
+                  statusFilter={statusFilter}
+                  catFilter={catFilter}
+                  dueTodayOnly={dueTodayOnly}
+                  todayIso={todayIso}
+                  onOpenDatePicker={(taskId, payload) => setDatePicker({ taskId, ...payload })}
+                  onAfterAddTask={afterInlineAdd}
+                  reorderTasksInSection={reorderTasksInSection}
+                  onDelete={deleteWithUndo}
+                />
+              ))}
+
+              {!followUpOnly && (
+                <SectionBlock
+                  section={{ id: null, title: 'No Section', color: '#94a3b8', order: 99999 }}
+                  sectionTasksOrdered={orderTasksForListSection(
+                    rawTasks.filter((t) => !t.sectionId || !sectionIds.has(t.sectionId)),
+                    enrichedById,
+                  )}
+                  statusFilter={statusFilter}
+                  catFilter={catFilter}
+                  dueTodayOnly={dueTodayOnly}
+                  todayIso={todayIso}
+                  onOpenDatePicker={(taskId, payload) => setDatePicker({ taskId, ...payload })}
+                  onAfterAddTask={afterInlineAdd}
+                  reorderTasksInSection={reorderTasksInSection}
+                  onDelete={deleteWithUndo}
+                />
+              )}
+            </div>
+
+            {/* Add section */}
+            <button className="tbl-add-section-btn" type="button" onClick={() => addSection('New Section')}>
+              + Add Section
+            </button>
           </div>
         </div>
-
-        {/* Section table list */}
-        <div className="tbl-sections-list">
-          {sortedSections.map((sec) => (
-            <SectionBlock
-              key={sec.id}
-              section={sec}
-              sectionTasksOrdered={orderTasksForListSection(
-                rawTasks.filter((t) => (t.sectionId ?? null) === (sec.id ?? null)),
-                enrichedById
-              )}
-              statusFilter={statusFilter}
-              catFilter={catFilter}
-              onOpenDatePicker={(taskId, payload) => setDatePicker({ taskId, ...payload })}
-              onAfterAddTask={afterInlineAdd}
-              reorderTasksInSection={reorderTasksInSection}
-              onDelete={deleteWithUndo}
-            />
-          ))}
-
-          {/* No-section bucket */}
-          <SectionBlock
-            section={{ id: null, title: 'No Section', color: '#94a3b8', order: 99999 }}
-            sectionTasksOrdered={orderTasksForListSection(
-              rawTasks.filter((t) => !t.sectionId || !sectionIds.has(t.sectionId)),
-              enrichedById
-            )}
-            statusFilter={statusFilter}
-            catFilter={catFilter}
-            onOpenDatePicker={(taskId, payload) => setDatePicker({ taskId, ...payload })}
-            onAfterAddTask={afterInlineAdd}
-            reorderTasksInSection={reorderTasksInSection}
-            onDelete={deleteWithUndo}
-          />
-        </div>
-
-        {/* Add section */}
-        <button className="tbl-add-section-btn" onClick={() => addSection('New Section')}>
-          + Add Section
-        </button>
-
       </div>
 
       <AIAssistPanel />

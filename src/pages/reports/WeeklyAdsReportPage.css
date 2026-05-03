@@ -138,6 +138,41 @@
   box-shadow: 0 0 0 3px rgba(74, 124, 255, 0.12);
 }
 
+.war-marketplace-add {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  margin: -4px 0 20px;
+  padding: 14px;
+  border: 1px dashed var(--border-color, rgba(180, 193, 218, 0.65));
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.war-marketplace-add--sales-only {
+  margin-top: -12px;
+  border-color: rgba(92, 151, 191, 0.45);
+  background: rgba(232, 246, 255, 0.52);
+}
+
+.war-marketplace-add__error {
+  color: #c0392b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .war-marketplace-add {
+    grid-template-columns: 1fr;
+  }
+
+  .war-marketplace-add .war-btn {
+    justify-content: center;
+    width: 100%;
+  }
+}
+
 /* ─── Table ───────────────────────────────────────────────────────── */
 .war-table-wrap {
   background: linear-gradient(145deg, #f0f3fa, #e8edf7);
@@ -198,6 +233,39 @@
   font-weight: 600;
 }
 
+.war-marketplace-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.war-marketplace-name > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.war-marketplace-remove {
+  flex: 0 0 auto;
+  border: 1px solid rgba(192, 57, 43, 0.26);
+  border-radius: 999px;
+  background: rgba(255, 244, 242, 0.88);
+  color: #b7352a;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 6px 8px;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+
+.war-marketplace-remove:hover {
+  background: rgba(255, 232, 228, 0.96);
+  border-color: rgba(192, 57, 43, 0.42);
+  transform: translateY(-1px);
+}
+
 .war-td--center {
   text-align: center;
 }
@@ -205,6 +273,14 @@
 .war-td--danger {
   color: #c0392b;
   font-weight: 700;
+}
+
+.war-empty-dash {
+  display: inline-block;
+  font-size: 0.5em;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: middle;
 }
 
 .war-td--acos-calc {
@@ -224,6 +300,22 @@
   border-bottom: none;
   font-size: 16px;
   padding: 20px 16px;
+}
+
+.war-tr--subtotal .war-td {
+  background: rgba(235, 240, 250, 0.72);
+  color: #33425f;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 14px 16px;
+}
+
+.war-tr--sales-only .war-td {
+  background: rgba(232, 246, 255, 0.38);
+}
+
+.war-tr--sales-only .war-td--name {
+  font-weight: 500;
 }
 
 .war-tr:hover {

@@ -1525,7 +1525,9 @@
   -webkit-backdrop-filter: var(--glass-blur);
   overflow: hidden;
   position: sticky;
-  top: 5.5rem;
+  top: calc(var(--app-topbar-stack, 5.35rem) + 0.75rem);
+  max-height: calc(100dvh - var(--app-topbar-stack, 5.35rem) - 1.5rem);
+  align-self: start;
 }
 
 .ai-assist-panel__header {
@@ -1571,6 +1573,9 @@
   flex-direction: column;
   gap: 0.35rem;
   padding: 0.65rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .ai-assist-card {

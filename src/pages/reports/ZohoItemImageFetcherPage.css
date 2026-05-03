@@ -1,0 +1,240 @@
+.zif-page {
+  --zif-border: rgba(148, 163, 184, 0.28);
+}
+
+.zif-input-head,
+.zif-results-head,
+.zif-actions,
+.zif-summary,
+.zif-input-stats {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.zif-input-head,
+.zif-results-head {
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.zif-muted {
+  color: var(--text-secondary, #64748b);
+  font-size: 13px;
+}
+
+.zif-input-stats,
+.zif-summary {
+  color: var(--text-secondary, #64748b);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.zif-input-stats span,
+.zif-summary span {
+  border: 1px solid var(--zif-border);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(248, 250, 252, 0.78);
+}
+
+.zif-summary__found {
+  color: #047857;
+}
+
+.zif-textarea {
+  width: 100%;
+  min-height: 260px;
+  resize: vertical;
+  border: 1px solid var(--zif-border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--text-primary, #0f172a);
+  background: #fff;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.zif-textarea:focus {
+  outline: none;
+  border-color: #4a7cff;
+  box-shadow: 0 0 0 3px rgba(74, 124, 255, 0.14);
+}
+
+.zif-actions {
+  margin-top: 14px;
+}
+
+.zif-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  color: var(--text-secondary, #64748b);
+  font-size: 13px;
+}
+
+.zif-progress__bar {
+  flex: 1 1 240px;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.22);
+}
+
+.zif-progress__bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #4a7cff, #16a34a);
+  transition: width 180ms ease;
+}
+
+.zif-usage {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(74, 124, 255, 0.18);
+  border-radius: 12px;
+  background: rgba(74, 124, 255, 0.07);
+  color: var(--text-secondary, #64748b);
+  font-size: 13px;
+}
+
+.zif-usage strong {
+  color: var(--text-primary, #0f172a);
+}
+
+.zif-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--zif-border);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.zif-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.zif-table th,
+.zif-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.zif-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.zif-table tbody tr:hover {
+  background: rgba(74, 124, 255, 0.04);
+}
+
+.zif-cell-strong {
+  font-weight: 800;
+  color: var(--text-primary, #0f172a);
+}
+
+.zif-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #475569;
+}
+
+.zif-thumb {
+  width: 76px;
+  height: 76px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  border: 1px solid var(--zif-border);
+  background: #f8fafc;
+  color: #94a3b8;
+  font-size: 12px;
+  overflow: hidden;
+}
+
+.zif-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #fff;
+}
+
+.zif-status {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.zif-status--found {
+  color: #047857;
+  background: #d1fae5;
+}
+
+.zif-status--missing,
+.zif-status--no-image {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.zif-status--error {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.zif-row-message {
+  max-width: 260px;
+  margin-top: 5px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.zif-link-btn {
+  border: 0;
+  padding: 0;
+  color: #2563eb;
+  background: transparent;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.zif-link-btn:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 720px) {
+  .zif-input-head,
+  .zif-results-head {
+    align-items: flex-start;
+  }
+
+  .zif-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .zif-actions .war-btn {
+    width: 100%;
+  }
+}

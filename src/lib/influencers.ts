@@ -3,6 +3,7 @@ import { apiFetch } from "./api"
 export type InfluencerSocial = {
   handle?: string
   url?: string
+  /** When set, prefer this over the `/api/instagram-proxy` avatar. Populated from Graph API Business Discovery `profile_picture_url` when the API returns it. */
   picUrl?: string
 }
 
@@ -115,6 +116,37 @@ export const deleteInfluencer = (id: string) =>
   apiFetch(`/api/influencers/${id}`, {
     method: "DELETE",
   })
+
+/** Batch-load profile picture URLs from Instagram Graph API (server must have Meta env). */
+export async function batchRefreshInstagramProfilePictures(params?: {
+  onlyMissing?: boolean
+  max?: number
+  delayMs?: number
+}): Promise<{
+  success: boolean
+  graphConfigured: boolean
+  updated: number
+  skipped?: number
+  failed: number
+  message?: string
+  results: Array<{
+    id: string
+    handle: string
+    success: boolean
+    profilePictureUrl?: string | null
+    errorCode?: string
+    errorMessage?: string
+  }>
+}> {
+  return apiFetch("/api/influencers/instagram/batch-refresh", {
+    method: "POST",
+    body: JSON.stringify({
+      onlyMissing: params?.onlyMissing !== false,
+      max: params?.max ?? 100,
+      delayMs: params?.delayMs ?? 400,
+    }),
+  })
+}
 
 export async function fetchInsightsImageUrls(
   influencerId: string,
