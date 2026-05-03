@@ -447,6 +447,7 @@ export function Layout() {
     if (location.pathname.startsWith('/management/purchase-planning')) return 'Purchase Planning'
     if (location.pathname.startsWith('/management/payments')) return 'Company payments'
     if (location.pathname.startsWith('/prices/all-prices')) return 'All Prices (UAE & KSA)'
+    if (location.pathname.startsWith('/prices/composite-items')) return 'Composite Items Prices'
     if (location.pathname.startsWith('/management/document-expiry')) return 'Document Expiry Tracker'
     if (location.pathname.startsWith('/reports/weekly-report/weekly-ads'))   return 'Weekly Ads Report'
     if (location.pathname.startsWith('/reports/weekly-report/sales'))        return 'Weekly Sales Reports'
@@ -494,6 +495,7 @@ export function Layout() {
 
   const pricesItems = [
     can('document_expiry', 'view') && { label: 'All Prices (UAE & KSA)', to: '/prices/all-prices' },
+    can('document_expiry', 'view') && { label: 'Composite Items Prices', to: '/prices/composite-items' },
   ].filter(Boolean)
 
   const hasAnyPricesAccess = pricesItems.length > 0
@@ -559,7 +561,9 @@ export function Layout() {
       searchHint:
         i.to === '/prices/all-prices'
           ? 'all prices uae ksa aed sar catalog sku zoho inventory pricing ecommerce'
-          : '',
+          : i.to === '/prices/composite-items'
+            ? 'composite items prices bom bundle kit assembly components rolled up'
+            : '',
     })),
     ...managementItems.map(i => ({
       ...i,

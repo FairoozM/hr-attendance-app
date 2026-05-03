@@ -270,6 +270,61 @@ async function listItemsForWarehouse(warehouseId) {
   return listItemsPaged(wid)
 }
 
+/**
+ * List composite items (single page). Prefer search_text + filter_by to avoid full-catalog scans.
+ * Caller should pass skipCache via meta when user triggers lookup.
+ */
+async function fetchCompositeItemsList(searchParamsObj = {}, meta = {}) {
+  const c = readZohoConfig()
+  if (c.code !== 'ok') {
+    const e = new Error('Zoho not configured')
+    e.code = 'ZOHO_NOT_CONFIGURED'
+    throw e
+  }
+  const p = new URLSearchParams()
+  p.set('organization_id', c.organizationId)
+  const o = searchParamsObj || {}
+  for (const [k, v] of Object.entries(o)) {
+    if (v != null && v !== '') p.set(k, String(v))
+  }
+  return zohoInventoryJsonRequest(`${INVENTORY_V1}/compositeitems`, p, 'GET', undefined, {
+    source: 'inventory_compositeitems_list',
+    cacheCategory: 'default',
+    skipCache: true,
+    ...meta,
+  })
+}
+
+/** GET /compositeitems/{id} — includes mapped_items (component lines). */
+async function fetchCompositeItemDetail(compositeItemId, meta = {}) {
+  const c = readZohoConfig()
+  if (c.code !== 'ok') {
+    const e = new Error('Zoho not configured')
+    e.code = 'ZOHO_NOT_CONFIGURED'
+    throw e
+  }
+  const id = String(compositeItemId || '').trim()
+  if (!id || !/^[0-9]{1,32}$/.test(id)) {
+    const e = new Error('Invalid composite item id')
+    e.code = 'ZOHO_INVALID_COMPOSITE_ID'
+    throw e
+  }
+  const p = new URLSearchParams()
+  p.set('organization_id', c.organizationId)
+  return zohoInventoryJsonRequest(
+    `${INVENTORY_V1}/compositeitems/${encodeURIComponent(id)}`,
+    p,
+    'GET',
+    undefined,
+    {
+      source: 'inventory_composite_item_detail',
+      cacheCategory: 'default',
+      skipCache: true,
+      ...meta,
+    }
+  )
+}
+
 module.exports = {
   zohoApiRequest,
   listAllItems,
@@ -277,4 +332,6 @@ module.exports = {
   fetchListPaginated,
   fetchItemById,
   fetchZohoItemImageBuffer,
+  fetchCompositeItemsList,
+  fetchCompositeItemDetail,
 }
