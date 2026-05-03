@@ -1167,7 +1167,7 @@ function PlannerTaskSidebar({
     'w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-left text-[15px] font-semibold text-slate-700 hover:bg-white/80 hover:text-slate-950 transition'
 
   return (
-    <aside className="flex w-full shrink-0 flex-col rounded-[28px] bg-white/90 p-6 shadow-sm ring-1 ring-black/[0.04] lg:w-[300px] xl:w-[320px]">
+    <aside className="planner-views-sidebar flex w-full shrink-0 flex-col rounded-[28px] bg-white/90 p-6 shadow-sm ring-1 ring-black/[0.04] lg:w-[300px] xl:w-[320px]">
       <div className="mb-6 flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-emerald-600 text-lg text-white shadow-sm">
@@ -1330,7 +1330,7 @@ export default function ProjectsIndexPage() {
 
   return (
     <div className="aip-layout aip-layout--asana">
-      <div className="flex min-h-full min-w-0 flex-1 flex-col gap-4 lg:flex-row lg:gap-5">
+      <div className="flex min-h-full min-w-0 flex-1 flex-col gap-4 lg:flex-row lg:items-start lg:gap-5">
         <PlannerTaskSidebar
           listNav={listNav}
           onNav={setListNav}

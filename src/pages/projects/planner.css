@@ -372,6 +372,12 @@
 .aip-assist {
   width: 260px;
   flex-shrink: 0;
+  align-self: flex-start;
+  position: sticky;
+  top: calc(var(--app-topbar-stack, 5.35rem) + 0.75rem);
+  max-height: calc(100dvh - var(--app-topbar-stack, 5.35rem) - 1.5rem);
+  overflow-x: hidden;
+  overflow-y: auto;
   border-left: 1px solid var(--theme-border-subtle);
   padding: 1.75rem 1.25rem;
   display: flex;
@@ -4202,6 +4208,18 @@
 }
 
 /* ── Asana-inspired task list shell (Projects index / .aip-layout--asana) ── */
+
+/* Pin Views / More sidebar while the center task sheet scrolls (wide screens only). */
+@media (min-width: 1024px) {
+  .planner-views-sidebar {
+    position: sticky;
+    top: calc(var(--app-topbar-stack, 5.35rem) + 0.75rem);
+    align-self: flex-start;
+    max-height: calc(100dvh - var(--app-topbar-stack, 5.35rem) - 1.5rem);
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+}
 
 .aip-layout--asana {
   gap: 1rem !important;

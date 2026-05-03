@@ -371,14 +371,14 @@ export function AttendanceGrid({
               role="grid"
               aria-label="Employees"
             >
-              <thead>
-                <tr className="attendance-grid__header-row attendance-grid__header-row--group">
-                  <th
-                    colSpan={1}
-                    className="attendance-grid__th attendance-grid__th--group attendance-grid__th--group-employee"
-                  >
-                    <div className="attendance-grid__header-employee-inner">Employee</div>
-                  </th>
+          <thead>
+            <tr className="attendance-grid__header-row attendance-grid__header-row--group">
+              <th
+                colSpan={1}
+                className="attendance-grid__th attendance-grid__th--group attendance-grid__th--group-employee"
+              >
+                <div className="attendance-grid__header-employee-inner">Employee</div>
+              </th>
                 </tr>
                 <tr className="attendance-grid__header-row attendance-grid__header-row--sub">
                   <th className="attendance-grid__th attendance-grid__th--sticky attendance-grid__th--sub">
@@ -415,149 +415,149 @@ export function AttendanceGrid({
                 <tr className="attendance-grid__header-row attendance-grid__header-row--group">
                   <th
                     colSpan={Math.max(displayDays.length, 1)}
-                    className="attendance-grid__th attendance-grid__th--group attendance-grid__th--group-attendance"
-                  >
-                    Attendance
-                  </th>
-                </tr>
-                <tr className="attendance-grid__header-row attendance-grid__header-row--sub">
+                className="attendance-grid__th attendance-grid__th--group attendance-grid__th--group-attendance"
+              >
+                Attendance
+              </th>
+            </tr>
+            <tr className="attendance-grid__header-row attendance-grid__header-row--sub">
                   {displayDays.length === 0 ? (
                     <th className="attendance-grid__th attendance-grid__th--day attendance-grid__th--sub attendance-grid__th--day-first">
                       <div className="attendance-grid__th-day-inner">
                         <span className="attendance-grid__day-name">—</span>
                         <span className="attendance-grid__day-num"> </span>
                       </div>
-                    </th>
+              </th>
                   ) : (
                     displayDays.map((day) => {
-                      const dayOfWeek = getDayOfWeek(year, month, day)
-                      const dayName = DAY_NAMES_SHORT[dayOfWeek]
-                      const isFirstVisibleDay = day === displayDays[0]
-                      return (
-                        <th
-                          key={day}
-                          className={`attendance-grid__th attendance-grid__th--day attendance-grid__th--sub ${isFirstVisibleDay ? 'attendance-grid__th--day-first' : ''}`}
-                        >
-                          <div className="attendance-grid__th-day-inner">
-                            <span className="attendance-grid__day-name">{dayName}</span>
-                            <span className="attendance-grid__day-num">{day}</span>
-                          </div>
-                        </th>
-                      )
+                const dayOfWeek = getDayOfWeek(year, month, day)
+                const dayName = DAY_NAMES_SHORT[dayOfWeek]
+                const isFirstVisibleDay = day === displayDays[0]
+                return (
+                  <th
+                    key={day}
+                    className={`attendance-grid__th attendance-grid__th--day attendance-grid__th--sub ${isFirstVisibleDay ? 'attendance-grid__th--day-first' : ''}`}
+                  >
+                    <div className="attendance-grid__th-day-inner">
+                      <span className="attendance-grid__day-name">{dayName}</span>
+                      <span className="attendance-grid__day-num">{day}</span>
+                    </div>
+                  </th>
+                )
                     })
                   )}
-                </tr>
-                <tr className="attendance-grid__header-row attendance-grid__header-row--filters">
+            </tr>
+            <tr className="attendance-grid__header-row attendance-grid__header-row--filters">
                   {displayDays.length === 0 ? (
                     <th className="attendance-grid__th attendance-grid__th--day attendance-grid__th--filter attendance-grid__th--day-first" aria-hidden />
                   ) : (
                     displayDays.map((day) => (
-                      <th key={`f-${day}`} className="attendance-grid__th attendance-grid__th--day attendance-grid__th--filter">
-                        <ExcelStyleColumnFilter
-                          filterId={`att-day-${day}`}
-                          openFilterId={openFilterId}
-                          onOpenFilterId={setOpenFilterId}
-                          ariaLabel={`Filter rows by status on day ${day}`}
-                          options={dayFilterOptionsByDay[day] || []}
-                          included={dayIncluded[day]}
-                          onIncludedChange={(next) => handleDayIncluded(day, next)}
-                        />
-                      </th>
+                <th key={`f-${day}`} className="attendance-grid__th attendance-grid__th--day attendance-grid__th--filter">
+                  <ExcelStyleColumnFilter
+                    filterId={`att-day-${day}`}
+                    openFilterId={openFilterId}
+                    onOpenFilterId={setOpenFilterId}
+                    ariaLabel={`Filter rows by status on day ${day}`}
+                    options={dayFilterOptionsByDay[day] || []}
+                    included={dayIncluded[day]}
+                    onIncludedChange={(next) => handleDayIncluded(day, next)}
+                  />
+                </th>
                     ))
                   )}
-                </tr>
-              </thead>
-              <tbody>
-                {displayEmployees.map((emp) => (
-                  <tr key={emp.id}>
+            </tr>
+          </thead>
+          <tbody>
+            {displayEmployees.map((emp) => (
+              <tr key={emp.id}>
                     {displayDays.length === 0 ? (
                       <td className="attendance-grid__td attendance-grid__td--day attendance-grid__td--day-first" aria-hidden />
                     ) : (
                       displayDays.map((day) => {
-                        const current = getEffectiveStatus(
-                          attendance,
-                          emp.id,
-                          day,
-                          year,
-                          month,
-                          weeklyHolidayDay
-                        )
-                        const colorClass = current ? `attendance-cell--${STATUSES[current].color}` : ''
-                        const isFirstVisibleDay = day === displayDays[0]
-                        const docUrl = sickLeaveDocuments[emp.id]?.[day]
-                        const showSlUpload = current === 'SL'
-                        const dimAbsentView =
-                          cellViewMode === 'absentOnly' && current !== 'A'
-                        return (
-                          <td
-                            key={day}
-                            className={`attendance-grid__td attendance-grid__td--day ${isFirstVisibleDay ? 'attendance-grid__td--day-first' : ''}${dimAbsentView ? ' attendance-grid__td--dim' : ''}`}
-                          >
-                            <div
-                              className={`attendance-cell-wrap${showSlUpload ? ' attendance-cell-wrap--with-sl' : ''}`}
-                            >
-                              <select
-                                className={`attendance-cell attendance-cell--select ${colorClass}${dimAbsentView ? ' attendance-cell--dimmed' : ''}`}
-                                value={current || ''}
-                                onChange={(e) => {
-                                  const v = e.target.value
-                                  setAttendanceFor(setAttendance, emp.id, day, v)
-                                }}
-                                title={current ? STATUSES[current].label : 'Select status'}
-                                aria-label={`Day ${day} status for ${emp.name}`}
+                  const current = getEffectiveStatus(
+                    attendance,
+                    emp.id,
+                    day,
+                    year,
+                    month,
+                    weeklyHolidayDay
+                  )
+                  const colorClass = current ? `attendance-cell--${STATUSES[current].color}` : ''
+                  const isFirstVisibleDay = day === displayDays[0]
+                  const docUrl = sickLeaveDocuments[emp.id]?.[day]
+                  const showSlUpload = current === 'SL'
+                  const dimAbsentView =
+                    cellViewMode === 'absentOnly' && current !== 'A'
+                  return (
+                    <td
+                      key={day}
+                      className={`attendance-grid__td attendance-grid__td--day ${isFirstVisibleDay ? 'attendance-grid__td--day-first' : ''}${dimAbsentView ? ' attendance-grid__td--dim' : ''}`}
+                    >
+                      <div
+                        className={`attendance-cell-wrap${showSlUpload ? ' attendance-cell-wrap--with-sl' : ''}`}
+                      >
+                        <select
+                          className={`attendance-cell attendance-cell--select ${colorClass}${dimAbsentView ? ' attendance-cell--dimmed' : ''}`}
+                          value={current || ''}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setAttendanceFor(setAttendance, emp.id, day, v)
+                          }}
+                          title={current ? STATUSES[current].label : 'Select status'}
+                          aria-label={`Day ${day} status for ${emp.name}`}
+                        >
+                          <option value="">—</option>
+                          {STATUS_KEYS.map((k) => (
+                            <option key={k} value={k}>
+                              {k}
+                            </option>
+                          ))}
+                        </select>
+                        {showSlUpload && (
+                          <div className="attendance-sl-doc">
+                            {docUrl ? (
+                              <>
+                                <a
+                                  href={docUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="attendance-sl-doc__link"
+                                  title="Open medical certificate in a new tab"
+                                >
+                                  View file
+                                </a>
+                                {removeSickLeaveDocument ? (
+                                  <button
+                                    type="button"
+                                    className="attendance-sl-doc__delete"
+                                    title="Remove this file (you can upload a different one after)"
+                                    onClick={() => removeSickLeaveDocument(emp.id, day)}
+                                  >
+                                    Delete
+                                  </button>
+                                ) : null}
+                              </>
+                            ) : null}
+                            {uploadSickLeaveDocument ? (
+                              <button
+                                type="button"
+                                className={`attendance-sl-doc__add${docUrl ? ' attendance-sl-doc__add--replace' : ''}`}
+                                title={
+                                  docUrl
+                                    ? 'Replace with a different file (PDF or image)'
+                                    : 'Upload medical certificate (PDF or image)'
+                                }
+                                aria-label="Upload or replace medical certificate"
+                                onClick={() => openSickLeavePicker(emp.id, day)}
                               >
-                                <option value="">—</option>
-                                {STATUS_KEYS.map((k) => (
-                                  <option key={k} value={k}>
-                                    {k}
-                                  </option>
-                                ))}
-                              </select>
-                              {showSlUpload && (
-                                <div className="attendance-sl-doc">
-                                  {docUrl ? (
-                                    <>
-                                      <a
-                                        href={docUrl}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="attendance-sl-doc__link"
-                                        title="Open medical certificate in a new tab"
-                                      >
-                                        View file
-                                      </a>
-                                      {removeSickLeaveDocument ? (
-                                        <button
-                                          type="button"
-                                          className="attendance-sl-doc__delete"
-                                          title="Remove this file (you can upload a different one after)"
-                                          onClick={() => removeSickLeaveDocument(emp.id, day)}
-                                        >
-                                          Delete
-                                        </button>
-                                      ) : null}
-                                    </>
-                                  ) : null}
-                                  {uploadSickLeaveDocument ? (
-                                    <button
-                                      type="button"
-                                      className={`attendance-sl-doc__add${docUrl ? ' attendance-sl-doc__add--replace' : ''}`}
-                                      title={
-                                        docUrl
-                                          ? 'Replace with a different file (PDF or image)'
-                                          : 'Upload medical certificate (PDF or image)'
-                                      }
-                                      aria-label="Upload or replace medical certificate"
-                                      onClick={() => openSickLeavePicker(emp.id, day)}
-                                    >
-                                      {docUrl ? 'Replace' : '+'}
-                                    </button>
-                                  ) : null}
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                        )
+                                {docUrl ? 'Replace' : '+'}
+                              </button>
+                            ) : null}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  )
                       })
                     )}
                   </tr>
@@ -635,10 +635,10 @@ export function AttendanceGrid({
                         </td>
                       ))
                     })()}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+              </tr>
+            ))}
+          </tbody>
+        </table>
           </div>
         </div>
       </div>
