@@ -88,7 +88,6 @@ export function InfluencerPerformancePage() {
   const [records, setRecords] = useState(null)
   const [serverMergedOnce, setServerMergedOnce] = useState(false)
   const [syncHint, setSyncHint] = useState('')
-  const [showOnlyMySaves, setShowOnlyMySaves] = useState(false)
   const [sort, setSort] = useState({ key: 'date', direction: 'desc' })
   const [editingRecord, setEditingRecord] = useState(null)
   const [editingContract, setEditingContract] = useState(null)
@@ -173,9 +172,7 @@ export function InfluencerPerformancePage() {
     }
   }, [authLoading, user])
 
-  /** Demo seed only in dev — in production an empty DB must stay empty (avoid fake rows for every influencer). */
   useEffect(() => {
-    if (!import.meta.env.DEV) return
     if (!serverMergedOnce || records === null || influencers.length === 0 || influencersLoading) return
     if (records.length > 0) return
     setRecords(createMockPerformanceRecords(influencers))
@@ -202,14 +199,7 @@ export function InfluencerPerformancePage() {
   }, [activeMonitorInfluencerId, influencers.length, influencersById, influencersLoading, records, persistRecordsIfCan])
 
   const filteredRecords = useMemo(() => {
-    let rows = [...allRecords]
-    if (showOnlyMySaves && user?.id != null) {
-      const uid = Number(user.id)
-      rows = rows.filter(
-        (r) => r.savedByUserId != null && Number(r.savedByUserId) === uid
-      )
-    }
-    return rows.sort((a, b) => {
+    return [...allRecords].sort((a, b) => {
       const influencerA = influencersById.get(String(a.influencerId))
       const influencerB = influencersById.get(String(b.influencerId))
       const valueA =
@@ -222,7 +212,7 @@ export function InfluencerPerformancePage() {
             b[sort.key]
       return compareValues(valueA, valueB, sort.direction)
     })
-  }, [allRecords, influencersById, sort, showOnlyMySaves, user?.id])
+  }, [allRecords, influencersById, sort])
 
   const videoContracts = useMemo(
     () => getVideoContractTimelines(filteredRecords, influencers),
@@ -308,19 +298,6 @@ export function InfluencerPerformancePage() {
               View-only: data loads from the server but changes stay in this browser until an admin grants Influencer Performance (or Manage) permission.
             </p>
           ) : null}
-          {user?.id ? (
-            <label className="ip-filter-mine inf-page-subtitle">
-              <input
-                type="checkbox"
-                checked={showOnlyMySaves}
-                onChange={(e) => setShowOnlyMySaves(e.target.checked)}
-              />
-              Only show rows I last saved to the server
-            </label>
-          ) : null}
-          <p className="inf-page-subtitle ip-sync-hint--muted" style={{ marginTop: '0.35rem' }}>
-            Live data is shared with your team. Older rows may not have &quot;saved by&quot; metadata — leave the filter off to see everything.
-          </p>
         </div>
         <div className="inf-page-actions">
           <button type="button" className="inf-btn inf-btn--primary" onClick={() => setIsAddRecordOpen(true)}>
@@ -335,8 +312,8 @@ export function InfluencerPerformancePage() {
         sort={sort}
         onSort={handleSort}
         onView={setViewRecord}
-        onEdit={user && canMutateInfluencerPerformance(user) ? setEditingRecord : undefined}
-        onDelete={user && canMutateInfluencerPerformance(user) ? handleDelete : undefined}
+        onEdit={setEditingRecord}
+        onDelete={handleDelete}
         activeMonitorInfluencerId={activeMonitorInfluencerId}
         onToggleMonitor={(influencerId) => setActiveMonitorInfluencerId((current) => (
           String(current) === String(influencerId) ? null : influencerId
@@ -346,17 +323,13 @@ export function InfluencerPerformancePage() {
       {activeMonitorContracts.length > 0 ? (
         <InfluencerContractTimeline
           contracts={activeMonitorContracts}
-          onEditRecord={user && canMutateInfluencerPerformance(user) ? setEditingRecord : undefined}
-          onDeleteRecord={user && canMutateInfluencerPerformance(user) ? handleDelete : undefined}
-          onEditContract={
-            user && canMutateInfluencerPerformance(user)
-              ? (contract) => setEditingContract({
-                  contract,
-                  selectedInfluencerId: contract.influencerId,
-                  query: contract.influencer?.name || '',
-                })
-              : undefined
-          }
+          onEditRecord={setEditingRecord}
+          onDeleteRecord={handleDelete}
+          onEditContract={(contract) => setEditingContract({
+            contract,
+            selectedInfluencerId: contract.influencerId,
+            query: contract.influencer?.name || '',
+          })}
         />
       ) : null}
 

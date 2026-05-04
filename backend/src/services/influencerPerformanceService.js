@@ -10,16 +10,14 @@ function isoDateSlice(value) {
 async function listPerformanceRecords() {
   await ensureInfluencerPerformanceRecordsTable()
   const result = await query(
-    `SELECT id, body, updated_at, updated_by FROM influencer_performance_records ORDER BY check_date DESC NULLS LAST, id`
+    `SELECT id, body, updated_at FROM influencer_performance_records ORDER BY check_date DESC NULLS LAST, id`
   )
   return result.rows.map((row) => {
     const body = row.body && typeof row.body === 'object' ? row.body : {}
-    const savedByUserId = row.updated_by != null ? Number(row.updated_by) : null
     return {
       ...body,
       id: row.id,
       updatedAt: body.updatedAt || row.updated_at,
-      savedByUserId: Number.isFinite(savedByUserId) ? savedByUserId : null,
     }
   })
 }
