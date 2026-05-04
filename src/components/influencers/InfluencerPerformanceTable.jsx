@@ -1,5 +1,4 @@
-import { Fragment, useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, Eye, Pencil, Trash2 } from 'lucide-react'
+import { Eye, Pencil, Trash2 } from 'lucide-react'
 import { formatNumber, getDayNumber, toNumber } from '../../utils/influencerPerformanceUtils'
 
 const columns = [
@@ -53,39 +52,6 @@ function InfluencerIdentity({ influencer, platform }) {
   )
 }
 
-function compareGroupValues(a, b, direction) {
-  if (typeof a === 'number' || typeof b === 'number') {
-    return direction === 'asc' ? toNumber(a) - toNumber(b) : toNumber(b) - toNumber(a)
-  }
-  return direction === 'asc'
-    ? String(a || '').localeCompare(String(b || ''))
-    : String(b || '').localeCompare(String(a || ''))
-}
-
-function groupSortValue(group, key) {
-  const latestRecord = group.latestRecord || {}
-  switch (key) {
-    case 'date':
-      return latestRecord.date || ''
-    case 'influencer':
-      return group.influencer?.name || ''
-    case 'videoTitle':
-      return latestRecord.videoTitle || latestRecord.campaignName || ''
-    case 'dayNumber':
-      return group.records.length
-    case 'views':
-    case 'likes':
-    case 'comments':
-    case 'shares':
-    case 'cost':
-      return group.totals[key]
-    case 'engagementRate':
-      return group.averageEngagement
-    default:
-      return latestRecord[key]
-  }
-}
-
 export function InfluencerPerformanceTable({
   records,
   influencersById,
@@ -97,53 +63,13 @@ export function InfluencerPerformanceTable({
   activeMonitorInfluencerId,
   onToggleMonitor,
 }) {
-  const [expandedInfluencers, setExpandedInfluencers] = useState(() => new Set())
-
-  const groupedRecords = useMemo(() => {
-    const groups = new Map()
-    records.forEach((record) => {
-      const key = String(record.influencerId || 'unknown')
-      const influencer = influencersById.get(key)
-      const group = groups.get(key) || {
-        id: key,
-        influencer,
-        records: [],
-        contracts: new Set(),
-        totals: { views: 0, likes: 0, comments: 0, shares: 0, cost: 0 },
-        engagementSum: 0,
-      }
-
-      group.records.push(record)
-      group.contracts.add(record.videoTitle || record.campaignName || record.contractId || 'Contract')
-      group.totals.views += toNumber(record.views)
-      group.totals.likes += toNumber(record.likes)
-      group.totals.comments += toNumber(record.comments)
-      group.totals.shares += toNumber(record.shares)
-      group.totals.cost += toNumber(record.cost)
-      group.engagementSum += toNumber(record.engagementRate)
-      groups.set(key, group)
-    })
-
-    return Array.from(groups.values())
-      .map((group) => ({
-        ...group,
-        latestRecord: group.records[0],
-        averageEngagement: group.records.length ? group.engagementSum / group.records.length : 0,
-      }))
-      .sort((a, b) => compareGroupValues(
-        groupSortValue(a, sort.key),
-        groupSortValue(b, sort.key),
-        sort.direction,
-      ))
-  }, [influencersById, records, sort])
-
   return (
     <section className="ip-table-card">
       <div className="ip-section-heading">
         <span className="ip-section-heading__icon"><Eye size={18} /></span>
         <div>
           <h2>Performance records</h2>
-          <p>Collapsed by influencer. Expand a row to review or edit daily records.</p>
+          <p>Standalone daily records. Use Show to open that influencer's contract monitor.</p>
         </div>
       </div>
 
@@ -166,109 +92,52 @@ export function InfluencerPerformanceTable({
                   <div className="ip-empty-row">No performance records match these filters.</div>
                 </td>
               </tr>
-            ) : groupedRecords.map((group) => {
-              const isExpanded = expandedInfluencers.has(group.id)
-              const isMonitorActive = String(activeMonitorInfluencerId) === String(group.id)
-              const influencer = group.influencer
-              const latestRecord = group.latestRecord
-              const hasMultipleRecords = group.records.length > 1
-              const toggleMonitor = () => {
-                onToggleMonitor(group.id)
-              }
-              const toggleExpandedGroup = () => {
-                if (!hasMultipleRecords) return
-                setExpandedInfluencers((current) => {
-                  const next = new Set(current)
-                  if (next.has(group.id)) next.delete(group.id)
-                  else next.add(group.id)
-                  return next
-                })
-              }
+            ) : records.map((record) => {
+              const influencerId = String(record.influencerId || '')
+              const isMonitorActive = String(activeMonitorInfluencerId) === influencerId
+              const influencer = influencersById.get(influencerId)
               return (
-                <Fragment key={group.id}>
-                  <tr key={group.id} className={`ip-table__group-row ${isMonitorActive ? 'ip-table__group-row--active' : ''}`}>
-                    <td>
-                      {hasMultipleRecords ? (
-                        <button
-                          type="button"
-                          className="ip-table__expand-label ip-table__expand-label--button"
-                          onClick={toggleExpandedGroup}
-                          aria-expanded={isExpanded}
-                          aria-label={`${isExpanded ? 'Collapse' : 'Expand'} performance records for ${influencer?.name || 'influencer'}`}
-                        >
-                          {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                          {latestRecord?.date || '-'}
-                        </button>
-                      ) : (
-                        <span className="ip-table__expand-label ip-table__expand-label--static">
-                          {latestRecord?.date || '-'}
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      <InfluencerIdentity influencer={influencer} platform={latestRecord?.platform} />
-                    </td>
-                    <td>
-                      <span className="inf-table__name">{formatNumber(group.contracts.size)} contracts</span>
-                      <span className="ip-table__sub">{latestRecord?.videoTitle || latestRecord?.campaignName || 'Latest contract'}</span>
-                    </td>
-                    <td><strong>{formatNumber(group.records.length)} records</strong></td>
-                    <td>{formatNumber(group.totals.views)}</td>
-                    <td>{formatNumber(group.totals.likes)}</td>
-                    <td>{formatNumber(group.totals.comments)}</td>
-                    <td>{formatNumber(group.totals.shares)}</td>
-                    <td><strong>{group.averageEngagement.toFixed(2)}%</strong></td>
-                    <td>{formatNumber(group.totals.cost, { currency: 'AED' })}</td>
-                    <td>
+                <tr key={record.id} className={`ip-table__detail-row ${isMonitorActive ? 'ip-table__detail-row--active' : ''}`}>
+                  <td>{record.date}</td>
+                  <td>
+                    <InfluencerIdentity influencer={influencer} platform={record.platform} />
+                  </td>
+                  <td>
+                    <span className="inf-table__name">{record.videoTitle || record.campaignName}</span>
+                    <span className="ip-table__sub">{record.campaignName}</span>
+                  </td>
+                  <td><strong>Day {getDayNumber(record.contractStartDate, record.date) || 1}</strong></td>
+                  <td>{formatNumber(record.views)}</td>
+                  <td>{formatNumber(record.likes)}</td>
+                  <td>{formatNumber(record.comments)}</td>
+                  <td>{formatNumber(record.shares)}</td>
+                  <td><strong>{toNumber(record.engagementRate).toFixed(2)}%</strong></td>
+                  <td>{formatNumber(record.cost, { currency: 'AED' })}</td>
+                  <td>
+                    <div className="inf-table__actions">
                       <button
                         type="button"
                         className="inf-btn inf-btn--ghost inf-btn--xs ip-table__expand-btn"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          toggleMonitor()
-                        }}
+                        onClick={() => onToggleMonitor(record.influencerId)}
                       >
                         {isMonitorActive ? 'Hide' : 'Show'}
                       </button>
-                    </td>
-                  </tr>
-                  {hasMultipleRecords && isExpanded ? group.records.map((record) => (
-                    <tr key={record.id} className="ip-table__detail-row">
-                      <td>{record.date}</td>
-                      <td>
-                        <InfluencerIdentity influencer={influencer} platform={record.platform} />
-                      </td>
-                      <td>
-                        <span className="inf-table__name">{record.videoTitle || record.campaignName}</span>
-                        <span className="ip-table__sub">{record.campaignName}</span>
-                      </td>
-                      <td><strong>Day {getDayNumber(record.contractStartDate, record.date) || 1}</strong></td>
-                      <td>{formatNumber(record.views)}</td>
-                      <td>{formatNumber(record.likes)}</td>
-                      <td>{formatNumber(record.comments)}</td>
-                      <td>{formatNumber(record.shares)}</td>
-                      <td><strong>{toNumber(record.engagementRate).toFixed(2)}%</strong></td>
-                      <td>{formatNumber(record.cost, { currency: 'AED' })}</td>
-                      <td>
-                        <div className="inf-table__actions">
-                          <button type="button" className="inf-btn-icon" onClick={() => onView(record)} aria-label="View performance record">
-                            <Eye size={15} />
-                          </button>
-                          {onEdit ? (
-                            <button type="button" className="inf-btn-icon" onClick={() => onEdit(record)} aria-label="Edit performance record">
-                              <Pencil size={15} />
-                            </button>
-                          ) : null}
-                          {onDelete ? (
-                            <button type="button" className="inf-btn-icon ip-danger-icon" onClick={() => onDelete(record.id)} aria-label="Delete performance record">
-                              <Trash2 size={15} />
-                            </button>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  )) : null}
-                </Fragment>
+                      <button type="button" className="inf-btn-icon" onClick={() => onView(record)} aria-label="View performance record">
+                        <Eye size={15} />
+                      </button>
+                      {onEdit ? (
+                        <button type="button" className="inf-btn-icon" onClick={() => onEdit(record)} aria-label="Edit performance record">
+                          <Pencil size={15} />
+                        </button>
+                      ) : null}
+                      {onDelete ? (
+                        <button type="button" className="inf-btn-icon ip-danger-icon" onClick={() => onDelete(record.id)} aria-label="Delete performance record">
+                          <Trash2 size={15} />
+                        </button>
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
               )
             })}
           </tbody>
