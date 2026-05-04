@@ -210,17 +210,6 @@ export function CompositeItemsPricesPage() {
 
             <div className="cb-bundle-controls">
               <label className="cb-bundle-field">
-                Bundle shipping (AED)
-                <input
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  value={bundleShipping}
-                  onChange={(e) => setBundleShipping(e.target.value)}
-                  placeholder="FBA / referral + shipping"
-                />
-              </label>
-              <label className="cb-bundle-field">
                 Date of price
                 <input type="date" value={dateOfPrice} onChange={(e) => setDateOfPrice(e.target.value)} />
               </label>
@@ -237,13 +226,13 @@ export function CompositeItemsPricesPage() {
                     <th scope="col">Purchase price ecommerce</th>
                     <th scope="col">Total component purchase</th>
                     <th scope="col">Manual shipping</th>
-                    <th scope="col">Suggested sales price</th>
+                    <th scope="col" className="cb-sales-price-cell">Suggested sales price</th>
                     <th scope="col">{rates.vatPct}% VAT</th>
                     <th scope="col">{rates.commissionPct}% commission</th>
                     <th scope="col">{rates.advertisingPct}% advertising</th>
                     <th scope="col">Total cost</th>
                     <th scope="col">Profit AED</th>
-                    <th scope="col">Profit %</th>
+                    <th scope="col" className="cb-profit-percent-cell">Profit %</th>
                     <th scope="col">Date of price</th>
                   </tr>
                 </thead>
@@ -279,7 +268,7 @@ export function CompositeItemsPricesPage() {
                           ? fmtMoney(row.matchedListRow.shipping, 2)
                           : '—'}
                       </td>
-                      <td>
+                      <td className="cb-sales-price-cell">
                         {row.matchedEconomics && !row.matchedEconomics.denominatorInvalid
                           ? fmtMoney(row.matchedEconomics.salesPrice, 0)
                           : '—'}
@@ -309,7 +298,7 @@ export function CompositeItemsPricesPage() {
                           ? fmtMoney(row.matchedEconomics.profit, 2)
                           : '—'}
                       </td>
-                      <td>
+                      <td className="cb-profit-percent-cell">
                         {row.matchedEconomics && !row.matchedEconomics.denominatorInvalid
                           ? fmtPct(row.matchedEconomics.profitPct, 2)
                           : '—'}
@@ -326,8 +315,19 @@ export function CompositeItemsPricesPage() {
                     <td className="cb-bundle-summary__spacer" aria-hidden="true" />
                     <td className="cb-bundle-summary__spacer" aria-hidden="true" />
                     <td>{fmtMoney(totalPurchaseCost, 2)}</td>
-                    <td>{fmtMoney(Number(bundleShipping) || 0, 2)}</td>
                     <td>
+                      <input
+                        className="cb-bundle-summary__shipping-input"
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={bundleShipping}
+                        onChange={(e) => setBundleShipping(e.target.value)}
+                        placeholder="0.00"
+                        aria-label="Bundle manual shipping"
+                      />
+                    </td>
+                    <td className="cb-sales-price-cell">
                       {economics.ok ? (
                         fmtMoney(economics.salesPrice, 0)
                       ) : (
@@ -339,7 +339,7 @@ export function CompositeItemsPricesPage() {
                     <td>{economics.ok ? fmtMoney(economics.advertisingAmount, 2) : '—'}</td>
                     <td>{economics.ok ? fmtMoney(economics.totalCost, 2) : '—'}</td>
                     <td>{economics.ok ? fmtMoney(economics.profit, 2) : '—'}</td>
-                    <td>{economics.ok ? fmtPct(economics.profitPct, 2) : '—'}</td>
+                    <td className="cb-profit-percent-cell">{economics.ok ? fmtPct(economics.profitPct, 2) : '—'}</td>
                     <td>{dateOfPrice || '—'}</td>
                   </tr>
                 </tfoot>

@@ -163,6 +163,16 @@
   font-weight: 600;
 }
 
+.cb-bundle-table .cb-sales-price-cell {
+  color: #f97316;
+  font-weight: 700;
+}
+
+.cb-bundle-table .cb-profit-percent-cell {
+  color: #16a34a;
+  font-weight: 700;
+}
+
 .cb-bundle-summary {
   font-weight: 700;
   background: rgba(139, 92, 246, 0.08);
@@ -192,6 +202,19 @@
 .cb-bundle-summary__label {
   text-align: left;
   font-variant-numeric: tabular-nums;
+}
+
+.cb-bundle-summary__shipping-input {
+  width: 5.5rem;
+  max-width: 100%;
+  padding: 0.22rem 0.32rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-border);
+  background: var(--theme-input-bg, rgba(255, 255, 255, 0.06));
+  color: var(--text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .cb-bundle-footnote {
