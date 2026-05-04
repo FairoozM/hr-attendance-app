@@ -398,6 +398,22 @@
   gap: 1rem;
 }
 
+.rbac-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.rbac-section__title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  margin: 0;
+  padding-top: 0.25rem;
+}
+
 .rbac-module {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);

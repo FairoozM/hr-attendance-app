@@ -18,6 +18,7 @@ const {
   getSales,
   getPurchases,
   getVendorCredits,
+  getStockReconstruction,
 } = require('../integrations/zoho/weeklyReportZohoTransactions')
 const {
   buildItemIdToSkuMap,
@@ -99,8 +100,8 @@ const ZOHO_WEEKLY_REPORT_INTEGRATION = {
   item_endpoint: 'GET /inventory/v1/items (pages)',
   // Same keys as prior API; phase 2 uses stock placeholders and zeros where noted below
   metrics_unavailable_in_this_integration: [
-    'Point-in-time Zoho "stock on from_date" (historical) — opening is **not** that value; it is ' +
-      'a **TEMPORARY** duplicate of current `stock_on_hand` (see transaction_debug, Phase 4).',
+    'Zoho UI “Inventory Summary” ledger snapshot — opening is **reconstructed** from Items on-hand ' +
+      'today minus invoices/bills/vendor credits from `from_date` through today (see docs); adjustments/transfers omitted.',
   ],
   metrics_populated: [
     'row keys: item_report_groups ∩ Zoho; item_name, sku, family; closing = current item stock; sold/returns/purch from APIs',
@@ -109,8 +110,9 @@ const ZOHO_WEEKLY_REPORT_INTEGRATION = {
   phase2_stock_placeholders: {
     /** Current stock on hand from Items API at request time (or available_* fallbacks) */
     closing_from_items_api: 'Zoho item stock (stock_on_hand or available_* fallback).',
-    /** TEMPORARY (Phase 4): duplicate of `stock_on_hand` / `closing_from_items_api`; not ledger-backed */
-    opening_stock: 'TEMPORARY: current stock_on_hand (same as closing) — not "stock on from_date."',
+    opening_stock:
+      'Reconciled: current scoped on-hand minus net qty from **all-vendor** bills + **all** vendor credits + sales ' +
+      '(warehouse scope via transaction filters), window `[from_date, server today]` — not Zoho Summary API.',
     sales_source: 'GET /invoices, all customers, date in [from_date,to_date], not void; line item quantities',
     purchases_source:
       'GET /bills line_items, date in range; all vendors unless WEEKLY_REPORT_PURCHASES_MODE=by_contact_id ' +
@@ -617,6 +619,14 @@ function aggregateByFamily(itemRows, zohoCatalogCtx = null) {
     out.push(acc)
   }
   return out.sort((a, b) => a.family.localeCompare(b.family))
+}
+
+/** Server-local calendar date YYYY-MM-DD (recon anchor); local to this module so tests can mock `weeklyReportZohoTransactions` without breaking the report. */
+function weeklyReportIsoDateLocal(d = new Date()) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 function buildWeeklyReportScope(warehouseId, excludeWarehouseId) {
@@ -1705,8 +1715,16 @@ async function fetchZohoItemRowsForGroupMembers(
   // concurrently means total time = max(items, invoices) instead of items + invoices.
   // Scope-specific stock and transaction filters are built once above so the
   // screen, drawer, and export all consume the same warehouse split.
+  const throughDate = weeklyReportIsoDateLocal()
+  /** Opening reconciliation uses `transactionFilter` for sales too so stock Δ matches scoped q_now (incl. exclude damaged). */
+  const stockReconOpts = {
+    onWarning,
+    reportGroup,
+    includeWarehouseDetail: true,
+    ...reportScope.transactionFilter,
+  }
   const t0All = Date.now()
-  const [raw, scopedItems, salesR, purchR, vcR, damagedItems] = await Promise.all([
+  const [raw, scopedItems, salesR, purchR, vcR, damagedItems, stockReconR] = await Promise.all([
     fetchAllItemsRaw(),
     reportScope.stockWarehouseId ? fetchItemsRawForWarehouse(reportScope.stockWarehouseId) : Promise.resolve([]),
     getSales(fromDate, toDate, { onWarning, ...reportScope.salesTransactionFilter }),
@@ -1726,6 +1744,7 @@ async function fetchZohoItemRowsForGroupMembers(
     reportScope.subtractStockWarehouseId
       ? fetchItemsRawForWarehouse(reportScope.subtractStockWarehouseId)
       : Promise.resolve([]),
+    getStockReconstruction(fromDate, throughDate, stockReconOpts),
   ])
   console.log(
     `[zoho-timing] parallel fetch ${Date.now() - t0All}ms — ` +
@@ -1734,7 +1753,8 @@ async function fetchZohoItemRowsForGroupMembers(
     `bills=${purchR ? (purchR.document_count ?? 0) : 0}, ` +
     `vendorcredits=${vcR ? (vcR.document_count ?? 0) : 0}` +
     (reportScope.stockWarehouseId ? `, scoped_items=${scopedItems.length}` : '') +
-    (reportScope.subtractStockWarehouseId ? `, excluded_items=${damagedItems.length}` : '')
+    (reportScope.subtractStockWarehouseId ? `, excluded_items=${damagedItems.length}` : '') +
+    `, stock_recon_through=${throughDate}`
   )
 
   let prefetchBundleStashed = false
@@ -1939,9 +1959,46 @@ async function fetchZohoItemRowsForGroupMembers(
     onWarning('One or more Zoho list endpoints may be incomplete (pagination cap). Narrow the date range if totals look off.')
   }
 
+  if (stockReconR && stockReconR.salesR && stockReconR.salesR.error) {
+    onWarning(
+      `Opening stock reconciliation — sales: ${(stockReconR.salesR.error && stockReconR.salesR.error.message) || stockReconR.salesR.error}`
+    )
+  }
+  if (stockReconR && stockReconR.purchR && stockReconR.purchR.error) {
+    onWarning(
+      `Opening stock reconciliation — bills: ${(stockReconR.purchR.error && stockReconR.purchR.error.message) || stockReconR.purchR.error}`
+    )
+  }
+  if (stockReconR && stockReconR.vcR && stockReconR.vcR.error) {
+    onWarning(
+      `Opening stock reconciliation — vendor credits: ${(stockReconR.vcR.error && stockReconR.vcR.error.message) || stockReconR.vcR.error}`
+    )
+  }
+  if (stockReconR && stockReconR.list_truncated) {
+    onWarning(
+      'Opening stock reconciliation may be incomplete (pagination cap). Narrow from_date or retry if opening totals look off.'
+    )
+  }
+
   const salesLines = (salesR && salesR.lines) || []
   const purchLines = (purchR && purchR.lines) || []
   const retLines = (vcR && vcR.lines) || []
+
+  const reconSalesLines = (stockReconR && stockReconR.salesR && stockReconR.salesR.lines) || []
+  const reconPurchLines = (stockReconR && stockReconR.purchR && stockReconR.purchR.lines) || []
+  const reconVcLines = (stockReconR && stockReconR.vcR && stockReconR.vcR.lines) || []
+  const smRecon = sumLinesToMap(
+    reconSalesLines.map((a) => ({ item_id: a.item_id, name: a.name, quantity: a.quantity })),
+    idToSku
+  )
+  const pmRecon = sumLinesToMap(
+    reconPurchLines.map((a) => ({ item_id: a.item_id, sku: a.sku, name: a.name, quantity: a.quantity })),
+    idToSku
+  )
+  const rmRecon = sumLinesToMap(
+    reconVcLines.map((a) => ({ item_id: a.item_id, sku: a.sku, name: a.name, quantity: a.quantity })),
+    idToSku
+  )
 
   // Build scoped transaction maps. Sales keep the sales-specific scope above;
   // purchases and credits keep the stock/warehouse include-exclude scope.
@@ -2001,7 +2058,11 @@ async function fetchZohoItemRowsForGroupMembers(
     const s = Number(row.sold) || 0
     const rQty = Number(row.returned_to_wholesale) || 0
     const rFromVc = mapLookupForReportRow(retAmountMap, row)
-    const qO = qC - p + s + rQty
+    const sAll = mapLookupForReportRow(smRecon, row)
+    const pAll = mapLookupForReportRow(pmRecon, row)
+    const rAll = mapLookupForReportRow(rmRecon, row)
+    const netDeltaStock = pAll - sAll - rAll
+    const qO = qC - netDeltaStock
     const salesPrice = parseZohoUnitSalesPrice(zItem) ?? unit
     const purchasePrice = parseZohoUnitPurchasePrice(zItem) ?? unit
     const returnedPrice = canValueStock ? unit : null
@@ -2191,6 +2252,13 @@ async function fetchZohoItemRowsForGroupMembers(
       purchases_source_count: purchLines.length,
       credits_source_count: retLines.length,
       opening_stock_derived: true,
+      opening_stock_reconciliation: {
+        from_date: fromDate,
+        through_date: throughDate,
+        formula: 'closing_qty_now − (all_vendor_purchases − all_sales − all_vendor_credits_qty)',
+        scope_note:
+          'Warehouse filters match transactionFilter for recon (includes excluding damaged warehouse on sales when applicable).',
+      },
       vendor_filter_applied: vfa,
       report_vendor: { vendorId: rv.vendorId, vendorName: rv.vendorName, source: rv.source },
       sales: {

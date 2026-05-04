@@ -115,6 +115,10 @@ export function hasPermission(user, module, action) {
   if (action === 'view' && module === 'sim_cards' && (mod.add || mod.edit || mod.delete)) return true
   // document expiry: write permissions imply view access
   if (action === 'view' && module === 'document_expiry' && (mod.add || mod.edit || mod.delete)) return true
+  // planner: manage implies view
+  if (action === 'view' && module === 'planner' && mod.manage) return true
+  // company_payments: write permissions imply view
+  if (action === 'view' && module === 'company_payments' && (mod.add || mod.edit || mod.delete)) return true
   return Boolean(mod[action])
 }
 

@@ -4,8 +4,21 @@ import { useAuth } from '../contexts/AuthContext'
 import { useEmployees } from '../hooks/useEmployees'
 import './RolesPermissionsPage.css'
 
+/** Sidebar-aligned sections for the permission editor (display order). */
+const MODULE_SECTION_ORDER = [
+  'HR',
+  'Marketing / Social Media',
+  'Lists',
+  'Management',
+  'Prices',
+  'Reports',
+  'Taxation',
+  'Planner',
+]
+
 const MODULES = [
   {
+    section: 'HR',
     key: 'attendance',
     label: 'Attendance',
     permissions: [
@@ -14,6 +27,7 @@ const MODULES = [
     ],
   },
   {
+    section: 'HR',
     key: 'leave',
     label: 'Annual Leave',
     permissions: [
@@ -22,6 +36,7 @@ const MODULES = [
     ],
   },
   {
+    section: 'HR',
     key: 'employees',
     label: 'Employees',
     permissions: [
@@ -30,9 +45,9 @@ const MODULES = [
     ],
   },
   {
+    section: 'Marketing / Social Media',
     key: 'influencers',
     label: 'Influencers',
-    group: 'influencers',
     permissions: [
       { key: 'view', label: 'View influencer list, profiles, pipeline, schedule and reports' },
       { key: 'manage', label: 'Add and edit influencers, update workflow stages (includes view)' },
@@ -42,6 +57,7 @@ const MODULES = [
     ],
   },
   {
+    section: 'Lists',
     key: 'sim_cards',
     label: 'Sim Cards List',
     permissions: [
@@ -52,6 +68,7 @@ const MODULES = [
     ],
   },
   {
+    section: 'Management',
     key: 'document_expiry',
     label: 'Document Expiry Tracker',
     permissions: [
@@ -62,13 +79,70 @@ const MODULES = [
     ],
   },
   {
-    key: 'weekly_reports',
-    label: 'Weekly reports (Ads)',
+    section: 'Management',
+    key: 'company_payments',
+    label: 'Company payments',
     permissions: [
-      { key: 'view', label: 'View Weekly Ads Report (local history & form)' },
+      { key: 'view', label: 'View company payments tracker' },
+      { key: 'add', label: 'Add payment records (includes view)' },
+      { key: 'edit', label: 'Edit payment records (includes view)' },
+      { key: 'delete', label: 'Delete payment records (includes view)' },
+    ],
+  },
+  {
+    section: 'Prices',
+    key: 'prices',
+    label: 'Prices (UAE & KSA)',
+    permissions: [
+      { key: 'view', label: 'View All Prices and Composite Items pricing tools' },
+    ],
+  },
+  {
+    section: 'Reports',
+    key: 'weekly_reports',
+    label: 'Reports & BI',
+    permissions: [
+      {
+        key: 'view',
+        label:
+          'Weekly Ads, weekly sales (combined / slow-moving / other family), Sales vs Expenses, Zoho item images, and Bulk Zoho Invoice',
+      },
+    ],
+  },
+  {
+    section: 'Taxation',
+    key: 'taxation',
+    label: 'KSA VAT Tax',
+    permissions: [{ key: 'view', label: 'View KSA VAT report and customer data (Zoho Books)' }],
+  },
+  {
+    section: 'Planner',
+    key: 'planner',
+    label: 'AI Task Planner',
+    permissions: [
+      { key: 'view', label: 'View projects, tasks, dashboard, and attachments' },
+      { key: 'manage', label: 'Create and edit projects, tasks, sections, and dependencies (includes view)' },
     ],
   },
 ]
+
+function modulesGroupedBySection() {
+  const map = new Map()
+  for (const title of MODULE_SECTION_ORDER) {
+    map.set(title, [])
+  }
+  for (const mod of MODULES) {
+    const sec = mod.section || 'Other'
+    if (!map.has(sec)) map.set(sec, [])
+    map.get(sec).push(mod)
+  }
+  return MODULE_SECTION_ORDER.filter((t) => (map.get(t) || []).length > 0).map((title) => ({
+    title,
+    modules: map.get(title) || [],
+  }))
+}
+
+const RBAC_SECTIONS = modulesGroupedBySection()
 
 function roleLabel(role) {
   const map = { employee: 'Employee', warehouse: 'Warehouse', admin: 'Admin' }
@@ -206,6 +280,46 @@ function ModuleIcon({ moduleKey, className = '' }) {
       <svg {...common}>
         <path d="M3 3v18h18" />
         <path d="M7 16l4-4 3 3 5-6" />
+      </svg>
+    )
+  }
+
+  if (moduleKey === 'planner') {
+    return (
+      <svg {...common}>
+        <path d="M9 11H5a2 2 0 0 0-2 2v7h18v-7a2 2 0 0 0-2-2h-4" />
+        <path d="M9 7V5a3 3 0 0 1 6 0v2" />
+        <path d="M9 11h6" />
+      </svg>
+    )
+  }
+
+  if (moduleKey === 'prices') {
+    return (
+      <svg {...common}>
+        <path d="M12 2v20" />
+        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+      </svg>
+    )
+  }
+
+  if (moduleKey === 'company_payments') {
+    return (
+      <svg {...common}>
+        <rect x="2" y="5" width="20" height="14" rx="2" />
+        <path d="M2 10h20" />
+        <path d="M7 15h5" />
+      </svg>
+    )
+  }
+
+  if (moduleKey === 'taxation') {
+    return (
+      <svg {...common}>
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <path d="M14 2v6h6" />
+        <path d="M8 13h8" />
+        <path d="M8 17h6" />
       </svg>
     )
   }
@@ -554,56 +668,68 @@ export function RolesPermissionsPage() {
 
 
               <div className={`rbac-modules ${!selectedUser.has_account ? 'rbac-modules--disabled' : ''}`}>
-                {MODULES.map((mod) => {
-                  const modPerms = localPerms[mod.key] || {}
-                  const anyGranted = selectedUser.has_account && mod.permissions.some((p) => modPerms[p.key])
-                  const allGranted = selectedUser.has_account && mod.permissions.every((p) => modPerms[p.key])
-                  return (
-                    <div key={mod.key} className={`rbac-module ${anyGranted ? 'rbac-module--active' : ''}`}>
-                      <div className="rbac-module__head">
-                        <span className="rbac-module__icon"><ModuleIcon moduleKey={mod.key} className="rbac-module__icon-svg" /></span>
-                        <h3 className="rbac-module__label">{mod.label}</h3>
-                        <div className="rbac-module__actions">
-                          {!allGranted && (
-                            <button
-                              type="button"
-                              className="rbac-btn-sm rbac-btn-sm--grant"
-                              onClick={() => grantAll(mod.key)}
-                            >
-                              Grant all
-                            </button>
-                          )}
-                          {anyGranted && (
-                            <button
-                              type="button"
-                              className="rbac-btn-sm rbac-btn-sm--revoke"
-                              onClick={() => revokeAll(mod.key)}
-                            >
-                              Revoke all
-                            </button>
-                          )}
+                {RBAC_SECTIONS.map(({ title, modules }) => (
+                  <div key={title} className="rbac-section">
+                    <h3 className="rbac-section__title">{title}</h3>
+                    {modules.map((mod) => {
+                      const modPerms = localPerms[mod.key] || {}
+                      const anyGranted =
+                        selectedUser.has_account && mod.permissions.some((p) => modPerms[p.key])
+                      const allGranted =
+                        selectedUser.has_account && mod.permissions.every((p) => modPerms[p.key])
+                      return (
+                        <div
+                          key={mod.key}
+                          className={`rbac-module ${anyGranted ? 'rbac-module--active' : ''}`}
+                        >
+                          <div className="rbac-module__head">
+                            <span className="rbac-module__icon">
+                              <ModuleIcon moduleKey={mod.key} className="rbac-module__icon-svg" />
+                            </span>
+                            <h3 className="rbac-module__label">{mod.label}</h3>
+                            <div className="rbac-module__actions">
+                              {!allGranted && (
+                                <button
+                                  type="button"
+                                  className="rbac-btn-sm rbac-btn-sm--grant"
+                                  onClick={() => grantAll(mod.key)}
+                                >
+                                  Grant all
+                                </button>
+                              )}
+                              {anyGranted && (
+                                <button
+                                  type="button"
+                                  className="rbac-btn-sm rbac-btn-sm--revoke"
+                                  onClick={() => revokeAll(mod.key)}
+                                >
+                                  Revoke all
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <ul className="rbac-module__perms">
+                            {mod.permissions.map((perm) => {
+                              const checked = Boolean(modPerms[perm.key])
+                              return (
+                                <li key={perm.key} className="rbac-perm-row">
+                                  <label className="rbac-perm-label">
+                                    <Toggle
+                                      on={checked}
+                                      onChange={() => togglePerm(mod.key, perm.key)}
+                                      disabled={!selectedUser.has_account}
+                                    />
+                                    <span className="rbac-perm-label__text">{perm.label}</span>
+                                  </label>
+                                </li>
+                              )
+                            })}
+                          </ul>
                         </div>
-                      </div>
-                      <ul className="rbac-module__perms">
-                        {mod.permissions.map((perm) => {
-                          const checked = Boolean(modPerms[perm.key])
-                          return (
-                            <li key={perm.key} className="rbac-perm-row">
-                              <label className="rbac-perm-label">
-                                <Toggle
-                                  on={checked}
-                                  onChange={() => togglePerm(mod.key, perm.key)}
-                                  disabled={!selectedUser.has_account}
-                                />
-                                <span className="rbac-perm-label__text">{perm.label}</span>
-                              </label>
-                            </li>
-                          )
-                        })}
-                      </ul>
-                    </div>
-                  )
-                })}
+                      )
+                    })}
+                  </div>
+                ))}
               </div>
 
               {selectedUser.has_account && selectedUser.role === 'employee' && selectedUser.employee_id && (

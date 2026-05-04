@@ -432,8 +432,12 @@ export function Layout() {
   const isZohoActive = location.pathname.startsWith('/admin/zoho')
   const hasAnyInfluencerAccess = hasAnyModulePermission(user, 'influencers')
   const hasAnyListsAccess = hasAnyModulePermission(user, 'sim_cards')
-  const hasAnyManagementAccess = hasAnyModulePermission(user, 'document_expiry') || isAdmin
+  const hasAnyManagementAccess =
+    hasAnyModulePermission(user, 'document_expiry') ||
+    hasAnyModulePermission(user, 'company_payments') ||
+    isAdmin
   const hasWeeklyReportsAccess = can('weekly_reports', 'view')
+  const hasPlannerAccess = isAdmin || can('planner', 'view')
   const currentSectionLabel = useMemo(() => {
     if (location.pathname.startsWith('/employees')) return 'Employees'
     if (location.pathname.startsWith('/attendance')) return 'Attendance'
@@ -494,22 +498,22 @@ export function Layout() {
   ].filter(Boolean)
 
   const pricesItems = [
-    can('document_expiry', 'view') && { label: 'All Prices (UAE & KSA)', to: '/prices/all-prices' },
-    can('document_expiry', 'view') && { label: 'Composite Items Prices', to: '/prices/composite-items' },
+    can('prices', 'view') && { label: 'All Prices (UAE & KSA)', to: '/prices/all-prices' },
+    can('prices', 'view') && { label: 'Composite Items Prices', to: '/prices/composite-items' },
   ].filter(Boolean)
 
   const hasAnyPricesAccess = pricesItems.length > 0
 
   const managementItems = [
     can('document_expiry', 'view') && { label: 'Document Expiry Tracker', to: '/management/document-expiry' },
-    can('document_expiry', 'view') && { label: 'Payments', to: '/management/payments' },
+    can('company_payments', 'view') && { label: 'Payments', to: '/management/payments' },
     isAdmin && { label: 'Purchase Planning', to: '/management/purchase-planning' },
   ].filter(Boolean)
 
   const isTaxationActive = location.pathname.startsWith('/taxation')
 
   const TAXATION_ITEMS = [
-    hasWeeklyReportsAccess && { label: 'KSA VAT Tax', to: '/taxation/ksa-vat' },
+    can('taxation', 'view') && { label: 'KSA VAT Tax', to: '/taxation/ksa-vat' },
   ].filter(Boolean)
 
   const REPORTS_ITEMS = [
@@ -528,7 +532,7 @@ export function Layout() {
       influencers: { title: 'Marketing / Social Media', items: withIcons(INFLUENCER_ITEMS) },
       planner: {
         title: 'Planner',
-        items: withIcons(isAdmin ? PLANNER_NAV_ITEMS : []),
+        items: withIcons(hasPlannerAccess ? PLANNER_NAV_ITEMS : []),
       },
       management: { title: 'Management', items: withIcons(managementItems) },
       prices: { title: 'Prices', items: withIcons(pricesItems) },
@@ -543,6 +547,7 @@ export function Layout() {
     listsItems,
     INFLUENCER_ITEMS,
     isAdmin,
+    hasPlannerAccess,
     managementItems,
     pricesItems,
     REPORTS_ITEMS,
@@ -554,7 +559,13 @@ export function Layout() {
     ...hrItems.map(i => ({ ...i, group: 'HR' })),
     ...listsItems.map(i => ({ ...i, group: 'Lists' })),
     ...INFLUENCER_ITEMS.map(i => ({ ...i, group: 'Marketing / Social Media' })),
-    ...(isAdmin ? PLANNER_NAV_ITEMS.map(i => ({ ...i, group: 'AI Planner', searchHint: 'planner projects tasks ai' })) : []),
+    ...(hasPlannerAccess
+      ? PLANNER_NAV_ITEMS.map((i) => ({
+          ...i,
+          group: 'AI Planner',
+          searchHint: 'planner projects tasks ai',
+        }))
+      : []),
     ...pricesItems.map((i) => ({
       ...i,
       group: 'Prices',
@@ -601,7 +612,7 @@ export function Layout() {
           : '',
     })),
     { label: 'My Account', to: '/account', group: 'Account' },
-  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, managementItems, pricesItems, REPORTS_ITEMS, TAXATION_ITEMS, zohoItems])
+  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, hasPlannerAccess, managementItems, pricesItems, REPORTS_ITEMS, TAXATION_ITEMS, zohoItems])
 
   const showSidebarBackdrop = isSidebarOpen && navMode === 'full'
 
@@ -757,7 +768,7 @@ export function Layout() {
                   </>
                 )}
 
-                {isAdmin && (
+                {hasPlannerAccess && (
                   <>
                     <div className="app-sidebar__section-label" role="presentation">
                       AI Planner

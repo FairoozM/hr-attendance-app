@@ -8,6 +8,31 @@ const { buildZohoLookupMaps, findZohoItemForMember, aggregateByFamily, scoreZoho
 
 const VENDOR = '4265011000000080014'
 
+/** Same shape as `getStockReconstruction` — use in tests with async () => bundle */
+function mockStockReconstructionBundle(salesLines, purchLines, retLines) {
+  return {
+    salesR: {
+      lines: salesLines,
+      line_count: salesLines.length,
+      list_truncated: false,
+      error: null,
+    },
+    purchR: {
+      lines: purchLines,
+      line_count: purchLines.length,
+      list_truncated: false,
+      error: null,
+    },
+    vcR: {
+      lines: retLines,
+      line_count: retLines.length,
+      list_truncated: false,
+      error: null,
+    },
+    list_truncated: false,
+  }
+}
+
 test('findZohoItemForMember: by sku, then item_id, then name', () => {
   const raw = [
     { sku: 'S1', name: 'N1', item_id: '10' },
@@ -26,6 +51,7 @@ test('buildWeeklyReportScope: explicit include beats exclusion and non-damaged e
     warehouseId: null,
     excludeWarehouseId: 'damaged',
     transactionFilter: { excludeWarehouseId: 'damaged' },
+    salesTransactionFilter: {},
     stockWarehouseId: null,
     subtractStockWarehouseId: 'damaged',
   })
@@ -34,6 +60,7 @@ test('buildWeeklyReportScope: explicit include beats exclusion and non-damaged e
     warehouseId: 'main',
     excludeWarehouseId: null,
     transactionFilter: { warehouseId: 'main' },
+    salesTransactionFilter: { warehouseId: 'main' },
     stockWarehouseId: 'main',
     subtractStockWarehouseId: null,
   })
@@ -91,6 +118,7 @@ test('buildFamilyWarehouseMatrixForGroupMembers: splits stock and sales by Zoho 
     }),
     getPurchases: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
     getVendorCredits: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getStockReconstruction: async () => mockStockReconstructionBundle([], [], []),
   })
   t.after(() => {
     r1()
@@ -166,6 +194,7 @@ test('buildFamilyWarehouseMatrixForGroupMembers: closing shows zero qty when sto
     }),
     getPurchases: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
     getVendorCredits: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getStockReconstruction: async () => mockStockReconstructionBundle([], [], []),
   })
   t.after(() => {
     r1()
@@ -241,6 +270,7 @@ test('buildFamilyWarehouseMatrixForGroupMembers: hydrates item details when list
     getSales: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
     getPurchases: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
     getVendorCredits: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getStockReconstruction: async () => mockStockReconstructionBundle([], [], []),
   })
   t.after(() => {
     r1()
@@ -301,14 +331,17 @@ test('fetchZohoItemRowsForGroupMembers: stock columns are monetary, debug + tota
   })
   const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
     getSales: async () => ({ lines: salesLines, line_count: salesLines.length, list_truncated: false, error: null }),
-    getPurchases: async (from, to, vendorId) => {
-      assert.equal(String(vendorId), VENDOR)
+    getPurchases: async (from, to, vendorId, opts) => {
+      if (opts && opts.stockReconstructionAllVendors) assert.equal(vendorId, null)
+      else assert.equal(String(vendorId), VENDOR)
       return { lines: purchLines, line_count: purchLines.length, list_truncated: false, error: null }
     },
-    getVendorCredits: async (from, to, vendorId) => {
-      assert.equal(String(vendorId), VENDOR)
+    getVendorCredits: async (from, to, vendorId, opts) => {
+      if (opts && opts.stockReconstructionAllVendors) assert.equal(vendorId, null)
+      else assert.equal(String(vendorId), VENDOR)
       return { lines: retLines, line_count: retLines.length, list_truncated: false, error: null }
     },
+    getStockReconstruction: async () => mockStockReconstructionBundle(salesLines, purchLines, retLines),
   })
   t.after(() => {
     r1()
@@ -354,6 +387,131 @@ test('fetchZohoItemRowsForGroupMembers: stock columns are monetary, debug + tota
   assert.equal(totals.closing_stock, 7)
 })
 
+test('fetchZohoItemRowsForGroupMembers: opening recon counts sales after to_date (period-only would undercount)', async (t) => {
+  const prevN = process.env.NODE_ENV
+  const prevR = process.env.REPORT_VENDOR_ID
+  process.env.NODE_ENV = 'test'
+  process.env.REPORT_VENDOR_ID = VENDOR
+  const periodSales = [{ item_id: '10', name: 'N1', quantity: 3, item_total: 30, document_id: 'i1' }]
+  const reconSales = [
+    { item_id: '10', name: 'N1', quantity: 3, item_total: 30, document_id: 'i1' },
+    { item_id: '10', name: 'N1', quantity: 2, item_total: 20, document_id: 'i2' },
+  ]
+  const purchLines = [{ item_id: '10', name: 'N1', quantity: 2, item_total: 20, document_id: 'b1' }]
+  const retLines = [{ item_id: '10', name: 'N1', quantity: 1, item_total: 5, document_id: 'v1' }]
+  const r1 = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: null }),
+    orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
+  })
+  const r2 = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchAllItemsRaw: async () => [
+      { sku: 'S1', name: 'N1', item_id: '10', status: 'active', stock_on_hand: 7, rate: 1 },
+    ],
+  })
+  const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
+    getSales: async () => ({ lines: periodSales, line_count: periodSales.length, list_truncated: false, error: null }),
+    getPurchases: async (from, to, vendorId, opts) => {
+      if (opts && opts.stockReconstructionAllVendors) assert.equal(vendorId, null)
+      else assert.equal(String(vendorId), VENDOR)
+      return { lines: purchLines, line_count: purchLines.length, list_truncated: false, error: null }
+    },
+    getVendorCredits: async (from, to, vendorId, opts) => {
+      if (opts && opts.stockReconstructionAllVendors) assert.equal(vendorId, null)
+      else assert.equal(String(vendorId), VENDOR)
+      return { lines: retLines, line_count: retLines.length, list_truncated: false, error: null }
+    },
+    getStockReconstruction: async () => mockStockReconstructionBundle(reconSales, purchLines, retLines),
+  })
+  t.after(() => {
+    r1()
+    r2()
+    r3()
+    if (prevN === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = prevN
+    if (prevR === undefined) delete process.env.REPORT_VENDOR_ID
+    else process.env.REPORT_VENDOR_ID = prevR
+    const resolved = require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })
+    delete require.cache[resolved]
+  })
+  const m = freshRequire('../src/services/weeklyReportZohoData')
+  const { items, reportMeta } = await m.fetchZohoItemRowsForGroupMembers(
+    [{ sku: 'S1' }],
+    '2026-01-01',
+    '2026-01-07',
+    null,
+    'slow_moving'
+  )
+  const row = items[0]
+  // Period-only would give 7 - 2 + 3 + 1 = 9; recon has +2 sold after period → opening 11
+  assert.equal(row.opening_stock, 11)
+  assert.equal(row.closing_stock, 7)
+  assert.ok(
+    /^\d{4}-\d{2}-\d{2}$/.test(String(reportMeta.transaction_debug.opening_stock_reconciliation.through_date)),
+    'through_date is server-local YYYY-MM-DD'
+  )
+})
+
+test('fetchZohoItemRowsForGroupMembers: opening recon sums all vendor credits (not report vendor only)', async (t) => {
+  const prevN = process.env.NODE_ENV
+  const prevR = process.env.REPORT_VENDOR_ID
+  process.env.NODE_ENV = 'test'
+  process.env.REPORT_VENDOR_ID = VENDOR
+  const salesLines = [{ item_id: '10', name: 'N1', quantity: 3, item_total: 30, document_id: 'i1' }]
+  const purchLines = [{ item_id: '10', name: 'N1', quantity: 2, item_total: 20, document_id: 'b1' }]
+  const periodVc = [{ item_id: '10', name: 'N1', quantity: 1, item_total: 5, document_id: 'v1' }]
+  const reconVc = [
+    { item_id: '10', name: 'N1', quantity: 1, item_total: 5, document_id: 'v1' },
+    { item_id: '10', name: 'N1', quantity: 4, item_total: 1, document_id: 'v2' },
+  ]
+  const r1 = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: null }),
+    orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
+  })
+  const r2 = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchAllItemsRaw: async () => [
+      { sku: 'S1', name: 'N1', item_id: '10', status: 'active', stock_on_hand: 7, rate: 1 },
+    ],
+  })
+  const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
+    getSales: async () => ({ lines: salesLines, line_count: salesLines.length, list_truncated: false, error: null }),
+    getPurchases: async (from, to, vendorId, opts) => {
+      if (opts && opts.stockReconstructionAllVendors) assert.equal(vendorId, null)
+      else assert.equal(String(vendorId), VENDOR)
+      return { lines: purchLines, line_count: purchLines.length, list_truncated: false, error: null }
+    },
+    getVendorCredits: async (from, to, vendorId, opts) => {
+      if (opts && opts.stockReconstructionAllVendors) assert.equal(vendorId, null)
+      else assert.equal(String(vendorId), VENDOR)
+      return { lines: periodVc, line_count: periodVc.length, list_truncated: false, error: null }
+    },
+    getStockReconstruction: async () => mockStockReconstructionBundle(salesLines, purchLines, reconVc),
+  })
+  t.after(() => {
+    r1()
+    r2()
+    r3()
+    if (prevN === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = prevN
+    if (prevR === undefined) delete process.env.REPORT_VENDOR_ID
+    else process.env.REPORT_VENDOR_ID = prevR
+    const resolved = require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })
+    delete require.cache[resolved]
+  })
+  const m = freshRequire('../src/services/weeklyReportZohoData')
+  const { items } = await m.fetchZohoItemRowsForGroupMembers(
+    [{ sku: 'S1' }],
+    '2026-01-01',
+    '2026-01-31',
+    null,
+    'slow_moving'
+  )
+  const row = items[0]
+  assert.equal(row.returned_to_wholesale, 1)
+  // qC=7; period-only opening 9; recon rAll=5 → qO = 7 - (2 - 3 - 5) = 13
+  assert.equal(row.opening_stock, 13)
+  assert.equal(row.closing_stock, 7)
+})
+
 test('fetchZohoItemRowsForGroupMembers: all_non_damaged scope filters every metric consistently', async (t) => {
   const prevN = process.env.NODE_ENV
   const prevR = process.env.REPORT_VENDOR_ID
@@ -363,7 +521,7 @@ test('fetchZohoItemRowsForGroupMembers: all_non_damaged scope filters every metr
   process.env.REPORT_VENDOR_ID = VENDOR
   delete process.env.WEEKLY_REPORT_VENDORS_JSON
   delete process.env.WEEKLY_REPORT_VENDOR_CREDITS_CONTACT_ID
-  const calls = { sales: null, purchases: null, credits: null }
+  const calls = { sales: null, purchases: null, credits: null, recon: null }
   const r1 = mockModule('../src/integrations/zoho/zohoConfig', {
     readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: 'cf1' }),
     orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
@@ -391,14 +549,28 @@ test('fetchZohoItemRowsForGroupMembers: all_non_damaged scope filters every metr
       return { lines: [{ item_id: '10', name: 'N1', quantity: 3, item_total: 30 }], line_count: 1, list_truncated: false, error: null }
     },
     getPurchases: async (from, to, vendorId, opts) => {
-      assert.equal(String(vendorId), VENDOR)
-      calls.purchases = opts
+      if (opts && opts.stockReconstructionAllVendors) assert.equal(vendorId, null)
+      else {
+        assert.equal(String(vendorId), VENDOR)
+        calls.purchases = opts
+      }
       return { lines: [{ item_id: '10', name: 'N1', quantity: 2, item_total: 20 }], line_count: 1, list_truncated: false, error: null }
     },
     getVendorCredits: async (from, to, vendorId, opts) => {
-      assert.equal(String(vendorId), VENDOR)
-      calls.credits = opts
+      if (opts && opts.stockReconstructionAllVendors) assert.equal(vendorId, null)
+      else {
+        assert.equal(String(vendorId), VENDOR)
+        calls.credits = opts
+      }
       return { lines: [{ item_id: '10', name: 'N1', quantity: 1, item_total: 10 }], line_count: 1, list_truncated: false, error: null }
+    },
+    getStockReconstruction: async (_from, _through, opts) => {
+      calls.recon = opts
+      return mockStockReconstructionBundle(
+        [{ item_id: '10', name: 'N1', quantity: 3, item_total: 30 }],
+        [{ item_id: '10', name: 'N1', quantity: 2, item_total: 20 }],
+        [{ item_id: '10', name: 'N1', quantity: 1, item_total: 10 }]
+      )
     },
   })
   t.after(() => {
@@ -426,9 +598,10 @@ test('fetchZohoItemRowsForGroupMembers: all_non_damaged scope filters every metr
     null,
     'damaged'
   )
-  assert.equal(calls.sales.excludeWarehouseId, 'damaged')
+  assert.equal(calls.sales.excludeWarehouseId, undefined)
   assert.equal(calls.purchases.excludeWarehouseId, 'damaged')
   assert.equal(calls.credits.excludeWarehouseId, 'damaged')
+  assert.equal(calls.recon.excludeWarehouseId, 'damaged')
   const row = items[0]
   // closing qty = global 10 - damaged 4 = 6; opening qty = 6 - purchases 2 + sold 3 + returns 1 = 8; unit = 2
   assert.equal(row.closing_stock, 12)
@@ -466,14 +639,17 @@ test('fetchZohoItemRowsForGroupMembers: purchase_rate used when selling rate abs
   })
   const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
     getSales: async () => ({ lines: salesLines, line_count: salesLines.length, list_truncated: false, error: null }),
-    getPurchases: async (from, to, vendorId) => {
-      assert.equal(String(vendorId), VENDOR)
+    getPurchases: async (from, to, vendorId, opts) => {
+      if (opts && opts.stockReconstructionAllVendors) assert.equal(vendorId, null)
+      else assert.equal(String(vendorId), VENDOR)
       return { lines: purchLines, line_count: purchLines.length, list_truncated: false, error: null }
     },
-    getVendorCredits: async (from, to, vendorId) => {
-      assert.equal(String(vendorId), VENDOR)
+    getVendorCredits: async (from, to, vendorId, opts) => {
+      if (opts && opts.stockReconstructionAllVendors) assert.equal(vendorId, null)
+      else assert.equal(String(vendorId), VENDOR)
       return { lines: retLines, line_count: retLines.length, list_truncated: false, error: null }
     },
+    getStockReconstruction: async () => mockStockReconstructionBundle(salesLines, purchLines, retLines),
   })
   t.after(() => {
     r1()
@@ -542,6 +718,7 @@ test('fetchZohoItemRowsForGroupMembers: implied unit from sales when Zoho has no
     getSales: async () => ({ lines: salesLines, line_count: salesLines.length, list_truncated: false, error: null }),
     getPurchases: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
     getVendorCredits: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getStockReconstruction: async () => mockStockReconstructionBundle(salesLines, [], []),
   })
   t.after(() => {
     r1()
@@ -620,6 +797,7 @@ test('fetchZohoItemRowsForGroupMembers: other_family adds Zoho families not in i
     getSales: async () => ({ lines: salesLines, line_count: salesLines.length, list_truncated: false, error: null }),
     getPurchases: async () => ({ lines: noLines, line_count: 0, list_truncated: false, error: null }),
     getVendorCredits: async () => ({ lines: noLines, line_count: 0, list_truncated: false, error: null }),
+    getStockReconstruction: async () => mockStockReconstructionBundle(salesLines, noLines, noLines),
   })
   const r4 = mockModule('../src/services/itemReportGroupsService', {
     listAllActiveMemberRows: async () => [
@@ -713,6 +891,7 @@ test('fetchZohoItemRowsForGroupMembers: other_family skips unmapped if family is
     getSales: async () => ({ lines: salesLines, line_count: salesLines.length, list_truncated: false, error: null }),
     getPurchases: async () => ({ lines: noLines, line_count: 0, list_truncated: false, error: null }),
     getVendorCredits: async () => ({ lines: noLines, line_count: 0, list_truncated: false, error: null }),
+    getStockReconstruction: async () => mockStockReconstructionBundle(salesLines, noLines, noLines),
   })
   const r4 = mockModule('../src/services/itemReportGroupsService', {
     listAllActiveMemberRows: async () => [
@@ -1112,6 +1291,7 @@ test('buildFamilyWarehouseMatrixForGroupMembers: familyMainRows override totals 
     getSales: async () => ({ lines: [{ item_id: '99', quantity: 1, item_total: 50, warehouse_id: 'wh1' }], line_count: 1, list_truncated: false, error: null }),
     getPurchases: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
     getVendorCredits: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getStockReconstruction: async () => mockStockReconstructionBundle([], [], []),
   })
   t.after(() => {
     r1(); r2(); r3()
@@ -1173,6 +1353,7 @@ test('buildFamilyWarehouseMatrixForGroupMembers: totalsSource = matrix_sections 
     getSales: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
     getPurchases: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
     getVendorCredits: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getStockReconstruction: async () => mockStockReconstructionBundle([], [], []),
   })
   t.after(() => {
     r1(); r2(); r3()
@@ -1216,6 +1397,7 @@ test('buildFamilyWarehouseMatrixForGroupMembers: skuItemRows drives SKU set — 
     getSales: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
     getPurchases: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
     getVendorCredits: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getStockReconstruction: async () => mockStockReconstructionBundle([], [], []),
   })
   t.after(() => {
     r1(); r2(); r3()
@@ -1269,6 +1451,7 @@ test('buildFamilyWarehouseMatrixForGroupMembers: skuItemRows patch overrides loc
     getSales: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
     getPurchases: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
     getVendorCredits: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getStockReconstruction: async () => mockStockReconstructionBundle([], [], []),
   })
   t.after(() => {
     r1(); r2(); r3()
@@ -1467,6 +1650,7 @@ test('buildFamilyWarehouseMatrixForGroupMembers: __unassigned__ column in respon
     getSales: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
     getPurchases: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
     getVendorCredits: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getStockReconstruction: async () => mockStockReconstructionBundle([], [], []),
   })
   t.after(() => {
     r1(); r2(); r3()

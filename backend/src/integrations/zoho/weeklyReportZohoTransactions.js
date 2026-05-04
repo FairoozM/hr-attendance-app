@@ -126,6 +126,14 @@ function isDateInRangeIncl(iso, from, to) {
   return s.length >= 10 && s >= from && s <= to
 }
 
+/** Server-local calendar date YYYY-MM-DD (opening-stock reconciliation anchor). */
+function isoDateLocal(d = new Date()) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 function parseLineQty(v) {
   if (v == null) return 0
   if (typeof v === 'number' && Number.isFinite(v)) return v
@@ -595,6 +603,68 @@ async function getSales(fromDate, toDate, opts = {}) {
   return p
 }
 
+/** @type {Map<string, { value: object, expiresAt: number }>} */
+const _stockReconCache = new Map()
+/** @type {Map<string, Promise<object>>} */
+const _stockReconInFlight = new Map()
+
+const STOCK_RECON_CACHE_TTL_MS =
+  process.env.ZOHO_STOCK_RECON_CACHE_TTL_MS !== undefined
+    ? Math.max(0, parseInt(process.env.ZOHO_STOCK_RECON_CACHE_TTL_MS, 10) || 0)
+    : SALES_DETAIL_CACHE_TTL_MS
+
+/**
+ * Sales, bills, and vendor credits over `[fromDate, throughDate]` for opening-stock reconciliation.
+ * Bills and vendor credits include **all vendors**; warehouse scope matches `opts` (same as purchases / credits).
+ *
+ * @param {string} fromDate - YYYY-MM-DD
+ * @param {string} throughDate - YYYY-MM-DD (typically {@link isoDateLocal})
+ * @param {{ onWarning?: (s: string) => void, reportGroup?: string, warehouseId?: string, excludeWarehouseId?: string, includeWarehouseDetail?: boolean }} [opts]
+ */
+async function getStockReconstructionUncached(fromDate, throughDate, opts = {}) {
+  const [salesR, purchR, vcR] = await Promise.all([
+    getSales(fromDate, throughDate, opts),
+    getPurchases(fromDate, throughDate, null, {
+      ...opts,
+      stockReconstructionAllVendors: true,
+    }),
+    getVendorCredits(fromDate, throughDate, null, {
+      ...opts,
+      stockReconstructionAllVendors: true,
+    }),
+  ])
+  return {
+    salesR,
+    purchR,
+    vcR,
+    list_truncated: !!(salesR.list_truncated || purchR.list_truncated || vcR.list_truncated),
+  }
+}
+
+async function getStockReconstruction(fromDate, throughDate, opts = {}) {
+  const key = [
+    String(fromDate || ''),
+    String(throughDate || ''),
+    normalizeWarehouseId(opts.warehouseId),
+    normalizeWarehouseId(opts.excludeWarehouseId),
+  ].join('|')
+  const hit = _stockReconCache.get(key)
+  if (hit && Date.now() < hit.expiresAt) return hit.value
+  if (_stockReconInFlight.has(key)) return _stockReconInFlight.get(key)
+  const p = getStockReconstructionUncached(fromDate, throughDate, opts)
+    .then((value) => {
+      if (value && STOCK_RECON_CACHE_TTL_MS > 0) {
+        _stockReconCache.set(key, { value, expiresAt: Date.now() + STOCK_RECON_CACHE_TTL_MS })
+      }
+      return value
+    })
+    .finally(() => {
+      _stockReconInFlight.delete(key)
+    })
+  _stockReconInFlight.set(key, p)
+  return p
+}
+
 /**
  * Purchase **line items** from Zoho `GET /inventory/v1/bills` (not the Purchases-by-Item
  * report): bill lines are actual purchases, whereas the report can show per-item figures
@@ -621,19 +691,22 @@ async function getPurchases(fromDate, toDate, _vendorId, opts = {}) {
   )
   const t0 = Date.now()
   const cfg = getVendorConfigForGroup(String(opts.reportGroup || ''))
+  const reconPurchasesAllVendors = !!opts.stockReconstructionAllVendors
   const pMode =
     cfg.purchases && String(cfg.purchases.mode).toLowerCase() === 'by_contact_id' ? 'by_contact_id' : 'unfiltered'
   const pContact =
     pMode === 'by_contact_id' && cfg.purchases && cfg.purchases.contact_id
       ? String(cfg.purchases.contact_id).trim()
       : ''
-  if (pMode === 'by_contact_id' && !pContact) {
+  if (!reconPurchasesAllVendors && pMode === 'by_contact_id' && !pContact) {
     onW('WEEKLY_REPORT_PURCHASES_MODE=by_contact_id but no contact_id set; using all vendors for purchases.')
   }
   const filterBill =
-    pMode === 'by_contact_id' && pContact
-      ? (b) => matchesBillDocument(b, pContact, undefined)
-      : () => true
+    reconPurchasesAllVendors
+      ? () => true
+      : pMode === 'by_contact_id' && pContact
+        ? (b) => matchesBillDocument(b, pContact, undefined)
+        : () => true
   const detailById = new Map()
   const fetchBillDetail = (billId) => {
     if (!billId) return Promise.resolve(null)
@@ -728,7 +801,12 @@ async function getVendorCredits(fromDate, toDate, vendorId, opts = {}) {
     normalizeWarehouseId(opts.excludeWarehouseId)
   )
   const vname = opts.vendorName
-  if ((vendorId == null || String(vendorId).trim() === '') && !vname) {
+  const reconVcAllVendors = !!opts.stockReconstructionAllVendors
+  if (
+    !reconVcAllVendors &&
+    (vendorId == null || String(vendorId).trim() === '') &&
+    !vname
+  ) {
     return {
       lines: [],
       line_count: 0,
@@ -775,7 +853,7 @@ async function getVendorCredits(fromDate, toDate, vendorId, opts = {}) {
     for (const vc of rows) {
       if (!isNotVoidStatus(vc)) continue
       if (!isDateInRangeIncl(vc.date, fromDate, toDate)) continue
-      if (!matchesVendorCreditDocument(vc, vid, vname2)) continue
+      if (!reconVcAllVendors && !matchesVendorCreditDocument(vc, vid, vname2)) continue
       let lines = normalizeZohoLineItems(vc.line_items)
       let lineDoc = vc
       if ((needsWarehouseDetail || lines.length === 0) && vc.vendor_credit_id) {
@@ -820,6 +898,8 @@ module.exports = {
   getSales,
   getPurchases,
   getVendorCredits,
+  getStockReconstruction,
+  isoDateLocal,
   isDateInRangeIncl,
   _internals: {
     parseLineQty,
@@ -837,5 +917,6 @@ module.exports = {
     /** @deprecated use itemTotalNetFromSalesByItemRow (pre-tax only) */
     itemTotalGrossFromSalesByItemRow: (r) => itemTotalNetFromSalesByItemRow(r),
     resolveWeeklyReportSalesVatRate,
+    isoDateLocal,
   },
 }

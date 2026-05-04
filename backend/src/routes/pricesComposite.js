@@ -7,7 +7,7 @@ const router = express.Router()
 router.post(
   '/composite-items/lookup',
   auth.requireAuth,
-  auth.requirePermission('document_expiry', 'view'),
+  auth.requirePermission('prices', 'view'),
   ctrl.postLookup
 )
 

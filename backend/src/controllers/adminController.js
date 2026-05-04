@@ -25,6 +25,10 @@ const VALID_MODULES = [
   'sim_cards',
   'document_expiry',
   'weekly_reports',
+  'planner',
+  'prices',
+  'company_payments',
+  'taxation',
 ]
 const VALID_ACTIONS = {
   attendance: ['view', 'manage'],
@@ -34,6 +38,10 @@ const VALID_ACTIONS = {
   sim_cards: ['view', 'add', 'edit', 'delete'],
   document_expiry: ['view', 'add', 'edit', 'delete'],
   weekly_reports: ['view'],
+  planner: ['view', 'manage'],
+  prices: ['view'],
+  company_payments: ['view', 'add', 'edit', 'delete'],
+  taxation: ['view'],
 }
 
 /**

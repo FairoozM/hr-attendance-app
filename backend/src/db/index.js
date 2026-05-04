@@ -701,6 +701,85 @@ async function normalizeEmployeePhotoUrls() {
   `)
 }
 
+/**
+ * One-time: derive prices, company_payments, and taxation keys from legacy modules
+ * so existing users keep access after splitting permissions (plan migration A).
+ */
+async function migratePermissionsNewModulesOnce() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS schema_patches (
+      id TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  const patchId = 'permissions_modules_v2_20260504'
+  const exists = await query(`SELECT 1 FROM schema_patches WHERE id = $1`, [patchId])
+  if (exists.rows.length > 0) return
+
+  const { rows } = await query(`SELECT id, permissions FROM users WHERE role <> 'admin'`)
+  for (const row of rows) {
+    let p = row.permissions
+    if (p == null) p = {}
+    if (typeof p === 'string') {
+      try {
+        p = JSON.parse(p)
+      } catch {
+        p = {}
+      }
+    }
+    const next = { ...p }
+    let changed = false
+
+    const de = p.document_expiry || {}
+    if (de.view && !next.prices?.view) {
+      next.prices = { ...(next.prices || {}), view: true }
+      changed = true
+    }
+
+    if (de.view || de.add || de.edit || de.delete) {
+      const cp = { ...(next.company_payments || {}) }
+      let cpChanged = false
+      const needView = !!(de.view || de.add || de.edit || de.delete)
+      if (needView && !cp.view) {
+        cp.view = true
+        cpChanged = true
+      }
+      if (de.add && !cp.add) {
+        cp.add = true
+        cpChanged = true
+      }
+      if (de.edit && !cp.edit) {
+        cp.edit = true
+        cpChanged = true
+      }
+      if (de.delete && !cp.delete) {
+        cp.delete = true
+        cpChanged = true
+      }
+      if (cpChanged) {
+        next.company_payments = cp
+        changed = true
+      }
+    }
+
+    const wr = p.weekly_reports || {}
+    if (wr.view && !next.taxation?.view) {
+      next.taxation = { ...(next.taxation || {}), view: true }
+      changed = true
+    }
+
+    if (changed) {
+      await query(`UPDATE users SET permissions = $1::jsonb, updated_at = NOW() WHERE id = $2`, [
+        JSON.stringify(next),
+        row.id,
+      ])
+    }
+  }
+
+  await query(`INSERT INTO schema_patches (id) VALUES ($1)`, [patchId])
+  console.log('[db] migratePermissionsNewModulesOnce applied:', patchId)
+}
+
 async function testConnection() {
   const result = await query('SELECT NOW()')
   const now = result.rows[0]?.now
@@ -719,6 +798,11 @@ async function testConnection() {
   await ensureDefaultAdminUser()
   await resyncAdminPasswordFromEnvIfRequested()
   await ensureWarehouseUser()
+  try {
+    await migratePermissionsNewModulesOnce()
+  } catch (e) {
+    console.error('[db] migratePermissionsNewModulesOnce skipped/failed (non-fatal):', e.message || e)
+  }
   // Must run before username migration: migrateUsernamesToEmail() can throw on edge
   // duplicate data; if it aborts testConnection(), annual_leave columns would never apply.
   await ensureAnnualLeaveExtendedColumns()

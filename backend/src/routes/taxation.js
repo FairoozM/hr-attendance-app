@@ -5,9 +5,9 @@ const { getVatCustomers, getVatReport } = require('../controllers/taxationContro
 const router = express.Router()
 
 // GET /api/taxation/vat/customers  – Zoho Books customer list (cached 5 min)
-router.get('/vat/customers', requirePermission('weekly_reports', 'view'), getVatCustomers)
+router.get('/vat/customers', requirePermission('taxation', 'view'), getVatCustomers)
 
 // GET /api/taxation/vat/report?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD[&customer_id=]
-router.get('/vat/report', requirePermission('weekly_reports', 'view'), getVatReport)
+router.get('/vat/report', requirePermission('taxation', 'view'), getVatReport)
 
 module.exports = router

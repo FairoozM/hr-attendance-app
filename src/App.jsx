@@ -8,7 +8,7 @@ import { useAppSettings } from './hooks/useAppSettings'
 import { Layout } from './components/Layout'
 import { HomeRoute } from './components/HomeRoute'
 import { RequireAuth } from './components/RequireAuth'
-import { PermissionGuard } from './components/PermissionGuard'
+import { PermissionGuard, LeaveSelfServiceGuard } from './components/PermissionGuard'
 import { LoginPage } from './pages/LoginPage'
 import { EmployeeAccountPage } from './pages/EmployeeAccountPage'
 import { AttendancePage } from './pages/AttendancePage'
@@ -130,7 +130,14 @@ function AppContent() {
       >
         <Route index element={<HomeRoute />} />
         <Route path="account" element={<EmployeeAccountPage />} />
-        <Route path="annual-leave" element={<AnnualLeavePage />} />
+        <Route
+          path="annual-leave"
+          element={
+            <LeaveSelfServiceGuard>
+              <AnnualLeavePage />
+            </LeaveSelfServiceGuard>
+          }
+        />
         <Route
           path="attendance"
           element={
@@ -194,7 +201,7 @@ function AppContent() {
         <Route
           path="management/payments"
           element={
-            <PermissionGuard module="document_expiry" action="view">
+            <PermissionGuard module="company_payments" action="view">
               <CompanyPaymentsPage />
             </PermissionGuard>
           }
@@ -211,7 +218,7 @@ function AppContent() {
         <Route
           path="prices/all-prices"
           element={
-            <PermissionGuard module="document_expiry" action="view">
+            <PermissionGuard module="prices" action="view">
               <AllPricesPage />
             </PermissionGuard>
           }
@@ -219,7 +226,7 @@ function AppContent() {
         <Route
           path="prices/composite-items"
           element={
-            <PermissionGuard module="document_expiry" action="view">
+            <PermissionGuard module="prices" action="view">
               <CompositeItemsPricesPage />
             </PermissionGuard>
           }
@@ -244,10 +251,38 @@ function AppContent() {
         />
 
         {/* AI Planner Module */}
-        <Route path="projects" element={<ProjectsIndexPage />} />
-        <Route path="projects/dashboard" element={<ProjectDashboardPage />} />
-        <Route path="projects/today" element={<ProjectDetailPage />} />
-        <Route path="projects/trash" element={<TrashPage />} />
+        <Route
+          path="projects"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <ProjectsIndexPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="projects/dashboard"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <ProjectDashboardPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="projects/today"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <ProjectDetailPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="projects/trash"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <TrashPage />
+            </PermissionGuard>
+          }
+        />
 
         {/* Reports Module */}
         <Route path="reports">
@@ -318,7 +353,7 @@ function AppContent() {
           <Route
             path="ksa-vat"
             element={
-              <PermissionGuard module="weekly_reports" action="view">
+              <PermissionGuard module="taxation" action="view">
                 <KsaVatReportPage />
               </PermissionGuard>
             }

@@ -118,6 +118,16 @@ function requirePermission(module, action) {
     ) {
       return next()
     }
+    // planner: manage implies view
+    if (action === 'view' && module === 'planner' && mod.manage) return next()
+    // company_payments: write permissions imply view
+    if (
+      action === 'view' &&
+      module === 'company_payments' &&
+      (mod.add || mod.edit || mod.delete)
+    ) {
+      return next()
+    }
 
     if (mod[action]) return next()
 

@@ -21,7 +21,8 @@ Weekly reports use the **Zoho Inventory REST API** from the Express backend (OAu
 | `WEEKLY_REPORT_VENDOR_DEBUG` | No | `1` = include `zoho.vendor_filter_debug` in production (booleans only, no ids). |
 | `REPORT_VENDOR_ID` / `REPORT_VENDOR_NAME` | No | Whitelist vendor for **Bills** (purchases) and **vendor credits** (returned to wholesale) only; `sold` is still all vendors. |
 | `WEEKLY_REPORT_VENDOR_OPTIONAL` | No | `1` = allow missing `REPORT_VENDOR_ID` in dev/test; default requires vendor for non-empty reports. |
-| `docs/weekly-report-zoho-transactions.md` | | Full assumptions, scopes, and the derived **opening** formula. |
+| `ZOHO_STOCK_RECON_CACHE_TTL_MS` | No | TTL for bundled opening-reconciliation fetches (defaults like sales-by-item cache). |
+| `docs/weekly-report-zoho-transactions.md` | | Full assumptions, scopes, and **opening** reconciliation vs period columns. |
 
 ## Code layout
 
@@ -32,7 +33,7 @@ Weekly reports use the **Zoho Inventory REST API** from the Express backend (OAu
 - `zohoItemFamily.js` — parse **Family** from `custom_fields`; `normalizeZohoInventoryItem`  
 - `zohoAdapter.js` — facade (`getItems` → normalized items, `fetchAllItemsRaw` → raw API rows)  
 - `zohoDelugeWebhookAdapter.deprecated.js` — **deprecated** placeholder (not used in routes)  
-- `weeklyReportZohoData.js` — `fetchZohoItemRowsForGroupMembers`: `item_report_groups` ∩ Zoho items, placeholder stock (see `phase2_stock_placeholders` in `ZOHO_WEEKLY_REPORT_INTEGRATION`)  
+- `weeklyReportZohoData.js` — `fetchZohoItemRowsForGroupMembers`: `item_report_groups` ∩ Zoho items; opening reconciled from `from_date`→today (`getStockReconstruction`), closing from Items API (see `ZOHO_WEEKLY_REPORT_INTEGRATION`)  
 - `zohoService.js` — validate rows, attach `_zoho` on API items; membership driven by `fetchZohoItemRowsForGroupMembers` (no post-filter)  
 
 ## Business report groups

@@ -3,7 +3,7 @@
  * Cache keys include STOCK_REPORT_CACHE_VERSION so responses stay consistent after logic changes.
  */
 
-const STOCK_REPORT_CACHE_VERSION = 'stock-report-v2-matrix-family-totals'
+const STOCK_REPORT_CACHE_VERSION = 'stock-report-v3-opening-from-date-recon'
 
 /**
  * Opt-in: set USE_MATRIX_TOTALS_FOR_FAMILY_ROWS=1 to replace family-row opening/closing

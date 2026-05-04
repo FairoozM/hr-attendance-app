@@ -13,3 +13,14 @@ export function PermissionGuard({ module, action, children }) {
 
   return <Navigate to="/account" replace />
 }
+
+/** Matches sidebar: portal employees always open Annual Leave; others need leave.view (admin/warehouse already pass). */
+export function LeaveSelfServiceGuard({ children }) {
+  const { user } = useAuth()
+
+  if (!user) return <Navigate to="/login" replace />
+  if (user.role === 'employee') return children
+  if (hasPermission(user, 'leave', 'view')) return children
+
+  return <Navigate to="/account" replace />
+}

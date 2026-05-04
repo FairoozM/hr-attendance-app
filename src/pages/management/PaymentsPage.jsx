@@ -49,8 +49,9 @@ export function PaymentsPage() {
 
   const active = useMemo(() => (activeId ? payments.find((p) => p.id === activeId) : null) || null, [activeId, payments])
 
-  const canAdd = hasPermission(user, 'document_expiry', 'add')
-  const canEdit = hasPermission(user, 'document_expiry', 'edit')
+  const canAdd = hasPermission(user, 'company_payments', 'add')
+  const canEdit = hasPermission(user, 'company_payments', 'edit')
+  const canDelete = hasPermission(user, 'company_payments', 'delete')
 
   const filtered = useMemo(() => {
     return payments.filter((p) => {
@@ -227,7 +228,7 @@ export function PaymentsPage() {
         rows={rows}
         onRowClick={(p) => setActiveId(p.id)}
         onEdit={canEdit ? (id) => openEdit(id) : undefined}
-        onDelete={canEdit ? handleDelete : undefined}
+        onDelete={canDelete ? handleDelete : undefined}
       />
 
       <PaymentFormModal

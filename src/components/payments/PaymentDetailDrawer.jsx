@@ -32,7 +32,7 @@ export function PaymentDetailDrawer({
   const { user } = useAuth()
   const billInputRef = useRef(null)
   const proofInputRef = useRef(null)
-  const canEdit = hasPermission(user, 'document_expiry', 'edit')
+  const canEdit = hasPermission(user, 'company_payments', 'edit')
 
   return (
     <AnimatePresence>
