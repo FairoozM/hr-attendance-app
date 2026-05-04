@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
+  Instagram as InstagramIcon,
   Smartphone,
   Users,
   MoreHorizontal,
@@ -14,43 +15,53 @@ import {
 import { useInfluencers } from '../../contexts/InfluencersContext'
 import { useAuth, hasPermission } from '../../contexts/AuthContext'
 import { AddInfluencerPage } from './AddInfluencerPage'
-import { resolveApiUrl } from '../../api/client'
 import { batchRefreshInstagramProfilePictures } from '../../lib/influencers'
 import './influencers.css'
 
-function InstagramCell({ handle, url, storedPicUrl }) {
+function initials(name) {
+  return String(name || 'IN')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'IN'
+}
+
+function InfluencerListAvatar({ name, imageUrl }) {
   const [imgError, setImgError] = useState(false)
-  const raw = handle ? handle.replace(/^@/, '').trim() : ''
+
   useEffect(() => {
     setImgError(false)
-  }, [storedPicUrl, raw])
+  }, [imageUrl])
+
+  return (
+    <div className="inf-list-avatar" aria-hidden="true">
+      {imageUrl && !imgError ? (
+        <img src={imageUrl} alt="" onError={() => setImgError(true)} />
+      ) : (
+        <span>{initials(name)}</span>
+      )}
+    </div>
+  )
+}
+
+function InstagramCell({ handle, url }) {
+  const raw = handle ? handle.replace(/^@/, '').trim() : ''
   if (!raw) return <span className="inf-table__muted">—</span>
   const profileUrl = url || `https://www.instagram.com/${raw}/`
-  const avatarSrc = storedPicUrl || resolveApiUrl(`/api/instagram-proxy/avatar/${encodeURIComponent(raw)}`)
   return (
     <a
       href={profileUrl}
       target="_blank"
       rel="noopener noreferrer"
       className="inf-ig-cell"
+      title={`Open @${raw} on Instagram`}
+      aria-label={`Open @${raw} on Instagram`}
       onClick={e => e.stopPropagation()}
     >
-      <div className="inf-ig-cell__avatar-wrap">
-        {!imgError ? (
-          <img
-            key={avatarSrc}
-            src={avatarSrc}
-            alt={raw}
-            className="inf-ig-cell__avatar"
-            referrerPolicy="no-referrer"
-            onError={() => setImgError(true)}
-          />
-        ) : (
-          <div className="inf-ig-cell__avatar-fallback">{raw.slice(0, 2).toUpperCase()}</div>
-        )}
-        <div className="inf-ig-cell__ring" />
-      </div>
-      <span className="inf-ig-cell__handle">@{raw}</span>
+      <span className="inf-ig-cell__logo" aria-hidden="true">
+        <InstagramIcon size={15} strokeWidth={2.4} />
+      </span>
     </a>
   )
 }
@@ -800,11 +811,16 @@ export function InfluencerListPage() {
                 <tr key={inf.id} onClick={() => navigate(`/influencers/${inf.id}/edit`)}>
                   <td className="inf-table__sr">{serialOffset + index + 1}</td>
                   <td className="inf-table__col inf-table__col--name">
-                    <div className="inf-table__name">{inf.name}</div>
-                    {inf.niche ? <div className="inf-table__sub">{inf.niche}</div> : null}
+                    <div className="inf-list-name-cell">
+                      <InfluencerListAvatar name={inf.name} imageUrl={inf.profileImageUrl} />
+                      <div className="inf-list-name-cell__copy">
+                        <div className="inf-table__name">{inf.name}</div>
+                        {inf.niche ? <div className="inf-table__sub">{inf.niche}</div> : null}
+                      </div>
+                    </div>
                   </td>
                   <td className="inf-table__col inf-table__col--hide-lg inf-table__col--nationality"><span className="inf-table__muted">{inf.nationality || '—'}</span></td>
-                  <td className="inf-table__col inf-table__col--ig"><InstagramCell handle={inf.instagram?.handle} url={inf.instagram?.url} storedPicUrl={inf.profileImageUrl || inf.instagram?.picUrl} /></td>
+                  <td className="inf-table__col inf-table__col--ig"><InstagramCell handle={inf.instagram?.handle} url={inf.instagram?.url} /></td>
                   <td className="inf-table__col inf-table__col--mobile">
                     <span className="inf-table__cell-icon-row">
                       <Smartphone size={13} className="inf-table__cell-icon" aria-hidden />
