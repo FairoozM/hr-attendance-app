@@ -153,7 +153,7 @@ function looksLikeColorSuffix(tokens) {
 
 function looksLikeSkuBase(raw) {
   const t = String(raw || '').trim()
-  return t.length >= 3 && /[a-z]/i.test(t) && /\d/.test(t)
+  return t.length >= 3 && /[a-z]/i.test(t) && (/\d/.test(t) || t.includes('-'))
 }
 
 function expandColorlessSkuVariants(raw) {
