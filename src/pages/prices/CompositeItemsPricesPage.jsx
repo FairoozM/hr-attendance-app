@@ -6,12 +6,12 @@ import '../management/DocumentExpiryPage.css'
 import '../management/AllPricesPage.css'
 import './CompositeItemsPricesPage.css'
 import {
+  computeEcommercePriceRow,
   DEFAULT_RATES,
   fmtMoney,
   fmtPct,
   loadRates,
   loadRows,
-  makeRowId,
   STORAGE_KEY_RATES,
   STORAGE_KEY_ROWS,
 } from '../management/allPricesEcommerceUtils'
@@ -30,7 +30,6 @@ export function CompositeItemsPricesPage() {
 
   const [bundleShipping, setBundleShipping] = useState('')
   const [dateOfPrice, setDateOfPrice] = useState('')
-  const [extras, setExtras] = useState(() => [{ id: makeRowId(), label: '', amount: '' }])
 
   useEffect(() => {
     const bump = (e) => {
@@ -73,17 +72,30 @@ export function CompositeItemsPricesPage() {
     return bundle.components.map((c) => {
       const purchaseMatch = findPurchaseMatchForComponent(purchaseMap, c)
       const purchase = purchaseMatch ? purchaseMatch.purchasePrice : null
+      const matchedListRow = purchaseMatch
+        ? {
+            itemNo: purchaseMatch.itemNo,
+            purchasePrice: purchaseMatch.purchasePrice,
+            shipping: purchaseMatch.shipping ?? '',
+            dateOfPrices: purchaseMatch.dateOfPrices || '',
+          }
+        : null
+      const matchedEconomics = matchedListRow && Number.isFinite(Number(matchedListRow.shipping))
+        ? computeEcommercePriceRow(matchedListRow, rates)
+        : null
       const qty = Number(c.quantity) || 0
       const lineTotal = purchase != null && Number.isFinite(purchase) ? purchase * qty : null
       return {
         ...c,
         purchaseMatch,
+        matchedListRow,
+        matchedEconomics,
         purchaseFromList: purchase,
         lineTotal,
         missing: purchase == null || !Number.isFinite(purchase),
       }
     })
-  }, [bundle, purchaseMap])
+  }, [bundle, purchaseMap, rates])
 
   const missingCount = useMemo(() => componentRows.filter((r) => r.missing).length, [componentRows])
 
@@ -92,20 +104,11 @@ export function CompositeItemsPricesPage() {
     [componentRows]
   )
 
-  const extrasSum = useMemo(
-    () =>
-      extras.reduce((sum, x) => {
-        const n = Number(x.amount)
-        return sum + (Number.isFinite(n) ? n : 0)
-      }, 0),
-    [extras]
-  )
-
   const economics = useMemo(() => {
     const ship = Number(bundleShipping)
     const shipN = Number.isFinite(ship) ? Math.max(0, ship) : 0
-    return computeBundleEconomics(totalPurchaseCost, shipN, extrasSum, rates)
-  }, [totalPurchaseCost, bundleShipping, extrasSum, rates])
+    return computeBundleEconomics(totalPurchaseCost, shipN, rates)
+  }, [totalPurchaseCost, bundleShipping, rates])
 
   const handleFetch = useCallback(async () => {
     setFetchError('')
@@ -119,7 +122,6 @@ export function CompositeItemsPricesPage() {
       const data = await api.post('/api/prices/composite-items/lookup', { sku })
       setBundle(data)
       setBundleShipping('')
-      setExtras([{ id: makeRowId(), label: '', amount: '' }])
     } catch (e) {
       setBundle(null)
       setFetchError(e.message || 'Could not load composite item from Zoho.')
@@ -127,14 +129,6 @@ export function CompositeItemsPricesPage() {
       setFetching(false)
     }
   }, [skuInput])
-
-  const addExtraRow = useCallback(() => {
-    setExtras((prev) => [...prev, { id: makeRowId(), label: '', amount: '' }])
-  }, [])
-
-  const removeExtraRow = useCallback((id) => {
-    setExtras((prev) => (prev.length <= 1 ? prev : prev.filter((x) => x.id !== id)))
-  }, [])
 
   const sumTakePct =
     (Number(rates.vatPct) || 0) +
@@ -152,7 +146,7 @@ export function CompositeItemsPricesPage() {
             Fetch a <strong>single</strong> composite bundle from Zoho by SKU (one search + one composite detail + one
             call per component to read real Inventory SKUs). Component purchase prices come from your saved{' '}
             <NavLink to="/prices/all-prices">All Prices (UAE &amp; KSA)</NavLink> list (this browser). Use one bundle
-            shipping figure (e.g. FBA) plus optional extras (carton, tools, packaging).
+            shipping figure (e.g. FBA).
           </p>
         </div>
       </div>
@@ -232,49 +226,6 @@ export function CompositeItemsPricesPage() {
               </label>
             </div>
 
-            <div className="cb-extras">
-              <div className="cb-extras__head">
-                <h3>Extra manual costs</h3>
-                <button type="button" className="btn btn--ghost btn--sm" onClick={addExtraRow}>
-                  + Add row
-                </button>
-              </div>
-              <div className="cb-extras__rows">
-                {extras.map((row) => (
-                  <div key={row.id} className="cb-extras__row">
-                    <input
-                      type="text"
-                      placeholder="Label (carton, tool, …)"
-                      value={row.label}
-                      onChange={(e) =>
-                        setExtras((prev) => prev.map((x) => (x.id === row.id ? { ...x, label: e.target.value } : x)))
-                      }
-                      aria-label="Extra cost label"
-                    />
-                    <input
-                      type="number"
-                      min={0}
-                      step={0.01}
-                      placeholder="Amount AED"
-                      value={row.amount}
-                      onChange={(e) =>
-                        setExtras((prev) => prev.map((x) => (x.id === row.id ? { ...x, amount: e.target.value } : x)))
-                      }
-                      aria-label="Extra cost amount"
-                    />
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--sm cb-extras__remove"
-                      onClick={() => removeExtraRow(row.id)}
-                      disabled={extras.length <= 1}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
             <div className="ap-table-scroll cb-table-scroll">
               <table className="ap-ec-table cb-bundle-table">
                 <thead>
@@ -286,7 +237,6 @@ export function CompositeItemsPricesPage() {
                     <th scope="col">Purchase price ecommerce</th>
                     <th scope="col">Total component purchase</th>
                     <th scope="col">Manual shipping</th>
-                    <th scope="col">Extra manual</th>
                     <th scope="col">Suggested sales price</th>
                     <th scope="col">{rates.vatPct}% VAT</th>
                     <th scope="col">{rates.commissionPct}% commission</th>
@@ -324,27 +274,59 @@ export function CompositeItemsPricesPage() {
                       <td>{Number.isFinite(Number(row.quantity)) ? String(row.quantity) : '—'}</td>
                       <td>{row.missing ? <span className="cb-missing">—</span> : fmtMoney(row.purchaseFromList, 2)}</td>
                       <td>{row.lineTotal != null ? fmtMoney(row.lineTotal, 2) : '—'}</td>
-                      <td className="cb-na">—</td>
-                      <td className="cb-na">—</td>
-                      <td className="cb-na">—</td>
-                      <td className="cb-na">—</td>
-                      <td className="cb-na">—</td>
-                      <td className="cb-na">—</td>
-                      <td className="cb-na">—</td>
-                      <td className="cb-na">—</td>
-                      <td className="cb-na">—</td>
-                      <td className="cb-na">—</td>
+                      <td>
+                        {row.matchedListRow && Number.isFinite(Number(row.matchedListRow.shipping))
+                          ? fmtMoney(row.matchedListRow.shipping, 2)
+                          : '—'}
+                      </td>
+                      <td>
+                        {row.matchedEconomics && !row.matchedEconomics.denominatorInvalid
+                          ? fmtMoney(row.matchedEconomics.salesPrice, 0)
+                          : '—'}
+                      </td>
+                      <td>
+                        {row.matchedEconomics && !row.matchedEconomics.denominatorInvalid
+                          ? fmtMoney(row.matchedEconomics.vatAmount, 2)
+                          : '—'}
+                      </td>
+                      <td>
+                        {row.matchedEconomics && !row.matchedEconomics.denominatorInvalid
+                          ? fmtMoney(row.matchedEconomics.commissionAmount, 2)
+                          : '—'}
+                      </td>
+                      <td>
+                        {row.matchedEconomics && !row.matchedEconomics.denominatorInvalid
+                          ? fmtMoney(row.matchedEconomics.advertisingAmount, 2)
+                          : '—'}
+                      </td>
+                      <td>
+                        {row.matchedEconomics && !row.matchedEconomics.denominatorInvalid
+                          ? fmtMoney(row.matchedEconomics.totalCost, 2)
+                          : '—'}
+                      </td>
+                      <td>
+                        {row.matchedEconomics && !row.matchedEconomics.denominatorInvalid
+                          ? fmtMoney(row.matchedEconomics.profit, 2)
+                          : '—'}
+                      </td>
+                      <td>
+                        {row.matchedEconomics && !row.matchedEconomics.denominatorInvalid
+                          ? fmtPct(row.matchedEconomics.profitPct, 2)
+                          : '—'}
+                      </td>
+                      <td>{row.matchedListRow?.dateOfPrices || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr className="cb-bundle-summary">
-                    <td colSpan={5} className="cb-bundle-summary__label">
-                      Bundle totals
-                    </td>
+                    <td className="cb-bundle-summary__label">Bundle totals</td>
+                    <td className="cb-bundle-summary__spacer" aria-hidden="true" />
+                    <td className="cb-bundle-summary__spacer" aria-hidden="true" />
+                    <td className="cb-bundle-summary__spacer" aria-hidden="true" />
+                    <td className="cb-bundle-summary__spacer" aria-hidden="true" />
                     <td>{fmtMoney(totalPurchaseCost, 2)}</td>
                     <td>{fmtMoney(Number(bundleShipping) || 0, 2)}</td>
-                    <td>{fmtMoney(extrasSum, 2)}</td>
                     <td>
                       {economics.ok ? (
                         fmtMoney(economics.salesPrice, 0)

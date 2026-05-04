@@ -1,4 +1,4 @@
-/** Composite bundle economics — mirrors All Prices formula with single bundle shipping + extras. */
+/** Composite bundle economics — mirrors All Prices formula with single bundle shipping. */
 
 function toDec(pct) {
   const n = Number(pct)
@@ -151,20 +151,25 @@ function looksLikeColorSuffix(tokens) {
   )
 }
 
+function looksLikeSkuBase(raw) {
+  const t = String(raw || '').trim()
+  return t.length >= 3 && /[a-z]/i.test(t) && /\d/.test(t)
+}
+
 function expandColorlessSkuVariants(raw) {
   const normalized = normalizeSeparators(raw)
   if (!normalized) return []
   const parts = normalized.split('-').filter(Boolean)
-  if (parts.length < 3) return []
+  if (parts.length < 2) return []
 
   const out = []
-  const maxSuffixLen = Math.min(3, parts.length - 2)
+  const maxSuffixLen = Math.min(3, parts.length - 1)
   for (let suffixLen = maxSuffixLen; suffixLen >= 1; suffixLen -= 1) {
     const suffix = parts.slice(-suffixLen)
     if (!looksLikeColorSuffix(suffix)) continue
 
     const base = parts.slice(0, -suffixLen).join('-')
-    if (base && /\d/.test(base)) out.push(base)
+    if (looksLikeSkuBase(base)) out.push(base)
     break
   }
   return out
@@ -202,9 +207,12 @@ function normalizePurchaseMatch(value, matchedKey, matchKind) {
 
   const purchasePrice = Number(value.purchasePrice)
   if (!Number.isFinite(purchasePrice)) return null
+  const shipping = Number(value.shipping)
   return {
     itemNo: value.itemNo || matchedKey,
     purchasePrice,
+    shipping: Number.isFinite(shipping) ? shipping : null,
+    dateOfPrices: value.dateOfPrices != null ? String(value.dateOfPrices) : '',
     matchedKey,
     matchKind,
   }
@@ -221,7 +229,13 @@ export function buildPurchasePriceMap(rows) {
     if (!raw) continue
     const p = Number(r.purchasePrice)
     if (!Number.isFinite(p)) continue
-    const entry = { itemNo: raw, purchasePrice: p }
+    const shipping = Number(r.shipping)
+    const entry = {
+      itemNo: raw,
+      purchasePrice: p,
+      shipping: Number.isFinite(shipping) ? shipping : null,
+      dateOfPrices: r.dateOfPrices != null ? String(r.dateOfPrices) : '',
+    }
     for (const v of expandExactMatchVariants(raw)) {
       if (!m.has(v)) m.set(v, entry)
     }
@@ -236,7 +250,7 @@ export function expandMatchVariants(raw) {
 
 /**
  * Try Zoho match_keys + sku + name against the ecommerce price map and return the matched row.
- * @param {Map<string, { itemNo: string, purchasePrice: number }|number>} purchaseMap — lower-case keys
+ * @param {Map<string, { itemNo: string, purchasePrice: number, shipping?: number|null, dateOfPrices?: string }|number>} purchaseMap — lower-case keys
  * @param {{ sku?: string, name?: string, match_keys?: string[] }} component
  */
 export function findPurchaseMatchForComponent(purchaseMap, component) {
@@ -261,7 +275,7 @@ export function findPurchaseMatchForComponent(purchaseMap, component) {
 
 /**
  * Backwards-compatible helper for callers that only need the purchase price.
- * @param {Map<string, { itemNo: string, purchasePrice: number }|number>} purchaseMap
+ * @param {Map<string, { itemNo: string, purchasePrice: number, shipping?: number|null, dateOfPrices?: string }|number>} purchaseMap
  * @param {{ sku?: string, name?: string, match_keys?: string[] }} component
  */
 export function findPurchaseForComponent(purchaseMap, component) {
@@ -272,10 +286,9 @@ export function findPurchaseForComponent(purchaseMap, component) {
 /**
  * @param {number} totalPurchaseCost — sum of component purchase × qty
  * @param {number} bundleShipping
- * @param {number} extrasSum
  * @param {{ vatPct: number, commissionPct: number, advertisingPct: number, requiredProfitPct: number }} rates — 0–100
  */
-export function computeBundleEconomics(totalPurchaseCost, bundleShipping, extrasSum, rates) {
+export function computeBundleEconomics(totalPurchaseCost, bundleShipping, rates) {
   const v = toDec(rates.vatPct)
   const c = toDec(rates.commissionPct)
   const a = toDec(rates.advertisingPct)
@@ -289,8 +302,7 @@ export function computeBundleEconomics(totalPurchaseCost, bundleShipping, extras
 
   const P = Number(totalPurchaseCost) || 0
   const S = Number(bundleShipping) || 0
-  const E = Number(extrasSum) || 0
-  const numerator = P + S + E
+  const numerator = P + S
 
   const rawSp = numerator / denom
   let sp = Math.ceil(rawSp - 1e-12)
@@ -304,12 +316,12 @@ export function computeBundleEconomics(totalPurchaseCost, bundleShipping, extras
     const vatAmt = sp * v
     const commAmt = sp * c
     const advAmt = sp * a
-    const totalCost = P + vatAmt + commAmt + advAmt + S + E
+    const totalCost = P + vatAmt + commAmt + advAmt + S
     const profit = sp - totalCost
     const profitPct = sp > 0 ? (profit / sp) * 100 : profit >= 0 ? 100 : 0
 
     if (sp === 0) {
-      if (numerator <= 0 && S <= 0 && E <= 0) {
+      if (numerator <= 0 && S <= 0) {
         return {
           ok: true,
           salesPrice: 0,
