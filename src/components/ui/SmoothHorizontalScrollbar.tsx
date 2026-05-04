@@ -24,7 +24,7 @@ const SPRING = {
 const CAT_SRC = `${import.meta.env.BASE_URL}attendance-scrollbar-cat.png`
 
 /** Approximate thumb width along the track (cat graphic + padding). */
-const THUMB_TRACK_W = 34
+const THUMB_TRACK_W = 68
 const DEFAULT_WHEEL_MULT = 3.25
 
 type Props = {
@@ -52,8 +52,11 @@ export function SmoothHorizontalScrollbar({
 
   const trackWidthMv = useMotionValue(0)
 
-  /** +1 = facing right, −1 = mirrored (scroll moving left). Instant flip — no spring (avoids scaleX→0). */
-  const facingTarget = useMotionValue(1)
+  /**
+   * Asset faces left at scaleX 1. +1 → natural (cat faces left); −1 → mirrored (cat faces right).
+   * scrollLeft increases (moving viewport right): face right → −1. Decreases: face left → +1.
+   */
+  const facingTarget = useMotionValue(-1)
   const thumbMirrorX = useTransform(facingTarget, (f) => (f >= 0 ? 1 : -1))
 
   const dragScaleTarget = useMotionValue(1)
@@ -98,8 +101,8 @@ export function SmoothHorizontalScrollbar({
 
   const bumpDirectionFromDelta = useCallback(
     (delta: number) => {
-      if (delta < 0) facingTarget.set(-1)
-      else if (delta > 0) facingTarget.set(1)
+      if (delta > 0) facingTarget.set(-1)
+      else if (delta < 0) facingTarget.set(1)
     },
     [facingTarget]
   )
