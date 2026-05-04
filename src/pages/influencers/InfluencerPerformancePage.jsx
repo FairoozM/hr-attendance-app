@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Download, Gauge, Plus, Save, Search, X } from 'lucide-react'
+import { api } from '../../api/client'
+import { useAuth, canMutateInfluencerPerformance } from '../../contexts/AuthContext'
 import { useInfluencers } from '../../contexts/InfluencersContext'
 import { InfluencerCharts } from '../../components/influencers/InfluencerCharts'
 import { InfluencerContractTimeline } from '../../components/influencers/InfluencerContractTimeline'
@@ -55,9 +57,37 @@ function compareValues(a, b, direction) {
     : String(b || '').localeCompare(String(a || ''))
 }
 
+function mergePerformanceRecordIntoList(list, record) {
+  const normalized = normalizePerformanceRecord(record)
+  const sameDayIndex = list.findIndex((item) => (
+    item.id === normalized.id ||
+    (
+      item.contractId === normalized.contractId &&
+      item.date === normalized.date
+    )
+  ))
+  if (sameDayIndex >= 0) {
+    return list.map((item, index) => (
+      index === sameDayIndex ? { ...normalized, id: item.id || normalized.id || makeRecordId() } : item
+    ))
+  }
+  if (normalized.id) {
+    return list.map((item) => (item.id === normalized.id ? normalized : item))
+  }
+  return [{ ...normalized, id: makeRecordId() }, ...list]
+}
+
 export function InfluencerPerformancePage() {
+  const { user, loading: authLoading } = useAuth()
+  const userRef = useRef(user)
+  useEffect(() => {
+    userRef.current = user
+  }, [user])
+
   const { influencers: appInfluencers = [], loading: influencersLoading } = useInfluencers()
   const [records, setRecords] = useState(null)
+  const [serverMergedOnce, setServerMergedOnce] = useState(false)
+  const [syncHint, setSyncHint] = useState('')
   const [sort, setSort] = useState({ key: 'date', direction: 'desc' })
   const [editingRecord, setEditingRecord] = useState(null)
   const [editingContract, setEditingContract] = useState(null)
@@ -78,12 +108,75 @@ export function InfluencerPerformancePage() {
     [influencers],
   )
 
+  const persistRecordsIfCan = useCallback(async (nextList) => {
+    const u = userRef.current
+    const list = dedupePerformanceRecords(nextList || [])
+    if (!canMutateInfluencerPerformance(u)) {
+      saveRecords(list)
+      return
+    }
+    try {
+      await api.post('/api/influencers/performance-records/bulk-upsert', { records: list })
+      saveRecords(list)
+      setSyncHint('')
+    } catch (err) {
+      console.warn('[InfluencerPerformance] server save failed', err)
+      saveRecords(list)
+      setSyncHint(err.message || 'Could not save to server (kept a copy in this browser).')
+    }
+  }, [])
+
   useEffect(() => {
-    if (records !== null || influencers.length === 0 || influencersLoading) return
-    const stored = loadStoredRecords()
-    const matchingStoredRecords = stored?.filter((record) => influencersById.has(String(record.influencerId))) || []
-    setRecords(Array.isArray(stored) ? matchingStoredRecords : createMockPerformanceRecords(influencers))
-  }, [influencers, influencersById, influencersLoading, records])
+    if (authLoading || !user) return
+    let cancelled = false
+    ;(async () => {
+      setSyncHint('')
+      try {
+        const data = await api.get('/api/influencers/performance-records')
+        const server = Array.isArray(data?.records)
+          ? data.records.map((r) => normalizePerformanceRecord(r))
+          : []
+        const localRaw = loadStoredRecords() || []
+        const local = localRaw.map((r) => normalizePerformanceRecord(r))
+        const merged = dedupePerformanceRecords([...server, ...local])
+        if (cancelled) return
+        setServerMergedOnce(true)
+        if (merged.length > 0) {
+          setRecords(merged)
+          if (canMutateInfluencerPerformance(user) && merged.length > server.length) {
+            await api.post('/api/influencers/performance-records/bulk-upsert', { records: merged })
+            const again = await api.get('/api/influencers/performance-records')
+            if (!cancelled && Array.isArray(again?.records)) {
+              const next = dedupePerformanceRecords(again.records.map((r) => normalizePerformanceRecord(r)))
+              setRecords(next)
+              saveRecords(next)
+            }
+          } else {
+            saveRecords(merged)
+          }
+        } else {
+          setRecords([])
+        }
+      } catch (err) {
+        console.warn('[InfluencerPerformance] server load failed', err)
+        if (!cancelled) {
+          const local = loadStoredRecords()
+          setRecords(local?.length ? local.map((r) => normalizePerformanceRecord(r)) : [])
+          setSyncHint('Could not load server data; showing offline copy if available.')
+          setServerMergedOnce(true)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [authLoading, user])
+
+  useEffect(() => {
+    if (!serverMergedOnce || records === null || influencers.length === 0 || influencersLoading) return
+    if (records.length > 0) return
+    setRecords(createMockPerformanceRecords(influencers))
+  }, [serverMergedOnce, records, influencers, influencersLoading])
 
   useEffect(() => {
     if (records) saveRecords(records)
@@ -98,11 +191,12 @@ export function InfluencerPerformancePage() {
     const cleaned = dedupePerformanceRecords(records).filter((record) => influencersById.has(String(record.influencerId)))
     if (cleaned.length !== records.length) {
       setRecords(cleaned)
+      void persistRecordsIfCan(cleaned)
       if (activeMonitorInfluencerId && !influencersById.has(String(activeMonitorInfluencerId))) {
         setActiveMonitorInfluencerId(null)
       }
     }
-  }, [activeMonitorInfluencerId, influencers.length, influencersById, influencersLoading, records])
+  }, [activeMonitorInfluencerId, influencers.length, influencersById, influencersLoading, records, persistRecordsIfCan])
 
   const filteredRecords = useMemo(() => {
     return [...allRecords].sort((a, b) => {
@@ -140,20 +234,9 @@ export function InfluencerPerformancePage() {
   function handleSubmit(record) {
     setRecords((prev) => {
       const list = prev || []
-      const sameDayIndex = list.findIndex((item) => (
-        item.id === record.id ||
-        (
-          item.contractId === record.contractId &&
-          item.date === record.date
-        )
-      ))
-      if (sameDayIndex >= 0) {
-        return list.map((item, index) => index === sameDayIndex ? { ...record, id: item.id || record.id || makeRecordId() } : item)
-      }
-      if (record.id) {
-        return list.map((item) => item.id === record.id ? record : item)
-      }
-      return [{ ...record, id: makeRecordId() }, ...list]
+      const next = mergePerformanceRecordIntoList(list, record)
+      void persistRecordsIfCan(next)
+      return next
     })
     setEditingRecord(null)
     setIsAddRecordOpen(false)
@@ -163,17 +246,27 @@ export function InfluencerPerformancePage() {
     const record = allRecords.find((item) => item.id === id)
     const name = influencersById.get(String(record?.influencerId))?.name || 'this record'
     if (!window.confirm(`Delete performance record for ${name}?`)) return
-    setRecords((prev) => (prev || []).filter((item) => item.id !== id))
+    const prev = records || []
+    const next = prev.filter((item) => item.id !== id)
+    setRecords(next)
+    saveRecords(next)
     if (viewRecord?.id === id) setViewRecord(null)
     if (editingRecord?.id === id) setEditingRecord(null)
+    if (canMutateInfluencerPerformance(userRef.current)) {
+      void api.delete(`/api/influencers/performance-records/${encodeURIComponent(id)}`).catch((err) => {
+        console.warn('[InfluencerPerformance] server delete failed', err)
+        setSyncHint(err.message || 'Deleted locally; server delete failed — refresh to reconcile.')
+      })
+    }
   }
 
   function handleSaveContractEdit() {
     if (!editingContract?.selectedInfluencerId) return
     const selectedInfluencer = influencersById.get(String(editingContract.selectedInfluencerId))
     if (!selectedInfluencer) return
-    const contractRecordIds = new Set((editingContract.contract.records || []).map((record) => record.id))
-    setRecords((prev) => (prev || []).map((record) => (
+    const contractRecordIds = new Set((editingContract.contract.records || []).map((r) => r.id))
+    const prev = records || []
+    const next = prev.map((record) => (
       contractRecordIds.has(record.id)
         ? {
             ...record,
@@ -183,7 +276,9 @@ export function InfluencerPerformancePage() {
             updatedAt: new Date().toISOString(),
           }
         : record
-    )))
+    ))
+    setRecords(next)
+    void persistRecordsIfCan(next)
     setActiveMonitorInfluencerId(selectedInfluencer.id)
     setEditingContract(null)
   }
@@ -195,6 +290,14 @@ export function InfluencerPerformancePage() {
           <span className="ip-eyebrow"><Gauge size={15} /> Marketing / Social Media</span>
           <h1 className="inf-page-title">Influencer Performance</h1>
           <p className="inf-page-subtitle">Track one contracted video per influencer across 4-5 consecutive daily performance checks.</p>
+          {syncHint ? (
+            <p className="inf-page-subtitle ip-sync-hint" role="status">{syncHint}</p>
+          ) : null}
+          {!authLoading && user && !canMutateInfluencerPerformance(user) ? (
+            <p className="inf-page-subtitle ip-sync-hint ip-sync-hint--muted" role="note">
+              View-only: data loads from the server but changes stay in this browser until an admin grants Influencer Performance (or Manage) permission.
+            </p>
+          ) : null}
         </div>
         <div className="inf-page-actions">
           <button type="button" className="inf-btn inf-btn--primary" onClick={() => setIsAddRecordOpen(true)}>

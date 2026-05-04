@@ -398,7 +398,7 @@ function AppContent() {
             </PermissionGuard>
           } />
           <Route path="performance" element={
-            <PermissionGuard module="influencers" action="view">
+            <PermissionGuard module="influencers" action="performance">
               <InfluencerPerformancePage />
             </PermissionGuard>
           } />

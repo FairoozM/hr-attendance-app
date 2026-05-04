@@ -34,7 +34,7 @@ const VALID_ACTIONS = {
   attendance: ['view', 'manage'],
   leave: ['view', 'approve'],
   employees: ['view', 'edit'],
-  influencers: ['view', 'manage', 'approve', 'payments', 'agreements'],
+  influencers: ['view', 'manage', 'approve', 'payments', 'agreements', 'performance'],
   sim_cards: ['view', 'add', 'edit', 'delete'],
   document_expiry: ['view', 'add', 'edit', 'delete'],
   weekly_reports: ['view'],

@@ -475,7 +475,7 @@ export function Layout() {
     can('influencers', 'view') && { label: 'Shoot Schedule', to: '/influencers/schedule' },
     can('influencers', 'agreements') && { label: 'Agreements', to: '/influencers/agreements' },
     can('influencers', 'payments') && { label: 'Payments', to: '/influencers/payments' },
-    can('influencers', 'view') && { label: 'Performance', to: '/influencers/performance' },
+    can('influencers', 'performance') && { label: 'Performance', to: '/influencers/performance' },
     can('influencers', 'view') && { label: 'Reports', to: '/influencers/reports' },
   ].filter(Boolean)
 

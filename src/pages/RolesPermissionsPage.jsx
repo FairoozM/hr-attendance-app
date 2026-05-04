@@ -54,6 +54,11 @@ const MODULES = [
       { key: 'approve', label: 'Approve or reject influencers (includes view)' },
       { key: 'payments', label: 'Access payments page and mark payment status' },
       { key: 'agreements', label: 'Generate and manage influencer agreements' },
+      {
+        key: 'performance',
+        label:
+          'Influencer Performance — daily checks, dashboards, and charts (loads influencer list read-only)',
+      },
     ],
   },
   {

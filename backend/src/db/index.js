@@ -392,6 +392,23 @@ async function ensureInfluencersSnapshotTable() {
   `)
 }
 
+/** Daily influencer performance checks (synced from app; influencer ids match influencers_snapshot). */
+async function ensureInfluencerPerformanceRecordsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS influencer_performance_records (
+      id TEXT PRIMARY KEY,
+      influencer_id TEXT NOT NULL,
+      check_date DATE NOT NULL,
+      body JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_ipr_influencer ON influencer_performance_records(influencer_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_ipr_check_date ON influencer_performance_records(check_date)`)
+}
+
 async function ensureDocumentExpiryTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS document_expiry (
@@ -780,6 +797,54 @@ async function migratePermissionsNewModulesOnce() {
   console.log('[db] migratePermissionsNewModulesOnce applied:', patchId)
 }
 
+/**
+ * Grant influencers.performance to portal users matching Ali Hassan (employee name or username).
+ */
+async function grantAliHassanInfluencerPerformancePermissionOnce() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS schema_patches (
+      id TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  const patchId = 'grant_ali_hassan_influencer_performance_202605'
+  const exists = await query(`SELECT 1 FROM schema_patches WHERE id = $1`, [patchId])
+  if (exists.rows.length > 0) return
+
+  const upd = await query(
+    `UPDATE users u
+     SET permissions = jsonb_set(
+       COALESCE(u.permissions, '{}'::jsonb),
+       '{influencers}',
+       COALESCE(u.permissions->'influencers', '{}'::jsonb) || '{"performance": true}'::jsonb,
+       true
+     ),
+     updated_at = NOW()
+     FROM employees e
+     WHERE u.employee_id = e.id
+       AND u.role NOT IN ('admin')
+       AND (
+         (
+           LOWER(TRIM(COALESCE(e.full_name, ''))) LIKE '%ali%'
+           AND LOWER(TRIM(COALESCE(e.full_name, ''))) LIKE '%hassan%'
+         )
+         OR LOWER(TRIM(COALESCE(u.username, ''))) LIKE '%alihassan%'
+         OR LOWER(TRIM(COALESCE(u.username, ''))) LIKE '%ali.hassan%'
+         OR LOWER(TRIM(COALESCE(u.username, ''))) LIKE '%ali_hassan%'
+       )
+     RETURNING u.id, u.username, e.full_name`
+  )
+  if (upd.rows.length > 0) {
+    console.log('[db] grantAliHassanInfluencerPerformancePermissionOnce updated:', upd.rows)
+  } else {
+    console.log(
+      '[db] grantAliHassanInfluencerPerformancePermissionOnce: no matching user (skip or add manually in Roles & Permissions)'
+    )
+  }
+
+  await query(`INSERT INTO schema_patches (id) VALUES ($1)`, [patchId])
+}
+
 async function testConnection() {
   const result = await query('SELECT NOW()')
   const now = result.rows[0]?.now
@@ -802,6 +867,16 @@ async function testConnection() {
     await migratePermissionsNewModulesOnce()
   } catch (e) {
     console.error('[db] migratePermissionsNewModulesOnce skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    await grantAliHassanInfluencerPerformancePermissionOnce()
+  } catch (e) {
+    console.error('[db] grantAliHassanInfluencerPerformancePermissionOnce skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    await ensureInfluencerPerformanceRecordsTable()
+  } catch (e) {
+    console.error('[db] ensureInfluencerPerformanceRecordsTable skipped/failed (non-fatal):', e.message || e)
   }
   // Must run before username migration: migrateUsernamesToEmail() can throw on edge
   // duplicate data; if it aborts testConnection(), annual_leave columns would never apply.
@@ -1008,6 +1083,7 @@ module.exports = {
   ensureDefaultAdminUser,
   resyncAdminPasswordFromEnvIfRequested,
   ensureInfluencersSnapshotTable,
+  ensureInfluencerPerformanceRecordsTable,
   ensureDocumentExpiryTable,
   ensureItemReportGroupsTable,
   ensureItemReportGroupsImportLogTable,

@@ -109,8 +109,18 @@ export function hasPermission(user, module, action) {
   if (action === 'view' && mod.manage) return true
   // leave: approve implies view
   if (action === 'view' && module === 'leave' && mod.approve) return true
-  // influencers: any elevated permission implies view access
-  if (action === 'view' && module === 'influencers' && (mod.approve || mod.payments || mod.agreements)) return true
+  // influencers: elevated permissions + performance tracker imply read/list API access
+  if (
+    action === 'view' &&
+    module === 'influencers' &&
+    (mod.approve || mod.payments || mod.agreements || mod.performance)
+  ) {
+    return true
+  }
+  // Performance page: standalone toggle, or anyone with list/view/manage access
+  if (action === 'performance' && module === 'influencers') {
+    return Boolean(mod.performance || mod.manage || mod.view)
+  }
   // sim cards: write permissions imply view access
   if (action === 'view' && module === 'sim_cards' && (mod.add || mod.edit || mod.delete)) return true
   // document expiry: write permissions imply view access
@@ -130,4 +140,12 @@ export function hasAnyModulePermission(user, module) {
   const p = user.permissions || {}
   const mod = p[module] || {}
   return Object.values(mod).some(Boolean)
+}
+
+/** Persist influencer performance metrics to the API (not the influencer roster). */
+export function canMutateInfluencerPerformance(user) {
+  if (!user) return false
+  if (user.role === 'admin' || user.role === 'warehouse') return true
+  const m = user.permissions?.influencers || {}
+  return Boolean(m.manage || m.performance)
 }

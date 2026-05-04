@@ -39,6 +39,16 @@
   text-transform: uppercase;
 }
 
+.ip-sync-hint {
+  margin-top: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--danger, #dc2626);
+}
+
+.ip-sync-hint--muted {
+  color: var(--text-muted);
+}
+
 .ip-kpi-grid {
   display: grid;
   grid-template-columns: repeat(8, minmax(140px, 1fr));
