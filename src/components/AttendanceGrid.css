@@ -59,7 +59,7 @@
 .attendance-legend--accent b   { color: var(--accent); }
 .attendance-legend--weekly-holiday b { color: var(--weekly-holiday); }
 
-/* ── Scroll: styled bar on top only; main area scrolls with hidden scrollbar ── */
+/* ── Scroll: main area horizontal scroll; native bar hidden; custom bar at bottom ── */
 .attendance-grid-scroll-outer {
   border: 1px solid var(--theme-border-subtle);
   border-radius: var(--radius-lg);
@@ -74,69 +74,6 @@
 
 .attendance-grid-scroll {
   overflow-y: visible;
-}
-
-/* Chrome / Edge / Safari — polished horizontal track + thumb (Windows-friendly) */
-.attendance-grid-scroll--top {
-  flex-shrink: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  max-height: 18px;
-  padding: 0.2rem 0.45rem 0.35rem;
-  border-bottom: 1px solid var(--border-subtle);
-  background: color-mix(in srgb, var(--theme-panel-bg) 82%, var(--theme-bg-canvas));
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--primary, #6366f1) 72%, transparent)
-    color-mix(in srgb, var(--theme-input-bg) 55%, transparent);
-}
-
-.attendance-grid-scroll--top::-webkit-scrollbar {
-  height: 11px;
-}
-
-.attendance-grid-scroll--top::-webkit-scrollbar-track {
-  margin: 1px 4px;
-  background: color-mix(in srgb, var(--theme-border) 35%, transparent);
-  border-radius: 999px;
-}
-
-.attendance-grid-scroll--top::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-  background-image: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--primary, #818cf8) 88%, white),
-    color-mix(in srgb, var(--primary, #6366f1) 95%, black)
-  );
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--primary, #6366f1) 22%, transparent);
-}
-
-.attendance-grid-scroll--top::-webkit-scrollbar-thumb:hover {
-  background-image: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--accent, #a78bfa) 75%, white),
-    var(--primary, #6366f1)
-  );
-}
-
-.attendance-grid-scroll--top--collapsed {
-  max-height: 0;
-  padding: 0;
-  margin: 0;
-  border-bottom: none;
-  overflow: hidden;
-  pointer-events: none;
-  scrollbar-width: none;
-}
-
-.attendance-grid-scroll--top--collapsed::-webkit-scrollbar {
-  display: none;
-}
-
-.attendance-grid-scroll-spacer {
-  height: 1px;
-  pointer-events: none;
 }
 
 .attendance-grid-scroll--main {
