@@ -1,9 +1,25 @@
 /** Composite bundle economics — mirrors All Prices formula with single bundle shipping. */
 
+export const STORAGE_KEY_SAVED_COMPOSITES = 'hr-saved-composite-items-v1'
+export const SAVED_COMPOSITES_UPDATED_EVENT = 'hr-saved-composite-items-updated'
+
 function toDec(pct) {
   const n = Number(pct)
   if (!Number.isFinite(n)) return 0
   return Math.min(100, Math.max(0, n)) / 100
+}
+
+function makeSavedCompositeKey(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function notifySavedCompositeItemsChanged() {
+  if (typeof window === 'undefined') return
+  try {
+    window.dispatchEvent(new CustomEvent(SAVED_COMPOSITES_UPDATED_EVENT))
+  } catch {
+    /* ignore */
+  }
 }
 
 const COLOR_SUFFIX_TOKENS = new Set([
@@ -281,6 +297,60 @@ export function findPurchaseMatchForComponent(purchaseMap, component) {
 export function findPurchaseForComponent(purchaseMap, component) {
   const match = findPurchaseMatchForComponent(purchaseMap, component)
   return match ? match.purchasePrice : null
+}
+
+export function loadSavedCompositeItems() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_SAVED_COMPOSITES)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter((item) => item && typeof item === 'object' && String(item.sku || '').trim())
+      .map((item) => ({
+        ...item,
+        sku: String(item.sku || '').trim(),
+        name: item.name != null ? String(item.name) : '',
+        composite_item_id: item.composite_item_id != null ? String(item.composite_item_id) : '',
+        components: Array.isArray(item.components) ? item.components : [],
+        saved_at: item.saved_at || item.updated_at || new Date().toISOString(),
+        updated_at: item.updated_at || item.saved_at || new Date().toISOString(),
+      }))
+      .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))
+  } catch {
+    return []
+  }
+}
+
+export function saveSavedCompositeItem(record) {
+  const sku = String(record?.sku || '').trim()
+  if (!sku) throw new Error('Composite SKU is required before saving.')
+  const now = new Date().toISOString()
+  const key = makeSavedCompositeKey(sku)
+  const current = loadSavedCompositeItems()
+  const existing = current.find((item) => makeSavedCompositeKey(item.sku) === key)
+  const nextRecord = {
+    ...record,
+    sku,
+    saved_at: existing?.saved_at || record?.saved_at || now,
+    updated_at: now,
+  }
+  const next = [
+    nextRecord,
+    ...current.filter((item) => makeSavedCompositeKey(item.sku) !== key),
+  ]
+  localStorage.setItem(STORAGE_KEY_SAVED_COMPOSITES, JSON.stringify(next))
+  notifySavedCompositeItemsChanged()
+  return nextRecord
+}
+
+export function removeSavedCompositeItem(sku) {
+  const key = makeSavedCompositeKey(sku)
+  if (!key) return loadSavedCompositeItems()
+  const next = loadSavedCompositeItems().filter((item) => makeSavedCompositeKey(item.sku) !== key)
+  localStorage.setItem(STORAGE_KEY_SAVED_COMPOSITES, JSON.stringify(next))
+  notifySavedCompositeItemsChanged()
+  return next
 }
 
 /**

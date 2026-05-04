@@ -19,6 +19,7 @@ import {
   buildPurchasePriceMap,
   computeBundleEconomics,
   findPurchaseMatchForComponent,
+  saveSavedCompositeItem,
 } from './compositeBundlePricingUtils'
 
 export function CompositeItemsPricesPage() {
@@ -30,6 +31,7 @@ export function CompositeItemsPricesPage() {
 
   const [bundleShipping, setBundleShipping] = useState('')
   const [dateOfPrice, setDateOfPrice] = useState('')
+  const [saveMessage, setSaveMessage] = useState('')
 
   useEffect(() => {
     const bump = (e) => {
@@ -122,6 +124,7 @@ export function CompositeItemsPricesPage() {
       const data = await api.post('/api/prices/composite-items/lookup', { sku })
       setBundle(data)
       setBundleShipping('')
+      setSaveMessage('')
     } catch (e) {
       setBundle(null)
       setFetchError(e.message || 'Could not load composite item from Zoho.')
@@ -129,6 +132,42 @@ export function CompositeItemsPricesPage() {
       setFetching(false)
     }
   }, [skuInput])
+
+  const handleSaveComposite = useCallback(() => {
+    if (!bundle || !economics.ok) return
+    try {
+      saveSavedCompositeItem({
+        sku: String(bundle.sku || '').trim(),
+        name: bundle.name || '',
+        composite_item_id: bundle.composite_item_id || '',
+        bundleShipping: Number(bundleShipping) || 0,
+        dateOfPrice: dateOfPrice || '',
+        rates,
+        components: componentRows.map((row) => ({
+          item_id: row.item_id || '',
+          sku: row.sku || '',
+          name: row.name || '',
+          quantity: Number(row.quantity) || 0,
+          purchaseMatch: row.purchaseMatch
+            ? {
+                itemNo: row.purchaseMatch.itemNo || '',
+                matchKind: row.purchaseMatch.matchKind || '',
+              }
+            : null,
+          matchedListRow: row.matchedListRow || null,
+          matchedEconomics: row.matchedEconomics || null,
+          purchaseFromList: row.purchaseFromList,
+          lineTotal: row.lineTotal,
+          missing: !!row.missing,
+        })),
+        totalPurchaseCost,
+        economics,
+      })
+      setSaveMessage(`Saved ${bundle.sku} to Saved Composite Items.`)
+    } catch (err) {
+      setSaveMessage(err?.message || 'Could not save this composite item.')
+    }
+  }, [bundle, economics, bundleShipping, dateOfPrice, rates, componentRows, totalPurchaseCost])
 
   const sumTakePct =
     (Number(rates.vatPct) || 0) +
@@ -173,6 +212,9 @@ export function CompositeItemsPricesPage() {
           <button type="button" className="btn btn--ghost" onClick={() => setPriceTick((t) => t + 1)}>
             Reload price list
           </button>
+          <NavLink className="btn btn--ghost" to="/prices/saved-composite-items">
+            Saved list
+          </NavLink>
         </div>
 
         {fetchError ? (
@@ -198,6 +240,18 @@ export function CompositeItemsPricesPage() {
               <strong>{bundle.sku}</strong>
               {bundle.name ? <span className="cb-bundle-meta__name"> — {bundle.name}</span> : null}
               <span className="cb-bundle-meta__id"> · Zoho composite ID {bundle.composite_item_id}</span>
+            </div>
+
+            <div className="cb-bundle-save-row">
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={handleSaveComposite}
+                disabled={!economics.ok}
+              >
+                Save composite item
+              </button>
+              {saveMessage ? <span className="cb-bundle-save-row__msg">{saveMessage}</span> : null}
             </div>
 
             {missingCount > 0 ? (
