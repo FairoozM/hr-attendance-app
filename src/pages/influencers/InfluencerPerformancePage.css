@@ -1198,6 +1198,24 @@
   color: #0088bb;
 }
 
+.ip-hud-day-date-readonly {
+  display: block;
+  max-width: 100%;
+  margin: 0 0 0.62rem;
+  padding: 0.12rem 0.2rem;
+  color: rgba(0, 0, 0, 0.48);
+  font-family: 'Space Mono', ui-monospace, monospace;
+  font-size: 0.56rem;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ip-hud-day--active .ip-hud-day-date-readonly {
+  color: #0088bb;
+}
+
 .ip-hud-day-actions {
   display: inline-flex;
   flex-shrink: 0;
@@ -1902,6 +1920,50 @@
 
 .ip-table__expand-label svg {
   color: #0088bb;
+}
+
+.ip-table__expand-hit {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ip-table__expand-hit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.ip-table__group-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.ip-filter-mine {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.5rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.ip-filter-mine input {
+  cursor: pointer;
+}
+
+.ip-table__monitor--on {
+  border-color: rgba(129, 140, 248, 0.45);
+  color: var(--accent);
 }
 
 .ip-table__expand-btn {

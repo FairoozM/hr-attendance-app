@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, Eye, Pencil, Trash2 } from 'lucide-react'
 import { formatNumber, getDayNumber, toNumber } from '../../utils/influencerPerformanceUtils'
 
@@ -32,6 +32,7 @@ export function InfluencerPerformanceTable({
   onToggleMonitor,
 }) {
   const [expandedInfluencers, setExpandedInfluencers] = useState(() => new Set())
+  const didAutoExpandRef = useRef(false)
 
   const groupedRecords = useMemo(() => {
     const groups = new Map()
@@ -65,13 +66,37 @@ export function InfluencerPerformanceTable({
     }))
   }, [influencersById, records])
 
+  useEffect(() => {
+    if (records.length === 0) didAutoExpandRef.current = false
+  }, [records.length])
+
+  /** First time we get real rows, expand every influencer group so Edit/Delete are visible (not hidden behind Timeline). */
+  useEffect(() => {
+    if (records.length === 0 || didAutoExpandRef.current) return
+    didAutoExpandRef.current = true
+    const ids = [...new Set(records.map((r) => String(r.influencerId || 'unknown')))]
+    setExpandedInfluencers(new Set(ids))
+  }, [records])
+
+  const toggleGroupExpanded = (groupId) => {
+    setExpandedInfluencers((current) => {
+      const next = new Set(current)
+      if (next.has(groupId)) next.delete(groupId)
+      else next.add(groupId)
+      return next
+    })
+  }
+
   return (
     <section className="ip-table-card">
       <div className="ip-section-heading">
         <span className="ip-section-heading__icon"><Eye size={18} /></span>
         <div>
           <h2>Performance records</h2>
-          <p>Collapsed by influencer. Expand a row to review or edit daily records.</p>
+          <p>
+            Grouped by influencer — daily rows start expanded so you can edit or delete. Use <strong>Timeline</strong>{' '}
+            to open the monitoring HUD below for one creator at a time.
+          </p>
         </div>
       </div>
 
@@ -101,12 +126,19 @@ export function InfluencerPerformanceTable({
               const latestRecord = group.latestRecord
               return (
                 <Fragment key={group.id}>
-                  <tr key={group.id} className={`ip-table__group-row ${isMonitorActive ? 'ip-table__group-row--active' : ''}`}>
+                  <tr
+                    key={group.id}
+                    className={`ip-table__group-row ${isMonitorActive ? 'ip-table__group-row--active' : ''}`}
+                  >
                     <td>
-                      <span className="ip-table__expand-label">
+                      <button
+                        type="button"
+                        className="ip-table__expand-label ip-table__expand-hit"
+                        onClick={() => toggleGroupExpanded(group.id)}
+                      >
                         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                         {latestRecord?.date || '-'}
-                      </span>
+                      </button>
                     </td>
                     <td>
                       <span className="inf-table__name">{influencer?.name || 'Unknown'}</span>
@@ -123,22 +155,20 @@ export function InfluencerPerformanceTable({
                     <td>{formatNumber(group.totals.shares)}</td>
                     <td><strong>{group.averageEngagement.toFixed(2)}%</strong></td>
                     <td>{formatNumber(group.totals.cost, { currency: 'AED' })}</td>
-                    <td>
+                    <td className="ip-table__group-actions">
                       <button
                         type="button"
                         className="inf-btn inf-btn--ghost inf-btn--xs ip-table__expand-btn"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          setExpandedInfluencers((current) => {
-                            const next = new Set(current)
-                            if (isMonitorActive) next.delete(group.id)
-                            else next.add(group.id)
-                            return next
-                          })
-                          onToggleMonitor(group.id)
-                        }}
+                        onClick={() => toggleGroupExpanded(group.id)}
                       >
-                        {isMonitorActive ? 'Hide' : 'Show'}
+                        {isExpanded ? 'Collapse' : 'Expand'}
+                      </button>
+                      <button
+                        type="button"
+                        className={`inf-btn inf-btn--ghost inf-btn--xs ip-table__expand-btn ${isMonitorActive ? 'ip-table__monitor--on' : ''}`}
+                        onClick={() => onToggleMonitor(group.id)}
+                      >
+                        {isMonitorActive ? 'Timeline on' : 'Timeline'}
                       </button>
                     </td>
                   </tr>
@@ -162,15 +192,21 @@ export function InfluencerPerformanceTable({
                       <td>{formatNumber(record.cost, { currency: 'AED' })}</td>
                       <td>
                         <div className="inf-table__actions">
-                          <button type="button" className="inf-btn-icon" onClick={() => onView(record)} aria-label="View performance record">
-                            <Eye size={15} />
-                          </button>
-                          <button type="button" className="inf-btn-icon" onClick={() => onEdit(record)} aria-label="Edit performance record">
-                            <Pencil size={15} />
-                          </button>
-                          <button type="button" className="inf-btn-icon ip-danger-icon" onClick={() => onDelete(record.id)} aria-label="Delete performance record">
-                            <Trash2 size={15} />
-                          </button>
+                          {onView ? (
+                            <button type="button" className="inf-btn-icon" onClick={() => onView(record)} aria-label="View performance record">
+                              <Eye size={15} />
+                            </button>
+                          ) : null}
+                          {onEdit ? (
+                            <button type="button" className="inf-btn-icon" onClick={() => onEdit(record)} aria-label="Edit performance record">
+                              <Pencil size={15} />
+                            </button>
+                          ) : null}
+                          {onDelete ? (
+                            <button type="button" className="inf-btn-icon ip-danger-icon" onClick={() => onDelete(record.id)} aria-label="Delete performance record">
+                              <Trash2 size={15} />
+                            </button>
+                          ) : null}
                         </div>
                       </td>
                     </tr>
