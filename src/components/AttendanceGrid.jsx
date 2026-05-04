@@ -60,6 +60,11 @@ export function AttendanceGrid({
   const days = useMemo(() => Array.from({ length: daysInMonth }, (_, i) => i + 1), [daysInMonth])
   const slFileInputRef = useRef(null)
   const attendanceSplitRef = useRef(null)
+  const mainScrollRef = useRef(null)
+  const topScrollRef = useRef(null)
+  const scrollSyncLockRef = useRef(false)
+  const hasHOverflowRef = useRef(false)
+  const [hScroll, setHScroll] = useState({ spacer: 0, visible: false })
   const [slUploadTarget, setSlUploadTarget] = useState(null)
 
   const [employeeSearch, setEmployeeSearch] = useState('')
@@ -220,6 +225,77 @@ export function AttendanceGrid({
     return () => ro.disconnect()
   }, [displayEmployees, displayDays, attendance, cellViewMode, sickLeaveDocuments])
 
+  /** Top scrollbar mirrors horizontal scroll (bottom scrollbar hidden on main). */
+  useLayoutEffect(() => {
+    const main = mainScrollRef.current
+    if (!main) return undefined
+
+    const measureAndAlignTop = () => {
+      const sw = main.scrollWidth
+      const cw = main.clientWidth
+      const visible = sw > cw + 1
+      hasHOverflowRef.current = visible
+      setHScroll({ spacer: sw, visible })
+      const top = topScrollRef.current
+      if (top && visible) {
+        scrollSyncLockRef.current = true
+        top.scrollLeft = main.scrollLeft
+        requestAnimationFrame(() => {
+          scrollSyncLockRef.current = false
+        })
+      }
+    }
+
+    measureAndAlignTop()
+
+    const ro = new ResizeObserver(() => measureAndAlignTop())
+    ro.observe(main)
+    if (attendanceSplitRef.current) ro.observe(attendanceSplitRef.current)
+
+    const onMainScroll = () => {
+      if (scrollSyncLockRef.current) return
+      const top = topScrollRef.current
+      if (!top || !hasHOverflowRef.current) return
+      scrollSyncLockRef.current = true
+      top.scrollLeft = main.scrollLeft
+      requestAnimationFrame(() => {
+        scrollSyncLockRef.current = false
+      })
+    }
+
+    const onTopScroll = () => {
+      if (scrollSyncLockRef.current) return
+      const top = topScrollRef.current
+      if (!top) return
+      scrollSyncLockRef.current = true
+      main.scrollLeft = top.scrollLeft
+      requestAnimationFrame(() => {
+        scrollSyncLockRef.current = false
+      })
+    }
+
+    main.addEventListener('scroll', onMainScroll, { passive: true })
+    const topEl = topScrollRef.current
+    topEl?.addEventListener('scroll', onTopScroll, { passive: true })
+
+    return () => {
+      ro.disconnect()
+      main.removeEventListener('scroll', onMainScroll)
+      topEl?.removeEventListener('scroll', onTopScroll)
+    }
+  }, [
+    displayDays.length,
+    displayEmployees.length,
+    cellViewMode,
+    dayScope,
+    sickLeaveDocuments,
+    employees.length,
+    month,
+    year,
+    weeklyHolidayDay,
+    daysInMonth,
+  ])
+
   const handleSummaryIncluded = useCallback((key, next) => {
     setSummaryIncluded((prev) => {
       const copy = { ...prev }
@@ -353,7 +429,19 @@ export function AttendanceGrid({
           </span>
         ) : null}
       </div>
-      <div className="attendance-grid-scroll">
+      <div className="attendance-grid-scroll-outer">
+        <div
+          ref={topScrollRef}
+          className={`attendance-grid-scroll attendance-grid-scroll--top ${hScroll.visible ? '' : 'attendance-grid-scroll--top--collapsed'}`}
+          title="Scroll attendance columns"
+          aria-hidden="true"
+        >
+          <div
+            className="attendance-grid-scroll-spacer"
+            style={{ width: Math.max(hScroll.spacer, 1), height: 1 }}
+          />
+        </div>
+        <div ref={mainScrollRef} className="attendance-grid-scroll attendance-grid-scroll--main">
         <input
           ref={slFileInputRef}
           type="file"
@@ -639,6 +727,7 @@ export function AttendanceGrid({
           </tbody>
         </table>
           </div>
+        </div>
         </div>
       </div>
       {employees.length === 0 && (
