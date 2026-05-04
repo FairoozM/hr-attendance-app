@@ -171,29 +171,39 @@ export function InfluencerPerformanceTable({
               const isMonitorActive = String(activeMonitorInfluencerId) === String(group.id)
               const influencer = group.influencer
               const latestRecord = group.latestRecord
-              const toggleGroup = () => {
+              const hasMultipleRecords = group.records.length > 1
+              const toggleMonitor = () => {
+                onToggleMonitor(group.id)
+              }
+              const toggleExpandedGroup = () => {
+                if (!hasMultipleRecords) return
                 setExpandedInfluencers((current) => {
                   const next = new Set(current)
                   if (next.has(group.id)) next.delete(group.id)
                   else next.add(group.id)
                   return next
                 })
-                onToggleMonitor(group.id)
               }
               return (
                 <Fragment key={group.id}>
                   <tr key={group.id} className={`ip-table__group-row ${isMonitorActive ? 'ip-table__group-row--active' : ''}`}>
                     <td>
-                      <button
-                        type="button"
-                        className="ip-table__expand-label ip-table__expand-label--button"
-                        onClick={toggleGroup}
-                        aria-expanded={isExpanded}
-                        aria-label={`${isExpanded ? 'Collapse' : 'Expand'} performance records for ${influencer?.name || 'influencer'}`}
-                      >
-                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                        {latestRecord?.date || '-'}
-                      </button>
+                      {hasMultipleRecords ? (
+                        <button
+                          type="button"
+                          className="ip-table__expand-label ip-table__expand-label--button"
+                          onClick={toggleExpandedGroup}
+                          aria-expanded={isExpanded}
+                          aria-label={`${isExpanded ? 'Collapse' : 'Expand'} performance records for ${influencer?.name || 'influencer'}`}
+                        >
+                          {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                          {latestRecord?.date || '-'}
+                        </button>
+                      ) : (
+                        <span className="ip-table__expand-label ip-table__expand-label--static">
+                          {latestRecord?.date || '-'}
+                        </span>
+                      )}
                     </td>
                     <td>
                       <InfluencerIdentity influencer={influencer} platform={latestRecord?.platform} />
@@ -215,14 +225,14 @@ export function InfluencerPerformanceTable({
                         className="inf-btn inf-btn--ghost inf-btn--xs ip-table__expand-btn"
                         onClick={(event) => {
                           event.stopPropagation()
-                          toggleGroup()
+                          toggleMonitor()
                         }}
                       >
-                        {isExpanded ? 'Hide' : 'Show'}
+                        {isMonitorActive ? 'Hide' : 'Show'}
                       </button>
                     </td>
                   </tr>
-                  {isExpanded ? group.records.map((record) => (
+                  {hasMultipleRecords && isExpanded ? group.records.map((record) => (
                     <tr key={record.id} className="ip-table__detail-row">
                       <td>{record.date}</td>
                       <td>
