@@ -30,12 +30,6 @@ export function AttendancePage({
   return (
     <div className="page">
       <div className="page-content page-content--attendance">
-        <div className="page-header">
-          <h1 className="page-title">Attendance</h1>
-          <p className="ui-page-subtitle">
-            Review live staffing, department performance, and daily status signals before moving into the detailed attendance grid.
-          </p>
-        </div>
         {error && (
           <section className="page-section">
             <p className="page-error" role="alert">{error}</p>

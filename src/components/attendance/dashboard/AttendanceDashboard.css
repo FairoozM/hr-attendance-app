@@ -4,38 +4,73 @@
   flex-direction: column;
   gap: 1.25rem;
   margin-bottom: 1.5rem;
+  width: 100%;
+  min-width: 0;
 }
 
-.adash__header {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 1.35rem 1.45rem;
-  border-radius: var(--radius-xl);
+/* Single minimalist header (title + meta + overview filters) */
+.adash__shell {
   border: 1px solid var(--theme-border);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 18%, transparent 82%, rgba(255, 255, 255, 0.08)),
-    var(--theme-surface-soft);
-  box-shadow: var(--glass-shadow-panel);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.2rem;
+  background: var(--theme-glass-soft);
   backdrop-filter: var(--glass-blur-lg);
   -webkit-backdrop-filter: var(--glass-blur-lg);
+  box-shadow: var(--glass-shadow-panel);
 }
 
-.adash__title {
-  font-size: clamp(1.35rem, 2.8vw, 2rem);
+.adash__shell-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem 1.25rem;
+}
+
+.adash__shell-intro {
+  min-width: min(100%, 14rem);
+}
+
+.adash__shell-title {
+  margin: 0;
+  font-size: clamp(1.35rem, 2.4vw, 1.65rem);
   font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1.15;
   color: var(--text);
-  margin: 0;
-  background: var(--heading-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
 }
 
-.adash__subtitle {
-  font-size: 0.88rem;
+.adash__shell-meta {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
   color: var(--text-muted);
-  margin: 0;
+  line-height: 1.4;
+}
+
+.adash__shell-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+}
+
+.adash__shell-controls .adash__btn--export {
+  margin-left: 0;
+}
+
+@media (max-width: 640px) {
+  .adash__shell-controls {
+    width: 100%;
+  }
+
+  .adash__shell-controls .adash__field {
+    flex: 1 1 calc(50% - 0.5rem);
+    min-width: 7rem;
+  }
+
+  .adash__shell-controls .adash__btn--export {
+    flex: 1 1 100%;
+  }
 }
 
 .adash__filter-row {
@@ -68,6 +103,7 @@
 }
 
 .adash__select,
+.adash__input,
 .adash__btn {
   font-size: 0.88rem;
   min-height: 2.85rem;
@@ -79,19 +115,55 @@
   transition: border-color 0.15s, background 0.15s;
 }
 
+.adash__input {
+  width: 100%;
+  min-width: 0;
+}
+
+.adash__input::placeholder {
+  color: var(--text-muted);
+}
+
 .adash__select option {
   background: var(--theme-select-option-bg);
   color: var(--text);
 }
 
 .adash__select:focus,
+.adash__input:focus,
 .adash__btn:focus {
   outline: none;
   border-color: rgba(167, 139, 250, 0.42);
 }
 
-.adash__btn--export {
+.adash__field--grow {
+  flex: 1 1 12rem;
+  min-width: min(100%, 11rem);
+  max-width: 22rem;
+}
+
+.adash__btn--clear-filters {
   margin-left: auto;
+  align-self: flex-end;
+  font-weight: 600;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--theme-input-bg) 88%, transparent);
+}
+
+.adash__btn--clear-filters:hover:not(:disabled) {
+  border-color: rgba(167, 139, 250, 0.35);
+}
+
+.adash__btn--clear-filters:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.adash__filter-row .adash__btn--export {
+  margin-left: auto;
+}
+
+.adash__btn--export {
   cursor: pointer;
   font-weight: 600;
   background: linear-gradient(to right, var(--primary), var(--accent));
@@ -113,7 +185,7 @@
 /* ── Summary Cards ── */
 .adash__cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
   gap: 0.75rem;
 }
 
@@ -214,7 +286,8 @@
 
 .adash-status-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  /* auto-fit collapses empty tracks so columns expand (auto-fill leaves ghost columns → huge right gutter). */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   gap: 1rem;
 }
 
@@ -280,7 +353,14 @@
 
 .adash-chart {
   width: 100%;
+  min-width: 0;
   height: 260px;
+}
+
+@media (min-width: 900px) {
+  .adash-chart {
+    height: min(320px, 38vh);
+  }
 }
 
 /* ── Alerts ── */
@@ -342,6 +422,12 @@
 }
 
 /* ── Skeleton ── */
+.adash-skeleton--shell {
+  width: 100%;
+  height: 5.25rem;
+  border-radius: var(--radius-lg);
+}
+
 .adash-skeleton {
   border-radius: var(--radius);
   background: linear-gradient(90deg,
@@ -368,15 +454,28 @@
 
 .adash-grid-2 {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   gap: 1rem;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+}
+
+.adash-grid-2 > * {
+  min-width: 0;
 }
 
 .adash-grid-bottom {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   gap: 1rem;
   align-items: stretch;
+  width: 100%;
+  min-width: 0;
+}
+
+.adash-grid-bottom > * {
+  min-width: 0;
 }
 
 /* ── Unmarked banner ── */
@@ -567,10 +666,16 @@
 }
 
 .adash-whos-in__scroll {
-  max-height: 320px;
+  max-height: min(320px, 55vh);
   overflow: auto;
   margin: 0 -0.15rem;
   padding: 0 0.15rem;
+}
+
+@media (min-width: 900px) {
+  .adash-whos-in__scroll {
+    max-height: min(480px, 52vh);
+  }
 }
 
 .adash-whos-in__list {

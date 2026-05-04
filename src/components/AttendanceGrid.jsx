@@ -12,6 +12,7 @@ import {
   SUMMARY_STATUS_ORDER,
 } from '../utils/attendanceHelpers'
 import { ExcelStyleColumnFilter, excelFilterIsActive } from './ExcelStyleColumnFilter'
+import './attendance/dashboard/AttendanceDashboard.css'
 import './AttendanceGrid.css'
 
 function setAttendanceFor(setAttendance, employeeId, day, value) {
@@ -291,54 +292,52 @@ export function AttendanceGrid({
 
   return (
     <div className="attendance-grid-wrap">
-      <div className="attendance-grid-toolbar">
-        <label className="attendance-grid-toolbar__field">
-          <span className="attendance-grid-toolbar__label">Find employee</span>
+      <div className="adash__filter-row attendance-grid-toolbar" aria-label="Grid filters">
+        <div className="adash__field adash__field--grow">
+          <label htmlFor="attendance-grid-search">Employee search</label>
           <input
+            id="attendance-grid-search"
             type="search"
-            className="attendance-grid-toolbar__input"
-            placeholder="Name or department…"
+            className="adash__input"
+            placeholder="Name or department"
             value={employeeSearch}
             onChange={(e) => setEmployeeSearch(e.target.value)}
-            aria-label="Filter employees by name or department"
+            autoComplete="off"
+            spellCheck={false}
           />
-        </label>
-        <label className="attendance-grid-toolbar__field">
-          <span className="attendance-grid-toolbar__label">Cells</span>
+        </div>
+        <div className="adash__field">
+          <label htmlFor="attendance-grid-cell-mode">Cell highlight</label>
           <select
-            className="attendance-grid-toolbar__select"
+            id="attendance-grid-cell-mode"
+            className="adash__select"
             value={cellViewMode}
             onChange={(e) => setCellViewMode(e.target.value)}
-            aria-label="Cell display mode"
           >
-            <option value="all">Show all statuses</option>
-            <option value="absentOnly">Absent (A) only — dim other cells</option>
+            <option value="all">None — show all statuses normally</option>
+            <option value="absentOnly">Absent (A) — dim other cells</option>
           </select>
-        </label>
-        <label className="attendance-grid-toolbar__field">
-          <span className="attendance-grid-toolbar__label">Day columns</span>
+        </div>
+        <div className="adash__field">
+          <label htmlFor="attendance-grid-day-scope">Visible days</label>
           <select
-            className="attendance-grid-toolbar__select"
+            id="attendance-grid-day-scope"
+            className="adash__select"
             value={dayScope}
             onChange={(e) => setDayScope(e.target.value)}
-            aria-label="Which day columns to show"
           >
-            <option value="all">All days</option>
-            <option value="absentDaysOnly">Only days with ≥1 absence (A)</option>
+            <option value="all">Full month</option>
+            <option value="absentDaysOnly">Only days with absence (A)</option>
           </select>
-        </label>
+        </div>
         <button
           type="button"
-          className="attendance-grid-toolbar__clear btn btn--ghost btn--sm"
+          className="adash__btn adash__btn--clear-filters"
           onClick={clearAttendanceFilters}
           disabled={!hasActiveAttendanceFilters}
         >
-          Clear filters
+          Reset grid filters
         </button>
-        <p className="attendance-grid-toolbar__hint">
-          Click the funnel on each Summary or day column for Excel-style checkboxes (include/exclude
-          values).
-        </p>
       </div>
 
       <div className="attendance-grid-legend">

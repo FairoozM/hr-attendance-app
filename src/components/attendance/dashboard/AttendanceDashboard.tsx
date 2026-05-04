@@ -4,8 +4,7 @@ import type { AttendanceEmployee } from '../../../types/attendance'
 import type { AttendanceMap } from '../../../utils/attendance/attendanceSelectors'
 import { formatDateDDMMMYYYY } from '../../../utils/attendance/attendanceFormatters'
 import { buildAttendanceSnapshotCsv } from '../../../utils/attendance/attendanceDashboardHelpers'
-import { AttendanceDashboardHeader } from './AttendanceDashboardHeader'
-import { AttendanceFilterBar } from './AttendanceFilterBar'
+import { AttendanceUnifiedHeader } from './AttendanceUnifiedHeader'
 import { AttendanceSummaryCards } from './AttendanceSummaryCards'
 import { AttendanceStatusLists } from './AttendanceStatusLists'
 import { AttendanceTrendCharts } from './AttendanceTrendCharts'
@@ -77,7 +76,18 @@ export function AttendanceDashboard({
   if (!employees.length) {
     return (
       <div className="adash">
-        <AttendanceDashboardHeader contextLabel={contextLabel} totalEmployees={0} />
+        <AttendanceUnifiedHeader
+          totalEmployees={0}
+          contextLabel={contextLabel}
+          employees={[]}
+          daysInMonth={daysInMonth}
+          snapshotDay={dash.snapshotDay}
+          onSnapshotDayChange={dash.setSnapshotDay}
+          department={dash.department}
+          onDepartmentChange={dash.setDepartment}
+          onExport={handleExport}
+          exportDisabled={false}
+        />
         <AttendanceEmptyState />
       </div>
     )
@@ -85,12 +95,9 @@ export function AttendanceDashboard({
 
   return (
     <section className="adash" aria-label="Attendance dashboard">
-      <AttendanceDashboardHeader
-        contextLabel={contextLabel}
+      <AttendanceUnifiedHeader
         totalEmployees={dash.metrics.totalEmployees}
-      />
-
-      <AttendanceFilterBar
+        contextLabel={contextLabel}
         employees={employees}
         daysInMonth={daysInMonth}
         snapshotDay={dash.snapshotDay}
