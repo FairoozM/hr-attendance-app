@@ -2069,7 +2069,10 @@
 }
 
 .ip-edit-modal {
-  width: min(760px, 100%);
+  width: min(980px, 100%);
+  max-height: min(90vh, 820px);
+  overflow: auto;
+  padding: 1rem;
 }
 
 .ip-contract-edit-modal {
@@ -2083,7 +2086,8 @@
   padding: 1rem;
 }
 
-.ip-add-record-modal .ip-form-panel {
+.ip-add-record-modal .ip-form-panel,
+.ip-edit-modal .ip-form-panel {
   margin: 0;
   padding: 0;
   border: 0;

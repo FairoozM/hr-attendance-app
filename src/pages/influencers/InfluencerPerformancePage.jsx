@@ -486,63 +486,12 @@ export function InfluencerPerformancePage() {
             <button type="button" className="ip-modal__close" onClick={() => setEditingRecord(null)} aria-label="Close edit record">
               <X size={18} />
             </button>
-            <div className="ip-section-heading">
-              <span className="ip-section-heading__icon"><Save size={18} /></span>
-              <div>
-                <h2>Edit Day {getDayNumber(editingRecord.contractStartDate, editingRecord.date) || 1}</h2>
-                <p>{influencersById.get(String(editingRecord.influencerId))?.name || 'Influencer'} · {editingRecord.campaignName}</p>
-              </div>
-            </div>
-
-            <div className="ip-edit-grid">
-              {[
-                ['Date', 'date', 'date'],
-                ['Views', 'views', 'number'],
-                ['Shares', 'shares', 'number'],
-                ['Likes', 'likes', 'number'],
-                ['Comments', 'comments', 'number'],
-                ['Saves', 'saves', 'number'],
-                ['Sales AED', 'salesAed', 'number'],
-                ['Cost', 'cost', 'number'],
-              ].map(([label, key, type]) => (
-                <label key={key} className="ip-field">
-                  <span>{label}</span>
-                  <input
-                    className="ip-control"
-                    type={type}
-                    min={type === 'number' ? '0' : undefined}
-                    step={key === 'cost' || key === 'salesAed' ? '0.01' : undefined}
-                    value={editingRecord[key] ?? ''}
-                    onChange={(event) => setEditingRecord((prev) => ({ ...prev, [key]: event.target.value }))}
-                  />
-                </label>
-              ))}
-            </div>
-
-            <label className="ip-field">
-              <span>Notes</span>
-              <textarea
-                className="ip-control ip-control--textarea"
-                value={editingRecord.notes || ''}
-                onChange={(event) => setEditingRecord((prev) => ({ ...prev, notes: event.target.value }))}
-              />
-            </label>
-
-            <div className="ip-form__footer">
-              <div className="ip-form__hint">Editing only opens when you click a day/row edit icon.</div>
-              <div className="ip-form__actions">
-                <button type="button" className="inf-btn inf-btn--ghost" onClick={() => setEditingRecord(null)}>
-                  <X size={15} /> Cancel
-                </button>
-                <button
-                  type="button"
-                  className="inf-btn inf-btn--primary"
-                  onClick={() => handleSubmit(normalizePerformanceRecord(editingRecord))}
-                >
-                  <Save size={15} /> Save
-                </button>
-              </div>
-            </div>
+            <InfluencerPerformanceForm
+              influencers={influencers}
+              editingRecord={editingRecord}
+              onSubmit={handleSubmit}
+              onCancelEdit={() => setEditingRecord(null)}
+            />
           </section>
         </div>
       ) : null}
