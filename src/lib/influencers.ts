@@ -66,6 +66,10 @@ export interface Influencer {
   workflowStatus: string
   approvalStatus: string
   paymentStatus: string
+  /** S3 object key for the manually uploaded influencer display picture. */
+  profileImageKey?: string
+  /** Signed URL returned by the API for display only; do not persist this value. */
+  profileImageUrl?: string
   assignedTo?: string
   shootDate?: string
   shootTime?: string
@@ -155,6 +159,12 @@ export async function fetchInsightsImageUrls(
   return Array.isArray(data?.items) ? data.items : []
 }
 
+export async function fetchProfileImageUrl(
+  influencerId: string,
+): Promise<{ key: string; url: string }> {
+  return apiFetch(`/api/influencers/${encodeURIComponent(influencerId)}/profile-image/url`)
+}
+
 /** iOS/ Safari often send empty or application/octet-stream; must match presigned Content-Type. */
 export function guessImageContentType(file: File): string {
   const t = (file.type || "").trim().toLowerCase()
@@ -179,6 +189,19 @@ export async function getInsightsImageUploadUrl(
     method: "POST",
     body: JSON.stringify({
       fileName: payload.fileName || "image.jpg",
+      contentType: payload.contentType,
+    }),
+  })
+}
+
+export async function getProfileImageUploadUrl(
+  influencerId: string,
+  payload: { fileName: string; contentType: string },
+): Promise<{ uploadUrl: string; key: string; contentType: string }> {
+  return apiFetch(`/api/influencers/${encodeURIComponent(influencerId)}/profile-image/upload-url`, {
+    method: "POST",
+    body: JSON.stringify({
+      fileName: payload.fileName || "profile-image.jpg",
       contentType: payload.contentType,
     }),
   })

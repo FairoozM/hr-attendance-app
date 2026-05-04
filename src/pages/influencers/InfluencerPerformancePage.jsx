@@ -462,7 +462,7 @@ export function InfluencerPerformancePage() {
                 ['Comments', formatNumber(viewRecord.comments)],
                 ['Shares', formatNumber(viewRecord.shares)],
                 ['Saves', formatNumber(viewRecord.saves)],
-                ['Followers gained', formatNumber(viewRecord.followersGained)],
+                ['Sales AED', formatNumber(viewRecord.salesAed, { currency: 'AED' })],
                 ['Story views', formatNumber(viewRecord.storyViews)],
                 ['Engagement rate', `${toNumber(viewRecord.engagementRate).toFixed(2)}%`],
                 ['Cost', formatNumber(viewRecord.cost, { currency: 'AED' })],
@@ -502,7 +502,7 @@ export function InfluencerPerformancePage() {
                 ['Likes', 'likes', 'number'],
                 ['Comments', 'comments', 'number'],
                 ['Saves', 'saves', 'number'],
-                ['Followers gained', 'followersGained', 'number'],
+                ['Sales AED', 'salesAed', 'number'],
                 ['Cost', 'cost', 'number'],
               ].map(([label, key, type]) => (
                 <label key={key} className="ip-field">
@@ -511,7 +511,7 @@ export function InfluencerPerformancePage() {
                     className="ip-control"
                     type={type}
                     min={type === 'number' ? '0' : undefined}
-                    step={key === 'cost' ? '0.01' : undefined}
+                    step={key === 'cost' || key === 'salesAed' ? '0.01' : undefined}
                     value={editingRecord[key] ?? ''}
                     onChange={(event) => setEditingRecord((prev) => ({ ...prev, [key]: event.target.value }))}
                   />

@@ -804,7 +804,7 @@ export function InfluencerListPage() {
                     {inf.niche ? <div className="inf-table__sub">{inf.niche}</div> : null}
                   </td>
                   <td className="inf-table__col inf-table__col--hide-lg inf-table__col--nationality"><span className="inf-table__muted">{inf.nationality || '—'}</span></td>
-                  <td className="inf-table__col inf-table__col--ig"><InstagramCell handle={inf.instagram?.handle} url={inf.instagram?.url} storedPicUrl={inf.instagram?.picUrl} /></td>
+                  <td className="inf-table__col inf-table__col--ig"><InstagramCell handle={inf.instagram?.handle} url={inf.instagram?.url} storedPicUrl={inf.profileImageUrl || inf.instagram?.picUrl} /></td>
                   <td className="inf-table__col inf-table__col--mobile">
                     <span className="inf-table__cell-icon-row">
                       <Smartphone size={13} className="inf-table__cell-icon" aria-hidden />

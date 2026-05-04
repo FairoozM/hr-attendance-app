@@ -223,7 +223,7 @@ export function getDailyTotals(records = [], date = new Date().toISOString().sli
       comments: totals.comments + toNumber(record.comments),
       shares: totals.shares + toNumber(record.shares),
       saves: totals.saves + toNumber(record.saves),
-      followersGained: totals.followersGained + toNumber(record.followersGained),
+      salesAed: totals.salesAed + toNumber(record.salesAed),
       cost: totals.cost + toNumber(record.cost),
     }), {
       views: 0,
@@ -231,7 +231,7 @@ export function getDailyTotals(records = [], date = new Date().toISOString().sli
       comments: 0,
       shares: 0,
       saves: 0,
-      followersGained: 0,
+      salesAed: 0,
       cost: 0,
     })
 }
@@ -292,7 +292,7 @@ export function normalizePerformanceRecord(record) {
     comments: toNumber(record.comments),
     shares: toNumber(record.shares),
     saves: toNumber(record.saves),
-    followersGained: toNumber(record.followersGained),
+    salesAed: toNumber(record.salesAed),
     storyViews: toNumber(record.storyViews),
     cost: toNumber(record.cost),
   }
@@ -324,7 +324,7 @@ export function createInfluencerFromAppRecord(record, index = 0) {
     platform,
     username: username || record.instagram?.handle || record.youtube?.handle || '@creator',
     niche: record.niche || 'Lifestyle',
-    profileImage: record.instagram?.picUrl || '',
+    profileImage: record.profileImageUrl || record.instagram?.picUrl || '',
     followers: toNumber(record.followersCount),
     assignedCampaign: record.campaign || record.collaborationType || 'General campaign',
     status: record.workflowStatus === 'Closed' ? 'Completed' : record.workflowStatus === 'Rejected' ? 'Paused' : 'Active',
@@ -421,7 +421,7 @@ export function createMockPerformanceRecords(influencers = mockInfluencers) {
         comments,
         shares,
         saves,
-        followersGained: Math.round(views * 0.0012),
+        salesAed: 0,
         storyViews: Math.round(views * 0.28),
         engagementRate: 0,
         cost: 1200 + influencerIndex * 450,

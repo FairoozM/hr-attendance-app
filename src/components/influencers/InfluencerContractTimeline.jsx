@@ -78,7 +78,7 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
       comments: 0,
       shares: 0,
       saves: 0,
-      followersGained: 0,
+      salesAed: 0,
       storyViews: 0,
       cost: 0,
       notes: '',

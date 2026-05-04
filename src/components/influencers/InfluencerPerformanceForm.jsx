@@ -16,7 +16,7 @@ const emptyForm = {
   comments: '',
   shares: '',
   saves: '',
-  followersGained: '',
+  salesAed: '',
   storyViews: '',
   cost: '',
   notes: '',
@@ -49,7 +49,7 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
         comments: String(editingRecord.comments ?? ''),
         shares: String(editingRecord.shares ?? ''),
         saves: String(editingRecord.saves ?? ''),
-        followersGained: String(editingRecord.followersGained ?? ''),
+        salesAed: String(editingRecord.salesAed ?? ''),
         storyViews: String(editingRecord.storyViews ?? ''),
         cost: String(editingRecord.cost ?? ''),
       })
@@ -100,7 +100,7 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
     if (!form.campaignName.trim()) next.campaignName = 'Contract / campaign is required'
     if (!form.contractStartDate) next.contractStartDate = 'Start date is required'
     if (Number(form.views) < 0) next.views = 'Views cannot be negative'
-    ;['likes', 'comments', 'shares', 'saves', 'followersGained', 'storyViews', 'cost'].forEach((key) => {
+    ;['likes', 'comments', 'shares', 'saves', 'salesAed', 'storyViews', 'cost'].forEach((key) => {
       if (Number(form[key]) < 0) next[key] = 'Value cannot be negative'
     })
     setErrors(next)
@@ -275,9 +275,25 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
             </div>
 
             <div className="ip-metric-grid">
-              {['views', 'likes', 'comments', 'shares', 'saves', 'followersGained', 'storyViews'].map((key) => (
-                <Field key={key} label={key.replace(/([A-Z])/g, ' $1')} error={errors[key]}>
-                  <input className="ip-control ip-control--metric" type="number" min="0" value={form[key]} onChange={(event) => set(key, event.target.value)} placeholder="0" />
+              {[
+                ['views', 'Views'],
+                ['likes', 'Likes'],
+                ['comments', 'Comments'],
+                ['shares', 'Shares'],
+                ['saves', 'Saves'],
+                ['salesAed', 'Sales AED'],
+                ['storyViews', 'Story views'],
+              ].map(([key, label]) => (
+                <Field key={key} label={label} error={errors[key]}>
+                  <input
+                    className="ip-control ip-control--metric"
+                    type="number"
+                    min="0"
+                    step={key === 'salesAed' ? '0.01' : undefined}
+                    value={form[key]}
+                    onChange={(event) => set(key, event.target.value)}
+                    placeholder={key === 'salesAed' ? '0.00' : '0'}
+                  />
                 </Field>
               ))}
 

@@ -12,6 +12,32 @@ function isPlainObject(v) {
   return v != null && typeof v === 'object' && !Array.isArray(v)
 }
 
+function stripTransientInfluencerFields(row) {
+  const out = { ...row }
+  delete out.profileImageUrl
+  return out
+}
+
+async function attachProfileImageUrl(row) {
+  if (!row) return row
+  const out = stripTransientInfluencerFields(row)
+  if (!row.profileImageKey) return out
+  try {
+    out.profileImageUrl = await s3Service.getDownloadUrl({
+      key: row.profileImageKey,
+      expiresIn: 24 * 60 * 60,
+    })
+  } catch (err) {
+    console.warn('[influencers] profile image signing skipped:', err.message || err)
+    delete out.profileImageUrl
+  }
+  return out
+}
+
+async function attachProfileImageUrls(list) {
+  return Promise.all((list || []).map((row) => attachProfileImageUrl(row)))
+}
+
 /**
  * Enrich `row` from Instagram Graph Business Discovery when the caller opts in.
  * On API errors, does not clear an existing `instagram.picUrl` (only successful responses update it).
@@ -44,7 +70,7 @@ function sanitizeInfluencerList(body) {
     if (!isPlainObject(row)) continue
     const id = row.id != null ? String(row.id).trim() : ''
     if (!id) continue
-    out.push(row)
+    out.push(stripTransientInfluencerFields(row))
   }
   return { list: out }
 }
@@ -55,12 +81,12 @@ function sanitizeSingleInfluencer(body) {
   }
   const id = body.id != null ? String(body.id).trim() : ''
   if (!id) return { error: 'Influencer id is required' }
-  return { row: body, id }
+  return { row: stripTransientInfluencerFields(body), id }
 }
 
 async function listInfluencers(req, res) {
   try {
-    const list = await influencersService.getInfluencers()
+    const list = await attachProfileImageUrls(await influencersService.getInfluencers())
     const pageRaw = req.query.page
     const limitRaw = req.query.limit
     const page = pageRaw != null && pageRaw !== '' ? Number.parseInt(String(pageRaw), 10) : NaN
@@ -112,12 +138,13 @@ async function createInfluencer(req, res) {
         rowPayload.id,
       )
     }
+    rowPayload.profileImageKey = normalizeProfileImageKey(rowPayload, {}, rowPayload.id)
     let instagramGraph = null
     if (syncFromGraph) {
       instagramGraph = await applyOptionalInstagramGraphSync(rowPayload)
     }
     const row = await influencersService.addInfluencer(rowPayload)
-    res.status(201).json({ success: true, influencer: row, instagramGraph })
+    res.status(201).json({ success: true, influencer: await attachProfileImageUrl(row), instagramGraph })
   } catch (err) {
     console.error('[influencers] create error:', err)
     res.status(500).json({
@@ -149,6 +176,11 @@ function insightsKeyPrefixForInfluencer(influencerId) {
   return `influencer-insights/${sid}/`
 }
 
+function profileImageKeyPrefixForInfluencer(influencerId) {
+  const sid = String(influencerId || '').replace(/[^a-zA-Z0-9._-]/g, '_')
+  return `influencer-profile-images/${sid}/`
+}
+
 function normalizeInsightsImageKeys(body, existing, influencerId) {
   const prefix = insightsKeyPrefixForInfluencer(influencerId)
   const valid = (k) => typeof k === 'string' && k.trim().startsWith(prefix)
@@ -161,6 +193,16 @@ function normalizeInsightsImageKeys(body, existing, influencerId) {
     .filter(valid)
     .map((k) => k.trim())
     .slice(0, MAX_INSIGHT_IMAGES)
+}
+
+function normalizeProfileImageKey(body, existing, influencerId) {
+  if (!Object.prototype.hasOwnProperty.call(body || {}, 'profileImageKey')) {
+    return typeof existing?.profileImageKey === 'string' ? existing.profileImageKey : ''
+  }
+  const raw = body.profileImageKey == null ? '' : String(body.profileImageKey).trim()
+  if (!raw) return ''
+  const prefix = profileImageKeyPrefixForInfluencer(influencerId)
+  return raw.startsWith(prefix) ? raw : (typeof existing?.profileImageKey === 'string' ? existing.profileImageKey : '')
 }
 
 /** Required fields that must never be cleared by a stale PATCH (silently dropped from the patch). */
@@ -200,10 +242,12 @@ async function updateInfluencer(req, res) {
       return res.status(404).json({ error: 'Influencer not found' })
     }
     const oldKeys = Array.isArray(existing?.insightsImageKeys) ? existing.insightsImageKeys : []
+    const oldProfileImageKey = typeof existing?.profileImageKey === 'string' ? existing.profileImageKey : ''
     const safeRow = sanitizePatchRow(parsed.row, existing)
     const nextKeys = normalizeInsightsImageKeys(safeRow, existing, id)
+    const nextProfileImageKey = normalizeProfileImageKey(safeRow, existing, id)
     /** Merge with stored row so partial PATCH never wipes the record. */
-    let row = { ...existing, ...safeRow, id, insightsImageKeys: nextKeys }
+    let row = { ...existing, ...safeRow, id, insightsImageKeys: nextKeys, profileImageKey: nextProfileImageKey }
     let instagramGraph = null
     if (syncFromGraph) {
       instagramGraph = await applyOptionalInstagramGraphSync(row)
@@ -214,7 +258,10 @@ async function updateInfluencer(req, res) {
         await s3Service.deleteObjectIfExists(k).catch(() => {})
       }
     }
-    res.json({ success: true, influencer: row, instagramGraph })
+    if (oldProfileImageKey && oldProfileImageKey !== nextProfileImageKey) {
+      await s3Service.deleteObjectIfExists(oldProfileImageKey).catch(() => {})
+    }
+    res.json({ success: true, influencer: await attachProfileImageUrl(row), instagramGraph })
   } catch (err) {
     console.error('[influencers] update error:', err)
     res.status(500).json({
@@ -232,15 +279,63 @@ async function deleteInfluencer(req, res) {
     }
     const existing = await influencersService.getInfluencerById(id)
     const keys = Array.isArray(existing?.insightsImageKeys) ? existing.insightsImageKeys : []
+    const profileImageKey = typeof existing?.profileImageKey === 'string' ? existing.profileImageKey : ''
     await influencersService.removeInfluencerById(id)
     for (const k of keys) {
       await s3Service.deleteObjectIfExists(k).catch(() => {})
+    }
+    if (profileImageKey) {
+      await s3Service.deleteObjectIfExists(profileImageKey).catch(() => {})
     }
     res.json({ success: true })
   } catch (err) {
     console.error('[influencers] delete error:', err)
     res.status(500).json({
       error: 'Failed to delete influencer',
+      detail: err && err.message ? String(err.message).slice(0, 240) : undefined,
+    })
+  }
+}
+
+async function getProfileImageUploadUrl(req, res) {
+  try {
+    const id = req.params.id != null ? String(req.params.id).trim() : ''
+    if (!id) return res.status(400).json({ error: 'Missing influencer id' })
+    const existing = await influencersService.getInfluencerById(id)
+    if (!existing) return res.status(404).json({ error: 'Influencer not found' })
+    const { fileName, contentType } = req.body || {}
+    const ct = String(contentType || '').toLowerCase()
+    if (!ct.startsWith('image/')) {
+      return res.status(400).json({ error: 'Only image files are allowed' })
+    }
+    if (!fileName || typeof fileName !== 'string') {
+      return res.status(400).json({ error: 'fileName is required' })
+    }
+    const key = s3Service.createInfluencerProfileImageKey(id, fileName)
+    const uploadUrl = await s3Service.getUploadUrl({ key, contentType: ct })
+    res.json({ uploadUrl, key, contentType: ct })
+  } catch (err) {
+    console.error('[influencers] profile image upload-url error:', err)
+    res.status(err.status || 500).json({
+      error: err.message || 'Failed to create profile image upload URL',
+      detail: err && err.message ? String(err.message).slice(0, 240) : undefined,
+    })
+  }
+}
+
+async function getProfileImageSignedUrl(req, res) {
+  try {
+    const id = req.params.id != null ? String(req.params.id).trim() : ''
+    if (!id) return res.status(400).json({ error: 'Missing influencer id' })
+    const existing = await influencersService.getInfluencerById(id)
+    if (!existing) return res.status(404).json({ error: 'Influencer not found' })
+    if (!existing.profileImageKey) return res.json({ key: '', url: '' })
+    const url = await s3Service.getDownloadUrl({ key: existing.profileImageKey, expiresIn: 24 * 60 * 60 })
+    res.json({ key: existing.profileImageKey, url })
+  } catch (err) {
+    console.error('[influencers] profile image url error:', err)
+    res.status(err.status || 500).json({
+      error: err.message || 'Failed to sign profile image URL',
       detail: err && err.message ? String(err.message).slice(0, 240) : undefined,
     })
   }
@@ -490,6 +585,8 @@ module.exports = {
   getInsightsImageUploadUrl,
   getInsightsImageUploadUrlsBatch,
   getInsightsImageSignedUrls,
+  getProfileImageUploadUrl,
+  getProfileImageSignedUrl,
   refreshInstagramProfileFromGraph,
   batchRefreshInstagramProfilePictures,
 }

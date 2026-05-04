@@ -171,14 +171,29 @@ export function InfluencerPerformanceTable({
               const isMonitorActive = String(activeMonitorInfluencerId) === String(group.id)
               const influencer = group.influencer
               const latestRecord = group.latestRecord
+              const toggleGroup = () => {
+                setExpandedInfluencers((current) => {
+                  const next = new Set(current)
+                  if (next.has(group.id)) next.delete(group.id)
+                  else next.add(group.id)
+                  return next
+                })
+                onToggleMonitor(group.id)
+              }
               return (
                 <Fragment key={group.id}>
                   <tr key={group.id} className={`ip-table__group-row ${isMonitorActive ? 'ip-table__group-row--active' : ''}`}>
                     <td>
-                      <span className="ip-table__expand-label">
+                      <button
+                        type="button"
+                        className="ip-table__expand-label ip-table__expand-label--button"
+                        onClick={toggleGroup}
+                        aria-expanded={isExpanded}
+                        aria-label={`${isExpanded ? 'Collapse' : 'Expand'} performance records for ${influencer?.name || 'influencer'}`}
+                      >
                         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                         {latestRecord?.date || '-'}
-                      </span>
+                      </button>
                     </td>
                     <td>
                       <InfluencerIdentity influencer={influencer} platform={latestRecord?.platform} />
@@ -200,16 +215,10 @@ export function InfluencerPerformanceTable({
                         className="inf-btn inf-btn--ghost inf-btn--xs ip-table__expand-btn"
                         onClick={(event) => {
                           event.stopPropagation()
-                          setExpandedInfluencers((current) => {
-                            const next = new Set(current)
-                            if (isMonitorActive) next.delete(group.id)
-                            else next.add(group.id)
-                            return next
-                          })
-                          onToggleMonitor(group.id)
+                          toggleGroup()
                         }}
                       >
-                        {isMonitorActive ? 'Hide' : 'Show'}
+                        {isExpanded ? 'Hide' : 'Show'}
                       </button>
                     </td>
                   </tr>

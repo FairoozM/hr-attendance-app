@@ -1931,6 +1931,21 @@
   white-space: nowrap;
 }
 
+.ip-table__expand-label--button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ip-table__expand-label--button:hover,
+.ip-table__expand-label--button:focus-visible {
+  color: #0088bb;
+  outline: none;
+}
+
 .ip-table__expand-label svg {
   color: #0088bb;
 }
