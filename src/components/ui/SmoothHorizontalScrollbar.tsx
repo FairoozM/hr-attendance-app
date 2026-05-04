@@ -21,8 +21,10 @@ const SPRING = {
   mass: 0.25,
 } as const
 
-/** Approximate arrow footprint along the track (matches CSS triangle + margin). */
-const ARROW_W = 28
+const CAT_SRC = `${import.meta.env.BASE_URL}attendance-scrollbar-cat.png`
+
+/** Approximate thumb width along the track (cat graphic + padding). */
+const THUMB_TRACK_W = 34
 const DEFAULT_WHEEL_MULT = 3.25
 
 type Props = {
@@ -50,13 +52,9 @@ export function SmoothHorizontalScrollbar({
 
   const trackWidthMv = useMotionValue(0)
 
-  /** Degrees: 0 = arrow →, 180 = arrow ← (avoid springing scalar −1↔1 which crosses zero). */
-  const rotationTarget = useMotionValue(0)
-  const rotationSpring = useSpring(rotationTarget, {
-    stiffness: 720,
-    damping: 42,
-    mass: 0.22,
-  })
+  /** +1 = facing right, −1 = mirrored (scroll moving left). Instant flip — no spring (avoids scaleX→0). */
+  const facingTarget = useMotionValue(1)
+  const thumbMirrorX = useTransform(facingTarget, (f) => (f >= 0 ? 1 : -1))
 
   const dragScaleTarget = useMotionValue(1)
   const dragScaleSpring = useSpring(dragScaleTarget, {
@@ -81,14 +79,8 @@ export function SmoothHorizontalScrollbar({
   const thumbTranslateX = useTransform([progressSpring, trackWidthMv], ([p, tw]) => {
     const w = typeof tw === 'number' ? tw : 0
     const prog = typeof p === 'number' ? p : 0
-    const travel = Math.max(0, w - ARROW_W)
+    const travel = Math.max(0, w - THUMB_TRACK_W)
     return prog * travel
-  })
-
-  const thumbRotate = useTransform([rotationSpring, tiltSpring], ([base, tilt]) => {
-    const b = typeof base === 'number' ? base : 0
-    const t = typeof tilt === 'number' ? tilt : 0
-    return b + t
   })
 
   const thumbScale = useTransform(dragScaleSpring, (s) =>
@@ -106,10 +98,10 @@ export function SmoothHorizontalScrollbar({
 
   const bumpDirectionFromDelta = useCallback(
     (delta: number) => {
-      if (delta < 0) rotationTarget.set(180)
-      else if (delta > 0) rotationTarget.set(0)
+      if (delta < 0) facingTarget.set(-1)
+      else if (delta > 0) facingTarget.set(1)
     },
-    [rotationTarget]
+    [facingTarget]
   )
 
   const queueProgressFromElement = useCallback(
@@ -276,10 +268,10 @@ export function SmoothHorizontalScrollbar({
       draggingThumbRef.current = true
       dragPointerIdRef.current = e.pointerId
       dragScaleTarget.set(1.12)
-      tiltTarget.set(rotationTarget.get() <= 90 ? 6 : -6)
+      tiltTarget.set(facingTarget.get() >= 0 ? 6 : -6)
       ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
     },
-    [scrollRef, dragScaleTarget, tiltTarget, rotationTarget]
+    [scrollRef, dragScaleTarget, tiltTarget, facingTarget]
   )
 
   const onThumbPointerMove = useCallback(
@@ -337,15 +329,23 @@ export function SmoothHorizontalScrollbar({
             style={{
               x: thumbTranslateX,
               y: '-50%',
-              rotate: thumbRotate,
-              scale: thumbScale,
+              scaleX: thumbMirrorX,
             }}
             onPointerDown={onThumbPointerDown}
             onPointerMove={onThumbPointerMove}
             onPointerUp={onThumbPointerUp}
             onPointerCancel={onThumbPointerUp}
           >
-            <div className="smooth-hscroll__arrow" aria-hidden />
+            <motion.img
+              src={CAT_SRC}
+              alt=""
+              className="smooth-hscroll__cat"
+              draggable={false}
+              style={{
+                scale: thumbScale,
+                rotate: tiltSpring,
+              }}
+            />
           </motion.div>
         </div>
       </div>
