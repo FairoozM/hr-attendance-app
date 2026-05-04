@@ -356,6 +356,7 @@ export function AttendanceGrid({
         ) : null}
       </div>
       <div className="attendance-grid-scroll-outer">
+        <SmoothHorizontalScrollbar scrollRef={mainScrollRef} />
         <div ref={mainScrollRef} className="attendance-grid-scroll attendance-grid-scroll--main">
         <input
           ref={slFileInputRef}
@@ -644,7 +645,6 @@ export function AttendanceGrid({
           </div>
         </div>
         </div>
-        <SmoothHorizontalScrollbar scrollRef={mainScrollRef} />
       </div>
       {employees.length === 0 && (
         <p className="attendance-grid-empty">Add employees to record attendance.</p>

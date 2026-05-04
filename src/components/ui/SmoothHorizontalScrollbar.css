@@ -5,7 +5,7 @@
   align-items: center;
   padding: 0.65rem 1rem 0.75rem;
   background: rgb(2 6 23); /* slate-950 */
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .smooth-hscroll--hidden {
