@@ -165,12 +165,16 @@ export function InfluencerPerformanceTable({
                           <button type="button" className="inf-btn-icon" onClick={() => onView(record)} aria-label="View performance record">
                             <Eye size={15} />
                           </button>
-                          <button type="button" className="inf-btn-icon" onClick={() => onEdit(record)} aria-label="Edit performance record">
-                            <Pencil size={15} />
-                          </button>
-                          <button type="button" className="inf-btn-icon ip-danger-icon" onClick={() => onDelete(record.id)} aria-label="Delete performance record">
-                            <Trash2 size={15} />
-                          </button>
+                          {onEdit ? (
+                            <button type="button" className="inf-btn-icon" onClick={() => onEdit(record)} aria-label="Edit performance record">
+                              <Pencil size={15} />
+                            </button>
+                          ) : null}
+                          {onDelete ? (
+                            <button type="button" className="inf-btn-icon ip-danger-icon" onClick={() => onDelete(record.id)} aria-label="Delete performance record">
+                              <Trash2 size={15} />
+                            </button>
+                          ) : null}
                         </div>
                       </td>
                     </tr>

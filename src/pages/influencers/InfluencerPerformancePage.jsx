@@ -43,6 +43,16 @@ function saveRecords(records) {
   }
 }
 
+function isSeededMockPerformanceRecord(record = {}) {
+  return (
+    /^perf-.+-[0-4]$/.test(String(record.id || '')) &&
+    String(record.contractId || '').startsWith('contract-') &&
+    String(record.postUrl || '').startsWith('https://example.com/') &&
+    String(record.postUrl || '').includes('/weekly-video') &&
+    String(record.videoTitle || '').toLowerCase().endsWith(' weekly video')
+  )
+}
+
 function makeRecordId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
   return `perf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -94,6 +104,7 @@ export function InfluencerPerformancePage() {
   const [viewRecord, setViewRecord] = useState(null)
   const [isAddRecordOpen, setIsAddRecordOpen] = useState(false)
   const [activeMonitorInfluencerId, setActiveMonitorInfluencerId] = useState(null)
+  const canWritePerformance = canMutateInfluencerPerformance(user)
 
   const influencers = useMemo(() => {
     if (appInfluencers.length > 0) {
@@ -112,13 +123,13 @@ export function InfluencerPerformancePage() {
     const u = userRef.current
     const list = dedupePerformanceRecords(nextList || [])
     if (!canMutateInfluencerPerformance(u)) {
-      saveRecords(list)
+      setSyncHint('This account cannot save Influencer Performance to the server. Ask an admin to enable Influencer Performance access.')
       return
     }
     try {
-      await api.post('/api/influencers/performance-records/bulk-upsert', { records: list })
+      const result = await api.post('/api/influencers/performance-records/bulk-upsert', { records: list })
       saveRecords(list)
-      setSyncHint('')
+      setSyncHint(result?.skipped ? `${result.skipped} record(s) were not saved because the influencer no longer exists on the server.` : '')
     } catch (err) {
       console.warn('[InfluencerPerformance] server save failed', err)
       saveRecords(list)
@@ -137,14 +148,19 @@ export function InfluencerPerformancePage() {
           ? data.records.map((r) => normalizePerformanceRecord(r))
           : []
         const localRaw = loadStoredRecords() || []
-        const local = localRaw.map((r) => normalizePerformanceRecord(r))
+        const local = localRaw
+          .map((r) => normalizePerformanceRecord(r))
+          .filter((record) => !isSeededMockPerformanceRecord(record))
         const merged = dedupePerformanceRecords([...server, ...local])
         if (cancelled) return
         setServerMergedOnce(true)
         if (merged.length > 0) {
           setRecords(merged)
           if (canMutateInfluencerPerformance(user) && merged.length > server.length) {
-            await api.post('/api/influencers/performance-records/bulk-upsert', { records: merged })
+            const result = await api.post('/api/influencers/performance-records/bulk-upsert', { records: merged })
+            if (result?.skipped) {
+              setSyncHint(`${result.skipped} record(s) were not saved because the influencer no longer exists on the server.`)
+            }
             const again = await api.get('/api/influencers/performance-records')
             if (!cancelled && Array.isArray(again?.records)) {
               const next = dedupePerformanceRecords(again.records.map((r) => normalizePerformanceRecord(r)))
@@ -175,6 +191,7 @@ export function InfluencerPerformancePage() {
   useEffect(() => {
     if (!serverMergedOnce || records === null || influencers.length === 0 || influencersLoading) return
     if (records.length > 0) return
+    if (!import.meta.env.DEV) return
     setRecords(createMockPerformanceRecords(influencers))
   }, [serverMergedOnce, records, influencers, influencersLoading])
 
@@ -295,12 +312,24 @@ export function InfluencerPerformancePage() {
           ) : null}
           {!authLoading && user && !canMutateInfluencerPerformance(user) ? (
             <p className="inf-page-subtitle ip-sync-hint ip-sync-hint--muted" role="note">
-              View-only: data loads from the server but changes stay in this browser until an admin grants Influencer Performance (or Manage) permission.
+              View-only: data loads from the server. Ask an admin to enable Influencer Performance access before adding stats.
             </p>
           ) : null}
         </div>
         <div className="inf-page-actions">
-          <button type="button" className="inf-btn inf-btn--primary" onClick={() => setIsAddRecordOpen(true)}>
+          <button
+            type="button"
+            className="inf-btn inf-btn--primary"
+            onClick={() => {
+              if (!canWritePerformance) {
+                setSyncHint('This account cannot save Influencer Performance to the server. Ask an admin to enable Influencer Performance access.')
+                return
+              }
+              setIsAddRecordOpen(true)
+            }}
+            disabled={!canWritePerformance}
+            title={!canWritePerformance ? 'Requires Influencer Performance access' : undefined}
+          >
             <Plus size={15} /> Add new record
           </button>
         </div>
@@ -312,8 +341,8 @@ export function InfluencerPerformancePage() {
         sort={sort}
         onSort={handleSort}
         onView={setViewRecord}
-        onEdit={setEditingRecord}
-        onDelete={handleDelete}
+        onEdit={canWritePerformance ? setEditingRecord : undefined}
+        onDelete={canWritePerformance ? handleDelete : undefined}
         activeMonitorInfluencerId={activeMonitorInfluencerId}
         onToggleMonitor={(influencerId) => setActiveMonitorInfluencerId((current) => (
           String(current) === String(influencerId) ? null : influencerId
@@ -323,13 +352,15 @@ export function InfluencerPerformancePage() {
       {activeMonitorContracts.length > 0 ? (
         <InfluencerContractTimeline
           contracts={activeMonitorContracts}
-          onEditRecord={setEditingRecord}
-          onDeleteRecord={handleDelete}
-          onEditContract={(contract) => setEditingContract({
-            contract,
-            selectedInfluencerId: contract.influencerId,
-            query: contract.influencer?.name || '',
-          })}
+          onEditRecord={canWritePerformance ? setEditingRecord : undefined}
+          onDeleteRecord={canWritePerformance ? handleDelete : undefined}
+          onEditContract={canWritePerformance
+            ? (contract) => setEditingContract({
+                contract,
+                selectedInfluencerId: contract.influencerId,
+                query: contract.influencer?.name || '',
+              })
+            : undefined}
         />
       ) : null}
 
