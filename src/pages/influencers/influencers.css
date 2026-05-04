@@ -3293,6 +3293,12 @@
   border-radius: 50%;
 }
 
+.inf-ig-cell__logo svg {
+  width: 0.95rem;
+  height: 0.95rem;
+  display: block;
+}
+
 /* ── Instagram Profile Card ── */
 .ig-profile-card {
   display: flex;
