@@ -38,7 +38,7 @@ export function AttendanceStatusLists({
   }, [employees, attendance, snapshotDay, year, month, weeklyHolidayDay, department])
 
   return (
-    <div className="adash-panel">
+    <div className="adash-status-lists">
       <h3 className="adash-panel__title">Today&apos;s status (selected day)</h3>
       <div className="adash-status-grid">
         <AttendanceStatusSection title="Absent (A)" items={lists.A} emptyText="No absences" />

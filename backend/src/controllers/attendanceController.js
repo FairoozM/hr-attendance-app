@@ -4,11 +4,11 @@ const s3Service = require('../services/s3Service')
 
 /**
  * Determine which employee IDs this user may access for attendance.
- * - Admin: returns null  → full access (no filter)
+ * - Admin / warehouse: returns null  → full access (no filter), same as listManagedEmployees
  * - Non-admin: returns array of assigned employee IDs + own employee record
  */
 async function getAttendanceScope(user) {
-  if (!user || user.role === 'admin') return null
+  if (!user || user.role === 'admin' || user.role === 'warehouse') return null
   const ids = await assignmentService.getAssignedEmployeeIds(parseInt(user.userId, 10))
   // Always include the user's own employee record
   const ownEmpId = user.employeeId ? parseInt(user.employeeId, 10) : null
@@ -24,11 +24,18 @@ async function getAttendanceScope(user) {
  * Users can always manage their own attendance record.
  */
 async function isInScope(employeeId, user) {
-  if (!user || user.role === 'admin') return true
+  if (!user || user.role === 'admin' || user.role === 'warehouse') return true
   // Always allow the user to manage their own attendance
   if (user.employeeId && parseInt(user.employeeId, 10) === employeeId) return true
   const ids = await assignmentService.getAssignedEmployeeIds(parseInt(user.userId, 10))
   return ids.includes(employeeId)
+}
+
+function employeeIdFromSickLeaveKey(key) {
+  const parts = String(key || '').split('/')
+  if (parts.length < 2 || parts[0] !== 'sick-leave') return null
+  const id = parseInt(parts[1], 10)
+  return Number.isNaN(id) ? null : id
 }
 
 function keyFromDocumentUrl(url) {
@@ -222,6 +229,9 @@ async function getSickLeaveUploadUrl(req, res) {
     if (Number.isNaN(employeeId)) {
       return res.status(400).json({ error: 'employee_id is required' })
     }
+    if (!(await isInScope(employeeId, req.user))) {
+      return res.status(403).json({ error: 'Access denied: this employee is not in your assigned list' })
+    }
     const rawDate = req.body.attendance_date
     if (rawDate == null || String(rawDate).trim() === '') {
       return res.status(400).json({ error: 'attendance_date is required' })
@@ -263,6 +273,9 @@ async function uploadSickLeaveDocument(req, res) {
     if (Number.isNaN(employeeId)) {
       return res.status(400).json({ error: 'employee_id is required' })
     }
+    if (!(await isInScope(employeeId, req.user))) {
+      return res.status(403).json({ error: 'Access denied: this employee is not in your assigned list' })
+    }
     const rawDate = req.body.attendance_date
     if (rawDate == null || String(rawDate).trim() === '') {
       return res.status(400).json({ error: 'attendance_date is required' })
@@ -303,6 +316,9 @@ async function deleteSickLeaveDocument(req, res) {
     if (Number.isNaN(employeeId)) {
       return res.status(400).json({ error: 'employee_id is required' })
     }
+    if (!(await isInScope(employeeId, req.user))) {
+      return res.status(403).json({ error: 'Access denied: this employee is not in your assigned list' })
+    }
     const rawDate = req.query.attendance_date
     if (rawDate == null || String(rawDate).trim() === '') {
       return res.status(400).json({ error: 'attendance_date is required' })
@@ -329,6 +345,10 @@ async function serveSickLeaveFile(req, res) {
     const key = String(req.query.key || '').trim()
     if (!key || !key.startsWith('sick-leave/')) {
       return res.status(400).json({ error: 'Valid key is required' })
+    }
+    const scopedEmpId = employeeIdFromSickLeaveKey(key)
+    if (scopedEmpId == null || !(await isInScope(scopedEmpId, req.user))) {
+      return res.status(403).json({ error: 'Access denied: this employee is not in your assigned list' })
     }
     const signedUrl = await s3Service.getDownloadUrl({ key })
     return res.redirect(302, signedUrl)

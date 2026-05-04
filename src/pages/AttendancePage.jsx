@@ -68,7 +68,7 @@ export function AttendancePage({
           />
         </section>
         {!loading && !error && (
-          <section className="page-section page-section--fill">
+          <section className="page-section page-section--fill" id="attendance-detail-grid">
             <AttendanceGrid
               employees={employees}
               attendance={attendance}

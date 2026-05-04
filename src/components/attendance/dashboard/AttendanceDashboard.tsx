@@ -12,6 +12,10 @@ import { AttendanceTrendCharts } from './AttendanceTrendCharts'
 import { AttendanceAlertsPanel } from './AttendanceAlertsPanel'
 import { AttendanceLoadingState } from './AttendanceLoadingState'
 import { AttendanceEmptyState } from './AttendanceEmptyState'
+import { AttendanceUnmarkedBanner } from './AttendanceUnmarkedBanner'
+import { AttendanceMonthHeatmap } from './AttendanceMonthHeatmap'
+import { AttendanceDepartmentBreakdown } from './AttendanceDepartmentBreakdown'
+import { AttendanceWhosInList } from './AttendanceWhosInList'
 import './AttendanceDashboard.css'
 
 type Props = {
@@ -73,7 +77,7 @@ export function AttendanceDashboard({
   if (!employees.length) {
     return (
       <div className="adash">
-        <AttendanceDashboardHeader contextLabel={contextLabel} />
+        <AttendanceDashboardHeader contextLabel={contextLabel} totalEmployees={0} />
         <AttendanceEmptyState />
       </div>
     )
@@ -81,7 +85,10 @@ export function AttendanceDashboard({
 
   return (
     <section className="adash" aria-label="Attendance dashboard">
-      <AttendanceDashboardHeader contextLabel={contextLabel} />
+      <AttendanceDashboardHeader
+        contextLabel={contextLabel}
+        totalEmployees={dash.metrics.totalEmployees}
+      />
 
       <AttendanceFilterBar
         employees={employees}
@@ -94,9 +101,46 @@ export function AttendanceDashboard({
         exportDisabled={false}
       />
 
+      <AttendanceUnmarkedBanner count={dash.metrics.unmarked} snapshotLabel={contextLabel} />
+
       <AttendanceSummaryCards metrics={dash.metrics} />
 
-      {/* Leave overview & pending actions: hidden from UI for now; useAttendanceDashboard still computes metrics/pending for reuse */}
+      <AttendanceMonthHeatmap
+        employees={employees}
+        attendance={attendance}
+        month={month}
+        year={year}
+        daysInMonth={daysInMonth}
+        weeklyHolidayDay={weeklyHolidayDay}
+        department={dash.department}
+        snapshotDay={dash.snapshotDay}
+      />
+
+      <div className="adash-grid-2">
+        <AttendanceTrendCharts data={dash.trends} />
+        <AttendanceAlertsPanel alerts={dash.alerts} />
+      </div>
+
+      <div className="adash-grid-bottom">
+        <AttendanceDepartmentBreakdown
+          employees={employees}
+          attendance={attendance}
+          snapshotDay={dash.snapshotDay}
+          year={year}
+          month={month}
+          weeklyHolidayDay={weeklyHolidayDay}
+          department={dash.department}
+        />
+        <AttendanceWhosInList
+          employees={employees}
+          attendance={attendance}
+          snapshotDay={dash.snapshotDay}
+          year={year}
+          month={month}
+          weeklyHolidayDay={weeklyHolidayDay}
+          department={dash.department}
+        />
+      </div>
 
       <AttendanceStatusLists
         employees={employees}
@@ -107,11 +151,6 @@ export function AttendanceDashboard({
         weeklyHolidayDay={weeklyHolidayDay}
         department={dash.department}
       />
-
-      <div className="adash-grid-2">
-        <AttendanceTrendCharts data={dash.trends} />
-        <AttendanceAlertsPanel alerts={dash.alerts} />
-      </div>
     </section>
   )
 }
