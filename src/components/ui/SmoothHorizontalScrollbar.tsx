@@ -12,8 +12,16 @@ import {
   useSpring,
   useTransform,
 } from 'framer-motion'
+import Lottie from 'lottie-react'
+import type { LottieRefCurrentProps } from 'lottie-react'
+import catRunAnimation from '../../assets/lottie/cat-run.json'
 import { getScrollProgress } from '../../utils/getScrollProgress'
 import './SmoothHorizontalScrollbar.css'
+
+/**
+ * Running cat Lottie (cat6.json) via ruby840124/catAnimationUseLottie demo assets.
+ * Replace with your own licensed file if needed.
+ */
 
 const SPRING = {
   stiffness: 680,
@@ -21,16 +29,14 @@ const SPRING = {
   mass: 0.25,
 } as const
 
-const CAT_SRC = `${import.meta.env.BASE_URL}attendance-scrollbar-cat.png`
-
-/** Approximate thumb width along the track (cat graphic + padding). */
-const THUMB_TRACK_W = 68
+/** Approximate thumb width along the track (Lottie + padding). */
+const THUMB_TRACK_W = 78
 const DEFAULT_WHEEL_MULT = 3.25
 
-/** px/s — below this, gait animation is paused (standing). */
-const CAT_GAIT_IDLE_VEL = 28
-/** px/s — above this, step cycle approaches “run” durations. */
-const CAT_GAIT_RUN_VEL = 380
+/** px/s — below this, cat stands (frame 0). */
+const CAT_IDLE_VEL = 28
+/** px/s — reference “fast run” for playback speed cap. */
+const CAT_RUN_VEL = 380
 
 type Props = {
   scrollRef: RefObject<HTMLElement | null>
@@ -44,7 +50,8 @@ export function SmoothHorizontalScrollbar({
   className = '',
 }: Props) {
   const trackRef = useRef<HTMLDivElement | null>(null)
-  const catGaitRef = useRef<HTMLSpanElement | null>(null)
+  const lottieRef = useRef<LottieRefCurrentProps | null>(null)
+  const reduceMotionRef = useRef(false)
   const rafScrollRef = useRef(0)
   const prevScrollLeftRef = useRef(0)
   const velSampleRef = useRef<{ t: number; left: number }>({ t: 0, left: 0 })
@@ -62,8 +69,7 @@ export function SmoothHorizontalScrollbar({
   const trackWidthMv = useMotionValue(0)
 
   /**
-   * Asset faces left at scaleX 1. +1 → natural (cat faces left); −1 → mirrored (cat faces right).
-   * scrollLeft increases (moving viewport right): face right → −1. Decreases: face left → +1.
+   * Asset faces left at scaleX 1. +1 → natural; −1 → mirrored (chasing toward scroll-right).
    */
   const facingTarget = useMotionValue(-1)
   const thumbMirrorX = useTransform(facingTarget, (f) => (f >= 0 ? 1 : -1))
@@ -73,13 +79,6 @@ export function SmoothHorizontalScrollbar({
     stiffness: 640,
     damping: 36,
     mass: 0.2,
-  })
-
-  const tiltTarget = useMotionValue(0)
-  const tiltSpring = useSpring(tiltTarget, {
-    stiffness: 520,
-    damping: 32,
-    mass: 0.25,
   })
 
   const fillWidthPx = useTransform([progressSpring, trackWidthMv], ([p, tw]) => {
@@ -99,22 +98,38 @@ export function SmoothHorizontalScrollbar({
     typeof s === 'number' ? s : 1
   )
 
-  const syncCatGaitStyle = useCallback(() => {
-    const gait = catGaitRef.current
-    if (!gait) return
-    const v = scrollVelocityRef.current
-    if (v < CAT_GAIT_IDLE_VEL) {
-      gait.style.setProperty('--cat-gait-duration', '0.56s')
-      gait.style.setProperty('--cat-gait-play', 'paused')
+  /** Mouse dodges slightly toward the end of the track as the cat closes in. */
+  const mouseFleeX = useTransform(progressSpring, (p) =>
+    typeof p === 'number' ? p * 20 : 0
+  )
+  const mouseOpacity = useTransform(progressSpring, (p) =>
+    typeof p === 'number' && p > 0.93 ? 0.28 : 1
+  )
+
+  const syncCatLottie = useCallback(() => {
+    const anim = lottieRef.current
+    if (!anim?.animationLoaded) return
+
+    if (reduceMotionRef.current) {
+      anim.pause()
+      anim.goToAndStop(0, true)
       return
     }
-    gait.style.setProperty('--cat-gait-play', 'running')
+
+    const v = scrollVelocityRef.current
+    if (v < CAT_IDLE_VEL) {
+      anim.pause()
+      anim.goToAndStop(0, true)
+      return
+    }
+
+    anim.play()
     const u = Math.min(
       1,
-      Math.max(0, (v - CAT_GAIT_IDLE_VEL) / (CAT_GAIT_RUN_VEL - CAT_GAIT_IDLE_VEL))
+      Math.max(0, (v - CAT_IDLE_VEL) / (CAT_RUN_VEL - CAT_IDLE_VEL))
     )
-    const sec = 0.52 - u * (0.52 - 0.1)
-    gait.style.setProperty('--cat-gait-duration', `${sec.toFixed(3)}s`)
+    const speed = 0.42 + u * (2.65 - 0.42)
+    anim.setSpeed(speed)
   }, [])
 
   const applyScrollProgress = useCallback(
@@ -156,11 +171,22 @@ export function SmoothHorizontalScrollbar({
         const p = getScrollProgress(left, el.scrollWidth, el.clientWidth)
         progressTarget.set(p)
         if (d !== 0) bumpDirectionFromDelta(d)
-        syncCatGaitStyle()
+        syncCatLottie()
       })
     },
-    [bumpDirectionFromDelta, progressTarget, syncCatGaitStyle]
+    [bumpDirectionFromDelta, progressTarget, syncCatLottie]
   )
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    reduceMotionRef.current = mq.matches
+    const onMq = () => {
+      reduceMotionRef.current = mq.matches
+      syncCatLottie()
+    }
+    mq.addEventListener('change', onMq)
+    return () => mq.removeEventListener('change', onMq)
+  }, [syncCatLottie])
 
   useLayoutEffect(() => {
     const track = trackRef.current
@@ -188,7 +214,7 @@ export function SmoothHorizontalScrollbar({
     scrollVelocityRef.current = 0
     progressTarget.set(getScrollProgress(sl, el.scrollWidth, el.clientWidth))
     syncOverflow()
-    requestAnimationFrame(() => syncCatGaitStyle())
+    requestAnimationFrame(() => syncCatLottie())
 
     const onScroll = () => queueProgressFromElement(el)
 
@@ -203,11 +229,6 @@ export function SmoothHorizontalScrollbar({
     const mo = new MutationObserver(syncOverflow)
     mo.observe(el, { childList: true, subtree: true })
 
-    /**
-     * Do not map vertical wheel to horizontal scroll: Mac users expect up/down to
-     * scroll the page. Horizontal pan uses dominant deltaX (trackpad); Shift+wheel
-     * uses deltaY as horizontal intent (common desktop convention).
-     */
     const onWheel = (e: WheelEvent) => {
       if (el.scrollWidth <= el.clientWidth + 1) return
 
@@ -231,7 +252,7 @@ export function SmoothHorizontalScrollbar({
 
     const decayLoop = () => {
       scrollVelocityRef.current *= 0.94
-      syncCatGaitStyle()
+      syncCatLottie()
       decayRafRef.current = requestAnimationFrame(decayLoop)
     }
     decayRafRef.current = requestAnimationFrame(decayLoop)
@@ -250,7 +271,7 @@ export function SmoothHorizontalScrollbar({
     bumpDirectionFromDelta,
     queueProgressFromElement,
     progressTarget,
-    syncCatGaitStyle,
+    syncCatLottie,
   ])
 
   const setScrollFromClientX = useCallback(
@@ -321,11 +342,10 @@ export function SmoothHorizontalScrollbar({
       el.style.scrollBehavior = 'auto'
       draggingThumbRef.current = true
       dragPointerIdRef.current = e.pointerId
-      dragScaleTarget.set(1.12)
-      tiltTarget.set(facingTarget.get() >= 0 ? 6 : -6)
+      dragScaleTarget.set(1.08)
       ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
     },
-    [scrollRef, dragScaleTarget, tiltTarget, facingTarget]
+    [scrollRef, dragScaleTarget]
   )
 
   const onThumbPointerMove = useCallback(
@@ -348,13 +368,12 @@ export function SmoothHorizontalScrollbar({
       draggingThumbRef.current = false
       dragPointerIdRef.current = null
       dragScaleTarget.set(1)
-      tiltTarget.set(0)
       if (el) el.style.scrollBehavior = ''
       if ((e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId)) {
         ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
       }
     },
-    [scrollRef, dragScaleTarget, tiltTarget]
+    [scrollRef, dragScaleTarget]
   )
 
   return (
@@ -379,6 +398,33 @@ export function SmoothHorizontalScrollbar({
             aria-hidden
           />
           <motion.div
+            className="smooth-hscroll__mouse"
+            aria-hidden
+            style={{
+              right: 6,
+              top: '50%',
+              y: '-50%',
+              x: mouseFleeX,
+              opacity: mouseOpacity,
+            }}
+          >
+            <svg
+              className="smooth-hscroll__mouse-svg"
+              viewBox="0 0 36 28"
+              width="30"
+              height="24"
+              role="img"
+              aria-hidden
+            >
+              <ellipse cx="17" cy="17" rx="11" ry="7.5" fill="#64748b" />
+              <ellipse cx="17" cy="17.5" rx="8" ry="5" fill="#94a3b8" />
+              <circle cx="24" cy="9" r="5" fill="#fda4af" />
+              <circle cx="30" cy="11" r="4.5" fill="#fda4af" />
+              <circle cx="10.5" cy="16" r="2.2" fill="#0f172a" />
+              <ellipse cx="26" cy="18" rx="2" ry="1.2" fill="#cbd5e1" />
+            </svg>
+          </motion.div>
+          <motion.div
             className="smooth-hscroll__thumb"
             style={{
               x: thumbTranslateX,
@@ -390,24 +436,24 @@ export function SmoothHorizontalScrollbar({
             onPointerUp={onThumbPointerUp}
             onPointerCancel={onThumbPointerUp}
           >
-            <span className="smooth-hscroll__cat-wrap" aria-hidden>
-              <span
-                ref={catGaitRef}
-                className="smooth-hscroll__cat-gait"
-                aria-hidden
+            <div className="smooth-hscroll__lottie-wrap" aria-hidden>
+              <motion.div
+                className="smooth-hscroll__lottie-scale"
+                style={{ scale: thumbScale }}
               >
-                <motion.img
-                  src={CAT_SRC}
-                  alt=""
-                  className="smooth-hscroll__cat"
-                  draggable={false}
-                  style={{
-                    scale: thumbScale,
-                    rotate: tiltSpring,
+                <Lottie
+                  lottieRef={lottieRef}
+                  animationData={catRunAnimation}
+                  loop
+                  autoplay={false}
+                  className="smooth-hscroll__lottie"
+                  onDOMLoaded={() => syncCatLottie()}
+                  rendererSettings={{
+                    preserveAspectRatio: 'xMidYMid meet',
                   }}
                 />
-              </span>
-            </span>
+              </motion.div>
+            </div>
           </motion.div>
         </div>
       </div>
