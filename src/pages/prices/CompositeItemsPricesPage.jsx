@@ -18,7 +18,7 @@ import {
 import {
   buildPurchasePriceMap,
   computeBundleEconomics,
-  findPurchaseForComponent,
+  findPurchaseMatchForComponent,
 } from './compositeBundlePricingUtils'
 
 export function CompositeItemsPricesPage() {
@@ -71,11 +71,13 @@ export function CompositeItemsPricesPage() {
   const componentRows = useMemo(() => {
     if (!bundle?.components) return []
     return bundle.components.map((c) => {
-      const purchase = findPurchaseForComponent(purchaseMap, c)
+      const purchaseMatch = findPurchaseMatchForComponent(purchaseMap, c)
+      const purchase = purchaseMatch ? purchaseMatch.purchasePrice : null
       const qty = Number(c.quantity) || 0
       const lineTotal = purchase != null && Number.isFinite(purchase) ? purchase * qty : null
       return {
         ...c,
+        purchaseMatch,
         purchaseFromList: purchase,
         lineTotal,
         missing: purchase == null || !Number.isFinite(purchase),
@@ -279,6 +281,7 @@ export function CompositeItemsPricesPage() {
                   <tr>
                     <th scope="col">Composite item no.</th>
                     <th scope="col">Component item no.</th>
+                    <th scope="col">Matched All Prices SKU</th>
                     <th scope="col">Qty</th>
                     <th scope="col">Purchase price ecommerce</th>
                     <th scope="col">Total component purchase</th>
@@ -306,6 +309,18 @@ export function CompositeItemsPricesPage() {
                           <span className="cb-component-cell__name">{row.name}</span>
                         ) : null}
                       </td>
+                      <td className="cb-match-cell">
+                        {row.purchaseMatch ? (
+                          <>
+                            <span className="cb-match-cell__sku">{row.purchaseMatch.itemNo}</span>
+                            {row.purchaseMatch.matchKind === 'base_without_color' ? (
+                              <span className="cb-match-cell__hint">Base SKU match</span>
+                            ) : null}
+                          </>
+                        ) : (
+                          <span className="cb-missing">—</span>
+                        )}
+                      </td>
                       <td>{Number.isFinite(Number(row.quantity)) ? String(row.quantity) : '—'}</td>
                       <td>{row.missing ? <span className="cb-missing">—</span> : fmtMoney(row.purchaseFromList, 2)}</td>
                       <td>{row.lineTotal != null ? fmtMoney(row.lineTotal, 2) : '—'}</td>
@@ -324,7 +339,7 @@ export function CompositeItemsPricesPage() {
                 </tbody>
                 <tfoot>
                   <tr className="cb-bundle-summary">
-                    <td colSpan={4} className="cb-bundle-summary__label">
+                    <td colSpan={5} className="cb-bundle-summary__label">
                       Bundle totals
                     </td>
                     <td>{fmtMoney(totalPurchaseCost, 2)}</td>

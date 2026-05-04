@@ -6,8 +6,212 @@ function toDec(pct) {
   return Math.min(100, Math.max(0, n)) / 100
 }
 
+const COLOR_SUFFIX_TOKENS = new Set([
+  'aqua',
+  'ash',
+  'baby',
+  'beige',
+  'black',
+  'blue',
+  'bronze',
+  'brown',
+  'burgundy',
+  'camel',
+  'champagne',
+  'clear',
+  'copper',
+  'coral',
+  'cream',
+  'dark',
+  'deep',
+  'gold',
+  'golden',
+  'gray',
+  'green',
+  'grey',
+  'ivory',
+  'khaki',
+  'lavender',
+  'light',
+  'lilac',
+  'magenta',
+  'maroon',
+  'mint',
+  'mix',
+  'mixed',
+  'mocha',
+  'multi',
+  'multicolor',
+  'multicolour',
+  'mustard',
+  'natural',
+  'navy',
+  'off',
+  'olive',
+  'orange',
+  'peach',
+  'pink',
+  'purple',
+  'red',
+  'rose',
+  'royal',
+  'silver',
+  'sky',
+  'tan',
+  'teal',
+  'transparent',
+  'turquoise',
+  'violet',
+  'white',
+  'yellow',
+])
+
+const CORE_COLOR_SUFFIX_TOKENS = new Set([
+  'aqua',
+  'ash',
+  'beige',
+  'black',
+  'blue',
+  'bronze',
+  'brown',
+  'burgundy',
+  'camel',
+  'champagne',
+  'clear',
+  'copper',
+  'coral',
+  'cream',
+  'gold',
+  'golden',
+  'gray',
+  'green',
+  'grey',
+  'ivory',
+  'khaki',
+  'lavender',
+  'lilac',
+  'magenta',
+  'maroon',
+  'mint',
+  'mix',
+  'mixed',
+  'mocha',
+  'multi',
+  'multicolor',
+  'multicolour',
+  'mustard',
+  'natural',
+  'navy',
+  'olive',
+  'orange',
+  'peach',
+  'pink',
+  'purple',
+  'red',
+  'silver',
+  'tan',
+  'teal',
+  'transparent',
+  'turquoise',
+  'violet',
+  'white',
+  'yellow',
+])
+
+function normalizeSeparators(raw) {
+  return String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
+function addExactMatchVariants(set, raw) {
+  const t = String(raw || '').trim().toLowerCase()
+  if (!t) return
+  set.add(t)
+  set.add(t.replace(/\s+/g, '-'))
+  set.add(t.replace(/_/g, '-'))
+  set.add(normalizeSeparators(t))
+  set.add(t.replace(/\s+/g, ''))
+}
+
+function expandExactMatchVariants(raw) {
+  const set = new Set()
+  addExactMatchVariants(set, raw)
+  return [...set].filter(Boolean)
+}
+
+function looksLikeColorSuffix(tokens) {
+  if (!tokens.length || tokens.length > 3) return false
+  return (
+    tokens.every((token) => COLOR_SUFFIX_TOKENS.has(token)) &&
+    tokens.some((token) => CORE_COLOR_SUFFIX_TOKENS.has(token))
+  )
+}
+
+function expandColorlessSkuVariants(raw) {
+  const normalized = normalizeSeparators(raw)
+  if (!normalized) return []
+  const parts = normalized.split('-').filter(Boolean)
+  if (parts.length < 3) return []
+
+  const out = []
+  const maxSuffixLen = Math.min(3, parts.length - 2)
+  for (let suffixLen = maxSuffixLen; suffixLen >= 1; suffixLen -= 1) {
+    const suffix = parts.slice(-suffixLen)
+    if (!looksLikeColorSuffix(suffix)) continue
+
+    const base = parts.slice(0, -suffixLen).join('-')
+    if (base && /\d/.test(base)) out.push(base)
+    break
+  }
+  return out
+}
+
+function addMatchCandidates(out, seen, raw, matchKind) {
+  for (const key of expandExactMatchVariants(raw)) {
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ key, matchKind })
+  }
+}
+
+function expandMatchCandidates(raw) {
+  const out = []
+  const seen = new Set()
+  addMatchCandidates(out, seen, raw, 'exact')
+  for (const base of expandColorlessSkuVariants(raw)) {
+    addMatchCandidates(out, seen, base, 'base_without_color')
+  }
+  return out
+}
+
+function normalizePurchaseMatch(value, matchedKey, matchKind) {
+  if (value == null) return null
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null
+    return {
+      itemNo: matchedKey,
+      purchasePrice: value,
+      matchedKey,
+      matchKind,
+    }
+  }
+
+  const purchasePrice = Number(value.purchasePrice)
+  if (!Number.isFinite(purchasePrice)) return null
+  return {
+    itemNo: value.itemNo || matchedKey,
+    purchasePrice,
+    matchedKey,
+    matchKind,
+  }
+}
+
 /**
- * Build lookup from ecommerce price list rows: itemNo → purchase price (number).
+ * Build lookup from ecommerce price list rows: itemNo variant → row match metadata.
  */
 export function buildPurchasePriceMap(rows) {
   const m = new Map()
@@ -17,30 +221,25 @@ export function buildPurchasePriceMap(rows) {
     if (!raw) continue
     const p = Number(r.purchasePrice)
     if (!Number.isFinite(p)) continue
-    for (const v of expandMatchVariants(raw)) {
-      if (!m.has(v)) m.set(v, p)
+    const entry = { itemNo: raw, purchasePrice: p }
+    for (const v of expandExactMatchVariants(raw)) {
+      if (!m.has(v)) m.set(v, entry)
     }
   }
   return m
 }
 
-/** Normalize keys the same way users type Item no. vs Zoho (spaces vs hyphens). */
+/** Normalize component keys and also try base SKU when Zoho adds a trailing color token. */
 export function expandMatchVariants(raw) {
-  const t = String(raw || '').trim().toLowerCase()
-  if (!t) return []
-  const set = new Set([t])
-  set.add(t.replace(/\s+/g, '-'))
-  set.add(t.replace(/_/g, '-'))
-  set.add(t.replace(/\s+/g, ''))
-  return [...set].filter(Boolean)
+  return expandMatchCandidates(raw).map((candidate) => candidate.key)
 }
 
 /**
- * Try Zoho match_keys + sku + name against the ecommerce price map.
- * @param {Map<string, number>} purchaseMap — lower-case keys
+ * Try Zoho match_keys + sku + name against the ecommerce price map and return the matched row.
+ * @param {Map<string, { itemNo: string, purchasePrice: number }|number>} purchaseMap — lower-case keys
  * @param {{ sku?: string, name?: string, match_keys?: string[] }} component
  */
-export function findPurchaseForComponent(purchaseMap, component) {
+export function findPurchaseMatchForComponent(purchaseMap, component) {
   const rawKeys = []
   if (Array.isArray(component.match_keys) && component.match_keys.length) {
     rawKeys.push(...component.match_keys)
@@ -51,13 +250,23 @@ export function findPurchaseForComponent(purchaseMap, component) {
 
   const tried = new Set()
   for (const raw of rawKeys) {
-    for (const v of expandMatchVariants(raw)) {
+    for (const { key: v, matchKind } of expandMatchCandidates(raw)) {
       if (tried.has(v)) continue
       tried.add(v)
-      if (purchaseMap.has(v)) return purchaseMap.get(v)
+      if (purchaseMap.has(v)) return normalizePurchaseMatch(purchaseMap.get(v), v, matchKind)
     }
   }
   return null
+}
+
+/**
+ * Backwards-compatible helper for callers that only need the purchase price.
+ * @param {Map<string, { itemNo: string, purchasePrice: number }|number>} purchaseMap
+ * @param {{ sku?: string, name?: string, match_keys?: string[] }} component
+ */
+export function findPurchaseForComponent(purchaseMap, component) {
+  const match = findPurchaseMatchForComponent(purchaseMap, component)
+  return match ? match.purchasePrice : null
 }
 
 /**

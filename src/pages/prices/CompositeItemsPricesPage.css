@@ -197,6 +197,24 @@
   white-space: normal;
 }
 
+.cb-match-cell {
+  vertical-align: top;
+}
+
+.cb-match-cell__sku {
+  display: block;
+  font-variant-numeric: tabular-nums;
+}
+
+.cb-match-cell__hint {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  line-height: 1.25;
+}
+
 .cb-bundle-table td.cb-na {
   color: var(--text-muted);
 }
