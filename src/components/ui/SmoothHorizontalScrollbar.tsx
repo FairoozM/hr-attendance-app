@@ -21,7 +21,8 @@ const SPRING = {
   mass: 0.25,
 } as const
 
-const ARROW_W = 14
+/** Approximate arrow footprint along the track (matches CSS triangle + margin). */
+const ARROW_W = 28
 const DEFAULT_WHEEL_MULT = 3.25
 
 type Props = {
