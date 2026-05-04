@@ -165,14 +165,26 @@ export function SmoothHorizontalScrollbar({
     const mo = new MutationObserver(syncOverflow)
     mo.observe(el, { childList: true, subtree: true })
 
+    /**
+     * Do not map vertical wheel to horizontal scroll: Mac users expect up/down to
+     * scroll the page. Horizontal pan uses dominant deltaX (trackpad); Shift+wheel
+     * uses deltaY as horizontal intent (common desktop convention).
+     */
     const onWheel = (e: WheelEvent) => {
       if (el.scrollWidth <= el.clientWidth + 1) return
-      const dominantVertical =
-        Math.abs(e.deltaY) >= Math.abs(e.deltaX) && Math.abs(e.deltaY) > 0
-      if (!dominantVertical) return
+
+      const shiftAxisSwap = e.shiftKey && Math.abs(e.deltaY) >= Math.abs(e.deltaX)
+      const horizontalDominant =
+        Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 0
+
+      if (!shiftAxisSwap && !horizontalDominant) return
+
       e.preventDefault()
       const prev = el.scrollLeft
-      el.scrollLeft += e.deltaY * wheelSpeedMultiplier
+      const dx = shiftAxisSwap
+        ? e.deltaY * wheelSpeedMultiplier
+        : e.deltaX * wheelSpeedMultiplier
+      el.scrollLeft += dx
       bumpDirectionFromDelta(el.scrollLeft - prev)
       queueProgressFromElement(el)
     }
