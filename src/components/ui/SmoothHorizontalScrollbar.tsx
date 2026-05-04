@@ -27,6 +27,11 @@ const CAT_SRC = `${import.meta.env.BASE_URL}attendance-scrollbar-cat.png`
 const THUMB_TRACK_W = 68
 const DEFAULT_WHEEL_MULT = 3.25
 
+/** px/s — below this, gait animation is paused (standing). */
+const CAT_GAIT_IDLE_VEL = 28
+/** px/s — above this, step cycle approaches “run” durations. */
+const CAT_GAIT_RUN_VEL = 380
+
 type Props = {
   scrollRef: RefObject<HTMLElement | null>
   wheelSpeedMultiplier?: number
@@ -39,8 +44,12 @@ export function SmoothHorizontalScrollbar({
   className = '',
 }: Props) {
   const trackRef = useRef<HTMLDivElement | null>(null)
+  const catGaitRef = useRef<HTMLSpanElement | null>(null)
   const rafScrollRef = useRef(0)
   const prevScrollLeftRef = useRef(0)
+  const velSampleRef = useRef<{ t: number; left: number }>({ t: 0, left: 0 })
+  const scrollVelocityRef = useRef(0)
+  const decayRafRef = useRef(0)
   const dragPointerIdRef = useRef<number | null>(null)
   const draggingThumbRef = useRef(false)
   const trackDragRef = useRef(false)
@@ -90,6 +99,24 @@ export function SmoothHorizontalScrollbar({
     typeof s === 'number' ? s : 1
   )
 
+  const syncCatGaitStyle = useCallback(() => {
+    const gait = catGaitRef.current
+    if (!gait) return
+    const v = scrollVelocityRef.current
+    if (v < CAT_GAIT_IDLE_VEL) {
+      gait.style.setProperty('--cat-gait-duration', '0.56s')
+      gait.style.setProperty('--cat-gait-play', 'paused')
+      return
+    }
+    gait.style.setProperty('--cat-gait-play', 'running')
+    const u = Math.min(
+      1,
+      Math.max(0, (v - CAT_GAIT_IDLE_VEL) / (CAT_GAIT_RUN_VEL - CAT_GAIT_IDLE_VEL))
+    )
+    const sec = 0.52 - u * (0.52 - 0.1)
+    gait.style.setProperty('--cat-gait-duration', `${sec.toFixed(3)}s`)
+  }, [])
+
   const applyScrollProgress = useCallback(
     (el: HTMLElement, progress: number) => {
       const maxScroll = el.scrollWidth - el.clientWidth
@@ -112,14 +139,27 @@ export function SmoothHorizontalScrollbar({
       if (rafScrollRef.current) return
       rafScrollRef.current = requestAnimationFrame(() => {
         rafScrollRef.current = 0
-        const p = getScrollProgress(el.scrollLeft, el.scrollWidth, el.clientWidth)
+        const now = performance.now()
+        const left = el.scrollLeft
+        const d = left - prevScrollLeftRef.current
+        prevScrollLeftRef.current = left
+
+        const vs = velSampleRef.current
+        const dt = (now - vs.t) / 1000
+        if (dt > 0.0008 && dt < 0.45) {
+          const inst = Math.abs(left - vs.left) / dt
+          scrollVelocityRef.current =
+            scrollVelocityRef.current * 0.78 + inst * 0.22
+        }
+        velSampleRef.current = { t: now, left }
+
+        const p = getScrollProgress(left, el.scrollWidth, el.clientWidth)
         progressTarget.set(p)
-        const d = el.scrollLeft - prevScrollLeftRef.current
-        prevScrollLeftRef.current = el.scrollLeft
         if (d !== 0) bumpDirectionFromDelta(d)
+        syncCatGaitStyle()
       })
     },
-    [bumpDirectionFromDelta, progressTarget]
+    [bumpDirectionFromDelta, progressTarget, syncCatGaitStyle]
   )
 
   useLayoutEffect(() => {
@@ -142,11 +182,13 @@ export function SmoothHorizontalScrollbar({
       setHasOverflow(el.scrollWidth > el.clientWidth + 1)
     }
 
-    prevScrollLeftRef.current = el.scrollLeft
-    progressTarget.set(
-      getScrollProgress(el.scrollLeft, el.scrollWidth, el.clientWidth)
-    )
+    const sl = el.scrollLeft
+    prevScrollLeftRef.current = sl
+    velSampleRef.current = { t: performance.now(), left: sl }
+    scrollVelocityRef.current = 0
+    progressTarget.set(getScrollProgress(sl, el.scrollWidth, el.clientWidth))
     syncOverflow()
+    requestAnimationFrame(() => syncCatGaitStyle())
 
     const onScroll = () => queueProgressFromElement(el)
 
@@ -187,12 +229,20 @@ export function SmoothHorizontalScrollbar({
 
     el.addEventListener('wheel', onWheel, { passive: false })
 
+    const decayLoop = () => {
+      scrollVelocityRef.current *= 0.94
+      syncCatGaitStyle()
+      decayRafRef.current = requestAnimationFrame(decayLoop)
+    }
+    decayRafRef.current = requestAnimationFrame(decayLoop)
+
     return () => {
       el.removeEventListener('scroll', onScroll)
       el.removeEventListener('wheel', onWheel)
       ro.disconnect()
       mo.disconnect()
       if (rafScrollRef.current) cancelAnimationFrame(rafScrollRef.current)
+      if (decayRafRef.current) cancelAnimationFrame(decayRafRef.current)
     }
   }, [
     scrollRef,
@@ -200,6 +250,7 @@ export function SmoothHorizontalScrollbar({
     bumpDirectionFromDelta,
     queueProgressFromElement,
     progressTarget,
+    syncCatGaitStyle,
   ])
 
   const setScrollFromClientX = useCallback(
@@ -339,16 +390,24 @@ export function SmoothHorizontalScrollbar({
             onPointerUp={onThumbPointerUp}
             onPointerCancel={onThumbPointerUp}
           >
-            <motion.img
-              src={CAT_SRC}
-              alt=""
-              className="smooth-hscroll__cat"
-              draggable={false}
-              style={{
-                scale: thumbScale,
-                rotate: tiltSpring,
-              }}
-            />
+            <span className="smooth-hscroll__cat-wrap" aria-hidden>
+              <span
+                ref={catGaitRef}
+                className="smooth-hscroll__cat-gait"
+                aria-hidden
+              >
+                <motion.img
+                  src={CAT_SRC}
+                  alt=""
+                  className="smooth-hscroll__cat"
+                  draggable={false}
+                  style={{
+                    scale: thumbScale,
+                    rotate: tiltSpring,
+                  }}
+                />
+              </span>
+            </span>
           </motion.div>
         </div>
       </div>

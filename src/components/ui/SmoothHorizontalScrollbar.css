@@ -80,6 +80,32 @@
   cursor: grabbing;
 }
 
+.smooth-hscroll__cat-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(-18px);
+}
+
+.smooth-hscroll__cat-gait {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  will-change: transform;
+  animation: smooth-hscroll-cat-gait var(--cat-gait-duration, 0.52s) ease-in-out infinite;
+  animation-play-state: var(--cat-gait-play, paused);
+}
+
+@keyframes smooth-hscroll-cat-gait {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-7deg) scaleY(1);
+  }
+  50% {
+    transform: translateY(-6px) rotate(7deg) scaleY(0.92);
+  }
+}
+
 .smooth-hscroll__cat {
   height: 56px;
   width: auto;
@@ -88,4 +114,10 @@
   user-select: none;
   -webkit-user-drag: none;
   filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.2));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .smooth-hscroll__cat-gait {
+    animation: none !important;
+  }
 }
