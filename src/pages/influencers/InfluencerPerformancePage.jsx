@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Download, Gauge, Plus, Save, Search, X } from 'lucide-react'
+import { ArrowDownWideNarrow, Download, Gauge, Plus, Save, Search, X } from 'lucide-react'
 import { api } from '../../api/client'
 import { useAuth, canMutateInfluencerPerformance } from '../../contexts/AuthContext'
 import { useInfluencers } from '../../contexts/InfluencersContext'
@@ -22,6 +22,20 @@ import './influencers.css'
 import './InfluencerPerformancePage.css'
 
 const STORAGE_KEY = 'hr-influencer-performance-v1'
+
+const PERFORMANCE_SORT_OPTIONS = [
+  { value: 'date:desc', label: 'Newest records first' },
+  { value: 'date:asc', label: 'Oldest records first' },
+  { value: 'views:desc', label: 'Top views first' },
+  { value: 'views:asc', label: 'Lowest views first' },
+  { value: 'likes:desc', label: 'Top likes first' },
+  { value: 'comments:desc', label: 'Top comments first' },
+  { value: 'shares:desc', label: 'Top shares first' },
+  { value: 'engagementRate:desc', label: 'Top engagement first' },
+  { value: 'cost:desc', label: 'Highest cost first' },
+  { value: 'cost:asc', label: 'Lowest cost first' },
+  { value: 'influencer:asc', label: 'Influencer A-Z' },
+]
 
 function loadStoredRecords() {
   try {
@@ -248,6 +262,11 @@ export function InfluencerPerformancePage() {
     }))
   }
 
+  function handleSortPreset(value) {
+    const [key, direction] = String(value || 'date:desc').split(':')
+    setSort({ key, direction: direction === 'asc' ? 'asc' : 'desc' })
+  }
+
   function handleSubmit(record) {
     setRecords((prev) => {
       const list = prev || []
@@ -334,6 +353,47 @@ export function InfluencerPerformancePage() {
           </button>
         </div>
       </header>
+
+      <section className="ip-filter-panel ip-performance-sort-panel" aria-label="Influencer performance filters">
+        <div className="ip-section-heading">
+          <span className="ip-section-heading__icon"><ArrowDownWideNarrow size={18} /></span>
+          <div>
+            <h2>Sort influencers</h2>
+            <p>Rank grouped influencer rows by top-to-low metrics like views, likes, engagement, cost, or newest records.</p>
+          </div>
+        </div>
+        <div className="ip-performance-sort-panel__body">
+          <label className="ip-field ip-performance-sort-panel__select">
+            <span>Ranking</span>
+            <select
+              className="ip-control"
+              value={`${sort.key}:${sort.direction}`}
+              onChange={(event) => handleSortPreset(event.target.value)}
+            >
+              {PERFORMANCE_SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <div className="ip-performance-sort-panel__quick" aria-label="Quick ranking filters">
+            {[
+              ['views:desc', 'Top views'],
+              ['likes:desc', 'Top likes'],
+              ['engagementRate:desc', 'Top engagement'],
+              ['date:desc', 'Newest'],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={`inf-btn inf-btn--ghost inf-btn--xs ${`${sort.key}:${sort.direction}` === value ? 'ip-performance-sort-panel__quick-active' : ''}`}
+                onClick={() => handleSortPreset(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
 
       <InfluencerPerformanceTable
         records={filteredRecords}

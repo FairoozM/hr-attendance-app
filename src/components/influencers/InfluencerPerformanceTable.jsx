@@ -20,6 +20,72 @@ function sortIndicator(sort, key) {
   return sort.direction === 'asc' ? ' ↑' : ' ↓'
 }
 
+function initials(name) {
+  return String(name || 'IN')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'IN'
+}
+
+function InfluencerIdentity({ influencer, platform }) {
+  const name = influencer?.name || 'Unknown'
+  return (
+    <div className="ip-table__influencer-cell">
+      <div className="ip-table__avatar" aria-hidden="true">
+        <span>{initials(name)}</span>
+        {influencer?.profileImage ? (
+          <img
+            src={influencer.profileImage}
+            alt=""
+            onError={(event) => {
+              event.currentTarget.remove()
+            }}
+          />
+        ) : null}
+      </div>
+      <div className="ip-table__influencer-copy">
+        <span className="inf-table__name">{name}</span>
+        <span className="ip-table__sub">{influencer?.username || ''} · {platform || '-'}</span>
+      </div>
+    </div>
+  )
+}
+
+function compareGroupValues(a, b, direction) {
+  if (typeof a === 'number' || typeof b === 'number') {
+    return direction === 'asc' ? toNumber(a) - toNumber(b) : toNumber(b) - toNumber(a)
+  }
+  return direction === 'asc'
+    ? String(a || '').localeCompare(String(b || ''))
+    : String(b || '').localeCompare(String(a || ''))
+}
+
+function groupSortValue(group, key) {
+  const latestRecord = group.latestRecord || {}
+  switch (key) {
+    case 'date':
+      return latestRecord.date || ''
+    case 'influencer':
+      return group.influencer?.name || ''
+    case 'videoTitle':
+      return latestRecord.videoTitle || latestRecord.campaignName || ''
+    case 'dayNumber':
+      return group.records.length
+    case 'views':
+    case 'likes':
+    case 'comments':
+    case 'shares':
+    case 'cost':
+      return group.totals[key]
+    case 'engagementRate':
+      return group.averageEngagement
+    default:
+      return latestRecord[key]
+  }
+}
+
 export function InfluencerPerformanceTable({
   records,
   influencersById,
@@ -58,12 +124,18 @@ export function InfluencerPerformanceTable({
       groups.set(key, group)
     })
 
-    return Array.from(groups.values()).map((group) => ({
-      ...group,
-      latestRecord: group.records[0],
-      averageEngagement: group.records.length ? group.engagementSum / group.records.length : 0,
-    }))
-  }, [influencersById, records])
+    return Array.from(groups.values())
+      .map((group) => ({
+        ...group,
+        latestRecord: group.records[0],
+        averageEngagement: group.records.length ? group.engagementSum / group.records.length : 0,
+      }))
+      .sort((a, b) => compareGroupValues(
+        groupSortValue(a, sort.key),
+        groupSortValue(b, sort.key),
+        sort.direction,
+      ))
+  }, [influencersById, records, sort])
 
   return (
     <section className="ip-table-card">
@@ -109,8 +181,7 @@ export function InfluencerPerformanceTable({
                       </span>
                     </td>
                     <td>
-                      <span className="inf-table__name">{influencer?.name || 'Unknown'}</span>
-                      <span className="ip-table__sub">{influencer?.username || ''} · {latestRecord?.platform || '-'}</span>
+                      <InfluencerIdentity influencer={influencer} platform={latestRecord?.platform} />
                     </td>
                     <td>
                       <span className="inf-table__name">{formatNumber(group.contracts.size)} contracts</span>
@@ -146,8 +217,7 @@ export function InfluencerPerformanceTable({
                     <tr key={record.id} className="ip-table__detail-row">
                       <td>{record.date}</td>
                       <td>
-                        <span className="inf-table__name">{influencer?.name || 'Unknown'}</span>
-                        <span className="ip-table__sub">{influencer?.username || ''} · {record.platform}</span>
+                        <InfluencerIdentity influencer={influencer} platform={record.platform} />
                       </td>
                       <td>
                         <span className="inf-table__name">{record.videoTitle || record.campaignName}</span>
