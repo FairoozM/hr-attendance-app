@@ -23,6 +23,8 @@ interface ReportTotals {
 interface SavedReport {
   id: string;
   period: string;
+  periodStart?: string;
+  periodEnd?: string;
   savedAt: string;
   sales: Transaction[];
   costs: Transaction[];
@@ -348,21 +350,31 @@ const SalesVsExpensesReportPage: React.FC = () => {
 
   /* Save */
   const handleSave = useCallback(() => {
+    const existingIndex = history.findIndex((r) => {
+      if (r.periodStart || r.periodEnd) {
+        return r.periodStart === periodStart && r.periodEnd === periodEnd;
+      }
+      return r.period === periodLabel;
+    });
     const record: SavedReport = {
-      id: uid(),
+      id: existingIndex >= 0 ? history[existingIndex].id : uid(),
       period: periodLabel,
+      periodStart,
+      periodEnd,
       savedAt: new Date().toISOString(),
       sales: sales.map((t) => ({ ...t })),
       costs: costs.map((t) => ({ ...t })),
       expenses: expenses.map((t) => ({ ...t })),
       totals: { ...totals },
     };
-    const next = [record, ...history];
+    const next = existingIndex >= 0
+      ? history.map((r, i) => (i === existingIndex ? record : r))
+      : [record, ...history];
     setHistory(next);
     persistHistory(next);
-    setSavedMsg(`Report for "${periodLabel}" saved.`);
+    setSavedMsg(`Report for "${periodLabel}" ${existingIndex >= 0 ? "updated" : "saved"}.`);
     setTimeout(() => setSavedMsg(null), 3000);
-  }, [periodLabel, sales, costs, expenses, totals, history]);
+  }, [periodLabel, periodStart, periodEnd, sales, costs, expenses, totals, history]);
 
   const deleteRecord = useCallback((id: string) => {
     if (!window.confirm("Delete this saved report?")) return;
@@ -425,6 +437,8 @@ const SalesVsExpensesReportPage: React.FC = () => {
   }, [captureCanvas, periodLabel]);
 
   const loadRecord = useCallback((record: SavedReport) => {
+    if (record.periodStart) setPeriodStart(record.periodStart);
+    if (record.periodEnd) setPeriodEnd(record.periodEnd);
     setSales(record.sales.map((t) => ({ ...t, id: uid() })));
     setCosts(record.costs.map((t) => ({ ...t, id: uid() })));
     setExpenses(record.expenses.map((t) => ({ ...t, id: uid() })));
