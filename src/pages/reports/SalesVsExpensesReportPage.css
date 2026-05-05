@@ -30,24 +30,26 @@
 .sve-badge {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
   background: #eaf2ff;
   color: #2563eb;
   font-size: 12px;
   font-weight: 700;
-  padding: 7px 14px;
+  height: 28px;
+  padding: 0 18px;
+  line-height: 1;
   border-radius: 8px;
   margin-bottom: 14px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 .sve-badge::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  background: #2563eb;
-  border-radius: 50%;
-  flex-shrink: 0;
+  content: none;
+}
+
+.sve-badge-text {
+  display: block;
+  line-height: 1;
 }
 
 .sve-title {
@@ -88,6 +90,11 @@
   place-items: center;
   font-size: 20px;
   flex-shrink: 0;
+}
+
+.sve-icon-glyph {
+  display: block;
+  line-height: 1;
 }
 
 .sve-period-label {
@@ -328,12 +335,16 @@
   letter-spacing: 0.02em;
   color: #4338ca;
   background: linear-gradient(180deg, #eef2ff 0%, #e0e7ff 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  place-items: center;
   text-align: center;
-  line-height: 36px;
+  line-height: 1.1;
   box-sizing: border-box;
+}
+
+.sve-date-weekday-text {
+  display: block;
+  line-height: 1.1;
 }
 
 .sve-input {
@@ -439,12 +450,23 @@
 }
 
 .sve-category {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  line-height: 1;
   padding: 5px 12px;
   border-radius: 6px;
   font-size: 13.8px;
   font-weight: 600;
+  box-sizing: border-box;
 }
+
+.sve-category-text {
+  display: block;
+  line-height: 1;
+}
+
 .sve-category--green { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
 .sve-category--orange { background: #fff7ed; color: #f97316; border: 1px solid #fed7aa; }
 .sve-category--red { background: #fff1f2; color: #ef4444; border: 1px solid #fecaca; }
@@ -723,6 +745,65 @@
   display: none !important;
 }
 
+.sve-report.is-capturing,
+.sve-report.is-capturing * {
+  font-family: Arial, Helvetica, sans-serif !important;
+  text-rendering: geometricPrecision;
+}
+
+.sve-report.is-capturing .sve-kpi-icon,
+.sve-report.is-capturing .sve-period-icon {
+  line-height: 1;
+}
+
+.sve-report.is-capturing .sve-badge,
+.sve-report.is-capturing .sve-title,
+.sve-report.is-capturing .sve-title-vs,
+.sve-report.is-capturing .sve-subtitle,
+.sve-report.is-capturing .sve-period-label,
+.sve-report.is-capturing .sve-period-date,
+.sve-report.is-capturing .sve-kpi-label,
+.sve-report.is-capturing .sve-kpi-value,
+.sve-report.is-capturing .sve-kpi-change,
+.sve-report.is-capturing .sve-card-title,
+.sve-report.is-capturing .sve-section-title,
+.sve-report.is-capturing .sve-table th,
+.sve-report.is-capturing .sve-table td,
+.sve-report.is-capturing .sve-category,
+.sve-report.is-capturing .sve-profit-strip {
+  line-height: 1.2;
+}
+
+.sve-report.is-capturing .sve-icon-glyph,
+.sve-report.is-capturing .sve-badge-text,
+.sve-report.is-capturing .sve-period-label,
+.sve-report.is-capturing .sve-period-date,
+.sve-report.is-capturing .sve-kpi-label,
+.sve-report.is-capturing .sve-kpi-value,
+.sve-report.is-capturing .sve-kpi-change,
+.sve-report.is-capturing .sve-card-title,
+.sve-report.is-capturing .sve-section-title,
+.sve-report.is-capturing .sve-capture-text,
+.sve-report.is-capturing .sve-date-weekday-text,
+.sve-report.is-capturing .sve-profit-strip span,
+.sve-report.is-capturing .sve-profit-strip strong {
+  position: relative;
+  top: -7px;
+}
+
+.sve-report.is-capturing .sve-icon-glyph {
+  top: -10px;
+}
+
+.sve-report.is-capturing .sve-badge-text {
+  top: -7px;
+}
+
+.sve-report.is-capturing .sve-category-text {
+  position: relative;
+  top: -8px;
+}
+
 .sve-report.is-capturing .sve-input {
   display: none !important;
 }
@@ -733,6 +814,15 @@
 
 .sve-report.is-capturing .sve-date-input-wrap {
   background: #f8fafc;
+  display: grid;
+  place-items: center;
+}
+
+.sve-report.is-capturing .sve-capture-text--date,
+.sve-report.is-capturing .sve-date-weekday-pill {
+  height: 36px;
+  min-height: 0;
+  line-height: 1.1;
 }
 
 .sve-report.is-capturing .sve-date-range-separator {

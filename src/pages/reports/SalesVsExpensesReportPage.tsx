@@ -217,7 +217,7 @@ function TransactionTable({ rows, color, label, categoryLabel, periodIso, onUpda
                   </div>
                   {dateWd ? (
                     <span className="sve-date-weekday-pill" title={dateWd}>
-                      {dateWd}
+                      <span className="sve-date-weekday-text">{dateWd}</span>
                     </span>
                   ) : null}
                 </div>
@@ -232,7 +232,9 @@ function TransactionTable({ rows, color, label, categoryLabel, periodIso, onUpda
                 <span className="sve-capture-text">{row.description || "—"}</span>
               </td>
               <td className="sve-td-center">
-                <span className={`sve-category sve-category--${color}`}>{categoryLabel}</span>
+                <span className={`sve-category sve-category--${color}`}>
+                  <span className="sve-category-text">{categoryLabel}</span>
+                </span>
               </td>
               <td>
                 <input
@@ -375,14 +377,19 @@ const SalesVsExpensesReportPage: React.FC = () => {
     if (!reportRef.current) throw new Error("Report ref not ready");
     const target = reportRef.current;
     target.classList.add("is-capturing");
-    // give the browser a frame to apply the class before html2canvas snapshots
-    await new Promise<void>((r) => requestAnimationFrame(() => r()));
+    // Let capture-only styles and webfonts settle before html2canvas snapshots.
+    if ("fonts" in document) {
+      await document.fonts.ready;
+    }
+    await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
     try {
       return await html2canvas(target, {
         scale: 2,
         useCORS: true,
         backgroundColor: "#ffffff",
         logging: false,
+        windowWidth: target.scrollWidth,
+        windowHeight: target.scrollHeight,
       });
     } finally {
       target.classList.remove("is-capturing");
@@ -433,7 +440,9 @@ const SalesVsExpensesReportPage: React.FC = () => {
         {/* ── Header ── */}
         <div className="sve-header">
           <div>
-            <div className="sve-badge">Financial Overview</div>
+            <div className="sve-badge">
+              <span className="sve-badge-text">Financial Overview</span>
+            </div>
             <h1 className="sve-title">
               Sales <span className="sve-title-vs">vs</span> Expenses
             </h1>
@@ -441,7 +450,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
           </div>
 
           <div className="sve-period-box">
-            <div className="sve-period-icon">▣</div>
+            <div className="sve-period-icon"><span className="sve-icon-glyph">▣</span></div>
             <div>
               <div className="sve-period-label">Reporting Period</div>
               <div className="sve-period-range">
@@ -473,7 +482,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
         <div className="sve-kpi-grid">
           <div className="sve-kpi sve-kpi--green">
             <div className="sve-kpi-content">
-              <div className="sve-kpi-icon">↗</div>
+              <div className="sve-kpi-icon"><span className="sve-icon-glyph">↗</span></div>
               <div>
                 <div className="sve-kpi-label">Total Sales</div>
                 <div className="sve-kpi-value">{fmt(totals.sales)}</div>
@@ -485,7 +494,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
 
           <div className="sve-kpi sve-kpi--orange">
             <div className="sve-kpi-content">
-              <div className="sve-kpi-icon">🏷️</div>
+              <div className="sve-kpi-icon"><span className="sve-icon-glyph">🏷️</span></div>
               <div>
                 <div className="sve-kpi-label">Total Item Cost</div>
                 <div className="sve-kpi-value">{fmt(totals.costs)}</div>
@@ -497,7 +506,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
 
           <div className="sve-kpi sve-kpi--red">
             <div className="sve-kpi-content">
-              <div className="sve-kpi-icon">▤</div>
+              <div className="sve-kpi-icon"><span className="sve-icon-glyph">▤</span></div>
               <div>
                 <div className="sve-kpi-label">Total Expense</div>
                 <div className="sve-kpi-value">{fmt(totals.expenses)}</div>
@@ -509,7 +518,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
 
           <div className="sve-kpi sve-kpi--blue">
             <div className="sve-kpi-content">
-              <div className="sve-kpi-icon">💰</div>
+              <div className="sve-kpi-icon"><span className="sve-icon-glyph">💰</span></div>
               <div>
                 <div className="sve-kpi-label">Net Profit</div>
                 <div className="sve-kpi-value">{fmt(totals.netProfit)}</div>
