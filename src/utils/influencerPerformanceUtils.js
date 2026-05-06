@@ -42,6 +42,28 @@ export function isoDateSlice(value) {
   return String(value).slice(0, 10)
 }
 
+/** Format YYYY-MM-DD as DD/MM/YYYY for influencer forms (display only). */
+export function formatIsoDateDdMmYyyy(iso) {
+  const d = isoDateSlice(iso)
+  if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return ''
+  const [y, m, day] = d.split('-')
+  return `${day}/${m}/${y}`
+}
+
+/** Parse DD/MM/YYYY to YYYY-MM-DD; invalid calendar dates return ''. */
+export function parseDdMmYyyyToIso(text) {
+  const s = String(text || '').trim()
+  const match = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (!match) return ''
+  const day = Number(match[1])
+  const month = Number(match[2])
+  const year = Number(match[3])
+  if (month < 1 || month > 12 || day < 1 || day > 31) return ''
+  const dt = new Date(Date.UTC(year, month - 1, day))
+  if (dt.getUTCFullYear() !== year || dt.getUTCMonth() !== month - 1 || dt.getUTCDate() !== day) return ''
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
 /** Parse ISO date as UTC noon to avoid timezone shifting calendar days. */
 function parseIsoDateUtcMs(iso) {
   const d = isoDateSlice(iso)

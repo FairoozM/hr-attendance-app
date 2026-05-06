@@ -30,6 +30,8 @@ const PERFORMANCE_SORT_OPTIONS = [
   { value: 'likes:desc', label: 'Top likes first' },
   { value: 'comments:desc', label: 'Top comments first' },
   { value: 'shares:desc', label: 'Top shares first' },
+  { value: 'salesAed:desc', label: 'Top sales (AED) first' },
+  { value: 'salesAed:asc', label: 'Lowest sales (AED) first' },
   { value: 'engagementRate:desc', label: 'Top engagement first' },
   { value: 'cost:desc', label: 'Highest cost first' },
   { value: 'cost:asc', label: 'Lowest cost first' },
@@ -531,7 +533,7 @@ export function InfluencerPerformancePage() {
                   >
                     <span>
                       <strong>{influencer.name}</strong>
-                      <em>{influencer.username} · {influencer.platform}</em>
+                      <em>{influencer.username}</em>
                     </span>
                     <b>{formatNumber(influencer.followers)} followers</b>
                   </button>

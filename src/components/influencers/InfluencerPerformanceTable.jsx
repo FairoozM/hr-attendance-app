@@ -9,9 +9,16 @@ const columns = [
   ['likes', 'Likes'],
   ['comments', 'Comments'],
   ['shares', 'Shares'],
+  ['salesAed', 'Sales AED'],
   ['engagementRate', 'Eng.'],
   ['cost', 'Cost'],
 ]
+
+const METRIC_COLUMN_KEYS = new Set(['views', 'likes', 'comments', 'shares', 'salesAed', 'engagementRate', 'cost'])
+
+function thClass(key, sortKey) {
+  return [sortKey === key ? 'sorted' : '', METRIC_COLUMN_KEYS.has(key) ? 'ip-table__col--metric' : ''].filter(Boolean).join(' ')
+}
 
 function sortIndicator(sort, key) {
   if (sort.key !== key) return ''
@@ -27,7 +34,7 @@ function initials(name) {
     .join('') || 'IN'
 }
 
-function InfluencerIdentity({ influencer, platform }) {
+function InfluencerIdentity({ influencer }) {
   const name = influencer?.name || 'Unknown'
   return (
     <div className="ip-table__influencer-cell">
@@ -45,7 +52,7 @@ function InfluencerIdentity({ influencer, platform }) {
       </div>
       <div className="ip-table__influencer-copy">
         <span className="inf-table__name">{name}</span>
-        <span className="ip-table__sub">{influencer?.username || ''} · {platform || '-'}</span>
+        <span className="ip-table__sub">{influencer?.username?.trim() || '—'}</span>
       </div>
     </div>
   )
@@ -68,7 +75,6 @@ export function InfluencerPerformanceTable({
         <span className="ip-section-heading__icon"><Eye size={18} /></span>
         <div>
           <h2>Performance records</h2>
-          <p>Standalone daily records. Use Show to open that influencer's contract monitor.</p>
         </div>
       </div>
 
@@ -77,7 +83,7 @@ export function InfluencerPerformanceTable({
           <thead>
             <tr>
               {columns.map(([key, label]) => (
-                <th key={key} className={sort.key === key ? 'sorted' : ''} onClick={() => onSort(key)}>
+                <th key={key} className={thClass(key, sort.key)} onClick={() => onSort(key)}>
                   {label}{sortIndicator(sort, key)}
                 </th>
               ))}
@@ -99,17 +105,18 @@ export function InfluencerPerformanceTable({
                 <tr key={record.id} className={`ip-table__detail-row ${isMonitorActive ? 'ip-table__detail-row--active' : ''}`}>
                   <td>{record.date}</td>
                   <td>
-                    <InfluencerIdentity influencer={influencer} platform={record.platform} />
+                    <InfluencerIdentity influencer={influencer} />
                   </td>
                   <td>
                     <span className="inf-table__name">{record.campaignName || record.videoTitle}</span>
                   </td>
-                  <td>{formatNumber(record.views)}</td>
-                  <td>{formatNumber(record.likes)}</td>
-                  <td>{formatNumber(record.comments)}</td>
-                  <td>{formatNumber(record.shares)}</td>
-                  <td><strong>{toNumber(record.engagementRate).toFixed(2)}%</strong></td>
-                  <td>{formatNumber(record.cost, { currency: 'AED' })}</td>
+                  <td className="ip-table__col--metric">{formatNumber(record.views)}</td>
+                  <td className="ip-table__col--metric">{formatNumber(record.likes)}</td>
+                  <td className="ip-table__col--metric">{formatNumber(record.comments)}</td>
+                  <td className="ip-table__col--metric">{formatNumber(record.shares)}</td>
+                  <td className="ip-table__col--metric">{formatNumber(record.salesAed, { currency: 'AED' })}</td>
+                  <td className="ip-table__col--metric"><strong>{toNumber(record.engagementRate).toFixed(2)}%</strong></td>
+                  <td className="ip-table__col--metric">{formatNumber(record.cost, { currency: 'AED' })}</td>
                   <td>
                     <div className="inf-table__actions">
                       <button

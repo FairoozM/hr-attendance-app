@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BadgeDollarSign, CalendarDays, FileImage, Link2, NotebookPen, Save, Sparkles, X } from 'lucide-react'
-import { addDays, calculateEngagementRate, getDayNumber, INFLUENCER_PLATFORMS, normalizePerformanceRecord } from '../../utils/influencerPerformanceUtils'
+import {
+  addDays,
+  calculateEngagementRate,
+  formatIsoDateDdMmYyyy,
+  getDayNumber,
+  INFLUENCER_PLATFORMS,
+  normalizePerformanceRecord,
+  parseDdMmYyyyToIso,
+} from '../../utils/influencerPerformanceUtils'
 
 const emptyForm = {
   influencerId: '',
@@ -34,6 +42,8 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
   const [form, setForm] = useState(emptyForm)
   const [errors, setErrors] = useState({})
   const [influencerQuery, setInfluencerQuery] = useState('')
+  const [checkDateText, setCheckDateText] = useState(() => formatIsoDateDdMmYyyy(emptyForm.date))
+  const [startDateText, setStartDateText] = useState(() => formatIsoDateDdMmYyyy(emptyForm.contractStartDate))
 
   useEffect(() => {
     if (editingRecord) {
@@ -63,6 +73,11 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
     setErrors({})
   }, [editingRecord, influencers])
 
+  useEffect(() => {
+    setCheckDateText(formatIsoDateDdMmYyyy(form.date))
+    setStartDateText(formatIsoDateDdMmYyyy(form.contractStartDate))
+  }, [form.date, form.contractStartDate])
+
   const selectedInfluencer = useMemo(
     () => influencers.find((item) => String(item.id) === String(form.influencerId)),
     [form.influencerId, influencers],
@@ -86,13 +101,13 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
     if (errors[name]) setErrors((prev) => ({ ...prev, [name]: '' }))
   }
 
-  function validate() {
+  function validate(dateIso, startIso) {
     const next = {}
     if (!form.influencerId) next.influencerId = 'Select an influencer'
-    if (!form.date) next.date = 'Select a date'
+    if (!dateIso) next.date = 'Enter check date as dd/mm/yyyy (e.g. 04/05/2026)'
     if (!form.platform) next.platform = 'Select a platform'
     if (!form.campaignName.trim()) next.campaignName = 'Contract / campaign is required'
-    if (!form.contractStartDate) next.contractStartDate = 'Start date is required'
+    if (!startIso) next.contractStartDate = 'Enter start date as dd/mm/yyyy'
     if (Number(form.views) < 0) next.views = 'Views cannot be negative'
     ;['likes', 'comments', 'shares', 'salesAed', 'cost'].forEach((key) => {
       if (Number(form[key]) < 0) next[key] = 'Value cannot be negative'
@@ -124,27 +139,31 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
 
   function handleSubmit(event) {
     event.preventDefault()
-    if (!validate()) return
+    const dateIso = parseDdMmYyyyToIso(checkDateText)
+    const startIso = parseDdMmYyyyToIso(startDateText)
+    if (!validate(dateIso, startIso)) return
     const now = new Date().toISOString()
+    const merged = { ...form, date: dateIso, contractStartDate: startIso }
     onSubmit(normalizePerformanceRecord({
-      ...form,
+      ...merged,
       id: editingRecord?.id,
       screenshotUrl: form.screenshotUrl,
-      contractStartDate: form.contractStartDate || form.date,
+      contractStartDate: startIso || dateIso,
       monitoringDays: Number(form.monitoringDays) || 5,
       createdAt: editingRecord?.createdAt || now,
       updatedAt: now,
       saves: editingRecord != null ? editingRecord.saves : 0,
       storyViews: editingRecord != null ? editingRecord.storyViews : 0,
     }))
-    const nextDate = addDays(form.date, 1)
+    const nextDate = addDays(dateIso, 1)
+    const contractStart = startIso || dateIso
     setForm({
       ...emptyForm,
       influencerId: form.influencerId,
       platform: form.platform,
       campaignName: form.campaignName,
       postUrl: form.postUrl,
-      contractStartDate: form.contractStartDate || form.date,
+      contractStartDate: contractStart,
       monitoringDays: form.monitoringDays || 5,
       date: nextDate,
     })
@@ -193,7 +212,7 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
                     >
                       <span>
                         <strong>{influencer.name}</strong>
-                        <em>{influencer.username} · {influencer.platform}</em>
+                        <em>{influencer.username}</em>
                       </span>
                       <b>{influencer.followers?.toLocaleString?.() || influencer.followers || 0} followers</b>
                     </button>
@@ -252,12 +271,64 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
               <Field label="Check date" error={errors.date}>
                 <div className="ip-control-icon">
                   <CalendarDays size={16} />
-                  <input className="ip-control" type="date" value={form.date} onChange={(event) => set('date', event.target.value)} />
+                  <input
+                    className="ip-control"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    placeholder="dd/mm/yyyy"
+                    maxLength={10}
+                    value={checkDateText}
+                    onChange={(event) => {
+                      const v = event.target.value
+                      setCheckDateText(v)
+                      const iso = parseDdMmYyyyToIso(v.trim())
+                      if (iso) set('date', iso)
+                    }}
+                    onBlur={() => {
+                      const iso = parseDdMmYyyyToIso(checkDateText)
+                      if (iso) {
+                        set('date', iso)
+                        setCheckDateText(formatIsoDateDdMmYyyy(iso))
+                        if (errors.date) setErrors((prev) => ({ ...prev, date: '' }))
+                      } else if (checkDateText.trim()) {
+                        setErrors((prev) => ({ ...prev, date: 'Use dd/mm/yyyy' }))
+                        setCheckDateText(formatIsoDateDdMmYyyy(form.date))
+                      }
+                    }}
+                    aria-invalid={Boolean(errors.date)}
+                  />
                 </div>
               </Field>
 
               <Field label="Start date" error={errors.contractStartDate}>
-                <input className="ip-control" type="date" value={form.contractStartDate} onChange={(event) => set('contractStartDate', event.target.value)} />
+                <input
+                  className="ip-control"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  placeholder="dd/mm/yyyy"
+                  maxLength={10}
+                  value={startDateText}
+                  onChange={(event) => {
+                    const v = event.target.value
+                    setStartDateText(v)
+                    const iso = parseDdMmYyyyToIso(v.trim())
+                    if (iso) set('contractStartDate', iso)
+                  }}
+                  onBlur={() => {
+                    const iso = parseDdMmYyyyToIso(startDateText)
+                    if (iso) {
+                      set('contractStartDate', iso)
+                      setStartDateText(formatIsoDateDdMmYyyy(iso))
+                      if (errors.contractStartDate) setErrors((prev) => ({ ...prev, contractStartDate: '' }))
+                    } else if (startDateText.trim()) {
+                      setErrors((prev) => ({ ...prev, contractStartDate: 'Use dd/mm/yyyy' }))
+                      setStartDateText(formatIsoDateDdMmYyyy(form.contractStartDate))
+                    }
+                  }}
+                  aria-invalid={Boolean(errors.contractStartDate)}
+                />
               </Field>
             </div>
 

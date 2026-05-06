@@ -1887,6 +1887,11 @@
   font-size: 0.62rem;
 }
 
+.ip-table th.ip-table__col--metric,
+.ip-table td.ip-table__col--metric {
+  text-align: center;
+}
+
 .ip-table tbody tr {
   cursor: default;
 }
