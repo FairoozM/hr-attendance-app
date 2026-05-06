@@ -32,7 +32,6 @@ const PERFORMANCE_SORT_OPTIONS = [
   { value: 'shares:desc', label: 'Top shares first' },
   { value: 'salesAed:desc', label: 'Top sales (AED) first' },
   { value: 'salesAed:asc', label: 'Lowest sales (AED) first' },
-  { value: 'engagementRate:desc', label: 'Top engagement first' },
   { value: 'cost:desc', label: 'Highest cost first' },
   { value: 'cost:asc', label: 'Lowest cost first' },
   { value: 'influencer:asc', label: 'Influencer A-Z' },
@@ -357,7 +356,7 @@ export function InfluencerPerformancePage() {
           <span className="ip-section-heading__icon"><ArrowDownWideNarrow size={18} /></span>
           <div>
             <h2>Sort influencers</h2>
-            <p>Rank grouped influencer rows by top-to-low metrics like views, likes, engagement, cost, or newest records.</p>
+            <p>Rank grouped influencer rows by top-to-low metrics like views, likes, sales, cost, or newest records.</p>
           </div>
         </div>
         <div className="ip-performance-sort-panel__body">
@@ -377,7 +376,7 @@ export function InfluencerPerformancePage() {
             {[
               ['views:desc', 'Top views'],
               ['likes:desc', 'Top likes'],
-              ['engagementRate:desc', 'Top engagement'],
+              ['salesAed:desc', 'Top sales'],
               ['date:desc', 'Newest'],
             ].map(([value, label]) => (
               <button

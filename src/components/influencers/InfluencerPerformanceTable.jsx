@@ -11,18 +11,13 @@ const columns = [
   ['comments', 'Comments'],
   ['shares', 'Shares'],
   ['salesAed', 'Sales AED'],
-  ['engagementRate', 'Eng.'],
   ['cost', 'Cost'],
 ]
 
-const METRIC_COLUMN_KEYS = new Set(['views', 'likes', 'comments', 'shares', 'salesAed', 'engagementRate', 'cost'])
+const METRIC_COLUMN_KEYS = new Set(['views', 'likes', 'comments', 'shares', 'salesAed', 'cost'])
 
 function thClass(key, sortKey) {
   return [sortKey === key ? 'sorted' : '', METRIC_COLUMN_KEYS.has(key) ? 'ip-table__col--metric' : ''].filter(Boolean).join(' ')
-}
-
-function engagementSortKey(record) {
-  return Number(toNumber(record.engagementRate).toFixed(2))
 }
 
 /** Best values among currently visible rows (ties all win). Max for metrics; min for cost. */
@@ -34,7 +29,6 @@ function useMetricBests(records) {
     const comments = records.map((r) => toNumber(r.comments))
     const shares = records.map((r) => toNumber(r.shares))
     const salesAed = records.map((r) => toNumber(r.salesAed))
-    const eng = records.map((r) => engagementSortKey(r))
     const cost = records.map((r) => toNumber(r.cost))
     return {
       views: Math.max(...views),
@@ -42,7 +36,6 @@ function useMetricBests(records) {
       comments: Math.max(...comments),
       shares: Math.max(...shares),
       salesAed: Math.max(...salesAed),
-      engagementRate: Math.max(...eng),
       cost: Math.min(...cost),
     }
   }, [records])
@@ -54,29 +47,35 @@ const WINNER_TITLE = {
   comments: 'Most comments in this table',
   shares: 'Most shares in this table',
   salesAed: 'Highest sales (AED) in this table',
-  engagementRate: 'Highest engagement rate in this table',
   cost: 'Lowest cost (AED) in this table',
 }
 
-function winnerMetricClass(field, record, bests) {
+/** Suffix for `.ip-table__winner-pill--{suffix}` or '' if not a winner in this column. */
+function winnerPillMod(field, record, bests) {
   if (!bests) return ''
   if (field === 'cost') {
-    if (toNumber(record.cost) === bests.cost) return 'ip-table__cell--winner ip-table__cell--winner-cost'
+    if (toNumber(record.cost) === bests.cost) return 'cost'
     return ''
   }
-  const val = field === 'engagementRate' ? engagementSortKey(record) : toNumber(record[field])
+  const val = toNumber(record[field])
   const best = bests[field]
   if (best <= 0) return ''
-  if (val === best) {
-    const mod =
-      field === 'engagementRate'
-        ? 'eng'
-        : field === 'salesAed'
-          ? 'sales'
-          : field
-    return `ip-table__cell--winner ip-table__cell--winner-${mod}`
-  }
-  return ''
+  if (val !== best) return ''
+  if (field === 'salesAed') return 'sales'
+  return field
+}
+
+function MetricCell({ field, record, bests, children }) {
+  const mod = winnerPillMod(field, record, bests)
+  return (
+    <td className="ip-table__col--metric" title={mod ? WINNER_TITLE[field] : undefined}>
+      {mod ? (
+        <span className={`ip-table__winner-pill ip-table__winner-pill--${mod}`}>{children}</span>
+      ) : (
+        children
+      )}
+    </td>
+  )
 }
 
 function sortIndicator(sort, key) {
@@ -162,15 +161,6 @@ export function InfluencerPerformanceTable({
               const influencerId = String(record.influencerId || '')
               const isMonitorActive = String(activeMonitorInfluencerId) === influencerId
               const influencer = influencersById.get(influencerId)
-              const win = {
-                views: winnerMetricClass('views', record, bests),
-                likes: winnerMetricClass('likes', record, bests),
-                comments: winnerMetricClass('comments', record, bests),
-                shares: winnerMetricClass('shares', record, bests),
-                salesAed: winnerMetricClass('salesAed', record, bests),
-                engagementRate: winnerMetricClass('engagementRate', record, bests),
-                cost: winnerMetricClass('cost', record, bests),
-              }
               return (
                 <tr key={record.id} className={`ip-table__detail-row ${isMonitorActive ? 'ip-table__detail-row--active' : ''}`}>
                   <td>{record.date}</td>
@@ -180,27 +170,24 @@ export function InfluencerPerformanceTable({
                   <td>
                     <span className="inf-table__name">{record.campaignName || record.videoTitle}</span>
                   </td>
-                  <td className={`ip-table__col--metric ${win.views}`.trim()} title={win.views ? WINNER_TITLE.views : undefined}>
+                  <MetricCell field="views" record={record} bests={bests}>
                     {formatNumber(record.views)}
-                  </td>
-                  <td className={`ip-table__col--metric ${win.likes}`.trim()} title={win.likes ? WINNER_TITLE.likes : undefined}>
+                  </MetricCell>
+                  <MetricCell field="likes" record={record} bests={bests}>
                     {formatNumber(record.likes)}
-                  </td>
-                  <td className={`ip-table__col--metric ${win.comments}`.trim()} title={win.comments ? WINNER_TITLE.comments : undefined}>
+                  </MetricCell>
+                  <MetricCell field="comments" record={record} bests={bests}>
                     {formatNumber(record.comments)}
-                  </td>
-                  <td className={`ip-table__col--metric ${win.shares}`.trim()} title={win.shares ? WINNER_TITLE.shares : undefined}>
+                  </MetricCell>
+                  <MetricCell field="shares" record={record} bests={bests}>
                     {formatNumber(record.shares)}
-                  </td>
-                  <td className={`ip-table__col--metric ${win.salesAed}`.trim()} title={win.salesAed ? WINNER_TITLE.salesAed : undefined}>
+                  </MetricCell>
+                  <MetricCell field="salesAed" record={record} bests={bests}>
                     {formatNumber(record.salesAed, { currency: 'AED' })}
-                  </td>
-                  <td className={`ip-table__col--metric ${win.engagementRate}`.trim()} title={win.engagementRate ? WINNER_TITLE.engagementRate : undefined}>
-                    <strong>{toNumber(record.engagementRate).toFixed(2)}%</strong>
-                  </td>
-                  <td className={`ip-table__col--metric ${win.cost}`.trim()} title={win.cost ? WINNER_TITLE.cost : undefined}>
+                  </MetricCell>
+                  <MetricCell field="cost" record={record} bests={bests}>
                     {formatNumber(record.cost, { currency: 'AED' })}
-                  </td>
+                  </MetricCell>
                   <td>
                     <div className="inf-table__actions">
                       <button

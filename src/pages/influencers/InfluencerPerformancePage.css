@@ -1892,73 +1892,75 @@
   text-align: center;
 }
 
-/* Top (or lowest cost) values among rows currently shown — pastel chips like reference dashboard */
-.ip-table__detail-row td.ip-table__cell--winner {
+/* Winner badge: pill around the number only (cell background stays normal) */
+.ip-table__winner-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.28em 0.72em;
+  border-radius: 999px;
   font-weight: 800;
-  border-radius: 8px;
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+  line-height: 1.25;
   color: #0f172a;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.08);
+  white-space: nowrap;
 }
 
-.ip-table__detail-row td.ip-table__cell--winner-views {
-  background: rgba(191, 219, 254, 0.78);
+.ip-table__winner-pill strong {
+  font-weight: 800;
 }
 
-.ip-table__detail-row td.ip-table__cell--winner-likes {
-  background: rgba(167, 243, 208, 0.78);
+.ip-table .ip-table__winner-pill--views {
+  background: rgba(191, 219, 254, 0.88);
 }
 
-.ip-table__detail-row td.ip-table__cell--winner-comments {
-  background: rgba(254, 215, 170, 0.82);
+.ip-table .ip-table__winner-pill--likes {
+  background: rgba(167, 243, 208, 0.88);
 }
 
-.ip-table__detail-row td.ip-table__cell--winner-shares {
-  background: rgba(251, 207, 232, 0.82);
+.ip-table .ip-table__winner-pill--comments {
+  background: rgba(254, 215, 170, 0.9);
 }
 
-.ip-table__detail-row td.ip-table__cell--winner-sales {
-  background: rgba(153, 246, 228, 0.72);
+.ip-table .ip-table__winner-pill--shares {
+  background: rgba(251, 207, 232, 0.9);
 }
 
-.ip-table__detail-row td.ip-table__cell--winner-eng {
-  background: rgba(221, 214, 254, 0.85);
+.ip-table .ip-table__winner-pill--sales {
+  background: rgba(153, 246, 228, 0.82);
 }
 
-.ip-table__detail-row td.ip-table__cell--winner-cost {
-  background: rgba(253, 230, 138, 0.78);
+.ip-table .ip-table__winner-pill--cost {
+  background: rgba(253, 230, 138, 0.88);
 }
 
-:root[data-theme='dark'] .ip-table__detail-row td.ip-table__cell--winner {
+:root[data-theme='dark'] .ip-table__winner-pill {
   color: var(--theme-text);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14);
 }
 
-:root[data-theme='dark'] .ip-table__detail-row td.ip-table__cell--winner-views {
-  background: rgba(56, 189, 248, 0.28);
+:root[data-theme='dark'] .ip-table .ip-table__winner-pill--views {
+  background: rgba(56, 189, 248, 0.32);
 }
 
-:root[data-theme='dark'] .ip-table__detail-row td.ip-table__cell--winner-likes {
-  background: rgba(52, 211, 153, 0.26);
+:root[data-theme='dark'] .ip-table .ip-table__winner-pill--likes {
+  background: rgba(52, 211, 153, 0.3);
 }
 
-:root[data-theme='dark'] .ip-table__detail-row td.ip-table__cell--winner-comments {
-  background: rgba(251, 146, 60, 0.28);
+:root[data-theme='dark'] .ip-table .ip-table__winner-pill--comments {
+  background: rgba(251, 146, 60, 0.32);
 }
 
-:root[data-theme='dark'] .ip-table__detail-row td.ip-table__cell--winner-shares {
-  background: rgba(244, 114, 182, 0.26);
+:root[data-theme='dark'] .ip-table .ip-table__winner-pill--shares {
+  background: rgba(244, 114, 182, 0.3);
 }
 
-:root[data-theme='dark'] .ip-table__detail-row td.ip-table__cell--winner-sales {
-  background: rgba(45, 212, 191, 0.24);
+:root[data-theme='dark'] .ip-table .ip-table__winner-pill--sales {
+  background: rgba(45, 212, 191, 0.28);
 }
 
-:root[data-theme='dark'] .ip-table__detail-row td.ip-table__cell--winner-eng {
-  background: rgba(167, 139, 250, 0.3);
-}
-
-:root[data-theme='dark'] .ip-table__detail-row td.ip-table__cell--winner-cost {
-  background: rgba(250, 204, 21, 0.22);
+:root[data-theme='dark'] .ip-table .ip-table__winner-pill--cost {
+  background: rgba(250, 204, 21, 0.26);
 }
 
 .ip-table tbody tr {
