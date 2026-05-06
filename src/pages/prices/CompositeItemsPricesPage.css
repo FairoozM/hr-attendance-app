@@ -236,6 +236,30 @@
   text-align: center;
 }
 
+.cb-saved-search {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  min-width: min(22rem, 100%);
+}
+
+.cb-saved-search__label {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.cb-saved-search input {
+  padding: 0.45rem 0.55rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: var(--theme-input-bg, rgba(255, 255, 255, 0.08));
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
 .cb-saved-table__summary-row td {
   vertical-align: middle;
 }

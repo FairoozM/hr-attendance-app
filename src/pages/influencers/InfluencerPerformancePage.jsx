@@ -12,7 +12,6 @@ import {
   createMockPerformanceRecords,
   dedupePerformanceRecords,
   formatNumber,
-  getDayNumber,
   getVideoContractTimelines,
   mockInfluencers,
   normalizePerformanceRecord,
@@ -62,8 +61,7 @@ function isSeededMockPerformanceRecord(record = {}) {
     /^perf-.+-[0-4]$/.test(String(record.id || '')) &&
     String(record.contractId || '').startsWith('contract-') &&
     String(record.postUrl || '').startsWith('https://example.com/') &&
-    String(record.postUrl || '').includes('/weekly-video') &&
-    String(record.videoTitle || '').toLowerCase().endsWith(' weekly video')
+    String(record.postUrl || '').includes('/weekly-video')
   )
 }
 
@@ -235,12 +233,10 @@ export function InfluencerPerformancePage() {
       const influencerB = influencersById.get(String(b.influencerId))
       const valueA =
         sort.key === 'influencer' ? influencerA?.name :
-          sort.key === 'dayNumber' ? getDayNumber(a.contractStartDate, a.date) :
-            a[sort.key]
+          a[sort.key]
       const valueB =
         sort.key === 'influencer' ? influencerB?.name :
-          sort.key === 'dayNumber' ? getDayNumber(b.contractStartDate, b.date) :
-            b[sort.key]
+          b[sort.key]
       return compareValues(valueA, valueB, sort.direction)
     })
   }, [allRecords, influencersById, sort])
@@ -461,9 +457,7 @@ export function InfluencerPerformancePage() {
                 ['Likes', formatNumber(viewRecord.likes)],
                 ['Comments', formatNumber(viewRecord.comments)],
                 ['Shares', formatNumber(viewRecord.shares)],
-                ['Saves', formatNumber(viewRecord.saves)],
                 ['Sales AED', formatNumber(viewRecord.salesAed, { currency: 'AED' })],
-                ['Story views', formatNumber(viewRecord.storyViews)],
                 ['Engagement rate', `${toNumber(viewRecord.engagementRate).toFixed(2)}%`],
                 ['Cost', formatNumber(viewRecord.cost, { currency: 'AED' })],
               ].map(([label, value]) => (

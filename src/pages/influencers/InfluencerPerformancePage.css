@@ -883,7 +883,7 @@
 }
 
 .ip-hud-root {
-  font-family: 'Syne', system-ui, sans-serif;
+  font-family: inherit;
   position: relative;
   overflow: hidden;
   padding: 1.45rem 1.35rem 1.6rem;

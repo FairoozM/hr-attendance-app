@@ -1,11 +1,10 @@
 import { Eye, Pencil, Trash2 } from 'lucide-react'
-import { formatNumber, getDayNumber, toNumber } from '../../utils/influencerPerformanceUtils'
+import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
 
 const columns = [
   ['date', 'Date'],
   ['influencer', 'Influencer'],
-  ['videoTitle', 'Video contract'],
-  ['dayNumber', 'Day'],
+  ['campaignName', 'Video contract'],
   ['views', 'Views'],
   ['likes', 'Likes'],
   ['comments', 'Comments'],
@@ -103,10 +102,8 @@ export function InfluencerPerformanceTable({
                     <InfluencerIdentity influencer={influencer} platform={record.platform} />
                   </td>
                   <td>
-                    <span className="inf-table__name">{record.videoTitle || record.campaignName}</span>
-                    <span className="ip-table__sub">{record.campaignName}</span>
+                    <span className="inf-table__name">{record.campaignName || record.videoTitle}</span>
                   </td>
-                  <td><strong>Day {getDayNumber(record.contractStartDate, record.date) || 1}</strong></td>
                   <td>{formatNumber(record.views)}</td>
                   <td>{formatNumber(record.likes)}</td>
                   <td>{formatNumber(record.comments)}</td>

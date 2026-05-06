@@ -8,16 +8,13 @@ const emptyForm = {
   platform: 'Instagram',
   postUrl: '',
   campaignName: '',
-  videoTitle: '',
   contractStartDate: new Date().toISOString().slice(0, 10),
   monitoringDays: 5,
   views: '',
   likes: '',
   comments: '',
   shares: '',
-  saves: '',
   salesAed: '',
-  storyViews: '',
   cost: '',
   notes: '',
   screenshotUrl: '',
@@ -48,9 +45,7 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
         likes: String(editingRecord.likes ?? ''),
         comments: String(editingRecord.comments ?? ''),
         shares: String(editingRecord.shares ?? ''),
-        saves: String(editingRecord.saves ?? ''),
         salesAed: String(editingRecord.salesAed ?? ''),
-        storyViews: String(editingRecord.storyViews ?? ''),
         cost: String(editingRecord.cost ?? ''),
       })
       setInfluencerQuery(editedInfluencer?.name || '')
@@ -62,7 +57,6 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
       influencerId: prev.influencerId || '',
       platform: prev.platform || 'Instagram',
       campaignName: prev.campaignName || '',
-      videoTitle: prev.videoTitle || '',
       contractStartDate: prev.contractStartDate || emptyForm.contractStartDate,
     }))
     setInfluencerQuery('')
@@ -100,7 +94,7 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
     if (!form.campaignName.trim()) next.campaignName = 'Contract / campaign is required'
     if (!form.contractStartDate) next.contractStartDate = 'Start date is required'
     if (Number(form.views) < 0) next.views = 'Views cannot be negative'
-    ;['likes', 'comments', 'shares', 'saves', 'salesAed', 'storyViews', 'cost'].forEach((key) => {
+    ;['likes', 'comments', 'shares', 'salesAed', 'cost'].forEach((key) => {
       if (Number(form[key]) < 0) next[key] = 'Value cannot be negative'
     })
     setErrors(next)
@@ -114,7 +108,6 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
       influencerId: value,
       platform: influencer?.platform || prev.platform,
       campaignName: influencer?.assignedCampaign || prev.campaignName,
-      videoTitle: influencer?.assignedCampaign || prev.videoTitle,
       contractStartDate: prev.contractStartDate || form.date,
     }))
     setInfluencerQuery(influencer?.name || '')
@@ -141,6 +134,8 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
       monitoringDays: Number(form.monitoringDays) || 5,
       createdAt: editingRecord?.createdAt || now,
       updatedAt: now,
+      saves: editingRecord != null ? editingRecord.saves : 0,
+      storyViews: editingRecord != null ? editingRecord.storyViews : 0,
     }))
     const nextDate = addDays(form.date, 1)
     setForm({
@@ -148,7 +143,6 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
       influencerId: form.influencerId,
       platform: form.platform,
       campaignName: form.campaignName,
-      videoTitle: form.videoTitle,
       postUrl: form.postUrl,
       contractStartDate: form.contractStartDate || form.date,
       monitoringDays: form.monitoringDays || 5,
@@ -232,15 +226,8 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
               <Field label="Contract / campaign" error={errors.campaignName}>
                 <div className="ip-control-icon">
                   <Sparkles size={16} />
-                  <input className="ip-control" value={form.campaignName} onChange={(event) => {
-                    set('campaignName', event.target.value)
-                    if (!form.videoTitle) set('videoTitle', event.target.value)
-                  }} placeholder="Weekly video contract" />
+                  <input className="ip-control" value={form.campaignName} onChange={(event) => set('campaignName', event.target.value)} placeholder="Weekly video contract" />
                 </div>
-              </Field>
-
-              <Field label="Video title">
-                <input className="ip-control" value={form.videoTitle} onChange={(event) => set('videoTitle', event.target.value)} placeholder="e.g. Ramadan Glow reel" />
               </Field>
 
               <Field label="Video link">
@@ -280,9 +267,7 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
                 ['likes', 'Likes'],
                 ['comments', 'Comments'],
                 ['shares', 'Shares'],
-                ['saves', 'Saves'],
                 ['salesAed', 'Sales AED'],
-                ['storyViews', 'Story views'],
               ].map(([key, label]) => (
                 <Field key={key} label={label} error={errors[key]}>
                   <input

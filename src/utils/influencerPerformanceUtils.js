@@ -9,10 +9,10 @@ export function toNumber(value) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-export function calculateEngagementRate({ likes = 0, comments = 0, shares = 0, saves = 0, views = 0 } = {}) {
+export function calculateEngagementRate({ likes = 0, comments = 0, shares = 0, views = 0 } = {}) {
   const safeViews = toNumber(views)
   if (safeViews <= 0) return 0
-  const interactions = toNumber(likes) + toNumber(comments) + toNumber(shares) + toNumber(saves)
+  const interactions = toNumber(likes) + toNumber(comments) + toNumber(shares)
   return Number(((interactions / safeViews) * 100).toFixed(2))
 }
 
@@ -199,7 +199,7 @@ export function getTopInfluencer(records = [], influencers = []) {
       cost: 0,
     }
     current.views += toNumber(record.views)
-    current.engagements += toNumber(record.likes) + toNumber(record.comments) + toNumber(record.shares) + toNumber(record.saves)
+    current.engagements += toNumber(record.likes) + toNumber(record.comments) + toNumber(record.shares)
     current.cost += toNumber(record.cost)
     byId.set(record.influencerId, current)
   })
@@ -404,7 +404,6 @@ export function createMockPerformanceRecords(influencers = mockInfluencers) {
       const likes = Math.round(views * (0.045 + influencerIndex * 0.006))
       const comments = Math.round(views * 0.0045)
       const shares = Math.round(views * 0.003)
-      const saves = Math.round(views * 0.0022)
       const record = {
         id: `perf-${influencer.id}-${dayIndex}`,
         contractId: `contract-${influencer.id}-${contractStartDate}`,
@@ -413,16 +412,13 @@ export function createMockPerformanceRecords(influencers = mockInfluencers) {
         platform: influencer.platform,
         postUrl: `https://example.com/${influencer.username.replace('@', '')}/weekly-video`,
         campaignName: influencer.assignedCampaign,
-        videoTitle: `${influencer.assignedCampaign} weekly video`,
         contractStartDate,
         monitoringDays: 5,
         views,
         likes,
         comments,
         shares,
-        saves,
         salesAed: 0,
-        storyViews: Math.round(views * 0.28),
         engagementRate: 0,
         cost: 1200 + influencerIndex * 450,
         notes: dayIndex === 0 ? 'Day 1 baseline after upload.' : '',

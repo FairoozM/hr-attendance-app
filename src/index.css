@@ -148,7 +148,8 @@
   --space-7: 1.75rem;
   --space-8: 2rem;
 
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* System UI first: SF Pro on iPhone/Mac, Segoe UI on Windows — reads naturally when screenshots are viewed on iPhones */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'DM Sans', sans-serif;
   line-height: 1.5;
   color: var(--text);
 }

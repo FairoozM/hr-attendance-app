@@ -151,6 +151,7 @@ function CompositeDetailTable({ item }) {
 export function SavedCompositeItemsPage() {
   const [syncTick, setSyncTick] = useState(0)
   const [expanded, setExpanded] = useState(() => new Set())
+  const [searchText, setSearchText] = useState('')
 
   useEffect(() => {
     const bump = (event) => {
@@ -178,6 +179,15 @@ export function SavedCompositeItemsPage() {
     void syncTick
     return loadSavedCompositeItems()
   }, [syncTick])
+
+  const filteredItems = useMemo(() => {
+    const q = searchText.trim().toLowerCase()
+    if (!q) return savedItems
+    return savedItems.filter((item) => (
+      String(item.sku || '').toLowerCase().includes(q) ||
+      String(item.name || '').toLowerCase().includes(q)
+    ))
+  }, [savedItems, searchText])
 
   const toggleExpanded = useCallback((sku) => {
     setExpanded((prev) => {
@@ -219,12 +229,26 @@ export function SavedCompositeItemsPage() {
           <button type="button" className="btn btn--ghost" onClick={() => setSyncTick((t) => t + 1)}>
             Sync saved list
           </button>
+          <label className="cb-saved-search">
+            <span className="cb-saved-search__label">Search SKU / name</span>
+            <input
+              type="search"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              placeholder="Search saved composites..."
+              autoComplete="off"
+            />
+          </label>
         </div>
 
         {savedItems.length === 0 ? (
           <p className="composite-prices-placeholder">
             No composite SKUs saved yet. Open <NavLink to="/prices/composite-items">Composite Items Prices</NavLink>,
             fetch a composite item, then click <strong>Save composite item</strong>.
+          </p>
+        ) : filteredItems.length === 0 ? (
+          <p className="composite-prices-placeholder">
+            No saved composite items match <strong>{searchText}</strong>.
           </p>
         ) : (
           <div className="ap-table-scroll cb-table-scroll">
@@ -247,7 +271,7 @@ export function SavedCompositeItemsPage() {
                 </tr>
               </thead>
               <tbody>
-                {savedItems.map((item) => {
+                {filteredItems.map((item) => {
                   const economics = item.economics || {}
                   const isOpen = expanded.has(item.sku)
                   return (
