@@ -1892,6 +1892,75 @@
   text-align: center;
 }
 
+/* Top (or lowest cost) values among rows currently shown — pastel chips like reference dashboard */
+.ip-table__detail-row td.ip-table__cell--winner {
+  font-weight: 800;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+  color: #0f172a;
+}
+
+.ip-table__detail-row td.ip-table__cell--winner-views {
+  background: rgba(191, 219, 254, 0.78);
+}
+
+.ip-table__detail-row td.ip-table__cell--winner-likes {
+  background: rgba(167, 243, 208, 0.78);
+}
+
+.ip-table__detail-row td.ip-table__cell--winner-comments {
+  background: rgba(254, 215, 170, 0.82);
+}
+
+.ip-table__detail-row td.ip-table__cell--winner-shares {
+  background: rgba(251, 207, 232, 0.82);
+}
+
+.ip-table__detail-row td.ip-table__cell--winner-sales {
+  background: rgba(153, 246, 228, 0.72);
+}
+
+.ip-table__detail-row td.ip-table__cell--winner-eng {
+  background: rgba(221, 214, 254, 0.85);
+}
+
+.ip-table__detail-row td.ip-table__cell--winner-cost {
+  background: rgba(253, 230, 138, 0.78);
+}
+
+:root[data-theme='dark'] .ip-table__detail-row td.ip-table__cell--winner {
+  color: var(--theme-text);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+:root[data-theme='dark'] .ip-table__detail-row td.ip-table__cell--winner-views {
+  background: rgba(56, 189, 248, 0.28);
+}
+
+:root[data-theme='dark'] .ip-table__detail-row td.ip-table__cell--winner-likes {
+  background: rgba(52, 211, 153, 0.26);
+}
+
+:root[data-theme='dark'] .ip-table__detail-row td.ip-table__cell--winner-comments {
+  background: rgba(251, 146, 60, 0.28);
+}
+
+:root[data-theme='dark'] .ip-table__detail-row td.ip-table__cell--winner-shares {
+  background: rgba(244, 114, 182, 0.26);
+}
+
+:root[data-theme='dark'] .ip-table__detail-row td.ip-table__cell--winner-sales {
+  background: rgba(45, 212, 191, 0.24);
+}
+
+:root[data-theme='dark'] .ip-table__detail-row td.ip-table__cell--winner-eng {
+  background: rgba(167, 139, 250, 0.3);
+}
+
+:root[data-theme='dark'] .ip-table__detail-row td.ip-table__cell--winner-cost {
+  background: rgba(250, 204, 21, 0.22);
+}
+
 .ip-table tbody tr {
   cursor: default;
 }
