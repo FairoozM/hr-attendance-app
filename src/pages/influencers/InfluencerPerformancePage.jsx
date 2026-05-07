@@ -6,12 +6,15 @@ import { useInfluencers } from '../../contexts/InfluencersContext'
 import { InfluencerCharts } from '../../components/influencers/InfluencerCharts'
 import { InfluencerContractTimeline } from '../../components/influencers/InfluencerContractTimeline'
 import { InfluencerPerformanceForm } from '../../components/influencers/InfluencerPerformanceForm'
+import { InfluencerLeaderboardPodium } from '../../components/influencers/InfluencerLeaderboardPodium'
 import { InfluencerPerformanceTable } from '../../components/influencers/InfluencerPerformanceTable'
 import {
+  computeContractRankings,
   createInfluencerFromAppRecord,
   createMockPerformanceRecords,
   dedupePerformanceRecords,
   formatNumber,
+  getVideoContractKey,
   getVideoContractTimelines,
   mockInfluencers,
   normalizePerformanceRecord,
@@ -23,6 +26,7 @@ import './InfluencerPerformancePage.css'
 const STORAGE_KEY = 'hr-influencer-performance-v1'
 
 const PERFORMANCE_SORT_OPTIONS = [
+  { value: 'rank:asc', label: 'Best overall (90% sales · 10% rest)' },
   { value: 'date:desc', label: 'Newest records first' },
   { value: 'date:asc', label: 'Oldest records first' },
   { value: 'views:desc', label: 'Top views first' },
@@ -117,6 +121,7 @@ export function InfluencerPerformancePage() {
   const [viewRecord, setViewRecord] = useState(null)
   const [isAddRecordOpen, setIsAddRecordOpen] = useState(false)
   const [activeMonitorInfluencerId, setActiveMonitorInfluencerId] = useState(null)
+  const contractTimelineAnchorRef = useRef(null)
   const canWritePerformance = canMutateInfluencerPerformance(user)
 
   const influencers = useMemo(() => {
@@ -228,8 +233,36 @@ export function InfluencerPerformancePage() {
     }
   }, [activeMonitorInfluencerId, influencers.length, influencersById, influencersLoading, records, persistRecordsIfCan])
 
+  const videoContracts = useMemo(
+    () => getVideoContractTimelines(allRecords, influencers),
+    [allRecords, influencers],
+  )
+
+  const rankingsByContractId = useMemo(
+    () => computeContractRankings(videoContracts),
+    [videoContracts],
+  )
+
+  const rankingByRecordId = useMemo(() => {
+    const m = new Map()
+    allRecords.forEach((record) => {
+      const cid = getVideoContractKey(record)
+      const info = rankingsByContractId.get(cid)
+      if (info) m.set(record.id, info)
+    })
+    return m
+  }, [allRecords, rankingsByContractId])
+
   const filteredRecords = useMemo(() => {
     return [...allRecords].sort((a, b) => {
+      if (sort.key === 'rank') {
+        const scoreA = rankingByRecordId.get(a.id)?.score ?? -1
+        const scoreB = rankingByRecordId.get(b.id)?.score ?? -1
+        if (scoreB !== scoreA) {
+          return sort.direction === 'asc' ? scoreB - scoreA : scoreA - scoreB
+        }
+        return compareValues(a.date, b.date, 'desc')
+      }
       const influencerA = influencersById.get(String(a.influencerId))
       const influencerB = influencersById.get(String(b.influencerId))
       const valueA =
@@ -240,12 +273,7 @@ export function InfluencerPerformancePage() {
           b[sort.key]
       return compareValues(valueA, valueB, sort.direction)
     })
-  }, [allRecords, influencersById, sort])
-
-  const videoContracts = useMemo(
-    () => getVideoContractTimelines(filteredRecords, influencers),
-    [filteredRecords, influencers],
-  )
+  }, [allRecords, influencersById, rankingByRecordId, sort])
 
   const activeMonitorContracts = useMemo(() => {
     if (!activeMonitorInfluencerId) return []
@@ -253,10 +281,25 @@ export function InfluencerPerformancePage() {
   }, [activeMonitorInfluencerId, videoContracts])
 
   function handleSort(key) {
-    setSort((prev) => ({
-      key,
-      direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc',
-    }))
+    setSort((prev) => {
+      if (key === 'rank' && prev.key !== 'rank') {
+        return { key: 'rank', direction: 'asc' }
+      }
+      return {
+        key,
+        direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc',
+      }
+    })
+  }
+
+  function handlePodiumSelectContract(contract) {
+    if (!contract?.influencerId) return
+    setActiveMonitorInfluencerId(contract.influencerId)
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        contractTimelineAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 80)
+    })
   }
 
   function handleSortPreset(value) {
@@ -374,6 +417,7 @@ export function InfluencerPerformancePage() {
           </label>
           <div className="ip-performance-sort-panel__quick" aria-label="Quick ranking filters">
             {[
+              ['rank:asc', 'Best overall'],
               ['views:desc', 'Top views'],
               ['likes:desc', 'Top likes'],
               ['salesAed:desc', 'Top sales'],
@@ -392,9 +436,16 @@ export function InfluencerPerformancePage() {
         </div>
       </section>
 
+      <InfluencerLeaderboardPodium
+        videoContracts={videoContracts}
+        rankingsByContractId={rankingsByContractId}
+        onSelectContract={handlePodiumSelectContract}
+      />
+
       <InfluencerPerformanceTable
         records={filteredRecords}
         influencersById={influencersById}
+        rankingByRecordId={rankingByRecordId}
         sort={sort}
         onSort={handleSort}
         onView={setViewRecord}
@@ -406,20 +457,22 @@ export function InfluencerPerformancePage() {
         ))}
       />
 
-      {activeMonitorContracts.length > 0 ? (
-        <InfluencerContractTimeline
-          contracts={activeMonitorContracts}
-          onEditRecord={canWritePerformance ? setEditingRecord : undefined}
-          onDeleteRecord={canWritePerformance ? handleDelete : undefined}
-          onEditContract={canWritePerformance
-            ? (contract) => setEditingContract({
-                contract,
-                selectedInfluencerId: contract.influencerId,
-                query: contract.influencer?.name || '',
-              })
-            : undefined}
-        />
-      ) : null}
+      <div ref={contractTimelineAnchorRef} className="ip-contract-timeline-anchor">
+        {activeMonitorContracts.length > 0 ? (
+          <InfluencerContractTimeline
+            contracts={activeMonitorContracts}
+            onEditRecord={canWritePerformance ? setEditingRecord : undefined}
+            onDeleteRecord={canWritePerformance ? handleDelete : undefined}
+            onEditContract={canWritePerformance
+              ? (contract) => setEditingContract({
+                  contract,
+                  selectedInfluencerId: contract.influencerId,
+                  query: contract.influencer?.name || '',
+                })
+              : undefined}
+          />
+        ) : null}
+      </div>
 
       <InfluencerCharts records={filteredRecords} influencersById={influencersById} />
 

@@ -211,6 +211,100 @@ export function getVideoContractTimelines(records = [], influencers = [], daysFa
     .sort((a, b) => String(b.latest?.date || '').localeCompare(String(a.latest?.date || '')))
 }
 
+const RANK_SALES_WEIGHT = 0.9
+const RANK_ENGAGEMENT_WEIGHT = 0.1
+const RANK_ENGAGEMENT_METRICS = 5
+
+/**
+ * Min–max normalize to 0–1. When all values are equal, returns 1 for every row (neutral “best”).
+ */
+function normalizeMinMax(values) {
+  const nums = values.map((v) => toNumber(v))
+  const min = Math.min(...nums)
+  const max = Math.max(...nums)
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max === min) {
+    return nums.map(() => 1)
+  }
+  return nums.map((v) => (v - min) / (max - min))
+}
+
+/**
+ * Rank video contracts: 90% sales + 10% split across views, likes, comments, shares, cost-inverted.
+ * Uses each contract's **latest** daily record for metrics (snapshot, not summed totals).
+ * @returns {Map<string, { rank: number, score: number, score100: number, contractId: string, breakdown: Record<string, number> }>}
+ */
+export function computeContractRankings(contracts = []) {
+  const out = new Map()
+  if (!Array.isArray(contracts) || contracts.length === 0) return out
+
+  const rows = contracts.map((contract) => {
+    const rec = contract.latest || {}
+    return {
+      contractId: String(contract.id || ''),
+      contract,
+      views: toNumber(rec.views),
+      likes: toNumber(rec.likes),
+      comments: toNumber(rec.comments),
+      shares: toNumber(rec.shares),
+      salesAed: toNumber(rec.salesAed),
+      cost: toNumber(rec.cost),
+      latestDate: isoDateSlice(rec.date) || '',
+    }
+  })
+
+  const normSales = normalizeMinMax(rows.map((r) => r.salesAed))
+  const normViews = normalizeMinMax(rows.map((r) => r.views))
+  const normLikes = normalizeMinMax(rows.map((r) => r.likes))
+  const normComments = normalizeMinMax(rows.map((r) => r.comments))
+  const normShares = normalizeMinMax(rows.map((r) => r.shares))
+  const costs = rows.map((r) => r.cost)
+  const maxCost = Math.max(...costs, 0)
+  const costInverted = costs.map((c) => maxCost - c)
+  const normCostEff = normalizeMinMax(costInverted)
+
+  const scored = rows.map((row, i) => {
+    const engagementAvg = (
+      normViews[i] +
+      normLikes[i] +
+      normComments[i] +
+      normShares[i] +
+      normCostEff[i]
+    ) / RANK_ENGAGEMENT_METRICS
+    const score = RANK_SALES_WEIGHT * normSales[i] + RANK_ENGAGEMENT_WEIGHT * engagementAvg
+    const breakdown = {
+      normSales: normSales[i],
+      normViews: normViews[i],
+      normLikes: normLikes[i],
+      normComments: normComments[i],
+      normShares: normShares[i],
+      normCostEff: normCostEff[i],
+      engagementAvg,
+    }
+    return { ...row, score, breakdown }
+  })
+
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score
+    if (b.salesAed !== a.salesAed) return b.salesAed - a.salesAed
+    return String(a.latestDate || '').localeCompare(String(b.latestDate || ''))
+  })
+
+  scored.forEach((row, index) => {
+    const rank = index + 1
+    const score = row.score
+    const score100 = Math.min(100, Math.max(0, Math.round(score * 100)))
+    out.set(row.contractId, {
+      rank,
+      score,
+      score100,
+      contractId: row.contractId,
+      breakdown: row.breakdown,
+    })
+  })
+
+  return out
+}
+
 export function getTopInfluencer(records = [], influencers = []) {
   const byId = new Map()
   records.forEach((record) => {

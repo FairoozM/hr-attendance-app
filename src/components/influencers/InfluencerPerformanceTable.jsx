@@ -1,8 +1,11 @@
 import { useMemo } from 'react'
-import { Eye, Pencil, Trash2 } from 'lucide-react'
+import { Crown, Eye, Medal, Pencil, Trash2 } from 'lucide-react'
 import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
 
+const EMPTY_RANK_MAP = new Map()
+
 const columns = [
+  ['rank', '#'],
   ['date', 'Date'],
   ['influencer', 'Influencer'],
   ['campaignName', 'Video contract'],
@@ -12,12 +15,15 @@ const columns = [
   ['shares', 'Shares'],
   ['salesAed', 'Sales AED'],
   ['cost', 'Cost'],
+  ['score', 'Score'],
 ]
 
-const METRIC_COLUMN_KEYS = new Set(['views', 'likes', 'comments', 'shares', 'salesAed', 'cost'])
+const METRIC_COLUMN_KEYS = new Set(['rank', 'views', 'likes', 'comments', 'shares', 'salesAed', 'cost', 'score'])
 
-function thClass(key, sortKey) {
-  return [sortKey === key ? 'sorted' : '', METRIC_COLUMN_KEYS.has(key) ? 'ip-table__col--metric' : ''].filter(Boolean).join(' ')
+function thClass(key, sort) {
+  const sortKey = sort?.key
+  const isSorted = key === 'score' ? sortKey === 'rank' : sortKey === key
+  return [isSorted ? 'sorted' : '', METRIC_COLUMN_KEYS.has(key) ? 'ip-table__col--metric' : ''].filter(Boolean).join(' ')
 }
 
 /** Best values among currently visible rows (ties all win). Max for metrics; min for cost. */
@@ -79,8 +85,89 @@ function MetricCell({ field, record, bests, children }) {
 }
 
 function sortIndicator(sort, key) {
+  if (key === 'score') {
+    if (sort.key !== 'rank') return ''
+    return sort.direction === 'asc' ? ' ↑' : ' ↓'
+  }
   if (sort.key !== key) return ''
   return sort.direction === 'asc' ? ' ↑' : ' ↓'
+}
+
+function formatScoreTooltip(rankInfo) {
+  if (!rankInfo?.breakdown) return ''
+  const b = rankInfo.breakdown
+  const parts = [
+    `Sales ${b.normSales.toFixed(2)}`,
+    `Views ${b.normViews.toFixed(2)}`,
+    `Likes ${b.normLikes.toFixed(2)}`,
+    `Comments ${b.normComments.toFixed(2)}`,
+    `Shares ${b.normShares.toFixed(2)}`,
+    `Cost eff. ${b.normCostEff.toFixed(2)}`,
+  ]
+  return `Contract rank #${rankInfo.rank} · ${rankInfo.score100}/100 (min–max vs visible contracts)\n${parts.join(' · ')}`
+}
+
+function RankCell({ rankInfo }) {
+  if (!rankInfo) {
+    return <td className="ip-table__col--metric ip-table__col--rank"><span className="ip-table__rank-muted">—</span></td>
+  }
+  const { rank } = rankInfo
+  if (rank === 1) {
+    return (
+      <td className="ip-table__col--metric ip-table__col--rank">
+        <span className="ip-table__rank-pill ip-table__rank-pill--gold" title="1st place (contract composite)">
+          <Crown size={14} strokeWidth={2.2} aria-hidden />
+          <span>#{rank}</span>
+        </span>
+      </td>
+    )
+  }
+  if (rank === 2) {
+    return (
+      <td className="ip-table__col--metric ip-table__col--rank">
+        <span className="ip-table__rank-pill ip-table__rank-pill--silver" title="2nd place (contract composite)">
+          <Medal size={14} strokeWidth={2.2} aria-hidden />
+          <span>#{rank}</span>
+        </span>
+      </td>
+    )
+  }
+  if (rank === 3) {
+    return (
+      <td className="ip-table__col--metric ip-table__col--rank">
+        <span className="ip-table__rank-pill ip-table__rank-pill--bronze" title="3rd place (contract composite)">
+          <Medal size={14} strokeWidth={2.2} aria-hidden />
+          <span>#{rank}</span>
+        </span>
+      </td>
+    )
+  }
+  return (
+    <td className="ip-table__col--metric ip-table__col--rank">
+      <span className="ip-table__rank-muted">#{rank}</span>
+    </td>
+  )
+}
+
+function ScoreCell({ rankInfo }) {
+  if (!rankInfo) {
+    return (
+      <td className="ip-table__col--metric ip-table__col--score">
+        <span className="ip-table__rank-muted">—</span>
+      </td>
+    )
+  }
+  const w = Math.min(100, Math.max(0, rankInfo.score100))
+  return (
+    <td className="ip-table__col--metric ip-table__col--score" title={formatScoreTooltip(rankInfo)}>
+      <div className="ip-score-cell">
+        <span className="ip-score-cell__value">{rankInfo.score100}</span>
+        <div className="ip-score-bar" role="presentation">
+          <span className="ip-score-bar__fill" style={{ width: `${w}%` }} />
+        </div>
+      </div>
+    </td>
+  )
 }
 
 function initials(name) {
@@ -119,6 +206,7 @@ function InfluencerIdentity({ influencer }) {
 export function InfluencerPerformanceTable({
   records,
   influencersById,
+  rankingByRecordId = EMPTY_RANK_MAP,
   sort,
   onSort,
   onView,
@@ -143,7 +231,11 @@ export function InfluencerPerformanceTable({
           <thead>
             <tr>
               {columns.map(([key, label]) => (
-                <th key={key} className={thClass(key, sort.key)} onClick={() => onSort(key)}>
+                <th
+                  key={key}
+                  className={thClass(key, sort)}
+                  onClick={() => onSort(key === 'score' ? 'rank' : key)}
+                >
                   {label}{sortIndicator(sort, key)}
                 </th>
               ))}
@@ -161,8 +253,10 @@ export function InfluencerPerformanceTable({
               const influencerId = String(record.influencerId || '')
               const isMonitorActive = String(activeMonitorInfluencerId) === influencerId
               const influencer = influencersById.get(influencerId)
+              const rankInfo = rankingByRecordId.get(record.id)
               return (
                 <tr key={record.id} className={`ip-table__detail-row ${isMonitorActive ? 'ip-table__detail-row--active' : ''}`}>
+                  <RankCell rankInfo={rankInfo} />
                   <td>{record.date}</td>
                   <td>
                     <InfluencerIdentity influencer={influencer} />
@@ -188,6 +282,7 @@ export function InfluencerPerformanceTable({
                   <MetricCell field="cost" record={record} bests={bests}>
                     {formatNumber(record.cost, { currency: 'AED' })}
                   </MetricCell>
+                  <ScoreCell rankInfo={rankInfo} />
                   <td>
                     <div className="inf-table__actions">
                       <button
