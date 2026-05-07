@@ -3046,6 +3046,31 @@
   flex-shrink: 0;
 }
 
+.ip-table .ip-table__col--actions {
+  width: 7.5rem;
+  min-width: 7.5rem;
+  vertical-align: middle;
+}
+
+.ip-table tr .ip-table__col--actions .inf-table__actions {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.ip-table tbody tr:hover .ip-table__col--actions .inf-table__actions,
+.ip-table tbody tr:focus-within .ip-table__col--actions .inf-table__actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none) {
+  .ip-table tbody tr .ip-table__col--actions .inf-table__actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 .ip-table th[data-col="netProfitAed"],
 .ip-table td.ip-table__col--netprofit {
   min-width: 6.5rem;

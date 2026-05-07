@@ -264,7 +264,7 @@ export function InfluencerPerformanceTable({
                   {label}{sortIndicator(sort, key)}
                 </th>
               ))}
-              <th>Actions</th>
+              <th className="ip-table__col--actions" aria-label="Actions" />
             </tr>
           </thead>
           <tbody>
@@ -313,7 +313,7 @@ export function InfluencerPerformanceTable({
                     </MetricCell>
                   ) : null}
                   <ScoreCell rankInfo={rankInfo} />
-                  <td>
+                  <td className="ip-table__col--actions">
                     <div className="inf-table__actions">
                       <button
                         type="button"
