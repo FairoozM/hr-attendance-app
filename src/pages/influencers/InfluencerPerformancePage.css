@@ -3032,14 +3032,35 @@
   scroll-margin-top: 1rem;
 }
 
+/* Performance table only: keep action buttons on one row (global .inf-table__actions uses flex-wrap). */
+.ip-table .inf-table__actions {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+
+.ip-table .inf-table__actions .inf-btn-icon {
+  flex-shrink: 0;
+}
+
+.ip-table .ip-table__expand-btn {
+  flex-shrink: 0;
+}
+
+.ip-table th[data-col="netProfitAed"],
+.ip-table td.ip-table__col--netprofit {
+  min-width: 6.5rem;
+  max-width: 8.5rem;
+  white-space: nowrap;
+}
+
 .ip-table__col--rank {
-  width: 4.5rem;
+  width: 3.75rem;
   vertical-align: middle;
 }
 
 .ip-table__col--score {
-  min-width: 5.5rem;
-  max-width: 7rem;
+  min-width: 4.75rem;
+  max-width: 5.5rem;
   vertical-align: middle;
 }
 

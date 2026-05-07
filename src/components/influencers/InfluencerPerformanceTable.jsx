@@ -16,7 +16,7 @@ function tableColumns(showNetProfitColumn) {
     ['salesAed', 'Sales AED'],
     ['cost', 'Cost'],
   ]
-  if (showNetProfitColumn) mid.push(['netProfitAed', 'Net profit AED'])
+  if (showNetProfitColumn) mid.push(['netProfitAed', 'Net profit'])
   mid.push(['score', 'Score'])
   return [['rank', '#'], ...mid]
 }
@@ -91,10 +91,11 @@ function winnerPillMod(field, record, bests) {
   return field
 }
 
-function MetricCell({ field, record, bests, children }) {
+function MetricCell({ field, record, bests, className = '', children }) {
   const mod = winnerPillMod(field, record, bests)
+  const tdClass = ['ip-table__col--metric', className].filter(Boolean).join(' ')
   return (
-    <td className="ip-table__col--metric" title={mod ? WINNER_TITLE[field] : undefined}>
+    <td className={tdClass} title={mod ? WINNER_TITLE[field] : undefined}>
       {mod ? (
         <span className={`ip-table__winner-pill ip-table__winner-pill--${mod}`}>{children}</span>
       ) : (
@@ -256,6 +257,7 @@ export function InfluencerPerformanceTable({
               {columns.map(([key, label]) => (
                 <th
                   key={key}
+                  data-col={key}
                   className={thClass(key, sort, metricKeys)}
                   onClick={() => onSort(key === 'score' ? 'rank' : key)}
                 >
@@ -306,7 +308,7 @@ export function InfluencerPerformanceTable({
                     {formatNumber(record.cost, { currency: 'AED' })}
                   </MetricCell>
                   {showNetProfitColumn ? (
-                    <MetricCell field="netProfitAed" record={record} bests={bests}>
+                    <MetricCell field="netProfitAed" record={record} bests={bests} className="ip-table__col--netprofit">
                       {formatNumber(record.netProfitAed, { currency: 'AED' })}
                     </MetricCell>
                   ) : null}
