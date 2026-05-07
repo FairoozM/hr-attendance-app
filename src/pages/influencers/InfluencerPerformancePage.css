@@ -1896,11 +1896,16 @@
 
 .ip-table th.ip-table__col--metric.ip-table__col--amount,
 .ip-table td.ip-table__col--metric.ip-table__col--amount {
+  text-align: right;
+}
+
+.ip-table th[data-col='influencer'],
+.ip-table td.ip-table__col--influencer {
   text-align: left;
 }
 
 .ip-table td.ip-table__col--influencer .ip-table__influencer-cell {
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 /* Winner badge: pill around the number only (cell background stays normal) */
