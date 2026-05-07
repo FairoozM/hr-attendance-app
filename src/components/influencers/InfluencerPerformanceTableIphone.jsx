@@ -60,16 +60,25 @@ function winnerPillMod(field, record, bests) {
   return field
 }
 
-function MetricSlot({ label, field, record, bests, children }) {
+function MetricSlot({ label, field, record, bests, valueAlign = 'start', children }) {
   const mod = winnerPillMod(field, record, bests)
+  const end = valueAlign === 'end'
   return (
-    <div className="ip-phone-card__metric">
-      <span className="ip-phone-card__metric-label">{label}</span>
+    <div
+      className={[
+        'flex min-w-0 flex-col gap-1 rounded-2xl border px-3.5 py-3',
+        'bg-[var(--ip-phone-metric-bg)] border-[var(--ip-phone-metric-border)]',
+        'shadow-[var(--ip-phone-metric-inset)]',
+      ].join(' ')}
+    >
+      <span className="text-[0.625rem] font-bold uppercase tracking-[0.14em] text-[color:var(--ip-phone-label)]">
+        {label}
+      </span>
       <div
         className={[
-          'ip-phone-card__metric-value',
-          AMOUNT_COLUMN_KEYS.has(field) ? 'ip-phone-card__metric-value--amount' : '',
-        ].filter(Boolean).join(' ')}
+          'text-[0.875rem] font-bold tabular-nums leading-tight text-[color:var(--ip-phone-value)]',
+          end ? 'flex w-full justify-end text-right' : 'text-left',
+        ].join(' ')}
         title={mod ? WINNER_TITLE[field] : undefined}
       >
         {mod ? (
@@ -82,14 +91,43 @@ function MetricSlot({ label, field, record, bests, children }) {
   )
 }
 
+function NetProfitFooter({ record, bests }) {
+  const field = 'netProfitAed'
+  const mod = winnerPillMod(field, record, bests)
+  const val = formatNumber(record.netProfitAed, { currency: 'AED' })
+  return (
+    <div
+      className={[
+        'mt-4 rounded-full border px-4 py-3.5',
+        'bg-[var(--ip-phone-net-bg)] border-[var(--ip-phone-net-border)]',
+        'shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]',
+      ].join(' ')}
+    >
+      <div className="mb-1 text-[0.625rem] font-bold uppercase tracking-[0.14em] text-[color:var(--ip-phone-label)]">
+        Net profit
+      </div>
+      <div
+        className="flex justify-end text-[0.94rem] font-black tabular-nums text-[color:var(--ip-phone-value)]"
+        title={mod ? WINNER_TITLE[field] : undefined}
+      >
+        {mod ? (
+          <span className={`ip-table__winner-pill ip-table__winner-pill--${mod}`}>{val}</span>
+        ) : (
+          val
+        )}
+      </div>
+    </div>
+  )
+}
+
 function RankBadge({ rankInfo }) {
   if (!rankInfo) {
-    return <span className="ip-table__rank-muted">—</span>
+    return <span className="ip-phone-rank-plain">—</span>
   }
   const { rank } = rankInfo
   if (rank === 1) {
     return (
-      <span className="ip-table__rank-pill ip-table__rank-pill--gold" title="1st place (contract composite)">
+      <span className="ip-table__rank-pill ip-table__rank-pill--gold shadow-sm" title="1st place (contract composite)">
         <Crown size={14} strokeWidth={2.2} aria-hidden />
         <span>#{rank}</span>
       </span>
@@ -97,7 +135,7 @@ function RankBadge({ rankInfo }) {
   }
   if (rank === 2) {
     return (
-      <span className="ip-table__rank-pill ip-table__rank-pill--silver" title="2nd place (contract composite)">
+      <span className="ip-table__rank-pill ip-table__rank-pill--silver shadow-sm" title="2nd place (contract composite)">
         <Medal size={14} strokeWidth={2.2} aria-hidden />
         <span>#{rank}</span>
       </span>
@@ -105,13 +143,13 @@ function RankBadge({ rankInfo }) {
   }
   if (rank === 3) {
     return (
-      <span className="ip-table__rank-pill ip-table__rank-pill--bronze" title="3rd place (contract composite)">
+      <span className="ip-table__rank-pill ip-table__rank-pill--bronze shadow-sm" title="3rd place (contract composite)">
         <Medal size={14} strokeWidth={2.2} aria-hidden />
         <span>#{rank}</span>
       </span>
     )
   }
-  return <span className="ip-table__rank-muted">#{rank}</span>
+  return <span className="ip-phone-rank-plain">#{rank}</span>
 }
 
 function initials(name) {
@@ -126,22 +164,32 @@ function initials(name) {
 function InfluencerIdentity({ influencer }) {
   const name = influencer?.name || 'Unknown'
   return (
-    <div className="ip-table__influencer-cell ip-phone-card__influencer">
-      <div className="ip-table__avatar" aria-hidden="true">
-        <span>{initials(name)}</span>
+    <div className="flex items-center gap-3.5 pb-1 pt-0.5">
+      <div
+        className={[
+          'relative grid h-[3.25rem] w-[3.25rem] shrink-0 place-items-center overflow-hidden rounded-full',
+          'shadow-md ring-2 ring-[var(--ip-phone-avatar-ring)]',
+        ].join(' ')}
+        style={{ background: 'var(--ip-phone-avatar-placeholder)' }}
+        aria-hidden
+      >
+        <span className="relative z-[1] text-[0.68rem] font-black tracking-wide text-[color:var(--ip-phone-avatar-fg)]">{initials(name)}</span>
         {influencer?.profileImage ? (
           <img
             src={influencer.profileImage}
             alt=""
+            className="absolute inset-0 z-[2] size-full object-cover"
             onError={(event) => {
               event.currentTarget.remove()
             }}
           />
         ) : null}
       </div>
-      <div className="ip-table__influencer-copy">
-        <span className="inf-table__name">{name}</span>
-        <span className="ip-table__sub">{influencer?.username?.trim() || '—'}</span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[0.95rem] font-bold leading-snug text-[color:var(--ip-phone-value)]">{name}</div>
+        <div className="truncate text-[0.72rem] font-semibold text-[color:var(--ip-phone-label)]">
+          {influencer?.username?.trim() || '—'}
+        </div>
       </div>
     </div>
   )
@@ -183,18 +231,27 @@ export function InfluencerPerformanceTableIphone({
 
   return (
     <section className="ip-table-card ip-table-card--iphone">
-      <div className="ip-section-heading">
-        <span className="ip-section-heading__icon"><Eye size={18} /></span>
-        <div>
-          <h2>Performance ranking</h2>
-          <p className="ip-table-card--iphone__hint">One card per row — scroll vertically. Use Sort above to change order.</p>
+      <div className="ip-section-heading flex items-start gap-2">
+        <span className="ip-section-heading__icon mt-0.5 grid place-items-center rounded-xl bg-[var(--ip-phone-metric-bg)] p-2 shadow-sm ring-1 ring-[var(--ip-phone-metric-border)]">
+          <Eye size={17} className="text-[color:var(--ip-phone-label)]" />
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-[1.06rem] font-bold tracking-tight text-[color:var(--ip-phone-value)]">Performance ranking</h2>
+          <p className="ip-table-card--iphone__hint">
+            Soft cards + metric tiles — scroll vertically. Sort with the controls above.
+          </p>
         </div>
       </div>
 
       <ul className="ip-phone-ranking">
         {records.length === 0 ? (
-          <li className="ip-phone-card ip-phone-card--empty">
-            <div className="ip-empty-row">No performance records match these filters.</div>
+          <li
+            className={[
+              'rounded-[1.35rem] border border-[var(--ip-phone-card-border)] bg-[var(--ip-phone-card-bg)]',
+              'p-8 text-center shadow-[var(--ip-phone-card-shadow)] ring-1 ring-[var(--ip-phone-card-ring)]',
+            ].join(' ')}
+          >
+            <div className="ip-empty-row text-[color:var(--ip-phone-label)]">No performance records match these filters.</div>
           </li>
         ) : records.map((record) => {
           const influencerId = String(record.influencerId || '')
@@ -205,16 +262,20 @@ export function InfluencerPerformanceTableIphone({
             <li
               key={record.id}
               className={[
-                'ip-phone-card',
-                isMonitorActive ? 'ip-phone-card--active' : '',
+                'ip-phone-card group relative overflow-hidden rounded-[1.35rem] border',
+                'border-[var(--ip-phone-card-border)] bg-[var(--ip-phone-card-bg)]',
+                'p-5 shadow-[var(--ip-phone-card-shadow)] ring-1 ring-[var(--ip-phone-card-ring)]',
+                'sm:p-6',
+                'transition-[transform,box-shadow] duration-200 will-change-transform',
+                'active:scale-[0.985]',
+                isMonitorActive ? 'ring-2 ring-cyan-500/35 ring-offset-2 ring-offset-[var(--ip-phone-canvas)]' : '',
               ].filter(Boolean).join(' ')}
             >
-              <div className="ip-phone-card__top">
-                <RankBadge rankInfo={rankInfo} />
-                <div
-                  className="ip-table__row-menu ip-phone-card__menu"
-                  data-record-id={record.id}
-                >
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="min-w-0 shrink pt-0.5">
+                  <RankBadge rankInfo={rankInfo} />
+                </div>
+                <div className="ip-table__row-menu ip-phone-card__menu shrink-0" data-record-id={record.id}>
                   <button
                     type="button"
                     className="ip-table__row-menu-trigger"
@@ -283,33 +344,30 @@ export function InfluencerPerformanceTableIphone({
 
               <InfluencerIdentity influencer={influencer} />
 
-              <div className="ip-phone-card__date">{record.date}</div>
+              <div className="mb-3.5 text-[0.78rem] font-semibold tabular-nums text-[color:var(--ip-phone-date)]">{record.date}</div>
 
-              <div className="ip-phone-card__metrics">
-                <MetricSlot label="Cost" field="cost" record={record} bests={bests}>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-3.5">
+                <MetricSlot label="Cost" field="cost" record={record} bests={bests} valueAlign="start">
                   {formatNumber(record.cost, { currency: 'AED' })}
                 </MetricSlot>
-                <MetricSlot label="Views" field="views" record={record} bests={bests}>
+                <MetricSlot label="Views" field="views" record={record} bests={bests} valueAlign="end">
                   {formatNumber(record.views)}
                 </MetricSlot>
-                <MetricSlot label="Likes" field="likes" record={record} bests={bests}>
+                <MetricSlot label="Likes" field="likes" record={record} bests={bests} valueAlign="start">
                   {formatNumber(record.likes)}
                 </MetricSlot>
-                <MetricSlot label="Comments" field="comments" record={record} bests={bests}>
+                <MetricSlot label="Comments" field="comments" record={record} bests={bests} valueAlign="end">
                   {formatNumber(record.comments)}
                 </MetricSlot>
-                <MetricSlot label="Shares" field="shares" record={record} bests={bests}>
+                <MetricSlot label="Shares" field="shares" record={record} bests={bests} valueAlign="start">
                   {formatNumber(record.shares)}
                 </MetricSlot>
-                <MetricSlot label="Sales AED" field="salesAed" record={record} bests={bests}>
+                <MetricSlot label="Sales AED" field="salesAed" record={record} bests={bests} valueAlign="end">
                   {formatNumber(record.salesAed, { currency: 'AED' })}
                 </MetricSlot>
-                {showNetProfitColumn ? (
-                  <MetricSlot label="Net profit" field="netProfitAed" record={record} bests={bests}>
-                    {formatNumber(record.netProfitAed, { currency: 'AED' })}
-                  </MetricSlot>
-                ) : null}
               </div>
+
+              {showNetProfitColumn ? <NetProfitFooter record={record} bests={bests} /> : null}
             </li>
           )
         })}
