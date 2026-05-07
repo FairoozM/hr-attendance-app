@@ -211,7 +211,7 @@ export function getVideoContractTimelines(records = [], influencers = [], daysFa
     .sort((a, b) => String(b.latest?.date || '').localeCompare(String(a.latest?.date || '')))
 }
 
-const RANK_SALES_WEIGHT = 0.9
+const RANK_PROFIT_WEIGHT = 0.9
 const RANK_ENGAGEMENT_WEIGHT = 0.1
 const RANK_ENGAGEMENT_METRICS = 5
 
@@ -229,7 +229,7 @@ function normalizeMinMax(values) {
 }
 
 /**
- * Rank video contracts: 90% sales + 10% split across views, likes, comments, shares, cost-inverted.
+ * Rank video contracts: 90% net profit (AED) + 10% split across views, likes, comments, shares, cost-inverted.
  * Uses each contract's **latest** daily record for metrics (snapshot, not summed totals).
  * @returns {Map<string, { rank: number, score: number, score100: number, contractId: string, breakdown: Record<string, number> }>}
  */
@@ -246,13 +246,13 @@ export function computeContractRankings(contracts = []) {
       likes: toNumber(rec.likes),
       comments: toNumber(rec.comments),
       shares: toNumber(rec.shares),
-      salesAed: toNumber(rec.salesAed),
+      netProfitAed: toNumber(rec.netProfitAed),
       cost: toNumber(rec.cost),
       latestDate: isoDateSlice(rec.date) || '',
     }
   })
 
-  const normSales = normalizeMinMax(rows.map((r) => r.salesAed))
+  const normProfit = normalizeMinMax(rows.map((r) => r.netProfitAed))
   const normViews = normalizeMinMax(rows.map((r) => r.views))
   const normLikes = normalizeMinMax(rows.map((r) => r.likes))
   const normComments = normalizeMinMax(rows.map((r) => r.comments))
@@ -270,9 +270,9 @@ export function computeContractRankings(contracts = []) {
       normShares[i] +
       normCostEff[i]
     ) / RANK_ENGAGEMENT_METRICS
-    const score = RANK_SALES_WEIGHT * normSales[i] + RANK_ENGAGEMENT_WEIGHT * engagementAvg
+    const score = RANK_PROFIT_WEIGHT * normProfit[i] + RANK_ENGAGEMENT_WEIGHT * engagementAvg
     const breakdown = {
-      normSales: normSales[i],
+      normProfit: normProfit[i],
       normViews: normViews[i],
       normLikes: normLikes[i],
       normComments: normComments[i],
@@ -285,7 +285,7 @@ export function computeContractRankings(contracts = []) {
 
   scored.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score
-    if (b.salesAed !== a.salesAed) return b.salesAed - a.salesAed
+    if (b.netProfitAed !== a.netProfitAed) return b.netProfitAed - a.netProfitAed
     return String(a.latestDate || '').localeCompare(String(b.latestDate || ''))
   })
 

@@ -26,7 +26,7 @@ import './InfluencerPerformancePage.css'
 const STORAGE_KEY = 'hr-influencer-performance-v1'
 
 const PERFORMANCE_SORT_OPTIONS = [
-  { value: 'rank:asc', label: 'Best overall (90% sales · 10% rest)' },
+  { value: 'rank:asc', label: 'Best overall (90% profit · 10% rest)' },
   { value: 'date:desc', label: 'Newest records first' },
   { value: 'date:asc', label: 'Oldest records first' },
   { value: 'views:desc', label: 'Top views first' },

@@ -145,7 +145,7 @@ export function InfluencerLeaderboardPodium({
         <div>
           <h2>Leaderboard</h2>
           <p className="ip-leaderboard-podium__subtitle">
-            Ranked by best overall (90% sales · 10% engagement & cost efficiency). Click a card to open their contract timeline.
+            Ranked by best overall (90% net profit · 10% engagement & cost efficiency). Click a card to open their contract timeline.
           </p>
         </div>
       </div>

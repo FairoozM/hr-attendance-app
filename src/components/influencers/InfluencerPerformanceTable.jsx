@@ -9,12 +9,12 @@ function tableColumns(showNetProfitColumn) {
     ['date', 'Date'],
     ['influencer', 'Influencer'],
     ['campaignName', 'Video contract'],
+    ['cost', 'Cost'],
     ['views', 'Views'],
     ['likes', 'Likes'],
     ['comments', 'Comments'],
     ['shares', 'Shares'],
     ['salesAed', 'Sales AED'],
-    ['cost', 'Cost'],
   ]
   if (showNetProfitColumn) mid.push(['netProfitAed', 'Net profit'])
   mid.push(['score', 'Score'])
@@ -22,7 +22,7 @@ function tableColumns(showNetProfitColumn) {
 }
 
 function metricColumnKeySet(showNetProfitColumn) {
-  const keys = ['rank', 'views', 'likes', 'comments', 'shares', 'salesAed', 'cost']
+  const keys = ['rank', 'cost', 'views', 'likes', 'comments', 'shares', 'salesAed']
   if (showNetProfitColumn) keys.push('netProfitAed')
   keys.push('score')
   return new Set(keys)
@@ -118,7 +118,7 @@ function formatScoreTooltip(rankInfo) {
   if (!rankInfo?.breakdown) return ''
   const b = rankInfo.breakdown
   const parts = [
-    `Sales ${b.normSales.toFixed(2)}`,
+    `Profit ${b.normProfit.toFixed(2)}`,
     `Views ${b.normViews.toFixed(2)}`,
     `Likes ${b.normLikes.toFixed(2)}`,
     `Comments ${b.normComments.toFixed(2)}`,
@@ -246,7 +246,7 @@ export function InfluencerPerformanceTable({
       <div className="ip-section-heading">
         <span className="ip-section-heading__icon"><Eye size={18} /></span>
         <div>
-          <h2>Performance records</h2>
+          <h2>Influencers Performance Ranking</h2>
         </div>
       </div>
 
@@ -289,6 +289,9 @@ export function InfluencerPerformanceTable({
                   <td>
                     <span className="inf-table__name">{record.campaignName || record.videoTitle}</span>
                   </td>
+                  <MetricCell field="cost" record={record} bests={bests}>
+                    {formatNumber(record.cost, { currency: 'AED' })}
+                  </MetricCell>
                   <MetricCell field="views" record={record} bests={bests}>
                     {formatNumber(record.views)}
                   </MetricCell>
@@ -303,9 +306,6 @@ export function InfluencerPerformanceTable({
                   </MetricCell>
                   <MetricCell field="salesAed" record={record} bests={bests}>
                     {formatNumber(record.salesAed, { currency: 'AED' })}
-                  </MetricCell>
-                  <MetricCell field="cost" record={record} bests={bests}>
-                    {formatNumber(record.cost, { currency: 'AED' })}
                   </MetricCell>
                   {showNetProfitColumn ? (
                     <MetricCell field="netProfitAed" record={record} bests={bests} className="ip-table__col--netprofit">
