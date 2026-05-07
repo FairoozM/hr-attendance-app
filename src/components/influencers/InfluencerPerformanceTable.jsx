@@ -1,6 +1,8 @@
-import { useMemo } from 'react'
-import { Eye, Pencil, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Eye, MoreVertical, Pencil, Trash2 } from 'lucide-react'
 import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
+
+const AMOUNT_COLUMN_KEYS = new Set(['cost', 'salesAed', 'netProfitAed'])
 
 function tableColumns(showNetProfitColumn) {
   const cols = [
@@ -26,7 +28,11 @@ function metricColumnKeySet(showNetProfitColumn) {
 function thClass(key, sort, metricKeys) {
   const sortKey = sort?.key
   const isSorted = sortKey === key
-  return [isSorted ? 'sorted' : '', metricKeys.has(key) ? 'ip-table__col--metric' : ''].filter(Boolean).join(' ')
+  return [
+    isSorted ? 'sorted' : '',
+    metricKeys.has(key) ? 'ip-table__col--metric' : '',
+    AMOUNT_COLUMN_KEYS.has(key) ? 'ip-table__col--amount' : '',
+  ].filter(Boolean).join(' ')
 }
 
 /** Best values among currently visible rows (ties all win). Max for metrics; min for cost. */
@@ -88,7 +94,11 @@ function winnerPillMod(field, record, bests) {
 
 function MetricCell({ field, record, bests, className = '', children }) {
   const mod = winnerPillMod(field, record, bests)
-  const tdClass = ['ip-table__col--metric', className].filter(Boolean).join(' ')
+  const tdClass = [
+    'ip-table__col--metric',
+    AMOUNT_COLUMN_KEYS.has(field) ? 'ip-table__col--amount' : '',
+    className,
+  ].filter(Boolean).join(' ')
   return (
     <td className={tdClass} title={mod ? WINNER_TITLE[field] : undefined}>
       {mod ? (
@@ -150,6 +160,27 @@ export function InfluencerPerformanceTable({
   activeMonitorInfluencerId,
   onToggleMonitor,
 }) {
+  const [openActionsForId, setOpenActionsForId] = useState(null)
+
+  useEffect(() => {
+    if (!openActionsForId) return undefined
+    const onDocPointerDown = (event) => {
+      const menu = event.target.closest('.ip-table__row-menu')
+      if (!menu || menu.getAttribute('data-record-id') !== String(openActionsForId)) {
+        setOpenActionsForId(null)
+      }
+    }
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setOpenActionsForId(null)
+    }
+    document.addEventListener('pointerdown', onDocPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onDocPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [openActionsForId])
+
   const columns = useMemo(() => tableColumns(showNetProfitColumn), [showNetProfitColumn])
   const metricKeys = useMemo(() => metricColumnKeySet(showNetProfitColumn), [showNetProfitColumn])
   const bests = useMetricBests(records, showNetProfitColumn)
@@ -177,7 +208,7 @@ export function InfluencerPerformanceTable({
                   {label}{sortIndicator(sort, key)}
                 </th>
               ))}
-              <th className="ip-table__col--actions" aria-label="Actions" />
+              <th className="ip-table__col--actions ip-table__col--actions-compact" aria-label="Actions" />
             </tr>
           </thead>
           <tbody>
@@ -194,7 +225,7 @@ export function InfluencerPerformanceTable({
               return (
                 <tr key={record.id} className={`ip-table__detail-row ${isMonitorActive ? 'ip-table__detail-row--active' : ''}`}>
                   <td>{record.date}</td>
-                  <td>
+                  <td className="ip-table__col--influencer">
                     <InfluencerIdentity influencer={influencer} />
                   </td>
                   <MetricCell field="cost" record={record} bests={bests}>
@@ -220,27 +251,73 @@ export function InfluencerPerformanceTable({
                       {formatNumber(record.netProfitAed, { currency: 'AED' })}
                     </MetricCell>
                   ) : null}
-                  <td className="ip-table__col--actions">
-                    <div className="inf-table__actions">
+                  <td className="ip-table__col--actions ip-table__col--actions-compact">
+                    <div
+                      className="ip-table__row-menu"
+                      data-record-id={record.id}
+                    >
                       <button
                         type="button"
-                        className="inf-btn inf-btn--ghost inf-btn--xs ip-table__expand-btn"
-                        onClick={() => onToggleMonitor(record.influencerId)}
+                        className="ip-table__row-menu-trigger"
+                        aria-label="Row actions"
+                        aria-haspopup="menu"
+                        aria-expanded={openActionsForId === record.id}
+                        onClick={() => setOpenActionsForId((current) => (current === record.id ? null : record.id))}
                       >
-                        {isMonitorActive ? 'Hide' : 'Show'}
+                        <MoreVertical size={18} strokeWidth={2.25} aria-hidden />
                       </button>
-                      <button type="button" className="inf-btn-icon" onClick={() => onView(record)} aria-label="View performance record">
-                        <Eye size={15} />
-                      </button>
-                      {onEdit ? (
-                        <button type="button" className="inf-btn-icon" onClick={() => onEdit(record)} aria-label="Edit performance record">
-                          <Pencil size={15} />
-                        </button>
-                      ) : null}
-                      {onDelete ? (
-                        <button type="button" className="inf-btn-icon ip-danger-icon" onClick={() => onDelete(record.id)} aria-label="Delete performance record">
-                          <Trash2 size={15} />
-                        </button>
+                      {openActionsForId === record.id ? (
+                        <div className="ip-table__row-menu-dropdown" role="menu">
+                          <button
+                            type="button"
+                            className="ip-table__row-menu-item"
+                            role="menuitem"
+                            onClick={() => {
+                              onToggleMonitor(record.influencerId)
+                              setOpenActionsForId(null)
+                            }}
+                          >
+                            <span className="ip-table__row-menu-icon-slot" aria-hidden />
+                            {isMonitorActive ? 'Hide contract timeline' : 'Show contract timeline'}
+                          </button>
+                          <button
+                            type="button"
+                            className="ip-table__row-menu-item"
+                            role="menuitem"
+                            onClick={() => {
+                              onView(record)
+                              setOpenActionsForId(null)
+                            }}
+                          >
+                            <Eye size={15} aria-hidden /> View
+                          </button>
+                          {onEdit ? (
+                            <button
+                              type="button"
+                              className="ip-table__row-menu-item"
+                              role="menuitem"
+                              onClick={() => {
+                                onEdit(record)
+                                setOpenActionsForId(null)
+                              }}
+                            >
+                              <Pencil size={15} aria-hidden /> Edit
+                            </button>
+                          ) : null}
+                          {onDelete ? (
+                            <button
+                              type="button"
+                              className="ip-table__row-menu-item ip-table__row-menu-item--danger"
+                              role="menuitem"
+                              onClick={() => {
+                                onDelete(record.id)
+                                setOpenActionsForId(null)
+                              }}
+                            >
+                              <Trash2 size={15} aria-hidden /> Delete
+                            </button>
+                          ) : null}
+                        </div>
                       ) : null}
                     </div>
                   </td>

@@ -1881,6 +1881,8 @@
 .ip-table td {
   font-size: 0.76rem;
   padding: 0.5rem 0.65rem;
+  text-align: center;
+  vertical-align: middle;
 }
 
 .ip-table thead th {
@@ -1890,6 +1892,15 @@
 .ip-table th.ip-table__col--metric,
 .ip-table td.ip-table__col--metric {
   text-align: center;
+}
+
+.ip-table th.ip-table__col--metric.ip-table__col--amount,
+.ip-table td.ip-table__col--metric.ip-table__col--amount {
+  text-align: left;
+}
+
+.ip-table td.ip-table__col--influencer .ip-table__influencer-cell {
+  justify-content: center;
 }
 
 /* Winner badge: pill around the number only (cell background stays normal) */
@@ -3028,43 +3039,121 @@
   scroll-margin-top: 1rem;
 }
 
-/* Performance table only: keep action buttons on one row (global .inf-table__actions uses flex-wrap). */
-.ip-table .inf-table__actions {
-  flex-wrap: nowrap;
-  justify-content: flex-end;
+/* Compact ⋮ menu (actions open on click) */
+.ip-table .ip-table__col--actions-compact {
+  width: 2.75rem;
+  min-width: 2.75rem;
+  max-width: 3rem;
+  padding-left: 0.2rem;
+  padding-right: 0.2rem;
 }
 
-.ip-table .inf-table__actions .inf-btn-icon {
+.ip-table__row-menu {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.ip-table__row-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted, #64748b);
+  cursor: pointer;
+}
+
+.ip-table__row-menu-trigger:hover,
+.ip-table__row-menu-trigger:focus-visible {
+  background: rgba(0, 136, 187, 0.12);
+  color: #0088bb;
+  outline: none;
+}
+
+.ip-table__row-menu-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 11.5rem;
+  padding: 0.35rem;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
+  z-index: 40;
+}
+
+.ip-table__row-menu-icon-slot {
+  width: 15px;
   flex-shrink: 0;
 }
 
-.ip-table .ip-table__expand-btn {
-  flex-shrink: 0;
+.ip-table__row-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--text, #0f172a);
+  cursor: pointer;
+  text-align: left;
 }
 
-.ip-table .ip-table__col--actions {
-  width: 7.5rem;
-  min-width: 7.5rem;
-  vertical-align: middle;
+.ip-table__row-menu-item:hover,
+.ip-table__row-menu-item:focus-visible {
+  background: rgba(0, 136, 187, 0.08);
+  outline: none;
 }
 
-.ip-table tr .ip-table__col--actions .inf-table__actions {
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s ease;
+.ip-table__row-menu-item--danger {
+  color: var(--danger, #dc2626);
 }
 
-.ip-table tbody tr:hover .ip-table__col--actions .inf-table__actions,
-.ip-table tbody tr:focus-within .ip-table__col--actions .inf-table__actions {
-  opacity: 1;
-  pointer-events: auto;
+.ip-table__row-menu-item--danger:hover,
+.ip-table__row-menu-item--danger:focus-visible {
+  background: rgba(220, 38, 38, 0.08);
 }
 
-@media (hover: none) {
-  .ip-table tbody tr .ip-table__col--actions .inf-table__actions {
-    opacity: 1;
-    pointer-events: auto;
-  }
+:root[data-theme='dark'] .ip-table__row-menu-dropdown {
+  background: rgba(15, 23, 42, 0.96);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme='dark'] .ip-table__row-menu-item {
+  color: var(--theme-text, #f1f5f9);
+}
+
+:root[data-theme='dark'] .ip-table__row-menu-item:hover,
+:root[data-theme='dark'] .ip-table__row-menu-item:focus-visible {
+  background: rgba(56, 189, 248, 0.12);
+}
+
+:root[data-theme='dark'] .ip-table__row-menu-item--danger:hover,
+:root[data-theme='dark'] .ip-table__row-menu-item--danger:focus-visible {
+  background: rgba(248, 113, 113, 0.12);
+}
+
+:root[data-theme='dark'] .ip-table__row-menu-trigger {
+  color: var(--text-muted, #94a3b8);
+}
+
+:root[data-theme='dark'] .ip-table__row-menu-trigger:hover,
+:root[data-theme='dark'] .ip-table__row-menu-trigger:focus-visible {
+  background: rgba(56, 189, 248, 0.14);
+  color: #38bdf8;
 }
 
 .ip-table th[data-col="netProfitAed"],
