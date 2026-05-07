@@ -6,7 +6,6 @@ function tableColumns(showNetProfitColumn) {
   const cols = [
     ['date', 'Date'],
     ['influencer', 'Influencer'],
-    ['campaignName', 'Video contract'],
     ['cost', 'Cost'],
     ['views', 'Views'],
     ['likes', 'Likes'],
@@ -197,9 +196,6 @@ export function InfluencerPerformanceTable({
                   <td>{record.date}</td>
                   <td>
                     <InfluencerIdentity influencer={influencer} />
-                  </td>
-                  <td>
-                    <span className="inf-table__name">{record.campaignName || record.videoTitle}</span>
                   </td>
                   <MetricCell field="cost" record={record} bests={bests}>
                     {formatNumber(record.cost, { currency: 'AED' })}
