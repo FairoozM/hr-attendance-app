@@ -1908,6 +1908,62 @@
   justify-content: flex-start;
 }
 
+.ip-table__col--rank {
+  width: 3.75rem;
+  vertical-align: middle;
+}
+
+.ip-table__rank-muted {
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 0.88rem;
+}
+
+.ip-table__rank-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.28em 0.55em 0.28em 0.45em;
+  border-radius: 999px;
+  font-weight: 900;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  color: #0f172a;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.08);
+  white-space: nowrap;
+}
+
+.ip-table__rank-pill--gold {
+  background: linear-gradient(135deg, rgba(253, 224, 71, 0.95), rgba(251, 191, 36, 0.88));
+  box-shadow: 0 0 0 1px rgba(180, 83, 9, 0.2);
+}
+
+.ip-table__rank-pill--silver {
+  background: linear-gradient(135deg, rgba(226, 232, 240, 0.95), rgba(203, 213, 225, 0.9));
+}
+
+.ip-table__rank-pill--bronze {
+  background: linear-gradient(135deg, rgba(254, 215, 170, 0.95), rgba(251, 146, 60, 0.35));
+}
+
+:root[data-theme='dark'] .ip-table__rank-pill {
+  color: var(--theme-text);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+:root[data-theme='dark'] .ip-table__rank-pill--gold {
+  background: linear-gradient(135deg, rgba(234, 179, 8, 0.35), rgba(251, 191, 36, 0.22));
+}
+
+:root[data-theme='dark'] .ip-table__rank-pill--silver {
+  background: linear-gradient(135deg, rgba(148, 163, 184, 0.35), rgba(100, 116, 139, 0.22));
+}
+
+:root[data-theme='dark'] .ip-table__rank-pill--bronze {
+  background: linear-gradient(135deg, rgba(251, 146, 60, 0.32), rgba(234, 88, 12, 0.15));
+}
+
 /* Winner badge: pill around the number only (cell background stays normal) */
 .ip-table__winner-pill {
   display: inline-flex;

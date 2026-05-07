@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Eye, MoreVertical, Pencil, Trash2 } from 'lucide-react'
+import { Crown, Eye, Medal, MoreVertical, Pencil, Trash2 } from 'lucide-react'
 import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
 
 const AMOUNT_COLUMN_KEYS = new Set(['cost', 'salesAed', 'netProfitAed'])
+const EMPTY_RANK_MAP = new Map()
 
 function tableColumns(showNetProfitColumn) {
   const cols = [
@@ -16,11 +17,11 @@ function tableColumns(showNetProfitColumn) {
     ['salesAed', 'Sales AED'],
   ]
   if (showNetProfitColumn) cols.push(['netProfitAed', 'Net profit'])
-  return cols
+  return [['rank', '#'], ...cols]
 }
 
 function metricColumnKeySet(showNetProfitColumn) {
-  const keys = ['cost', 'views', 'likes', 'comments', 'shares', 'salesAed']
+  const keys = ['rank', 'cost', 'views', 'likes', 'comments', 'shares', 'salesAed']
   if (showNetProfitColumn) keys.push('netProfitAed')
   return new Set(keys)
 }
@@ -115,6 +116,48 @@ function sortIndicator(sort, key) {
   return sort.direction === 'asc' ? ' ↑' : ' ↓'
 }
 
+function RankCell({ rankInfo }) {
+  if (!rankInfo) {
+    return <td className="ip-table__col--metric ip-table__col--rank"><span className="ip-table__rank-muted">—</span></td>
+  }
+  const { rank } = rankInfo
+  if (rank === 1) {
+    return (
+      <td className="ip-table__col--metric ip-table__col--rank">
+        <span className="ip-table__rank-pill ip-table__rank-pill--gold" title="1st place (contract composite)">
+          <Crown size={14} strokeWidth={2.2} aria-hidden />
+          <span>#{rank}</span>
+        </span>
+      </td>
+    )
+  }
+  if (rank === 2) {
+    return (
+      <td className="ip-table__col--metric ip-table__col--rank">
+        <span className="ip-table__rank-pill ip-table__rank-pill--silver" title="2nd place (contract composite)">
+          <Medal size={14} strokeWidth={2.2} aria-hidden />
+          <span>#{rank}</span>
+        </span>
+      </td>
+    )
+  }
+  if (rank === 3) {
+    return (
+      <td className="ip-table__col--metric ip-table__col--rank">
+        <span className="ip-table__rank-pill ip-table__rank-pill--bronze" title="3rd place (contract composite)">
+          <Medal size={14} strokeWidth={2.2} aria-hidden />
+          <span>#{rank}</span>
+        </span>
+      </td>
+    )
+  }
+  return (
+    <td className="ip-table__col--metric ip-table__col--rank">
+      <span className="ip-table__rank-muted">#{rank}</span>
+    </td>
+  )
+}
+
 function initials(name) {
   return String(name || 'IN')
     .split(/\s+/)
@@ -151,6 +194,7 @@ function InfluencerIdentity({ influencer }) {
 export function InfluencerPerformanceTable({
   records,
   influencersById,
+  rankingByRecordId = EMPTY_RANK_MAP,
   showNetProfitColumn = false,
   sort,
   onSort,
@@ -222,8 +266,10 @@ export function InfluencerPerformanceTable({
               const influencerId = String(record.influencerId || '')
               const isMonitorActive = String(activeMonitorInfluencerId) === influencerId
               const influencer = influencersById.get(influencerId)
+              const rankInfo = rankingByRecordId.get(record.id)
               return (
                 <tr key={record.id} className={`ip-table__detail-row ${isMonitorActive ? 'ip-table__detail-row--active' : ''}`}>
+                  <RankCell rankInfo={rankInfo} />
                   <td>{record.date}</td>
                   <td className="ip-table__col--influencer">
                     <InfluencerIdentity influencer={influencer} />

@@ -14,6 +14,7 @@ import {
   createMockPerformanceRecords,
   dedupePerformanceRecords,
   formatNumber,
+  getVideoContractKey,
   getVideoContractTimelines,
   mockInfluencers,
   normalizePerformanceRecord,
@@ -25,6 +26,7 @@ import './InfluencerPerformancePage.css'
 const STORAGE_KEY = 'hr-influencer-performance-v1'
 
 const PERFORMANCE_SORT_OPTIONS = [
+  { value: 'rank:asc', label: 'Best overall (90% profit · 10% rest)' },
   { value: 'date:desc', label: 'Newest records first' },
   { value: 'date:asc', label: 'Oldest records first' },
   { value: 'views:desc', label: 'Top views first' },
@@ -131,10 +133,6 @@ export function InfluencerPerformancePage() {
       setSort({ key: 'date', direction: 'desc' })
     }
   }, [authLoading, user, sort.key, showNetProfitColumn])
-
-  useEffect(() => {
-    if (sort.key === 'rank') setSort({ key: 'date', direction: 'desc' })
-  }, [sort.key])
 
   const influencers = useMemo(() => {
     if (appInfluencers.length > 0) {
@@ -255,8 +253,26 @@ export function InfluencerPerformancePage() {
     [videoContracts],
   )
 
+  const rankingByRecordId = useMemo(() => {
+    const m = new Map()
+    allRecords.forEach((record) => {
+      const cid = getVideoContractKey(record)
+      const info = rankingsByContractId.get(cid)
+      if (info) m.set(record.id, info)
+    })
+    return m
+  }, [allRecords, rankingsByContractId])
+
   const filteredRecords = useMemo(() => {
     return [...allRecords].sort((a, b) => {
+      if (sort.key === 'rank') {
+        const scoreA = rankingByRecordId.get(a.id)?.score ?? -1
+        const scoreB = rankingByRecordId.get(b.id)?.score ?? -1
+        if (scoreB !== scoreA) {
+          return sort.direction === 'asc' ? scoreB - scoreA : scoreA - scoreB
+        }
+        return compareValues(a.date, b.date, 'desc')
+      }
       if (sort.key === 'netProfitAed') {
         return compareValues(toNumber(a.netProfitAed), toNumber(b.netProfitAed), sort.direction)
       }
@@ -270,7 +286,7 @@ export function InfluencerPerformancePage() {
           b[sort.key]
       return compareValues(valueA, valueB, sort.direction)
     })
-  }, [allRecords, influencersById, sort])
+  }, [allRecords, influencersById, rankingByRecordId, sort])
 
   const activeMonitorContracts = useMemo(() => {
     if (!activeMonitorInfluencerId) return []
@@ -278,10 +294,15 @@ export function InfluencerPerformancePage() {
   }, [activeMonitorInfluencerId, videoContracts])
 
   function handleSort(key) {
-    setSort((prev) => ({
-      key,
-      direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc',
-    }))
+    setSort((prev) => {
+      if (key === 'rank' && prev.key !== 'rank') {
+        return { key: 'rank', direction: 'asc' }
+      }
+      return {
+        key,
+        direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc',
+      }
+    })
   }
 
   function handlePodiumSelectContract(contract) {
@@ -409,6 +430,7 @@ export function InfluencerPerformancePage() {
           </label>
           <div className="ip-performance-sort-panel__quick" aria-label="Quick ranking filters">
             {[
+              ['rank:asc', 'Best overall'],
               ['views:desc', 'Top views'],
               ['likes:desc', 'Top likes'],
               ['salesAed:desc', 'Top sales'],
@@ -436,6 +458,7 @@ export function InfluencerPerformancePage() {
       <InfluencerPerformanceTable
         records={filteredRecords}
         influencersById={influencersById}
+        rankingByRecordId={rankingByRecordId}
         showNetProfitColumn={showNetProfitColumn}
         sort={sort}
         onSort={handleSort}
