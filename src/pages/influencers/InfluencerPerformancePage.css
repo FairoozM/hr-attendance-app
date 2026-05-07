@@ -1995,10 +1995,6 @@
   background: rgba(248, 250, 252, 0.54);
 }
 
-.ip-table__detail-row td:first-child {
-  padding-left: 1.65rem;
-}
-
 .ip-table__expand-label {
   display: inline-flex;
   align-items: center;
@@ -3078,82 +3074,6 @@
   white-space: nowrap;
 }
 
-.ip-table__col--rank {
-  width: 3.75rem;
-  vertical-align: middle;
-}
-
-.ip-table__col--score {
-  min-width: 4.75rem;
-  max-width: 5.5rem;
-  vertical-align: middle;
-}
-
-.ip-table__rank-muted {
-  color: var(--text-muted);
-  font-weight: 700;
-  font-size: 0.88rem;
-}
-
-.ip-table__rank-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.25rem;
-  padding: 0.28em 0.55em 0.28em 0.45em;
-  border-radius: 999px;
-  font-weight: 900;
-  font-size: 0.78rem;
-  line-height: 1.2;
-  color: #0f172a;
-  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.08);
-  white-space: nowrap;
-}
-
-.ip-table__rank-pill--gold {
-  background: linear-gradient(135deg, rgba(253, 224, 71, 0.95), rgba(251, 191, 36, 0.88));
-  box-shadow: 0 0 0 1px rgba(180, 83, 9, 0.2);
-}
-
-.ip-table__rank-pill--silver {
-  background: linear-gradient(135deg, rgba(226, 232, 240, 0.95), rgba(203, 213, 225, 0.9));
-}
-
-.ip-table__rank-pill--bronze {
-  background: linear-gradient(135deg, rgba(254, 215, 170, 0.95), rgba(251, 146, 60, 0.35));
-}
-
-.ip-score-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.28rem;
-  padding: 0.1rem 0;
-}
-
-.ip-score-cell__value {
-  font-weight: 900;
-  font-size: 0.88rem;
-  color: #0f172a;
-  line-height: 1;
-}
-
-.ip-score-bar {
-  height: 6px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.08);
-  overflow: hidden;
-}
-
-.ip-score-bar__fill {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, rgba(0, 153, 204, 0.85), rgba(45, 212, 191, 0.95));
-  min-width: 4px;
-  transition: width 0.25s ease;
-}
-
 :root[data-theme='dark'] .ip-leaderboard-podium {
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
@@ -3201,35 +3121,6 @@
 
 :root[data-theme='dark'] .ip-leaderboard-card--gold .ip-leaderboard-card__rank-badge {
   color: rgba(253, 224, 71, 0.95);
-}
-
-:root[data-theme='dark'] .ip-table__rank-pill {
-  color: var(--theme-text);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
-}
-
-:root[data-theme='dark'] .ip-table__rank-pill--gold {
-  background: linear-gradient(135deg, rgba(234, 179, 8, 0.35), rgba(251, 191, 36, 0.22));
-}
-
-:root[data-theme='dark'] .ip-table__rank-pill--silver {
-  background: linear-gradient(135deg, rgba(148, 163, 184, 0.35), rgba(100, 116, 139, 0.22));
-}
-
-:root[data-theme='dark'] .ip-table__rank-pill--bronze {
-  background: linear-gradient(135deg, rgba(251, 146, 60, 0.32), rgba(234, 88, 12, 0.15));
-}
-
-:root[data-theme='dark'] .ip-score-cell__value {
-  color: var(--theme-text);
-}
-
-:root[data-theme='dark'] .ip-score-bar {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-:root[data-theme='dark'] .ip-score-bar__fill {
-  background: linear-gradient(90deg, rgba(56, 189, 248, 0.75), rgba(45, 212, 191, 0.85));
 }
 
 @media (max-width: 720px) {

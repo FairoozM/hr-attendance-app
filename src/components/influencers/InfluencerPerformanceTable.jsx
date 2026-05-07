@@ -1,11 +1,9 @@
 import { useMemo } from 'react'
-import { Crown, Eye, Medal, Pencil, Trash2 } from 'lucide-react'
+import { Eye, Pencil, Trash2 } from 'lucide-react'
 import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
 
-const EMPTY_RANK_MAP = new Map()
-
 function tableColumns(showNetProfitColumn) {
-  const mid = [
+  const cols = [
     ['date', 'Date'],
     ['influencer', 'Influencer'],
     ['campaignName', 'Video contract'],
@@ -16,21 +14,19 @@ function tableColumns(showNetProfitColumn) {
     ['shares', 'Shares'],
     ['salesAed', 'Sales AED'],
   ]
-  if (showNetProfitColumn) mid.push(['netProfitAed', 'Net profit'])
-  mid.push(['score', 'Score'])
-  return [['rank', '#'], ...mid]
+  if (showNetProfitColumn) cols.push(['netProfitAed', 'Net profit'])
+  return cols
 }
 
 function metricColumnKeySet(showNetProfitColumn) {
-  const keys = ['rank', 'cost', 'views', 'likes', 'comments', 'shares', 'salesAed']
+  const keys = ['cost', 'views', 'likes', 'comments', 'shares', 'salesAed']
   if (showNetProfitColumn) keys.push('netProfitAed')
-  keys.push('score')
   return new Set(keys)
 }
 
 function thClass(key, sort, metricKeys) {
   const sortKey = sort?.key
-  const isSorted = key === 'score' ? sortKey === 'rank' : sortKey === key
+  const isSorted = sortKey === key
   return [isSorted ? 'sorted' : '', metricKeys.has(key) ? 'ip-table__col--metric' : ''].filter(Boolean).join(' ')
 }
 
@@ -106,89 +102,8 @@ function MetricCell({ field, record, bests, className = '', children }) {
 }
 
 function sortIndicator(sort, key) {
-  if (key === 'score') {
-    if (sort.key !== 'rank') return ''
-    return sort.direction === 'asc' ? ' ↑' : ' ↓'
-  }
   if (sort.key !== key) return ''
   return sort.direction === 'asc' ? ' ↑' : ' ↓'
-}
-
-function formatScoreTooltip(rankInfo) {
-  if (!rankInfo?.breakdown) return ''
-  const b = rankInfo.breakdown
-  const parts = [
-    `Profit ${b.normProfit.toFixed(2)}`,
-    `Views ${b.normViews.toFixed(2)}`,
-    `Likes ${b.normLikes.toFixed(2)}`,
-    `Comments ${b.normComments.toFixed(2)}`,
-    `Shares ${b.normShares.toFixed(2)}`,
-    `Cost eff. ${b.normCostEff.toFixed(2)}`,
-  ]
-  return `Contract rank #${rankInfo.rank} · ${rankInfo.score100}/100 (min–max vs visible contracts)\n${parts.join(' · ')}`
-}
-
-function RankCell({ rankInfo }) {
-  if (!rankInfo) {
-    return <td className="ip-table__col--metric ip-table__col--rank"><span className="ip-table__rank-muted">—</span></td>
-  }
-  const { rank } = rankInfo
-  if (rank === 1) {
-    return (
-      <td className="ip-table__col--metric ip-table__col--rank">
-        <span className="ip-table__rank-pill ip-table__rank-pill--gold" title="1st place (contract composite)">
-          <Crown size={14} strokeWidth={2.2} aria-hidden />
-          <span>#{rank}</span>
-        </span>
-      </td>
-    )
-  }
-  if (rank === 2) {
-    return (
-      <td className="ip-table__col--metric ip-table__col--rank">
-        <span className="ip-table__rank-pill ip-table__rank-pill--silver" title="2nd place (contract composite)">
-          <Medal size={14} strokeWidth={2.2} aria-hidden />
-          <span>#{rank}</span>
-        </span>
-      </td>
-    )
-  }
-  if (rank === 3) {
-    return (
-      <td className="ip-table__col--metric ip-table__col--rank">
-        <span className="ip-table__rank-pill ip-table__rank-pill--bronze" title="3rd place (contract composite)">
-          <Medal size={14} strokeWidth={2.2} aria-hidden />
-          <span>#{rank}</span>
-        </span>
-      </td>
-    )
-  }
-  return (
-    <td className="ip-table__col--metric ip-table__col--rank">
-      <span className="ip-table__rank-muted">#{rank}</span>
-    </td>
-  )
-}
-
-function ScoreCell({ rankInfo }) {
-  if (!rankInfo) {
-    return (
-      <td className="ip-table__col--metric ip-table__col--score">
-        <span className="ip-table__rank-muted">—</span>
-      </td>
-    )
-  }
-  const w = Math.min(100, Math.max(0, rankInfo.score100))
-  return (
-    <td className="ip-table__col--metric ip-table__col--score" title={formatScoreTooltip(rankInfo)}>
-      <div className="ip-score-cell">
-        <span className="ip-score-cell__value">{rankInfo.score100}</span>
-        <div className="ip-score-bar" role="presentation">
-          <span className="ip-score-bar__fill" style={{ width: `${w}%` }} />
-        </div>
-      </div>
-    </td>
-  )
 }
 
 function initials(name) {
@@ -227,7 +142,6 @@ function InfluencerIdentity({ influencer }) {
 export function InfluencerPerformanceTable({
   records,
   influencersById,
-  rankingByRecordId = EMPTY_RANK_MAP,
   showNetProfitColumn = false,
   sort,
   onSort,
@@ -259,7 +173,7 @@ export function InfluencerPerformanceTable({
                   key={key}
                   data-col={key}
                   className={thClass(key, sort, metricKeys)}
-                  onClick={() => onSort(key === 'score' ? 'rank' : key)}
+                  onClick={() => onSort(key)}
                 >
                   {label}{sortIndicator(sort, key)}
                 </th>
@@ -278,10 +192,8 @@ export function InfluencerPerformanceTable({
               const influencerId = String(record.influencerId || '')
               const isMonitorActive = String(activeMonitorInfluencerId) === influencerId
               const influencer = influencersById.get(influencerId)
-              const rankInfo = rankingByRecordId.get(record.id)
               return (
                 <tr key={record.id} className={`ip-table__detail-row ${isMonitorActive ? 'ip-table__detail-row--active' : ''}`}>
-                  <RankCell rankInfo={rankInfo} />
                   <td>{record.date}</td>
                   <td>
                     <InfluencerIdentity influencer={influencer} />
@@ -312,7 +224,6 @@ export function InfluencerPerformanceTable({
                       {formatNumber(record.netProfitAed, { currency: 'AED' })}
                     </MetricCell>
                   ) : null}
-                  <ScoreCell rankInfo={rankInfo} />
                   <td className="ip-table__col--actions">
                     <div className="inf-table__actions">
                       <button
