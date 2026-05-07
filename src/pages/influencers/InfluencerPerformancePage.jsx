@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDownWideNarrow, Download, Gauge, Plus, Save, Search, X } from 'lucide-react'
 import { api } from '../../api/client'
-import { useAuth, canMutateInfluencerPerformance } from '../../contexts/AuthContext'
+import { useAuth, canMutateInfluencerPerformance, canViewInfluencerPerformanceNetProfit } from '../../contexts/AuthContext'
 import { useInfluencers } from '../../contexts/InfluencersContext'
 import { InfluencerCharts } from '../../components/influencers/InfluencerCharts'
 import { InfluencerContractTimeline } from '../../components/influencers/InfluencerContractTimeline'
@@ -36,6 +36,8 @@ const PERFORMANCE_SORT_OPTIONS = [
   { value: 'shares:desc', label: 'Top shares first' },
   { value: 'salesAed:desc', label: 'Top sales (AED) first' },
   { value: 'salesAed:asc', label: 'Lowest sales (AED) first' },
+  { value: 'netProfitAed:desc', label: 'Top net profit (AED) first', adminOnly: true },
+  { value: 'netProfitAed:asc', label: 'Lowest net profit (AED) first', adminOnly: true },
   { value: 'cost:desc', label: 'Highest cost first' },
   { value: 'cost:asc', label: 'Lowest cost first' },
   { value: 'influencer:asc', label: 'Influencer A-Z' },
@@ -123,6 +125,14 @@ export function InfluencerPerformancePage() {
   const [activeMonitorInfluencerId, setActiveMonitorInfluencerId] = useState(null)
   const contractTimelineAnchorRef = useRef(null)
   const canWritePerformance = canMutateInfluencerPerformance(user)
+  const showNetProfitColumn = canViewInfluencerPerformanceNetProfit(user)
+
+  useEffect(() => {
+    if (authLoading || !user) return
+    if (sort.key === 'netProfitAed' && !showNetProfitColumn) {
+      setSort({ key: 'date', direction: 'desc' })
+    }
+  }, [authLoading, user, sort.key, showNetProfitColumn])
 
   const influencers = useMemo(() => {
     if (appInfluencers.length > 0) {
@@ -262,6 +272,9 @@ export function InfluencerPerformancePage() {
           return sort.direction === 'asc' ? scoreB - scoreA : scoreA - scoreB
         }
         return compareValues(a.date, b.date, 'desc')
+      }
+      if (sort.key === 'netProfitAed') {
+        return compareValues(toNumber(a.netProfitAed), toNumber(b.netProfitAed), sort.direction)
       }
       const influencerA = influencersById.get(String(a.influencerId))
       const influencerB = influencersById.get(String(b.influencerId))
@@ -410,7 +423,7 @@ export function InfluencerPerformancePage() {
               value={`${sort.key}:${sort.direction}`}
               onChange={(event) => handleSortPreset(event.target.value)}
             >
-              {PERFORMANCE_SORT_OPTIONS.map((option) => (
+              {PERFORMANCE_SORT_OPTIONS.filter((option) => !option.adminOnly || showNetProfitColumn).map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </select>
@@ -446,6 +459,7 @@ export function InfluencerPerformancePage() {
         records={filteredRecords}
         influencersById={influencersById}
         rankingByRecordId={rankingByRecordId}
+        showNetProfitColumn={showNetProfitColumn}
         sort={sort}
         onSort={handleSort}
         onView={setViewRecord}
@@ -512,6 +526,9 @@ export function InfluencerPerformancePage() {
                 ['Comments', formatNumber(viewRecord.comments)],
                 ['Shares', formatNumber(viewRecord.shares)],
                 ['Sales AED', formatNumber(viewRecord.salesAed, { currency: 'AED' })],
+                ...(showNetProfitColumn
+                  ? [['Net profit AED', formatNumber(viewRecord.netProfitAed, { currency: 'AED' })]]
+                  : []),
                 ['Engagement rate', `${toNumber(viewRecord.engagementRate).toFixed(2)}%`],
                 ['Cost', formatNumber(viewRecord.cost, { currency: 'AED' })],
               ].map(([label, value]) => (

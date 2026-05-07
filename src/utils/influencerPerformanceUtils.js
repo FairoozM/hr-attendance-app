@@ -411,11 +411,16 @@ export function normalizePerformanceRecord(record) {
     salesAed: toNumber(record.salesAed),
     storyViews: toNumber(record.storyViews),
     cost: toNumber(record.cost),
+    netProfitAed: record.netProfitAed != null && String(record.netProfitAed).trim() !== ''
+      ? toNumber(record.netProfitAed)
+      : undefined,
   }
-  return {
+  const out = {
     ...normalized,
     engagementRate: calculateEngagementRate(normalized),
   }
+  if (out.netProfitAed === undefined) delete out.netProfitAed
+  return out
 }
 
 export function createInfluencerFromAppRecord(record, index = 0) {

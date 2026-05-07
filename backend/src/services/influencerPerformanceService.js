@@ -22,10 +22,19 @@ async function listPerformanceRecords() {
   })
 }
 
+async function getPerformanceRecordBodyById(recordId) {
+  await ensureInfluencerPerformanceRecordsTable()
+  const id = String(recordId || '').trim()
+  if (!id) return null
+  const r = await query(`SELECT body FROM influencer_performance_records WHERE id = $1`, [id])
+  const body = r.rows[0]?.body
+  return body && typeof body === 'object' ? body : null
+}
+
 /**
  * Upserts records; skips rows whose influencer id is not in the influencers snapshot.
  */
-async function bulkUpsertPerformanceRecords(records, updatedByUserId) {
+async function bulkUpsertPerformanceRecords(records, updatedByUserId, isAdmin = false) {
   await ensureInfluencerPerformanceRecordsTable()
   if (!Array.isArray(records) || records.length === 0) {
     return { upserted: 0, skipped: 0 }
@@ -59,6 +68,13 @@ async function bulkUpsertPerformanceRecords(records, updatedByUserId) {
     }
 
     const body = { ...raw, id, influencerId, date: checkDate }
+    if (!isAdmin) {
+      delete body.netProfitAed
+      const previous = await getPerformanceRecordBodyById(id)
+      if (previous && Object.prototype.hasOwnProperty.call(previous, 'netProfitAed')) {
+        body.netProfitAed = previous.netProfitAed
+      }
+    }
     await query(
       `INSERT INTO influencer_performance_records (id, influencer_id, check_date, body, updated_at, updated_by)
        VALUES ($1, $2, $3::date, $4::jsonb, NOW(), $5)

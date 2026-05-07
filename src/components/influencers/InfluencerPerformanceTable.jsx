@@ -4,30 +4,38 @@ import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
 
 const EMPTY_RANK_MAP = new Map()
 
-const columns = [
-  ['rank', '#'],
-  ['date', 'Date'],
-  ['influencer', 'Influencer'],
-  ['campaignName', 'Video contract'],
-  ['views', 'Views'],
-  ['likes', 'Likes'],
-  ['comments', 'Comments'],
-  ['shares', 'Shares'],
-  ['salesAed', 'Sales AED'],
-  ['cost', 'Cost'],
-  ['score', 'Score'],
-]
+function tableColumns(showNetProfitColumn) {
+  const mid = [
+    ['date', 'Date'],
+    ['influencer', 'Influencer'],
+    ['campaignName', 'Video contract'],
+    ['views', 'Views'],
+    ['likes', 'Likes'],
+    ['comments', 'Comments'],
+    ['shares', 'Shares'],
+    ['salesAed', 'Sales AED'],
+    ['cost', 'Cost'],
+  ]
+  if (showNetProfitColumn) mid.push(['netProfitAed', 'Net profit AED'])
+  mid.push(['score', 'Score'])
+  return [['rank', '#'], ...mid]
+}
 
-const METRIC_COLUMN_KEYS = new Set(['rank', 'views', 'likes', 'comments', 'shares', 'salesAed', 'cost', 'score'])
+function metricColumnKeySet(showNetProfitColumn) {
+  const keys = ['rank', 'views', 'likes', 'comments', 'shares', 'salesAed', 'cost']
+  if (showNetProfitColumn) keys.push('netProfitAed')
+  keys.push('score')
+  return new Set(keys)
+}
 
-function thClass(key, sort) {
+function thClass(key, sort, metricKeys) {
   const sortKey = sort?.key
   const isSorted = key === 'score' ? sortKey === 'rank' : sortKey === key
-  return [isSorted ? 'sorted' : '', METRIC_COLUMN_KEYS.has(key) ? 'ip-table__col--metric' : ''].filter(Boolean).join(' ')
+  return [isSorted ? 'sorted' : '', metricKeys.has(key) ? 'ip-table__col--metric' : ''].filter(Boolean).join(' ')
 }
 
 /** Best values among currently visible rows (ties all win). Max for metrics; min for cost. */
-function useMetricBests(records) {
+function useMetricBests(records, includeNetProfit) {
   return useMemo(() => {
     if (!records.length) return null
     const views = records.map((r) => toNumber(r.views))
@@ -36,7 +44,7 @@ function useMetricBests(records) {
     const shares = records.map((r) => toNumber(r.shares))
     const salesAed = records.map((r) => toNumber(r.salesAed))
     const cost = records.map((r) => toNumber(r.cost))
-    return {
+    const base = {
       views: Math.max(...views),
       likes: Math.max(...likes),
       comments: Math.max(...comments),
@@ -44,7 +52,12 @@ function useMetricBests(records) {
       salesAed: Math.max(...salesAed),
       cost: Math.min(...cost),
     }
-  }, [records])
+    if (includeNetProfit) {
+      const netProfitAed = records.map((r) => toNumber(r.netProfitAed))
+      base.netProfitAed = Math.max(...netProfitAed)
+    }
+    return base
+  }, [records, includeNetProfit])
 }
 
 const WINNER_TITLE = {
@@ -53,6 +66,7 @@ const WINNER_TITLE = {
   comments: 'Most comments in this table',
   shares: 'Most shares in this table',
   salesAed: 'Highest sales (AED) in this table',
+  netProfitAed: 'Highest net profit (AED) in this table',
   cost: 'Lowest cost (AED) in this table',
 }
 
@@ -62,6 +76,12 @@ function winnerPillMod(field, record, bests) {
   if (field === 'cost') {
     if (toNumber(record.cost) === bests.cost) return 'cost'
     return ''
+  }
+  if (field === 'netProfitAed') {
+    const val = toNumber(record.netProfitAed)
+    const best = bests.netProfitAed
+    if (val !== best) return ''
+    return 'sales'
   }
   const val = toNumber(record[field])
   const best = bests[field]
@@ -207,6 +227,7 @@ export function InfluencerPerformanceTable({
   records,
   influencersById,
   rankingByRecordId = EMPTY_RANK_MAP,
+  showNetProfitColumn = false,
   sort,
   onSort,
   onView,
@@ -215,7 +236,9 @@ export function InfluencerPerformanceTable({
   activeMonitorInfluencerId,
   onToggleMonitor,
 }) {
-  const bests = useMetricBests(records)
+  const columns = useMemo(() => tableColumns(showNetProfitColumn), [showNetProfitColumn])
+  const metricKeys = useMemo(() => metricColumnKeySet(showNetProfitColumn), [showNetProfitColumn])
+  const bests = useMetricBests(records, showNetProfitColumn)
 
   return (
     <section className="ip-table-card">
@@ -233,7 +256,7 @@ export function InfluencerPerformanceTable({
               {columns.map(([key, label]) => (
                 <th
                   key={key}
-                  className={thClass(key, sort)}
+                  className={thClass(key, sort, metricKeys)}
                   onClick={() => onSort(key === 'score' ? 'rank' : key)}
                 >
                   {label}{sortIndicator(sort, key)}
@@ -282,6 +305,11 @@ export function InfluencerPerformanceTable({
                   <MetricCell field="cost" record={record} bests={bests}>
                     {formatNumber(record.cost, { currency: 'AED' })}
                   </MetricCell>
+                  {showNetProfitColumn ? (
+                    <MetricCell field="netProfitAed" record={record} bests={bests}>
+                      {formatNumber(record.netProfitAed, { currency: 'AED' })}
+                    </MetricCell>
+                  ) : null}
                   <ScoreCell rankInfo={rankInfo} />
                   <td>
                     <div className="inf-table__actions">

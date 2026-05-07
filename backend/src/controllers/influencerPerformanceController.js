@@ -1,9 +1,20 @@
 const influencerPerformanceService = require('../services/influencerPerformanceService')
 
+function redactNetProfitUnlessAdmin(records, isAdmin) {
+  if (isAdmin || !Array.isArray(records)) return records
+  return records.map((row) => {
+    if (!row || typeof row !== 'object') return row
+    const copy = { ...row }
+    delete copy.netProfitAed
+    return copy
+  })
+}
+
 async function listPerformanceRecords(req, res) {
   try {
+    const isAdmin = req.user?.role === 'admin'
     const records = await influencerPerformanceService.listPerformanceRecords()
-    res.json({ records })
+    res.json({ records: redactNetProfitUnlessAdmin(records, isAdmin) })
   } catch (err) {
     console.error('[influencerPerformance] list error:', err)
     res.status(500).json({ error: err.message || 'Failed to load performance records' })
@@ -18,7 +29,8 @@ async function bulkUpsertPerformanceRecords(req, res) {
       return res.status(400).json({ error: 'Body must include a "records" array' })
     }
     const userId = req.user?.userId != null ? String(req.user.userId) : null
-    const result = await influencerPerformanceService.bulkUpsertPerformanceRecords(records, userId)
+    const isAdmin = req.user?.role === 'admin'
+    const result = await influencerPerformanceService.bulkUpsertPerformanceRecords(records, userId, isAdmin)
     res.json({ success: true, ...result })
   } catch (err) {
     console.error('[influencerPerformance] bulkUpsert error:', err)

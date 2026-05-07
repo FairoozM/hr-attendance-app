@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BadgeDollarSign, CalendarDays, FileImage, Link2, NotebookPen, Save, Sparkles, X } from 'lucide-react'
+import { useAuth, canViewInfluencerPerformanceNetProfit } from '../../contexts/AuthContext'
 import {
   addDays,
   calculateEngagementRate,
@@ -24,6 +25,7 @@ const emptyForm = {
   shares: '',
   salesAed: '',
   cost: '',
+  netProfitAed: '',
   notes: '',
   screenshotUrl: '',
 }
@@ -39,6 +41,8 @@ function Field({ label, error, children, wide = false }) {
 }
 
 export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit, onCancelEdit }) {
+  const { user } = useAuth()
+  const showNetProfit = canViewInfluencerPerformanceNetProfit(user)
   const [form, setForm] = useState(emptyForm)
   const [errors, setErrors] = useState({})
   const [influencerQuery, setInfluencerQuery] = useState('')
@@ -57,6 +61,7 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
         shares: String(editingRecord.shares ?? ''),
         salesAed: String(editingRecord.salesAed ?? ''),
         cost: String(editingRecord.cost ?? ''),
+        netProfitAed: String(editingRecord.netProfitAed ?? ''),
       })
       setInfluencerQuery(editedInfluencer?.name || '')
       setErrors({})
@@ -112,6 +117,9 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
     ;['likes', 'comments', 'shares', 'salesAed', 'cost'].forEach((key) => {
       if (Number(form[key]) < 0) next[key] = 'Value cannot be negative'
     })
+    if (showNetProfit && form.netProfitAed !== '' && !Number.isFinite(Number(form.netProfitAed))) {
+      next.netProfitAed = 'Enter a valid number'
+    }
     setErrors(next)
     return Object.keys(next).length === 0
   }
@@ -144,6 +152,9 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
     if (!validate(dateIso, startIso)) return
     const now = new Date().toISOString()
     const merged = { ...form, date: dateIso, contractStartDate: startIso }
+    if (!showNetProfit && editingRecord && Object.prototype.hasOwnProperty.call(editingRecord, 'netProfitAed')) {
+      merged.netProfitAed = editingRecord.netProfitAed
+    }
     onSubmit(normalizePerformanceRecord({
       ...merged,
       id: editingRecord?.id,
@@ -359,6 +370,22 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
                   <input className="ip-control ip-control--metric" type="number" min="0" step="0.01" value={form.cost} onChange={(event) => set('cost', event.target.value)} placeholder="0.00" />
                 </div>
               </Field>
+
+              {showNetProfit ? (
+                <Field label="Net profit AED" error={errors.netProfitAed}>
+                  <div className="ip-control-icon">
+                    <BadgeDollarSign size={16} />
+                    <input
+                      className="ip-control ip-control--metric"
+                      type="number"
+                      step="0.01"
+                      value={form.netProfitAed}
+                      onChange={(event) => set('netProfitAed', event.target.value)}
+                      placeholder="After costs / fees"
+                    />
+                  </div>
+                </Field>
+              ) : null}
             </div>
 
             <div className="ip-form-bottom-grid">

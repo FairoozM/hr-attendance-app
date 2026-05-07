@@ -149,3 +149,8 @@ export function canMutateInfluencerPerformance(user) {
   const m = user.permissions?.influencers || {}
   return Boolean(m.manage || m.performance)
 }
+
+/** Net profit on influencer performance is visible and editable only for admins (not warehouse). */
+export function canViewInfluencerPerformanceNetProfit(user) {
+  return Boolean(user && user.role === 'admin')
+}
