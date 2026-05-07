@@ -1,10 +1,13 @@
-/* Dedicated phone layout for /influencers/performance/iphone — does not alter desktop performance page. */
+/* Dedicated phone layout for /influencers/performance/iphone — card list, no wide data table. */
 
 .ip-page--iphone {
   padding-left: max(0.85rem, env(safe-area-inset-left, 0px));
   padding-right: max(0.85rem, env(safe-area-inset-right, 0px));
   padding-bottom: max(1.25rem, env(safe-area-inset-bottom, 0px));
-  max-width: 100%;
+  max-width: min(430px, 100%);
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
 }
 
 .ip-page--iphone__top {
@@ -50,63 +53,116 @@
   line-height: 1.35;
 }
 
-.ip-table-wrap--iphone {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-x: contain;
-  scroll-padding-inline: 0.5rem;
+/* Card list */
+.ip-phone-ranking {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
 }
 
-.ip-table--iphone {
-  min-width: 920px;
-}
-
-.ip-table--iphone .ip-table__iphone-sticky-rank {
-  position: sticky;
-  left: 0;
-  z-index: 5;
-  box-shadow: 6px 0 14px rgba(15, 23, 42, 0.07);
-}
-
-.ip-table--iphone .ip-table__iphone-sticky-influencer {
-  position: sticky;
-  left: 3.75rem;
-  z-index: 4;
-  box-shadow: 6px 0 14px rgba(15, 23, 42, 0.05);
-  min-width: 10.5rem;
-  max-width: 15rem;
-}
-
-.ip-table--iphone thead .ip-table__iphone-sticky-rank,
-.ip-table--iphone thead .ip-table__iphone-sticky-influencer {
-  z-index: 6;
+.ip-phone-card {
+  position: relative;
+  border-radius: 20px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.94));
+    linear-gradient(145deg, rgba(255, 255, 255, 0.22), rgba(248, 250, 252, 0.55)),
+    rgba(255, 255, 255, 0.45);
+  box-shadow:
+    0 10px 28px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  padding: 0.9rem 0.95rem;
 }
 
-.ip-table--iphone tbody .ip-table__detail-row .ip-table__iphone-sticky-rank,
-.ip-table--iphone tbody .ip-table__detail-row .ip-table__iphone-sticky-influencer {
-  background: rgba(248, 250, 252, 0.98);
+.ip-phone-card--active {
+  border-color: rgba(0, 153, 204, 0.35);
+  box-shadow:
+    0 12px 32px rgba(0, 153, 204, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 
-.ip-table--iphone tbody .ip-table__detail-row--active .ip-table__iphone-sticky-rank,
-.ip-table--iphone tbody .ip-table__detail-row--active .ip-table__iphone-sticky-influencer {
-  background: rgba(236, 253, 255, 0.98);
+.ip-phone-card--empty {
+  text-align: center;
+  padding: 1.25rem;
 }
 
-:root[data-theme='dark'] .ip-table--iphone thead .ip-table__iphone-sticky-rank,
-:root[data-theme='dark'] .ip-table--iphone thead .ip-table__iphone-sticky-influencer {
-  background: rgba(15, 23, 42, 0.96);
+.ip-phone-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
 }
 
-:root[data-theme='dark'] .ip-table--iphone tbody .ip-table__detail-row .ip-table__iphone-sticky-rank,
-:root[data-theme='dark'] .ip-table--iphone tbody .ip-table__detail-row .ip-table__iphone-sticky-influencer {
-  background: rgba(15, 23, 42, 0.94);
+.ip-phone-card__menu.ip-table__row-menu {
+  flex-shrink: 0;
 }
 
-:root[data-theme='dark'] .ip-table--iphone tbody .ip-table__detail-row--active .ip-table__iphone-sticky-rank,
-:root[data-theme='dark'] .ip-table--iphone tbody .ip-table__detail-row--active .ip-table__iphone-sticky-influencer {
-  background: rgba(15, 30, 42, 0.96);
+.ip-phone-card__influencer {
+  margin-bottom: 0.35rem;
+}
+
+.ip-phone-card__date {
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 0.65rem;
+}
+
+.ip-phone-card__metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem 0.75rem;
+}
+
+.ip-phone-card__metric {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.ip-phone-card__metric-label {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.ip-phone-card__metric-value {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--text, #0f172a);
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+.ip-phone-card__metric-value--amount {
+  display: flex;
+  justify-content: flex-end;
+  text-align: right;
+}
+
+:root[data-theme='dark'] .ip-phone-card {
+  border-color: rgba(255, 255, 255, 0.12);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.06), rgba(15, 23, 42, 0.55)),
+    rgba(15, 23, 42, 0.45);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+:root[data-theme='dark'] .ip-phone-card__metric-value {
+  color: var(--theme-text, #f1f5f9);
+}
+
+:root[data-theme='dark'] .ip-phone-card--active {
+  border-color: rgba(56, 189, 248, 0.35);
 }
 
 @media (min-width: 900px) {

@@ -5,38 +5,6 @@ import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
 const AMOUNT_COLUMN_KEYS = new Set(['cost', 'salesAed', 'netProfitAed'])
 const EMPTY_RANK_MAP = new Map()
 
-/** Rank and influencer first so sticky columns stay useful while scrolling metrics sideways. */
-function tableColumns(showNetProfitColumn) {
-  const cols = [
-    ['influencer', 'Influencer'],
-    ['date', 'Date'],
-    ['cost', 'Cost'],
-    ['views', 'Views'],
-    ['likes', 'Likes'],
-    ['comments', 'Comments'],
-    ['shares', 'Shares'],
-    ['salesAed', 'Sales AED'],
-  ]
-  if (showNetProfitColumn) cols.push(['netProfitAed', 'Net profit'])
-  return [['rank', '#'], ...cols]
-}
-
-function metricColumnKeySet(showNetProfitColumn) {
-  const keys = ['rank', 'cost', 'views', 'likes', 'comments', 'shares', 'salesAed']
-  if (showNetProfitColumn) keys.push('netProfitAed')
-  return new Set(keys)
-}
-
-function thClass(key, sort, metricKeys) {
-  const sortKey = sort?.key
-  const isSorted = sortKey === key
-  return [
-    isSorted ? 'sorted' : '',
-    metricKeys.has(key) ? 'ip-table__col--metric' : '',
-    AMOUNT_COLUMN_KEYS.has(key) ? 'ip-table__col--amount' : '',
-  ].filter(Boolean).join(' ')
-}
-
 function useMetricBests(records, includeNetProfit) {
   return useMemo(() => {
     if (!records.length) return null
@@ -92,69 +60,58 @@ function winnerPillMod(field, record, bests) {
   return field
 }
 
-function MetricCell({ field, record, bests, className = '', children }) {
+function MetricSlot({ label, field, record, bests, children }) {
   const mod = winnerPillMod(field, record, bests)
-  const tdClass = [
-    'ip-table__col--metric',
-    AMOUNT_COLUMN_KEYS.has(field) ? 'ip-table__col--amount' : '',
-    className,
-  ].filter(Boolean).join(' ')
   return (
-    <td className={tdClass} title={mod ? WINNER_TITLE[field] : undefined}>
-      {mod ? (
-        <span className={`ip-table__winner-pill ip-table__winner-pill--${mod}`}>{children}</span>
-      ) : (
-        children
-      )}
-    </td>
+    <div className="ip-phone-card__metric">
+      <span className="ip-phone-card__metric-label">{label}</span>
+      <div
+        className={[
+          'ip-phone-card__metric-value',
+          AMOUNT_COLUMN_KEYS.has(field) ? 'ip-phone-card__metric-value--amount' : '',
+        ].filter(Boolean).join(' ')}
+        title={mod ? WINNER_TITLE[field] : undefined}
+      >
+        {mod ? (
+          <span className={`ip-table__winner-pill ip-table__winner-pill--${mod}`}>{children}</span>
+        ) : (
+          children
+        )}
+      </div>
+    </div>
   )
 }
 
-function sortIndicator(sort, key) {
-  if (sort.key !== key) return ''
-  return sort.direction === 'asc' ? ' ↑' : ' ↓'
-}
-
-function RankCell({ rankInfo }) {
+function RankBadge({ rankInfo }) {
   if (!rankInfo) {
-    return <td className="ip-table__col--metric ip-table__col--rank ip-table__iphone-sticky-rank"><span className="ip-table__rank-muted">—</span></td>
+    return <span className="ip-table__rank-muted">—</span>
   }
   const { rank } = rankInfo
   if (rank === 1) {
     return (
-      <td className="ip-table__col--metric ip-table__col--rank ip-table__iphone-sticky-rank">
-        <span className="ip-table__rank-pill ip-table__rank-pill--gold" title="1st place (contract composite)">
-          <Crown size={14} strokeWidth={2.2} aria-hidden />
-          <span>#{rank}</span>
-        </span>
-      </td>
+      <span className="ip-table__rank-pill ip-table__rank-pill--gold" title="1st place (contract composite)">
+        <Crown size={14} strokeWidth={2.2} aria-hidden />
+        <span>#{rank}</span>
+      </span>
     )
   }
   if (rank === 2) {
     return (
-      <td className="ip-table__col--metric ip-table__col--rank ip-table__iphone-sticky-rank">
-        <span className="ip-table__rank-pill ip-table__rank-pill--silver" title="2nd place (contract composite)">
-          <Medal size={14} strokeWidth={2.2} aria-hidden />
-          <span>#{rank}</span>
-        </span>
-      </td>
+      <span className="ip-table__rank-pill ip-table__rank-pill--silver" title="2nd place (contract composite)">
+        <Medal size={14} strokeWidth={2.2} aria-hidden />
+        <span>#{rank}</span>
+      </span>
     )
   }
   if (rank === 3) {
     return (
-      <td className="ip-table__col--metric ip-table__col--rank ip-table__iphone-sticky-rank">
-        <span className="ip-table__rank-pill ip-table__rank-pill--bronze" title="3rd place (contract composite)">
-          <Medal size={14} strokeWidth={2.2} aria-hidden />
-          <span>#{rank}</span>
-        </span>
-      </td>
+      <span className="ip-table__rank-pill ip-table__rank-pill--bronze" title="3rd place (contract composite)">
+        <Medal size={14} strokeWidth={2.2} aria-hidden />
+        <span>#{rank}</span>
+      </span>
     )
   }
-  return (
-    <td className="ip-table__col--metric ip-table__col--rank ip-table__iphone-sticky-rank">
-      <span className="ip-table__rank-muted">#{rank}</span>
-    </td>
-  )
+  return <span className="ip-table__rank-muted">#{rank}</span>
 }
 
 function initials(name) {
@@ -169,7 +126,7 @@ function initials(name) {
 function InfluencerIdentity({ influencer }) {
   const name = influencer?.name || 'Unknown'
   return (
-    <div className="ip-table__influencer-cell">
+    <div className="ip-table__influencer-cell ip-phone-card__influencer">
       <div className="ip-table__avatar" aria-hidden="true">
         <span>{initials(name)}</span>
         {influencer?.profileImage ? (
@@ -195,8 +152,6 @@ export function InfluencerPerformanceTableIphone({
   influencersById,
   rankingByRecordId = EMPTY_RANK_MAP,
   showNetProfitColumn = false,
-  sort,
-  onSort,
   onView,
   onEdit,
   onDelete,
@@ -224,8 +179,6 @@ export function InfluencerPerformanceTableIphone({
     }
   }, [openActionsForId])
 
-  const columns = useMemo(() => tableColumns(showNetProfitColumn), [showNetProfitColumn])
-  const metricKeys = useMemo(() => metricColumnKeySet(showNetProfitColumn), [showNetProfitColumn])
   const bests = useMetricBests(records, showNetProfitColumn)
 
   return (
@@ -233,150 +186,134 @@ export function InfluencerPerformanceTableIphone({
       <div className="ip-section-heading">
         <span className="ip-section-heading__icon"><Eye size={18} /></span>
         <div>
-          <h2>Performance ranking (phone)</h2>
-          <p className="ip-table-card--iphone__hint">Swipe horizontally for all columns. Rank and influencer stay pinned.</p>
+          <h2>Performance ranking</h2>
+          <p className="ip-table-card--iphone__hint">One card per row — scroll vertically. Use Sort above to change order.</p>
         </div>
       </div>
 
-      <div className="inf-table-wrap ip-table-wrap ip-table-wrap--iphone">
-        <table className="inf-table ip-table ip-table--iphone">
-          <thead>
-            <tr>
-              {columns.map(([key, label]) => (
-                <th
-                  key={key}
-                  data-col={key}
-                  className={[
-                    thClass(key, sort, metricKeys),
-                    key === 'rank' ? 'ip-table__iphone-sticky-rank' : '',
-                    key === 'influencer' ? 'ip-table__iphone-sticky-influencer' : '',
-                  ].filter(Boolean).join(' ')}
-                  onClick={() => onSort(key)}
+      <ul className="ip-phone-ranking">
+        {records.length === 0 ? (
+          <li className="ip-phone-card ip-phone-card--empty">
+            <div className="ip-empty-row">No performance records match these filters.</div>
+          </li>
+        ) : records.map((record) => {
+          const influencerId = String(record.influencerId || '')
+          const isMonitorActive = String(activeMonitorInfluencerId) === influencerId
+          const influencer = influencersById.get(influencerId)
+          const rankInfo = rankingByRecordId.get(record.id)
+          return (
+            <li
+              key={record.id}
+              className={[
+                'ip-phone-card',
+                isMonitorActive ? 'ip-phone-card--active' : '',
+              ].filter(Boolean).join(' ')}
+            >
+              <div className="ip-phone-card__top">
+                <RankBadge rankInfo={rankInfo} />
+                <div
+                  className="ip-table__row-menu ip-phone-card__menu"
+                  data-record-id={record.id}
                 >
-                  {label}{sortIndicator(sort, key)}
-                </th>
-              ))}
-              <th className="ip-table__col--actions ip-table__col--actions-compact" aria-label="Actions" />
-            </tr>
-          </thead>
-          <tbody>
-            {records.length === 0 ? (
-              <tr>
-                <td colSpan={columns.length + 1}>
-                  <div className="ip-empty-row">No performance records match these filters.</div>
-                </td>
-              </tr>
-            ) : records.map((record) => {
-              const influencerId = String(record.influencerId || '')
-              const isMonitorActive = String(activeMonitorInfluencerId) === influencerId
-              const influencer = influencersById.get(influencerId)
-              const rankInfo = rankingByRecordId.get(record.id)
-              return (
-                <tr key={record.id} className={`ip-table__detail-row ${isMonitorActive ? 'ip-table__detail-row--active' : ''}`}>
-                  <RankCell rankInfo={rankInfo} />
-                  <td className="ip-table__col--influencer ip-table__iphone-sticky-influencer">
-                    <InfluencerIdentity influencer={influencer} />
-                  </td>
-                  <td>{record.date}</td>
-                  <MetricCell field="cost" record={record} bests={bests}>
-                    {formatNumber(record.cost, { currency: 'AED' })}
-                  </MetricCell>
-                  <MetricCell field="views" record={record} bests={bests}>
-                    {formatNumber(record.views)}
-                  </MetricCell>
-                  <MetricCell field="likes" record={record} bests={bests}>
-                    {formatNumber(record.likes)}
-                  </MetricCell>
-                  <MetricCell field="comments" record={record} bests={bests}>
-                    {formatNumber(record.comments)}
-                  </MetricCell>
-                  <MetricCell field="shares" record={record} bests={bests}>
-                    {formatNumber(record.shares)}
-                  </MetricCell>
-                  <MetricCell field="salesAed" record={record} bests={bests}>
-                    {formatNumber(record.salesAed, { currency: 'AED' })}
-                  </MetricCell>
-                  {showNetProfitColumn ? (
-                    <MetricCell field="netProfitAed" record={record} bests={bests} className="ip-table__col--netprofit">
-                      {formatNumber(record.netProfitAed, { currency: 'AED' })}
-                    </MetricCell>
-                  ) : null}
-                  <td className="ip-table__col--actions ip-table__col--actions-compact">
-                    <div
-                      className="ip-table__row-menu"
-                      data-record-id={record.id}
-                    >
+                  <button
+                    type="button"
+                    className="ip-table__row-menu-trigger"
+                    aria-label="Row actions"
+                    aria-haspopup="menu"
+                    aria-expanded={openActionsForId === record.id}
+                    onClick={() => setOpenActionsForId((current) => (current === record.id ? null : record.id))}
+                  >
+                    <MoreVertical size={18} strokeWidth={2.25} aria-hidden />
+                  </button>
+                  {openActionsForId === record.id ? (
+                    <div className="ip-table__row-menu-dropdown" role="menu">
                       <button
                         type="button"
-                        className="ip-table__row-menu-trigger"
-                        aria-label="Row actions"
-                        aria-haspopup="menu"
-                        aria-expanded={openActionsForId === record.id}
-                        onClick={() => setOpenActionsForId((current) => (current === record.id ? null : record.id))}
+                        className="ip-table__row-menu-item"
+                        role="menuitem"
+                        onClick={() => {
+                          onToggleMonitor(record.influencerId)
+                          setOpenActionsForId(null)
+                        }}
                       >
-                        <MoreVertical size={18} strokeWidth={2.25} aria-hidden />
+                        <span className="ip-table__row-menu-icon-slot" aria-hidden />
+                        {isMonitorActive ? 'Hide contract timeline' : 'Show contract timeline'}
                       </button>
-                      {openActionsForId === record.id ? (
-                        <div className="ip-table__row-menu-dropdown" role="menu">
-                          <button
-                            type="button"
-                            className="ip-table__row-menu-item"
-                            role="menuitem"
-                            onClick={() => {
-                              onToggleMonitor(record.influencerId)
-                              setOpenActionsForId(null)
-                            }}
-                          >
-                            <span className="ip-table__row-menu-icon-slot" aria-hidden />
-                            {isMonitorActive ? 'Hide contract timeline' : 'Show contract timeline'}
-                          </button>
-                          <button
-                            type="button"
-                            className="ip-table__row-menu-item"
-                            role="menuitem"
-                            onClick={() => {
-                              onView(record)
-                              setOpenActionsForId(null)
-                            }}
-                          >
-                            <Eye size={15} aria-hidden /> View
-                          </button>
-                          {onEdit ? (
-                            <button
-                              type="button"
-                              className="ip-table__row-menu-item"
-                              role="menuitem"
-                              onClick={() => {
-                                onEdit(record)
-                                setOpenActionsForId(null)
-                              }}
-                            >
-                              <Pencil size={15} aria-hidden /> Edit
-                            </button>
-                          ) : null}
-                          {onDelete ? (
-                            <button
-                              type="button"
-                              className="ip-table__row-menu-item ip-table__row-menu-item--danger"
-                              role="menuitem"
-                              onClick={() => {
-                                onDelete(record.id)
-                                setOpenActionsForId(null)
-                              }}
-                            >
-                              <Trash2 size={15} aria-hidden /> Delete
-                            </button>
-                          ) : null}
-                        </div>
+                      <button
+                        type="button"
+                        className="ip-table__row-menu-item"
+                        role="menuitem"
+                        onClick={() => {
+                          onView(record)
+                          setOpenActionsForId(null)
+                        }}
+                      >
+                        <Eye size={15} aria-hidden /> View
+                      </button>
+                      {onEdit ? (
+                        <button
+                          type="button"
+                          className="ip-table__row-menu-item"
+                          role="menuitem"
+                          onClick={() => {
+                            onEdit(record)
+                            setOpenActionsForId(null)
+                          }}
+                        >
+                          <Pencil size={15} aria-hidden /> Edit
+                        </button>
+                      ) : null}
+                      {onDelete ? (
+                        <button
+                          type="button"
+                          className="ip-table__row-menu-item ip-table__row-menu-item--danger"
+                          role="menuitem"
+                          onClick={() => {
+                            onDelete(record.id)
+                            setOpenActionsForId(null)
+                          }}
+                        >
+                          <Trash2 size={15} aria-hidden /> Delete
+                        </button>
                       ) : null}
                     </div>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <InfluencerIdentity influencer={influencer} />
+
+              <div className="ip-phone-card__date">{record.date}</div>
+
+              <div className="ip-phone-card__metrics">
+                <MetricSlot label="Cost" field="cost" record={record} bests={bests}>
+                  {formatNumber(record.cost, { currency: 'AED' })}
+                </MetricSlot>
+                <MetricSlot label="Views" field="views" record={record} bests={bests}>
+                  {formatNumber(record.views)}
+                </MetricSlot>
+                <MetricSlot label="Likes" field="likes" record={record} bests={bests}>
+                  {formatNumber(record.likes)}
+                </MetricSlot>
+                <MetricSlot label="Comments" field="comments" record={record} bests={bests}>
+                  {formatNumber(record.comments)}
+                </MetricSlot>
+                <MetricSlot label="Shares" field="shares" record={record} bests={bests}>
+                  {formatNumber(record.shares)}
+                </MetricSlot>
+                <MetricSlot label="Sales AED" field="salesAed" record={record} bests={bests}>
+                  {formatNumber(record.salesAed, { currency: 'AED' })}
+                </MetricSlot>
+                {showNetProfitColumn ? (
+                  <MetricSlot label="Net profit" field="netProfitAed" record={record} bests={bests}>
+                    {formatNumber(record.netProfitAed, { currency: 'AED' })}
+                  </MetricSlot>
+                ) : null}
+              </div>
+            </li>
+          )
+        })}
+      </ul>
     </section>
   )
 }

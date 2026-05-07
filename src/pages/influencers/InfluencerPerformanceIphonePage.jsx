@@ -36,7 +36,6 @@ export function InfluencerPerformanceIphonePage() {
     filteredRecords,
     rankingByRecordId,
     activeMonitorContracts,
-    handleSort,
     handleSortPreset,
     handleSubmit,
     handleDelete,
@@ -52,7 +51,7 @@ export function InfluencerPerformanceIphonePage() {
         <div className="ip-page--iphone__title-block">
           <span className="ip-eyebrow"><Gauge size={14} /> Phone view</span>
           <h1 className="inf-page-title">Influencer ranking</h1>
-          <p className="inf-page-subtitle">Same data as the desktop report — optimized for narrow screens.</p>
+          <p className="inf-page-subtitle">Same data as the full dashboard — laid out as stacked cards for small screens.</p>
           {syncHint ? (
             <p className="inf-page-subtitle ip-sync-hint" role="status">{syncHint}</p>
           ) : null}
@@ -117,8 +116,6 @@ export function InfluencerPerformanceIphonePage() {
         influencersById={influencersById}
         rankingByRecordId={rankingByRecordId}
         showNetProfitColumn={showNetProfitColumn}
-        sort={sort}
-        onSort={handleSort}
         onView={setViewRecord}
         onEdit={canWritePerformance ? setEditingRecord : undefined}
         onDelete={canWritePerformance ? handleDelete : undefined}
