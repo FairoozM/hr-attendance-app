@@ -1,0 +1,71 @@
+// Reference schema — this repository applies DDL via `backend/src/db/index.js` (pg Pool).
+// Optional: run `npx prisma db pull` later to sync from PostgreSQL if you adopt Prisma Client.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model AiBudgetSetting {
+  id                      Int       @id @default(1)
+  daily_budget_usd        Decimal   @db.Decimal(14, 4)
+  monthly_budget_usd      Decimal   @db.Decimal(14, 4)
+  alert_threshold_percent Decimal   @db.Decimal(6, 2)
+  default_model           String    @db.VarChar(128)
+  max_batch_size          Int
+  allow_ai_generation     Boolean
+  created_at              DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@map("ai_budget_settings")
+}
+
+model AiUsageLog {
+  id                  Int       @id @default(autoincrement())
+  user_id             Int?
+  module_name         String    @db.VarChar(128)
+  action_name         String    @db.VarChar(128)
+  model               String    @db.VarChar(128)
+  input_tokens        Int       @default(0)
+  output_tokens       Int       @default(0)
+  total_tokens        Int       @default(0)
+  estimated_cost_usd  Decimal   @db.Decimal(16, 8)
+  request_status      String    @db.VarChar(32)
+  error_message       String?
+  request_duration_ms Int?
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([created_at])
+  @@index([module_name])
+  @@index([user_id])
+  @@index([request_status])
+  @@map("ai_usage_logs")
+}
+
+model AmazonGeneratedListing {
+  id                    Int       @id @default(autoincrement())
+  sku                   String    @db.VarChar(255)
+  product_name          String
+  generated_title       String    @default("")
+  generated_bullets     Json      @default("[]")
+  generated_description String    @default("")
+  generated_search_terms Json     @default("[]")
+  marketplace           String    @db.VarChar(16)
+  language              String    @db.VarChar(8)
+  ai_model              String    @db.VarChar(128)
+  estimated_cost        Decimal   @db.Decimal(16, 8)
+  created_by            Int?
+  ai_usage_log_id       Int?
+  arabic_title          String    @default("")
+  arabic_bullets        Json      @default("[]")
+  suggested_attributes  Json      @default("{}")
+  created_at            DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([sku])
+  @@index([created_at])
+  @@map("amazon_generated_listings")
+}

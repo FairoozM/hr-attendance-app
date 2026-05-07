@@ -23,6 +23,8 @@ const debugRoutes = require('./routes/debug')
 const zohoRoutes = require('./routes/zoho')
 const purchasePlanningRoutes = require('./routes/purchasePlanning')
 const pricesCompositeRoutes = require('./routes/pricesComposite')
+const aiRoutes = require('./routes/ai.routes')
+const amazonListingRoutes = require('./routes/amazonListing.routes')
 
 const app = express()
 
@@ -73,6 +75,8 @@ app.use('/api/taxation', authMiddleware.attachAuth, taxationRoutes)
 app.use('/api/zoho', authMiddleware.attachAuth, zohoRoutes)
 app.use('/api/purchase-planning', authMiddleware.attachAuth, purchasePlanningRoutes)
 app.use('/api/prices', authMiddleware.attachAuth, pricesCompositeRoutes)
+app.use('/api/ai', authMiddleware.attachAuth, aiRoutes)
+app.use('/api/amazon', authMiddleware.attachAuth, amazonListingRoutes)
 // TEMPORARY — Zoho debug (remove when stable)
 app.use('/api/debug', authMiddleware.attachAuth, debugRoutes)
 

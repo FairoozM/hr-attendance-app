@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
-import { useAuth } from './contexts/AuthContext'
+import { useAuth, hasPermission } from './contexts/AuthContext'
 import { SettingsContext } from './contexts/SettingsContext'
 import { InfluencersProvider } from './contexts/InfluencersContext'
 import { useAppSettings } from './hooks/useAppSettings'
@@ -34,6 +34,21 @@ function AdminOnly({ children }) {
   if (user.role !== 'admin') return <Navigate to="/account" replace />
   return children
 }
+
+/** AI usage dashboard & Amazon listing — operators with planner, prices, warehouse, or admin. */
+function AiHubGuard({ children }) {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  const can = (module, action) => hasPermission(user, module, action)
+  const hasPlannerAccess = user.role === 'admin' || can('planner', 'view')
+  const allowed =
+    user.role === 'admin' ||
+    user.role === 'warehouse' ||
+    hasPlannerAccess ||
+    can('prices', 'view')
+  if (!allowed) return <Navigate to="/account" replace />
+  return children
+}
 import { ShootSchedulePage } from './pages/influencers/ShootSchedulePage'
 import { PaymentsPage } from './pages/influencers/PaymentsPage'
 import { AgreementsPage } from './pages/influencers/AgreementsPage'
@@ -57,6 +72,9 @@ import ProjectsIndexPage from './pages/projects/ProjectsIndexPage'
 import ProjectDetailPage from './pages/projects/ProjectDetailPage'
 import ProjectDashboardPage from './pages/projects/ProjectDashboardPage'
 import TrashPage from './pages/projects/TrashPage'
+import { AiUsageDashboard } from './pages/AiUsageDashboard'
+import { AmazonListingGenerator } from './pages/AmazonListingGenerator'
+import { AiBudgetSettingsPage } from './pages/admin/AiBudgetSettingsPage'
 import { AIPlannerProvider } from './contexts/AIPlannerContext'
 import { useEmployees } from './hooks/useEmployees'
 import { useAttendanceManagedEmployees } from './hooks/useAttendanceManagedEmployees'
@@ -250,6 +268,14 @@ function AppContent() {
           }
         />
         <Route path="roles-permissions" element={<RolesPermissionsPage />} />
+        <Route
+          path="admin/ai-budget"
+          element={
+            <AdminOnly>
+              <AiBudgetSettingsPage />
+            </AdminOnly>
+          }
+        />
         <Route path="admin/item-report-groups" element={<ItemReportGroupsAdminPage />} />
         <Route
           path="admin/zoho/bulk-invoice"
@@ -257,6 +283,23 @@ function AppContent() {
             <PermissionGuard module="weekly_reports" action="view">
               <BulkZohoInvoicePage />
             </PermissionGuard>
+          }
+        />
+
+        <Route
+          path="ai/usage"
+          element={
+            <AiHubGuard>
+              <AiUsageDashboard />
+            </AiHubGuard>
+          }
+        />
+        <Route
+          path="ai/amazon-listing"
+          element={
+            <AiHubGuard>
+              <AmazonListingGenerator />
+            </AiHubGuard>
           }
         />
 

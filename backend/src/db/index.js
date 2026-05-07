@@ -970,6 +970,11 @@ async function testConnection() {
   } catch (e) {
     console.error('[db] ensurePurchasePlanningTables skipped/failed (non-fatal):', e.message || e)
   }
+  try {
+    await ensureAiBudgetAndUsageTables()
+  } catch (e) {
+    console.error('[db] ensureAiBudgetAndUsageTables skipped/failed (non-fatal):', e.message || e)
+  }
 }
 
 async function ensureProjectsTable() {
@@ -1069,6 +1074,94 @@ async function ensureTaskAttachmentsTable() {
   await query(`CREATE INDEX IF NOT EXISTS idx_task_attachments_task_id ON task_attachments(task_id)`)
 }
 
+/** AI usage tracking + Amazon listing generations (OpenAI proxy — key stays server-side only). */
+async function ensureAiBudgetAndUsageTables() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS ai_budget_settings (
+      id SMALLINT PRIMARY KEY DEFAULT 1,
+      daily_budget_usd NUMERIC(14,4) NOT NULL DEFAULT 50,
+      monthly_budget_usd NUMERIC(14,4) NOT NULL DEFAULT 500,
+      alert_threshold_percent NUMERIC(6,2) NOT NULL DEFAULT 80,
+      default_model VARCHAR(128) NOT NULL DEFAULT 'gpt-4.1-mini',
+      max_batch_size INTEGER NOT NULL DEFAULT 10,
+      allow_ai_generation BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT ai_budget_settings_singleton CHECK (id = 1),
+      CONSTRAINT ai_budget_settings_batch_chk CHECK (max_batch_size >= 1 AND max_batch_size <= 500)
+    )
+  `)
+  await query(`ALTER TABLE ai_budget_settings ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`)
+  await query(`
+    INSERT INTO ai_budget_settings (id) VALUES (1)
+    ON CONFLICT (id) DO NOTHING
+  `)
+  await query(`
+    CREATE TABLE IF NOT EXISTS ai_usage_logs (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      module_name VARCHAR(128) NOT NULL,
+      action_name VARCHAR(128) NOT NULL,
+      model VARCHAR(128) NOT NULL,
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      total_tokens INTEGER NOT NULL DEFAULT 0,
+      estimated_cost_usd NUMERIC(16,8) NOT NULL DEFAULT 0,
+      request_status VARCHAR(32) NOT NULL,
+      error_message TEXT,
+      request_duration_ms INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(`ALTER TABLE ai_usage_logs ADD COLUMN IF NOT EXISTS request_duration_ms INTEGER`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_created_at ON ai_usage_logs(created_at)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_module ON ai_usage_logs(module_name)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_user ON ai_usage_logs(user_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_status ON ai_usage_logs(request_status)`)
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS amazon_listing_generations (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      product_input JSONB NOT NULL DEFAULT '{}',
+      listing_result JSONB NOT NULL DEFAULT '{}',
+      ai_usage_log_id INTEGER REFERENCES ai_usage_logs(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_amazon_listing_generations_user ON amazon_listing_generations(user_id)`
+  )
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS amazon_generated_listings (
+      id SERIAL PRIMARY KEY,
+      sku VARCHAR(255) NOT NULL,
+      product_name TEXT NOT NULL,
+      generated_title TEXT NOT NULL DEFAULT '',
+      generated_bullets JSONB NOT NULL DEFAULT '[]',
+      generated_description TEXT NOT NULL DEFAULT '',
+      generated_search_terms JSONB NOT NULL DEFAULT '[]',
+      marketplace VARCHAR(16) NOT NULL,
+      language VARCHAR(8) NOT NULL,
+      ai_model VARCHAR(128) NOT NULL,
+      estimated_cost NUMERIC(16,8) NOT NULL DEFAULT 0,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      ai_usage_log_id INTEGER REFERENCES ai_usage_logs(id) ON DELETE SET NULL,
+      arabic_title TEXT NOT NULL DEFAULT '',
+      arabic_bullets JSONB NOT NULL DEFAULT '[]',
+      suggested_attributes JSONB NOT NULL DEFAULT '{}',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_amazon_generated_listings_sku ON amazon_generated_listings(sku)`
+  )
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_amazon_generated_listings_created ON amazon_generated_listings(created_at)`
+  )
+}
+
 module.exports = {
   query,
   pool,
@@ -1087,4 +1180,5 @@ module.exports = {
   ensureDocumentExpiryTable,
   ensureItemReportGroupsTable,
   ensureItemReportGroupsImportLogTable,
+  ensureAiBudgetAndUsageTables,
 }
