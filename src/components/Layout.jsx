@@ -445,6 +445,7 @@ export function Layout() {
     if (location.pathname.startsWith('/settings')) return 'Settings'
     if (location.pathname.startsWith('/roles-permissions')) return 'Roles & Permissions'
     if (location.pathname.startsWith('/lists/sim-cards')) return 'Sim Cards List'
+    if (location.pathname.startsWith('/influencers/performance/iphone')) return 'Influencer Performance (phone)'
     if (location.pathname.startsWith('/influencers/performance')) return 'Influencer Performance'
     if (location.pathname.startsWith('/influencers')) return 'Influencers'
     if (location.pathname.startsWith('/account')) return 'My Account'
@@ -477,6 +478,7 @@ export function Layout() {
     can('influencers', 'agreements') && { label: 'Agreements', to: '/influencers/agreements' },
     can('influencers', 'payments') && { label: 'Payments', to: '/influencers/payments' },
     can('influencers', 'performance') && { label: 'Performance', to: '/influencers/performance' },
+    can('influencers', 'performance') && { label: 'Performance (phone)', to: '/influencers/performance/iphone' },
     can('influencers', 'view') && { label: 'Reports', to: '/influencers/reports' },
   ].filter(Boolean)
 

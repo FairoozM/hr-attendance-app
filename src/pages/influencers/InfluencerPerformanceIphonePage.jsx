@@ -1,17 +1,17 @@
-import { ArrowDownWideNarrow, Download, Gauge, Plus, Save, Search, X } from 'lucide-react'
-import { InfluencerCharts } from '../../components/influencers/InfluencerCharts'
+import { Link } from 'react-router-dom'
+import { ChevronLeft, Download, Gauge, Plus, Save, Search, X } from 'lucide-react'
 import { InfluencerContractTimeline } from '../../components/influencers/InfluencerContractTimeline'
 import { InfluencerPerformanceForm } from '../../components/influencers/InfluencerPerformanceForm'
-import { InfluencerLeaderboardPodium } from '../../components/influencers/InfluencerLeaderboardPodium'
-import { InfluencerPerformanceTable } from '../../components/influencers/InfluencerPerformanceTable'
+import { InfluencerPerformanceTableIphone } from '../../components/influencers/InfluencerPerformanceTableIphone'
 import { useAuth, canMutateInfluencerPerformance } from '../../contexts/AuthContext'
 import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
 import { PERFORMANCE_SORT_OPTIONS } from './influencerPerformanceScreenShared'
 import { useInfluencerPerformanceScreen } from './useInfluencerPerformanceScreen'
 import './influencers.css'
 import './InfluencerPerformancePage.css'
+import './InfluencerPerformanceIphonePage.css'
 
-export function InfluencerPerformancePage() {
+export function InfluencerPerformanceIphonePage() {
   const {
     user,
     authLoading,
@@ -34,8 +34,6 @@ export function InfluencerPerformancePage() {
     canWritePerformance,
     showNetProfitColumn,
     filteredRecords,
-    videoContracts,
-    rankingsByContractId,
     rankingByRecordId,
     activeMonitorContracts,
     handleSort,
@@ -43,55 +41,48 @@ export function InfluencerPerformancePage() {
     handleSubmit,
     handleDelete,
     handleSaveContractEdit,
-    handlePodiumSelectContract,
   } = useInfluencerPerformanceScreen()
 
   return (
-    <div className="inf-page ip-page">
-      <header className="inf-page-header ip-hero">
-        <div>
-          <span className="ip-eyebrow"><Gauge size={15} /> Marketing / Social Media</span>
-          <h1 className="inf-page-title">Influencer Performance</h1>
-          <p className="inf-page-subtitle">Track one contracted video per influencer across 4-5 consecutive daily performance checks.</p>
+    <div className="inf-page ip-page ip-page--iphone">
+      <header className="ip-page--iphone__top">
+        <Link to="/influencers/performance" className="ip-page--iphone__back inf-btn inf-btn--ghost inf-btn--xs">
+          <ChevronLeft size={16} aria-hidden /> Full dashboard
+        </Link>
+        <div className="ip-page--iphone__title-block">
+          <span className="ip-eyebrow"><Gauge size={14} /> Phone view</span>
+          <h1 className="inf-page-title">Influencer ranking</h1>
+          <p className="inf-page-subtitle">Same data as the desktop report — optimized for narrow screens.</p>
           {syncHint ? (
             <p className="inf-page-subtitle ip-sync-hint" role="status">{syncHint}</p>
           ) : null}
           {!authLoading && user && !canMutateInfluencerPerformance(user) ? (
             <p className="inf-page-subtitle ip-sync-hint ip-sync-hint--muted" role="note">
-              View-only: data loads from the server. Ask an admin to enable Influencer Performance access before adding stats.
+              View-only: ask an admin for Influencer Performance access to add or edit records.
             </p>
           ) : null}
         </div>
-        <div className="inf-page-actions">
-          <button
-            type="button"
-            className="inf-btn inf-btn--primary"
-            onClick={() => {
-              if (!canWritePerformance) {
-                setSyncHint('This account cannot save Influencer Performance to the server. Ask an admin to enable Influencer Performance access.')
-                return
-              }
-              setIsAddRecordOpen(true)
-            }}
-            disabled={!canWritePerformance}
-            title={!canWritePerformance ? 'Requires Influencer Performance access' : undefined}
-          >
-            <Plus size={15} /> Add new record
-          </button>
-        </div>
+        <button
+          type="button"
+          className="inf-btn inf-btn--primary ip-page--iphone__add"
+          onClick={() => {
+            if (!canWritePerformance) {
+              setSyncHint('This account cannot save Influencer Performance to the server. Ask an admin to enable Influencer Performance access.')
+              return
+            }
+            setIsAddRecordOpen(true)
+          }}
+          disabled={!canWritePerformance}
+          title={!canWritePerformance ? 'Requires Influencer Performance access' : undefined}
+        >
+          <Plus size={15} /> Add
+        </button>
       </header>
 
-      <section className="ip-filter-panel ip-performance-sort-panel" aria-label="Influencer performance filters">
-        <div className="ip-section-heading">
-          <span className="ip-section-heading__icon"><ArrowDownWideNarrow size={18} /></span>
-          <div>
-            <h2>Sort influencers</h2>
-            <p>Rank grouped influencer rows by top-to-low metrics like views, likes, sales, cost, or newest records.</p>
-          </div>
-        </div>
+      <section className="ip-filter-panel ip-performance-sort-panel ip-page--iphone__sort" aria-label="Sort performance records">
         <div className="ip-performance-sort-panel__body">
           <label className="ip-field ip-performance-sort-panel__select">
-            <span>Ranking</span>
+            <span>Sort</span>
             <select
               className="ip-control"
               value={`${sort.key}:${sort.direction}`}
@@ -102,12 +93,10 @@ export function InfluencerPerformancePage() {
               ))}
             </select>
           </label>
-          <div className="ip-performance-sort-panel__quick" aria-label="Quick ranking filters">
+          <div className="ip-performance-sort-panel__quick" aria-label="Quick filters">
             {[
-              ['rank:asc', 'Best overall'],
-              ['views:desc', 'Top views'],
-              ['likes:desc', 'Top likes'],
-              ['salesAed:desc', 'Top sales'],
+              ['rank:asc', 'Best'],
+              ['views:desc', 'Views'],
               ['date:desc', 'Newest'],
             ].map(([value, label]) => (
               <button
@@ -123,13 +112,7 @@ export function InfluencerPerformancePage() {
         </div>
       </section>
 
-      <InfluencerLeaderboardPodium
-        videoContracts={videoContracts}
-        rankingsByContractId={rankingsByContractId}
-        onSelectContract={handlePodiumSelectContract}
-      />
-
-      <InfluencerPerformanceTable
+      <InfluencerPerformanceTableIphone
         records={filteredRecords}
         influencersById={influencersById}
         rankingByRecordId={rankingByRecordId}
@@ -145,7 +128,7 @@ export function InfluencerPerformancePage() {
         ))}
       />
 
-      <div ref={contractTimelineAnchorRef} className="ip-contract-timeline-anchor">
+      <div ref={contractTimelineAnchorRef} className="ip-contract-timeline-anchor ip-page--iphone__timeline">
         {activeMonitorContracts.length > 0 ? (
           <InfluencerContractTimeline
             contracts={activeMonitorContracts}
@@ -161,8 +144,6 @@ export function InfluencerPerformancePage() {
           />
         ) : null}
       </div>
-
-      <InfluencerCharts records={filteredRecords} influencersById={influencersById} />
 
       {isAddRecordOpen ? (
         <div className="ip-modal-backdrop" role="presentation" onClick={() => setIsAddRecordOpen(false)}>
