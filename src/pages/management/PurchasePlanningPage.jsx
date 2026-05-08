@@ -178,7 +178,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
       </div>
       <div className="pp-upload-history">
         <strong>Zoho enrichment</strong>
-        <span>Refresh item names, item IDs, and current stock for uploaded SKUs. May use Zoho API calls if the item cache is expired.</span>
+        <span>Refresh item names and current stock for uploaded SKUs. May use Zoho API calls if the item cache is expired.</span>
         <button
           className="btn"
           disabled={refreshBusy || lowStock.filter((item) => item.status === 'pending').length === 0}
@@ -211,7 +211,6 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                     <th>#</th>
                     <th>Uploaded SKU</th>
                     <th>Zoho item name</th>
-                    <th>Zoho item ID</th>
                     <th>Current Zoho Stock</th>
                   </tr>
                 </thead>
@@ -221,7 +220,6 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                       <td>{index + 1}</td>
                       <td className="pp-mono">{item.sku}</td>
                       <td>{item.itemName || '-'}</td>
-                      <td className="pp-mono">{item.zohoItemId || '-'}</td>
                       <td>{fmt(item.currentZohoStock)}</td>
                     </tr>
                   ))}
