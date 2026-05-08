@@ -883,7 +883,7 @@ export function PurchasePlanningPage() {
             value={purchaseOrderNumber}
             onChange={(e) => setPurchaseOrderNumber(e.target.value)}
             placeholder="PO number"
-            disabled={!activePlan || activePlan.status === 'sent_to_zoho' || busy === 'po'}
+            disabled={busy === 'po'}
           />
           <button className="btn btn--primary" disabled={!activePlan || activePlan.status === 'sent_to_zoho' || busy === 'po' || !purchaseOrderNumber.trim()} onClick={createPo}>
             Create PO in Zoho
