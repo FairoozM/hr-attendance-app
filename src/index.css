@@ -318,6 +318,93 @@
   background: var(--theme-bg-canvas);
 }
 
+/*
+ * Light/comfort readability bridge for Tailwind-heavy pages.
+ * Many newer screens were composed with dark-mode utility classes
+ * (`text-white`, `text-slate-200`, `bg-black/25`). In light and comfort
+ * themes those utilities become unreadable on pale cards, so remap the
+ * common dark UI utilities to the app's slate tokens. Brand buttons and
+ * alert/status surfaces keep their own white text rules below.
+ */
+:root[data-theme='light'] .text-white,
+:root[data-theme='comfort'] .text-white,
+:root[data-theme='light'] .text-slate-50,
+:root[data-theme='comfort'] .text-slate-50,
+:root[data-theme='light'] .text-slate-100,
+:root[data-theme='comfort'] .text-slate-100 {
+  color: var(--text) !important;
+}
+
+:root[data-theme='light'] .text-slate-200,
+:root[data-theme='comfort'] .text-slate-200,
+:root[data-theme='light'] .text-slate-300,
+:root[data-theme='comfort'] .text-slate-300 {
+  color: var(--text-soft) !important;
+}
+
+:root[data-theme='light'] .text-slate-400,
+:root[data-theme='comfort'] .text-slate-400 {
+  color: var(--text-muted) !important;
+}
+
+:root[data-theme='light'] .text-slate-500,
+:root[data-theme='comfort'] .text-slate-500 {
+  color: var(--text-dim) !important;
+}
+
+:root[data-theme='light'] .bg-black\/15,
+:root[data-theme='comfort'] .bg-black\/15,
+:root[data-theme='light'] .bg-black\/20,
+:root[data-theme='comfort'] .bg-black\/20,
+:root[data-theme='light'] .bg-black\/25,
+:root[data-theme='comfort'] .bg-black\/25,
+:root[data-theme='light'] .bg-black\/30,
+:root[data-theme='comfort'] .bg-black\/30,
+:root[data-theme='light'] .bg-black\/40,
+:root[data-theme='comfort'] .bg-black\/40 {
+  background-color: var(--theme-input-bg) !important;
+}
+
+:root[data-theme='light'] input.text-white,
+:root[data-theme='comfort'] input.text-white,
+:root[data-theme='light'] select.text-white,
+:root[data-theme='comfort'] select.text-white,
+:root[data-theme='light'] textarea.text-white,
+:root[data-theme='comfort'] textarea.text-white {
+  color: var(--text) !important;
+}
+
+:root[data-theme='light'] input::placeholder,
+:root[data-theme='comfort'] input::placeholder,
+:root[data-theme='light'] textarea::placeholder,
+:root[data-theme='comfort'] textarea::placeholder {
+  color: var(--theme-input-placeholder);
+}
+
+:root[data-theme='light'] select option,
+:root[data-theme='comfort'] select option {
+  background: var(--theme-select-option-bg);
+  color: var(--text);
+}
+
+/* Keep filled action buttons, badges, and alerts legible after the global remap. */
+:root[data-theme='light'] .bg-violet-500.text-white,
+:root[data-theme='comfort'] .bg-violet-500.text-white,
+:root[data-theme='light'] .bg-violet-600.text-white,
+:root[data-theme='comfort'] .bg-violet-600.text-white,
+:root[data-theme='light'] .bg-emerald-500.text-white,
+:root[data-theme='comfort'] .bg-emerald-500.text-white,
+:root[data-theme='light'] .bg-rose-500.text-white,
+:root[data-theme='comfort'] .bg-rose-500.text-white,
+:root[data-theme='light'] .bg-sky-500.text-white,
+:root[data-theme='comfort'] .bg-sky-500.text-white,
+:root[data-theme='light'] .bg-indigo-500.text-white,
+:root[data-theme='comfort'] .bg-indigo-500.text-white,
+:root[data-theme='light'] [class*="bg-gradient-to-"].text-white,
+:root[data-theme='comfort'] [class*="bg-gradient-to-"].text-white {
+  color: #ffffff !important;
+}
+
 *,
 *::before,
 *::after {
