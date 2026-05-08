@@ -23,6 +23,7 @@ test('extracts color suffix from hyphen or trailing word', () => {
   assert.equal(extractColor('ABC-RED'), 'RED')
   assert.equal(extractColor('ABC blue'), 'BLUE')
   assert.equal(extractColor('ABC-light-blue'), 'LIGHT BLUE')
+  assert.equal(extractColor('LIFEP22-8SILVER'), 'SILVER')
   assert.equal(extractColor('ABC-XL'), '')
 })
 
@@ -30,6 +31,7 @@ test('returns parent SKU when a color suffix is present', () => {
   assert.equal(getParentSku('ABC-RED'), 'ABC')
   assert.equal(getParentSku('ABC BLUE'), 'ABC')
   assert.equal(getParentSku('LIFEP17-16-BLUE'), 'LIFEP17-16')
+  assert.equal(getParentSku('LIFEP22-8SILVER'), 'LIFEP22-8')
   assert.equal(getParentSku('ABC-LIGHT-BLUE'), 'ABC')
 })
 
@@ -76,6 +78,15 @@ test('matches multi-token color suffixes to Vigil parent code', () => {
     matchType: 'parent',
     matchedVigilCode: 'RING-12',
     wholesaleAvailableQty: 8,
+  })
+})
+
+test('matches attached color suffixes after numeric size token', () => {
+  assert.deepEqual(matchZohoSkuToVigil('LIFEP22-8SILVER', [{ itemCode: 'LIFEP22-8', availableStock: 809 }]), {
+    matched: true,
+    matchType: 'parent',
+    matchedVigilCode: 'LIFEP22-8',
+    wholesaleAvailableQty: 809,
   })
 })
 

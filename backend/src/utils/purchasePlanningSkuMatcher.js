@@ -155,6 +155,16 @@ function looksLikeSkuBase(raw) {
   return normalized.length >= 3 && /[A-Z]/.test(normalized)
 }
 
+function splitAttachedColorToken(token) {
+  const normalized = normalizeSku(token)
+  for (const color of CORE_COLORS) {
+    if (!normalized.endsWith(color) || normalized.length <= color.length) continue
+    const base = normalized.slice(0, -color.length)
+    if (/\d$/.test(base) || /[A-Z]\d+$/.test(base)) return { base, color }
+  }
+  return null
+}
+
 function expandColorlessSkuVariants(raw) {
   const normalized = normalizeSeparators(raw)
   if (!normalized) return []
@@ -170,6 +180,12 @@ function expandColorlessSkuVariants(raw) {
     const base = parts.slice(0, -suffixLen).join('-')
     if (looksLikeSkuBase(base)) out.push(base)
     break
+  }
+  const lastPart = parts[parts.length - 1]
+  const split = splitAttachedColorToken(lastPart)
+  if (split) {
+    const base = [...parts.slice(0, -1), split.base].join('-')
+    if (looksLikeSkuBase(base) && !out.includes(base)) out.push(base)
   }
   return out
 }
@@ -202,6 +218,8 @@ function extractColor(code) {
     const suffix = parts.slice(-suffixLen)
     if (looksLikeColorSuffix(suffix)) return suffix.join(' ')
   }
+  const split = splitAttachedColorToken(parts[parts.length - 1])
+  if (split) return split.color
   return ''
 }
 
