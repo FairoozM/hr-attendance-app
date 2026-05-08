@@ -67,6 +67,8 @@ async function resolvePurchasePlanningWarehouse() {
 
 function resolveZohoStock(item) {
   for (const key of [
+    'warehouse_available_for_sale_stock',
+    'location_available_for_sale_stock',
     'available_for_sale_stock',
     'warehouse_available_stock',
     'location_available_stock',
