@@ -189,50 +189,94 @@
   opacity: 0.72;
 }
 
-.pp-filters {
-  flex-direction: row;
+.pp-filter-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  border: 1px solid var(--theme-border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--theme-surface-soft) 78%, transparent);
+}
+
+.pp-filter-toolbar__main {
+  display: flex;
   flex-wrap: wrap;
+  gap: 0.55rem;
   align-items: center;
 }
 
-.pp-filters select,
-.pp-filters input {
+.pp-filter-search {
+  flex: 1 1 18rem;
+  min-width: 16rem;
+}
+
+.pp-filter-toolbar input,
+.pp-filter-toolbar select {
   min-height: 2.35rem;
-  border-radius: 0.75rem;
+  border-radius: 999px;
   border: 1px solid var(--theme-border);
   background: var(--theme-input-inner-bg);
   color: var(--text);
-  padding: 0.45rem 0.65rem;
+  padding: 0.45rem 0.8rem;
 }
 
-.pp-column-filters {
+.pp-filter-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.pp-filter-chip {
+  min-height: 2rem;
+  border-radius: 999px;
+  border: 1px solid var(--theme-border);
+  background: var(--theme-surface);
+  color: var(--text-muted);
+  padding: 0.25rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pp-filter-chip--active {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--theme-border));
+  background: color-mix(in srgb, var(--primary) 12%, var(--theme-surface));
+}
+
+.pp-filter-toolbar__advanced {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.55rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--theme-border);
 }
 
-.pp-column-filters .pp-check,
-.pp-column-filters .btn,
-.pp-column-filters .pp-filter-count {
-  align-self: center;
+.pp-filter-toolbar__advanced--wide {
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
 }
 
-.pp-column-filters .pp-check {
-  min-height: 2.35rem;
+.pp-filter-toolbar__advanced label {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr 1fr;
+  gap: 0.35rem;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.pp-filter-toolbar__advanced input {
+  width: 100%;
+  min-width: 0;
 }
 
 .pp-filter-count {
   color: var(--text-muted);
   font-size: 0.8rem;
   white-space: nowrap;
-}
-
-.pp-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  color: var(--text-muted);
-  font-size: 0.82rem;
 }
 
 .pp-qty-input {

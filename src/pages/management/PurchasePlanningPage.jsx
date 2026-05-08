@@ -4,10 +4,10 @@ import './DocumentExpiryPage.css'
 import './PurchasePlanningPage.css'
 
 const EMPTY_FILTERS = {
+  search: '',
   matchStatus: '',
-  sku: '',
-  itemName: '',
-  vigilCode: '',
+  includedStatus: '',
+  quick: '',
   stockMin: '',
   stockMax: '',
   wholesaleMin: '',
@@ -22,15 +22,11 @@ const EMPTY_FILTERS = {
   suggestedMax: '',
   finalMin: '',
   finalMax: '',
-  includedStatus: '',
-  unavailableOnly: false,
-  criticalOnly: false,
-  includedOnly: false,
 }
 
 const EMPTY_LOW_STOCK_FILTERS = {
-  sku: '',
-  itemName: '',
+  search: '',
+  quick: '',
   stockMin: '',
   stockMax: '',
   salesMin: '',
@@ -50,6 +46,12 @@ function includesText(value, filter) {
   return String(value || '').toLowerCase().includes(needle)
 }
 
+function includesAnyText(values, filter) {
+  const needle = String(filter || '').trim().toLowerCase()
+  if (!needle) return true
+  return values.some((value) => String(value || '').toLowerCase().includes(needle))
+}
+
 function inNumberRange(value, min, max) {
   const n = Number(value || 0)
   const minValue = String(min || '').trim() === '' ? null : Number(min)
@@ -61,6 +63,14 @@ function inNumberRange(value, min, max) {
 
 function Badge({ children, tone = 'muted' }) {
   return <span className={`pp-badge pp-badge--${tone}`}>{children}</span>
+}
+
+function FilterChip({ active, children, onClick }) {
+  return (
+    <button type="button" className={`pp-filter-chip ${active ? 'pp-filter-chip--active' : ''}`} onClick={onClick}>
+      {children}
+    </button>
+  )
 }
 
 function SummaryCards({ plan, lowStock }) {
@@ -107,6 +117,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
   const [error, setError] = useState('')
   const [showMatched, setShowMatched] = useState(true)
   const [showUnmatched, setShowUnmatched] = useState(true)
+  const [showLowAdvancedFilters, setShowLowAdvancedFilters] = useState(false)
   const [lowStockFilters, setLowStockFilters] = useState(EMPTY_LOW_STOCK_FILTERS)
 
   const pendingLowStock = useMemo(
@@ -120,8 +131,10 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
   const filteredLowStock = useMemo(
     () =>
       pendingLowStock.filter((item) => {
-        if (!includesText(item.sku, lowStockFilters.sku)) return false
-        if (!includesText(item.itemName, lowStockFilters.itemName)) return false
+        if (!includesAnyText([item.sku, item.itemName], lowStockFilters.search)) return false
+        if (lowStockFilters.quick === 'no-stock' && Number(item.currentZohoStock || 0) > 0) return false
+        if (lowStockFilters.quick === 'has-sales' && Number(item.totalSalesLast3Months || 0) <= 0) return false
+        if (lowStockFilters.quick === 'composite-used' && Number(item.totalBundleUsageLast3Months || 0) <= 0) return false
         if (!inNumberRange(item.currentZohoStock, lowStockFilters.stockMin, lowStockFilters.stockMax)) return false
         if (!inNumberRange(item.totalSalesLast3Months, lowStockFilters.salesMin, lowStockFilters.salesMax)) return false
         if (!inNumberRange(item.totalBundleUsageLast3Months, lowStockFilters.bundleMin, lowStockFilters.bundleMax)) return false
@@ -248,17 +261,33 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
         </button>
       </div>
       {pendingLowStock.length > 0 && (
-        <div className="doc-filters pp-filters pp-column-filters">
-          <input value={lowStockFilters.sku} onChange={(e) => setLowStockFilters({ ...lowStockFilters, sku: e.target.value })} placeholder="Filter SKU" />
-          <input value={lowStockFilters.itemName} onChange={(e) => setLowStockFilters({ ...lowStockFilters, itemName: e.target.value })} placeholder="Filter item name" />
-          <input type="number" value={lowStockFilters.stockMin} onChange={(e) => setLowStockFilters({ ...lowStockFilters, stockMin: e.target.value })} placeholder="Stock min" />
-          <input type="number" value={lowStockFilters.stockMax} onChange={(e) => setLowStockFilters({ ...lowStockFilters, stockMax: e.target.value })} placeholder="Stock max" />
-          <input type="number" value={lowStockFilters.salesMin} onChange={(e) => setLowStockFilters({ ...lowStockFilters, salesMin: e.target.value })} placeholder="Sales min" />
-          <input type="number" value={lowStockFilters.salesMax} onChange={(e) => setLowStockFilters({ ...lowStockFilters, salesMax: e.target.value })} placeholder="Sales max" />
-          <input type="number" value={lowStockFilters.bundleMin} onChange={(e) => setLowStockFilters({ ...lowStockFilters, bundleMin: e.target.value })} placeholder="Composite min" />
-          <input type="number" value={lowStockFilters.bundleMax} onChange={(e) => setLowStockFilters({ ...lowStockFilters, bundleMax: e.target.value })} placeholder="Composite max" />
-          <button className="btn btn--sm" type="button" onClick={() => setLowStockFilters(EMPTY_LOW_STOCK_FILTERS)}>Clear filters</button>
-          <span className="pp-filter-count">{filteredLowStock.length} of {pendingLowStock.length} SKUs</span>
+        <div className="pp-filter-toolbar">
+          <div className="pp-filter-toolbar__main">
+            <input
+              className="pp-filter-search"
+              value={lowStockFilters.search}
+              onChange={(e) => setLowStockFilters({ ...lowStockFilters, search: e.target.value })}
+              placeholder="Search SKU or Zoho item name"
+            />
+            <div className="pp-filter-chips">
+              <FilterChip active={lowStockFilters.quick === ''} onClick={() => setLowStockFilters({ ...lowStockFilters, quick: '' })}>All</FilterChip>
+              <FilterChip active={lowStockFilters.quick === 'no-stock'} onClick={() => setLowStockFilters({ ...lowStockFilters, quick: lowStockFilters.quick === 'no-stock' ? '' : 'no-stock' })}>No stock</FilterChip>
+              <FilterChip active={lowStockFilters.quick === 'has-sales'} onClick={() => setLowStockFilters({ ...lowStockFilters, quick: lowStockFilters.quick === 'has-sales' ? '' : 'has-sales' })}>Has sales</FilterChip>
+              <FilterChip active={lowStockFilters.quick === 'composite-used'} onClick={() => setLowStockFilters({ ...lowStockFilters, quick: lowStockFilters.quick === 'composite-used' ? '' : 'composite-used' })}>Used in composite</FilterChip>
+            </div>
+            <button className="btn btn--sm" type="button" onClick={() => setShowLowAdvancedFilters((v) => !v)}>
+              {showLowAdvancedFilters ? 'Hide advanced' : 'Advanced'}
+            </button>
+            <button className="btn btn--sm" type="button" onClick={() => setLowStockFilters(EMPTY_LOW_STOCK_FILTERS)}>Clear</button>
+            <span className="pp-filter-count">{filteredLowStock.length} of {pendingLowStock.length} SKUs</span>
+          </div>
+          {showLowAdvancedFilters && (
+            <div className="pp-filter-toolbar__advanced">
+              <label><span>Stock</span><input type="number" value={lowStockFilters.stockMin} onChange={(e) => setLowStockFilters({ ...lowStockFilters, stockMin: e.target.value })} placeholder="Min" /><input type="number" value={lowStockFilters.stockMax} onChange={(e) => setLowStockFilters({ ...lowStockFilters, stockMax: e.target.value })} placeholder="Max" /></label>
+              <label><span>Sales 3M</span><input type="number" value={lowStockFilters.salesMin} onChange={(e) => setLowStockFilters({ ...lowStockFilters, salesMin: e.target.value })} placeholder="Min" /><input type="number" value={lowStockFilters.salesMax} onChange={(e) => setLowStockFilters({ ...lowStockFilters, salesMax: e.target.value })} placeholder="Max" /></label>
+              <label><span>Composite</span><input type="number" value={lowStockFilters.bundleMin} onChange={(e) => setLowStockFilters({ ...lowStockFilters, bundleMin: e.target.value })} placeholder="Min" /><input type="number" value={lowStockFilters.bundleMax} onChange={(e) => setLowStockFilters({ ...lowStockFilters, bundleMax: e.target.value })} placeholder="Max" /></label>
+            </div>
+          )}
         </div>
       )}
       {matchedLowStock.length > 0 && (
@@ -449,13 +478,15 @@ function UploadPanel({ uploads, onUploaded }) {
 }
 
 function PlanTable({ plan, filters, onFiltersChange, onItemChange }) {
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
   const rows = useMemo(() => {
     const source = plan?.items || []
     return source.filter((item) => {
       if (filters.matchStatus && item.matchType !== filters.matchStatus) return false
-      if (!includesText(item.sku, filters.sku)) return false
-      if (!includesText(item.itemName, filters.itemName)) return false
-      if (!includesText(item.vigilCode, filters.vigilCode)) return false
+      if (!includesAnyText([item.sku, item.itemName, item.vigilCode], filters.search)) return false
+      if (filters.quick === 'need-order' && Number(item.finalQty || 0) <= 0) return false
+      if (filters.quick === 'no-wholesale' && Number(item.wholesaleAvailableQty || 0) > 0 && item.matchType !== 'not_found') return false
+      if (filters.quick === 'composite-used' && Number(item.totalBundleUsageLast3Months || 0) <= 0) return false
       if (!inNumberRange(item.currentZohoStock, filters.stockMin, filters.stockMax)) return false
       if (!inNumberRange(item.wholesaleAvailableQty, filters.wholesaleMin, filters.wholesaleMax)) return false
       if (!inNumberRange(item.totalSalesLast3Months, filters.salesMin, filters.salesMax)) return false
@@ -465,9 +496,6 @@ function PlanTable({ plan, filters, onFiltersChange, onItemChange }) {
       if (!inNumberRange(item.finalQty, filters.finalMin, filters.finalMax)) return false
       if (filters.includedStatus === 'included' && !item.included) return false
       if (filters.includedStatus === 'ignored' && item.included) return false
-      if (filters.unavailableOnly && item.wholesaleAvailableQty > 0 && item.matchType !== 'not_found') return false
-      if (filters.criticalOnly && item.currentZohoStock > 0) return false
-      if (filters.includedOnly && !item.included) return false
       return true
     })
   }, [plan, filters])
@@ -486,47 +514,48 @@ function PlanTable({ plan, filters, onFiltersChange, onItemChange }) {
         {plan.zohoPurchaseOrderId && <Badge tone="success">Zoho PO {plan.zohoPurchaseOrderId}</Badge>}
       </div>
 
-      <div className="doc-filters pp-filters pp-column-filters">
-        <input value={filters.sku} onChange={(e) => onFiltersChange({ ...filters, sku: e.target.value })} placeholder="SKU" />
-        <input value={filters.itemName} onChange={(e) => onFiltersChange({ ...filters, itemName: e.target.value })} placeholder="Item name" />
-        <select value={filters.matchStatus} onChange={(e) => onFiltersChange({ ...filters, matchStatus: e.target.value })}>
-          <option value="">All match statuses</option>
-          <option value="exact">Exact</option>
-          <option value="parent">Parent</option>
-          <option value="not_found">Not found</option>
-        </select>
-        <select value={filters.includedStatus} onChange={(e) => onFiltersChange({ ...filters, includedStatus: e.target.value })}>
-          <option value="">All actions</option>
-          <option value="included">Included</option>
-          <option value="ignored">Ignored</option>
-        </select>
-        <input value={filters.vigilCode} onChange={(e) => onFiltersChange({ ...filters, vigilCode: e.target.value })} placeholder="Vigil code" />
-        <input type="number" value={filters.stockMin} onChange={(e) => onFiltersChange({ ...filters, stockMin: e.target.value })} placeholder="Zoho min" />
-        <input type="number" value={filters.stockMax} onChange={(e) => onFiltersChange({ ...filters, stockMax: e.target.value })} placeholder="Zoho max" />
-        <input type="number" value={filters.wholesaleMin} onChange={(e) => onFiltersChange({ ...filters, wholesaleMin: e.target.value })} placeholder="Wholesale min" />
-        <input type="number" value={filters.wholesaleMax} onChange={(e) => onFiltersChange({ ...filters, wholesaleMax: e.target.value })} placeholder="Wholesale max" />
-        <input type="number" value={filters.salesMin} onChange={(e) => onFiltersChange({ ...filters, salesMin: e.target.value })} placeholder="Sales min" />
-        <input type="number" value={filters.salesMax} onChange={(e) => onFiltersChange({ ...filters, salesMax: e.target.value })} placeholder="Sales max" />
-        <input type="number" value={filters.bundleMin} onChange={(e) => onFiltersChange({ ...filters, bundleMin: e.target.value })} placeholder="Bundle min" />
-        <input type="number" value={filters.bundleMax} onChange={(e) => onFiltersChange({ ...filters, bundleMax: e.target.value })} placeholder="Bundle max" />
-        <input type="number" value={filters.avgMin} onChange={(e) => onFiltersChange({ ...filters, avgMin: e.target.value })} placeholder="Avg min" />
-        <input type="number" value={filters.avgMax} onChange={(e) => onFiltersChange({ ...filters, avgMax: e.target.value })} placeholder="Avg max" />
-        <input type="number" value={filters.suggestedMin} onChange={(e) => onFiltersChange({ ...filters, suggestedMin: e.target.value })} placeholder="Suggested min" />
-        <input type="number" value={filters.suggestedMax} onChange={(e) => onFiltersChange({ ...filters, suggestedMax: e.target.value })} placeholder="Suggested max" />
-        <input type="number" value={filters.finalMin} onChange={(e) => onFiltersChange({ ...filters, finalMin: e.target.value })} placeholder="Final min" />
-        <input type="number" value={filters.finalMax} onChange={(e) => onFiltersChange({ ...filters, finalMax: e.target.value })} placeholder="Final max" />
-        {[
-          ['unavailableOnly', 'Unavailable only'],
-          ['criticalOnly', 'Critical stock'],
-          ['includedOnly', 'Included only'],
-        ].map(([key, label]) => (
-          <label className="pp-check" key={key}>
-            <input type="checkbox" checked={filters[key]} onChange={(e) => onFiltersChange({ ...filters, [key]: e.target.checked })} />
-            {label}
-          </label>
-        ))}
-        <button className="btn btn--sm" type="button" onClick={() => onFiltersChange(EMPTY_FILTERS)}>Clear filters</button>
-        <span className="pp-filter-count">{rows.length} of {plan.items.length} lines</span>
+      <div className="pp-filter-toolbar">
+        <div className="pp-filter-toolbar__main">
+          <input
+            className="pp-filter-search"
+            value={filters.search}
+            onChange={(e) => onFiltersChange({ ...filters, search: e.target.value })}
+            placeholder="Search SKU, item name, or Vigil code"
+          />
+          <div className="pp-filter-chips">
+            <FilterChip active={filters.quick === ''} onClick={() => onFiltersChange({ ...filters, quick: '' })}>All</FilterChip>
+            <FilterChip active={filters.quick === 'need-order'} onClick={() => onFiltersChange({ ...filters, quick: filters.quick === 'need-order' ? '' : 'need-order' })}>Need order</FilterChip>
+            <FilterChip active={filters.quick === 'no-wholesale'} onClick={() => onFiltersChange({ ...filters, quick: filters.quick === 'no-wholesale' ? '' : 'no-wholesale' })}>No wholesale</FilterChip>
+            <FilterChip active={filters.quick === 'composite-used'} onClick={() => onFiltersChange({ ...filters, quick: filters.quick === 'composite-used' ? '' : 'composite-used' })}>Used in composite</FilterChip>
+          </div>
+          <select value={filters.matchStatus} onChange={(e) => onFiltersChange({ ...filters, matchStatus: e.target.value })}>
+            <option value="">Any match</option>
+            <option value="exact">Exact</option>
+            <option value="parent">Parent</option>
+            <option value="not_found">Not found</option>
+          </select>
+          <select value={filters.includedStatus} onChange={(e) => onFiltersChange({ ...filters, includedStatus: e.target.value })}>
+            <option value="">Any action</option>
+            <option value="included">Included</option>
+            <option value="ignored">Ignored</option>
+          </select>
+          <button className="btn btn--sm" type="button" onClick={() => setShowAdvancedFilters((v) => !v)}>
+            {showAdvancedFilters ? 'Hide advanced' : 'Advanced'}
+          </button>
+          <button className="btn btn--sm" type="button" onClick={() => onFiltersChange(EMPTY_FILTERS)}>Clear</button>
+          <span className="pp-filter-count">{rows.length} of {plan.items.length} lines</span>
+        </div>
+        {showAdvancedFilters && (
+          <div className="pp-filter-toolbar__advanced pp-filter-toolbar__advanced--wide">
+            <label><span>Zoho stock</span><input type="number" value={filters.stockMin} onChange={(e) => onFiltersChange({ ...filters, stockMin: e.target.value })} placeholder="Min" /><input type="number" value={filters.stockMax} onChange={(e) => onFiltersChange({ ...filters, stockMax: e.target.value })} placeholder="Max" /></label>
+            <label><span>Wholesale</span><input type="number" value={filters.wholesaleMin} onChange={(e) => onFiltersChange({ ...filters, wholesaleMin: e.target.value })} placeholder="Min" /><input type="number" value={filters.wholesaleMax} onChange={(e) => onFiltersChange({ ...filters, wholesaleMax: e.target.value })} placeholder="Max" /></label>
+            <label><span>Sales 3M</span><input type="number" value={filters.salesMin} onChange={(e) => onFiltersChange({ ...filters, salesMin: e.target.value })} placeholder="Min" /><input type="number" value={filters.salesMax} onChange={(e) => onFiltersChange({ ...filters, salesMax: e.target.value })} placeholder="Max" /></label>
+            <label><span>Bundle 3M</span><input type="number" value={filters.bundleMin} onChange={(e) => onFiltersChange({ ...filters, bundleMin: e.target.value })} placeholder="Min" /><input type="number" value={filters.bundleMax} onChange={(e) => onFiltersChange({ ...filters, bundleMax: e.target.value })} placeholder="Max" /></label>
+            <label><span>Avg monthly</span><input type="number" value={filters.avgMin} onChange={(e) => onFiltersChange({ ...filters, avgMin: e.target.value })} placeholder="Min" /><input type="number" value={filters.avgMax} onChange={(e) => onFiltersChange({ ...filters, avgMax: e.target.value })} placeholder="Max" /></label>
+            <label><span>Suggested</span><input type="number" value={filters.suggestedMin} onChange={(e) => onFiltersChange({ ...filters, suggestedMin: e.target.value })} placeholder="Min" /><input type="number" value={filters.suggestedMax} onChange={(e) => onFiltersChange({ ...filters, suggestedMax: e.target.value })} placeholder="Max" /></label>
+            <label><span>Final qty</span><input type="number" value={filters.finalMin} onChange={(e) => onFiltersChange({ ...filters, finalMin: e.target.value })} placeholder="Min" /><input type="number" value={filters.finalMax} onChange={(e) => onFiltersChange({ ...filters, finalMax: e.target.value })} placeholder="Max" /></label>
+          </div>
+        )}
       </div>
 
       <div className="doc-table-wrap">
