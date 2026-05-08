@@ -186,6 +186,15 @@
   color: var(--danger);
 }
 
+.pp-status-detail {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .pp-sort-header {
   display: inline-flex;
   align-items: center;
@@ -218,7 +227,7 @@
 }
 
 .pp-plan-table {
-  min-width: 1600px;
+  min-width: 1720px;
 }
 
 .pp-row--invalid td {

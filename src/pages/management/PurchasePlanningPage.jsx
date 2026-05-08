@@ -51,6 +51,13 @@ function getStockRemark(item) {
   return vigilStock <= 0 && zohoStock <= 3 ? 'Out of stock' : ''
 }
 
+function getPoStockStatus(item) {
+  const remaining = Number(item.wholesaleAvailableQty || 0) - Number(item.finalQty || 0)
+  if (remaining < 0) return { label: 'Adjust qty', tone: 'danger', remaining }
+  if (remaining >= 50) return { label: 'Ok', tone: 'success', remaining }
+  return { label: 'Critical', tone: remaining > 10 ? 'warning' : 'danger', remaining }
+}
+
 function includesText(value, filter) {
   const needle = String(filter || '').trim().toLowerCase()
   if (!needle) return true
@@ -593,6 +600,7 @@ function PlanTable({ plan, filters, onFiltersChange, onItemChange }) {
         averageMonthlyUsage: (item) => Number(item.averageMonthlyUsage || 0),
         suggestedQty: (item) => Number(item.suggestedQty || 0),
         finalQty: (item) => Number(item.finalQty || 0),
+        poStatus: (item) => getPoStockStatus(item).label,
         matchType: (item) => item.matchType,
         remarks: (item) => getStockRemark(item),
         included: (item) => (item.included ? 'included' : 'ignored'),
@@ -672,6 +680,7 @@ function PlanTable({ plan, filters, onFiltersChange, onItemChange }) {
               <SortHeader label="Avg Monthly" sortKey="averageMonthlyUsage" sort={planSort} onSort={setPlanSort} />
               <SortHeader label="Suggested" sortKey="suggestedQty" sort={planSort} onSort={setPlanSort} />
               <SortHeader label="Final Qty" sortKey="finalQty" sort={planSort} onSort={setPlanSort} />
+              <SortHeader label="Status after PO" sortKey="poStatus" sort={planSort} onSort={setPlanSort} />
               <SortHeader label="Match" sortKey="matchType" sort={planSort} onSort={setPlanSort} />
               <SortHeader label="Remarks" sortKey="remarks" sort={planSort} onSort={setPlanSort} />
               <SortHeader label="Action" sortKey="included" sort={planSort} onSort={setPlanSort} />
@@ -699,6 +708,10 @@ function PlanTable({ plan, filters, onFiltersChange, onItemChange }) {
                   />
                 </td>
                 <td>
+                  <Badge tone={getPoStockStatus(item).tone}>{getPoStockStatus(item).label}</Badge>
+                  <span className="pp-status-detail">Rem {fmt(getPoStockStatus(item).remaining)}</span>
+                </td>
+                <td>
                   <Badge tone={item.matchType === 'exact' ? 'success' : item.matchType === 'parent' ? 'warning' : 'danger'}>
                     {item.matchType}
                   </Badge>
@@ -716,7 +729,7 @@ function PlanTable({ plan, filters, onFiltersChange, onItemChange }) {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan="13" className="pp-empty-cell">No items match the current filters.</td>
+                <td colSpan="14" className="pp-empty-cell">No items match the current filters.</td>
               </tr>
             )}
           </tbody>

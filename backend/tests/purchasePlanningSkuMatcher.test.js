@@ -193,3 +193,27 @@ test('purchase planning composite usage rolls sold kits down to component quanti
   assert.equal(_internals.bundleUsageQtyForItem(usage, { sku: 'COMP-B', zoho_item_id: 'component-b' }), 3)
   assert.equal(_internals.bundleUsageQtyForItem(usage, { sku: 'REGULAR-1', zoho_item_id: 'regular-1' }), 0)
 })
+
+test('purchase planning quantities use sales plus bundle usage and cap final qty by Vigil stock', () => {
+  assert.deepEqual(_internals.calculatePlanQuantities({
+    totalSales: 12,
+    totalBundle: 8,
+    vigilAvailable: 100,
+  }), {
+    suggestedQty: 20,
+    finalQty: 20,
+    remainingVigilQty: 80,
+    wasAdjustedForVigil: false,
+  })
+
+  assert.deepEqual(_internals.calculatePlanQuantities({
+    totalSales: 12,
+    totalBundle: 8,
+    vigilAvailable: 15,
+  }), {
+    suggestedQty: 20,
+    finalQty: 15,
+    remainingVigilQty: 0,
+    wasAdjustedForVigil: true,
+  })
+})

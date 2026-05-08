@@ -153,6 +153,17 @@ function mapPlanItemRow(row) {
   }
 }
 
+function calculatePlanQuantities({ totalSales = 0, totalBundle = 0, vigilAvailable = 0 }) {
+  const requiredQty = Math.max(0, Math.ceil(toNumber(totalSales) + toNumber(totalBundle)))
+  const available = Math.max(0, Math.floor(toNumber(vigilAvailable)))
+  return {
+    suggestedQty: requiredQty,
+    finalQty: Math.min(requiredQty, available),
+    remainingVigilQty: available - Math.min(requiredQty, available),
+    wasAdjustedForVigil: requiredQty > available,
+  }
+}
+
 async function ensurePurchasePlanningTables() {
   await query(`
     CREATE TABLE IF NOT EXISTS purchase_low_stock_items (
@@ -791,14 +802,19 @@ async function generatePlan({ createdBy }) {
       })
       const totalUsage = totalSales + totalBundle
       const averageMonthlyUsage = totalUsage / 3
-      const requiredQty = Math.ceil((averageMonthlyUsage * 3) - item.currentZohoStock)
       const available = match.matched ? Math.max(0, Math.floor(match.wholesaleAvailableQty)) : 0
-      const suggestedQty = requiredQty <= 0 ? 0 : Math.min(requiredQty, available)
-      const included = suggestedQty > 0 && available > 0 && match.matched
+      const { suggestedQty, finalQty, wasAdjustedForVigil } = calculatePlanQuantities({
+        totalSales,
+        totalBundle,
+        vigilAvailable: available,
+      })
+      const included = finalQty > 0 && available > 0 && match.matched
       const notes = !match.matched
         ? 'No matching Vigil stock row'
         : available <= 0
           ? 'Unavailable in wholesale stock'
+          : wasAdjustedForVigil
+            ? 'Vigil stock below required usage; final qty auto-adjusted'
           : ''
 
       const itemResult = await client.query(
@@ -833,7 +849,7 @@ async function generatePlan({ createdBy }) {
           totalUsage,
           averageMonthlyUsage,
           suggestedQty,
-          suggestedQty,
+          finalQty,
           included,
           notes,
         ]
@@ -1024,6 +1040,7 @@ module.exports = {
     buildZohoItemIndex,
     buildCompositeUsageAggregate,
     bundleUsageQtyForItem,
+    calculatePlanQuantities,
     resolveZohoStock,
     resolvePurchasePlanningWarehouse,
     applyVigilMatchesToLowStockRows,
