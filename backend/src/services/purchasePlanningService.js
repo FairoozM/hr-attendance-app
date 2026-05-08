@@ -178,14 +178,26 @@ async function ensurePurchasePlanningTables() {
 function buildZohoItemIndex(items) {
   const bySku = new Map()
   for (const item of Array.isArray(items) ? items : []) {
-    const sku = normalizeSku(item.sku || item.item_code || item.code)
-    if (!sku || bySku.has(sku)) continue
-    bySku.set(sku, {
-      sku: clean(item.sku || item.item_code || item.code),
+    const primaryCode = clean(item.sku || item.item_code || item.code)
+    const entry = {
+      sku: primaryCode,
       itemName: clean(item.name || item.item_name),
       zohoItemId: clean(item.item_id || item.id),
       currentZohoStock: resolveZohoStock(item),
-    })
+    }
+    const identifiers = [
+      primaryCode,
+      item.item_code,
+      item.code,
+      item.name,
+      item.item_name,
+      item.part_number,
+    ]
+    for (const rawIdentifier of identifiers) {
+      const key = normalizeSku(rawIdentifier)
+      if (!key || bySku.has(key)) continue
+      bySku.set(key, entry)
+    }
   }
   return bySku
 }
@@ -207,7 +219,7 @@ async function enrichUploadedLowStockSkus(skus) {
     }
     return {
       ...match,
-      sku: match.sku || uploadedSku,
+      sku: uploadedSku,
       matchedInZoho: true,
     }
   })
