@@ -35,6 +35,9 @@ const EMPTY_LOW_STOCK_FILTERS = {
   bundleMax: '',
 }
 
+const DEFAULT_LOW_STOCK_SORT = { key: 'sku', direction: 'asc' }
+const DEFAULT_PLAN_SORT = { key: 'sku', direction: 'asc' }
+
 function fmt(n) {
   const value = Number(n || 0)
   return Number.isInteger(value) ? String(value) : value.toFixed(1)
@@ -61,6 +64,25 @@ function inNumberRange(value, min, max) {
   return true
 }
 
+function nextSort(current, key) {
+  if (current.key !== key) return { key, direction: 'asc' }
+  return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+}
+
+function compareSortValues(a, b) {
+  const aNumber = typeof a === 'number' ? a : Number.NaN
+  const bNumber = typeof b === 'number' ? b : Number.NaN
+  if (Number.isFinite(aNumber) && Number.isFinite(bNumber)) return aNumber - bNumber
+  return String(a || '').localeCompare(String(b || ''), undefined, { numeric: true, sensitivity: 'base' })
+}
+
+function sortRows(rows, sort, accessors) {
+  const accessor = accessors[sort.key]
+  if (!accessor) return rows
+  const direction = sort.direction === 'desc' ? -1 : 1
+  return [...rows].sort((a, b) => compareSortValues(accessor(a), accessor(b)) * direction)
+}
+
 function Badge({ children, tone = 'muted' }) {
   return <span className={`pp-badge pp-badge--${tone}`}>{children}</span>
 }
@@ -70,6 +92,22 @@ function FilterChip({ active, children, onClick }) {
     <button type="button" className={`pp-filter-chip ${active ? 'pp-filter-chip--active' : ''}`} onClick={onClick}>
       {children}
     </button>
+  )
+}
+
+function SortHeader({ label, sortKey, sort, onSort }) {
+  const active = sort.key === sortKey
+  return (
+    <th>
+      <button
+        type="button"
+        className={`pp-sort-header ${active ? 'pp-sort-header--active' : ''}`}
+        onClick={() => onSort(nextSort(sort, sortKey))}
+      >
+        <span>{label}</span>
+        <span className="pp-sort-header__icon">{active ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}</span>
+      </button>
+    </th>
   )
 }
 
@@ -119,6 +157,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
   const [showUnmatched, setShowUnmatched] = useState(true)
   const [showLowAdvancedFilters, setShowLowAdvancedFilters] = useState(false)
   const [lowStockFilters, setLowStockFilters] = useState(EMPTY_LOW_STOCK_FILTERS)
+  const [lowStockSort, setLowStockSort] = useState(DEFAULT_LOW_STOCK_SORT)
 
   const pendingLowStock = useMemo(
     () =>
@@ -143,14 +182,27 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
     [pendingLowStock, lowStockFilters]
   )
 
+  const sortedLowStock = useMemo(
+    () =>
+      sortRows(filteredLowStock, lowStockSort, {
+        sku: (item) => item.sku,
+        itemName: (item) => item.itemName,
+        status: (item) => (item.zohoItemId ? 'matched' : 'not matched'),
+        currentZohoStock: (item) => Number(item.currentZohoStock || 0),
+        totalSalesLast3Months: (item) => Number(item.totalSalesLast3Months || 0),
+        totalBundleUsageLast3Months: (item) => Number(item.totalBundleUsageLast3Months || 0),
+      }),
+    [filteredLowStock, lowStockSort]
+  )
+
   const matchedLowStock = useMemo(
-    () => filteredLowStock.filter((item) => String(item.zohoItemId || '').trim()),
-    [filteredLowStock]
+    () => sortedLowStock.filter((item) => String(item.zohoItemId || '').trim()),
+    [sortedLowStock]
   )
 
   const unmatchedLowStock = useMemo(
-    () => filteredLowStock.filter((item) => !String(item.zohoItemId || '').trim()),
-    [filteredLowStock]
+    () => sortedLowStock.filter((item) => !String(item.zohoItemId || '').trim()),
+    [sortedLowStock]
   )
 
   const copyUnmatched = useCallback(async () => {
@@ -312,11 +364,11 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                 <thead>
                   <tr>
                     <th>#</th>
-                    <th>Uploaded SKU</th>
-                    <th>Zoho item name</th>
-                    <th>Life Smile Available Stock</th>
-                    <th>Sales Qty (3M)</th>
-                    <th>Composite Usage Qty</th>
+                    <SortHeader label="Uploaded SKU" sortKey="sku" sort={lowStockSort} onSort={setLowStockSort} />
+                    <SortHeader label="Zoho item name" sortKey="itemName" sort={lowStockSort} onSort={setLowStockSort} />
+                    <SortHeader label="Life Smile Available Stock" sortKey="currentZohoStock" sort={lowStockSort} onSort={setLowStockSort} />
+                    <SortHeader label="Sales Qty (3M)" sortKey="totalSalesLast3Months" sort={lowStockSort} onSort={setLowStockSort} />
+                    <SortHeader label="Composite Usage Qty" sortKey="totalBundleUsageLast3Months" sort={lowStockSort} onSort={setLowStockSort} />
                   </tr>
                 </thead>
                 <tbody>
@@ -358,11 +410,11 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                 <thead>
                   <tr>
                     <th>#</th>
-                    <th>Uploaded SKU</th>
-                    <th>Status</th>
-                    <th>Life Smile Available Stock</th>
-                    <th>Sales Qty (3M)</th>
-                    <th>Composite Usage Qty</th>
+                    <SortHeader label="Uploaded SKU" sortKey="sku" sort={lowStockSort} onSort={setLowStockSort} />
+                    <SortHeader label="Status" sortKey="status" sort={lowStockSort} onSort={setLowStockSort} />
+                    <SortHeader label="Life Smile Available Stock" sortKey="currentZohoStock" sort={lowStockSort} onSort={setLowStockSort} />
+                    <SortHeader label="Sales Qty (3M)" sortKey="totalSalesLast3Months" sort={lowStockSort} onSort={setLowStockSort} />
+                    <SortHeader label="Composite Usage Qty" sortKey="totalBundleUsageLast3Months" sort={lowStockSort} onSort={setLowStockSort} />
                   </tr>
                 </thead>
                 <tbody>
@@ -479,7 +531,8 @@ function UploadPanel({ uploads, onUploaded }) {
 
 function PlanTable({ plan, filters, onFiltersChange, onItemChange }) {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
-  const rows = useMemo(() => {
+  const [planSort, setPlanSort] = useState(DEFAULT_PLAN_SORT)
+  const filteredRows = useMemo(() => {
     const source = plan?.items || []
     return source.filter((item) => {
       if (filters.matchStatus && item.matchType !== filters.matchStatus) return false
@@ -499,6 +552,25 @@ function PlanTable({ plan, filters, onFiltersChange, onItemChange }) {
       return true
     })
   }, [plan, filters])
+
+  const rows = useMemo(
+    () =>
+      sortRows(filteredRows, planSort, {
+        sku: (item) => item.sku,
+        itemName: (item) => item.itemName,
+        currentZohoStock: (item) => Number(item.currentZohoStock || 0),
+        vigilCode: (item) => item.vigilCode,
+        wholesaleAvailableQty: (item) => Number(item.wholesaleAvailableQty || 0),
+        totalSalesLast3Months: (item) => Number(item.totalSalesLast3Months || 0),
+        totalBundleUsageLast3Months: (item) => Number(item.totalBundleUsageLast3Months || 0),
+        averageMonthlyUsage: (item) => Number(item.averageMonthlyUsage || 0),
+        suggestedQty: (item) => Number(item.suggestedQty || 0),
+        finalQty: (item) => Number(item.finalQty || 0),
+        matchType: (item) => item.matchType,
+        included: (item) => (item.included ? 'included' : 'ignored'),
+      }),
+    [filteredRows, planSort]
+  )
 
   if (!plan) {
     return <div className="pp-empty">Generate or open a draft purchase plan to review SKUs and final quantities.</div>
@@ -562,18 +634,18 @@ function PlanTable({ plan, filters, onFiltersChange, onItemChange }) {
         <table className="doc-table pp-plan-table">
           <thead>
             <tr>
-              <th>SKU</th>
-              <th>Item Name</th>
-              <th>Zoho Stock</th>
-              <th>Vigil Code</th>
-              <th>Wholesale</th>
-              <th>Sales 3M</th>
-              <th>Bundle 3M</th>
-              <th>Avg Monthly</th>
-              <th>Suggested</th>
-              <th>Final Qty</th>
-              <th>Match</th>
-              <th>Action</th>
+              <SortHeader label="SKU" sortKey="sku" sort={planSort} onSort={setPlanSort} />
+              <SortHeader label="Item Name" sortKey="itemName" sort={planSort} onSort={setPlanSort} />
+              <SortHeader label="Zoho Stock" sortKey="currentZohoStock" sort={planSort} onSort={setPlanSort} />
+              <SortHeader label="Vigil Code" sortKey="vigilCode" sort={planSort} onSort={setPlanSort} />
+              <SortHeader label="Wholesale" sortKey="wholesaleAvailableQty" sort={planSort} onSort={setPlanSort} />
+              <SortHeader label="Sales 3M" sortKey="totalSalesLast3Months" sort={planSort} onSort={setPlanSort} />
+              <SortHeader label="Bundle 3M" sortKey="totalBundleUsageLast3Months" sort={planSort} onSort={setPlanSort} />
+              <SortHeader label="Avg Monthly" sortKey="averageMonthlyUsage" sort={planSort} onSort={setPlanSort} />
+              <SortHeader label="Suggested" sortKey="suggestedQty" sort={planSort} onSort={setPlanSort} />
+              <SortHeader label="Final Qty" sortKey="finalQty" sort={planSort} onSort={setPlanSort} />
+              <SortHeader label="Match" sortKey="matchType" sort={planSort} onSort={setPlanSort} />
+              <SortHeader label="Action" sortKey="included" sort={planSort} onSort={setPlanSort} />
             </tr>
           </thead>
           <tbody>
