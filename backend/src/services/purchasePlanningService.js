@@ -5,10 +5,13 @@ const {
   normalizeSku,
   matchZohoSkuToVigil,
 } = require('../utils/purchasePlanningSkuMatcher')
-const { fetchAllItemsRaw } = require('../integrations/zoho/zohoAdapter')
+const { fetchItemsRawForWarehouse } = require('../integrations/zoho/zohoAdapter')
 const { getSales } = require('../integrations/zoho/weeklyReportZohoTransactions')
 const { readZohoConfig, INVENTORY_V1 } = require('../integrations/zoho/zohoConfig')
 const { zohoApiRequest } = require('../integrations/zoho/zohoInventoryClient')
+const { fetchWarehouses } = require('../integrations/zoho/zohoWarehouses')
+
+const DEFAULT_PURCHASE_PLANNING_WAREHOUSE_NAME = 'LIFE SMILE'
 
 function clean(value) {
   return String(value == null ? '' : value).trim()
@@ -30,13 +33,50 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10)
 }
 
+function normalizeWarehouseName(value) {
+  return clean(value).replace(/\s+/g, ' ').toUpperCase()
+}
+
+async function resolvePurchasePlanningWarehouse() {
+  const configuredId = clean(process.env.PURCHASE_PLANNING_WAREHOUSE_ID || process.env.LIFE_SMILE_WAREHOUSE_ID)
+  const configuredName = normalizeWarehouseName(
+    process.env.PURCHASE_PLANNING_WAREHOUSE_NAME || DEFAULT_PURCHASE_PLANNING_WAREHOUSE_NAME
+  )
+  if (configuredId) {
+    return {
+      warehouseId: configuredId,
+      warehouseName: configuredName || DEFAULT_PURCHASE_PLANNING_WAREHOUSE_NAME,
+    }
+  }
+
+  const warehouses = await fetchWarehouses()
+  const match = warehouses.find((warehouse) => {
+    const name = normalizeWarehouseName(warehouse.warehouse_name || warehouse.location_name || warehouse.name)
+    return name === configuredName
+  })
+  if (!match) {
+    const err = new Error(`Zoho warehouse "${configuredName || DEFAULT_PURCHASE_PLANNING_WAREHOUSE_NAME}" was not found`)
+    err.code = 'PURCHASE_PLANNING_WAREHOUSE_NOT_FOUND'
+    throw err
+  }
+  return {
+    warehouseId: clean(match.warehouse_id || match.location_id || match.id),
+    warehouseName: clean(match.warehouse_name || match.location_name || match.name),
+  }
+}
+
 function resolveZohoStock(item) {
   for (const key of [
-    'actual_available_stock',
-    'available_stock',
-    'stock_on_hand',
     'available_for_sale_stock',
+    'warehouse_available_stock',
+    'location_available_stock',
+    'available_stock',
+    'warehouse_actual_available_stock',
+    'location_actual_available_stock',
+    'actual_available_stock',
+    'stock_on_hand',
     'warehouse_stock_on_hand',
+    'location_stock_on_hand',
     'quantity_available',
   ]) {
     const n = toNumber(item && item[key], NaN)
@@ -203,7 +243,8 @@ function buildZohoItemIndex(items) {
 }
 
 async function enrichUploadedLowStockSkus(skus) {
-  const items = await fetchAllItemsRaw()
+  const warehouse = await resolvePurchasePlanningWarehouse()
+  const items = await fetchItemsRawForWarehouse(warehouse.warehouseId)
   const bySku = buildZohoItemIndex(items)
   return skus.map((rawSku) => {
     const uploadedSku = clean(rawSku)
@@ -842,4 +883,9 @@ module.exports = {
   getPlan,
   updatePlanItem,
   createZohoPurchaseOrder,
+  _internals: {
+    buildZohoItemIndex,
+    resolveZohoStock,
+    resolvePurchasePlanningWarehouse,
+  },
 }

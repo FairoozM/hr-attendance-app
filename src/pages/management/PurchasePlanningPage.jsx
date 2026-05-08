@@ -178,7 +178,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
       </div>
       <div className="pp-upload-history">
         <strong>Zoho enrichment</strong>
-        <span>Refresh item names and current stock for uploaded SKUs. May use Zoho API calls if the item cache is expired.</span>
+        <span>Refresh item names and Life Smile warehouse available-for-sale stock for uploaded SKUs. May use Zoho API calls if the item cache is expired.</span>
         <button
           className="btn"
           disabled={refreshBusy || lowStock.filter((item) => item.status === 'pending').length === 0}
@@ -211,7 +211,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                     <th>#</th>
                     <th>Uploaded SKU</th>
                     <th>Zoho item name</th>
-                    <th>Current Zoho Stock</th>
+                    <th>Life Smile Available Stock</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -253,7 +253,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                     <th>#</th>
                     <th>Uploaded SKU</th>
                     <th>Status</th>
-                    <th>Current Zoho Stock</th>
+                    <th>Life Smile Available Stock</th>
                   </tr>
                 </thead>
                 <tbody>

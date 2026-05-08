@@ -11,6 +11,7 @@ const {
 const {
   parseVigilExcel,
   previewLowStockUpload,
+  _internals,
 } = require('../src/services/purchasePlanningService')
 
 test('normalizes SKU spacing, case, non-breaking spaces, and long dashes', () => {
@@ -73,4 +74,24 @@ test('parses low-stock SKU upload without a header row', () => {
   assert.equal(parsed.summary.validRows, 2)
   assert.equal(parsed.rows[0].normalizedSku, 'ABC-BLACK')
   assert.equal(parsed.rows[1].normalizedSku, 'ABC-BLUE')
+})
+
+test('purchase planning item index matches Zoho item names and prefers warehouse available stock', () => {
+  const index = _internals.buildZohoItemIndex([
+    {
+      item_id: 'z1',
+      name: 'DSH-14',
+      sku: '6291109111320',
+      actual_available_stock: '0',
+      available_stock: '2',
+      stock_on_hand: '9',
+    },
+  ])
+
+  assert.deepEqual(index.get('DSH-14'), {
+    sku: '6291109111320',
+    itemName: 'DSH-14',
+    zohoItemId: 'z1',
+    currentZohoStock: 2,
+  })
 })
