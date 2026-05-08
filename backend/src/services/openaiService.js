@@ -28,6 +28,44 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms))
 }
 
+function defaultModel() {
+  return String(process.env.OPENAI_DEFAULT_MODEL || 'gpt-4.1-mini').trim()
+}
+
+/**
+ * Minimal connectivity check for GET /api/ai/test-openai (same key + model as real requests).
+ * @returns {Promise<{ ok: boolean, reply: string, usage: { promptTokens: number, completionTokens: number, totalTokens: number } }>}
+ */
+async function testOpenAI() {
+  const model = defaultModel()
+  try {
+    const client = getOpenAiClient()
+    const completion = await client.chat.completions.create({
+      model,
+      messages: [{ role: 'user', content: 'Respond with the single word: ok' }],
+      max_tokens: 16,
+      temperature: 0,
+    })
+    const reply = String(completion?.choices?.[0]?.message?.content ?? '').trim()
+    const u = completion?.usage || {}
+    const promptTokens = Number(u.prompt_tokens) || 0
+    const completionTokens = Number(u.completion_tokens) || 0
+    const totalTokens = Number(u.total_tokens) || promptTokens + completionTokens
+    return {
+      ok: true,
+      reply,
+      usage: { promptTokens, completionTokens, totalTokens },
+    }
+  } catch (err) {
+    if (err?.code === 'MISSING_API_KEY') throw err
+    const wrapped = new Error(err?.message || 'OpenAI connectivity test failed')
+    wrapped.name = 'OpenAIServiceError'
+    wrapped.code = 'OPENAI_TEST_FAILED'
+    wrapped.cause = err
+    throw wrapped
+  }
+}
+
 /**
  * Chat completion with JSON response format, timeout, and limited retries (429 / 5xx).
  *
@@ -105,4 +143,6 @@ module.exports = {
   getApiKey,
   getOpenAiClient,
   completeChatJson,
+  testOpenAI,
+  defaultModel,
 }
