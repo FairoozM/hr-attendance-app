@@ -352,6 +352,58 @@
   color: var(--text-dim) !important;
 }
 
+:root[data-theme='light'] .text-violet-100,
+:root[data-theme='comfort'] .text-violet-100,
+:root[data-theme='light'] .text-violet-200,
+:root[data-theme='comfort'] .text-violet-200,
+:root[data-theme='light'] .text-violet-300,
+:root[data-theme='comfort'] .text-violet-300 {
+  color: color-mix(in srgb, var(--theme-primary) 72%, var(--text)) !important;
+}
+
+:root[data-theme='light'] .text-emerald-100,
+:root[data-theme='comfort'] .text-emerald-100,
+:root[data-theme='light'] .text-emerald-200,
+:root[data-theme='comfort'] .text-emerald-200,
+:root[data-theme='light'] .text-emerald-300,
+:root[data-theme='comfort'] .text-emerald-300 {
+  color: #047857 !important;
+}
+
+:root[data-theme='light'] .text-sky-100,
+:root[data-theme='comfort'] .text-sky-100,
+:root[data-theme='light'] .text-sky-200,
+:root[data-theme='comfort'] .text-sky-200,
+:root[data-theme='light'] .text-sky-300,
+:root[data-theme='comfort'] .text-sky-300 {
+  color: #0369a1 !important;
+}
+
+:root[data-theme='light'] .text-amber-100,
+:root[data-theme='comfort'] .text-amber-100,
+:root[data-theme='light'] .text-amber-200,
+:root[data-theme='comfort'] .text-amber-200,
+:root[data-theme='light'] .text-amber-300,
+:root[data-theme='comfort'] .text-amber-300 {
+  color: #92400e !important;
+}
+
+:root[data-theme='light'] .text-rose-100,
+:root[data-theme='comfort'] .text-rose-100,
+:root[data-theme='light'] .text-rose-200,
+:root[data-theme='comfort'] .text-rose-200,
+:root[data-theme='light'] .text-rose-300,
+:root[data-theme='comfort'] .text-rose-300 {
+  color: #be123c !important;
+}
+
+:root[data-theme='light'] .file\:text-violet-100::file-selector-button,
+:root[data-theme='comfort'] .file\:text-violet-100::file-selector-button,
+:root[data-theme='light'] .file\:text-violet-200::file-selector-button,
+:root[data-theme='comfort'] .file\:text-violet-200::file-selector-button {
+  color: color-mix(in srgb, var(--theme-primary) 72%, var(--text)) !important;
+}
+
 :root[data-theme='light'] .bg-black\/15,
 :root[data-theme='comfort'] .bg-black\/15,
 :root[data-theme='light'] .bg-black\/20,

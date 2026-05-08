@@ -29,6 +29,7 @@ async function uploadBatch(req, res) {
     })
     res.json({ success: true, batch: result })
   } catch (err) {
+    console.error('[listing-batches] upload failed:', err?.message || err)
     const status = err.code === 'UNSUPPORTED_FILE_TYPE' || err.code === 'SKU_COLUMN_MISSING' ? 400 : 500
     res.status(status).json({ success: false, error: err.message || 'Upload failed', code: err.code || 'UPLOAD_FAILED' })
   }
