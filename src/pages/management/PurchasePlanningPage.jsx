@@ -45,6 +45,12 @@ function fmt(n) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1)
 }
 
+function getStockRemark(item) {
+  const vigilStock = Number(item.vigilStock ?? item.wholesaleAvailableQty ?? 0)
+  const zohoStock = Number(item.currentZohoStock || 0)
+  return vigilStock <= 0 && zohoStock <= 3 ? 'Out of stock' : ''
+}
+
 function includesText(value, filter) {
   const needle = String(filter || '').trim().toLowerCase()
   if (!needle) return true
@@ -197,6 +203,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
         currentZohoStock: (item) => Number(item.currentZohoStock || 0),
         totalSalesLast3Months: (item) => Number(item.totalSalesLast3Months || 0),
         totalBundleUsageLast3Months: (item) => Number(item.totalBundleUsageLast3Months || 0),
+        remarks: (item) => getStockRemark(item),
       }),
     [filteredLowStock, lowStockSort]
   )
@@ -379,6 +386,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                     <SortHeader label="Life Smile Available Stock" sortKey="currentZohoStock" sort={lowStockSort} onSort={setLowStockSort} />
                     <SortHeader label="Sales Qty (3M)" sortKey="totalSalesLast3Months" sort={lowStockSort} onSort={setLowStockSort} />
                     <SortHeader label="Composite Usage Qty" sortKey="totalBundleUsageLast3Months" sort={lowStockSort} onSort={setLowStockSort} />
+                    <SortHeader label="Remarks" sortKey="remarks" sort={lowStockSort} onSort={setLowStockSort} />
                   </tr>
                 </thead>
                 <tbody>
@@ -392,6 +400,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                       <td>{fmt(item.currentZohoStock)}</td>
                       <td>{fmt(item.totalSalesLast3Months)}</td>
                       <td>{fmt(item.totalBundleUsageLast3Months)}</td>
+                      <td className={getStockRemark(item) ? 'pp-remark pp-remark--danger' : 'pp-remark'}>{getStockRemark(item) || '-'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -429,6 +438,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                     <SortHeader label="Life Smile Available Stock" sortKey="currentZohoStock" sort={lowStockSort} onSort={setLowStockSort} />
                     <SortHeader label="Sales Qty (3M)" sortKey="totalSalesLast3Months" sort={lowStockSort} onSort={setLowStockSort} />
                     <SortHeader label="Composite Usage Qty" sortKey="totalBundleUsageLast3Months" sort={lowStockSort} onSort={setLowStockSort} />
+                    <SortHeader label="Remarks" sortKey="remarks" sort={lowStockSort} onSort={setLowStockSort} />
                   </tr>
                 </thead>
                 <tbody>
@@ -442,6 +452,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                       <td>{fmt(item.currentZohoStock)}</td>
                       <td>{fmt(item.totalSalesLast3Months)}</td>
                       <td>{fmt(item.totalBundleUsageLast3Months)}</td>
+                      <td className={getStockRemark(item) ? 'pp-remark pp-remark--danger' : 'pp-remark'}>{getStockRemark(item) || '-'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -583,6 +594,7 @@ function PlanTable({ plan, filters, onFiltersChange, onItemChange }) {
         suggestedQty: (item) => Number(item.suggestedQty || 0),
         finalQty: (item) => Number(item.finalQty || 0),
         matchType: (item) => item.matchType,
+        remarks: (item) => getStockRemark(item),
         included: (item) => (item.included ? 'included' : 'ignored'),
       }),
     [filteredRows, planSort]
@@ -661,6 +673,7 @@ function PlanTable({ plan, filters, onFiltersChange, onItemChange }) {
               <SortHeader label="Suggested" sortKey="suggestedQty" sort={planSort} onSort={setPlanSort} />
               <SortHeader label="Final Qty" sortKey="finalQty" sort={planSort} onSort={setPlanSort} />
               <SortHeader label="Match" sortKey="matchType" sort={planSort} onSort={setPlanSort} />
+              <SortHeader label="Remarks" sortKey="remarks" sort={planSort} onSort={setPlanSort} />
               <SortHeader label="Action" sortKey="included" sort={planSort} onSort={setPlanSort} />
             </tr>
           </thead>
@@ -690,6 +703,7 @@ function PlanTable({ plan, filters, onFiltersChange, onItemChange }) {
                     {item.matchType}
                   </Badge>
                 </td>
+                <td className={getStockRemark(item) ? 'pp-remark pp-remark--danger' : 'pp-remark'}>{getStockRemark(item) || '-'}</td>
                 <td>
                   <button
                     className="btn btn--sm"
@@ -702,7 +716,7 @@ function PlanTable({ plan, filters, onFiltersChange, onItemChange }) {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan="12" className="pp-empty-cell">No items match the current filters.</td>
+                <td colSpan="13" className="pp-empty-cell">No items match the current filters.</td>
               </tr>
             )}
           </tbody>
