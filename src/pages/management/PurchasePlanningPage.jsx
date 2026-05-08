@@ -27,6 +27,8 @@ const EMPTY_FILTERS = {
 const EMPTY_LOW_STOCK_FILTERS = {
   search: '',
   quick: '',
+  vigilMin: '',
+  vigilMax: '',
   stockMin: '',
   stockMax: '',
   salesMin: '',
@@ -173,7 +175,9 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
         if (!includesAnyText([item.sku, item.itemName], lowStockFilters.search)) return false
         if (lowStockFilters.quick === 'no-stock' && Number(item.currentZohoStock || 0) > 0) return false
         if (lowStockFilters.quick === 'has-sales' && Number(item.totalSalesLast3Months || 0) <= 0) return false
+        if (lowStockFilters.quick === 'has-vigil' && Number(item.vigilStock || 0) <= 0) return false
         if (lowStockFilters.quick === 'composite-used' && Number(item.totalBundleUsageLast3Months || 0) <= 0) return false
+        if (!inNumberRange(item.vigilStock, lowStockFilters.vigilMin, lowStockFilters.vigilMax)) return false
         if (!inNumberRange(item.currentZohoStock, lowStockFilters.stockMin, lowStockFilters.stockMax)) return false
         if (!inNumberRange(item.totalSalesLast3Months, lowStockFilters.salesMin, lowStockFilters.salesMax)) return false
         if (!inNumberRange(item.totalBundleUsageLast3Months, lowStockFilters.bundleMin, lowStockFilters.bundleMax)) return false
@@ -188,6 +192,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
         sku: (item) => item.sku,
         itemName: (item) => item.itemName,
         status: (item) => (item.zohoItemId ? 'matched' : 'not matched'),
+        vigilStock: (item) => Number(item.vigilStock || 0),
         currentZohoStock: (item) => Number(item.currentZohoStock || 0),
         totalSalesLast3Months: (item) => Number(item.totalSalesLast3Months || 0),
         totalBundleUsageLast3Months: (item) => Number(item.totalBundleUsageLast3Months || 0),
@@ -325,6 +330,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
               <FilterChip active={lowStockFilters.quick === ''} onClick={() => setLowStockFilters({ ...lowStockFilters, quick: '' })}>All</FilterChip>
               <FilterChip active={lowStockFilters.quick === 'no-stock'} onClick={() => setLowStockFilters({ ...lowStockFilters, quick: lowStockFilters.quick === 'no-stock' ? '' : 'no-stock' })}>No stock</FilterChip>
               <FilterChip active={lowStockFilters.quick === 'has-sales'} onClick={() => setLowStockFilters({ ...lowStockFilters, quick: lowStockFilters.quick === 'has-sales' ? '' : 'has-sales' })}>Has sales</FilterChip>
+              <FilterChip active={lowStockFilters.quick === 'has-vigil'} onClick={() => setLowStockFilters({ ...lowStockFilters, quick: lowStockFilters.quick === 'has-vigil' ? '' : 'has-vigil' })}>Has Vigil stock</FilterChip>
               <FilterChip active={lowStockFilters.quick === 'composite-used'} onClick={() => setLowStockFilters({ ...lowStockFilters, quick: lowStockFilters.quick === 'composite-used' ? '' : 'composite-used' })}>Used in composite</FilterChip>
             </div>
             <button className="btn btn--sm" type="button" onClick={() => setShowLowAdvancedFilters((v) => !v)}>
@@ -335,6 +341,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
           </div>
           {showLowAdvancedFilters && (
             <div className="pp-filter-toolbar__advanced">
+              <label><span>Vigil</span><input type="number" value={lowStockFilters.vigilMin} onChange={(e) => setLowStockFilters({ ...lowStockFilters, vigilMin: e.target.value })} placeholder="Min" /><input type="number" value={lowStockFilters.vigilMax} onChange={(e) => setLowStockFilters({ ...lowStockFilters, vigilMax: e.target.value })} placeholder="Max" /></label>
               <label><span>Stock</span><input type="number" value={lowStockFilters.stockMin} onChange={(e) => setLowStockFilters({ ...lowStockFilters, stockMin: e.target.value })} placeholder="Min" /><input type="number" value={lowStockFilters.stockMax} onChange={(e) => setLowStockFilters({ ...lowStockFilters, stockMax: e.target.value })} placeholder="Max" /></label>
               <label><span>Sales 3M</span><input type="number" value={lowStockFilters.salesMin} onChange={(e) => setLowStockFilters({ ...lowStockFilters, salesMin: e.target.value })} placeholder="Min" /><input type="number" value={lowStockFilters.salesMax} onChange={(e) => setLowStockFilters({ ...lowStockFilters, salesMax: e.target.value })} placeholder="Max" /></label>
               <label><span>Composite</span><input type="number" value={lowStockFilters.bundleMin} onChange={(e) => setLowStockFilters({ ...lowStockFilters, bundleMin: e.target.value })} placeholder="Min" /><input type="number" value={lowStockFilters.bundleMax} onChange={(e) => setLowStockFilters({ ...lowStockFilters, bundleMax: e.target.value })} placeholder="Max" /></label>
@@ -366,6 +373,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                     <th>#</th>
                     <SortHeader label="Uploaded SKU" sortKey="sku" sort={lowStockSort} onSort={setLowStockSort} />
                     <SortHeader label="Zoho item name" sortKey="itemName" sort={lowStockSort} onSort={setLowStockSort} />
+                    <SortHeader label="Vigil stocks" sortKey="vigilStock" sort={lowStockSort} onSort={setLowStockSort} />
                     <SortHeader label="Life Smile Available Stock" sortKey="currentZohoStock" sort={lowStockSort} onSort={setLowStockSort} />
                     <SortHeader label="Sales Qty (3M)" sortKey="totalSalesLast3Months" sort={lowStockSort} onSort={setLowStockSort} />
                     <SortHeader label="Composite Usage Qty" sortKey="totalBundleUsageLast3Months" sort={lowStockSort} onSort={setLowStockSort} />
@@ -377,6 +385,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                       <td>{index + 1}</td>
                       <td className="pp-mono">{item.sku}</td>
                       <td>{item.itemName || '-'}</td>
+                      <td>{fmt(item.vigilStock)}</td>
                       <td>{fmt(item.currentZohoStock)}</td>
                       <td>{fmt(item.totalSalesLast3Months)}</td>
                       <td>{fmt(item.totalBundleUsageLast3Months)}</td>
@@ -412,6 +421,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                     <th>#</th>
                     <SortHeader label="Uploaded SKU" sortKey="sku" sort={lowStockSort} onSort={setLowStockSort} />
                     <SortHeader label="Status" sortKey="status" sort={lowStockSort} onSort={setLowStockSort} />
+                    <SortHeader label="Vigil stocks" sortKey="vigilStock" sort={lowStockSort} onSort={setLowStockSort} />
                     <SortHeader label="Life Smile Available Stock" sortKey="currentZohoStock" sort={lowStockSort} onSort={setLowStockSort} />
                     <SortHeader label="Sales Qty (3M)" sortKey="totalSalesLast3Months" sort={lowStockSort} onSort={setLowStockSort} />
                     <SortHeader label="Composite Usage Qty" sortKey="totalBundleUsageLast3Months" sort={lowStockSort} onSort={setLowStockSort} />
@@ -423,6 +433,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                       <td>{index + 1}</td>
                       <td className="pp-mono">{item.sku}</td>
                       <td><Badge tone="danger">Not matched</Badge></td>
+                      <td>{fmt(item.vigilStock)}</td>
                       <td>{fmt(item.currentZohoStock)}</td>
                       <td>{fmt(item.totalSalesLast3Months)}</td>
                       <td>{fmt(item.totalBundleUsageLast3Months)}</td>

@@ -95,6 +95,9 @@ function mapLowStockRow(row) {
     itemName: row.item_name,
     zohoItemId: row.zoho_item_id,
     currentZohoStock: Number(row.current_zoho_stock || 0),
+    vigilCode: row.vigil_code || '',
+    vigilStock: Number(row.vigil_stock || 0),
+    vigilMatchType: row.vigil_match_type || 'not_found',
     totalSalesLast3Months: Number(row.total_sales_last_3_months || 0),
     totalBundleUsageLast3Months: Number(row.total_bundle_usage_last_3_months || 0),
     lowStockDetectedAt: row.low_stock_detected_at,
@@ -417,7 +420,21 @@ async function listLowStock() {
       current_zoho_stock ASC,
       sku ASC
   `)
-  return result.rows.map(mapLowStockRow)
+  const rows = result.rows.map(mapLowStockRow)
+  const upload = await getLatestVigilUpload()
+  return applyVigilMatchesToLowStockRows(rows, Array.isArray(upload && upload.parsed_rows) ? upload.parsed_rows : [])
+}
+
+function applyVigilMatchesToLowStockRows(rows, vigilRows) {
+  return (Array.isArray(rows) ? rows : []).map((item) => {
+    const match = matchZohoSkuToVigil(item.sku, vigilRows)
+    return {
+      ...item,
+      vigilCode: match.matchedVigilCode || '',
+      vigilStock: match.matched ? match.wholesaleAvailableQty : 0,
+      vigilMatchType: match.matchType,
+    }
+  })
 }
 
 function findHeader(headerIdx, candidates) {
@@ -1009,5 +1026,6 @@ module.exports = {
     bundleUsageQtyForItem,
     resolveZohoStock,
     resolvePurchasePlanningWarehouse,
+    applyVigilMatchesToLowStockRows,
   },
 }

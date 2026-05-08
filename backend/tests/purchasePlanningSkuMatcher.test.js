@@ -6,6 +6,7 @@ const {
   normalizeSku,
   extractColor,
   getParentSku,
+  expandMatchCandidates,
   matchZohoSkuToVigil,
 } = require('../src/utils/purchasePlanningSkuMatcher')
 const {
@@ -21,12 +22,15 @@ test('normalizes SKU spacing, case, non-breaking spaces, and long dashes', () =>
 test('extracts color suffix from hyphen or trailing word', () => {
   assert.equal(extractColor('ABC-RED'), 'RED')
   assert.equal(extractColor('ABC blue'), 'BLUE')
+  assert.equal(extractColor('ABC-light-blue'), 'LIGHT BLUE')
   assert.equal(extractColor('ABC-XL'), '')
 })
 
 test('returns parent SKU when a color suffix is present', () => {
   assert.equal(getParentSku('ABC-RED'), 'ABC')
   assert.equal(getParentSku('ABC BLUE'), 'ABC')
+  assert.equal(getParentSku('LIFEP17-16-BLUE'), 'LIFEP17-16')
+  assert.equal(getParentSku('ABC-LIGHT-BLUE'), 'ABC')
 })
 
 test('matches Zoho SKU to Vigil by exact code before parent code', () => {
@@ -49,6 +53,68 @@ test('falls back to parent SKU match when exact color code is absent', () => {
     matchedVigilCode: 'ABC',
     wholesaleAvailableQty: 7,
   })
+})
+
+test('matches Zoho color SKU to Vigil parent code without color', () => {
+  assert.deepEqual(matchZohoSkuToVigil('LIFEP17-16-BLUE', [{ itemCode: 'LIFEP17-16', availableStock: 12 }]), {
+    matched: true,
+    matchType: 'parent',
+    matchedVigilCode: 'LIFEP17-16',
+    wholesaleAvailableQty: 12,
+  })
+})
+
+test('matches multi-token color suffixes to Vigil parent code', () => {
+  assert.deepEqual(matchZohoSkuToVigil('ABC-LIGHT-BLUE', [{ itemCode: 'ABC', availableStock: 3 }]), {
+    matched: true,
+    matchType: 'parent',
+    matchedVigilCode: 'ABC',
+    wholesaleAvailableQty: 3,
+  })
+  assert.deepEqual(matchZohoSkuToVigil('RING-12-ROSE-GOLD', [{ itemCode: 'RING-12', availableStock: 8 }]), {
+    matched: true,
+    matchType: 'parent',
+    matchedVigilCode: 'RING-12',
+    wholesaleAvailableQty: 8,
+  })
+})
+
+test('matches separator variants before falling back to parent', () => {
+  assert.deepEqual(matchZohoSkuToVigil('life p17_16 blue', [{ itemCode: 'life-p17-16-blue', availableStock: 4 }]), {
+    matched: true,
+    matchType: 'exact',
+    matchedVigilCode: 'LIFE-P17-16-BLUE',
+    wholesaleAvailableQty: 4,
+  })
+  assert.deepEqual(matchZohoSkuToVigil('life p17_16 blue', [{ itemCode: 'life-p17-16', availableStock: 9 }]), {
+    matched: true,
+    matchType: 'parent',
+    matchedVigilCode: 'LIFE-P17-16',
+    wholesaleAvailableQty: 9,
+  })
+})
+
+test('expands exact variants before colorless parent candidates', () => {
+  assert.deepEqual(expandMatchCandidates('LIFEP17-16-BLUE').map((candidate) => candidate.matchKind), [
+    'exact',
+    'parent',
+  ])
+})
+
+test('enriches low-stock rows with latest Vigil stock matches', () => {
+  const rows = _internals.applyVigilMatchesToLowStockRows(
+    [
+      { sku: 'LIFEP17-16-BLUE', itemName: 'Life pan', currentZohoStock: 1 },
+      { sku: 'NO-MATCH-BLACK', itemName: 'Missing', currentZohoStock: 0 },
+    ],
+    [{ itemCode: 'LIFEP17-16', availableStock: 12 }]
+  )
+
+  assert.equal(rows[0].vigilCode, 'LIFEP17-16')
+  assert.equal(rows[0].vigilStock, 12)
+  assert.equal(rows[0].vigilMatchType, 'parent')
+  assert.equal(rows[1].vigilStock, 0)
+  assert.equal(rows[1].vigilMatchType, 'not_found')
 })
 
 test('parses Vigil Excel stock sheets', () => {
