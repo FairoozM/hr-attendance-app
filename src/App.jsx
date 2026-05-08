@@ -74,6 +74,8 @@ import ProjectDashboardPage from './pages/projects/ProjectDashboardPage'
 import TrashPage from './pages/projects/TrashPage'
 import { AiUsageDashboard } from './pages/AiUsageDashboard'
 import { AmazonListingGenerator } from './pages/AmazonListingGenerator'
+import { AmazonFlatFileBulkGenerator } from './pages/AmazonFlatFileBulkGenerator'
+import { ListingBatchesPage } from './pages/ListingBatchesPage'
 import { AiBudgetSettingsPage } from './pages/admin/AiBudgetSettingsPage'
 import { AIPlannerProvider } from './contexts/AIPlannerContext'
 import { useEmployees } from './hooks/useEmployees'
@@ -299,6 +301,22 @@ function AppContent() {
           element={
             <AiHubGuard>
               <AmazonListingGenerator />
+            </AiHubGuard>
+          }
+        />
+        <Route
+          path="ai/amazon-bulk-listing"
+          element={
+            <AiHubGuard>
+              <AmazonFlatFileBulkGenerator />
+            </AiHubGuard>
+          }
+        />
+        <Route
+          path="ai/listing-batches"
+          element={
+            <AiHubGuard>
+              <ListingBatchesPage />
             </AiHubGuard>
           }
         />

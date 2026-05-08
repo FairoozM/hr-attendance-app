@@ -24,6 +24,8 @@ const PLANNER_NAV_ITEMS = [
 const AI_NAV_ITEMS = [
   { to: '/ai/usage', label: 'AI Usage' },
   { to: '/ai/amazon-listing', label: 'Amazon Listing' },
+  { to: '/ai/amazon-bulk-listing', label: 'Amazon Bulk Generator' },
+  { to: '/ai/listing-batches', label: 'Listing Batches' },
 ]
 
 /**
@@ -478,6 +480,8 @@ export function Layout() {
     if (location.pathname.startsWith('/admin/ai-budget')) return 'AI Budget Settings'
     if (location.pathname.startsWith('/admin/item-report-groups')) return 'Item Report Groups'
     if (location.pathname.startsWith('/ai/usage')) return 'AI Usage'
+    if (location.pathname.startsWith('/ai/amazon-bulk-listing')) return 'Amazon Bulk Generator'
+    if (location.pathname.startsWith('/ai/listing-batches')) return 'Listing Batches'
     if (location.pathname.startsWith('/ai/amazon-listing')) return 'Amazon Listing'
     if (location.pathname === '/projects/dashboard') return 'AI Dashboard'
     if (location.pathname.startsWith('/projects/')) return 'Today\'s Plan'
