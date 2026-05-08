@@ -749,6 +749,7 @@ export function PurchasePlanningPage() {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [purchaseOrderNumber, setPurchaseOrderNumber] = useState('')
 
   const load = useCallback(async () => {
     setError('')
@@ -841,12 +842,17 @@ export function PurchasePlanningPage() {
 
   const createPo = useCallback(async () => {
     if (!activePlan) return
-    if (!window.confirm(`Create a Zoho purchase order from ${activePlan.planNumber}? This cannot be sent twice.`)) return
+    const poNumber = purchaseOrderNumber.trim()
+    if (!poNumber) {
+      setError('Enter a PO number before sending to Zoho')
+      return
+    }
+    if (!window.confirm(`Create Zoho purchase order ${poNumber} from ${activePlan.planNumber}? This cannot be sent twice.`)) return
     setBusy('po')
     setError('')
     setNotice('')
     try {
-      const res = await api.post(`/api/purchase-planning/plans/${activePlan.id}/create-zoho-po`, {})
+      const res = await api.post(`/api/purchase-planning/plans/${activePlan.id}/create-zoho-po`, { purchaseOrderNumber: poNumber })
       await refreshActivePlan(activePlan.id)
       await load()
       setNotice(`Created Zoho purchase order ${res.zohoPurchaseOrderId || ''} with ${res.sentLines} lines.`)
@@ -856,7 +862,7 @@ export function PurchasePlanningPage() {
     } finally {
       setBusy('')
     }
-  }, [activePlan, load, refreshActivePlan])
+  }, [activePlan, load, purchaseOrderNumber, refreshActivePlan])
 
   if (loading) return <div className="page"><p className="page-loading">Loading Purchase Planning…</p></div>
 
@@ -872,7 +878,14 @@ export function PurchasePlanningPage() {
         </div>
         <div className="pp-hero__actions">
           <button className="btn btn--primary" disabled={busy === 'generate'} onClick={generatePlan}>Generate Purchase Plan</button>
-          <button className="btn btn--primary" disabled={!activePlan || activePlan.status === 'sent_to_zoho' || busy === 'po'} onClick={createPo}>
+          <input
+            className="pp-po-number-input"
+            value={purchaseOrderNumber}
+            onChange={(e) => setPurchaseOrderNumber(e.target.value)}
+            placeholder="PO number"
+            disabled={!activePlan || activePlan.status === 'sent_to_zoho' || busy === 'po'}
+          />
+          <button className="btn btn--primary" disabled={!activePlan || activePlan.status === 'sent_to_zoho' || busy === 'po' || !purchaseOrderNumber.trim()} onClick={createPo}>
             Create PO in Zoho
           </button>
         </div>

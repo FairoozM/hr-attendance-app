@@ -13,7 +13,7 @@ function parseId(value) {
 function errorStatus(err) {
   if (!err) return 500
   if (['PLAN_NOT_FOUND'].includes(err.code)) return 404
-  if (['NO_VIGIL_UPLOAD', 'NO_LOW_STOCK_ITEMS', 'DUPLICATE_PO', 'NO_PO_LINES', 'ZOHO_VENDOR_NOT_CONFIGURED'].includes(err.code)) return 400
+  if (['NO_VIGIL_UPLOAD', 'NO_LOW_STOCK_ITEMS', 'DUPLICATE_PO', 'NO_PO_LINES', 'ZOHO_VENDOR_NOT_CONFIGURED', 'ZOHO_PO_NUMBER_REQUIRED'].includes(err.code)) return 400
   if (err.code === 'ZOHO_NOT_CONFIGURED') return 503
   if (String(err.code || '').startsWith('ZOHO_')) return 502
   return 500
@@ -167,7 +167,9 @@ async function createZohoPo(req, res) {
   try {
     const id = parseId(req.params.id)
     if (!id) return res.status(400).json({ error: 'Invalid plan id' })
-    const result = await service.createZohoPurchaseOrder(id)
+    const result = await service.createZohoPurchaseOrder(id, {
+      purchaseOrderNumber: req.body && req.body.purchaseOrderNumber,
+    })
     res.json(result)
   } catch (err) {
     console.error('[purchase-planning] create Zoho PO error:', err)

@@ -954,7 +954,7 @@ function resolvePurchaseOrderVendor() {
   throw err
 }
 
-async function createZohoPurchaseOrder(planId) {
+async function createZohoPurchaseOrder(planId, options = {}) {
   const plan = await getPlan(planId)
   if (!plan) {
     const err = new Error('Purchase plan not found')
@@ -987,9 +987,16 @@ async function createZohoPurchaseOrder(planId) {
     throw err
   }
 
+  const requestedPoNumber = clean(options.purchaseOrderNumber)
+  if (!requestedPoNumber) {
+    const err = new Error('Enter a purchase order number before sending to Zoho')
+    err.code = 'ZOHO_PO_NUMBER_REQUIRED'
+    throw err
+  }
   const zohoReferenceNumber = nextZohoPurchaseOrderReference(plan.planNumber)
   const payload = {
     vendor_id: vendor.vendorId,
+    purchaseorder_number: requestedPoNumber,
     date: todayIso(),
     reference_number: zohoReferenceNumber,
     notes: `Generated from HR & BI Purchase Planning plan ${plan.planNumber}. Review completed by admin before sending.`,
