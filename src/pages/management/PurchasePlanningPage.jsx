@@ -192,6 +192,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
         sku: (item) => item.sku,
         itemName: (item) => item.itemName,
         status: (item) => (item.zohoItemId ? 'matched' : 'not matched'),
+        vigilCode: (item) => item.vigilCode || 'Not found',
         vigilStock: (item) => Number(item.vigilStock || 0),
         currentZohoStock: (item) => Number(item.currentZohoStock || 0),
         totalSalesLast3Months: (item) => Number(item.totalSalesLast3Months || 0),
@@ -373,6 +374,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                     <th>#</th>
                     <SortHeader label="Uploaded SKU" sortKey="sku" sort={lowStockSort} onSort={setLowStockSort} />
                     <SortHeader label="Zoho item name" sortKey="itemName" sort={lowStockSort} onSort={setLowStockSort} />
+                    <SortHeader label="Vigil item" sortKey="vigilCode" sort={lowStockSort} onSort={setLowStockSort} />
                     <SortHeader label="Vigil stocks" sortKey="vigilStock" sort={lowStockSort} onSort={setLowStockSort} />
                     <SortHeader label="Life Smile Available Stock" sortKey="currentZohoStock" sort={lowStockSort} onSort={setLowStockSort} />
                     <SortHeader label="Sales Qty (3M)" sortKey="totalSalesLast3Months" sort={lowStockSort} onSort={setLowStockSort} />
@@ -385,6 +387,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                       <td>{index + 1}</td>
                       <td className="pp-mono">{item.sku}</td>
                       <td>{item.itemName || '-'}</td>
+                      <td className="pp-mono">{item.vigilCode || 'Not found'}</td>
                       <td>{fmt(item.vigilStock)}</td>
                       <td>{fmt(item.currentZohoStock)}</td>
                       <td>{fmt(item.totalSalesLast3Months)}</td>
@@ -421,6 +424,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                     <th>#</th>
                     <SortHeader label="Uploaded SKU" sortKey="sku" sort={lowStockSort} onSort={setLowStockSort} />
                     <SortHeader label="Status" sortKey="status" sort={lowStockSort} onSort={setLowStockSort} />
+                    <SortHeader label="Vigil item" sortKey="vigilCode" sort={lowStockSort} onSort={setLowStockSort} />
                     <SortHeader label="Vigil stocks" sortKey="vigilStock" sort={lowStockSort} onSort={setLowStockSort} />
                     <SortHeader label="Life Smile Available Stock" sortKey="currentZohoStock" sort={lowStockSort} onSort={setLowStockSort} />
                     <SortHeader label="Sales Qty (3M)" sortKey="totalSalesLast3Months" sort={lowStockSort} onSort={setLowStockSort} />
@@ -433,6 +437,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                       <td>{index + 1}</td>
                       <td className="pp-mono">{item.sku}</td>
                       <td><Badge tone="danger">Not matched</Badge></td>
+                      <td className="pp-mono">{item.vigilCode || 'Not found'}</td>
                       <td>{fmt(item.vigilStock)}</td>
                       <td>{fmt(item.currentZohoStock)}</td>
                       <td>{fmt(item.totalSalesLast3Months)}</td>
