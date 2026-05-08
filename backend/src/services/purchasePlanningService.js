@@ -10,8 +10,10 @@ const { getSales } = require('../integrations/zoho/weeklyReportZohoTransactions'
 const { readZohoConfig, INVENTORY_V1 } = require('../integrations/zoho/zohoConfig')
 const { fetchCompositeItemDetail, zohoApiRequest } = require('../integrations/zoho/zohoInventoryClient')
 const { fetchWarehouses } = require('../integrations/zoho/zohoWarehouses')
+const { getResolvedReportVendor } = require('./weeklyReportReportVendor')
 
 const DEFAULT_PURCHASE_PLANNING_WAREHOUSE_NAME = 'LIFE SMILE'
+const DEFAULT_PURCHASE_PLANNING_REPORT_GROUP = 'default'
 const MAX_COMPOSITE_USAGE_LOOKUPS = 80
 
 function clean(value) {
@@ -928,6 +930,19 @@ function buildZohoJsonStringBody(payload) {
   return form.toString()
 }
 
+function resolvePurchaseOrderVendor() {
+  const explicitVendorId = clean(process.env.ZOHO_PURCHASE_VENDOR_ID)
+  if (explicitVendorId) return { vendorId: explicitVendorId, source: 'ZOHO_PURCHASE_VENDOR_ID' }
+
+  const reportGroup = clean(process.env.PURCHASE_PLANNING_REPORT_GROUP || DEFAULT_PURCHASE_PLANNING_REPORT_GROUP)
+  const vendor = getResolvedReportVendor(reportGroup)
+  if (vendor.vendorId) return { vendorId: vendor.vendorId, source: vendor.source }
+
+  const err = new Error('Configure a Zoho vendor id before creating purchase orders')
+  err.code = 'ZOHO_VENDOR_NOT_CONFIGURED'
+  throw err
+}
+
 async function createZohoPurchaseOrder(planId) {
   const plan = await getPlan(planId)
   if (!plan) {
@@ -948,12 +963,7 @@ async function createZohoPurchaseOrder(planId) {
     throw err
   }
 
-  const vendorId = clean(process.env.ZOHO_PURCHASE_VENDOR_ID)
-  if (!vendorId) {
-    const err = new Error('Set ZOHO_PURCHASE_VENDOR_ID before creating purchase orders')
-    err.code = 'ZOHO_VENDOR_NOT_CONFIGURED'
-    throw err
-  }
+  const vendor = resolvePurchaseOrderVendor()
 
   const selected = (plan.items || []).filter((item) =>
     item.included &&
@@ -967,7 +977,7 @@ async function createZohoPurchaseOrder(planId) {
   }
 
   const payload = {
-    vendor_id: vendorId,
+    vendor_id: vendor.vendorId,
     date: todayIso(),
     reference_number: plan.planNumber,
     notes: `Generated from HR & BI Purchase Planning plan ${plan.planNumber}. Review completed by admin before sending.`,
@@ -1041,6 +1051,7 @@ module.exports = {
     buildCompositeUsageAggregate,
     bundleUsageQtyForItem,
     calculatePlanQuantities,
+    resolvePurchaseOrderVendor,
     resolveZohoStock,
     resolvePurchasePlanningWarehouse,
     applyVigilMatchesToLowStockRows,

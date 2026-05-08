@@ -217,3 +217,28 @@ test('purchase planning quantities use sales plus bundle usage and cap final qty
     wasAdjustedForVigil: true,
   })
 })
+
+test('purchase planning PO vendor falls back to weekly report vendor config', () => {
+  const originalPurchaseVendor = process.env.ZOHO_PURCHASE_VENDOR_ID
+  const originalReportVendor = process.env.REPORT_VENDOR_ID
+  const originalVendorsJson = process.env.WEEKLY_REPORT_VENDORS_JSON
+  try {
+    delete process.env.ZOHO_PURCHASE_VENDOR_ID
+    delete process.env.REPORT_VENDOR_ID
+    process.env.WEEKLY_REPORT_VENDORS_JSON = JSON.stringify({
+      default: { vendor_credits_contact_id: 'weekly-vendor-1' },
+    })
+
+    assert.deepEqual(_internals.resolvePurchaseOrderVendor(), {
+      vendorId: 'weekly-vendor-1',
+      source: 'WEEKLY_REPORT_VENDORS_JSON',
+    })
+  } finally {
+    if (originalPurchaseVendor == null) delete process.env.ZOHO_PURCHASE_VENDOR_ID
+    else process.env.ZOHO_PURCHASE_VENDOR_ID = originalPurchaseVendor
+    if (originalReportVendor == null) delete process.env.REPORT_VENDOR_ID
+    else process.env.REPORT_VENDOR_ID = originalReportVendor
+    if (originalVendorsJson == null) delete process.env.WEEKLY_REPORT_VENDORS_JSON
+    else process.env.WEEKLY_REPORT_VENDORS_JSON = originalVendorsJson
+  }
+})
