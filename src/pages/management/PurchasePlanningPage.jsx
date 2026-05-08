@@ -881,8 +881,6 @@ export function PurchasePlanningPage() {
       {error && <div className="page-error">{error}</div>}
       {notice && <div className="pp-notice">{notice}</div>}
 
-      <SummaryCards plan={activePlan} lowStock={lowStock} />
-
       <LowStockUploadPanel
         lowStock={lowStock}
         onUploaded={handleLowStockUploaded}
