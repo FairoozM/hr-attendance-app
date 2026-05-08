@@ -61,7 +61,16 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
   const [preview, setPreview] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [showMatched, setShowMatched] = useState(true)
   const [showUnmatched, setShowUnmatched] = useState(true)
+
+  const matchedLowStock = useMemo(
+    () =>
+      lowStock
+        .filter((item) => item.status === 'pending' && String(item.zohoItemId || '').trim())
+        .sort((a, b) => String(a.sku || '').localeCompare(String(b.sku || ''))),
+    [lowStock]
+  )
 
   const unmatchedLowStock = useMemo(
     () =>
@@ -80,6 +89,16 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
       window.prompt('Copy unmatched SKUs', text)
     }
   }, [unmatchedLowStock])
+
+  const copyMatched = useCallback(async () => {
+    const text = matchedLowStock.map((item) => item.sku).join('\n')
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch (_) {
+      window.prompt('Copy matched SKUs', text)
+    }
+  }, [matchedLowStock])
 
   const submit = useCallback(async (save) => {
     if (!file) return
@@ -168,14 +187,58 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
           Refresh Zoho item cache / enrich uploaded SKUs
         </button>
       </div>
+      {matchedLowStock.length > 0 && (
+        <div className="pp-enrichment-list pp-enrichment-list--matched">
+          <div className="pp-enrichment-list__head">
+            <div>
+              <strong>Matched in Zoho</strong>
+              <span>{matchedLowStock.length} pending uploaded SKUs matched to Zoho items.</span>
+            </div>
+            <div className="pp-enrichment-list__actions">
+              <button className="btn btn--sm" type="button" onClick={() => setShowMatched((v) => !v)}>
+                {showMatched ? 'Hide list' : 'Show list'}
+              </button>
+              <button className="btn btn--sm" type="button" onClick={copyMatched}>
+                Copy SKUs
+              </button>
+            </div>
+          </div>
+          {showMatched && (
+            <div className="doc-table-wrap pp-enrichment-list__table-wrap">
+              <table className="doc-table pp-enrichment-list__table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Uploaded SKU</th>
+                    <th>Zoho item name</th>
+                    <th>Zoho item ID</th>
+                    <th>Current Zoho Stock</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {matchedLowStock.map((item, index) => (
+                    <tr key={item.id || item.sku}>
+                      <td>{index + 1}</td>
+                      <td className="pp-mono">{item.sku}</td>
+                      <td>{item.itemName || '-'}</td>
+                      <td className="pp-mono">{item.zohoItemId || '-'}</td>
+                      <td>{fmt(item.currentZohoStock)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
       {unmatchedLowStock.length > 0 && (
-        <div className="pp-unmatched">
-          <div className="pp-unmatched__head">
+        <div className="pp-enrichment-list pp-enrichment-list--unmatched">
+          <div className="pp-enrichment-list__head">
             <div>
               <strong>Unmatched in Zoho</strong>
               <span>{unmatchedLowStock.length} pending uploaded SKUs could not be matched to a Zoho item.</span>
             </div>
-            <div className="pp-unmatched__actions">
+            <div className="pp-enrichment-list__actions">
               <button className="btn btn--sm" type="button" onClick={() => setShowUnmatched((v) => !v)}>
                 {showUnmatched ? 'Hide list' : 'Show list'}
               </button>
@@ -185,8 +248,8 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
             </div>
           </div>
           {showUnmatched && (
-            <div className="doc-table-wrap pp-unmatched__table-wrap">
-              <table className="doc-table pp-unmatched__table">
+            <div className="doc-table-wrap pp-enrichment-list__table-wrap">
+              <table className="doc-table pp-enrichment-list__table">
                 <thead>
                   <tr>
                     <th>#</th>
