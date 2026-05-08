@@ -101,7 +101,7 @@ test('purchase planning item index matches Zoho item names and prefers warehouse
 test('purchase planning composite usage rolls sold kits down to component quantities', async () => {
   const usage = await _internals.buildCompositeUsageAggregate(
     [
-      { item_id: 'kit-1', sku: 'KIT-1', quantity: 3 },
+      { item_id: 'kit-1', sku: 'KIT-1-SET', name: 'KIT-1-SET', quantity: 3 },
       { item_id: 'regular-1', sku: 'REGULAR-1', quantity: 5 },
     ],
     async (itemId) => itemId === 'kit-1'

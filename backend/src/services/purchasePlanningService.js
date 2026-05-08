@@ -12,6 +12,7 @@ const { fetchCompositeItemDetail, zohoApiRequest } = require('../integrations/zo
 const { fetchWarehouses } = require('../integrations/zoho/zohoWarehouses')
 
 const DEFAULT_PURCHASE_PLANNING_WAREHOUSE_NAME = 'LIFE SMILE'
+const MAX_COMPOSITE_USAGE_LOOKUPS = 80
 
 function clean(value) {
   return String(value == null ? '' : value).trim()
@@ -656,6 +657,11 @@ function bundleUsageQtyForItem(usage, item) {
   return usage.bySku.get(sku) || 0
 }
 
+function lineLooksLikeComposite(line) {
+  const text = normalizeSku(`${line && line.sku ? line.sku : ''} ${line && (line.name || line.item_name) ? (line.name || line.item_name) : ''}`)
+  return /\b(MIX|SET|KIT|COMBO|BUNDLE)\b/.test(text) || /(?:^|-)MIX(?:-|$)/.test(text) || /(?:^|-)SET(?:-|$)/.test(text)
+}
+
 async function getCompositeMappedItems(compositeItemId) {
   const detail = await fetchCompositeItemDetail(compositeItemId, {
     source: 'purchase_planning_composite_usage_detail',
@@ -670,18 +676,19 @@ async function buildCompositeUsageAggregate(lines, fetchMappedItems = getComposi
   for (const line of Array.isArray(lines) ? lines : []) {
     const qtySold = toNumber(line.quantity, 0)
     const itemId = clean(line.item_id)
-    if (qtySold > 0 && itemId) compositeSales.push({ itemId, qtySold })
+    if (qtySold > 0 && itemId && lineLooksLikeComposite(line)) compositeSales.push({ itemId, qtySold })
   }
 
   const uniqueCompositeIds = [...new Set(compositeSales.map((sale) => sale.itemId))]
+    .slice(0, MAX_COMPOSITE_USAGE_LOOKUPS)
   const mappedByCompositeId = new Map()
-  await Promise.all(uniqueCompositeIds.map(async (itemId) => {
+  for (const itemId of uniqueCompositeIds) {
     try {
       mappedByCompositeId.set(itemId, await fetchMappedItems(itemId))
     } catch (err) {
       mappedByCompositeId.set(itemId, [])
     }
-  }))
+  }
 
   for (const sale of compositeSales) {
     const mappedItems = mappedByCompositeId.get(sale.itemId) || []

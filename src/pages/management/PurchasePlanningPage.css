@@ -195,13 +195,36 @@
   align-items: center;
 }
 
-.pp-filters select {
+.pp-filters select,
+.pp-filters input {
   min-height: 2.35rem;
   border-radius: 0.75rem;
   border: 1px solid var(--theme-border);
   background: var(--theme-input-inner-bg);
   color: var(--text);
   padding: 0.45rem 0.65rem;
+}
+
+.pp-column-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.5rem;
+}
+
+.pp-column-filters .pp-check,
+.pp-column-filters .btn,
+.pp-column-filters .pp-filter-count {
+  align-self: center;
+}
+
+.pp-column-filters .pp-check {
+  min-height: 2.35rem;
+}
+
+.pp-filter-count {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
 }
 
 .pp-check {
