@@ -61,6 +61,25 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
   const [preview, setPreview] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [showUnmatched, setShowUnmatched] = useState(true)
+
+  const unmatchedLowStock = useMemo(
+    () =>
+      lowStock
+        .filter((item) => item.status === 'pending' && !String(item.zohoItemId || '').trim())
+        .sort((a, b) => String(a.sku || '').localeCompare(String(b.sku || ''))),
+    [lowStock]
+  )
+
+  const copyUnmatched = useCallback(async () => {
+    const text = unmatchedLowStock.map((item) => item.sku).join('\n')
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch (_) {
+      window.prompt('Copy unmatched SKUs', text)
+    }
+  }, [unmatchedLowStock])
 
   const submit = useCallback(async (save) => {
     if (!file) return
@@ -149,6 +168,48 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
           Refresh Zoho item cache / enrich uploaded SKUs
         </button>
       </div>
+      {unmatchedLowStock.length > 0 && (
+        <div className="pp-unmatched">
+          <div className="pp-unmatched__head">
+            <div>
+              <strong>Unmatched in Zoho</strong>
+              <span>{unmatchedLowStock.length} pending uploaded SKUs could not be matched to a Zoho item.</span>
+            </div>
+            <div className="pp-unmatched__actions">
+              <button className="btn btn--sm" type="button" onClick={() => setShowUnmatched((v) => !v)}>
+                {showUnmatched ? 'Hide list' : 'Show list'}
+              </button>
+              <button className="btn btn--sm" type="button" onClick={copyUnmatched}>
+                Copy SKUs
+              </button>
+            </div>
+          </div>
+          {showUnmatched && (
+            <div className="doc-table-wrap pp-unmatched__table-wrap">
+              <table className="doc-table pp-unmatched__table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Uploaded SKU</th>
+                    <th>Status</th>
+                    <th>Current Zoho Stock</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {unmatchedLowStock.map((item, index) => (
+                    <tr key={item.id || item.sku}>
+                      <td>{index + 1}</td>
+                      <td className="pp-mono">{item.sku}</td>
+                      <td><Badge tone="danger">Not matched</Badge></td>
+                      <td>{fmt(item.currentZohoStock)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </section>
   )
 }
