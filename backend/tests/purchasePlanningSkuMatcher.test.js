@@ -97,3 +97,22 @@ test('purchase planning item index matches Zoho item names and prefers warehouse
     currentZohoStock: 2,
   })
 })
+
+test('purchase planning composite usage rolls sold kits down to component quantities', async () => {
+  const usage = await _internals.buildCompositeUsageAggregate(
+    [
+      { item_id: 'kit-1', sku: 'KIT-1', quantity: 3 },
+      { item_id: 'regular-1', sku: 'REGULAR-1', quantity: 5 },
+    ],
+    async (itemId) => itemId === 'kit-1'
+      ? [
+        { item_id: 'component-a', sku: 'COMP-A', quantity: 2 },
+        { item_id: 'component-b', sku: 'COMP-B', quantity: 1 },
+      ]
+      : []
+  )
+
+  assert.equal(_internals.bundleUsageQtyForItem(usage, { sku: 'COMP-A', zoho_item_id: 'component-a' }), 6)
+  assert.equal(_internals.bundleUsageQtyForItem(usage, { sku: 'COMP-B', zoho_item_id: 'component-b' }), 3)
+  assert.equal(_internals.bundleUsageQtyForItem(usage, { sku: 'REGULAR-1', zoho_item_id: 'regular-1' }), 0)
+})

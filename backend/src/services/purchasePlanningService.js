@@ -8,7 +8,7 @@ const {
 const { fetchItemsRawForWarehouse } = require('../integrations/zoho/zohoAdapter')
 const { getSales } = require('../integrations/zoho/weeklyReportZohoTransactions')
 const { readZohoConfig, INVENTORY_V1 } = require('../integrations/zoho/zohoConfig')
-const { zohoApiRequest } = require('../integrations/zoho/zohoInventoryClient')
+const { fetchCompositeItemDetail, zohoApiRequest } = require('../integrations/zoho/zohoInventoryClient')
 const { fetchWarehouses } = require('../integrations/zoho/zohoWarehouses')
 
 const DEFAULT_PURCHASE_PLANNING_WAREHOUSE_NAME = 'LIFE SMILE'
@@ -95,6 +95,7 @@ function mapLowStockRow(row) {
     zohoItemId: row.zoho_item_id,
     currentZohoStock: Number(row.current_zoho_stock || 0),
     totalSalesLast3Months: Number(row.total_sales_last_3_months || 0),
+    totalBundleUsageLast3Months: Number(row.total_bundle_usage_last_3_months || 0),
     lowStockDetectedAt: row.low_stock_detected_at,
     status: row.status,
     updatedAt: row.updated_at,
@@ -157,6 +158,7 @@ async function ensurePurchasePlanningTables() {
       zoho_item_id VARCHAR(100),
       current_zoho_stock NUMERIC(12, 2) NOT NULL DEFAULT 0,
       total_sales_last_3_months NUMERIC(12, 2) NOT NULL DEFAULT 0,
+      total_bundle_usage_last_3_months NUMERIC(12, 2) NOT NULL DEFAULT 0,
       low_stock_detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       status VARCHAR(20) NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'planned', 'ordered', 'ignored')),
@@ -166,6 +168,10 @@ async function ensurePurchasePlanningTables() {
   await query(`
     ALTER TABLE purchase_low_stock_items
     ADD COLUMN IF NOT EXISTS total_sales_last_3_months NUMERIC(12, 2) NOT NULL DEFAULT 0
+  `)
+  await query(`
+    ALTER TABLE purchase_low_stock_items
+    ADD COLUMN IF NOT EXISTS total_bundle_usage_last_3_months NUMERIC(12, 2) NOT NULL DEFAULT 0
   `)
   await query(`CREATE INDEX IF NOT EXISTS idx_purchase_low_stock_status ON purchase_low_stock_items(status)`)
 
@@ -289,10 +295,13 @@ async function saveUploadedLowStockSkus(skus) {
   }
 
   const enriched = await enrichUploadedLowStockSkus(uniqueSkus)
-  const salesAggregate = await fetchLast3MonthsSalesAggregate()
+  const { salesAggregate, bundleUsageAggregate } = await fetchLast3MonthsSalesAggregate()
   for (const item of enriched) {
     item.totalSalesLast3Months = item.matchedInZoho
       ? salesQtyForItem(salesAggregate, { sku: item.sku, zoho_item_id: item.zohoItemId })
+      : 0
+    item.totalBundleUsageLast3Months = item.matchedInZoho
+      ? bundleUsageQtyForItem(bundleUsageAggregate, { sku: item.sku, zoho_item_id: item.zohoItemId })
       : 0
   }
   const uploadedKeys = enriched.map((item) => normalizeSku(item.sku))
@@ -308,19 +317,27 @@ async function saveUploadedLowStockSkus(skus) {
     const result = await query(
       `
         INSERT INTO purchase_low_stock_items
-          (sku, item_name, zoho_item_id, current_zoho_stock, total_sales_last_3_months, low_stock_detected_at, status, updated_at)
-        VALUES ($1, $2, $3, $4, $5, NOW(), 'pending', NOW())
+          (sku, item_name, zoho_item_id, current_zoho_stock, total_sales_last_3_months, total_bundle_usage_last_3_months, low_stock_detected_at, status, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, NOW(), 'pending', NOW())
         ON CONFLICT (sku) DO UPDATE SET
           item_name = EXCLUDED.item_name,
           zoho_item_id = EXCLUDED.zoho_item_id,
           current_zoho_stock = EXCLUDED.current_zoho_stock,
           total_sales_last_3_months = EXCLUDED.total_sales_last_3_months,
+          total_bundle_usage_last_3_months = EXCLUDED.total_bundle_usage_last_3_months,
           low_stock_detected_at = NOW(),
           status = 'pending',
           updated_at = NOW()
         RETURNING id
       `,
-      [item.sku, item.itemName, item.zohoItemId, item.currentZohoStock, item.totalSalesLast3Months || 0]
+      [
+        item.sku,
+        item.itemName,
+        item.zohoItemId,
+        item.currentZohoStock,
+        item.totalSalesLast3Months || 0,
+        item.totalBundleUsageLast3Months || 0,
+      ]
     )
     upserted += result.rowCount
   }
@@ -346,7 +363,7 @@ async function refreshLowStockZohoEnrichment() {
   }
 
   const enriched = await enrichUploadedLowStockSkus(current.rows.map((row) => row.sku))
-  const salesAggregate = await fetchLast3MonthsSalesAggregate()
+  const { salesAggregate, bundleUsageAggregate } = await fetchLast3MonthsSalesAggregate()
   let matched = 0
   let unmatched = 0
   for (let i = 0; i < current.rows.length; i += 1) {
@@ -357,6 +374,9 @@ async function refreshLowStockZohoEnrichment() {
     const totalSalesLast3Months = item && item.matchedInZoho
       ? salesQtyForItem(salesAggregate, { sku: item.sku, zoho_item_id: item.zohoItemId })
       : 0
+    const totalBundleUsageLast3Months = item && item.matchedInZoho
+      ? bundleUsageQtyForItem(bundleUsageAggregate, { sku: item.sku, zoho_item_id: item.zohoItemId })
+      : 0
     await query(
       `
         UPDATE purchase_low_stock_items
@@ -365,6 +385,7 @@ async function refreshLowStockZohoEnrichment() {
           zoho_item_id = $3,
           current_zoho_stock = $4,
           total_sales_last_3_months = $5,
+          total_bundle_usage_last_3_months = $6,
           updated_at = NOW()
         WHERE id = $1
       `,
@@ -374,6 +395,7 @@ async function refreshLowStockZohoEnrichment() {
         item && item.matchedInZoho ? item.zohoItemId : '',
         item && item.matchedInZoho ? item.currentZohoStock : 0,
         totalSalesLast3Months,
+        totalBundleUsageLast3Months,
       ]
     )
   }
@@ -618,17 +640,77 @@ function salesQtyForItem(aggregate, item) {
   return aggregate.bySku.get(sku) || 0
 }
 
+function addUsage(usage, { itemId, sku, qty }) {
+  const n = toNumber(qty, 0)
+  if (!n) return
+  const id = clean(itemId)
+  const normalizedSku = normalizeSku(sku)
+  if (id) usage.byItemId.set(id, (usage.byItemId.get(id) || 0) + n)
+  if (normalizedSku) usage.bySku.set(normalizedSku, (usage.bySku.get(normalizedSku) || 0) + n)
+}
+
+function bundleUsageQtyForItem(usage, item) {
+  const itemId = clean(item.zoho_item_id)
+  const sku = normalizeSku(item.sku)
+  if (itemId && usage.byItemId.has(itemId)) return usage.byItemId.get(itemId)
+  return usage.bySku.get(sku) || 0
+}
+
+async function getCompositeMappedItems(compositeItemId) {
+  const detail = await fetchCompositeItemDetail(compositeItemId, {
+    source: 'purchase_planning_composite_usage_detail',
+  })
+  const entity = detail && detail.composite_item ? detail.composite_item : detail
+  return Array.isArray(entity && entity.mapped_items) ? entity.mapped_items : []
+}
+
+async function buildCompositeUsageAggregate(lines, fetchMappedItems = getCompositeMappedItems) {
+  const usage = { byItemId: new Map(), bySku: new Map() }
+  const compositeSales = []
+  for (const line of Array.isArray(lines) ? lines : []) {
+    const qtySold = toNumber(line.quantity, 0)
+    const itemId = clean(line.item_id)
+    if (qtySold > 0 && itemId) compositeSales.push({ itemId, qtySold })
+  }
+
+  const uniqueCompositeIds = [...new Set(compositeSales.map((sale) => sale.itemId))]
+  const mappedByCompositeId = new Map()
+  await Promise.all(uniqueCompositeIds.map(async (itemId) => {
+    try {
+      mappedByCompositeId.set(itemId, await fetchMappedItems(itemId))
+    } catch (err) {
+      mappedByCompositeId.set(itemId, [])
+    }
+  }))
+
+  for (const sale of compositeSales) {
+    const mappedItems = mappedByCompositeId.get(sale.itemId) || []
+    for (const component of mappedItems) {
+      const componentQty = toNumber(component.quantity, 0)
+      if (componentQty <= 0) continue
+      addUsage(usage, {
+        itemId: component.item_id,
+        sku: component.sku || component.item_code || component.name,
+        qty: sale.qtySold * componentQty,
+      })
+    }
+  }
+  return usage
+}
+
 async function fetchLast3MonthsSalesAggregate() {
   const fromDate = isoDateDaysAgo(92)
   const toDate = todayIso()
   const sales = await getSales(fromDate, toDate)
-  return aggregateSalesLines(sales.lines)
+  return {
+    salesAggregate: aggregateSalesLines(sales.lines),
+    bundleUsageAggregate: await buildCompositeUsageAggregate(sales.lines),
+  }
 }
 
 async function getBundleUsageBySku() {
   return new Map()
 }
-
 function nextPlanNumber() {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)
   const suffix = Math.random().toString(36).slice(2, 6).toUpperCase()
@@ -657,7 +739,7 @@ async function generatePlan({ createdBy }) {
     onWarning: (message) => warnings.push(message),
   })
   const salesAggregate = aggregateSalesLines(sales.lines)
-  const bundleUsageBySku = await getBundleUsageBySku(fromDate, toDate)
+  const bundleUsageAggregate = await buildCompositeUsageAggregate(sales.lines)
 
   const client = await pool.connect()
   try {
@@ -679,7 +761,10 @@ async function generatePlan({ createdBy }) {
         sku: item.sku,
         zoho_item_id: item.zohoItemId,
       })
-      const totalBundle = bundleUsageBySku.get(normalizeSku(item.sku)) || 0
+      const totalBundle = bundleUsageQtyForItem(bundleUsageAggregate, {
+        sku: item.sku,
+        zoho_item_id: item.zohoItemId,
+      })
       const totalUsage = totalSales + totalBundle
       const averageMonthlyUsage = totalUsage / 3
       const requiredQty = Math.ceil((averageMonthlyUsage * 3) - item.currentZohoStock)
@@ -913,6 +998,8 @@ module.exports = {
   createZohoPurchaseOrder,
   _internals: {
     buildZohoItemIndex,
+    buildCompositeUsageAggregate,
+    bundleUsageQtyForItem,
     resolveZohoStock,
     resolvePurchasePlanningWarehouse,
   },
