@@ -94,6 +94,7 @@ function mapLowStockRow(row) {
     itemName: row.item_name,
     zohoItemId: row.zoho_item_id,
     currentZohoStock: Number(row.current_zoho_stock || 0),
+    totalSalesLast3Months: Number(row.total_sales_last_3_months || 0),
     lowStockDetectedAt: row.low_stock_detected_at,
     status: row.status,
     updatedAt: row.updated_at,
@@ -155,11 +156,16 @@ async function ensurePurchasePlanningTables() {
       item_name TEXT NOT NULL DEFAULT '',
       zoho_item_id VARCHAR(100),
       current_zoho_stock NUMERIC(12, 2) NOT NULL DEFAULT 0,
+      total_sales_last_3_months NUMERIC(12, 2) NOT NULL DEFAULT 0,
       low_stock_detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       status VARCHAR(20) NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'planned', 'ordered', 'ignored')),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `)
+  await query(`
+    ALTER TABLE purchase_low_stock_items
+    ADD COLUMN IF NOT EXISTS total_sales_last_3_months NUMERIC(12, 2) NOT NULL DEFAULT 0
   `)
   await query(`CREATE INDEX IF NOT EXISTS idx_purchase_low_stock_status ON purchase_low_stock_items(status)`)
 
@@ -283,6 +289,12 @@ async function saveUploadedLowStockSkus(skus) {
   }
 
   const enriched = await enrichUploadedLowStockSkus(uniqueSkus)
+  const salesAggregate = await fetchLast3MonthsSalesAggregate()
+  for (const item of enriched) {
+    item.totalSalesLast3Months = item.matchedInZoho
+      ? salesQtyForItem(salesAggregate, { sku: item.sku, zoho_item_id: item.zohoItemId })
+      : 0
+  }
   const uploadedKeys = enriched.map((item) => normalizeSku(item.sku))
 
   await query(`
@@ -296,18 +308,19 @@ async function saveUploadedLowStockSkus(skus) {
     const result = await query(
       `
         INSERT INTO purchase_low_stock_items
-          (sku, item_name, zoho_item_id, current_zoho_stock, low_stock_detected_at, status, updated_at)
-        VALUES ($1, $2, $3, $4, NOW(), 'pending', NOW())
+          (sku, item_name, zoho_item_id, current_zoho_stock, total_sales_last_3_months, low_stock_detected_at, status, updated_at)
+        VALUES ($1, $2, $3, $4, $5, NOW(), 'pending', NOW())
         ON CONFLICT (sku) DO UPDATE SET
           item_name = EXCLUDED.item_name,
           zoho_item_id = EXCLUDED.zoho_item_id,
           current_zoho_stock = EXCLUDED.current_zoho_stock,
+          total_sales_last_3_months = EXCLUDED.total_sales_last_3_months,
           low_stock_detected_at = NOW(),
           status = 'pending',
           updated_at = NOW()
         RETURNING id
       `,
-      [item.sku, item.itemName, item.zohoItemId, item.currentZohoStock]
+      [item.sku, item.itemName, item.zohoItemId, item.currentZohoStock, item.totalSalesLast3Months || 0]
     )
     upserted += result.rowCount
   }
@@ -333,6 +346,7 @@ async function refreshLowStockZohoEnrichment() {
   }
 
   const enriched = await enrichUploadedLowStockSkus(current.rows.map((row) => row.sku))
+  const salesAggregate = await fetchLast3MonthsSalesAggregate()
   let matched = 0
   let unmatched = 0
   for (let i = 0; i < current.rows.length; i += 1) {
@@ -340,6 +354,9 @@ async function refreshLowStockZohoEnrichment() {
     const item = enriched[i]
     if (item && item.matchedInZoho) matched += 1
     else unmatched += 1
+    const totalSalesLast3Months = item && item.matchedInZoho
+      ? salesQtyForItem(salesAggregate, { sku: item.sku, zoho_item_id: item.zohoItemId })
+      : 0
     await query(
       `
         UPDATE purchase_low_stock_items
@@ -347,6 +364,7 @@ async function refreshLowStockZohoEnrichment() {
           item_name = $2,
           zoho_item_id = $3,
           current_zoho_stock = $4,
+          total_sales_last_3_months = $5,
           updated_at = NOW()
         WHERE id = $1
       `,
@@ -355,6 +373,7 @@ async function refreshLowStockZohoEnrichment() {
         item && item.matchedInZoho ? item.itemName : '',
         item && item.matchedInZoho ? item.zohoItemId : '',
         item && item.matchedInZoho ? item.currentZohoStock : 0,
+        totalSalesLast3Months,
       ]
     )
   }
@@ -597,6 +616,13 @@ function salesQtyForItem(aggregate, item) {
   const sku = normalizeSku(item.sku)
   if (itemId && aggregate.byItemId.has(itemId)) return aggregate.byItemId.get(itemId)
   return aggregate.bySku.get(sku) || 0
+}
+
+async function fetchLast3MonthsSalesAggregate() {
+  const fromDate = isoDateDaysAgo(92)
+  const toDate = todayIso()
+  const sales = await getSales(fromDate, toDate)
+  return aggregateSalesLines(sales.lines)
 }
 
 async function getBundleUsageBySku() {

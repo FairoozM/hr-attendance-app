@@ -212,6 +212,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                     <th>Uploaded SKU</th>
                     <th>Zoho item name</th>
                     <th>Life Smile Available Stock</th>
+                    <th>Sales Qty (3M)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -221,6 +222,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                       <td className="pp-mono">{item.sku}</td>
                       <td>{item.itemName || '-'}</td>
                       <td>{fmt(item.currentZohoStock)}</td>
+                      <td>{fmt(item.totalSalesLast3Months)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -254,6 +256,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                     <th>Uploaded SKU</th>
                     <th>Status</th>
                     <th>Life Smile Available Stock</th>
+                    <th>Sales Qty (3M)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -263,6 +266,7 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
                       <td className="pp-mono">{item.sku}</td>
                       <td><Badge tone="danger">Not matched</Badge></td>
                       <td>{fmt(item.currentZohoStock)}</td>
+                      <td>{fmt(item.totalSalesLast3Months)}</td>
                     </tr>
                   ))}
                 </tbody>
