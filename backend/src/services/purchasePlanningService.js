@@ -754,6 +754,17 @@ function nextPlanNumber() {
   return `PP-${stamp}-${suffix}`
 }
 
+function nextZohoPurchaseOrderNumber(planNumber) {
+  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(2, 14)
+  const suffix = Math.random().toString(36).slice(2, 8).toUpperCase()
+  const base = clean(planNumber || 'PP')
+    .replace(/[^A-Z0-9-]/gi, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 24)
+  return `${base || 'PP'}-${stamp}-${suffix}`
+}
+
 async function generatePlan({ createdBy }) {
   const upload = await getLatestVigilUpload()
   if (!upload) {
@@ -976,10 +987,12 @@ async function createZohoPurchaseOrder(planId) {
     throw err
   }
 
+  const zohoPoNumber = nextZohoPurchaseOrderNumber(plan.planNumber)
   const payload = {
     vendor_id: vendor.vendorId,
+    purchaseorder_number: zohoPoNumber,
     date: todayIso(),
-    reference_number: plan.planNumber,
+    reference_number: zohoPoNumber,
     notes: `Generated from HR & BI Purchase Planning plan ${plan.planNumber}. Review completed by admin before sending.`,
     line_items: selected.map((item) => ({
       item_id: item.zohoItemId,
@@ -1051,6 +1064,7 @@ module.exports = {
     buildCompositeUsageAggregate,
     bundleUsageQtyForItem,
     calculatePlanQuantities,
+    nextZohoPurchaseOrderNumber,
     resolvePurchaseOrderVendor,
     resolveZohoStock,
     resolvePurchasePlanningWarehouse,

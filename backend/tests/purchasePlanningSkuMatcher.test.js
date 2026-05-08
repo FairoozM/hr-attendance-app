@@ -242,3 +242,12 @@ test('purchase planning PO vendor falls back to weekly report vendor config', ()
     else process.env.WEEKLY_REPORT_VENDORS_JSON = originalVendorsJson
   }
 })
+
+test('purchase planning generates unique Zoho PO numbers per send attempt', () => {
+  const first = _internals.nextZohoPurchaseOrderNumber('PP-202605081234-ABCD')
+  const second = _internals.nextZohoPurchaseOrderNumber('PP-202605081234-ABCD')
+
+  assert.match(first, /^PP-202605081234-ABCD-\d{12}-[A-Z0-9]{6}$/)
+  assert.match(second, /^PP-202605081234-ABCD-\d{12}-[A-Z0-9]{6}$/)
+  assert.notEqual(first, second)
+})
