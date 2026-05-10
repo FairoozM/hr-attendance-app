@@ -924,7 +924,7 @@ export function PurchasePlanningPage() {
       setError(`Add purchase price in All Prices for ${missingPriceItems.slice(0, 5).map((item) => item.sku).join(', ')}${missingPriceItems.length > 5 ? '...' : ''}`)
       return
     }
-    if (!window.confirm(`Create Zoho purchase order ${poNumber} from ${pricedPlan.planNumber}? This cannot be sent twice.`)) return
+    if (!window.confirm(`Create Zoho purchase order ${poNumber} from ${pricedPlan.planNumber}? This can create another Zoho PO if the plan was already sent.`)) return
     setBusy('po')
     setError('')
     setNotice('')
@@ -967,7 +967,7 @@ export function PurchasePlanningPage() {
             placeholder="PO number"
             disabled={busy === 'po'}
           />
-          <button className="btn btn--primary" disabled={!activePlanWithPrices || activePlanWithPrices.status === 'sent_to_zoho' || busy === 'po' || !purchaseOrderNumber.trim()} onClick={createPo}>
+          <button className="btn btn--primary" disabled={!activePlanWithPrices || busy === 'po' || !purchaseOrderNumber.trim()} onClick={createPo}>
             Create PO in Zoho
           </button>
         </div>

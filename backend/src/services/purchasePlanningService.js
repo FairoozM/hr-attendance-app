@@ -999,12 +999,6 @@ async function createZohoPurchaseOrder(planId, options = {}) {
     err.code = 'PLAN_NOT_FOUND'
     throw err
   }
-  if (plan.zohoPurchaseOrderId || plan.status === 'sent_to_zoho') {
-    const err = new Error('This purchase plan was already sent to Zoho')
-    err.code = 'DUPLICATE_PO'
-    throw err
-  }
-
   const config = readZohoConfig()
   if (config.code !== 'ok') {
     const err = new Error('Zoho is not configured')
