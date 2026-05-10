@@ -62,7 +62,7 @@ export function useInfluencerPerformanceScreen() {
   const [records, setRecords] = useState(null)
   const [serverMergedOnce, setServerMergedOnce] = useState(false)
   const [syncHint, setSyncHint] = useState('')
-  const [sort, setSort] = useState({ key: 'date', direction: 'desc' })
+  const [sort, setSort] = useState({ key: 'rank', direction: 'asc' })
   const [editingRecord, setEditingRecord] = useState(null)
   const [editingContract, setEditingContract] = useState(null)
   const [isAddRecordOpen, setIsAddRecordOpen] = useState(false)
@@ -77,7 +77,7 @@ export function useInfluencerPerformanceScreen() {
   useEffect(() => {
     if (authLoading || !user) return
     if (sort.key === 'netProfitAed' && !showNetProfitColumn) {
-      setSort({ key: 'date', direction: 'desc' })
+      setSort({ key: 'rank', direction: 'asc' })
     }
   }, [authLoading, user, sort.key, showNetProfitColumn])
 
