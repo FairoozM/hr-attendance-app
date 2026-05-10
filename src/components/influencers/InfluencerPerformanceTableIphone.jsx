@@ -255,7 +255,7 @@ export function InfluencerPerformanceTableIphone({
           </li>
         ) : records.map((record) => {
           const influencerId = String(record.influencerId || '')
-          const isMonitorActive = String(activeMonitorInfluencerId) === influencerId
+          const isMonitorActive = String(activeMonitorInfluencerId) === String(record.id) || String(activeMonitorInfluencerId) === influencerId
           const influencer = influencersById.get(influencerId)
           const rankInfo = rankingByRecordId.get(record.id)
           return (
@@ -293,12 +293,12 @@ export function InfluencerPerformanceTableIphone({
                         className="ip-table__row-menu-item"
                         role="menuitem"
                         onClick={() => {
-                          onToggleMonitor(record.influencerId)
+                          onToggleMonitor(record.influencerId, record)
                           setOpenActionsForId(null)
                         }}
                       >
                         <span className="ip-table__row-menu-icon-slot" aria-hidden />
-                        {isMonitorActive ? 'Hide contract timeline' : 'Show contract timeline'}
+                      {isMonitorActive ? 'Hide contract timeline' : 'Open contract timeline'}
                       </button>
                       <button
                         type="button"
@@ -344,7 +344,16 @@ export function InfluencerPerformanceTableIphone({
 
               <InfluencerIdentity influencer={influencer} />
 
-              <div className="mb-3.5 text-[0.78rem] font-semibold tabular-nums text-[color:var(--ip-phone-date)]">{record.date}</div>
+              <div className="mb-3.5 flex flex-wrap items-center gap-2 text-[0.78rem] font-semibold tabular-nums text-[color:var(--ip-phone-date)]">
+                <span>
+                  {(record.startDate || record.contractStartDate || record.date) === (record.latestDate || record.latest?.date || record.date)
+                    ? (record.startDate || record.contractStartDate || record.date)
+                    : `${record.startDate || record.contractStartDate || record.date} → ${record.latestDate || record.latest?.date || record.date}`}
+                </span>
+                <span className="rounded-full bg-cyan-500/10 px-2.5 py-1 text-[0.68rem] font-black uppercase tracking-[0.1em] text-cyan-700">
+                  {record.recordedDays || 0}/{record.monitoringDays || 5} days
+                </span>
+              </div>
 
               <div className="grid grid-cols-2 gap-x-3 gap-y-3.5">
                 <MetricSlot label="Cost" field="cost" record={record} bests={bests} valueAlign="start">

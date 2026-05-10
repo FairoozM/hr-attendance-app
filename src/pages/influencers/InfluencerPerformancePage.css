@@ -2156,6 +2156,32 @@
   font-weight: 700;
 }
 
+.ip-table__contract-dates {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 8.25rem;
+}
+
+.ip-table__contract-dates strong {
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.ip-table__contract-dates span {
+  width: fit-content;
+  border-radius: 999px;
+  background: rgba(6, 182, 212, 0.12);
+  color: #0e7490;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  padding: 0.2rem 0.45rem;
+  text-transform: uppercase;
+}
+
 .ip-table .inf-btn-icon {
   width: 1.75rem;
   height: 1.75rem;

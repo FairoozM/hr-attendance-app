@@ -3,11 +3,11 @@ import { api } from '../../api/client'
 import { useAuth, canMutateInfluencerPerformance, canViewInfluencerPerformanceNetProfit } from '../../contexts/AuthContext'
 import { useInfluencers } from '../../contexts/InfluencersContext'
 import {
+  buildContractRows,
   computeContractRankings,
   createInfluencerFromAppRecord,
   createMockPerformanceRecords,
   dedupePerformanceRecords,
-  getVideoContractKey,
   getVideoContractTimelines,
   mockInfluencers,
   normalizePerformanceRecord,
@@ -38,6 +38,7 @@ export function useInfluencerPerformanceScreen() {
   const [viewRecord, setViewRecord] = useState(null)
   const [isAddRecordOpen, setIsAddRecordOpen] = useState(false)
   const [activeMonitorInfluencerId, setActiveMonitorInfluencerId] = useState(null)
+  const [activeMonitorContractId, setActiveMonitorContractId] = useState(null)
   const contractTimelineAnchorRef = useRef(null)
   const canWritePerformance = canMutateInfluencerPerformance(user)
   const showNetProfitColumn = canViewInfluencerPerformanceNetProfit(user)
@@ -154,6 +155,7 @@ export function useInfluencerPerformanceScreen() {
       void persistRecordsIfCan(cleaned)
       if (activeMonitorInfluencerId && !influencersById.has(String(activeMonitorInfluencerId))) {
         setActiveMonitorInfluencerId(null)
+        setActiveMonitorContractId(null)
       }
     }
   }, [activeMonitorInfluencerId, influencers.length, influencersById, influencersLoading, records, persistRecordsIfCan])
@@ -170,13 +172,15 @@ export function useInfluencerPerformanceScreen() {
 
   const rankingByRecordId = useMemo(() => {
     const m = new Map()
-    allRecords.forEach((record) => {
-      const cid = getVideoContractKey(record)
+    videoContracts.forEach((contract) => {
+      const cid = contract.id
       const info = rankingsByContractId.get(cid)
-      if (info) m.set(record.id, info)
+      if (info) {
+        ;(contract.records || []).forEach((record) => m.set(record.id, info))
+      }
     })
     return m
-  }, [allRecords, rankingsByContractId])
+  }, [videoContracts, rankingsByContractId])
 
   const filteredRecords = useMemo(() => {
     return [...allRecords].sort((a, b) => {
@@ -203,58 +207,24 @@ export function useInfluencerPerformanceScreen() {
     })
   }, [allRecords, influencersById, rankingByRecordId, sort])
 
-  // One row per video contract: aggregate totals, anchor to the contract start
-  // date, and reuse rankingsByContractId for ranking lookups (row id === contract id).
-  const filteredContracts = useMemo(() => {
-    const rows = videoContracts.map((contract) => ({
-      id: contract.id,
-      contractId: contract.id,
-      influencerId: contract.influencerId,
-      influencer: contract.influencer,
-      platform: contract.platform,
-      postUrl: contract.postUrl,
-      campaignName: contract.campaignName,
-      videoTitle: contract.videoTitle,
-      contractStartDate: contract.contractStartDate,
-      date: contract.contractStartDate,
-      monitoringDays: contract.monitoringDays,
-      recordedDays: contract.recordedDays,
-      days: contract.days,
-      latest: contract.latest,
-      records: contract.records,
-      cost: contract.totals.cost,
-      views: contract.totals.views,
-      likes: contract.totals.likes,
-      comments: contract.totals.comments,
-      shares: contract.totals.shares,
-      salesAed: contract.totals.salesAed,
-      netProfitAed: contract.totals.netProfitAed,
-      engagementRate: contract.averageEngagementRate,
-    }))
-    return rows.sort((a, b) => {
-      if (sort.key === 'rank') {
-        const scoreA = rankingsByContractId.get(a.id)?.score ?? -1
-        const scoreB = rankingsByContractId.get(b.id)?.score ?? -1
-        if (scoreB !== scoreA) {
-          return sort.direction === 'asc' ? scoreB - scoreA : scoreA - scoreB
-        }
-        return compareValues(a.date, b.date, 'desc')
-      }
-      if (sort.key === 'netProfitAed') {
-        return compareValues(toNumber(a.netProfitAed), toNumber(b.netProfitAed), sort.direction)
-      }
-      const influencerA = influencersById.get(String(a.influencerId))
-      const influencerB = influencersById.get(String(b.influencerId))
-      const valueA = sort.key === 'influencer' ? influencerA?.name : a[sort.key]
-      const valueB = sort.key === 'influencer' ? influencerB?.name : b[sort.key]
-      return compareValues(valueA, valueB, sort.direction)
-    })
-  }, [videoContracts, rankingsByContractId, influencersById, sort])
+  const filteredContracts = useMemo(
+    () => buildContractRows(allRecords, influencers, rankingsByContractId, sort),
+    [allRecords, influencers, rankingsByContractId, sort],
+  )
 
   const activeMonitorContracts = useMemo(() => {
+    if (activeMonitorContractId) {
+      return videoContracts.filter((contract) => String(contract.id) === String(activeMonitorContractId))
+    }
     if (!activeMonitorInfluencerId) return []
     return videoContracts.filter((contract) => String(contract.influencerId) === String(activeMonitorInfluencerId))
-  }, [activeMonitorInfluencerId, videoContracts])
+  }, [activeMonitorContractId, activeMonitorInfluencerId, videoContracts])
+
+  function toggleActiveMonitorContract(contract) {
+    if (!contract?.id) return
+    setActiveMonitorContractId((current) => (String(current) === String(contract.id) ? null : contract.id))
+    setActiveMonitorInfluencerId(contract.influencerId || null)
+  }
 
   function handleSort(key) {
     setSort((prev) => {
@@ -271,6 +241,7 @@ export function useInfluencerPerformanceScreen() {
   function handlePodiumSelectContract(contract) {
     if (!contract?.influencerId) return
     setActiveMonitorInfluencerId(contract.influencerId)
+    setActiveMonitorContractId(contract.id || null)
     requestAnimationFrame(() => {
       setTimeout(() => {
         contractTimelineAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -357,6 +328,8 @@ export function useInfluencerPerformanceScreen() {
     setIsAddRecordOpen,
     activeMonitorInfluencerId,
     setActiveMonitorInfluencerId,
+    activeMonitorContractId,
+    setActiveMonitorContractId,
     contractTimelineAnchorRef,
     canWritePerformance,
     showNetProfitColumn,
@@ -373,6 +346,7 @@ export function useInfluencerPerformanceScreen() {
     handleDelete,
     handleSaveContractEdit,
     handlePodiumSelectContract,
+    toggleActiveMonitorContract,
     persistRecordsIfCan,
   }
 }

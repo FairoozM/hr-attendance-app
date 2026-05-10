@@ -10,11 +10,34 @@ function redactNetProfitUnlessAdmin(records, isAdmin) {
   })
 }
 
+function buildContractFromRecord(record = {}) {
+  return {
+    id: record.contractId,
+    influencerId: record.influencerId,
+    platform: record.platform || '',
+    campaignName: record.campaignName || '',
+    videoTitle: record.videoTitle || record.campaignName || 'Contracted video',
+    postUrl: record.postUrl || '',
+    contractStartDate: record.contractStartDate || record.date || '',
+    monitoringDays: record.monitoringDays || 5,
+  }
+}
+
 async function listPerformanceRecords(req, res) {
   try {
     const isAdmin = req.user?.role === 'admin'
     const records = await influencerPerformanceService.listPerformanceRecords()
-    res.json({ records: redactNetProfitUnlessAdmin(records, isAdmin) })
+    const savedContracts = await influencerPerformanceService.listPerformanceContracts()
+    const contractsById = new Map(savedContracts.map((contract) => [String(contract.id), contract]))
+    records.forEach((record) => {
+      if (record.contractId && !contractsById.has(String(record.contractId))) {
+        contractsById.set(String(record.contractId), buildContractFromRecord(record))
+      }
+    })
+    res.json({
+      records: redactNetProfitUnlessAdmin(records, isAdmin),
+      contracts: Array.from(contractsById.values()),
+    })
   } catch (err) {
     console.error('[influencerPerformance] list error:', err)
     res.status(500).json({ error: err.message || 'Failed to load performance records' })

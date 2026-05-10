@@ -7,19 +7,108 @@ function isoDateSlice(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : ''
 }
 
+function normalizeText(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+}
+
+function normalizeContractUrl(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  try {
+    const url = new URL(raw)
+    const hostname = url.hostname.toLowerCase().replace(/^www\./, '')
+    return `${hostname}${url.pathname.replace(/\/+$/, '')}`.toLowerCase()
+  } catch {
+    return normalizeText(raw).replace(/[?#].*$/, '')
+  }
+}
+
+function slug(value) {
+  return normalizeText(value)
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'contract'
+}
+
+function contractSignature(record = {}) {
+  const influencerId = record.influencerId || 'unknown'
+  const url = normalizeContractUrl(record.postUrl)
+  if (url) return `${influencerId}::url::${url}`
+  return `${influencerId}::video::${normalizeText(record.videoTitle || record.campaignName || 'video')}`
+}
+
+function ensureContractId(record = {}) {
+  const existing = String(record.contractId || '').trim()
+  if (existing.startsWith('ip-contract::')) return existing
+  const start = isoDateSlice(record.contractStartDate || record.date) || 'unknown-date'
+  return `ip-contract::${slug(contractSignature(record))}::${start}`
+}
+
+async function upsertContractFromRecord(record, updatedByUserId) {
+  const contractId = ensureContractId(record)
+  const start = isoDateSlice(record.contractStartDate || record.date) || null
+  const monitoringDays = Number.parseInt(String(record.monitoringDays || 5), 10)
+  const validDays = Number.isFinite(monitoringDays) ? Math.max(4, Math.min(7, monitoringDays)) : 5
+  const body = {
+    id: contractId,
+    influencerId: record.influencerId,
+    platform: record.platform || '',
+    campaignName: record.campaignName || '',
+    videoTitle: record.videoTitle || record.campaignName || 'Contracted video',
+    postUrl: record.postUrl || '',
+    contractStartDate: start,
+    monitoringDays: validDays,
+  }
+  await query(
+    `INSERT INTO influencer_performance_contracts
+       (id, influencer_id, platform, campaign_name, video_title, post_url, contract_start_date, monitoring_days, body, updated_at, updated_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::date, $8, $9::jsonb, NOW(), $10)
+     ON CONFLICT (id) DO UPDATE SET
+       influencer_id = EXCLUDED.influencer_id,
+       platform = COALESCE(NULLIF(influencer_performance_contracts.platform, ''), EXCLUDED.platform),
+       campaign_name = COALESCE(NULLIF(influencer_performance_contracts.campaign_name, ''), EXCLUDED.campaign_name),
+       video_title = COALESCE(NULLIF(influencer_performance_contracts.video_title, ''), EXCLUDED.video_title),
+       post_url = COALESCE(NULLIF(influencer_performance_contracts.post_url, ''), EXCLUDED.post_url),
+       contract_start_date = LEAST(COALESCE(influencer_performance_contracts.contract_start_date, EXCLUDED.contract_start_date), EXCLUDED.contract_start_date),
+       monitoring_days = GREATEST(influencer_performance_contracts.monitoring_days, EXCLUDED.monitoring_days),
+       body = influencer_performance_contracts.body || EXCLUDED.body,
+       updated_at = NOW(),
+       updated_by = EXCLUDED.updated_by`,
+    [contractId, record.influencerId, body.platform, body.campaignName, body.videoTitle, body.postUrl, start, validDays, JSON.stringify(body), updatedByUserId]
+  )
+  return contractId
+}
+
 async function listPerformanceRecords() {
   await ensureInfluencerPerformanceRecordsTable()
   const result = await query(
-    `SELECT id, body, updated_at FROM influencer_performance_records ORDER BY check_date DESC NULLS LAST, id`
+    `SELECT id, contract_id, body, updated_at FROM influencer_performance_records ORDER BY check_date DESC NULLS LAST, id`
   )
   return result.rows.map((row) => {
     const body = row.body && typeof row.body === 'object' ? row.body : {}
     return {
       ...body,
       id: row.id,
+      contractId: body.contractId || row.contract_id || ensureContractId(body),
       updatedAt: body.updatedAt || row.updated_at,
     }
   })
+}
+
+async function listPerformanceContracts() {
+  await ensureInfluencerPerformanceRecordsTable()
+  const result = await query(
+    `SELECT id, body, updated_at FROM influencer_performance_contracts ORDER BY contract_start_date DESC NULLS LAST, id`
+  )
+  return result.rows.map((row) => ({
+    ...(row.body && typeof row.body === 'object' ? row.body : {}),
+    id: row.id,
+    updatedAt: row.updated_at,
+  }))
 }
 
 async function getPerformanceRecordBodyById(recordId) {
@@ -67,7 +156,8 @@ async function bulkUpsertPerformanceRecords(records, updatedByUserId, isAdmin = 
       continue
     }
 
-    const body = { ...raw, id, influencerId, date: checkDate }
+    const contractId = await upsertContractFromRecord({ ...raw, id, influencerId, date: checkDate }, validUid)
+    const body = { ...raw, id, contractId, influencerId, date: checkDate }
     if (!isAdmin) {
       delete body.netProfitAed
       const previous = await getPerformanceRecordBodyById(id)
@@ -76,15 +166,16 @@ async function bulkUpsertPerformanceRecords(records, updatedByUserId, isAdmin = 
       }
     }
     await query(
-      `INSERT INTO influencer_performance_records (id, influencer_id, check_date, body, updated_at, updated_by)
-       VALUES ($1, $2, $3::date, $4::jsonb, NOW(), $5)
+      `INSERT INTO influencer_performance_records (id, contract_id, influencer_id, check_date, body, updated_at, updated_by)
+       VALUES ($1, $2, $3, $4::date, $5::jsonb, NOW(), $6)
        ON CONFLICT (id) DO UPDATE SET
+         contract_id = EXCLUDED.contract_id,
          influencer_id = EXCLUDED.influencer_id,
          check_date = EXCLUDED.check_date,
          body = EXCLUDED.body,
          updated_at = NOW(),
          updated_by = EXCLUDED.updated_by`,
-      [id, influencerId, checkDate, JSON.stringify(body), validUid]
+      [id, contractId, influencerId, checkDate, JSON.stringify(body), validUid]
     )
     upserted++
   }
@@ -102,6 +193,7 @@ async function deletePerformanceRecord(recordId, _updatedByUserId) {
 
 module.exports = {
   listPerformanceRecords,
+  listPerformanceContracts,
   bulkUpsertPerformanceRecords,
   deletePerformanceRecord,
 }

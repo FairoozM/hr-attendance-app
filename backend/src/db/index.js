@@ -395,8 +395,27 @@ async function ensureInfluencersSnapshotTable() {
 /** Daily influencer performance checks (synced from app; influencer ids match influencers_snapshot). */
 async function ensureInfluencerPerformanceRecordsTable() {
   await query(`
+    CREATE TABLE IF NOT EXISTS influencer_performance_contracts (
+      id TEXT PRIMARY KEY,
+      influencer_id TEXT NOT NULL,
+      platform TEXT NOT NULL DEFAULT '',
+      campaign_name TEXT NOT NULL DEFAULT '',
+      video_title TEXT NOT NULL DEFAULT '',
+      post_url TEXT NOT NULL DEFAULT '',
+      contract_start_date DATE,
+      monitoring_days INTEGER NOT NULL DEFAULT 5,
+      body JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_ipc_influencer ON influencer_performance_contracts(influencer_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_ipc_start_date ON influencer_performance_contracts(contract_start_date)`)
+  await query(`
     CREATE TABLE IF NOT EXISTS influencer_performance_records (
       id TEXT PRIMARY KEY,
+      contract_id TEXT,
       influencer_id TEXT NOT NULL,
       check_date DATE NOT NULL,
       body JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -405,7 +424,9 @@ async function ensureInfluencerPerformanceRecordsTable() {
       updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
     )
   `)
+  await query(`ALTER TABLE influencer_performance_records ADD COLUMN IF NOT EXISTS contract_id TEXT`)
   await query(`CREATE INDEX IF NOT EXISTS idx_ipr_influencer ON influencer_performance_records(influencer_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_ipr_contract ON influencer_performance_records(contract_id)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_ipr_check_date ON influencer_performance_records(check_date)`)
 }
 

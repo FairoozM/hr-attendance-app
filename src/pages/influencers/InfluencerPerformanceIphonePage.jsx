@@ -30,6 +30,7 @@ export function InfluencerPerformanceIphonePage() {
     setIsAddRecordOpen,
     activeMonitorInfluencerId,
     setActiveMonitorInfluencerId,
+    activeMonitorContractId,
     contractTimelineAnchorRef,
     canWritePerformance,
     showNetProfitColumn,
@@ -40,6 +41,7 @@ export function InfluencerPerformanceIphonePage() {
     handleSubmit,
     handleDelete,
     handleSaveContractEdit,
+    toggleActiveMonitorContract,
   } = useInfluencerPerformanceScreen()
 
   return (
@@ -117,10 +119,8 @@ export function InfluencerPerformanceIphonePage() {
         rankingByRecordId={rankingsByContractId}
         showNetProfitColumn={showNetProfitColumn}
         onView={(row) => row?.latest && setViewRecord(row.latest)}
-        activeMonitorInfluencerId={activeMonitorInfluencerId}
-        onToggleMonitor={(influencerId) => setActiveMonitorInfluencerId((current) => (
-          String(current) === String(influencerId) ? null : influencerId
-        ))}
+        activeMonitorInfluencerId={activeMonitorContractId || activeMonitorInfluencerId}
+        onToggleMonitor={(_influencerId, row) => toggleActiveMonitorContract(row)}
       />
 
       <div ref={contractTimelineAnchorRef} className="ip-contract-timeline-anchor ip-page--iphone__timeline">

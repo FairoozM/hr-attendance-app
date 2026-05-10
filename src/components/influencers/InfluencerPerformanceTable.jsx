@@ -7,7 +7,7 @@ const EMPTY_RANK_MAP = new Map()
 
 function tableColumns(showNetProfitColumn) {
   const cols = [
-    ['date', 'Date'],
+    ['date', 'Contract Dates'],
     ['influencer', 'Influencer'],
     ['cost', 'Cost'],
     ['views', 'Views'],
@@ -191,6 +191,20 @@ function InfluencerIdentity({ influencer }) {
   )
 }
 
+function ContractDatesCell({ record }) {
+  const start = record.startDate || record.contractStartDate || record.date || '—'
+  const latest = record.latestDate || record.latest?.date || start
+  const dayText = `${record.recordedDays || 0}/${record.monitoringDays || 5} days`
+  return (
+    <td>
+      <div className="ip-table__contract-dates">
+        <strong>{start === latest ? start : `${start} → ${latest}`}</strong>
+        <span>{dayText}</span>
+      </div>
+    </td>
+  )
+}
+
 export function InfluencerPerformanceTable({
   records,
   influencersById,
@@ -264,13 +278,13 @@ export function InfluencerPerformanceTable({
               </tr>
             ) : records.map((record) => {
               const influencerId = String(record.influencerId || '')
-              const isMonitorActive = String(activeMonitorInfluencerId) === influencerId
+              const isMonitorActive = String(activeMonitorInfluencerId) === String(record.id) || String(activeMonitorInfluencerId) === influencerId
               const influencer = influencersById.get(influencerId)
               const rankInfo = rankingByRecordId.get(record.id)
               return (
                 <tr key={record.id} className={`ip-table__detail-row ${isMonitorActive ? 'ip-table__detail-row--active' : ''}`}>
                   <RankCell rankInfo={rankInfo} />
-                  <td>{record.date}</td>
+                  <ContractDatesCell record={record} />
                   <td className="ip-table__col--influencer">
                     <InfluencerIdentity influencer={influencer} />
                   </td>
@@ -319,12 +333,12 @@ export function InfluencerPerformanceTable({
                             className="ip-table__row-menu-item"
                             role="menuitem"
                             onClick={() => {
-                              onToggleMonitor(record.influencerId)
+                              onToggleMonitor(record.influencerId, record)
                               setOpenActionsForId(null)
                             }}
                           >
                             <span className="ip-table__row-menu-icon-slot" aria-hidden />
-                            {isMonitorActive ? 'Hide contract timeline' : 'Show contract timeline'}
+                            {isMonitorActive ? 'Hide contract timeline' : 'Open contract timeline'}
                           </button>
                           <button
                             type="button"

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import {
+  buildContractRows,
+  dedupePerformanceRecords,
   getVideoContractTimelines,
   normalizePerformanceRecord,
 } from '../src/utils/influencerPerformanceUtils.js'
@@ -51,24 +53,50 @@ const records = [
     netProfitAed: 700,
     updatedAt: '2026-05-08T12:00:00.000Z',
   }),
+  normalizePerformanceRecord({
+    id: 'rec-day-3',
+    contractId: 'third-generated-contract-id',
+    influencerId: influencer.id,
+    date: '2026-05-09',
+    platform: 'Instagram',
+    postUrl: 'https://www.instagram.com/reel/dscvr-video/?utm_source=ig_web_copy_link',
+    campaignName: 'DSCVR UAE',
+    contractStartDate: '2026-05-09',
+    monitoringDays: 5,
+    views: 24000,
+    likes: 80,
+    comments: 13,
+    shares: 121,
+    salesAed: 900,
+    cost: 100,
+    netProfitAed: 800,
+    updatedAt: '2026-05-09T12:00:00.000Z',
+  }),
 ]
 
 const timelines = getVideoContractTimelines(records, [influencer])
 
 assert.equal(timelines.length, 1)
-assert.equal(timelines[0].recordedDays, 2)
+assert.equal(timelines[0].recordedDays, 3)
 assert.equal(timelines[0].days[0].date, '2026-05-07')
 assert.equal(timelines[0].days[0].record.id, 'rec-day-1')
 assert.equal(timelines[0].days[1].record.id, 'rec-day-2')
+assert.equal(timelines[0].days[2].record.id, 'rec-day-3')
+assert.equal(dedupePerformanceRecords(records).length, 3)
 
 // Aggregated totals power the per-contract row in the performance table.
-assert.equal(timelines[0].totals.views, 41000 + 15800)
-assert.equal(timelines[0].totals.likes, 312 + 54)
-assert.equal(timelines[0].totals.comments, 11 + 12)
-assert.equal(timelines[0].totals.shares, 989 + 111)
-assert.equal(timelines[0].totals.salesAed, 1500 + 800)
-assert.equal(timelines[0].totals.cost, 200 + 100)
-assert.equal(timelines[0].totals.netProfitAed, 1300 + 700)
+assert.equal(timelines[0].totals.views, 41000 + 15800 + 24000)
+assert.equal(timelines[0].totals.likes, 312 + 54 + 80)
+assert.equal(timelines[0].totals.comments, 11 + 12 + 13)
+assert.equal(timelines[0].totals.shares, 989 + 111 + 121)
+assert.equal(timelines[0].totals.salesAed, 1500 + 800 + 900)
+assert.equal(timelines[0].totals.cost, 200 + 100 + 100)
+assert.equal(timelines[0].totals.netProfitAed, 1300 + 700 + 800)
+
+const contractRows = buildContractRows(records, [influencer])
+assert.equal(contractRows.length, 1)
+assert.equal(contractRows[0].recordedDays, 3)
+assert.equal(contractRows[0].views, 41000 + 15800 + 24000)
 
 const campaignOnlyTimelines = getVideoContractTimelines([
   normalizePerformanceRecord({

@@ -111,88 +111,170 @@ function normalizeContractUrl(value) {
   if (!raw) return ''
   try {
     const url = new URL(raw)
+    const hostname = url.hostname.toLowerCase().replace(/^www\./, '')
     const pathname = url.pathname.replace(/\/+$/, '')
-    return `${url.hostname.toLowerCase()}${pathname}`.toLowerCase()
+    return `${hostname}${pathname}`.toLowerCase()
   } catch {
     return normalizeContractText(raw).replace(/[?#].*$/, '')
   }
+}
+
+function slugContractPart(value) {
+  return normalizeContractText(value)
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'contract'
+}
+
+function isExplicitPerformanceContractId(value) {
+  return String(value || '').startsWith('ip-contract::')
 }
 
 export function getVideoContractKey(record = {}) {
   const influencerId = record.influencerId || 'unknown'
   const postUrl = normalizeContractUrl(record.postUrl)
   if (postUrl) return `${influencerId}::url::${postUrl}`
-  const video = normalizeContractText(record.videoTitle || record.campaignName || record.contractId || 'video')
+  const video = normalizeContractText(record.videoTitle || record.campaignName || 'video')
   return `${influencerId}::video::${video}`
 }
 
+export function ensurePerformanceContractId(record = {}) {
+  if (isExplicitPerformanceContractId(record.contractId)) return String(record.contractId)
+  const signature = getVideoContractKey(record)
+  const start = isoDateSlice(record.contractStartDate || record.date) || 'unknown-date'
+  return `ip-contract::${slugContractPart(signature)}::${start}`
+}
+
 export function getPerformanceRecordKey(record = {}) {
-  return `${getVideoContractKey(record)}::${record.date || 'no-date'}`
+  if (record.id) return `id::${record.id}`
+  const cid = isExplicitPerformanceContractId(record.contractId)
+    ? record.contractId
+    : ensurePerformanceContractId(record)
+  return `${cid}::${record.date || 'no-date'}`
 }
 
 export function dedupePerformanceRecords(records = []) {
-  const byKey = new Map()
+  const byId = new Map()
+  const noId = []
   records.forEach((record) => {
-    const key = getPerformanceRecordKey(record)
-    const current = byKey.get(key)
+    const id = String(record?.id || '').trim()
+    if (!id) {
+      noId.push(record)
+      return
+    }
+    const current = byId.get(id)
     if (!current) {
-      byKey.set(key, record)
+      byId.set(id, record)
       return
     }
     const currentTime = new Date(current.updatedAt || current.createdAt || 0).getTime()
     const nextTime = new Date(record.updatedAt || record.createdAt || 0).getTime()
-    byKey.set(key, nextTime >= currentTime ? record : current)
+    byId.set(id, nextTime >= currentTime ? record : current)
   })
-  return Array.from(byKey.values())
+  const rows = [...byId.values(), ...noId]
+  const bySameExplicitDay = new Map()
+  rows.forEach((record) => {
+    const date = isoDateSlice(record?.date)
+    const cid = isExplicitPerformanceContractId(record?.contractId) ? record.contractId : ''
+    const key = cid && date ? `${cid}::${date}` : `row::${record?.id || Math.random()}`
+    const current = bySameExplicitDay.get(key)
+    if (!current) {
+      bySameExplicitDay.set(key, record)
+      return
+    }
+    const currentTime = new Date(current.updatedAt || current.createdAt || 0).getTime()
+    const nextTime = new Date(record.updatedAt || record.createdAt || 0).getTime()
+    bySameExplicitDay.set(key, nextTime >= currentTime ? record : current)
+  })
+  return Array.from(bySameExplicitDay.values())
+}
+
+function shouldJoinContractCluster(cluster, record, daysFallback) {
+  const date = isoDateSlice(record.date)
+  if (!date) return false
+  const start = isoDateSlice(record.contractStartDate || record.date) || date
+  const monitoringDays = Math.max(cluster.monitoringDays, toNumber(record.monitoringDays) || daysFallback)
+  const earliest = minIsoDate(cluster.contractStartDate, start)
+  const latest = [cluster.latestDate, date, start].filter(Boolean).sort().at(-1)
+  const span = daysBetweenIso(earliest, latest)
+  return Number.isFinite(span) && span <= Math.max(1, monitoringDays - 1)
+}
+
+function makeContractSeed(record, influencersById, daysFallback) {
+  const signature = getVideoContractKey(record)
+  const start = isoDateSlice(record.contractStartDate || record.date) || isoDateSlice(record.date)
+  const contractId = isExplicitPerformanceContractId(record.contractId)
+    ? record.contractId
+    : ensurePerformanceContractId({ ...record, contractStartDate: start })
+  return {
+    id: contractId,
+    naturalKey: signature,
+    influencerId: record.influencerId,
+    influencer: influencersById.get(String(record.influencerId)),
+    platform: record.platform,
+    videoTitle: record.videoTitle || record.campaignName || 'Contracted video',
+    postUrl: record.postUrl || '',
+    campaignName: record.campaignName || 'Campaign',
+    contractStartDate: start || record.date,
+    latestDate: isoDateSlice(record.date),
+    monitoringDays: toNumber(record.monitoringDays) || daysFallback,
+    records: [],
+    totals: {
+      views: 0,
+      likes: 0,
+      comments: 0,
+      shares: 0,
+      saves: 0,
+      cost: 0,
+      salesAed: 0,
+      netProfitAed: 0,
+    },
+  }
+}
+
+function addRecordToContract(contract, record) {
+  const assigned = { ...record, contractId: contract.id }
+  contract.records.push(assigned)
+  contract.contractStartDate = minIsoDate(
+    contract.contractStartDate,
+    record.contractStartDate || record.date,
+  )
+  contract.latestDate = [contract.latestDate, isoDateSlice(record.date)].filter(Boolean).sort().at(-1) || contract.latestDate
+  contract.monitoringDays = Math.max(contract.monitoringDays, toNumber(record.monitoringDays) || 5)
+  contract.totals.views += toNumber(record.views)
+  contract.totals.likes += toNumber(record.likes)
+  contract.totals.comments += toNumber(record.comments)
+  contract.totals.shares += toNumber(record.shares)
+  contract.totals.saves += toNumber(record.saves)
+  contract.totals.cost += toNumber(record.cost)
+  contract.totals.salesAed += toNumber(record.salesAed)
+  contract.totals.netProfitAed += toNumber(record.netProfitAed)
+}
+
+function buildContractGroups(records = [], influencers = [], daysFallback = 5) {
+  const influencersById = new Map(influencers.map((item) => [String(item.id), item]))
+  const bySignature = new Map()
+  const rows = dedupePerformanceRecords(records)
+    .map((record) => normalizePerformanceRecord(record))
+    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')))
+
+  rows.forEach((record) => {
+    const signature = getVideoContractKey(record)
+    const clusters = bySignature.get(signature) || []
+    let cluster = clusters.find((item) => shouldJoinContractCluster(item, record, daysFallback))
+    if (!cluster) {
+      cluster = makeContractSeed(record, influencersById, daysFallback)
+      clusters.push(cluster)
+      bySignature.set(signature, clusters)
+    }
+    addRecordToContract(cluster, record)
+  })
+
+  return Array.from(bySignature.values()).flat()
 }
 
 export function getVideoContractTimelines(records = [], influencers = [], daysFallback = 5) {
-  const influencersById = new Map(influencers.map((item) => [String(item.id), item]))
-  const grouped = new Map()
-
-  dedupePerformanceRecords(records).forEach((record) => {
-    const key = getVideoContractKey(record)
-    const current = grouped.get(key) || {
-      id: key,
-      influencerId: record.influencerId,
-      influencer: influencersById.get(String(record.influencerId)),
-      platform: record.platform,
-      videoTitle: record.videoTitle || record.campaignName || 'Contracted video',
-      postUrl: record.postUrl || '',
-      campaignName: record.campaignName || 'Campaign',
-      contractStartDate: record.contractStartDate || record.date,
-      monitoringDays: toNumber(record.monitoringDays) || daysFallback,
-      records: [],
-      totals: {
-        views: 0,
-        likes: 0,
-        comments: 0,
-        shares: 0,
-        saves: 0,
-        cost: 0,
-        salesAed: 0,
-        netProfitAed: 0,
-      },
-    }
-
-    current.records.push(record)
-    current.contractStartDate = minIsoDate(
-      current.contractStartDate,
-      record.contractStartDate || record.date,
-    )
-    current.monitoringDays = Math.max(current.monitoringDays, toNumber(record.monitoringDays) || daysFallback)
-    current.totals.views += toNumber(record.views)
-    current.totals.likes += toNumber(record.likes)
-    current.totals.comments += toNumber(record.comments)
-    current.totals.shares += toNumber(record.shares)
-    current.totals.saves += toNumber(record.saves)
-    current.totals.cost += toNumber(record.cost)
-    current.totals.salesAed += toNumber(record.salesAed)
-    current.totals.netProfitAed += toNumber(record.netProfitAed)
-    grouped.set(key, current)
-  })
-
-  return Array.from(grouped.values())
+  return buildContractGroups(records, influencers, daysFallback)
     .map((contract) => {
       const orderedRecords = [...contract.records].sort((a, b) => a.date.localeCompare(b.date))
       const declaredStart = isoDateSlice(contract.contractStartDate) || isoDateSlice(orderedRecords[0]?.date)
@@ -226,6 +308,7 @@ export function getVideoContractTimelines(records = [], influencers = [], daysFa
       const latest = orderedRecords[orderedRecords.length - 1]
       return {
         ...contract,
+        id: contract.id,
         contractStartDate: startDate,
         monitoringDays,
         days,
@@ -235,6 +318,67 @@ export function getVideoContractTimelines(records = [], influencers = [], daysFa
       }
     })
     .sort((a, b) => String(b.latest?.date || '').localeCompare(String(a.latest?.date || '')))
+}
+
+export function buildContractRows(records = [], influencers = [], rankingsByContractId = new Map(), sort = { key: 'date', direction: 'desc' }) {
+  const influencersById = new Map(influencers.map((influencer) => [String(influencer.id), influencer]))
+  const rows = getVideoContractTimelines(records, influencers).map((contract) => ({
+    id: contract.id,
+    contractId: contract.id,
+    influencerId: contract.influencerId,
+    influencer: contract.influencer,
+    platform: contract.platform,
+    postUrl: contract.postUrl,
+    campaignName: contract.campaignName,
+    videoTitle: contract.videoTitle,
+    contractStartDate: contract.contractStartDate,
+    startDate: contract.contractStartDate,
+    latestDate: contract.latest?.date || contract.latestDate || contract.contractStartDate,
+    date: contract.contractStartDate,
+    monitoringDays: contract.monitoringDays,
+    recordedDays: contract.recordedDays,
+    days: contract.days,
+    latest: contract.latest,
+    records: contract.records,
+    totals: contract.totals,
+    cost: contract.totals.cost,
+    views: contract.totals.views,
+    likes: contract.totals.likes,
+    comments: contract.totals.comments,
+    shares: contract.totals.shares,
+    salesAed: contract.totals.salesAed,
+    netProfitAed: contract.totals.netProfitAed,
+    engagementRate: contract.averageEngagementRate,
+  }))
+
+  return rows.sort((a, b) => {
+    if (sort.key === 'rank') {
+      const scoreA = rankingsByContractId.get(a.id)?.score ?? -1
+      const scoreB = rankingsByContractId.get(b.id)?.score ?? -1
+      if (scoreB !== scoreA) return sort.direction === 'asc' ? scoreB - scoreA : scoreA - scoreB
+      return String(b.latestDate || '').localeCompare(String(a.latestDate || ''))
+    }
+    if (sort.key === 'date') {
+      const aDate = a.latestDate || a.startDate
+      const bDate = b.latestDate || b.startDate
+      return sort.direction === 'asc'
+        ? String(aDate || '').localeCompare(String(bDate || ''))
+        : String(bDate || '').localeCompare(String(aDate || ''))
+    }
+    if (sort.key === 'influencer') {
+      const aName = influencersById.get(String(a.influencerId))?.name || ''
+      const bName = influencersById.get(String(b.influencerId))?.name || ''
+      return sort.direction === 'asc' ? aName.localeCompare(bName) : bName.localeCompare(aName)
+    }
+    const valueA = a[sort.key]
+    const valueB = b[sort.key]
+    if (typeof valueA === 'number' || typeof valueB === 'number') {
+      return sort.direction === 'asc' ? toNumber(valueA) - toNumber(valueB) : toNumber(valueB) - toNumber(valueA)
+    }
+    return sort.direction === 'asc'
+      ? String(valueA || '').localeCompare(String(valueB || ''))
+      : String(valueB || '').localeCompare(String(valueA || ''))
+  })
 }
 
 const RANK_PROFIT_WEIGHT = 0.9
@@ -421,7 +565,7 @@ export function getHighestEngagementRecord(records = [], influencers = []) {
 export function normalizePerformanceRecord(record) {
   const date = isoDateSlice(record.date) || record.date
   const contractStartDate = isoDateSlice(record.contractStartDate || record.date) || record.contractStartDate || date
-  const contractId = record.contractId || getVideoContractKey({ ...record, contractStartDate, date })
+  const contractId = ensurePerformanceContractId({ ...record, contractStartDate, date })
   const normalized = {
     ...record,
     date,
