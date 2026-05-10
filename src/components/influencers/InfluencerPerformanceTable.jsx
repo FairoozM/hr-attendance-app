@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Crown, Eye, Medal, MoreVertical, Pencil, Trash2 } from 'lucide-react'
 import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
-import { fmtDMYRange } from '../../utils/dateFormat'
+import { fmtDMY, fmtDMYRange } from '../../utils/dateFormat'
 
 const AMOUNT_COLUMN_KEYS = new Set(['cost', 'salesAed', 'netProfitAed'])
 const EMPTY_RANK_MAP = new Map()
@@ -195,11 +195,14 @@ function InfluencerIdentity({ influencer }) {
 function ContractDatesCell({ record }) {
   const start = record.startDate || record.contractStartDate || record.date || '—'
   const latest = record.latestDate || record.latest?.date || start
-  const dayText = `${record.recordedDays || 0}/${record.monitoringDays || 5} days`
+  const dateText = fmtDMY(start) === fmtDMY(latest)
+    ? fmtDMY(start)
+    : fmtDMYRange(start, latest, ' - ')
+  const dayText = `${record.recordedDays || 0} of ${record.monitoringDays || 5} check-ins`
   return (
     <td>
       <div className="ip-table__contract-dates">
-        <strong>{fmtDMYRange(start, latest)}</strong>
+        <strong>{dateText}</strong>
         <span>{dayText}</span>
       </div>
     </td>
