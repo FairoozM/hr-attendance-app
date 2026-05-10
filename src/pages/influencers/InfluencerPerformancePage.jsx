@@ -1,5 +1,4 @@
 import { ArrowDownWideNarrow, Download, Gauge, Plus, Save, Search, X } from 'lucide-react'
-import { InfluencerCharts } from '../../components/influencers/InfluencerCharts'
 import { InfluencerContractTimeline } from '../../components/influencers/InfluencerContractTimeline'
 import { InfluencerPerformanceForm } from '../../components/influencers/InfluencerPerformanceForm'
 import { InfluencerLeaderboardPodium } from '../../components/influencers/InfluencerLeaderboardPodium'
@@ -34,7 +33,6 @@ export function InfluencerPerformancePage() {
     contractTimelineAnchorRef,
     canWritePerformance,
     showNetProfitColumn,
-    filteredRecords,
     filteredContracts,
     videoContracts,
     rankingsByContractId,
@@ -164,8 +162,6 @@ export function InfluencerPerformancePage() {
           />
         ) : null}
       </div>
-
-      <InfluencerCharts records={filteredRecords} influencersById={influencersById} />
 
       {isAddRecordOpen ? (
         <div className="ip-modal-backdrop" role="presentation" onClick={() => setIsAddRecordOpen(false)}>
