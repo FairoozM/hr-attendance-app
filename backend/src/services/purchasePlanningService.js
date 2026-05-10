@@ -150,6 +150,7 @@ function mapPlanItemRow(row) {
     averageMonthlyUsage: Number(row.average_monthly_usage || 0),
     suggestedQty: Number(row.suggested_qty || 0),
     finalQty: Number(row.final_qty || 0),
+    purchasePrice: row.purchase_price == null ? null : Number(row.purchase_price),
     included: Boolean(row.included),
     notes: row.notes || '',
   }
@@ -238,9 +239,14 @@ async function ensurePurchasePlanningTables() {
       average_monthly_usage NUMERIC(12, 2) NOT NULL DEFAULT 0,
       suggested_qty INTEGER NOT NULL DEFAULT 0,
       final_qty INTEGER NOT NULL DEFAULT 0,
+      purchase_price NUMERIC(14, 4),
       included BOOLEAN NOT NULL DEFAULT true,
       notes TEXT NOT NULL DEFAULT ''
     )
+  `)
+  await query(`
+    ALTER TABLE purchase_plan_items
+    ADD COLUMN IF NOT EXISTS purchase_price NUMERIC(14, 4)
   `)
   await query(`CREATE INDEX IF NOT EXISTS idx_purchase_plan_items_plan_id ON purchase_plan_items(purchase_plan_id)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_purchase_plan_items_sku ON purchase_plan_items(sku)`)
@@ -919,6 +925,9 @@ async function getPlan(id) {
 async function updatePlanItem(planId, itemId, patch) {
   const finalQty = patch.finalQty == null ? null : Math.max(0, Math.floor(toNumber(patch.finalQty, 0)))
   const included = patch.included == null ? null : Boolean(patch.included)
+  const purchasePrice = patch.purchasePrice == null || patch.purchasePrice === ''
+    ? null
+    : Math.max(0, toNumber(patch.purchasePrice, 0))
   const notes = patch.notes == null ? null : clean(patch.notes)
   const result = await query(
     `
@@ -926,11 +935,12 @@ async function updatePlanItem(planId, itemId, patch) {
       SET
         final_qty = COALESCE($3, final_qty),
         included = COALESCE($4, included),
-        notes = COALESCE($5, notes)
+        purchase_price = COALESCE($5, purchase_price),
+        notes = COALESCE($6, notes)
       WHERE purchase_plan_id = $1 AND id = $2
       RETURNING *
     `,
-    [planId, itemId, finalQty, included, notes]
+    [planId, itemId, finalQty, included, purchasePrice, notes]
   )
   return result.rows[0] ? mapPlanItemRow(result.rows[0]) : null
 }
@@ -954,6 +964,34 @@ function resolvePurchaseOrderVendor() {
   throw err
 }
 
+function buildPurchasePriceMap(purchasePrices) {
+  const byItemId = new Map()
+  const bySku = new Map()
+  for (const entry of Array.isArray(purchasePrices) ? purchasePrices : []) {
+    const price = toNumber(entry && entry.purchasePrice, NaN)
+    if (!Number.isFinite(price) || price <= 0) continue
+    const itemId = Number(entry.planItemId || entry.itemId || entry.id)
+    if (Number.isInteger(itemId) && itemId > 0) byItemId.set(itemId, price)
+    const sku = normalizeSku(entry && entry.sku)
+    if (sku) bySku.set(sku, price)
+  }
+  return { byItemId, bySku }
+}
+
+function applyPurchasePricesToPlanItems(items, purchasePrices) {
+  const priceMap = buildPurchasePriceMap(purchasePrices)
+  return (Array.isArray(items) ? items : []).map((item) => {
+    const price =
+      priceMap.byItemId.get(Number(item.id)) ||
+      priceMap.bySku.get(normalizeSku(item.sku)) ||
+      toNumber(item.purchasePrice, NaN)
+    return {
+      ...item,
+      purchasePrice: Number.isFinite(price) && price > 0 ? price : null,
+    }
+  })
+}
+
 async function createZohoPurchaseOrder(planId, options = {}) {
   const plan = await getPlan(planId)
   if (!plan) {
@@ -975,8 +1013,9 @@ async function createZohoPurchaseOrder(planId, options = {}) {
   }
 
   const vendor = resolvePurchaseOrderVendor()
+  const pricedItems = applyPurchasePricesToPlanItems(plan.items || [], options.purchasePrices)
 
-  const selected = (plan.items || []).filter((item) =>
+  const selected = pricedItems.filter((item) =>
     item.included &&
     item.finalQty > 0 &&
     clean(item.zohoItemId)
@@ -984,6 +1023,12 @@ async function createZohoPurchaseOrder(planId, options = {}) {
   if (selected.length === 0) {
     const err = new Error('No included rows with finalQty > 0 and Zoho item id were found')
     err.code = 'NO_PO_LINES'
+    throw err
+  }
+  const missingPrices = selected.filter((item) => !Number.isFinite(Number(item.purchasePrice)) || Number(item.purchasePrice) <= 0)
+  if (missingPrices.length > 0) {
+    const err = new Error(`Purchase price is missing for ${missingPrices.length} selected line(s): ${missingPrices.slice(0, 5).map((item) => item.sku).join(', ')}`)
+    err.code = 'ZOHO_PO_PRICE_REQUIRED'
     throw err
   }
 
@@ -1003,10 +1048,17 @@ async function createZohoPurchaseOrder(planId, options = {}) {
     line_items: selected.map((item) => ({
       item_id: item.zohoItemId,
       quantity: item.finalQty,
+      rate: Number(item.purchasePrice),
     })),
   }
 
   try {
+    for (const item of selected) {
+      await query(
+        `UPDATE purchase_plan_items SET purchase_price = $3 WHERE purchase_plan_id = $1 AND id = $2`,
+        [plan.id, item.id, Number(item.purchasePrice)]
+      )
+    }
     const json = await zohoApiRequest(
       `${INVENTORY_V1}/purchaseorders`,
       new URLSearchParams(),
@@ -1075,5 +1127,6 @@ module.exports = {
     resolveZohoStock,
     resolvePurchasePlanningWarehouse,
     applyVigilMatchesToLowStockRows,
+    applyPurchasePricesToPlanItems,
   },
 }

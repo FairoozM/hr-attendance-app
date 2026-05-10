@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../../api/client'
+import { loadRows as loadAllPriceRows } from './allPricesEcommerceUtils'
 import './DocumentExpiryPage.css'
 import './PurchasePlanningPage.css'
 
@@ -43,6 +44,57 @@ const DEFAULT_PLAN_SORT = { key: 'sku', direction: 'asc' }
 function fmt(n) {
   const value = Number(n || 0)
   return Number.isInteger(value) ? String(value) : value.toFixed(1)
+}
+
+function fmtPrice(n) {
+  const value = Number(n)
+  if (!Number.isFinite(value) || value <= 0) return '-'
+  return value.toFixed(2)
+}
+
+function normalizePriceLookupKey(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\u00A0/g, ' ')
+    .replace(/[–—]/g, '-')
+    .replace(/[_/]+/g, '-')
+    .replace(/\s*-\s*/g, '-')
+    .replace(/\s+/g, ' ')
+    .toUpperCase()
+}
+
+function buildPurchasePriceLookup(priceRows) {
+  const lookup = new Map()
+  for (const row of Array.isArray(priceRows) ? priceRows : []) {
+    const key = normalizePriceLookupKey(row.itemNo)
+    const price = Number(row.purchasePrice)
+    if (!key || !Number.isFinite(price) || price <= 0) continue
+    lookup.set(key, price)
+  }
+  return lookup
+}
+
+function findPurchasePriceForItem(item, lookup) {
+  const candidates = [item.sku, item.vigilCode, item.itemName]
+  for (const candidate of candidates) {
+    const key = normalizePriceLookupKey(candidate)
+    if (key && lookup.has(key)) return lookup.get(key)
+  }
+  return Number.isFinite(Number(item.purchasePrice)) && Number(item.purchasePrice) > 0
+    ? Number(item.purchasePrice)
+    : null
+}
+
+function enrichPlanWithPurchasePrices(plan, priceRows) {
+  if (!plan) return plan
+  const lookup = buildPurchasePriceLookup(priceRows)
+  return {
+    ...plan,
+    items: (plan.items || []).map((item) => ({
+      ...item,
+      purchasePrice: findPurchasePriceForItem(item, lookup),
+    })),
+  }
 }
 
 function getStockRemark(item) {
@@ -600,6 +652,7 @@ function PlanTable({ plan, filters, onFiltersChange, onItemChange }) {
         averageMonthlyUsage: (item) => Number(item.averageMonthlyUsage || 0),
         suggestedQty: (item) => Number(item.suggestedQty || 0),
         finalQty: (item) => Number(item.finalQty || 0),
+        purchasePrice: (item) => Number(item.purchasePrice || 0),
         poStatus: (item) => getPoStockStatus(item).label,
         matchType: (item) => item.matchType,
         remarks: (item) => getStockRemark(item),
@@ -680,6 +733,7 @@ function PlanTable({ plan, filters, onFiltersChange, onItemChange }) {
               <SortHeader label="Avg Monthly" sortKey="averageMonthlyUsage" sort={planSort} onSort={setPlanSort} />
               <SortHeader label="Suggested" sortKey="suggestedQty" sort={planSort} onSort={setPlanSort} />
               <SortHeader label="Final Qty" sortKey="finalQty" sort={planSort} onSort={setPlanSort} />
+              <SortHeader label="Purchase Price" sortKey="purchasePrice" sort={planSort} onSort={setPlanSort} />
               <SortHeader label="Status after PO" sortKey="poStatus" sort={planSort} onSort={setPlanSort} />
               <SortHeader label="Match" sortKey="matchType" sort={planSort} onSort={setPlanSort} />
               <SortHeader label="Remarks" sortKey="remarks" sort={planSort} onSort={setPlanSort} />
@@ -707,6 +761,9 @@ function PlanTable({ plan, filters, onFiltersChange, onItemChange }) {
                     onChange={(e) => onItemChange(item.id, { finalQty: e.target.value })}
                   />
                 </td>
+                <td className={item.purchasePrice ? 'pp-price-cell' : 'pp-price-cell pp-price-cell--missing'}>
+                  {fmtPrice(item.purchasePrice)}
+                </td>
                 <td>
                   <Badge tone={getPoStockStatus(item).tone}>{getPoStockStatus(item).label}</Badge>
                   <span className="pp-status-detail">Rem {fmt(getPoStockStatus(item).remaining)}</span>
@@ -729,7 +786,7 @@ function PlanTable({ plan, filters, onFiltersChange, onItemChange }) {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan="14" className="pp-empty-cell">No items match the current filters.</td>
+                <td colSpan="15" className="pp-empty-cell">No items match the current filters.</td>
               </tr>
             )}
           </tbody>
@@ -744,6 +801,7 @@ export function PurchasePlanningPage() {
   const [uploads, setUploads] = useState([])
   const [plans, setPlans] = useState([])
   const [activePlan, setActivePlan] = useState(null)
+  const [allPriceRows, setAllPriceRows] = useState(() => loadAllPriceRows() || [])
   const [filters, setFilters] = useState(EMPTY_FILTERS)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState('')
@@ -753,6 +811,7 @@ export function PurchasePlanningPage() {
 
   const load = useCallback(async () => {
     setError('')
+    setAllPriceRows(loadAllPriceRows() || [])
     const [low, uploadRes, planRes] = await Promise.all([
       api.get('/api/purchase-planning/low-stock'),
       api.get('/api/purchase-planning/vigil-uploads'),
@@ -773,6 +832,11 @@ export function PurchasePlanningPage() {
     setActivePlan(res.plan)
     return res.plan
   }, [])
+
+  const activePlanWithPrices = useMemo(
+    () => enrichPlanWithPurchasePrices(activePlan, allPriceRows),
+    [activePlan, allPriceRows]
+  )
 
   const handleLowStockUploaded = useCallback(async (res) => {
     setLowStock(res.items || [])
@@ -841,28 +905,46 @@ export function PurchasePlanningPage() {
   }, [activePlan, refreshActivePlan])
 
   const createPo = useCallback(async () => {
-    if (!activePlan) return
+    if (!activePlanWithPrices) return
     const poNumber = purchaseOrderNumber.trim()
     if (!poNumber) {
       setError('Enter a PO number before sending to Zoho')
       return
     }
-    if (!window.confirm(`Create Zoho purchase order ${poNumber} from ${activePlan.planNumber}? This cannot be sent twice.`)) return
+    const latestPriceRows = loadAllPriceRows() || []
+    setAllPriceRows(latestPriceRows)
+    const pricedPlan = enrichPlanWithPurchasePrices(activePlanWithPrices, latestPriceRows)
+    const selectedItems = (pricedPlan.items || []).filter((item) =>
+      item.included &&
+      Number(item.finalQty || 0) > 0 &&
+      String(item.zohoItemId || '').trim()
+    )
+    const missingPriceItems = selectedItems.filter((item) => !Number.isFinite(Number(item.purchasePrice)) || Number(item.purchasePrice) <= 0)
+    if (missingPriceItems.length > 0) {
+      setError(`Add purchase price in All Prices for ${missingPriceItems.slice(0, 5).map((item) => item.sku).join(', ')}${missingPriceItems.length > 5 ? '...' : ''}`)
+      return
+    }
+    if (!window.confirm(`Create Zoho purchase order ${poNumber} from ${pricedPlan.planNumber}? This cannot be sent twice.`)) return
     setBusy('po')
     setError('')
     setNotice('')
     try {
-      const res = await api.post(`/api/purchase-planning/plans/${activePlan.id}/create-zoho-po`, { purchaseOrderNumber: poNumber })
-      await refreshActivePlan(activePlan.id)
+      const purchasePrices = selectedItems.map((item) => ({
+        planItemId: item.id,
+        sku: item.sku,
+        purchasePrice: Number(item.purchasePrice),
+      }))
+      const res = await api.post(`/api/purchase-planning/plans/${pricedPlan.id}/create-zoho-po`, { purchaseOrderNumber: poNumber, purchasePrices })
+      await refreshActivePlan(pricedPlan.id)
       await load()
       setNotice(`Created Zoho purchase order ${res.zohoPurchaseOrderId || ''} with ${res.sentLines} lines.`)
     } catch (err) {
       setError(err.message || 'Zoho purchase order failed')
-      await refreshActivePlan(activePlan.id).catch(() => {})
+      await refreshActivePlan(pricedPlan.id).catch(() => {})
     } finally {
       setBusy('')
     }
-  }, [activePlan, load, purchaseOrderNumber, refreshActivePlan])
+  }, [activePlanWithPrices, load, purchaseOrderNumber, refreshActivePlan])
 
   if (loading) return <div className="page"><p className="page-loading">Loading Purchase Planning…</p></div>
 
@@ -885,7 +967,7 @@ export function PurchasePlanningPage() {
             placeholder="PO number"
             disabled={busy === 'po'}
           />
-          <button className="btn btn--primary" disabled={!activePlan || activePlan.status === 'sent_to_zoho' || busy === 'po' || !purchaseOrderNumber.trim()} onClick={createPo}>
+          <button className="btn btn--primary" disabled={!activePlanWithPrices || activePlanWithPrices.status === 'sent_to_zoho' || busy === 'po' || !purchaseOrderNumber.trim()} onClick={createPo}>
             Create PO in Zoho
           </button>
         </div>
@@ -913,7 +995,7 @@ export function PurchasePlanningPage() {
           <div className="pp-plan-list">
             {plans.length === 0 && <span>No purchase plans generated yet.</span>}
             {plans.slice(0, 8).map((plan) => (
-              <button key={plan.id} className={`pp-plan-card ${activePlan?.id === plan.id ? 'pp-plan-card--active' : ''}`} onClick={() => openPlan(plan.id)}>
+              <button key={plan.id} className={`pp-plan-card ${activePlanWithPrices?.id === plan.id ? 'pp-plan-card--active' : ''}`} onClick={() => openPlan(plan.id)}>
                 <strong>{plan.planNumber}</strong>
                 <span>{plan.itemsCount} items · final qty {plan.totalFinalQty}</span>
                 <Badge tone={plan.status === 'sent_to_zoho' ? 'success' : plan.status === 'failed' ? 'danger' : 'warning'}>{plan.status}</Badge>
@@ -924,7 +1006,7 @@ export function PurchasePlanningPage() {
       </div>
 
       <PlanTable
-        plan={activePlan}
+        plan={activePlanWithPrices}
         filters={filters}
         onFiltersChange={setFilters}
         onItemChange={updateItem}

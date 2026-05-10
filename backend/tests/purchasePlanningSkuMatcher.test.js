@@ -251,3 +251,19 @@ test('purchase planning generates unique Zoho PO references per send attempt', (
   assert.match(second, /^PP-202605081234-ABCD-\d{12}-[A-Z0-9]{6}$/)
   assert.notEqual(first, second)
 })
+
+test('purchase planning PO prices prefer plan item id then SKU', () => {
+  const rows = _internals.applyPurchasePricesToPlanItems(
+    [
+      { id: 10, sku: 'ABC-1', purchasePrice: null },
+      { id: 11, sku: 'ABC-2', purchasePrice: 7 },
+    ],
+    [
+      { planItemId: 10, sku: 'ABC-1', purchasePrice: 12.5 },
+      { sku: 'abc-2', purchasePrice: 8.75 },
+    ]
+  )
+
+  assert.equal(rows[0].purchasePrice, 12.5)
+  assert.equal(rows[1].purchasePrice, 8.75)
+})

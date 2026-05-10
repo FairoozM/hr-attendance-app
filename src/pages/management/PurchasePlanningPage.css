@@ -237,7 +237,16 @@
 }
 
 .pp-plan-table {
-  min-width: 1720px;
+  min-width: 1840px;
+}
+
+.pp-price-cell {
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.pp-price-cell--missing {
+  color: var(--danger);
 }
 
 .pp-row--invalid td {
