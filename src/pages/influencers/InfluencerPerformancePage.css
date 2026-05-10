@@ -1322,6 +1322,22 @@
   white-space: nowrap;
 }
 
+.ip-hud-value-input {
+  width: 5.4rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  outline: none;
+  padding: 0.08rem 0.16rem;
+}
+
+.ip-hud-value-input:hover,
+.ip-hud-value-input:focus {
+  border-color: rgba(0, 140, 200, 0.34);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 0 0 3px rgba(0, 140, 200, 0.08);
+}
+
 .ip-hud-value--views { color: #007fb5; }
 .ip-hud-value--shares { color: #6d44d4; }
 .ip-hud-value--likes { color: #c2185b; }

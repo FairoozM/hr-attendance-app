@@ -150,6 +150,7 @@ export function InfluencerPerformancePage() {
             contracts={activeMonitorContracts}
             onEditRecord={canWritePerformance ? setEditingRecord : undefined}
             onDeleteRecord={canWritePerformance ? handleDelete : undefined}
+            onSaveRecord={canWritePerformance ? handleSubmit : undefined}
             onEditContract={canWritePerformance
               ? (contract) => setEditingContract({
                   contract,

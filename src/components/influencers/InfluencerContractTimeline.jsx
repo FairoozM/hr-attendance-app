@@ -8,7 +8,7 @@ function contractStatus(contract) {
   return 'Pending'
 }
 
-export function InfluencerContractTimeline({ contracts, onEditRecord, onDeleteRecord, onEditContract }) {
+export function InfluencerContractTimeline({ contracts, onEditRecord, onDeleteRecord, onEditContract, onSaveRecord }) {
   return (
     <section className="ip-contract-panel" aria-label="Video contract monitoring">
       <div className="ip-section-heading">
@@ -29,6 +29,7 @@ export function InfluencerContractTimeline({ contracts, onEditRecord, onDeleteRe
             onEditRecord={onEditRecord}
             onDeleteRecord={onDeleteRecord}
             onEditContract={onEditContract}
+            onSaveRecord={onSaveRecord}
           />
         ))}
       </div>
@@ -47,7 +48,7 @@ function metricTotal(contract, key) {
   return toNumber(contract?.totals?.[key])
 }
 
-function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContract }) {
+function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContract, onSaveRecord }) {
   const days = Array.isArray(contract?.days) ? contract.days : []
   const metricConfig = [
     ['Views', 'views', Eye],
@@ -82,6 +83,20 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
       notes: '',
       screenshotUrl: '',
     }
+  }
+
+  function saveMetric(day, key, value) {
+    if (!onSaveRecord || !day?.date) return
+    const nextValue = value === '' ? 0 : toNumber(value)
+    const base = day?.record || makeDraftRecord(day)
+    if (day?.isRecorded && toNumber(base?.[key]) === nextValue) return
+    const now = new Date().toISOString()
+    onSaveRecord({
+      ...base,
+      [key]: nextValue,
+      createdAt: base.createdAt || now,
+      updatedAt: now,
+    })
   }
 
   return (
@@ -172,9 +187,24 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
             {metricConfig.map(([label, key, Icon]) => (
               <div key={key} className="ip-hud-metric-row">
                 <span><Icon size={15} /> {label}</span>
-                <strong className={`ip-hud-value ip-hud-value--${key}`}>
-                  {day?.isRecorded ? formatNumber(day?.record?.[key]) : '-'}
-                </strong>
+                {onSaveRecord ? (
+                  <input
+                    className={`ip-hud-value ip-hud-value-input ip-hud-value--${key}`}
+                    inputMode="numeric"
+                    defaultValue={day?.isRecorded ? toNumber(day?.record?.[key]) : ''}
+                    placeholder="-"
+                    aria-label={`${label} for ${displayDate(day?.date)}`}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onBlur={(event) => saveMetric(day, key, event.currentTarget.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') event.currentTarget.blur()
+                    }}
+                  />
+                ) : (
+                  <strong className={`ip-hud-value ip-hud-value--${key}`}>
+                    {day?.isRecorded ? formatNumber(day?.record?.[key]) : '-'}
+                  </strong>
+                )}
               </div>
             ))}
           </section>
