@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Crown, Eye, Medal, MoreVertical, Pencil, Trash2 } from 'lucide-react'
 import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
-import { fmtDMY, fmtDMYRange } from '../../utils/dateFormat'
+import { fmtISO } from '../../utils/dateFormat'
 
 const AMOUNT_COLUMN_KEYS = new Set(['cost', 'salesAed', 'netProfitAed'])
 const EMPTY_RANK_MAP = new Map()
@@ -192,12 +192,35 @@ function InfluencerIdentity({ influencer }) {
   )
 }
 
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+function compactContractDateRange(start, end) {
+  const startIso = fmtISO(start)
+  const endIso = fmtISO(end)
+  if (!startIso && !endIso) return '—'
+  if (!endIso || startIso === endIso) {
+    const [year, month, day] = (startIso || endIso).split('-')
+    return `${day} ${SHORT_MONTHS[Number(month) - 1]} ${year}`
+  }
+  if (!startIso) {
+    const [year, month, day] = endIso.split('-')
+    return `${day} ${SHORT_MONTHS[Number(month) - 1]} ${year}`
+  }
+  const [startYear, startMonth, startDay] = startIso.split('-')
+  const [endYear, endMonth, endDay] = endIso.split('-')
+  if (startYear === endYear && startMonth === endMonth) {
+    return `${startDay} - ${endDay} ${SHORT_MONTHS[Number(endMonth) - 1]} ${endYear}`
+  }
+  if (startYear === endYear) {
+    return `${startDay} ${SHORT_MONTHS[Number(startMonth) - 1]} - ${endDay} ${SHORT_MONTHS[Number(endMonth) - 1]} ${endYear}`
+  }
+  return `${startDay} ${SHORT_MONTHS[Number(startMonth) - 1]} ${startYear} - ${endDay} ${SHORT_MONTHS[Number(endMonth) - 1]} ${endYear}`
+}
+
 function ContractDatesCell({ record }) {
   const start = record.startDate || record.contractStartDate || record.date || '—'
   const latest = record.latestDate || record.latest?.date || start
-  const dateText = fmtDMY(start) === fmtDMY(latest)
-    ? fmtDMY(start)
-    : fmtDMYRange(start, latest, ' - ')
+  const dateText = compactContractDateRange(start, latest)
   const dayText = `${record.recordedDays || 0} of ${record.monitoringDays || 5} check-ins`
   return (
     <td>
