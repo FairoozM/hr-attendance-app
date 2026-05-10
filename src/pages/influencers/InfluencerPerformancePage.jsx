@@ -10,6 +10,15 @@ import { useInfluencerPerformanceScreen } from './useInfluencerPerformanceScreen
 import './influencers.css'
 import './InfluencerPerformancePage.css'
 
+function contractInitials(name) {
+  return String(name || 'IN')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'IN'
+}
+
 export function InfluencerPerformancePage() {
   const {
     user,
@@ -61,23 +70,6 @@ export function InfluencerPerformancePage() {
             </p>
           ) : null}
         </div>
-        <div className="inf-page-actions">
-          <button
-            type="button"
-            className="inf-btn inf-btn--primary"
-            onClick={() => {
-              if (!canWritePerformance) {
-                setSyncHint('This account cannot save Influencer Performance to the server. Ask an admin to enable Influencer Performance access.')
-                return
-              }
-              setIsAddRecordOpen(true)
-            }}
-            disabled={!canWritePerformance}
-            title={!canWritePerformance ? 'Requires Influencer Performance access' : undefined}
-          >
-            <Plus size={15} /> Add new record
-          </button>
-        </div>
       </header>
 
       <InfluencerLeaderboardPodium
@@ -98,6 +90,23 @@ export function InfluencerPerformancePage() {
           const row = filteredContracts.find((item) => item.id === id)
           if (row?.latest?.id) handleDelete(row.latest.id)
         } : undefined}
+        headerAction={(
+          <button
+            type="button"
+            className="inf-btn inf-btn--primary ip-table-card__add-record"
+            onClick={() => {
+              if (!canWritePerformance) {
+                setSyncHint('This account cannot save Influencer Performance to the server. Ask an admin to enable Influencer Performance access.')
+                return
+              }
+              setIsAddRecordOpen(true)
+            }}
+            disabled={!canWritePerformance}
+            title={!canWritePerformance ? 'Requires Influencer Performance access' : undefined}
+          >
+            <Plus size={15} /> Add new record
+          </button>
+        )}
         activeMonitorInfluencerId={activeMonitorContractId}
         onToggleMonitor={(_influencerId, row) => toggleActiveMonitorContract(row)}
       />
@@ -129,11 +138,20 @@ export function InfluencerPerformancePage() {
                   className={`ip-contract-search__item ${String(activeMonitorContractId || '') === String(contract.id) ? 'ip-contract-search__item--active' : ''}`}
                   onClick={() => setActiveMonitorContractId(contract.id)}
                 >
-                  <span>
+                  <span className="ip-contract-search__avatar" aria-hidden="true">
+                    <span>{contractInitials(contract.influencer?.name)}</span>
+                    {contract.influencer?.profileImage ? (
+                      <img src={contract.influencer.profileImage} alt="" />
+                    ) : null}
+                  </span>
+                  <span className="ip-contract-search__copy">
                     <strong>{contract.influencer?.name || 'Influencer'}</strong>
                     <em>{contract.campaignName || contract.videoTitle || 'Contract'}</em>
                   </span>
-                  <b>{fmtDMYRange(contract.contractStartDate, contract.latest?.date || contract.latestDate)}</b>
+                  <span className="ip-contract-search__meta">
+                    <b>{fmtDMYRange(contract.contractStartDate, contract.latest?.date || contract.latestDate, ' - ')}</b>
+                    <small>{contract.recordedDays || 0} of {contract.monitoringDays || 5} check-ins</small>
+                  </span>
                 </button>
               ))}
               {contractTimelineOptions.length === 0 ? (

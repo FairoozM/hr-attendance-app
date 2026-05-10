@@ -218,6 +218,7 @@ export function InfluencerPerformanceTable({
   onSort,
   onEdit,
   onDelete,
+  headerAction,
   activeMonitorInfluencerId,
   onToggleMonitor,
 }) {
@@ -276,11 +277,14 @@ export function InfluencerPerformanceTable({
 
   return (
     <section className="ip-table-card">
-      <div className="ip-section-heading">
-        <span className="ip-section-heading__icon"><Eye size={18} /></span>
-        <div>
-          <h2>Influencers Performance Ranking</h2>
+      <div className="ip-section-heading ip-table-card__heading">
+        <div className="ip-table-card__heading-copy">
+          <span className="ip-section-heading__icon"><Eye size={18} /></span>
+          <div>
+            <h2>Influencers Performance Ranking</h2>
+          </div>
         </div>
+        {headerAction ? <div className="ip-table-card__heading-action">{headerAction}</div> : null}
       </div>
 
       <div className="inf-table-wrap ip-table-wrap">

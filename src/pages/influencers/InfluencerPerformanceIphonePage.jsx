@@ -12,6 +12,15 @@ import './influencers.css'
 import './InfluencerPerformancePage.css'
 import './InfluencerPerformanceIphonePage.css'
 
+function contractInitials(name) {
+  return String(name || 'IN')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'IN'
+}
+
 export function InfluencerPerformanceIphonePage() {
   const {
     user,
@@ -155,11 +164,20 @@ export function InfluencerPerformanceIphonePage() {
                   className={`ip-contract-search__item ${String(activeMonitorContractId || '') === String(contract.id) ? 'ip-contract-search__item--active' : ''}`}
                   onClick={() => setActiveMonitorContractId(contract.id)}
                 >
-                  <span>
+                  <span className="ip-contract-search__avatar" aria-hidden="true">
+                    <span>{contractInitials(contract.influencer?.name)}</span>
+                    {contract.influencer?.profileImage ? (
+                      <img src={contract.influencer.profileImage} alt="" />
+                    ) : null}
+                  </span>
+                  <span className="ip-contract-search__copy">
                     <strong>{contract.influencer?.name || 'Influencer'}</strong>
                     <em>{contract.campaignName || contract.videoTitle || 'Contract'}</em>
                   </span>
-                  <b>{fmtDMYRange(contract.contractStartDate, contract.latest?.date || contract.latestDate)}</b>
+                  <span className="ip-contract-search__meta">
+                    <b>{fmtDMYRange(contract.contractStartDate, contract.latest?.date || contract.latestDate, ' - ')}</b>
+                    <small>{contract.recordedDays || 0} of {contract.monitoringDays || 5} check-ins</small>
+                  </span>
                 </button>
               ))}
               {contractTimelineOptions.length === 0 ? (

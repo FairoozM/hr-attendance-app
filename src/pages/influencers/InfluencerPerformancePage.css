@@ -536,6 +536,28 @@
   font-size: 0.83rem;
 }
 
+.ip-table-card__heading {
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.ip-table-card__heading-copy {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.ip-table-card__heading-action {
+  flex-shrink: 0;
+}
+
+.ip-table-card__add-record {
+  min-height: 2.45rem;
+  padding-inline: 1rem;
+}
+
 .ip-charts-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(280px, 1fr));
@@ -565,17 +587,18 @@
 
 .ip-contract-search__results {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 0.55rem;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 0.65rem;
 }
 
 .ip-contract-search__item {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.8rem;
+  gap: 0.75rem;
   width: 100%;
-  padding: 0.78rem 0.9rem;
+  min-height: 4.25rem;
+  padding: 0.7rem 0.85rem;
   border: 1px solid rgba(0, 140, 200, 0.16);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.58);
@@ -591,34 +614,71 @@
   background: rgba(0, 140, 200, 0.1);
 }
 
-.ip-contract-search__item span {
+.ip-contract-search__avatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 2.65rem;
+  height: 2.65rem;
+  overflow: hidden;
+  border: 1px solid rgba(0, 140, 200, 0.22);
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(0, 140, 200, 0.18), rgba(124, 58, 237, 0.12)),
+    rgba(255, 255, 255, 0.82);
+  color: #0077aa;
+  font-weight: 900;
+}
+
+.ip-contract-search__avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ip-contract-search__copy,
+.ip-contract-search__meta {
   display: grid;
   min-width: 0;
   gap: 0.18rem;
 }
 
-.ip-contract-search__item strong,
-.ip-contract-search__item em {
+.ip-contract-search__copy strong,
+.ip-contract-search__copy em,
+.ip-contract-search__meta b,
+.ip-contract-search__meta small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ip-contract-search__item strong {
+.ip-contract-search__copy strong {
   font-size: 0.9rem;
 }
 
-.ip-contract-search__item em {
+.ip-contract-search__copy em {
   color: rgba(15, 23, 42, 0.58);
   font-size: 0.76rem;
   font-style: normal;
 }
 
-.ip-contract-search__item b {
-  flex-shrink: 0;
+.ip-contract-search__meta {
+  justify-items: end;
+  text-align: right;
+}
+
+.ip-contract-search__meta b {
   color: #0077aa;
   font-family: 'Space Mono', ui-monospace, monospace;
   font-size: 0.72rem;
+}
+
+.ip-contract-search__meta small {
+  color: rgba(15, 23, 42, 0.5);
+  font-size: 0.68rem;
+  font-weight: 700;
 }
 
 .ip-contract-list {
