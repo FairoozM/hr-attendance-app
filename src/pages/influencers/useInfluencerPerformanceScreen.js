@@ -222,8 +222,9 @@ export function useInfluencerPerformanceScreen() {
 
   function toggleActiveMonitorContract(contract) {
     if (!contract?.id) return
-    setActiveMonitorContractId((current) => (String(current) === String(contract.id) ? null : contract.id))
-    setActiveMonitorInfluencerId(contract.influencerId || null)
+    const isSameContract = String(activeMonitorContractId || '') === String(contract.id)
+    setActiveMonitorContractId(isSameContract ? null : contract.id)
+    setActiveMonitorInfluencerId(isSameContract ? null : contract.influencerId || null)
   }
 
   function handleSort(key) {
