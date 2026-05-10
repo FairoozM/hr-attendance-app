@@ -34,9 +34,9 @@ export function InfluencerPerformancePage() {
     canWritePerformance,
     showNetProfitColumn,
     filteredRecords,
+    filteredContracts,
     videoContracts,
     rankingsByContractId,
-    rankingByRecordId,
     activeMonitorContracts,
     handleSort,
     handleSortPreset,
@@ -130,15 +130,13 @@ export function InfluencerPerformancePage() {
       />
 
       <InfluencerPerformanceTable
-        records={filteredRecords}
+        records={filteredContracts}
         influencersById={influencersById}
-        rankingByRecordId={rankingByRecordId}
+        rankingByRecordId={rankingsByContractId}
         showNetProfitColumn={showNetProfitColumn}
         sort={sort}
         onSort={handleSort}
-        onView={setViewRecord}
-        onEdit={canWritePerformance ? setEditingRecord : undefined}
-        onDelete={canWritePerformance ? handleDelete : undefined}
+        onView={(row) => row?.latest && setViewRecord(row.latest)}
         activeMonitorInfluencerId={activeMonitorInfluencerId}
         onToggleMonitor={(influencerId) => setActiveMonitorInfluencerId((current) => (
           String(current) === String(influencerId) ? null : influencerId

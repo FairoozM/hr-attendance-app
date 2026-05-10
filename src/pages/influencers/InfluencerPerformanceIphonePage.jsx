@@ -33,8 +33,8 @@ export function InfluencerPerformanceIphonePage() {
     contractTimelineAnchorRef,
     canWritePerformance,
     showNetProfitColumn,
-    filteredRecords,
-    rankingByRecordId,
+    filteredContracts,
+    rankingsByContractId,
     activeMonitorContracts,
     handleSortPreset,
     handleSubmit,
@@ -112,13 +112,11 @@ export function InfluencerPerformanceIphonePage() {
       </section>
 
       <InfluencerPerformanceTableIphone
-        records={filteredRecords}
+        records={filteredContracts}
         influencersById={influencersById}
-        rankingByRecordId={rankingByRecordId}
+        rankingByRecordId={rankingsByContractId}
         showNetProfitColumn={showNetProfitColumn}
-        onView={setViewRecord}
-        onEdit={canWritePerformance ? setEditingRecord : undefined}
-        onDelete={canWritePerformance ? handleDelete : undefined}
+        onView={(row) => row?.latest && setViewRecord(row.latest)}
         activeMonitorInfluencerId={activeMonitorInfluencerId}
         onToggleMonitor={(influencerId) => setActiveMonitorInfluencerId((current) => (
           String(current) === String(influencerId) ? null : influencerId

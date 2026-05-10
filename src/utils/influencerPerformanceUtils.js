@@ -31,8 +31,11 @@ export function formatNumber(value, options = {}) {
 }
 
 export function addDays(dateString, days) {
-  const date = new Date(`${dateString}T00:00:00`)
-  date.setDate(date.getDate() + days)
+  const d = isoDateSlice(dateString)
+  if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return ''
+  const [year, month, day] = d.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  date.setUTCDate(date.getUTCDate() + days)
   return date.toISOString().slice(0, 10)
 }
 
@@ -90,18 +93,37 @@ export function minIsoDate(a, b) {
 
 export function getDayNumber(startDate, date) {
   if (!startDate || !date) return null
-  const start = new Date(`${startDate}T00:00:00`).getTime()
-  const current = new Date(`${date}T00:00:00`).getTime()
-  if (Number.isNaN(start) || Number.isNaN(current)) return null
-  return Math.floor((current - start) / 86_400_000) + 1
+  const offset = daysBetweenIso(startDate, date)
+  if (!Number.isFinite(offset)) return null
+  return offset + 1
+}
+
+function normalizeContractText(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+}
+
+function normalizeContractUrl(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  try {
+    const url = new URL(raw)
+    const pathname = url.pathname.replace(/\/+$/, '')
+    return `${url.hostname.toLowerCase()}${pathname}`.toLowerCase()
+  } catch {
+    return normalizeContractText(raw).replace(/[?#].*$/, '')
+  }
 }
 
 export function getVideoContractKey(record = {}) {
-  if (record.contractId) return String(record.contractId)
   const influencerId = record.influencerId || 'unknown'
-  const video = record.postUrl || record.videoTitle || record.campaignName || 'video'
-  const startDate = record.contractStartDate || record.date || 'no-date'
-  return `${influencerId}::${String(video).trim().toLowerCase()}::${startDate}`
+  const postUrl = normalizeContractUrl(record.postUrl)
+  if (postUrl) return `${influencerId}::url::${postUrl}`
+  const video = normalizeContractText(record.videoTitle || record.campaignName || record.contractId || 'video')
+  return `${influencerId}::video::${video}`
 }
 
 export function getPerformanceRecordKey(record = {}) {
@@ -148,6 +170,8 @@ export function getVideoContractTimelines(records = [], influencers = [], daysFa
         shares: 0,
         saves: 0,
         cost: 0,
+        salesAed: 0,
+        netProfitAed: 0,
       },
     }
 
@@ -163,6 +187,8 @@ export function getVideoContractTimelines(records = [], influencers = [], daysFa
     current.totals.shares += toNumber(record.shares)
     current.totals.saves += toNumber(record.saves)
     current.totals.cost += toNumber(record.cost)
+    current.totals.salesAed += toNumber(record.salesAed)
+    current.totals.netProfitAed += toNumber(record.netProfitAed)
     grouped.set(key, current)
   })
 

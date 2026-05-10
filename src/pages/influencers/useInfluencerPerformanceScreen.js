@@ -203,6 +203,54 @@ export function useInfluencerPerformanceScreen() {
     })
   }, [allRecords, influencersById, rankingByRecordId, sort])
 
+  // One row per video contract: aggregate totals, anchor to the contract start
+  // date, and reuse rankingsByContractId for ranking lookups (row id === contract id).
+  const filteredContracts = useMemo(() => {
+    const rows = videoContracts.map((contract) => ({
+      id: contract.id,
+      contractId: contract.id,
+      influencerId: contract.influencerId,
+      influencer: contract.influencer,
+      platform: contract.platform,
+      postUrl: contract.postUrl,
+      campaignName: contract.campaignName,
+      videoTitle: contract.videoTitle,
+      contractStartDate: contract.contractStartDate,
+      date: contract.contractStartDate,
+      monitoringDays: contract.monitoringDays,
+      recordedDays: contract.recordedDays,
+      days: contract.days,
+      latest: contract.latest,
+      records: contract.records,
+      cost: contract.totals.cost,
+      views: contract.totals.views,
+      likes: contract.totals.likes,
+      comments: contract.totals.comments,
+      shares: contract.totals.shares,
+      salesAed: contract.totals.salesAed,
+      netProfitAed: contract.totals.netProfitAed,
+      engagementRate: contract.averageEngagementRate,
+    }))
+    return rows.sort((a, b) => {
+      if (sort.key === 'rank') {
+        const scoreA = rankingsByContractId.get(a.id)?.score ?? -1
+        const scoreB = rankingsByContractId.get(b.id)?.score ?? -1
+        if (scoreB !== scoreA) {
+          return sort.direction === 'asc' ? scoreB - scoreA : scoreA - scoreB
+        }
+        return compareValues(a.date, b.date, 'desc')
+      }
+      if (sort.key === 'netProfitAed') {
+        return compareValues(toNumber(a.netProfitAed), toNumber(b.netProfitAed), sort.direction)
+      }
+      const influencerA = influencersById.get(String(a.influencerId))
+      const influencerB = influencersById.get(String(b.influencerId))
+      const valueA = sort.key === 'influencer' ? influencerA?.name : a[sort.key]
+      const valueB = sort.key === 'influencer' ? influencerB?.name : b[sort.key]
+      return compareValues(valueA, valueB, sort.direction)
+    })
+  }, [videoContracts, rankingsByContractId, influencersById, sort])
+
   const activeMonitorContracts = useMemo(() => {
     if (!activeMonitorInfluencerId) return []
     return videoContracts.filter((contract) => String(contract.influencerId) === String(activeMonitorInfluencerId))
@@ -314,6 +362,7 @@ export function useInfluencerPerformanceScreen() {
     showNetProfitColumn,
     allRecords,
     filteredRecords,
+    filteredContracts,
     videoContracts,
     rankingsByContractId,
     rankingByRecordId,
