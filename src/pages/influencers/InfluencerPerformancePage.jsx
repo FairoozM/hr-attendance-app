@@ -1,14 +1,16 @@
-import { Download, Gauge, Plus, Save, Search, X } from 'lucide-react'
+import { CalendarRange, Download, Gauge, Plus, Save, Search, X } from 'lucide-react'
 import { InfluencerContractTimeline } from '../../components/influencers/InfluencerContractTimeline'
 import { InfluencerPerformanceForm } from '../../components/influencers/InfluencerPerformanceForm'
 import { InfluencerLeaderboardPodium } from '../../components/influencers/InfluencerLeaderboardPodium'
 import { InfluencerPerformanceTable } from '../../components/influencers/InfluencerPerformanceTable'
 import { useAuth, canMutateInfluencerPerformance } from '../../contexts/AuthContext'
 import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
-import { fmtDMYRange } from '../../utils/dateFormat'
+import { fmtDMY, fmtDMYRange } from '../../utils/dateFormat'
 import { useInfluencerPerformanceScreen } from './useInfluencerPerformanceScreen'
 import './influencers.css'
 import './InfluencerPerformancePage.css'
+
+const CONTRACT_TIMELINE_RESULTS_CAP = 60
 
 function contractInitials(name) {
   return String(name || 'IN')
@@ -38,6 +40,10 @@ export function InfluencerPerformancePage() {
     setActiveMonitorContractId,
     contractTimelineQuery,
     setContractTimelineQuery,
+    contractTimelineDateFrom,
+    setContractTimelineDateFrom,
+    contractTimelineDateTo,
+    setContractTimelineDateTo,
     contractTimelineOptions,
     contractTimelineAnchorRef,
     canWritePerformance,
@@ -117,7 +123,7 @@ export function InfluencerPerformancePage() {
             <span className="ip-section-heading__icon"><Search size={18} /></span>
             <div>
               <h2>Contract timeline</h2>
-              <p>Search by influencer name or contract date range, then select one contract to populate the timeline.</p>
+              <p>Search by influencer name and narrow by contract dates (overlap), then select one contract to populate the timeline.</p>
             </div>
           </div>
           <div className="ip-contract-search">
@@ -130,8 +136,69 @@ export function InfluencerPerformancePage() {
                 placeholder="Influencer name, handle, campaign, or date"
               />
             </label>
+            <div className="ip-contract-search__filters" role="group" aria-label="Filter contracts by date range">
+              <span className="ip-contract-search__filters-label">
+                <CalendarRange size={15} aria-hidden />
+                Contract dates overlap
+              </span>
+              <label className="ip-field ip-field--inline">
+                <span>From</span>
+                <input
+                  className="ip-control"
+                  type="date"
+                  value={contractTimelineDateFrom}
+                  onChange={(event) => setContractTimelineDateFrom(event.target.value)}
+                />
+              </label>
+              <label className="ip-field ip-field--inline">
+                <span>To</span>
+                <input
+                  className="ip-control"
+                  type="date"
+                  value={contractTimelineDateTo}
+                  onChange={(event) => setContractTimelineDateTo(event.target.value)}
+                />
+              </label>
+              {(contractTimelineDateFrom || contractTimelineDateTo) ? (
+                <button
+                  type="button"
+                  className="inf-btn inf-btn--ghost inf-btn--xs ip-contract-search__clear-dates"
+                  onClick={() => {
+                    setContractTimelineDateFrom('')
+                    setContractTimelineDateTo('')
+                  }}
+                >
+                  Clear dates
+                </button>
+              ) : null}
+            </div>
+            {(contractTimelineDateFrom || contractTimelineDateTo) ? (
+              <p className="ip-contract-search__hint">
+                {contractTimelineDateFrom && contractTimelineDateTo ? (
+                  <>
+                    Includes contracts overlapping{' '}
+                    <strong>{fmtDMY(contractTimelineDateFrom)} – {fmtDMY(contractTimelineDateTo)}</strong>.
+                  </>
+                ) : contractTimelineDateFrom ? (
+                  <>
+                    Includes contracts that end on or after{' '}
+                    <strong>{fmtDMY(contractTimelineDateFrom)}</strong>.
+                  </>
+                ) : (
+                  <>
+                    Includes contracts that start on or before{' '}
+                    <strong>{fmtDMY(contractTimelineDateTo)}</strong>.
+                  </>
+                )}
+              </p>
+            ) : null}
+            {contractTimelineOptions.length > CONTRACT_TIMELINE_RESULTS_CAP ? (
+              <p className="ip-contract-search__cap" role="status">
+                Showing first {CONTRACT_TIMELINE_RESULTS_CAP} of {contractTimelineOptions.length} matches — refine search or dates.
+              </p>
+            ) : null}
             <div className="ip-contract-search__results">
-              {contractTimelineOptions.slice(0, 12).map((contract) => (
+              {contractTimelineOptions.slice(0, CONTRACT_TIMELINE_RESULTS_CAP).map((contract) => (
                 <button
                   key={contract.id}
                   type="button"

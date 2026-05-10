@@ -20,6 +20,34 @@ import {
   mergePerformanceRecordIntoList,
   saveRecords,
 } from './influencerPerformanceScreenShared'
+import { fmtISO } from '../../utils/dateFormat'
+
+function getContractIsoSpan(contract) {
+  const start = fmtISO(contract?.contractStartDate || contract?.startDate || '')
+  const end = fmtISO(contract?.latest?.date || contract?.latestDate || contract?.contractStartDate || '')
+  const s = start || end
+  const e = end || start
+  if (!s && !e) return null
+  return s <= e ? { start: s, end: e } : { start: e, end: s }
+}
+
+/** Inclusive overlap: contract window vs optional filter from/to (YYYY-MM-DD). */
+function contractMatchesTimelineDateFilter(contract, filterFrom, filterTo) {
+  const hasFilter = Boolean(filterFrom || filterTo)
+  const span = getContractIsoSpan(contract)
+  if (!span) return !hasFilter
+  if (!hasFilter) return true
+  if (filterFrom && !filterTo) return span.end >= filterFrom
+  if (!filterFrom && filterTo) return span.start <= filterTo
+  let lo = filterFrom
+  let hi = filterTo
+  if (lo && hi && lo > hi) {
+    const t = lo
+    lo = hi
+    hi = t
+  }
+  return span.start <= hi && span.end >= lo
+}
 
 export function useInfluencerPerformanceScreen() {
   const { user, loading: authLoading } = useAuth()
@@ -38,6 +66,8 @@ export function useInfluencerPerformanceScreen() {
   const [isAddRecordOpen, setIsAddRecordOpen] = useState(false)
   const [activeMonitorContractId, setActiveMonitorContractId] = useState(null)
   const [contractTimelineQuery, setContractTimelineQuery] = useState('')
+  const [contractTimelineDateFrom, setContractTimelineDateFrom] = useState('')
+  const [contractTimelineDateTo, setContractTimelineDateTo] = useState('')
   const contractTimelineAnchorRef = useRef(null)
   const canWritePerformance = canMutateInfluencerPerformance(user)
   const showNetProfitColumn = canViewInfluencerPerformanceNetProfit(user)
@@ -221,7 +251,10 @@ export function useInfluencerPerformanceScreen() {
 
   const contractTimelineOptions = useMemo(() => {
     const q = contractTimelineQuery.trim().toLowerCase()
+    const from = fmtISO(contractTimelineDateFrom)
+    const to = fmtISO(contractTimelineDateTo)
     return videoContracts.filter((contract) => {
+      if (!contractMatchesTimelineDateFilter(contract, from, to)) return false
       if (!q) return true
       const haystack = [
         contract.influencer?.name,
@@ -233,7 +266,7 @@ export function useInfluencerPerformanceScreen() {
       ].filter(Boolean).join(' ').toLowerCase()
       return haystack.includes(q)
     })
-  }, [contractTimelineQuery, videoContracts])
+  }, [contractTimelineQuery, contractTimelineDateFrom, contractTimelineDateTo, videoContracts])
 
   function toggleActiveMonitorContract(contract) {
     if (!contract?.id) return
@@ -345,6 +378,10 @@ export function useInfluencerPerformanceScreen() {
     setActiveMonitorContractId,
     contractTimelineQuery,
     setContractTimelineQuery,
+    contractTimelineDateFrom,
+    setContractTimelineDateFrom,
+    contractTimelineDateTo,
+    setContractTimelineDateTo,
     contractTimelineOptions,
     contractTimelineAnchorRef,
     canWritePerformance,

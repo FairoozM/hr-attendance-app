@@ -585,6 +585,72 @@
   gap: 0.8rem;
 }
 
+.ip-contract-search__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.65rem 1rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 16px;
+  border: 1px solid rgba(0, 140, 200, 0.14);
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.ip-contract-search__filters--stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.ip-contract-search__filters-dates {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+  width: 100%;
+}
+
+.ip-contract-search__filters-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: rgba(15, 23, 42, 0.72);
+  width: 100%;
+}
+
+.ip-field--inline {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 9.5rem;
+  flex: 1 1 9.5rem;
+}
+
+.ip-field--inline .ip-control {
+  min-height: 2.35rem;
+}
+
+.ip-contract-search__clear-dates {
+  align-self: center;
+}
+
+.ip-contract-search__hint {
+  margin: 0;
+  font-size: 0.78rem;
+  color: rgba(15, 23, 42, 0.62);
+}
+
+.ip-contract-search__hint strong {
+  color: #0077aa;
+  font-weight: 800;
+}
+
+.ip-contract-search__cap {
+  margin: 0;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: rgba(180, 83, 9, 0.95);
+}
+
 .ip-contract-search__results {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
