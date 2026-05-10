@@ -1279,8 +1279,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.28rem;
-  max-width: 250px;
-  padding: 0.28rem 0;
+  max-width: 187.5px;
+  padding: 0.35rem 0;
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
   min-width: 0;
 }
@@ -1295,7 +1295,7 @@
   min-width: 0;
   gap: 0.22rem;
   color: rgba(0, 0, 0, 0.35);
-  font-size: 0.6rem;
+  font-size: 0.75rem;
   letter-spacing: 0.07em;
   text-transform: uppercase;
   overflow: hidden;
@@ -1313,7 +1313,7 @@
 .ip-hud-value {
   font-family: 'Space Mono', ui-monospace, monospace;
   min-width: 0;
-  font-size: clamp(0.768rem, 1.08vw, 0.912rem);
+  font-size: clamp(0.96rem, 1.35vw, 1.14rem);
   font-weight: 900;
   overflow: hidden;
   text-align: right;
