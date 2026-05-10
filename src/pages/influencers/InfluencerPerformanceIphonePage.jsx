@@ -119,6 +119,11 @@ export function InfluencerPerformanceIphonePage() {
         rankingByRecordId={rankingsByContractId}
         showNetProfitColumn={showNetProfitColumn}
         onView={(row) => row?.latest && setViewRecord(row.latest)}
+        onEdit={canWritePerformance ? (row) => row?.latest && setEditingRecord(row.latest) : undefined}
+        onDelete={canWritePerformance ? (id) => {
+          const row = filteredContracts.find((item) => item.id === id)
+          if (row?.latest?.id) handleDelete(row.latest.id)
+        } : undefined}
         activeMonitorInfluencerId={activeMonitorContractId || activeMonitorInfluencerId}
         onToggleMonitor={(_influencerId, row) => toggleActiveMonitorContract(row)}
       />
