@@ -107,7 +107,7 @@ function PodiumCard({
 }
 
 /**
- * Top 3 contracts by composite rank (#2 left, #1 center raised, #3 right).
+ * Top 4 contracts by composite rank, displayed in rank order.
  */
 export function InfluencerLeaderboardPodium({
   videoContracts,
@@ -123,18 +123,13 @@ export function InfluencerLeaderboardPodium({
 
   if (sorted.length === 0) return null
 
-  const top3 = sorted.slice(0, 3)
-  const tiers = ['gold', 'silver', 'bronze']
-  /** Visual order: silver, gold, bronze (middle = #1). */
-  const ordered =
-    top3.length >= 3
-      ? [top3[1], top3[0], top3[2]]
-      : top3.length === 2
-        ? [top3[1], top3[0]]
-        : [top3[0]]
-
-  const orderedTiers =
-    top3.length >= 3 ? ['silver', 'gold', 'bronze'] : top3.length === 2 ? ['silver', 'gold'] : ['gold']
+  const ordered = sorted.slice(0, 4)
+  const tierByRank = {
+    1: 'gold',
+    2: 'silver',
+    3: 'bronze',
+    4: 'standard',
+  }
 
   const bests = getDatasetBestsFromContracts(videoContracts)
 
@@ -158,7 +153,7 @@ export function InfluencerLeaderboardPodium({
             <PodiumCard
               contract={item.contract}
               rankInfo={item.rank}
-              tier={orderedTiers[i]}
+              tier={tierByRank[item.rank.rank] || 'standard'}
               bests={bests}
               onSelect={onSelectContract}
             />
