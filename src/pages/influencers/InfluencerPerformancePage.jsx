@@ -1,11 +1,11 @@
-import { CalendarRange, Download, Gauge, Plus, Save, Search, X } from 'lucide-react'
+import { Download, Gauge, Plus, Save, Search, X } from 'lucide-react'
 import { InfluencerContractTimeline } from '../../components/influencers/InfluencerContractTimeline'
 import { InfluencerPerformanceForm } from '../../components/influencers/InfluencerPerformanceForm'
 import { InfluencerLeaderboardPodium } from '../../components/influencers/InfluencerLeaderboardPodium'
 import { InfluencerPerformanceTable } from '../../components/influencers/InfluencerPerformanceTable'
 import { useAuth, canMutateInfluencerPerformance } from '../../contexts/AuthContext'
 import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
-import { fmtDMY, fmtDMYRange } from '../../utils/dateFormat'
+import { fmtDMYRange } from '../../utils/dateFormat'
 import { useInfluencerPerformanceScreen } from './useInfluencerPerformanceScreen'
 import './influencers.css'
 import './InfluencerPerformancePage.css'
@@ -40,10 +40,11 @@ export function InfluencerPerformancePage() {
     setActiveMonitorContractId,
     contractTimelineQuery,
     setContractTimelineQuery,
-    contractTimelineDateFrom,
-    setContractTimelineDateFrom,
-    contractTimelineDateTo,
-    setContractTimelineDateTo,
+    tableDateFrom,
+    setTableDateFrom,
+    tableDateTo,
+    setTableDateTo,
+    contractsTotal,
     contractTimelineOptions,
     contractTimelineAnchorRef,
     canWritePerformance,
@@ -91,40 +92,49 @@ export function InfluencerPerformancePage() {
         showNetProfitColumn={showNetProfitColumn}
         sort={sort}
         onSort={handleSort}
+        dateFrom={tableDateFrom}
+        dateTo={tableDateTo}
+        onDateFromChange={setTableDateFrom}
+        onDateToChange={setTableDateTo}
+        onClearTableDates={() => {
+          setTableDateFrom('')
+          setTableDateTo('')
+        }}
+        totalContracts={contractsTotal}
         onEdit={canWritePerformance ? (row) => row?.latest && setEditingRecord(row.latest) : undefined}
         onDelete={canWritePerformance ? (id) => {
           const row = filteredContracts.find((item) => item.id === id)
           if (row?.latest?.id) handleDelete(row.latest.id)
         } : undefined}
-        headerAction={(
-          <button
-            type="button"
-            className="inf-btn inf-btn--primary ip-table-card__add-record"
-            onClick={() => {
-              if (!canWritePerformance) {
-                setSyncHint('This account cannot save Influencer Performance to the server. Ask an admin to enable Influencer Performance access.')
-                return
-              }
-              setIsAddRecordOpen(true)
-            }}
-            disabled={!canWritePerformance}
-            title={!canWritePerformance ? 'Requires Influencer Performance access' : undefined}
-          >
-            <Plus size={15} /> Add new record
-          </button>
-        )}
         activeMonitorInfluencerId={activeMonitorContractId}
         onToggleMonitor={(_influencerId, row) => toggleActiveMonitorContract(row)}
       />
 
       <div ref={contractTimelineAnchorRef} className="ip-contract-timeline-anchor">
         <section className="ip-contract-pin-panel" aria-label="Pinned contract timeline search">
-          <div className="ip-section-heading">
-            <span className="ip-section-heading__icon"><Search size={18} /></span>
-            <div>
-              <h2>Contract timeline</h2>
-              <p>Search by influencer name and narrow by contract dates (overlap), then select one contract to populate the timeline.</p>
+          <div className="ip-section-heading ip-contract-pin-panel__heading">
+            <div className="ip-contract-pin-panel__heading-copy">
+              <span className="ip-section-heading__icon"><Search size={18} /></span>
+              <div>
+                <h2>Contract timeline</h2>
+                <p>Search by influencer name or contract dates as text, then select one contract to populate the timeline.</p>
+              </div>
             </div>
+            <button
+              type="button"
+              className="inf-btn inf-btn--primary ip-contract-pin-panel__add-record"
+              onClick={() => {
+                if (!canWritePerformance) {
+                  setSyncHint('This account cannot save Influencer Performance to the server. Ask an admin to enable Influencer Performance access.')
+                  return
+                }
+                setIsAddRecordOpen(true)
+              }}
+              disabled={!canWritePerformance}
+              title={!canWritePerformance ? 'Requires Influencer Performance access' : undefined}
+            >
+              <Plus size={15} /> Add new record
+            </button>
           </div>
           <div className="ip-contract-search">
             <label className="ip-field">
@@ -136,65 +146,9 @@ export function InfluencerPerformancePage() {
                 placeholder="Influencer name, handle, campaign, or date"
               />
             </label>
-            <div className="ip-contract-search__filters" role="group" aria-label="Filter contracts by date range">
-              <span className="ip-contract-search__filters-label">
-                <CalendarRange size={15} aria-hidden />
-                Contract dates overlap
-              </span>
-              <label className="ip-field ip-field--inline">
-                <span>From</span>
-                <input
-                  className="ip-control"
-                  type="date"
-                  value={contractTimelineDateFrom}
-                  onChange={(event) => setContractTimelineDateFrom(event.target.value)}
-                />
-              </label>
-              <label className="ip-field ip-field--inline">
-                <span>To</span>
-                <input
-                  className="ip-control"
-                  type="date"
-                  value={contractTimelineDateTo}
-                  onChange={(event) => setContractTimelineDateTo(event.target.value)}
-                />
-              </label>
-              {(contractTimelineDateFrom || contractTimelineDateTo) ? (
-                <button
-                  type="button"
-                  className="inf-btn inf-btn--ghost inf-btn--xs ip-contract-search__clear-dates"
-                  onClick={() => {
-                    setContractTimelineDateFrom('')
-                    setContractTimelineDateTo('')
-                  }}
-                >
-                  Clear dates
-                </button>
-              ) : null}
-            </div>
-            {(contractTimelineDateFrom || contractTimelineDateTo) ? (
-              <p className="ip-contract-search__hint">
-                {contractTimelineDateFrom && contractTimelineDateTo ? (
-                  <>
-                    Includes contracts overlapping{' '}
-                    <strong>{fmtDMY(contractTimelineDateFrom)} – {fmtDMY(contractTimelineDateTo)}</strong>.
-                  </>
-                ) : contractTimelineDateFrom ? (
-                  <>
-                    Includes contracts that end on or after{' '}
-                    <strong>{fmtDMY(contractTimelineDateFrom)}</strong>.
-                  </>
-                ) : (
-                  <>
-                    Includes contracts that start on or before{' '}
-                    <strong>{fmtDMY(contractTimelineDateTo)}</strong>.
-                  </>
-                )}
-              </p>
-            ) : null}
             {contractTimelineOptions.length > CONTRACT_TIMELINE_RESULTS_CAP ? (
               <p className="ip-contract-search__cap" role="status">
-                Showing first {CONTRACT_TIMELINE_RESULTS_CAP} of {contractTimelineOptions.length} matches — refine search or dates.
+                Showing first {CONTRACT_TIMELINE_RESULTS_CAP} of {contractTimelineOptions.length} matches — refine your search.
               </p>
             ) : null}
             <div className="ip-contract-search__results">

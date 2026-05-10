@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Crown, Eye, Medal, MoreVertical, Pencil, Trash2 } from 'lucide-react'
 import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
-import { fmtDMYRange } from '../../utils/dateFormat'
+import { fmtDMY, fmtDMYRange } from '../../utils/dateFormat'
 
-const AMOUNT_COLUMN_KEYS = new Set(['cost', 'salesAed', 'netProfitAed'])
 const EMPTY_RANK_MAP = new Map()
 
 function useMetricBests(records, includeNetProfit) {
@@ -205,6 +204,12 @@ export function InfluencerPerformanceTableIphone({
   onDelete,
   activeMonitorInfluencerId,
   onToggleMonitor,
+  dateFrom = '',
+  dateTo = '',
+  onDateFromChange,
+  onDateToChange,
+  onClearTableDates,
+  totalContracts,
 }) {
   const [openActionsForId, setOpenActionsForId] = useState(null)
   const [actionMenuStyle, setActionMenuStyle] = useState(null)
@@ -256,6 +261,8 @@ export function InfluencerPerformanceTableIphone({
   }
 
   const bests = useMetricBests(records, showNetProfitColumn)
+  const total = totalContracts != null ? totalContracts : records.length
+  const hasTableDateFilter = Boolean(dateFrom || dateTo)
 
   return (
     <section className="ip-table-card ip-table-card--iphone">
@@ -268,7 +275,49 @@ export function InfluencerPerformanceTableIphone({
           <p className="ip-table-card--iphone__hint">
             Soft cards + metric tiles — scroll vertically. Sort with the controls above.
           </p>
+          {hasTableDateFilter ? (
+            <p className="ip-table-card__filter-summary ip-table-card__filter-summary--iphone" role="status">
+              Showing <strong>{records.length}</strong> of <strong>{total}</strong> contracts
+              {dateFrom && dateTo ? (
+                <> · {fmtDMY(dateFrom)} – {fmtDMY(dateTo)}</>
+              ) : dateFrom ? (
+                <> · from {fmtDMY(dateFrom)}</>
+              ) : (
+                <> · through {fmtDMY(dateTo)}</>
+              )}
+            </p>
+          ) : null}
         </div>
+      </div>
+
+      <div className="ip-table-card__heading-filters ip-table-card__heading-filters--iphone" role="group" aria-label="Filter ranking by contract dates">
+        <label className="ip-field ip-field--inline">
+          <span>From</span>
+          <input
+            className="ip-control"
+            type="date"
+            value={dateFrom}
+            onChange={(e) => onDateFromChange?.(e.target.value)}
+          />
+        </label>
+        <label className="ip-field ip-field--inline">
+          <span>To</span>
+          <input
+            className="ip-control"
+            type="date"
+            value={dateTo}
+            onChange={(e) => onDateToChange?.(e.target.value)}
+          />
+        </label>
+        {hasTableDateFilter ? (
+          <button
+            type="button"
+            className="inf-btn inf-btn--ghost inf-btn--xs ip-table-card__clear-dates"
+            onClick={() => onClearTableDates?.()}
+          >
+            Clear dates
+          </button>
+        ) : null}
       </div>
 
       <ul className="ip-phone-ranking">

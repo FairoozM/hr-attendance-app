@@ -32,7 +32,7 @@ function getContractIsoSpan(contract) {
 }
 
 /** Inclusive overlap: contract window vs optional filter from/to (YYYY-MM-DD). */
-function contractMatchesTimelineDateFilter(contract, filterFrom, filterTo) {
+function contractMatchesDateFilter(contract, filterFrom, filterTo) {
   const hasFilter = Boolean(filterFrom || filterTo)
   const span = getContractIsoSpan(contract)
   if (!span) return !hasFilter
@@ -66,8 +66,8 @@ export function useInfluencerPerformanceScreen() {
   const [isAddRecordOpen, setIsAddRecordOpen] = useState(false)
   const [activeMonitorContractId, setActiveMonitorContractId] = useState(null)
   const [contractTimelineQuery, setContractTimelineQuery] = useState('')
-  const [contractTimelineDateFrom, setContractTimelineDateFrom] = useState('')
-  const [contractTimelineDateTo, setContractTimelineDateTo] = useState('')
+  const [tableDateFrom, setTableDateFrom] = useState('')
+  const [tableDateTo, setTableDateTo] = useState('')
   const contractTimelineAnchorRef = useRef(null)
   const canWritePerformance = canMutateInfluencerPerformance(user)
   const showNetProfitColumn = canViewInfluencerPerformanceNetProfit(user)
@@ -238,10 +238,19 @@ export function useInfluencerPerformanceScreen() {
     })
   }, [allRecords, influencersById, rankingByRecordId, sort])
 
-  const filteredContracts = useMemo(
+  const contractRowsAll = useMemo(
     () => buildContractRows(allRecords, influencers, rankingsByContractId, sort),
     [allRecords, influencers, rankingsByContractId, sort],
   )
+
+  const contractsTotal = contractRowsAll.length
+
+  const filteredContracts = useMemo(() => {
+    const from = fmtISO(tableDateFrom)
+    const to = fmtISO(tableDateTo)
+    if (!from && !to) return contractRowsAll
+    return contractRowsAll.filter((row) => contractMatchesDateFilter(row, from, to))
+  }, [contractRowsAll, tableDateFrom, tableDateTo])
 
   const activeMonitorContracts = useMemo(() => (
     activeMonitorContractId
@@ -251,10 +260,7 @@ export function useInfluencerPerformanceScreen() {
 
   const contractTimelineOptions = useMemo(() => {
     const q = contractTimelineQuery.trim().toLowerCase()
-    const from = fmtISO(contractTimelineDateFrom)
-    const to = fmtISO(contractTimelineDateTo)
     return videoContracts.filter((contract) => {
-      if (!contractMatchesTimelineDateFilter(contract, from, to)) return false
       if (!q) return true
       const haystack = [
         contract.influencer?.name,
@@ -266,7 +272,7 @@ export function useInfluencerPerformanceScreen() {
       ].filter(Boolean).join(' ').toLowerCase()
       return haystack.includes(q)
     })
-  }, [contractTimelineQuery, contractTimelineDateFrom, contractTimelineDateTo, videoContracts])
+  }, [contractTimelineQuery, videoContracts])
 
   function toggleActiveMonitorContract(contract) {
     if (!contract?.id) return
@@ -378,10 +384,11 @@ export function useInfluencerPerformanceScreen() {
     setActiveMonitorContractId,
     contractTimelineQuery,
     setContractTimelineQuery,
-    contractTimelineDateFrom,
-    setContractTimelineDateFrom,
-    contractTimelineDateTo,
-    setContractTimelineDateTo,
+    tableDateFrom,
+    setTableDateFrom,
+    tableDateTo,
+    setTableDateTo,
+    contractsTotal,
     contractTimelineOptions,
     contractTimelineAnchorRef,
     canWritePerformance,

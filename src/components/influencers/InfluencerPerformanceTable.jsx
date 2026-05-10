@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Crown, Eye, Medal, MoreVertical, Pencil, Trash2 } from 'lucide-react'
 import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
-import { fmtISO } from '../../utils/dateFormat'
+import { fmtDMY, fmtISO } from '../../utils/dateFormat'
 
 const AMOUNT_COLUMN_KEYS = new Set(['cost', 'salesAed', 'netProfitAed'])
 const EMPTY_RANK_MAP = new Map()
@@ -244,6 +244,12 @@ export function InfluencerPerformanceTable({
   headerAction,
   activeMonitorInfluencerId,
   onToggleMonitor,
+  dateFrom = '',
+  dateTo = '',
+  onDateFromChange,
+  onDateToChange,
+  onClearTableDates,
+  totalContracts,
 }) {
   const [openActionsForId, setOpenActionsForId] = useState(null)
   const [actionMenuStyle, setActionMenuStyle] = useState(null)
@@ -297,6 +303,8 @@ export function InfluencerPerformanceTable({
   const columns = useMemo(() => tableColumns(showNetProfitColumn), [showNetProfitColumn])
   const metricKeys = useMemo(() => metricColumnKeySet(showNetProfitColumn), [showNetProfitColumn])
   const bests = useMetricBests(records, showNetProfitColumn)
+  const total = totalContracts != null ? totalContracts : records.length
+  const hasTableDateFilter = Boolean(dateFrom || dateTo)
 
   return (
     <section className="ip-table-card">
@@ -305,9 +313,53 @@ export function InfluencerPerformanceTable({
           <span className="ip-section-heading__icon"><Eye size={18} /></span>
           <div>
             <h2>Influencers Performance Ranking</h2>
+            {hasTableDateFilter ? (
+              <p className="ip-table-card__filter-summary" role="status">
+                Showing <strong>{records.length}</strong> of <strong>{total}</strong> contracts
+                {dateFrom && dateTo ? (
+                  <> for {fmtDMY(dateFrom)} – {fmtDMY(dateTo)}</>
+                ) : dateFrom ? (
+                  <> from {fmtDMY(dateFrom)}</>
+                ) : (
+                  <> through {fmtDMY(dateTo)}</>
+                )}
+                .
+              </p>
+            ) : null}
           </div>
         </div>
-        {headerAction ? <div className="ip-table-card__heading-action">{headerAction}</div> : null}
+        <div className="ip-table-card__heading-toolbar">
+          <div className="ip-table-card__heading-filters" role="group" aria-label="Filter ranking by contract dates">
+            <label className="ip-field ip-field--inline">
+              <span>From</span>
+              <input
+                className="ip-control"
+                type="date"
+                value={dateFrom}
+                onChange={(e) => onDateFromChange?.(e.target.value)}
+              />
+            </label>
+            <label className="ip-field ip-field--inline">
+              <span>To</span>
+              <input
+                className="ip-control"
+                type="date"
+                value={dateTo}
+                onChange={(e) => onDateToChange?.(e.target.value)}
+              />
+            </label>
+            {hasTableDateFilter ? (
+              <button
+                type="button"
+                className="inf-btn inf-btn--ghost inf-btn--xs ip-table-card__clear-dates"
+                onClick={() => onClearTableDates?.()}
+              >
+                Clear dates
+              </button>
+            ) : null}
+          </div>
+          {headerAction ? <div className="ip-table-card__heading-action">{headerAction}</div> : null}
+        </div>
       </div>
 
       <div className="inf-table-wrap ip-table-wrap">
