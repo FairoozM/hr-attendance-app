@@ -5,6 +5,47 @@ import {
 } from '../../utils/influencerPerformanceUtils'
 
 export const STORAGE_KEY = 'hr-influencer-performance-v1'
+export const TOMBSTONE_KEY = 'hr-influencer-performance-tombstones-v1'
+
+const TOMBSTONE_TTL_MS = 1000 * 60 * 60 * 24 * 90
+
+export function loadTombstones() {
+  try {
+    const raw = localStorage.getItem(TOMBSTONE_KEY)
+    if (!raw) return new Map()
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return new Map()
+    return new Map(Object.entries(parsed).map(([k, v]) => [String(k), Number(v) || 0]))
+  } catch {
+    return new Map()
+  }
+}
+
+export function saveTombstones(map) {
+  try {
+    const obj = {}
+    for (const [k, v] of map) obj[k] = v
+    localStorage.setItem(TOMBSTONE_KEY, JSON.stringify(obj))
+  } catch {
+    // best effort
+  }
+}
+
+export function pruneTombstones(map = loadTombstones()) {
+  const cutoff = Date.now() - TOMBSTONE_TTL_MS
+  for (const [k, ts] of map) {
+    if (!ts || ts < cutoff) map.delete(k)
+  }
+  saveTombstones(map)
+  return map
+}
+
+export function addTombstone(id, ts = Date.now()) {
+  if (!id) return
+  const map = pruneTombstones()
+  map.set(String(id), ts)
+  saveTombstones(map)
+}
 
 export const PERFORMANCE_SORT_OPTIONS = [
   { value: 'rank:asc', label: 'Best overall (90% profit · 10% rest)' },

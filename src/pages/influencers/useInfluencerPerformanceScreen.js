@@ -14,10 +14,12 @@ import {
   toNumber,
 } from '../../utils/influencerPerformanceUtils'
 import {
+  addTombstone,
   compareValues,
   isSeededMockPerformanceRecord,
   loadStoredRecords,
   mergePerformanceRecordIntoList,
+  pruneTombstones,
   saveRecords,
 } from './influencerPerformanceScreenShared'
 import { fmtISO } from '../../utils/dateFormat'
@@ -120,16 +122,22 @@ export function useInfluencerPerformanceScreen() {
         const server = Array.isArray(data?.records)
           ? data.records.map((r) => normalizePerformanceRecord(r))
           : []
+        const tombstones = pruneTombstones()
+        const serverIds = new Set(server.map((r) => String(r.id)).filter(Boolean))
         const localRaw = loadStoredRecords() || []
         const local = localRaw
           .map((r) => normalizePerformanceRecord(r))
           .filter((record) => !isSeededMockPerformanceRecord(record))
+          .filter((record) => !tombstones.has(String(record.id)))
+        const localOnlyCount = local.reduce((count, record) => (
+          serverIds.has(String(record.id)) ? count : count + 1
+        ), 0)
         const merged = dedupePerformanceRecords([...server, ...local])
         if (cancelled) return
         setServerMergedOnce(true)
         if (merged.length > 0) {
           setRecords(merged)
-          if (canMutateInfluencerPerformance(user) && merged.length > server.length) {
+          if (canMutateInfluencerPerformance(user) && localOnlyCount > 0) {
             const result = await api.post('/api/influencers/performance-records/bulk-upsert', { records: merged })
             if (result?.skipped) {
               setSyncHint(`${result.skipped} record(s) were not saved because the influencer no longer exists on the server.`)
@@ -323,20 +331,48 @@ export function useInfluencerPerformanceScreen() {
     setIsAddRecordOpen(false)
   }
 
-  function handleDelete(id) {
-    const record = allRecords.find((item) => item.id === id)
-    const name = influencersById.get(String(record?.influencerId))?.name || 'this record'
-    if (!window.confirm(`Delete performance record for ${name}?`)) return
+  async function handleDelete(id) {
     const prev = records || []
-    const next = prev.filter((item) => item.id !== id)
-    setRecords(next)
-    saveRecords(next)
-    if (editingRecord?.id === id) setEditingRecord(null)
-    if (canMutateInfluencerPerformance(userRef.current)) {
-      void api.delete(`/api/influencers/performance-records/${encodeURIComponent(id)}`).catch((err) => {
-        console.warn('[InfluencerPerformance] server delete failed', err)
-        setSyncHint(err.message || 'Deleted locally; server delete failed — refresh to reconcile.')
-      })
+    const record = prev.find((item) => item.id === id) || allRecords.find((item) => item.id === id)
+    if (!record) return
+    const name = influencersById.get(String(record.influencerId))?.name || 'this record'
+    if (!window.confirm(`Delete performance record for ${name}?`)) return
+
+    if (!canMutateInfluencerPerformance(userRef.current)) {
+      setSyncHint('This account cannot delete Influencer Performance records.')
+      return
+    }
+
+    const ids = new Set(
+      prev
+        .filter((r) => (
+          r.id === id ||
+          (
+            r.contractId &&
+            record.contractId &&
+            r.contractId === record.contractId &&
+            r.date && record.date && r.date === record.date
+          )
+        ))
+        .map((r) => r.id)
+        .filter(Boolean),
+    )
+    if (ids.size === 0) ids.add(id)
+
+    setSyncHint(ids.size > 1 ? `Deleting ${ids.size} records…` : 'Deleting…')
+    try {
+      for (const rid of ids) {
+        await api.delete(`/api/influencers/performance-records/${encodeURIComponent(rid)}`)
+        addTombstone(rid)
+      }
+      const next = prev.filter((r) => !ids.has(r.id))
+      setRecords(next)
+      saveRecords(next)
+      if (editingRecord && ids.has(editingRecord.id)) setEditingRecord(null)
+      setSyncHint('')
+    } catch (err) {
+      console.warn('[InfluencerPerformance] server delete failed', err)
+      setSyncHint(err?.message || 'Server delete failed — record kept. Try again.')
     }
   }
 
