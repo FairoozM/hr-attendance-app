@@ -35,7 +35,6 @@ export function useInfluencerPerformanceScreen() {
   const [sort, setSort] = useState({ key: 'date', direction: 'desc' })
   const [editingRecord, setEditingRecord] = useState(null)
   const [editingContract, setEditingContract] = useState(null)
-  const [viewRecord, setViewRecord] = useState(null)
   const [isAddRecordOpen, setIsAddRecordOpen] = useState(false)
   const [activeMonitorInfluencerId, setActiveMonitorInfluencerId] = useState(null)
   const [activeMonitorContractId, setActiveMonitorContractId] = useState(null)
@@ -274,7 +273,6 @@ export function useInfluencerPerformanceScreen() {
     const next = prev.filter((item) => item.id !== id)
     setRecords(next)
     saveRecords(next)
-    if (viewRecord?.id === id) setViewRecord(null)
     if (editingRecord?.id === id) setEditingRecord(null)
     if (canMutateInfluencerPerformance(userRef.current)) {
       void api.delete(`/api/influencers/performance-records/${encodeURIComponent(id)}`).catch((err) => {
@@ -323,8 +321,6 @@ export function useInfluencerPerformanceScreen() {
     setEditingRecord,
     editingContract,
     setEditingContract,
-    viewRecord,
-    setViewRecord,
     isAddRecordOpen,
     setIsAddRecordOpen,
     activeMonitorInfluencerId,

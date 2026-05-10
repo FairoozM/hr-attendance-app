@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Crown, Eye, Medal, MoreVertical, Pencil, Trash2 } from 'lucide-react'
+import { Crown, Medal, MoreVertical, Pencil, Trash2 } from 'lucide-react'
 import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
 import { fmtDMYRange } from '../../utils/dateFormat'
 
@@ -213,7 +213,6 @@ export function InfluencerPerformanceTable({
   showNetProfitColumn = false,
   sort,
   onSort,
-  onView,
   onEdit,
   onDelete,
   activeMonitorInfluencerId,
@@ -368,17 +367,6 @@ export function InfluencerPerformanceTable({
                           >
                             <span className="ip-table__row-menu-icon-slot" aria-hidden />
                             {isMonitorActive ? 'Hide contract timeline' : 'Open contract timeline'}
-                          </button>
-                          <button
-                            type="button"
-                            className="ip-table__row-menu-item"
-                            role="menuitem"
-                            onClick={() => {
-                              onView(record)
-                              setOpenActionsForId(null)
-                            }}
-                          >
-                            <Eye size={15} aria-hidden /> View
                           </button>
                           {onEdit ? (
                             <button

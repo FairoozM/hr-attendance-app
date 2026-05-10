@@ -24,8 +24,6 @@ export function InfluencerPerformancePage() {
     setEditingRecord,
     editingContract,
     setEditingContract,
-    viewRecord,
-    setViewRecord,
     isAddRecordOpen,
     setIsAddRecordOpen,
     activeMonitorInfluencerId,
@@ -137,7 +135,6 @@ export function InfluencerPerformancePage() {
         showNetProfitColumn={showNetProfitColumn}
         sort={sort}
         onSort={handleSort}
-        onView={(row) => row?.latest && setViewRecord(row.latest)}
         onEdit={canWritePerformance ? (row) => row?.latest && setEditingRecord(row.latest) : undefined}
         onDelete={canWritePerformance ? (id) => {
           const row = filteredContracts.find((item) => item.id === id)
@@ -176,45 +173,6 @@ export function InfluencerPerformancePage() {
               onSubmit={handleSubmit}
               onCancelEdit={() => setIsAddRecordOpen(false)}
             />
-          </section>
-        </div>
-      ) : null}
-
-      {viewRecord ? (
-        <div className="ip-modal-backdrop" role="presentation" onClick={() => setViewRecord(null)}>
-          <section className="ip-modal" role="dialog" aria-modal="true" aria-label="Performance details" onClick={(event) => event.stopPropagation()}>
-            <button type="button" className="ip-modal__close" onClick={() => setViewRecord(null)} aria-label="Close performance details">
-              <X size={18} />
-            </button>
-            <div className="ip-section-heading">
-              <span className="ip-section-heading__icon"><Download size={18} /></span>
-              <div>
-                <h2>{influencersById.get(String(viewRecord.influencerId))?.name || 'Influencer'} performance</h2>
-                <p>{fmtDMY(viewRecord.date)} · {viewRecord.platform} · {viewRecord.campaignName}</p>
-              </div>
-            </div>
-            <div className="ip-detail-grid">
-              {[
-                ['Views', formatNumber(viewRecord.views)],
-                ['Likes', formatNumber(viewRecord.likes)],
-                ['Comments', formatNumber(viewRecord.comments)],
-                ['Shares', formatNumber(viewRecord.shares)],
-                ['Sales AED', formatNumber(viewRecord.salesAed, { currency: 'AED' })],
-                ...(showNetProfitColumn
-                  ? [['Net profit AED', formatNumber(viewRecord.netProfitAed, { currency: 'AED' })]]
-                  : []),
-                ['Engagement rate', `${toNumber(viewRecord.engagementRate).toFixed(2)}%`],
-                ['Cost', formatNumber(viewRecord.cost, { currency: 'AED' })],
-              ].map(([label, value]) => (
-                <div key={label}>
-                  <span>{label}</span>
-                  <strong>{value}</strong>
-                </div>
-              ))}
-            </div>
-            {viewRecord.postUrl ? <a className="ip-modal__link" href={viewRecord.postUrl} target="_blank" rel="noopener noreferrer">Open post link</a> : null}
-            {viewRecord.notes ? <p className="ip-modal__notes">{viewRecord.notes}</p> : null}
-            {viewRecord.screenshotUrl ? <p className="ip-modal__notes">Screenshot: {viewRecord.screenshotUrl}</p> : null}
           </section>
         </div>
       ) : null}
