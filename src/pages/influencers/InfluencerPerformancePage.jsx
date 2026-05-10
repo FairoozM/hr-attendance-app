@@ -1,4 +1,4 @@
-import { ArrowDownWideNarrow, Download, Gauge, Plus, Save, Search, X } from 'lucide-react'
+import { Download, Gauge, Plus, Save, Search, X } from 'lucide-react'
 import { InfluencerContractTimeline } from '../../components/influencers/InfluencerContractTimeline'
 import { InfluencerPerformanceForm } from '../../components/influencers/InfluencerPerformanceForm'
 import { InfluencerLeaderboardPodium } from '../../components/influencers/InfluencerLeaderboardPodium'
@@ -6,7 +6,6 @@ import { InfluencerPerformanceTable } from '../../components/influencers/Influen
 import { useAuth, canMutateInfluencerPerformance } from '../../contexts/AuthContext'
 import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
 import { fmtDMYRange } from '../../utils/dateFormat'
-import { PERFORMANCE_SORT_OPTIONS } from './influencerPerformanceScreenShared'
 import { useInfluencerPerformanceScreen } from './useInfluencerPerformanceScreen'
 import './influencers.css'
 import './InfluencerPerformancePage.css'
@@ -39,7 +38,6 @@ export function InfluencerPerformancePage() {
     rankingsByContractId,
     activeMonitorContracts,
     handleSort,
-    handleSortPreset,
     handleSubmit,
     handleDelete,
     handleSaveContractEdit,
@@ -81,48 +79,6 @@ export function InfluencerPerformancePage() {
           </button>
         </div>
       </header>
-
-      <section className="ip-filter-panel ip-performance-sort-panel" aria-label="Influencer performance filters">
-        <div className="ip-section-heading">
-          <span className="ip-section-heading__icon"><ArrowDownWideNarrow size={18} /></span>
-          <div>
-            <h2>Sort influencers</h2>
-            <p>Rank grouped influencer rows by top-to-low metrics like views, likes, sales, cost, or newest records.</p>
-          </div>
-        </div>
-        <div className="ip-performance-sort-panel__body">
-          <label className="ip-field ip-performance-sort-panel__select">
-            <span>Ranking</span>
-            <select
-              className="ip-control"
-              value={`${sort.key}:${sort.direction}`}
-              onChange={(event) => handleSortPreset(event.target.value)}
-            >
-              {PERFORMANCE_SORT_OPTIONS.filter((option) => !option.adminOnly || showNetProfitColumn).map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-          <div className="ip-performance-sort-panel__quick" aria-label="Quick ranking filters">
-            {[
-              ['rank:asc', 'Best overall'],
-              ['views:desc', 'Top views'],
-              ['likes:desc', 'Top likes'],
-              ['salesAed:desc', 'Top sales'],
-              ['date:desc', 'Newest'],
-            ].map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                className={`inf-btn inf-btn--ghost inf-btn--xs ${`${sort.key}:${sort.direction}` === value ? 'ip-performance-sort-panel__quick-active' : ''}`}
-                onClick={() => handleSortPreset(value)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
 
       <InfluencerLeaderboardPodium
         videoContracts={videoContracts}
