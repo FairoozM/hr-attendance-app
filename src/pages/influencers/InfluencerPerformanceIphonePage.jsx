@@ -5,7 +5,7 @@ import { InfluencerPerformanceForm } from '../../components/influencers/Influenc
 import { InfluencerPerformanceTableIphone } from '../../components/influencers/InfluencerPerformanceTableIphone'
 import { useAuth, canMutateInfluencerPerformance } from '../../contexts/AuthContext'
 import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
-import { fmtDMY } from '../../utils/dateFormat'
+import { fmtDMYRange } from '../../utils/dateFormat'
 import { PERFORMANCE_SORT_OPTIONS } from './influencerPerformanceScreenShared'
 import { useInfluencerPerformanceScreen } from './useInfluencerPerformanceScreen'
 import './influencers.css'
@@ -27,9 +27,11 @@ export function InfluencerPerformanceIphonePage() {
     setEditingContract,
     isAddRecordOpen,
     setIsAddRecordOpen,
-    activeMonitorInfluencerId,
-    setActiveMonitorInfluencerId,
     activeMonitorContractId,
+    setActiveMonitorContractId,
+    contractTimelineQuery,
+    setContractTimelineQuery,
+    contractTimelineOptions,
     contractTimelineAnchorRef,
     canWritePerformance,
     showNetProfitColumn,
@@ -122,26 +124,67 @@ export function InfluencerPerformanceIphonePage() {
           const row = filteredContracts.find((item) => item.id === id)
           if (row?.latest?.id) handleDelete(row.latest.id)
         } : undefined}
-        activeMonitorInfluencerId={activeMonitorContractId || activeMonitorInfluencerId}
+        activeMonitorInfluencerId={activeMonitorContractId}
         onToggleMonitor={(_influencerId, row) => toggleActiveMonitorContract(row)}
       />
 
       <div ref={contractTimelineAnchorRef} className="ip-contract-timeline-anchor ip-page--iphone__timeline">
-        {activeMonitorContracts.length > 0 ? (
-          <InfluencerContractTimeline
-            contracts={activeMonitorContracts}
-            onEditRecord={canWritePerformance ? setEditingRecord : undefined}
-            onDeleteRecord={canWritePerformance ? handleDelete : undefined}
-            onSaveRecord={canWritePerformance ? handleSubmit : undefined}
-            onEditContract={canWritePerformance
-              ? (contract) => setEditingContract({
-                  contract,
-                  selectedInfluencerId: contract.influencerId,
-                  query: contract.influencer?.name || '',
-                })
-              : undefined}
-          />
-        ) : null}
+        <section className="ip-contract-pin-panel" aria-label="Pinned contract timeline search">
+          <div className="ip-section-heading">
+            <span className="ip-section-heading__icon"><Search size={18} /></span>
+            <div>
+              <h2>Contract timeline</h2>
+              <p>Search by influencer name or contract dates, then open one contract timeline.</p>
+            </div>
+          </div>
+          <div className="ip-contract-search">
+            <label className="ip-field">
+              <span>Search contracts</span>
+              <input
+                className="ip-control"
+                value={contractTimelineQuery}
+                onChange={(event) => setContractTimelineQuery(event.target.value)}
+                placeholder="Influencer, campaign, or date"
+              />
+            </label>
+            <div className="ip-contract-search__results">
+              {contractTimelineOptions.slice(0, 12).map((contract) => (
+                <button
+                  key={contract.id}
+                  type="button"
+                  className={`ip-contract-search__item ${String(activeMonitorContractId || '') === String(contract.id) ? 'ip-contract-search__item--active' : ''}`}
+                  onClick={() => setActiveMonitorContractId(contract.id)}
+                >
+                  <span>
+                    <strong>{contract.influencer?.name || 'Influencer'}</strong>
+                    <em>{contract.campaignName || contract.videoTitle || 'Contract'}</em>
+                  </span>
+                  <b>{fmtDMYRange(contract.contractStartDate, contract.latest?.date || contract.latestDate)}</b>
+                </button>
+              ))}
+              {contractTimelineOptions.length === 0 ? (
+                <div className="ip-empty-row">No contracts match this search.</div>
+              ) : null}
+            </div>
+          </div>
+          {activeMonitorContracts.length > 0 ? (
+            <InfluencerContractTimeline
+              contracts={activeMonitorContracts}
+              onEditRecord={canWritePerformance ? setEditingRecord : undefined}
+              onDeleteRecord={canWritePerformance ? handleDelete : undefined}
+              onSaveRecord={canWritePerformance ? handleSubmit : undefined}
+              onEditContract={canWritePerformance
+                ? (contract) => setEditingContract({
+                    contract,
+                    selectedInfluencerId: contract.influencerId,
+                    query: contract.influencer?.name || '',
+                  })
+                : undefined}
+            />
+          ) : (
+            <div className="ip-empty-row">Select a contract above to show its timeline.</div>
+          )}
+        </section>
       </div>
 
       {isAddRecordOpen ? (

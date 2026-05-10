@@ -36,8 +36,8 @@ export function useInfluencerPerformanceScreen() {
   const [editingRecord, setEditingRecord] = useState(null)
   const [editingContract, setEditingContract] = useState(null)
   const [isAddRecordOpen, setIsAddRecordOpen] = useState(false)
-  const [activeMonitorInfluencerId, setActiveMonitorInfluencerId] = useState(null)
   const [activeMonitorContractId, setActiveMonitorContractId] = useState(null)
+  const [contractTimelineQuery, setContractTimelineQuery] = useState('')
   const contractTimelineAnchorRef = useRef(null)
   const canWritePerformance = canMutateInfluencerPerformance(user)
   const showNetProfitColumn = canViewInfluencerPerformanceNetProfit(user)
@@ -152,17 +152,19 @@ export function useInfluencerPerformanceScreen() {
     if (cleaned.length !== records.length) {
       setRecords(cleaned)
       void persistRecordsIfCan(cleaned)
-      if (activeMonitorInfluencerId && !influencersById.has(String(activeMonitorInfluencerId))) {
-        setActiveMonitorInfluencerId(null)
-        setActiveMonitorContractId(null)
-      }
     }
-  }, [activeMonitorInfluencerId, influencers.length, influencersById, influencersLoading, records, persistRecordsIfCan])
+  }, [influencers.length, influencersById, influencersLoading, records, persistRecordsIfCan])
 
   const videoContracts = useMemo(
     () => getVideoContractTimelines(allRecords, influencers),
     [allRecords, influencers],
   )
+
+  useEffect(() => {
+    if (!activeMonitorContractId) return
+    const activeContract = videoContracts.find((contract) => String(contract.id) === String(activeMonitorContractId))
+    if (!activeContract) setActiveMonitorContractId(null)
+  }, [activeMonitorContractId, videoContracts])
 
   const rankingsByContractId = useMemo(
     () => computeContractRankings(videoContracts),
@@ -211,19 +213,37 @@ export function useInfluencerPerformanceScreen() {
     [allRecords, influencers, rankingsByContractId, sort],
   )
 
-  const activeMonitorContracts = useMemo(() => {
-    if (activeMonitorContractId) {
-      return videoContracts.filter((contract) => String(contract.id) === String(activeMonitorContractId))
-    }
-    if (!activeMonitorInfluencerId) return []
-    return videoContracts.filter((contract) => String(contract.influencerId) === String(activeMonitorInfluencerId))
-  }, [activeMonitorContractId, activeMonitorInfluencerId, videoContracts])
+  const activeMonitorContracts = useMemo(() => (
+    activeMonitorContractId
+      ? videoContracts.filter((contract) => String(contract.id) === String(activeMonitorContractId))
+      : []
+  ), [activeMonitorContractId, videoContracts])
+
+  const contractTimelineOptions = useMemo(() => {
+    const q = contractTimelineQuery.trim().toLowerCase()
+    return videoContracts.filter((contract) => {
+      if (!q) return true
+      const haystack = [
+        contract.influencer?.name,
+        contract.influencer?.username,
+        contract.campaignName,
+        contract.videoTitle,
+        contract.contractStartDate,
+        contract.latest?.date || contract.latestDate,
+      ].filter(Boolean).join(' ').toLowerCase()
+      return haystack.includes(q)
+    })
+  }, [contractTimelineQuery, videoContracts])
 
   function toggleActiveMonitorContract(contract) {
     if (!contract?.id) return
     const isSameContract = String(activeMonitorContractId || '') === String(contract.id)
     setActiveMonitorContractId(isSameContract ? null : contract.id)
-    setActiveMonitorInfluencerId(isSameContract ? null : contract.influencerId || null)
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        contractTimelineAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 80)
+    })
   }
 
   function handleSort(key) {
@@ -240,7 +260,6 @@ export function useInfluencerPerformanceScreen() {
 
   function handlePodiumSelectContract(contract) {
     if (!contract?.influencerId) return
-    setActiveMonitorInfluencerId(contract.influencerId)
     setActiveMonitorContractId(contract.id || null)
     requestAnimationFrame(() => {
       setTimeout(() => {
@@ -301,7 +320,6 @@ export function useInfluencerPerformanceScreen() {
     ))
     setRecords(next)
     void persistRecordsIfCan(next)
-    setActiveMonitorInfluencerId(selectedInfluencer.id)
     setEditingContract(null)
   }
 
@@ -323,10 +341,11 @@ export function useInfluencerPerformanceScreen() {
     setEditingContract,
     isAddRecordOpen,
     setIsAddRecordOpen,
-    activeMonitorInfluencerId,
-    setActiveMonitorInfluencerId,
     activeMonitorContractId,
     setActiveMonitorContractId,
+    contractTimelineQuery,
+    setContractTimelineQuery,
+    contractTimelineOptions,
     contractTimelineAnchorRef,
     canWritePerformance,
     showNetProfitColumn,

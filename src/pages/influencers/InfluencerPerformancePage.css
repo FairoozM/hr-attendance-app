@@ -151,6 +151,7 @@
 .ip-filter-panel,
 .ip-form-panel,
 .ip-contract-panel,
+.ip-contract-pin-panel,
 .ip-table-card,
 .ip-chart-card,
 .ip-influencer-card,
@@ -543,12 +544,81 @@
 }
 
 .ip-chart-card,
+.ip-contract-pin-panel,
 .ip-contract-panel,
 .ip-form-panel,
 .ip-table-card {
   border-radius: 26px;
   padding: 1.15rem;
   margin-bottom: 1.25rem;
+}
+
+.ip-contract-pin-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.ip-contract-search {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.ip-contract-search__results {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.55rem;
+}
+
+.ip-contract-search__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  width: 100%;
+  padding: 0.78rem 0.9rem;
+  border: 1px solid rgba(0, 140, 200, 0.16);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.58);
+  color: #0f172a;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.42);
+}
+
+.ip-contract-search__item:hover,
+.ip-contract-search__item--active {
+  border-color: rgba(0, 140, 200, 0.44);
+  background: rgba(0, 140, 200, 0.1);
+}
+
+.ip-contract-search__item span {
+  display: grid;
+  min-width: 0;
+  gap: 0.18rem;
+}
+
+.ip-contract-search__item strong,
+.ip-contract-search__item em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ip-contract-search__item strong {
+  font-size: 0.9rem;
+}
+
+.ip-contract-search__item em {
+  color: rgba(15, 23, 42, 0.58);
+  font-size: 0.76rem;
+  font-style: normal;
+}
+
+.ip-contract-search__item b {
+  flex-shrink: 0;
+  color: #0077aa;
+  font-family: 'Space Mono', ui-monospace, monospace;
+  font-size: 0.72rem;
 }
 
 .ip-contract-list {
