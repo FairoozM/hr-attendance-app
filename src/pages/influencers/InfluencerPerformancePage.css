@@ -1295,7 +1295,7 @@
   min-width: 0;
   gap: 0.22rem;
   color: rgba(0, 0, 0, 0.35);
-  font-size: 0.5rem;
+  font-size: 0.6rem;
   letter-spacing: 0.07em;
   text-transform: uppercase;
   overflow: hidden;
@@ -1313,7 +1313,7 @@
 .ip-hud-value {
   font-family: 'Space Mono', ui-monospace, monospace;
   min-width: 0;
-  font-size: clamp(0.64rem, 0.9vw, 0.76rem);
+  font-size: clamp(0.768rem, 1.08vw, 0.912rem);
   font-weight: 900;
   overflow: hidden;
   text-align: right;
