@@ -41,12 +41,14 @@ function displayDate(date) {
 }
 
 function metricTotal(contract, key) {
-  const fromDays = contract.days.reduce((sum, day) => sum + toNumber(day.record?.[key]), 0)
+  const days = Array.isArray(contract?.days) ? contract.days : []
+  const fromDays = days.reduce((sum, day) => sum + toNumber(day?.record?.[key]), 0)
   if (fromDays > 0) return fromDays
-  return toNumber(contract.totals?.[key])
+  return toNumber(contract?.totals?.[key])
 }
 
 function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContract }) {
+  const days = Array.isArray(contract?.days) ? contract.days : []
   const metricConfig = [
     ['Views', 'views', Eye],
     ['Shares', 'shares', Send],
@@ -125,7 +127,9 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
       </header>
 
       <div className="ip-hud-days">
-        {contract.days.map((day) => (
+        {days.length === 0 ? (
+          <div className="ip-empty-row">No daily timeline records are available for this contract.</div>
+        ) : days.map((day) => (
           <section key={day.dayNumber} className={`ip-hud-day ${day.isRecorded ? 'ip-hud-day--active' : ''}`}>
             <div className="ip-hud-day-head">
               <div>
@@ -133,20 +137,20 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
                   <button
                     type="button"
                     className="ip-hud-day-date-button"
-                    onClick={() => onEditRecord(day.record || makeDraftRecord(day))}
-                    aria-label={`Edit date for day ${day.dayNumber}`}
+                    onClick={() => onEditRecord(day?.record || makeDraftRecord(day))}
+                    aria-label={`Edit date for day ${day?.dayNumber || ''}`}
                   >
-                    {displayDate(day.date)}
+                    {displayDate(day?.date)}
                   </button>
                 ) : (
-                  <span className="ip-hud-day-date">{displayDate(day.date)}</span>
+                  <span className="ip-hud-day-date">{displayDate(day?.date)}</span>
                 )}
               </div>
               <div className="ip-hud-day-actions">
                 {onEditRecord ? (
                   <button
                     type="button"
-                    onClick={() => onEditRecord(day.record || makeDraftRecord(day))}
+                    onClick={() => onEditRecord(day?.record || makeDraftRecord(day))}
                     aria-label={`${day.isRecorded ? 'Edit' : 'Add'} day ${day.dayNumber}`}
                   >
                     <Pencil size={12} />
@@ -155,10 +159,10 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
                 {onDeleteRecord ? (
                   <button
                     type="button"
-                    disabled={!day.isRecorded}
-                    onClick={() => { if (day.isRecorded) onDeleteRecord(day.record.id) }}
-                    aria-label={`Delete day ${day.dayNumber}`}
-                    title={day.isRecorded ? 'Delete this day' : 'No saved record to delete'}
+                    disabled={!day?.isRecorded || !day?.record?.id}
+                    onClick={() => { if (day?.isRecorded && day?.record?.id) onDeleteRecord(day.record.id) }}
+                    aria-label={`Delete day ${day?.dayNumber || ''}`}
+                    title={day?.isRecorded ? 'Delete this day' : 'No saved record to delete'}
                   >
                     <Trash2 size={12} />
                   </button>
@@ -169,7 +173,7 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
               <div key={key} className="ip-hud-metric-row">
                 <span><Icon size={15} /> {label}</span>
                 <strong className={`ip-hud-value ip-hud-value--${key}`}>
-                  {day.isRecorded ? formatNumber(day.record[key]) : '-'}
+                  {day?.isRecorded ? formatNumber(day?.record?.[key]) : '-'}
                 </strong>
               </div>
             ))}
