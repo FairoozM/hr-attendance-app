@@ -8,7 +8,7 @@ function contractStatus(contract) {
   return 'Pending'
 }
 
-export function InfluencerContractTimeline({ contracts, onEditRecord, onDeleteRecord, onEditContract, onSaveRecord }) {
+export function InfluencerContractTimeline({ contracts, onDeleteRecord, onEditContract, onSaveRecord }) {
   return (
     <section className="ip-contract-panel" aria-label="Video contract monitoring">
       <div className="ip-section-heading">
@@ -26,7 +26,6 @@ export function InfluencerContractTimeline({ contracts, onEditRecord, onDeleteRe
           <HudContractCard
             key={contract.id}
             contract={contract}
-            onEditRecord={onEditRecord}
             onDeleteRecord={onDeleteRecord}
             onEditContract={onEditContract}
             onSaveRecord={onSaveRecord}
@@ -48,7 +47,7 @@ function metricTotal(contract, key) {
   return toNumber(contract?.totals?.[key])
 }
 
-function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContract, onSaveRecord }) {
+function HudContractCard({ contract, onDeleteRecord, onEditContract, onSaveRecord }) {
   const days = Array.isArray(contract?.days) ? contract.days : []
   const metricConfig = [
     ['Views', 'views', Eye],
@@ -148,29 +147,9 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
           <section key={day.dayNumber} className={`ip-hud-day ${day.isRecorded ? 'ip-hud-day--active' : ''}`}>
             <div className="ip-hud-day-head">
               <div>
-                {onEditRecord ? (
-                  <button
-                    type="button"
-                    className="ip-hud-day-date-button"
-                    onClick={() => onEditRecord(day?.record || makeDraftRecord(day))}
-                    aria-label={`Edit date for day ${day?.dayNumber || ''}`}
-                  >
-                    {displayDate(day?.date)}
-                  </button>
-                ) : (
-                  <span className="ip-hud-day-date">{displayDate(day?.date)}</span>
-                )}
+                <span className="ip-hud-day-date">{displayDate(day?.date)}</span>
               </div>
               <div className="ip-hud-day-actions">
-                {onEditRecord ? (
-                  <button
-                    type="button"
-                    onClick={() => onEditRecord(day?.record || makeDraftRecord(day))}
-                    aria-label={`${day.isRecorded ? 'Edit' : 'Add'} day ${day.dayNumber}`}
-                  >
-                    <Pencil size={12} />
-                  </button>
-                ) : null}
                 {onDeleteRecord ? (
                   <button
                     type="button"
