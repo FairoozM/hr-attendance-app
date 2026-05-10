@@ -207,6 +207,7 @@ export function InfluencerPerformanceTableIphone({
   onToggleMonitor,
 }) {
   const [openActionsForId, setOpenActionsForId] = useState(null)
+  const [actionMenuStyle, setActionMenuStyle] = useState(null)
 
   useEffect(() => {
     if (!openActionsForId) return undefined
@@ -219,13 +220,40 @@ export function InfluencerPerformanceTableIphone({
     const onKeyDown = (event) => {
       if (event.key === 'Escape') setOpenActionsForId(null)
     }
+    const closeMenu = () => setOpenActionsForId(null)
     document.addEventListener('pointerdown', onDocPointerDown)
     document.addEventListener('keydown', onKeyDown)
+    window.addEventListener('resize', closeMenu)
+    window.addEventListener('scroll', closeMenu, true)
     return () => {
       document.removeEventListener('pointerdown', onDocPointerDown)
       document.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('resize', closeMenu)
+      window.removeEventListener('scroll', closeMenu, true)
     }
   }, [openActionsForId])
+
+  function toggleActionMenu(event, recordId) {
+    setOpenActionsForId((current) => {
+      if (current === recordId) {
+        setActionMenuStyle(null)
+        return null
+      }
+      const rect = event.currentTarget.getBoundingClientRect()
+      const menuWidth = Math.min(224, window.innerWidth - 24)
+      const menuHeight = 188
+      const gutter = 12
+      const top = rect.bottom + menuHeight + gutter > window.innerHeight
+        ? Math.max(gutter, rect.top - menuHeight - 6)
+        : rect.bottom + 6
+      const left = Math.min(
+        Math.max(gutter, rect.right - menuWidth),
+        window.innerWidth - menuWidth - gutter,
+      )
+      setActionMenuStyle({ top: `${top}px`, left: `${left}px`, minWidth: `${menuWidth}px` })
+      return recordId
+    })
+  }
 
   const bests = useMetricBests(records, showNetProfitColumn)
 
@@ -282,12 +310,12 @@ export function InfluencerPerformanceTableIphone({
                     aria-label="Row actions"
                     aria-haspopup="menu"
                     aria-expanded={openActionsForId === record.id}
-                    onClick={() => setOpenActionsForId((current) => (current === record.id ? null : record.id))}
+                    onClick={(event) => toggleActionMenu(event, record.id)}
                   >
                     <MoreVertical size={18} strokeWidth={2.25} aria-hidden />
                   </button>
                   {openActionsForId === record.id ? (
-                    <div className="ip-table__row-menu-dropdown" role="menu">
+                    <div className="ip-table__row-menu-dropdown" role="menu" style={actionMenuStyle || undefined}>
                       <button
                         type="button"
                         className="ip-table__row-menu-item"

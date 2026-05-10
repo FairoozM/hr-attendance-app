@@ -3164,16 +3164,14 @@
 }
 
 .ip-table__row-menu-dropdown {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
+  position: fixed;
   min-width: 11.5rem;
   padding: 0.35rem;
   border-radius: 12px;
   border: 1px solid rgba(15, 23, 42, 0.1);
   background: rgba(255, 255, 255, 0.98);
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
-  z-index: 40;
+  z-index: 9999;
 }
 
 .ip-table__row-menu-icon-slot {
