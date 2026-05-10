@@ -1,5 +1,6 @@
 import { minutesToTime, CATEGORY_META, ENERGY_META } from '../../lib/aiEngine'
 import { CategoryBadge } from './CategoryBadge'
+import { fmtDMY } from '../../utils/dateFormat'
 
 function WorkloadBar({ plan }) {
   const deep    = plan.filter(b => b.slot === 'morning').length
@@ -75,7 +76,7 @@ function ScheduleBlock({ block, index }) {
 }
 
 export function DailyScheduleView({ plan = [], date = new Date() }) {
-  const dateLabel = date.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+  const dateLabel = fmtDMY(date)
 
   const morningBlocks   = plan.filter(b => b.slot === 'morning')
   const afternoonBlocks = plan.filter(b => b.slot === 'afternoon')

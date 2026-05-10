@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Crown, Eye, Medal, MoreVertical, Pencil, Trash2 } from 'lucide-react'
 import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
+import { fmtDMYRange } from '../../utils/dateFormat'
 
 const AMOUNT_COLUMN_KEYS = new Set(['cost', 'salesAed', 'netProfitAed'])
 const EMPTY_RANK_MAP = new Map()
@@ -374,9 +375,10 @@ export function InfluencerPerformanceTableIphone({
 
               <div className="mb-3.5 flex flex-wrap items-center gap-2 text-[0.78rem] font-semibold tabular-nums text-[color:var(--ip-phone-date)]">
                 <span>
-                  {(record.startDate || record.contractStartDate || record.date) === (record.latestDate || record.latest?.date || record.date)
-                    ? (record.startDate || record.contractStartDate || record.date)
-                    : `${record.startDate || record.contractStartDate || record.date} → ${record.latestDate || record.latest?.date || record.date}`}
+                  {fmtDMYRange(
+                    record.startDate || record.contractStartDate || record.date,
+                    record.latestDate || record.latest?.date || record.date,
+                  )}
                 </span>
                 <span className="rounded-full bg-cyan-500/10 px-2.5 py-1 text-[0.68rem] font-black uppercase tracking-[0.1em] text-cyan-700">
                   {record.recordedDays || 0}/{record.monitoringDays || 5} days

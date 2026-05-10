@@ -7,6 +7,7 @@ import {
   getPaymentUrgency,
   getPaymentStatusLabel,
 } from '../../utils/paymentUtils'
+import { fmtDMY } from '../../utils/dateFormat'
 import { hasPermission, useAuth } from '../../contexts/AuthContext'
 import './paymentsShared.css'
 
@@ -71,6 +72,12 @@ function PaymentDrawerInner({
   const informL = getDaysLeft(informD)
   const u = getPaymentUrgency(payment)
   const isDone = payment.status === PAYMENT_STATUS.PAYMENT_DONE
+  const fmtDateTime = (value) => {
+    if (!value) return '—'
+    const d = new Date(value)
+    if (Number.isNaN(d.getTime())) return fmtDMY(value)
+    return `${fmtDMY(d)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  }
 
   return (
     <motion.div
@@ -125,13 +132,13 @@ function PaymentDrawerInner({
           <div>
             <div className="pay-drawer__k">Due date & days left</div>
             <div className="pay-drawer__v">
-              {payment.dueDate} — {dueL == null ? '—' : `${dueL} day(s)`}
+              {fmtDMY(payment.dueDate)} — {dueL == null ? '—' : `${dueL} day(s)`}
             </div>
           </div>
           <div>
             <div className="pay-drawer__k">Inform Asad by</div>
             <div className="pay-drawer__v">
-              {informD} — {informL == null ? '—' : `${informL} day(s) from today`}
+              {fmtDMY(informD)} — {informL == null ? '—' : `${informL} day(s) from today`}
             </div>
           </div>
           <div>
@@ -151,7 +158,7 @@ function PaymentDrawerInner({
             <div>
               <div className="pay-drawer__k">Informed to Asad</div>
               <div className="pay-drawer__v">
-                {new Date(payment.informedToAsadAt).toLocaleString()} by {payment.informedToAsadBy || '—'}
+                {fmtDateTime(payment.informedToAsadAt)} by {payment.informedToAsadBy || '—'}
               </div>
             </div>
           )}
@@ -159,7 +166,7 @@ function PaymentDrawerInner({
             <div>
               <div className="pay-drawer__k">Payment done</div>
               <div className="pay-drawer__v">
-                {new Date(payment.paymentDoneAt).toLocaleString()} by {payment.paymentDoneBy || '—'}
+                {fmtDateTime(payment.paymentDoneAt)} by {payment.paymentDoneBy || '—'}
               </div>
             </div>
           )}
@@ -216,7 +223,7 @@ function PaymentDrawerInner({
               {Array.isArray(payment.history) && payment.history.length
                 ? payment.history.map((h) => (
                     <li key={h.id}>
-                      <strong>{h.action}</strong> — {h.performedBy} — {new Date(h.performedAt).toLocaleString()}
+                      <strong>{h.action}</strong> — {h.performedBy} — {fmtDateTime(h.performedAt)}
                       {(h.fromStatus || h.toStatus) && (
                         <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
                           {h.fromStatus || '—'} → {h.toStatus || '—'}

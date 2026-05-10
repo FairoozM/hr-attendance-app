@@ -6,17 +6,11 @@ import {
   getPaymentStatusLabel,
   getPaymentStatusColor,
 } from '../../utils/paymentUtils'
+import { fmtDMY } from '../../utils/dateFormat'
 import './paymentsShared.css'
 
 function fmtDate(s) {
-  if (!s) return '—'
-  try {
-    const d = new Date(String(s).length <= 10 ? `${s}T12:00:00` : s)
-    if (Number.isNaN(d.getTime())) return s
-    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
-  } catch {
-    return s
-  }
+  return fmtDMY(s)
 }
 
 /**

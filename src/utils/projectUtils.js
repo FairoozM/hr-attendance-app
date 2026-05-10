@@ -1,3 +1,5 @@
+import { fmtDMY } from './dateFormat'
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -216,7 +218,7 @@ export function formatDueDate(dateStr) {
   if (diff === 1) return { label: 'Due tomorrow', soon: true }
   if (diff <= 7) return { label: `Due in ${diff}d`, soon: true }
   return {
-    label: date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+    label: fmtDMY(date),
     overdue: false,
   }
 }

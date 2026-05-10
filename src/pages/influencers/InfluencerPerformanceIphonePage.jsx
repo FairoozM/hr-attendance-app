@@ -5,6 +5,7 @@ import { InfluencerPerformanceForm } from '../../components/influencers/Influenc
 import { InfluencerPerformanceTableIphone } from '../../components/influencers/InfluencerPerformanceTableIphone'
 import { useAuth, canMutateInfluencerPerformance } from '../../contexts/AuthContext'
 import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
+import { fmtDMY } from '../../utils/dateFormat'
 import { PERFORMANCE_SORT_OPTIONS } from './influencerPerformanceScreenShared'
 import { useInfluencerPerformanceScreen } from './useInfluencerPerformanceScreen'
 import './influencers.css'
@@ -171,7 +172,7 @@ export function InfluencerPerformanceIphonePage() {
               <span className="ip-section-heading__icon"><Download size={18} /></span>
               <div>
                 <h2>{influencersById.get(String(viewRecord.influencerId))?.name || 'Influencer'} performance</h2>
-                <p>{viewRecord.date} · {viewRecord.platform} · {viewRecord.campaignName}</p>
+                <p>{fmtDMY(viewRecord.date)} · {viewRecord.platform} · {viewRecord.campaignName}</p>
               </div>
             </div>
             <div className="ip-detail-grid">

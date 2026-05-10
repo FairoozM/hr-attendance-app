@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, CheckCircle2, Circle, Clock, Trash2, ChevronRight, CheckCheck, AlertTriangle, FolderOpen } from 'lucide-react'
 import { useAIPlanner } from '../../contexts/AIPlannerContext'
+import { fmtDMY } from '../../utils/dateFormat'
 
 const TABS = [
   { id: 'tasks',     label: 'Tasks' },
@@ -28,7 +29,7 @@ function formatRelative(iso) {
   if (hrs < 24) return `${hrs}h ago`
   const days = Math.floor(hrs / 24)
   if (days < 7) return `${days}d ago`
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return fmtDMY(d)
 }
 
 function formatDue(iso) {
@@ -40,7 +41,7 @@ function formatDue(iso) {
   const today = new Date()
   const isOverdue = d < new Date(today.toDateString())
   const isToday = d.toDateString() === today.toDateString()
-  const label = isToday ? 'Today' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const label = isToday ? 'Today' : fmtDMY(d)
   return { label, overdue: isOverdue && !isToday }
 }
 

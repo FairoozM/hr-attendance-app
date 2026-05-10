@@ -1,5 +1,6 @@
 import { CalendarClock, ExternalLink, Eye, Heart, MessageCircle, Pencil, Send, Trash2 } from 'lucide-react'
 import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
+import { fmtDMY } from '../../utils/dateFormat'
 
 function contractStatus(contract) {
   if (contract.recordedDays >= contract.monitoringDays) return 'Completed'
@@ -36,9 +37,7 @@ export function InfluencerContractTimeline({ contracts, onEditRecord, onDeleteRe
 }
 
 function displayDate(date) {
-  if (!date) return '--'
-  const [year, month, day] = String(date).split('-')
-  return year && month && day ? `${day}/${month}/${year}` : date
+  return fmtDMY(date)
 }
 
 function metricTotal(contract, key) {

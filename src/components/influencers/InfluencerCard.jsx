@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { CalendarDays, Heart, MessageCircle, Share2, UsersRound, Video } from 'lucide-react'
 import { formatNumber } from '../../utils/influencerPerformanceUtils'
+import { fmtDMY } from '../../utils/dateFormat'
 
 function initials(name) {
   return String(name || 'IN')
@@ -88,7 +89,7 @@ export function InfluencerCard({ influencer, latestRecord }) {
 
       <div className="ip-influencer-card__date">
         <CalendarDays size={14} />
-        Latest recorded: {latestRecord?.date || 'No records yet'}
+        Latest recorded: {latestRecord?.date ? fmtDMY(latestRecord.date) : 'No records yet'}
       </div>
     </article>
   )

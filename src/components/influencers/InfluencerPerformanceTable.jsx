@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Crown, Eye, Medal, MoreVertical, Pencil, Trash2 } from 'lucide-react'
 import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
+import { fmtDMYRange } from '../../utils/dateFormat'
 
 const AMOUNT_COLUMN_KEYS = new Set(['cost', 'salesAed', 'netProfitAed'])
 const EMPTY_RANK_MAP = new Map()
@@ -198,7 +199,7 @@ function ContractDatesCell({ record }) {
   return (
     <td>
       <div className="ip-table__contract-dates">
-        <strong>{start === latest ? start : `${start} → ${latest}`}</strong>
+        <strong>{fmtDMYRange(start, latest)}</strong>
         <span>{dayText}</span>
       </div>
     </td>

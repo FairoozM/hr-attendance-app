@@ -9,6 +9,7 @@ import { TaskDrawer } from '../../components/planner/TaskDrawer'
 import { PlannerDatePopover } from '../../components/planner/PlannerDatePopover'
 import { priorityLabel, formatTime, getCategoryById, PLANNER_CATEGORY_LIST } from '../../lib/aiEngine'
 import { effectiveRecurrence } from '../../lib/plannerRecurrence'
+import { fmtDMY } from '../../utils/dateFormat'
 import './planner.css'
 import './projects.css'
 
@@ -18,14 +19,9 @@ const SECTION_COLORS = [
   '#6b7280',
 ]
 
-/** Asana-style list display: "Apr 9" (no year) */
 function formatDueShort(iso) {
   if (!iso) return ''
-  const parts = iso.split('-').map(Number)
-  if (parts.length < 3 || !parts[0] || !parts[1] || !parts[2]) return ''
-  const d = new Date(parts[0], parts[1] - 1, parts[2])
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return fmtDMY(iso)
 }
 
 const INLINE_PRIORITY_OPTIONS = [
@@ -1321,12 +1317,7 @@ export default function ProjectsIndexPage() {
   }
 
   const greetingName = (user?.username || 'there').split('@')[0]
-  const headerDate   = new Date().toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  })
+  const headerDate = fmtDMY(new Date())
 
   return (
     <div className="aip-layout aip-layout--asana">
