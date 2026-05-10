@@ -992,6 +992,15 @@ function applyPurchasePricesToPlanItems(items, purchasePrices) {
   })
 }
 
+function sortPurchaseOrderLinesBySku(items) {
+  return [...(Array.isArray(items) ? items : [])].sort((a, b) =>
+    clean(a && a.sku).localeCompare(clean(b && b.sku), undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    })
+  )
+}
+
 async function createZohoPurchaseOrder(planId, options = {}) {
   const plan = await getPlan(planId)
   if (!plan) {
@@ -1009,10 +1018,12 @@ async function createZohoPurchaseOrder(planId, options = {}) {
   const vendor = resolvePurchaseOrderVendor()
   const pricedItems = applyPurchasePricesToPlanItems(plan.items || [], options.purchasePrices)
 
-  const selected = pricedItems.filter((item) =>
-    item.included &&
-    item.finalQty > 0 &&
-    clean(item.zohoItemId)
+  const selected = sortPurchaseOrderLinesBySku(
+    pricedItems.filter((item) =>
+      item.included &&
+      item.finalQty > 0 &&
+      clean(item.zohoItemId)
+    )
   )
   if (selected.length === 0) {
     const err = new Error('No included rows with finalQty > 0 and Zoho item id were found')
@@ -1122,5 +1133,6 @@ module.exports = {
     resolvePurchasePlanningWarehouse,
     applyVigilMatchesToLowStockRows,
     applyPurchasePricesToPlanItems,
+    sortPurchaseOrderLinesBySku,
   },
 }

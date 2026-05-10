@@ -267,3 +267,14 @@ test('purchase planning PO prices prefer plan item id then SKU', () => {
   assert.equal(rows[0].purchasePrice, 12.5)
   assert.equal(rows[1].purchasePrice, 8.75)
 })
+
+test('purchase planning PO lines sort by SKU before sending to Zoho', () => {
+  const rows = _internals.sortPurchaseOrderLinesBySku([
+    { sku: 'BB-10' },
+    { sku: 'AA-2' },
+    { sku: 'AA-10' },
+    { sku: 'aa-1' },
+  ])
+
+  assert.deepEqual(rows.map((row) => row.sku), ['aa-1', 'AA-2', 'AA-10', 'BB-10'])
+})
