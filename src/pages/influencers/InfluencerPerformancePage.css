@@ -1194,7 +1194,7 @@
 .ip-hud-day-date {
   margin-bottom: 0.8rem;
   color: rgba(0, 0, 0, 0.42);
-  font-size: 0.68rem;
+  font-size: 1.19rem;
   font-weight: 800;
 }
 
@@ -1211,7 +1211,7 @@
   background: transparent;
   color: rgba(0, 0, 0, 0.48);
   font-family: 'Space Mono', ui-monospace, monospace;
-  font-size: 0.56rem;
+  font-size: 0.98rem;
   font-weight: 900;
   cursor: pointer;
   overflow: hidden;
@@ -1349,7 +1349,7 @@
   padding: 0.12rem 0.2rem;
   color: #0f172a;
   font-family: 'Space Mono', ui-monospace, monospace;
-  font-size: 0.56rem;
+  font-size: 0.98rem;
   font-weight: 900;
   letter-spacing: 0.1em;
   text-transform: uppercase;
