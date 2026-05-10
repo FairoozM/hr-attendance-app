@@ -130,6 +130,7 @@ export function InfluencerPerformanceIphonePage() {
         {activeMonitorContracts.length > 0 ? (
           <InfluencerContractTimeline
             contracts={activeMonitorContracts}
+            onEditRecord={canWritePerformance ? setEditingRecord : undefined}
             onDeleteRecord={canWritePerformance ? handleDelete : undefined}
             onSaveRecord={canWritePerformance ? handleSubmit : undefined}
             onEditContract={canWritePerformance

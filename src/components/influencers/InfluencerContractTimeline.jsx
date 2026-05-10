@@ -1,4 +1,5 @@
-import { CalendarClock, ExternalLink, Eye, Heart, MessageCircle, Pencil, Send, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import { CalendarClock, Check, ExternalLink, Eye, Heart, MessageCircle, Pencil, Send, Trash2 } from 'lucide-react'
 import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
 import { fmtDMY } from '../../utils/dateFormat'
 
@@ -8,7 +9,7 @@ function contractStatus(contract) {
   return 'Pending'
 }
 
-export function InfluencerContractTimeline({ contracts, onDeleteRecord, onEditContract, onSaveRecord }) {
+export function InfluencerContractTimeline({ contracts, onEditRecord, onDeleteRecord, onEditContract, onSaveRecord }) {
   return (
     <section className="ip-contract-panel" aria-label="Video contract monitoring">
       <div className="ip-section-heading">
@@ -26,6 +27,7 @@ export function InfluencerContractTimeline({ contracts, onDeleteRecord, onEditCo
           <HudContractCard
             key={contract.id}
             contract={contract}
+            onEditRecord={onEditRecord}
             onDeleteRecord={onDeleteRecord}
             onEditContract={onEditContract}
             onSaveRecord={onSaveRecord}
@@ -47,8 +49,9 @@ function metricTotal(contract, key) {
   return toNumber(contract?.totals?.[key])
 }
 
-function HudContractCard({ contract, onDeleteRecord, onEditContract, onSaveRecord }) {
+function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContract, onSaveRecord }) {
   const days = Array.isArray(contract?.days) ? contract.days : []
+  const [drafts, setDrafts] = useState({})
   const metricConfig = [
     ['Views', 'views', Eye],
     ['Shares', 'shares', Send],
@@ -84,17 +87,53 @@ function HudContractCard({ contract, onDeleteRecord, onEditContract, onSaveRecor
     }
   }
 
-  function saveMetric(day, key, value) {
+  function draftKey(day) {
+    return String(day?.record?.id || `${contract.id}:${day?.date || day?.dayNumber || ''}`)
+  }
+
+  function getDraft(day, key) {
+    const id = draftKey(day)
+    if (drafts[id]?.[key] != null) return drafts[id][key]
+    return day?.isRecorded ? toNumber(day?.record?.[key]) : ''
+  }
+
+  function updateDraft(day, key, value) {
+    setDrafts((current) => ({
+      ...current,
+      [draftKey(day)]: {
+        ...current[draftKey(day)],
+        [key]: value,
+      },
+    }))
+  }
+
+  function hasDraft(day) {
+    const values = drafts[draftKey(day)]
+    if (!values) return false
+    return metricConfig.some(([, key]) => {
+      if (values[key] == null) return false
+      return toNumber(values[key]) !== toNumber(day?.record?.[key])
+    })
+  }
+
+  function saveDay(day) {
     if (!onSaveRecord || !day?.date) return
-    const nextValue = value === '' ? 0 : toNumber(value)
+    const values = drafts[draftKey(day)] || {}
     const base = day?.record || makeDraftRecord(day)
-    if (day?.isRecorded && toNumber(base?.[key]) === nextValue) return
     const now = new Date().toISOString()
     onSaveRecord({
       ...base,
-      [key]: nextValue,
+      views: values.views == null ? toNumber(base.views) : toNumber(values.views),
+      shares: values.shares == null ? toNumber(base.shares) : toNumber(values.shares),
+      likes: values.likes == null ? toNumber(base.likes) : toNumber(values.likes),
+      comments: values.comments == null ? toNumber(base.comments) : toNumber(values.comments),
       createdAt: base.createdAt || now,
       updatedAt: now,
+    })
+    setDrafts((current) => {
+      const next = { ...current }
+      delete next[draftKey(day)]
+      return next
     })
   }
 
@@ -150,6 +189,28 @@ function HudContractCard({ contract, onDeleteRecord, onEditContract, onSaveRecor
                 <span className="ip-hud-day-date">{displayDate(day?.date)}</span>
               </div>
               <div className="ip-hud-day-actions">
+                {onEditRecord ? (
+                  <button
+                    type="button"
+                    onClick={() => onEditRecord(day?.record || makeDraftRecord(day))}
+                    aria-label={`${day?.isRecorded ? 'Edit' : 'Add'} day ${day?.dayNumber || ''}`}
+                    title={`${day?.isRecorded ? 'Edit' : 'Add'} full check-in`}
+                  >
+                    <Pencil size={12} />
+                  </button>
+                ) : null}
+                {onSaveRecord ? (
+                  <button
+                    type="button"
+                    className="ip-hud-day-save"
+                    disabled={!hasDraft(day)}
+                    onClick={() => saveDay(day)}
+                    aria-label={`Save day ${day?.dayNumber || ''}`}
+                    title={hasDraft(day) ? 'Save inline changes' : 'No changes to save'}
+                  >
+                    <Check size={12} />
+                  </button>
+                ) : null}
                 {onDeleteRecord ? (
                   <button
                     type="button"
@@ -170,13 +231,13 @@ function HudContractCard({ contract, onDeleteRecord, onEditContract, onSaveRecor
                   <input
                     className={`ip-hud-value ip-hud-value-input ip-hud-value--${key}`}
                     inputMode="numeric"
-                    defaultValue={day?.isRecorded ? toNumber(day?.record?.[key]) : ''}
+                    value={getDraft(day, key)}
                     placeholder="-"
                     aria-label={`${label} for ${displayDate(day?.date)}`}
                     onFocus={(event) => event.currentTarget.select()}
-                    onBlur={(event) => saveMetric(day, key, event.currentTarget.value)}
+                    onChange={(event) => updateDraft(day, key, event.currentTarget.value)}
                     onKeyDown={(event) => {
-                      if (event.key === 'Enter') event.currentTarget.blur()
+                      if (event.key === 'Enter') saveDay(day)
                     }}
                   />
                 ) : (

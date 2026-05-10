@@ -1259,6 +1259,16 @@
   border-color: #2563eb;
 }
 
+.ip-hud-day-actions .ip-hud-day-save:not(:disabled) {
+  color: #047857;
+  border-color: rgba(4, 120, 87, 0.42);
+}
+
+.ip-hud-day-actions .ip-hud-day-save:not(:disabled):hover {
+  color: #059669;
+  border-color: #059669;
+}
+
 .ip-hud-day-actions button:last-child:hover {
   color: #dc2626;
   border-color: #dc2626;
