@@ -229,10 +229,8 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
         </div>
         <div className="ip-hud-meta">
           <div className="ip-hud-platform"><span className="ip-hud-platform-dot" />{contract.platform}</div>
-          <div>
-            <span className="ip-hud-eng">Eng. {toNumber(contract.averageEngagementRate).toFixed(2)}%</span>
-            <span className="ip-hud-monitor">{contract.recordedDays}/{contract.monitoringDays} days</span>
-          </div>
+          <span className="ip-hud-eng">Eng. {toNumber(contract.averageEngagementRate).toFixed(2)}%</span>
+          <span className="ip-hud-monitor">{contract.recordedDays}/{contract.monitoringDays} days</span>
         </div>
       </header>
 
