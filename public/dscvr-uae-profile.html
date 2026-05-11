@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DSCVR UAE — Profile preview</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --card-bg: linear-gradient(145deg, #f8fafc 0%, #f0f4f8 100%);
+        --card-border: rgba(15, 23, 42, 0.08);
+        --card-shadow: 0 12px 40px rgba(15, 23, 42, 0.08), 0 2px 8px rgba(15, 23, 42, 0.04);
+        --text: #0f172a;
+        --muted: #64748b;
+        --accent: #0ea5e9;
+        --accent-soft: rgba(14, 165, 233, 0.12);
+        --pill-bg: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
+        --pill-border: rgba(14, 165, 233, 0.22);
+        --ring: rgba(255, 255, 255, 0.95);
+        --avatar-shadow: 0 10px 28px rgba(15, 23, 42, 0.14), 0 4px 10px rgba(14, 165, 233, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: 'DM Sans', system-ui, sans-serif;
+        background: #e8eef4;
+        color: var(--text);
+        padding: clamp(16px, 4vw, 40px);
+      }
+
+      .page {
+        max-width: 960px;
+        margin: 0 auto;
+      }
+
+      /* Premium horizontal creator header */
+      .profile-card {
+        background: var(--card-bg);
+        border: 1px solid var(--card-border);
+        border-radius: 24px;
+        box-shadow: var(--card-shadow);
+        padding: clamp(20px, 3vw, 28px) clamp(20px, 3vw, 32px);
+      }
+
+      .profile-card__main {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+      }
+
+      /* Left anchor: large circular avatar */
+      .avatar-wrap {
+        position: relative;
+        width: 128px;
+        height: 128px;
+        flex-shrink: 0;
+        margin-right: 4px;
+        z-index: 3;
+      }
+
+      .avatar-ring {
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        padding: 4px;
+        background: linear-gradient(145deg, #e0f2fe 0%, #bae6fd 40%, #7dd3fc 100%);
+        box-shadow: var(--avatar-shadow);
+      }
+
+      .avatar-ring__inner {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        overflow: hidden;
+        border: 3px solid var(--ring);
+        background: linear-gradient(160deg, #38bdf8 0%, #0284c7 55%, #0369a1 100%);
+        display: grid;
+        place-items: center;
+      }
+
+      .avatar-img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        z-index: 1;
+        opacity: 0;
+        transition: opacity 0.22s ease;
+      }
+
+      .avatar-img.is-loaded {
+        opacity: 1;
+      }
+
+      .avatar-ring__inner:has(.avatar-img.is-loaded) .avatar-fallback {
+        opacity: 0;
+      }
+
+      .avatar-fallback {
+        position: relative;
+        z-index: 0;
+        font-size: 2.25rem;
+        font-weight: 700;
+        color: rgba(255, 255, 255, 0.92);
+        letter-spacing: -0.03em;
+        user-select: none;
+        transition: opacity 0.18s ease;
+      }
+
+      /* Right column: title, tags, actions + connected followers pill */
+      .info {
+        flex: 1;
+        min-width: 0;
+        padding-top: 4px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .title-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px 16px;
+      }
+
+      .titles {
+        min-width: 0;
+      }
+
+      .titles h1 {
+        margin: 0;
+        font-size: clamp(1.35rem, 3.2vw, 1.75rem);
+        font-weight: 700;
+        letter-spacing: -0.03em;
+        line-height: 1.15;
+      }
+
+      .titles .subtitle {
+        margin: 6px 0 0;
+        font-size: clamp(1rem, 2.4vw, 1.2rem);
+        font-weight: 600;
+        color: var(--muted);
+        direction: rtl;
+        text-align: left;
+      }
+
+      .actions {
+        display: flex;
+        flex-shrink: 0;
+        gap: 8px;
+      }
+
+      .btn {
+        font-family: inherit;
+        font-size: 0.875rem;
+        font-weight: 600;
+        padding: 10px 18px;
+        border-radius: 12px;
+        border: 1px solid rgba(15, 23, 42, 0.12);
+        background: #fff;
+        color: var(--text);
+        cursor: pointer;
+        transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+      }
+
+      .btn:hover {
+        background: #f8fafc;
+        border-color: rgba(15, 23, 42, 0.18);
+      }
+
+      .btn:active {
+        transform: scale(0.98);
+      }
+
+      .btn--primary {
+        background: var(--accent-soft);
+        border-color: rgba(14, 165, 233, 0.35);
+        color: #0369a1;
+      }
+
+      .btn--primary:hover {
+        background: rgba(14, 165, 233, 0.18);
+      }
+
+      .tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .tag {
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.06);
+        color: var(--muted);
+        border: 1px solid rgba(15, 23, 42, 0.08);
+      }
+
+      /* Pill overlaps / tucks under avatar on the left */
+      .followers-row {
+        margin-top: 6px;
+        margin-left: -28px;
+        position: relative;
+        z-index: 1;
+      }
+
+      .followers-pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 58px;
+        padding: 12px 24px 12px clamp(56px, 9vw, 72px);
+        border-radius: 999px;
+        background: var(--pill-bg);
+        border: 1px solid var(--pill-border);
+        box-shadow: 0 4px 14px rgba(14, 165, 233, 0.08), 0 1px 3px rgba(15, 23, 42, 0.06);
+        font-size: clamp(0.95rem, 2vw, 1.05rem);
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: #0c4a6e;
+      }
+
+      .followers-pill .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent);
+        margin-right: 10px;
+        flex-shrink: 0;
+        box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.25);
+      }
+
+      @media (max-width: 640px) {
+        .profile-card__main {
+          flex-direction: column;
+          align-items: center;
+          text-align: center;
+        }
+
+        .avatar-wrap {
+          width: 112px;
+          height: 112px;
+        }
+
+        .avatar-fallback {
+          font-size: 1.95rem;
+        }
+
+        .info {
+          width: 100%;
+          align-items: center;
+          padding-top: 8px;
+        }
+
+        .title-row {
+          flex-direction: column;
+          align-items: center;
+        }
+
+        .titles .subtitle {
+          text-align: center;
+        }
+
+        .followers-row {
+          margin-left: 0;
+          width: 100%;
+          display: flex;
+          justify-content: center;
+        }
+
+        .followers-pill {
+          padding-left: 22px;
+          padding-right: 22px;
+          width: 100%;
+          max-width: 340px;
+          justify-content: center;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <article class="profile-card" aria-label="DSCVR UAE profile header">
+        <div class="profile-card__main">
+          <div class="avatar-wrap">
+            <div class="avatar-ring" aria-hidden="true">
+              <div class="avatar-ring__inner" id="avatar-shell">
+                <span class="avatar-fallback">DV</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="info">
+            <div class="title-row">
+              <div class="titles">
+                <h1>DSCVR UAE</h1>
+                <p class="subtitle">اكتشف الإمارات</p>
+              </div>
+              <div class="actions">
+                <button type="button" class="btn btn--primary">Edit</button>
+                <button type="button" class="btn">Share</button>
+              </div>
+            </div>
+
+            <div class="tags">
+              <span class="tag">UAE</span>
+              <span class="tag">Travel</span>
+            </div>
+
+            <div class="followers-row">
+              <div class="followers-pill" role="status">
+                <span class="dot" aria-hidden="true"></span>
+                577K followers
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+    </div>
+    <script>
+      ;(function () {
+        /* Paste your hosted profile image URL here (same source as in-app influencer cards). */
+        var AVATAR_URL = ''
+        var shell = document.getElementById('avatar-shell')
+        if (!shell || !AVATAR_URL) return
+        var img = document.createElement('img')
+        img.className = 'avatar-img'
+        img.alt = 'DSCVR UAE profile photo'
+        img.decoding = 'async'
+        img.onload = function () {
+          img.classList.add('is-loaded')
+        }
+        img.onerror = function () {
+          img.remove()
+        }
+        shell.insertBefore(img, shell.firstChild)
+        img.src = AVATAR_URL
+      })()
+    </script>
+  </body>
+</html>
