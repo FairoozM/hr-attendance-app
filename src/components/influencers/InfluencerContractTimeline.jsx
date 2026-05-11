@@ -222,7 +222,7 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
             ['comments', 'Total Comments', totals.comments, MessageCircle],
           ].map(([key, label, value, Icon]) => (
             <div key={key} className={`ip-hud-header-total ip-hud-header-total--${key}`}>
-              <span><Icon size={14} /> {label}</span>
+              <span><Icon size={16} /> {label}</span>
               <strong>{formatNumber(value)}</strong>
             </div>
           ))}
