@@ -194,25 +194,31 @@ export function InfluencerPerformanceTableIphone({
   }, [records, rowMenu.openId])
 
   function toggleActionMenu(event, recordId) {
-    setRowMenu((prev) => {
-      if (String(prev.openId) === String(recordId)) {
-        return CLOSED_ROW_MENU
-      }
-      const rect = event.currentTarget.getBoundingClientRect()
-      const menuWidth = Math.min(224, window.innerWidth - 24)
-      const menuHeight = 188
-      const gutter = 12
-      const top = rect.bottom + menuHeight + gutter > window.innerHeight
-        ? Math.max(gutter, rect.top - menuHeight - 6)
-        : rect.bottom + 6
-      const left = Math.min(
-        Math.max(gutter, rect.right - menuWidth),
-        window.innerWidth - menuWidth - gutter,
-      )
-      return {
-        openId: recordId,
-        menuStyle: { top: `${top}px`, left: `${left}px`, minWidth: `${menuWidth}px` },
-      }
+    const trigger = event.currentTarget
+    if (!trigger || !(trigger instanceof Element)) {
+      setRowMenu(CLOSED_ROW_MENU)
+      return
+    }
+
+    if (String(rowMenu.openId) === String(recordId)) {
+      setRowMenu(CLOSED_ROW_MENU)
+      return
+    }
+
+    const rect = trigger.getBoundingClientRect()
+    const menuWidth = Math.min(224, window.innerWidth - 24)
+    const menuHeight = 188
+    const gutter = 12
+    const top = rect.bottom + menuHeight + gutter > window.innerHeight
+      ? Math.max(gutter, rect.top - menuHeight - 6)
+      : rect.bottom + 6
+    const left = Math.min(
+      Math.max(gutter, rect.right - menuWidth),
+      window.innerWidth - menuWidth - gutter,
+    )
+    setRowMenu({
+      openId: recordId,
+      menuStyle: { top: `${top}px`, left: `${left}px`, minWidth: `${menuWidth}px` },
     })
   }
 
