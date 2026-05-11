@@ -51,6 +51,9 @@ function metricTotal(contract, key) {
 }
 
 function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContract, onSaveRecord }) {
+  const influencer = contract.influencer
+  const influencerName = influencer?.name || 'Influencer'
+  const profileImage = influencer?.profileImage
   const days = Array.isArray(contract?.days) ? contract.days : []
   const [drafts, setDrafts] = useState({})
   /** `${draftKey}:${metricKey}` — when set, that inline metric shows raw digits for editing (blur shows K-style like totals). */
@@ -160,17 +163,31 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
       <div className="ip-hud-corner ip-hud-corner--br" />
 
       <header className="ip-hud-topbar">
-        <div>
+        <div className="ip-hud-identity">
           <div className="ip-hud-label">// contract monitor · {contractStatus(contract).toLowerCase()}</div>
           <div className="ip-hud-name-row">
-            <h3 className="ip-hud-name">{contract.influencer?.name || 'Influencer'}</h3>
+            <h3 className="ip-hud-name">{influencerName}</h3>
             {onEditContract ? (
               <button type="button" className="ip-hud-contract-edit" onClick={() => onEditContract(contract)} aria-label="Edit contract influencer">
                 <Pencil size={15} />
               </button>
             ) : null}
           </div>
-          <div className="ip-hud-followers"><span /> {formatNumber(contract.influencer?.followers)} followers</div>
+          <div className="ip-hud-meta-row">
+            {profileImage ? (
+              <img
+                className="ip-hud-avatar"
+                src={profileImage}
+                alt={influencerName ? `${influencerName} profile` : 'Influencer profile'}
+                onError={(event) => {
+                  event.currentTarget.style.display = 'none'
+                }}
+              />
+            ) : null}
+            <div className="ip-hud-followers">
+              <span /> {formatNumber(influencer?.followers)} followers
+            </div>
+          </div>
         </div>
         <div className="ip-hud-header-totals" aria-label="Total performance summary">
           {[

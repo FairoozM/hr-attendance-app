@@ -1194,6 +1194,32 @@
   gap: 0.55rem;
 }
 
+.ip-hud-identity {
+  min-width: 0;
+}
+
+.ip-hud-meta-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.45rem;
+}
+
+.ip-hud-meta-row .ip-hud-followers {
+  margin-top: 0;
+}
+
+.ip-hud-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 2px solid rgba(0, 140, 200, 0.35);
+  flex-shrink: 0;
+  background: rgba(0, 140, 200, 0.08);
+}
+
 .ip-hud-contract-edit {
   display: grid;
   place-items: center;
