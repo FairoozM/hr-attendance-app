@@ -52,6 +52,8 @@ function metricTotal(contract, key) {
 function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContract, onSaveRecord }) {
   const days = Array.isArray(contract?.days) ? contract.days : []
   const [drafts, setDrafts] = useState({})
+  /** `${draftKey}:${metricKey}` — when set, that inline metric shows raw digits for editing (blur shows K-style like totals). */
+  const [focusedMetricCell, setFocusedMetricCell] = useState(null)
   const metricConfig = [
     ['Views', 'views', Eye],
     ['Shares', 'shares', Send],
@@ -114,6 +116,18 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
       if (values[key] == null) return false
       return toNumber(values[key]) !== toNumber(day?.record?.[key])
     })
+  }
+
+  function metricCellFocusId(day, key) {
+    return `${draftKey(day)}:${key}`
+  }
+
+  /** Match header/total: abbreviated K/M unless this cell is focused for editing. */
+  function inlineMetricDisplayValue(day, key) {
+    const raw = getDraft(day, key)
+    if (raw === '' || raw == null) return ''
+    if (focusedMetricCell === metricCellFocusId(day, key)) return String(raw)
+    return formatNumber(toNumber(raw))
   }
 
   function saveDay(day) {
@@ -231,10 +245,16 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
                   <input
                     className={`ip-hud-value ip-hud-value-input ip-hud-value--${key}`}
                     inputMode="numeric"
-                    value={getDraft(day, key)}
+                    value={inlineMetricDisplayValue(day, key)}
                     placeholder="-"
                     aria-label={`${label} for ${displayDate(day?.date)}`}
-                    onFocus={(event) => event.currentTarget.select()}
+                    onFocus={(event) => {
+                      setFocusedMetricCell(metricCellFocusId(day, key))
+                      event.currentTarget.select()
+                    }}
+                    onBlur={() => setFocusedMetricCell((current) => (
+                      current === metricCellFocusId(day, key) ? null : current
+                    ))}
                     onChange={(event) => updateDraft(day, key, event.currentTarget.value)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter') saveDay(day)
