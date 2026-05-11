@@ -12,6 +12,8 @@ import {
 
 const AMOUNT_COLUMN_KEYS = new Set(['cost', 'salesAed', 'netProfitAed'])
 
+const CLOSED_ROW_MENU = { openId: null, menuStyle: null }
+
 function tableColumns(showNetProfitColumn) {
   const cols = [
     ['date', 'Contract Dates'],
@@ -191,21 +193,21 @@ export function InfluencerPerformanceTable({
   onClearTableDates,
   totalContracts,
 }) {
-  const [openActionsForId, setOpenActionsForId] = useState(null)
-  const [actionMenuStyle, setActionMenuStyle] = useState(null)
+  const [rowMenu, setRowMenu] = useState(CLOSED_ROW_MENU)
 
   useEffect(() => {
-    if (!openActionsForId) return undefined
+    if (!rowMenu.openId) return undefined
+    const openId = rowMenu.openId
     const onDocPointerDown = (event) => {
       const menu = event.target.closest('.ip-table__row-menu')
-      if (!menu || menu.getAttribute('data-record-id') !== String(openActionsForId)) {
-        setOpenActionsForId(null)
+      if (!menu || menu.getAttribute('data-record-id') !== String(openId)) {
+        setRowMenu(CLOSED_ROW_MENU)
       }
     }
     const onKeyDown = (event) => {
-      if (event.key === 'Escape') setOpenActionsForId(null)
+      if (event.key === 'Escape') setRowMenu(CLOSED_ROW_MENU)
     }
-    const closeMenu = () => setOpenActionsForId(null)
+    const closeMenu = () => setRowMenu(CLOSED_ROW_MENU)
     document.addEventListener('pointerdown', onDocPointerDown)
     document.addEventListener('keydown', onKeyDown)
     window.addEventListener('resize', closeMenu)
@@ -216,13 +218,12 @@ export function InfluencerPerformanceTable({
       window.removeEventListener('resize', closeMenu)
       window.removeEventListener('scroll', closeMenu, true)
     }
-  }, [openActionsForId])
+  }, [rowMenu.openId])
 
   function toggleActionMenu(event, recordId) {
-    setOpenActionsForId((current) => {
-      if (current === recordId) {
-        setActionMenuStyle(null)
-        return null
+    setRowMenu((prev) => {
+      if (String(prev.openId) === String(recordId)) {
+        return CLOSED_ROW_MENU
       }
       const rect = event.currentTarget.getBoundingClientRect()
       const menuWidth = 224
@@ -235,8 +236,10 @@ export function InfluencerPerformanceTable({
         Math.max(gutter, rect.right - menuWidth),
         window.innerWidth - menuWidth - gutter,
       )
-      setActionMenuStyle({ top: `${top}px`, left: `${left}px`, minWidth: `${menuWidth}px` })
-      return recordId
+      return {
+        openId: recordId,
+        menuStyle: { top: `${top}px`, left: `${left}px`, minWidth: `${menuWidth}px` },
+      }
     })
   }
 
@@ -371,20 +374,20 @@ export function InfluencerPerformanceTable({
                         className="ip-table__row-menu-trigger"
                         aria-label="Row actions"
                         aria-haspopup="menu"
-                        aria-expanded={openActionsForId === record.id}
+                        aria-expanded={String(rowMenu.openId) === String(record.id)}
                         onClick={(event) => toggleActionMenu(event, record.id)}
                       >
                         <MoreVertical size={18} strokeWidth={2.25} aria-hidden />
                       </button>
-                      {openActionsForId === record.id ? (
-                        <div className="ip-table__row-menu-dropdown" role="menu" style={actionMenuStyle || undefined}>
+                      {String(rowMenu.openId) === String(record.id) ? (
+                        <div className="ip-table__row-menu-dropdown" role="menu" style={rowMenu.menuStyle || undefined}>
                           <button
                             type="button"
                             className="ip-table__row-menu-item"
                             role="menuitem"
                             onClick={() => {
                               onToggleMonitor(record.influencerId, record)
-                              setOpenActionsForId(null)
+                              setRowMenu(CLOSED_ROW_MENU)
                             }}
                           >
                             <span className="ip-table__row-menu-icon-slot" aria-hidden />
@@ -397,7 +400,7 @@ export function InfluencerPerformanceTable({
                               role="menuitem"
                               onClick={() => {
                                 onEdit(record)
-                                setOpenActionsForId(null)
+                                setRowMenu(CLOSED_ROW_MENU)
                               }}
                             >
                               <Pencil size={15} aria-hidden /> Edit
@@ -410,7 +413,7 @@ export function InfluencerPerformanceTable({
                               role="menuitem"
                               onClick={() => {
                                 onDelete(record.id)
-                                setOpenActionsForId(null)
+                                setRowMenu(CLOSED_ROW_MENU)
                               }}
                             >
                               <Trash2 size={15} aria-hidden /> Delete
