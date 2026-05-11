@@ -1150,6 +1150,7 @@
 
 .ip-hud-topbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
@@ -1196,28 +1197,112 @@
 
 .ip-hud-identity {
   min-width: 0;
+  flex: 1 1 280px;
 }
 
-.ip-hud-meta-row {
+.ip-hud-identity-layout {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.55rem;
-  margin-top: 0.45rem;
+  align-items: flex-start;
+  gap: 12px;
 }
 
-.ip-hud-meta-row .ip-hud-followers {
-  margin-top: 0;
-}
-
-.ip-hud-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 999px;
-  object-fit: cover;
-  border: 2px solid rgba(0, 140, 200, 0.35);
+.ip-hud-avatar-wrap {
+  position: relative;
+  width: 128px;
+  height: 128px;
   flex-shrink: 0;
-  background: rgba(0, 140, 200, 0.08);
+  margin-right: 4px;
+  z-index: 3;
+}
+
+.ip-hud-avatar-ring {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  padding: 4px;
+  background: linear-gradient(145deg, #e0f2fe 0%, #bae6fd 40%, #7dd3fc 100%);
+  box-shadow:
+    0 10px 28px rgba(15, 23, 42, 0.14),
+    0 4px 10px rgba(0, 136, 187, 0.18);
+}
+
+.ip-hud-avatar-ring-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 3px solid rgba(255, 255, 255, 0.95);
+  background: linear-gradient(160deg, #38bdf8 0%, #0284c7 55%, #0369a1 100%);
+  display: grid;
+  place-items: center;
+}
+
+.ip-hud-avatar-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 0.22s ease;
+}
+
+.ip-hud-avatar-ring-inner--photo .ip-hud-avatar-photo {
+  opacity: 1;
+}
+
+.ip-hud-avatar-ring-inner--photo .ip-hud-avatar-fallback {
+  opacity: 0;
+}
+
+.ip-hud-avatar-fallback {
+  position: relative;
+  z-index: 0;
+  font-size: clamp(1.75rem, 4vw, 2.25rem);
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.92);
+  letter-spacing: -0.03em;
+  user-select: none;
+  transition: opacity 0.18s ease;
+  font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+}
+
+.ip-hud-identity-copy {
+  flex: 1;
+  min-width: 0;
+  padding-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.ip-hud-identity-copy .ip-hud-label {
+  margin-bottom: 0;
+}
+
+.ip-hud-followers-anchor {
+  margin-top: 6px;
+  margin-left: -28px;
+  position: relative;
+  z-index: 1;
+}
+
+.ip-hud-identity-layout .ip-hud-followers {
+  margin-top: 0;
+  min-height: 58px;
+  padding: 12px 24px 12px clamp(56px, 9vw, 72px);
+  border-radius: 999px;
+  border: 1px solid rgba(0, 140, 200, 0.28);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(241, 248, 252, 0.92) 100%);
+  box-shadow:
+    0 4px 14px rgba(0, 136, 187, 0.1),
+    0 1px 3px rgba(15, 23, 42, 0.06);
+  color: #0c4a6e;
+  font-family: 'Space Mono', ui-monospace, monospace;
+  font-size: clamp(0.85rem, 2vw, 0.98rem);
+  font-weight: 700;
 }
 
 .ip-hud-contract-edit {
@@ -3113,6 +3198,48 @@
 
   .ip-hud-root {
     padding: 1rem;
+  }
+
+  .ip-hud-identity-layout {
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+  }
+
+  .ip-hud-avatar-wrap {
+    width: 112px;
+    height: 112px;
+    margin-right: 0;
+  }
+
+  .ip-hud-avatar-fallback {
+    font-size: 1.85rem;
+  }
+
+  .ip-hud-identity-copy {
+    align-items: center;
+    text-align: center;
+    width: 100%;
+    padding-top: 8px;
+  }
+
+  .ip-hud-identity-copy .ip-hud-name-row {
+    justify-content: center;
+  }
+
+  .ip-hud-followers-anchor {
+    margin-left: 0;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+  }
+
+  .ip-hud-identity-layout .ip-hud-followers {
+    padding-left: 22px;
+    padding-right: 22px;
+    width: 100%;
+    max-width: 340px;
+    justify-content: center;
   }
 
   .ip-hud-bottom {

@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { CalendarClock, Check, ExternalLink, Eye, Heart, MessageCircle, Pencil, Send, Trash2 } from 'lucide-react'
 import { formatNumber, parseMetricInput, toNumber } from '../../utils/influencerPerformanceUtils'
 import { fmtDMY } from '../../utils/dateFormat'
+import { influencerInitials } from './influencerPerformanceTableShared'
 
 function contractStatus(contract) {
   if (contract.recordedDays >= contract.monitoringDays) return 'Completed'
@@ -55,7 +56,14 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
   const influencerName = influencer?.name || 'Influencer'
   const profileImage = influencer?.profileImage
   const days = Array.isArray(contract?.days) ? contract.days : []
+  const [avatarPhotoLoaded, setAvatarPhotoLoaded] = useState(false)
+  const [avatarPhotoFailed, setAvatarPhotoFailed] = useState(false)
   const [drafts, setDrafts] = useState({})
+
+  useEffect(() => {
+    setAvatarPhotoLoaded(false)
+    setAvatarPhotoFailed(false)
+  }, [profileImage])
   /** `${draftKey}:${metricKey}` — when set, that inline metric shows raw digits for editing (blur shows K-style like totals). */
   const [focusedMetricCell, setFocusedMetricCell] = useState(null)
   const metricConfig = [
@@ -164,28 +172,45 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
 
       <header className="ip-hud-topbar">
         <div className="ip-hud-identity">
-          <div className="ip-hud-label">// contract monitor · {contractStatus(contract).toLowerCase()}</div>
-          <div className="ip-hud-name-row">
-            <h3 className="ip-hud-name">{influencerName}</h3>
-            {onEditContract ? (
-              <button type="button" className="ip-hud-contract-edit" onClick={() => onEditContract(contract)} aria-label="Edit contract influencer">
-                <Pencil size={15} />
-              </button>
-            ) : null}
-          </div>
-          <div className="ip-hud-meta-row">
-            {profileImage ? (
-              <img
-                className="ip-hud-avatar"
-                src={profileImage}
-                alt={influencerName ? `${influencerName} profile` : 'Influencer profile'}
-                onError={(event) => {
-                  event.currentTarget.style.display = 'none'
-                }}
-              />
-            ) : null}
-            <div className="ip-hud-followers">
-              <span /> {formatNumber(influencer?.followers)} followers
+          <div className="ip-hud-identity-layout">
+            <div className="ip-hud-avatar-wrap">
+              <div className="ip-hud-avatar-ring">
+                <div
+                  className={[
+                    'ip-hud-avatar-ring-inner',
+                    avatarPhotoLoaded && profileImage && !avatarPhotoFailed ? 'ip-hud-avatar-ring-inner--photo' : '',
+                  ].filter(Boolean).join(' ')}
+                >
+                  {profileImage && !avatarPhotoFailed ? (
+                    <img
+                      className="ip-hud-avatar-photo"
+                      src={profileImage}
+                      alt={influencerName ? `${influencerName} profile` : 'Influencer profile'}
+                      onLoad={() => setAvatarPhotoLoaded(true)}
+                      onError={() => setAvatarPhotoFailed(true)}
+                    />
+                  ) : null}
+                  <span className="ip-hud-avatar-fallback" aria-hidden="true">
+                    {influencerInitials(influencerName)}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="ip-hud-identity-copy">
+              <div className="ip-hud-label">// contract monitor · {contractStatus(contract).toLowerCase()}</div>
+              <div className="ip-hud-name-row">
+                <h3 className="ip-hud-name">{influencerName}</h3>
+                {onEditContract ? (
+                  <button type="button" className="ip-hud-contract-edit" onClick={() => onEditContract(contract)} aria-label="Edit contract influencer">
+                    <Pencil size={15} />
+                  </button>
+                ) : null}
+              </div>
+              <div className="ip-hud-followers-anchor">
+                <div className="ip-hud-followers">
+                  <span /> {formatNumber(influencer?.followers)} followers
+                </div>
+              </div>
             </div>
           </div>
         </div>
