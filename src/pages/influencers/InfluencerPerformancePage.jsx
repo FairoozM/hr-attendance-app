@@ -2,6 +2,7 @@ import { Gauge, Plus, Save, Search, X } from 'lucide-react'
 import { InfluencerContractTimeline } from '../../components/influencers/InfluencerContractTimeline'
 import { InfluencerPerformanceForm } from '../../components/influencers/InfluencerPerformanceForm'
 import { InfluencerLeaderboardPodium } from '../../components/influencers/InfluencerLeaderboardPodium'
+import { InfluencerPerformanceDebugBoundary } from '../../components/influencers/InfluencerPerformanceDebugBoundary'
 import { InfluencerPerformanceTable } from '../../components/influencers/InfluencerPerformanceTable'
 import { useAuth, canMutateInfluencerPerformance } from '../../contexts/AuthContext'
 import { influencerInitials } from '../../components/influencers/influencerPerformanceTableShared'
@@ -13,6 +14,14 @@ import './influencers.css'
 import './InfluencerPerformancePage.css'
 
 export function InfluencerPerformancePage() {
+  return (
+    <InfluencerPerformanceDebugBoundary>
+      <InfluencerPerformancePageBody />
+    </InfluencerPerformanceDebugBoundary>
+  )
+}
+
+function InfluencerPerformancePageBody() {
   const {
     user,
     authLoading,

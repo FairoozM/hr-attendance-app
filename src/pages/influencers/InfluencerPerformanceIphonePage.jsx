@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { ChevronLeft, Gauge, Plus, Save, Search, X } from 'lucide-react'
 import { InfluencerContractTimeline } from '../../components/influencers/InfluencerContractTimeline'
 import { InfluencerPerformanceForm } from '../../components/influencers/InfluencerPerformanceForm'
+import { InfluencerPerformanceDebugBoundary } from '../../components/influencers/InfluencerPerformanceDebugBoundary'
 import { InfluencerPerformanceTableIphone } from '../../components/influencers/InfluencerPerformanceTableIphone'
 import { useAuth, canMutateInfluencerPerformance } from '../../contexts/AuthContext'
 import { influencerInitials } from '../../components/influencers/influencerPerformanceTableShared'
@@ -14,6 +15,14 @@ import './InfluencerPerformancePage.css'
 import './InfluencerPerformanceIphonePage.css'
 
 export function InfluencerPerformanceIphonePage() {
+  return (
+    <InfluencerPerformanceDebugBoundary>
+      <InfluencerPerformanceIphonePageBody />
+    </InfluencerPerformanceDebugBoundary>
+  )
+}
+
+function InfluencerPerformanceIphonePageBody() {
   const {
     user,
     authLoading,

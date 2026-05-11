@@ -297,7 +297,9 @@ function buildContractGroups(records = [], influencers = [], daysFallback = 5) {
 export function getVideoContractTimelines(records = [], influencers = [], daysFallback = 5) {
   return buildContractGroups(records, influencers, daysFallback)
     .map((contract) => {
-      const orderedRecords = [...contract.records].sort((a, b) => a.date.localeCompare(b.date))
+      const orderedRecords = [...contract.records].sort((a, b) =>
+        String(a.date || '').localeCompare(String(b.date || '')),
+      )
       const declaredStart = isoDateSlice(contract.contractStartDate) || isoDateSlice(orderedRecords[0]?.date)
       const earliestCheckIn = orderedRecords.reduce(
         (min, r) => minIsoDate(min, r.date),
