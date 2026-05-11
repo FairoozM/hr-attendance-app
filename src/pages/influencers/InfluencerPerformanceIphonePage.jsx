@@ -1,27 +1,17 @@
 import { Link } from 'react-router-dom'
-import { ChevronLeft, Download, Gauge, Plus, Save, Search, X } from 'lucide-react'
+import { ChevronLeft, Gauge, Plus, Save, Search, X } from 'lucide-react'
 import { InfluencerContractTimeline } from '../../components/influencers/InfluencerContractTimeline'
 import { InfluencerPerformanceForm } from '../../components/influencers/InfluencerPerformanceForm'
 import { InfluencerPerformanceTableIphone } from '../../components/influencers/InfluencerPerformanceTableIphone'
 import { useAuth, canMutateInfluencerPerformance } from '../../contexts/AuthContext'
-import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
+import { influencerInitials } from '../../components/influencers/influencerPerformanceTableShared'
+import { formatNumber } from '../../utils/influencerPerformanceUtils'
 import { fmtDMYRange } from '../../utils/dateFormat'
-import { PERFORMANCE_SORT_OPTIONS } from './influencerPerformanceScreenShared'
+import { CONTRACT_TIMELINE_RESULTS_CAP, PERFORMANCE_SORT_OPTIONS } from './influencerPerformanceScreenShared'
 import { useInfluencerPerformanceScreen } from './useInfluencerPerformanceScreen'
 import './influencers.css'
 import './InfluencerPerformancePage.css'
 import './InfluencerPerformanceIphonePage.css'
-
-const CONTRACT_TIMELINE_RESULTS_CAP = 60
-
-function contractInitials(name) {
-  return String(name || 'IN')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join('') || 'IN'
-}
 
 export function InfluencerPerformanceIphonePage() {
   const {
@@ -133,7 +123,7 @@ export function InfluencerPerformanceIphonePage() {
       <InfluencerPerformanceTableIphone
         records={filteredContracts}
         influencersById={influencersById}
-        rankingByRecordId={rankingsByContractId}
+        rankingsByContractId={rankingsByContractId}
         showNetProfitColumn={showNetProfitColumn}
         dateFrom={tableDateFrom}
         dateTo={tableDateTo}
@@ -186,7 +176,7 @@ export function InfluencerPerformanceIphonePage() {
                   onClick={() => setActiveMonitorContractId(contract.id)}
                 >
                   <span className="ip-contract-search__avatar" aria-hidden="true">
-                    <span>{contractInitials(contract.influencer?.name)}</span>
+                    <span>{influencerInitials(contract.influencer?.name)}</span>
                     {contract.influencer?.profileImage ? (
                       <img src={contract.influencer.profileImage} alt="" />
                     ) : null}

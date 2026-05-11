@@ -9,6 +9,27 @@ export function toNumber(value) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+/**
+ * Parse inline metric field text: supports optional K/M suffix (e.g. 98.5K, 1.2M).
+ * Falls back to {@link toNumber} for plain digit strings. Use for timeline inputs, not currency.
+ */
+export function parseMetricInput(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (value == null || value === '') return 0
+  const trimmed = String(value).trim().replace(/,/g, '')
+  if (!trimmed) return 0
+  const loose = /^(-?[\d.]+)\s*([kKmM]?)$/.exec(trimmed)
+  if (loose) {
+    const n = Number(loose[1])
+    if (!Number.isFinite(n)) return 0
+    const suf = String(loose[2] || '').toLowerCase()
+    if (suf === 'k') return n * 1000
+    if (suf === 'm') return n * 1_000_000
+    return n
+  }
+  return toNumber(value)
+}
+
 export function calculateEngagementRate({ likes = 0, comments = 0, shares = 0, views = 0 } = {}) {
   const safeViews = toNumber(views)
   if (safeViews <= 0) return 0

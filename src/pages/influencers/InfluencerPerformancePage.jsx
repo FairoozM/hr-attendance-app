@@ -1,25 +1,16 @@
-import { Download, Gauge, Plus, Save, Search, X } from 'lucide-react'
+import { Gauge, Plus, Save, Search, X } from 'lucide-react'
 import { InfluencerContractTimeline } from '../../components/influencers/InfluencerContractTimeline'
 import { InfluencerPerformanceForm } from '../../components/influencers/InfluencerPerformanceForm'
 import { InfluencerLeaderboardPodium } from '../../components/influencers/InfluencerLeaderboardPodium'
 import { InfluencerPerformanceTable } from '../../components/influencers/InfluencerPerformanceTable'
 import { useAuth, canMutateInfluencerPerformance } from '../../contexts/AuthContext'
-import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
+import { influencerInitials } from '../../components/influencers/influencerPerformanceTableShared'
+import { formatNumber } from '../../utils/influencerPerformanceUtils'
 import { fmtDMYRange } from '../../utils/dateFormat'
+import { CONTRACT_TIMELINE_RESULTS_CAP } from './influencerPerformanceScreenShared'
 import { useInfluencerPerformanceScreen } from './useInfluencerPerformanceScreen'
 import './influencers.css'
 import './InfluencerPerformancePage.css'
-
-const CONTRACT_TIMELINE_RESULTS_CAP = 60
-
-function contractInitials(name) {
-  return String(name || 'IN')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join('') || 'IN'
-}
 
 export function InfluencerPerformancePage() {
   const {
@@ -88,7 +79,7 @@ export function InfluencerPerformancePage() {
       <InfluencerPerformanceTable
         records={filteredContracts}
         influencersById={influencersById}
-        rankingByRecordId={rankingsByContractId}
+        rankingsByContractId={rankingsByContractId}
         showNetProfitColumn={showNetProfitColumn}
         sort={sort}
         onSort={handleSort}
@@ -160,7 +151,7 @@ export function InfluencerPerformancePage() {
                   onClick={() => setActiveMonitorContractId(contract.id)}
                 >
                   <span className="ip-contract-search__avatar" aria-hidden="true">
-                    <span>{contractInitials(contract.influencer?.name)}</span>
+                    <span>{influencerInitials(contract.influencer?.name)}</span>
                     {contract.influencer?.profileImage ? (
                       <img src={contract.influencer.profileImage} alt="" />
                     ) : null}

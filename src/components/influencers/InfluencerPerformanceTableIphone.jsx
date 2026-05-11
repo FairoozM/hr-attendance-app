@@ -1,64 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Crown, Eye, Medal, MoreVertical, Pencil, Trash2 } from 'lucide-react'
-import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
+import { formatNumber } from '../../utils/influencerPerformanceUtils'
 import { fmtDMY, fmtDMYRange } from '../../utils/dateFormat'
-
-const EMPTY_RANK_MAP = new Map()
-
-function useMetricBests(records, includeNetProfit) {
-  return useMemo(() => {
-    if (!records.length) return null
-    const views = records.map((r) => toNumber(r.views))
-    const likes = records.map((r) => toNumber(r.likes))
-    const comments = records.map((r) => toNumber(r.comments))
-    const shares = records.map((r) => toNumber(r.shares))
-    const salesAed = records.map((r) => toNumber(r.salesAed))
-    const cost = records.map((r) => toNumber(r.cost))
-    const base = {
-      views: Math.max(...views),
-      likes: Math.max(...likes),
-      comments: Math.max(...comments),
-      shares: Math.max(...shares),
-      salesAed: Math.max(...salesAed),
-      cost: Math.min(...cost),
-    }
-    if (includeNetProfit) {
-      const netProfitAed = records.map((r) => toNumber(r.netProfitAed))
-      base.netProfitAed = Math.max(...netProfitAed)
-    }
-    return base
-  }, [records, includeNetProfit])
-}
-
-const WINNER_TITLE = {
-  views: 'Highest views in this table',
-  likes: 'Most likes in this table',
-  comments: 'Most comments in this table',
-  shares: 'Most shares in this table',
-  salesAed: 'Highest sales (AED) in this table',
-  netProfitAed: 'Highest net profit (AED) in this table',
-  cost: 'Lowest cost (AED) in this table',
-}
-
-function winnerPillMod(field, record, bests) {
-  if (!bests) return ''
-  if (field === 'cost') {
-    if (toNumber(record.cost) === bests.cost) return 'cost'
-    return ''
-  }
-  if (field === 'netProfitAed') {
-    const val = toNumber(record.netProfitAed)
-    const best = bests.netProfitAed
-    if (val !== best) return ''
-    return 'sales'
-  }
-  const val = toNumber(record[field])
-  const best = bests[field]
-  if (best <= 0) return ''
-  if (val !== best) return ''
-  if (field === 'salesAed') return 'sales'
-  return field
-}
+import {
+  EMPTY_RANK_MAP,
+  influencerInitials,
+  useMetricBests,
+  winnerPillMod,
+  WINNER_TITLE,
+} from './influencerPerformanceTableShared'
 
 function MetricSlot({ label, field, record, bests, valueAlign = 'start', children }) {
   const mod = winnerPillMod(field, record, bests)
@@ -152,15 +102,6 @@ function RankBadge({ rankInfo }) {
   return <span className="ip-phone-rank-plain">#{rank}</span>
 }
 
-function initials(name) {
-  return String(name || 'IN')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join('') || 'IN'
-}
-
 function InfluencerIdentity({ influencer }) {
   const name = influencer?.name || 'Unknown'
   return (
@@ -173,7 +114,7 @@ function InfluencerIdentity({ influencer }) {
         style={{ background: 'var(--ip-phone-avatar-placeholder)' }}
         aria-hidden
       >
-        <span className="relative z-[1] text-[0.68rem] font-black tracking-wide text-[color:var(--ip-phone-avatar-fg)]">{initials(name)}</span>
+        <span className="relative z-[1] text-[0.68rem] font-black tracking-wide text-[color:var(--ip-phone-avatar-fg)]">{influencerInitials(name)}</span>
         {influencer?.profileImage ? (
           <img
             src={influencer.profileImage}
@@ -198,7 +139,7 @@ function InfluencerIdentity({ influencer }) {
 export function InfluencerPerformanceTableIphone({
   records,
   influencersById,
-  rankingByRecordId = EMPTY_RANK_MAP,
+  rankingsByContractId = EMPTY_RANK_MAP,
   showNetProfitColumn = false,
   onEdit,
   onDelete,
@@ -334,7 +275,7 @@ export function InfluencerPerformanceTableIphone({
           const influencerId = String(record.influencerId || '')
           const isMonitorActive = String(activeMonitorInfluencerId) === String(record.id) || String(activeMonitorInfluencerId) === influencerId
           const influencer = influencersById.get(influencerId)
-          const rankInfo = rankingByRecordId.get(record.id)
+          const rankInfo = rankingsByContractId.get(record.id)
           return (
             <li
               key={record.id}
@@ -375,7 +316,7 @@ export function InfluencerPerformanceTableIphone({
                         }}
                       >
                         <span className="ip-table__row-menu-icon-slot" aria-hidden />
-                      {isMonitorActive ? 'Hide contract timeline' : 'Open contract timeline'}
+                        {isMonitorActive ? 'Hide contract timeline' : 'Open contract timeline'}
                       </button>
                       {onEdit ? (
                         <button

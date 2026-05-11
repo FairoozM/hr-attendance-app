@@ -166,18 +166,20 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
       saves: editingRecord != null ? editingRecord.saves : 0,
       storyViews: editingRecord != null ? editingRecord.storyViews : 0,
     }))
-    const nextDate = addDays(dateIso, 1)
-    const contractStart = startIso || dateIso
-    setForm({
-      ...emptyForm,
-      influencerId: form.influencerId,
-      platform: form.platform,
-      campaignName: form.campaignName,
-      postUrl: form.postUrl,
-      contractStartDate: contractStart,
-      monitoringDays: form.monitoringDays || 5,
-      date: nextDate,
-    })
+    if (!editingRecord) {
+      const nextDate = addDays(dateIso, 1)
+      const contractStart = startIso || dateIso
+      setForm({
+        ...emptyForm,
+        influencerId: form.influencerId,
+        platform: form.platform,
+        campaignName: form.campaignName,
+        postUrl: form.postUrl,
+        contractStartDate: contractStart,
+        monitoringDays: form.monitoringDays || 5,
+        date: nextDate,
+      })
+    }
     setErrors({})
   }
 

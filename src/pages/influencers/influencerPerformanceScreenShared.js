@@ -4,6 +4,9 @@ import {
   toNumber,
 } from '../../utils/influencerPerformanceUtils'
 
+/** Cap contract-search results in performance timeline panels (desktop + phone). */
+export const CONTRACT_TIMELINE_RESULTS_CAP = 60
+
 export const STORAGE_KEY = 'hr-influencer-performance-v1'
 export const TOMBSTONE_KEY = 'hr-influencer-performance-tombstones-v1'
 

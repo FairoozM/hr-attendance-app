@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { CalendarClock, Check, ExternalLink, Eye, Heart, MessageCircle, Pencil, Send, Trash2 } from 'lucide-react'
-import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
+import { formatNumber, parseMetricInput, toNumber } from '../../utils/influencerPerformanceUtils'
 import { fmtDMY } from '../../utils/dateFormat'
 
 function contractStatus(contract) {
@@ -45,7 +45,8 @@ function displayDate(date) {
 function metricTotal(contract, key) {
   const days = Array.isArray(contract?.days) ? contract.days : []
   const fromDays = days.reduce((sum, day) => sum + toNumber(day?.record?.[key]), 0)
-  if (fromDays > 0) return fromDays
+  const anyDayRecorded = days.some((day) => day?.isRecorded)
+  if (anyDayRecorded) return fromDays
   return toNumber(contract?.totals?.[key])
 }
 
@@ -114,7 +115,7 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
     if (!values) return false
     return metricConfig.some(([, key]) => {
       if (values[key] == null) return false
-      return toNumber(values[key]) !== toNumber(day?.record?.[key])
+      return parseMetricInput(values[key]) !== toNumber(day?.record?.[key])
     })
   }
 
@@ -127,7 +128,7 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
     const raw = getDraft(day, key)
     if (raw === '' || raw == null) return ''
     if (focusedMetricCell === metricCellFocusId(day, key)) return String(raw)
-    return formatNumber(toNumber(raw))
+    return formatNumber(parseMetricInput(raw))
   }
 
   function saveDay(day) {
@@ -137,10 +138,10 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
     const now = new Date().toISOString()
     onSaveRecord({
       ...base,
-      views: values.views == null ? toNumber(base.views) : toNumber(values.views),
-      shares: values.shares == null ? toNumber(base.shares) : toNumber(values.shares),
-      likes: values.likes == null ? toNumber(base.likes) : toNumber(values.likes),
-      comments: values.comments == null ? toNumber(base.comments) : toNumber(values.comments),
+      views: values.views == null ? toNumber(base.views) : parseMetricInput(values.views),
+      shares: values.shares == null ? toNumber(base.shares) : parseMetricInput(values.shares),
+      likes: values.likes == null ? toNumber(base.likes) : parseMetricInput(values.likes),
+      comments: values.comments == null ? toNumber(base.comments) : parseMetricInput(values.comments),
       createdAt: base.createdAt || now,
       updatedAt: now,
     })
@@ -252,9 +253,18 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
                       setFocusedMetricCell(metricCellFocusId(day, key))
                       event.currentTarget.select()
                     }}
-                    onBlur={() => setFocusedMetricCell((current) => (
-                      current === metricCellFocusId(day, key) ? null : current
-                    ))}
+                    onBlur={(event) => {
+                      const v = event.currentTarget.value.trim()
+                      if (v === '') {
+                        updateDraft(day, key, '')
+                      } else {
+                        const n = parseMetricInput(v)
+                        updateDraft(day, key, Number.isFinite(n) ? String(n) : v)
+                      }
+                      setFocusedMetricCell((current) => (
+                        current === metricCellFocusId(day, key) ? null : current
+                      ))
+                    }}
                     onChange={(event) => updateDraft(day, key, event.currentTarget.value)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter') saveDay(day)

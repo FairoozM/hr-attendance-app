@@ -1,14 +1,6 @@
 import { Crown, Medal } from 'lucide-react'
 import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
-
-function initials(name) {
-  return String(name || 'IN')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join('') || 'IN'
-}
+import { influencerInitials } from './influencerPerformanceTableShared'
 
 /** Latest-record snapshot bests across all contracts (for mini winner highlights). */
 function getDatasetBestsFromContracts(contracts) {
@@ -75,7 +67,7 @@ function PodiumCard({
         <span>#{rankInfo.rank}</span>
       </div>
       <div className="ip-leaderboard-card__avatar" aria-hidden="true">
-        <span>{initials(name)}</span>
+        <span>{influencerInitials(name)}</span>
         {influencer?.profileImage ? (
           <img
             src={influencer.profileImage}

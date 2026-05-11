@@ -11,11 +11,9 @@ import {
   getVideoContractTimelines,
   mockInfluencers,
   normalizePerformanceRecord,
-  toNumber,
 } from '../../utils/influencerPerformanceUtils'
 import {
   addTombstone,
-  compareValues,
   isSeededMockPerformanceRecord,
   loadStoredRecords,
   mergePerformanceRecordIntoList,
@@ -209,43 +207,6 @@ export function useInfluencerPerformanceScreen() {
     [videoContracts],
   )
 
-  const rankingByRecordId = useMemo(() => {
-    const m = new Map()
-    videoContracts.forEach((contract) => {
-      const cid = contract.id
-      const info = rankingsByContractId.get(cid)
-      if (info) {
-        ;(contract.records || []).forEach((record) => m.set(record.id, info))
-      }
-    })
-    return m
-  }, [videoContracts, rankingsByContractId])
-
-  const filteredRecords = useMemo(() => {
-    return [...allRecords].sort((a, b) => {
-      if (sort.key === 'rank') {
-        const scoreA = rankingByRecordId.get(a.id)?.score ?? -1
-        const scoreB = rankingByRecordId.get(b.id)?.score ?? -1
-        if (scoreB !== scoreA) {
-          return sort.direction === 'asc' ? scoreB - scoreA : scoreA - scoreB
-        }
-        return compareValues(a.date, b.date, 'desc')
-      }
-      if (sort.key === 'netProfitAed') {
-        return compareValues(toNumber(a.netProfitAed), toNumber(b.netProfitAed), sort.direction)
-      }
-      const influencerA = influencersById.get(String(a.influencerId))
-      const influencerB = influencersById.get(String(b.influencerId))
-      const valueA =
-        sort.key === 'influencer' ? influencerA?.name :
-          a[sort.key]
-      const valueB =
-        sort.key === 'influencer' ? influencerB?.name :
-          b[sort.key]
-      return compareValues(valueA, valueB, sort.direction)
-    })
-  }, [allRecords, influencersById, rankingByRecordId, sort])
-
   const contractRowsAll = useMemo(
     () => buildContractRows(allRecords, influencers, rankingsByContractId, sort),
     [allRecords, influencers, rankingsByContractId, sort],
@@ -430,11 +391,9 @@ export function useInfluencerPerformanceScreen() {
     canWritePerformance,
     showNetProfitColumn,
     allRecords,
-    filteredRecords,
     filteredContracts,
     videoContracts,
     rankingsByContractId,
-    rankingByRecordId,
     activeMonitorContracts,
     handleSort,
     handleSortPreset,
