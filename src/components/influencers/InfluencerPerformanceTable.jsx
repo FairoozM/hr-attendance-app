@@ -14,6 +14,12 @@ const AMOUNT_COLUMN_KEYS = new Set(['cost', 'salesAed', 'netProfitAed'])
 
 const CLOSED_ROW_MENU = { openId: null, menuStyle: null }
 
+/** Pointer targets can be Text nodes (no .closest); normalize to an Element. */
+function pointerTargetElement(event) {
+  const t = event.target
+  return t instanceof Element ? t : t?.parentElement ?? null
+}
+
 function tableColumns(showNetProfitColumn) {
   const cols = [
     ['date', 'Contract Dates'],
@@ -199,7 +205,7 @@ export function InfluencerPerformanceTable({
     if (!rowMenu.openId) return undefined
     const openId = rowMenu.openId
     const onDocPointerDown = (event) => {
-      const menu = event.target.closest('.ip-table__row-menu')
+      const menu = pointerTargetElement(event)?.closest('.ip-table__row-menu')
       if (!menu || menu.getAttribute('data-record-id') !== String(openId)) {
         setRowMenu(CLOSED_ROW_MENU)
       }
@@ -219,6 +225,12 @@ export function InfluencerPerformanceTable({
       window.removeEventListener('scroll', closeMenu, true)
     }
   }, [rowMenu.openId])
+
+  useEffect(() => {
+    if (!rowMenu.openId) return
+    const exists = records.some((r) => String(r.id) === String(rowMenu.openId))
+    if (!exists) setRowMenu(CLOSED_ROW_MENU)
+  }, [records, rowMenu.openId])
 
   function toggleActionMenu(event, recordId) {
     setRowMenu((prev) => {
