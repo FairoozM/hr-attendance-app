@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BadgeDollarSign, CalendarDays, FileImage, Link2, NotebookPen, Save, Sparkles, X } from 'lucide-react'
+import { BadgeDollarSign, FileImage, Link2, NotebookPen, Save, Sparkles, X } from 'lucide-react'
 import { useAuth, canViewInfluencerPerformanceNetProfit } from '../../contexts/AuthContext'
 import {
   addDays,
   calculateEngagementRate,
-  formatIsoDateDdMmYyyy,
   getDayNumber,
   INFLUENCER_PLATFORMS,
   normalizePerformanceRecord,
-  parseDdMmYyyyToIso,
 } from '../../utils/influencerPerformanceUtils'
 
 const emptyForm = {
@@ -46,8 +44,6 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
   const [form, setForm] = useState(emptyForm)
   const [errors, setErrors] = useState({})
   const [influencerQuery, setInfluencerQuery] = useState('')
-  const [checkDateText, setCheckDateText] = useState(() => formatIsoDateDdMmYyyy(emptyForm.date))
-  const [startDateText, setStartDateText] = useState(() => formatIsoDateDdMmYyyy(emptyForm.contractStartDate))
 
   useEffect(() => {
     if (editingRecord) {
@@ -78,11 +74,6 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
     setErrors({})
   }, [editingRecord, influencers])
 
-  useEffect(() => {
-    setCheckDateText(formatIsoDateDdMmYyyy(form.date))
-    setStartDateText(formatIsoDateDdMmYyyy(form.contractStartDate))
-  }, [form.date, form.contractStartDate])
-
   const selectedInfluencer = useMemo(
     () => influencers.find((item) => String(item.id) === String(form.influencerId)),
     [form.influencerId, influencers],
@@ -106,15 +97,14 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
     if (errors[name]) setErrors((prev) => ({ ...prev, [name]: '' }))
   }
 
-  function validate(dateIso, startIso) {
+  function validate() {
     const next = {}
     if (!form.influencerId) next.influencerId = 'Select an influencer'
-    if (!dateIso) next.date = 'Enter check date as dd/mm/yyyy (e.g. 04/05/2026)'
+    if (!form.date) next.date = 'Missing check date'
     if (!form.platform) next.platform = 'Select a platform'
     if (!form.campaignName.trim()) next.campaignName = 'Contract / campaign is required'
-    if (!startIso) next.contractStartDate = 'Enter start date as dd/mm/yyyy'
-    if (Number(form.views) < 0) next.views = 'Views cannot be negative'
-    ;['likes', 'comments', 'shares', 'salesAed', 'cost'].forEach((key) => {
+    if (!form.contractStartDate) next.contractStartDate = 'Missing contract start date'
+    ;['salesAed', 'cost'].forEach((key) => {
       if (Number(form[key]) < 0) next[key] = 'Value cannot be negative'
     })
     if (showNetProfit && form.netProfitAed !== '' && !Number.isFinite(Number(form.netProfitAed))) {
@@ -147,9 +137,9 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
 
   function handleSubmit(event) {
     event.preventDefault()
-    const dateIso = parseDdMmYyyyToIso(checkDateText)
-    const startIso = parseDdMmYyyyToIso(startDateText)
-    if (!validate(dateIso, startIso)) return
+    if (!validate()) return
+    const dateIso = form.date
+    const startIso = form.contractStartDate || dateIso
     const now = new Date().toISOString()
     const merged = { ...form, date: dateIso, contractStartDate: startIso }
     if (!showNetProfit && editingRecord && Object.prototype.hasOwnProperty.call(editingRecord, 'netProfitAed')) {
@@ -184,12 +174,14 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
   }
 
   return (
-    <section className="ip-form-panel" aria-label="Daily performance input form">
+    <section className="ip-form-panel" aria-label="Performance record form">
       <div className="ip-section-heading">
         <span className="ip-section-heading__icon"><NotebookPen size={18} /></span>
         <div>
-          <h2>{editingRecord ? 'Edit video check-in' : 'Add video check-in'}</h2>
-          <p>Use the same video contract and start date for Day 1 to Day 5 checks. Engagement is calculated automatically.</p>
+          <h2>{editingRecord ? 'Edit record' : 'Add record'}</h2>
+          <p>
+            Influencer, contract, and financial fields. Daily views, likes, comments, and shares are edited in the contract timeline.
+          </p>
         </div>
       </div>
 
@@ -200,7 +192,7 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
               <span>1</span>
               <div>
                 <h3>Video contract</h3>
-                <p>Set this once, then enter Day 1 to Day 5 numbers.</p>
+                <p>Influencer, platform, window, campaign, and video link.</p>
               </div>
             </div>
 
@@ -275,96 +267,23 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
             <div className="ip-form-section-card__head">
               <span>2</span>
               <div>
-                <h3>Daily check-in</h3>
-                <p>{selectedInfluencer ? `${selectedInfluencer.name} · Day ${checkInDay || 1}` : 'Enter today’s video numbers.'}</p>
+                <h3>Financials &amp; engagement</h3>
+                <p>Sales AED, cost, net profit, engagement (from timeline metrics), screenshot, and notes.</p>
               </div>
             </div>
 
-            <div className="ip-form-inline ip-form-inline--dates">
-              <Field label="Check date" error={errors.date}>
-                <div className="ip-control-icon">
-                  <CalendarDays size={16} />
-                  <input
-                    className="ip-control"
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete="off"
-                    placeholder="dd/mm/yyyy"
-                    maxLength={10}
-                    value={checkDateText}
-                    onChange={(event) => {
-                      const v = event.target.value
-                      setCheckDateText(v)
-                      const iso = parseDdMmYyyyToIso(v.trim())
-                      if (iso) set('date', iso)
-                    }}
-                    onBlur={() => {
-                      const iso = parseDdMmYyyyToIso(checkDateText)
-                      if (iso) {
-                        set('date', iso)
-                        setCheckDateText(formatIsoDateDdMmYyyy(iso))
-                        if (errors.date) setErrors((prev) => ({ ...prev, date: '' }))
-                      } else if (checkDateText.trim()) {
-                        setErrors((prev) => ({ ...prev, date: 'Use dd/mm/yyyy' }))
-                        setCheckDateText(formatIsoDateDdMmYyyy(form.date))
-                      }
-                    }}
-                    aria-invalid={Boolean(errors.date)}
-                  />
-                </div>
-              </Field>
-
-              <Field label="Start date" error={errors.contractStartDate}>
+            <div className="ip-metric-grid">
+              <Field label="Sales AED" error={errors.salesAed}>
                 <input
-                  className="ip-control"
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  placeholder="dd/mm/yyyy"
-                  maxLength={10}
-                  value={startDateText}
-                  onChange={(event) => {
-                    const v = event.target.value
-                    setStartDateText(v)
-                    const iso = parseDdMmYyyyToIso(v.trim())
-                    if (iso) set('contractStartDate', iso)
-                  }}
-                  onBlur={() => {
-                    const iso = parseDdMmYyyyToIso(startDateText)
-                    if (iso) {
-                      set('contractStartDate', iso)
-                      setStartDateText(formatIsoDateDdMmYyyy(iso))
-                      if (errors.contractStartDate) setErrors((prev) => ({ ...prev, contractStartDate: '' }))
-                    } else if (startDateText.trim()) {
-                      setErrors((prev) => ({ ...prev, contractStartDate: 'Use dd/mm/yyyy' }))
-                      setStartDateText(formatIsoDateDdMmYyyy(form.contractStartDate))
-                    }
-                  }}
-                  aria-invalid={Boolean(errors.contractStartDate)}
+                  className="ip-control ip-control--metric"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.salesAed}
+                  onChange={(event) => set('salesAed', event.target.value)}
+                  placeholder="0.00"
                 />
               </Field>
-            </div>
-
-            <div className="ip-metric-grid">
-              {[
-                ['views', 'Views'],
-                ['likes', 'Likes'],
-                ['comments', 'Comments'],
-                ['shares', 'Shares'],
-                ['salesAed', 'Sales AED'],
-              ].map(([key, label]) => (
-                <Field key={key} label={label} error={errors[key]}>
-                  <input
-                    className="ip-control ip-control--metric"
-                    type="number"
-                    min="0"
-                    step={key === 'salesAed' ? '0.01' : undefined}
-                    value={form[key]}
-                    onChange={(event) => set(key, event.target.value)}
-                    placeholder={key === 'salesAed' ? '0.00' : '0'}
-                  />
-                </Field>
-              ))}
 
               <Field label="Cost" error={errors.cost}>
                 <div className="ip-control-icon">
@@ -405,7 +324,7 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
             </div>
 
             <Field label="Notes">
-              <textarea className="ip-control ip-control--textarea" value={form.notes} onChange={(event) => set('notes', event.target.value)} placeholder="What changed today? Story boost, repost, comments, campaign note..." />
+              <textarea className="ip-control ip-control--textarea" value={form.notes} onChange={(event) => set('notes', event.target.value)} placeholder="Campaign notes, fees, context…" />
             </Field>
           </div>
         </div>
