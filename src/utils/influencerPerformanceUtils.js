@@ -267,9 +267,7 @@ function addRecordToContract(contract, record) {
   contract.totals.comments += toNumber(record.comments)
   contract.totals.shares += toNumber(record.shares)
   contract.totals.saves += toNumber(record.saves)
-  contract.totals.cost += toNumber(record.cost)
-  contract.totals.salesAed += toNumber(record.salesAed)
-  contract.totals.netProfitAed += toNumber(record.netProfitAed)
+  /* cost / sales / net profit are contract-level (latest check-in only), not summed — see getVideoContractTimelines */
 }
 
 function buildContractGroups(records = [], influencers = [], daysFallback = 5) {
@@ -329,6 +327,12 @@ export function getVideoContractTimelines(records = [], influencers = [], daysFa
       })
 
       const latest = orderedRecords[orderedRecords.length - 1]
+      const totals = {
+        ...contract.totals,
+        cost: toNumber(latest?.cost),
+        salesAed: toNumber(latest?.salesAed),
+        netProfitAed: toNumber(latest?.netProfitAed),
+      }
       return {
         ...contract,
         id: contract.id,
@@ -336,8 +340,9 @@ export function getVideoContractTimelines(records = [], influencers = [], daysFa
         monitoringDays,
         days,
         latest,
+        totals,
         recordedDays: days.filter((item) => item.isRecorded).length,
-        averageEngagementRate: calculateEngagementRate(contract.totals),
+        averageEngagementRate: calculateEngagementRate(totals),
       }
     })
     .sort((a, b) => String(b.latest?.date || '').localeCompare(String(a.latest?.date || '')))

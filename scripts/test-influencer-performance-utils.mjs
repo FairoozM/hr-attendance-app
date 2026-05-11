@@ -89,9 +89,10 @@ assert.equal(timelines[0].totals.views, 41000 + 15800 + 24000)
 assert.equal(timelines[0].totals.likes, 312 + 54 + 80)
 assert.equal(timelines[0].totals.comments, 11 + 12 + 13)
 assert.equal(timelines[0].totals.shares, 989 + 111 + 121)
-assert.equal(timelines[0].totals.salesAed, 1500 + 800 + 900)
-assert.equal(timelines[0].totals.cost, 200 + 100 + 100)
-assert.equal(timelines[0].totals.netProfitAed, 1300 + 700 + 800)
+// Cost / sales / net profit are contract-level snapshots from the latest check-in by date (rec-day-3).
+assert.equal(timelines[0].totals.salesAed, 900)
+assert.equal(timelines[0].totals.cost, 100)
+assert.equal(timelines[0].totals.netProfitAed, 800)
 
 const contractRows = buildContractRows(records, [influencer])
 assert.equal(contractRows.length, 1)

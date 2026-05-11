@@ -147,12 +147,35 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
     const values = drafts[draftKey(day)] || {}
     const base = day?.record || makeDraftRecord(day)
     const now = new Date().toISOString()
+    const latestRec = contract.latest
+
+    let cost = toNumber(base.cost)
+    let salesAed = toNumber(base.salesAed)
+    let netProfitAed = base.netProfitAed
+
+    if (!base.id && latestRec) {
+      cost = toNumber(latestRec.cost)
+      salesAed = toNumber(latestRec.salesAed)
+      netProfitAed = latestRec.netProfitAed
+    } else if (base.id && latestRec && String(base.id) === String(latestRec.id)) {
+      cost = toNumber(base.cost)
+      salesAed = toNumber(base.salesAed)
+      netProfitAed = base.netProfitAed
+    } else if (base.id) {
+      cost = 0
+      salesAed = 0
+      netProfitAed = undefined
+    }
+
     onSaveRecord({
       ...base,
       views: values.views == null ? toNumber(base.views) : parseMetricInput(values.views),
       shares: values.shares == null ? toNumber(base.shares) : parseMetricInput(values.shares),
       likes: values.likes == null ? toNumber(base.likes) : parseMetricInput(values.likes),
       comments: values.comments == null ? toNumber(base.comments) : parseMetricInput(values.comments),
+      cost,
+      salesAed,
+      netProfitAed,
       createdAt: base.createdAt || now,
       updatedAt: now,
     })
