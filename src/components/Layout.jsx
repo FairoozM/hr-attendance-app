@@ -23,6 +23,9 @@ const PLANNER_NAV_ITEMS = [
 
 const AI_NAV_ITEMS = [
   { to: '/ai/usage', label: 'AI Usage' },
+]
+
+const AMAZON_NAV_ITEMS = [
   {
     to: '/ai/amazon-spapi-test',
     label: 'Amazon SP-API Test',
@@ -419,6 +422,10 @@ export function Layout() {
     () => AI_NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin),
     [isAdmin]
   )
+  const amazonNavItems = useMemo(
+    () => AMAZON_NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin),
+    [isAdmin]
+  )
   const isEmployee = user?.role === 'employee'
   const can = (module, action) => hasPermission(user, module, action)
 
@@ -468,7 +475,10 @@ export function Layout() {
   const isPricesActive = location.pathname.startsWith('/prices')
   const isReportsActive = location.pathname.startsWith('/reports')
   const isZohoActive = location.pathname.startsWith('/admin/zoho')
-  const isAiHubActive = location.pathname.startsWith('/ai')
+  const isAmazonActive =
+    location.pathname.startsWith('/ai/amazon') ||
+    location.pathname.startsWith('/ai/listing-batches')
+  const isAiHubActive = location.pathname.startsWith('/ai') && !isAmazonActive
   const hasAnyInfluencerAccess = hasAnyModulePermission(user, 'influencers')
   const hasAnyListsAccess = hasAnyModulePermission(user, 'sim_cards')
   const hasAnyManagementAccess =
@@ -482,6 +492,7 @@ export function Layout() {
     user?.role === 'warehouse' ||
     hasPlannerAccess ||
     can('prices', 'view')
+  const hasAmazonAccess = hasAiHubAccess && amazonNavItems.length > 0
   const currentSectionLabel = useMemo(() => {
     if (location.pathname.startsWith('/employees')) return 'Employees'
     if (location.pathname.startsWith('/attendance')) return 'Attendance'
@@ -571,11 +582,18 @@ export function Layout() {
   }, [hasAnyPricesAccess, location.pathname])
 
   useEffect(() => {
-    if (!hasAiHubAccess || !location.pathname.startsWith('/ai')) return
+    if (!hasAiHubAccess || !location.pathname.startsWith('/ai') || isAmazonActive) return
     setNavMode('rail')
     setFocusedSection('ai')
     setIsSidebarOpen(true)
-  }, [hasAiHubAccess, location.pathname])
+  }, [hasAiHubAccess, isAmazonActive, location.pathname])
+
+  useEffect(() => {
+    if (!hasAmazonAccess || !isAmazonActive) return
+    setNavMode('rail')
+    setFocusedSection('amazon')
+    setIsSidebarOpen(true)
+  }, [hasAmazonAccess, isAmazonActive])
 
   const managementItems = [
     can('document_expiry', 'view') && { label: 'Document Expiry Tracker', to: '/management/document-expiry' },
@@ -611,6 +629,10 @@ export function Layout() {
         title: 'AI & Automation',
         items: withIcons(hasAiHubAccess ? aiHubNavItems : []),
       },
+      amazon: {
+        title: 'Amazon',
+        items: withIcons(hasAmazonAccess ? amazonNavItems : []),
+      },
       management: { title: 'Management', items: withIcons(managementItems) },
       prices: { title: 'Prices', items: withIcons(pricesItems) },
       reports: { title: 'Reports', items: withIcons(REPORTS_ITEMS) },
@@ -627,6 +649,8 @@ export function Layout() {
     hasPlannerAccess,
     hasAiHubAccess,
     aiHubNavItems,
+    hasAmazonAccess,
+    amazonNavItems,
     managementItems,
     pricesItems,
     REPORTS_ITEMS,
@@ -650,6 +674,13 @@ export function Layout() {
           ...i,
           group: 'AI & Automation',
           searchHint: i.searchHint || 'openai usage budget amazon listing tokens cost',
+        }))
+      : []),
+    ...(hasAmazonAccess
+      ? amazonNavItems.map((i) => ({
+          ...i,
+          group: 'Amazon',
+          searchHint: i.searchHint || 'amazon selling partner orders listings dashboard inventory fba',
         }))
       : []),
     ...pricesItems.map((i) => ({
@@ -702,7 +733,7 @@ export function Layout() {
             : '',
     })),
     { label: 'My Account', to: '/account', group: 'Account' },
-  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, hasPlannerAccess, hasAiHubAccess, aiHubNavItems, managementItems, pricesItems, REPORTS_ITEMS, TAXATION_ITEMS, zohoItems])
+  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, hasPlannerAccess, hasAiHubAccess, aiHubNavItems, hasAmazonAccess, amazonNavItems, managementItems, pricesItems, REPORTS_ITEMS, TAXATION_ITEMS, zohoItems])
 
   const showSidebarBackdrop = isSidebarOpen && navMode === 'full'
 
@@ -882,18 +913,39 @@ export function Layout() {
                   </>
                 )}
 
-                {hasAiHubAccess && (
+                {hasAiHubAccess && aiHubNavItems.length > 0 && (
                   <>
                     <div className="app-sidebar__section-label" role="presentation">
                       AI &amp; Automation
                     </div>
-                    <NavGroup label="AI Hub" hint="Usage & listings" isActive={isAiHubActive}>
+                    <NavGroup label="AI Hub" hint="Usage" isActive={isAiHubActive}>
                       {aiHubNavItems.map((item) => (
                         <NavLink
                           key={item.to}
                           to={item.to}
                           className={subLinkClass}
                           onClick={() => openFocusedSection('ai')}
+                        >
+                          <span className="nav-group__link-dot" aria-hidden />
+                          {item.label}
+                        </NavLink>
+                      ))}
+                    </NavGroup>
+                  </>
+                )}
+
+                {hasAmazonAccess && (
+                  <>
+                    <div className="app-sidebar__section-label" role="presentation">
+                      Amazon
+                    </div>
+                    <NavGroup label="Amazon" hint="SP-API & listings" isActive={isAmazonActive}>
+                      {amazonNavItems.map((item) => (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          className={subLinkClass}
+                          onClick={() => openFocusedSection('amazon')}
                         >
                           <span className="nav-group__link-dot" aria-hidden />
                           {item.label}
