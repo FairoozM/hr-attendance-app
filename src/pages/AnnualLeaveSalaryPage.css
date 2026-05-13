@@ -435,6 +435,13 @@
   background: linear-gradient(135deg, #8b5cf6, #6d28d9);
   box-shadow: 0 4px 14px rgba(109, 40, 217, 0.35);
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.als-summary-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .als-summary-card__emp {

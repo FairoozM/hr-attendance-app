@@ -783,7 +783,13 @@ export function AnnualLeaveSalaryPage({ embedded = false, employees: propEmploye
                 </div>
 
                 <div className="als-summary-identity">
-                  <div className="als-summary-avatar">{summaryInitials}</div>
+                  <div className="als-summary-avatar">
+                    {selectedEmp.photoUrl ? (
+                      <img src={selectedEmp.photoUrl} alt="" />
+                    ) : (
+                      summaryInitials
+                    )}
+                  </div>
                   <div className="als-summary-card__emp">
                     {selectedEmp.name}
                     <span>{selectedEmp.employeeId} · {selectedEmp.department}</span>
