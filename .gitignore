@@ -2,6 +2,10 @@ node_modules
 dist
 .env
 .env.local
+backend/.env.local
+*.env.backup
+credentials.json
+secrets.json
 .env.deploy
 .DS_Store
 backend/node_modules

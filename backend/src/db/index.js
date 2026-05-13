@@ -1001,6 +1001,30 @@ async function testConnection() {
   } catch (e) {
     console.error('[db] ensureAmazonBulkListingTables skipped/failed (non-fatal):', e.message || e)
   }
+  try {
+    const { ensureAmazonOrdersCacheTables } = require('../services/amazonOrdersCacheStore')
+    await ensureAmazonOrdersCacheTables()
+  } catch (e) {
+    console.error('[db] ensureAmazonOrdersCacheTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    const { ensureAmazonCatalogItemCacheTables } = require('../services/amazonCatalogItemCacheStore')
+    await ensureAmazonCatalogItemCacheTables()
+  } catch (e) {
+    console.error('[db] ensureAmazonCatalogItemCacheTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    const { ensureAmazonSkuImageOverrideTables } = require('../services/amazonSkuImageOverrideStore')
+    await ensureAmazonSkuImageOverrideTables()
+  } catch (e) {
+    console.error('[db] ensureAmazonSkuImageOverrideTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    const { ensureAmazonZohoStockComparisonTables } = require('../services/amazonZohoStockComparisonStore')
+    await ensureAmazonZohoStockComparisonTables()
+  } catch (e) {
+    console.error('[db] ensureAmazonZohoStockComparisonTables skipped/failed (non-fatal):', e.message || e)
+  }
 }
 
 async function ensureProjectsTable() {

@@ -23,6 +23,33 @@ const PLANNER_NAV_ITEMS = [
 
 const AI_NAV_ITEMS = [
   { to: '/ai/usage', label: 'AI Usage' },
+  {
+    to: '/ai/amazon-spapi-test',
+    label: 'Amazon SP-API Test',
+    searchHint: 'selling partner api marketplaces sandbox lwa',
+  },
+  {
+    to: '/ai/amazon-orders',
+    label: 'Amazon Orders',
+    searchHint: 'amazon.ae amazon.sa orders uae ksa marketplace selling partner',
+  },
+  {
+    to: '/ai/amazon-dashboard',
+    label: 'Amazon BI Dashboard',
+    searchHint: 'amazon bi cache sales sku dashboard uae ksa',
+  },
+  {
+    to: '/ai/amazon-sync-health',
+    label: 'Amazon Sync Health',
+    adminOnly: true,
+    searchHint: 'amazon sync health rate limit 429 cooldown request id admin',
+  },
+  {
+    to: '/ai/amazon-zoho-stock',
+    label: 'Amazon + Zoho Stock',
+    adminOnly: true,
+    searchHint: 'amazon zoho stock comparison inventory fba life smile warehouse mismatch out of stock',
+  },
   { to: '/ai/amazon-listing', label: 'Amazon Listing' },
   { to: '/ai/amazon-bulk-listing', label: 'Amazon Bulk Generator' },
   { to: '/ai/listing-batches', label: 'Listing Batches' },
@@ -388,6 +415,10 @@ export function Layout() {
   }, [])
 
   const isAdmin = user?.role === 'admin'
+  const aiHubNavItems = useMemo(
+    () => AI_NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin),
+    [isAdmin]
+  )
   const isEmployee = user?.role === 'employee'
   const can = (module, action) => hasPermission(user, module, action)
 
@@ -477,9 +508,14 @@ export function Layout() {
     if (location.pathname.startsWith('/reports')) return 'Reports'
     if (location.pathname.startsWith('/taxation/ksa-vat')) return 'KSA VAT Tax'
     if (location.pathname.startsWith('/admin/zoho/bulk-invoice')) return 'Bulk Zoho Invoice'
+    if (location.pathname.startsWith('/ai/amazon-zoho-stock')) return 'Amazon + Zoho Stock'
     if (location.pathname.startsWith('/admin/ai-budget')) return 'AI Budget Settings'
     if (location.pathname.startsWith('/admin/item-report-groups')) return 'Item Report Groups'
     if (location.pathname.startsWith('/ai/usage')) return 'AI Usage'
+    if (location.pathname.startsWith('/ai/amazon-sync-health')) return 'Amazon Sync Health'
+    if (location.pathname.startsWith('/ai/amazon-dashboard')) return 'Amazon BI Dashboard'
+    if (location.pathname.startsWith('/ai/amazon-orders')) return 'Amazon Orders'
+    if (location.pathname.startsWith('/ai/amazon-spapi-test')) return 'Amazon SP-API Test'
     if (location.pathname.startsWith('/ai/amazon-bulk-listing')) return 'Amazon Bulk Generator'
     if (location.pathname.startsWith('/ai/listing-batches')) return 'Listing Batches'
     if (location.pathname.startsWith('/ai/amazon-listing')) return 'Amazon Listing'
@@ -573,7 +609,7 @@ export function Layout() {
       },
       ai: {
         title: 'AI & Automation',
-        items: withIcons(hasAiHubAccess ? AI_NAV_ITEMS : []),
+        items: withIcons(hasAiHubAccess ? aiHubNavItems : []),
       },
       management: { title: 'Management', items: withIcons(managementItems) },
       prices: { title: 'Prices', items: withIcons(pricesItems) },
@@ -590,6 +626,7 @@ export function Layout() {
     isAdmin,
     hasPlannerAccess,
     hasAiHubAccess,
+    aiHubNavItems,
     managementItems,
     pricesItems,
     REPORTS_ITEMS,
@@ -609,10 +646,10 @@ export function Layout() {
         }))
       : []),
     ...(hasAiHubAccess
-      ? AI_NAV_ITEMS.map((i) => ({
+      ? aiHubNavItems.map((i) => ({
           ...i,
           group: 'AI & Automation',
-          searchHint: 'openai usage budget amazon listing tokens cost',
+          searchHint: i.searchHint || 'openai usage budget amazon listing tokens cost',
         }))
       : []),
     ...pricesItems.map((i) => ({
@@ -665,7 +702,7 @@ export function Layout() {
             : '',
     })),
     { label: 'My Account', to: '/account', group: 'Account' },
-  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, hasPlannerAccess, hasAiHubAccess, managementItems, pricesItems, REPORTS_ITEMS, TAXATION_ITEMS, zohoItems])
+  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, hasPlannerAccess, hasAiHubAccess, aiHubNavItems, managementItems, pricesItems, REPORTS_ITEMS, TAXATION_ITEMS, zohoItems])
 
   const showSidebarBackdrop = isSidebarOpen && navMode === 'full'
 
@@ -851,7 +888,7 @@ export function Layout() {
                       AI &amp; Automation
                     </div>
                     <NavGroup label="AI Hub" hint="Usage & listings" isActive={isAiHubActive}>
-                      {AI_NAV_ITEMS.map((item) => (
+                      {aiHubNavItems.map((item) => (
                         <NavLink
                           key={item.to}
                           to={item.to}

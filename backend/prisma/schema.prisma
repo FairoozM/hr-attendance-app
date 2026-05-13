@@ -69,3 +69,80 @@ model AmazonGeneratedListing {
   @@index([created_at])
   @@map("amazon_generated_listings")
 }
+
+/// Reference-only mirror of `amazon_orders` (DDL from migrations / ensureAmazonOrdersCacheTables).
+model AmazonOrder {
+  id                       BigInt    @id @default(autoincrement())
+  marketplace_key          String    @db.VarChar(8)
+  marketplace_id           String?   @db.VarChar(32)
+  amazon_order_id          String    @db.VarChar(64)
+  purchase_date            DateTime? @db.Timestamptz(6)
+  order_status             String?   @db.VarChar(64)
+  fulfillment_channel      String?   @db.VarChar(32)
+  sales_channel            String?
+  currency_code            String?   @db.VarChar(8)
+  order_amount             Decimal?  @db.Decimal(16, 4)
+  number_of_items_shipped  Int?
+  number_of_items_unshipped Int?
+  items_sync_pending       Boolean   @default(false)
+  raw_safe_json            Json?
+  last_synced_at           DateTime  @db.Timestamptz(6)
+  created_at               DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@unique([marketplace_key, amazon_order_id])
+  @@map("amazon_orders")
+}
+
+model AmazonOrderItem {
+  id                   BigInt    @id @default(autoincrement())
+  marketplace_key      String    @db.VarChar(8)
+  amazon_order_id      String    @db.VarChar(64)
+  amazon_order_item_id String    @default("") @db.VarChar(64)
+  asin                 String?   @db.VarChar(32)
+  seller_sku           String?   @db.VarChar(512)
+  title                String?
+  quantity_ordered     Int?
+  quantity_shipped     Int?
+  item_currency_code   String?   @db.VarChar(8)
+  item_amount          Decimal?  @db.Decimal(16, 4)
+  raw_safe_json        Json?
+  last_synced_at       DateTime  @db.Timestamptz(6)
+  created_at           DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@unique([marketplace_key, amazon_order_id, amazon_order_item_id])
+  @@map("amazon_order_items")
+}
+
+model AmazonSyncLog {
+  id                 BigInt    @id @default(autoincrement())
+  sync_type          String    @db.VarChar(32)
+  marketplace_key    String    @db.VarChar(8)
+  status             String    @db.VarChar(32)
+  started_at         DateTime  @default(now()) @db.Timestamptz(6)
+  finished_at        DateTime? @db.Timestamptz(6)
+  created_after      DateTime? @db.Timestamptz(6)
+  created_before     DateTime? @db.Timestamptz(6)
+  orders_fetched     Int       @default(0)
+  order_items_fetched Int      @default(0)
+  api_calls_made     Int       @default(0)
+  error_message      String?
+  metadata           Json?
+
+  @@map("amazon_sync_log")
+}
+
+model AmazonApiCallLog {
+  id                 BigInt    @id @default(autoincrement())
+  operation          String    @db.VarChar(64)
+  marketplace_key    String    @db.VarChar(8)
+  called_at          DateTime  @default(now()) @db.Timestamptz(6)
+  status_code        Int?
+  rate_limit_header  String?   @db.VarChar(512)
+  success            Boolean   @default(false)
+  safe_error         String?
+  amazon_request_id  String?   @db.VarChar(128)
+
+  @@map("amazon_api_call_log")
+}

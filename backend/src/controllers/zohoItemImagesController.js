@@ -562,6 +562,8 @@ module.exports = {
   exportCsv,
   exportZip,
   downloadImage,
+  /** Cached SKU → Zoho item map (listAllItems + report groups); used by Amazon SKU image fallback. */
+  getZohoInventorySkuMap: getSkuMap,
   _internals: {
     uniqueSkus,
     buildCsv,

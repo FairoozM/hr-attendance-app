@@ -74,6 +74,11 @@ import ProjectDashboardPage from './pages/projects/ProjectDashboardPage'
 import TrashPage from './pages/projects/TrashPage'
 import { AiUsageDashboard } from './pages/AiUsageDashboard'
 import { AmazonListingGenerator } from './pages/AmazonListingGenerator'
+import { AmazonSpApiTestPage } from './pages/AmazonSpApiTestPage'
+import { AmazonOrdersPage } from './pages/AmazonOrdersPage'
+import { AmazonOrdersDashboardPage } from './pages/AmazonOrdersDashboardPage'
+import { AmazonSyncHealthPage } from './pages/AmazonSyncHealthPage'
+import { AmazonZohoStockPage } from './pages/AmazonZohoStockPage'
 import { AmazonFlatFileBulkGenerator } from './pages/AmazonFlatFileBulkGenerator'
 import { ListingBatchesPage } from './pages/ListingBatchesPage'
 import { AiBudgetSettingsPage } from './pages/admin/AiBudgetSettingsPage'
@@ -294,6 +299,46 @@ function AppContent() {
             <AiHubGuard>
               <AiUsageDashboard />
             </AiHubGuard>
+          }
+        />
+        <Route
+          path="ai/amazon-spapi-test"
+          element={
+            <AiHubGuard>
+              <AmazonSpApiTestPage />
+            </AiHubGuard>
+          }
+        />
+        <Route
+          path="ai/amazon-orders"
+          element={
+            <AiHubGuard>
+              <AmazonOrdersPage />
+            </AiHubGuard>
+          }
+        />
+        <Route
+          path="ai/amazon-dashboard"
+          element={
+            <AiHubGuard>
+              <AmazonOrdersDashboardPage />
+            </AiHubGuard>
+          }
+        />
+        <Route
+          path="ai/amazon-sync-health"
+          element={
+            <AdminOnly>
+              <AmazonSyncHealthPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="ai/amazon-zoho-stock"
+          element={
+            <AdminOnly>
+              <AmazonZohoStockPage />
+            </AdminOnly>
           }
         />
         <Route
