@@ -1,11 +1,9 @@
 export const ANNUAL_LEAVE_SECTIONS = [
-  { key: 'Pending', label: 'Pending requests' },
-  { key: 'Ongoing', label: 'On leave now' },
-  { key: 'ReturnPending', label: 'Return pending' },
-  { key: 'Overstayed', label: 'Overstayed / not returned' },
-  { key: 'Approved', label: 'Approved / upcoming' },
+  { key: 'NeedsAction', label: 'Needs action' },
+  { key: 'Ongoing', label: 'Active leave' },
+  { key: 'Approved', label: 'Upcoming approved' },
   { key: 'Completed', label: 'Leave completed' },
-  { key: 'Rejected', label: 'Rejected' },
+  { key: 'Rejected', label: 'Rejected / archived' },
 ]
 
 const DOT = {
@@ -16,6 +14,7 @@ const DOT = {
   Approved: '#3b82f6',
   Completed: '#22c55e',
   Rejected: '#9ca3af',
+  NeedsAction: '#6366f1',
 }
 
 export function sectionHeadDot(sectionKey) {

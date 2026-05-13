@@ -1,13 +1,14 @@
+import { useState } from 'react'
 import { SHOP_VISIT_FILTER_TABS } from './ShopVisitWorkflow'
 
 const FILTER_TABS = [
-  { key: 'All', label: 'All' },
-  { key: 'Pending', label: 'Pending' },
+  { key: 'All', label: 'All requests' },
+  { key: 'queue:needsAction', label: 'Needs action' },
+  { key: 'Ongoing', label: 'Active leave' },
   { key: 'Approved', label: 'Upcoming' },
-  { key: 'Ongoing', label: 'On leave' },
   { key: 'ReturnPending', label: 'Return pending' },
-  { key: 'Completed', label: 'Completed' },
   { key: 'Overstayed', label: 'Overstayed' },
+  { key: 'Completed', label: 'Completed' },
   { key: 'Rejected', label: 'Rejected' },
 ]
 
@@ -38,6 +39,7 @@ export function AnnualLeaveFilters({
   shopVisitFilter,
   setShopVisitFilter,
 }) {
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   return (
     <>
       <div className="al-filter-bar al-filter-bar--sticky">
@@ -55,6 +57,14 @@ export function AnnualLeaveFilters({
           ))}
         </div>
         <div className="al-filter-bar__right">
+          <input
+            className="al-search"
+            type="search"
+            placeholder="Search employee or code…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search employees"
+          />
           {departments.length > 0 && (
             <select className="al-filter-select" value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)}>
               <option value="">All departments</option>
@@ -65,17 +75,17 @@ export function AnnualLeaveFilters({
               ))}
             </select>
           )}
-          <input
-            className="al-search"
-            type="search"
-            placeholder="Search employee…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            aria-label="Search employees"
-          />
+          <button
+            type="button"
+            className="al-btn al-btn--ghost al-filter-advanced-toggle"
+            onClick={() => setAdvancedOpen((o) => !o)}
+            aria-expanded={advancedOpen}
+          >
+            {advancedOpen ? 'Hide advanced filters' : 'Advanced filters'}
+          </button>
         </div>
       </div>
-      {isAdmin && (
+      {advancedOpen && isAdmin && (
         <div className="al-filter-bar al-filter-bar--shop">
           <span className="al-filter-bar__shop-label">Main shop</span>
           <div className="al-filter-tabs al-filter-tabs--wrap">

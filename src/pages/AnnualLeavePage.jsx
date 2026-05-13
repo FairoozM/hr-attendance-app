@@ -30,6 +30,44 @@ import { ANNUAL_LEAVE_SECTIONS } from '../components/annualLeave/annualLeaveSect
 import './Page.css'
 import './AnnualLeavePage.css'
 
+const PAGE_SIZE = 25
+
+function hasOpenShopOrSalaryWork(row, { isAdmin = true } = {}) {
+  if (row.status !== 'Approved') return false
+  const sv = row.shop_visit_status || 'PendingSubmission'
+  if (!isAdmin && sv === 'PendingSubmission') return true
+  if (!isAdmin) return false
+  if (sv === 'PendingSubmission') return false
+  if (['Submitted', 'Confirmed', 'MoneyCalculated'].includes(sv)) return true
+  return sv !== 'Completed' && sv !== 'Cancelled'
+}
+
+function isNeedsAction(row, opts = {}) {
+  const es = row.effective_status || row.status
+  return (
+    row.status === 'Pending' ||
+    es === 'ReturnPending' ||
+    es === 'Overstayed' ||
+    hasOpenShopOrSalaryWork(row, opts)
+  )
+}
+
+function queueMatches(row, filterStatus, opts = {}) {
+  if (filterStatus === 'queue:needsAction') return isNeedsAction(row, opts)
+  if (filterStatus === 'queue:shopSalary') return hasOpenShopOrSalaryWork(row, opts)
+  return (row.effective_status || row.status) === filterStatus
+}
+
+function groupKeyForRow(row, opts = {}) {
+  const es = row.effective_status || row.status
+  if (isNeedsAction(row, opts)) return 'NeedsAction'
+  if (es === 'Ongoing' || es === 'ReturnPending' || es === 'Overstayed') return 'Ongoing'
+  if (es === 'Approved') return 'Approved'
+  if (es === 'Completed') return 'Completed'
+  if (es === 'Rejected') return 'Rejected'
+  return es
+}
+
 export function AnnualLeavePage() {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
@@ -81,22 +119,29 @@ export function AnnualLeavePage() {
   const [sortDir, setSortDir] = useState('desc')
   const [letterBusyId, setLetterBusyId] = useState(null)
   const [shopToast, setShopToast] = useState(null)
+  const [requestFormOpen, setRequestFormOpen] = useState(false)
+  const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE)
+
+  const showToast = useCallback((t, type = 'success') => {
+    setShopToast({ type, text: t })
+    setTimeout(() => setShopToast(null), 5000)
+  }, [])
 
   const handlePreviewLeaveLetter = useCallback(async (id) => {
     try {
       await openAnnualLeaveLetterPreview(id)
     } catch (e) {
-      window.alert(e.message || 'Could not open the document.')
+      showToast(e.message || 'Could not open the document.', 'error')
     }
-  }, [])
+  }, [showToast])
 
   const handleDownloadLeaveLetter = useCallback(async (id) => {
     try {
       await downloadAnnualLeaveLetterPdf(id)
     } catch (e) {
-      window.alert(e.message || 'Download failed.')
+      showToast(e.message || 'Download failed.', 'error')
     }
-  }, [])
+  }, [showToast])
 
   const handleRegenerateLeaveLetter = useCallback(
     async (id) => {
@@ -104,13 +149,14 @@ export function AnnualLeavePage() {
       setLetterBusyId(id)
       try {
         await regenerateLeaveLetter(id)
+        showToast('Leave request PDF regenerated.', 'success')
       } catch (e) {
-        window.alert(e.message || 'Regeneration failed.')
+        showToast(e.message || 'Regeneration failed.', 'error')
       } finally {
         setLetterBusyId(null)
       }
     },
-    [regenerateLeaveLetter]
+    [regenerateLeaveLetter, showToast]
   )
 
   const handleSort = useCallback((col) => {
@@ -178,6 +224,10 @@ export function AnnualLeavePage() {
           va = a.expected_return_date || ''
           vb = b.expected_return_date || ''
           break
+        case 'updated_at':
+          va = a.updated_at || ''
+          vb = b.updated_at || ''
+          break
         default:
           return 0
       }
@@ -194,22 +244,52 @@ export function AnnualLeavePage() {
 
   const filteredRequests = useMemo(() => {
     if (filterStatus === 'All') return listForDisplay
-    return listForDisplay.filter((r) => (r.effective_status || r.status) === filterStatus)
-  }, [listForDisplay, filterStatus])
+    return listForDisplay.filter((r) => queueMatches(r, filterStatus, { isAdmin }))
+  }, [listForDisplay, filterStatus, isAdmin])
 
   const tabCounts = useMemo(() => {
     const counts = { All: 0 }
     listForDisplay.forEach((r) => {
       const es = r.effective_status || r.status
       counts[es] = (counts[es] || 0) + 1
+      if (isNeedsAction(r, { isAdmin })) counts['queue:needsAction'] = (counts['queue:needsAction'] || 0) + 1
+      if (hasOpenShopOrSalaryWork(r, { isAdmin })) counts['queue:shopSalary'] = (counts['queue:shopSalary'] || 0) + 1
     })
     counts.All = listForDisplay.length
     return counts
-  }, [listForDisplay])
+  }, [listForDisplay, isAdmin])
+
+  const derivedStats = useMemo(() => ({
+    needs_action: listForDisplay.filter((r) => isNeedsAction(r, { isAdmin })).length,
+    shop_salary_pending: listForDisplay.filter((r) => hasOpenShopOrSalaryWork(r, { isAdmin })).length,
+  }), [listForDisplay, isAdmin])
+
+  const groupedRequests = useMemo(() => {
+    const groups = {}
+    filteredRequests.forEach((row) => {
+      const key = groupKeyForRow(row, { isAdmin })
+      groups[key] = groups[key] || []
+      groups[key].push(row)
+    })
+    return groups
+  }, [filteredRequests, isAdmin])
+
+  const pagedRequests = useMemo(
+    () => filteredRequests.slice(0, visibleLimit),
+    [filteredRequests, visibleLimit]
+  )
+
+  const remainingFlatRows = Math.max(0, filteredRequests.length - pagedRequests.length)
 
   const toggleExpand = useCallback((id) => {
     setExpandedId((prev) => (prev === id ? null : id))
     setEditingRow(null)
+  }, [])
+
+  const handleSetFilterStatus = useCallback((key) => {
+    setFilterStatus(key)
+    setVisibleLimit(PAGE_SIZE)
+    setExpandedId(null)
   }, [])
 
   const onDelete = useCallback(
@@ -217,21 +297,17 @@ export function AnnualLeavePage() {
       if (!window.confirm('Delete this leave request?')) return
       try {
         await deleteRequest(id)
+        showToast('Leave request deleted.', 'success')
       } catch (e) {
-        window.alert(e.message || 'Delete failed')
+        showToast(e.message || 'Delete failed', 'error')
       }
     },
-    [deleteRequest]
+    [deleteRequest, showToast]
   )
 
   const onEditStart = useCallback((r) => {
     setEditingRow(r)
     setExpandedId(null)
-  }, [])
-
-  const showToast = useCallback((t, type = 'success') => {
-    setShopToast({ type, text: t })
-    setTimeout(() => setShopToast(null), 5000)
   }, [])
 
   const handleEmployeeShopSubmit = useCallback(
@@ -268,7 +344,7 @@ export function AnnualLeavePage() {
         })
         showToast(nextStatus === 'Approved' ? 'Request approved.' : 'Request rejected.', 'success')
       } catch (e) {
-        window.alert(e.message || 'Update failed')
+        showToast(e.message || 'Update failed', 'error')
         throw e
       }
     },
@@ -301,8 +377,9 @@ export function AnnualLeavePage() {
   const handleShopSaveAdminNote = useCallback(
     async (id, payload) => {
       await patchShopVisitAdminNote(id, payload)
+      showToast('Internal handover note saved.', 'success')
     },
-    [patchShopVisitAdminNote]
+    [patchShopVisitAdminNote, showToast]
   )
 
   const tableRowProps = {
@@ -346,7 +423,11 @@ export function AnnualLeavePage() {
 
   return (
     <div className="page al-page">
-      <AnnualLeaveHeader />
+      <AnnualLeaveHeader
+        isAdmin={isAdmin}
+        requestFormOpen={requestFormOpen}
+        onNewRequest={() => setRequestFormOpen((o) => !o)}
+      />
 
       <div className="al-tabs">
         <button
@@ -375,9 +456,11 @@ export function AnnualLeavePage() {
 
           <AnnualLeaveStats
             stats={dashboard}
+            derivedStats={derivedStats}
+            activeKey={filterStatus}
             isAdmin={isAdmin}
             onFilterClick={(key) => {
-              setFilterStatus(key)
+              handleSetFilterStatus(key)
               setSearch('')
               setShopVisitFilter('All')
             }}
@@ -390,6 +473,8 @@ export function AnnualLeavePage() {
             loggedInEmployeeId={loggedInEmpId}
             onSubmit={createRequest}
             empLoading={empLoading}
+            open={requestFormOpen}
+            setOpen={setRequestFormOpen}
           />
 
           {shopToast && (
@@ -401,7 +486,7 @@ export function AnnualLeavePage() {
           <AnnualLeaveFilters
             tabCounts={tabCounts}
             filterStatus={filterStatus}
-            setFilterStatus={setFilterStatus}
+            setFilterStatus={handleSetFilterStatus}
             search={search}
             setSearch={setSearch}
             deptFilter={deptFilter}
@@ -426,7 +511,7 @@ export function AnnualLeavePage() {
                   <AnnualLeaveSectionGroup
                     key={sec.key}
                     sectionKey={sec.key}
-                    rows={filteredRequests.filter((r) => (r.effective_status || r.status) === sec.key)}
+                    rows={groupedRequests[sec.key] || []}
                     {...sectionProps}
                   />
                 ))
@@ -451,7 +536,7 @@ export function AnnualLeavePage() {
                       onSort={handleSort}
                     />
                     <tbody>
-                      {filteredRequests.map((row) =>
+                      {pagedRequests.map((row) =>
                         editingRow?.id === row.id ? (
                           <AnnualLeaveEditRowForm
                             key={row.id}
@@ -479,6 +564,17 @@ export function AnnualLeavePage() {
                       )}
                     </tbody>
                   </table>
+                  {remainingFlatRows > 0 && (
+                    <div className="al-section__more">
+                      <button
+                        type="button"
+                        className="al-btn al-btn--ghost"
+                        onClick={() => setVisibleLimit((n) => n + PAGE_SIZE)}
+                      >
+                        Show {Math.min(PAGE_SIZE, remainingFlatRows)} more
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </>

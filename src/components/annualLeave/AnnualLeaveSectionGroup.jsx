@@ -5,6 +5,8 @@ import { AnnualLeaveRow } from './AnnualLeaveRow'
 import { AnnualLeaveEditRowForm } from './AnnualLeaveEditRowForm'
 import { ANNUAL_LEAVE_SECTIONS, sectionHeadDot } from './annualLeaveSectionConfig'
 
+const INITIAL_ROWS_PER_SECTION = 8
+
 function sectionLabel(key) {
   return ANNUAL_LEAVE_SECTIONS.find((s) => s.key === key)?.label || key
 }
@@ -30,7 +32,7 @@ export function AnnualLeaveSectionGroup({
   onConfirmReturn,
   onExtend,
   onDelete,
-  onEditStart,
+  onEdit,
   onApprove,
   onReject,
   onOpenNote,
@@ -45,7 +47,10 @@ export function AnnualLeaveSectionGroup({
   onOpenEmployeeShop,
 }) {
   const [collapsed, setCollapsed] = useState(false)
+  const [showAll, setShowAll] = useState(false)
   const color = sectionHeadDot(sectionKey)
+  const visibleRows = showAll ? rows : rows.slice(0, INITIAL_ROWS_PER_SECTION)
+  const hiddenCount = Math.max(0, rows.length - visibleRows.length)
 
   if (rows.length === 0) return null
 
@@ -82,7 +87,7 @@ export function AnnualLeaveSectionGroup({
               onSort={onSort}
             />
             <tbody>
-              {rows.map((row) =>
+              {visibleRows.map((row) =>
                 editingRow?.id === row.id ? (
                   <AnnualLeaveEditRowForm
                     key={row.id}
@@ -104,7 +109,7 @@ export function AnnualLeaveSectionGroup({
                     onConfirmReturn={onConfirmReturn}
                     onExtend={onExtend}
                     onDelete={onDelete}
-                    onEdit={onEditStart}
+                    onEdit={onEdit}
                     onApprove={onApprove}
                     onReject={onReject}
                     onOpenNote={onOpenNote}
@@ -124,6 +129,13 @@ export function AnnualLeaveSectionGroup({
               )}
             </tbody>
           </table>
+          {hiddenCount > 0 && (
+            <div className="al-section__more">
+              <button type="button" className="al-btn al-btn--ghost" onClick={() => setShowAll(true)}>
+                Show {hiddenCount} more
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

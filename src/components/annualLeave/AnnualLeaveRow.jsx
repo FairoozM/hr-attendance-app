@@ -1,8 +1,9 @@
 import { fmtDMY } from '../../utils/dateFormat'
 import { alDaysBetween, alPeriodDate } from '../../utils/annualLeaveUtils'
 import { leaveStatusDisplay } from './annualLeaveLabels'
+import { getNextAction } from './leaveNextAction'
 import { AnnualLeaveDetailsPanel } from './AnnualLeaveDetailsPanel'
-import { IconEdit, IconTrash, IconChevron } from './annualLeaveRowIcons'
+import { IconChevron } from './annualLeaveRowIcons'
 import { EmpAvatar } from './EmpAvatar'
 import { StatusBadge } from './StatusBadge'
 
@@ -34,6 +35,7 @@ export function AnnualLeaveRow({
   const leaveDays = row.leave_days ?? alDaysBetween(row.from_date, row.to_date)
   const employeeCanEditThis = canEmployeeEditPending && row.status === 'Pending'
   const showActions = isAdmin || employeeCanEditThis
+  const nextAction = getNextAction(row, { isAdmin, isEmployee })
 
   return (
     <>
@@ -53,18 +55,18 @@ export function AnnualLeaveRow({
               <span className="al-row__period-from">From</span> {alPeriodDate(row.from_date)}{' '}
               <span className="al-row__period-to">to</span> {alPeriodDate(row.to_date)}
             </span>
+            <span className="al-row__days">{leaveDays} day{leaveDays !== 1 ? 's' : ''}</span>
           </div>
-        </td>
-        <td>
-          <span>{row.alternate_employee_full_name || '—'}</span>
-        </td>
-        <td className="al-row__days-cell">
-          <span className="al-row__days-num">{leaveDays}</span>
-          <span className="al-row__days-label"> days</span>
         </td>
         <td>
           <div className="al-row__status-stack" title={leaveStatusDisplay(es)}>
             <StatusBadge status={es} labelOverride={leaveStatusDisplay(es)} />
+          </div>
+        </td>
+        <td>
+          <div className="al-row__next">
+            <span>{nextAction.primaryLabel || nextAction.message}</span>
+            {nextAction.primaryLabel && <small>{nextAction.message}</small>}
           </div>
         </td>
         <td className="al-row__ret">
@@ -76,22 +78,23 @@ export function AnnualLeaveRow({
             '—'
           )}
         </td>
+        <td className="al-row__updated">
+          {row.updated_at ? fmtDMY(row.updated_at) : '—'}
+        </td>
         {showActions && (
           <td onClick={(e) => e.stopPropagation()}>
             <div className="al-row__acts al-row__acts--grouped">
-              {(isAdmin || employeeCanEditThis) && (
-                <button className="al-icon-btn al-icon-btn--edit" title="Edit" onClick={() => onEdit(row)} type="button">
-                  <IconEdit />
+              <button className="al-btn al-btn--primary al-btn--sm" onClick={onToggle} type="button">
+                {expanded ? 'Hide details' : nextAction.primaryLabel ? 'Manage' : 'Review'}
+              </button>
+              {employeeCanEditThis && (
+                <button className="al-btn al-btn--ghost al-btn--sm" onClick={() => onEdit(row)} type="button">
+                  Edit
                 </button>
               )}
-              {(isAdmin || employeeCanEditThis) && (row.status === 'Pending' || isAdmin) && (
-                <button
-                  className="al-icon-btn al-icon-btn--del al-row__act--dest"
-                  title="Delete"
-                  onClick={() => onDelete(row.id)}
-                  type="button"
-                >
-                  <IconTrash />
+              {employeeCanEditThis && row.status === 'Pending' && (
+                <button className="al-btn al-btn--del al-btn--sm" onClick={() => onDelete(row.id)} type="button">
+                  Delete
                 </button>
               )}
             </div>
@@ -116,6 +119,7 @@ export function AnnualLeaveRow({
                 onApprove={onApprove}
                 onReject={onReject}
                 onEdit={onEdit}
+                onDelete={onDelete}
                 onOpenEmployeeShop={onOpenEmployeeShop}
                 onShopConfirmOpen={onShopConfirmOpen}
                 onShopRescheduleOpen={onShopRescheduleOpen}

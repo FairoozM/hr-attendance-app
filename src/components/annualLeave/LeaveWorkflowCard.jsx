@@ -6,6 +6,7 @@ import { getNextAction, getLeaveKeyInfo, NA } from './leaveNextAction'
 import { LeaveTimeline } from './LeaveTimeline'
 import { IconChevron } from './annualLeaveRowIcons'
 import { LeaveLetterActions } from './LeaveLetterActions'
+import { LeaveWorkflowSteppers } from './LeaveWorkflowSteppers'
 import './LeaveWorkflowCard.css'
 
 /**
@@ -22,6 +23,7 @@ export function LeaveWorkflowCard({
   onApprove,
   onReject,
   onEdit,
+  onDelete,
   onOpenEmployeeShop,
   onShopConfirmOpen,
   onShopRescheduleOpen,
@@ -37,6 +39,14 @@ export function LeaveWorkflowCard({
   const secondary = na.secondary || []
   const key = getLeaveKeyInfo(row)
   const letterBusy = letterBusyId === row.id
+  const responsible = (() => {
+    if (!na.primaryId) {
+      if (row.status === 'Pending') return 'Admin'
+      if (row.status === 'Approved' && (!row.shop_visit_status || row.shop_visit_status === 'PendingSubmission')) return 'Employee'
+      return 'No action needed'
+    }
+    return [NA.EMPLOYEE_SHOP].includes(na.primaryId) ? 'Employee' : 'Admin'
+  })()
 
   function run(id) {
     switch (id) {
@@ -90,7 +100,11 @@ export function LeaveWorkflowCard({
       </header>
 
       <section className="lwc__next" aria-label="Next action">
-        <p className="lwc__next-msg">{na.message}</p>
+        <div>
+          <p className="lwc__next-label">Next required action</p>
+          <p className="lwc__next-msg">{na.message}</p>
+          <p className="lwc__owner">Responsible: {responsible}</p>
+        </div>
         <div className="lwc__next-btns">
           {na.primaryId && (
             <button
@@ -111,8 +125,22 @@ export function LeaveWorkflowCard({
               {b.label}
             </button>
           ))}
+          {(isAdmin || (isEmployee && row.status === 'Pending')) && (
+            <button type="button" className="lwc__btn lwc__btn--secondary" onClick={() => onEdit?.(row)}>
+              Edit request
+            </button>
+          )}
+          {(isAdmin || (isEmployee && row.status === 'Pending')) && (
+            <button type="button" className="lwc__btn lwc__btn--danger" onClick={() => onDelete?.(row.id)}>
+              Delete request
+            </button>
+          )}
         </div>
       </section>
+
+      <div className="lwc__steppers">
+        <LeaveWorkflowSteppers row={row} />
+      </div>
 
       <dl className="lwc__info">
         <div>
@@ -122,6 +150,10 @@ export function LeaveWorkflowCard({
         <div>
           <dt>Alternate</dt>
           <dd>{row.alternate_employee_full_name || '—'}</dd>
+        </div>
+        <div>
+          <dt>Updated</dt>
+          <dd>{row.updated_at ? fmtDMY(row.updated_at) : '—'}</dd>
         </div>
         {row.status === 'Approved' && key.shopLine && (
           <div>
@@ -151,7 +183,7 @@ export function LeaveWorkflowCard({
         onClick={() => setDetailsOpen((o) => !o)}
         aria-expanded={detailsOpen}
       >
-        {detailsOpen ? 'Hide details' : 'Show details'}
+        {detailsOpen ? 'Hide workflow details' : 'Workflow details'}
         <span className={`lwc__toggle-ic ${detailsOpen ? 'lwc__toggle-ic--up' : ''}`}>
           <IconChevron up={detailsOpen} />
         </span>

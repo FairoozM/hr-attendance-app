@@ -1,4 +1,50 @@
 /* ── Sub-tabs ── */
+.al-page-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.15rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, var(--glass-bg), color-mix(in srgb, var(--accent) 10%, transparent));
+  box-shadow: var(--glass-shadow);
+}
+
+.al-page-hero__eyebrow {
+  margin: 0 0 0.2rem;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.al-page-hero__subtitle {
+  margin: 0.25rem 0 0;
+  color: var(--text-muted);
+  max-width: 42rem;
+  line-height: 1.45;
+}
+
+.al-page-hero__scope {
+  margin: 0.55rem 0 0;
+  display: inline-flex;
+  padding: 0.24rem 0.65rem;
+  border-radius: 999px;
+  color: var(--text);
+  background: var(--theme-glass-soft);
+  border: 1px solid var(--theme-border-subtle);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.al-page-hero__cta {
+  flex-shrink: 0;
+  padding: 0.65rem 1rem;
+}
+
 .al-tabs {
   display: flex;
   gap: 0.35rem;
@@ -56,6 +102,11 @@
   box-shadow: var(--glass-shadow);
 }
 
+.al-stat-card--active {
+  outline: 2px solid color-mix(in srgb, var(--accent) 62%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--glass-bg));
+}
+
 .al-stat-card:hover {
   box-shadow: var(--glass-shadow-raised);
   transform: translateY(-2px);
@@ -74,6 +125,12 @@
 
 .al-stat-card__num   { font-size: 1.5rem; font-weight: 800; line-height: 1; color: var(--text); }
 .al-stat-card__label { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem; }
+.al-stat-card__hint {
+  margin-top: 0.18rem;
+  font-size: 0.64rem;
+  color: var(--text-muted);
+  line-height: 1.25;
+}
 
 /* ── New request ── */
 .al-new-request-wrap { margin-bottom: 1rem; }
@@ -89,12 +146,64 @@
   box-shadow: var(--glass-shadow);
 }
 
+.al-new-request-form__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.al-new-request-form__eyebrow {
+  margin: 0 0 0.2rem;
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.al-new-request-form__head h2 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text);
+}
+
 /* ── Forms ── */
 .al-form-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem 1rem;
   align-items: flex-end;
+}
+
+.al-form-section {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  border: 1px solid var(--theme-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--theme-surface-soft);
+}
+
+.al-form-section--wide {
+  flex: 1 1 260px;
+}
+
+.al-form-section__num {
+  width: 1.55rem;
+  height: 1.55rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.75rem;
+  align-self: center;
 }
 
 .al-form-row--edit { padding: 0.75rem 0; }
@@ -140,6 +249,11 @@
 
 .al-form-field--grow { flex: 1 1 180px; }
 .al-form-field--btn  { justify-content: flex-end; }
+.al-form-field--review { margin-left: auto; align-self: stretch; }
+.al-form-field__hint {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
 .al-form-err { color: var(--danger); font-size: 0.84rem; margin-top: 0.5rem; }
 
 /* ── Filter bar ── */
@@ -161,6 +275,10 @@
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+.al-filter-advanced-toggle {
+  padding: 0.48rem 0.75rem;
 }
 
 .al-filter-select {
@@ -265,6 +383,12 @@
   white-space: nowrap;
 }
 
+.al-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
 .al-table td {
   padding: 0.65rem 1rem;
   border-bottom: 1px solid var(--border-subtle);
@@ -324,6 +448,25 @@
 .al-row__ret       { font-size: 0.82rem; }
 .al-row__returned  { color: var(--success); font-weight: 600; }
 .al-row__expected  { color: var(--text-muted); }
+.al-row__updated  { color: var(--text-muted); font-size: 0.8rem; white-space: nowrap; }
+
+.al-row__next {
+  max-width: 18rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.al-row__next span {
+  color: var(--text);
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.al-row__next small {
+  color: var(--text-muted);
+  line-height: 1.25;
+}
 
 .al-row__acts    { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .al-row__chevron { color: var(--text-muted); font-size: 0.7rem; text-align: right; }
@@ -375,9 +518,6 @@
 }
 
 .al-detail {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
   padding: 1.1rem 1.5rem;
 }
 
@@ -592,6 +732,14 @@
   overflow-x: auto;
 }
 
+.al-section__more {
+  padding: 0.8rem 1rem;
+  display: flex;
+  justify-content: center;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--theme-surface-soft);
+}
+
 /* Leave request letter (PDF) */
 .al-doc-actions {
   margin-top: 1rem;
@@ -730,4 +878,78 @@
   border-radius: 50%;
   background: var(--theme-surface-soft, rgba(0, 0, 0, 0.04));
   border: 1px solid var(--theme-border-subtle);
+}
+
+@media (max-width: 760px) {
+  .al-page-hero,
+  .al-new-request-form__head {
+    flex-direction: column;
+  }
+
+  .al-page-hero__cta,
+  .al-new-request-form__head .al-btn {
+    width: 100%;
+  }
+
+  .al-dashboard {
+    grid-template-columns: 1fr;
+  }
+
+  .al-filter-bar--sticky {
+    position: static;
+  }
+
+  .al-filter-bar__right,
+  .al-search,
+  .al-filter-select,
+  .al-filter-advanced-toggle {
+    width: 100%;
+  }
+
+  .al-form-section,
+  .al-form-field--review {
+    width: 100%;
+  }
+
+  .al-table,
+  .al-table thead,
+  .al-table tbody,
+  .al-table tr,
+  .al-table td {
+    display: block;
+  }
+
+  .al-table thead {
+    display: none;
+  }
+
+  .al-row {
+    margin: 0.8rem;
+    border: 1px solid var(--theme-border-subtle);
+    border-radius: var(--radius);
+    background: var(--theme-surface-soft);
+    overflow: hidden;
+  }
+
+  .al-table td {
+    border-bottom: 0;
+    padding: 0.45rem 0.8rem;
+  }
+
+  .al-row-detail {
+    display: block;
+  }
+
+  .al-row-detail td {
+    display: block;
+  }
+
+  .al-row__acts--grouped,
+  .al-row__acts--grouped .al-btn {
+    width: 100%;
+  }
+
+  .al-row__chevron {
+    display: none !important;
+  }
 }

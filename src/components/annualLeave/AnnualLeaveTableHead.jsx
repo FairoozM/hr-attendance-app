@@ -14,18 +14,11 @@ export function AnnualLeaveTableHead({ showActions, sortBy, sortDir, onSort }) {
       <tr>
         <SortHeader col="name" label="Employee" current={sortBy} dir={sortDir} onSort={onSort} />
         <SortHeader col="from_date" label="Leave period" current={sortBy} dir={sortDir} onSort={onSort} />
-        <SortHeader col="alternate" label="Alternate" current={sortBy} dir={sortDir} onSort={onSort} />
-        <SortHeader
-          col="days"
-          label="Days"
-          current={sortBy}
-          dir={sortDir}
-          onSort={onSort}
-          style={{ width: 72, textAlign: 'center' }}
-        />
-        <SortHeader col="status" label="Status" current={sortBy} dir={sortDir} onSort={onSort} />
+        <SortHeader col="status" label="Current stage" current={sortBy} dir={sortDir} onSort={onSort} />
+        <th>Next action</th>
         <SortHeader col="return_date" label="Return" current={sortBy} dir={sortDir} onSort={onSort} />
-        {showActions && <th>Actions</th>}
+        <SortHeader col="updated_at" label="Last updated" current={sortBy} dir={sortDir} onSort={onSort} />
+        {showActions && <th>Main action</th>}
         <th />
       </tr>
     </thead>
