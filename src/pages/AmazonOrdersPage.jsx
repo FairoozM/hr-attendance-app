@@ -250,6 +250,7 @@ export function AmazonOrdersPage() {
   const [payload, setPayload] = useState(null)
   const [syncStatus, setSyncStatus] = useState(null)
   const [forceCooldownAck, setForceCooldownAck] = useState(false)
+  const [syncRequestedAt, setSyncRequestedAt] = useState('')
 
   const fetchSyncStatus = useCallback(async () => {
     try {
@@ -326,6 +327,37 @@ export function AmazonOrdersPage() {
     setForceCooldownAck(false)
   }, [marketplaceKey, dateFrom, dateTo])
 
+  useEffect(() => {
+    if (!syncing) return undefined
+    const timer = window.setInterval(async () => {
+      try {
+        const json = await api.get(`/api/amazon/sync/status?marketplaceKey=${encodeURIComponent(marketplaceKey)}`)
+        const nextStatus = json?.data?.[marketplaceKey] || null
+        setSyncStatus(nextStatus)
+        const status = nextStatus?.lastSync?.status
+        const startedAt = nextStatus?.lastSync?.startedAt
+        const isCurrentRequest =
+          !syncRequestedAt ||
+          (startedAt && new Date(startedAt).getTime() >= new Date(syncRequestedAt).getTime() - 1000)
+        if (!isCurrentRequest) return
+        if (status && status !== 'running') {
+          setSyncing(false)
+          if (status === 'success') {
+            setSyncMessage('Sync finished. Cache refreshed.')
+            await fetchOrders()
+          } else if (status === 'skipped') {
+            setSyncMessage(nextStatus?.lastSync?.errorMessage || 'Sync skipped.')
+          } else if (status === 'failed') {
+            setError(nextStatus?.lastSync?.errorMessage || 'Amazon sync failed.')
+          }
+        }
+      } catch {
+        /* keep existing cached rows visible; next interval can recover */
+      }
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [syncing, marketplaceKey, syncRequestedAt, fetchOrders])
+
   const runAmazonOrdersSync = useCallback(
     async (useForce) => {
       if (!canSync) return
@@ -336,6 +368,7 @@ export function AmazonOrdersPage() {
         return
       }
       setSyncing(true)
+      setSyncRequestedAt(new Date().toISOString())
       setSyncMessage('')
       setError('')
       setRangeError('')
@@ -350,8 +383,11 @@ export function AmazonOrdersPage() {
         }
         const json = await api.post('/api/amazon/orders/sync', body)
         const summary = json?.data
+        const isBackground = Boolean(summary?.background)
         if (summary && typeof summary.message === 'string') {
           setSyncMessage(summary.message)
+        } else if (isBackground) {
+          setSyncMessage('Sync started in the background.')
         } else {
           setSyncMessage('Sync finished.')
         }
@@ -362,7 +398,7 @@ export function AmazonOrdersPage() {
           setAmazonSupportRequestId('')
         }
         if (useForce) setForceCooldownAck(false)
-        await fetchOrders()
+        if (!isBackground) await fetchOrders()
         await fetchSyncStatus()
       } catch (e) {
         setError(safeErrorMessage(e))

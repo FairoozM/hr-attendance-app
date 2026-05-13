@@ -116,17 +116,32 @@ async function postAmazonOrdersSync(req, res) {
     const force = Boolean(body.force) && isAdmin
     const forceAllowed = isAdmin
 
-    const summary = await ordersSync.syncAmazonOrders({
+    const syncOptions = {
       marketplaceKey,
       createdAfter: createdAfter && !Number.isNaN(createdAfter.getTime()) ? createdAfter : null,
       createdBefore: createdBefore && !Number.isNaN(createdBefore.getTime()) ? createdBefore : null,
       includeItems,
       force,
       forceAllowed,
+    }
+
+    setImmediate(async () => {
+      try {
+        await ordersSync.syncAmazonOrders(syncOptions)
+      } catch (e) {
+        console.error('[amazon orders sync background]', e?.message || e)
+      }
     })
 
-    const httpStatus = 200
-    return res.status(httpStatus).json({ success: true, data: summary })
+    return res.status(202).json({
+      success: true,
+      data: {
+        marketplaceKey,
+        status: 'queued',
+        background: true,
+        message: 'Amazon orders sync started in the background. The page will update from cache when it completes.',
+      },
+    })
   } catch (e) {
     if (e?.code === 'AMAZON_SYNC_RANGE' || e?.code === 'AMAZON_SYNC_VALIDATION') {
       return res.status(400).json({
