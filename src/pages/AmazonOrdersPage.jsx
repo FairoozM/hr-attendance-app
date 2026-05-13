@@ -279,7 +279,7 @@ export function AmazonOrdersPage() {
           createdBefore,
           limit: '200',
           offset: '0',
-          includeSkuImages: '1',
+          includeSkuImages: '0',
         })
         const json = await api.get(`/api/amazon/orders?${qs.toString()}`)
         if (!json || json.success !== true || !json.data) {
