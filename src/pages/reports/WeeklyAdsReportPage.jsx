@@ -382,7 +382,7 @@ export function WeeklyAdsReportPage() {
       setZohoApplyInfo(
         warns.length > 0
           ? `Net sales updated. ${warns.join(' ')}`
-          : 'Net sales updated from Zoho (Sales by Item, with tax where available).',
+          : 'Net sales updated from Zoho Books (Sales by Customer — Sales with tax).',
       )
     } catch (err) {
       setZohoApplyError(err?.message || 'Could not load sales from Zoho.')
@@ -649,8 +649,8 @@ export function WeeklyAdsReportPage() {
             {zohoApplyLoading ? 'Loading…' : 'Apply from Zoho'}
           </button>
           <span className="war-zoho-row__hint">
-            Fills <strong>Net sales (AED)</strong> from Zoho Inventory Sales by Item (with tax when Zoho exposes it) for the week above. Configure warehouse IDs with{' '}
-            <code className="war-zoho-row__code">WEEKLY_ADS_ZOHO_WAREHOUSES_JSON</code> if name matching is wrong.
+            Fills <strong>Net sales (AED)</strong> from Zoho Books <strong>Sales by Customer</strong> (column <strong>Sales with tax</strong>) for the week above. Rows map to Zoho customers{' '}
+            <strong>Amazon</strong>, <strong>KSA-Amazon</strong>, <strong>Noon</strong>, and <strong>Website</strong> exactly; other Zoho customers are ignored.
           </span>
         </div>
         {zohoApplyError ? <p className="war-zoho-feedback war-zoho-feedback--error">{zohoApplyError}</p> : null}

@@ -847,7 +847,8 @@ async function exportReportByGroupXlsx(req, res) {
 /**
  * POST /api/weekly-reports/weekly-ads/zoho-sales
  * Body: { from_date, to_date, marketplaces: string[] }
- * Returns tax-inclusive Sales-by-Item totals per marketplace label (Zoho warehouse scoped).
+ * Returns Zoho Books Sales-by-Customer (`sales_with_tax`) per marketplace label; exact
+ * customer name mapping is defined in weeklyAdsZohoSalesService.js.
  */
 async function getWeeklyAdsZohoSales(req, res) {
   const from_date = req.body && req.body.from_date
