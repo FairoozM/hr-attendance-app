@@ -10,6 +10,8 @@ const {
   getSlowMovingReport,
   exportReportByGroupXlsx,
   exportFamilyClosingStockXlsx,
+  getWeeklyAdsZohoSales,
+  getWeeklyAdsAmazonAds,
 } = require('../controllers/weeklyReportsController')
 
 const router = express.Router()
@@ -49,6 +51,19 @@ router.get(
 
 // Quota snapshot only (no report/items fetch) — for filters bar UI
 router.get('/zoho-api-usage', requirePermission('weekly_reports', 'view'), getZohoApiUsageSnapshot)
+
+// Weekly Ads page: fill Net Sales from Zoho Sales-by-Item (with tax) per warehouse — invoked only when user clicks Apply
+router.post(
+  '/weekly-ads/zoho-sales',
+  requirePermission('weekly_reports', 'view'),
+  getWeeklyAdsZohoSales
+)
+
+router.post(
+  '/weekly-ads/amazon-ads',
+  requirePermission('weekly_reports', 'view'),
+  getWeeklyAdsAmazonAds
+)
 
 // Generic: per-group weekly Zoho-sourced report
 // GET /api/weekly-reports/by-group/:group?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD

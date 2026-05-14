@@ -1,7 +1,11 @@
 import { useState, useMemo, useCallback } from 'react'
+import { api } from '../../api/client'
 import './WeeklyAdsReportPage.css'
 
 const MARKETPLACES = ['Amazon (UAE)', 'Amazon (KSA)', 'Noon', 'Website']
+
+/** Rows that receive Amazon Advertising spend/clicks from Apply from Amazon */
+const AMAZON_ADS_MARKETPLACE_KEYS = ['Amazon (UAE)', 'Amazon (KSA)']
 
 const ACOS_THRESHOLD = 15 // percent — above this is flagged
 
@@ -32,6 +36,14 @@ function addDays(dateStr, n) {
   const d = new Date(dateStr)
   d.setDate(d.getDate() + n)
   return d.toISOString().slice(0, 10)
+}
+
+/** String for Net Sales cell from Zoho numeric total */
+function formatZohoSalesInput(n) {
+  if (n == null || !Number.isFinite(Number(n))) return ''
+  const x = Math.round(Number(n) * 100) / 100
+  if (Number.isInteger(x)) return String(x)
+  return String(x)
 }
 
 const DEFAULT_ROW = (overrides = {}) => ({ spend: '', clicks: '', sales: '', ...overrides })
@@ -304,6 +316,12 @@ export function WeeklyAdsReportPage() {
   const [marketplaceError, setMarketplaceError] = useState('')
   const [newSalesOnlyMarketplace, setNewSalesOnlyMarketplace] = useState('')
   const [salesOnlyMarketplaceError, setSalesOnlyMarketplaceError] = useState('')
+  const [zohoApplyLoading, setZohoApplyLoading] = useState(false)
+  const [zohoApplyError, setZohoApplyError] = useState('')
+  const [zohoApplyInfo, setZohoApplyInfo] = useState('')
+  const [amazonApplyLoading, setAmazonApplyLoading] = useState(false)
+  const [amazonApplyError, setAmazonApplyError] = useState('')
+  const [amazonApplyInfo, setAmazonApplyInfo] = useState('')
 
   const updateRow = useCallback((marketplace, field, value) => {
     setRows((prev) => {
@@ -327,6 +345,93 @@ export function WeeklyAdsReportPage() {
 
   const { adMarketplaces, salesOnlyMarketplaces } = useMemo(() => splitMarketplaceNames(rows), [rows])
   const marketplaceNames = useMemo(() => [...adMarketplaces, ...salesOnlyMarketplaces], [adMarketplaces, salesOnlyMarketplaces])
+
+  const handleApplyZohoSales = useCallback(async () => {
+    setZohoApplyError('')
+    setZohoApplyInfo('')
+    if (!startDate || !endDate) {
+      setZohoApplyError('Choose week start and week end first.')
+      return
+    }
+    if (!marketplaceNames.length) {
+      setZohoApplyError('No marketplace rows to fill.')
+      return
+    }
+    setZohoApplyLoading(true)
+    try {
+      const data = await api.post('/api/weekly-reports/weekly-ads/zoho-sales', {
+        from_date: startDate,
+        to_date: endDate,
+        marketplaces: marketplaceNames,
+      })
+      const sales = data?.sales || {}
+      setRows((prev) => {
+        const next = { ...prev }
+        for (const [name, val] of Object.entries(sales)) {
+          if (!Object.prototype.hasOwnProperty.call(next, name)) continue
+          if (val == null) continue
+          next[name] = {
+            ...next[name],
+            sales: formatZohoSalesInput(val),
+          }
+        }
+        return next
+      })
+      setSaved(false)
+      const warns = Array.isArray(data?.warnings) ? data.warnings.filter(Boolean) : []
+      setZohoApplyInfo(
+        warns.length > 0
+          ? `Net sales updated. ${warns.join(' ')}`
+          : 'Net sales updated from Zoho (Sales by Item, with tax where available).',
+      )
+    } catch (err) {
+      setZohoApplyError(err?.message || 'Could not load sales from Zoho.')
+    } finally {
+      setZohoApplyLoading(false)
+    }
+  }, [startDate, endDate, marketplaceNames])
+
+  const handleApplyAmazonAds = useCallback(async () => {
+    setAmazonApplyError('')
+    setAmazonApplyInfo('')
+    if (!startDate || !endDate) {
+      setAmazonApplyError('Choose week start and week end first.')
+      return
+    }
+    setAmazonApplyLoading(true)
+    try {
+      const data = await api.post('/api/weekly-reports/weekly-ads/amazon-ads', {
+        from_date: startDate,
+        to_date: endDate,
+      })
+      const spend = data?.spend || {}
+      const clicks = data?.clicks || {}
+      setRows((prev) => {
+        const next = { ...prev }
+        for (const name of AMAZON_ADS_MARKETPLACE_KEYS) {
+          if (!Object.prototype.hasOwnProperty.call(next, name)) continue
+          const sp = spend[name]
+          const cl = clicks[name]
+          if (sp == null && cl == null) continue
+          next[name] = {
+            ...next[name],
+            ...(sp != null ? { spend: formatZohoSalesInput(sp) } : {}),
+            ...(cl != null ? { clicks: String(Math.round(Number(cl))) } : {}),
+          }
+        }
+        return next
+      })
+      setSaved(false)
+      const warns = Array.isArray(data?.warnings) ? data.warnings.filter(Boolean) : []
+      setAmazonApplyInfo(
+        warns.length > 0 ? warns.join(' ') : 'Amazon ads spend and clicks updated for UAE and KSA.',
+      )
+    } catch (err) {
+      setAmazonApplyError(err?.message || 'Could not load ads from Amazon.')
+    } finally {
+      setAmazonApplyLoading(false)
+    }
+  }, [startDate, endDate])
 
   const handleAddMarketplace = useCallback(() => {
     const name = newMarketplace.trim().replace(/\s+/g, ' ')
@@ -507,7 +612,13 @@ export function WeeklyAdsReportPage() {
               type="date"
               className="war-input"
               value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              onChange={(e) => {
+                setStartDate(e.target.value)
+                setZohoApplyError('')
+                setZohoApplyInfo('')
+                setAmazonApplyError('')
+                setAmazonApplyInfo('')
+              }}
             />
           </div>
           <div className="war-form-field">
@@ -517,10 +628,52 @@ export function WeeklyAdsReportPage() {
               type="date"
               className="war-input"
               value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
+              onChange={(e) => {
+                setEndDate(e.target.value)
+                setZohoApplyError('')
+                setZohoApplyInfo('')
+                setAmazonApplyError('')
+                setAmazonApplyInfo('')
+              }}
             />
           </div>
         </div>
+
+        <div className="war-zoho-row">
+          <button
+            type="button"
+            className="war-btn war-btn--primary"
+            disabled={zohoApplyLoading || !startDate || !endDate}
+            onClick={handleApplyZohoSales}
+          >
+            {zohoApplyLoading ? 'Loading…' : 'Apply from Zoho'}
+          </button>
+          <span className="war-zoho-row__hint">
+            Fills <strong>Net sales (AED)</strong> from Zoho Inventory Sales by Item (with tax when Zoho exposes it) for the week above. Configure warehouse IDs with{' '}
+            <code className="war-zoho-row__code">WEEKLY_ADS_ZOHO_WAREHOUSES_JSON</code> if name matching is wrong.
+          </span>
+        </div>
+        {zohoApplyError ? <p className="war-zoho-feedback war-zoho-feedback--error">{zohoApplyError}</p> : null}
+        {zohoApplyInfo ? <p className="war-zoho-feedback war-zoho-feedback--ok">{zohoApplyInfo}</p> : null}
+
+        <div className="war-zoho-row war-amazon-ads-row">
+          <button
+            type="button"
+            className="war-btn war-btn--primary"
+            disabled={amazonApplyLoading || !startDate || !endDate}
+            onClick={handleApplyAmazonAds}
+          >
+            {amazonApplyLoading ? 'Loading…' : 'Apply from Amazon'}
+          </button>
+          <span className="war-zoho-row__hint">
+            Fills <strong>Ads spend</strong> and <strong>clicks</strong> for <strong>Amazon (UAE)</strong> and{' '}
+            <strong>Amazon (KSA)</strong> from Amazon Advertising (Sponsored Products). Set{' '}
+            <code className="war-zoho-row__code">AMAZON_UAE_ADS_PROFILE_ID</code> and{' '}
+            <code className="war-zoho-row__code">AMAZON_KSA_ADS_PROFILE_ID</code> on the server.
+          </span>
+        </div>
+        {amazonApplyError ? <p className="war-zoho-feedback war-zoho-feedback--error">{amazonApplyError}</p> : null}
+        {amazonApplyInfo ? <p className="war-zoho-feedback war-zoho-feedback--ok">{amazonApplyInfo}</p> : null}
 
         <div className="war-table-wrap war-input-table-wrap">
           <table className="war-table">

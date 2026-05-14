@@ -138,6 +138,49 @@
   box-shadow: 0 0 0 3px rgba(74, 124, 255, 0.12);
 }
 
+.war-zoho-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+  margin: -4px 0 16px;
+}
+
+.war-zoho-row__hint {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary, #6b7a99);
+  max-width: 720px;
+}
+
+.war-zoho-row__code {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(180, 193, 218, 0.25);
+  color: var(--text-primary, #1e2d4e);
+}
+
+.war-amazon-ads-row {
+  margin-top: -6px;
+}
+
+.war-zoho-feedback {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+
+.war-zoho-feedback--error {
+  color: #c0392b;
+}
+
+.war-zoho-feedback--ok {
+  color: #1f6b4a;
+}
+
 .war-marketplace-add {
   display: grid;
   grid-template-columns: minmax(240px, 1fr) auto;

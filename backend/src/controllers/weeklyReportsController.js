@@ -17,6 +17,8 @@ const {
 } = require('../services/weeklyReportXlsxService')
 const { getDailySuccessCount, getZohoGuardStatus } = require('../services/zohoApiClient')
 const { STOCK_REPORT_CACHE_VERSION } = require('../services/weeklyReportStockTotalsConfig')
+const { fetchWeeklyAdsZohoSalesWithTax } = require('../services/weeklyAdsZohoSalesService')
+const { fetchWeeklyAdsAmazonMarketplaceTotals } = require('../services/amazonAdvertisingService')
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -843,6 +845,79 @@ async function exportReportByGroupXlsx(req, res) {
 }
 
 /**
+ * POST /api/weekly-reports/weekly-ads/zoho-sales
+ * Body: { from_date, to_date, marketplaces: string[] }
+ * Returns tax-inclusive Sales-by-Item totals per marketplace label (Zoho warehouse scoped).
+ */
+async function getWeeklyAdsZohoSales(req, res) {
+  const from_date = req.body && req.body.from_date
+  const to_date = req.body && req.body.to_date
+  const marketplaces = req.body && req.body.marketplaces
+  if (!from_date || !to_date) {
+    return res.status(400).json({
+      error: 'Missing required body fields: from_date and to_date (YYYY-MM-DD)',
+    })
+  }
+  if (!DATE_RE.test(from_date) || !DATE_RE.test(to_date)) {
+    return res.status(400).json({ error: 'Dates must be in YYYY-MM-DD format' })
+  }
+  if (from_date > to_date) {
+    return res.status(400).json({ error: 'from_date must be before or equal to to_date' })
+  }
+  if (!Array.isArray(marketplaces) || marketplaces.length === 0) {
+    return res.status(400).json({
+      error: 'marketplaces must be a non-empty array of marketplace row labels',
+    })
+  }
+  try {
+    const payload = await fetchWeeklyAdsZohoSalesWithTax({
+      fromDate: from_date,
+      toDate: to_date,
+      marketplaceNames: marketplaces,
+    })
+    const zoho = await attachZohoApiUsageToday({})
+    return res.json({ ...payload, zoho })
+  } catch (err) {
+    if (err && err.code === 'BAD_REQUEST') {
+      return res.status(400).json({ error: err.message || 'Bad request' })
+    }
+    return await handleZohoError(res, err, 'getWeeklyAdsZohoSales')
+  }
+}
+
+/**
+ * POST /api/weekly-reports/weekly-ads/amazon-ads
+ * Body: { from_date, to_date }
+ * Fills Ads spend (and clicks) for Amazon (UAE) and Amazon (KSA) from Amazon Advertising reporting.
+ */
+async function getWeeklyAdsAmazonAds(req, res) {
+  const from_date = req.body && req.body.from_date
+  const to_date = req.body && req.body.to_date
+  if (!from_date || !to_date) {
+    return res.status(400).json({
+      error: 'Missing required body fields: from_date and to_date (YYYY-MM-DD)',
+    })
+  }
+  if (!DATE_RE.test(from_date) || !DATE_RE.test(to_date)) {
+    return res.status(400).json({ error: 'Dates must be in YYYY-MM-DD format' })
+  }
+  if (from_date > to_date) {
+    return res.status(400).json({ error: 'from_date must be before or equal to to_date' })
+  }
+  try {
+    const payload = await fetchWeeklyAdsAmazonMarketplaceTotals(from_date, to_date)
+    const zoho = await attachZohoApiUsageToday({})
+    return res.json({ ...payload, zoho })
+  } catch (err) {
+    console.error('[weeklyReports] getWeeklyAdsAmazonAds:', err && err.message)
+    return res.status(500).json({
+      error: err && err.message ? err.message : 'Failed to load Amazon Ads totals',
+      code: err && err.code,
+    })
+  }
+}
+
+/**
  * GET /api/weekly-reports/zoho-item-images/:itemId
  * Proxies Zoho `GET /inventory/v1/items/{id}/image` (Bearer auth in SPA cannot load Zoho
  * directly). Each family row includes `zoho_representative_item_id` for one catalog item
@@ -884,6 +959,8 @@ module.exports = {
   listAvailableGroups,
   getWarehouses,
   getZohoApiUsageSnapshot,
+  getWeeklyAdsZohoSales,
+  getWeeklyAdsAmazonAds,
   getZohoItemImage,
   getReportByGroup,
   getFamilyDetailsByGroupController,

@@ -245,6 +245,14 @@ test('itemTotalNetFromSalesByItemRow: ignores tax and gross; uses pre-tax amount
   else process.env.WEEKLY_REPORT_SALES_VAT_RATE = prevV
 })
 
+test('itemTotalWithTaxFromSalesByItemRow: prefers inclusive fields then amount+tax', () => {
+  const { itemTotalWithTaxFromSalesByItemRow } = require('../src/integrations/zoho/weeklyReportZohoTransactions')._internals
+  assert.equal(itemTotalWithTaxFromSalesByItemRow({ amount_inclusive_of_tax: 115 }), 115)
+  assert.equal(itemTotalWithTaxFromSalesByItemRow({ gross_amount: 99.5 }), 99.5)
+  assert.equal(itemTotalWithTaxFromSalesByItemRow({ amount: 100, item_tax: 5 }), 105)
+  assert.equal(itemTotalWithTaxFromSalesByItemRow({ amount: 100 }), 100)
+})
+
 test('assertReportVendorResolvedIfRequired: throws when vendor missing and not optional', () => {
   const prevO = process.env.WEEKLY_REPORT_VENDOR_OPTIONAL
   const prevV = process.env.REPORT_VENDOR_ID

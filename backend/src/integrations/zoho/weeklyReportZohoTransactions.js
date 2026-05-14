@@ -116,6 +116,66 @@ function itemTotalNetFromSalesByItemRow(r) {
 }
 
 /**
+ * One row from Zoho Inventory `GET /inventory/v1/reports/salesbyitem` — **total including tax**
+ * for the Weekly Ads "Net Sales (AED)" fill-in. Prefers inclusive fields from Zoho; otherwise
+ * pre-tax amount plus line tax columns.
+ *
+ * @param {object} r - one element of the report `sales[]` array
+ * @returns {number}
+ */
+function itemTotalWithTaxFromSalesByItemRow(r) {
+  if (!r || typeof r !== 'object') return 0
+  const p = (v) => {
+    if (v == null) return 0
+    if (v === '') return 0
+    if (typeof v === 'number' && Number.isFinite(v)) return v
+    return parseLineQty(v)
+  }
+  for (const k of [
+    'total_inclusive_amount',
+    'amount_inclusive_of_tax',
+    'total_inclusive',
+    'tax_inclusive_amount',
+    'inclusive_amount',
+  ]) {
+    if (r[k] == null || r[k] === '') continue
+    const v = p(r[k])
+    if (Number.isFinite(v) && v > 0) return v
+  }
+  const gross = p(r.gross_amount)
+  if (gross > 0) return gross
+  const net = itemTotalNetFromSalesByItemRow(r)
+  const lineTax =
+    p(r.item_tax) + p(r.tax_amount) + p(r.tax_total) + p(r.total_tax) + p(r.tax)
+  if (lineTax > 0) return net + lineTax
+  return net
+}
+
+/**
+ * Sum tax-inclusive Sales-by-Item totals for one Zoho warehouse (empty string = all warehouses).
+ *
+ * @param {string} fromDate - YYYY-MM-DD
+ * @param {string} toDate - YYYY-MM-DD
+ * @param {string} [warehouseId]
+ * @returns {Promise<{ total: number, truncated: boolean, pages: number, row_count: number }>}
+ */
+async function aggregateReportSalesWithTaxForWarehouse(fromDate, toDate, warehouseId) {
+  const wid = normalizeWarehouseId(warehouseId)
+  const { rows, truncated, pages } = await fetchSalesByItemRows(fromDate, toDate, wid)
+  let total = 0
+  for (const row of rows || []) {
+    total += itemTotalWithTaxFromSalesByItemRow(row)
+  }
+  const rounded = Math.round(total * 100) / 100
+  return {
+    total: rounded,
+    truncated: !!truncated,
+    pages: pages || 0,
+    row_count: Array.isArray(rows) ? rows.length : 0,
+  }
+}
+
+/**
  * @param {string|undefined} iso
  * @param {string} from - YYYY-MM-DD
  * @param {string} to
@@ -901,6 +961,8 @@ module.exports = {
   getStockReconstruction,
   isoDateLocal,
   isDateInRangeIncl,
+  itemTotalWithTaxFromSalesByItemRow,
+  aggregateReportSalesWithTaxForWarehouse,
   _internals: {
     parseLineQty,
     matchesReportVendor,
@@ -914,6 +976,7 @@ module.exports = {
     resolveLineWarehouseId,
     makeWarehouseLineFilter,
     itemTotalNetFromSalesByItemRow,
+    itemTotalWithTaxFromSalesByItemRow,
     /** @deprecated use itemTotalNetFromSalesByItemRow (pre-tax only) */
     itemTotalGrossFromSalesByItemRow: (r) => itemTotalNetFromSalesByItemRow(r),
     resolveWeeklyReportSalesVatRate,
