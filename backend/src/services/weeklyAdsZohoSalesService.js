@@ -14,13 +14,39 @@ const { aggregateReportSalesWithTaxForWarehouse } = require('../integrations/zoh
 
 /** @type {Record<string, string[][]>} marketplace label → list of token groups (AND within group) */
 const MARKETPLACE_WAREHOUSE_NAME_HINTS = {
-  'Amazon (UAE)': [['amazon', 'uae']],
+  'Amazon (UAE)': [
+    ['amazon', 'uae'],
+    ['amazon', 'ae'],
+    ['amazon', 'emirates'],
+    ['fba', 'uae'],
+    ['fba', 'ae'],
+  ],
   'Amazon (KSA)': [
     ['amazon', 'ksa'],
     ['amazon', 'saudi'],
+    ['amazon', 'riyadh'],
+    ['fba', 'ksa'],
+    ['fba', 'saudi'],
   ],
   Noon: [['noon']],
-  Website: [['website'], ['web store'], ['direct'], ['shopify']],
+  /** Avoid substring traps (e.g. "direct" inside "Directship"); see tokenMatchesInWarehouseName. */
+  Website: [['website'], ['web store'], ['shopify'], ['woocommerce'], ['magento'], ['b2c'], ['direct']],
+}
+
+function escapeRegExpToken(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * True if `token` appears in `warehouseNameLower` as a **whole word** (not a substring inside
+ * another word like "direct" in "Directship").
+ */
+function tokenMatchesInWarehouseName(warehouseNameLower, tokenRaw) {
+  const nm = String(warehouseNameLower || '').toLowerCase()
+  const t = String(tokenRaw || '').toLowerCase().trim()
+  if (!nm || !t) return false
+  const re = new RegExp(`(?:^|[^a-z0-9])${escapeRegExpToken(t)}(?:[^a-z0-9]|$)`, 'i')
+  return re.test(nm)
 }
 
 function readExplicitWarehouseMap() {
@@ -53,7 +79,7 @@ function resolveWarehouseIdForMarketplace(marketplaceLabel, warehouses, explicit
   for (const tokens of hints) {
     const hit = warehouses.find((wh) => {
       const nm = warehouseNameLower(wh)
-      return tokens.every((t) => nm.includes(String(t).toLowerCase()))
+      return tokens.every((t) => tokenMatchesInWarehouseName(nm, t))
     })
     if (hit?.warehouse_id) return String(hit.warehouse_id).trim()
   }
@@ -92,13 +118,13 @@ async function fetchWeeklyAdsZohoSalesWithTax({ fromDate, toDate, marketplaceNam
     warehouseByMarketplace[name] = resolveWarehouseIdForMarketplace(name, warehouses, explicit)
     if (!warehouseByMarketplace[name]) {
       warnings.push(
-        `No Zoho warehouse mapped for "${name}". Set WEEKLY_ADS_ZOHO_WAREHOUSES_JSON or align the Zoho warehouse name with the built-in hints.`,
+        `"${name}": no Zoho warehouse auto-matched. Map the row to a warehouse_id in WEEKLY_ADS_ZOHO_WAREHOUSES_JSON (keys must match these row names exactly).`,
       )
     } else if (!explicit[name]) {
       const wh = warehouses.find((w) => String(w.warehouse_id) === warehouseByMarketplace[name])
       if (wh?.warehouse_name) {
         warnings.push(
-          `"${name}" → Zoho warehouse "${wh.warehouse_name}" (${warehouseByMarketplace[name]}) matched by name; set WEEKLY_ADS_ZOHO_WAREHOUSES_JSON to pin IDs.`,
+          `"${name}" was auto-linked to Zoho warehouse "${wh.warehouse_name}" (${warehouseByMarketplace[name]}). Confirm this is correct, then pin it in WEEKLY_ADS_ZOHO_WAREHOUSES_JSON.`,
         )
       }
     }
@@ -146,4 +172,7 @@ async function fetchWeeklyAdsZohoSalesWithTax({ fromDate, toDate, marketplaceNam
   }
 }
 
-module.exports = { fetchWeeklyAdsZohoSalesWithTax }
+module.exports = {
+  fetchWeeklyAdsZohoSalesWithTax,
+  _internals: { tokenMatchesInWarehouseName },
+}
