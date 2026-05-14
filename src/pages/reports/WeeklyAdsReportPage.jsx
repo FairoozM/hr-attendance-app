@@ -271,7 +271,6 @@ function HistoryCard({ entry, onDelete, onEdit }) {
   )
 }
 
-/** Legacy browser-only storage (pre–server history). Migrated once per browser if server list is empty. */
 const LEGACY_WAR_STORAGE_KEY = 'war_history_v1'
 
 export function WeeklyAdsReportPage() {
@@ -328,32 +327,32 @@ export function WeeklyAdsReportPage() {
         let data = await api.get('/api/weekly-reports/weekly-ads/history')
         if (cancelled) return
         let list = Array.isArray(data.history) ? data.history : []
-        if (list.length === 0) {
-          try {
-            const raw = localStorage.getItem(LEGACY_WAR_STORAGE_KEY)
-            const legacy = raw ? JSON.parse(raw) : []
-            if (Array.isArray(legacy) && legacy.length > 0) {
-              for (const entry of legacy) {
-                if (!entry || typeof entry !== 'object') continue
-                const id = entry.id != null ? String(entry.id) : ''
-                if (!id) continue
-                await api.post('/api/weekly-reports/weekly-ads/history', {
-                  id,
-                  title: entry.title != null ? String(entry.title) : '',
-                  startDate: entry.startDate,
-                  endDate: entry.endDate,
-                  rows: entry.rows && typeof entry.rows === 'object' ? entry.rows : {},
-                  notes: entry.notes != null ? String(entry.notes) : '',
-                })
-              }
-              localStorage.removeItem(LEGACY_WAR_STORAGE_KEY)
-              data = await api.get('/api/weekly-reports/weekly-ads/history')
-              if (cancelled) return
-              list = Array.isArray(data.history) ? data.history : []
+        // Legacy browser-only snapshots: upsert every entry (server merges by id), then remove the key.
+        // Do not skip when the server already has rows — that used to drop local-only history.
+        try {
+          const raw = localStorage.getItem(LEGACY_WAR_STORAGE_KEY)
+          const legacy = raw ? JSON.parse(raw) : []
+          if (Array.isArray(legacy) && legacy.length > 0) {
+            for (const entry of legacy) {
+              if (!entry || typeof entry !== 'object') continue
+              const id = entry.id != null ? String(entry.id) : ''
+              if (!id) continue
+              await api.post('/api/weekly-reports/weekly-ads/history', {
+                id,
+                title: entry.title != null ? String(entry.title) : '',
+                startDate: entry.startDate,
+                endDate: entry.endDate,
+                rows: entry.rows && typeof entry.rows === 'object' ? entry.rows : {},
+                notes: entry.notes != null ? String(entry.notes) : '',
+              })
             }
-          } catch {
-            /* ignore migration failures; user can re-save */
+            localStorage.removeItem(LEGACY_WAR_STORAGE_KEY)
+            data = await api.get('/api/weekly-reports/weekly-ads/history')
+            if (cancelled) return
+            list = Array.isArray(data.history) ? data.history : []
           }
+        } catch {
+          /* leave localStorage for retry */
         }
         setHistory(list)
       } catch (e) {

@@ -14,6 +14,14 @@
 # Restore (example — use a throwaway DB first to verify):
 #   aws s3 cp s3://bucket/prefix/hr_attendance_YYYYMMDDTHHMMSSZ.dump.gz - | gunzip -c | pg_restore -d "$DATABASE_URL" --no-owner --no-acl --clean --if-exists
 #
+# Recover only Weekly Ads saved-report rows from an older backup without replacing prod:
+#   1) List objects: HR_DB_BACKUP_BUCKET=... bash scripts/list-db-backups-s3.sh
+#   2) Restore the chosen dump into a temporary database (new empty DB URL).
+#   3) Merge missing rows into production:
+#        SOURCE_DATABASE_URL='postgres://...tmp-restore...' \
+#        DATABASE_URL='postgres://...prod...' \
+#        node backend/scripts/mergeWeeklyAdsReportHistoryFromDatabase.js
+#
 set -euo pipefail
 
 REGION="${AWS_REGION:-eu-central-1}"

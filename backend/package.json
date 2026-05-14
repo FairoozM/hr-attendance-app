@@ -29,9 +29,14 @@
     "test:amazon-prod-uae": "node scripts/test-amazon-production-marketplaces.js uae",
     "test:amazon-prod-ksa": "node scripts/test-amazon-production-marketplaces.js ksa",
     "test:weekly-zoho": "node --test --test-reporter=spec tests/weeklyReportZohoData.test.js",
+    "test:amazon-ads-lwa-uae": "node scripts/test-amazon-ads-lwa-token.js uae",
+    "test:amazon-ads-lwa-ksa": "node scripts/test-amazon-ads-lwa-token.js ksa",
+    "test:amazon-ads-profiles-uae": "node scripts/test-amazon-ads-profiles.js uae",
+    "test:amazon-ads-profiles-ksa": "node scripts/test-amazon-ads-profiles.js ksa",
     "audit:amazon-spapi-safety": "node scripts/audit-amazon-spapi-safety.js",
     "test:amazon-error-request-id": "node scripts/test-amazon-error-request-id.js",
-    "debug:amazon-single-order-image": "node scripts/debug-amazon-single-order-image.js"
+    "debug:amazon-single-order-image": "node scripts/debug-amazon-single-order-image.js",
+    "db:merge-weekly-ads-history": "node scripts/mergeWeeklyAdsReportHistoryFromDatabase.js"
   },
   "keywords": [],
   "author": "",
@@ -41,6 +46,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1021.0",
     "axios": "^1.16.0",
     "bcrypt": "^5.1.1",
+    "cookie": "^0.7.2",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "exceljs": "^4.4.0",
