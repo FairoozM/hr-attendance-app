@@ -19,6 +19,11 @@ const { getDailySuccessCount, getZohoGuardStatus } = require('../services/zohoAp
 const { STOCK_REPORT_CACHE_VERSION } = require('../services/weeklyReportStockTotalsConfig')
 const { fetchWeeklyAdsZohoSalesWithTax } = require('../services/weeklyAdsZohoSalesService')
 const { fetchWeeklyAdsAmazonMarketplaceTotals } = require('../services/amazonAdvertisingService')
+const {
+  listWeeklyAdsReportHistory,
+  upsertWeeklyAdsReportHistory,
+  deleteWeeklyAdsReportHistory,
+} = require('../services/weeklyAdsReportHistoryStore')
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -886,6 +891,97 @@ async function getWeeklyAdsZohoSales(req, res) {
   }
 }
 
+function weeklyAdsHistoryUserId(req) {
+  const uid = parseInt(String(req.user && req.user.userId), 10)
+  return Number.isFinite(uid) && uid > 0 ? uid : null
+}
+
+/**
+ * GET /api/weekly-reports/weekly-ads/history
+ * Per-user Weekly Ads saved reports (server-side; replaces browser localStorage).
+ */
+async function getWeeklyAdsReportHistory(req, res) {
+  const userId = weeklyAdsHistoryUserId(req)
+  if (!userId) return res.status(400).json({ error: 'Invalid user' })
+  try {
+    const history = await listWeeklyAdsReportHistory(userId)
+    return res.json({ history })
+  } catch (err) {
+    console.error('[weeklyReports] getWeeklyAdsReportHistory:', err && err.message)
+    return res.status(500).json({ error: 'Failed to load Weekly Ads history' })
+  }
+}
+
+/**
+ * POST /api/weekly-reports/weekly-ads/history
+ * Body: { id, title, startDate, endDate, rows, notes? }
+ */
+async function postWeeklyAdsReportHistory(req, res) {
+  const userId = weeklyAdsHistoryUserId(req)
+  if (!userId) return res.status(400).json({ error: 'Invalid user' })
+  const b = req.body || {}
+  const id = String(b.id || '').trim()
+  if (!id || id.length > 128) {
+    return res.status(400).json({ error: 'id is required (max 128 characters)' })
+  }
+  const title = b.title != null ? String(b.title) : ''
+  const startDate = String(b.startDate || '').trim()
+  const endDate = String(b.endDate || '').trim()
+  if (!DATE_RE.test(startDate) || !DATE_RE.test(endDate)) {
+    return res.status(400).json({ error: 'startDate and endDate must be YYYY-MM-DD' })
+  }
+  if (startDate > endDate) {
+    return res.status(400).json({ error: 'startDate must be before or equal to endDate' })
+  }
+  if (b.rows == null || typeof b.rows !== 'object' || Array.isArray(b.rows)) {
+    return res.status(400).json({ error: 'rows must be a JSON object' })
+  }
+  let size = 0
+  try {
+    size = Buffer.byteLength(JSON.stringify(b.rows), 'utf8')
+  } catch {
+    return res.status(400).json({ error: 'rows must be serializable JSON' })
+  }
+  if (size > 600_000) {
+    return res.status(400).json({ error: 'rows payload too large' })
+  }
+  try {
+    await upsertWeeklyAdsReportHistory(userId, {
+      id,
+      title,
+      startDate,
+      endDate,
+      rows: b.rows,
+      notes: b.notes != null ? String(b.notes) : '',
+    })
+    const history = await listWeeklyAdsReportHistory(userId)
+    return res.json({ history })
+  } catch (err) {
+    console.error('[weeklyReports] postWeeklyAdsReportHistory:', err && err.message)
+    return res.status(500).json({ error: 'Failed to save Weekly Ads report' })
+  }
+}
+
+/**
+ * DELETE /api/weekly-reports/weekly-ads/history/:id
+ */
+async function deleteWeeklyAdsReportHistoryHandler(req, res) {
+  const userId = weeklyAdsHistoryUserId(req)
+  if (!userId) return res.status(400).json({ error: 'Invalid user' })
+  const id = String(req.params.id || '').trim()
+  if (!id || id.length > 128) {
+    return res.status(400).json({ error: 'Invalid id' })
+  }
+  try {
+    await deleteWeeklyAdsReportHistory(userId, id)
+    const history = await listWeeklyAdsReportHistory(userId)
+    return res.json({ history })
+  } catch (err) {
+    console.error('[weeklyReports] deleteWeeklyAdsReportHistoryHandler:', err && err.message)
+    return res.status(500).json({ error: 'Failed to delete Weekly Ads report' })
+  }
+}
+
 /**
  * POST /api/weekly-reports/weekly-ads/amazon-ads
  * Body: { from_date, to_date }
@@ -960,6 +1056,9 @@ module.exports = {
   listAvailableGroups,
   getWarehouses,
   getZohoApiUsageSnapshot,
+  getWeeklyAdsReportHistory,
+  postWeeklyAdsReportHistory,
+  deleteWeeklyAdsReportHistoryHandler,
   getWeeklyAdsZohoSales,
   getWeeklyAdsAmazonAds,
   getZohoItemImage,

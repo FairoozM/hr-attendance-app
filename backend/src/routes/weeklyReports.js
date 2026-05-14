@@ -10,6 +10,9 @@ const {
   getSlowMovingReport,
   exportReportByGroupXlsx,
   exportFamilyClosingStockXlsx,
+  getWeeklyAdsReportHistory,
+  postWeeklyAdsReportHistory,
+  deleteWeeklyAdsReportHistoryHandler,
   getWeeklyAdsZohoSales,
   getWeeklyAdsAmazonAds,
 } = require('../controllers/weeklyReportsController')
@@ -51,6 +54,23 @@ router.get(
 
 // Quota snapshot only (no report/items fetch) — for filters bar UI
 router.get('/zoho-api-usage', requirePermission('weekly_reports', 'view'), getZohoApiUsageSnapshot)
+
+// Weekly Ads: saved report history (PostgreSQL per user — not localStorage)
+router.get(
+  '/weekly-ads/history',
+  requirePermission('weekly_reports', 'view'),
+  getWeeklyAdsReportHistory
+)
+router.post(
+  '/weekly-ads/history',
+  requirePermission('weekly_reports', 'view'),
+  postWeeklyAdsReportHistory
+)
+router.delete(
+  '/weekly-ads/history/:id',
+  requirePermission('weekly_reports', 'view'),
+  deleteWeeklyAdsReportHistoryHandler
+)
 
 // Weekly Ads page: fill Net Sales from Zoho Sales-by-Item (with tax) per warehouse — invoked only when user clicks Apply
 router.post(

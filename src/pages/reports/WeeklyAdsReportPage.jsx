@@ -1,5 +1,6 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { api } from '../../api/client'
+import { useAuth } from '../../contexts/AuthContext'
 import './WeeklyAdsReportPage.css'
 
 const MARKETPLACES = ['Amazon (UAE)', 'Amazon (KSA)', 'Noon', 'Website']
@@ -86,7 +87,7 @@ function EmptyState() {
         <path d="M3 9h18M9 21V9" />
       </svg>
       <p>No weekly reports yet.</p>
-      <p className="war-empty__sub">Fill in the form above and save to build history.</p>
+      <p className="war-empty__sub">Save a report above — history is stored on your account (synced across devices).</p>
     </div>
   )
 }
@@ -270,27 +271,16 @@ function HistoryCard({ entry, onDelete, onEdit }) {
   )
 }
 
-const STORAGE_KEY = 'war_history_v1'
-
-function loadHistory() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
-}
-
-function saveHistory(list) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list))
-  } catch {
-    // ignore quota errors
-  }
-}
+/** Legacy browser-only storage (pre–server history). Migrated once per browser if server list is empty. */
+const LEGACY_WAR_STORAGE_KEY = 'war_history_v1'
 
 export function WeeklyAdsReportPage() {
-  const [history, setHistory] = useState(loadHistory)
+  const { user } = useAuth()
+  const [history, setHistory] = useState([])
+  const [historyLoading, setHistoryLoading] = useState(true)
+  const [historyError, setHistoryError] = useState('')
+  const [historySaveError, setHistorySaveError] = useState('')
+  const [historySaving, setHistorySaving] = useState(false)
   const [editingId, setEditingId] = useState(null)
 
   // Form state
@@ -322,6 +312,61 @@ export function WeeklyAdsReportPage() {
   const [amazonApplyLoading, setAmazonApplyLoading] = useState(false)
   const [amazonApplyError, setAmazonApplyError] = useState('')
   const [amazonApplyInfo, setAmazonApplyInfo] = useState('')
+
+  useEffect(() => {
+    if (!user) {
+      setHistory([])
+      setHistoryLoading(false)
+      setHistoryError('')
+      return
+    }
+    let cancelled = false
+    async function load() {
+      setHistoryLoading(true)
+      setHistoryError('')
+      try {
+        let data = await api.get('/api/weekly-reports/weekly-ads/history')
+        if (cancelled) return
+        let list = Array.isArray(data.history) ? data.history : []
+        if (list.length === 0) {
+          try {
+            const raw = localStorage.getItem(LEGACY_WAR_STORAGE_KEY)
+            const legacy = raw ? JSON.parse(raw) : []
+            if (Array.isArray(legacy) && legacy.length > 0) {
+              for (const entry of legacy) {
+                if (!entry || typeof entry !== 'object') continue
+                const id = entry.id != null ? String(entry.id) : ''
+                if (!id) continue
+                await api.post('/api/weekly-reports/weekly-ads/history', {
+                  id,
+                  title: entry.title != null ? String(entry.title) : '',
+                  startDate: entry.startDate,
+                  endDate: entry.endDate,
+                  rows: entry.rows && typeof entry.rows === 'object' ? entry.rows : {},
+                  notes: entry.notes != null ? String(entry.notes) : '',
+                })
+              }
+              localStorage.removeItem(LEGACY_WAR_STORAGE_KEY)
+              data = await api.get('/api/weekly-reports/weekly-ads/history')
+              if (cancelled) return
+              list = Array.isArray(data.history) ? data.history : []
+            }
+          } catch {
+            /* ignore migration failures; user can re-save */
+          }
+        }
+        setHistory(list)
+      } catch (e) {
+        if (!cancelled) setHistoryError(e?.message || 'Failed to load report history.')
+      } finally {
+        if (!cancelled) setHistoryLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [user])
 
   const updateRow = useCallback((marketplace, field, value) => {
     setRows((prev) => {
@@ -514,8 +559,9 @@ export function WeeklyAdsReportPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [])
 
-  const handleSave = () => {
-    const entryId = editingId || Date.now().toString()
+  const handleSave = async () => {
+    setHistorySaveError('')
+    const entryId = editingId || String(Date.now())
     const entry = {
       id: entryId,
       title,
@@ -525,39 +571,58 @@ export function WeeklyAdsReportPage() {
       notes,
       savedAt: new Date().toISOString(),
     }
-    const updated = editingId
-      ? history.map((h) => (h.id === editingId ? entry : h))
-      : [entry, ...history]
-    setHistory(updated)
-    saveHistory(updated)
-    setEditingId(null)
-    setSaved(true)
-    // Reset form to next week only for new entries
-    if (!editingId) {
-      const nextStart = addDays(endDate, 1)
-      const nextEnd = addDays(endDate, 7)
-      setStartDate(nextStart)
-      setEndDate(nextEnd)
-      setRows(DEFAULT_ROWS())
-      setNotes('')
-      setNewMarketplace('')
-      setMarketplaceError('')
-      setNewSalesOnlyMarketplace('')
-      setSalesOnlyMarketplaceError('')
+    setHistorySaving(true)
+    const wasEditing = Boolean(editingId)
+    try {
+      const data = await api.post('/api/weekly-reports/weekly-ads/history', {
+        id: entry.id,
+        title: entry.title,
+        startDate: entry.startDate,
+        endDate: entry.endDate,
+        rows: entry.rows,
+        notes: entry.notes,
+      })
+      setHistory(Array.isArray(data.history) ? data.history : [])
+      setEditingId(null)
+      setSaved(true)
+      if (!wasEditing) {
+        const nextStart = addDays(endDate, 1)
+        const nextEnd = addDays(endDate, 7)
+        setStartDate(nextStart)
+        setEndDate(nextEnd)
+        setRows(DEFAULT_ROWS())
+        setNotes('')
+        setNewMarketplace('')
+        setMarketplaceError('')
+        setNewSalesOnlyMarketplace('')
+        setSalesOnlyMarketplaceError('')
+      }
+      setTimeout(() => setSaved(false), 3000)
+    } catch (e) {
+      setHistorySaveError(e?.message || 'Could not save report.')
+    } finally {
+      setHistorySaving(false)
     }
-    setTimeout(() => setSaved(false), 3000)
   }
 
-  const handleDelete = useCallback((id) => {
-    setHistory((prev) => {
-      const updated = prev.filter((e) => e.id !== id)
-      saveHistory(updated)
-      return updated
-    })
-    if (editingId === id) {
-      beginCreateNew()
-    }
-  }, [editingId, beginCreateNew])
+  const handleDelete = useCallback(
+    async (id) => {
+      setHistorySaveError('')
+      try {
+        const data = await api.delete(
+          `/api/weekly-reports/weekly-ads/history/${encodeURIComponent(id)}`,
+        )
+        setHistory(Array.isArray(data.history) ? data.history : [])
+      } catch (e) {
+        setHistorySaveError(e?.message || 'Could not delete report.')
+        return
+      }
+      if (editingId === id) {
+        beginCreateNew()
+      }
+    },
+    [editingId, beginCreateNew],
+  )
 
   const handleClearForm = () => {
     setRows(DEFAULT_ROWS())
@@ -884,14 +949,14 @@ export function WeeklyAdsReportPage() {
             type="button"
             className="war-btn war-btn--primary"
             onClick={handleSave}
-            disabled={!startDate || !endDate}
+            disabled={historySaving || !startDate || !endDate}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
               <polyline points="17 21 17 13 7 13 7 21" />
               <polyline points="7 3 7 8 15 8" />
             </svg>
-            {editingId ? 'Update Report' : 'Save Report'}
+            {historySaving ? 'Saving…' : editingId ? 'Update Report' : 'Save Report'}
           </button>
         </div>
       </section>
@@ -908,9 +973,15 @@ export function WeeklyAdsReportPage() {
       <section className="war-section">
         <div className="war-section__row">
           <h2 className="war-section__title">Report History</h2>
-          <span className="war-history-count">{history.length} {history.length === 1 ? 'report' : 'reports'}</span>
+          <span className="war-history-count">
+            {historyLoading ? '…' : `${history.length} ${history.length === 1 ? 'report' : 'reports'}`}
+          </span>
         </div>
-        {history.length === 0 ? (
+        {historyError ? <p className="war-zoho-feedback war-zoho-feedback--error">{historyError}</p> : null}
+        {historySaveError ? <p className="war-zoho-feedback war-zoho-feedback--error">{historySaveError}</p> : null}
+        {historyLoading ? (
+          <p className="war-empty__sub">Loading history…</p>
+        ) : history.length === 0 ? (
           <EmptyState />
         ) : (
           <div className="war-history-list">

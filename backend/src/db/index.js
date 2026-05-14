@@ -974,6 +974,12 @@ async function testConnection() {
     console.error('[db] ensureItemReportGroupsImportLogTable skipped/failed (non-fatal):', e.message || e)
   }
   try {
+    const { ensureWeeklyAdsReportHistoryTable } = require('../services/weeklyAdsReportHistoryStore')
+    await ensureWeeklyAdsReportHistoryTable()
+  } catch (e) {
+    console.error('[db] ensureWeeklyAdsReportHistoryTable skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
     const { ensureZohoApiTables } = require('../services/zohoApiStore')
     await ensureZohoApiTables()
   } catch (e) {
