@@ -64,7 +64,8 @@ async function bulkUpsertPerformanceRecords(req, res) {
 async function deletePerformanceRecord(req, res) {
   try {
     const id = req.params.id
-    const result = await influencerPerformanceService.deletePerformanceRecord(id)
+    const userId = req.user?.userId != null ? String(req.user.userId) : null
+    const result = await influencerPerformanceService.deletePerformanceRecord(id, userId)
     if (!result.deleted) {
       return res.status(404).json({ error: 'Record not found' })
     }

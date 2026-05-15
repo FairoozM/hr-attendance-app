@@ -3,6 +3,8 @@ import {
   normalizePerformanceRecord,
   toNumber,
 } from '../../utils/influencerPerformanceUtils'
+import { PREF_INFLUENCER_PERF } from '../../constants/userPreferenceKeys'
+import { getUserPrefKey, requestUserPrefSave } from '../../lib/userPreferencesBridge'
 
 /** Cap contract-search results in performance timeline panels (desktop + phone). */
 export const CONTRACT_TIMELINE_RESULTS_CAP = 60
@@ -12,11 +14,20 @@ export const TOMBSTONE_KEY = 'hr-influencer-performance-tombstones-v1'
 
 const TOMBSTONE_TTL_MS = 1000 * 60 * 60 * 24 * 90
 
+function readPerfBundle() {
+  const b = getUserPrefKey(PREF_INFLUENCER_PERF, null)
+  return b && typeof b === 'object' ? b : {}
+}
+
+function writePerfBundle(patch) {
+  const cur = readPerfBundle()
+  const next = { ...cur, ...patch }
+  requestUserPrefSave(PREF_INFLUENCER_PERF, next)
+}
+
 export function loadTombstones() {
   try {
-    const raw = localStorage.getItem(TOMBSTONE_KEY)
-    if (!raw) return new Map()
-    const parsed = JSON.parse(raw)
+    const parsed = readPerfBundle().tombstones
     if (!parsed || typeof parsed !== 'object') return new Map()
     return new Map(Object.entries(parsed).map(([k, v]) => [String(k), Number(v) || 0]))
   } catch {
@@ -28,9 +39,9 @@ export function saveTombstones(map) {
   try {
     const obj = {}
     for (const [k, v] of map) obj[k] = v
-    localStorage.setItem(TOMBSTONE_KEY, JSON.stringify(obj))
+    writePerfBundle({ tombstones: obj })
   } catch {
-    // best effort
+    /* ignore */
   }
 }
 
@@ -70,9 +81,7 @@ export const PERFORMANCE_SORT_OPTIONS = [
 
 export function loadStoredRecords() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
+    const parsed = readPerfBundle().records
     if (!Array.isArray(parsed)) return null
     return dedupePerformanceRecords(parsed.map(normalizePerformanceRecord))
   } catch {
@@ -82,9 +91,14 @@ export function loadStoredRecords() {
 
 export function saveRecords(records) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(records))
+    const bundle = readPerfBundle()
+    const tombstones = bundle.tombstones && typeof bundle.tombstones === 'object' ? bundle.tombstones : {}
+    // Performance records are canonical in influencer_performance_records. Keep old cached
+    // records out of user_preferences so deletes cannot resurrect from stale preference blobs.
+    const { records: _records, ...rest } = bundle
+    requestUserPrefSave(PREF_INFLUENCER_PERF, { ...rest, tombstones })
   } catch {
-    // Local mock storage is best effort; backend integration can replace this.
+    /* ignore */
   }
 }
 

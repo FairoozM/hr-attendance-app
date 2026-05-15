@@ -428,6 +428,13 @@ async function ensureInfluencerPerformanceRecordsTable() {
   await query(`CREATE INDEX IF NOT EXISTS idx_ipr_influencer ON influencer_performance_records(influencer_id)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_ipr_contract ON influencer_performance_records(contract_id)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_ipr_check_date ON influencer_performance_records(check_date)`)
+  await query(`
+    CREATE TABLE IF NOT EXISTS influencer_performance_record_tombstones (
+      id TEXT PRIMARY KEY,
+      deleted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+    )
+  `)
 }
 
 async function ensureDocumentExpiryTable() {
@@ -978,6 +985,12 @@ async function testConnection() {
     await ensureWeeklyAdsReportHistoryTable()
   } catch (e) {
     console.error('[db] ensureWeeklyAdsReportHistoryTable skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    const { ensureUserPreferencesTable } = require('../services/userPreferencesStore')
+    await ensureUserPreferencesTable()
+  } catch (e) {
+    console.error('[db] ensureUserPreferencesTable skipped/failed (non-fatal):', e.message || e)
   }
   try {
     const { ensureZohoApiTables } = require('../services/zohoApiStore')

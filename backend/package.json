@@ -36,7 +36,8 @@
     "audit:amazon-spapi-safety": "node scripts/audit-amazon-spapi-safety.js",
     "test:amazon-error-request-id": "node scripts/test-amazon-error-request-id.js",
     "debug:amazon-single-order-image": "node scripts/debug-amazon-single-order-image.js",
-    "db:merge-weekly-ads-history": "node scripts/mergeWeeklyAdsReportHistoryFromDatabase.js"
+    "db:merge-weekly-ads-history": "node scripts/mergeWeeklyAdsReportHistoryFromDatabase.js",
+    "db:cleanup-eternal-influencer-performance": "node scripts/cleanup-eternal-influencer-performance-record.js"
   },
   "keywords": [],
   "author": "",

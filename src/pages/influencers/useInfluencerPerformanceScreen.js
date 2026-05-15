@@ -102,7 +102,11 @@ export function useInfluencerPerformanceScreen() {
     try {
       const result = await api.post('/api/influencers/performance-records/bulk-upsert', { records: list })
       saveRecords(list)
-      setSyncHint(result?.skipped ? `${result.skipped} record(s) were not saved because the influencer no longer exists on the server.` : '')
+      if (result?.skippedTombstoned) {
+        setSyncHint(`${result.skippedTombstoned} deleted record(s) were not restored.`)
+      } else {
+        setSyncHint(result?.skipped ? `${result.skipped} record(s) were not saved because the influencer no longer exists on the server.` : '')
+      }
     } catch (err) {
       console.warn('[InfluencerPerformance] server save failed', err)
       saveRecords(list)
@@ -121,36 +125,20 @@ export function useInfluencerPerformanceScreen() {
           ? data.records.map((r) => normalizePerformanceRecord(r))
           : []
         const tombstones = pruneTombstones()
-        const serverIds = new Set(server.map((r) => String(r.id)).filter(Boolean))
         const localRaw = loadStoredRecords() || []
         const local = localRaw
           .map((r) => normalizePerformanceRecord(r))
           .filter((record) => !isSeededMockPerformanceRecord(record))
           .filter((record) => !tombstones.has(String(record.id)))
         const localOnlyCount = local.reduce((count, record) => (
-          serverIds.has(String(record.id)) ? count : count + 1
+          server.some((serverRecord) => String(serverRecord.id) === String(record.id)) ? count : count + 1
         ), 0)
-        const merged = dedupePerformanceRecords([...server, ...local])
         if (cancelled) return
         setServerMergedOnce(true)
-        if (merged.length > 0) {
-          setRecords(merged)
-          if (canMutateInfluencerPerformance(user) && localOnlyCount > 0) {
-            const result = await api.post('/api/influencers/performance-records/bulk-upsert', { records: merged })
-            if (result?.skipped) {
-              setSyncHint(`${result.skipped} record(s) were not saved because the influencer no longer exists on the server.`)
-            }
-            const again = await api.get('/api/influencers/performance-records')
-            if (!cancelled && Array.isArray(again?.records)) {
-              const next = dedupePerformanceRecords(again.records.map((r) => normalizePerformanceRecord(r)))
-              setRecords(next)
-              saveRecords(next)
-            }
-          } else {
-            saveRecords(merged)
-          }
-        } else {
-          setRecords([])
+        setRecords(server)
+        saveRecords(server)
+        if (localOnlyCount > 0) {
+          setSyncHint(`${localOnlyCount} cached local record(s) were found but were not auto-synced. Use restore if needed.`)
         }
       } catch (err) {
         console.warn('[InfluencerPerformance] server load failed', err)

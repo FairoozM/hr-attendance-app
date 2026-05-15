@@ -1,4 +1,4 @@
-const { query, ensureInfluencerPerformanceRecordsTable } = require('../db')
+const { query, pool, ensureInfluencerPerformanceRecordsTable } = require('../db')
 const influencersService = require('./influencersService')
 
 function isoDateSlice(value) {
@@ -120,22 +120,36 @@ async function getPerformanceRecordBodyById(recordId) {
   return body && typeof body === 'object' ? body : null
 }
 
+async function getTombstonedRecordIds(ids) {
+  const cleanIds = Array.from(new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean)))
+  if (!cleanIds.length) return new Set()
+  const r = await query(
+    `SELECT id FROM influencer_performance_record_tombstones WHERE id = ANY($1::text[])`,
+    [cleanIds],
+  )
+  return new Set(r.rows.map((row) => String(row.id)))
+}
+
 /**
  * Upserts records; skips rows whose influencer id is not in the influencers snapshot.
  */
 async function bulkUpsertPerformanceRecords(records, updatedByUserId, isAdmin = false) {
   await ensureInfluencerPerformanceRecordsTable()
   if (!Array.isArray(records) || records.length === 0) {
-    return { upserted: 0, skipped: 0 }
+    return { upserted: 0, skipped: 0, skippedTombstoned: 0, skippedTombstonedIds: [] }
   }
 
   let upserted = 0
   let skipped = 0
+  let skippedTombstoned = 0
+  const skippedTombstonedIds = []
   const uid =
     updatedByUserId != null && String(updatedByUserId).trim() !== ''
       ? Number.parseInt(String(updatedByUserId), 10)
       : null
   const validUid = Number.isFinite(uid) ? uid : null
+  const incomingIds = records.map((record) => (record && record.id != null ? String(record.id).trim() : ''))
+  const tombstonedIds = await getTombstonedRecordIds(incomingIds)
 
   for (const raw of records) {
     if (!raw || typeof raw !== 'object') {
@@ -147,6 +161,12 @@ async function bulkUpsertPerformanceRecords(records, updatedByUserId, isAdmin = 
     const checkDate = isoDateSlice(raw.date)
     if (!id || !influencerId || !checkDate) {
       skipped++
+      continue
+    }
+    if (tombstonedIds.has(id)) {
+      skipped++
+      skippedTombstoned++
+      skippedTombstonedIds.push(id)
       continue
     }
 
@@ -180,15 +200,36 @@ async function bulkUpsertPerformanceRecords(records, updatedByUserId, isAdmin = 
     upserted++
   }
 
-  return { upserted, skipped }
+  return { upserted, skipped, skippedTombstoned, skippedTombstonedIds }
 }
 
-async function deletePerformanceRecord(recordId, _updatedByUserId) {
+async function deletePerformanceRecord(recordId, updatedByUserId) {
   await ensureInfluencerPerformanceRecordsTable()
   const id = String(recordId || '').trim()
   if (!id) return { deleted: false }
-  const r = await query(`DELETE FROM influencer_performance_records WHERE id = $1`, [id])
-  return { deleted: r.rowCount > 0 }
+  const uid =
+    updatedByUserId != null && String(updatedByUserId).trim() !== ''
+      ? Number.parseInt(String(updatedByUserId), 10)
+      : null
+  const validUid = Number.isFinite(uid) ? uid : null
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const r = await client.query(`DELETE FROM influencer_performance_records WHERE id = $1`, [id])
+    await client.query(
+      `INSERT INTO influencer_performance_record_tombstones (id, deleted_by)
+       VALUES ($1, $2)
+       ON CONFLICT (id) DO NOTHING`,
+      [id, validUid],
+    )
+    await client.query('COMMIT')
+    return { deleted: r.rowCount > 0 }
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw err
+  } finally {
+    client.release()
+  }
 }
 
 module.exports = {
@@ -196,4 +237,5 @@ module.exports = {
   listPerformanceContracts,
   bulkUpsertPerformanceRecords,
   deletePerformanceRecord,
+  getTombstonedRecordIds,
 }
