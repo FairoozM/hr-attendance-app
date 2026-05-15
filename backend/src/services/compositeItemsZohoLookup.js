@@ -257,4 +257,6 @@ async function lookupCompositeItemBySku(rawSku) {
 
 module.exports = {
   lookupCompositeItemBySku,
+  resolveComponentsFromMappedItems,
+  collectRawIdentifiers,
 }

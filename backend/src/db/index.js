@@ -1044,6 +1044,12 @@ async function testConnection() {
   } catch (e) {
     console.error('[db] ensureAmazonZohoStockComparisonTables skipped/failed (non-fatal):', e.message || e)
   }
+  try {
+    const { ensureCompositeItemsPriceReportTables } = require('../services/compositeItemsPriceReportService')
+    await ensureCompositeItemsPriceReportTables()
+  } catch (e) {
+    console.error('[db] ensureCompositeItemsPriceReportTables skipped/failed (non-fatal):', e.message || e)
+  }
 }
 
 async function ensureProjectsTable() {

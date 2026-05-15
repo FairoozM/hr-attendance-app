@@ -507,6 +507,7 @@ export function Layout() {
     if (location.pathname.startsWith('/management/purchase-planning')) return 'Purchase Planning'
     if (location.pathname.startsWith('/management/payments')) return 'Company payments'
     if (location.pathname.startsWith('/prices/all-prices')) return 'All Prices (UAE & KSA)'
+    if (location.pathname.startsWith('/prices/composite-items/reports')) return 'Composite Items Price Reports'
     if (location.pathname.startsWith('/prices/composite-items')) return 'Composite Items Prices'
     if (location.pathname.startsWith('/prices/saved-composite-items')) return 'Saved Composite Items'
     if (location.pathname.startsWith('/management/document-expiry')) return 'Document Expiry Tracker'
@@ -570,6 +571,7 @@ export function Layout() {
     can('prices', 'view') && { label: 'All Prices (UAE & KSA)', to: '/prices/all-prices' },
     can('prices', 'view') && { label: 'Composite Items Prices', to: '/prices/composite-items' },
     can('prices', 'view') && { label: 'Saved Composite Items', to: '/prices/saved-composite-items' },
+    can('prices', 'view') && { label: 'Composite Items Price Reports', to: '/prices/composite-items/reports' },
   ].filter(Boolean)
 
   const hasAnyPricesAccess = pricesItems.length > 0
@@ -689,6 +691,8 @@ export function Layout() {
       searchHint:
         i.to === '/prices/all-prices'
           ? 'all prices uae ksa aed sar catalog sku zoho inventory pricing ecommerce'
+          : i.to === '/prices/composite-items/reports'
+            ? 'composite items price report zoho all composites incremental full saved reports components'
           : i.to === '/prices/composite-items'
             ? 'composite items prices bom bundle kit assembly components rolled up'
             : i.to === '/prices/saved-composite-items'

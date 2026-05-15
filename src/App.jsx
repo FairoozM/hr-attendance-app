@@ -64,6 +64,7 @@ import { PurchasePlanningPage } from './pages/management/PurchasePlanningPage'
 import { AllPricesPage } from './pages/management/AllPricesPage'
 import { CompositeItemsPricesPage } from './pages/prices/CompositeItemsPricesPage'
 import { SavedCompositeItemsPage } from './pages/prices/SavedCompositeItemsPage'
+import { CompositeItemsPriceReportsPage } from './pages/prices/CompositeItemsPriceReportsPage'
 import { WeeklyAdsReportPage } from './pages/reports/WeeklyAdsReportPage'
 import { WeeklySalesReportPage } from './pages/reports/WeeklySalesReportPage'
 import { WeeklyCombinedSalesReportPage } from './pages/reports/WeeklyCombinedSalesReportPage'
@@ -249,6 +250,14 @@ function AppContent() {
           element={
             <PermissionGuard module="prices" action="view">
               <AllPricesPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="prices/composite-items/reports"
+          element={
+            <PermissionGuard module="prices" action="view">
+              <CompositeItemsPriceReportsPage />
             </PermissionGuard>
           }
         />
