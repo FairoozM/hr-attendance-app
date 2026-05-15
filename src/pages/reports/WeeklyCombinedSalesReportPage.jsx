@@ -290,6 +290,7 @@ export function WeeklyCombinedSalesReportPage() {
         loadToken={loadToken}
         onReportFetchSettled={() => setAllowOtherFamilyMain(true)}
         onNoValueRows={onNoValueRows}
+        enableSave
       />
 
       {/* Divider */}
@@ -308,6 +309,7 @@ export function WeeklyCombinedSalesReportPage() {
         loadToken={allowOtherFamilyMain ? loadToken : 0}
         onReportFetchSettled={() => setAllowDamagedSlow(true)}
         onNoValueRows={onNoValueRows}
+        enableSave
       />
 
       <WeeklyNoActivityReportSection dateLabel={dateLabel} mergedRows={noActivityMerged} />

@@ -2,6 +2,8 @@ import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } fr
 import { useSearchParams } from 'react-router-dom'
 import { api, fetchBinary, downloadBlob } from '../../api/client'
 import { useWeeklySalesReport } from '../../hooks/useWeeklySalesReport'
+import { useUserPreferences } from '../../contexts/UserPreferencesContext'
+import { PREF_WEEKLY_SALES_SAVED_REPORTS } from '../../constants/userPreferenceKeys'
 import { ZOHO_REP_IMAGE_QUERY_VERSION } from '../../config/zohoRepImageVersion'
 import {
   getCachedZohoItemBlob,
@@ -251,6 +253,55 @@ export function formatDateLabel(start, end) {
       year: 'numeric',
     })
   return `${fmt(start)} – ${fmt(end)}`
+}
+
+function cloneJson(value) {
+  try {
+    return JSON.parse(JSON.stringify(value))
+  } catch {
+    return value
+  }
+}
+
+function buildWeeklySalesSnapshot({
+  reportGroup,
+  title,
+  fromDate,
+  toDate,
+  warehouseId,
+  excludeWarehouseId,
+  items,
+  totals,
+  zoho,
+}) {
+  const now = new Date().toISOString()
+  const wh = warehouseId != null && String(warehouseId).trim() !== '' ? String(warehouseId).trim() : ''
+  const ex = excludeWarehouseId != null && String(excludeWarehouseId).trim() !== '' ? String(excludeWarehouseId).trim() : ''
+  return {
+    id: `${reportGroup || 'weekly'}:${fromDate || ''}:${toDate || ''}:wh:${wh}:ex:${ex}`,
+    reportGroup,
+    title,
+    fromDate,
+    toDate,
+    warehouseId: wh || null,
+    excludeWarehouseId: ex || null,
+    items: cloneJson(Array.isArray(items) ? items : []),
+    totals: cloneJson(totals || null),
+    zoho: cloneJson(zoho || null),
+    savedAt: now,
+  }
+}
+
+function upsertWeeklySalesSnapshot(bundle, snapshot) {
+  const current = bundle && typeof bundle === 'object' ? bundle : {}
+  const list = Array.isArray(current.snapshots) ? current.snapshots : []
+  const next = [snapshot, ...list.filter((entry) => entry && entry.id !== snapshot.id)].slice(0, 60)
+  return {
+    ...current,
+    version: 1,
+    updatedAt: snapshot.savedAt,
+    snapshots: next,
+  }
 }
 
 /**
@@ -665,9 +716,13 @@ export function WeeklySalesReportSection({
   loadToken = 0,
   onNoValueRows = null,
   onReportFetchSettled = undefined,
+  enableSave = false,
 }) {
+  const { getPref, setPref } = useUserPreferences()
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState('')
+  const [saveStatus, setSaveStatus] = useState('')
+  const [saveError, setSaveError] = useState('')
   const [selectedFamily, setSelectedFamily] = useState('')
   const [drawerLoading, setDrawerLoading] = useState(false)
   const [drawerError, setDrawerError] = useState('')
@@ -834,6 +889,49 @@ export function WeeklySalesReportSection({
     }
   }, [datesValid, notConfigured, fromDate, toDate, reportGroup, loadToken, warehouseId, excludeWarehouseId, enableSalesSort, salesSort, suppressSalesAmount])
 
+  const handleSaveSnapshot = useCallback(() => {
+    if (!enableSave || !datesValid || notConfigured || !loadToken || loading || error) return
+    setSaveError('')
+    const snapshot = buildWeeklySalesSnapshot({
+      reportGroup,
+      title,
+      fromDate,
+      toDate,
+      warehouseId,
+      excludeWarehouseId,
+      items: reportItems,
+      totals: grandTotal,
+      zoho,
+    })
+    const bundle = getPref(PREF_WEEKLY_SALES_SAVED_REPORTS, { version: 1, snapshots: [] })
+    setPref(PREF_WEEKLY_SALES_SAVED_REPORTS, upsertWeeklySalesSnapshot(bundle, snapshot))
+    setSaveStatus(`Saved ${title} snapshot`)
+  }, [
+    enableSave,
+    datesValid,
+    notConfigured,
+    loadToken,
+    loading,
+    error,
+    reportGroup,
+    title,
+    fromDate,
+    toDate,
+    warehouseId,
+    excludeWarehouseId,
+    reportItems,
+    grandTotal,
+    zoho,
+    getPref,
+    setPref,
+  ])
+
+  useEffect(() => {
+    if (!saveStatus) return undefined
+    const t = setTimeout(() => setSaveStatus(''), 2600)
+    return () => clearTimeout(t)
+  }, [saveStatus])
+
   const handleFamilyClosingStockExport = useCallback(async () => {
     if (!selectedFamily || !datesValid || notConfigured || !loadToken) return
     setFamilyClosingExporting(true)
@@ -869,6 +967,17 @@ export function WeeklySalesReportSection({
           {dateLabel && <span className="wsr-section-header__date">{dateLabel}</span>}
         </div>
         <div className="wsr-section-header__actions">
+          {enableSave && (
+            <button
+              type="button"
+              className="war-btn war-btn--ghost war-btn--sm"
+              onClick={handleSaveSnapshot}
+              disabled={!datesValid || notConfigured || !loadToken || loading || Boolean(error)}
+              title={!loadToken ? 'Run Load report first' : 'Save this loaded section to your account'}
+            >
+              Save
+            </button>
+          )}
           {enableSalesSort && withValues.length > 1 && (
             <select
               className="war-input wsr-sales-sort-select"
@@ -904,6 +1013,18 @@ export function WeeklySalesReportSection({
       {exportError && (
         <div className="wsr-callout wsr-callout--error wsr-callout--inline" role="alert" style={{ marginBottom: 12 }}>
           <span className="wsr-callout__body">{exportError}</span>
+        </div>
+      )}
+
+      {saveError && (
+        <div className="wsr-callout wsr-callout--error wsr-callout--inline" role="alert" style={{ marginBottom: 12 }}>
+          <span className="wsr-callout__body">{saveError}</span>
+        </div>
+      )}
+
+      {saveStatus && (
+        <div className="wsr-callout wsr-callout--info wsr-callout--inline" role="status" style={{ marginBottom: 12 }}>
+          <span className="wsr-callout__body">{saveStatus}</span>
         </div>
       )}
 
@@ -1359,6 +1480,7 @@ export function WeeklySalesReportPage({ reportGroup, title, subtitle }) {
         toDate={toDate}
         datesValid={datesValid}
         loadToken={loadToken}
+        enableSave
       />
     </div>
   )
