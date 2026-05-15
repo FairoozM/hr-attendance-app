@@ -304,6 +304,32 @@ function upsertWeeklySalesSnapshot(bundle, snapshot) {
   }
 }
 
+function removeWeeklySalesSnapshot(bundle, snapshotId) {
+  const current = bundle && typeof bundle === 'object' ? bundle : {}
+  const list = Array.isArray(current.snapshots) ? current.snapshots : []
+  const next = list.filter((entry) => entry && entry.id !== snapshotId)
+  return {
+    ...current,
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    snapshots: next,
+  }
+}
+
+function formatSavedSnapshotLabel(snapshot) {
+  const date = formatDateLabel(snapshot?.fromDate, snapshot?.toDate) || 'Saved report'
+  const saved = snapshot?.savedAt
+    ? new Date(snapshot.savedAt).toLocaleString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : ''
+  const count = Array.isArray(snapshot?.items) ? snapshot.items.length : 0
+  return `${date}${saved ? ` · ${saved}` : ''}${count ? ` · ${count} families` : ''}`
+}
+
 /**
  * A family row is treated as "no values for this period" when every $ metric
  * is null, non-finite, or 0 (matches the table showing only "—" / "-").
@@ -761,11 +787,12 @@ export function WeeklySalesReportSection({
   onReportFetchSettled = undefined,
   enableSave = false,
 }) {
-  const { getPref, setPref } = useUserPreferences()
+  const { getPref, setPref, prefsVersion } = useUserPreferences()
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState('')
   const [saveStatus, setSaveStatus] = useState('')
   const [saveError, setSaveError] = useState('')
+  const [openedSnapshot, setOpenedSnapshot] = useState(null)
   const [selectedFamily, setSelectedFamily] = useState('')
   const [drawerLoading, setDrawerLoading] = useState(false)
   const [drawerError, setDrawerError] = useState('')
@@ -789,14 +816,27 @@ export function WeeklySalesReportSection({
       onFetchSettled: onReportFetchSettled,
     })
 
-  const dateLabel = formatDateLabel(fromDate, toDate)
+  const savedBundle = getPref(PREF_WEEKLY_SALES_SAVED_REPORTS, { version: 1, snapshots: [] })
+  const savedSnapshots = useMemo(() => {
+    const list = Array.isArray(savedBundle?.snapshots) ? savedBundle.snapshots : []
+    return list
+      .filter((entry) => entry && entry.reportGroup === reportGroup)
+      .sort((a, b) => String(b.savedAt || '').localeCompare(String(a.savedAt || '')))
+  }, [savedBundle, prefsVersion, reportGroup])
+
+  const activeItems = openedSnapshot ? (Array.isArray(openedSnapshot.items) ? openedSnapshot.items : []) : items
+  const activeZoho = openedSnapshot ? (openedSnapshot.zoho || null) : zoho
+  const activeDateLabel = openedSnapshot
+    ? formatDateLabel(openedSnapshot.fromDate, openedSnapshot.toDate)
+    : formatDateLabel(fromDate, toDate)
+  const dateLabel = activeDateLabel
   const reportItems = useMemo(() => {
-    if (!suppressSalesAmount) return items
-    return (items || []).map((item) => ({
+    if (!suppressSalesAmount) return activeItems
+    return (activeItems || []).map((item) => ({
       ...item,
       sales_amount: null,
     }))
-  }, [items, suppressSalesAmount])
+  }, [activeItems, suppressSalesAmount])
 
   const { withValues, noValues } = useMemo(
     () => partitionWeeklyFamilyItems(reportItems),
@@ -831,6 +871,10 @@ export function WeeklySalesReportSection({
       onNoValueRows(reportGroup, noValues)
     }
   }, [onNoValueRows, reportGroup, noValues, loadToken, datesValid])
+
+  useEffect(() => {
+    setOpenedSnapshot(null)
+  }, [loadToken, fromDate, toDate, warehouseId, excludeWarehouseId])
 
   useEffect(() => {
     if (typeof onNoValueRows !== 'function') return undefined
@@ -969,6 +1013,26 @@ export function WeeklySalesReportSection({
     setPref,
   ])
 
+  const handleOpenSnapshot = useCallback((snapshot) => {
+    if (!snapshot) return
+    setOpenedSnapshot(snapshot)
+    setSelectedFamily('')
+    setDrawerWarehouses([])
+    setDrawerMatrix(null)
+    setDrawerError('')
+    setDrawerWarnings([])
+    setDrawerProgress({ loaded: 0, total: 0, current: '' })
+    setSaveStatus(`Opened saved ${snapshot.title || title} snapshot`)
+  }, [title])
+
+  const handleDeleteSnapshot = useCallback((snapshotId) => {
+    if (!snapshotId) return
+    const bundle = getPref(PREF_WEEKLY_SALES_SAVED_REPORTS, { version: 1, snapshots: [] })
+    setPref(PREF_WEEKLY_SALES_SAVED_REPORTS, removeWeeklySalesSnapshot(bundle, snapshotId))
+    if (openedSnapshot?.id === snapshotId) setOpenedSnapshot(null)
+    setSaveStatus('Deleted saved snapshot')
+  }, [getPref, openedSnapshot?.id, setPref])
+
   useEffect(() => {
     if (!saveStatus) return undefined
     const t = setTimeout(() => setSaveStatus(''), 2600)
@@ -999,7 +1063,8 @@ export function WeeklySalesReportSection({
   }, [datesValid, notConfigured, fromDate, toDate, reportGroup, loadToken, warehouseId, excludeWarehouseId, selectedFamily])
 
   const hasRequestedReport = loadToken > 0
-  const showTable = hasRequestedReport && !loading && !error && !notConfigured && datesValid
+  const hasOpenedSnapshot = Boolean(openedSnapshot)
+  const showTable = (hasOpenedSnapshot || hasRequestedReport) && !loading && !error && !notConfigured && datesValid
 
   return (
     <section className="war-section wsr-report-section">
@@ -1008,6 +1073,7 @@ export function WeeklySalesReportSection({
         <div className="wsr-section-header__title-wrap">
           <h2 className="wsr-section-heading">{title}</h2>
           {dateLabel && <span className="wsr-section-header__date">{dateLabel}</span>}
+          {openedSnapshot && <span className="wsr-saved-badge">Saved snapshot</span>}
         </div>
         <div className="wsr-section-header__actions">
           {enableSave && (
@@ -1052,6 +1118,34 @@ export function WeeklySalesReportSection({
           </button>
         </div>
       </div>
+
+      {enableSave && savedSnapshots.length > 0 && (
+        <div className="wsr-saved-snapshots">
+          <div className="wsr-saved-snapshots__title">Saved {title} reports</div>
+          <div className="wsr-saved-snapshots__list">
+            {savedSnapshots.map((snapshot) => (
+              <div className="wsr-saved-snapshot" key={snapshot.id}>
+                <button
+                  type="button"
+                  className="wsr-saved-snapshot__open"
+                  onClick={() => handleOpenSnapshot(snapshot)}
+                  title="Open this saved report"
+                >
+                  {formatSavedSnapshotLabel(snapshot)}
+                </button>
+                <button
+                  type="button"
+                  className="wsr-saved-snapshot__delete"
+                  onClick={() => handleDeleteSnapshot(snapshot.id)}
+                  title="Delete this saved report"
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {exportError && (
         <div className="wsr-callout wsr-callout--error wsr-callout--inline" role="alert" style={{ marginBottom: 12 }}>
