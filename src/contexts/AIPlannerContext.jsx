@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import {
   enrichTasks,
   buildDailySchedule,
@@ -9,121 +9,34 @@ import {
   parseQuickCapture,
 } from '../lib/aiEngine'
 import { spawnNextRecurrenceTask } from '../lib/plannerRecurrence'
+import { useUserPreferences } from './UserPreferencesContext'
+import { PREF_AI_PLANNER } from '../constants/userPreferenceKeys'
+import { requestUserPrefSave } from '../lib/userPreferencesBridge'
 
-const STORAGE_KEY          = 'ai_planner_tasks_v2'
-const SECTIONS_STORAGE_KEY = 'ai_planner_sections_v2'
-const TRASH_STORAGE_KEY    = 'ai_planner_trash_v1'
-const RECENTS_STORAGE_KEY  = 'ai_planner_recents_v1'
-/** Bump when adding default tasks/sections so existing localStorage gets merged once */
-const SEED_REVISION_KEY     = 'ai_planner_seed_revision_v1'
+/** Bump when adding default tasks/sections so existing saved bundles get merged once */
 const CURRENT_SEED_REVISION = 1
 
-let _initPlannerCache = null
-
-function initPlannerState() {
-  if (_initPlannerCache) return _initPlannerCache
-
-  const tasksStored = loadFromStorage()
-  const secStored = loadSectionsFromStorage()
-  let rev = 0
-  try {
-    rev = Number(localStorage.getItem(SEED_REVISION_KEY) || '0')
-  } catch {}
-
-  if (!tasksStored && !secStored) {
-    try {
-      localStorage.setItem(SEED_REVISION_KEY, String(CURRENT_SEED_REVISION))
-    } catch {}
-    _initPlannerCache = { tasks: SEED_TASKS, sections: SEED_SECTIONS }
-    return _initPlannerCache
-  }
-
-  let tasks = tasksStored ? [...tasksStored] : [...SEED_TASKS]
-  let sections = secStored ? [...secStored] : [...SEED_SECTIONS]
-
-  if (rev < CURRENT_SEED_REVISION) {
-    const taskIds = new Set(tasks.map((t) => t.id))
-    for (const t of SEED_TASKS) {
-      if (!taskIds.has(t.id)) {
-        tasks.push(t)
-        taskIds.add(t.id)
-      }
+function mergeSeedRevision(tasks, sections, rev) {
+  const t = Array.isArray(tasks) ? [...tasks] : [...SEED_TASKS]
+  const s = Array.isArray(sections) ? [...sections] : [...SEED_SECTIONS]
+  const r = Number.isFinite(Number(rev)) ? Number(rev) : 0
+  if (r >= CURRENT_SEED_REVISION) return { tasks: t, sections: s }
+  const taskIds = new Set(t.map((x) => x.id))
+  for (const item of SEED_TASKS) {
+    if (!taskIds.has(item.id)) {
+      t.push(item)
+      taskIds.add(item.id)
     }
-    const secIds = new Set(sections.map((s) => s.id))
-    for (const s of SEED_SECTIONS) {
-      if (!secIds.has(s.id)) {
-        sections.push(s)
-        secIds.add(s.id)
-      }
+  }
+  const secIds = new Set(s.map((x) => x.id))
+  for (const item of SEED_SECTIONS) {
+    if (!secIds.has(item.id)) {
+      s.push(item)
+      secIds.add(item.id)
     }
-    sections.sort((a, b) => a.order - b.order)
-    try {
-      localStorage.setItem(SEED_REVISION_KEY, String(CURRENT_SEED_REVISION))
-    } catch {}
   }
-
-  _initPlannerCache = { tasks, sections }
-  return _initPlannerCache
-}
-
-function loadFromStorage() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
-}
-
-function saveToStorage(tasks) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks))
-  } catch {}
-}
-
-function loadSectionsFromStorage() {
-  try {
-    const raw = localStorage.getItem(SECTIONS_STORAGE_KEY)
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
-}
-
-function saveSectionsToStorage(sections) {
-  try {
-    localStorage.setItem(SECTIONS_STORAGE_KEY, JSON.stringify(sections))
-  } catch {}
-}
-
-function loadTrashFromStorage() {
-  try {
-    const raw = localStorage.getItem(TRASH_STORAGE_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
-}
-
-function saveTrashToStorage(tasks) {
-  try {
-    localStorage.setItem(TRASH_STORAGE_KEY, JSON.stringify(tasks))
-  } catch {}
-}
-
-function loadRecentsFromStorage() {
-  try {
-    const raw = localStorage.getItem(RECENTS_STORAGE_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
-}
-
-function saveRecentsToStorage(ids) {
-  try {
-    localStorage.setItem(RECENTS_STORAGE_KEY, JSON.stringify(ids))
-  } catch {}
+  s.sort((a, b) => a.order - b.order)
+  return { tasks: t, sections: s }
 }
 
 /** Default sections — aligned with imported Asana-style workflow lists */
@@ -294,32 +207,61 @@ const SEED_TASKS = [
 const AIPlannerContext = createContext(null)
 
 export function AIPlannerProvider({ children }) {
-  const [rawTasks, setRawTasks] = useState(() => initPlannerState().tasks)
-  const [sections, setSections] = useState(() => initPlannerState().sections)
-  const [trashedTasks, setTrashedTasks] = useState(() => loadTrashFromStorage())
-  const [recentTaskIds, setRecentTaskIds] = useState(() => loadRecentsFromStorage())
+  const { ready, getPref, prefsVersion } = useUserPreferences()
+  const [rawTasks, setRawTasks] = useState(() => [...SEED_TASKS])
+  const [sections, setSections] = useState(() => [...SEED_SECTIONS])
+  const [trashedTasks, setTrashedTasks] = useState([])
+  const [recentTaskIds, setRecentTaskIds] = useState([])
+  const hydrated = useRef(false)
+  const skipSave = useRef(false)
+
+  useEffect(() => {
+    if (!ready) {
+      hydrated.current = false
+      return
+    }
+    if (hydrated.current) return
+    hydrated.current = true
+    const b = getPref(PREF_AI_PLANNER, null)
+    if (b && typeof b === 'object' && (Array.isArray(b.tasks) || Array.isArray(b.sections))) {
+      const rev = b.seedRevision != null ? Number(b.seedRevision) : 0
+      const t0 = Array.isArray(b.tasks) && b.tasks.length ? b.tasks : [...SEED_TASKS]
+      const s0 = Array.isArray(b.sections) && b.sections.length ? b.sections : [...SEED_SECTIONS]
+      const merged = mergeSeedRevision(t0, s0, rev)
+      skipSave.current = true
+      setRawTasks(merged.tasks)
+      setSections(merged.sections)
+      setTrashedTasks(Array.isArray(b.trash) ? b.trash : [])
+      setRecentTaskIds(Array.isArray(b.recents) ? b.recents : [])
+    } else {
+      skipSave.current = true
+      setRawTasks([...SEED_TASKS])
+      setSections([...SEED_SECTIONS])
+      setTrashedTasks([])
+      setRecentTaskIds([])
+    }
+  }, [ready, prefsVersion, getPref])
+
+  useEffect(() => {
+    if (!ready) return undefined
+    if (skipSave.current) {
+      skipSave.current = false
+      return undefined
+    }
+    const t = setTimeout(() => {
+      requestUserPrefSave(PREF_AI_PLANNER, {
+        tasks: rawTasks,
+        sections,
+        trash: trashedTasks,
+        recents: recentTaskIds,
+        seedRevision: CURRENT_SEED_REVISION,
+      })
+    }, 700)
+    return () => clearTimeout(t)
+  }, [rawTasks, sections, trashedTasks, recentTaskIds, ready])
+
   const [activeTaskId, setActiveTaskId] = useState(null)
   const [view, setView] = useState('planner') // 'planner' | 'today' | 'dashboard'
-
-  // Persist whenever rawTasks changes
-  useEffect(() => {
-    saveToStorage(rawTasks)
-  }, [rawTasks])
-
-  // Persist sections
-  useEffect(() => {
-    saveSectionsToStorage(sections)
-  }, [sections])
-
-  // Persist trash
-  useEffect(() => {
-    saveTrashToStorage(trashedTasks)
-  }, [trashedTasks])
-
-  // Persist recents
-  useEffect(() => {
-    saveRecentsToStorage(recentTaskIds)
-  }, [recentTaskIds])
 
   // Track recently viewed tasks
   const trackRecent = useCallback((id) => {
@@ -511,7 +453,7 @@ export function AIPlannerProvider({ children }) {
     )
   }, [])
 
-  // ── Attachments (base64, stored in localStorage) ──────────────────────
+  // ── Attachments (base64, persisted with planner bundle via user preferences API) ──────────────────────
 
   const addAttachment = useCallback((taskId, file) => {
     return new Promise((resolve, reject) => {

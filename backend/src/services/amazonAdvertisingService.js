@@ -1,26 +1,27 @@
 /**
  * Amazon Advertising API v3 — async reporting for Sponsored Products campaign spend/clicks.
- * Uses the same LWA app credentials as SP-API per region (UAE / KSA) plus an Ads **profile id**.
  *
- * Env (production):
- * - AMAZON_UAE_ADS_PROFILE_ID, AMAZON_KSA_ADS_PROFILE_ID — from Amazon Ads console (profile id).
- * - AMAZON_ADS_API_HOST — default https://advertising-api-eu.amazon.com (UAE + KSA).
- * - AMAZON_ADS_LWA_SCOPE — default advertising::campaign_management (must match LWA app consent).
+ * Configuration is centralized in `amazonAdsConfigService.js` (Ads-specific refresh tokens,
+ * optional reuse of SP-API LWA app id/secret, profile IDs). See `docs/amazon-ads-api-setup.md`.
  *
- * Token: LWA refresh with `scope` set; Ads API is separate from SP-API host but can share the same LWA client.
+ * Spend/clicks endpoint: POST {endpoint}/reporting/reports (async report), then poll GET
+ * .../reporting/reports/{id}, then download GZIP JSON — Sponsored Products `spCampaigns`,
+ * timeUnit SUMMARY, groupBy campaign.
  */
 
 const axios = require('axios')
 const zlib = require('zlib')
 const { promisify } = require('util')
-const { normalizeMarketplaceKey, getAmazonConfig } = require('./amazonSpApiService')
+const { normalizeMarketplaceKey } = require('./amazonSpApiService')
+const {
+  getAmazonAdsApiEndpoint,
+  getAmazonAdsConfig,
+} = require('./amazonAdsConfigService')
 
 const gunzip = promisify(zlib.gunzip)
 
 const LWA_TOKEN_URL = 'https://api.amazon.com/auth/o2/token'
-const DEFAULT_ADS_HOST = 'https://advertising-api-eu.amazon.com'
 const REPORTING_REPORTS_PATH = '/reporting/reports'
-const DEFAULT_LWA_SCOPE = 'advertising::campaign_management'
 
 const CREATE_CT = 'application/vnd.createasyncreportrequest.v3+json'
 const STATUS_ACCEPT = 'application/vnd.asyncreportstatus.v3+json'
@@ -32,45 +33,32 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+/** @deprecated use getAmazonAdsApiEndpoint from amazonAdsConfigService */
 function getAdsApiHost() {
-  const h = String(process.env.AMAZON_ADS_API_HOST || '').trim()
-  return h || DEFAULT_ADS_HOST
+  return getAmazonAdsApiEndpoint()
+}
+
+function trimProfileEnv(marketplaceKey) {
+  const mk = normalizeMarketplaceKey(marketplaceKey)
+  const isKsa = mk === 'ksa'
+  const raw = isKsa ? process.env.AMAZON_KSA_ADS_PROFILE_ID : process.env.AMAZON_UAE_ADS_PROFILE_ID
+  return raw == null ? '' : String(raw).trim()
 }
 
 function getAdsProfileId(marketplaceKey) {
-  const mk = normalizeMarketplaceKey(marketplaceKey)
-  const isKsa = mk === 'ksa'
-  const id = String(
-    isKsa ? process.env.AMAZON_KSA_ADS_PROFILE_ID : process.env.AMAZON_UAE_ADS_PROFILE_ID || ''
-  ).trim()
-  return id
-}
-
-function getLwaScope() {
-  const s = String(process.env.AMAZON_ADS_LWA_SCOPE || '').trim()
-  return s || DEFAULT_LWA_SCOPE
+  return trimProfileEnv(marketplaceKey)
 }
 
 async function getAmazonAdvertisingAccessToken(marketplaceKey) {
   const mk = normalizeMarketplaceKey(marketplaceKey)
-  const cfg = getAmazonConfig(mk)
-  const miss = []
-  if (!cfg.lwaClientId) miss.push('client id')
-  if (!cfg.lwaClientSecret) miss.push('client secret')
-  if (!cfg.refreshToken) miss.push('refresh token')
-  if (miss.length) {
-    const err = new Error(`Missing Amazon LWA configuration for Ads (${cfg.mode}, ${mk})`)
-    err.code = 'AMAZON_ADS_LWA_CONFIG'
-    err.missingParts = miss
-    throw err
-  }
+  const cfg = getAmazonAdsConfig(mk, { requireProfile: false })
 
   const body = new URLSearchParams({
     grant_type: 'refresh_token',
     refresh_token: cfg.refreshToken,
-    client_id: cfg.lwaClientId,
-    client_secret: cfg.lwaClientSecret,
-    scope: getLwaScope(),
+    client_id: cfg.clientId,
+    client_secret: cfg.clientSecret,
+    scope: cfg.adsScope,
   })
 
   const { data, status } = await axios.post(LWA_TOKEN_URL, body.toString(), {
@@ -90,21 +78,11 @@ async function getAmazonAdvertisingAccessToken(marketplaceKey) {
 
 function buildAdsHeaders(marketplaceKey, accessToken) {
   const mk = normalizeMarketplaceKey(marketplaceKey)
-  const cfg = getAmazonConfig(mk)
-  const profileId = getAdsProfileId(mk)
-  if (!profileId) {
-    const err = new Error(
-      mk === 'ksa'
-        ? 'Missing AMAZON_KSA_ADS_PROFILE_ID for Amazon Ads'
-        : 'Missing AMAZON_UAE_ADS_PROFILE_ID for Amazon Ads'
-    )
-    err.code = 'AMAZON_ADS_PROFILE_NOT_CONFIGURED'
-    throw err
-  }
+  const cfg = getAmazonAdsConfig(mk, { requireProfile: true })
   return {
     Authorization: `Bearer ${accessToken}`,
-    'Amazon-Advertising-API-ClientId': cfg.lwaClientId,
-    'Amazon-Advertising-API-Scope': profileId,
+    'Amazon-Advertising-API-ClientId': cfg.clientId,
+    'Amazon-Advertising-API-Scope': cfg.profileId,
   }
 }
 
@@ -194,7 +172,8 @@ async function downloadAndSumReport(url) {
  * @param {string} endDate - YYYY-MM-DD
  */
 async function fetchSponsoredProductsSpendSummary(marketplaceKey, startDate, endDate) {
-  const host = getAdsApiHost().replace(/\/+$/, '')
+  const host = getAmazonAdsApiEndpoint().replace(/\/+$/, '')
+  getAmazonAdsConfig(normalizeMarketplaceKey(marketplaceKey), { requireProfile: true })
   const token = await getAmazonAdvertisingAccessToken(marketplaceKey)
   const headers = {
     ...buildAdsHeaders(marketplaceKey, token),
@@ -308,8 +287,15 @@ async function fetchWeeklyAdsAmazonMarketplaceTotals(fromDate, toDate) {
     { key: 'ksa', label: 'Amazon (KSA)' },
   ]
   for (const { key, label } of regions) {
-    if (!getAdsProfileId(key)) {
-      warnings.push(`${label}: set AMAZON_${key === 'ksa' ? 'KSA' : 'UAE'}_ADS_PROFILE_ID to pull Ads from Amazon.`)
+    try {
+      getAmazonAdsConfig(key, { requireProfile: true })
+    } catch (e) {
+      if (e && e.code === 'AMAZON_ADS_CONFIG_INCOMPLETE') {
+        warnings.push(`${label}: ${e.message}`)
+        continue
+      }
+      const msg = e && e.message ? e.message : String(e)
+      warnings.push(`${label}: ${msg}`)
       continue
     }
     try {

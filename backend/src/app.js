@@ -2,6 +2,7 @@ const path = require('path')
 const fs = require('fs')
 const express = require('express')
 const cors = require('cors')
+const userPreferencesRoutes = require('./routes/userPreferences')
 const authMiddleware = require('./middleware/auth')
 const authRouter = require('./routes/auth')
 const adminRouter = require('./routes/admin')
@@ -32,9 +33,10 @@ const app = express()
 
 app.disable('x-powered-by')
 
-// Handle CORS preflight for every route before anything else
-app.options('*', cors())
-app.use(cors())
+// CORS: allow credentials for httpOnly auth cookie + fetch(..., { credentials: 'include' })
+const corsOpts = { origin: true, credentials: true }
+app.options('*', cors(corsOpts))
+app.use(cors(corsOpts))
 
 // --- Public (no authMiddleware) — before express.json so a parse edge case on GET cannot affect health
 // 403/500 from the browser for GET /api/health is often the edge (CloudFront → S3) or Vite proxy, not this route. ---
@@ -51,8 +53,10 @@ app.get('/api/health', (_req, res) => {
 
 app.use(express.json({ limit: '10mb' }))
 
-// Auth router — POST /api/auth/login, GET /api/auth/login (405), GET /api/auth/me, POST /api/auth/change-password
+// Auth router — POST /api/auth/login, POST /api/auth/logout, GET /api/auth/me, …
 app.use('/api/auth', authRouter)
+
+app.use('/api/user-preferences', authMiddleware.attachAuth, userPreferencesRoutes)
 
 // Admin user management (list users, reset passwords)
 app.use('/api/admin', authMiddleware.attachAuth, adminRouter)

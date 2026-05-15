@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import { useAuth } from '../contexts/AuthContext'
 import { ApiRoutingDebug } from '../components/ApiRoutingDebug'
 import { ApiServerSetup } from '../components/ApiServerSetup'
-import { API_BASE_STORAGE_KEY } from '../api/config'
+import { getApiBaseUrlMemory, setApiBaseUrlMemory } from '../lib/api'
 import './Page.css'
 import './LoginPage.css'
 
@@ -70,16 +70,16 @@ export function LoginPage() {
 
     async function checkApi() {
       // Log what is currently stored so we can debug in the console
-      let stored = localStorage.getItem(API_BASE_STORAGE_KEY) || ''
-      console.log('[LoginPage] stored backendUrl:', stored || '(none)')
+      let stored = getApiBaseUrlMemory() || ''
+      console.log('[LoginPage] in-memory backendUrl:', stored || '(none)')
 
       // Always probe the same-origin URL first
       const healthy = await probeSameOriginHealth()
       if (healthy) {
         const origin = window.location.origin
         if (!stored) {
-          localStorage.setItem(API_BASE_STORAGE_KEY, origin)
-          console.log('[LoginPage] saved API base URL to localStorage:', origin)
+          setApiBaseUrlMemory(origin)
+          console.log('[LoginPage] set API base URL in memory (this tab):', origin)
         }
         setApiCheckStatus('ok')
         return
@@ -88,9 +88,7 @@ export function LoginPage() {
       // Same-origin /api is not JSON (CloudFront → S3, etc.). Remove mistaken save of SPA host as API base.
       const originNorm = trimOrigin(window.location.origin)
       if (stored && trimOrigin(stored) === originNorm) {
-        try {
-          localStorage.removeItem(API_BASE_STORAGE_KEY)
-        } catch (_) {}
+        setApiBaseUrlMemory('')
         stored = ''
         console.warn(
           '[LoginPage] Cleared backendUrl: this site URL does not serve /api/* as JSON — use your Express host (see deploy HR_PUBLIC_API_URL or login setup).'
@@ -229,7 +227,7 @@ export function LoginPage() {
           </div>
 
           {needsApiSetup ? (
-            <ApiServerSetup />
+            <ApiServerSetup onSaved={() => setApiCheckStatus('ok')} />
           ) : (
             <>
               <form className="login-form" onSubmit={handleSubmit}>

@@ -6,7 +6,6 @@ import { ZOHO_REP_IMAGE_QUERY_VERSION } from '../../config/zohoRepImageVersion'
 import {
   getCachedZohoItemBlob,
   setCachedZohoItemBlob,
-  ZOHO_WEEKLY_THUMB_CLIENT_CACHE_ENABLED,
 } from '../../utils/zohoWeeklyItemImageCache'
 import './WeeklyAdsReportPage.css'
 import './WeeklySalesReportPage.css'
@@ -491,7 +490,7 @@ export function ZohoItemThumb({ itemId }) {
         const url = `${ZOHO_ITEM_IMAGE_PATH}/${encodeURIComponent(String(itemId))}?${q.toString()}`
         const blob = fromMem
           ? fromMem
-          : (await fetchBinary(url, { cache: ZOHO_WEEKLY_THUMB_CLIENT_CACHE_ENABLED ? 'default' : 'no-store' }))
+          : (await fetchBinary(url)).blob
             .blob
         if (cancelled) return
         if (!fromMem) {

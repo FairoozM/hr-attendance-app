@@ -1,4 +1,7 @@
-import { getApiBaseUrl as resolveApiBaseUrl } from '../lib/api'
+import {
+  getApiBaseUrl as resolveApiBaseUrl,
+  setApiBaseUrlMemory,
+} from '../lib/api'
 
 export const API_BASE_STORAGE_KEY = 'backendUrl'
 
@@ -13,8 +16,5 @@ export function getApiBaseUrl() {
 export function setApiBaseUrlInStorage(url) {
   const t = trimBase(url)
   if (typeof window === 'undefined') return
-  try {
-    if (!t) localStorage.removeItem(API_BASE_STORAGE_KEY)
-    else localStorage.setItem(API_BASE_STORAGE_KEY, t)
-  } catch (_) {}
+  setApiBaseUrlMemory(t)
 }

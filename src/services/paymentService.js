@@ -1,6 +1,6 @@
 /**
  * Company payments — API-ready service layer.
- * Today: use `useCompanyPayments` (localStorage). Later: swap implementations to `api` calls.
+ * `useCompanyPayments` persists rows via `/api/user-preferences`.
  *
  * Example future usage:
  *   import { api } from '../api/client'

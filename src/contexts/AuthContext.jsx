@@ -1,45 +1,33 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
-import { api, AUTH_STORAGE_KEY } from '../api/client'
+import { api, clearLegacyHrAuthStorage } from '../api/client'
+import { clearPrefCache } from '../lib/userPreferencesBridge'
 import { useIdleLogout } from '../hooks/useIdleLogout'
 
-const IDLE_ACTIVITY_KEY = 'hr_last_activity'
-
 export const AuthContext = createContext(null)
-
-function loadStoredAuth() {
-  try {
-    const raw = localStorage.getItem(AUTH_STORAGE_KEY)
-    if (raw) {
-      const data = JSON.parse(raw)
-      if (data?.user?.id && data?.user?.username && data?.user?.role && data?.token) {
-        return { user: data.user, token: data.token }
-      }
-    }
-  } catch (_) {}
-  return null
-}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const stored = loadStoredAuth()
-    if (stored) {
-      // Immediately unblock the UI with cached data, then sync fresh permissions
-      setUser(stored.user)
-      setLoading(false)
-      api.get('/api/auth/me')
-        .then((res) => {
-          if (res?.user) {
-            const updated = { user: res.user, token: stored.token }
-            localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updated))
-            setUser(res.user)
-          }
-        })
-        .catch(() => {})
-    } else {
-      setLoading(false)
+    clearLegacyHrAuthStorage()
+    let cancelled = false
+    setLoading(true)
+    api
+      .get('/api/auth/me')
+      .then((res) => {
+        if (cancelled) return
+        if (res?.user) setUser(res.user)
+        else setUser(null)
+      })
+      .catch(() => {
+        if (!cancelled) setUser(null)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
     }
   }, [])
 
@@ -49,19 +37,23 @@ export function AuthProvider({ children }) {
     if (!u || !p) throw new Error('Invalid email or password')
 
     const res = await api.post('/api/auth/login', { email: u, password: p })
-    if (!res?.user || !res?.token) {
+    if (!res?.user) {
       throw new Error('Login failed')
     }
-    const payload = { user: res.user, token: res.token }
+    clearLegacyHrAuthStorage()
     setUser(res.user)
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(payload))
     return res.user
   }, [])
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    try {
+      await api.post('/api/auth/logout', {})
+    } catch (_) {
+      /* still clear client */
+    }
     setUser(null)
-    localStorage.removeItem(AUTH_STORAGE_KEY)
-    localStorage.removeItem(IDLE_ACTIVITY_KEY)
+    clearPrefCache()
+    clearLegacyHrAuthStorage()
   }, [])
 
   /** Refresh user from /api/auth/me (e.g. after admin updates permissions) */
@@ -69,11 +61,6 @@ export function AuthProvider({ children }) {
     try {
       const res = await api.get('/api/auth/me')
       if (res?.user) {
-        const stored = loadStoredAuth()
-        if (stored) {
-          const updated = { user: res.user, token: stored.token }
-          localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updated))
-        }
         setUser(res.user)
         return res.user
       }
@@ -81,7 +68,6 @@ export function AuthProvider({ children }) {
     return null
   }, [])
 
-  // Auto-logout after 10 hours of inactivity (no mouse/keyboard/touch/scroll)
   useIdleLogout(user, logout)
 
   const value = { user, loading, login, logout, refreshUser }

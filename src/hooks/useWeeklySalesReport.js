@@ -165,7 +165,7 @@ export function useWeeklySalesReport({
   // preserving setUser() call from AuthContext (auth/me refresh returning the
   // same account with a new object reference) does NOT recreate this callback,
   // which would abort a running Zoho fetch and trigger a redundant re-request.
-  // The API token is read from localStorage by api.get(), not from user itself.
+  // Auth uses httpOnly cookie; api.get sends credentials.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id ?? null, reportGroup, fromDate, toDate, warehouseId ?? null, excludeWarehouseId ?? null, loadToken])
 

@@ -1,6 +1,8 @@
-import React, { useState, useCallback, useMemo, useRef } from "react";
+import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
+import { useUserPreferences } from "../../contexts/UserPreferencesContext";
+import { PREF_SALES_VS_EXPENSES } from "../../constants/userPreferenceKeys";
 import "./SalesVsExpensesReportPage.css";
 
 /* ── Types ── */
@@ -89,22 +91,6 @@ function formatDdMmInput(value: string) {
 
 function composeRowDate(start: string, end: string) {
   return end ? `${start} - ${end}` : start;
-}
-
-const STORAGE_KEY = "sve_report_history_v1";
-
-function loadHistory(): SavedReport[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const p = JSON.parse(raw);
-    return Array.isArray(p) ? p : [];
-  } catch {
-    return [];
-  }
-}
-function persistHistory(rows: SavedReport[]) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(rows)); } catch { /* noop */ }
 }
 
 function emptyRow(): Transaction {
@@ -295,6 +281,9 @@ function ProfitStrip({ label, value, tone }: { label: string; value: number; ton
 
 /* ── Main page ── */
 const SalesVsExpensesReportPage: React.FC = () => {
+  const { ready, getPref, setPref, prefsVersion } = useUserPreferences();
+  const skipHistorySave = useRef(false);
+
   const [periodStart, setPeriodStart] = useState(() => {
     const d = new Date();
     return isoDate(new Date(d.getFullYear(), d.getMonth(), 1));
@@ -306,12 +295,31 @@ const SalesVsExpensesReportPage: React.FC = () => {
   const [sales, setSales] = useState<Transaction[]>(DEMO_SALES);
   const [costs, setCosts] = useState<Transaction[]>(DEMO_COSTS);
   const [expenses, setExpenses] = useState<Transaction[]>(DEMO_EXPENSES);
-  const [history, setHistory] = useState<SavedReport[]>(loadHistory);
+  const [history, setHistory] = useState<SavedReport[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!ready) return;
+    const h = getPref(PREF_SALES_VS_EXPENSES, null);
+    skipHistorySave.current = true;
+    setHistory(Array.isArray(h) ? (h as SavedReport[]) : []);
+  }, [ready, prefsVersion, getPref]);
+
+  useEffect(() => {
+    if (!ready) return;
+    if (skipHistorySave.current) {
+      skipHistorySave.current = false;
+      return;
+    }
+    const t = window.setTimeout(() => {
+      setPref(PREF_SALES_VS_EXPENSES, history);
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [history, ready, setPref]);
 
   /* Derived totals */
   const totals = useMemo<ReportTotals>(() => {
@@ -371,7 +379,6 @@ const SalesVsExpensesReportPage: React.FC = () => {
       ? history.map((r, i) => (i === existingIndex ? record : r))
       : [record, ...history];
     setHistory(next);
-    persistHistory(next);
     setSavedMsg(`Report for "${periodLabel}" ${existingIndex >= 0 ? "updated" : "saved"}.`);
     setTimeout(() => setSavedMsg(null), 3000);
   }, [periodLabel, periodStart, periodEnd, sales, costs, expenses, totals, history]);
@@ -380,7 +387,6 @@ const SalesVsExpensesReportPage: React.FC = () => {
     if (!window.confirm("Delete this saved report?")) return;
     setHistory((prev) => {
       const next = prev.filter((r) => r.id !== id);
-      persistHistory(next);
       return next;
     });
   }, []);

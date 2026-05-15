@@ -2,6 +2,8 @@ import { useState, useMemo, useCallback } from 'react'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 import { useAuth, hasPermission } from './contexts/AuthContext'
+import { UserPreferencesProvider } from './contexts/UserPreferencesContext'
+import { ThemeProvider } from './contexts/ThemeContext'
 import { SettingsContext } from './contexts/SettingsContext'
 import { InfluencersProvider } from './contexts/InfluencersContext'
 import { useAppSettings } from './hooks/useAppSettings'
@@ -539,15 +541,25 @@ function AppContent() {
   )
 }
 
-function App() {
+function AppWithSettings() {
   const settings = useAppSettings()
   return (
+    <SettingsContext.Provider value={settings}>
+      <InfluencersProvider>
+        <AppContent />
+      </InfluencersProvider>
+    </SettingsContext.Provider>
+  )
+}
+
+function App() {
+  return (
     <AuthProvider>
-      <SettingsContext.Provider value={settings}>
-        <InfluencersProvider>
-            <AppContent />
-        </InfluencersProvider>
-      </SettingsContext.Provider>
+      <UserPreferencesProvider>
+        <ThemeProvider>
+          <AppWithSettings />
+        </ThemeProvider>
+      </UserPreferencesProvider>
     </AuthProvider>
   )
 }

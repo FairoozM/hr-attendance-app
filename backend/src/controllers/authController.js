@@ -2,6 +2,7 @@ const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 const usersService = require('../services/usersService')
 const { JWT_SECRET } = require('../middleware/auth')
+const { serializeAccessToken, serializeClearAccess } = require('../utils/authCookie')
 
 function buildUserPayload(row) {
   const displayName = row.employee_full_name || row.username || 'User'
@@ -53,11 +54,19 @@ async function login(req, res) {
 
     const user = buildUserPayload(row)
     res.setHeader('Content-Type', 'application/json; charset=utf-8')
-    return res.status(200).json({ token, user })
+    res.append('Set-Cookie', serializeAccessToken(token))
+    // Session JWT is httpOnly cookie only — do not return token in JSON (no localStorage).
+    return res.status(200).json({ user })
   } catch (err) {
     console.error('[auth] login: server error', err)
     return res.status(500).json({ error: 'Login failed' })
   }
+}
+
+function logout(_req, res) {
+  res.append('Set-Cookie', serializeClearAccess())
+  res.setHeader('Content-Type', 'application/json; charset=utf-8')
+  return res.status(200).json({ ok: true })
 }
 
 async function me(req, res) {
@@ -116,4 +125,4 @@ async function changePassword(req, res) {
   }
 }
 
-module.exports = { login, me, changePassword }
+module.exports = { login, logout, me, changePassword }

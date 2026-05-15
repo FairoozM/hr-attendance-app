@@ -105,7 +105,7 @@ function LazyZohoImage({ row }) {
     let cancelled = false
     async function load() {
       try {
-        const { blob } = await fetchBinary(imageUrl, { cache: 'default' })
+        const { blob } = await fetchBinary(imageUrl)
         if (cancelled) return
         const url = URL.createObjectURL(blob)
         objRef.current = url

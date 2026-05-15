@@ -443,7 +443,7 @@ export function AllPricesPage() {
         </div>
 
         <p className="doc-page-subtitle" style={{ marginTop: '1rem', marginBottom: 0 }}>
-          Data is saved in this browser (localStorage). Add a KSA (SAR) sheet later by duplicating this block with
+          Data is saved to your account (server). Add a KSA (SAR) sheet later by duplicating this block with
           different defaults if needed.
         </p>
       </section>

@@ -1,7 +1,9 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { DEFAULT_DEPARTMENTS } from '../constants/employees'
+import { PREF_APP_SETTINGS } from '../constants/userPreferenceKeys'
+import { useAuth } from '../contexts/AuthContext'
+import { useUserPreferences } from '../contexts/UserPreferencesContext'
 
-const STORAGE_KEY = 'hr-attendance-settings'
 const DEFAULT_APP_TITLE = 'Business Intelligence (BI) - Life Smile'
 const LEGACY_APP_TITLES = new Set([
   'HR Attendance',
@@ -21,45 +23,48 @@ function normalizeAppTitle(value) {
   return title
 }
 
-function load() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (parsed && typeof parsed === 'object') {
-        return {
-          companyName: parsed.companyName ?? defaultSettings.companyName,
-          appTitle: normalizeAppTitle(parsed.appTitle),
-          departments:
-          Array.isArray(parsed.departments) && parsed.departments.length > 0
-            ? parsed.departments
-            : defaultSettings.departments,
-        }
-      }
-    }
-  } catch (_) {}
-  return { ...defaultSettings }
-}
-
-function save(settings) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
-  } catch (_) {}
+function normalizeSettings(raw) {
+  if (!raw || typeof raw !== 'object') return { ...defaultSettings }
+  return {
+    companyName: raw.companyName ?? defaultSettings.companyName,
+    appTitle: normalizeAppTitle(raw.appTitle),
+    departments:
+      Array.isArray(raw.departments) && raw.departments.length > 0
+        ? raw.departments
+        : defaultSettings.departments,
+  }
 }
 
 export function useAppSettings() {
-  const [settings, setSettingsState] = useState(load)
+  const { user } = useAuth()
+  const { ready, getPref, setPref, prefsVersion } = useUserPreferences()
+  const [settings, setSettingsState] = useState({ ...defaultSettings })
+  const skipNextSave = useRef(false)
 
   useEffect(() => {
-    save(settings)
-  }, [settings])
+    if (!user || !ready) {
+      setSettingsState({ ...defaultSettings })
+      return
+    }
+    skipNextSave.current = true
+    const raw = getPref(PREF_APP_SETTINGS, null)
+    setSettingsState(normalizeSettings(raw))
+  }, [user, ready, prefsVersion, getPref])
+
+  useEffect(() => {
+    if (!user || !ready) return undefined
+    if (skipNextSave.current) {
+      skipNextSave.current = false
+      return undefined
+    }
+    const t = setTimeout(() => {
+      setPref(PREF_APP_SETTINGS, settings)
+    }, 350)
+    return () => clearTimeout(t)
+  }, [settings, user, ready, setPref])
 
   const persist = useCallback((next) => {
-    setSettingsState((prev) => {
-      const nextSettings = typeof next === 'function' ? next(prev) : next
-      save(nextSettings)
-      return nextSettings
-    })
+    setSettingsState((prev) => (typeof next === 'function' ? next(prev) : next))
   }, [])
 
   const setCompanyName = useCallback(

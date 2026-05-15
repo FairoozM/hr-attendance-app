@@ -6,7 +6,9 @@ export function storageKey(month, year) {
   return `hr-attendance-${year}-${String(month + 1).padStart(2, '0')}`
 }
 
+/** Best-effort cleanup of legacy month keys from older builds (browser localStorage only). */
 export function clearAllAttendanceStorage() {
+  if (typeof localStorage === 'undefined') return
   try {
     const keys = Object.keys(localStorage)
     keys.forEach((key) => {

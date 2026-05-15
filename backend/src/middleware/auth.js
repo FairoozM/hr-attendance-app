@@ -9,13 +9,21 @@ const JWT_SECRET = process.env.JWT_SECRET || 'hr-attendance-dev-secret-change-me
  * required by the employee.
  */
 async function attachAuth(req, res, next) {
+  let token = null
   const h = req.headers.authorization
-  if (!h || !h.startsWith('Bearer ')) {
+  if (h && h.startsWith('Bearer ')) {
+    token = h.slice(7).trim()
+  }
+  if (!token) {
+    const { readAccessTokenFromCookie } = require('../utils/authCookie')
+    token = readAccessTokenFromCookie(req)
+  }
+  if (!token) {
     req.user = null
     return next()
   }
   try {
-    const payload = jwt.verify(h.slice(7), JWT_SECRET)
+    const payload = jwt.verify(token, JWT_SECRET)
 
     // Always fetch fresh permissions from DB so changes apply immediately
     const { query } = require('../db')

@@ -4,8 +4,11 @@ const { attachAuth, requireAuth } = require('../middleware/auth')
 
 const router = express.Router()
 
-// POST /api/auth/login — returns { token, user }
+// POST /api/auth/login — sets httpOnly session cookie; returns { user }
 router.post('/login', authController.login)
+
+// POST /api/auth/logout — clears session cookie
+router.post('/logout', authController.logout)
 
 // GET /api/auth/login — friendly 405 so typos give a clear JSON error, never HTML
 router.get('/login', (_req, res) => {

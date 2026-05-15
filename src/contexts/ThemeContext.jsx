@@ -1,18 +1,14 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
+import { useAuth } from './AuthContext'
+import { useUserPreferences } from './UserPreferencesContext'
+import { PREF_THEME } from '../constants/userPreferenceKeys'
 
-const THEME_STORAGE_KEY = 'hr-attendance-theme'
 const SYSTEM_THEME_QUERY = '(prefers-color-scheme: dark)'
 
 const VALID_THEMES = new Set(['light', 'dark', 'comfort', 'system'])
 
 const ThemeContext = createContext(null)
-
-function getStoredThemePreference() {
-  if (typeof window === 'undefined') return 'system'
-  const saved = window.localStorage.getItem(THEME_STORAGE_KEY)
-  return VALID_THEMES.has(saved) ? saved : 'system'
-}
 
 function getSystemTheme() {
   if (typeof window === 'undefined' || !window.matchMedia) return 'dark'
@@ -29,9 +25,12 @@ function applyThemeToDocument(theme) {
 
 export function ThemeProvider({ children }) {
   const location = useLocation()
+  const { user } = useAuth()
+  const { ready, getPref, setPref, prefsVersion } = useUserPreferences()
   const onLoginRoute = location.pathname === '/login'
-  const [themePreference, setThemePreference] = useState(getStoredThemePreference)
+  const [themePreference, setThemePreference] = useState('system')
   const [systemTheme, setSystemTheme] = useState(getSystemTheme)
+  const skipPrefWrite = useRef(false)
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return undefined
@@ -48,7 +47,15 @@ export function ThemeProvider({ children }) {
     }
   }, [])
 
-  // Sign-in screen: follow OS only so another user's saved theme on this browser does not apply before auth.
+  useEffect(() => {
+    if (!user || !ready) return
+    const saved = getPref(PREF_THEME, null)
+    if (saved && VALID_THEMES.has(saved)) {
+      skipPrefWrite.current = true
+      setThemePreference(saved)
+    }
+  }, [user, ready, prefsVersion, getPref])
+
   const resolvedTheme = onLoginRoute
     ? systemTheme
     : themePreference === 'system'
@@ -60,9 +67,11 @@ export function ThemeProvider({ children }) {
   }, [resolvedTheme])
 
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    window.localStorage.setItem(THEME_STORAGE_KEY, themePreference)
-  }, [themePreference])
+    if (user && ready && !skipPrefWrite.current) {
+      setPref(PREF_THEME, themePreference)
+    }
+    skipPrefWrite.current = false
+  }, [themePreference, user, ready, setPref])
 
   const toggleTheme = useCallback(() => {
     setThemePreference((prev) => {

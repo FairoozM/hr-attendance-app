@@ -1,18 +1,13 @@
 import { useState } from 'react'
 import { setApiBaseUrlInStorage } from '../api/config'
+import { getApiBaseUrlMemory } from '../lib/api'
 
 /**
- * Shown only when the async health probe in LoginPage confirms /api/health is unreachable.
- * User enters the backend URL once; it is persisted to localStorage and the page reloads.
+ * Shown when /api/health is unreachable from this origin.
+ * Saves the API base URL in memory for this tab (lost on full reload); production should use HR_PUBLIC_API_URL.
  */
-export function ApiServerSetup() {
-  const [url, setUrl] = useState(() => {
-    try {
-      return localStorage.getItem('backendUrl') || ''
-    } catch (_) {
-      return ''
-    }
-  })
+export function ApiServerSetup({ onSaved }) {
+  const [url, setUrl] = useState(() => getApiBaseUrlMemory() || '')
   const [err, setErr] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -70,9 +65,10 @@ export function ApiServerSetup() {
       return
     }
 
-    console.log('[ApiServerSetup] saving API base URL to localStorage:', t)
+    console.log('[ApiServerSetup] saving API base URL in memory (this tab):', t)
     setApiBaseUrlInStorage(t)
-    window.location.reload()
+    setSaving(false)
+    onSaved?.()
   }
 
   return (
@@ -106,13 +102,13 @@ export function ApiServerSetup() {
           </p>
         )}
         <button type="submit" className="btn btn--primary login-submit" disabled={saving}>
-          {saving ? 'Checking…' : 'Save & reload'}
+          {saving ? 'Checking…' : 'Save & continue'}
         </button>
       </form>
       <p className="api-server-setup__hint">
-        After saving, the URL is stored in this browser as <code>backendUrl</code>. Production
-        deploys can also set <code>HR_PUBLIC_API_URL</code> so <code>api-runtime-config.js</code> points
-        everyone to the API without per-browser setup.
+        The URL is kept in memory for this tab only (a full page reload clears it unless{' '}
+        <code>HR_PUBLIC_API_URL</code> is set at deploy time). Prefer baking the API origin into{' '}
+        <code>api-runtime-config.js</code> for production.
       </p>
     </div>
   )

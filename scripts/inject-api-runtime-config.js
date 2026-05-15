@@ -4,8 +4,7 @@
  * - If **HR_PUBLIC_API_URL** is set (e.g. https://api.example.com or https://ec2-…:5001), it is baked in.
  * - Values are also read from repo-root **.env.deploy** if present (KEY=VALUE lines; does not override
  *   variables already set in the environment).
- * - If unset, writes an **empty** string so `getApiBaseUrl()` uses localStorage (`backendUrl`
- *   from the login “API server” field) or VITE_API_BASE_URL — **never** default to the SPA
+ * - If unset, writes an **empty** string so `getApiBaseUrl()` uses an in-memory override from the login setup flow (`setApiBaseUrlMemory`), or `VITE_API_BASE_URL` — **never** default to the SPA
  *   CloudFront host (that only serves S3; /api/* returns 403 HTML unless you add a CF behavior).
  *
  * When **HR_REQUIRE_PUBLIC_API_URL=1** (set by `deploy-all.sh`) and the URL is still empty, exits

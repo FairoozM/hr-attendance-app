@@ -1,4 +1,7 @@
-/** Local persistence for ecommerce price list (UAE AED). */
+/** Ecommerce price list — persisted per user via API (see PREF_ALL_PRICES_EC). */
+
+import { PREF_ALL_PRICES_EC } from '../../constants/userPreferenceKeys'
+import { getUserPrefKey, requestUserPrefSave } from '../../lib/userPreferencesBridge'
 
 export const STORAGE_KEY_RATES = 'hr-all-prices-ecommerce-rates-v1'
 export const STORAGE_KEY_ROWS = 'hr-all-prices-ecommerce-rows-v1'
@@ -89,11 +92,15 @@ export function seedEcommerceRows() {
   }))
 }
 
+function readBundle() {
+  const b = getUserPrefKey(PREF_ALL_PRICES_EC, null)
+  return b && typeof b === 'object' ? b : {}
+}
+
 export function loadRates() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_RATES)
-    if (!raw) return { ...DEFAULT_RATES }
-    const p = JSON.parse(raw)
+    const p = readBundle().rates
+    if (!p || typeof p !== 'object') return { ...DEFAULT_RATES }
     return {
       vatPct: Number.isFinite(Number(p.vatPct)) ? Number(p.vatPct) : DEFAULT_RATES.vatPct,
       commissionPct: Number.isFinite(Number(p.commissionPct)) ? Number(p.commissionPct) : DEFAULT_RATES.commissionPct,
@@ -106,18 +113,14 @@ export function loadRates() {
 }
 
 export function saveRates(rates) {
-  try {
-    localStorage.setItem(STORAGE_KEY_RATES, JSON.stringify(rates))
-  } catch {
-    /* ignore */
-  }
+  const bundle = readBundle()
+  const rows = Array.isArray(bundle.rows) ? bundle.rows : []
+  requestUserPrefSave(PREF_ALL_PRICES_EC, { ...bundle, rates })
 }
 
 export function loadRows() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_ROWS)
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
+    const parsed = readBundle().rows
     if (!Array.isArray(parsed)) return null
     return parsed.map((r) => ({
       id: r.id || makeRowId(),
@@ -132,11 +135,9 @@ export function loadRows() {
 }
 
 export function saveRows(rows) {
-  try {
-    localStorage.setItem(STORAGE_KEY_ROWS, JSON.stringify(rows))
-  } catch {
-    /* ignore */
-  }
+  const bundle = readBundle()
+  const rates = bundle.rates && typeof bundle.rates === 'object' ? bundle.rates : { ...DEFAULT_RATES }
+  requestUserPrefSave(PREF_ALL_PRICES_EC, { ...bundle, rates, rows })
 }
 
 export function fmtMoney(n, digits = 2) {

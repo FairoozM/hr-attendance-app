@@ -13,8 +13,14 @@ import {
 } from 'lucide-react'
 import { useInfluencers } from '../../contexts/InfluencersContext'
 import { useAuth, hasPermission } from '../../contexts/AuthContext'
+import { useUserPreferences } from '../../contexts/UserPreferencesContext'
+import { PREF_INFLUENCER_LIST_COLS } from '../../constants/userPreferenceKeys'
 import { AddInfluencerPage } from './AddInfluencerPage'
 import { batchRefreshInstagramProfilePictures } from '../../lib/influencers'
+import {
+  markIgAvatarAutoSyncCompleted,
+  hasIgAvatarAutoSyncCompleted,
+} from '../../lib/igAvatarAutoSyncTab'
 import './influencers.css'
 
 function initials(name) {
@@ -150,8 +156,7 @@ const QUICK_CHIP = {
 }
 const PAGE_SIZE = 20
 
-/** Excel-style resizable list columns — widths persisted in localStorage */
-const LIST_COL_STORAGE_KEY = 'hr-influencer-list-col-widths-v3'
+/** Excel-style resizable list columns — widths persisted per user (API). */
 const LIST_COL_KEYS = [
   'sr', 'name', 'nationality', 'ig', 'mobile', 'based', 'followers', 'pkg', 'insights', 'stage', 'payment', 'actions',
 ]
@@ -176,27 +181,14 @@ const COL_WIDTH_MAX = Object.freeze({
   sr: 72, name: 520, nationality: 180, ig: 320, mobile: 260, based: 240, followers: 160, pkg: 200, insights: 140, stage: 320, payment: 300, actions: 100,
 })
 
-function loadListColWidths() {
-  if (typeof localStorage === 'undefined') return { ...DEFAULT_COL_WIDTHS }
-  try {
-    const raw = localStorage.getItem(LIST_COL_STORAGE_KEY)
-    if (!raw) return { ...DEFAULT_COL_WIDTHS }
-    const parsed = JSON.parse(raw)
-    const next = { ...DEFAULT_COL_WIDTHS }
-    for (const k of LIST_COL_KEYS) {
-      const n = Number(parsed[k])
-      if (Number.isFinite(n) && n > 0) next[k] = Math.round(n)
-    }
-    return next
-  } catch {
-    return { ...DEFAULT_COL_WIDTHS }
+function normalizeColWidths(parsed) {
+  const next = { ...DEFAULT_COL_WIDTHS }
+  if (!parsed || typeof parsed !== 'object') return next
+  for (const k of LIST_COL_KEYS) {
+    const n = Number(parsed[k])
+    if (Number.isFinite(n) && n > 0) next[k] = Math.round(n)
   }
-}
-
-function saveListColWidths(widths) {
-  try {
-    localStorage.setItem(LIST_COL_STORAGE_KEY, JSON.stringify(widths))
-  } catch { /* ignore */ }
+  return next
 }
 
 function ResizableTh({
@@ -350,10 +342,16 @@ export function InfluencerListPage() {
   const can = (action) => hasPermission(user, 'influencers', action)
   /** Matches backend `requireInfluencersWrite` — any of these can run batch profile sync. */
   const canWriteInfluencers = can('manage') || can('approve') || can('payments') || can('agreements')
+  const { ready, getPref, setPref, prefsVersion } = useUserPreferences()
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const [showAddModal, setShowAddModal] = useState(false)
-  const [colWidths, setColWidths] = useState(loadListColWidths)
+  const [colWidths, setColWidths] = useState(() => ({ ...DEFAULT_COL_WIDTHS }))
   const [resizeSession, setResizeSession] = useState(null)
+
+  useEffect(() => {
+    if (!ready) return
+    setColWidths(normalizeColWidths(getPref(PREF_INFLUENCER_LIST_COLS, null)))
+  }, [ready, prefsVersion, getPref])
 
   const [search, setSearch] = useState('')
   const [filterWorkflow, setFilterWorkflow] = useState('All')
@@ -472,7 +470,7 @@ export function InfluencerListPage() {
       } catch (e) {
         setIgSyncHint(e?.message || 'Profile photo sync failed.')
       } finally {
-        if (!isManual) sessionStorage.setItem('hr-ig-avatar-autosync', '1')
+        if (!isManual) markIgAvatarAutoSyncCompleted()
         setIgSyncBusy(false)
       }
     },
@@ -484,12 +482,12 @@ export function InfluencerListPage() {
     if (loading || loadError) return
     if (!canWriteInfluencers) return
     if (igAutoRanRef.current) return
-    if (sessionStorage.getItem('hr-ig-avatar-autosync') === '1') return
+    if (hasIgAvatarAutoSyncCompleted()) return
     const need = influencers.some(
       (i) => i.instagram?.handle && String(i.instagram.handle).trim() && !i.instagram?.picUrl,
     )
     if (!need) {
-      sessionStorage.setItem('hr-ig-avatar-autosync', '1')
+      markIgAvatarAutoSyncCompleted()
       return
     }
     runBatchInstagramPics(false)
@@ -532,7 +530,7 @@ export function InfluencerListPage() {
     }
     const onUp = () => {
       setColWidths((prev) => {
-        saveListColWidths(prev)
+        setPref(PREF_INFLUENCER_LIST_COLS, prev)
         return prev
       })
       setResizeSession(null)
@@ -547,7 +545,7 @@ export function InfluencerListPage() {
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
     }
-  }, [resizeSession])
+  }, [resizeSession, setPref])
 
   const startColResize = useCallback((e, index) => {
     e.preventDefault()
@@ -563,8 +561,8 @@ export function InfluencerListPage() {
   const resetListColWidths = useCallback(() => {
     const next = { ...DEFAULT_COL_WIDTHS }
     setColWidths(next)
-    saveListColWidths(next)
-  }, [])
+    setPref(PREF_INFLUENCER_LIST_COLS, next)
+  }, [setPref])
 
   const totalPages = useServerPaging ? listMeta.totalPages : clientTotalPages
   const currentPageDisplay = useServerPaging ? listMeta.page : currentPage

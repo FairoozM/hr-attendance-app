@@ -1,0 +1,24 @@
+---
+description: No browser localStorage/sessionStorage for app state; prefer server; avoid HTTP cache on API fetches.
+alwaysApply: true
+---
+
+# Browser storage
+
+- **Auth**: Session is the httpOnly cookie set by `POST /api/auth/login`. Never store JWTs in `localStorage` or `sessionStorage`. All `fetch` / `api` calls use `credentials: 'include'`.
+- **Synced / durable user data**: Use `GET`/`PUT /api/user-preferences` and other APIs — not `localStorage` or `sessionStorage`.
+- **API base URL**: Use `window.API_RUNTIME_CONFIG.API_BASE_URL` (deploy), `VITE_API_BASE_URL`, or the in-tab **memory** override via `setApiBaseUrlMemory` in `src/lib/api.ts` (lost on full reload). The login setup flow calls `onSaved` instead of reloading the page.
+- **Idle activity**: `src/lib/idleActivitySync.js` + `BroadcastChannel` — no Web Storage.
+- **First-paint theme** (`index.html`): OS preference only until React applies the user’s saved theme from the server.
+
+# HTTP cache
+
+- JSON and binary API traffic must use **`cache: 'no-store'`** (see `src/api/client.js` default fetch options and `src/lib/api.ts` `apiFetch`). Do not reintroduce `cache: 'default'` for authenticated API blobs.
+
+# Allowed exceptions
+
+- **Legacy migration**: `src/lib/legacyStorageMigration.js` may read/remove old `localStorage` keys once.
+- **Cleanup**: `clearLegacyHrAuthStorage`, `clearAllAttendanceStorage` may remove legacy keys.
+- **One-time URL migration**: `getApiBaseUrl()` may read `localStorage` key `backendUrl` once and move it into memory, then delete it.
+
+When adding features, extend server APIs or user preferences — do not add new Web Storage writes.

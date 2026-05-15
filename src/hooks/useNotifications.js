@@ -1,26 +1,11 @@
 import { useState, useCallback, useEffect } from 'react'
 import { api } from '../api/client'
+import { PREF_NOTIFICATIONS_DISMISSED } from '../constants/userPreferenceKeys'
+import { useUserPreferences } from '../contexts/UserPreferencesContext'
 
-const DISMISSED_NOTIFICATIONS_KEY = 'hr-dismissed-notification-ids-v1'
-
-function loadDismissedIds() {
-  try {
-    const raw = localStorage.getItem(DISMISSED_NOTIFICATIONS_KEY)
-    if (!raw) return new Set()
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return new Set()
-    return new Set(parsed.map((id) => String(id)))
-  } catch {
-    return new Set()
-  }
-}
-
-function saveDismissedIds(ids) {
-  try {
-    localStorage.setItem(DISMISSED_NOTIFICATIONS_KEY, JSON.stringify(Array.from(ids)))
-  } catch {
-    // ignore storage failures
-  }
+function dismissedArrayToSet(arr) {
+  if (!Array.isArray(arr)) return new Set()
+  return new Set(arr.map((id) => String(id)))
 }
 
 /**
@@ -28,6 +13,7 @@ function saveDismissedIds(ids) {
  * No-op when `enabled` is false.
  */
 export function useNotifications(enabled) {
+  const { ready, getPref, setPref, prefsVersion } = useUserPreferences()
   const [items, setItems] = useState([])
   const [unread, setUnread] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -40,12 +26,11 @@ export function useNotifications(enabled) {
         api.get('/api/notifications?limit=40'),
         api.get('/api/notifications/unread-count'),
       ])
-      const dismissedIds = loadDismissedIds()
+      const dismissedIds = ready ? dismissedArrayToSet(getPref(PREF_NOTIFICATIONS_DISMISSED, [])) : new Set()
       const all = Array.isArray(list) ? list : []
       const visible = all.filter((n) => !dismissedIds.has(String(n.id)))
       setItems(visible)
 
-      // Keep badge consistent with what is actually visible in this panel.
       const serverUnread = typeof uc?.unread === 'number' ? uc.unread : 0
       const visibleUnread = visible.filter((n) => !n.is_read).length
       setUnread(Math.min(serverUnread, visibleUnread))
@@ -55,7 +40,7 @@ export function useNotifications(enabled) {
     } finally {
       setLoading(false)
     }
-  }, [enabled])
+  }, [enabled, ready, getPref, prefsVersion])
 
   useEffect(() => {
     load()
@@ -78,9 +63,10 @@ export function useNotifications(enabled) {
 
   const dismiss = useCallback(async (id) => {
     const idStr = String(id)
-    const dismissedIds = loadDismissedIds()
-    dismissedIds.add(idStr)
-    saveDismissedIds(dismissedIds)
+    const cur = ready ? getPref(PREF_NOTIFICATIONS_DISMISSED, []) : []
+    const base = Array.isArray(cur) ? [...cur] : []
+    if (!base.includes(idStr)) base.push(idStr)
+    setPref(PREF_NOTIFICATIONS_DISMISSED, base)
 
     const target = items.find((n) => String(n.id) === idStr)
     setItems((prev) => prev.filter((n) => String(n.id) !== idStr))
@@ -88,13 +74,12 @@ export function useNotifications(enabled) {
       setUnread((prev) => Math.max(0, prev - 1))
     }
 
-    // Persist dismissal server-side as read so it doesn't return as unread.
     try {
       await api.patch(`/api/notifications/${id}/read`, {})
     } catch {
-      // keep local dismissal even if network update fails
+      /* keep client dismissal */
     }
-  }, [items])
+  }, [items, ready, getPref, setPref])
 
   return { items, unread, loading, refresh: load, markRead, markAllRead, dismiss }
 }

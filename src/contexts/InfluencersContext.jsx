@@ -15,19 +15,14 @@ import {
   replaceInfluencersSnapshot,
 } from '../lib/influencers'
 import { normalizeInfluencerResponse } from '../lib/influencerResponse'
+import { readLegacyInfluencersSnapshot, clearLegacyInfluencersSnapshot } from '../lib/legacyStorageMigration'
 
 /** Synced from provider state for failure fallback (avoids stale closure). */
 const influencersRefGlobal = { current: [] }
 
 /** Legacy browser-only store (before server sync). Migrated once if API returns empty. */
-const LEGACY_STORAGE_KEY = 'hr-influencers-v1'
-
 function loadLegacyLocal() {
-  try {
-    const raw = localStorage.getItem(LEGACY_STORAGE_KEY)
-    if (raw) return JSON.parse(raw)
-  } catch (_) {}
-  return null
+  return readLegacyInfluencersSnapshot()
 }
 
 /** Merge server + old browser-only lists: same id keeps the row with newer updatedAt. */
@@ -177,7 +172,7 @@ export function InfluencersProvider({ children }) {
       try {
         await replaceInfluencersSnapshot(list)
         try {
-          localStorage.removeItem(LEGACY_STORAGE_KEY)
+          clearLegacyInfluencersSnapshot()
         } catch (_) {}
       } catch (putErr) {
         loadErr = putErr.message || 'Could not save merged influencers to the server'
@@ -189,7 +184,7 @@ export function InfluencersProvider({ children }) {
         'This browser had a local influencer list; it was merged for display only. Log in once with an account that can edit influencers (or admin) to upload it to the server.'
     } else if (hadLegacy && !mergedDiffersFromServer) {
       try {
-        localStorage.removeItem(LEGACY_STORAGE_KEY)
+        clearLegacyInfluencersSnapshot()
       } catch (_) {}
     }
 

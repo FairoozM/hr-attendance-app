@@ -154,7 +154,7 @@
   text-align: center;
 }
 
-/* Column widths come from <colgroup> + localStorage (see inf-table--resizable) */
+/* Column widths come from <colgroup> + server user preferences (see inf-table--resizable) */
 .inf-page--list .inf-table--compact th.inf-table__col--nationality,
 .inf-page--list .inf-table--compact td.inf-table__col--nationality {
   text-align: center;

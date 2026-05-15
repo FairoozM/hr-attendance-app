@@ -1,5 +1,8 @@
 /** Composite bundle economics — mirrors All Prices formula with single bundle shipping. */
 
+import { PREF_SAVED_COMPOSITES } from '../../constants/userPreferenceKeys'
+import { getUserPrefKey, requestUserPrefSave } from '../../lib/userPreferencesBridge'
+
 export const STORAGE_KEY_SAVED_COMPOSITES = 'hr-saved-composite-items-v1'
 export const SAVED_COMPOSITES_UPDATED_EVENT = 'hr-saved-composite-items-updated'
 
@@ -301,9 +304,7 @@ export function findPurchaseForComponent(purchaseMap, component) {
 
 export function loadSavedCompositeItems() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_SAVED_COMPOSITES)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
+    const parsed = getUserPrefKey(PREF_SAVED_COMPOSITES, [])
     if (!Array.isArray(parsed)) return []
     return parsed
       .filter((item) => item && typeof item === 'object' && String(item.sku || '').trim())
@@ -339,7 +340,7 @@ export function saveSavedCompositeItem(record) {
     nextRecord,
     ...current.filter((item) => makeSavedCompositeKey(item.sku) !== key),
   ]
-  localStorage.setItem(STORAGE_KEY_SAVED_COMPOSITES, JSON.stringify(next))
+  requestUserPrefSave(PREF_SAVED_COMPOSITES, next)
   notifySavedCompositeItemsChanged()
   return nextRecord
 }
@@ -348,7 +349,7 @@ export function removeSavedCompositeItem(sku) {
   const key = makeSavedCompositeKey(sku)
   if (!key) return loadSavedCompositeItems()
   const next = loadSavedCompositeItems().filter((item) => makeSavedCompositeKey(item.sku) !== key)
-  localStorage.setItem(STORAGE_KEY_SAVED_COMPOSITES, JSON.stringify(next))
+  requestUserPrefSave(PREF_SAVED_COMPOSITES, next)
   notifySavedCompositeItemsChanged()
   return next
 }

@@ -25,15 +25,20 @@ function bodyLooksLikeHtml(text) {
   return t.startsWith('<!') || t.toLowerCase().startsWith('<html')
 }
 
+/** Session uses httpOnly cookie `hr_access`; do not send Bearer from localStorage. */
 function getAuthHeaders() {
-  try {
-    const raw = localStorage.getItem(AUTH_STORAGE_KEY)
-    if (!raw) return {}
-    const { token } = JSON.parse(raw)
-    if (token) return { Authorization: `Bearer ${token}` }
-  } catch (_) {}
   return {}
 }
+
+/** Remove legacy token blob from older builds (cookie is canonical now). */
+export function clearLegacyHrAuthStorage() {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.removeItem(AUTH_STORAGE_KEY)
+  } catch (_) {}
+}
+
+const defaultFetchOpts = { credentials: 'include', cache: 'no-store' }
 
 /** Legacy upload URL sometimes still cached in old bundles; canonical route always hits Express. */
 function normalizeApiPath(path) {
@@ -92,7 +97,7 @@ async function handleResponse(res, requestUrl) {
     const htmlMessage =
       `Server returned non-JSON response from ${url} (HTTP ${res.status}). ` +
       `Got HTML instead of JSON — the page is not reaching your Express API.${gateway} ` +
-      `Fix: set your backend URL on the login screen (saved in this browser), or add a CloudFront /api/* behavior to your API origin, or set HR_PUBLIC_API_URL / VITE_API_BASE_URL / api-runtime-config.js.`
+      `Fix: set your backend URL on the login screen (held in memory for this tab until reload), or add a CloudFront /api/* behavior to your API origin, or set HR_PUBLIC_API_URL / VITE_API_BASE_URL / api-runtime-config.js.`
     const fallbackMessage =
       base === ''
         ? `${htmlMessage} (No API base URL is set.)`
@@ -159,20 +164,19 @@ function parseFilenameFromContentDisposition(header) {
 /**
  * GET a binary response (e.g. .xlsx) with the same auth as other API calls.
  * On error, attempts to parse JSON error bodies from the API.
+ * Always uses `cache: 'no-store'` so responses are not served from the HTTP cache.
  * @param {string} path
- * @param {{ cache?: RequestCache }} [options] — pass `{ cache: 'default' }` to allow browser HTTP cache (e.g. weekly report thumbnails with long `max-age` from the server).
  */
-export async function fetchBinary(path, options = {}) {
+export async function fetchBinary(path) {
   const p = normalizeApiPath(path)
   const url = p.startsWith('http') ? p : resolveApiUrl(p)
-  const cache = options.cache != null ? options.cache : 'no-store'
   const res = await fetch(url, {
+    ...defaultFetchOpts,
     method: 'GET',
     headers: {
       Accept: '*/*',
       ...getAuthHeaders(),
     },
-    cache,
   })
   if (!res.ok) {
     const text = await res.text()
@@ -212,6 +216,7 @@ export async function postBinary(path, body = null) {
   const p = normalizeApiPath(path)
   const url = p.startsWith('http') ? p : resolveApiUrl(p)
   const res = await fetch(url, {
+    ...defaultFetchOpts,
     method: 'POST',
     headers: {
       Accept: '*/*',
@@ -266,6 +271,7 @@ async function request(method, path, body = null, opts = {}) {
   path = normalizeApiPath(path)
   const url = path.startsWith('http') ? path : resolveApiUrl(path)
   const options = {
+    ...defaultFetchOpts,
     method,
     headers: {
       Accept: 'application/json',
@@ -283,9 +289,9 @@ async function postForm(path, formData) {
   path = normalizeApiPath(path)
   const url = path.startsWith('http') ? path : resolveApiUrl(path)
   const res = await fetch(url, {
+    ...defaultFetchOpts,
     method: 'POST',
     body: formData,
-    cache: 'no-store',
     headers: {
       ...getAuthHeaders(),
     },
@@ -309,6 +315,7 @@ export const api = {
 export async function probeApiHealth() {
   const url = resolveApiUrl('/api/health')
   const res = await fetch(url, {
+    ...defaultFetchOpts,
     method: 'GET',
     headers: { Accept: 'application/json' },
     cache: 'no-store',

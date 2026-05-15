@@ -1,9 +1,9 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { useUserPreferences } from '../contexts/UserPreferencesContext'
+import { PREF_COMPANY_PAYMENTS } from '../constants/userPreferenceKeys'
 import { PAYMENT_STATUS, DEFAULT_INFORM_ASAD_BEFORE_DAYS } from '../data/paymentTypes'
 import { getInformAsadDate, getDaysLeft } from '../utils/paymentUtils'
-
-const STORAGE_KEY = 'hr_company_payments_v1'
 
 /**
  * @typedef {object} HistoryEntry
@@ -65,25 +65,6 @@ function nowIso() {
 function getActor(user) {
   if (!user) return 'system'
   return user.employee?.full_name || user.username || user.email || 'user'
-}
-
-function loadFromStorage() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
-    const p = JSON.parse(raw)
-    return Array.isArray(p) ? p : []
-  } catch {
-    return []
-  }
-}
-
-function saveToStorage(rows) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rows))
-  } catch (e) {
-    console.error('[company-payments] save failed', e)
-  }
 }
 
 function pushHistory(payment, entry) {
@@ -168,16 +149,37 @@ const DEMO = [
 
 export function useCompanyPayments() {
   const { user } = useAuth()
-  const [rows, setRows] = useState(() => {
-    const loaded = loadFromStorage()
-    if (loaded.length) return loaded.map(normalizeRow)
-    saveToStorage(DEMO.map(normalizeRow))
-    return DEMO.map(normalizeRow)
-  })
+  const { ready, getPref, setPref, prefsVersion } = useUserPreferences()
+  const [rows, setRows] = useState([])
+  const skipSave = useRef(false)
 
   useEffect(() => {
-    saveToStorage(rows)
-  }, [rows])
+    if (!user || !ready) {
+      setRows([])
+      return
+    }
+    const r = getPref(PREF_COMPANY_PAYMENTS, null)
+    if (Array.isArray(r) && r.length > 0) {
+      skipSave.current = true
+      setRows(r.map(normalizeRow))
+    } else {
+      skipSave.current = false
+      setRows(DEMO.map(normalizeRow))
+    }
+  }, [user, ready, prefsVersion, getPref])
+
+  useEffect(() => {
+    if (!user || !ready) return undefined
+    if (!rows.length) return undefined
+    if (skipSave.current) {
+      skipSave.current = false
+      return undefined
+    }
+    const t = setTimeout(() => {
+      setPref(PREF_COMPANY_PAYMENTS, rows)
+    }, 450)
+    return () => clearTimeout(t)
+  }, [rows, user, ready, setPref])
 
   const actor = useMemo(() => getActor(user), [user])
 

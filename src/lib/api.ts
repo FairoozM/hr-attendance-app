@@ -8,22 +8,40 @@ declare global {
   }
 }
 
-function getAuthHeaders() {
+/** In-tab override only (lost on full reload). Production should set HR_PUBLIC_API_URL / api-runtime-config.js. */
+let apiBaseUrlMemory = ""
+
+export function setApiBaseUrlMemory(url: string) {
+  apiBaseUrlMemory = trimSlash(String(url || "").trim())
+}
+
+export function getApiBaseUrlMemory(): string {
+  return apiBaseUrlMemory
+}
+
+function migrateLegacyBackendUrlOnce() {
+  if (typeof localStorage === "undefined") return
   try {
-    const raw = localStorage.getItem("hr-auth")
-    if (!raw) return {}
-    const parsed = JSON.parse(raw)
-    if (parsed?.token) return { Authorization: `Bearer ${parsed.token}` }
-  } catch (_) {}
+    if (apiBaseUrlMemory) return
+    const legacy = localStorage.getItem("backendUrl")?.trim()
+    if (legacy) {
+      apiBaseUrlMemory = trimSlash(legacy)
+      localStorage.removeItem("backendUrl")
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function getAuthHeaders(): Record<string, string> {
   return {}
 }
 
 export function getApiBaseUrl(): string {
+  migrateLegacyBackendUrlOnce()
   const runtime = window.API_RUNTIME_CONFIG?.API_BASE_URL?.trim()
-  const saved = localStorage.getItem("backendUrl")?.trim()
   const env = import.meta.env.VITE_API_BASE_URL?.trim()
-
-  const base = runtime || saved || env || ""
+  const base = runtime || apiBaseUrlMemory || env || ""
   return base ? trimSlash(base) : ""
 }
 
@@ -37,26 +55,26 @@ export function buildApiUrl(path: string): string {
   return `${base}${normalizedPath}`
 }
 
-export async function apiFetch(path: string, init?: RequestInit) {
+export async function apiFetch(path: string, init?: RequestInit): Promise<unknown> {
   const url = buildApiUrl(path)
   const method = (init?.method || "GET").toUpperCase()
   const hasBody = init?.body != null
 
-  // Don't send Content-Type on GET/HEAD requests with no body — CloudFront's
-  // WAF blocks GET requests that include Content-Type as a non-standard header.
   const contentTypeHeader =
     hasBody || method === "POST" || method === "PUT" || method === "PATCH"
       ? { "Content-Type": "application/json" }
       : {}
 
   const response = await fetch(url, {
+    ...init,
+    credentials: "include",
+    cache: "no-store",
     headers: {
       Accept: "application/json",
       ...contentTypeHeader,
       ...getAuthHeaders(),
       ...(init?.headers || {}),
     },
-    ...init,
   })
 
   const contentType = response.headers.get("content-type") || ""

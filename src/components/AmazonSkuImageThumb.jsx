@@ -49,7 +49,7 @@ export function AmazonSkuImageThumb({
         const path = buildAmazonZohoImagePath(zohoItemId)
         const blob = fromMem
           ? fromMem
-          : (await fetchBinary(path, { cache: 'default' })).blob
+          : (await fetchBinary(path)).blob
         if (cancelled) return
         if (!fromMem) setCachedZohoItemBlob(zohoItemId, blob)
         const u = URL.createObjectURL(blob)

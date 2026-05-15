@@ -1,16 +1,4 @@
-import { resolveApiUrl, AUTH_STORAGE_KEY } from './client.js'
-
-function getAuthHeaders() {
-  try {
-    const raw = localStorage.getItem(AUTH_STORAGE_KEY)
-    if (!raw) return {}
-    const { token } = JSON.parse(raw)
-    if (token) return { Authorization: `Bearer ${token}` }
-  } catch {
-    /* ignore */
-  }
-  return {}
-}
+import { resolveApiUrl } from './client.js'
 
 /**
  * Fetches the annual leave request letter as PDF (inline or attachment disposition).
@@ -20,9 +8,9 @@ export async function fetchAnnualLeaveLetterBlob(id, { attachment = false } = {}
   const url = resolveApiUrl(`/api/annual-leave/${id}/leave-request-letter?${q}`)
   const res = await fetch(url, {
     method: 'GET',
+    credentials: 'include',
     headers: {
       Accept: 'application/pdf',
-      ...getAuthHeaders(),
     },
     cache: 'no-store',
   })
