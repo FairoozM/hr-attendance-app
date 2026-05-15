@@ -1048,6 +1048,15 @@ async function getZohoItemImage(req, res) {
     if (err.code === 'ZOHO_INVALID_ITEM_ID') {
       return res.status(400).json({ error: err.message, code: err.code })
     }
+    if (err.code === 'ZOHO_HTTP_429' || err.code === 'ZOHO_RATE_MINUTE_LIMIT' || err.code === 'ZOHO_SYNC_PAUSED') {
+      res.setHeader('Retry-After', '60')
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+      return res.status(503).json({
+        error: err.message || 'Zoho image fetch is temporarily rate limited.',
+        code: err.code || 'ZOHO_IMAGE_RATE_LIMITED',
+        retryAfterSeconds: 60,
+      })
+    }
     return await handleZohoError(res, err, 'getZohoItemImage')
   }
 }

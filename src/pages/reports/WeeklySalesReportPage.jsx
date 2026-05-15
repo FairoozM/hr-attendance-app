@@ -512,6 +512,35 @@ export function ErrorCallout({ message, hint, onRetry, validationErrors }) {
 }
 
 const ZOHO_ITEM_IMAGE_PATH = '/api/weekly-reports/zoho-item-images'
+const ZOHO_THUMB_CONCURRENCY = 2
+const ZOHO_THUMB_RETRY_MS = 65000
+let zohoThumbActive = 0
+const zohoThumbQueue = []
+
+function runNextZohoThumbTask() {
+  while (zohoThumbActive < ZOHO_THUMB_CONCURRENCY && zohoThumbQueue.length > 0) {
+    const task = zohoThumbQueue.shift()
+    zohoThumbActive += 1
+    task()
+      .catch(() => {})
+      .finally(() => {
+        zohoThumbActive = Math.max(0, zohoThumbActive - 1)
+        runNextZohoThumbTask()
+      })
+  }
+}
+
+function enqueueZohoThumbTask(task) {
+  return new Promise((resolve, reject) => {
+    zohoThumbQueue.push(() => Promise.resolve().then(task).then(resolve, reject))
+    runNextZohoThumbTask()
+  })
+}
+
+function isRetryableZohoThumbError(err) {
+  const code = err?.parsed?.code || err?.body?.code || ''
+  return err?.status === 429 || err?.status === 503 || code === 'ZOHO_HTTP_429' || code === 'ZOHO_SYNC_PAUSED' || code === 'ZOHO_RATE_MINUTE_LIMIT'
+}
 
 /**
  * One Zoho catalog image per family (`zoho_representative_item_id`); fetches with Bearer auth
@@ -520,6 +549,7 @@ const ZOHO_ITEM_IMAGE_PATH = '/api/weekly-reports/zoho-item-images'
 export function ZohoItemThumb({ itemId }) {
   const [src, setSrc] = useState(null)
   const [failed, setFailed] = useState(false)
+  const retryRef = useRef(null)
   const objRef = useRef(null)
   const cellRef = useRef(null)
 
@@ -539,7 +569,7 @@ export function ZohoItemThumb({ itemId }) {
         const q = new URLSearchParams()
         q.set('r', String(ZOHO_REP_IMAGE_QUERY_VERSION))
         const url = `${ZOHO_ITEM_IMAGE_PATH}/${encodeURIComponent(String(itemId))}?${q.toString()}`
-        const blob = fromMem ? fromMem : (await fetchBinary(url)).blob
+        const blob = fromMem ? fromMem : (await enqueueZohoThumbTask(() => fetchBinary(url))).blob
         if (cancelled) return
         if (!fromMem) {
           setCachedZohoItemBlob(itemId, blob)
@@ -549,8 +579,13 @@ export function ZohoItemThumb({ itemId }) {
         objRef.current = u
         setSrc(u)
         setFailed(false)
-      } catch {
-        if (!cancelled) setFailed(true)
+      } catch (err) {
+        if (cancelled) return
+        if (isRetryableZohoThumbError(err)) {
+          retryRef.current = setTimeout(go, ZOHO_THUMB_RETRY_MS)
+          return
+        }
+        setFailed(true)
       }
     }
 
@@ -569,12 +604,20 @@ export function ZohoItemThumb({ itemId }) {
     io.observe(node)
     return () => {
       cancelled = true
+      if (retryRef.current) {
+        clearTimeout(retryRef.current)
+        retryRef.current = null
+      }
       io.disconnect()
     }
   }, [itemId])
 
   useEffect(
     () => () => {
+      if (retryRef.current) {
+        clearTimeout(retryRef.current)
+        retryRef.current = null
+      }
       if (objRef.current) {
         URL.revokeObjectURL(objRef.current)
         objRef.current = null
