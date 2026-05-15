@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Crown, Eye, Medal, MoreVertical, Pencil, Trash2 } from 'lucide-react'
 import { formatNumber } from '../../utils/influencerPerformanceUtils'
 import { fmtDMY, fmtISO } from '../../utils/dateFormat'
@@ -205,7 +206,10 @@ export function InfluencerPerformanceTable({
     if (!rowMenu.openId) return undefined
     const openId = rowMenu.openId
     const onDocPointerDown = (event) => {
-      const menu = pointerTargetElement(event)?.closest('.ip-table__row-menu')
+      const t = pointerTargetElement(event)
+      // Dropdown is portaled to document.body; it is not under .ip-table__row-menu in the DOM.
+      if (t?.closest('.ip-table__row-menu-dropdown')) return
+      const menu = t?.closest('.ip-table__row-menu')
       if (!menu || menu.getAttribute('data-record-id') !== String(openId)) {
         setRowMenu(CLOSED_ROW_MENU)
       }
@@ -266,6 +270,62 @@ export function InfluencerPerformanceTable({
   const bests = useMetricBests(records, showNetProfitColumn)
   const total = totalContracts != null ? totalContracts : records.length
   const hasTableDateFilter = Boolean(dateFrom || dateTo)
+
+  const openMenuRecord = useMemo(
+    () => (rowMenu.openId ? records.find((r) => String(r.id) === String(rowMenu.openId)) : null),
+    [records, rowMenu.openId],
+  )
+
+  const rowMenuPortal = useMemo(() => {
+    if (!openMenuRecord || typeof document === 'undefined') return null
+    const influencerId = String(openMenuRecord.influencerId || '')
+    const isMonitorActive =
+      String(activeMonitorInfluencerId) === String(openMenuRecord.id) ||
+      String(activeMonitorInfluencerId) === influencerId
+    return createPortal(
+      <div className="ip-table__row-menu-dropdown" role="menu" style={rowMenu.menuStyle || undefined}>
+        <button
+          type="button"
+          className="ip-table__row-menu-item"
+          role="menuitem"
+          onClick={() => {
+            onToggleMonitor(openMenuRecord.influencerId, openMenuRecord)
+            setRowMenu(CLOSED_ROW_MENU)
+          }}
+        >
+          <span className="ip-table__row-menu-icon-slot" aria-hidden />
+          {isMonitorActive ? 'Hide contract timeline' : 'Open contract timeline'}
+        </button>
+        {onEdit ? (
+          <button
+            type="button"
+            className="ip-table__row-menu-item"
+            role="menuitem"
+            onClick={() => {
+              onEdit(openMenuRecord)
+              setRowMenu(CLOSED_ROW_MENU)
+            }}
+          >
+            <Pencil size={15} aria-hidden /> Edit
+          </button>
+        ) : null}
+        {onDelete ? (
+          <button
+            type="button"
+            className="ip-table__row-menu-item ip-table__row-menu-item--danger"
+            role="menuitem"
+            onClick={() => {
+              onDelete(openMenuRecord.id)
+              setRowMenu(CLOSED_ROW_MENU)
+            }}
+          >
+            <Trash2 size={15} aria-hidden /> Delete
+          </button>
+        ) : null}
+      </div>,
+      document.body,
+    )
+  }, [openMenuRecord, rowMenu.menuStyle, onToggleMonitor, onEdit, onDelete, activeMonitorInfluencerId])
 
   return (
     <section className="ip-table-card">
@@ -397,48 +457,6 @@ export function InfluencerPerformanceTable({
                       >
                         <MoreVertical size={18} strokeWidth={2.25} aria-hidden />
                       </button>
-                      {String(rowMenu.openId) === String(record.id) ? (
-                        <div className="ip-table__row-menu-dropdown" role="menu" style={rowMenu.menuStyle || undefined}>
-                          <button
-                            type="button"
-                            className="ip-table__row-menu-item"
-                            role="menuitem"
-                            onClick={() => {
-                              onToggleMonitor(record.influencerId, record)
-                              setRowMenu(CLOSED_ROW_MENU)
-                            }}
-                          >
-                            <span className="ip-table__row-menu-icon-slot" aria-hidden />
-                            {isMonitorActive ? 'Hide contract timeline' : 'Open contract timeline'}
-                          </button>
-                          {onEdit ? (
-                            <button
-                              type="button"
-                              className="ip-table__row-menu-item"
-                              role="menuitem"
-                              onClick={() => {
-                                onEdit(record)
-                                setRowMenu(CLOSED_ROW_MENU)
-                              }}
-                            >
-                              <Pencil size={15} aria-hidden /> Edit
-                            </button>
-                          ) : null}
-                          {onDelete ? (
-                            <button
-                              type="button"
-                              className="ip-table__row-menu-item ip-table__row-menu-item--danger"
-                              role="menuitem"
-                              onClick={() => {
-                                onDelete(record.id)
-                                setRowMenu(CLOSED_ROW_MENU)
-                              }}
-                            >
-                              <Trash2 size={15} aria-hidden /> Delete
-                            </button>
-                          ) : null}
-                        </div>
-                      ) : null}
                     </div>
                   </td>
                 </tr>
@@ -447,6 +465,7 @@ export function InfluencerPerformanceTable({
           </tbody>
         </table>
       </div>
+      {rowMenuPortal}
     </section>
   )
 }

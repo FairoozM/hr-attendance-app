@@ -102,9 +102,15 @@ function InfluencerPerformancePageBody() {
         }}
         totalContracts={contractsTotal}
         onEdit={canWritePerformance ? (row) => row?.latest && setEditingRecord(row.latest) : undefined}
-        onDelete={canWritePerformance ? (id) => {
-          const row = filteredContracts.find((item) => item.id === id)
-          if (row?.latest?.id) handleDelete(row.latest.id)
+        onDelete={canWritePerformance ? (contractId) => {
+          const row = filteredContracts.find((item) => String(item.id) === String(contractId))
+          const rid =
+            row?.latest?.id ||
+            [...(row?.records || [])]
+              .filter((r) => r && r.id)
+              .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')))
+              .at(-1)?.id
+          if (rid) handleDelete(rid)
         } : undefined}
         activeMonitorInfluencerId={activeMonitorContractId}
         onToggleMonitor={(_influencerId, row) => toggleActiveMonitorContract(row)}

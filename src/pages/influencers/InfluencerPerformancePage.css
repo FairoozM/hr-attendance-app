@@ -3575,7 +3575,7 @@
   border: 1px solid rgba(15, 23, 42, 0.1);
   background: rgba(255, 255, 255, 0.98);
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
-  z-index: 9999;
+  z-index: 10050;
 }
 
 .ip-table__row-menu-icon-slot {
