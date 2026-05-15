@@ -222,6 +222,15 @@ async function updateReportFailed(reportId, err) {
   )
 }
 
+async function updateReportStarted(reportId, totalSeen) {
+  await query(
+    `UPDATE composite_price_reports
+     SET total_composites_seen = $2, updated_at = NOW()
+     WHERE id = $1`,
+    [reportId, Number.isFinite(Number(totalSeen)) ? Number(totalSeen) : 0]
+  )
+}
+
 function decimalOrNull(value) {
   const n = Number(value)
   return Number.isFinite(n) ? n : null
@@ -395,37 +404,14 @@ async function persistCompletedReport(client, reportId, items, allComposites) {
   )
 }
 
-async function generateCompositeItemsPriceReport({ userId, mode = 'incremental', force = false, includeModified = false } = {}) {
-  await ensureCompositeItemsPriceReportTables()
-  if (generationRunning) {
-    const err = new Error('A composite price report is already being generated.')
-    err.code = 'REPORT_ALREADY_RUNNING'
-    throw err
-  }
-  generationRunning = true
-  let reportId = null
+async function runCompositeItemsPriceReportJob({ reportId, userId, mode, force, includeModified, rows, rates }) {
   try {
-    const effectiveMode = force || mode === 'full' ? 'full' : 'incremental'
-    const { rows, rates } = await loadAllPricesBundle(userId)
     const [allComposites, syncState] = await Promise.all([
       fetchAllCompositeItems(),
       getSyncState(),
     ])
-    const selected = selectCompositesForRun(allComposites, syncState, { mode: effectiveMode, force, includeModified })
-    const client = await pool.connect()
-    try {
-      await client.query('BEGIN')
-      const reportName = `${effectiveMode === 'full' ? 'Full' : 'Delta'} Composite Items Price Report ${nowIso()}`
-      const report = await createReport({ client, userId, mode: effectiveMode, reportName, totalSeen: allComposites.length })
-      reportId = report.id
-      await client.query('COMMIT')
-    } catch (err) {
-      await client.query('ROLLBACK').catch(() => {})
-      throw err
-    } finally {
-      client.release()
-    }
-
+    await updateReportStarted(reportId, allComposites.length)
+    const selected = selectCompositesForRun(allComposites, syncState, { mode, force, includeModified })
     const purchaseMap = buildPurchasePriceMap(rows)
     const items = await mapLimit(selected, DETAIL_CONCURRENCY, (composite) =>
       calculateCompositeReportItem(composite, purchaseMap, rates)
@@ -437,32 +423,74 @@ async function generateCompositeItemsPriceReport({ userId, mode = 'incremental',
       await saveClient.query('BEGIN')
       await persistCompletedReport(saveClient, reportId, sortedItems, allComposites)
       await saveClient.query('COMMIT')
+      console.log(
+        `[composite-price-report] report ${reportId} completed: ${sortedItems.length}/${allComposites.length} composite item(s) processed`
+      )
     } catch (err) {
       await saveClient.query('ROLLBACK').catch(() => {})
       throw err
     } finally {
       saveClient.release()
     }
-
-    const detail = await getCompositeItemsPriceReport(reportId)
-    return {
-      report_id: reportId,
-      generated_at: detail.report.generated_at,
-      mode: effectiveMode,
-      total_composites_seen: allComposites.length,
-      total_new_composites_processed: sortedItems.length,
-      total_complete: detail.report.total_complete,
-      total_incomplete: detail.report.total_incomplete,
-      status: 'completed',
-      message: sortedItems.length
-        ? `${sortedItems.length} composite item(s) processed.`
-        : 'No new composite items were found for the incremental report.',
-    }
   } catch (err) {
-    if (reportId) await updateReportFailed(reportId, err).catch(() => {})
-    throw err
+    await updateReportFailed(reportId, err).catch(() => {})
+    console.error(`[composite-price-report] report ${reportId} failed:`, err.message || err)
   } finally {
     generationRunning = false
+  }
+}
+
+async function startCompositeItemsPriceReportGeneration({ userId, mode = 'incremental', force = false, includeModified = false } = {}) {
+  await ensureCompositeItemsPriceReportTables()
+  if (generationRunning) {
+    const err = new Error('A composite price report is already being generated.')
+    err.code = 'REPORT_ALREADY_RUNNING'
+    throw err
+  }
+  generationRunning = true
+  try {
+    const effectiveMode = force || mode === 'full' ? 'full' : 'incremental'
+    const { rows, rates } = await loadAllPricesBundle(userId)
+    const client = await pool.connect()
+    let report
+    try {
+      await client.query('BEGIN')
+      const reportName = `${effectiveMode === 'full' ? 'Full' : 'Delta'} Composite Items Price Report ${nowIso()}`
+      report = await createReport({ client, userId, mode: effectiveMode, reportName, totalSeen: 0 })
+      await client.query('COMMIT')
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {})
+      throw err
+    } finally {
+      client.release()
+    }
+
+    setImmediate(() => {
+      runCompositeItemsPriceReportJob({
+        reportId: report.id,
+        userId,
+        mode: effectiveMode,
+        force,
+        includeModified,
+        rows,
+        rates,
+      })
+    })
+
+    return {
+      report_id: report.id,
+      generated_at: report.generated_at,
+      mode: effectiveMode,
+      total_composites_seen: 0,
+      total_new_composites_processed: 0,
+      total_complete: 0,
+      total_incomplete: 0,
+      status: 'running',
+      message: 'Composite price report generation started. Refresh saved reports to see progress.',
+    }
+  } catch (err) {
+    generationRunning = false
+    throw err
   }
 }
 
@@ -529,7 +557,8 @@ module.exports = {
   sortCompositesByNameDesc,
   selectCompositesForRun,
   calculateCompositeReportItem,
-  generateCompositeItemsPriceReport,
+  startCompositeItemsPriceReportGeneration,
+  runCompositeItemsPriceReportJob,
   listCompositeItemsPriceReports,
   getCompositeItemsPriceReport,
 }

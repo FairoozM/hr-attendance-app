@@ -163,7 +163,7 @@ export function CompositeItemsPriceReportsPage() {
       <section className="page-section cb-bundle-section" aria-label="Composite item price report actions">
         <div className="cb-bundle-toolbar">
           <button type="button" className="btn btn--primary" disabled={generating} onClick={() => generateReport('incremental')}>
-            {generating ? 'Generating…' : 'Generate Incremental Report'}
+            {generating ? 'Starting…' : 'Generate Incremental Report'}
           </button>
           <button type="button" className="btn btn--ghost" disabled={generating} onClick={() => generateReport('full')}>
             Generate Full Report

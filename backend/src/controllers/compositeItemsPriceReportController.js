@@ -31,13 +31,13 @@ async function getReport(req, res) {
 async function generateReport(req, res) {
   try {
     const userId = req.user?.userId != null ? Number.parseInt(String(req.user.userId), 10) : null
-    const result = await service.generateCompositeItemsPriceReport({
+    const result = await service.startCompositeItemsPriceReportGeneration({
       userId: Number.isFinite(userId) ? userId : null,
       mode: req.body?.mode === 'full' ? 'full' : 'incremental',
       force: req.body?.force === true,
       includeModified: req.body?.includeModified === true,
     })
-    res.json(result)
+    res.status(202).json(result)
   } catch (err) {
     console.error('[composite-price-report] generate failed:', err)
     res.status(statusForError(err)).json({ error: err.message || 'Failed to generate composite price report', code: err.code })
