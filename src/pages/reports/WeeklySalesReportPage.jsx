@@ -488,10 +488,7 @@ export function ZohoItemThumb({ itemId }) {
         const q = new URLSearchParams()
         q.set('r', String(ZOHO_REP_IMAGE_QUERY_VERSION))
         const url = `${ZOHO_ITEM_IMAGE_PATH}/${encodeURIComponent(String(itemId))}?${q.toString()}`
-        const blob = fromMem
-          ? fromMem
-          : (await fetchBinary(url)).blob
-            .blob
+        const blob = fromMem ? fromMem : (await fetchBinary(url)).blob
         if (cancelled) return
         if (!fromMem) {
           setCachedZohoItemBlob(itemId, blob)
