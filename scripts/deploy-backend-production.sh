@@ -11,7 +11,7 @@ KEY="hr-backend-latest.tar.gz"
 TMPJSON="$(mktemp)"
 
 echo "==> Packaging backend..."
-tar czf "/tmp/$KEY" --exclude=node_modules --exclude=.env -C "$ROOT" backend
+tar czf "/tmp/$KEY" --exclude=node_modules --exclude=.env -C "$ROOT" backend shared
 
 echo "==> Uploading s3://${BUCKET}/${KEY}..."
 aws s3 cp "/tmp/$KEY" "s3://${BUCKET}/${KEY}" --region "$REGION"
