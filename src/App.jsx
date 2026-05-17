@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from 'react'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
+import { UserPreferencesProvider } from './contexts/UserPreferencesContext'
 import { SettingsContext } from './contexts/SettingsContext'
 import { InfluencersProvider } from './contexts/InfluencersContext'
 import { useAppSettings } from './hooks/useAppSettings'
@@ -31,6 +32,7 @@ import { AgreementsPage } from './pages/influencers/AgreementsPage'
 import { ReportsPage } from './pages/influencers/ReportsPage'
 import { SimCardsPage } from './pages/SimCardsPage'
 import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
+import { AllPricesPage } from './pages/management/AllPricesPage'
 import { WeeklyAdsReportPage } from './pages/reports/WeeklyAdsReportPage'
 import { WeeklySalesReportPage } from './pages/reports/WeeklySalesReportPage'
 import { WeeklyCombinedSalesReportPage } from './pages/reports/WeeklyCombinedSalesReportPage'
@@ -174,6 +176,15 @@ function AppContent() {
             </PermissionGuard>
           }
         />
+        <Route path="management/all-prices" element={<Navigate to="/prices/all-prices" replace />} />
+        <Route
+          path="prices/all-prices"
+          element={
+            <PermissionGuard module="prices" action="view">
+              <AllPricesPage />
+            </PermissionGuard>
+          }
+        />
         <Route
           path="employees/:id/profile"
           element={
@@ -296,11 +307,13 @@ function App() {
   const settings = useAppSettings()
   return (
     <AuthProvider>
-      <SettingsContext.Provider value={settings}>
-        <InfluencersProvider>
+      <UserPreferencesProvider>
+        <SettingsContext.Provider value={settings}>
+          <InfluencersProvider>
             <AppContent />
-        </InfluencersProvider>
-      </SettingsContext.Provider>
+          </InfluencersProvider>
+        </SettingsContext.Provider>
+      </UserPreferencesProvider>
     </AuthProvider>
   )
 }

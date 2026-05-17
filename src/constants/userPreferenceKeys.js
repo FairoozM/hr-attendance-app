@@ -1,0 +1,16 @@
+/** Server preference keys (PostgreSQL user_preferences.pref_key). Do not use localStorage for these. */
+
+export const PREF_APP_SETTINGS = 'app_settings'
+export const PREF_WEEKLY_HOLIDAY_DAY = 'weekly_holiday_day'
+export const PREF_COMPANY_PAYMENTS = 'company_payments_v1'
+export const PREF_SALES_VS_EXPENSES = 'sales_vs_expenses_v1'
+export const PREF_NOTIFICATIONS_DISMISSED = 'notifications_dismissed_v1'
+export const PREF_SAVED_COMPOSITES = 'saved_composites_v1'
+export const PREF_ALL_PRICES_EC = 'all_prices_ecommerce_v1'
+export const PREF_ALL_PRICES_SAVED_LISTS = 'all_prices_saved_lists_v1'
+export const PREF_ALL_PRICES_RECOVERY_SNAPSHOTS = 'all_prices_recovery_snapshots_v1'
+export const PREF_INFLUENCER_PERF = 'influencer_performance_v1'
+export const PREF_INFLUENCER_LIST_COLS = 'influencer_list_col_widths_v1'
+export const PREF_AI_PLANNER = 'ai_planner_bundle_v2'
+export const PREF_THEME = 'theme_pref_v1'
+export const PREF_WEEKLY_SALES_SAVED_REPORTS = 'weekly_sales_saved_reports_v1'

@@ -425,10 +425,12 @@ export function Layout() {
   const isListsActive = LISTS_ROUTES.some(r => location.pathname.startsWith(r))
   const isInfluencersActive = location.pathname.startsWith('/influencers')
   const isManagementActive = location.pathname.startsWith('/management')
+  const isPricesActive = location.pathname.startsWith('/prices')
   const isReportsActive = location.pathname.startsWith('/reports')
   const hasAnyInfluencerAccess = hasAnyModulePermission(user, 'influencers')
   const hasAnyListsAccess = hasAnyModulePermission(user, 'sim_cards')
   const hasAnyManagementAccess = hasAnyModulePermission(user, 'document_expiry')
+  const hasAnyPricesAccess = can('prices', 'view')
   const hasWeeklyReportsAccess = can('weekly_reports', 'view')
   const currentSectionLabel = useMemo(() => {
     if (location.pathname.startsWith('/employees')) return 'Employees'
@@ -440,6 +442,7 @@ export function Layout() {
     if (location.pathname.startsWith('/influencers')) return 'Influencers'
     if (location.pathname.startsWith('/account')) return 'My Account'
     if (location.pathname.startsWith('/management/document-expiry')) return 'Document Expiry Tracker'
+    if (location.pathname.startsWith('/prices/all-prices')) return 'All Prices (UAE & KSA)'
     if (location.pathname.startsWith('/reports/weekly-report/weekly-ads'))   return 'Weekly Ads Report'
     if (location.pathname.startsWith('/reports/weekly-report/sales'))        return 'Weekly Sales Reports'
     if (location.pathname.startsWith('/reports/weekly-report/slow-moving'))  return 'Weekly Slow Moving Sales Report'
@@ -480,6 +483,10 @@ export function Layout() {
     can('document_expiry', 'view') && { label: 'Document Expiry Tracker', to: '/management/document-expiry' },
   ].filter(Boolean)
 
+  const pricesItems = [
+    can('prices', 'view') && { label: 'All Prices (UAE & KSA)', to: '/prices/all-prices' },
+  ].filter(Boolean)
+
   const REPORTS_ITEMS = [
     hasWeeklyReportsAccess && { label: 'Weekly Ads Report',    to: '/reports/weekly-report/weekly-ads' },
     hasWeeklyReportsAccess && { label: 'Weekly Sales Reports', to: '/reports/weekly-report/sales'      },
@@ -497,6 +504,7 @@ export function Layout() {
         items: withIcons(isAdmin ? PLANNER_NAV_ITEMS : []),
       },
       management: { title: 'Management', items: withIcons(managementItems) },
+      prices: { title: 'Prices', items: withIcons(pricesItems) },
       reports: { title: 'Reports', items: withIcons(REPORTS_ITEMS) },
     }
     return sections[focusedSection] || null
@@ -508,6 +516,7 @@ export function Layout() {
     INFLUENCER_ITEMS,
     isAdmin,
     managementItems,
+    pricesItems,
     REPORTS_ITEMS,
   ])
 
@@ -518,6 +527,11 @@ export function Layout() {
     ...INFLUENCER_ITEMS.map(i => ({ ...i, group: 'Influencers' })),
     ...(isAdmin ? PLANNER_NAV_ITEMS.map(i => ({ ...i, group: 'AI Planner', searchHint: 'planner projects tasks ai' })) : []),
     ...managementItems.map(i => ({ ...i, group: 'Management' })),
+    ...pricesItems.map(i => ({
+      ...i,
+      group: 'Prices',
+      searchHint: 'all prices uae ksa aed sar catalog sku zoho inventory pricing ecommerce',
+    })),
     ...REPORTS_ITEMS.map(i => ({
       ...i,
       group: 'Weekly Report',
@@ -532,7 +546,7 @@ export function Layout() {
           : '',
     })),
     { label: 'My Account', to: '/account', group: 'Account' },
-  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, managementItems, REPORTS_ITEMS])
+  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, managementItems, pricesItems, REPORTS_ITEMS])
 
   const showSidebarBackdrop = isSidebarOpen && navMode === 'full'
 
@@ -667,6 +681,27 @@ export function Layout() {
                           {item.to === '/projects/trash' && trashedTasks.length > 0 && (
                             <span className="nav-trash-badge">{trashedTasks.length}</span>
                           )}
+                        </NavLink>
+                      ))}
+                    </NavGroup>
+                  </>
+                )}
+
+                {hasAnyPricesAccess && pricesItems.length > 0 && (
+                  <>
+                    <div className="app-sidebar__section-label" role="presentation">
+                      Prices
+                    </div>
+                    <NavGroup label="Prices" hint="Catalog pricing" isActive={isPricesActive}>
+                      {pricesItems.map(item => (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          className={subLinkClass}
+                          onClick={() => openFocusedSection('prices')}
+                        >
+                          <span className="nav-group__link-dot" aria-hidden />
+                          {item.label}
                         </NavLink>
                       ))}
                     </NavGroup>

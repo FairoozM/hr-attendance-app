@@ -701,6 +701,43 @@ async function normalizeEmployeePhotoUrls() {
   `)
 }
 
+/** Grant prices.view to users who already have document_expiry.view (All Prices access). */
+async function migratePricesViewFromDocumentExpiryOnce() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS schema_patches (
+      id TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  const patchId = 'prices_view_from_document_expiry_20260517'
+  const exists = await query(`SELECT 1 FROM schema_patches WHERE id = $1`, [patchId])
+  if (exists.rows.length > 0) return
+
+  const { rows } = await query(`SELECT id, permissions FROM users WHERE role <> 'admin'`)
+  for (const row of rows) {
+    let p = row.permissions
+    if (p == null) p = {}
+    if (typeof p === 'string') {
+      try {
+        p = JSON.parse(p)
+      } catch {
+        p = {}
+      }
+    }
+    const de = p.document_expiry || {}
+    if (de.view && !p.prices?.view) {
+      const next = { ...p, prices: { ...(p.prices || {}), view: true } }
+      await query(`UPDATE users SET permissions = $1::jsonb, updated_at = NOW() WHERE id = $2`, [
+        JSON.stringify(next),
+        row.id,
+      ])
+    }
+  }
+
+  await query(`INSERT INTO schema_patches (id) VALUES ($1)`, [patchId])
+  console.log('[db] migratePricesViewFromDocumentExpiryOnce applied:', patchId)
+}
+
 async function testConnection() {
   const result = await query('SELECT NOW()')
   const now = result.rows[0]?.now
@@ -792,6 +829,17 @@ async function testConnection() {
     await ensureItemReportGroupsImportLogTable()
   } catch (e) {
     console.error('[db] ensureItemReportGroupsImportLogTable skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    const { ensureUserPreferencesTable } = require('../services/userPreferencesStore')
+    await ensureUserPreferencesTable()
+  } catch (e) {
+    console.error('[db] ensureUserPreferencesTable skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    await migratePricesViewFromDocumentExpiryOnce()
+  } catch (e) {
+    console.error('[db] migratePricesViewFromDocumentExpiryOnce skipped/failed (non-fatal):', e.message || e)
   }
 }
 

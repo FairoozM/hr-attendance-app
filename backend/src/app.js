@@ -18,6 +18,7 @@ const instagramProxyRoutes = require('./routes/instagramProxy')
 const projectsRoutes      = require('./routes/projects')
 const weeklyReportsRoutes = require('./routes/weeklyReports')
 const itemReportGroupsRoutes = require('./routes/itemReportGroups')
+const userPreferencesRoutes = require('./routes/userPreferences')
 const debugRoutes = require('./routes/debug')
 
 const app = express()
@@ -45,6 +46,8 @@ app.use(express.json({ limit: '10mb' }))
 
 // Auth router — POST /api/auth/login, GET /api/auth/login (405), GET /api/auth/me, POST /api/auth/change-password
 app.use('/api/auth', authRouter)
+
+app.use('/api/user-preferences', authMiddleware.attachAuth, userPreferencesRoutes)
 
 // Admin user management (list users, reset passwords)
 app.use('/api/admin', authMiddleware.attachAuth, adminRouter)
