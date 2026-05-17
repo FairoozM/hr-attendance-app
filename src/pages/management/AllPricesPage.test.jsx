@@ -57,7 +57,7 @@ describe('AllPricesPage', () => {
     prefsStore = {}
     render(<AllPricesPage />)
     await waitFor(() => {
-      expect(screen.queryAllByText(/No All Prices rows saved yet/i).length).toBeGreaterThan(0)
+      expect(screen.queryAllByText(/No saved lists yet/i).length).toBeGreaterThan(0)
     })
     expect(screen.queryByText(/BRKH-64-1/i)).not.toBeInTheDocument()
     await waitFor(() => {
@@ -73,7 +73,7 @@ describe('AllPricesPage', () => {
     }
     render(<AllPricesPage />)
     await waitFor(() => {
-      expect(screen.queryAllByText(/No All Prices rows saved yet/i).length).toBeGreaterThan(0)
+      expect(screen.queryAllByText(/No saved lists yet/i).length).toBeGreaterThan(0)
     })
     expect(screen.queryByText(/BRKH-64-1/i)).not.toBeInTheDocument()
     await waitFor(() => {

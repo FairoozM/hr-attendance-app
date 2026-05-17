@@ -2,8 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import '../Page.css'
 import './DocumentExpiryPage.css'
 import './AllPricesPage.css'
-import { PREF_ALL_PRICES_EC } from '../../constants/userPreferenceKeys'
+import { PREF_ALL_PRICES_EC, PREF_ALL_PRICES_SAVED_LISTS } from '../../constants/userPreferenceKeys'
 import { useUserPreferences } from '../../contexts/UserPreferencesContext'
+import {
+  addSavedListToStore,
+  persistSavedListsStore,
+  readLegacySavedListsFromLocalStorage,
+  readSavedListsStore,
+  removeSavedListFromStore,
+  updateSavedListInStore,
+} from './allPricesSavedLists'
 import {
   buildAllPricesBundle,
   computeEcommercePriceRow,
@@ -24,8 +32,22 @@ function fmtShippingPurchaseDisplay(raw) {
   return fmtMoney(n, 2)
 }
 
+function applySavedListToTableState(list) {
+  return {
+    rates: list.rates,
+    rows: (list.rows || []).map((r) => ({
+      id: r.id || makeRowId(),
+      itemNo: r.itemNo != null ? String(r.itemNo) : '',
+      purchasePrice: r.purchasePrice ?? '',
+      shipping: r.shipping ?? '',
+      dateOfPrices: r.dateOfPrices != null ? String(r.dateOfPrices) : '',
+    })),
+    lastSavedAt: list.updatedAt || list.createdAt || null,
+  }
+}
+
 export function AllPricesPage() {
-  const { ready: prefsReady, getPref, setPref } = useUserPreferences()
+  const { ready: prefsReady, getPref, setPref, prefsVersion } = useUserPreferences()
   const [rates, setRates] = useState({ ...DEFAULT_RATES })
   const [rows, setRows] = useState([])
   const [prefsLoaded, setPrefsLoaded] = useState(false)
@@ -34,8 +56,8 @@ export function AllPricesPage() {
   const [lastSavedAt, setLastSavedAt] = useState(null)
   const [saving, setSaving] = useState(false)
   const [saveToast, setSaveToast] = useState('')
-  const [loadNotice, setLoadNotice] = useState('')
-  /** Row id whose shipping + purchase cells are editable; null = view-only for those columns */
+  const [savedListsStore, setSavedListsStore] = useState(() => readSavedListsStore())
+  const [activeSavedListId, setActiveSavedListId] = useState(null)
   const [editingRowId, setEditingRowId] = useState(null)
   const skipNextAutosaveRef = useRef(true)
   const saveToastTimerRef = useRef(null)
@@ -48,13 +70,61 @@ export function AllPricesPage() {
     return hydrated
   }, [])
 
+  const persistStore = useCallback(
+    (store) => {
+      const normalized = persistSavedListsStore(store)
+      setSavedListsStore(normalized)
+      setActiveSavedListId(normalized.activeSavedListId)
+      setPref(PREF_ALL_PRICES_SAVED_LISTS, normalized)
+      return normalized
+    },
+    [setPref],
+  )
+
   useEffect(() => {
     if (!prefsReady || prefsLoaded) return
-    const bundle = getPref(PREF_ALL_PRICES_EC, null)
-    applyBundleToState(bundle)
+
+    let listsStore = readSavedListsStore()
+    const legacy = readLegacySavedListsFromLocalStorage()
+    if (legacy && legacy.savedLists.length) {
+      listsStore = legacy
+      setPref(PREF_ALL_PRICES_SAVED_LISTS, legacy)
+    } else {
+      const fromPref = getPref(PREF_ALL_PRICES_SAVED_LISTS, null)
+      if (fromPref) listsStore = readSavedListsStore()
+    }
+
+    setSavedListsStore(listsStore)
+    setActiveSavedListId(listsStore.activeSavedListId)
+
+    const activeList = listsStore.activeSavedListId
+      ? listsStore.savedLists.find((l) => l.id === listsStore.activeSavedListId)
+      : null
+
+    if (activeList) {
+      const applied = applySavedListToTableState(activeList)
+      setRates(applied.rates)
+      setRows(applied.rows)
+      setLastSavedAt(applied.lastSavedAt)
+    } else {
+      const bundle = getPref(PREF_ALL_PRICES_EC, null)
+      applyBundleToState(bundle)
+    }
+
     skipNextAutosaveRef.current = true
     setPrefsLoaded(true)
-  }, [applyBundleToState, getPref, prefsLoaded, prefsReady])
+  }, [applyBundleToState, getPref, persistStore, prefsLoaded, prefsReady])
+
+  useEffect(() => {
+    void prefsVersion
+    if (!prefsReady || !prefsLoaded) return
+    const fromPref = getPref(PREF_ALL_PRICES_SAVED_LISTS, null)
+    if (fromPref) {
+      const normalized = readSavedListsStore()
+      setSavedListsStore(normalized)
+      setActiveSavedListId(normalized.activeSavedListId)
+    }
+  }, [getPref, prefsLoaded, prefsReady, prefsVersion])
 
   useEffect(() => {
     if (!prefsReady || !prefsLoaded) return
@@ -80,6 +150,14 @@ export function AllPricesPage() {
     if (saveToastTimerRef.current) clearTimeout(saveToastTimerRef.current)
     saveToastTimerRef.current = setTimeout(() => setSaveToast(''), 4000)
   }, [])
+
+  const sortedSavedLists = useMemo(
+    () =>
+      [...savedListsStore.savedLists].sort(
+        (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+      ),
+    [savedListsStore.savedLists],
+  )
 
   const sumTakePct = useMemo(() => {
     const v = Number(rates.vatPct) || 0
@@ -123,57 +201,114 @@ export function AllPricesPage() {
     setRates({ ...DEFAULT_RATES })
   }, [])
 
+  const syncDraftAfterSave = useCallback(
+    (savedAt) => {
+      const bundle = buildAllPricesBundle(rates, rows, savedAt)
+      saveAllPricesEcommerceBundle(bundle, {
+        source: 'AllPricesPage',
+        action: 'sync-draft-after-saved-list',
+        preserveLastSavedAt: false,
+      })
+      setPref(PREF_ALL_PRICES_EC, bundle)
+      setLastSavedAt(savedAt)
+      skipNextAutosaveRef.current = true
+    },
+    [rates, rows, setPref],
+  )
+
   const handleSavePrices = useCallback(() => {
     setSaving(true)
-    setLoadNotice('')
-    const savedAt = new Date().toISOString()
-    const bundle = buildAllPricesBundle(rates, rows, savedAt)
-    const result = saveAllPricesEcommerceBundle(bundle, {
-      source: 'AllPricesPage',
-      action: 'save-prices-button',
-      preserveLastSavedAt: false,
-    })
-    if (result.blocked) {
+    const existingId = activeSavedListId
+    let nextStore = savedListsStore
+    let entry = null
+    let blocked = false
+
+    if (existingId && nextStore.savedLists.some((l) => l.id === existingId)) {
+      const result = updateSavedListInStore(nextStore, existingId, rates, rows)
+      blocked = result.blocked
+      nextStore = { ...result.store, activeSavedListId: existingId }
+      entry = result.entry
+    } else {
+      const result = addSavedListToStore(nextStore, rates, rows)
+      blocked = result.blocked
+      nextStore = result.store
+      entry = result.entry
+    }
+
+    if (blocked || !entry) {
       showSaveToast('Save blocked: template sample rows cannot be saved in production.')
       setSaving(false)
       return
     }
-    setPref(PREF_ALL_PRICES_EC, bundle)
-    setLastSavedAt(savedAt)
-    skipNextAutosaveRef.current = true
+
+    persistStore(nextStore)
+    syncDraftAfterSave(entry.updatedAt)
     showSaveToast('Prices saved successfully.')
     setSaving(false)
-  }, [rates, rows, setPref, showSaveToast])
+  }, [activeSavedListId, persistStore, rates, rows, savedListsStore, showSaveToast, syncDraftAfterSave])
 
-  const handleLoadSavedPrices = useCallback(() => {
-    const bundle = getPref(PREF_ALL_PRICES_EC, null)
-    const hydrated = applyBundleToState(bundle)
-    skipNextAutosaveRef.current = true
-    setEditingRowId(null)
-    setLoadNotice(
-      hydrated.rows.length > 0 || hydrated.lastSavedAt
-        ? `Loaded ${hydrated.rows.length} row(s) from your saved prices.`
-        : 'No saved prices found yet. Add rows and click Save Prices.',
-    )
-    setTimeout(() => setLoadNotice(''), 4000)
-  }, [applyBundleToState, getPref])
+  const handleSaveAsNewList = useCallback(() => {
+    setSaving(true)
+    const result = addSavedListToStore(savedListsStore, rates, rows)
+    if (result.blocked || !result.entry) {
+      showSaveToast('Save blocked: template sample rows cannot be saved in production.')
+      setSaving(false)
+      return
+    }
+    persistStore(result.store)
+    syncDraftAfterSave(result.entry.updatedAt)
+    showSaveToast(`Saved as new list: ${result.entry.name}`)
+    setSaving(false)
+  }, [persistStore, rates, rows, savedListsStore, showSaveToast, syncDraftAfterSave])
 
-  const handleClearSavedData = useCallback(() => {
-    if (!window.confirm('Are you sure you want to delete saved prices?')) return
-    const bundle = buildAllPricesBundle({ ...DEFAULT_RATES }, [], null)
-    saveAllPricesEcommerceBundle(bundle, {
-      source: 'AllPricesPage',
-      action: 'clear-saved-data',
-      preserveLastSavedAt: false,
-    })
-    setPref(PREF_ALL_PRICES_EC, bundle)
-    setRates({ ...DEFAULT_RATES })
-    setRows([])
-    setLastSavedAt(null)
-    skipNextAutosaveRef.current = true
-    setEditingRowId(null)
-    showSaveToast('Saved prices cleared.')
-  }, [setPref, showSaveToast])
+  const handleLoadSavedList = useCallback(
+    (listId) => {
+      const list = savedListsStore.savedLists.find((l) => l.id === listId)
+      if (!list) return
+      const applied = applySavedListToTableState(list)
+      setRates(applied.rates)
+      setRows(applied.rows)
+      setLastSavedAt(applied.lastSavedAt)
+      setEditingRowId(null)
+      const nextStore = { ...savedListsStore, activeSavedListId: listId }
+      persistStore(nextStore)
+      skipNextAutosaveRef.current = true
+      syncDraftAfterSave(applied.lastSavedAt)
+      showSaveToast(`Loaded “${list.name}”.`)
+    },
+    [persistStore, savedListsStore, showSaveToast, syncDraftAfterSave],
+  )
+
+  const handleUpdateSavedList = useCallback(
+    (listId) => {
+      const result = updateSavedListInStore(savedListsStore, listId, rates, rows)
+      if (result.blocked || !result.entry) {
+        showSaveToast('Update blocked: template sample rows cannot be saved in production.')
+        return
+      }
+      const nextStore = {
+        ...result.store,
+        activeSavedListId: listId,
+      }
+      persistStore(nextStore)
+      syncDraftAfterSave(result.entry.updatedAt)
+      showSaveToast(`Updated “${result.entry.name}”.`)
+    },
+    [persistStore, rates, rows, savedListsStore, showSaveToast, syncDraftAfterSave],
+  )
+
+  const handleDeleteSavedList = useCallback(
+    (listId) => {
+      if (!window.confirm('Delete this saved price list?')) return
+      const next = removeSavedListFromStore(savedListsStore, listId)
+      persistStore(next)
+      if (activeSavedListId === listId) {
+        setActiveSavedListId(next.activeSavedListId)
+      }
+      showSaveToast('Saved price list deleted.')
+    },
+    [activeSavedListId, persistStore, savedListsStore, showSaveToast],
+  )
 
   const applyPasteReplace = useCallback(() => {
     const { rows: parsed, skippedHeader, hint } = parseExcelTsvPaste(pasteText)
@@ -343,24 +478,69 @@ export function AllPricesPage() {
           >
             {saving ? 'Saving…' : 'Save Prices'}
           </button>
-          <button type="button" className="btn btn--ghost" onClick={handleLoadSavedPrices}>
-            Load Saved Prices
-          </button>
-          <button type="button" className="btn btn--ghost" onClick={handleClearSavedData}>
-            Clear Saved Data
+          <button
+            type="button"
+            className="btn btn--ghost"
+            onClick={handleSaveAsNewList}
+            disabled={saving}
+          >
+            Save as New List
           </button>
         </div>
         <div className="ap-ec-save-meta" aria-live="polite">
           {saveToast ? <p className="ap-ec-save-toast" role="status">{saveToast}</p> : null}
-          {loadNotice ? <p className="ap-ec-save-notice" role="status">{loadNotice}</p> : null}
-          {lastSavedAt ? (
-            <p className="ap-ec-save-last">Last saved: {formatLastSavedAt(lastSavedAt)}</p>
+          {activeSavedListId && lastSavedAt ? (
+            <p className="ap-ec-save-last">
+              Working on: {savedListsStore.savedLists.find((l) => l.id === activeSavedListId)?.name || 'Saved list'}
+              {' · '}Last saved: {formatLastSavedAt(lastSavedAt)}
+            </p>
           ) : (
             <p className="ap-ec-save-last ap-ec-save-last--muted">
-              Not saved yet — click Save Prices to persist your table.
+              Click Save Prices to create a named saved list, or Save as New List for an additional copy.
             </p>
           )}
         </div>
+
+        <section className="ap-ec-saved-lists" aria-label="Saved Price Lists">
+          <h3 className="ap-ec-saved-lists__title">Saved Price Lists</h3>
+          {sortedSavedLists.length === 0 ? (
+            <p className="ap-ec-saved-lists__empty">
+              No saved lists yet. Click <strong>Save Prices</strong> to create your first saved version.
+            </p>
+          ) : (
+            <ul className="ap-ec-saved-lists__grid">
+              {sortedSavedLists.map((list) => {
+                const isActive = list.id === activeSavedListId
+                return (
+                  <li
+                    key={list.id}
+                    className={`ap-ec-saved-card${isActive ? ' ap-ec-saved-card--active' : ''}`}
+                  >
+                    <div className="ap-ec-saved-card__head">
+                      <strong className="ap-ec-saved-card__name">{list.name}</strong>
+                      {isActive ? <span className="ap-ec-saved-card__badge">Active</span> : null}
+                    </div>
+                    <p className="ap-ec-saved-card__meta">Rows: {list.rows.length}</p>
+                    <p className="ap-ec-saved-card__meta">
+                      Last saved: {formatLastSavedAt(list.updatedAt)}
+                    </p>
+                    <div className="ap-ec-saved-card__actions">
+                      <button type="button" className="btn btn--primary btn--sm" onClick={() => handleLoadSavedList(list.id)}>
+                        Load
+                      </button>
+                      <button type="button" className="btn btn--ghost btn--sm" onClick={() => handleUpdateSavedList(list.id)}>
+                        Update
+                      </button>
+                      <button type="button" className="btn btn--ghost btn--sm" onClick={() => handleDeleteSavedList(list.id)}>
+                        Delete
+                      </button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </section>
 
         <div className="ap-ec-paste">
           <div className="ap-ec-paste__head">
@@ -441,7 +621,7 @@ export function AllPricesPage() {
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={12} className="ap-ec-empty">
-                    No All Prices rows saved yet. Paste or import your price list to begin.
+                    No rows in the table. Paste or import your price list, then save it as a named list.
                   </td>
                 </tr>
               ) : (
@@ -574,8 +754,7 @@ export function AllPricesPage() {
         </div>
 
         <p className="doc-page-subtitle" style={{ marginTop: '1rem', marginBottom: 0 }}>
-          Data is saved to your account (server). Add a KSA (SAR) sheet later by duplicating this block with
-          different defaults if needed.
+          Saved lists are stored on your account (server) and remain available after refresh.
         </p>
       </section>
     </div>

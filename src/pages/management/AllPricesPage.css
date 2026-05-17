@@ -206,6 +206,90 @@
   font-style: italic;
 }
 
+.ap-ec-saved-lists {
+  margin: 0 0 1rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--glass-border);
+  background: color-mix(in srgb, var(--theme-panel-bg, #0f172a) 88%, transparent);
+}
+
+.ap-ec-saved-lists__title {
+  margin: 0 0 0.65rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-soft);
+}
+
+.ap-ec-saved-lists__empty {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+.ap-ec-saved-lists__grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.75rem;
+}
+
+.ap-ec-saved-card {
+  padding: 0.85rem 0.95rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ap-ec-saved-card--active {
+  border-color: color-mix(in srgb, var(--accent, #7c6cff) 55%, var(--glass-border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent, #7c6cff) 25%, transparent);
+}
+
+.ap-ec-saved-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.ap-ec-saved-card__name {
+  font-size: 0.92rem;
+  color: var(--text-soft);
+}
+
+.ap-ec-saved-card__badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent, #7c6cff) 25%, transparent);
+  color: var(--text-soft);
+}
+
+.ap-ec-saved-card__meta {
+  margin: 0 0 0.25rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.ap-ec-saved-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.65rem;
+}
+
+.btn--sm {
+  padding: 0.35rem 0.65rem;
+  font-size: 0.78rem;
+}
+
 .ap-ec-toolbar {
   display: flex;
   flex-wrap: wrap;
