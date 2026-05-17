@@ -7,11 +7,9 @@ import './CompositeItemsPricesPage.css'
 import {
   fmtMoney,
   fmtPct,
-  loadRates,
-  loadRows,
-  STORAGE_KEY_RATES,
-  STORAGE_KEY_ROWS,
 } from '../management/allPricesEcommerceUtils'
+import { PREF_ALL_PRICES_EC } from '../../constants/userPreferenceKeys'
+import { useUserPreferences } from '../../contexts/UserPreferencesContext'
 import {
   buildPurchasePriceMap,
   resolveCompositeComponentPricing,
@@ -228,7 +226,7 @@ function ComponentsTable({ item }) {
 }
 
 export function CompositeItemsPriceReportsPage() {
-  const [priceTick, setPriceTick] = useState(0)
+  const { ready: prefsReady, getPref, prefsVersion } = useUserPreferences()
   const [reports, setReports] = useState([])
   const [selectedReport, setSelectedReport] = useState(null)
   const [loadingReports, setLoadingReports] = useState(false)
@@ -247,33 +245,21 @@ export function CompositeItemsPriceReportsPage() {
     status: 'all',
   })
 
-  useEffect(() => {
-    const bump = (event) => {
-      if (
-        event.type === 'focus' ||
-        event.key === STORAGE_KEY_ROWS ||
-        event.key === STORAGE_KEY_RATES
-      ) {
-        setPriceTick((tick) => tick + 1)
-      }
-    }
-    window.addEventListener('focus', bump)
-    window.addEventListener('storage', bump)
-    return () => {
-      window.removeEventListener('focus', bump)
-      window.removeEventListener('storage', bump)
-    }
-  }, [])
+  const allPricesBundle = useMemo(() => {
+    void prefsVersion
+    const bundle = getPref(PREF_ALL_PRICES_EC, null)
+    return bundle && typeof bundle === 'object' ? bundle : {}
+  }, [getPref, prefsVersion])
 
-  const allPricesRows = useMemo(() => {
-    void priceTick
-    return loadRows() || []
-  }, [priceTick])
+  const allPricesRows = useMemo(() => (
+    Array.isArray(allPricesBundle.rows) ? allPricesBundle.rows : []
+  ), [allPricesBundle])
 
-  const allPricesRates = useMemo(() => {
-    void priceTick
-    return { ...DEFAULT_RATES, ...loadRates() }
-  }, [priceTick])
+  const allPricesRates = useMemo(() => (
+    allPricesBundle.rates && typeof allPricesBundle.rates === 'object'
+      ? { ...DEFAULT_RATES, ...allPricesBundle.rates }
+      : { ...DEFAULT_RATES }
+  ), [allPricesBundle])
 
   const allPricesMap = useMemo(() => buildPurchasePriceMap(allPricesRows), [allPricesRows])
 
@@ -514,7 +500,12 @@ export function CompositeItemsPriceReportsPage() {
         </div>
         {message ? <p className="cb-bundle-save-row__msg">{message}</p> : null}
         {error ? <p className="cb-bundle-error">{error}</p> : null}
-        {selectedReport && allPricesRows.length === 0 ? (
+        {selectedReport && !prefsReady ? (
+          <p className="cb-bundle-warn" role="status">
+            Loading All Prices list…
+          </p>
+        ) : null}
+        {selectedReport && prefsReady && allPricesRows.length === 0 ? (
           <p className="cb-bundle-warn" role="status">
             All Prices list not loaded. Component pricing cannot be resolved.
           </p>
