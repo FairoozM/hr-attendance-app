@@ -6,6 +6,7 @@ const {
   findPurchaseMatchForComponent,
   computeBundleEconomics,
 } = require('../src/services/compositePricingLogic')
+const { REPORT_COMPOSITE_FILTER_BY } = require('../src/services/compositeItemsPriceReportService')
 
 function sortCompositesByNameDesc(composites) {
   return [...(Array.isArray(composites) ? composites : [])].sort((a, b) =>
@@ -36,6 +37,10 @@ test('sortCompositesByNameDesc sorts composite names descending', () => {
     { name: 'Middle' },
   ])
   assert.deepEqual(sorted.map((r) => r.name), ['Zulu', 'Middle', 'Alpha'])
+})
+
+test('composite price report fetches active composite items only', () => {
+  assert.equal(REPORT_COMPOSITE_FILTER_BY, 'Status.Active')
 })
 
 test('purchase matching calculates component line total from All Prices', () => {

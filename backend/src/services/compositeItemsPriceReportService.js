@@ -15,6 +15,7 @@ const PREF_ALL_PRICES_EC = 'all_prices_ecommerce_v1'
 const DEFAULT_PER_PAGE = 200
 const MAX_COMPOSITE_PAGES = 50
 const DETAIL_CONCURRENCY = 3
+const REPORT_COMPOSITE_FILTER_BY = 'Status.Active'
 
 let generationRunning = false
 
@@ -128,7 +129,7 @@ async function fetchAllCompositeItems() {
     const json = await fetchCompositeItemsList({
       page,
       per_page: DEFAULT_PER_PAGE,
-      filter_by: 'Status.All',
+      filter_by: REPORT_COMPOSITE_FILTER_BY,
     }, {
       source: 'composite_price_report_list',
       skipCache: true,
@@ -553,6 +554,7 @@ async function getCompositeItemsPriceReport(reportId) {
 
 module.exports = {
   ensureCompositeItemsPriceReportTables,
+  REPORT_COMPOSITE_FILTER_BY,
   fetchAllCompositeItems,
   sortCompositesByNameDesc,
   selectCompositesForRun,
