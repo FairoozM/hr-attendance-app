@@ -3,6 +3,8 @@ const {
   fetchCompositeItemsList,
   fetchCompositeItemDetail,
 } = require('../integrations/zoho/zohoInventoryClient')
+const { readZohoConfig } = require('../integrations/zoho/zohoConfig')
+const { parseFamilyFromZohoItem } = require('../integrations/zoho/zohoItemFamily')
 const { resolveComponentsFromMappedItems } = require('./compositeItemsZohoLookup')
 const {
   DEFAULT_RATES,
@@ -59,13 +61,16 @@ function safeJson(value) {
 }
 
 function normalizeCompositeRow(raw) {
+  const cfg = readZohoConfig()
+  const familyFieldId = cfg.code === 'ok' ? cfg.familyCustomFieldId : null
+  const family = parseFamilyFromZohoItem(raw, familyFieldId)
   const id = raw?.composite_item_id ?? raw?.item_id ?? raw?.id
   return {
     composite_item_id: id != null ? String(id) : '',
     item_id: raw?.item_id != null ? String(raw.item_id) : '',
     sku: raw?.sku != null ? String(raw.sku) : '',
     name: raw?.name != null ? String(raw.name) : raw?.item_name != null ? String(raw.item_name) : '',
-    family: raw?.category_name || raw?.category || raw?.product_type || raw?.item_type || raw?.group_name || '',
+    family: family || raw?.category_name || raw?.category || raw?.product_type || raw?.item_type || raw?.group_name || '',
     status: raw?.status != null ? String(raw.status) : '',
     created_time: raw?.created_time || raw?.created_at || null,
     last_modified_time: raw?.last_modified_time || raw?.updated_time || raw?.updated_at || null,
@@ -336,7 +341,13 @@ function dateOrNull(value) {
 }
 
 function extractFamily(composite, entity) {
+  const cfg = readZohoConfig()
+  const familyFieldId = cfg.code === 'ok' ? cfg.familyCustomFieldId : null
   const candidates = [
+    parseFamilyFromZohoItem(entity, familyFieldId),
+    parseFamilyFromZohoItem(composite, familyFieldId),
+    entity?.cf_family,
+    composite?.cf_family,
     entity?.category_name,
     entity?.category,
     entity?.product_type,
@@ -900,7 +911,12 @@ async function getCompositeItemsPriceReport(reportId) {
     composite_item_id: row.composite_item_id,
     sku: row.sku,
     name: row.name,
-    family: row.raw_json?.family || row.raw_json?.entity?.category_name || row.raw_json?.composite?.family || '',
+    family:
+      row.raw_json?.family ||
+      extractFamily(row.raw_json?.composite || {}, row.raw_json?.entity || {}) ||
+      row.raw_json?.entity?.category_name ||
+      row.raw_json?.composite?.family ||
+      '',
     sales_price: row.sales_price != null ? Number(row.sales_price) : null,
     vat_5_percent: row.vat_5_percent != null ? Number(row.vat_5_percent) : null,
     commission_15_percent: row.commission_15_percent != null ? Number(row.commission_15_percent) : null,
