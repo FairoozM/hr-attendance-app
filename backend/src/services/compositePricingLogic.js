@@ -223,10 +223,60 @@ function computeBundleEconomics(totalPurchaseCost, bundleShipping, rates = DEFAU
   return { ok: false, error: 'Could not reach minimum profit % — check amounts and rates.' }
 }
 
+function computeAllPricesRowEconomics(row, rates = DEFAULT_RATES) {
+  const purchase = Number(row?.purchasePrice)
+  const shipping = Number(row?.shipping)
+  const vat = toDec(rates.vatPct)
+  const commission = toDec(rates.commissionPct)
+  const advertising = toDec(rates.advertisingPct)
+  const requiredProfit = toDec(rates.requiredProfitPct)
+  const denominator = 1 - vat - commission - advertising - requiredProfit
+
+  const safePurchase = Number.isFinite(purchase) ? purchase : 0
+  const safeShipping = Number.isFinite(shipping) ? shipping : 0
+
+  if (denominator <= 0 || denominator >= 1) {
+    return {
+      ok: false,
+      denominatorInvalid: true,
+      salesPrice: null,
+      vatAmount: null,
+      commissionAmount: null,
+      advertisingAmount: null,
+      totalCost: null,
+      profit: null,
+      profitPct: null,
+    }
+  }
+
+  const salesPriceRaw = (safePurchase + safeShipping) / denominator
+  const salesPrice = Math.round(salesPriceRaw)
+  const vatAmount = salesPrice * vat
+  const commissionAmount = salesPrice * commission
+  const advertisingAmount = salesPrice * advertising
+  const totalCost = safePurchase + safeShipping + vatAmount + commissionAmount + advertisingAmount
+  const profit = salesPrice - totalCost
+  const profitPct = salesPrice > 0 ? (profit / salesPrice) * 100 : 0
+
+  return {
+    ok: true,
+    denominatorInvalid: false,
+    salesPriceRaw,
+    salesPrice,
+    vatAmount,
+    commissionAmount,
+    advertisingAmount,
+    totalCost,
+    profit,
+    profitPct,
+  }
+}
+
 module.exports = {
   DEFAULT_RATES,
   buildPurchasePriceMap,
   findPurchaseMatchForComponent,
   computeBundleEconomics,
+  computeAllPricesRowEconomics,
   expandMatchCandidates,
 }

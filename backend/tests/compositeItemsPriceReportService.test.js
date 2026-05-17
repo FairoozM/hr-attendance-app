@@ -5,8 +5,12 @@ const {
   buildPurchasePriceMap,
   findPurchaseMatchForComponent,
   computeBundleEconomics,
+  computeAllPricesRowEconomics,
 } = require('../src/services/compositePricingLogic')
-const { REPORT_COMPOSITE_FILTER_BY } = require('../src/services/compositeItemsPriceReportService')
+const {
+  REPORT_COMPOSITE_FILTER_BY,
+  calculateParentPricing,
+} = require('../src/services/compositeItemsPriceReportService')
 
 function sortCompositesByNameDesc(composites) {
   return [...(Array.isArray(composites) ? composites : [])].sort((a, b) =>
@@ -107,4 +111,61 @@ test('full selection includes duplicate old IDs for full recalculation', () => {
     includeModified: false,
   })
   assert.deepEqual(selected.map((r) => r.composite_item_id), ['old-1', 'new-1'])
+})
+
+test('parent pricing is incomplete when manual shipping is missing', () => {
+  const parent = calculateParentPricing({
+    purchasePrice: 15.25,
+    manualShipping: '',
+    missingComponentsCount: 0,
+    rates: { vatPct: 5, commissionPct: 15, advertisingPct: 15, requiredProfitPct: 25 },
+  })
+  assert.equal(parent.pricing_status, 'incomplete')
+  assert.equal(parent.missing_shipping, true)
+  assert.equal(parent.suggested_sales_price, null)
+})
+
+test('parent pricing uses manual shipping and not component standalone shipping', () => {
+  const parent = calculateParentPricing({
+    purchasePrice: 15.25,
+    manualShipping: 19,
+    missingComponentsCount: 0,
+    rates: { vatPct: 5, commissionPct: 15, advertisingPct: 15, requiredProfitPct: 25 },
+    dateOfPrice: '2026-05-17',
+  })
+  assert.equal(parent.pricing_status, 'complete')
+  assert.equal(parent.suggested_sales_price, 86)
+  assert.equal(parent.vat_5_percent, 4.3)
+  assert.equal(parent.commission_15_percent, 12.9)
+  assert.equal(parent.advertising_15_percent, 12.9)
+  assert.equal(parent.total_cost, 64.35)
+  assert.equal(Number(parent.profit.toFixed(2)), 21.65)
+  assert.equal(Number(parent.profit_percent_of_sales.toFixed(2)), 25.17)
+})
+
+test('missing or ambiguous component keeps parent incomplete even with shipping', () => {
+  const parent = calculateParentPricing({
+    purchasePrice: 15.25,
+    manualShipping: 19,
+    missingComponentsCount: 1,
+    rates: { vatPct: 5, commissionPct: 15, advertisingPct: 15, requiredProfitPct: 25 },
+  })
+  assert.equal(parent.pricing_status, 'incomplete')
+  assert.equal(parent.missing_component_price, true)
+})
+
+test('child standalone All Prices economics are independent of parent bundle pricing', () => {
+  const child = computeAllPricesRowEconomics(
+    { purchasePrice: 2.97, shipping: 0 },
+    { vatPct: 5, commissionPct: 15, advertisingPct: 15, requiredProfitPct: 25 }
+  )
+  const parent = calculateParentPricing({
+    purchasePrice: 15.25,
+    manualShipping: 19,
+    missingComponentsCount: 0,
+    rates: { vatPct: 5, commissionPct: 15, advertisingPct: 15, requiredProfitPct: 25 },
+  })
+  assert.equal(child.ok, true)
+  assert.notEqual(child.salesPrice, parent.suggested_sales_price)
+  assert.equal(parent.suggested_sales_price, 86)
 })

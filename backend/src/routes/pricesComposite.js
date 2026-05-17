@@ -33,6 +33,13 @@ router.get(
   reportCtrl.getReport
 )
 
+router.post(
+  '/composite-items/reports/:reportId/items/:itemId/save-parent-price',
+  auth.requireAuth,
+  auth.requirePermission('prices', 'edit'),
+  reportCtrl.saveParentPrice
+)
+
 router.delete(
   '/composite-items/reports/:reportId',
   auth.requireAuth,

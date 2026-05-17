@@ -9,6 +9,7 @@ const {
   buildPurchasePriceMap,
   findPurchaseMatchForComponent,
   computeBundleEconomics,
+  computeAllPricesRowEconomics,
 } = require('./compositePricingLogic')
 
 const PREF_ALL_PRICES_EC = 'all_prices_ecommerce_v1'
@@ -65,6 +66,7 @@ function normalizeCompositeRow(raw) {
     item_id: raw?.item_id != null ? String(raw.item_id) : '',
     sku: raw?.sku != null ? String(raw.sku) : '',
     name: raw?.name != null ? String(raw.name) : raw?.item_name != null ? String(raw.item_name) : '',
+    family: raw?.category_name || raw?.category || raw?.product_type || raw?.item_type || raw?.group_name || '',
     status: raw?.status != null ? String(raw.status) : '',
     created_time: raw?.created_time || raw?.created_at || null,
     last_modified_time: raw?.last_modified_time || raw?.updated_time || raw?.updated_at || null,
@@ -164,9 +166,37 @@ async function ensureCompositeItemsPriceReportTables() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `)
+  await query(`
+    CREATE TABLE IF NOT EXISTS composite_parent_prices (
+      id SERIAL PRIMARY KEY,
+      composite_item_id TEXT NOT NULL,
+      sku TEXT NOT NULL,
+      name TEXT,
+      family TEXT,
+      report_item_id INTEGER REFERENCES composite_price_report_items(id) ON DELETE SET NULL,
+      purchase_price NUMERIC,
+      manual_shipping NUMERIC NOT NULL,
+      suggested_sales_price NUMERIC,
+      vat_5_percent NUMERIC,
+      commission_15_percent NUMERIC,
+      advertising_15_percent NUMERIC,
+      total_cost NUMERIC,
+      profit NUMERIC,
+      profit_percent_of_sales NUMERIC,
+      pricing_status VARCHAR(32) NOT NULL DEFAULT 'complete',
+      date_of_price DATE,
+      components_json JSONB NOT NULL DEFAULT '[]',
+      raw_json JSONB NOT NULL DEFAULT '{}',
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (composite_item_id)
+    )
+  `)
   await query(`CREATE INDEX IF NOT EXISTS idx_composite_price_reports_generated ON composite_price_reports(generated_at DESC)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_composite_price_report_items_report ON composite_price_report_items(report_id, name DESC)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_composite_price_report_items_composite ON composite_price_report_items(composite_item_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_composite_parent_prices_sku ON composite_parent_prices(sku)`)
 }
 
 async function fetchAllCompositeItems() {
@@ -299,6 +329,145 @@ function decimalOrNull(value) {
   return Number.isFinite(n) ? n : null
 }
 
+function dateOrNull(value) {
+  if (!value) return null
+  const d = new Date(value)
+  if (!Number.isFinite(d.getTime())) return null
+  return d.toISOString().slice(0, 10)
+}
+
+function extractFamily(composite, entity) {
+  const candidates = [
+    entity?.category_name,
+    entity?.category,
+    entity?.product_type,
+    entity?.item_type,
+    entity?.group_name,
+    composite?.family,
+    composite?.category_name,
+    composite?.category,
+  ]
+  for (const candidate of candidates) {
+    const value = String(candidate || '').trim()
+    if (value) return value
+  }
+  const sku = String(entity?.sku || composite?.sku || '').trim()
+  const m = sku.match(/^[A-Za-z]+/)
+  return m ? m[0].toUpperCase() : ''
+}
+
+function buildLatestParentPriceMap(rows) {
+  const map = new Map()
+  for (const row of rows || []) {
+    const id = String(row.composite_item_id || '').trim()
+    if (id) map.set(id, row)
+  }
+  return map
+}
+
+async function getLatestParentPriceMap() {
+  const r = await query(`
+    SELECT DISTINCT ON (composite_item_id) *
+    FROM composite_parent_prices
+    ORDER BY composite_item_id, updated_at DESC, id DESC
+  `)
+  return buildLatestParentPriceMap(r.rows)
+}
+
+function hasManualShipping(value) {
+  return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value))
+}
+
+function calculateParentPricing({ purchasePrice, manualShipping, missingComponentsCount, rates, dateOfPrice }) {
+  const purchase = Number(purchasePrice)
+  const missingShipping = !hasManualShipping(manualShipping)
+  const shipping = Number(manualShipping)
+  const missingPurchase = !Number.isFinite(purchase) || purchase <= 0
+  const incomplete =
+    missingComponentsCount > 0 ||
+    missingShipping ||
+    missingPurchase
+
+  if (incomplete) {
+    return {
+      purchase_price: Number.isFinite(purchase) ? purchase : null,
+      manual_shipping: missingShipping ? null : shipping,
+      suggested_sales_price: null,
+      vat_5_percent: null,
+      commission_15_percent: null,
+      advertising_15_percent: null,
+      total_cost: null,
+      profit: null,
+      profit_percent_of_sales: null,
+      pricing_status: 'incomplete',
+      missing_shipping: missingShipping,
+      missing_component_price: missingComponentsCount > 0 || missingPurchase,
+      date_of_price: null,
+    }
+  }
+
+  const economics = computeBundleEconomics(purchase, shipping, rates)
+  if (!economics?.ok) {
+    return {
+      purchase_price: purchase,
+      manual_shipping: shipping,
+      suggested_sales_price: null,
+      vat_5_percent: null,
+      commission_15_percent: null,
+      advertising_15_percent: null,
+      total_cost: null,
+      profit: null,
+      profit_percent_of_sales: null,
+      pricing_status: 'incomplete',
+      missing_shipping: false,
+      missing_component_price: false,
+      date_of_price: null,
+    }
+  }
+
+  return {
+    purchase_price: purchase,
+    manual_shipping: shipping,
+    suggested_sales_price: economics.salesPrice,
+    vat_5_percent: economics.vatAmount,
+    commission_15_percent: economics.commissionAmount,
+    advertising_15_percent: economics.advertisingAmount,
+    total_cost: economics.totalCost,
+    profit: economics.profit,
+    profit_percent_of_sales: economics.profitPct,
+    pricing_status: 'complete',
+    missing_shipping: false,
+    missing_component_price: false,
+    date_of_price: dateOrNull(dateOfPrice) || nowIso().slice(0, 10),
+  }
+}
+
+function normalizeParentPriceForItem(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    composite_item_id: row.composite_item_id,
+    sku: row.sku,
+    name: row.name,
+    family: row.family,
+    report_item_id: row.report_item_id,
+    purchase_price: row.purchase_price != null ? Number(row.purchase_price) : null,
+    manual_shipping: row.manual_shipping != null ? Number(row.manual_shipping) : null,
+    suggested_sales_price: row.suggested_sales_price != null ? Number(row.suggested_sales_price) : null,
+    vat_5_percent: row.vat_5_percent != null ? Number(row.vat_5_percent) : null,
+    commission_15_percent: row.commission_15_percent != null ? Number(row.commission_15_percent) : null,
+    advertising_15_percent: row.advertising_15_percent != null ? Number(row.advertising_15_percent) : null,
+    total_cost: row.total_cost != null ? Number(row.total_cost) : null,
+    profit: row.profit != null ? Number(row.profit) : null,
+    profit_percent_of_sales: row.profit_percent_of_sales != null ? Number(row.profit_percent_of_sales) : null,
+    pricing_status: row.pricing_status,
+    date_of_price: row.date_of_price,
+    components: Array.isArray(row.components_json) ? row.components_json : [],
+    raw: row.raw_json || {},
+    updated_at: row.updated_at,
+  }
+}
+
 async function insertReportItem(client, reportId, item) {
   await client.query(
     `INSERT INTO composite_price_report_items
@@ -314,15 +483,15 @@ async function insertReportItem(client, reportId, item) {
       item.composite_item_id,
       item.sku,
       item.name,
-      decimalOrNull(item.sales_price),
-      decimalOrNull(item.vat_5_percent),
-      decimalOrNull(item.commission_15_percent),
-      decimalOrNull(item.advertising_15_percent),
-      decimalOrNull(item.shipping),
-      decimalOrNull(item.purchase_price),
-      decimalOrNull(item.total_cost),
-      decimalOrNull(item.profit),
-      decimalOrNull(item.profit_percent_of_sales),
+      decimalOrNull(item.parent?.suggested_sales_price ?? item.sales_price),
+      decimalOrNull(item.parent?.vat_5_percent ?? item.vat_5_percent),
+      decimalOrNull(item.parent?.commission_15_percent ?? item.commission_15_percent),
+      decimalOrNull(item.parent?.advertising_15_percent ?? item.advertising_15_percent),
+      decimalOrNull(item.parent?.manual_shipping ?? item.shipping),
+      decimalOrNull(item.parent?.purchase_price ?? item.purchase_price),
+      decimalOrNull(item.parent?.total_cost ?? item.total_cost),
+      decimalOrNull(item.parent?.profit ?? item.profit),
+      decimalOrNull(item.parent?.profit_percent_of_sales ?? item.profit_percent_of_sales),
       item.pricing_status,
       item.unmatched_components_count || 0,
       item.created_time || null,
@@ -333,7 +502,7 @@ async function insertReportItem(client, reportId, item) {
   )
 }
 
-async function calculateCompositeReportItem(composite, purchaseMap, rates, itemByIdCache) {
+async function calculateCompositeReportItem(composite, purchaseMap, rates, itemByIdCache, savedParentPrice = null) {
   let detailJson
   try {
     detailJson = await fetchCompositeItemDetail(composite.composite_item_id, {
@@ -343,6 +512,7 @@ async function calculateCompositeReportItem(composite, purchaseMap, rates, itemB
     console.warn(`[composite-price-report] detail failed ${composite.sku || composite.name || composite.composite_item_id}:`, err.message || err)
     return {
       ...composite,
+      family: composite.family || '',
       sales_price: null,
       vat_5_percent: null,
       commission_15_percent: null,
@@ -354,6 +524,13 @@ async function calculateCompositeReportItem(composite, purchaseMap, rates, itemB
       profit_percent_of_sales: null,
       pricing_status: 'incomplete',
       unmatched_components_count: 1,
+      parent: calculateParentPricing({
+        purchasePrice: null,
+        manualShipping: savedParentPrice?.manual_shipping,
+        missingComponentsCount: 1,
+        rates,
+        dateOfPrice: savedParentPrice?.date_of_price,
+      }),
       components: [],
       raw: { composite, error: err.message || String(err) },
     }
@@ -367,8 +544,8 @@ async function calculateCompositeReportItem(composite, purchaseMap, rates, itemB
     fetchConcurrency: ITEM_FETCH_CONCURRENCY,
   })
   let purchaseTotal = 0
-  let shippingTotal = 0
   let latestDate = ''
+  const family = extractFamily(composite, entity)
 
   const reportComponents = components.map((component) => {
     const result = findPurchaseMatchForComponent(purchaseMap, component)
@@ -377,58 +554,87 @@ async function calculateCompositeReportItem(composite, purchaseMap, rates, itemB
     if (result.status === 'matched' && result.match) {
       const lineTotal = result.match.purchasePrice * safeQty
       purchaseTotal += lineTotal
-      if (Number.isFinite(Number(result.match.shipping))) shippingTotal += Number(result.match.shipping) * safeQty
       if (result.match.dateOfPrices && String(result.match.dateOfPrices).localeCompare(latestDate) > 0) latestDate = result.match.dateOfPrices
+      const rowEconomics = computeAllPricesRowEconomics({
+        purchasePrice: result.match.purchasePrice,
+        shipping: result.match.shipping,
+      }, rates)
       return {
         ...component,
         matched_all_prices_item_no: result.match.itemNo,
+        matched_all_prices_sku: result.match.itemNo,
         matched_purchase_price: result.match.purchasePrice,
         line_total: lineTotal,
         match_status: 'matched',
         match_key_used: result.match.matchedKey,
         match_kind: result.match.matchKind,
         date_of_prices: result.match.dateOfPrices,
+        all_prices: {
+          item_no: result.match.itemNo,
+          sku: result.match.itemNo,
+          sales_price: rowEconomics.ok ? rowEconomics.salesPrice : null,
+          vat_5_percent: rowEconomics.ok ? rowEconomics.vatAmount : null,
+          commission_15_percent: rowEconomics.ok ? rowEconomics.commissionAmount : null,
+          advertising_15_percent: rowEconomics.ok ? rowEconomics.advertisingAmount : null,
+          shipping: result.match.shipping,
+          purchase_price: result.match.purchasePrice,
+          total_cost: rowEconomics.ok ? rowEconomics.totalCost : null,
+          profit: rowEconomics.ok ? rowEconomics.profit : null,
+          profit_percent_of_sales: rowEconomics.ok ? rowEconomics.profitPct : null,
+          pricing_status: rowEconomics.ok && !rowEconomics.denominatorInvalid ? 'complete' : 'incomplete',
+          date_of_price: result.match.dateOfPrices,
+        },
       }
     }
     return {
       ...component,
       matched_all_prices_item_no: null,
+      matched_all_prices_sku: null,
       matched_purchase_price: null,
       line_total: null,
       match_status: result.status,
       possible_matches: result.matches,
+      all_prices: null,
     }
   })
 
   const incompleteCount = reportComponents.filter((c) => c.match_status !== 'matched').length
-  const pricingStatus = incompleteCount > 0 ? 'incomplete' : 'complete'
-  const economics = pricingStatus === 'complete'
-    ? computeBundleEconomics(purchaseTotal, shippingTotal, rates)
-    : null
+  const parent = calculateParentPricing({
+    purchasePrice: purchaseTotal,
+    manualShipping: savedParentPrice?.manual_shipping,
+    missingComponentsCount: incompleteCount,
+    rates,
+    dateOfPrice: savedParentPrice?.date_of_price,
+  })
+  const pricingStatus = parent.pricing_status
 
   return {
     composite_item_id: String(entity.composite_item_id || composite.composite_item_id),
     item_id: composite.item_id || (entity.item_id != null ? String(entity.item_id) : ''),
     sku: entity.sku != null ? String(entity.sku) : composite.sku,
     name: entity.name != null ? String(entity.name) : composite.name,
+    family,
     status: entity.status != null ? String(entity.status) : composite.status,
-    sales_price: economics?.ok ? economics.salesPrice : null,
-    vat_5_percent: economics?.ok ? economics.vatAmount : null,
-    commission_15_percent: economics?.ok ? economics.commissionAmount : null,
-    advertising_15_percent: economics?.ok ? economics.advertisingAmount : null,
-    shipping: pricingStatus === 'complete' ? shippingTotal : null,
+    sales_price: parent.suggested_sales_price,
+    vat_5_percent: parent.vat_5_percent,
+    commission_15_percent: parent.commission_15_percent,
+    advertising_15_percent: parent.advertising_15_percent,
+    shipping: parent.manual_shipping,
     purchase_price: purchaseTotal,
     partial_purchase_price: pricingStatus === 'incomplete' ? purchaseTotal : null,
-    total_cost: economics?.ok ? economics.totalCost : null,
-    profit: economics?.ok ? economics.profit : null,
-    profit_percent_of_sales: economics?.ok ? economics.profitPct : null,
+    total_cost: parent.total_cost,
+    profit: parent.profit,
+    profit_percent_of_sales: parent.profit_percent_of_sales,
     pricing_status: pricingStatus,
     unmatched_components_count: incompleteCount,
     date_of_prices: latestDate,
+    date_of_price: parent.date_of_price,
+    parent,
+    saved_parent_price: normalizeParentPriceForItem(savedParentPrice),
     components: reportComponents,
     created_time: composite.created_time || entity.created_time || null,
     last_modified_time: composite.last_modified_time || entity.last_modified_time || null,
-    raw: { composite, entity, rates },
+    raw: { composite, entity, rates, family, parent, saved_parent_price: normalizeParentPriceForItem(savedParentPrice) },
   }
 }
 
@@ -553,9 +759,10 @@ async function runCompositeItemsPriceReportJob({ reportId, userId, mode, force, 
   }
 
   try {
-    const [allComposites, syncState] = await Promise.all([
+    const [allComposites, syncState, parentPriceMap] = await Promise.all([
       fetchAllCompositeItems(),
       getSyncState(),
+      getLatestParentPriceMap(),
     ])
     await updateReportStarted(reportId, allComposites.length)
     const selected = selectCompositesForRun(allComposites, syncState, { mode, force, includeModified })
@@ -565,7 +772,8 @@ async function runCompositeItemsPriceReportJob({ reportId, userId, mode, force, 
 
     await promiseConcurrent(
       selected.map((composite) => async () => {
-        const item = await calculateCompositeReportItem(composite, purchaseMap, rates, itemByIdCache)
+        const savedParentPrice = parentPriceMap.get(String(composite.composite_item_id))
+        const item = await calculateCompositeReportItem(composite, purchaseMap, rates, itemByIdCache, savedParentPrice)
         await schedulePersist(item)
         return item
       }),
@@ -687,6 +895,7 @@ async function getCompositeItemsPriceReport(reportId) {
     composite_item_id: row.composite_item_id,
     sku: row.sku,
     name: row.name,
+    family: row.raw_json?.family || row.raw_json?.entity?.category_name || row.raw_json?.composite?.family || '',
     sales_price: row.sales_price != null ? Number(row.sales_price) : null,
     vat_5_percent: row.vat_5_percent != null ? Number(row.vat_5_percent) : null,
     commission_15_percent: row.commission_15_percent != null ? Number(row.commission_15_percent) : null,
@@ -698,12 +907,165 @@ async function getCompositeItemsPriceReport(reportId) {
     profit_percent_of_sales: row.profit_percent_of_sales != null ? Number(row.profit_percent_of_sales) : null,
     pricing_status: row.pricing_status,
     unmatched_components_count: row.unmatched_components_count,
+    parent: row.raw_json?.parent || {
+      purchase_price: row.purchase_price != null ? Number(row.purchase_price) : null,
+      manual_shipping: row.shipping != null ? Number(row.shipping) : null,
+      suggested_sales_price: row.sales_price != null ? Number(row.sales_price) : null,
+      vat_5_percent: row.vat_5_percent != null ? Number(row.vat_5_percent) : null,
+      commission_15_percent: row.commission_15_percent != null ? Number(row.commission_15_percent) : null,
+      advertising_15_percent: row.advertising_15_percent != null ? Number(row.advertising_15_percent) : null,
+      total_cost: row.total_cost != null ? Number(row.total_cost) : null,
+      profit: row.profit != null ? Number(row.profit) : null,
+      profit_percent_of_sales: row.profit_percent_of_sales != null ? Number(row.profit_percent_of_sales) : null,
+      pricing_status: row.pricing_status,
+      date_of_price: row.raw_json?.date_of_price || null,
+    },
+    saved_parent_price: row.raw_json?.saved_parent_price || null,
     created_time: row.created_time,
     last_modified_time: row.last_modified_time,
     components: Array.isArray(row.components_json) ? row.components_json : [],
     raw: row.raw_json || {},
   }))
   return { report, items }
+}
+
+async function saveCompositeParentPrice({ reportId, itemId, userId, manualShipping, dateOfPrice }) {
+  await ensureCompositeItemsPriceReportTables()
+  const rid = Number.parseInt(String(reportId), 10)
+  const iid = Number.parseInt(String(itemId), 10)
+  if (!Number.isFinite(rid) || !Number.isFinite(iid)) {
+    const err = new Error('Invalid report or item id')
+    err.code = 'INVALID_REPORT_ID'
+    throw err
+  }
+  if (!hasManualShipping(manualShipping) || Number(manualShipping) < 0) {
+    const err = new Error('Manual shipping must be a non-negative number.')
+    err.code = 'INVALID_MANUAL_SHIPPING'
+    throw err
+  }
+
+  const rowResult = await query(
+    `SELECT * FROM composite_price_report_items WHERE report_id = $1 AND id = $2`,
+    [rid, iid]
+  )
+  const row = rowResult.rows[0]
+  if (!row) {
+    const err = new Error('Composite report item not found')
+    err.code = 'REPORT_NOT_FOUND'
+    throw err
+  }
+
+  const components = Array.isArray(row.components_json) ? row.components_json : []
+  const unmatched = components.filter((component) => component.match_status !== 'matched').length
+  const purchasePrice = row.purchase_price != null ? Number(row.purchase_price) : null
+  const raw = row.raw_json || {}
+  const rates = raw.rates && typeof raw.rates === 'object' ? { ...DEFAULT_RATES, ...raw.rates } : { ...DEFAULT_RATES }
+  const parent = calculateParentPricing({
+    purchasePrice,
+    manualShipping: Number(manualShipping),
+    missingComponentsCount: unmatched,
+    rates,
+    dateOfPrice: dateOfPrice || nowIso(),
+  })
+  if (parent.pricing_status !== 'complete') {
+    const err = new Error(
+      parent.missing_component_price
+        ? 'Cannot save: at least one component is missing from All Prices.'
+        : 'Cannot save: parent composite pricing is incomplete.'
+    )
+    err.code = 'PARENT_PRICE_INCOMPLETE'
+    throw err
+  }
+
+  const family = raw.family || ''
+  const saved = await query(
+    `INSERT INTO composite_parent_prices
+       (composite_item_id, sku, name, family, report_item_id, purchase_price, manual_shipping,
+        suggested_sales_price, vat_5_percent, commission_15_percent, advertising_15_percent,
+        total_cost, profit, profit_percent_of_sales, pricing_status, date_of_price,
+        components_json, raw_json, created_by, updated_at)
+     VALUES
+       ($1, $2, $3, $4, $5, $6, $7,
+        $8, $9, $10, $11,
+        $12, $13, $14, $15, $16,
+        $17::jsonb, $18::jsonb, $19, NOW())
+     ON CONFLICT (composite_item_id) DO UPDATE SET
+       sku = EXCLUDED.sku,
+       name = EXCLUDED.name,
+       family = EXCLUDED.family,
+       report_item_id = EXCLUDED.report_item_id,
+       purchase_price = EXCLUDED.purchase_price,
+       manual_shipping = EXCLUDED.manual_shipping,
+       suggested_sales_price = EXCLUDED.suggested_sales_price,
+       vat_5_percent = EXCLUDED.vat_5_percent,
+       commission_15_percent = EXCLUDED.commission_15_percent,
+       advertising_15_percent = EXCLUDED.advertising_15_percent,
+       total_cost = EXCLUDED.total_cost,
+       profit = EXCLUDED.profit,
+       profit_percent_of_sales = EXCLUDED.profit_percent_of_sales,
+       pricing_status = EXCLUDED.pricing_status,
+       date_of_price = EXCLUDED.date_of_price,
+       components_json = EXCLUDED.components_json,
+       raw_json = EXCLUDED.raw_json,
+       created_by = COALESCE(EXCLUDED.created_by, composite_parent_prices.created_by),
+       updated_at = NOW()
+     RETURNING *`,
+    [
+      row.composite_item_id,
+      row.sku || '',
+      row.name || '',
+      family,
+      row.id,
+      decimalOrNull(parent.purchase_price),
+      decimalOrNull(parent.manual_shipping),
+      decimalOrNull(parent.suggested_sales_price),
+      decimalOrNull(parent.vat_5_percent),
+      decimalOrNull(parent.commission_15_percent),
+      decimalOrNull(parent.advertising_15_percent),
+      decimalOrNull(parent.total_cost),
+      decimalOrNull(parent.profit),
+      decimalOrNull(parent.profit_percent_of_sales),
+      parent.pricing_status,
+      dateOrNull(parent.date_of_price),
+      safeJson(components),
+      safeJson({ report_id: rid, report_item_id: iid, rates, parent }),
+      userId || null,
+    ]
+  )
+
+  await query(
+    `UPDATE composite_price_report_items
+     SET sales_price = $3,
+         vat_5_percent = $4,
+         commission_15_percent = $5,
+         advertising_15_percent = $6,
+         shipping = $7,
+         total_cost = $8,
+         profit = $9,
+         profit_percent_of_sales = $10,
+         pricing_status = 'complete',
+         raw_json = COALESCE(raw_json, '{}'::jsonb) || $11::jsonb,
+         updated_at = NOW()
+     WHERE report_id = $1 AND id = $2`,
+    [
+      rid,
+      iid,
+      decimalOrNull(parent.suggested_sales_price),
+      decimalOrNull(parent.vat_5_percent),
+      decimalOrNull(parent.commission_15_percent),
+      decimalOrNull(parent.advertising_15_percent),
+      decimalOrNull(parent.manual_shipping),
+      decimalOrNull(parent.total_cost),
+      decimalOrNull(parent.profit),
+      decimalOrNull(parent.profit_percent_of_sales),
+      safeJson({ parent, saved_parent_price: normalizeParentPriceForItem(saved.rows[0]) }),
+    ]
+  )
+
+  return {
+    saved_parent_price: normalizeParentPriceForItem(saved.rows[0]),
+    parent,
+  }
 }
 
 async function deleteCompositeItemsPriceReport(reportId) {
@@ -733,9 +1095,11 @@ module.exports = {
   sortCompositesByNameDesc,
   selectCompositesForRun,
   calculateCompositeReportItem,
+  calculateParentPricing,
   startCompositeItemsPriceReportGeneration,
   runCompositeItemsPriceReportJob,
   listCompositeItemsPriceReports,
   getCompositeItemsPriceReport,
+  saveCompositeParentPrice,
   deleteCompositeItemsPriceReport,
 }
