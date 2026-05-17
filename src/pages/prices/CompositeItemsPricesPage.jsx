@@ -6,7 +6,6 @@ import '../management/DocumentExpiryPage.css'
 import '../management/AllPricesPage.css'
 import './CompositeItemsPricesPage.css'
 import {
-  computeEcommercePriceRow,
   DEFAULT_RATES,
   fmtMoney,
   fmtPct,
@@ -18,9 +17,9 @@ import {
 import {
   buildPurchasePriceMap,
   computeBundleEconomics,
-  findPurchaseMatchForComponent,
   saveSavedCompositeItem,
 } from './compositeBundlePricingUtils'
+import { resolveCompositeComponentPricing } from './compositeComponentPricingResolver'
 
 export function CompositeItemsPricesPage() {
   const [priceTick, setPriceTick] = useState(0)
@@ -72,29 +71,49 @@ export function CompositeItemsPricesPage() {
   const componentRows = useMemo(() => {
     if (!bundle?.components) return []
     return bundle.components.map((c) => {
-      const purchaseMatch = findPurchaseMatchForComponent(purchaseMap, c)
-      const purchase = purchaseMatch ? purchaseMatch.purchasePrice : null
+      const resolved = resolveCompositeComponentPricing(c, purchaseMap, rates)
+      const purchase = resolved.purchasePrice
+      const purchaseMatch = resolved.matchedAllPricesRecordFound
+        ? {
+            itemNo: resolved.matchedAllPricesItemNo,
+            sku: resolved.matchedAllPricesSku,
+            purchasePrice: resolved.purchasePrice,
+            shipping: resolved.shipping,
+            dateOfPrices: resolved.dateOfPrice,
+            matchedKey: resolved.matchKeyUsed,
+            matchKind: resolved.matchKind,
+          }
+        : null
       const matchedListRow = purchaseMatch
         ? {
             itemNo: purchaseMatch.itemNo,
+            sku: purchaseMatch.sku || purchaseMatch.itemNo,
             purchasePrice: purchaseMatch.purchasePrice,
             shipping: purchaseMatch.shipping ?? '',
             dateOfPrices: purchaseMatch.dateOfPrices || '',
           }
         : null
-      const matchedEconomics = matchedListRow && Number.isFinite(Number(matchedListRow.shipping))
-        ? computeEcommercePriceRow(matchedListRow, rates)
+      const matchedEconomics = resolved.matchedAllPricesRecordFound
+        ? {
+            denominatorInvalid: resolved.pricingStatus !== 'complete',
+            salesPrice: resolved.salesPriceAed,
+            vatAmount: resolved.vat5,
+            commissionAmount: resolved.commission15,
+            advertisingAmount: resolved.advertising15,
+            totalCost: resolved.totalCost,
+            profit: resolved.profitAed,
+            profitPct: resolved.profitPercent,
+          }
         : null
-      const qty = Number(c.quantity) || 0
-      const lineTotal = purchase != null && Number.isFinite(purchase) ? purchase * qty : null
       return {
         ...c,
+        resolvedPricing: resolved,
         purchaseMatch,
         matchedListRow,
         matchedEconomics,
         purchaseFromList: purchase,
-        lineTotal,
-        missing: purchase == null || !Number.isFinite(purchase),
+        lineTotal: resolved.linePurchaseTotal,
+        missing: !resolved.matchedAllPricesRecordFound,
       }
     })
   }, [bundle, purchaseMap, rates])

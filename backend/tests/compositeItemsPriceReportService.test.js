@@ -6,6 +6,7 @@ const {
   findPurchaseMatchForComponent,
   computeBundleEconomics,
   computeAllPricesRowEconomics,
+  resolveCompositeComponentPricing,
 } = require('../src/services/compositePricingLogic')
 const {
   REPORT_COMPOSITE_FILTER_BY,
@@ -165,7 +166,37 @@ test('child standalone All Prices economics are independent of parent bundle pri
     missingComponentsCount: 0,
     rates: { vatPct: 5, commissionPct: 15, advertisingPct: 15, requiredProfitPct: 25 },
   })
-  assert.equal(child.ok, true)
+  assert.equal(child.denominatorInvalid, false)
   assert.notEqual(child.salesPrice, parent.suggested_sales_price)
   assert.equal(parent.suggested_sales_price, 86)
+})
+
+test('component resolver returns full All Prices audit fields for exact SKU match', () => {
+  const resolved = resolveCompositeComponentPricing(
+    {
+      item_id: 'zoho-1',
+      sku: 'TOOL-36-BEIGE',
+      name: 'Tool 36 Beige',
+      quantity: 2,
+      zoho_purchase_rate: 5,
+      match_keys: ['TOOL-36-BEIGE'],
+    },
+    [{ itemNo: 'TOOL-36-BEIGE', purchasePrice: 2.97, shipping: 19, dateOfPrices: '2026-05-17' }],
+    { vatPct: 5, commissionPct: 15, advertisingPct: 15, requiredProfitPct: 25 }
+  )
+  assert.equal(resolved.matchedAllPricesRecordFound, true)
+  assert.equal(resolved.matchedAllPricesItemNo, 'TOOL-36-BEIGE')
+  assert.equal(resolved.matchedAllPricesSku, 'TOOL-36-BEIGE')
+  assert.equal(resolved.purchasePrice, 2.97)
+  assert.equal(resolved.linePurchaseTotal, 5.94)
+  assert.equal(resolved.salesPriceAed, 55)
+  assert.equal(resolved.vat5, 2.75)
+  assert.equal(resolved.commission15, 8.25)
+  assert.equal(resolved.advertising15, 8.25)
+  assert.equal(resolved.shipping, 19)
+  assert.equal(resolved.totalCost, 41.22)
+  assert.equal(Number(resolved.profitAed.toFixed(2)), 13.78)
+  assert.equal(Number(resolved.profitPercent.toFixed(2)), 25.05)
+  assert.equal(resolved.pricingStatus, 'complete')
+  assert.equal(resolved.dateOfPrice, '2026-05-17')
 })

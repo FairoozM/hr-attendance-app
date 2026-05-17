@@ -7,9 +7,8 @@ const { resolveComponentsFromMappedItems } = require('./compositeItemsZohoLookup
 const {
   DEFAULT_RATES,
   buildPurchasePriceMap,
-  findPurchaseMatchForComponent,
   computeBundleEconomics,
-  computeAllPricesRowEconomics,
+  resolveCompositeComponentPricing,
 } = require('./compositePricingLogic')
 
 const PREF_ALL_PRICES_EC = 'all_prices_ecommerce_v1'
@@ -548,55 +547,61 @@ async function calculateCompositeReportItem(composite, purchaseMap, rates, itemB
   const family = extractFamily(composite, entity)
 
   const reportComponents = components.map((component) => {
-    const result = findPurchaseMatchForComponent(purchaseMap, component)
-    const quantity = Number(component.quantity)
-    const safeQty = Number.isFinite(quantity) ? quantity : 0
-    if (result.status === 'matched' && result.match) {
-      const lineTotal = result.match.purchasePrice * safeQty
-      purchaseTotal += lineTotal
-      if (result.match.dateOfPrices && String(result.match.dateOfPrices).localeCompare(latestDate) > 0) latestDate = result.match.dateOfPrices
-      const rowEconomics = computeAllPricesRowEconomics({
-        purchasePrice: result.match.purchasePrice,
-        shipping: result.match.shipping,
-      }, rates)
-      return {
-        ...component,
-        matched_all_prices_item_no: result.match.itemNo,
-        matched_all_prices_sku: result.match.itemNo,
-        matched_purchase_price: result.match.purchasePrice,
-        line_total: lineTotal,
-        match_status: 'matched',
-        match_key_used: result.match.matchedKey,
-        match_kind: result.match.matchKind,
-        date_of_prices: result.match.dateOfPrices,
-        all_prices: {
-          item_no: result.match.itemNo,
-          sku: result.match.itemNo,
-          sales_price: rowEconomics.ok ? rowEconomics.salesPrice : null,
-          vat_5_percent: rowEconomics.ok ? rowEconomics.vatAmount : null,
-          commission_15_percent: rowEconomics.ok ? rowEconomics.commissionAmount : null,
-          advertising_15_percent: rowEconomics.ok ? rowEconomics.advertisingAmount : null,
-          shipping: result.match.shipping,
-          purchase_price: result.match.purchasePrice,
-          total_cost: rowEconomics.ok ? rowEconomics.totalCost : null,
-          profit: rowEconomics.ok ? rowEconomics.profit : null,
-          profit_percent_of_sales: rowEconomics.ok ? rowEconomics.profitPct : null,
-          pricing_status: rowEconomics.ok && !rowEconomics.denominatorInvalid ? 'complete' : 'incomplete',
-          date_of_price: result.match.dateOfPrices,
-        },
-      }
+    const resolved = resolveCompositeComponentPricing(component, purchaseMap, rates)
+    if (Number.isFinite(Number(resolved.linePurchaseTotal))) {
+      purchaseTotal += Number(resolved.linePurchaseTotal)
+    }
+    if (resolved.dateOfPrice && String(resolved.dateOfPrice).localeCompare(latestDate) > 0) {
+      latestDate = resolved.dateOfPrice
     }
     return {
       ...component,
-      matched_all_prices_item_no: null,
-      matched_all_prices_sku: null,
-      matched_purchase_price: null,
-      line_total: null,
-      match_status: result.status,
-      possible_matches: result.matches,
-      all_prices: null,
+      matched_all_prices_item_no: resolved.matchedAllPricesItemNo,
+      matched_all_prices_sku: resolved.matchedAllPricesSku,
+      matched_purchase_price: resolved.purchasePrice,
+      line_total: resolved.linePurchaseTotal,
+      match_status: resolved.matchStatus,
+      match_key_used: resolved.matchKeyUsed,
+      match_kind: resolved.matchKind,
+      date_of_prices: resolved.dateOfPrice,
+      possible_matches: resolved.possibleMatches,
+      all_prices: resolved.matchedAllPricesRecordFound
+        ? {
+            item_no: resolved.matchedAllPricesItemNo,
+            sku: resolved.matchedAllPricesSku,
+            sales_price: resolved.salesPriceAed,
+            vat_5_percent: resolved.vat5,
+            commission_15_percent: resolved.commission15,
+            advertising_15_percent: resolved.advertising15,
+            shipping: resolved.shipping,
+            purchase_price: resolved.purchasePrice,
+            total_cost: resolved.totalCost,
+            profit: resolved.profitAed,
+            profit_percent_of_sales: resolved.profitPercent,
+            pricing_status: resolved.pricingStatus,
+            date_of_price: resolved.dateOfPrice,
+            source_record: resolved.matchedAllPricesRecord,
+          }
+        : null,
+      resolved_pricing: resolved,
     }
   })
+
+  if (process.env.COMPOSITE_REPORT_DEBUG_COMPONENTS === '1' && reportComponents.length > 0) {
+    const sample = reportComponents[0]
+    const resolved = sample.resolved_pricing || {}
+    console.debug('[composite-price-report] component pricing sample', {
+      componentSku: resolved.componentSku,
+      matchedAllPricesItemNo: resolved.matchedAllPricesItemNo,
+      matchedAllPricesSku: resolved.matchedAllPricesSku,
+      matchedAllPricesRecordFound: resolved.matchedAllPricesRecordFound,
+      salesPriceAed: resolved.salesPriceAed,
+      purchasePrice: resolved.purchasePrice,
+      totalCost: resolved.totalCost,
+      profitAed: resolved.profitAed,
+      profitPercent: resolved.profitPercent,
+    })
+  }
 
   const incompleteCount = reportComponents.filter((c) => c.match_status !== 'matched').length
   const parent = calculateParentPricing({

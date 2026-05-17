@@ -2,6 +2,7 @@
 
 import { PREF_SAVED_COMPOSITES } from '../../constants/userPreferenceKeys'
 import { getUserPrefKey, requestUserPrefSave } from '../../lib/userPreferencesBridge'
+import resolver from '../../../shared/compositeComponentPricingResolver.cjs'
 
 export const STORAGE_KEY_SAVED_COMPOSITES = 'hr-saved-composite-items-v1'
 export const SAVED_COMPOSITES_UPDATED_EVENT = 'hr-saved-composite-items-updated'
@@ -240,27 +241,7 @@ function normalizePurchaseMatch(value, matchedKey, matchKind) {
 /**
  * Build lookup from ecommerce price list rows: itemNo variant → row match metadata.
  */
-export function buildPurchasePriceMap(rows) {
-  const m = new Map()
-  if (!Array.isArray(rows)) return m
-  for (const r of rows) {
-    const raw = String(r.itemNo || '').trim()
-    if (!raw) continue
-    const p = Number(r.purchasePrice)
-    if (!Number.isFinite(p)) continue
-    const shipping = Number(r.shipping)
-    const entry = {
-      itemNo: raw,
-      purchasePrice: p,
-      shipping: Number.isFinite(shipping) ? shipping : null,
-      dateOfPrices: r.dateOfPrices != null ? String(r.dateOfPrices) : '',
-    }
-    for (const v of expandExactMatchVariants(raw)) {
-      if (!m.has(v)) m.set(v, entry)
-    }
-  }
-  return m
-}
+export const buildPurchasePriceMap = resolver.buildPurchasePriceMap
 
 /** Normalize component keys and also try base SKU when Zoho adds a trailing color token. */
 export function expandMatchVariants(raw) {
@@ -273,23 +254,8 @@ export function expandMatchVariants(raw) {
  * @param {{ sku?: string, name?: string, match_keys?: string[] }} component
  */
 export function findPurchaseMatchForComponent(purchaseMap, component) {
-  const rawKeys = []
-  if (Array.isArray(component.match_keys) && component.match_keys.length) {
-    rawKeys.push(...component.match_keys)
-  } else {
-    if (component.sku) rawKeys.push(component.sku)
-    if (component.name) rawKeys.push(component.name)
-  }
-
-  const tried = new Set()
-  for (const raw of rawKeys) {
-    for (const { key: v, matchKind } of expandMatchCandidates(raw)) {
-      if (tried.has(v)) continue
-      tried.add(v)
-      if (purchaseMap.has(v)) return normalizePurchaseMatch(purchaseMap.get(v), v, matchKind)
-    }
-  }
-  return null
+  const result = resolver.findPurchaseMatchForComponent(purchaseMap, component)
+  return result.status === 'matched' ? result.match : null
 }
 
 /**
