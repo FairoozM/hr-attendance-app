@@ -248,6 +248,31 @@ function itemIconToken(label) {
   return `${words[0][0] || ''}${words[1][0] || ''}`.toUpperCase()
 }
 
+function pathMatchesNavItem(pathname, to) {
+  const path = String(pathname || '').replace(/\/+$/, '') || '/'
+  const target = String(to || '').replace(/\/+$/, '') || '/'
+  return path === target || (target !== '/' && path.startsWith(`${target}/`))
+}
+
+function longestMatchingNavPath(pathname, items) {
+  let best = ''
+  for (const item of items || []) {
+    const to = item?.to
+    if (!to || !pathMatchesNavItem(pathname, to)) continue
+    if (String(to).length > best.length) best = String(to)
+  }
+  return best
+}
+
+function navItemIsActive(pathname, item, items) {
+  if (!item?.to) return false
+  return String(item.to) === longestMatchingNavPath(pathname, items)
+}
+
+function navLinkClassName(baseClass, activeClass, isActive) {
+  return `${baseClass} ${isActive ? activeClass : ''}`.trim()
+}
+
 const DOC_URGENCY_LABEL = { expired: 'Expired', urgent: 'Urgent', 'due-soon': 'Due Soon' }
 const DOC_URGENCY_CLS   = { expired: 'notif-doc-badge--expired', urgent: 'notif-doc-badge--urgent', 'due-soon': 'notif-doc-badge--due-soon' }
 const BRAND_TITLE = 'Business Intelligence (BI) - Life Smile'
@@ -450,10 +475,21 @@ export function Layout() {
   }, [])
 
   const navLinkClass = ({ isActive }) =>
-    `app-sidebar__link ${isActive ? 'app-sidebar__link--active' : ''}`
+    navLinkClassName('app-sidebar__link', 'app-sidebar__link--active', isActive)
 
-  const subLinkClass = ({ isActive }) =>
-    `nav-group__link ${isActive ? 'nav-group__link--active' : ''}`
+  const subLinkClass = useCallback((item, items) => () =>
+    navLinkClassName(
+      'nav-group__link',
+      'nav-group__link--active',
+      navItemIsActive(location.pathname, item, items)
+    ), [location.pathname])
+
+  const railLinkClass = useCallback((item, items) => () =>
+    navLinkClassName(
+      'nav-rail__link',
+      'nav-rail__link--active',
+      navItemIsActive(location.pathname, item, items)
+    ), [location.pathname])
 
   const handleLogout = () => {
     closeSidebar()
@@ -797,7 +833,7 @@ export function Layout() {
                       key={item.to}
                       to={item.to}
                       end={item.end}
-                      className={({ isActive }) => `nav-rail__link ${isActive ? 'nav-rail__link--active' : ''}`}
+                      className={railLinkClass(item, focusedSectionConfig.items)}
                     >
                       <span className="nav-rail__icon" aria-hidden>{item.icon}</span>
                       <span className="nav-rail__label">{item.label}</span>
@@ -816,7 +852,7 @@ export function Layout() {
                       key={item.to}
                       to={item.to}
                       end={item.end}
-                      className={subLinkClass}
+                        className={subLinkClass(item, hrItems)}
                       onClick={() => openFocusedSection('hr')}
                     >
                       <span className="nav-group__link-dot" aria-hidden />
@@ -831,7 +867,7 @@ export function Layout() {
                       <NavLink
                         key={item.to}
                         to={item.to}
-                        className={subLinkClass}
+                        className={subLinkClass(item, listsItems)}
                         onClick={() => openFocusedSection('lists')}
                       >
                         <span className="nav-group__link-dot" aria-hidden />
@@ -847,7 +883,7 @@ export function Layout() {
                       <NavLink
                         key={item.to}
                         to={item.to}
-                        className={subLinkClass}
+                        className={subLinkClass(item, INFLUENCER_ITEMS)}
                         onClick={() => openFocusedSection('influencers')}
                       >
                         <span className="nav-group__link-dot" aria-hidden />
@@ -863,7 +899,7 @@ export function Layout() {
                       <NavLink
                         key={item.to}
                         to={item.to}
-                        className={subLinkClass}
+                        className={subLinkClass(item, TAXATION_ITEMS)}
                       >
                         <span className="nav-group__link-dot" aria-hidden />
                         {item.label}
@@ -882,7 +918,7 @@ export function Layout() {
                         <NavLink
                           key={item.to}
                           to={item.to}
-                          className={subLinkClass}
+                          className={subLinkClass(item, pricesItems)}
                           onClick={() => openFocusedSection('prices')}
                         >
                           <span className="nav-group__link-dot" aria-hidden />
@@ -903,7 +939,7 @@ export function Layout() {
                         <NavLink
                           key={item.to}
                           to={item.to}
-                          className={subLinkClass}
+                          className={subLinkClass(item, PLANNER_NAV_ITEMS)}
                           onClick={() => openFocusedSection('planner')}
                         >
                           <span className="nav-group__link-dot" aria-hidden />
@@ -927,7 +963,7 @@ export function Layout() {
                         <NavLink
                           key={item.to}
                           to={item.to}
-                          className={subLinkClass}
+                          className={subLinkClass(item, aiHubNavItems)}
                           onClick={() => openFocusedSection('ai')}
                         >
                           <span className="nav-group__link-dot" aria-hidden />
@@ -948,7 +984,7 @@ export function Layout() {
                         <NavLink
                           key={item.to}
                           to={item.to}
-                          className={subLinkClass}
+                          className={subLinkClass(item, amazonNavItems)}
                           onClick={() => openFocusedSection('amazon')}
                         >
                           <span className="nav-group__link-dot" aria-hidden />
@@ -969,7 +1005,7 @@ export function Layout() {
                         <NavLink
                           key={item.to}
                           to={item.to}
-                          className={subLinkClass}
+                          className={subLinkClass(item, managementItems)}
                           onClick={() => openFocusedSection('management')}
                         >
                           <span className="nav-group__link-dot" aria-hidden />
@@ -990,7 +1026,7 @@ export function Layout() {
                         <NavLink
                           key={item.to}
                           to={item.to}
-                          className={subLinkClass}
+                          className={subLinkClass(item, REPORTS_ITEMS)}
                           onClick={() => openFocusedSection('reports')}
                         >
                           <span className="nav-group__link-dot" aria-hidden />
@@ -1011,7 +1047,7 @@ export function Layout() {
                         <NavLink
                           key={item.to}
                           to={item.to}
-                          className={subLinkClass}
+                          className={subLinkClass(item, zohoItems)}
                           onClick={() => openFocusedSection('zoho')}
                         >
                           <span className="nav-group__link-dot" aria-hidden />
@@ -1032,7 +1068,7 @@ export function Layout() {
                         <NavLink
                           key={item.to}
                           to={item.to}
-                          className={subLinkClass}
+                          className={subLinkClass(item, adminNavItems)}
                           onClick={() => openFocusedSection('admin')}
                         >
                           <span className="nav-group__link-dot" aria-hidden />
