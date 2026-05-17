@@ -44,8 +44,19 @@ async function generateReport(req, res) {
   }
 }
 
+async function deleteReport(req, res) {
+  try {
+    const result = await service.deleteCompositeItemsPriceReport(req.params.reportId)
+    res.json(result)
+  } catch (err) {
+    console.error('[composite-price-report] delete failed:', err)
+    res.status(statusForError(err)).json({ error: err.message || 'Failed to delete composite price report', code: err.code })
+  }
+}
+
 module.exports = {
   listReports,
   getReport,
   generateReport,
+  deleteReport,
 }

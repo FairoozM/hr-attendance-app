@@ -135,6 +135,24 @@ export function CompositeItemsPriceReportsPage() {
     }
   }, [fetchReports, includeModified, openReport])
 
+  const deleteReport = useCallback(async (report) => {
+    const label = `${modeLabel(report.mode)} report from ${formatReportDate(report.generated_at)}`
+    if (!window.confirm(`Delete ${label}?`)) return
+    setError('')
+    setMessage('')
+    try {
+      await api.delete(`/api/prices/composite-items/reports/${encodeURIComponent(String(report.id))}`)
+      setReports((prev) => prev.filter((item) => String(item.id) !== String(report.id)))
+      if (String(selectedReport?.report?.id) === String(report.id)) {
+        setSelectedReport(null)
+        setExpanded(new Set())
+      }
+      setMessage('Composite price report deleted.')
+    } catch (err) {
+      setError(err?.message || 'Could not delete this report.')
+    }
+  }, [selectedReport])
+
   const toggleExpanded = useCallback((id) => {
     setExpanded((prev) => {
       const next = new Set(prev)
@@ -226,6 +244,9 @@ export function CompositeItemsPriceReportsPage() {
                   <td>
                     <button type="button" className="btn btn--ghost btn--sm" disabled={loadingDetail} onClick={() => openReport(report.id)}>
                       View
+                    </button>
+                    <button type="button" className="btn btn--ghost btn--sm" onClick={() => deleteReport(report)}>
+                      Delete
                     </button>
                   </td>
                 </tr>

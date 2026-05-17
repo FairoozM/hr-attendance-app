@@ -552,6 +552,26 @@ async function getCompositeItemsPriceReport(reportId) {
   return { report, items }
 }
 
+async function deleteCompositeItemsPriceReport(reportId) {
+  await ensureCompositeItemsPriceReportTables()
+  const id = Number.parseInt(String(reportId), 10)
+  if (!Number.isFinite(id)) {
+    const err = new Error('Invalid report id')
+    err.code = 'INVALID_REPORT_ID'
+    throw err
+  }
+  const result = await query(
+    `DELETE FROM composite_price_reports WHERE id = $1 RETURNING id`,
+    [id]
+  )
+  if (result.rowCount === 0) {
+    const err = new Error('Composite price report not found')
+    err.code = 'REPORT_NOT_FOUND'
+    throw err
+  }
+  return { deleted: true, id }
+}
+
 module.exports = {
   ensureCompositeItemsPriceReportTables,
   REPORT_COMPOSITE_FILTER_BY,
@@ -563,4 +583,5 @@ module.exports = {
   runCompositeItemsPriceReportJob,
   listCompositeItemsPriceReports,
   getCompositeItemsPriceReport,
+  deleteCompositeItemsPriceReport,
 }

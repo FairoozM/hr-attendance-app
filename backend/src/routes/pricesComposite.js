@@ -33,4 +33,11 @@ router.get(
   reportCtrl.getReport
 )
 
+router.delete(
+  '/composite-items/reports/:reportId',
+  auth.requireAuth,
+  auth.requirePermission('prices', 'view'),
+  reportCtrl.deleteReport
+)
+
 module.exports = router
