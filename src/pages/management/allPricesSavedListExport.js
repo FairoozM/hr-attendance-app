@@ -7,23 +7,29 @@ const SHEET_NAME = 'Saved Prices'
 
 /**
  * @param {string | null | undefined} iso
+ * @param {string} [prefix]
  * @returns {string}
  */
-export function sanitizeSavedListExportFilename(iso) {
+export function sanitizeExportFilename(iso, prefix = 'saved-prices') {
   const d = new Date(iso || Date.now())
   if (Number.isNaN(d.getTime())) {
-    return `saved-prices-${Date.now()}.xlsx`
+    return `${prefix}-${Date.now()}.xlsx`
   }
   const pad = (n) => String(n).padStart(2, '0')
   const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}`
-  return `saved-prices-${stamp}.xlsx`
+  return `${prefix}-${stamp}.xlsx`
+}
+
+/** @deprecated use sanitizeExportFilename */
+export function sanitizeSavedListExportFilename(iso) {
+  return sanitizeExportFilename(iso, 'saved-prices')
 }
 
 /**
  * @param {{ rates?: object, rows?: object[] }} list
  * @returns {object[]}
  */
-export function buildSavedListExportRows(list) {
+export function buildExportRowsFromRatesAndRows(list) {
   const rates = list?.rates && typeof list.rates === 'object' ? list.rates : {}
   return (Array.isArray(list?.rows) ? list.rows : []).map((row) => {
     const computed = computeEcommercePriceRow(row, rates)
@@ -52,18 +58,39 @@ export function buildSavedListExportRows(list) {
   })
 }
 
-/**
- * @param {{ rates?: object, rows?: object[], updatedAt?: string, createdAt?: string }} list
- * @returns {boolean} true when export started
- */
-export function exportSavedPriceListToExcel(list) {
-  const exportRows = buildSavedListExportRows(list)
-  if (!exportRows.length) return false
+/** @deprecated alias */
+export function buildSavedListExportRows(list) {
+  return buildExportRowsFromRatesAndRows(list)
+}
 
+function writeWorkbook(exportRows, filename) {
+  if (!exportRows.length) return false
   const worksheet = XLSX.utils.json_to_sheet(exportRows)
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, worksheet, SHEET_NAME)
-  const filename = sanitizeSavedListExportFilename(list?.updatedAt || list?.createdAt)
   XLSX.writeFile(workbook, filename)
   return true
 }
+
+/**
+ * @param {{ rates?: object, rows?: object[] }} list
+ * @returns {boolean}
+ */
+export function exportSavedListToExcel(list) {
+  const exportRows = buildExportRowsFromRatesAndRows(list)
+  const filename = sanitizeExportFilename(list?.updatedAt || list?.createdAt, 'saved-prices')
+  return writeWorkbook(exportRows, filename)
+}
+
+/**
+ * @param {{ rates?: object, rows?: object[] }} params
+ * @returns {boolean}
+ */
+export function exportCurrentDraftToExcel({ rates, rows }) {
+  const exportRows = buildExportRowsFromRatesAndRows({ rates, rows })
+  const filename = sanitizeExportFilename(new Date().toISOString(), 'draft-prices')
+  return writeWorkbook(exportRows, filename)
+}
+
+/** @deprecated use exportSavedListToExcel */
+export const exportSavedPriceListToExcel = exportSavedListToExcel

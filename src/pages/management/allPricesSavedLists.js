@@ -34,6 +34,11 @@ export function emptySavedListsStore() {
   return { activeSavedListId: null, savedLists: [] }
 }
 
+function normalizeRevision(value) {
+  const n = Number(value)
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1
+}
+
 /**
  * @param {unknown} raw
  * @returns {{ activeSavedListId: string | null, savedLists: object[] }}
@@ -68,6 +73,7 @@ function normalizeSavedListEntry(entry) {
     name: entry.name != null ? String(entry.name) : formatSavedListName(new Date(updatedAt)),
     createdAt,
     updatedAt,
+    revision: normalizeRevision(entry.revision),
     rates: normalizeAllPricesRates(entry.rates),
     rows,
   }
@@ -90,13 +96,13 @@ export function persistSavedListsStore(store) {
 /**
  * @param {object} rates
  * @param {unknown[]} rows
- * @param {{ id?: string, name?: string, createdAt?: string }} [options]
+ * @param {{ id?: string, name?: string, createdAt?: string, revision?: number }} [options]
  */
 export function buildSavedListEntry(rates, rows, options = {}) {
   const now = new Date().toISOString()
   const normalizedRows = normalizeAllPricesRows(rows) || []
   if (isProductionBuild() && isBrkhTemplateSeedRows(normalizedRows)) {
-    return { blocked: true, entry: null }
+    return { blocked: true, entry: null, reason: 'template_blocked' }
   }
   const id = options.id || makeSavedListId()
   const createdAt = parseLastSavedAt(options.createdAt) || now
@@ -107,9 +113,11 @@ export function buildSavedListEntry(rates, rows, options = {}) {
       name: options.name || formatSavedListName(new Date(now)),
       createdAt,
       updatedAt: now,
+      revision: options.revision != null ? normalizeRevision(options.revision) : 1,
       rates: normalizeAllPricesRates(rates),
       rows: normalizedRows,
     },
+    reason: null,
   }
 }
 
@@ -118,19 +126,43 @@ export function buildSavedListEntry(rates, rows, options = {}) {
  * @param {string} id
  * @param {object} rates
  * @param {unknown[]} rows
+ * @param {{ expectedRevision?: number }} [options]
  */
-export function updateSavedListInStore(store, id, rates, rows) {
-  const { entry, blocked } = buildSavedListEntry(rates, rows, {
+export function updateSavedListInStore(store, id, rates, rows, options = {}) {
+  const current = store.savedLists.find((l) => l.id === id)
+  if (!current) {
+    return { store, blocked: true, reason: 'not_found', entry: null, currentRevision: null }
+  }
+
+  const expectedRevision =
+    options.expectedRevision != null ? normalizeRevision(options.expectedRevision) : null
+  const currentRevision = normalizeRevision(current.revision)
+  if (expectedRevision != null && expectedRevision !== currentRevision) {
+    return {
+      store,
+      blocked: true,
+      reason: 'revision_conflict',
+      entry: current,
+      currentRevision,
+    }
+  }
+
+  const { entry, blocked, reason } = buildSavedListEntry(rates, rows, {
     id,
-    name: store.savedLists.find((l) => l.id === id)?.name,
-    createdAt: store.savedLists.find((l) => l.id === id)?.createdAt,
+    name: current.name,
+    createdAt: current.createdAt,
+    revision: currentRevision + 1,
   })
-  if (blocked || !entry) return { store, blocked: true }
+  if (blocked || !entry) {
+    return { store, blocked: true, reason: reason || 'template_blocked', entry: null, currentRevision }
+  }
   const savedLists = store.savedLists.map((l) => (l.id === id ? entry : l))
   return {
     store: { activeSavedListId: store.activeSavedListId, savedLists },
     blocked: false,
     entry,
+    currentRevision,
+    reason: null,
   }
 }
 
@@ -140,8 +172,8 @@ export function updateSavedListInStore(store, id, rates, rows) {
  * @param {unknown[]} rows
  */
 export function addSavedListToStore(store, rates, rows) {
-  const { entry, blocked } = buildSavedListEntry(rates, rows)
-  if (blocked || !entry) return { store, blocked: true, entry: null }
+  const { entry, blocked, reason } = buildSavedListEntry(rates, rows)
+  if (blocked || !entry) return { store, blocked: true, entry: null, reason: reason || 'template_blocked' }
   return {
     store: {
       activeSavedListId: entry.id,
@@ -149,6 +181,7 @@ export function addSavedListToStore(store, rates, rows) {
     },
     blocked: false,
     entry,
+    reason: null,
   }
 }
 
@@ -157,12 +190,20 @@ export function addSavedListToStore(store, rates, rows) {
  * @param {string} id
  */
 export function removeSavedListFromStore(store, id) {
+  const removed = store.savedLists.find((l) => l.id === id)
   const savedLists = store.savedLists.filter((l) => l.id !== id)
   const activeSavedListId =
     store.activeSavedListId === id
       ? savedLists[0]?.id || null
       : store.activeSavedListId
-  return { activeSavedListId, savedLists }
+  return { activeSavedListId, savedLists, removed: removed || null }
+}
+
+/**
+ * Re-read store from preferences immediately before a write (cross-tab safety).
+ */
+export function readFreshSavedListsStore() {
+  return readSavedListsStore()
 }
 
 /**

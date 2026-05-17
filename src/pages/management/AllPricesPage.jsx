@@ -4,10 +4,23 @@ import './DocumentExpiryPage.css'
 import './AllPricesPage.css'
 import { PREF_ALL_PRICES_EC, PREF_ALL_PRICES_SAVED_LISTS } from '../../constants/userPreferenceKeys'
 import { useUserPreferences } from '../../contexts/UserPreferencesContext'
-import { exportSavedPriceListToExcel } from './allPricesSavedListExport'
+import { AllPricesActionToast } from './AllPricesActionToast'
+import { AllPricesConfirmModal } from './AllPricesConfirmModal'
+import { AllPricesLoadGuardModal } from './AllPricesLoadGuardModal'
+import { AllPricesRevisionConflictModal } from './AllPricesRevisionConflictModal'
+import {
+  computeDraftFingerprint,
+  formatRatesSummary,
+  hasUnsavedChangesToActiveList,
+  isSignificantRowCountChange,
+} from './allPricesDraftSafety'
+import { pushRecoverySnapshot, removeRecoverySnapshot } from './allPricesRecoverySnapshots'
+import { exportCurrentDraftToExcel, exportSavedListToExcel } from './allPricesSavedListExport'
 import {
   addSavedListToStore,
+  normalizeSavedListsStore,
   persistSavedListsStore,
+  readFreshSavedListsStore,
   readLegacySavedListsFromLocalStorage,
   readSavedListsStore,
   removeSavedListFromStore,
@@ -47,6 +60,8 @@ function applySavedListToTableState(list) {
   }
 }
 
+const DRAFT_AUTOSAVE_MS = 450
+
 export function AllPricesPage() {
   const { ready: prefsReady, getPref, setPref, prefsVersion } = useUserPreferences()
   const [rates, setRates] = useState({ ...DEFAULT_RATES })
@@ -56,12 +71,24 @@ export function AllPricesPage() {
   const [pasteFeedback, setPasteFeedback] = useState({ type: '', text: '' })
   const [lastSavedAt, setLastSavedAt] = useState(null)
   const [saving, setSaving] = useState(false)
-  const [saveToast, setSaveToast] = useState('')
   const [savedListsStore, setSavedListsStore] = useState(() => readSavedListsStore())
-  const [activeSavedListId, setActiveSavedListId] = useState(null)
+  const [activeSavedListId, setActiveSavedListId] = useState(
+    () => readSavedListsStore().activeSavedListId,
+  )
   const [editingRowId, setEditingRowId] = useState(null)
+  const [draftSaveStatus, setDraftSaveStatus] = useState('idle')
+  const [actionToast, setActionToast] = useState(null)
+  const [confirmModal, setConfirmModal] = useState(null)
+  const [loadGuardTargetId, setLoadGuardTargetId] = useState(null)
+  const [revisionConflict, setRevisionConflict] = useState(null)
   const skipNextAutosaveRef = useRef(true)
-  const saveToastTimerRef = useRef(null)
+  const [loadedBaseline, setLoadedBaselineState] = useState({
+    listId: null,
+    fingerprint: null,
+    revision: null,
+  })
+  const lastUndoSnapshotIdRef = useRef(null)
+  const draftAutosaveTimerRef = useRef(null)
 
   const applyBundleToState = useCallback((bundle) => {
     const hydrated = hydrateAllPricesStateFromBundle(bundle)
@@ -70,6 +97,36 @@ export function AllPricesPage() {
     setLastSavedAt(hydrated.lastSavedAt)
     return hydrated
   }, [])
+
+  const setLoadedBaseline = useCallback((listId, nextRates, nextRows, revision) => {
+    setLoadedBaselineState({
+      listId: listId || null,
+      fingerprint: listId
+        ? computeDraftFingerprint({ activeSavedListId: listId, rates: nextRates, rows: nextRows })
+        : null,
+      revision: revision != null ? revision : null,
+    })
+  }, [])
+
+  const currentFingerprint = useMemo(
+    () => computeDraftFingerprint({ activeSavedListId, rates, rows }),
+    [activeSavedListId, rates, rows],
+  )
+
+  const activeList = useMemo(
+    () => savedListsStore.savedLists.find((l) => l.id === activeSavedListId) || null,
+    [activeSavedListId, savedListsStore.savedLists],
+  )
+
+  const activeUnsaved = useMemo(
+    () =>
+      hasUnsavedChangesToActiveList({
+        activeSavedListId,
+        loadedFingerprint: loadedBaseline.fingerprint,
+        currentFingerprint,
+      }),
+    [activeSavedListId, currentFingerprint, loadedBaseline.fingerprint],
+  )
 
   const persistStore = useCallback(
     (store) => {
@@ -82,39 +139,100 @@ export function AllPricesPage() {
     [setPref],
   )
 
+  const showActionToast = useCallback((message, { actionLabel = 'undo', onAction } = {}) => {
+    setActionToast({ message, actionLabel, onAction, secondsLeft: 10 })
+  }, [])
+
+  const syncDraftAfterSave = useCallback(
+    (savedAt) => {
+      const bundle = buildAllPricesBundle(rates, rows, savedAt)
+      saveAllPricesEcommerceBundle(bundle, {
+        source: 'AllPricesPage',
+        action: 'sync-draft-after-saved-list',
+        preserveLastSavedAt: false,
+      })
+      setPref(PREF_ALL_PRICES_EC, bundle)
+      setLastSavedAt(savedAt)
+      skipNextAutosaveRef.current = true
+      setDraftSaveStatus('saved')
+    },
+    [rates, rows, setPref],
+  )
+
+  const applyTableFromList = useCallback(
+    (list) => {
+      const applied = applySavedListToTableState(list)
+      setRates(applied.rates)
+      setRows(applied.rows)
+      setLastSavedAt(applied.lastSavedAt)
+      setEditingRowId(null)
+      setLoadedBaseline(list.id, applied.rates, applied.rows, list.revision)
+      return applied
+    },
+    [setLoadedBaseline],
+  )
+
+  const restoreFromSnapshot = useCallback(
+    (snapshot) => {
+      if (!snapshot) return
+      setRates(snapshot.rates)
+      setRows(
+        (snapshot.rows || []).map((r) => ({
+          id: r.id || makeRowId(),
+          itemNo: r.itemNo != null ? String(r.itemNo) : '',
+          purchasePrice: r.purchasePrice ?? '',
+          shipping: r.shipping ?? '',
+          dateOfPrices: r.dateOfPrices != null ? String(r.dateOfPrices) : '',
+        })),
+      )
+      if (snapshot.sourceSavedListId) {
+        setActiveSavedListId(snapshot.sourceSavedListId)
+        const list = savedListsStore.savedLists.find((l) => l.id === snapshot.sourceSavedListId)
+        if (list) {
+          setLoadedBaseline(list.id, snapshot.rates, snapshot.rows, list.revision)
+        }
+      }
+      skipNextAutosaveRef.current = true
+      if (lastUndoSnapshotIdRef.current) {
+        removeRecoverySnapshot(lastUndoSnapshotIdRef.current)
+        lastUndoSnapshotIdRef.current = null
+      }
+    },
+    [savedListsStore.savedLists, setLoadedBaseline],
+  )
+
   useEffect(() => {
     if (!prefsReady || prefsLoaded) return
 
-    let listsStore = readSavedListsStore()
     const legacy = readLegacySavedListsFromLocalStorage()
-    if (legacy && legacy.savedLists.length) {
-      listsStore = legacy
+    let listsStore = legacy?.savedLists?.length
+      ? legacy
+      : normalizeSavedListsStore(getPref(PREF_ALL_PRICES_SAVED_LISTS, null))
+    if (legacy?.savedLists?.length) {
       setPref(PREF_ALL_PRICES_SAVED_LISTS, legacy)
-    } else {
-      const fromPref = getPref(PREF_ALL_PRICES_SAVED_LISTS, null)
-      if (fromPref) listsStore = readSavedListsStore()
+    }
+    if (!listsStore.savedLists.length) {
+      listsStore = readSavedListsStore()
     }
 
     setSavedListsStore(listsStore)
     setActiveSavedListId(listsStore.activeSavedListId)
 
-    const activeList = listsStore.activeSavedListId
+    const activeListOnLoad = listsStore.activeSavedListId
       ? listsStore.savedLists.find((l) => l.id === listsStore.activeSavedListId)
       : null
 
-    if (activeList) {
-      const applied = applySavedListToTableState(activeList)
-      setRates(applied.rates)
-      setRows(applied.rows)
-      setLastSavedAt(applied.lastSavedAt)
+    if (activeListOnLoad) {
+      applyTableFromList(activeListOnLoad)
     } else {
       const bundle = getPref(PREF_ALL_PRICES_EC, null)
       applyBundleToState(bundle)
+      setLoadedBaseline(null, DEFAULT_RATES, [], null)
     }
 
     skipNextAutosaveRef.current = true
     setPrefsLoaded(true)
-  }, [applyBundleToState, getPref, persistStore, prefsLoaded, prefsReady])
+  }, [applyBundleToState, applyTableFromList, getPref, prefsLoaded, prefsReady, setLoadedBaseline, setPref])
 
   useEffect(() => {
     void prefsVersion
@@ -125,32 +243,64 @@ export function AllPricesPage() {
       setSavedListsStore(normalized)
       setActiveSavedListId(normalized.activeSavedListId)
     }
-  }, [getPref, prefsLoaded, prefsReady, prefsVersion])
+  }, [prefsLoaded, prefsReady, prefsVersion])
 
   useEffect(() => {
     if (!prefsReady || !prefsLoaded) return
     if (skipNextAutosaveRef.current) {
       skipNextAutosaveRef.current = false
-      return
+      return undefined
     }
-    const result = saveAllPricesEcommerceBundle(
-      buildAllPricesBundle(rates, rows, lastSavedAt || undefined),
-      { source: 'AllPricesPage', action: 'autosave', preserveLastSavedAt: true },
-    )
-    if (!result.blocked) {
+
+    setDraftSaveStatus('saving')
+    if (draftAutosaveTimerRef.current) clearTimeout(draftAutosaveTimerRef.current)
+
+    draftAutosaveTimerRef.current = setTimeout(() => {
+      try {
+        const result = saveAllPricesEcommerceBundle(
+          buildAllPricesBundle(rates, rows, lastSavedAt || undefined),
+          { source: 'AllPricesPage', action: 'autosave', preserveLastSavedAt: true },
+        )
+        if (result.blocked) {
+          setDraftSaveStatus('error')
+          return
+        }
+        setPref(PREF_ALL_PRICES_EC, buildAllPricesBundle(rates, rows, lastSavedAt || undefined))
+        setDraftSaveStatus('saved')
+      } catch {
+        setDraftSaveStatus('error')
+      }
+    }, DRAFT_AUTOSAVE_MS)
+
+    return () => {
+      if (draftAutosaveTimerRef.current) clearTimeout(draftAutosaveTimerRef.current)
+    }
+  }, [lastSavedAt, prefsLoaded, prefsReady, rates, rows, setPref])
+
+  useEffect(
+    () => () => {
+      if (draftAutosaveTimerRef.current) clearTimeout(draftAutosaveTimerRef.current)
+    },
+    [],
+  )
+
+  const retryDraftSave = useCallback(() => {
+    setDraftSaveStatus('saving')
+    try {
+      const result = saveAllPricesEcommerceBundle(
+        buildAllPricesBundle(rates, rows, lastSavedAt || undefined),
+        { source: 'AllPricesPage', action: 'autosave-retry', preserveLastSavedAt: true },
+      )
+      if (result.blocked) {
+        setDraftSaveStatus('error')
+        return
+      }
       setPref(PREF_ALL_PRICES_EC, buildAllPricesBundle(rates, rows, lastSavedAt || undefined))
+      setDraftSaveStatus('saved')
+    } catch {
+      setDraftSaveStatus('error')
     }
-  }, [getPref, lastSavedAt, prefsLoaded, prefsReady, rates, rows, setPref])
-
-  useEffect(() => () => {
-    if (saveToastTimerRef.current) clearTimeout(saveToastTimerRef.current)
-  }, [])
-
-  const showSaveToast = useCallback((text) => {
-    setSaveToast(text)
-    if (saveToastTimerRef.current) clearTimeout(saveToastTimerRef.current)
-    saveToastTimerRef.current = setTimeout(() => setSaveToast(''), 4000)
-  }, [])
+  }, [lastSavedAt, rates, rows, setPref])
 
   const sortedSavedLists = useMemo(
     () =>
@@ -171,6 +321,24 @@ export function AllPricesPage() {
   const denominatorPct = useMemo(() => Math.max(0, 100 - sumTakePct), [sumTakePct])
   const ratesInvalid = sumTakePct >= 100
 
+  const primaryButton = useMemo(() => {
+    if (!activeSavedListId) {
+      return { label: 'Save as Price List', disabled: saving, mode: 'create' }
+    }
+    if (!activeUnsaved) {
+      return { label: 'Saved', disabled: true, mode: 'noop' }
+    }
+    return { label: 'Update Active List', disabled: saving, mode: 'update-active' }
+  }, [activeSavedListId, activeUnsaved, saving])
+
+  const statusMessage = useMemo(() => {
+    if (draftSaveStatus === 'saving') return 'Saving draft…'
+    if (draftSaveStatus === 'error') return null
+    if (activeSavedListId && activeUnsaved) return 'Draft saved. Active list not updated.'
+    if (activeSavedListId && !activeUnsaved) return 'Draft saved'
+    return 'Draft saved'
+  }, [activeSavedListId, activeUnsaved, draftSaveStatus])
+
   const updateRow = useCallback((id, patch) => {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)))
   }, [])
@@ -178,13 +346,7 @@ export function AllPricesPage() {
   const addRow = useCallback(() => {
     setRows((prev) => [
       ...prev,
-      {
-        id: makeRowId(),
-        itemNo: '',
-        purchasePrice: '',
-        shipping: '',
-        dateOfPrices: '',
-      },
+      { id: makeRowId(), itemNo: '', purchasePrice: '', shipping: '', dateOfPrices: '' },
     ])
   }, [])
 
@@ -198,133 +360,244 @@ export function AllPricesPage() {
     setEditingRowId((cur) => (cur === id ? null : id))
   }, [])
 
-  const resetRates = useCallback(() => {
-    setRates({ ...DEFAULT_RATES })
-  }, [])
+  const runUpdateList = useCallback(
+    (listId, { skipSignificantCheck = false } = {}) => {
+      const freshStore = readFreshSavedListsStore()
+      const target = freshStore.savedLists.find((l) => l.id === listId)
+      if (!target) return false
 
-  const syncDraftAfterSave = useCallback(
-    (savedAt) => {
-      const bundle = buildAllPricesBundle(rates, rows, savedAt)
-      saveAllPricesEcommerceBundle(bundle, {
-        source: 'AllPricesPage',
-        action: 'sync-draft-after-saved-list',
-        preserveLastSavedAt: false,
+      const oldCount = target.rows?.length || 0
+      const newCount = rows.length
+      if (!skipSignificantCheck && isSignificantRowCountChange(oldCount, newCount)) {
+        setConfirmModal({
+          variant: 'update',
+          listName: target.name,
+          counts: { oldCount, newCount },
+          onConfirm: () => {
+            setConfirmModal(null)
+            runUpdateList(listId, { skipSignificantCheck: true })
+          },
+        })
+        return false
+      }
+
+      const snapshots = pushRecoverySnapshot({
+        reason: 'before-update-saved-list',
+        rates,
+        rows,
+        sourceSavedListId: activeSavedListId,
+        sourceSavedListName: activeList?.name,
       })
-      setPref(PREF_ALL_PRICES_EC, bundle)
-      setLastSavedAt(savedAt)
-      skipNextAutosaveRef.current = true
+      const snap = snapshots[0]
+      if (snap) lastUndoSnapshotIdRef.current = snap.id
+
+      const expectedRevision = loadedBaseline.revision ?? target.revision
+      const result = updateSavedListInStore(freshStore, listId, rates, rows, { expectedRevision })
+
+      if (result.reason === 'revision_conflict') {
+        setRevisionConflict({ listId, listName: target.name, serverEntry: result.entry })
+        return false
+      }
+
+      if (result.blocked || !result.entry) {
+        showActionToast('Update blocked: template sample rows cannot be saved in production.')
+        return false
+      }
+
+      const nextStore = { ...result.store, activeSavedListId: listId }
+      persistStore(nextStore)
+      syncDraftAfterSave(result.entry.updatedAt)
+      setLoadedBaseline(listId, rates, rows, result.entry.revision)
+      setRevisionConflict(null)
+      showActionToast('Saved list updated.', {
+        onAction: () => restoreFromSnapshot(snap),
+      })
+      return true
     },
-    [rates, rows, setPref],
+    [activeList?.name, activeSavedListId, loadedBaseline.revision, persistStore, rates, restoreFromSnapshot, rows, setLoadedBaseline, showActionToast, syncDraftAfterSave],
   )
 
-  const handleSavePrices = useCallback(() => {
+  const handlePrimarySave = useCallback(() => {
+    if (primaryButton.mode === 'noop') return
     setSaving(true)
-    const existingId = activeSavedListId
-    let nextStore = savedListsStore
-    let entry = null
-    let blocked = false
-
-    if (existingId && nextStore.savedLists.some((l) => l.id === existingId)) {
-      const result = updateSavedListInStore(nextStore, existingId, rates, rows)
-      blocked = result.blocked
-      nextStore = { ...result.store, activeSavedListId: existingId }
-      entry = result.entry
-    } else {
-      const result = addSavedListToStore(nextStore, rates, rows)
-      blocked = result.blocked
-      nextStore = result.store
-      entry = result.entry
-    }
-
-    if (blocked || !entry) {
-      showSaveToast('Save blocked: template sample rows cannot be saved in production.')
+    if (primaryButton.mode === 'create') {
+      const result = addSavedListToStore(savedListsStore, rates, rows)
+      if (result.blocked || !result.entry) {
+        showActionToast('Save blocked: template sample rows cannot be saved in production.')
+        setSaving(false)
+        return
+      }
+      persistStore(result.store)
+      syncDraftAfterSave(result.entry.updatedAt)
+      setLoadedBaseline(result.entry.id, rates, rows, result.entry.revision)
+      showActionToast(`Saved as price list: ${result.entry.name}`)
       setSaving(false)
       return
     }
-
-    persistStore(nextStore)
-    syncDraftAfterSave(entry.updatedAt)
-    showSaveToast('Prices saved successfully.')
+    if (primaryButton.mode === 'update-active' && activeSavedListId) {
+      runUpdateList(activeSavedListId)
+    }
     setSaving(false)
-  }, [activeSavedListId, persistStore, rates, rows, savedListsStore, showSaveToast, syncDraftAfterSave])
+  }, [activeSavedListId, persistStore, primaryButton.mode, rates, rows, runUpdateList, savedListsStore, setLoadedBaseline, showActionToast, syncDraftAfterSave])
 
   const handleSaveAsNewList = useCallback(() => {
     setSaving(true)
     const result = addSavedListToStore(savedListsStore, rates, rows)
     if (result.blocked || !result.entry) {
-      showSaveToast('Save blocked: template sample rows cannot be saved in production.')
+      showActionToast('Save blocked: template sample rows cannot be saved in production.')
       setSaving(false)
       return
     }
     persistStore(result.store)
     syncDraftAfterSave(result.entry.updatedAt)
-    showSaveToast(`Saved as new list: ${result.entry.name}`)
+    setLoadedBaseline(result.entry.id, rates, rows, result.entry.revision)
+    showActionToast(`Saved as new list: ${result.entry.name}`)
     setSaving(false)
-  }, [persistStore, rates, rows, savedListsStore, showSaveToast, syncDraftAfterSave])
+  }, [persistStore, rates, rows, savedListsStore, setLoadedBaseline, showActionToast, syncDraftAfterSave])
 
-  const handleLoadSavedList = useCallback(
+  const performLoadList = useCallback(
     (listId) => {
       const list = savedListsStore.savedLists.find((l) => l.id === listId)
       if (!list) return
-      const applied = applySavedListToTableState(list)
-      setRates(applied.rates)
-      setRows(applied.rows)
-      setLastSavedAt(applied.lastSavedAt)
-      setEditingRowId(null)
+      applyTableFromList(list)
       const nextStore = { ...savedListsStore, activeSavedListId: listId }
       persistStore(nextStore)
       skipNextAutosaveRef.current = true
-      syncDraftAfterSave(applied.lastSavedAt)
-      showSaveToast(`Loaded “${list.name}”.`)
+      syncDraftAfterSave(list.updatedAt || list.createdAt)
+      showActionToast(`Loaded “${list.name}”.`)
+      setLoadGuardTargetId(null)
     },
-    [persistStore, savedListsStore, showSaveToast, syncDraftAfterSave],
+    [applyTableFromList, persistStore, savedListsStore, showActionToast, syncDraftAfterSave],
+  )
+
+  const requestLoadList = useCallback(
+    (listId) => {
+      if (listId === activeSavedListId) return
+      if (activeSavedListId && activeUnsaved) {
+        setLoadGuardTargetId(listId)
+        return
+      }
+      performLoadList(listId)
+    },
+    [activeSavedListId, activeUnsaved, performLoadList],
   )
 
   const handleUpdateSavedList = useCallback(
     (listId) => {
-      const result = updateSavedListInStore(savedListsStore, listId, rates, rows)
-      if (result.blocked || !result.entry) {
-        showSaveToast('Update blocked: template sample rows cannot be saved in production.')
-        return
+      const fresh = readFreshSavedListsStore()
+      const target = fresh.savedLists.find((l) => l.id === listId)
+      if (!target) return
+      if (listId !== activeSavedListId) {
+        applyTableFromList(target)
+        setActiveSavedListId(listId)
       }
-      const nextStore = {
-        ...result.store,
-        activeSavedListId: listId,
-      }
-      persistStore(nextStore)
-      syncDraftAfterSave(result.entry.updatedAt)
-      showSaveToast(`Updated “${result.entry.name}”.`)
+      runUpdateList(listId)
     },
-    [persistStore, rates, rows, savedListsStore, showSaveToast, syncDraftAfterSave],
+    [applyTableFromList, runUpdateList],
   )
 
-  const handleDeleteSavedList = useCallback(
+  const performDeleteList = useCallback(
     (listId) => {
-      if (!window.confirm('Delete this saved price list?')) return
+      const target = savedListsStore.savedLists.find((l) => l.id === listId)
+      const snapshots = pushRecoverySnapshot({
+        reason: 'before-delete-saved-list',
+        rates,
+        rows,
+        sourceSavedListId: target?.id,
+        sourceSavedListName: target?.name,
+      })
+      const snap = snapshots[0]
+      if (snap) lastUndoSnapshotIdRef.current = snap.id
+
+      const deletedEntry = target ? { ...target } : null
       const next = removeSavedListFromStore(savedListsStore, listId)
       persistStore(next)
       if (activeSavedListId === listId) {
         setActiveSavedListId(next.activeSavedListId)
+        setLoadedBaseline(next.activeSavedListId, rates, rows, null)
       }
-      showSaveToast('Saved price list deleted.')
+      showActionToast(deletedEntry ? `Deleted ${deletedEntry.name}.` : 'Saved price list deleted.', {
+        actionLabel: 'restore',
+        onAction: () => {
+          if (!deletedEntry) return
+          const restored = {
+            ...savedListsStore,
+            savedLists: [deletedEntry, ...next.savedLists],
+            activeSavedListId: next.activeSavedListId || deletedEntry.id,
+          }
+          persistStore(restored)
+          restoreFromSnapshot(snap)
+        },
+      })
     },
-    [activeSavedListId, persistStore, savedListsStore, showSaveToast],
+    [activeSavedListId, persistStore, rates, restoreFromSnapshot, rows, savedListsStore, setLoadedBaseline, showActionToast],
   )
 
-  const handleExportSavedList = useCallback((list) => {
+  const handleDeleteSavedList = useCallback(
+    (listId) => {
+      const list = savedListsStore.savedLists.find((l) => l.id === listId)
+      setConfirmModal({
+        variant: 'delete',
+        listName: list?.name,
+        onConfirm: () => {
+          setConfirmModal(null)
+          performDeleteList(listId)
+        },
+      })
+    },
+    [performDeleteList, savedListsStore.savedLists],
+  )
+
+  const runExportSavedList = useCallback((list) => {
     if (!Array.isArray(list?.rows) || list.rows.length === 0) {
       window.alert('No saved prices available to export.')
       return
     }
-    exportSavedPriceListToExcel(list)
+    exportSavedListToExcel(list)
   }, [])
 
-  const applyPasteReplace = useCallback(() => {
+  const handleExportSavedList = useCallback(
+    (list) => {
+      if (list.id === activeSavedListId && activeUnsaved) {
+        setConfirmModal({
+          variant: 'export-saved-unsaved',
+          listName: list.name,
+          onConfirm: () => {
+            setConfirmModal(null)
+            runExportSavedList(list)
+          },
+        })
+        return
+      }
+      runExportSavedList(list)
+    },
+    [activeSavedListId, activeUnsaved, runExportSavedList],
+  )
+
+  const handleExportDraft = useCallback(() => {
+    if (!rows.length) {
+      window.alert('No rows in the working draft to export.')
+      return
+    }
+    exportCurrentDraftToExcel({ rates, rows })
+  }, [rates, rows])
+
+  const applyPasteReplaceInternal = useCallback(() => {
     const { rows: parsed, skippedHeader, hint } = parseExcelTsvPaste(pasteText)
     if (hint === 'empty' || hint === 'no-data-rows') {
       setPasteFeedback({ type: 'err', text: 'Paste Excel data first (tab-separated rows).' })
       return
     }
+    const snapshots = pushRecoverySnapshot({
+      reason: 'before-bulk-replace',
+      rates,
+      rows,
+      sourceSavedListId: activeSavedListId,
+      sourceSavedListName: activeList?.name,
+    })
+    const snap = snapshots[0]
+    if (snap) lastUndoSnapshotIdRef.current = snap.id
+
     const next = parsed.map((p) => ({
       id: makeRowId(),
       itemNo: p.itemNo || '',
@@ -339,7 +612,28 @@ export function AllPricesPage() {
       text: `Replaced table with ${next.length} row(s)${skippedHeader ? ' (header row skipped)' : ''}.`,
     })
     setPasteText('')
-  }, [pasteText])
+    showActionToast('Rows replaced.', { onAction: () => restoreFromSnapshot(snap) })
+  }, [activeList?.name, activeSavedListId, pasteText, rates, restoreFromSnapshot, rows, showActionToast])
+
+  const applyPasteReplace = useCallback(() => {
+    const { rows: parsed, hint } = parseExcelTsvPaste(pasteText)
+    if (hint === 'empty' || hint === 'no-data-rows') {
+      setPasteFeedback({ type: 'err', text: 'Paste Excel data first (tab-separated rows).' })
+      return
+    }
+    if (rows.length >= 50) {
+      setConfirmModal({
+        variant: 'bulk-replace',
+        counts: { oldCount: rows.length, pastedCount: parsed.length },
+        onConfirm: () => {
+          setConfirmModal(null)
+          applyPasteReplaceInternal()
+        },
+      })
+      return
+    }
+    applyPasteReplaceInternal()
+  }, [applyPasteReplaceInternal, pasteText, rows.length])
 
   const applyPasteMerge = useCallback(() => {
     const { rows: parsed, skippedHeader, hint } = parseExcelTsvPaste(pasteText)
@@ -377,6 +671,20 @@ export function AllPricesPage() {
     setPasteText('')
   }, [pasteText])
 
+  const resetRates = useCallback(() => {
+    const snapshots = pushRecoverySnapshot({
+      reason: 'before-reset-rates',
+      rates,
+      rows,
+      sourceSavedListId: activeSavedListId,
+      sourceSavedListName: activeList?.name,
+    })
+    const snap = snapshots[0]
+    if (snap) lastUndoSnapshotIdRef.current = snap.id
+    setRates({ ...DEFAULT_RATES })
+    showActionToast('Rates reset.', { onAction: () => restoreFromSnapshot(snap) })
+  }, [activeList?.name, activeSavedListId, rates, restoreFromSnapshot, rows, showActionToast])
+
   if (!prefsReady || !prefsLoaded) {
     return (
       <div className="page ap-ec-page">
@@ -406,13 +714,7 @@ export function AllPricesPage() {
       <section className="page-section ap-ec-wrap" aria-label="Ecommerce price list">
         <div className="ap-ec-formula-note" role="note">
           <strong>Required sales price</strong> when purchase + shipping are known:{' '}
-          <code>
-            (Purchase + Shipping) ÷ (1 − VAT − Commission − Advertising − Required profit)
-          </code>
-          <br />
-          Default matches your sheet: 5% + 15% + 15% + 25% = 60% → divide by{' '}
-          <strong>40%</strong>. Values shown use <strong>rounded</strong> AED sales price (e.g. 119.58 → 120); VAT,
-          commission, and advertising are calculated on that rounded price.
+          <code>(Purchase + Shipping) ÷ (1 − VAT − Commission − Advertising − Required profit)</code>
         </div>
 
         <div className="ap-ec-rates">
@@ -462,7 +764,7 @@ export function AllPricesPage() {
           </label>
           <div className="ap-ec-rates__meta">
             Combined take rate: <strong>{fmtMoney(sumTakePct, 2)}%</strong> · Effective divisor:{' '}
-            <strong>{fmtMoney(denominatorPct, 2)}%</strong> of sales price remains after deductions (must be &gt; 0).
+            <strong>{fmtMoney(denominatorPct, 2)}%</strong>
             <button type="button" className="btn btn--ghost" style={{ marginLeft: '0.75rem' }} onClick={resetRates}>
               Reset rates to 5 / 15 / 15 / 25
             </button>
@@ -471,7 +773,7 @@ export function AllPricesPage() {
 
         {ratesInvalid ? (
           <p className="ap-ec-error" role="alert">
-            The four percentages add up to 100% or more. Lower them so the divisor (1 − sum) stays positive.
+            The four percentages add up to 100% or more. Lower them so the divisor stays positive.
           </p>
         ) : null}
 
@@ -482,44 +784,74 @@ export function AllPricesPage() {
           <button
             type="button"
             className="btn btn--primary"
-            onClick={handleSavePrices}
-            disabled={saving}
+            data-testid="all-prices-primary-save"
+            onClick={handlePrimarySave}
+            disabled={primaryButton.disabled}
           >
-            {saving ? 'Saving…' : 'Save Prices'}
+            {saving && primaryButton.mode !== 'noop' ? 'Saving…' : primaryButton.label}
+          </button>
+          <button type="button" className="btn btn--ghost" onClick={handleSaveAsNewList} disabled={saving}>
+            Save as New Price List
           </button>
           <button
             type="button"
             className="btn btn--ghost"
-            onClick={handleSaveAsNewList}
-            disabled={saving}
+            data-testid="all-prices-export-draft"
+            onClick={handleExportDraft}
+            disabled={rows.length === 0}
           >
-            Save as New List
+            Export Current Draft
           </button>
         </div>
+
         <div className="ap-ec-save-meta" aria-live="polite">
-          {saveToast ? <p className="ap-ec-save-toast" role="status">{saveToast}</p> : null}
-          {activeSavedListId && lastSavedAt ? (
+          {draftSaveStatus === 'error' ? (
+            <p className="ap-ec-save-notice ap-ec-save-notice--error" role="alert">
+              Draft save failed.{' '}
+              <button type="button" className="btn btn--ghost btn--sm" onClick={retryDraftSave}>
+                Retry
+              </button>
+            </p>
+          ) : (
+            <p className="ap-ec-save-notice" data-testid="all-prices-draft-status">
+              {statusMessage}
+            </p>
+          )}
+          {activeSavedListId && activeUnsaved ? (
+            <p className="ap-ec-save-notice ap-ec-save-notice--warn" data-testid="all-prices-active-unsaved">
+              Unsaved changes to active list
+            </p>
+          ) : null}
+          {activeList && lastSavedAt ? (
             <p className="ap-ec-save-last">
-              Working on: {savedListsStore.savedLists.find((l) => l.id === activeSavedListId)?.name || 'Saved list'}
-              {' · '}Last saved: {formatLastSavedAt(lastSavedAt)}
+              Working on: {activeList.name} · Last saved: {formatLastSavedAt(lastSavedAt)}
             </p>
           ) : (
             <p className="ap-ec-save-last ap-ec-save-last--muted">
-              Click Save Prices to create a named saved list, or Save as New List for an additional copy.
+              The table is your working draft (autosaved). Use Save as Price List or Update Active List for named snapshots.
             </p>
           )}
         </div>
+
+        <AllPricesActionToast
+          message={actionToast?.message}
+          actionLabel={actionToast?.actionLabel}
+          onAction={actionToast?.onAction}
+          onDismiss={() => setActionToast(null)}
+          secondsLeft={actionToast?.secondsLeft}
+        />
 
         <section className="ap-ec-saved-lists" aria-label="Saved Price Lists">
           <h3 className="ap-ec-saved-lists__title">Saved Price Lists</h3>
           {sortedSavedLists.length === 0 ? (
             <p className="ap-ec-saved-lists__empty">
-              No saved lists yet. Click <strong>Save Prices</strong> to create your first saved version.
+              No saved lists yet. Click <strong>Save as Price List</strong> to create your first saved version.
             </p>
           ) : (
             <ul className="ap-ec-saved-lists__grid">
               {sortedSavedLists.map((list) => {
                 const isActive = list.id === activeSavedListId
+                const cardUnsaved = isActive && activeUnsaved
                 return (
                   <li
                     key={list.id}
@@ -528,23 +860,29 @@ export function AllPricesPage() {
                     <div className="ap-ec-saved-card__head">
                       <strong className="ap-ec-saved-card__name">{list.name}</strong>
                       {isActive ? <span className="ap-ec-saved-card__badge">Active</span> : null}
+                      {cardUnsaved ? (
+                        <span className="ap-ec-saved-card__badge ap-ec-saved-card__badge--warn">
+                          Active list has unsaved changes
+                        </span>
+                      ) : null}
                     </div>
                     <p className="ap-ec-saved-card__meta">Rows: {list.rows.length}</p>
-                    <p className="ap-ec-saved-card__meta">
-                      Last saved: {formatLastSavedAt(list.updatedAt)}
-                    </p>
+                    <p className="ap-ec-saved-card__meta">Created: {formatLastSavedAt(list.createdAt)}</p>
+                    <p className="ap-ec-saved-card__meta">Last updated: {formatLastSavedAt(list.updatedAt)}</p>
+                    <p className="ap-ec-saved-card__meta">{formatRatesSummary(list.rates)}</p>
+                    <p className="ap-ec-saved-card__meta ap-ec-saved-card__rev">rev {list.revision ?? 1}</p>
                     <div className="ap-ec-saved-card__actions">
-                      <button type="button" className="btn btn--primary btn--sm" onClick={() => handleLoadSavedList(list.id)}>
+                      <button type="button" className="btn btn--primary btn--sm" onClick={() => requestLoadList(list.id)}>
                         Load
                       </button>
                       <button type="button" className="btn btn--ghost btn--sm" onClick={() => handleUpdateSavedList(list.id)}>
-                        Update
+                        Update This Saved List
                       </button>
                       <button type="button" className="btn btn--ghost btn--sm" onClick={() => handleDeleteSavedList(list.id)}>
-                        Delete
+                        Delete Saved List
                       </button>
                       <button type="button" className="btn btn--ghost btn--sm" onClick={() => handleExportSavedList(list)}>
-                        Export Excel
+                        Export Saved List
                       </button>
                     </div>
                   </li>
@@ -558,20 +896,9 @@ export function AllPricesPage() {
           <div className="ap-ec-paste__head">
             <div>
               <h3>Bulk paste from Excel</h3>
-              <p className="ap-ec-paste__hint">
-                In Excel, select cells and copy (<kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>⌘</kbd>+<kbd>C</kbd>). Paste below —
-                columns must be <strong>tab-separated</strong> (Excel default). Supported layouts:{' '}
-                <strong>full row</strong> (item, sales, VAT, commission, advertising, shipping, purchase, …) — computed
-                columns are ignored; <strong>3 columns</strong>{' '}
-                <code>Item</code> · <code>Purchase</code> · <code>Shipping</code>; or{' '}
-                <strong>2 columns</strong> <code>Purchase</code> · <code>Shipping</code> (keeps existing item codes when
-                merging).
-              </p>
+              <p className="ap-ec-paste__hint">Paste tab-separated rows from Excel.</p>
             </div>
           </div>
-          <label className="sr-only" htmlFor="ap-ec-paste-area">
-            Paste tab-separated data from Excel
-          </label>
           <textarea
             id="ap-ec-paste-area"
             value={pasteText}
@@ -579,7 +906,7 @@ export function AllPricesPage() {
               setPasteText(e.target.value)
               if (pasteFeedback.text) setPasteFeedback({ type: '', text: '' })
             }}
-            placeholder={'Example full sheet row (tabs between cells):\nITEM-001\t120\t6\t18\t18\t21\t26.83\t...\n\nExample 3 columns:\nITEM-001\t26.83\t21'}
+            placeholder="Paste tab-separated data…"
             spellCheck={false}
           />
           <div className="ap-ec-paste__actions">
@@ -588,9 +915,6 @@ export function AllPricesPage() {
             </button>
             <button type="button" className="btn btn--ghost" onClick={applyPasteMerge}>
               Fill into existing rows (top-down)
-            </button>
-            <button type="button" className="btn btn--ghost" onClick={() => { setPasteText(''); setPasteFeedback({ type: '', text: '' }) }}>
-              Clear box
             </button>
             {pasteFeedback.text ? (
               <span className={`ap-ec-paste__msg ${pasteFeedback.type === 'err' ? 'ap-ec-paste__msg--err' : ''}`}>
@@ -605,19 +929,18 @@ export function AllPricesPage() {
             <thead>
               <tr>
                 <th scope="col">Item no.</th>
-                <th scope="col" className="col-accent" title="New website, Noon & Amazon sales price">
+                <th scope="col" className="col-accent">
                   Sales price (AED)
                 </th>
                 <th scope="col">{rates.vatPct}% VAT</th>
                 <th scope="col">{rates.commissionPct}% commission</th>
                 <th scope="col">{rates.advertisingPct}% advertising</th>
                 <th scope="col">Shipping</th>
-                <th scope="col" className="col-purchase" title="Purchase price ecommerce">
+                <th scope="col" className="col-purchase">
                   Purchase price
                 </th>
-                <th scope="col" className="col-cost-sum" title="Purchase + VAT + commission + advertising + shipping">
-                  <span className="ap-ec-th-cost-line">Purchase + VAT + comm.</span>
-                  <span className="ap-ec-th-cost-line">+ adv. + shipping</span>
+                <th scope="col" className="col-cost-sum">
+                  Purchase + VAT + comm. + adv. + shipping
                 </th>
                 <th scope="col">Sales − costs (profit)</th>
                 <th scope="col" className="col-accent">
@@ -667,13 +990,19 @@ export function AllPricesPage() {
                         )}
                       </td>
                       <td>
-                        <span className="ap-ec-num">{hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.vatAmount) : '—'}</span>
+                        <span className="ap-ec-num">
+                          {hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.vatAmount) : '—'}
+                        </span>
                       </td>
                       <td>
-                        <span className="ap-ec-num">{hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.commissionAmount) : '—'}</span>
+                        <span className="ap-ec-num">
+                          {hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.commissionAmount) : '—'}
+                        </span>
                       </td>
                       <td>
-                        <span className="ap-ec-num">{hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.advertisingAmount) : '—'}</span>
+                        <span className="ap-ec-num">
+                          {hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.advertisingAmount) : '—'}
+                        </span>
                       </td>
                       <td>
                         {editCosts ? (
@@ -686,7 +1015,9 @@ export function AllPricesPage() {
                             aria-label="Shipping cost"
                           />
                         ) : (
-                          <span className="ap-ec-num ap-ec-cell-readonly">{fmtShippingPurchaseDisplay(row.shipping)}</span>
+                          <span className="ap-ec-num ap-ec-cell-readonly">
+                            {fmtShippingPurchaseDisplay(row.shipping)}
+                          </span>
                         )}
                       </td>
                       <td className="col-purchase">
@@ -700,17 +1031,25 @@ export function AllPricesPage() {
                             aria-label="Purchase price ecommerce"
                           />
                         ) : (
-                          <span className="ap-ec-num ap-ec-cell-readonly">{fmtShippingPurchaseDisplay(row.purchasePrice)}</span>
+                          <span className="ap-ec-num ap-ec-cell-readonly">
+                            {fmtShippingPurchaseDisplay(row.purchasePrice)}
+                          </span>
                         )}
                       </td>
                       <td className="col-cost-sum">
-                        <span className="ap-ec-num">{hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.totalCost) : '—'}</span>
+                        <span className="ap-ec-num">
+                          {hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.totalCost) : '—'}
+                        </span>
                       </td>
                       <td>
-                        <span className="ap-ec-num">{hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.profit) : '—'}</span>
+                        <span className="ap-ec-num">
+                          {hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.profit) : '—'}
+                        </span>
                       </td>
                       <td className="col-accent">
-                        <span className="ap-ec-num">{hasInputs && !computed.denominatorInvalid ? fmtPct(computed.profitPct) : '—'}</span>
+                        <span className="ap-ec-num">
+                          {hasInputs && !computed.denominatorInvalid ? fmtPct(computed.profitPct) : '—'}
+                        </span>
                       </td>
                       <td>
                         <input
@@ -735,25 +1074,8 @@ export function AllPricesPage() {
                             className="ap-ec-trash"
                             onClick={() => deleteRow(row.id)}
                             aria-label="Remove row"
-                            title="Remove row"
                           >
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              width="16"
-                              height="16"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              aria-hidden="true"
-                            >
-                              <polyline points="3 6 5 6 21 6" />
-                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                              <line x1="10" y1="11" x2="10" y2="17" />
-                              <line x1="14" y1="11" x2="14" y2="17" />
-                            </svg>
+                            ×
                           </button>
                         </div>
                       </td>
@@ -764,11 +1086,70 @@ export function AllPricesPage() {
             </tbody>
           </table>
         </div>
-
-        <p className="doc-page-subtitle" style={{ marginTop: '1rem', marginBottom: 0 }}>
-          Saved lists are stored on your account (server) and remain available after refresh.
-        </p>
       </section>
+
+      <AllPricesConfirmModal
+        open={Boolean(confirmModal)}
+        variant={confirmModal?.variant}
+        listName={confirmModal?.listName}
+        counts={confirmModal?.counts}
+        onClose={() => setConfirmModal(null)}
+        onConfirm={() => confirmModal?.onConfirm?.()}
+      />
+
+      <AllPricesLoadGuardModal
+        open={Boolean(loadGuardTargetId)}
+        currentListName={activeList?.name}
+        onClose={() => setLoadGuardTargetId(null)}
+        onUpdateCurrent={() => {
+          const targetId = loadGuardTargetId
+          if (!activeSavedListId || !targetId) return
+          if (runUpdateList(activeSavedListId)) {
+            performLoadList(targetId)
+          }
+        }}
+        onSaveAsNew={() => {
+          const targetId = loadGuardTargetId
+          handleSaveAsNewList()
+          if (targetId) performLoadList(targetId)
+        }}
+        onDiscardAndLoad={() => {
+          const targetId = loadGuardTargetId
+          if (!targetId) return
+          const snapshots = pushRecoverySnapshot({
+            reason: 'before-load-other-list',
+            rates,
+            rows,
+            sourceSavedListId: activeSavedListId,
+            sourceSavedListName: activeList?.name,
+          })
+          const snap = snapshots[0]
+          if (snap) {
+            lastUndoSnapshotIdRef.current = snap.id
+            showActionToast('Discarded unsaved changes.', { onAction: () => restoreFromSnapshot(snap) })
+          }
+          performLoadList(targetId)
+        }}
+      />
+
+      <AllPricesRevisionConflictModal
+        open={Boolean(revisionConflict)}
+        listName={revisionConflict?.listName}
+        onClose={() => setRevisionConflict(null)}
+        onReloadSaved={() => {
+          const entry = revisionConflict?.serverEntry
+          if (!entry) return
+          applyTableFromList(entry)
+          const fresh = readFreshSavedListsStore()
+          persistStore(fresh)
+          syncDraftAfterSave(entry.updatedAt)
+          setRevisionConflict(null)
+        }}
+        onSaveAsNew={() => {
+          setRevisionConflict(null)
+          handleSaveAsNewList()
+        }}
+      />
     </div>
   )
 }
