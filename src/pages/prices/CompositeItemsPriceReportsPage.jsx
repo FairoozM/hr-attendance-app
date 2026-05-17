@@ -4,7 +4,18 @@ import '../Page.css'
 import '../management/DocumentExpiryPage.css'
 import '../management/AllPricesPage.css'
 import './CompositeItemsPricesPage.css'
-import { fmtMoney, fmtPct } from '../management/allPricesEcommerceUtils'
+import {
+  fmtMoney,
+  fmtPct,
+  loadRates,
+  loadRows,
+  STORAGE_KEY_RATES,
+  STORAGE_KEY_ROWS,
+} from '../management/allPricesEcommerceUtils'
+import {
+  buildPurchasePriceMap,
+  resolveCompositeComponentPricing,
+} from './compositeComponentPricingResolver'
 
 const DEFAULT_RATES = {
   vatPct: 5,
@@ -99,6 +110,46 @@ function matchStatusLabel(status) {
   return 'MISSING'
 }
 
+function mergeResolvedComponentPricing(component, allPricesMap, rates) {
+  const resolved = resolveCompositeComponentPricing(component, allPricesMap, rates)
+  if (!resolved.matchedAllPricesRecordFound) {
+    return {
+      ...component,
+      match_status: resolved.matchStatus,
+      possible_matches: resolved.possibleMatches,
+      resolved_pricing: resolved,
+    }
+  }
+  return {
+    ...component,
+    matched_all_prices_item_no: resolved.matchedAllPricesItemNo,
+    matched_all_prices_sku: resolved.matchedAllPricesSku,
+    matched_purchase_price: resolved.purchasePrice,
+    line_total: resolved.linePurchaseTotal,
+    match_status: resolved.matchStatus,
+    match_key_used: resolved.matchKeyUsed,
+    match_kind: resolved.matchKind,
+    date_of_prices: resolved.dateOfPrice,
+    all_prices: {
+      item_no: resolved.matchedAllPricesItemNo,
+      sku: resolved.matchedAllPricesSku,
+      sales_price: resolved.salesPriceAed,
+      vat_5_percent: resolved.vat5,
+      commission_15_percent: resolved.commission15,
+      advertising_15_percent: resolved.advertising15,
+      shipping: resolved.shipping,
+      purchase_price: resolved.purchasePrice,
+      total_cost: resolved.totalCost,
+      profit: resolved.profitAed,
+      profit_percent_of_sales: resolved.profitPercent,
+      pricing_status: resolved.pricingStatus,
+      date_of_price: resolved.dateOfPrice,
+      source_record: resolved.matchedAllPricesRecord,
+    },
+    resolved_pricing: resolved,
+  }
+}
+
 function ComponentsTable({ item }) {
   const rows = Array.isArray(item.components) ? item.components : []
   return (
@@ -177,6 +228,7 @@ function ComponentsTable({ item }) {
 }
 
 export function CompositeItemsPriceReportsPage() {
+  const [priceTick, setPriceTick] = useState(0)
   const [reports, setReports] = useState([])
   const [selectedReport, setSelectedReport] = useState(null)
   const [loadingReports, setLoadingReports] = useState(false)
@@ -194,6 +246,36 @@ export function CompositeItemsPriceReportsPage() {
     component: '',
     status: 'all',
   })
+
+  useEffect(() => {
+    const bump = (event) => {
+      if (
+        event.type === 'focus' ||
+        event.key === STORAGE_KEY_ROWS ||
+        event.key === STORAGE_KEY_RATES
+      ) {
+        setPriceTick((tick) => tick + 1)
+      }
+    }
+    window.addEventListener('focus', bump)
+    window.addEventListener('storage', bump)
+    return () => {
+      window.removeEventListener('focus', bump)
+      window.removeEventListener('storage', bump)
+    }
+  }, [])
+
+  const allPricesRows = useMemo(() => {
+    void priceTick
+    return loadRows() || []
+  }, [priceTick])
+
+  const allPricesRates = useMemo(() => {
+    void priceTick
+    return { ...DEFAULT_RATES, ...loadRates() }
+  }, [priceTick])
+
+  const allPricesMap = useMemo(() => buildPurchasePriceMap(allPricesRows), [allPricesRows])
 
   const fetchReports = useCallback(async () => {
     setLoadingReports(true)
@@ -301,17 +383,28 @@ export function CompositeItemsPriceReportsPage() {
     const rows = Array.isArray(selectedReport?.items) ? selectedReport.items : []
     return [...rows]
       .map((item) => {
+        const components = Array.isArray(item.components)
+          ? item.components.map((component) => mergeResolvedComponentPricing(component, allPricesMap, allPricesRates))
+          : []
+        const purchasePrice = components.reduce((sum, component) => (
+          sum + (Number.isFinite(Number(component.line_total)) ? Number(component.line_total) : 0)
+        ), 0)
         const rowId = String(item.id || item.composite_item_id)
         const shippingValue = shippingByItemId[rowId] ?? ''
-        const parent = computeParentPricing(item, shippingValue)
-        return {
+        const enrichedItem = {
           ...item,
+          purchase_price: purchasePrice,
+          components,
+        }
+        const parent = computeParentPricing(enrichedItem, shippingValue)
+        return {
+          ...enrichedItem,
           workspaceParent: parent,
           shippingValue,
         }
       })
       .sort((a, b) => String(b.name || '').localeCompare(String(a.name || '')))
-  }, [selectedReport, shippingByItemId])
+  }, [selectedReport, shippingByItemId, allPricesMap, allPricesRates])
 
   const familyOptions = useMemo(() => {
     const set = new Set()
@@ -421,6 +514,11 @@ export function CompositeItemsPriceReportsPage() {
         </div>
         {message ? <p className="cb-bundle-save-row__msg">{message}</p> : null}
         {error ? <p className="cb-bundle-error">{error}</p> : null}
+        {selectedReport && allPricesRows.length === 0 ? (
+          <p className="cb-bundle-warn" role="status">
+            All Prices list not loaded. Component pricing cannot be resolved.
+          </p>
+        ) : null}
       </section>
 
       <section className="page-section cb-bundle-section" aria-label="Saved composite item price reports">
