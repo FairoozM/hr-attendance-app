@@ -1,5 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import {
+  buildAllPricesBundle,
+  formatLastSavedAt,
+  hydrateAllPricesStateFromBundle,
   isBrkhTemplateSeedRows,
   resolveAllPricesRowsFromBundle,
   saveAllPricesEcommerceBundle,
@@ -59,5 +62,31 @@ describe('allPricesEcommerceUtils seed safety', () => {
     expect(requestUserPrefSave).not.toHaveBeenCalled()
     errSpy.mockRestore()
     vi.unstubAllEnvs()
+  })
+
+  it('buildAllPricesBundle includes lastSavedAt when provided', () => {
+    const bundle = buildAllPricesBundle(
+      { vatPct: 5, commissionPct: 15, advertisingPct: 15, requiredProfitPct: 25 },
+      [{ itemNo: 'X-1', purchasePrice: '10', shipping: '5', dateOfPrices: '' }],
+      '2026-05-17T10:30:00.000Z',
+    )
+    expect(bundle.lastSavedAt).toBe('2026-05-17T10:30:00.000Z')
+    expect(bundle.rows).toHaveLength(1)
+  })
+
+  it('hydrateAllPricesStateFromBundle restores rates rows and timestamp', () => {
+    const state = hydrateAllPricesStateFromBundle({
+      rates: { vatPct: 7 },
+      rows: [{ itemNo: 'SKU-1', purchasePrice: '12', shipping: '3' }],
+      lastSavedAt: '2026-05-17T10:30:00.000Z',
+    })
+    expect(state.rates.vatPct).toBe(7)
+    expect(state.rows[0].itemNo).toBe('SKU-1')
+    expect(state.lastSavedAt).toBe('2026-05-17T10:30:00.000Z')
+  })
+
+  it('formatLastSavedAt renders dd/mm/yyyy hh:mm', () => {
+    const formatted = formatLastSavedAt('2026-05-17T10:30:00.000Z')
+    expect(formatted).toMatch(/^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/)
   })
 })

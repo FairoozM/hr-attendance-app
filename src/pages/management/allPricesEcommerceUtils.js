@@ -186,9 +186,58 @@ function readBundle() {
 }
 
 /**
+ * @param {object} rates
+ * @param {unknown[]} rows
+ * @param {string | null | undefined} [lastSavedAt]
+ */
+export function buildAllPricesBundle(rates, rows, lastSavedAt) {
+  const bundle = {
+    rates: normalizeAllPricesRates(rates),
+    rows: normalizeAllPricesRows(rows) || [],
+  }
+  if (lastSavedAt) bundle.lastSavedAt = String(lastSavedAt)
+  return bundle
+}
+
+/**
+ * @param {unknown} value
+ * @returns {string | null}
+ */
+export function parseLastSavedAt(value) {
+  if (value == null || value === '') return null
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? null : d.toISOString()
+}
+
+/**
+ * @param {string | null | undefined} iso
+ * @returns {string}
+ */
+export function formatLastSavedAt(iso) {
+  const parsed = parseLastSavedAt(iso)
+  if (!parsed) return ''
+  const d = new Date(parsed)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/**
+ * @param {unknown} bundle
+ * @returns {{ rates: object, rows: ReturnType<typeof normalizeAllPricesRows>, lastSavedAt: string | null }}
+ */
+export function hydrateAllPricesStateFromBundle(bundle) {
+  const safeBundle = bundle && typeof bundle === 'object' ? bundle : {}
+  return {
+    rates: normalizeAllPricesRates(safeBundle.rates),
+    rows: resolveAllPricesRowsFromBundle(safeBundle),
+    lastSavedAt: parseLastSavedAt(safeBundle.lastSavedAt),
+  }
+}
+
+/**
  * Persist All Prices bundle with production guard against BRKH template saves.
- * @param {{ rates?: object, rows?: unknown[] }} partial
- * @param {{ source?: string, action?: string }} [meta]
+ * @param {{ rates?: object, rows?: unknown[], lastSavedAt?: string | null }} partial
+ * @param {{ source?: string, action?: string, preserveLastSavedAt?: boolean }} [meta]
  * @returns {{ blocked: boolean }}
  */
 export function saveAllPricesEcommerceBundle(partial, meta = {}) {
@@ -211,7 +260,15 @@ export function saveAllPricesEcommerceBundle(partial, meta = {}) {
     return { blocked: true }
   }
 
-  requestUserPrefSave(PREF_ALL_PRICES_EC, { ...bundle, rates, rows })
+  let lastSavedAt = bundle.lastSavedAt != null ? bundle.lastSavedAt : null
+  if (Object.prototype.hasOwnProperty.call(partial, 'lastSavedAt')) {
+    lastSavedAt = partial.lastSavedAt
+  } else if (meta.preserveLastSavedAt === false) {
+    lastSavedAt = null
+  }
+
+  const next = buildAllPricesBundle(rates, rows, lastSavedAt || undefined)
+  requestUserPrefSave(PREF_ALL_PRICES_EC, next)
   return { blocked: false }
 }
 

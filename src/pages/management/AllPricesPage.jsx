@@ -5,14 +5,15 @@ import './AllPricesPage.css'
 import { PREF_ALL_PRICES_EC } from '../../constants/userPreferenceKeys'
 import { useUserPreferences } from '../../contexts/UserPreferencesContext'
 import {
+  buildAllPricesBundle,
   computeEcommercePriceRow,
   DEFAULT_RATES,
   fmtMoney,
   fmtPct,
+  formatLastSavedAt,
+  hydrateAllPricesStateFromBundle,
   makeRowId,
-  normalizeAllPricesRates,
   parseExcelTsvPaste,
-  resolveAllPricesRowsFromBundle,
   saveAllPricesEcommerceBundle,
 } from './allPricesEcommerceUtils'
 
@@ -30,36 +31,55 @@ export function AllPricesPage() {
   const [prefsLoaded, setPrefsLoaded] = useState(false)
   const [pasteText, setPasteText] = useState('')
   const [pasteFeedback, setPasteFeedback] = useState({ type: '', text: '' })
+  const [lastSavedAt, setLastSavedAt] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [saveToast, setSaveToast] = useState('')
+  const [loadNotice, setLoadNotice] = useState('')
   /** Row id whose shipping + purchase cells are editable; null = view-only for those columns */
   const [editingRowId, setEditingRowId] = useState(null)
-  const skipNextSaveRef = useRef(true)
+  const skipNextAutosaveRef = useRef(true)
+  const saveToastTimerRef = useRef(null)
+
+  const applyBundleToState = useCallback((bundle) => {
+    const hydrated = hydrateAllPricesStateFromBundle(bundle)
+    setRates(hydrated.rates)
+    setRows(hydrated.rows)
+    setLastSavedAt(hydrated.lastSavedAt)
+    return hydrated
+  }, [])
 
   useEffect(() => {
     if (!prefsReady || prefsLoaded) return
     const bundle = getPref(PREF_ALL_PRICES_EC, null)
-    const safeBundle = bundle && typeof bundle === 'object' ? bundle : {}
-    setRates(normalizeAllPricesRates(safeBundle.rates))
-    setRows(resolveAllPricesRowsFromBundle(safeBundle))
-    skipNextSaveRef.current = true
+    applyBundleToState(bundle)
+    skipNextAutosaveRef.current = true
     setPrefsLoaded(true)
-  }, [getPref, prefsLoaded, prefsReady])
+  }, [applyBundleToState, getPref, prefsLoaded, prefsReady])
 
   useEffect(() => {
     if (!prefsReady || !prefsLoaded) return
-    if (skipNextSaveRef.current) {
-      skipNextSaveRef.current = false
+    if (skipNextAutosaveRef.current) {
+      skipNextAutosaveRef.current = false
       return
     }
-    const bundle = getPref(PREF_ALL_PRICES_EC, null)
-    const safeBundle = bundle && typeof bundle === 'object' ? bundle : {}
     const result = saveAllPricesEcommerceBundle(
-      { ...safeBundle, rates, rows },
-      { source: 'AllPricesPage', action: 'bundle-change' },
+      buildAllPricesBundle(rates, rows, lastSavedAt || undefined),
+      { source: 'AllPricesPage', action: 'autosave', preserveLastSavedAt: true },
     )
     if (!result.blocked) {
-      setPref(PREF_ALL_PRICES_EC, { ...safeBundle, rates, rows })
+      setPref(PREF_ALL_PRICES_EC, buildAllPricesBundle(rates, rows, lastSavedAt || undefined))
     }
-  }, [getPref, prefsLoaded, prefsReady, rates, rows, setPref])
+  }, [getPref, lastSavedAt, prefsLoaded, prefsReady, rates, rows, setPref])
+
+  useEffect(() => () => {
+    if (saveToastTimerRef.current) clearTimeout(saveToastTimerRef.current)
+  }, [])
+
+  const showSaveToast = useCallback((text) => {
+    setSaveToast(text)
+    if (saveToastTimerRef.current) clearTimeout(saveToastTimerRef.current)
+    saveToastTimerRef.current = setTimeout(() => setSaveToast(''), 4000)
+  }, [])
 
   const sumTakePct = useMemo(() => {
     const v = Number(rates.vatPct) || 0
@@ -102,6 +122,58 @@ export function AllPricesPage() {
   const resetRates = useCallback(() => {
     setRates({ ...DEFAULT_RATES })
   }, [])
+
+  const handleSavePrices = useCallback(() => {
+    setSaving(true)
+    setLoadNotice('')
+    const savedAt = new Date().toISOString()
+    const bundle = buildAllPricesBundle(rates, rows, savedAt)
+    const result = saveAllPricesEcommerceBundle(bundle, {
+      source: 'AllPricesPage',
+      action: 'save-prices-button',
+      preserveLastSavedAt: false,
+    })
+    if (result.blocked) {
+      showSaveToast('Save blocked: template sample rows cannot be saved in production.')
+      setSaving(false)
+      return
+    }
+    setPref(PREF_ALL_PRICES_EC, bundle)
+    setLastSavedAt(savedAt)
+    skipNextAutosaveRef.current = true
+    showSaveToast('Prices saved successfully.')
+    setSaving(false)
+  }, [rates, rows, setPref, showSaveToast])
+
+  const handleLoadSavedPrices = useCallback(() => {
+    const bundle = getPref(PREF_ALL_PRICES_EC, null)
+    const hydrated = applyBundleToState(bundle)
+    skipNextAutosaveRef.current = true
+    setEditingRowId(null)
+    setLoadNotice(
+      hydrated.rows.length > 0 || hydrated.lastSavedAt
+        ? `Loaded ${hydrated.rows.length} row(s) from your saved prices.`
+        : 'No saved prices found yet. Add rows and click Save Prices.',
+    )
+    setTimeout(() => setLoadNotice(''), 4000)
+  }, [applyBundleToState, getPref])
+
+  const handleClearSavedData = useCallback(() => {
+    if (!window.confirm('Are you sure you want to delete saved prices?')) return
+    const bundle = buildAllPricesBundle({ ...DEFAULT_RATES }, [], null)
+    saveAllPricesEcommerceBundle(bundle, {
+      source: 'AllPricesPage',
+      action: 'clear-saved-data',
+      preserveLastSavedAt: false,
+    })
+    setPref(PREF_ALL_PRICES_EC, bundle)
+    setRates({ ...DEFAULT_RATES })
+    setRows([])
+    setLastSavedAt(null)
+    skipNextAutosaveRef.current = true
+    setEditingRowId(null)
+    showSaveToast('Saved prices cleared.')
+  }, [setPref, showSaveToast])
 
   const applyPasteReplace = useCallback(() => {
     const { rows: parsed, skippedHeader, hint } = parseExcelTsvPaste(pasteText)
@@ -263,6 +335,31 @@ export function AllPricesPage() {
           <button type="button" className="btn btn--primary" onClick={addRow}>
             + Add row
           </button>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={handleSavePrices}
+            disabled={saving}
+          >
+            {saving ? 'Saving…' : 'Save Prices'}
+          </button>
+          <button type="button" className="btn btn--ghost" onClick={handleLoadSavedPrices}>
+            Load Saved Prices
+          </button>
+          <button type="button" className="btn btn--ghost" onClick={handleClearSavedData}>
+            Clear Saved Data
+          </button>
+        </div>
+        <div className="ap-ec-save-meta" aria-live="polite">
+          {saveToast ? <p className="ap-ec-save-toast" role="status">{saveToast}</p> : null}
+          {loadNotice ? <p className="ap-ec-save-notice" role="status">{loadNotice}</p> : null}
+          {lastSavedAt ? (
+            <p className="ap-ec-save-last">Last saved: {formatLastSavedAt(lastSavedAt)}</p>
+          ) : (
+            <p className="ap-ec-save-last ap-ec-save-last--muted">
+              Not saved yet — click Save Prices to persist your table.
+            </p>
+          )}
         </div>
 
         <div className="ap-ec-paste">

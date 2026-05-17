@@ -173,6 +173,39 @@
   color: #f87171;
 }
 
+.ap-ec-save-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0 0 0.75rem;
+}
+
+.ap-ec-save-toast {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, #22c55e 22%, transparent);
+  border: 1px solid color-mix(in srgb, #22c55e 45%, transparent);
+  color: var(--text-soft);
+  font-size: 0.85rem;
+}
+
+.ap-ec-save-notice {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.ap-ec-save-last {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.ap-ec-save-last--muted {
+  font-style: italic;
+}
+
 .ap-ec-toolbar {
   display: flex;
   flex-wrap: wrap;
