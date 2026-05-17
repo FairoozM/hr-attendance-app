@@ -102,11 +102,36 @@ function uniqueMatchKeys(identifiers, max = 32) {
   return keys
 }
 
+async function mapWithLimit(list, limit, fn) {
+  if (!Array.isArray(list) || list.length === 0) return []
+  const out = new Array(list.length)
+  let next = 0
+  async function worker() {
+    for (;;) {
+      const i = next
+      next += 1
+      if (i >= list.length) return
+      out[i] = await fn(list[i], i)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, limit), list.length) }, worker))
+  return out
+}
+
 /**
  * Composite mapped_lines often put EAN/barcode in `sku`. Resolve catalogue identifiers from GET /items/{id}.
  * @param {object[]} mappedRows - raw Zoho mapped_items
+ * @param {object} [options]
+ * @param {Map<string, object|null>} [options.itemByIdCache] - shared cache across many composites in one report run
+ * @param {boolean} [options.skipCache=true] - false allows Zoho PG cache (bulk reports)
+ * @param {number} [options.fetchConcurrency=10] - max parallel GET /items/{id}
  */
-async function resolveComponentsFromMappedItems(mappedRows) {
+async function resolveComponentsFromMappedItems(mappedRows, options = {}) {
+  const {
+    itemByIdCache = null,
+    skipCache = true,
+    fetchConcurrency = 10,
+  } = options
   const preliminary = mappedRows
     .map((m) => ({
       item_id: m.item_id != null ? String(m.item_id) : '',
@@ -121,19 +146,18 @@ async function resolveComponentsFromMappedItems(mappedRows) {
     .filter((c) => c.item_id && Number.isFinite(c.quantity) && c.quantity > 0)
 
   const uniqueIds = [...new Set(preliminary.map((c) => c.item_id))]
-  const itemById = new Map()
+  const itemById = itemByIdCache || new Map()
+  const idsToFetch = uniqueIds.filter((id) => !itemById.has(id))
 
-  await Promise.all(
-    uniqueIds.map(async (id) => {
-      try {
-        const raw = await fetchItemById(id, { skipCache: true })
-        itemById.set(id, raw && typeof raw === 'object' ? raw : null)
-      } catch (err) {
-        console.warn(`[composite-bom] GET /items/${id} failed:`, err.message || err)
-        itemById.set(id, null)
-      }
-    })
-  )
+  await mapWithLimit(idsToFetch, fetchConcurrency, async (id) => {
+    try {
+      const raw = await fetchItemById(id, { skipCache })
+      itemById.set(id, raw && typeof raw === 'object' ? raw : null)
+    } catch (err) {
+      console.warn(`[composite-bom] GET /items/${id} failed:`, err.message || err)
+      itemById.set(id, null)
+    }
+  })
 
   return preliminary.map((c) => {
     const item = itemById.get(c.item_id)

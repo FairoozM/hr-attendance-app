@@ -14,10 +14,41 @@ const {
 const PREF_ALL_PRICES_EC = 'all_prices_ecommerce_v1'
 const DEFAULT_PER_PAGE = 200
 const MAX_COMPOSITE_PAGES = 50
-const DETAIL_CONCURRENCY = 3
 const REPORT_COMPOSITE_FILTER_BY = 'Status.Active'
 
+function parseEnvInt(name, fallback) {
+  const raw = process.env[name]
+  if (raw === undefined || raw === '') return fallback
+  const n = parseInt(String(raw).trim(), 10)
+  return Number.isFinite(n) ? n : fallback
+}
+
+/** Parallel composite detail + pricing (each composite still does bounded component fetches). */
+const DETAIL_CONCURRENCY = parseEnvInt('COMPOSITE_REPORT_DETAIL_CONCURRENCY', 8)
+/** Parallel GET /items/{id} while resolving BOM lines (shared cache across the run). */
+const ITEM_FETCH_CONCURRENCY = parseEnvInt('COMPOSITE_REPORT_ITEM_FETCH_CONCURRENCY', 12)
+/** DB progress flush interval (one transaction per batch). */
+const PROGRESS_BATCH_SIZE = parseEnvInt('COMPOSITE_REPORT_PROGRESS_BATCH_SIZE', 10)
+/** Mark stuck `running` reports failed so a new generation can start. */
+const STALE_RUNNING_MS = parseEnvInt('COMPOSITE_REPORT_STALE_RUNNING_MS', 2 * 60 * 60 * 1000)
+
 let generationRunning = false
+
+async function promiseConcurrent(tasks, limit) {
+  if (!tasks.length) return []
+  const results = new Array(tasks.length)
+  let next = 0
+  async function worker() {
+    while (next < tasks.length) {
+      const i = next
+      next += 1
+      // eslint-disable-next-line no-await-in-loop
+      results[i] = await tasks[i]()
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker))
+  return results
+}
 
 function nowIso() {
   return new Date().toISOString()
@@ -46,18 +77,33 @@ function sortCompositesByNameDesc(composites) {
   )
 }
 
-async function mapLimit(items, limit, worker) {
-  const out = new Array(items.length)
-  let next = 0
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
-      const idx = next
-      next += 1
-      out[idx] = await worker(items[idx], idx)
-    }
-  })
-  await Promise.all(workers)
-  return out
+async function failStaleRunningReports() {
+  const staleSec = Math.max(120, Math.floor(STALE_RUNNING_MS / 1000))
+  const r = await query(
+    `UPDATE composite_price_reports
+     SET status = 'failed',
+         error_message = 'Report generation timed out or was interrupted. Start a new full report.',
+         zoho_sync_completed_at = COALESCE(zoho_sync_completed_at, NOW()),
+         updated_at = NOW()
+     WHERE status = 'running'
+       AND updated_at < NOW() - ($1::int * INTERVAL '1 second')
+     RETURNING id`,
+    [staleSec]
+  )
+  if (r.rows.length > 0) {
+    console.warn(
+      '[composite-price-report] marked stale running reports as failed:',
+      r.rows.map((row) => row.id)
+    )
+    generationRunning = false
+  }
+}
+
+async function getRunningReportId() {
+  const r = await query(
+    `SELECT id FROM composite_price_reports WHERE status = 'running' ORDER BY id DESC LIMIT 1`
+  )
+  return r.rows[0]?.id ?? null
 }
 
 async function ensureCompositeItemsPriceReportTables() {
@@ -132,7 +178,6 @@ async function fetchAllCompositeItems() {
       filter_by: REPORT_COMPOSITE_FILTER_BY,
     }, {
       source: 'composite_price_report_list',
-      skipCache: true,
     })
     const rows = Array.isArray(json?.composite_items) ? json.composite_items : []
     all.push(...rows.map(normalizeCompositeRow).filter((r) => r.composite_item_id))
@@ -288,12 +333,11 @@ async function insertReportItem(client, reportId, item) {
   )
 }
 
-async function calculateCompositeReportItem(composite, purchaseMap, rates) {
+async function calculateCompositeReportItem(composite, purchaseMap, rates, itemByIdCache) {
   let detailJson
   try {
     detailJson = await fetchCompositeItemDetail(composite.composite_item_id, {
       source: 'composite_price_report_detail',
-      skipCache: true,
     })
   } catch (err) {
     console.warn(`[composite-price-report] detail failed ${composite.sku || composite.name || composite.composite_item_id}:`, err.message || err)
@@ -317,7 +361,11 @@ async function calculateCompositeReportItem(composite, purchaseMap, rates) {
 
   const entity = detailJson?.composite_item || detailJson || {}
   const mapped = Array.isArray(entity.mapped_items) ? entity.mapped_items : []
-  const components = await resolveComponentsFromMappedItems(mapped)
+  const components = await resolveComponentsFromMappedItems(mapped, {
+    itemByIdCache,
+    skipCache: false,
+    fetchConcurrency: ITEM_FETCH_CONCURRENCY,
+  })
   let purchaseTotal = 0
   let shippingTotal = 0
   let latestDate = ''
@@ -444,21 +492,25 @@ async function persistReportSyncState(client, reportId, allComposites) {
   )
 }
 
-async function persistReportItemProgress(reportId, item, counters) {
-  const client = await pool.connect()
+function applyCounterDelta(counters, item) {
+  counters.processed += 1
+  if (item.pricing_status === 'complete') counters.complete += 1
+  else counters.incomplete += 1
+}
+
+async function persistReportItemsBatch(client, reportId, items, counters) {
+  if (!items.length) return
+  await client.query('BEGIN')
   try {
-    await client.query('BEGIN')
-    await insertReportItem(client, reportId, item)
-    counters.processed += 1
-    if (item.pricing_status === 'complete') counters.complete += 1
-    else counters.incomplete += 1
+    for (const item of items) {
+      await insertReportItem(client, reportId, item)
+      applyCounterDelta(counters, item)
+    }
     await updateReportProgress(client, reportId, counters)
     await client.query('COMMIT')
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {})
     throw err
-  } finally {
-    client.release()
   }
 }
 
@@ -478,6 +530,28 @@ async function completeReport(client, reportId, counters, allComposites) {
 }
 
 async function runCompositeItemsPriceReportJob({ reportId, userId, mode, force, includeModified, rows, rates }) {
+  const itemByIdCache = new Map()
+  const batchBuffer = []
+  const counters = { processed: 0, complete: 0, incomplete: 0 }
+  let dbClient = null
+  let persistChain = Promise.resolve()
+
+  const flushBatchBuffer = async () => {
+    if (!batchBuffer.length || !dbClient) return
+    const batch = batchBuffer.splice(0, batchBuffer.length)
+    await persistReportItemsBatch(dbClient, reportId, batch, counters)
+  }
+
+  const schedulePersist = (item) => {
+    persistChain = persistChain.then(async () => {
+      batchBuffer.push(item)
+      if (batchBuffer.length >= PROGRESS_BATCH_SIZE) {
+        await flushBatchBuffer()
+      }
+    })
+    return persistChain
+  }
+
   try {
     const [allComposites, syncState] = await Promise.all([
       fetchAllCompositeItems(),
@@ -486,43 +560,48 @@ async function runCompositeItemsPriceReportJob({ reportId, userId, mode, force, 
     await updateReportStarted(reportId, allComposites.length)
     const selected = selectCompositesForRun(allComposites, syncState, { mode, force, includeModified })
     const purchaseMap = buildPurchasePriceMap(rows)
-    const counters = { processed: 0, complete: 0, incomplete: 0 }
 
-    await mapLimit(selected, DETAIL_CONCURRENCY, async (composite) => {
-      const item = await calculateCompositeReportItem(composite, purchaseMap, rates)
-      await persistReportItemProgress(reportId, item, counters)
-      return item
-    })
+    dbClient = await pool.connect()
 
-    const completeClient = await pool.connect()
-    try {
-      await completeClient.query('BEGIN')
-      await completeReport(completeClient, reportId, counters, allComposites)
-      await completeClient.query('COMMIT')
-      console.log(
-        `[composite-price-report] report ${reportId} completed: ${counters.processed}/${allComposites.length} composite item(s) processed`
-      )
-    } catch (err) {
-      await completeClient.query('ROLLBACK').catch(() => {})
-      throw err
-    } finally {
-      completeClient.release()
-    }
+    await promiseConcurrent(
+      selected.map((composite) => async () => {
+        const item = await calculateCompositeReportItem(composite, purchaseMap, rates, itemByIdCache)
+        await schedulePersist(item)
+        return item
+      }),
+      DETAIL_CONCURRENCY
+    )
+
+    await persistChain
+    await flushBatchBuffer()
+
+    await dbClient.query('BEGIN')
+    await completeReport(dbClient, reportId, counters, allComposites)
+    await dbClient.query('COMMIT')
+    console.log(
+      `[composite-price-report] report ${reportId} completed: ${counters.processed}/${selected.length} selected composite(s), ${allComposites.length} active in Zoho`
+    )
   } catch (err) {
     await updateReportFailed(reportId, err).catch(() => {})
     console.error(`[composite-price-report] report ${reportId} failed:`, err.message || err)
   } finally {
+    if (dbClient) dbClient.release()
     generationRunning = false
   }
 }
 
 async function startCompositeItemsPriceReportGeneration({ userId, mode = 'incremental', force = false, includeModified = false } = {}) {
   await ensureCompositeItemsPriceReportTables()
-  if (generationRunning) {
-    const err = new Error('A composite price report is already being generated.')
+  await failStaleRunningReports()
+  const runningReportId = await getRunningReportId()
+  if (runningReportId != null) {
+    const err = new Error(
+      'A composite price report is already being generated. Refresh saved reports to see progress.'
+    )
     err.code = 'REPORT_ALREADY_RUNNING'
     throw err
   }
+  if (generationRunning) generationRunning = false
   generationRunning = true
   try {
     const effectiveMode = force || mode === 'full' ? 'full' : 'incremental'

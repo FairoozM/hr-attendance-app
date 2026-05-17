@@ -101,6 +101,19 @@ export function CompositeItemsPriceReportsPage() {
     fetchReports()
   }, [fetchReports])
 
+  const hasRunningReport = useMemo(
+    () => reports.some((report) => String(report.status || '').toLowerCase() === 'running'),
+    [reports]
+  )
+
+  useEffect(() => {
+    if (!hasRunningReport) return undefined
+    const timer = window.setInterval(() => {
+      fetchReports()
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [fetchReports, hasRunningReport])
+
   const openReport = useCallback(async (reportId) => {
     setLoadingDetail(true)
     setError('')
@@ -125,9 +138,14 @@ export function CompositeItemsPriceReportsPage() {
         force: mode === 'full',
         includeModified,
       })
-      setMessage(data?.message || 'Composite price report generated.')
+      setMessage(
+        data?.message
+        || 'Composite price report generation started. Progress updates automatically while a report is running.'
+      )
       await fetchReports()
-      if (data?.report_id) await openReport(data.report_id)
+      if (data?.report_id && String(data?.status || '').toLowerCase() !== 'running') {
+        await openReport(data.report_id)
+      }
     } catch (err) {
       setError(err?.message || 'Could not generate composite price report.')
     } finally {
