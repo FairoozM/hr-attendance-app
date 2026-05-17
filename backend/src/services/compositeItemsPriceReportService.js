@@ -232,6 +232,23 @@ async function updateReportStarted(reportId, totalSeen) {
   )
 }
 
+async function updateReportProgress(db, reportId, counters) {
+  await db.query(
+    `UPDATE composite_price_reports
+     SET total_new_composites_processed = $2,
+         total_complete = $3,
+         total_incomplete = $4,
+         updated_at = NOW()
+     WHERE id = $1`,
+    [
+      reportId,
+      counters.processed,
+      counters.complete,
+      counters.incomplete,
+    ]
+  )
+}
+
 function decimalOrNull(value) {
   const n = Number(value)
   return Number.isFinite(n) ? n : null
@@ -405,6 +422,61 @@ async function persistCompletedReport(client, reportId, items, allComposites) {
   )
 }
 
+async function persistReportSyncState(client, reportId, allComposites) {
+  await client.query(
+    `INSERT INTO composite_price_report_sync_state
+       (id, last_successful_report_id, last_successful_sync_at, last_seen_composite_created_time,
+        last_seen_composite_modified_time, known_composite_ids_json, updated_at)
+     VALUES (1, $1, NOW(), $2, $3, $4::jsonb, NOW())
+     ON CONFLICT (id) DO UPDATE SET
+       last_successful_report_id = EXCLUDED.last_successful_report_id,
+       last_successful_sync_at = NOW(),
+       last_seen_composite_created_time = EXCLUDED.last_seen_composite_created_time,
+       last_seen_composite_modified_time = EXCLUDED.last_seen_composite_modified_time,
+       known_composite_ids_json = EXCLUDED.known_composite_ids_json,
+       updated_at = NOW()`,
+    [
+      reportId,
+      maxIso(allComposites.map((c) => c.created_time)),
+      maxIso(allComposites.map((c) => c.last_modified_time)),
+      safeJson([...new Set(allComposites.map((c) => String(c.composite_item_id)).filter(Boolean))]),
+    ]
+  )
+}
+
+async function persistReportItemProgress(reportId, item, counters) {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    await insertReportItem(client, reportId, item)
+    counters.processed += 1
+    if (item.pricing_status === 'complete') counters.complete += 1
+    else counters.incomplete += 1
+    await updateReportProgress(client, reportId, counters)
+    await client.query('COMMIT')
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+async function completeReport(client, reportId, counters, allComposites) {
+  await client.query(
+    `UPDATE composite_price_reports
+     SET status = 'completed',
+         zoho_sync_completed_at = NOW(),
+         total_new_composites_processed = $2,
+         total_complete = $3,
+         total_incomplete = $4,
+         updated_at = NOW()
+     WHERE id = $1`,
+    [reportId, counters.processed, counters.complete, counters.incomplete]
+  )
+  await persistReportSyncState(client, reportId, allComposites)
+}
+
 async function runCompositeItemsPriceReportJob({ reportId, userId, mode, force, includeModified, rows, rates }) {
   try {
     const [allComposites, syncState] = await Promise.all([
@@ -414,24 +486,27 @@ async function runCompositeItemsPriceReportJob({ reportId, userId, mode, force, 
     await updateReportStarted(reportId, allComposites.length)
     const selected = selectCompositesForRun(allComposites, syncState, { mode, force, includeModified })
     const purchaseMap = buildPurchasePriceMap(rows)
-    const items = await mapLimit(selected, DETAIL_CONCURRENCY, (composite) =>
-      calculateCompositeReportItem(composite, purchaseMap, rates)
-    )
-    const sortedItems = sortCompositesByNameDesc(items)
+    const counters = { processed: 0, complete: 0, incomplete: 0 }
 
-    const saveClient = await pool.connect()
+    await mapLimit(selected, DETAIL_CONCURRENCY, async (composite) => {
+      const item = await calculateCompositeReportItem(composite, purchaseMap, rates)
+      await persistReportItemProgress(reportId, item, counters)
+      return item
+    })
+
+    const completeClient = await pool.connect()
     try {
-      await saveClient.query('BEGIN')
-      await persistCompletedReport(saveClient, reportId, sortedItems, allComposites)
-      await saveClient.query('COMMIT')
+      await completeClient.query('BEGIN')
+      await completeReport(completeClient, reportId, counters, allComposites)
+      await completeClient.query('COMMIT')
       console.log(
-        `[composite-price-report] report ${reportId} completed: ${sortedItems.length}/${allComposites.length} composite item(s) processed`
+        `[composite-price-report] report ${reportId} completed: ${counters.processed}/${allComposites.length} composite item(s) processed`
       )
     } catch (err) {
-      await saveClient.query('ROLLBACK').catch(() => {})
+      await completeClient.query('ROLLBACK').catch(() => {})
       throw err
     } finally {
-      saveClient.release()
+      completeClient.release()
     }
   } catch (err) {
     await updateReportFailed(reportId, err).catch(() => {})
