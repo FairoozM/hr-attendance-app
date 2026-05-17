@@ -79,10 +79,10 @@ export function CompositeItemsPriceReportsPage() {
   const [loadingReports, setLoadingReports] = useState(false)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [generating, setGenerating] = useState(false)
-  const [includeModified, setIncludeModified] = useState(false)
   const [expanded, setExpanded] = useState(() => new Set())
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [visibleCount, setVisibleCount] = useState(50)
 
   const fetchReports = useCallback(async () => {
     setLoadingReports(true)
@@ -118,6 +118,7 @@ export function CompositeItemsPriceReportsPage() {
     setLoadingDetail(true)
     setError('')
     setExpanded(new Set())
+    setVisibleCount(50)
     try {
       const data = await api.get(`/api/prices/composite-items/reports/${encodeURIComponent(String(reportId))}`)
       setSelectedReport(data)
@@ -128,19 +129,17 @@ export function CompositeItemsPriceReportsPage() {
     }
   }, [])
 
-  const generateReport = useCallback(async (mode) => {
+  const generateReport = useCallback(async () => {
     setGenerating(true)
     setError('')
     setMessage('')
     try {
       const data = await api.post('/api/prices/composite-items/reports/generate', {
-        mode,
-        force: mode === 'full',
-        includeModified,
+        mode: 'full',
+        force: true,
       })
       setMessage(
-        data?.message
-        || 'Composite price report generation started. Progress updates automatically while a report is running.'
+        data?.message || 'Composite price report generation started. Progress updates automatically while a report is running.'
       )
       await fetchReports()
       if (data?.report_id && String(data?.status || '').toLowerCase() !== 'running') {
@@ -151,7 +150,7 @@ export function CompositeItemsPriceReportsPage() {
     } finally {
       setGenerating(false)
     }
-  }, [fetchReports, includeModified, openReport])
+  }, [fetchReports, openReport])
 
   const deleteReport = useCallback(async (report) => {
     const label = `${modeLabel(report.mode)} report from ${formatReportDate(report.generated_at)}`
@@ -182,8 +181,22 @@ export function CompositeItemsPriceReportsPage() {
 
   const detailItems = useMemo(() => {
     const rows = Array.isArray(selectedReport?.items) ? selectedReport.items : []
-    return [...rows].sort((a, b) => String(b.name || '').localeCompare(String(a.name || '')))
+    return [...rows]
+      .map((item) => {
+        const latestDate = Array.isArray(item.components)
+          ? item.components.map((c) => c.date_of_prices).filter(Boolean).sort().at(-1)
+          : ''
+        return {
+          ...item,
+          computedDateOfPrices: latestDate || '—',
+        }
+      })
+      .sort((a, b) => String(b.name || '').localeCompare(String(a.name || '')))
   }, [selectedReport])
+
+  const visibleItems = useMemo(() => detailItems.slice(0, visibleCount), [detailItems, visibleCount])
+
+  const remainingItems = Math.max(detailItems.length - visibleCount, 0)
 
   return (
     <div className="page composite-prices-page ap-ec-page">
@@ -191,30 +204,19 @@ export function CompositeItemsPriceReportsPage() {
         <div>
           <h1 className="doc-page-title">Composite Items Price Reports</h1>
           <p className="doc-page-subtitle">
-            Fetch all Zoho composite items, calculate component-based purchase prices from All Prices, and save timestamped reports.
+            Generate timestamped full pricing reports for all active Zoho composite items using All Prices purchase data.
           </p>
         </div>
       </div>
 
       <section className="page-section cb-bundle-section" aria-label="Composite item price report actions">
         <div className="cb-bundle-toolbar">
-          <button type="button" className="btn btn--primary" disabled={generating} onClick={() => generateReport('incremental')}>
-            {generating ? 'Starting…' : 'Generate Incremental Report'}
-          </button>
-          <button type="button" className="btn btn--ghost" disabled={generating} onClick={() => generateReport('full')}>
-            Generate Full Report
+          <button type="button" className="btn btn--primary" disabled={generating} onClick={generateReport}>
+            {generating ? 'Starting…' : 'Generate Full Report'}
           </button>
           <button type="button" className="btn btn--ghost" disabled={loadingReports} onClick={fetchReports}>
             {loadingReports ? 'Refreshing…' : 'Refresh Saved Reports'}
           </button>
-          <label className="cb-report-checkbox">
-            <input
-              type="checkbox"
-              checked={includeModified}
-              onChange={(e) => setIncludeModified(e.target.checked)}
-            />
-            Include modified existing composites
-          </label>
         </div>
         {message ? <p className="cb-bundle-save-row__msg">{message}</p> : null}
         {error ? <p className="cb-bundle-error">{error}</p> : null}
@@ -225,7 +227,7 @@ export function CompositeItemsPriceReportsPage() {
           <div>
             <h3>Saved Reports</h3>
             <p className="ap-ec-paste__hint">
-              Incremental reports process only new composite item IDs. Full reports recalculate every composite item.
+              Full reports recalculate every active Zoho composite item and save a timestamped pricing snapshot.
             </p>
           </div>
         </div>
@@ -236,7 +238,7 @@ export function CompositeItemsPriceReportsPage() {
                 <th scope="col">Report Date/Time</th>
                 <th scope="col">Mode</th>
                 <th scope="col">Total Composite Items Seen</th>
-                <th scope="col">New Items Processed</th>
+                <th scope="col">Processed</th>
                 <th scope="col">Complete</th>
                 <th scope="col">Incomplete</th>
                 <th scope="col">Status</th>
@@ -247,7 +249,7 @@ export function CompositeItemsPriceReportsPage() {
               {reports.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="cb-report-empty-cell">
-                    {loadingReports ? 'Loading saved reports…' : 'No saved composite price reports yet. Generate a full report to start.'}
+                    {loadingReports ? 'Loading saved reports…' : 'No saved composite price reports yet. Generate a report to start.'}
                   </td>
                 </tr>
               ) : reports.map((report) => (
@@ -255,7 +257,7 @@ export function CompositeItemsPriceReportsPage() {
                   <td>{formatReportDate(report.generated_at)}</td>
                   <td>{modeLabel(report.mode)}</td>
                   <td>{report.total_composites_seen ?? 0}</td>
-                  <td>{report.total_new_composites_processed ?? 0}</td>
+                  <td>{report.total_items_processed ?? report.total_new_composites_processed ?? 0}</td>
                   <td>{report.total_complete ?? 0}</td>
                   <td>{report.total_incomplete ?? 0}</td>
                   <td><span className={statusClass(report.status)}>{report.status}</span></td>
@@ -280,7 +282,7 @@ export function CompositeItemsPriceReportsPage() {
             <div>
               <h3>{selectedReport.report?.report_name || 'Composite Items Price Report'}</h3>
               <p className="ap-ec-paste__hint">
-                {modeLabel(selectedReport.report?.mode)} report generated {formatReportDate(selectedReport.report?.generated_at)}.
+                Report generated {formatReportDate(selectedReport.report?.generated_at)}.
               </p>
             </div>
           </div>
@@ -305,16 +307,13 @@ export function CompositeItemsPriceReportsPage() {
                 </tr>
               </thead>
               <tbody>
-                {detailItems.length === 0 ? (
+                {visibleItems.length === 0 ? (
                   <tr>
                     <td colSpan={14} className="cb-report-empty-cell">This report has no processed composite items.</td>
                   </tr>
-                ) : detailItems.map((item) => {
+                ) : visibleItems.map((item) => {
                   const rowId = String(item.id || item.composite_item_id)
                   const isOpen = expanded.has(rowId)
-                  const dateOfPrices = Array.isArray(item.components)
-                    ? item.components.map((c) => c.date_of_prices).filter(Boolean).sort().at(-1)
-                    : ''
                   return (
                     <Fragment key={rowId}>
                       <tr className={item.pricing_status !== 'complete' ? 'cb-report-row--warning' : ''}>
@@ -339,7 +338,7 @@ export function CompositeItemsPriceReportsPage() {
                             {item.pricing_status}{item.unmatched_components_count ? ` (${item.unmatched_components_count})` : ''}
                           </span>
                         </td>
-                        <td>{dateOfPrices || '—'}</td>
+                        <td>{item.computedDateOfPrices}</td>
                       </tr>
                       {isOpen ? (
                         <tr className="cb-report-components-row">
@@ -354,6 +353,18 @@ export function CompositeItemsPriceReportsPage() {
               </tbody>
             </table>
           </div>
+
+          {detailItems.length > visibleCount ? (
+            <div className="cb-report-show-more">
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => setVisibleCount((prev) => prev + 100)}
+              >
+                Show More Items ({remainingItems} remaining)
+              </button>
+            </div>
+          ) : null}
         </section>
       ) : null}
     </div>
