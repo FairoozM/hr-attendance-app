@@ -1,19 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import '../Page.css'
 import './DocumentExpiryPage.css'
 import './AllPricesPage.css'
+import { PREF_ALL_PRICES_EC } from '../../constants/userPreferenceKeys'
+import { useUserPreferences } from '../../contexts/UserPreferencesContext'
 import {
   computeEcommercePriceRow,
   DEFAULT_RATES,
   fmtMoney,
   fmtPct,
-  loadRates,
-  loadRows,
   makeRowId,
+  normalizeAllPricesRates,
   parseExcelTsvPaste,
-  saveRates,
-  saveRows,
-  seedEcommerceRows,
+  resolveAllPricesRowsFromBundle,
+  saveAllPricesEcommerceBundle,
 } from './allPricesEcommerceUtils'
 
 function fmtShippingPurchaseDisplay(raw) {
@@ -24,20 +24,42 @@ function fmtShippingPurchaseDisplay(raw) {
 }
 
 export function AllPricesPage() {
-  const [rates, setRates] = useState(() => loadRates())
-  const [rows, setRows] = useState(() => loadRows() || seedEcommerceRows())
+  const { ready: prefsReady, getPref, setPref } = useUserPreferences()
+  const [rates, setRates] = useState({ ...DEFAULT_RATES })
+  const [rows, setRows] = useState([])
+  const [prefsLoaded, setPrefsLoaded] = useState(false)
   const [pasteText, setPasteText] = useState('')
   const [pasteFeedback, setPasteFeedback] = useState({ type: '', text: '' })
   /** Row id whose shipping + purchase cells are editable; null = view-only for those columns */
   const [editingRowId, setEditingRowId] = useState(null)
+  const skipNextSaveRef = useRef(true)
 
   useEffect(() => {
-    saveRates(rates)
-  }, [rates])
+    if (!prefsReady || prefsLoaded) return
+    const bundle = getPref(PREF_ALL_PRICES_EC, null)
+    const safeBundle = bundle && typeof bundle === 'object' ? bundle : {}
+    setRates(normalizeAllPricesRates(safeBundle.rates))
+    setRows(resolveAllPricesRowsFromBundle(safeBundle))
+    skipNextSaveRef.current = true
+    setPrefsLoaded(true)
+  }, [getPref, prefsLoaded, prefsReady])
 
   useEffect(() => {
-    saveRows(rows)
-  }, [rows])
+    if (!prefsReady || !prefsLoaded) return
+    if (skipNextSaveRef.current) {
+      skipNextSaveRef.current = false
+      return
+    }
+    const bundle = getPref(PREF_ALL_PRICES_EC, null)
+    const safeBundle = bundle && typeof bundle === 'object' ? bundle : {}
+    const result = saveAllPricesEcommerceBundle(
+      { ...safeBundle, rates, rows },
+      { source: 'AllPricesPage', action: 'bundle-change' },
+    )
+    if (!result.blocked) {
+      setPref(PREF_ALL_PRICES_EC, { ...safeBundle, rates, rows })
+    }
+  }, [getPref, prefsLoaded, prefsReady, rates, rows, setPref])
 
   const sumTakePct = useMemo(() => {
     const v = Number(rates.vatPct) || 0
@@ -75,12 +97,6 @@ export function AllPricesPage() {
 
   const toggleEditRow = useCallback((id) => {
     setEditingRowId((cur) => (cur === id ? null : id))
-  }, [])
-
-  const resetToSeed = useCallback(() => {
-    if (!window.confirm('Replace all rows with the default BRKH-64 template? Your edits will be lost.')) return
-    setEditingRowId(null)
-    setRows(seedEcommerceRows())
   }, [])
 
   const resetRates = useCallback(() => {
@@ -144,6 +160,19 @@ export function AllPricesPage() {
     })
     setPasteText('')
   }, [pasteText])
+
+  if (!prefsReady || !prefsLoaded) {
+    return (
+      <div className="page ap-ec-page">
+        <div className="doc-page-hero">
+          <div>
+            <h1 className="doc-page-title">All Prices (UAE &amp; KSA)</h1>
+            <p className="doc-page-subtitle">Loading your saved price list…</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="page ap-ec-page">
@@ -234,9 +263,6 @@ export function AllPricesPage() {
           <button type="button" className="btn btn--primary" onClick={addRow}>
             + Add row
           </button>
-          <button type="button" className="btn btn--ghost" onClick={resetToSeed}>
-            Reset to BRKH-64 template
-          </button>
         </div>
 
         <div className="ap-ec-paste">
@@ -264,7 +290,7 @@ export function AllPricesPage() {
               setPasteText(e.target.value)
               if (pasteFeedback.text) setPasteFeedback({ type: '', text: '' })
             }}
-            placeholder={`Example full sheet row (tabs between cells):\nBRKH-64-1\t120\t6\t18\t18\t21\t26.83\t...\n\nExample 3 columns:\nBRKH-64-1\t26.83\t21`}
+            placeholder={'Example full sheet row (tabs between cells):\nITEM-001\t120\t6\t18\t18\t21\t26.83\t...\n\nExample 3 columns:\nITEM-001\t26.83\t21'}
             spellCheck={false}
           />
           <div className="ap-ec-paste__actions">
@@ -315,129 +341,137 @@ export function AllPricesPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => {
-                const computed = computeEcommercePriceRow(row, rates)
-                const purchaseNum = Number(row.purchasePrice)
-                const shipNum = Number(row.shipping)
-                const hasInputs =
-                  row.purchasePrice !== '' &&
-                  row.shipping !== '' &&
-                  Number.isFinite(purchaseNum) &&
-                  Number.isFinite(shipNum)
-                const editCosts = editingRowId === row.id
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={12} className="ap-ec-empty">
+                    No All Prices rows saved yet. Paste or import your price list to begin.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row) => {
+                  const computed = computeEcommercePriceRow(row, rates)
+                  const purchaseNum = Number(row.purchasePrice)
+                  const shipNum = Number(row.shipping)
+                  const hasInputs =
+                    row.purchasePrice !== '' &&
+                    row.shipping !== '' &&
+                    Number.isFinite(purchaseNum) &&
+                    Number.isFinite(shipNum)
+                  const editCosts = editingRowId === row.id
 
-                return (
-                  <tr key={row.id}>
-                    <td>
-                      <input
-                        className="item-no-input"
-                        type="text"
-                        value={row.itemNo}
-                        onChange={(e) => updateRow(row.id, { itemNo: e.target.value })}
-                        aria-label="Item number"
-                      />
-                    </td>
-                    <td className="col-accent">
-                      {!hasInputs || computed.denominatorInvalid ? (
-                        <span className="ap-ec-num">—</span>
-                      ) : (
-                        <span className="ap-ec-num">{computed.salesPrice}</span>
-                      )}
-                    </td>
-                    <td>
-                      <span className="ap-ec-num">{hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.vatAmount) : '—'}</span>
-                    </td>
-                    <td>
-                      <span className="ap-ec-num">{hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.commissionAmount) : '—'}</span>
-                    </td>
-                    <td>
-                      <span className="ap-ec-num">{hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.advertisingAmount) : '—'}</span>
-                    </td>
-                    <td>
-                      {editCosts ? (
+                  return (
+                    <tr key={row.id}>
+                      <td>
                         <input
-                          type="number"
-                          min={0}
-                          step={0.01}
-                          value={row.shipping}
-                          onChange={(e) => updateRow(row.id, { shipping: e.target.value })}
-                          aria-label="Shipping cost"
+                          className="item-no-input"
+                          type="text"
+                          value={row.itemNo}
+                          onChange={(e) => updateRow(row.id, { itemNo: e.target.value })}
+                          aria-label="Item number"
                         />
-                      ) : (
-                        <span className="ap-ec-num ap-ec-cell-readonly">{fmtShippingPurchaseDisplay(row.shipping)}</span>
-                      )}
-                    </td>
-                    <td className="col-purchase">
-                      {editCosts ? (
+                      </td>
+                      <td className="col-accent">
+                        {!hasInputs || computed.denominatorInvalid ? (
+                          <span className="ap-ec-num">—</span>
+                        ) : (
+                          <span className="ap-ec-num">{computed.salesPrice}</span>
+                        )}
+                      </td>
+                      <td>
+                        <span className="ap-ec-num">{hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.vatAmount) : '—'}</span>
+                      </td>
+                      <td>
+                        <span className="ap-ec-num">{hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.commissionAmount) : '—'}</span>
+                      </td>
+                      <td>
+                        <span className="ap-ec-num">{hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.advertisingAmount) : '—'}</span>
+                      </td>
+                      <td>
+                        {editCosts ? (
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={row.shipping}
+                            onChange={(e) => updateRow(row.id, { shipping: e.target.value })}
+                            aria-label="Shipping cost"
+                          />
+                        ) : (
+                          <span className="ap-ec-num ap-ec-cell-readonly">{fmtShippingPurchaseDisplay(row.shipping)}</span>
+                        )}
+                      </td>
+                      <td className="col-purchase">
+                        {editCosts ? (
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={row.purchasePrice}
+                            onChange={(e) => updateRow(row.id, { purchasePrice: e.target.value })}
+                            aria-label="Purchase price ecommerce"
+                          />
+                        ) : (
+                          <span className="ap-ec-num ap-ec-cell-readonly">{fmtShippingPurchaseDisplay(row.purchasePrice)}</span>
+                        )}
+                      </td>
+                      <td className="col-cost-sum">
+                        <span className="ap-ec-num">{hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.totalCost) : '—'}</span>
+                      </td>
+                      <td>
+                        <span className="ap-ec-num">{hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.profit) : '—'}</span>
+                      </td>
+                      <td className="col-accent">
+                        <span className="ap-ec-num">{hasInputs && !computed.denominatorInvalid ? fmtPct(computed.profitPct) : '—'}</span>
+                      </td>
+                      <td>
                         <input
-                          type="number"
-                          min={0}
-                          step={0.01}
-                          value={row.purchasePrice}
-                          onChange={(e) => updateRow(row.id, { purchasePrice: e.target.value })}
-                          aria-label="Purchase price ecommerce"
+                          type="date"
+                          value={row.dateOfPrices || ''}
+                          onChange={(e) => updateRow(row.id, { dateOfPrices: e.target.value })}
+                          aria-label="Date of prices"
                         />
-                      ) : (
-                        <span className="ap-ec-num ap-ec-cell-readonly">{fmtShippingPurchaseDisplay(row.purchasePrice)}</span>
-                      )}
-                    </td>
-                    <td className="col-cost-sum">
-                      <span className="ap-ec-num">{hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.totalCost) : '—'}</span>
-                    </td>
-                    <td>
-                      <span className="ap-ec-num">{hasInputs && !computed.denominatorInvalid ? fmtMoney(computed.profit) : '—'}</span>
-                    </td>
-                    <td className="col-accent">
-                      <span className="ap-ec-num">{hasInputs && !computed.denominatorInvalid ? fmtPct(computed.profitPct) : '—'}</span>
-                    </td>
-                    <td>
-                      <input
-                        type="date"
-                        value={row.dateOfPrices || ''}
-                        onChange={(e) => updateRow(row.id, { dateOfPrices: e.target.value })}
-                        aria-label="Date of prices"
-                      />
-                    </td>
-                    <td className="ap-ec-actions">
-                      <div className="ap-ec-actions__inner">
-                        <button
-                          type="button"
-                          className="ap-ec-edit-btn"
-                          onClick={() => toggleEditRow(row.id)}
-                          aria-pressed={editCosts}
-                        >
-                          {editCosts ? 'Done' : 'Edit'}
-                        </button>
-                        <button
-                          type="button"
-                          className="ap-ec-trash"
-                          onClick={() => deleteRow(row.id)}
-                          aria-label="Remove row"
-                          title="Remove row"
-                        >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
+                      </td>
+                      <td className="ap-ec-actions">
+                        <div className="ap-ec-actions__inner">
+                          <button
+                            type="button"
+                            className="ap-ec-edit-btn"
+                            onClick={() => toggleEditRow(row.id)}
+                            aria-pressed={editCosts}
                           >
-                            <polyline points="3 6 5 6 21 6" />
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                            <line x1="10" y1="11" x2="10" y2="17" />
-                            <line x1="14" y1="11" x2="14" y2="17" />
-                          </svg>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
+                            {editCosts ? 'Done' : 'Edit'}
+                          </button>
+                          <button
+                            type="button"
+                            className="ap-ec-trash"
+                            onClick={() => deleteRow(row.id)}
+                            aria-label="Remove row"
+                            title="Remove row"
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              width="16"
+                              height="16"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden="true"
+                            >
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                              <line x1="10" y1="11" x2="10" y2="17" />
+                              <line x1="14" y1="11" x2="14" y2="17" />
+                            </svg>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
             </tbody>
           </table>
         </div>

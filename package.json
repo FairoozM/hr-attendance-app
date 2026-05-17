@@ -10,6 +10,8 @@
     "deploy:frontend": "npm run build && node scripts/inject-api-runtime-config.js && aws s3 sync dist/ s3://hr-lifesmile --delete --exclude \"profile-docs/*\" --exclude \"sick-leave/*\" --exclude \"annual-leave-letters/*\" --exclude \"influencer-insights/*\" --exclude \"influencer-profile-images/*\" && aws s3 cp dist/index.html s3://hr-lifesmile/index.html --cache-control \"no-cache, no-store, must-revalidate, max-age=0\" --content-type text/html && aws cloudfront create-invalidation --distribution-id E2YFDZQHMQS2BG --paths \"/*\"",
     "deploy:backend": "bash scripts/deploy-backend-production.sh",
     "deploy:all": "bash scripts/deploy-all.sh",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "test:amazon-catalog-image-cache": "node backend/scripts/test-amazon-catalog-image-cache.js",
     "test:amazon-dashboard-images": "node backend/scripts/test-amazon-dashboard-images.js",
     "test:amazon-orders-images": "node backend/scripts/test-amazon-orders-images.js"
@@ -37,6 +39,10 @@
     "postcss": "^8.5.9",
     "tailwindcss": "^4.2.2",
     "typescript": "^6.0.2",
-    "vite": "^5.0.0"
+    "vite": "^5.0.0",
+    "vitest": "^3.2.4",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "happy-dom": "^17.4.4"
   }
 }

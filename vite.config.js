@@ -30,6 +30,13 @@ function attendanceApiProxy() {
 
 export default defineConfig({
   plugins: [react()],
+  test: {
+    environment: 'happy-dom',
+    globals: false,
+    setupFiles: ['./src/test/setup.js'],
+    include: ['src/**/*.{test,spec}.{js,jsx}'],
+    exclude: ['backend/**', 'node_modules/**', 'dist/**'],
+  },
   server: {
     proxy: {
       '/api': attendanceApiProxy(),

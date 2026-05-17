@@ -14,6 +14,11 @@ export const DEFAULT_RATES = {
   requiredProfitPct: 25,
 }
 
+/** @returns {boolean} */
+export function isProductionBuild() {
+  return typeof import.meta !== 'undefined' && Boolean(import.meta.env?.PROD)
+}
+
 function toDec(pct) {
   const n = Number(pct)
   if (!Number.isFinite(n)) return 0
@@ -82,7 +87,9 @@ export function makeRowId() {
   return `row-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
-export function seedEcommerceRows() {
+/** Dev-only BRKH demo rows — never returned in production builds. */
+export function seedEcommerceRowsForDevOnly() {
+  if (isProductionBuild()) return []
   return Array.from({ length: 17 }, (_, i) => ({
     id: makeRowId(),
     itemNo: `BRKH-64-${i + 1}`,
@@ -92,52 +99,156 @@ export function seedEcommerceRows() {
   }))
 }
 
+/** @deprecated Use seedEcommerceRowsForDevOnly — kept only for dev/test imports. */
+export function seedEcommerceRows() {
+  return seedEcommerceRowsForDevOnly()
+}
+
+function normalizePriceCell(value) {
+  if (value === '' || value == null) return ''
+  const n = Number(value)
+  return Number.isFinite(n) ? String(n) : String(value).trim()
+}
+
+/**
+ * True when rows match the built-in BRKH-64 template fingerprint (empty costs except row 1).
+ * @param {unknown} rows
+ * @returns {boolean}
+ */
+export function isBrkhTemplateSeedRows(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return false
+  if (rows.length < 15 || rows.length > 20) return false
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const itemNo = String(rows[i]?.itemNo ?? '').trim().toUpperCase()
+    if (itemNo !== `BRKH-64-${i + 1}`) return false
+  }
+
+  const firstPurchase = normalizePriceCell(rows[0]?.purchasePrice)
+  const firstShipping = normalizePriceCell(rows[0]?.shipping)
+  if (firstPurchase !== '26.83' || firstShipping !== '21') return false
+
+  for (let i = 1; i < rows.length; i += 1) {
+    const purchase = normalizePriceCell(rows[i]?.purchasePrice)
+    const shipping = normalizePriceCell(rows[i]?.shipping)
+    if (purchase !== '' || shipping !== '') return false
+  }
+
+  return true
+}
+
+/**
+ * @param {unknown} rawRows
+ * @returns {import('./allPricesEcommerceUtils').AllPricesRow[] | null}
+ */
+export function normalizeAllPricesRows(rawRows) {
+  if (!Array.isArray(rawRows)) return null
+  return rawRows.map((r) => ({
+    id: r.id || makeRowId(),
+    itemNo: r.itemNo != null ? String(r.itemNo) : '',
+    purchasePrice: r.purchasePrice ?? '',
+    shipping: r.shipping ?? '',
+    dateOfPrices: r.dateOfPrices != null ? String(r.dateOfPrices) : '',
+  }))
+}
+
+/**
+ * Resolve rows from a preference bundle; strips BRKH template seed in production.
+ * @param {unknown} bundle
+ * @param {{ isProd?: boolean }} [options]
+ */
+export function resolveAllPricesRowsFromBundle(bundle, options = {}) {
+  const isProd = options.isProd != null ? options.isProd : isProductionBuild()
+  const safeBundle = bundle && typeof bundle === 'object' ? bundle : {}
+  const loaded = normalizeAllPricesRows(safeBundle.rows) || []
+  if (isProd && isBrkhTemplateSeedRows(loaded)) return []
+  return loaded
+}
+
+/**
+ * @param {unknown} raw
+ */
+export function normalizeAllPricesRates(raw) {
+  const p = raw && typeof raw === 'object' ? raw : {}
+  return {
+    vatPct: Number.isFinite(Number(p.vatPct)) ? Number(p.vatPct) : DEFAULT_RATES.vatPct,
+    commissionPct: Number.isFinite(Number(p.commissionPct)) ? Number(p.commissionPct) : DEFAULT_RATES.commissionPct,
+    advertisingPct: Number.isFinite(Number(p.advertisingPct)) ? Number(p.advertisingPct) : DEFAULT_RATES.advertisingPct,
+    requiredProfitPct: Number.isFinite(Number(p.requiredProfitPct))
+      ? Number(p.requiredProfitPct)
+      : DEFAULT_RATES.requiredProfitPct,
+  }
+}
+
 function readBundle() {
   const b = getUserPrefKey(PREF_ALL_PRICES_EC, null)
   return b && typeof b === 'object' ? b : {}
+}
+
+/**
+ * Persist All Prices bundle with production guard against BRKH template saves.
+ * @param {{ rates?: object, rows?: unknown[] }} partial
+ * @param {{ source?: string, action?: string }} [meta]
+ * @returns {{ blocked: boolean }}
+ */
+export function saveAllPricesEcommerceBundle(partial, meta = {}) {
+  const source = meta.source || 'unknown'
+  const action = meta.action || 'save'
+  const bundle = readBundle()
+  const rates = normalizeAllPricesRates(
+    partial.rates != null ? partial.rates : bundle.rates,
+  )
+  const rows = normalizeAllPricesRows(
+    partial.rows != null ? partial.rows : bundle.rows,
+  ) || []
+
+  if (isProductionBuild() && isBrkhTemplateSeedRows(rows)) {
+    console.error('[all-prices] blocked BRKH/template seed save in production', {
+      source,
+      action,
+      rowCount: rows.length,
+    })
+    return { blocked: true }
+  }
+
+  requestUserPrefSave(PREF_ALL_PRICES_EC, { ...bundle, rates, rows })
+  return { blocked: false }
 }
 
 export function loadRates() {
   try {
     const p = readBundle().rates
     if (!p || typeof p !== 'object') return { ...DEFAULT_RATES }
-    return {
-      vatPct: Number.isFinite(Number(p.vatPct)) ? Number(p.vatPct) : DEFAULT_RATES.vatPct,
-      commissionPct: Number.isFinite(Number(p.commissionPct)) ? Number(p.commissionPct) : DEFAULT_RATES.commissionPct,
-      advertisingPct: Number.isFinite(Number(p.advertisingPct)) ? Number(p.advertisingPct) : DEFAULT_RATES.advertisingPct,
-      requiredProfitPct: Number.isFinite(Number(p.requiredProfitPct)) ? Number(p.requiredProfitPct) : DEFAULT_RATES.requiredProfitPct,
-    }
+    return normalizeAllPricesRates(p)
   } catch {
     return { ...DEFAULT_RATES }
   }
 }
 
-export function saveRates(rates) {
+export function saveRates(rates, meta = {}) {
   const bundle = readBundle()
-  const rows = Array.isArray(bundle.rows) ? bundle.rows : []
-  requestUserPrefSave(PREF_ALL_PRICES_EC, { ...bundle, rates })
+  const existingRows = resolveAllPricesRowsFromBundle(bundle)
+  return saveAllPricesEcommerceBundle(
+    { ...bundle, rates, rows: existingRows },
+    { source: meta.source || 'saveRates', action: meta.action || 'save-rates' },
+  )
 }
 
 export function loadRows() {
   try {
-    const parsed = readBundle().rows
-    if (!Array.isArray(parsed)) return null
-    return parsed.map((r) => ({
-      id: r.id || makeRowId(),
-      itemNo: r.itemNo != null ? String(r.itemNo) : '',
-      purchasePrice: r.purchasePrice ?? '',
-      shipping: r.shipping ?? '',
-      dateOfPrices: r.dateOfPrices != null ? String(r.dateOfPrices) : '',
-    }))
+    return resolveAllPricesRowsFromBundle(readBundle())
   } catch {
     return null
   }
 }
 
-export function saveRows(rows) {
+export function saveRows(rows, meta = {}) {
   const bundle = readBundle()
   const rates = bundle.rates && typeof bundle.rates === 'object' ? bundle.rates : { ...DEFAULT_RATES }
-  requestUserPrefSave(PREF_ALL_PRICES_EC, { ...bundle, rates, rows })
+  return saveAllPricesEcommerceBundle(
+    { ...bundle, rates, rows },
+    { source: meta.source || 'saveRows', action: meta.action || 'save-rows' },
+  )
 }
 
 export function fmtMoney(n, digits = 2) {
@@ -196,16 +307,11 @@ function rowLooksLikeHeader(cells) {
 }
 
 /**
- * One logical row for the app (ids assigned by caller).
- * @typedef {{ itemNo: string, purchasePrice: string, shipping: string, dateOfPrices: string }} PastedRowPatch
- */
-
-/**
  * Parse Excel copy-paste (TSV). Supports:
  * - Full sheet row: Item | Sales | VAT | Comm | Adv | Shipping | Purchase | … optional date last col
  * - Three columns: Item | Purchase | Shipping
  * - Two columns: Purchase | Shipping
- * @returns {{ rows: PastedRowPatch[], skippedHeader: boolean, hint: string }}
+ * @returns {{ rows: Array<{ itemNo: string, purchasePrice: string, shipping: string, dateOfPrices: string }>, skippedHeader: boolean, hint: string }}
  */
 export function parseExcelTsvPaste(text) {
   const raw = String(text ?? '').replace(/^\uFEFF/, '')
