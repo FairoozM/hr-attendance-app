@@ -4,6 +4,7 @@ import './DocumentExpiryPage.css'
 import './AllPricesPage.css'
 import { PREF_ALL_PRICES_EC, PREF_ALL_PRICES_SAVED_LISTS } from '../../constants/userPreferenceKeys'
 import { useUserPreferences } from '../../contexts/UserPreferencesContext'
+import { exportSavedPriceListToExcel } from './allPricesSavedListExport'
 import {
   addSavedListToStore,
   persistSavedListsStore,
@@ -310,6 +311,14 @@ export function AllPricesPage() {
     [activeSavedListId, persistStore, savedListsStore, showSaveToast],
   )
 
+  const handleExportSavedList = useCallback((list) => {
+    if (!Array.isArray(list?.rows) || list.rows.length === 0) {
+      window.alert('No saved prices available to export.')
+      return
+    }
+    exportSavedPriceListToExcel(list)
+  }, [])
+
   const applyPasteReplace = useCallback(() => {
     const { rows: parsed, skippedHeader, hint } = parseExcelTsvPaste(pasteText)
     if (hint === 'empty' || hint === 'no-data-rows') {
@@ -533,6 +542,9 @@ export function AllPricesPage() {
                       </button>
                       <button type="button" className="btn btn--ghost btn--sm" onClick={() => handleDeleteSavedList(list.id)}>
                         Delete
+                      </button>
+                      <button type="button" className="btn btn--ghost btn--sm" onClick={() => handleExportSavedList(list)}>
+                        Export Excel
                       </button>
                     </div>
                   </li>
