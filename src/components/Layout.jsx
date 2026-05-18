@@ -543,6 +543,8 @@ export function Layout() {
     if (location.pathname.startsWith('/management/purchase-planning')) return 'Purchase Planning'
     if (location.pathname.startsWith('/management/payments')) return 'Company payments'
     if (location.pathname.startsWith('/prices/all-prices')) return 'All Prices (UAE & KSA)'
+    if (location.pathname.startsWith('/prices/historical-prices')) return 'Historical Prices'
+    if (location.pathname.startsWith('/prices/duplicate-cleanup')) return 'Duplicate Price Cleanup'
     if (location.pathname.startsWith('/prices/composite-items/reports')) return 'Composite Items Price Reports'
     if (location.pathname.startsWith('/prices/composite-items')) return 'Composite Items Prices'
     if (location.pathname.startsWith('/prices/saved-composite-items')) return 'Saved Composite Items'
@@ -605,6 +607,8 @@ export function Layout() {
 
   const pricesItems = [
     can('prices', 'view') && { label: 'All Prices (UAE & KSA)', to: '/prices/all-prices' },
+    can('prices', 'view') && { label: 'Historical Prices', to: '/prices/historical-prices' },
+    can('prices', 'view') && { label: 'Duplicate Price Cleanup', to: '/prices/duplicate-cleanup' },
     can('prices', 'view') && { label: 'Composite Items Prices', to: '/prices/composite-items' },
     can('prices', 'view') && { label: 'Saved Composite Items', to: '/prices/saved-composite-items' },
     can('prices', 'view') && { label: 'Composite Items Price Reports', to: '/prices/composite-items/reports' },
@@ -727,6 +731,10 @@ export function Layout() {
       searchHint:
         i.to === '/prices/all-prices'
           ? 'all prices uae ksa aed sar catalog sku zoho inventory pricing ecommerce'
+          : i.to === '/prices/historical-prices'
+          ? 'historical prices old production price audit replaced moved duplicate cleanup import'
+          : i.to === '/prices/duplicate-cleanup'
+          ? 'duplicate price cleanup active item no itemno safe auto conflict review'
           : i.to === '/prices/composite-items/reports'
             ? 'composite items price report zoho all composites incremental full saved reports components'
           : i.to === '/prices/composite-items'

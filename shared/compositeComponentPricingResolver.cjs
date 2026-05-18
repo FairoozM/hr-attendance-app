@@ -155,6 +155,7 @@ function computeEcommercePriceRow(row, rates = DEFAULT_RATES) {
 function normalizeAllPricesRow(row) {
   const itemNo = String(row?.itemNo || '').trim()
   if (!itemNo) return null
+  if (row?.isActive === false) return null
   const purchasePrice = Number(row?.purchasePrice)
   const shipping = Number(row?.shipping)
   return {
@@ -228,7 +229,7 @@ function findPurchaseMatchForComponent(purchaseMap, component) {
     uniq.push(m)
   }
   if (uniq.length === 0) return { status: 'unmatched', match: null, matches: [] }
-  if (uniq.length > 1) return { status: 'ambiguous', match: null, matches: uniq }
+  if (uniq.length > 1) return { status: 'duplicate_active_price', match: null, matches: uniq }
   return { status: 'matched', match: uniq[0], matches: uniq }
 }
 
@@ -255,7 +256,11 @@ function resolveCompositeComponentPricing(component, allPricesRowsOrMap, rates =
     matchedAllPricesItemNo: matchedRecordFound ? match.itemNo : null,
     matchedAllPricesSku: matchedRecordFound ? (match.sku || match.itemNo) : null,
     matchedAllPricesRecordFound: matchedRecordFound,
-    matchStatus: result.status === 'matched' ? 'matched' : result.status === 'ambiguous' ? 'ambiguous' : 'unmatched',
+    matchStatus: result.status === 'matched'
+      ? 'matched'
+      : result.status === 'duplicate_active_price'
+        ? 'DUPLICATE_ACTIVE_PRICE'
+        : 'unmatched',
     matchKeyUsed: match?.matchedKey || null,
     matchKind: match?.matchKind || null,
     matchedAllPricesRecord: matchedRecordFound ? match.row : null,

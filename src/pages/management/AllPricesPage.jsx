@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import '../Page.css'
 import './DocumentExpiryPage.css'
 import './AllPricesPage.css'
-import { PREF_ALL_PRICES_EC, PREF_ALL_PRICES_SAVED_LISTS } from '../../constants/userPreferenceKeys'
+import { PREF_ALL_PRICES_EC, PREF_ALL_PRICES_HISTORY, PREF_ALL_PRICES_SAVED_LISTS } from '../../constants/userPreferenceKeys'
 import { useUserPreferences } from '../../contexts/UserPreferencesContext'
 import { AllPricesActionToast } from './AllPricesActionToast'
 import { AllPricesConfirmModal } from './AllPricesConfirmModal'
@@ -38,6 +38,17 @@ import {
   parseExcelTsvPaste,
   saveAllPricesEcommerceBundle,
 } from './allPricesEcommerceUtils'
+import {
+  appendCleanupBatch,
+  appendHistoricalPrices,
+  appendImportBatch,
+} from './allPricesHistoricalPrices'
+import {
+  applyImportReview,
+  applySafeDuplicateCleanup,
+  buildImportReview,
+  scanDuplicatePrices,
+} from './allPricesVersioning'
 
 function fmtShippingPurchaseDisplay(raw) {
   if (raw === '' || raw == null) return '—'
@@ -81,6 +92,7 @@ export function AllPricesPage() {
   const [confirmModal, setConfirmModal] = useState(null)
   const [loadGuardTargetId, setLoadGuardTargetId] = useState(null)
   const [revisionConflict, setRevisionConflict] = useState(null)
+  const [importReview, setImportReview] = useState(null)
   const skipNextAutosaveRef = useRef(true)
   const [loadedBaseline, setLoadedBaselineState] = useState({
     listId: null,
@@ -117,6 +129,9 @@ export function AllPricesPage() {
     () => savedListsStore.savedLists.find((l) => l.id === activeSavedListId) || null,
     [activeSavedListId, savedListsStore.savedLists],
   )
+
+  const duplicateScan = useMemo(() => scanDuplicatePrices(rows, rates), [rates, rows])
+  const movedBy = ''
 
   const activeUnsaved = useMemo(
     () =>
@@ -582,14 +597,15 @@ export function AllPricesPage() {
     exportCurrentDraftToExcel({ rates, rows })
   }, [rates, rows])
 
-  const applyPasteReplaceInternal = useCallback(() => {
-    const { rows: parsed, skippedHeader, hint } = parseExcelTsvPaste(pasteText)
-    if (hint === 'empty' || hint === 'no-data-rows') {
-      setPasteFeedback({ type: 'err', text: 'Paste Excel data first (tab-separated rows).' })
-      return
-    }
+  const persistHistoricalRows = useCallback((historyRows) => {
+    if (!historyRows.length) return
+    const nextHistory = appendHistoricalPrices(historyRows)
+    setPref(PREF_ALL_PRICES_HISTORY, nextHistory)
+  }, [setPref])
+
+  const handleAutoCleanDuplicates = useCallback(() => {
     const snapshots = pushRecoverySnapshot({
-      reason: 'before-bulk-replace',
+      reason: 'before-duplicate-auto-clean',
       rates,
       rows,
       sourceSavedListId: activeSavedListId,
@@ -597,23 +613,82 @@ export function AllPricesPage() {
     })
     const snap = snapshots[0]
     if (snap) lastUndoSnapshotIdRef.current = snap.id
+    const result = applySafeDuplicateCleanup(rows, rates, { movedBy, scan: duplicateScan })
+    if (!result.historyRows.length) {
+      showActionToast('No safe duplicate groups to auto-clean.')
+      return
+    }
+    persistHistoricalRows(result.historyRows)
+    setRows(result.activeRows)
+    appendCleanupBatch({
+      id: result.cleanupBatchId,
+      startedBy: movedBy,
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      ...result.summary,
+    })
+    showActionToast(`Auto-cleaned ${result.historyRows.length} duplicate row(s).`, {
+      onAction: () => restoreFromSnapshot(snap),
+    })
+  }, [activeList?.name, activeSavedListId, duplicateScan, movedBy, persistHistoricalRows, rates, restoreFromSnapshot, rows, showActionToast])
 
-    const next = parsed.map((p) => ({
+  const openImportReview = useCallback((parsed, skippedHeader, sourceMode) => {
+    const incoming = parsed.map((p) => ({
       id: makeRowId(),
       itemNo: p.itemNo || '',
       purchasePrice: p.purchasePrice || '',
       shipping: p.shipping || '',
       dateOfPrices: p.dateOfPrices || '',
     }))
-    setRows(next)
-    setEditingRowId(null)
+    setImportReview({
+      sourceMode,
+      skippedHeader,
+      model: buildImportReview(incoming, rows, rates),
+    })
+    setPasteFeedback({ type: 'ok', text: `Import review ready for ${incoming.length} row(s).` })
+  }, [rates, rows])
+
+  const applyReviewedImport = useCallback(() => {
+    if (!importReview?.model) return
+    const snapshots = pushRecoverySnapshot({
+      reason: 'before-import-review-apply',
+      rates,
+      rows,
+      sourceSavedListId: activeSavedListId,
+      sourceSavedListName: activeList?.name,
+    })
+    const snap = snapshots[0]
+    if (snap) lastUndoSnapshotIdRef.current = snap.id
+    const result = applyImportReview(rows, importReview.model, rates, { movedBy })
+    persistHistoricalRows(result.historyRows)
+    setRows(result.activeRows)
+    appendImportBatch({
+      id: result.importBatchId,
+      importedBy: movedBy,
+      importedAt: new Date().toISOString(),
+      sourceType: importReview.sourceMode || 'paste',
+      status: result.summary.conflictCount ? 'applied_with_conflicts' : 'applied',
+      ...importReview.model.summary,
+      appliedCount: result.summary.appliedCount,
+      historyCount: result.summary.historyCount,
+    })
+    setImportReview(null)
+    setPasteText('')
     setPasteFeedback({
       type: 'ok',
-      text: `Replaced table with ${next.length} row(s)${skippedHeader ? ' (header row skipped)' : ''}.`,
+      text: `${result.summary.appliedCount} import action(s) applied. ${result.summary.historyCount} row(s) moved to Historical Prices.`,
     })
-    setPasteText('')
-    showActionToast('Rows replaced.', { onAction: () => restoreFromSnapshot(snap) })
-  }, [activeList?.name, activeSavedListId, pasteText, rates, restoreFromSnapshot, rows, showActionToast])
+    showActionToast('Import review applied.', { onAction: () => restoreFromSnapshot(snap) })
+  }, [activeList?.name, activeSavedListId, importReview, movedBy, persistHistoricalRows, rates, restoreFromSnapshot, rows, showActionToast])
+
+  const applyPasteReplaceInternal = useCallback(() => {
+    const { rows: parsed, skippedHeader, hint } = parseExcelTsvPaste(pasteText)
+    if (hint === 'empty' || hint === 'no-data-rows') {
+      setPasteFeedback({ type: 'err', text: 'Paste Excel data first (tab-separated rows).' })
+      return
+    }
+    openImportReview(parsed, skippedHeader, 'replace')
+  }, [openImportReview, pasteText])
 
   const applyPasteReplace = useCallback(() => {
     const { rows: parsed, hint } = parseExcelTsvPaste(pasteText)
@@ -641,35 +716,8 @@ export function AllPricesPage() {
       setPasteFeedback({ type: 'err', text: 'Paste Excel data first (tab-separated rows).' })
       return
     }
-    setRows((prev) => {
-      const out = [...prev]
-      parsed.forEach((p, i) => {
-        const patch = {
-          ...(p.itemNo !== '' ? { itemNo: p.itemNo } : {}),
-          ...(p.purchasePrice !== '' ? { purchasePrice: p.purchasePrice } : {}),
-          ...(p.shipping !== '' ? { shipping: p.shipping } : {}),
-          ...(p.dateOfPrices !== '' ? { dateOfPrices: p.dateOfPrices } : {}),
-        }
-        if (i < out.length) {
-          out[i] = { ...out[i], ...patch }
-        } else {
-          out.push({
-            id: makeRowId(),
-            itemNo: p.itemNo || '',
-            purchasePrice: p.purchasePrice || '',
-            shipping: p.shipping || '',
-            dateOfPrices: p.dateOfPrices || '',
-          })
-        }
-      })
-      return out
-    })
-    setPasteFeedback({
-      type: 'ok',
-      text: `Merged ${parsed.length} pasted row(s) into the table${skippedHeader ? ' (header skipped)' : ''}.`,
-    })
-    setPasteText('')
-  }, [pasteText])
+    openImportReview(parsed, skippedHeader, 'merge')
+  }, [openImportReview, pasteText])
 
   const resetRates = useCallback(() => {
     const snapshots = pushRecoverySnapshot({
@@ -775,6 +823,34 @@ export function AllPricesPage() {
           <p className="ap-ec-error" role="alert">
             The four percentages add up to 100% or more. Lower them so the divisor stays positive.
           </p>
+        ) : null}
+
+        {duplicateScan.summary.duplicateItemCount > 0 ? (
+          <div className="ap-ec-warning-banner" role="alert">
+            <div>
+              <strong>{duplicateScan.summary.duplicateItemCount} duplicate item numbers found in All Prices.</strong>
+              <p>Resolve duplicates before using composite pricing or importing new production prices.</p>
+            </div>
+            <div className="ap-ec-warning-banner__actions">
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => {
+                  window.location.assign('/prices/duplicate-cleanup')
+                }}
+              >
+                Review Duplicates
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={handleAutoCleanDuplicates}
+                disabled={duplicateScan.summary.safeAutoFixCount === 0}
+              >
+                Auto-clean safe duplicates
+              </button>
+            </div>
+          </div>
         ) : null}
 
         <div className="ap-ec-toolbar">
@@ -923,6 +999,70 @@ export function AllPricesPage() {
             ) : null}
           </div>
         </div>
+
+        {importReview ? (
+          <div className="ap-ec-paste ap-ec-import-review">
+            <div className="ap-ec-paste__head">
+              <div>
+                <h3>Import Review</h3>
+                <p className="ap-ec-paste__hint">
+                  Review recommendations before applying. Old active prices are moved to Historical Prices before replacement.
+                </p>
+              </div>
+            </div>
+            <div className="ap-ec-summary-grid">
+              <div className="ap-ec-summary-card"><span>New items</span><strong>{importReview.model.summary.newCount}</strong></div>
+              <div className="ap-ec-summary-card"><span>Newer changed prices</span><strong>{importReview.model.summary.updatedCount}</strong></div>
+              <div className="ap-ec-summary-card"><span>Unchanged</span><strong>{importReview.model.summary.unchangedCount}</strong></div>
+              <div className="ap-ec-summary-card"><span>Older imported rows</span><strong>{importReview.model.summary.olderCount}</strong></div>
+              <div className="ap-ec-summary-card"><span>Missing dates</span><strong>{importReview.model.summary.missingDateCount}</strong></div>
+              <div className="ap-ec-summary-card"><span>Conflicts</span><strong>{importReview.model.summary.conflictCount}</strong></div>
+            </div>
+            <div className="ap-ec-toolbar">
+              <button type="button" className="btn btn--primary" onClick={applyReviewedImport}>
+                Apply safe import actions
+              </button>
+              <button type="button" className="btn btn--ghost" onClick={() => setImportReview(null)}>
+                Cancel import
+              </button>
+            </div>
+            <div className="ap-table-scroll">
+              <table className="ap-ec-table">
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Item No.</th>
+                    <th>Current Purchase</th>
+                    <th>New Purchase</th>
+                    <th>Current Shipping</th>
+                    <th>New Shipping</th>
+                    <th>Current Date</th>
+                    <th>New Date</th>
+                    <th>Recommended Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {importReview.model.items.slice(0, 80).map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.status}</td>
+                      <td>{item.incoming.itemNo || '—'}</td>
+                      <td>{item.current?.purchasePrice ?? '—'}</td>
+                      <td>{item.incoming.purchasePrice || '—'}</td>
+                      <td>{item.current?.shipping ?? '—'}</td>
+                      <td>{item.incoming.shipping || '—'}</td>
+                      <td>{item.current?.dateOfPrices || '—'}</td>
+                      <td>{item.incoming.dateOfPrices || '—'}</td>
+                      <td>{item.recommendedAction}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {importReview.model.items.length > 80 ? (
+              <p className="ap-ec-save-last">Showing first 80 rows of {importReview.model.items.length}.</p>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="ap-table-scroll">
           <table className="ap-ec-table">

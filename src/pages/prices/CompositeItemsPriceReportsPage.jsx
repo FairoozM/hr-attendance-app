@@ -104,8 +104,15 @@ function computeParentPricing(item, shippingValue) {
 function matchStatusLabel(status) {
   const s = String(status || '').toLowerCase()
   if (s === 'matched') return 'MATCHED'
+  if (s === 'duplicate_active_price') return 'DUPLICATE ACTIVE PRICE'
   if (s === 'ambiguous') return 'DUPLICATE / AMBIGUOUS'
   return 'MISSING'
+}
+
+function matchStatusHint(status) {
+  return String(status || '').toLowerCase() === 'duplicate_active_price'
+    ? 'Duplicate active price found. Resolve in Duplicate Price Cleanup.'
+    : ''
 }
 
 function mergeResolvedComponentPricing(component, allPricesMap, rates) {
@@ -212,6 +219,9 @@ function ComponentsTable({ item }) {
                 <span className={row.match_status === 'matched' ? 'cb-report-pill cb-report-pill--ok' : 'cb-report-pill cb-report-pill--warn'}>
                   {matchStatusLabel(row.match_status)}
                 </span>
+                {matchStatusHint(row.match_status) ? (
+                  <div className="cb-match-cell__hint">{matchStatusHint(row.match_status)}</div>
+                ) : null}
               </td>
               <td>{row.zoho_purchase_rate != null ? fmtMoney(row.zoho_purchase_rate, 2) : '—'}</td>
                   </>

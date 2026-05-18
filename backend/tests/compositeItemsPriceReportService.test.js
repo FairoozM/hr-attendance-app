@@ -82,6 +82,21 @@ test('unmatched component is visible and marks status as unmatched', () => {
   assert.equal(result.match, null)
 })
 
+test('duplicate active All Prices rows return duplicate active price status', () => {
+  const map = buildPurchasePriceMap([
+    { itemNo: 'DUP-SKU', purchasePrice: 12, shipping: 1 },
+    { itemNo: 'dup-sku', purchasePrice: 14, shipping: 1 },
+  ])
+  const result = findPurchaseMatchForComponent(map, { sku: 'DUP-SKU', name: 'Duplicate component' })
+  assert.equal(result.status, 'duplicate_active_price')
+  assert.equal(result.match, null)
+  assert.equal(result.matches.length, 2)
+
+  const resolved = resolveCompositeComponentPricing({ sku: 'DUP-SKU' }, map)
+  assert.equal(resolved.matchStatus, 'DUPLICATE_ACTIVE_PRICE')
+  assert.equal(resolved.matchedAllPricesRecordFound, false)
+})
+
 test('incremental selection only returns new IDs by default', () => {
   const composites = [
     { composite_item_id: 'old-1', name: 'Old' },

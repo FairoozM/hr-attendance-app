@@ -62,6 +62,8 @@ import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
 import { PaymentsPage as CompanyPaymentsPage } from './pages/management/PaymentsPage'
 import { PurchasePlanningPage } from './pages/management/PurchasePlanningPage'
 import { AllPricesPage } from './pages/management/AllPricesPage'
+import { DuplicatePriceCleanupPage } from './pages/management/DuplicatePriceCleanupPage'
+import { HistoricalPricesPage } from './pages/management/HistoricalPricesPage'
 import { CompositeItemsPricesPage } from './pages/prices/CompositeItemsPricesPage'
 import { SavedCompositeItemsPage } from './pages/prices/SavedCompositeItemsPage'
 import { CompositeItemsPriceReportsPage } from './pages/prices/CompositeItemsPriceReportsPage'
@@ -250,6 +252,22 @@ function AppContent() {
           element={
             <PermissionGuard module="prices" action="view">
               <AllPricesPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="prices/historical-prices"
+          element={
+            <PermissionGuard module="prices" action="view">
+              <HistoricalPricesPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="prices/duplicate-cleanup"
+          element={
+            <PermissionGuard module="prices" action="view">
+              <DuplicatePriceCleanupPage />
             </PermissionGuard>
           }
         />

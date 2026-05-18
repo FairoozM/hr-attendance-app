@@ -119,6 +119,10 @@ export function CompositeItemsPricesPage() {
   }, [bundle, purchaseMap, rates])
 
   const missingCount = useMemo(() => componentRows.filter((r) => r.missing).length, [componentRows])
+  const duplicateActiveCount = useMemo(
+    () => componentRows.filter((r) => r.resolvedPricing?.matchStatus === 'DUPLICATE_ACTIVE_PRICE').length,
+    [componentRows],
+  )
 
   const totalPurchaseCost = useMemo(
     () => componentRows.reduce((sum, r) => sum + (Number.isFinite(r.lineTotal) ? r.lineTotal : 0), 0),
@@ -275,9 +279,14 @@ export function CompositeItemsPricesPage() {
 
             {missingCount > 0 ? (
               <p className="cb-bundle-warn" role="status">
-                {missingCount} component SKU(s) are not in your ecommerce price list — purchase columns show “—” and
-                do not contribute to the purchase total until you add them under{' '}
+                {missingCount} component SKU(s) are not matched cleanly in your ecommerce price list — purchase columns show “—” and
+                do not contribute to the purchase total until you add or resolve them under{' '}
                 <NavLink to="/prices/all-prices">All Prices</NavLink>.
+              </p>
+            ) : null}
+            {duplicateActiveCount > 0 ? (
+              <p className="cb-bundle-warn" role="alert">
+                Duplicate active price found. Resolve in <NavLink to="/prices/duplicate-cleanup">Duplicate Price Cleanup</NavLink>.
               </p>
             ) : null}
 
@@ -330,7 +339,11 @@ export function CompositeItemsPricesPage() {
                             ) : null}
                           </>
                         ) : (
-                          <span className="cb-missing">—</span>
+                          <span className="cb-missing">
+                            {row.resolvedPricing?.matchStatus === 'DUPLICATE_ACTIVE_PRICE'
+                              ? 'Duplicate active price found. Resolve in Duplicate Price Cleanup.'
+                              : '—'}
+                          </span>
                         )}
                       </td>
                       <td>{Number.isFinite(Number(row.quantity)) ? String(row.quantity) : '—'}</td>
