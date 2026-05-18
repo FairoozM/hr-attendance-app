@@ -164,6 +164,8 @@ test('buildWeeklyReportXlsxBuffer: populated report opens in ExcelJS with title 
   assert.match(period, /20.*Apr.*2026/i)
   assert.equal(String(sheet.getCell('A4').value), 'SR. NO')
   assert.equal(String(sheet.getCell('B4').value), 'FAMILY')
+  assert.equal(String(sheet.getCell('E4').value), 'Opening Stock Value')
+  assert.equal(String(sheet.getCell('H4').value), 'Closing Stock Value')
   assert.equal(String(sheet.getCell('B5').value), 'ZDS')
   const gt = String(sheet.getCell('B6').value)
   assert.equal(gt, 'Grand Total')
@@ -171,6 +173,68 @@ test('buildWeeklyReportXlsxBuffer: populated report opens in ExcelJS with title 
   assert.equal(String(sheet.getCell('D4').value), 'Zoho item id (photo ref)')
   assert.equal(String(sheet.getCell('C5').value), '—')
   assert.equal(Number(sheet.getCell('I5').value), 3) // Sales Amount
+})
+
+test('buildWeeklyReportXlsxBuffer: includes report metadata worksheet when provided', async () => {
+  const items = [
+    {
+      family: 'ZDS',
+      opening_stock_value: 1,
+      purchase_amount: 0,
+      returned_to_wholesale: 0,
+      closing_stock_value: 2,
+      sales_amount: 3,
+    },
+  ]
+  const buf = await buildWeeklyReportXlsxBuffer({
+    sheetTitle: getExportSheetTitleForGroup('slow_moving'),
+    fromDate: '2026-04-14',
+    toDate: '2026-04-20',
+    items,
+    totals: {
+      opening_stock_value: 1,
+      purchase_amount: 0,
+      returned_to_wholesale: 0,
+      closing_stock_value: 2,
+      sales_amount: 3,
+    },
+    reportMeta: {
+      calculation_version: 'test-version',
+      generated_at: '2026-05-18T10:00:00.000Z',
+      report_group: 'slow_moving',
+      from_date: '2026-04-14',
+      to_date: '2026-04-20',
+      warehouse_id: null,
+      exclude_warehouse_id: 'damaged',
+      stock_value_basis: {
+        opening_stock_value: {
+          basis: 'reconstructed_from_current_live_stock',
+          exact_historical: false,
+          warning: 'Opening warning',
+        },
+        closing_stock_value: {
+          basis: 'current_live_zoho_stock',
+          exact_historical: false,
+          warning: 'Closing warning',
+        },
+      },
+      completeness: { severity: 'warning' },
+      missing_for_exact_historical_stock: ['item adjustments', 'warehouse transfers'],
+    },
+  })
+  const wb = new ExcelJS.Workbook()
+  await wb.xlsx.load(buf)
+  const metadata = wb.getWorksheet('Report Metadata')
+  assert.ok(metadata)
+  assert.equal(String(metadata.getCell('A2').value), 'calculation_version')
+  assert.equal(String(metadata.getCell('B2').value), 'test-version')
+  assert.equal(String(metadata.getCell('A9').value), 'Opening Stock Value basis')
+  assert.equal(String(metadata.getCell('B9').value), 'reconstructed_from_current_live_stock')
+  assert.equal(String(metadata.getCell('A12').value), 'Closing Stock Value basis')
+  assert.equal(String(metadata.getCell('B12').value), 'current_live_zoho_stock')
+  assert.equal(String(metadata.getCell('A15').value), 'completeness severity')
+  assert.equal(String(metadata.getCell('B15').value), 'warning')
+  assert.match(String(metadata.getCell('B16').value), /item adjustments/)
 })
 
 test('buildWeeklyReportXlsxBuffer: empty data still has header + zero grand total', async () => {
@@ -188,7 +252,7 @@ test('buildWeeklyReportXlsxBuffer: empty data still has header + zero grand tota
   const sheet = wb.getWorksheet('Report')
   assert.equal(String(sheet.getCell('A1').value), 'ECOMMERCE OTHER FAMILY SALES REPORT')
   assert.equal(String(sheet.getCell('B5').value), 'Grand Total')
-  assert.equal(Number(sheet.getCell('E5').value), 0) // Opening Stock
+  assert.equal(Number(sheet.getCell('E5').value), 0) // Opening Stock Value
 })
 
 test('buildWeeklyReportXlsxBuffer: _zoho metadata on items does not affect columns', async () => {

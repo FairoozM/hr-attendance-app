@@ -51,6 +51,83 @@ function normalizeQueryWhId(v) {
   return String(v).trim()
 }
 
+function buildLegacyCalculationMeta(reportMeta, group, range, warehouseId, excludeWarehouseId) {
+  const meta = reportMeta && typeof reportMeta === 'object' ? reportMeta : {}
+  const historicalStockWarnings = [
+    'Opening Stock Value is reconstructed from current Zoho stock and available transactions, not from a historical Zoho stock snapshot.',
+    'Closing Stock Value uses current Zoho stock at report generation time, not stock as of selected to_date.',
+    'This report is not an exact historical stock snapshot because item adjustments, warehouse transfers, stock corrections, and a complete stock ledger are not currently included.',
+  ]
+  return {
+    calculation_version: meta.calculation_version || STOCK_REPORT_CACHE_VERSION,
+    generated_at: meta.generated_at || null,
+    report_group: group,
+    from_date: range.from_date,
+    to_date: range.to_date,
+    warehouse_id: warehouseId || null,
+    exclude_warehouse_id: excludeWarehouseId || null,
+    stock_basis: meta.stock_basis || {
+      opening_stock: 'unknown',
+      closing_stock: 'unknown',
+      warning: null,
+    },
+    value_basis: meta.value_basis || {
+      opening_stock_value: 'unknown',
+      closing_stock_value: 'unknown',
+      purchase_value: 'unknown',
+      returned_to_wholesale_value: 'unknown',
+      sales_value: 'unknown',
+    },
+    stock_value_basis: meta.stock_value_basis || {
+      opening_stock_value: {
+        basis: 'reconstructed_from_current_live_stock',
+        exact_historical: false,
+        warning: historicalStockWarnings[0],
+      },
+      closing_stock_value: {
+        basis: 'current_live_zoho_stock',
+        exact_historical: false,
+        warning: historicalStockWarnings[1],
+      },
+    },
+    source_basis: meta.source_basis || {
+      items: '/inventory/v1/items',
+      sales_amount: '/inventory/v1/reports/salesbyitem with invoice fallback',
+      purchase_amount: '/inventory/v1/bills',
+      returned_to_wholesale: '/inventory/v1/vendorcredits',
+    },
+    missing_for_exact_historical_stock: meta.missing_for_exact_historical_stock || [
+      'historical stock snapshot endpoint',
+      'item adjustments',
+      'warehouse transfers',
+      'stock corrections',
+      'complete stock ledger',
+    ],
+    source_status: meta.source_status || {},
+    completeness: meta.completeness || {
+      is_complete: !(Array.isArray(meta.warnings) && meta.warnings.length > 0),
+      is_complete_historical_stock_report: false,
+      severity: 'warning',
+      blocking_reasons: [],
+      warnings: [...new Set([...historicalStockWarnings, ...(Array.isArray(meta.warnings) ? meta.warnings : [])])],
+    },
+    cache: meta.cache || null,
+    ...(meta.reconstruction ? { reconstruction: meta.reconstruction } : {}),
+  }
+}
+
+function addWeeklyReportValueAliases(items) {
+  if (!Array.isArray(items)) return []
+  return items.map((item) => {
+    if (!item || typeof item !== 'object') return item
+    return {
+      ...item,
+      opening_stock_value: item.opening_stock,
+      closing_stock_value: item.closing_stock,
+    }
+  })
+}
+
 /**
  * Run up to `limit` async jobs in parallel, queueing the rest.
  * @template T
@@ -440,13 +517,15 @@ async function getReportByGroup(req, res) {
       reportMeta
     )
     zoho = await attachZohoApiUsageToday(zoho)
+    const calculationMeta = buildLegacyCalculationMeta(reportMeta, group, range, warehouseId, excludeWarehouseId)
+    const itemsWithAliases = addWeeklyReportValueAliases(items)
     return res.json({
       report_group:          group,
       from_date:             range.from_date,
       to_date:               range.to_date,
       warehouse_id:          warehouseId || null,
       exclude_warehouse_id:  excludeWarehouseId || null,
-      items,
+      items:                 itemsWithAliases,
       totals,
       calculation_version:   (reportMeta && reportMeta.calculation_version) || STOCK_REPORT_CACHE_VERSION,
       generated_at:          reportMeta && reportMeta.generated_at ? reportMeta.generated_at : null,
@@ -460,6 +539,8 @@ async function getReportByGroup(req, res) {
         reportMeta && reportMeta.family_matrix_family_builds_used_prefetch_source != null
           ? reportMeta.family_matrix_family_builds_used_prefetch_source
           : null,
+      report_meta: calculationMeta,
+      calculation_meta: calculationMeta,
       zoho,
     })
   } catch (err) {
@@ -727,6 +808,7 @@ async function getSlowMovingReport(req, res) {
       reportMeta
     )
     zohoSm = await attachZohoApiUsageToday(zohoSm)
+    const calculationMeta = buildLegacyCalculationMeta(reportMeta, 'slow_moving', range, null, null)
     return res.json({
       from_date: range.from_date,
       to_date:   range.to_date,
@@ -744,6 +826,8 @@ async function getSlowMovingReport(req, res) {
         reportMeta && reportMeta.family_matrix_family_builds_used_prefetch_source != null
           ? reportMeta.family_matrix_family_builds_used_prefetch_source
           : null,
+      report_meta: calculationMeta,
+      calculation_meta: calculationMeta,
       zoho: zohoSm,
     })
   } catch (err) {
@@ -787,7 +871,7 @@ async function exportReportByGroupXlsx(req, res) {
   }
 
   try {
-    const { items } = await loadWeeklyReportPayload(
+    const { items, reportMeta } = await loadWeeklyReportPayload(
       group,
       range.from_date,
       range.to_date,
@@ -810,6 +894,7 @@ async function exportReportByGroupXlsx(req, res) {
       toDate:     range.to_date,
       items: exportItems,
       totals: exportTotals,
+      reportMeta: buildLegacyCalculationMeta(reportMeta, group, range, warehouseId, excludeWarehouseId),
       fetchImageForItem: async (row) => {
         const raw = row && row.zoho_representative_item_id
         if (raw == null || String(raw).trim() === '') return null

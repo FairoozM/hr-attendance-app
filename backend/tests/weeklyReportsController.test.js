@@ -152,6 +152,29 @@ test('weeklyReports: empty result returns 200 with all-zero Grand Total', async 
   assert.equal(res.body.zoho.api_usage_today.daily_limit, MOCK_ZOHO_GUARD.dailyLimit)
   assert.equal(res.body.zoho.per_minute_limit, MOCK_ZOHO_GUARD.perMinuteLimit)
   assert.match(res.body.zoho.api_usage_today.utc_day, /^\d{4}-\d{2}-\d{2}$/)
+  assert.equal(res.body.report_meta.report_group, 'slow_moving')
+  assert.equal(res.body.report_meta.from_date, VALID.from_date)
+  assert.equal(res.body.report_meta.to_date, VALID.to_date)
+  assert.equal(res.body.report_meta.stock_basis.opening_stock, 'unknown')
+  assert.equal(res.body.report_meta.stock_value_basis.opening_stock_value.basis, 'reconstructed_from_current_live_stock')
+  assert.equal(res.body.report_meta.stock_value_basis.opening_stock_value.exact_historical, false)
+  assert.equal(res.body.report_meta.stock_value_basis.closing_stock_value.basis, 'current_live_zoho_stock')
+  assert.equal(res.body.report_meta.stock_value_basis.closing_stock_value.exact_historical, false)
+  assert.equal(res.body.report_meta.source_basis.items, '/inventory/v1/items')
+  assert.equal(res.body.report_meta.source_basis.sales_amount, '/inventory/v1/reports/salesbyitem with invoice fallback')
+  assert.equal(res.body.report_meta.source_basis.purchase_amount, '/inventory/v1/bills')
+  assert.equal(res.body.report_meta.source_basis.returned_to_wholesale, '/inventory/v1/vendorcredits')
+  assert.deepEqual(res.body.report_meta.missing_for_exact_historical_stock, [
+    'historical stock snapshot endpoint',
+    'item adjustments',
+    'warehouse transfers',
+    'stock corrections',
+    'complete stock ledger',
+  ])
+  assert.equal(res.body.report_meta.completeness.is_complete_historical_stock_report, false)
+  assert.equal(res.body.report_meta.completeness.severity, 'warning')
+  assert.match(res.body.report_meta.completeness.warnings.join('\n'), /not from a historical Zoho stock snapshot/)
+  assert.deepEqual(res.body.calculation_meta, res.body.report_meta)
 })
 
 test('weeklyReports: Grand Total sums Zoho-provided numbers verbatim', async () => {
@@ -166,6 +189,8 @@ test('weeklyReports: Grand Total sums Zoho-provided numbers verbatim', async () 
   await ctrl.getReportByGroup(req, res)
   assert.equal(res.statusCode, 200)
   assert.equal(res.body.items[0].family, 'ZDS')
+  assert.equal(res.body.items[0].opening_stock_value, res.body.items[0].opening_stock)
+  assert.equal(res.body.items[0].closing_stock_value, res.body.items[0].closing_stock)
   assert.equal(res.body.items[1].family, 'LIFEP')
   assert.deepEqual(res.body.totals, {
     opening_stock: 150,

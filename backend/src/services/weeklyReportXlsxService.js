@@ -39,12 +39,76 @@ const WEEKLY_STOCK_MOVEMENT_XLSX_COLUMNS = [
         : '—',
     grandTotalText: '—',
   },
-  { header: 'Opening Stock', width: 16, type: 'sum', key: 'opening_stock', numFmt: WEEKLY_REPORT_CURRENCY_NUMFMT },
+  { header: 'Opening Stock Value', width: 18, type: 'sum', key: 'opening_stock_value', numFmt: WEEKLY_REPORT_CURRENCY_NUMFMT },
   { header: 'Purchase Amount', width: 18, type: 'sum', key: 'purchase_amount', numFmt: WEEKLY_REPORT_CURRENCY_NUMFMT },
   { header: 'Returned to Wholesale', width: 24, type: 'sum', key: 'returned_to_wholesale', numFmt: WEEKLY_REPORT_CURRENCY_NUMFMT },
-  { header: 'Closing Stock', width: 16, type: 'sum', key: 'closing_stock', numFmt: WEEKLY_REPORT_CURRENCY_NUMFMT },
+  { header: 'Closing Stock Value', width: 18, type: 'sum', key: 'closing_stock_value', numFmt: WEEKLY_REPORT_CURRENCY_NUMFMT },
   { header: 'Sales Amount', width: 18, type: 'sum', key: 'sales_amount', numFmt: WEEKLY_REPORT_CURRENCY_NUMFMT },
 ]
+
+function withStockValueAliases(row) {
+  if (!row || typeof row !== 'object') return row
+  return {
+    ...row,
+    opening_stock_value: row.opening_stock_value != null ? row.opening_stock_value : row.opening_stock,
+    closing_stock_value: row.closing_stock_value != null ? row.closing_stock_value : row.closing_stock,
+  }
+}
+
+function metadataValue(value) {
+  if (Array.isArray(value)) return value.join(', ')
+  if (value == null || value === '') return '—'
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  return String(value)
+}
+
+function buildReportMetadataRows(reportMeta) {
+  const meta = reportMeta && typeof reportMeta === 'object' ? reportMeta : {}
+  const openingBasis = meta.stock_value_basis?.opening_stock_value || {}
+  const closingBasis = meta.stock_value_basis?.closing_stock_value || {}
+  return [
+    ['calculation_version', meta.calculation_version],
+    ['generated_at', meta.generated_at],
+    ['report_group', meta.report_group],
+    ['from_date', meta.from_date],
+    ['to_date', meta.to_date],
+    ['warehouse_id', meta.warehouse_id],
+    ['exclude_warehouse_id', meta.exclude_warehouse_id],
+    ['Opening Stock Value basis', openingBasis.basis],
+    ['Opening Stock Value exact historical', openingBasis.exact_historical],
+    ['Opening Stock Value warning', openingBasis.warning],
+    ['Closing Stock Value basis', closingBasis.basis],
+    ['Closing Stock Value exact historical', closingBasis.exact_historical],
+    ['Closing Stock Value warning', closingBasis.warning],
+    ['completeness severity', meta.completeness?.severity],
+    ['missing sources for exact historical stock', meta.missing_for_exact_historical_stock],
+  ]
+}
+
+function addReportMetadataWorksheet(workbook, reportMeta) {
+  if (!reportMeta || typeof reportMeta !== 'object') return
+  const sheet = workbook.addWorksheet('Report Metadata')
+  sheet.columns = [
+    { header: 'Field', key: 'field', width: 38 },
+    { header: 'Value', key: 'value', width: 90 },
+  ]
+  sheet.getRow(1).font = { bold: true, color: { argb: 'FF1E2D4E' } }
+  sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F5' } }
+  for (const [field, value] of buildReportMetadataRows(reportMeta)) {
+    sheet.addRow({ field, value: metadataValue(value) })
+  }
+  sheet.eachRow((row) => {
+    row.eachCell((cell) => {
+      cell.alignment = { vertical: 'top', wrapText: true }
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+      }
+    })
+  })
+}
 
 /**
  * @param {object} params
@@ -56,11 +120,21 @@ const WEEKLY_STOCK_MOVEMENT_XLSX_COLUMNS = [
  * @param {(item: object) => Promise<null|{ buffer: import('buffer').Buffer, extension: 'png'|'jpeg'|'gif' }>} [params.fetchImageForItem] — for Zoho product thumbnails in the Photo column
  * @returns {Promise<Buffer>}
  */
-function buildWeeklyReportXlsxBuffer(params) {
-  return buildBusinessTableXlsxBuffer({
+async function buildWeeklyReportXlsxBuffer(params) {
+  const normalizedItems = (Array.isArray(params.items) ? params.items : []).map(withStockValueAliases)
+  const normalizedTotals = withStockValueAliases(params.totals || {})
+  const baseBuffer = await buildBusinessTableXlsxBuffer({
     ...params,
+    items: normalizedItems,
+    totals: normalizedTotals,
     columns: WEEKLY_STOCK_MOVEMENT_XLSX_COLUMNS,
   })
+  if (!params.reportMeta) return baseBuffer
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load(baseBuffer)
+  addReportMetadataWorksheet(workbook, params.reportMeta)
+  const buffer = await workbook.xlsx.writeBuffer()
+  return Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer)
 }
 
 function toNumber(value) {

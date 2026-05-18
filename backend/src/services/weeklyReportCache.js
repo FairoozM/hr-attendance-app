@@ -56,7 +56,18 @@ async function getCachedReport(group, fromDate, toDate, generateFn, warehouseId 
   const cached = resultCache.get(key)
   if (cached && now < cached.expiresAt) {
     console.log(`[weekly-report] cache hit key=${key}`)
-    return cached.result
+    return {
+      ...cached.result,
+      reportMeta: {
+        ...(cached.result && cached.result.reportMeta ? cached.result.reportMeta : {}),
+        cache: {
+          key,
+          cached: true,
+          source: 'weekly_report_result_cache',
+          expires_at: new Date(cached.expiresAt).toISOString(),
+        },
+      },
+    }
   }
 
   // 2. In-flight dedup: join an already-running Promise for the same key
@@ -71,11 +82,23 @@ async function getCachedReport(group, fromDate, toDate, generateFn, warehouseId 
 
   const promise = generateFn()
     .then((result) => {
+      const withCacheMeta = {
+        ...result,
+        reportMeta: {
+          ...(result && result.reportMeta ? result.reportMeta : {}),
+          cache: {
+            key,
+            cached: false,
+            source: 'live_zoho_fetch',
+            expires_at: CACHE_TTL_MS > 0 ? new Date(Date.now() + CACHE_TTL_MS).toISOString() : null,
+          },
+        },
+      }
       if (CACHE_TTL_MS > 0) {
-        resultCache.set(key, { result, expiresAt: Date.now() + CACHE_TTL_MS })
+        resultCache.set(key, { result: withCacheMeta, expiresAt: Date.now() + CACHE_TTL_MS })
       }
       console.log(`[weekly-report] complete key=${key} duration=${Date.now() - t0}ms`)
-      return result
+      return withCacheMeta
     })
     .finally(() => {
       inFlight.delete(key)
