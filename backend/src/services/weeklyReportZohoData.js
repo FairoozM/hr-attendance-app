@@ -19,6 +19,7 @@ const {
   getPurchases,
   getVendorCredits,
   getStockReconstruction,
+  getInventoryAdjustments,
 } = require('../integrations/zoho/weeklyReportZohoTransactions')
 const {
   buildItemIdToSkuMap,
@@ -665,6 +666,628 @@ function buildWeeklyReportScope(warehouseId, excludeWarehouseId) {
     stockWarehouseId: null,
     subtractStockWarehouseId: null,
   }
+}
+
+function isWeeklyReportReconProbeAdjustmentsEnabled() {
+  return /^1|true|yes$/i.test(String(process.env.WEEKLY_REPORT_RECON_PROBE_ADJUSTMENTS ?? ''))
+}
+
+function isWeeklyReportReconIncludeAdjustmentsEnabled() {
+  return /^1|true|yes$/i.test(String(process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS ?? ''))
+}
+
+function isWeeklyReportReconClosingAsOfToDateEnabled() {
+  return /^1|true|yes$/i.test(String(process.env.WEEKLY_REPORT_RECON_CLOSING_AS_OF_TO_DATE ?? ''))
+}
+
+/**
+ * Debug-only escape hatch: revert closing-as-of reconstruction to the
+ * invoice-detail sales source. Off by default. Production closing-as-of
+ * uses two Sales-by-Item windowed calls (no invoice-detail fan-out).
+ */
+function isWeeklyReportReconUseInvoiceDetailEnabled() {
+  return /^1|true|yes$/i.test(String(process.env.WEEKLY_REPORT_RECON_USE_INVOICE_DETAIL ?? ''))
+}
+
+function shouldFetchInventoryAdjustmentsForReport() {
+  return (
+    isWeeklyReportReconProbeAdjustmentsEnabled() ||
+    isWeeklyReportReconIncludeAdjustmentsEnabled()
+  )
+}
+
+/**
+ * Half-open movement window (fromExclusive, toInclusive]: date > fromExclusive && date <= toInclusive.
+ * @param {string|undefined} iso
+ * @param {string} fromExclusive YYYY-MM-DD
+ * @param {string} toInclusive YYYY-MM-DD
+ */
+function isDateInHalfOpenRangeInclEnd(iso, fromExclusive, toInclusive) {
+  if (!iso || !toInclusive) return false
+  const s = String(iso).slice(0, 10)
+  if (s.length < 10) return false
+  if (fromExclusive && s <= fromExclusive) return false
+  return s <= toInclusive
+}
+
+/**
+ * Legacy inclusive movement window [fromInclusive, toInclusive].
+ * @param {string|undefined} iso
+ * @param {string} fromInclusive
+ * @param {string} toInclusive
+ */
+function isDateInInclusiveRange(iso, fromInclusive, toInclusive) {
+  if (!iso || !fromInclusive || !toInclusive) return false
+  const s = String(iso).slice(0, 10)
+  return s.length >= 10 && s >= fromInclusive && s <= toInclusive
+}
+
+/**
+ * @param {Array<{ document_date?: string }>} lines
+ * @param {string} fromExclusive
+ * @param {string} toInclusive
+ */
+function filterMovementLinesByHalfOpenWindow(lines, fromExclusive, toInclusive) {
+  return (lines || []).filter((line) => {
+    const d = line && line.document_date != null ? String(line.document_date).slice(0, 10) : ''
+    return isDateInHalfOpenRangeInclEnd(d, fromExclusive, toInclusive)
+  })
+}
+
+/**
+ * @param {Array<{ document_date?: string }>} lines
+ * @param {string} fromInclusive
+ * @param {string} toInclusive
+ */
+function filterMovementLinesByInclusiveRange(lines, fromInclusive, toInclusive) {
+  return (lines || []).filter((line) => {
+    const d = line && line.document_date != null ? String(line.document_date).slice(0, 10) : ''
+    return isDateInInclusiveRange(d, fromInclusive, toInclusive)
+  })
+}
+
+/**
+ * @param {Array<object>} lines
+ * @param {Map<string, string>} idToSku
+ * @param {'quantity'|'quantity_adjusted'} qtyField
+ */
+function sumMovementLinesToQtyMap(lines, idToSku, qtyField = 'quantity') {
+  return sumLinesToMap(
+    (lines || []).map((a) => ({
+      item_id: a.item_id,
+      sku: a.sku,
+      name: a.name,
+      quantity: qtyField === 'quantity_adjusted' ? a.quantity_adjusted : a.quantity,
+    })),
+    idToSku,
+  )
+}
+
+/**
+ * @param {Map<string, number>} salesMap
+ * @param {Map<string, number>} purchMap
+ * @param {Map<string, number>} vcMap
+ * @param {Map<string, number>} adjMap
+ * @param {object} row
+ * @param {boolean} includeAdj
+ */
+function netStockDeltaForRow(salesMap, purchMap, vcMap, adjMap, row, includeAdj) {
+  const s = mapLookupForReportRow(salesMap, row)
+  const p = mapLookupForReportRow(purchMap, row)
+  const r = mapLookupForReportRow(vcMap, row)
+  const a = includeAdj ? mapLookupForReportRow(adjMap, row) : 0
+  return p - s - r + a
+}
+
+function sourceWarning(result) {
+  if (!result) return null
+  if (result.error) return result.error.message || String(result.error)
+  if (result.list_truncated) return 'Zoho list pagination cap reached; this source may be incomplete.'
+  if (result.fallback_used) return result.fallback_reason || 'Fallback source used.'
+  return null
+}
+
+function summarizeInventoryAdjustmentsMeta(inventoryAdjR, { appliedToCalculation = false } = {}) {
+  const lines = Array.isArray(inventoryAdjR?.lines) ? inventoryAdjR.lines : []
+  let positive_qty_count = 0
+  let negative_qty_count = 0
+  let zero_qty_count = 0
+  let net_quantity_adjusted = 0
+  for (const line of lines) {
+    const q = parseQty(line.quantity_adjusted)
+    net_quantity_adjusted += q
+    if (q > 0) positive_qty_count += 1
+    else if (q < 0) negative_qty_count += 1
+    else zero_qty_count += 1
+  }
+  const warnings = []
+  if (inventoryAdjR?.list_truncated) {
+    warnings.push('Inventory adjustments list may be incomplete (pagination cap).')
+  }
+  if (inventoryAdjR?.error) {
+    warnings.push(inventoryAdjR.error.message || String(inventoryAdjR.error))
+  }
+  return {
+    probe_enabled: true,
+    applied_to_calculation: appliedToCalculation,
+    documents_count: Number.isFinite(Number(inventoryAdjR?.document_count))
+      ? Number(inventoryAdjR.document_count)
+      : 0,
+    lines_count: lines.length,
+    positive_qty_count,
+    negative_qty_count,
+    zero_qty_count,
+    net_quantity_adjusted,
+    date_filter_mode: inventoryAdjR?.date_filter_mode || 'client_side',
+    truncated: !!inventoryAdjR?.list_truncated,
+    warnings,
+  }
+}
+
+function isWindowedSalesByItemRecon(salesR) {
+  return salesR && salesR.source === 'zoho_inventory_reports_salesbyitem_windowed'
+}
+
+/** @param {object | undefined} salesR */
+function salesMovementInvoiceFetchFields(salesR) {
+  if (isWindowedSalesByItemRecon(salesR)) {
+    return {
+      invoice_list_count: 0,
+      invoice_list_pages: 0,
+      invoice_list_with_usable_line_items: 0,
+      invoice_detail_fetches: 0,
+      invoice_detail_cache_hits: 0,
+      invoice_detail_fetch_truncated: false,
+      max_invoice_details: null,
+      invoice_sort_column: null,
+      invoice_sort_order: null,
+      invoice_date_start: null,
+      invoice_date_end: null,
+      first_invoice_date: null,
+      last_invoice_date: null,
+      sales_reconstruction_partial: !!(salesR?.list_truncated || salesR?.sales_reconstruction_partial),
+    }
+  }
+  const maxDetails =
+    salesR?.max_invoice_details != null
+      ? salesR.max_invoice_details
+      : salesR?.invoice_detail_fetch_limit != null
+        ? salesR.invoice_detail_fetch_limit
+        : null
+  return {
+    invoice_list_count: Number.isFinite(Number(salesR?.invoice_list_count))
+      ? Number(salesR.invoice_list_count)
+      : Number.isFinite(Number(salesR?.document_count))
+        ? Number(salesR.document_count)
+        : 0,
+    invoice_list_pages: Number.isFinite(Number(salesR?.invoice_list_pages))
+      ? Number(salesR.invoice_list_pages)
+      : Number.isFinite(Number(salesR?.list_pages))
+        ? Number(salesR.list_pages)
+        : 0,
+    invoice_list_with_usable_line_items: Number(salesR?.invoice_list_with_usable_line_items) || 0,
+    invoice_detail_fetches: Number(salesR?.invoice_detail_fetches) || 0,
+    invoice_detail_cache_hits: Number(salesR?.invoice_detail_cache_hits) || 0,
+    invoice_detail_fetch_truncated: !!salesR?.invoice_detail_fetch_truncated,
+    max_invoice_details: maxDetails,
+    invoice_sort_column: salesR?.invoice_sort_column != null ? salesR.invoice_sort_column : null,
+    invoice_sort_order: salesR?.invoice_sort_order != null ? salesR.invoice_sort_order : null,
+    invoice_date_start: salesR?.invoice_date_start != null ? salesR.invoice_date_start : null,
+    invoice_date_end: salesR?.invoice_date_end != null ? salesR.invoice_date_end : null,
+    first_invoice_date: salesR?.first_invoice_date != null ? salesR.first_invoice_date : null,
+    last_invoice_date: salesR?.last_invoice_date != null ? salesR.last_invoice_date : null,
+    sales_reconstruction_partial: !!(
+      salesR?.sales_reconstruction_partial ||
+      salesR?.invoice_detail_fetch_truncated ||
+      salesR?.list_truncated
+    ),
+  }
+}
+
+/** @param {object | undefined} salesR */
+function isSalesReconstructionPartial(salesR) {
+  if (isWindowedSalesByItemRecon(salesR)) {
+    return !!(salesR?.list_truncated || salesR?.sales_reconstruction_partial)
+  }
+  if (salesR?.prefilter?.targeted_recon_complete && !salesR?.list_truncated) {
+    return false
+  }
+  return !!(
+    salesR?.sales_reconstruction_partial ||
+    salesR?.invoice_detail_fetch_truncated ||
+    salesR?.list_truncated
+  )
+}
+
+/**
+ * @param {object | undefined} stockReconR
+ * @param {Array<object>} reconSalesLines dated lines used for reconstruction windows
+ * @param {{ fromDate: string, toDate: string, throughDate: string }} windows
+ */
+function buildSalesMovementSourceMeta(stockReconR, reconSalesLines, { fromDate, toDate, throughDate }) {
+  const salesR = stockReconR?.salesR
+  const windowed = isWindowedSalesByItemRecon(salesR)
+  const invoiceFetch = salesMovementInvoiceFetchFields(salesR)
+  const prefilter = salesR?.prefilter && typeof salesR.prefilter === 'object' ? salesR.prefilter : null
+  const salesOpen = filterMovementLinesByHalfOpenWindow(reconSalesLines, fromDate, toDate)
+  const salesAfter = filterMovementLinesByHalfOpenWindow(reconSalesLines, toDate, throughDate)
+  const openingQty = salesOpen.reduce((acc, line) => acc + parseQty(line.quantity), 0)
+  const afterQty = salesAfter.reduce((acc, line) => acc + parseQty(line.quantity), 0)
+
+  if (salesR?.error) {
+    return {
+      status: 'missing_dated_sales_lines',
+      reason: windowed ? 'salesbyitem_windowed_fetch_failed' : 'invoice_fetch_failed',
+      error: salesR.error.message || String(salesR.error),
+      line_count: 0,
+      opening_window_line_count: 0,
+      closing_window_line_count: 0,
+      opening_window_quantity: 0,
+      closing_window_quantity: 0,
+      ...invoiceFetch,
+      ...(prefilter ? { prefilter } : {}),
+      ...(windowed
+        ? {
+            requires_document_dates: false,
+            windowed_split_date: salesR?.windowed_split_date || null,
+            windowed_through_date: salesR?.windowed_through_date || null,
+            in_window: salesR?.in_window || null,
+            after_window: salesR?.after_window || null,
+          }
+        : {}),
+    }
+  }
+
+  const lineCount = Array.isArray(reconSalesLines) ? reconSalesLines.length : 0
+  const partial = isSalesReconstructionPartial(salesR)
+  const windowFields = {
+    line_count: lineCount,
+    raw_line_count: Number.isFinite(Number(salesR?.raw_line_count)) ? Number(salesR.raw_line_count) : lineCount,
+    undated_lines_excluded: Number.isFinite(Number(salesR?.undated_lines_excluded))
+      ? Number(salesR.undated_lines_excluded)
+      : 0,
+    opening_window_line_count: salesOpen.length,
+    closing_window_line_count: salesAfter.length,
+    opening_window_quantity: openingQty,
+    closing_window_quantity: afterQty,
+    list_truncated: !!salesR?.list_truncated,
+    document_count: Number.isFinite(Number(salesR?.document_count)) ? Number(salesR.document_count) : 0,
+    source:
+      salesR?.source ||
+      (windowed ? 'zoho_inventory_reports_salesbyitem_windowed' : 'zoho_inventory_invoices_for_reconstruction'),
+    ...invoiceFetch,
+    ...(prefilter ? { prefilter } : {}),
+    ...(windowed
+      ? {
+          requires_document_dates: false,
+          windowed_split_date: salesR?.windowed_split_date || null,
+          windowed_through_date: salesR?.windowed_through_date || null,
+          in_window: salesR?.in_window || null,
+          after_window: salesR?.after_window || null,
+        }
+      : { requires_document_dates: true }),
+  }
+
+  if (windowed) {
+    if (partial) {
+      return {
+        status: 'salesbyitem_windowed_truncated',
+        reason: 'salesbyitem_list_truncated',
+        ...windowFields,
+        sales_reconstruction_partial: true,
+        note: 'Sales-by-Item windowed call hit pagination cap; opening/closing window quantities may be incomplete.',
+      }
+    }
+    return {
+      status: 'salesbyitem_windowed',
+      ...windowFields,
+      sales_reconstruction_partial: false,
+      note: 'Closing-as-of reconstruction uses two windowed Sales-by-Item calls; per-line document_date is synthesized from the call window.',
+    }
+  }
+
+  if (partial && lineCount > 0) {
+    return {
+      status: 'dated_invoice_lines_truncated',
+      reason: salesR?.invoice_detail_fetch_truncated
+        ? 'invoice_detail_fetch_cap'
+        : salesR?.list_truncated
+          ? 'invoice_list_truncated'
+          : 'sales_reconstruction_partial',
+      ...windowFields,
+      note: 'Dated invoice sales lines are partial due to invoice list or detail fetch caps.',
+    }
+  }
+
+  if (lineCount === 0) {
+    return {
+      status: 'missing_dated_sales_lines',
+      reason: salesR?.list_truncated
+        ? 'invoice_list_truncated'
+        : partial
+          ? 'invoice_detail_fetch_cap'
+          : 'no_dated_invoice_lines_in_range',
+      ...windowFields,
+      line_count: 0,
+      opening_window_line_count: 0,
+      closing_window_line_count: 0,
+      opening_window_quantity: 0,
+      closing_window_quantity: 0,
+      note:
+        'Sales-by-Item rows lack document_date and are not used for closing-as-of reconstruction windows.',
+    }
+  }
+
+  return {
+    status: 'dated_invoice_lines',
+    ...windowFields,
+  }
+}
+
+function buildReconstructionMeta(inventoryAdjR, { fromDate, toDate, throughDate, salesMovementSource }) {
+  const includeAdj = isWeeklyReportReconIncludeAdjustmentsEnabled()
+  const closingAsOf = isWeeklyReportReconClosingAsOfToDateEnabled()
+  const probeOnly = isWeeklyReportReconProbeAdjustmentsEnabled() && !includeAdj
+  let version = 'v2_probe'
+  if (closingAsOf) version = 'v3_closing_as_of_to_date'
+  else if (includeAdj) version = 'v2_adj'
+  const meta = {
+    version,
+    valuation_policy: 'sales_price_stock_value',
+    valuation_note:
+      'Opening/Closing Stock Value is stock quantity valued at sales price, not accounting cost.',
+    closing_as_of_to_date_enabled: closingAsOf,
+    sources_probe_only: probeOnly ? ['inventoryadjustments'] : [],
+    sources_included_in_calculation: includeAdj
+      ? ['invoices', 'bills', 'vendorcredits', 'inventoryadjustments']
+      : ['invoices', 'bills', 'vendorcredits'],
+    sources_excluded_from_calculation: includeAdj
+      ? ['salesreturns', 'creditnotes', 'transferorders']
+      : [
+          'inventoryadjustments',
+          'salesreturns',
+          'creditnotes',
+          'transferorders',
+        ],
+    inventoryadjustments: summarizeInventoryAdjustmentsMeta(inventoryAdjR, {
+      appliedToCalculation: includeAdj,
+    }),
+  }
+  if (closingAsOf) {
+    meta.closing_reconstruction_window = {
+      from_exclusive: toDate,
+      to_inclusive: throughDate,
+    }
+    meta.opening_reconstruction_window = {
+      from_exclusive: fromDate,
+      to_inclusive: toDate,
+    }
+    if (salesMovementSource) {
+      meta.sales_movement_source = salesMovementSource
+      meta.closing_as_of_reconstruction_complete =
+        (salesMovementSource.status === 'dated_invoice_lines' ||
+          salesMovementSource.status === 'salesbyitem_windowed') &&
+        !salesMovementSource.list_truncated &&
+        !salesMovementSource.sales_reconstruction_partial
+    }
+  }
+  return meta
+}
+
+function sourceStatus(result, defaults = {}) {
+  return {
+    source: result?.source || defaults.source || 'unknown',
+    cached: result?.cached === true,
+    fallback_used: result?.fallback_used === true,
+    truncated: result?.list_truncated === true,
+    warning: sourceWarning(result),
+    document_count: Number.isFinite(Number(result?.document_count)) ? Number(result.document_count) : 0,
+    line_count: Number.isFinite(Number(result?.line_count)) ? Number(result.line_count) : 0,
+    list_pages: Number.isFinite(Number(result?.list_pages)) ? Number(result.list_pages) : 0,
+    ...defaults.extra,
+  }
+}
+
+function buildReportMeta({
+  reportGroup,
+  fromDate,
+  toDate,
+  warehouseId,
+  excludeWarehouseId,
+  reportScope,
+  warnings,
+  raw,
+  salesR,
+  purchR,
+  vcR,
+  stockReconR,
+  inventoryAdjR,
+  throughDate,
+  prefetchBundleStashed,
+  matrixFamilyBuildCount,
+  salesMovementSource,
+}) {
+  const closingAsOfToDate = isWeeklyReportReconClosingAsOfToDateEnabled()
+  const reconAdjActive =
+    isWeeklyReportReconProbeAdjustmentsEnabled() ||
+    isWeeklyReportReconIncludeAdjustmentsEnabled() ||
+    closingAsOfToDate
+  const sourceWarnings = [
+    sourceWarning(salesR),
+    sourceWarning(purchR),
+    sourceWarning(vcR),
+    reconAdjActive ? sourceWarning(inventoryAdjR) : null,
+    stockReconR?.list_truncated ? 'Opening stock reconstruction pagination cap reached.' : null,
+    ...(Array.isArray(warnings) ? warnings : []),
+  ].filter(Boolean)
+  const blockingReasons = []
+  if (salesR?.error) blockingReasons.push('sales_source_failed')
+  if (purchR?.error) blockingReasons.push('purchases_source_failed')
+  if (vcR?.error) blockingReasons.push('returns_source_failed')
+  if (stockReconR?.salesR?.error || stockReconR?.purchR?.error || stockReconR?.vcR?.error) {
+    blockingReasons.push('opening_stock_reconstruction_source_failed')
+  }
+  if (isWeeklyReportReconIncludeAdjustmentsEnabled() && inventoryAdjR?.error) {
+    blockingReasons.push('inventory_adjustments_source_failed')
+  }
+  if (
+    salesR?.list_truncated ||
+    purchR?.list_truncated ||
+    vcR?.list_truncated ||
+    stockReconR?.list_truncated ||
+    (isWeeklyReportReconIncludeAdjustmentsEnabled() && inventoryAdjR?.list_truncated)
+  ) {
+    blockingReasons.push('source_truncated')
+  }
+  if (
+    closingAsOfToDate &&
+    salesMovementSource &&
+    salesMovementSource.status === 'missing_dated_sales_lines'
+  ) {
+    blockingReasons.push('missing_dated_sales_lines_for_closing_as_of')
+  }
+  if (
+    closingAsOfToDate &&
+    salesMovementSource &&
+    salesMovementSource.status === 'dated_invoice_lines_truncated'
+  ) {
+    blockingReasons.push('dated_invoice_sales_lines_truncated')
+  }
+  if (
+    closingAsOfToDate &&
+    salesMovementSource &&
+    salesMovementSource.status === 'salesbyitem_windowed_truncated'
+  ) {
+    blockingReasons.push('salesbyitem_windowed_truncated')
+  }
+  const historicalStockWarnings = [
+    'Opening Stock Value is reconstructed from current Zoho stock and available transactions, not from a historical Zoho stock snapshot.',
+    closingAsOfToDate
+      ? 'Closing Stock Value is reconstructed as of selected to_date from current live stock minus movements after to_date; it is not a Zoho historical stock snapshot.'
+      : 'Closing Stock Value uses current Zoho stock at report generation time, not stock as of selected to_date.',
+    'This report is not an exact historical stock snapshot because item adjustments, warehouse transfers, stock corrections, and a complete stock ledger are not currently included.',
+  ]
+
+  const meta = {
+    warnings: sourceWarnings,
+    calculation_version: STOCK_REPORT_CACHE_VERSION,
+    generated_at: new Date().toISOString(),
+    report_group: reportGroup,
+    from_date: fromDate,
+    to_date: toDate,
+    warehouse_id: warehouseId || null,
+    exclude_warehouse_id: excludeWarehouseId || null,
+    stock_basis: {
+      opening_stock: 'reconstructed',
+      closing_stock: closingAsOfToDate
+        ? 'reconstructed_as_of_to_date'
+        : reportScope?.stockWarehouseId || reportScope?.subtractStockWarehouseId
+          ? 'current_live_warehouse_scoped'
+          : 'current_live',
+      warning: closingAsOfToDate
+        ? 'Opening and closing stock quantities are reconstructed from current live stock and transaction deltas by date window; not Zoho historical snapshots.'
+        : 'Opening stock is reconstructed from current live stock and transaction deltas; closing stock is based on current Zoho item stock at generation time.',
+    },
+    value_basis: {
+      opening_stock_value: 'mixed',
+      closing_stock_value: 'mixed',
+      purchase_value: 'quantity_times_unit',
+      returned_to_wholesale_value: 'mixed',
+      sales_value: salesR?.fallback_used ? 'invoice_fallback_net' : 'zoho_sales_by_item_net',
+      warning:
+        'Stock and purchase values use item rate, purchase_rate, or implied sales average depending on available Zoho fields.',
+    },
+    stock_value_basis: {
+      opening_stock_value: {
+        basis: 'reconstructed_from_current_live_stock',
+        exact_historical: false,
+        warning: historicalStockWarnings[0],
+      },
+      closing_stock_value: {
+        basis: closingAsOfToDate
+          ? 'reconstructed_as_of_to_date_from_current_live_stock'
+          : 'current_live_zoho_stock',
+        exact_historical: false,
+        warning: historicalStockWarnings[1],
+      },
+    },
+    source_basis: {
+      items: '/inventory/v1/items',
+      sales_amount: salesR?.fallback_used
+        ? '/inventory/v1/reports/salesbyitem with invoice fallback used'
+        : '/inventory/v1/reports/salesbyitem with invoice fallback',
+      purchase_amount: '/inventory/v1/bills',
+      returned_to_wholesale: '/inventory/v1/vendorcredits',
+    },
+    missing_for_exact_historical_stock: [
+      'historical stock snapshot endpoint',
+      'item adjustments',
+      'warehouse transfers',
+      'stock corrections',
+      'complete stock ledger',
+    ],
+    source_status: {
+      items: {
+        source: 'zoho_inventory_items',
+        cached: true,
+        truncated: false,
+        warning: null,
+        row_count: Array.isArray(raw) ? raw.length : 0,
+      },
+      sales: sourceStatus(salesR),
+      purchases: sourceStatus(purchR, {
+        extra: {
+          vendor_filter_mode: purchR?.vendor_filter_mode || 'unknown',
+        },
+      }),
+      returns: sourceStatus(vcR, {
+        extra: {
+          vendor_filter_mode: vcR?.vendor_filter_mode || 'unknown',
+        },
+      }),
+      stock_reconstruction: {
+        source: 'current_stock_minus_transaction_delta',
+        cached: stockReconR?.cached === true,
+        truncated: stockReconR?.list_truncated === true,
+        warning: stockReconR?.list_truncated ? 'Opening stock reconstruction may be incomplete.' : null,
+      },
+      warehouses: {
+        source: 'zoho_inventory_warehouses',
+        cached: true,
+        warning: null,
+      },
+    },
+    completeness: {
+      is_complete: blockingReasons.length === 0,
+      is_complete_historical_stock_report: false,
+      closing_as_of_reconstruction_complete:
+        !closingAsOfToDate ||
+        ((salesMovementSource?.status === 'dated_invoice_lines' ||
+          salesMovementSource?.status === 'salesbyitem_windowed') &&
+          !salesMovementSource?.list_truncated &&
+          !salesMovementSource?.sales_reconstruction_partial),
+      severity:
+        closingAsOfToDate &&
+        (salesMovementSource?.status === 'missing_dated_sales_lines' ||
+          salesMovementSource?.status === 'dated_invoice_lines_truncated' ||
+          salesMovementSource?.status === 'salesbyitem_windowed_truncated')
+          ? 'critical'
+          : 'warning',
+      blocking_reasons: blockingReasons,
+      warnings: [...new Set([...historicalStockWarnings, ...sourceWarnings])],
+    },
+    weekly_report_prefetch_bundle_stashed: !!prefetchBundleStashed,
+    family_matrix_family_builds_used_prefetch_source: matrixFamilyBuildCount || 0,
+  }
+  if (reconAdjActive) {
+    meta.reconstruction = buildReconstructionMeta(inventoryAdjR, {
+      fromDate,
+      toDate,
+      throughDate: throughDate || toDate,
+      salesMovementSource: closingAsOfToDate ? salesMovementSource : undefined,
+    })
+  }
+  return meta
 }
 
 function normalizeFamilyKey(v) {
@@ -1716,11 +2339,27 @@ async function fetchZohoItemRowsForGroupMembers(
   // Scope-specific stock and transaction filters are built once above so the
   // screen, drawer, and export all consume the same warehouse split.
   const throughDate = weeklyReportIsoDateLocal()
-  /** Opening reconciliation uses `transactionFilter` for sales too so stock Δ matches scoped q_now (incl. exclude damaged). */
+  const closingAsOfToDateEnabled = isWeeklyReportReconClosingAsOfToDateEnabled()
+  const reconUseInvoiceDetail =
+    closingAsOfToDateEnabled && isWeeklyReportReconUseInvoiceDetailEnabled()
+  /**
+   * Opening reconciliation uses `transactionFilter` for sales too so stock Δ matches
+   * scoped q_now (incl. exclude damaged).
+   *
+   * Sales source for closing-as-of:
+   *   - default: two Sales-by-Item calls (in-window + after-window), tagged with
+   *     synthetic `document_date` so the downstream half-open windowing buckets them
+   *     into the opening and closing reconstruction windows. No invoice-detail fan-out.
+   *   - `WEEKLY_REPORT_RECON_USE_INVOICE_DETAIL=1` (debug only): per-invoice detail
+   *     reconstruction (legacy slow path).
+   */
   const stockReconOpts = {
     onWarning,
     reportGroup,
     includeWarehouseDetail: true,
+    useSalesByItemWindowed: closingAsOfToDateEnabled && !reconUseInvoiceDetail,
+    salesReconSplitDate: closingAsOfToDateEnabled && !reconUseInvoiceDetail ? toDate : undefined,
+    requireDatedSalesLines: reconUseInvoiceDetail,
     ...reportScope.transactionFilter,
   }
   const t0All = Date.now()
@@ -1756,6 +2395,11 @@ async function fetchZohoItemRowsForGroupMembers(
     (reportScope.subtractStockWarehouseId ? `, excluded_items=${damagedItems.length}` : '') +
     `, stock_recon_through=${throughDate}`
   )
+
+  let inventoryAdjR = null
+  if (shouldFetchInventoryAdjustmentsForReport()) {
+    inventoryAdjR = await getInventoryAdjustments(fromDate, throughDate, stockReconOpts)
+  }
 
   let prefetchBundleStashed = false
   try {
@@ -1984,21 +2628,78 @@ async function fetchZohoItemRowsForGroupMembers(
   const purchLines = (purchR && purchR.lines) || []
   const retLines = (vcR && vcR.lines) || []
 
-  const reconSalesLines = (stockReconR && stockReconR.salesR && stockReconR.salesR.lines) || []
+  let reconSalesLines = (stockReconR && stockReconR.salesR && stockReconR.salesR.lines) || []
   const reconPurchLines = (stockReconR && stockReconR.purchR && stockReconR.purchR.lines) || []
   const reconVcLines = (stockReconR && stockReconR.vcR && stockReconR.vcR.lines) || []
-  const smRecon = sumLinesToMap(
-    reconSalesLines.map((a) => ({ item_id: a.item_id, name: a.name, quantity: a.quantity })),
-    idToSku
-  )
-  const pmRecon = sumLinesToMap(
-    reconPurchLines.map((a) => ({ item_id: a.item_id, sku: a.sku, name: a.name, quantity: a.quantity })),
-    idToSku
-  )
-  const rmRecon = sumLinesToMap(
-    reconVcLines.map((a) => ({ item_id: a.item_id, sku: a.sku, name: a.name, quantity: a.quantity })),
-    idToSku
-  )
+  const reconAdjLines = (inventoryAdjR && inventoryAdjR.lines) || []
+  const includeAdjInRecon = isWeeklyReportReconIncludeAdjustmentsEnabled()
+  const closingAsOfToDate = closingAsOfToDateEnabled
+  let salesMovementSource = null
+  if (closingAsOfToDate) {
+    reconSalesLines = (reconSalesLines || []).filter((line) => {
+      const d = line && line.document_date != null ? String(line.document_date).slice(0, 10) : ''
+      return d.length >= 10
+    })
+    salesMovementSource = buildSalesMovementSourceMeta(stockReconR, reconSalesLines, {
+      fromDate,
+      toDate,
+      throughDate,
+    })
+    if (salesMovementSource.status === 'missing_dated_sales_lines') {
+      onWarning(
+        'Closing-as-of reconstruction: dated sales lines are unavailable; opening/closing stock quantities may omit period sales.'
+      )
+    } else if (salesMovementSource.status === 'dated_invoice_lines_truncated') {
+      onWarning(
+        'Closing-as-of reconstruction: dated invoice sales lines are partial (list or detail fetch cap); opening/closing stock quantities may be incomplete.'
+      )
+    } else if (salesMovementSource.status === 'salesbyitem_windowed_truncated') {
+      onWarning(
+        'Closing-as-of reconstruction: Sales-by-Item windowed call is partial (pagination cap); opening/closing stock quantities may be incomplete.'
+      )
+    }
+  }
+
+  let smRecon
+  let pmRecon
+  let rmRecon
+  let amRecon
+  let smReconAfter
+  let pmReconAfter
+  let rmReconAfter
+  let amReconAfter
+  let smReconOpen
+  let pmReconOpen
+  let rmReconOpen
+  let amReconOpen
+
+  if (closingAsOfToDate) {
+    const salesAfter = filterMovementLinesByHalfOpenWindow(reconSalesLines, toDate, throughDate)
+    const purchAfter = filterMovementLinesByHalfOpenWindow(reconPurchLines, toDate, throughDate)
+    const vcAfter = filterMovementLinesByHalfOpenWindow(reconVcLines, toDate, throughDate)
+    const adjAfter = filterMovementLinesByHalfOpenWindow(reconAdjLines, toDate, throughDate)
+    const salesOpen = filterMovementLinesByHalfOpenWindow(reconSalesLines, fromDate, toDate)
+    const purchOpen = filterMovementLinesByHalfOpenWindow(reconPurchLines, fromDate, toDate)
+    const vcOpen = filterMovementLinesByHalfOpenWindow(reconVcLines, fromDate, toDate)
+    const adjOpen = filterMovementLinesByHalfOpenWindow(reconAdjLines, fromDate, toDate)
+    smReconAfter = sumMovementLinesToQtyMap(salesAfter, idToSku)
+    pmReconAfter = sumMovementLinesToQtyMap(purchAfter, idToSku)
+    rmReconAfter = sumMovementLinesToQtyMap(vcAfter, idToSku)
+    amReconAfter = sumMovementLinesToQtyMap(adjAfter, idToSku, 'quantity_adjusted')
+    smReconOpen = sumMovementLinesToQtyMap(salesOpen, idToSku)
+    pmReconOpen = sumMovementLinesToQtyMap(purchOpen, idToSku)
+    rmReconOpen = sumMovementLinesToQtyMap(vcOpen, idToSku)
+    amReconOpen = sumMovementLinesToQtyMap(adjOpen, idToSku, 'quantity_adjusted')
+    smRecon = smReconAfter
+    pmRecon = pmReconAfter
+    rmRecon = rmReconAfter
+    amRecon = amReconAfter
+  } else {
+    smRecon = sumMovementLinesToQtyMap(reconSalesLines, idToSku)
+    pmRecon = sumMovementLinesToQtyMap(reconPurchLines, idToSku)
+    rmRecon = sumMovementLinesToQtyMap(reconVcLines, idToSku)
+    amRecon = sumMovementLinesToQtyMap(reconAdjLines, idToSku, 'quantity_adjusted')
+  }
 
   // Build scoped transaction maps. Sales keep the sales-specific scope above;
   // purchases and credits keep the stock/warehouse include-exclude scope.
@@ -2053,16 +2754,36 @@ async function fetchZohoItemRowsForGroupMembers(
     const praw = resolveUnitPriceForStockValuation(zItem, row)
     const canValueStock = praw != null && Number.isFinite(praw) && praw > 0
     const unit = canValueStock ? praw : null
-    const qC = Number(row.closing_stock) || 0
+    const qNow = Number(row.closing_stock) || 0
     const p = Number(row.purchases) || 0
     const s = Number(row.sold) || 0
     const rQty = Number(row.returned_to_wholesale) || 0
     const rFromVc = mapLookupForReportRow(retAmountMap, row)
-    const sAll = mapLookupForReportRow(smRecon, row)
-    const pAll = mapLookupForReportRow(pmRecon, row)
-    const rAll = mapLookupForReportRow(rmRecon, row)
-    const netDeltaStock = pAll - sAll - rAll
-    const qO = qC - netDeltaStock
+    let qC = qNow
+    let qO
+    if (closingAsOfToDate) {
+      const netDeltaAfterToDate = netStockDeltaForRow(
+        smReconAfter,
+        pmReconAfter,
+        rmReconAfter,
+        amReconAfter,
+        row,
+        includeAdjInRecon,
+      )
+      qC = qNow - netDeltaAfterToDate
+      const netDeltaOpening = netStockDeltaForRow(
+        smReconOpen,
+        pmReconOpen,
+        rmReconOpen,
+        amReconOpen,
+        row,
+        includeAdjInRecon,
+      )
+      qO = qC - netDeltaOpening
+    } else {
+      const netDeltaStock = netStockDeltaForRow(smRecon, pmRecon, rmRecon, amRecon, row, includeAdjInRecon)
+      qO = qNow - netDeltaStock
+    }
     const salesPrice = parseZohoUnitSalesPrice(zItem) ?? unit
     const purchasePrice = parseZohoUnitPurchasePrice(zItem) ?? unit
     const returnedPrice = canValueStock ? unit : null
@@ -2232,13 +2953,27 @@ async function fetchZohoItemRowsForGroupMembers(
 
   const isDevDebug = process.env.NODE_ENV !== 'production' || process.env.WEEKLY_REPORT_VENDOR_DEBUG === '1'
   const reportMeta = {
-    warnings: [...new Set(warnings)].filter(Boolean),
-    calculation_version: STOCK_REPORT_CACHE_VERSION,
-    generated_at: new Date().toISOString(),
+    ...buildReportMeta({
+      reportGroup,
+      fromDate,
+      toDate,
+      warehouseId,
+      excludeWarehouseId,
+      reportScope,
+      warnings: [...new Set(warnings)].filter(Boolean),
+      raw,
+      salesR,
+      purchR,
+      vcR,
+      stockReconR,
+      inventoryAdjR,
+      throughDate,
+      prefetchBundleStashed,
+      matrixFamilyBuildCount:
+        flagMatrixTotals && matrixFamilyBuildCount > 0 ? matrixFamilyBuildCount : 0,
+      salesMovementSource,
+    }),
     stock_totals_family_row_mode: flagMatrixTotals ? 'matrix_when_available' : 'legacy_only',
-    weekly_report_prefetch_bundle_stashed: prefetchBundleStashed,
-    family_matrix_family_builds_used_prefetch_source:
-      flagMatrixTotals && matrixFamilyBuildCount > 0 ? matrixFamilyBuildCount : 0,
   }
   if (isDevDebug) {
     const vfa = !!(rv.vendorId || rv.vendorName)
@@ -2255,7 +2990,16 @@ async function fetchZohoItemRowsForGroupMembers(
       opening_stock_reconciliation: {
         from_date: fromDate,
         through_date: throughDate,
-        formula: 'closing_qty_now − (all_vendor_purchases − all_sales − all_vendor_credits_qty)',
+        to_date: toDate,
+        closing_as_of_to_date: closingAsOfToDate,
+        formula: closingAsOfToDate
+          ? includeAdjInRecon
+            ? 'q_close@to_date = q_now − netΔ(to_date,today]; q_open@from_date = q_close@to_date − netΔ(from_date,to_date]; netΔ = purchases − sales − vendor_credits + adjustments'
+            : 'q_close@to_date = q_now − netΔ(to_date,today]; q_open@from_date = q_close@to_date − netΔ(from_date,to_date]; netΔ = purchases − sales − vendor_credits'
+          : includeAdjInRecon
+            ? 'closing_qty_now − (all_vendor_purchases − all_sales − all_vendor_credits_qty + inventory_adjustments_qty)'
+            : 'closing_qty_now − (all_vendor_purchases − all_sales − all_vendor_credits_qty)',
+        inventory_adjustments_included: includeAdjInRecon,
         scope_note:
           'Warehouse filters match transactionFilter for recon (includes excluding damaged warehouse on sales when applicable).',
       },
@@ -2324,5 +3068,16 @@ module.exports = {
     extractRepresentativeSize: require('./zohoRepresentativeItem').extractRepresentativeSize,
     parseQty,
     NOT_FOUND_IN_GROUPS_SUFFIX,
+    isWeeklyReportReconProbeAdjustmentsEnabled,
+    isWeeklyReportReconIncludeAdjustmentsEnabled,
+    isWeeklyReportReconClosingAsOfToDateEnabled,
+    shouldFetchInventoryAdjustmentsForReport,
+    buildReconstructionMeta,
+    buildSalesMovementSourceMeta,
+    summarizeInventoryAdjustmentsMeta,
+    isDateInHalfOpenRangeInclEnd,
+    filterMovementLinesByHalfOpenWindow,
+    filterMovementLinesByInclusiveRange,
+    netStockDeltaForRow,
   },
 }

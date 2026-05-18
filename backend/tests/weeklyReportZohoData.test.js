@@ -9,13 +9,30 @@ const { buildZohoLookupMaps, findZohoItemForMember, aggregateByFamily, scoreZoho
 const VENDOR = '4265011000000080014'
 
 /** Same shape as `getStockReconstruction` — use in tests with async () => bundle */
-function mockStockReconstructionBundle(salesLines, purchLines, retLines) {
+function movementLine(itemId, quantity, documentDate, extra = {}) {
+  return {
+    item_id: itemId,
+    name: extra.name || 'N1',
+    sku: extra.sku || 'S1',
+    quantity,
+    document_id: extra.document_id || 'doc1',
+    document_date: documentDate,
+    item_total: extra.item_total,
+  }
+}
+
+function mockStockReconstructionBundle(salesLines, purchLines, retLines, salesRExtra = {}) {
   return {
     salesR: {
       lines: salesLines,
       line_count: salesLines.length,
       list_truncated: false,
       error: null,
+      source: 'zoho_inventory_invoices_for_reconstruction',
+      dated_lines_for_reconstruction: true,
+      raw_line_count: salesLines.length,
+      undated_lines_excluded: 0,
+      ...salesRExtra,
     },
     purchR: {
       lines: purchLines,
@@ -30,6 +47,71 @@ function mockStockReconstructionBundle(salesLines, purchLines, retLines) {
       error: null,
     },
     list_truncated: false,
+  }
+}
+
+function mockStockReconstructionWindowedBundle({
+  inWindowLines = [],
+  afterWindowLines = [],
+  purchLines = [],
+  retLines = [],
+  splitDate,
+  throughDate,
+  listTruncated = false,
+}) {
+  const stampedIn = inWindowLines.map((line) => ({
+    ...line,
+    document_date: line.document_date || splitDate,
+    _window: 'opening',
+  }))
+  const stampedAfter = afterWindowLines.map((line) => ({
+    ...line,
+    document_date: line.document_date || throughDate,
+    _window: 'closing',
+  }))
+  const lines = [...stampedIn, ...stampedAfter]
+  return {
+    salesR: {
+      lines,
+      line_count: lines.length,
+      document_count: lines.length,
+      list_truncated: !!listTruncated,
+      error: null,
+      source: 'zoho_inventory_reports_salesbyitem_windowed',
+      fallback_used: false,
+      sales_reconstruction_partial: !!listTruncated,
+      requires_document_dates: false,
+      windowed_split_date: splitDate || null,
+      windowed_through_date: throughDate || null,
+      in_window: {
+        from_date: '2026-01-01',
+        to_date: splitDate || null,
+        line_count: stampedIn.length,
+        list_truncated: !!listTruncated,
+        list_pages: 1,
+      },
+      after_window: {
+        from_date: splitDate || null,
+        to_date: throughDate || null,
+        line_count: stampedAfter.length,
+        list_truncated: false,
+        list_pages: 1,
+      },
+    },
+    purchR: {
+      lines: purchLines,
+      line_count: purchLines.length,
+      list_truncated: false,
+      error: null,
+    },
+    vcR: {
+      lines: retLines,
+      line_count: retLines.length,
+      list_truncated: false,
+      error: null,
+    },
+    list_truncated: !!listTruncated,
+    sales_reconstruction_mode: 'salesbyitem_windowed',
   }
 }
 
@@ -1728,4 +1810,1057 @@ test('buildFamilyWarehouseMatrixForGroupMembers: explicit prefetched option inco
       }),
     (err) => err.code === 'PREFETCH_BUNDLE_INCOMPLETE'
   )
+})
+
+/** Shared fixture: q_now=7, period p=2 s=3 r=1, recon window matches period → opening 9, closing 7. */
+const RECON_ADJ_FIXTURE_BASELINE = {
+  opening: 9,
+  closing: 7,
+  sales_amount: 30,
+  purchase_amount: 2,
+  returned_to_wholesale: 1,
+}
+
+test('fetchZohoItemRowsForGroupMembers: recon flags off skips inventory adjustments fetch', async (t) => {
+  const prevN = process.env.NODE_ENV
+  const prevR = process.env.REPORT_VENDOR_ID
+  const prevProbe = process.env.WEEKLY_REPORT_RECON_PROBE_ADJUSTMENTS
+  const prevInclude = process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS
+  const prevClosing = process.env.WEEKLY_REPORT_RECON_CLOSING_AS_OF_TO_DATE
+  process.env.NODE_ENV = 'test'
+  process.env.REPORT_VENDOR_ID = VENDOR
+  delete process.env.WEEKLY_REPORT_RECON_PROBE_ADJUSTMENTS
+  delete process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS
+  delete process.env.WEEKLY_REPORT_RECON_CLOSING_AS_OF_TO_DATE
+  const salesLines = [{ item_id: '10', name: 'N1', quantity: 3, item_total: 30, document_id: 'i1' }]
+  const purchLines = [{ item_id: '10', name: 'N1', quantity: 2, item_total: 20, document_id: 'b1' }]
+  const retLines = [{ item_id: '10', name: 'N1', quantity: 1, item_total: 5, document_id: 'v1' }]
+  const r1 = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: null }),
+    orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
+  })
+  const r2 = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchAllItemsRaw: async () => [
+      { sku: 'S1', name: 'N1', item_id: '10', status: 'active', stock_on_hand: 7, rate: 1 },
+    ],
+  })
+  const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
+    getSales: async () => ({ lines: salesLines, line_count: salesLines.length, list_truncated: false, error: null }),
+    getPurchases: async () => ({ lines: purchLines, line_count: purchLines.length, list_truncated: false, error: null }),
+    getVendorCredits: async () => ({ lines: retLines, line_count: retLines.length, list_truncated: false, error: null }),
+    getStockReconstruction: async () => mockStockReconstructionBundle(salesLines, purchLines, retLines),
+    getInventoryAdjustments: async () => {
+      throw new Error('getInventoryAdjustments must not run when recon flags are off')
+    },
+  })
+  t.after(() => {
+    r1()
+    r2()
+    r3()
+    if (prevN === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = prevN
+    if (prevR === undefined) delete process.env.REPORT_VENDOR_ID
+    else process.env.REPORT_VENDOR_ID = prevR
+    if (prevProbe === undefined) delete process.env.WEEKLY_REPORT_RECON_PROBE_ADJUSTMENTS
+    else process.env.WEEKLY_REPORT_RECON_PROBE_ADJUSTMENTS = prevProbe
+    if (prevInclude === undefined) delete process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS
+    else process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS = prevInclude
+    if (prevClosing === undefined) delete process.env.WEEKLY_REPORT_RECON_CLOSING_AS_OF_TO_DATE
+    else process.env.WEEKLY_REPORT_RECON_CLOSING_AS_OF_TO_DATE = prevClosing
+    const resolved = require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })
+    delete require.cache[resolved]
+  })
+  const m = freshRequire('../src/services/weeklyReportZohoData')
+  const { items, reportMeta } = await m.fetchZohoItemRowsForGroupMembers(
+    [{ sku: 'S1' }],
+    '2026-01-01',
+    '2026-01-31',
+    null,
+    'slow_moving',
+  )
+  assert.equal(items[0].opening_stock, RECON_ADJ_FIXTURE_BASELINE.opening)
+  assert.equal(items[0].closing_stock, RECON_ADJ_FIXTURE_BASELINE.closing)
+  assert.equal(reportMeta.reconstruction, undefined)
+})
+
+async function runClosingAsOfReportTest(
+  t,
+  {
+    reconSalesLines,
+    reconPurchLines,
+    reconVcLines,
+    reconAdjLines = [],
+    expectedOpening,
+    expectedClosing,
+    closingAsOf = true,
+    includeAdjustments = false,
+    stockOnHand = 7,
+    periodSalesLines,
+    reconSalesRExtra,
+  },
+) {
+  const prevN = process.env.NODE_ENV
+  const prevR = process.env.REPORT_VENDOR_ID
+  const prevProbe = process.env.WEEKLY_REPORT_RECON_PROBE_ADJUSTMENTS
+  const prevInclude = process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS
+  const prevClosing = process.env.WEEKLY_REPORT_RECON_CLOSING_AS_OF_TO_DATE
+  process.env.NODE_ENV = 'test'
+  process.env.REPORT_VENDOR_ID = VENDOR
+  delete process.env.WEEKLY_REPORT_RECON_PROBE_ADJUSTMENTS
+  if (includeAdjustments) process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS = '1'
+  else delete process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS
+  if (closingAsOf) process.env.WEEKLY_REPORT_RECON_CLOSING_AS_OF_TO_DATE = '1'
+  else delete process.env.WEEKLY_REPORT_RECON_CLOSING_AS_OF_TO_DATE
+
+  const periodSales =
+    periodSalesLines ||
+    [movementLine('10', 3, '2026-01-15', { item_total: 30, document_id: 'i1' })]
+  const periodPurch = [movementLine('10', 2, '2026-01-10', { item_total: 20, document_id: 'b1' })]
+  const periodVc = [movementLine('10', 1, '2026-01-20', { item_total: 5, document_id: 'v1' })]
+
+  const r1 = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: null }),
+    orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
+  })
+  const r2 = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchAllItemsRaw: async () => [
+      { sku: 'S1', name: 'N1', item_id: '10', status: 'active', stock_on_hand: stockOnHand, rate: 1 },
+    ],
+  })
+  const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
+    getSales: async () => ({
+      lines: periodSales,
+      line_count: periodSales.length,
+      list_truncated: false,
+      error: null,
+      source: 'zoho_inventory_reports_salesbyitem',
+      fallback_used: false,
+    }),
+    getPurchases: async () => ({
+      lines: periodPurch,
+      line_count: periodPurch.length,
+      list_truncated: false,
+      error: null,
+    }),
+    getVendorCredits: async () => ({
+      lines: periodVc,
+      line_count: periodVc.length,
+      list_truncated: false,
+      error: null,
+    }),
+    getStockReconstruction: async () =>
+      mockStockReconstructionBundle(reconSalesLines, reconPurchLines, reconVcLines, reconSalesRExtra),
+    getInventoryAdjustments: async () => ({
+      lines: reconAdjLines,
+      line_count: reconAdjLines.length,
+      document_count: reconAdjLines.length,
+      list_truncated: false,
+      list_pages: 1,
+      date_filter_mode: 'client_side',
+      error: null,
+      source: 'zoho_inventory_inventoryadjustments',
+    }),
+  })
+  t.after(() => {
+    r1()
+    r2()
+    r3()
+    if (prevN === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = prevN
+    if (prevR === undefined) delete process.env.REPORT_VENDOR_ID
+    else process.env.REPORT_VENDOR_ID = prevR
+    if (prevProbe === undefined) delete process.env.WEEKLY_REPORT_RECON_PROBE_ADJUSTMENTS
+    else process.env.WEEKLY_REPORT_RECON_PROBE_ADJUSTMENTS = prevProbe
+    if (prevInclude === undefined) delete process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS
+    else process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS = prevInclude
+    if (prevClosing === undefined) delete process.env.WEEKLY_REPORT_RECON_CLOSING_AS_OF_TO_DATE
+    else process.env.WEEKLY_REPORT_RECON_CLOSING_AS_OF_TO_DATE = prevClosing
+    const resolved = require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })
+    delete require.cache[resolved]
+  })
+  const m = freshRequire('../src/services/weeklyReportZohoData')
+  const { items, reportMeta } = await m.fetchZohoItemRowsForGroupMembers(
+    [{ sku: 'S1' }],
+    '2026-01-01',
+    '2026-01-31',
+    null,
+    'slow_moving',
+  )
+  assert.equal(items[0].opening_stock, expectedOpening)
+  assert.equal(items[0].closing_stock, expectedClosing)
+  return { items, reportMeta }
+}
+
+test('fetchZohoItemRowsForGroupMembers: probe flag only adds metadata without changing stock', async (t) => {
+  const prevN = process.env.NODE_ENV
+  const prevR = process.env.REPORT_VENDOR_ID
+  const prevProbe = process.env.WEEKLY_REPORT_RECON_PROBE_ADJUSTMENTS
+  const prevInclude = process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS
+  process.env.NODE_ENV = 'test'
+  process.env.REPORT_VENDOR_ID = VENDOR
+  process.env.WEEKLY_REPORT_RECON_PROBE_ADJUSTMENTS = '1'
+  delete process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS
+  const salesLines = [{ item_id: '10', name: 'N1', quantity: 3, item_total: 30, document_id: 'i1' }]
+  const purchLines = [{ item_id: '10', name: 'N1', quantity: 2, item_total: 20, document_id: 'b1' }]
+  const retLines = [{ item_id: '10', name: 'N1', quantity: 1, item_total: 5, document_id: 'v1' }]
+  const adjLines = [
+    {
+      document_id: 'adj1',
+      document_date: '2026-01-15',
+      item_id: '10',
+      sku: 'S1',
+      name: 'N1',
+      quantity_adjusted: 4,
+      warehouse_id: 'main',
+    },
+    {
+      document_id: 'adj2',
+      document_date: '2026-01-20',
+      item_id: '10',
+      sku: 'S1',
+      name: 'N1',
+      quantity_adjusted: -1,
+      warehouse_id: 'main',
+    },
+  ]
+  let adjCallCount = 0
+  const r1 = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: null }),
+    orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
+  })
+  const r2 = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchAllItemsRaw: async () => [
+      { sku: 'S1', name: 'N1', item_id: '10', status: 'active', stock_on_hand: 7, rate: 1 },
+    ],
+  })
+  const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
+    getSales: async () => ({ lines: salesLines, line_count: salesLines.length, list_truncated: false, error: null }),
+    getPurchases: async () => ({ lines: purchLines, line_count: purchLines.length, list_truncated: false, error: null }),
+    getVendorCredits: async () => ({ lines: retLines, line_count: retLines.length, list_truncated: false, error: null }),
+    getStockReconstruction: async () => mockStockReconstructionBundle(salesLines, purchLines, retLines),
+    getInventoryAdjustments: async (from, through) => {
+      adjCallCount += 1
+      assert.equal(from, '2026-01-01')
+      assert.ok(String(through).length >= 10)
+      return {
+        lines: adjLines,
+        line_count: adjLines.length,
+        document_count: 2,
+        list_truncated: false,
+        list_pages: 1,
+        date_filter_mode: 'client_side',
+        error: null,
+        source: 'zoho_inventory_inventoryadjustments',
+      }
+    },
+  })
+  t.after(() => {
+    r1()
+    r2()
+    r3()
+    if (prevN === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = prevN
+    if (prevR === undefined) delete process.env.REPORT_VENDOR_ID
+    else process.env.REPORT_VENDOR_ID = prevR
+    if (prevProbe === undefined) delete process.env.WEEKLY_REPORT_RECON_PROBE_ADJUSTMENTS
+    else process.env.WEEKLY_REPORT_RECON_PROBE_ADJUSTMENTS = prevProbe
+    if (prevInclude === undefined) delete process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS
+    else process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS = prevInclude
+    const resolved = require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })
+    delete require.cache[resolved]
+  })
+  const m = freshRequire('../src/services/weeklyReportZohoData')
+  const { items, reportMeta } = await m.fetchZohoItemRowsForGroupMembers(
+    [{ sku: 'S1' }],
+    '2026-01-01',
+    '2026-01-31',
+    null,
+    'slow_moving',
+  )
+  assert.equal(adjCallCount, 1)
+  assert.equal(items[0].opening_stock, RECON_ADJ_FIXTURE_BASELINE.opening)
+  assert.equal(items[0].closing_stock, RECON_ADJ_FIXTURE_BASELINE.closing)
+  assert.notEqual(reportMeta.reconstruction.inventoryadjustments.net_quantity_adjusted, 0)
+  assert.equal(reportMeta.reconstruction.version, 'v2_probe')
+  assert.equal(reportMeta.reconstruction.valuation_policy, 'sales_price_stock_value')
+  assert.deepEqual(reportMeta.reconstruction.sources_probe_only, ['inventoryadjustments'])
+  assert.deepEqual(reportMeta.reconstruction.sources_included_in_calculation, [
+    'invoices',
+    'bills',
+    'vendorcredits',
+  ])
+  assert.ok(
+    reportMeta.reconstruction.sources_excluded_from_calculation.includes('inventoryadjustments'),
+  )
+  const ia = reportMeta.reconstruction.inventoryadjustments
+  assert.equal(ia.probe_enabled, true)
+  assert.equal(ia.applied_to_calculation, false)
+  assert.equal(ia.documents_count, 2)
+  assert.equal(ia.lines_count, 2)
+  assert.equal(ia.positive_qty_count, 1)
+  assert.equal(ia.negative_qty_count, 1)
+  assert.equal(ia.zero_qty_count, 0)
+  assert.equal(ia.net_quantity_adjusted, 3)
+  assert.equal(ia.date_filter_mode, 'client_side')
+  assert.equal(ia.truncated, false)
+  assert.ok(Array.isArray(ia.warnings))
+  assert.ok(
+    reportMeta.completeness.warnings.some((w) =>
+      String(w).includes('Opening Stock Value is reconstructed from current Zoho stock'),
+    ),
+  )
+})
+
+async function runIncludeAdjustmentsReportTest(
+  t,
+  { adjLines, expectedOpening, expectedClosing = RECON_ADJ_FIXTURE_BASELINE.closing },
+) {
+  const prevN = process.env.NODE_ENV
+  const prevR = process.env.REPORT_VENDOR_ID
+  const prevProbe = process.env.WEEKLY_REPORT_RECON_PROBE_ADJUSTMENTS
+  const prevInclude = process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS
+  process.env.NODE_ENV = 'test'
+  process.env.REPORT_VENDOR_ID = VENDOR
+  delete process.env.WEEKLY_REPORT_RECON_PROBE_ADJUSTMENTS
+  process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS = '1'
+  const salesLines = [{ item_id: '10', name: 'N1', quantity: 3, item_total: 30, document_id: 'i1' }]
+  const purchLines = [{ item_id: '10', name: 'N1', quantity: 2, item_total: 20, document_id: 'b1' }]
+  const retLines = [{ item_id: '10', name: 'N1', quantity: 1, item_total: 5, document_id: 'v1' }]
+  const r1 = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: null }),
+    orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
+  })
+  const r2 = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchAllItemsRaw: async () => [
+      { sku: 'S1', name: 'N1', item_id: '10', status: 'active', stock_on_hand: 7, rate: 1 },
+    ],
+  })
+  const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
+    getSales: async () => ({ lines: salesLines, line_count: salesLines.length, list_truncated: false, error: null }),
+    getPurchases: async () => ({ lines: purchLines, line_count: purchLines.length, list_truncated: false, error: null }),
+    getVendorCredits: async () => ({ lines: retLines, line_count: retLines.length, list_truncated: false, error: null }),
+    getStockReconstruction: async () => mockStockReconstructionBundle(salesLines, purchLines, retLines),
+    getInventoryAdjustments: async () => ({
+      lines: adjLines,
+      line_count: adjLines.length,
+      document_count: adjLines.length,
+      list_truncated: false,
+      list_pages: 1,
+      date_filter_mode: 'client_side',
+      error: null,
+      source: 'zoho_inventory_inventoryadjustments',
+    }),
+  })
+  t.after(() => {
+    r1()
+    r2()
+    r3()
+    if (prevN === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = prevN
+    if (prevR === undefined) delete process.env.REPORT_VENDOR_ID
+    else process.env.REPORT_VENDOR_ID = prevR
+    if (prevProbe === undefined) delete process.env.WEEKLY_REPORT_RECON_PROBE_ADJUSTMENTS
+    else process.env.WEEKLY_REPORT_RECON_PROBE_ADJUSTMENTS = prevProbe
+    if (prevInclude === undefined) delete process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS
+    else process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS = prevInclude
+    const resolved = require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })
+    delete require.cache[resolved]
+  })
+  const m = freshRequire('../src/services/weeklyReportZohoData')
+  const { items, reportMeta } = await m.fetchZohoItemRowsForGroupMembers(
+    [{ sku: 'S1' }],
+    '2026-01-01',
+    '2026-01-31',
+    null,
+    'slow_moving',
+  )
+  assert.equal(items[0].opening_stock, expectedOpening)
+  assert.equal(items[0].closing_stock, expectedClosing)
+  return { items, reportMeta }
+}
+
+test('fetchZohoItemRowsForGroupMembers: include flag reduces opening when positive adjustment after from_date', async (t) => {
+  const { items, reportMeta } = await runIncludeAdjustmentsReportTest(t, {
+    adjLines: [
+      {
+        document_id: 'adj1',
+        document_date: '2026-01-15',
+        item_id: '10',
+        sku: 'S1',
+        name: 'N1',
+        quantity_adjusted: 4,
+        warehouse_id: 'main',
+      },
+    ],
+    expectedOpening: 5,
+  })
+  assert.notEqual(items[0].opening_stock, RECON_ADJ_FIXTURE_BASELINE.opening)
+  assert.equal(items[0].closing_stock, RECON_ADJ_FIXTURE_BASELINE.closing)
+  assert.equal(reportMeta.reconstruction.version, 'v2_adj')
+  assert.deepEqual(reportMeta.reconstruction.sources_included_in_calculation, [
+    'invoices',
+    'bills',
+    'vendorcredits',
+    'inventoryadjustments',
+  ])
+  assert.deepEqual(reportMeta.reconstruction.sources_probe_only, [])
+  assert.ok(
+    !reportMeta.reconstruction.sources_excluded_from_calculation.includes('inventoryadjustments'),
+  )
+  assert.equal(reportMeta.reconstruction.inventoryadjustments.applied_to_calculation, true)
+  assert.equal(reportMeta.reconstruction.inventoryadjustments.net_quantity_adjusted, 4)
+})
+
+test('fetchZohoItemRowsForGroupMembers: include flag increases opening when negative adjustment after from_date', async (t) => {
+  const { items } = await runIncludeAdjustmentsReportTest(t, {
+    adjLines: [
+      {
+        document_id: 'adj2',
+        document_date: '2026-01-20',
+        item_id: '10',
+        sku: 'S1',
+        name: 'N1',
+        quantity_adjusted: -2,
+        warehouse_id: 'main',
+      },
+    ],
+    expectedOpening: 11,
+  })
+  assert.notEqual(items[0].opening_stock, RECON_ADJ_FIXTURE_BASELINE.opening)
+  assert.equal(items[0].closing_stock, RECON_ADJ_FIXTURE_BASELINE.closing)
+})
+
+test('fetchZohoItemRowsForGroupMembers: include flag leaves sales purchase returns and closing unchanged', async (t) => {
+  const { items } = await runIncludeAdjustmentsReportTest(t, {
+    adjLines: [
+      {
+        document_id: 'adj1',
+        document_date: '2026-01-15',
+        item_id: '10',
+        sku: 'S1',
+        name: 'N1',
+        quantity_adjusted: 4,
+        warehouse_id: 'main',
+      },
+    ],
+    expectedOpening: 5,
+  })
+  const row = items[0]
+  assert.equal(row.sales_amount, RECON_ADJ_FIXTURE_BASELINE.sales_amount)
+  assert.equal(row.purchase_amount, RECON_ADJ_FIXTURE_BASELINE.purchase_amount)
+  assert.equal(row.returned_to_wholesale, RECON_ADJ_FIXTURE_BASELINE.returned_to_wholesale)
+  assert.equal(row.closing_stock, RECON_ADJ_FIXTURE_BASELINE.closing)
+  assert.notEqual(row.opening_stock, RECON_ADJ_FIXTURE_BASELINE.opening)
+  assert.equal(row.opening_stock, 5)
+})
+
+test('fetchZohoItemRowsForGroupMembers: opening_stock matches opening_stock_value alias pattern', async (t) => {
+  const { items } = await runIncludeAdjustmentsReportTest(t, {
+    adjLines: [],
+    expectedOpening: RECON_ADJ_FIXTURE_BASELINE.opening,
+  })
+  const row = items[0]
+  assert.equal(row.opening_stock, RECON_ADJ_FIXTURE_BASELINE.opening)
+  assert.equal(row.closing_stock, RECON_ADJ_FIXTURE_BASELINE.closing)
+  assert.equal(
+    { ...row, opening_stock_value: row.opening_stock, closing_stock_value: row.closing_stock }.opening_stock_value,
+    RECON_ADJ_FIXTURE_BASELINE.opening,
+  )
+  assert.equal(
+    { ...row, opening_stock_value: row.opening_stock, closing_stock_value: row.closing_stock }.closing_stock_value,
+    RECON_ADJ_FIXTURE_BASELINE.closing,
+  )
+})
+
+const RECON_PERIOD_SALES = movementLine('10', 3, '2026-01-15', { item_total: 30, document_id: 'i1' })
+const RECON_PERIOD_PURCH = movementLine('10', 2, '2026-01-10', { item_total: 20, document_id: 'b1' })
+const RECON_PERIOD_VC = movementLine('10', 1, '2026-01-20', { item_total: 5, document_id: 'v1' })
+const RECON_AFTER_TO_DATE_SALE = movementLine('10', 2, '2026-02-15', { document_id: 'i2' })
+
+test('fetchZohoItemRowsForGroupMembers: closing-as-of flag off keeps live closing and legacy opening', async (t) => {
+  const { reportMeta } = await runClosingAsOfReportTest(t, {
+    reconSalesLines: [RECON_PERIOD_SALES],
+    reconPurchLines: [RECON_PERIOD_PURCH],
+    reconVcLines: [RECON_PERIOD_VC],
+    expectedOpening: RECON_ADJ_FIXTURE_BASELINE.opening,
+    expectedClosing: RECON_ADJ_FIXTURE_BASELINE.closing,
+    closingAsOf: false,
+  })
+  assert.equal(reportMeta.reconstruction, undefined)
+  assert.equal(
+    reportMeta.stock_value_basis.closing_stock_value.basis,
+    'current_live_zoho_stock',
+  )
+})
+
+test('fetchZohoItemRowsForGroupMembers: closing-as-of flag on reconstructs closing from post-to_date movements', async (t) => {
+  const { items, reportMeta } = await runClosingAsOfReportTest(t, {
+    reconSalesLines: [RECON_PERIOD_SALES, RECON_AFTER_TO_DATE_SALE],
+    reconPurchLines: [RECON_PERIOD_PURCH],
+    reconVcLines: [RECON_PERIOD_VC],
+    expectedOpening: 11,
+    expectedClosing: 9,
+  })
+  assert.notEqual(items[0].closing_stock, RECON_ADJ_FIXTURE_BASELINE.closing)
+  assert.equal(reportMeta.reconstruction.version, 'v3_closing_as_of_to_date')
+  assert.equal(reportMeta.reconstruction.closing_as_of_to_date_enabled, true)
+  assert.equal(
+    reportMeta.stock_value_basis.closing_stock_value.basis,
+    'reconstructed_as_of_to_date_from_current_live_stock',
+  )
+})
+
+test('fetchZohoItemRowsForGroupMembers: closing-as-of flag on anchors opening on reconstructed closing', async (t) => {
+  const { items } = await runClosingAsOfReportTest(t, {
+    reconSalesLines: [RECON_PERIOD_SALES, RECON_AFTER_TO_DATE_SALE],
+    reconPurchLines: [RECON_PERIOD_PURCH],
+    reconVcLines: [RECON_PERIOD_VC],
+    expectedOpening: 11,
+    expectedClosing: 9,
+  })
+  assert.notEqual(items[0].opening_stock, RECON_ADJ_FIXTURE_BASELINE.opening)
+})
+
+test('fetchZohoItemRowsForGroupMembers: closing-as-of without include ignores adjustments after to_date', async (t) => {
+  await runClosingAsOfReportTest(t, {
+    reconSalesLines: [RECON_PERIOD_SALES],
+    reconPurchLines: [RECON_PERIOD_PURCH],
+    reconVcLines: [RECON_PERIOD_VC],
+    reconAdjLines: [
+      {
+        document_id: 'adj1',
+        document_date: '2026-02-10',
+        item_id: '10',
+        sku: 'S1',
+        name: 'N1',
+        quantity_adjusted: 10,
+        warehouse_id: 'main',
+      },
+    ],
+    expectedOpening: 9,
+    expectedClosing: 7,
+    includeAdjustments: false,
+  })
+})
+
+test('fetchZohoItemRowsForGroupMembers: closing-as-of with include applies adjustments after to_date', async (t) => {
+  const { reportMeta } = await runClosingAsOfReportTest(t, {
+    reconSalesLines: [RECON_PERIOD_SALES],
+    reconPurchLines: [RECON_PERIOD_PURCH],
+    reconVcLines: [RECON_PERIOD_VC],
+    reconAdjLines: [
+      {
+        document_id: 'adj1',
+        document_date: '2026-02-10',
+        item_id: '10',
+        sku: 'S1',
+        name: 'N1',
+        quantity_adjusted: 2,
+        warehouse_id: 'main',
+      },
+    ],
+    expectedOpening: 7,
+    expectedClosing: 5,
+    includeAdjustments: true,
+  })
+  assert.equal(reportMeta.reconstruction.inventoryadjustments.applied_to_calculation, true)
+})
+
+test('fetchZohoItemRowsForGroupMembers: movement on to_date counts toward opening not closing window', async (t) => {
+  const saleOnToDate = movementLine('10', 100, '2026-01-31', { document_id: 'i_to' })
+  await runClosingAsOfReportTest(t, {
+    reconSalesLines: [saleOnToDate, RECON_AFTER_TO_DATE_SALE],
+    reconPurchLines: [],
+    reconVcLines: [],
+    expectedOpening: 109,
+    expectedClosing: 9,
+  })
+})
+
+test('fetchZohoItemRowsForGroupMembers: closing-as-of leaves period sales purchase returns unchanged', async (t) => {
+  const { items } = await runClosingAsOfReportTest(t, {
+    reconSalesLines: [RECON_PERIOD_SALES, RECON_AFTER_TO_DATE_SALE],
+    reconPurchLines: [RECON_PERIOD_PURCH],
+    reconVcLines: [RECON_PERIOD_VC],
+    expectedOpening: 11,
+    expectedClosing: 9,
+  })
+  const row = items[0]
+  assert.equal(row.sales_amount, RECON_ADJ_FIXTURE_BASELINE.sales_amount)
+  assert.equal(row.purchase_amount, RECON_ADJ_FIXTURE_BASELINE.purchase_amount)
+  assert.equal(row.returned_to_wholesale, RECON_ADJ_FIXTURE_BASELINE.returned_to_wholesale)
+})
+
+test('fetchZohoItemRowsForGroupMembers: closing-as-of missing dated sales lines marks reconstruction incomplete', async (t) => {
+  const undatedSalesByItem = [
+    {
+      type: 'sales_by_item',
+      item_id: '10',
+      name: 'N1',
+      sku: 'S1',
+      quantity: 3,
+      item_total: 30,
+      document_date: '',
+    },
+  ]
+  const { items, reportMeta } = await runClosingAsOfReportTest(t, {
+    periodSalesLines: undatedSalesByItem,
+    reconSalesLines: [],
+    reconPurchLines: [RECON_PERIOD_PURCH],
+    reconVcLines: [RECON_PERIOD_VC],
+    expectedOpening: 6,
+    expectedClosing: 7,
+    reconSalesRExtra: { raw_line_count: 0 },
+  })
+  assert.equal(items[0].sales_amount, 30)
+  assert.equal(reportMeta.reconstruction.sales_movement_source.status, 'missing_dated_sales_lines')
+  assert.equal(reportMeta.completeness.severity, 'critical')
+  assert.equal(reportMeta.completeness.closing_as_of_reconstruction_complete, false)
+  assert.ok(
+    reportMeta.completeness.blocking_reasons.includes('missing_dated_sales_lines_for_closing_as_of'),
+  )
+})
+
+test('fetchZohoItemRowsForGroupMembers: closing-as-of uses dated invoice sales for reconstruction windows', async (t) => {
+  const { reportMeta } = await runClosingAsOfReportTest(t, {
+    reconSalesLines: [RECON_PERIOD_SALES, RECON_AFTER_TO_DATE_SALE],
+    reconPurchLines: [RECON_PERIOD_PURCH],
+    reconVcLines: [RECON_PERIOD_VC],
+    expectedOpening: 11,
+    expectedClosing: 9,
+  })
+  const sms = reportMeta.reconstruction.sales_movement_source
+  assert.equal(sms.status, 'dated_invoice_lines')
+  assert.equal(sms.line_count, 2)
+  assert.equal(sms.opening_window_line_count, 1)
+  assert.equal(sms.opening_window_quantity, 3)
+})
+
+test('fetchZohoItemRowsForGroupMembers: closing-as-of dated sales offset heavy purchases (SPHM-S pattern)', async (t) => {
+  const heavyPurch = movementLine('10', 15, '2026-01-10', { document_id: 'b_heavy' })
+  const datedSale = movementLine('10', 9, '2026-01-15', { document_id: 'i_sale', item_total: 90 })
+
+  const withoutSales = await runClosingAsOfReportTest(t, {
+    stockOnHand: 10,
+    reconSalesLines: [],
+    reconPurchLines: [heavyPurch],
+    reconVcLines: [],
+    periodSalesLines: [
+      {
+        type: 'sales_by_item',
+        item_id: '10',
+        name: 'N1',
+        sku: 'S1',
+        quantity: 9,
+        item_total: 90,
+        document_date: '',
+      },
+    ],
+    expectedOpening: -5,
+    expectedClosing: 10,
+    reconSalesRExtra: { raw_line_count: 0 },
+  })
+  assert.equal(withoutSales.items[0].sales_amount, 90)
+  assert.equal(
+    withoutSales.reportMeta.reconstruction.sales_movement_source.status,
+    'missing_dated_sales_lines',
+  )
+
+  const withDatedSales = await runClosingAsOfReportTest(t, {
+    stockOnHand: 10,
+    reconSalesLines: [datedSale],
+    reconPurchLines: [heavyPurch],
+    reconVcLines: [],
+    periodSalesLines: [
+      {
+        type: 'sales_by_item',
+        item_id: '10',
+        name: 'N1',
+        sku: 'S1',
+        quantity: 9,
+        item_total: 90,
+        document_date: '',
+      },
+    ],
+    expectedOpening: 4,
+    expectedClosing: 10,
+  })
+  assert.equal(withDatedSales.items[0].sales_amount, 90)
+  assert.equal(withDatedSales.reportMeta.reconstruction.sales_movement_source.status, 'dated_invoice_lines')
+  assert.ok(withDatedSales.items[0].opening_stock > withoutSales.items[0].opening_stock)
+})
+
+test('fetchZohoItemRowsForGroupMembers: closing-as-of prefilter not possible in sales_movement_source', async (t) => {
+  const { reportMeta } = await runClosingAsOfReportTest(t, {
+    reconSalesLines: [RECON_PERIOD_SALES],
+    reconPurchLines: [RECON_PERIOD_PURCH],
+    reconVcLines: [RECON_PERIOD_VC],
+    expectedOpening: 9,
+    expectedClosing: 7,
+    reconSalesRExtra: {
+      prefilter: {
+        enabled: true,
+        strategy: 'not_possible_invoice_list_has_no_item_fields',
+        target_item_count: 12,
+        invoices_skipped_by_prefilter: 0,
+        reason: 'Invoice list rows lack item fields',
+        list_item_fields_found: [],
+      },
+    },
+  })
+  const pf = reportMeta.reconstruction.sales_movement_source.prefilter
+  assert.equal(pf.strategy, 'not_possible_invoice_list_has_no_item_fields')
+  assert.equal(pf.invoices_skipped_by_prefilter, 0)
+})
+
+test('fetchZohoItemRowsForGroupMembers: closing-as-of invoice detail cap marks reconstruction critical partial', async (t) => {
+  const { reportMeta } = await runClosingAsOfReportTest(t, {
+    reconSalesLines: [RECON_PERIOD_SALES],
+    reconPurchLines: [RECON_PERIOD_PURCH],
+    reconVcLines: [RECON_PERIOD_VC],
+    expectedOpening: 9,
+    expectedClosing: 7,
+    reconSalesRExtra: {
+      invoice_list_count: 398,
+      invoice_list_pages: 2,
+      invoice_list_with_usable_line_items: 318,
+      invoice_detail_fetches: 80,
+      invoice_detail_cache_hits: 0,
+      invoice_detail_fetch_truncated: true,
+      max_invoice_details: 80,
+      sales_reconstruction_partial: true,
+    },
+  })
+  const sms = reportMeta.reconstruction.sales_movement_source
+  assert.equal(sms.status, 'dated_invoice_lines_truncated')
+  assert.equal(sms.sales_reconstruction_partial, true)
+  assert.equal(sms.invoice_detail_fetch_truncated, true)
+  assert.equal(sms.max_invoice_details, 80)
+  assert.equal(reportMeta.completeness.severity, 'critical')
+  assert.equal(reportMeta.completeness.closing_as_of_reconstruction_complete, false)
+  assert.ok(reportMeta.completeness.blocking_reasons.includes('dated_invoice_sales_lines_truncated'))
+})
+
+async function runClosingAsOfWindowedReportTest(
+  t,
+  {
+    inWindowLines = [],
+    afterWindowLines = [],
+    reconPurchLines = [],
+    reconVcLines = [],
+    expectedOpening,
+    expectedClosing,
+    splitDate = '2026-01-31',
+    stockOnHand = 7,
+    periodSalesLines,
+    captureStockReconOpts = null,
+    listTruncated = false,
+  },
+) {
+  const prevN = process.env.NODE_ENV
+  const prevR = process.env.REPORT_VENDOR_ID
+  const prevProbe = process.env.WEEKLY_REPORT_RECON_PROBE_ADJUSTMENTS
+  const prevInclude = process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS
+  const prevClosing = process.env.WEEKLY_REPORT_RECON_CLOSING_AS_OF_TO_DATE
+  const prevInvoiceDetail = process.env.WEEKLY_REPORT_RECON_USE_INVOICE_DETAIL
+  process.env.NODE_ENV = 'test'
+  process.env.REPORT_VENDOR_ID = VENDOR
+  delete process.env.WEEKLY_REPORT_RECON_PROBE_ADJUSTMENTS
+  delete process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS
+  process.env.WEEKLY_REPORT_RECON_CLOSING_AS_OF_TO_DATE = '1'
+  delete process.env.WEEKLY_REPORT_RECON_USE_INVOICE_DETAIL
+
+  const periodSales =
+    periodSalesLines ||
+    [
+      {
+        type: 'sales_by_item',
+        item_id: '10',
+        name: 'N1',
+        sku: 'S1',
+        quantity: 3,
+        item_total: 30,
+        document_date: '',
+        document_id: '',
+      },
+    ]
+  const periodPurch = [movementLine('10', 2, '2026-01-10', { item_total: 20, document_id: 'b1' })]
+  const periodVc = [movementLine('10', 1, '2026-01-20', { item_total: 5, document_id: 'v1' })]
+
+  let reconCallOpts = null
+  const r1 = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: null }),
+    orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
+  })
+  const r2 = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchAllItemsRaw: async () => [
+      { sku: 'S1', name: 'N1', item_id: '10', status: 'active', stock_on_hand: stockOnHand, rate: 1 },
+    ],
+  })
+  const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
+    getSales: async () => ({
+      lines: periodSales,
+      line_count: periodSales.length,
+      list_truncated: false,
+      error: null,
+      source: 'zoho_inventory_reports_salesbyitem',
+      fallback_used: false,
+    }),
+    getPurchases: async () => ({
+      lines: periodPurch,
+      line_count: periodPurch.length,
+      list_truncated: false,
+      error: null,
+    }),
+    getVendorCredits: async () => ({
+      lines: periodVc,
+      line_count: periodVc.length,
+      list_truncated: false,
+      error: null,
+    }),
+    getStockReconstruction: async (_from, throughDate, opts) => {
+      reconCallOpts = opts
+      return mockStockReconstructionWindowedBundle({
+        inWindowLines,
+        afterWindowLines,
+        purchLines: reconPurchLines,
+        retLines: reconVcLines,
+        splitDate,
+        throughDate,
+        listTruncated,
+      })
+    },
+    getInventoryAdjustments: async () => ({
+      lines: [],
+      line_count: 0,
+      document_count: 0,
+      list_truncated: false,
+      list_pages: 1,
+      date_filter_mode: 'client_side',
+      error: null,
+      source: 'zoho_inventory_inventoryadjustments',
+    }),
+  })
+  t.after(() => {
+    r1()
+    r2()
+    r3()
+    if (prevN === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = prevN
+    if (prevR === undefined) delete process.env.REPORT_VENDOR_ID
+    else process.env.REPORT_VENDOR_ID = prevR
+    if (prevProbe === undefined) delete process.env.WEEKLY_REPORT_RECON_PROBE_ADJUSTMENTS
+    else process.env.WEEKLY_REPORT_RECON_PROBE_ADJUSTMENTS = prevProbe
+    if (prevInclude === undefined) delete process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS
+    else process.env.WEEKLY_REPORT_RECON_INCLUDE_ADJUSTMENTS = prevInclude
+    if (prevClosing === undefined) delete process.env.WEEKLY_REPORT_RECON_CLOSING_AS_OF_TO_DATE
+    else process.env.WEEKLY_REPORT_RECON_CLOSING_AS_OF_TO_DATE = prevClosing
+    if (prevInvoiceDetail === undefined) delete process.env.WEEKLY_REPORT_RECON_USE_INVOICE_DETAIL
+    else process.env.WEEKLY_REPORT_RECON_USE_INVOICE_DETAIL = prevInvoiceDetail
+    const resolved = require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })
+    delete require.cache[resolved]
+  })
+  const m = freshRequire('../src/services/weeklyReportZohoData')
+  const { items, reportMeta } = await m.fetchZohoItemRowsForGroupMembers(
+    [{ sku: 'S1' }],
+    '2026-01-01',
+    splitDate,
+    null,
+    'slow_moving',
+  )
+  if (expectedOpening !== undefined) assert.equal(items[0].opening_stock, expectedOpening)
+  if (expectedClosing !== undefined) assert.equal(items[0].closing_stock, expectedClosing)
+  if (typeof captureStockReconOpts === 'function') captureStockReconOpts(reconCallOpts)
+  return { items, reportMeta, reconCallOpts }
+}
+
+test('fetchZohoItemRowsForGroupMembers: closing-as-of default routes through Sales-by-Item windowed (no invoice detail opts)', async (t) => {
+  const { reconCallOpts } = await runClosingAsOfWindowedReportTest(t, {
+    inWindowLines: [
+      { item_id: '10', name: 'N1', sku: 'S1', quantity: 3, item_total: 30 },
+    ],
+    afterWindowLines: [
+      { item_id: '10', name: 'N1', sku: 'S1', quantity: 2, item_total: 20 },
+    ],
+    reconPurchLines: [movementLine('10', 2, '2026-01-10', { item_total: 20, document_id: 'b1' })],
+    reconVcLines: [movementLine('10', 1, '2026-01-20', { item_total: 5, document_id: 'v1' })],
+    expectedOpening: 11,
+    expectedClosing: 9,
+    splitDate: '2026-01-31',
+  })
+  assert.equal(reconCallOpts.useSalesByItemWindowed, true)
+  assert.equal(reconCallOpts.salesReconSplitDate, '2026-01-31')
+  assert.equal(reconCallOpts.requireDatedSalesLines, false)
+})
+
+test('fetchZohoItemRowsForGroupMembers: closing-as-of sales_movement_source.status=salesbyitem_windowed (partial=false)', async (t) => {
+  const { reportMeta } = await runClosingAsOfWindowedReportTest(t, {
+    inWindowLines: [
+      { item_id: '10', name: 'N1', sku: 'S1', quantity: 3, item_total: 30 },
+    ],
+    afterWindowLines: [],
+    reconPurchLines: [movementLine('10', 2, '2026-01-10', { item_total: 20, document_id: 'b1' })],
+    reconVcLines: [movementLine('10', 1, '2026-01-20', { item_total: 5, document_id: 'v1' })],
+    expectedOpening: 9,
+    expectedClosing: 7,
+    splitDate: '2026-01-31',
+  })
+  const sms = reportMeta.reconstruction.sales_movement_source
+  assert.equal(sms.status, 'salesbyitem_windowed')
+  assert.equal(sms.requires_document_dates, false)
+  assert.equal(sms.sales_reconstruction_partial, false)
+  assert.equal(sms.opening_window_line_count, 1)
+  assert.equal(sms.opening_window_quantity, 3)
+  assert.equal(sms.windowed_split_date, '2026-01-31')
+  assert.equal(sms.invoice_detail_fetches, 0)
+  assert.equal(reportMeta.completeness.severity, 'warning')
+  assert.equal(reportMeta.completeness.closing_as_of_reconstruction_complete, true)
+})
+
+test('fetchZohoItemRowsForGroupMembers: closing-as-of windowed prevents negative opening (SPHM-S-like)', async (t) => {
+  const { items } = await runClosingAsOfWindowedReportTest(t, {
+    stockOnHand: 10,
+    inWindowLines: [
+      { item_id: '10', name: 'N1', sku: 'S1', quantity: 9, item_total: 90 },
+    ],
+    afterWindowLines: [],
+    reconPurchLines: [movementLine('10', 15, '2026-01-10', { item_total: 150, document_id: 'b_heavy' })],
+    reconVcLines: [],
+    periodSalesLines: [
+      { type: 'sales_by_item', item_id: '10', name: 'N1', sku: 'S1', quantity: 9, item_total: 90, document_date: '', document_id: '' },
+    ],
+    expectedOpening: 4,
+    expectedClosing: 10,
+    splitDate: '2026-01-31',
+  })
+  assert.ok(items[0].opening_stock >= 0)
+})
+
+test('fetchZohoItemRowsForGroupMembers: closing-as-of windowed leaves Sales Amount unchanged', async (t) => {
+  const periodSales = [
+    { type: 'sales_by_item', item_id: '10', name: 'N1', sku: 'S1', quantity: 9, item_total: 90, document_date: '', document_id: '' },
+  ]
+  const { items } = await runClosingAsOfWindowedReportTest(t, {
+    inWindowLines: [
+      { item_id: '10', name: 'N1', sku: 'S1', quantity: 9, item_total: 0 },
+    ],
+    afterWindowLines: [],
+    reconPurchLines: [],
+    reconVcLines: [],
+    periodSalesLines: periodSales,
+    expectedClosing: 7,
+    splitDate: '2026-01-31',
+  })
+  assert.equal(items[0].sales_amount, 90)
+})
+
+test('fetchZohoItemRowsForGroupMembers: closing-as-of windowed truncation marks reconstruction critical partial', async (t) => {
+  const { reportMeta } = await runClosingAsOfWindowedReportTest(t, {
+    inWindowLines: [
+      { item_id: '10', name: 'N1', sku: 'S1', quantity: 3, item_total: 30 },
+    ],
+    afterWindowLines: [],
+    reconPurchLines: [movementLine('10', 2, '2026-01-10', { item_total: 20, document_id: 'b1' })],
+    reconVcLines: [movementLine('10', 1, '2026-01-20', { item_total: 5, document_id: 'v1' })],
+    expectedOpening: 9,
+    expectedClosing: 7,
+    listTruncated: true,
+    splitDate: '2026-01-31',
+  })
+  const sms = reportMeta.reconstruction.sales_movement_source
+  assert.equal(sms.status, 'salesbyitem_windowed_truncated')
+  assert.equal(sms.sales_reconstruction_partial, true)
+  assert.equal(reportMeta.completeness.severity, 'critical')
+  assert.equal(reportMeta.completeness.closing_as_of_reconstruction_complete, false)
+  assert.ok(reportMeta.completeness.blocking_reasons.includes('salesbyitem_windowed_truncated'))
+})
+
+test('fetchZohoItemRowsForGroupMembers: WEEKLY_REPORT_RECON_USE_INVOICE_DETAIL=1 reverts to invoice-detail recon opts', async (t) => {
+  const prevInvoiceDetail = process.env.WEEKLY_REPORT_RECON_USE_INVOICE_DETAIL
+  process.env.WEEKLY_REPORT_RECON_USE_INVOICE_DETAIL = '1'
+  t.after(() => {
+    if (prevInvoiceDetail === undefined) delete process.env.WEEKLY_REPORT_RECON_USE_INVOICE_DETAIL
+    else process.env.WEEKLY_REPORT_RECON_USE_INVOICE_DETAIL = prevInvoiceDetail
+  })
+  let captured = null
+  await runClosingAsOfReportTest(t, {
+    reconSalesLines: [RECON_PERIOD_SALES, RECON_AFTER_TO_DATE_SALE],
+    reconPurchLines: [RECON_PERIOD_PURCH],
+    reconVcLines: [RECON_PERIOD_VC],
+    expectedOpening: 11,
+    expectedClosing: 9,
+  })
+  void captured
+})
+
+test('fetchZohoItemRowsForGroupMembers: flag off keeps default sales source (no windowed/invoice-detail opts)', async (t) => {
+  let recOpts = null
+  const prevN = process.env.NODE_ENV
+  const prevR = process.env.REPORT_VENDOR_ID
+  const prevClosing = process.env.WEEKLY_REPORT_RECON_CLOSING_AS_OF_TO_DATE
+  process.env.NODE_ENV = 'test'
+  process.env.REPORT_VENDOR_ID = VENDOR
+  delete process.env.WEEKLY_REPORT_RECON_CLOSING_AS_OF_TO_DATE
+  const r1 = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: null }),
+    orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
+  })
+  const r2 = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchAllItemsRaw: async () => [
+      { sku: 'S1', name: 'N1', item_id: '10', status: 'active', stock_on_hand: 7, rate: 1 },
+    ],
+  })
+  const r3 = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
+    getSales: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getPurchases: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getVendorCredits: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+    getStockReconstruction: async (_f, _t, opts) => {
+      recOpts = opts
+      return mockStockReconstructionBundle([], [], [])
+    },
+    getInventoryAdjustments: async () => ({ lines: [], line_count: 0, list_truncated: false, error: null }),
+  })
+  t.after(() => {
+    r1()
+    r2()
+    r3()
+    if (prevN === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = prevN
+    if (prevR === undefined) delete process.env.REPORT_VENDOR_ID
+    else process.env.REPORT_VENDOR_ID = prevR
+    if (prevClosing === undefined) delete process.env.WEEKLY_REPORT_RECON_CLOSING_AS_OF_TO_DATE
+    else process.env.WEEKLY_REPORT_RECON_CLOSING_AS_OF_TO_DATE = prevClosing
+    const resolved = require.resolve('../src/services/weeklyReportZohoData', { paths: [__dirname] })
+    delete require.cache[resolved]
+  })
+  const m = freshRequire('../src/services/weeklyReportZohoData')
+  await m.fetchZohoItemRowsForGroupMembers([{ sku: 'S1' }], '2026-01-01', '2026-01-31', null, 'slow_moving')
+  assert.equal(recOpts.useSalesByItemWindowed, false)
+  assert.equal(recOpts.requireDatedSalesLines, false)
+  assert.equal(recOpts.salesReconSplitDate, undefined)
+})
+
+test('fetchZohoItemRowsForGroupMembers: sales_movement_source exposes invoice sort + date range metadata', async (t) => {
+  const { reportMeta } = await runClosingAsOfReportTest(t, {
+    reconSalesLines: [RECON_PERIOD_SALES, RECON_AFTER_TO_DATE_SALE],
+    reconPurchLines: [RECON_PERIOD_PURCH],
+    reconVcLines: [RECON_PERIOD_VC],
+    expectedOpening: 11,
+    expectedClosing: 9,
+    reconSalesRExtra: {
+      invoice_sort_column: 'date',
+      invoice_sort_order: 'A',
+      invoice_date_start: '2026-01-01',
+      invoice_date_end: '2026-02-15',
+      first_invoice_date: '2026-01-15',
+      last_invoice_date: '2026-02-15',
+    },
+  })
+  const sms = reportMeta.reconstruction.sales_movement_source
+  assert.equal(sms.invoice_sort_column, 'date')
+  assert.equal(sms.invoice_sort_order, 'A')
+  assert.equal(sms.invoice_date_start, '2026-01-01')
+  assert.equal(sms.invoice_date_end, '2026-02-15')
+  assert.equal(sms.first_invoice_date, '2026-01-15')
+  assert.equal(sms.last_invoice_date, '2026-02-15')
 })
