@@ -1068,6 +1068,9 @@ export function AllPricesPage() {
           <table className="ap-ec-table">
             <thead>
               <tr>
+                <th scope="col" className="ap-ec-row-number">
+                  Sr no.
+                </th>
                 <th scope="col">Item no.</th>
                 <th scope="col" className="col-accent">
                   Sales price (AED)
@@ -1095,7 +1098,7 @@ export function AllPricesPage() {
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="ap-ec-empty">
+                  <td colSpan={13} className="ap-ec-empty">
                     No rows in the table. Paste or import your price list, then save it as a named list.
                   </td>
                 </tr>
@@ -1113,6 +1116,7 @@ export function AllPricesPage() {
 
                   return (
                     <tr key={row.id}>
+                      <td className="ap-ec-row-number">{rows.indexOf(row) + 1}</td>
                       <td>
                         <input
                           className="item-no-input"

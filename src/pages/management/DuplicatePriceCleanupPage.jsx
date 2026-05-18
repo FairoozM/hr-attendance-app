@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { useUserPreferences } from '../../contexts/UserPreferencesContext'
 import {
   buildAllPricesBundle,
+  computeEcommercePriceRow,
   fmtMoney,
   formatLastSavedAt,
   hydrateAllPricesStateFromBundle,
@@ -34,11 +35,14 @@ function SummaryCard({ label, value, hint }) {
 }
 
 function RowSnapshot({ row, rates }) {
+  const computed = computeEcommercePriceRow(row, rates)
   const purchase = row.purchasePrice === '' ? '—' : fmtMoney(row.purchasePrice)
   const shipping = row.shipping === '' ? '—' : fmtMoney(row.shipping)
+  const salesPrice = computed.denominatorInvalid ? '—' : fmtMoney(computed.salesPrice, 0)
   return (
     <div className="ap-ec-duplicate-row">
       <strong>{row.itemNo || 'No item no.'}</strong>
+      <span>Sales price: {salesPrice}</span>
       <span>Purchase: {purchase}</span>
       <span>Shipping: {shipping}</span>
       <span>Date: {row.dateOfPrices || 'blank'}</span>

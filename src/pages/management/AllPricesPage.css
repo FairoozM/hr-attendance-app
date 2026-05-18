@@ -390,6 +390,15 @@
   min-width: 1800px;
 }
 
+.ap-ec-row-number {
+  width: 4.5rem;
+  min-width: 4.5rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
 .ap-ec-saved-card__badge--warn {
   background: color-mix(in srgb, #f59e0b 30%, transparent);
   font-size: 0.62rem;
