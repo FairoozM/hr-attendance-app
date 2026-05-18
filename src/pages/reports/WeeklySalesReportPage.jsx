@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import * as XLSX from 'xlsx'
 import { api, fetchBinary, downloadBlob } from '../../api/client'
 import { useWeeklySalesReport } from '../../hooks/useWeeklySalesReport'
 import { useUserPreferences } from '../../contexts/UserPreferencesContext'
@@ -474,6 +475,63 @@ export function defaultExportXlsxName(reportGroup, fromDate, toDate) {
   return `weekly-${slug}-report-${fromDate}-to-${toDate}.xlsx`
 }
 
+export function buildWeeklySalesExportRows(items, { suppressSalesAmount = false } = {}) {
+  return (Array.isArray(items) ? items : []).map((row, index) => ({
+    'Sr. No': index + 1,
+    Family: row?.family || '',
+    'Opening Stock': Number.isFinite(Number(row?.opening_stock)) ? Number(row.opening_stock) : '',
+    'Purchase Amount': Number.isFinite(Number(row?.purchase_amount)) ? Number(row.purchase_amount) : '',
+    'Returned to Wholesale': Number.isFinite(Number(row?.returned_to_wholesale)) ? Number(row.returned_to_wholesale) : '',
+    'Closing Stock': Number.isFinite(Number(row?.closing_stock)) ? Number(row.closing_stock) : '',
+    'Sales Amount': suppressSalesAmount
+      ? ''
+      : Number.isFinite(Number(row?.sales_amount))
+        ? Number(row.sales_amount)
+        : '',
+  }))
+}
+
+export function exportWeeklySalesSnapshotToExcel({
+  reportGroup,
+  title,
+  fromDate,
+  toDate,
+  items,
+  totals,
+  salesSort,
+  suppressSalesAmount,
+}) {
+  const visibleItems = partitionWeeklyFamilyItems(items).withValues
+  const exportItems = salesSort
+    ? [...visibleItems].sort((a, b) => {
+        const av = Number(a?.sales_amount) || 0
+        const bv = Number(b?.sales_amount) || 0
+        return salesSort === 'asc' ? av - bv : bv - av
+      })
+    : visibleItems
+  const exportRows = buildWeeklySalesExportRows(exportItems, { suppressSalesAmount })
+  if (totals && typeof totals === 'object') {
+    exportRows.push({
+      'Sr. No': '',
+      Family: 'TOTAL',
+      'Opening Stock': Number.isFinite(Number(totals.opening_stock)) ? Number(totals.opening_stock) : '',
+      'Purchase Amount': Number.isFinite(Number(totals.purchase_amount)) ? Number(totals.purchase_amount) : '',
+      'Returned to Wholesale': Number.isFinite(Number(totals.returned_to_wholesale)) ? Number(totals.returned_to_wholesale) : '',
+      'Closing Stock': Number.isFinite(Number(totals.closing_stock)) ? Number(totals.closing_stock) : '',
+      'Sales Amount': suppressSalesAmount
+        ? ''
+        : Number.isFinite(Number(totals.sales_amount))
+          ? Number(totals.sales_amount)
+          : '',
+    })
+  }
+
+  const worksheet = XLSX.utils.json_to_sheet(exportRows)
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, String(title || 'Weekly Report').slice(0, 31))
+  XLSX.writeFile(workbook, defaultExportXlsxName(reportGroup, fromDate, toDate))
+}
+
 export function NotConfiguredCallout({ message }) {
   return (
     <div className="wsr-callout wsr-callout--warn" role="status">
@@ -829,6 +887,10 @@ export function WeeklySalesReportSection({
   const activeDateLabel = openedSnapshot
     ? formatDateLabel(openedSnapshot.fromDate, openedSnapshot.toDate)
     : formatDateLabel(fromDate, toDate)
+  const exportFromDate = openedSnapshot?.fromDate || fromDate
+  const exportToDate = openedSnapshot?.toDate || toDate
+  const exportWarehouseId = openedSnapshot ? openedSnapshot.warehouseId : warehouseId
+  const exportExcludeWarehouseId = openedSnapshot ? openedSnapshot.excludeWarehouseId : excludeWarehouseId
   const dateLabel = activeDateLabel
   const reportItems = useMemo(() => {
     if (!suppressSalesAmount) return activeItems
@@ -956,25 +1018,61 @@ export function WeeklySalesReportSection({
   }, [selectedFamily])
 
   const handleExport = useCallback(async () => {
+    if (openedSnapshot) {
+      if (!openedSnapshot.fromDate || !openedSnapshot.toDate) return
+      setExporting(true)
+      setExportError('')
+      try {
+        exportWeeklySalesSnapshotToExcel({
+          reportGroup,
+          title,
+          fromDate: openedSnapshot.fromDate,
+          toDate: openedSnapshot.toDate,
+          items: openedSnapshot.items,
+          totals: openedSnapshot.totals,
+          salesSort: enableSalesSort ? salesSort : null,
+          suppressSalesAmount,
+        })
+      } catch (err) {
+        setExportError(err?.message || 'Export failed. Try again.')
+      } finally {
+        setExporting(false)
+      }
+      return
+    }
     if (!datesValid || notConfigured || !loadToken) return
     setExporting(true)
     setExportError('')
-    const qsParams = { from_date: fromDate, to_date: toDate }
-    if (warehouseId && String(warehouseId).trim() !== '') qsParams.warehouse_id = String(warehouseId).trim()
-    if (excludeWarehouseId && String(excludeWarehouseId).trim() !== '') qsParams.exclude_warehouse_id = String(excludeWarehouseId).trim()
+    const qsParams = { from_date: exportFromDate, to_date: exportToDate }
+    if (exportWarehouseId && String(exportWarehouseId).trim() !== '') qsParams.warehouse_id = String(exportWarehouseId).trim()
+    if (exportExcludeWarehouseId && String(exportExcludeWarehouseId).trim() !== '') qsParams.exclude_warehouse_id = String(exportExcludeWarehouseId).trim()
     if (enableSalesSort) qsParams.sales_sort = salesSort === 'asc' ? 'asc' : 'desc'
     if (suppressSalesAmount) qsParams.suppress_sales_amount = '1'
     const qs = new URLSearchParams(qsParams).toString()
     const path = `/api/weekly-reports/by-group/${encodeURIComponent(reportGroup)}/export.xlsx?${qs}`
     try {
       const { blob, filename } = await fetchBinary(path)
-      downloadBlob(blob, filename || defaultExportXlsxName(reportGroup, fromDate, toDate))
+      downloadBlob(blob, filename || defaultExportXlsxName(reportGroup, exportFromDate, exportToDate))
     } catch (err) {
       setExportError(err?.message || 'Export failed. Try again.')
     } finally {
       setExporting(false)
     }
-  }, [datesValid, notConfigured, fromDate, toDate, reportGroup, loadToken, warehouseId, excludeWarehouseId, enableSalesSort, salesSort, suppressSalesAmount])
+  }, [
+    datesValid,
+    notConfigured,
+    exportFromDate,
+    exportToDate,
+    reportGroup,
+    loadToken,
+    exportWarehouseId,
+    exportExcludeWarehouseId,
+    enableSalesSort,
+    salesSort,
+    suppressSalesAmount,
+    openedSnapshot,
+    title,
+  ])
 
   const handleSaveSnapshot = useCallback(() => {
     if (!enableSave || !datesValid || notConfigured || !loadToken || loading || error) return
@@ -1102,7 +1200,7 @@ export function WeeklySalesReportSection({
             type="button"
             className="war-btn war-btn--primary war-btn--sm"
             onClick={handleExport}
-            disabled={exporting || !datesValid || notConfigured || !loadToken}
+            disabled={exporting || (!openedSnapshot && (!datesValid || notConfigured || !loadToken))}
             aria-busy={exporting}
           >
             {exporting ? 'Exporting…' : 'Export Excel'}
