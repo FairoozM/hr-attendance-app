@@ -23,6 +23,7 @@ import {
 } from './employees/employeeColumnFilters'
 import { excelFilterIsActive } from './ExcelStyleColumnFilter'
 import { isIncludedInAttendance } from '../utils/employeeAttendance'
+import { downloadEmployeesCsv } from './employees/employeeExport'
 import './EmployeeList.css'
 
 const PAGE_SIZE = 20
@@ -410,6 +411,10 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
   }
   const handleDeleteCancel = () => setDeleteConfirmId(null)
 
+  const handleExport = useCallback(() => {
+    downloadEmployeesCsv(effectiveEmployees)
+  }, [effectiveEmployees])
+
   const startIndex = (page - 1) * PAGE_SIZE
 
   return (
@@ -421,9 +426,19 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
             Manage employee records, contact details, job information, and identity details.
           </p>
         </div>
-        <button type="button" className="btn btn--primary employee-directory__cta" onClick={openAdd}>
-          Add Employee
-        </button>
+        <div className="employee-directory__hero-actions">
+          <button
+            type="button"
+            className="btn btn--ghost employee-directory__export"
+            onClick={handleExport}
+            disabled={effectiveEmployees.length === 0}
+          >
+            Export CSV
+          </button>
+          <button type="button" className="btn btn--primary employee-directory__cta" onClick={openAdd}>
+            Add Employee
+          </button>
+        </div>
       </header>
 
       <EmployeeSummaryCards

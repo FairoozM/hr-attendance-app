@@ -75,9 +75,17 @@
   color: var(--text-muted);
 }
 
-.employee-directory__cta {
+.employee-directory__hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
   flex-shrink: 0;
   align-self: flex-start;
+}
+
+.employee-directory__cta,
+.employee-directory__export {
+  flex-shrink: 0;
 }
 
 .employee-directory__empty {
