@@ -40,6 +40,20 @@ export function clearLegacyHrAuthStorage() {
 
 const defaultFetchOpts = { credentials: 'include', cache: 'no-store' }
 
+/** Avoid infinite "Loading…" when the API origin is down or CloudFront times out. */
+const API_REQUEST_TIMEOUT_MS = 25_000
+
+function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS)
+  const { signal: callerSignal, ...rest } = options
+  if (callerSignal) {
+    if (callerSignal.aborted) controller.abort()
+    else callerSignal.addEventListener('abort', () => controller.abort(), { once: true })
+  }
+  return fetch(url, { ...rest, signal: controller.signal }).finally(() => clearTimeout(timer))
+}
+
 /** Legacy upload URL sometimes still cached in old bundles; canonical route always hits Express. */
 function normalizeApiPath(path) {
   if (typeof path !== 'string' || path.startsWith('http')) return path
@@ -170,7 +184,7 @@ function parseFilenameFromContentDisposition(header) {
 export async function fetchBinary(path) {
   const p = normalizeApiPath(path)
   const url = p.startsWith('http') ? p : resolveApiUrl(p)
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     ...defaultFetchOpts,
     method: 'GET',
     headers: {
@@ -215,7 +229,7 @@ export async function fetchBinary(path) {
 export async function postBinary(path, body = null) {
   const p = normalizeApiPath(path)
   const url = p.startsWith('http') ? p : resolveApiUrl(p)
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     ...defaultFetchOpts,
     method: 'POST',
     headers: {
@@ -281,14 +295,14 @@ async function request(method, path, body = null, opts = {}) {
   }
   if (body != null) options.body = JSON.stringify(body)
   if (opts && opts.signal) options.signal = opts.signal
-  const res = await fetch(url, options)
+  const res = await fetchWithTimeout(url, options)
   return handleResponse(res, url)
 }
 
 async function postForm(path, formData) {
   path = normalizeApiPath(path)
   const url = path.startsWith('http') ? path : resolveApiUrl(path)
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     ...defaultFetchOpts,
     method: 'POST',
     body: formData,

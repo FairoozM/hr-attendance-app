@@ -28,8 +28,29 @@ function attendanceApiProxy() {
   }
 }
 
+/** Production: load api-runtime-config before the app module (Vite injects the bundle in <head> first). */
+function apiRuntimeConfigFirst() {
+  return {
+    name: 'api-runtime-config-first',
+    transformIndexHtml(html) {
+      const configTag =
+        html.match(/<script[^>]*src="\/api-runtime-config\.js"[^>]*>\s*<\/script>/i)?.[0] ||
+        '<script src="/api-runtime-config.js"></script>'
+      const withoutConfig = html.replace(
+        /<script[^>]*src="\/api-runtime-config\.js"[^>]*>\s*<\/script>\s*/i,
+        '',
+      )
+      if (withoutConfig.includes(configTag) && withoutConfig === html) return html
+      return withoutConfig.replace(
+        /<script type="module"/,
+        `${configTag}\n    <script type="module"`,
+      )
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), apiRuntimeConfigFirst()],
   test: {
     environment: 'happy-dom',
     globals: false,

@@ -8,11 +8,13 @@ export const AuthContext = createContext(null)
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [sessionError, setSessionError] = useState(null)
 
   useEffect(() => {
     clearLegacyHrAuthStorage()
     let cancelled = false
     setLoading(true)
+    setSessionError(null)
     api
       .get('/api/auth/me')
       .then((res) => {
@@ -20,8 +22,12 @@ export function AuthProvider({ children }) {
         if (res?.user) setUser(res.user)
         else setUser(null)
       })
-      .catch(() => {
-        if (!cancelled) setUser(null)
+      .catch((err) => {
+        if (cancelled) return
+        setUser(null)
+        if (err?.name === 'AbortError') {
+          setSessionError('Could not reach the server (request timed out).')
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -70,7 +76,7 @@ export function AuthProvider({ children }) {
 
   useIdleLogout(user, logout)
 
-  const value = { user, loading, login, logout, refreshUser }
+  const value = { user, loading, sessionError, login, logout, refreshUser }
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
