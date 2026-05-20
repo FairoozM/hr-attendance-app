@@ -1,7 +1,8 @@
 const employeesService = require('../services/employeesService')
 const usersService = require('../services/usersService')
 const s3Service = require('../services/s3Service')
-const { attachEmployeePhotoFields, contentTypeFromS3Key } = require('../lib/employeePhoto')
+const { attachEmployeePhotoFields } = require('../lib/employeePhoto')
+const { getAvatarThumbnail } = require('../lib/avatarThumbnail')
 
 async function attachPhotoUrl(emp) {
   return attachEmployeePhotoFields(emp)
@@ -279,16 +280,15 @@ async function streamPhoto(req, res) {
     if (!employee?.photo_doc_key) {
       return res.status(404).json({ error: 'Photo not found' })
     }
-    const body = await s3Service.getObjectBuffer({ key: employee.photo_doc_key })
-    if (!body || !body.length) {
+    const thumb = await getAvatarThumbnail(employee.photo_doc_key, () =>
+      s3Service.getObjectBuffer({ key: employee.photo_doc_key })
+    )
+    if (!thumb) {
       return res.status(404).json({ error: 'Photo not found' })
     }
-    res.setHeader('Content-Type', contentTypeFromS3Key(employee.photo_doc_key))
-    res.setHeader('Cache-Control', 'private, max-age=300')
-    // #region agent log
-    console.info('[employees] photo_stream_ok', { employeeId: id, bytes: body.length })
-    // #endregion
-    return res.send(body)
+    res.setHeader('Content-Type', thumb.contentType)
+    res.setHeader('Cache-Control', 'private, max-age=86400')
+    return res.send(thumb.buffer)
   } catch (err) {
     console.warn('[employees] photo_stream_failed', { employeeId: id, message: err?.message })
     return res.status(404).json({ error: 'Photo not found' })

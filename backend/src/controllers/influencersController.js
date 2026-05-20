@@ -1,5 +1,6 @@
 const influencersService = require('../services/influencersService')
 const s3Service = require('../services/s3Service')
+const { getAvatarThumbnail } = require('../lib/avatarThumbnail')
 const {
   fetchInstagramBusinessProfile,
   normalizeInstagramUsername,
@@ -18,18 +19,15 @@ function stripTransientInfluencerFields(row) {
   return out
 }
 
+function profileImageApiPath(influencerId) {
+  return `/api/influencers/${influencerId}/profile-image`
+}
+
 async function attachProfileImageUrl(row) {
   if (!row) return row
   const out = stripTransientInfluencerFields(row)
-  if (!row.profileImageKey) return out
-  try {
-    out.profileImageUrl = await s3Service.getDownloadUrl({
-      key: row.profileImageKey,
-      expiresIn: 24 * 60 * 60,
-    })
-  } catch (err) {
-    console.warn('[influencers] profile image signing skipped:', err.message || err)
-    delete out.profileImageUrl
+  if (row.profileImageKey && row.id) {
+    out.profileImageUrl = profileImageApiPath(row.id)
   }
   return out
 }
@@ -323,6 +321,29 @@ async function getProfileImageUploadUrl(req, res) {
   }
 }
 
+async function streamProfileImage(req, res) {
+  try {
+    const id = req.params.id != null ? String(req.params.id).trim() : ''
+    if (!id) return res.status(400).json({ error: 'Missing influencer id' })
+    const existing = await influencersService.getInfluencerById(id)
+    if (!existing?.profileImageKey) {
+      return res.status(404).json({ error: 'Profile image not found' })
+    }
+    const thumb = await getAvatarThumbnail(existing.profileImageKey, () =>
+      s3Service.getObjectBuffer({ key: existing.profileImageKey })
+    )
+    if (!thumb) {
+      return res.status(404).json({ error: 'Profile image not found' })
+    }
+    res.setHeader('Content-Type', thumb.contentType)
+    res.setHeader('Cache-Control', 'private, max-age=86400')
+    return res.send(thumb.buffer)
+  } catch (err) {
+    console.warn('[influencers] profile image stream failed:', err?.message || err)
+    return res.status(404).json({ error: 'Profile image not found' })
+  }
+}
+
 async function getProfileImageSignedUrl(req, res) {
   try {
     const id = req.params.id != null ? String(req.params.id).trim() : ''
@@ -586,6 +607,7 @@ module.exports = {
   getInsightsImageUploadUrlsBatch,
   getInsightsImageSignedUrls,
   getProfileImageUploadUrl,
+  streamProfileImage,
   getProfileImageSignedUrl,
   refreshInstagramProfileFromGraph,
   batchRefreshInstagramProfilePictures,

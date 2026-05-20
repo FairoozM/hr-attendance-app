@@ -21,6 +21,7 @@ import {
   markIgAvatarAutoSyncCompleted,
   hasIgAvatarAutoSyncCompleted,
 } from '../../lib/igAvatarAutoSyncTab'
+import { resolveInfluencerProfileImageUrl } from '../../lib/influencerProfileImageUrl'
 import './influencers.css'
 
 function initials(name) {
@@ -813,7 +814,7 @@ export function InfluencerListPage() {
                   <td className="inf-table__sr">{serialOffset + index + 1}</td>
                   <td className="inf-table__col inf-table__col--name">
                     <div className="inf-list-name-cell">
-                      <InfluencerListAvatar name={inf.name} imageUrl={inf.profileImageUrl} />
+                      <InfluencerListAvatar name={inf.name} imageUrl={resolveInfluencerProfileImageUrl(inf)} />
                       <div className="inf-list-name-cell__copy">
                         <div className="inf-table__name">{inf.name}</div>
                         {inf.niche ? <div className="inf-table__sub">{inf.niche}</div> : null}

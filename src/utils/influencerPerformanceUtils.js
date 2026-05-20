@@ -1,3 +1,5 @@
+import { resolveInfluencerProfileImageUrl } from '../lib/influencerProfileImageUrl'
+
 export const INFLUENCER_PLATFORMS = ['TikTok', 'Instagram', 'Snapchat', 'YouTube', 'Facebook']
 
 export const INFLUENCER_PERFORMANCE_STATUSES = ['Active', 'Paused', 'Completed']
@@ -643,7 +645,7 @@ export function createInfluencerFromAppRecord(record, index = 0) {
     platform,
     username: username || record.instagram?.handle || record.youtube?.handle || '@creator',
     niche: record.niche || 'Lifestyle',
-    profileImage: record.profileImageUrl || record.instagram?.picUrl || '',
+    profileImage: resolveInfluencerProfileImageUrl(record),
     followers: toNumber(record.followersCount),
     assignedCampaign: record.campaign || record.collaborationType || 'General campaign',
     status: record.workflowStatus === 'Closed' ? 'Completed' : record.workflowStatus === 'Rejected' ? 'Paused' : 'Active',

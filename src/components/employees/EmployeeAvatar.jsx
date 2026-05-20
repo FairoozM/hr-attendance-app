@@ -43,6 +43,11 @@ export const EmployeeAvatar = memo(function EmployeeAvatar({ name, photoUrl, siz
           src={photoUrl}
           alt=""
           className="employee-avatar__img"
+          width={size === 'sm' ? 32 : 40}
+          height={size === 'sm' ? 32 : 40}
+          loading="lazy"
+          decoding="async"
+          fetchPriority="low"
           onLoad={() => {
             debugPhotoLog('avatar_load_ok', { employeeId, urlKind: looksLikeTemporaryS3SignedUrl(photoUrl) ? 'signed' : 'plain' })
           }}

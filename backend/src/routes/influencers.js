@@ -44,6 +44,13 @@ router.post(
   influencersController.batchRefreshInstagramProfilePictures,
 )
 router.get(
+  '/:id/profile-image',
+  attachAuth,
+  requireAuth,
+  requirePermission('influencers', 'view'),
+  influencersController.streamProfileImage,
+)
+router.get(
   '/:id/profile-image/url',
   attachAuth,
   requireAuth,
