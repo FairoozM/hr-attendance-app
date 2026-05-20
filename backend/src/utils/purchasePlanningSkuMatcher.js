@@ -235,26 +235,59 @@ function toQty(value) {
   return Number.isFinite(n) ? n : 0
 }
 
+function vigilRowCodeSources(row) {
+  const seen = new Set()
+  const out = []
+  for (const value of [
+    row.itemCode,
+    row.item_code,
+    row.code,
+    row.sku,
+    row.normalizedItemCode,
+    row.normalized_item_code,
+  ]) {
+    const s = cleanRowCode(value)
+    if (!s || seen.has(s)) continue
+    seen.add(s)
+    out.push(s)
+  }
+  return out
+}
+
+function cleanRowCode(value) {
+  return String(value == null ? '' : value).trim()
+}
+
 function buildVigilIndexes(vigilRows) {
   const exact = new Map()
   for (const row of Array.isArray(vigilRows) ? vigilRows : []) {
-    const rawCode = row.itemCode || row.item_code || row.code || row.sku
-    const code = normalizeSku(rawCode)
-    if (!code || exact.has(code)) continue
+    const sources = vigilRowCodeSources(row)
+    if (sources.length === 0) continue
+    const primary = normalizeSku(sources[0])
+    if (!primary) continue
     const entry = {
-      code,
-      qty: toQty(row.availableStock ?? row.available_stock ?? row.availableQty ?? row.qty),
+      code: primary,
+      qty: toQty(
+        row.availableStock ??
+          row.available_stock ??
+          row.availableQty ??
+          row.available_qty ??
+          row.qty ??
+          row.quantity ??
+          row.stock
+      ),
       row,
     }
-    for (const key of expandExactMatchVariants(rawCode)) {
-      if (!exact.has(key)) exact.set(key, entry)
+    for (const rawCode of sources) {
+      for (const key of expandExactMatchVariants(rawCode)) {
+        if (!exact.has(key)) exact.set(key, entry)
+      }
     }
   }
   return { exact }
 }
 
-function matchZohoSkuToVigil(zohoSku, vigilRows) {
-  const indexes = buildVigilIndexes(vigilRows)
+function matchZohoSkuToVigilWithIndexes(indexes, zohoSku) {
   for (const candidate of expandMatchCandidates(zohoSku)) {
     const match = indexes.exact.get(candidate.key)
     if (match) {
@@ -275,6 +308,10 @@ function matchZohoSkuToVigil(zohoSku, vigilRows) {
   }
 }
 
+function matchZohoSkuToVigil(zohoSku, vigilRows) {
+  return matchZohoSkuToVigilWithIndexes(buildVigilIndexes(vigilRows), zohoSku)
+}
+
 module.exports = {
   COLORS,
   CORE_COLORS,
@@ -282,5 +319,7 @@ module.exports = {
   extractColor,
   getParentSku,
   expandMatchCandidates,
+  buildVigilIndexes,
+  matchZohoSkuToVigilWithIndexes,
   matchZohoSkuToVigil,
 }

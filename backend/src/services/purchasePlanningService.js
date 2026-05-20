@@ -3,7 +3,9 @@ const { parseCsv, indexHeaders, cellOf } = require('../utils/csv')
 const XLSX = require('xlsx')
 const {
   normalizeSku,
+  buildVigilIndexes,
   matchZohoSkuToVigil,
+  matchZohoSkuToVigilWithIndexes,
 } = require('../utils/purchasePlanningSkuMatcher')
 const { fetchItemsRawForWarehouse } = require('../integrations/zoho/zohoAdapter')
 const { getSales } = require('../integrations/zoho/weeklyReportZohoTransactions')
@@ -441,12 +443,13 @@ async function listLowStock() {
   `)
   const rows = result.rows.map(mapLowStockRow)
   const upload = await getLatestVigilUpload()
-  return applyVigilMatchesToLowStockRows(rows, Array.isArray(upload && upload.parsed_rows) ? upload.parsed_rows : [])
+  return applyVigilMatchesToLowStockRows(rows, coerceVigilRowsFromUpload(upload))
 }
 
 function applyVigilMatchesToLowStockRows(rows, vigilRows) {
+  const vigilIndexes = buildVigilIndexes(vigilRows)
   return (Array.isArray(rows) ? rows : []).map((item) => {
-    const match = matchZohoSkuToVigil(item.sku, vigilRows)
+    const match = matchZohoSkuToVigilWithIndexes(vigilIndexes, item.sku)
     return {
       ...item,
       vigilCode: match.matchedVigilCode || '',
@@ -461,6 +464,32 @@ function findHeader(headerIdx, candidates) {
     if (headerIdx.has(name)) return name
   }
   return ''
+}
+
+/** JSONB from Postgres should be an array; tolerate stringified legacy rows. */
+function coerceVigilRowsFromUpload(upload) {
+  if (!upload) return []
+  let rows = upload.parsed_rows
+  if (typeof rows === 'string') {
+    try {
+      rows = JSON.parse(rows)
+    } catch {
+      return []
+    }
+  }
+  return Array.isArray(rows) ? rows : []
+}
+
+function vigilStockFromRawRow(raw, headerIdx, stockHeader, codeColumnIndex) {
+  if (stockHeader) {
+    return toNumber(cellOf(raw, headerIdx, stockHeader), NaN)
+  }
+  const start = Number.isInteger(codeColumnIndex) && codeColumnIndex >= 0 ? codeColumnIndex + 1 : 1
+  for (let i = start; i < raw.length; i += 1) {
+    const n = toNumber(raw[i], NaN)
+    if (Number.isFinite(n)) return n
+  }
+  return NaN
 }
 
 function parseTabularExcel(buffer) {
@@ -512,6 +541,14 @@ function parseVigilRows(headers, rawRows) {
     'item code',
     'item_code',
     'itemcode',
+    'item no',
+    'item no.',
+    'item number',
+    'item #',
+    'product code',
+    'product',
+    'material code',
+    'article',
     'code',
     'sku',
     'item',
@@ -521,15 +558,25 @@ function parseVigilRows(headers, rawRows) {
     'available_stock',
     'available qty',
     'available_qty',
+    'available quantity',
+    'wholesale stock',
+    'wholesale qty',
+    'free stock',
+    'on hand',
+    'onhand',
+    'balance',
     'stock',
     'qty',
     'quantity',
+    'available',
   ])
+  const codeColumnIndex = itemCodeHeader ? headerIdx.get(itemCodeHeader) : 0
 
   const rows = rawRows.map((raw, index) => {
-    const itemCode = itemCodeHeader ? cellOf(raw, headerIdx, itemCodeHeader) : ''
-    const rawStock = stockHeader ? cellOf(raw, headerIdx, stockHeader) : ''
-    const availableStock = toNumber(rawStock, NaN)
+    const itemCode = itemCodeHeader
+      ? cellOf(raw, headerIdx, itemCodeHeader)
+      : clean(raw[0])
+    const availableStock = vigilStockFromRawRow(raw, headerIdx, stockHeader, codeColumnIndex)
     const errors = []
     if (!itemCode) errors.push('Missing item code')
     if (!Number.isFinite(availableStock)) errors.push('Invalid available stock')
@@ -785,7 +832,7 @@ async function generatePlan({ createdBy }) {
     err.code = 'NO_LOW_STOCK_ITEMS'
     throw err
   }
-  const vigilRows = Array.isArray(upload.parsed_rows) ? upload.parsed_rows : []
+  const vigilRows = coerceVigilRowsFromUpload(upload)
   const fromDate = isoDateDaysAgo(92)
   const toDate = todayIso()
   const warnings = []
@@ -809,8 +856,9 @@ async function generatePlan({ createdBy }) {
     const plan = planResult.rows[0]
 
     const insertedItems = []
+    const vigilIndexes = buildVigilIndexes(vigilRows)
     for (const item of lowStock) {
-      const match = matchZohoSkuToVigil(item.sku, vigilRows)
+      const match = matchZohoSkuToVigilWithIndexes(vigilIndexes, item.sku)
       const totalSales = salesQtyForItem(salesAggregate, {
         sku: item.sku,
         zoho_item_id: item.zohoItemId,
@@ -1131,6 +1179,7 @@ module.exports = {
     resolvePurchaseOrderVendor,
     resolveZohoStock,
     resolvePurchasePlanningWarehouse,
+    coerceVigilRowsFromUpload,
     applyVigilMatchesToLowStockRows,
     applyPurchasePricesToPlanItems,
     sortPurchaseOrderLinesBySku,

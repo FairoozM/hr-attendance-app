@@ -40,18 +40,28 @@ export function clearLegacyHrAuthStorage() {
 
 const defaultFetchOpts = { credentials: 'include', cache: 'no-store' }
 
-/** Avoid infinite "Loading…" when the API origin is down or CloudFront times out. */
-const API_REQUEST_TIMEOUT_MS = 25_000
+/** Default for most API calls; long jobs (e.g. purchase plan generation) pass a higher timeoutMs. */
+export const API_REQUEST_TIMEOUT_MS = 25_000
 
-function fetchWithTimeout(url, options = {}) {
+function fetchWithTimeout(url, options = {}, timeoutMs = API_REQUEST_TIMEOUT_MS) {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
   const { signal: callerSignal, ...rest } = options
   if (callerSignal) {
     if (callerSignal.aborted) controller.abort()
     else callerSignal.addEventListener('abort', () => controller.abort(), { once: true })
   }
   return fetch(url, { ...rest, signal: controller.signal }).finally(() => clearTimeout(timer))
+}
+
+function timeoutError(timeoutMs) {
+  const seconds = Math.round(timeoutMs / 1000)
+  const err = new Error(
+    `Request timed out after ${seconds}s. The server may still be working — wait and refresh, or try again.`
+  )
+  err.name = 'AbortError'
+  err.code = 'REQUEST_TIMEOUT'
+  return err
 }
 
 /** Legacy upload URL sometimes still cached in old bundles; canonical route always hits Express. */
@@ -284,18 +294,28 @@ export function downloadBlob(blob, filename) {
 async function request(method, path, body = null, opts = {}) {
   path = normalizeApiPath(path)
   const url = path.startsWith('http') ? path : resolveApiUrl(path)
+  const timeoutMs = Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : API_REQUEST_TIMEOUT_MS
+  const fetchOpts = { ...opts }
+  delete fetchOpts.timeoutMs
   const options = {
     ...defaultFetchOpts,
+    ...fetchOpts,
     method,
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
       ...getAuthHeaders(),
+      ...(fetchOpts.headers || {}),
     },
   }
   if (body != null) options.body = JSON.stringify(body)
-  if (opts && opts.signal) options.signal = opts.signal
-  const res = await fetchWithTimeout(url, options)
+  let res
+  try {
+    res = await fetchWithTimeout(url, options, timeoutMs)
+  } catch (err) {
+    if (err && err.name === 'AbortError') throw timeoutError(timeoutMs)
+    throw err
+  }
   return handleResponse(res, url)
 }
 
@@ -315,11 +335,11 @@ async function postForm(path, formData) {
 
 export const api = {
   get: (path, opts) => request('GET', path, null, opts),
-  post: (path, body) => request('POST', path, body),
+  post: (path, body, opts) => request('POST', path, body, opts),
   postForm: (path, formData) => postForm(path, formData),
-  put: (path, body) => request('PUT', path, body),
-  patch: (path, body) => request('PATCH', path, body),
-  delete: (path) => request('DELETE', path),
+  put: (path, body, opts) => request('PUT', path, body, opts),
+  patch: (path, body, opts) => request('PATCH', path, body, opts),
+  delete: (path, opts) => request('DELETE', path, null, opts),
 }
 
 /**

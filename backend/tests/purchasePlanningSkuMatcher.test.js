@@ -7,7 +7,9 @@ const {
   extractColor,
   getParentSku,
   expandMatchCandidates,
+  buildVigilIndexes,
   matchZohoSkuToVigil,
+  matchZohoSkuToVigilWithIndexes,
 } = require('../src/utils/purchasePlanningSkuMatcher')
 const {
   parseVigilExcel,
@@ -105,6 +107,33 @@ test('matches separator variants before falling back to parent', () => {
   })
 })
 
+test('matchZohoSkuToVigilWithIndexes matches single-call helper', () => {
+  const vigilRows = [
+    { itemCode: 'ABC-BLACK', availableStock: 4 },
+    { itemCode: 'DEF-12', availableStock: 9 },
+  ]
+  const indexes = buildVigilIndexes(vigilRows)
+  assert.deepEqual(matchZohoSkuToVigilWithIndexes(indexes, 'abc-black'), matchZohoSkuToVigil('abc-black', vigilRows))
+})
+
+test('applyVigilMatchesToLowStockRows stays fast with many SKUs (index built once)', () => {
+  const vigilRows = Array.from({ length: 2000 }, (_, i) => ({
+    itemCode: `SKU-${i}`,
+    availableStock: i + 1,
+  }))
+  const lowStock = Array.from({ length: 500 }, (_, i) => ({
+    sku: `SKU-${i}`,
+    itemName: `Item ${i}`,
+    currentZohoStock: 1,
+  }))
+  const started = Date.now()
+  const rows = _internals.applyVigilMatchesToLowStockRows(lowStock, vigilRows)
+  const elapsed = Date.now() - started
+  assert.equal(rows.length, 500)
+  assert.ok(rows[0].vigilStock > 0)
+  assert.ok(elapsed < 2000, `expected <2s, took ${elapsed}ms`)
+})
+
 test('expands exact variants before colorless parent candidates', () => {
   assert.deepEqual(expandMatchCandidates('LIFEP17-16-BLUE').map((candidate) => candidate.matchKind), [
     'exact',
@@ -126,6 +155,27 @@ test('enriches low-stock rows with latest Vigil stock matches', () => {
   assert.equal(rows[0].vigilMatchType, 'parent')
   assert.equal(rows[1].vigilStock, 0)
   assert.equal(rows[1].vigilMatchType, 'not_found')
+})
+
+test('parses Vigil Excel with non-standard column titles', () => {
+  const workbook = XLSX.utils.book_new()
+  const worksheet = XLSX.utils.aoa_to_sheet([
+    ['Product Code', 'Wholesale Qty'],
+    ['LIFEP17-16-BLUE', 12],
+  ])
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Stock')
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
+  const preview = parseVigilExcel(buffer)
+  assert.equal(preview.summary.validRows, 1)
+  assert.equal(preview.rows[0].itemCode, 'LIFEP17-16-BLUE')
+  assert.equal(preview.rows[0].availableStock, 12)
+})
+
+test('buildVigilIndexes uses normalizedItemCode when itemCode missing', () => {
+  const indexes = buildVigilIndexes([{ normalizedItemCode: 'ABC-BLACK', availableStock: 3 }])
+  const match = matchZohoSkuToVigilWithIndexes(indexes, 'abc-black')
+  assert.equal(match.matched, true)
+  assert.equal(match.wholesaleAvailableQty, 3)
 })
 
 test('parses Vigil Excel stock sheets', () => {

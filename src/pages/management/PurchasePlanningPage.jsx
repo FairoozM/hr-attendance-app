@@ -215,7 +215,7 @@ function SummaryCards({ plan, lowStock }) {
   )
 }
 
-function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy }) {
+function LowStockUploadPanel({ lowStock, loading = false, onUploaded, onRefreshZoho, refreshBusy }) {
   const [file, setFile] = useState(null)
   const [preview, setPreview] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -371,7 +371,11 @@ function LowStockUploadPanel({ lowStock, onUploaded, onRefreshZoho, refreshBusy 
       )}
       <div className="pp-upload-history">
         <strong>Current low-stock set</strong>
-        <span>{lowStock.filter((item) => item.status === 'pending').length} pending SKUs ready for plan generation</span>
+        <span>
+          {loading
+            ? 'Loading low-stock items…'
+            : `${lowStock.filter((item) => item.status === 'pending').length} pending SKUs ready for plan generation`}
+        </span>
       </div>
       <div className="pp-upload-history">
         <strong>Zoho enrichment</strong>
@@ -804,6 +808,7 @@ export function PurchasePlanningPage() {
   const [allPriceRows, setAllPriceRows] = useState(() => loadAllPriceRows() || [])
   const [filters, setFilters] = useState(EMPTY_FILTERS)
   const [loading, setLoading] = useState(true)
+  const [loadingLowStock, setLoadingLowStock] = useState(true)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -812,20 +817,59 @@ export function PurchasePlanningPage() {
   const load = useCallback(async () => {
     setError('')
     setAllPriceRows(loadAllPriceRows() || [])
-    const [low, uploadRes, planRes] = await Promise.all([
-      api.get('/api/purchase-planning/low-stock'),
+    setLoadingLowStock(true)
+    const lowStockPromise = api
+      .get('/api/purchase-planning/low-stock')
+      .then((low) => setLowStock(low.items || []))
+      .finally(() => setLoadingLowStock(false))
+    const [uploadRes, planRes] = await Promise.all([
       api.get('/api/purchase-planning/vigil-uploads'),
       api.get('/api/purchase-planning/plans'),
     ])
-    setLowStock(low.items || [])
     setUploads(uploadRes.uploads || [])
     setPlans(planRes.plans || [])
+    await lowStockPromise
   }, [])
 
   useEffect(() => {
+    let cancelled = false
     setLoading(true)
-    load().catch((err) => setError(err.message || 'Failed to load purchase planning')).finally(() => setLoading(false))
-  }, [load])
+    setLoadingLowStock(true)
+    setError('')
+    setAllPriceRows(loadAllPriceRows() || [])
+
+    Promise.all([
+      api.get('/api/purchase-planning/vigil-uploads'),
+      api.get('/api/purchase-planning/plans'),
+    ])
+      .then(([uploadRes, planRes]) => {
+        if (cancelled) return
+        setUploads(uploadRes.uploads || [])
+        setPlans(planRes.plans || [])
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message || 'Failed to load purchase planning')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    api
+      .get('/api/purchase-planning/low-stock')
+      .then((low) => {
+        if (!cancelled) setLowStock(low.items || [])
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message || 'Failed to load low-stock items')
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingLowStock(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const refreshActivePlan = useCallback(async (id) => {
     const res = await api.get(`/api/purchase-planning/plans/${id}`)
@@ -868,7 +912,7 @@ export function PurchasePlanningPage() {
     setError('')
     setNotice('')
     try {
-      const res = await api.post('/api/purchase-planning/generate-plan', {})
+      const res = await api.post('/api/purchase-planning/generate-plan', {}, { timeoutMs: 120_000 })
       setActivePlan(res.plan)
       await load()
       setNotice(`Generated draft plan ${res.plan.planNumber}.`)
@@ -978,6 +1022,7 @@ export function PurchasePlanningPage() {
 
       <LowStockUploadPanel
         lowStock={lowStock}
+        loading={loadingLowStock}
         onUploaded={handleLowStockUploaded}
         onRefreshZoho={refreshLowStockZoho}
         refreshBusy={busy === 'enrich-low'}
