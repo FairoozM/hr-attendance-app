@@ -153,7 +153,7 @@ export function EmployeesDataTable({
       case 'photo':
         return (
           <td className={bodyCellClass(column)}>
-            <EmployeeAvatar name={emp.name} photoUrl={emp.photoUrl} size="sm" />
+            <EmployeeAvatar name={emp.name} photoUrl={emp.photoUrl} size="sm" employeeId={emp.id} />
           </td>
         )
       case 'name':

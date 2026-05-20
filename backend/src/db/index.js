@@ -744,6 +744,16 @@ async function normalizeEmployeePhotoUrls() {
         OR photo_url LIKE '%X-Amz-Algorithm=%'
       )
   `)
+  await query(`
+    UPDATE employees
+    SET photo_url = NULL
+    WHERE photo_doc_key IS NULL
+      AND photo_url IS NOT NULL
+      AND (
+        photo_url LIKE '%X-Amz-Signature=%'
+        OR photo_url LIKE '%X-Amz-Algorithm=%'
+      )
+  `)
 }
 
 /**

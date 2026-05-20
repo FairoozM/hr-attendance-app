@@ -33,7 +33,9 @@ function mapEmployee(row) {
     employmentStatus,
     createdAt: row.created_at ?? null,
     joiningDate,
-    photoUrl: row.photo_url_signed ?? row.photo_url ?? null,
+    photoUrl:
+      row.photo_url_signed ??
+      (row.photo_url && !looksLikeTemporaryS3SignedUrl(row.photo_url) ? row.photo_url : null),
     designation: row.designation ?? null,
     phone: row.phone ?? row.contact_number ?? null,
     email: row.email ?? null,
@@ -71,7 +73,37 @@ export function useEmployees() {
         setEmployees(data ? [mapEmployee(data)] : [])
       } else {
         const data = await api.get('/api/employees')
-        setEmployees(Array.isArray(data) ? data.map(mapEmployee) : [])
+        const rows = Array.isArray(data) ? data : []
+        const mapped = rows.map(mapEmployee)
+        if (import.meta.env.DEV) {
+          const withPhoto = mapped.filter((e) => e.photoUrl)
+          // #region agent log
+          fetch('http://127.0.0.1:7489/ingest/c517718a-1370-451d-8743-105c507e2000', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '0027ca' },
+            body: JSON.stringify({
+              sessionId: '0027ca',
+              location: 'useEmployees.js:fetchEmployees',
+              message: 'employees_photo_summary',
+              data: {
+                total: mapped.length,
+                withPhotoUrl: withPhoto.length,
+                rawSignedNoFresh: rows.filter(
+                  (r) =>
+                    !r.photo_url_signed &&
+                    r.photo_url &&
+                    (String(r.photo_url).includes('X-Amz-Signature=') ||
+                      String(r.photo_url).includes('X-Amz-Algorithm='))
+                ).length,
+                rawWithDocKey: rows.filter((r) => r.photo_doc_key).length,
+              },
+              timestamp: Date.now(),
+              hypothesisId: 'H1-H3',
+            }),
+          }).catch(() => {})
+          // #endregion
+        }
+        setEmployees(mapped)
       }
     } catch (err) {
       setError(err.message || 'Failed to load employees')

@@ -2,14 +2,29 @@ const employeesService = require('../services/employeesService')
 const usersService = require('../services/usersService')
 const s3Service = require('../services/s3Service')
 
+function isPersistedSignedS3Url(url) {
+  const s = String(url || '')
+  return s.includes('X-Amz-Signature=') || s.includes('X-Amz-Algorithm=')
+}
+
 async function attachPhotoUrl(emp) {
-  if (emp && emp.photo_doc_key) {
+  if (!emp) return emp
+  if (emp.photo_doc_key) {
     try {
       const freshSigned = await s3Service.getDownloadUrl({ key: emp.photo_doc_key, expiresIn: 3600 })
       emp.photo_url_signed = freshSigned
-      // Always prefer fresh signed URL when doc key exists to avoid stale persisted URLs.
       emp.photo_url = freshSigned
-    } catch { /* keep null */ }
+    } catch (err) {
+      // Do not leave a stale DB photo_url — it becomes a broken <img> in the list.
+      emp.photo_url = null
+      emp.photo_url_signed = null
+      console.warn('[employees] photo sign failed', { employeeId: emp.id, code: err?.code })
+    }
+    return emp
+  }
+  if (isPersistedSignedS3Url(emp.photo_url)) {
+    emp.photo_url = null
+    emp.photo_url_signed = null
   }
   return emp
 }
