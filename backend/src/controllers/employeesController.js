@@ -1,32 +1,10 @@
 const employeesService = require('../services/employeesService')
 const usersService = require('../services/usersService')
 const s3Service = require('../services/s3Service')
-
-function isPersistedSignedS3Url(url) {
-  const s = String(url || '')
-  return s.includes('X-Amz-Signature=') || s.includes('X-Amz-Algorithm=')
-}
+const { attachEmployeePhotoFields, contentTypeFromS3Key } = require('../lib/employeePhoto')
 
 async function attachPhotoUrl(emp) {
-  if (!emp) return emp
-  if (emp.photo_doc_key) {
-    try {
-      const freshSigned = await s3Service.getDownloadUrl({ key: emp.photo_doc_key, expiresIn: 3600 })
-      emp.photo_url_signed = freshSigned
-      emp.photo_url = freshSigned
-    } catch (err) {
-      // Do not leave a stale DB photo_url — it becomes a broken <img> in the list.
-      emp.photo_url = null
-      emp.photo_url_signed = null
-      console.warn('[employees] photo sign failed', { employeeId: emp.id, code: err?.code })
-    }
-    return emp
-  }
-  if (isPersistedSignedS3Url(emp.photo_url)) {
-    emp.photo_url = null
-    emp.photo_url_signed = null
-  }
-  return emp
+  return attachEmployeePhotoFields(emp)
 }
 
 async function attachPhotoUrls(employees) {
@@ -283,6 +261,40 @@ async function update(req, res) {
   }
 }
 
+async function streamPhoto(req, res) {
+  const id = parseInt(req.params.id, 10)
+  if (Number.isNaN(id)) {
+    return res.status(400).json({ error: 'Invalid employee id' })
+  }
+  if (req.user.role === 'employee') {
+    if (parseInt(req.user.employeeId, 10) !== id) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+  } else if (req.user.role !== 'admin' && req.user.role !== 'warehouse') {
+    const canView = req.user.permissions?.employees?.view
+    if (!canView) return res.status(403).json({ error: 'Forbidden' })
+  }
+  try {
+    const employee = await employeesService.findById(id)
+    if (!employee?.photo_doc_key) {
+      return res.status(404).json({ error: 'Photo not found' })
+    }
+    const body = await s3Service.getObjectBuffer({ key: employee.photo_doc_key })
+    if (!body || !body.length) {
+      return res.status(404).json({ error: 'Photo not found' })
+    }
+    res.setHeader('Content-Type', contentTypeFromS3Key(employee.photo_doc_key))
+    res.setHeader('Cache-Control', 'private, max-age=300')
+    // #region agent log
+    console.info('[employees] photo_stream_ok', { employeeId: id, bytes: body.length })
+    // #endregion
+    return res.send(body)
+  } catch (err) {
+    console.warn('[employees] photo_stream_failed', { employeeId: id, message: err?.message })
+    return res.status(404).json({ error: 'Photo not found' })
+  }
+}
+
 async function remove(req, res) {
   try {
     const id = parseInt(req.params.id, 10)
@@ -303,4 +315,4 @@ async function remove(req, res) {
   }
 }
 
-module.exports = { me, list, getOne, create, update, remove }
+module.exports = { me, list, getOne, create, update, remove, streamPhoto }

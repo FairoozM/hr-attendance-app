@@ -2,11 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { api } from '../api/client'
 import { getEmployeesSocket } from '../api/socket'
 import { useAuth } from '../contexts/AuthContext'
-
-function looksLikeTemporaryS3SignedUrl(url) {
-  const s = String(url || '')
-  return s.includes('X-Amz-Signature=') || s.includes('X-Amz-Algorithm=')
-}
+import { resolveEmployeePhotoUrl, looksLikeTemporaryS3SignedUrl } from '../lib/employeePhotoUrl'
 
 /**
  * Maps API row to UI employee.
@@ -33,9 +29,7 @@ function mapEmployee(row) {
     employmentStatus,
     createdAt: row.created_at ?? null,
     joiningDate,
-    photoUrl:
-      row.photo_url_signed ??
-      (row.photo_url && !looksLikeTemporaryS3SignedUrl(row.photo_url) ? row.photo_url : null),
+    photoUrl: resolveEmployeePhotoUrl(row),
     designation: row.designation ?? null,
     phone: row.phone ?? row.contact_number ?? null,
     email: row.email ?? null,

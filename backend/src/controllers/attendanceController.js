@@ -52,16 +52,10 @@ function keyFromDocumentUrl(url) {
   }
 }
 
+const { attachEmployeePhotoFields } = require('../lib/employeePhoto')
+
 async function attachPhotoUrl(row) {
-  if (!row) return row
-  if (row.photo_doc_key) {
-    try {
-      row.photo_url = await s3Service.getDownloadUrl({ key: row.photo_doc_key, expiresIn: 3600 })
-    } catch {
-      /* keep existing */
-    }
-  }
-  return row
+  return attachEmployeePhotoFields(row)
 }
 
 async function attachPhotoUrls(rows) {

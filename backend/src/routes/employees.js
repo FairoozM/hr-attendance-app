@@ -10,6 +10,7 @@ router.get('/', auth.requireAuth, auth.requirePermission('employees', 'view'), e
 router.post('/', auth.requireAuth, auth.requirePermission('employees', 'edit'), employeesController.create)
 // Admin full profile view (must be before /:id to not clash)
 router.get('/:id/profile', auth.requireAuth, auth.requirePermission('employees', 'view'), profileController.getEmployeeProfile)
+router.get('/:id/photo', auth.requireAuth, employeesController.streamPhoto)
 router.get('/:id', auth.requireAuth, employeesController.getOne)
 router.put('/:id', auth.requireAuth, auth.requirePermission('employees', 'edit'), employeesController.update)
 router.delete('/:id', auth.requireAuth, auth.requirePermission('employees', 'edit'), employeesController.remove)

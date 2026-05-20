@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
+import { resolveEmployeePhotoUrl } from '../lib/employeePhotoUrl'
 
 /**
  * Maps a raw DB employee row (snake_case) to the UI employee shape used
@@ -14,7 +15,7 @@ function mapRow(row) {
     department: row.department,
     isActive: row.is_active !== false,
     joiningDate: row.joining_date ? String(row.joining_date).slice(0, 10) : null,
-    photoUrl: row.photo_url ?? null,
+    photoUrl: resolveEmployeePhotoUrl(row),
     phone: row.phone ?? null,
     designation: row.designation ?? null,
     employmentStatus: row.employment_status ?? 'active',
