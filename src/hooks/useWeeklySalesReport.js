@@ -64,6 +64,7 @@ export function useWeeklySalesReport({
   const [items, setItems] = useState([])
   const [totals, setTotals] = useState(null)
   const [zoho, setZoho] = useState(null)
+  const [reportMeta, setReportMeta] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [notConfigured, setNotConfigured] = useState(false)
@@ -81,6 +82,7 @@ export function useWeeklySalesReport({
       setItems([])
       setTotals(null)
       setZoho(null)
+      setReportMeta(null)
       setLoading(false)
       return
     }
@@ -114,6 +116,13 @@ export function useWeeklySalesReport({
       setItems(Array.isArray(data?.items) ? data.items : [])
       setTotals(data?.totals || null)
       setZoho(data?.zoho && typeof data.zoho === 'object' ? data.zoho : null)
+      setReportMeta(
+        data?.report_meta && typeof data.report_meta === 'object'
+          ? data.report_meta
+          : data?.calculation_meta && typeof data.calculation_meta === 'object'
+            ? data.calculation_meta
+            : null,
+      )
       fetchSettled = true
     } catch (err) {
       // Aborted by a subsequent fetchReport call — let that new call own the
@@ -142,6 +151,7 @@ export function useWeeklySalesReport({
       }
       setItems([])
       setTotals(null)
+      setReportMeta(null)
     } finally {
       // Only clear the spinner if this invocation still owns the controller.
       // If another fetchReport() started in the meantime it already set
@@ -183,6 +193,7 @@ export function useWeeklySalesReport({
     setItems([])
     setTotals(null)
     setZoho(null)
+    setReportMeta(null)
     setError(null)
     setErrorHint('')
     setNotConfigured(false)
@@ -215,6 +226,7 @@ export function useWeeklySalesReport({
     items,
     totals,
     zoho,
+    reportMeta,
     loading,
     error,
     errorHint,

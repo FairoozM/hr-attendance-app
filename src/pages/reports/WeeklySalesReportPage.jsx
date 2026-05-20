@@ -62,6 +62,92 @@ export function ZohoUsageInline({ zoho }) {
   )
 }
 
+function formatReportMetaTime(value) {
+  if (!value) return ''
+  const d = new Date(value)
+  if (!Number.isFinite(d.getTime())) return ''
+  return d.toLocaleString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function sourceStatusWarnings(reportMeta) {
+  const status = reportMeta?.source_status && typeof reportMeta.source_status === 'object'
+    ? reportMeta.source_status
+    : {}
+  const out = []
+  for (const [name, source] of Object.entries(status)) {
+    if (!source || typeof source !== 'object') continue
+    if (source.warning) out.push(`${name}: ${source.warning}`)
+    if (source.truncated) out.push(`${name}: source may be truncated`)
+    if (source.fallback_used) out.push(`${name}: fallback source used`)
+  }
+  const completenessWarnings = Array.isArray(reportMeta?.completeness?.warnings)
+    ? reportMeta.completeness.warnings
+    : []
+  return [...new Set([...out, ...completenessWarnings].filter(Boolean))]
+}
+
+function WeeklyReportMetaBanner({ reportMeta }) {
+  if (!reportMeta || typeof reportMeta !== 'object') return null
+  const generated = formatReportMetaTime(reportMeta.generated_at)
+  const warnings = sourceStatusWarnings(reportMeta)
+  const severity = String(reportMeta.completeness?.severity || '').toLowerCase()
+  const showWarning = severity === 'warning' || severity === 'critical'
+  const missingSources = Array.isArray(reportMeta.missing_for_exact_historical_stock)
+    ? reportMeta.missing_for_exact_historical_stock.filter(Boolean)
+    : []
+  const openingWarning =
+    reportMeta.stock_value_basis?.opening_stock_value?.warning
+    || 'Opening Stock Value is reconstructed from current live Zoho stock and available transactions.'
+  const closingWarning =
+    reportMeta.stock_value_basis?.closing_stock_value?.warning
+    || 'Closing Stock Value uses current Zoho stock at report generation time, not selected to_date.'
+  return (
+    <div className={`wsr-meta-trust ${showWarning ? 'wsr-meta-trust--warn' : ''}`} role={showWarning ? 'alert' : 'status'}>
+      <div className="wsr-meta-trust__badges">
+        <span>Calc: {reportMeta.calculation_version || 'unknown'}</span>
+        {generated ? <span>Generated: {generated}</span> : null}
+        {reportMeta.report_group ? <span>Group: {reportMeta.report_group}</span> : null}
+        {reportMeta.cache?.cached ? <span>Cached report</span> : <span>Live build</span>}
+      </div>
+      {showWarning ? (
+        <div className="wsr-meta-trust__warning">
+          <strong>This report is not an exact historical stock snapshot.</strong>
+          <ul>
+            <li>{openingWarning}</li>
+            <li>{closingWarning}</li>
+            <li>This is not an exact historical stock snapshot.</li>
+          </ul>
+          {missingSources.length > 0 ? (
+            <details className="wsr-meta-trust__details">
+              <summary>Missing sources for exact historical stock</summary>
+              <ul>
+                {missingSources.map((source) => (
+                  <li key={source}>{source}</li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+          {warnings.length > 0 ? (
+            <details className="wsr-meta-trust__details">
+              <summary>Source warnings</summary>
+              <ul>
+                {warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function sumBy(rows, key) {
   return (rows || []).reduce((acc, r) => acc + (Number(r?.[key]) || 0), 0)
 }
@@ -479,10 +565,14 @@ export function buildWeeklySalesExportRows(items, { suppressSalesAmount = false 
   return (Array.isArray(items) ? items : []).map((row, index) => ({
     'Sr. No': index + 1,
     Family: row?.family || '',
-    'Opening Stock': Number.isFinite(Number(row?.opening_stock)) ? Number(row.opening_stock) : '',
+    'Opening Stock Value': Number.isFinite(Number(row?.opening_stock_value ?? row?.opening_stock))
+      ? Number(row.opening_stock_value ?? row.opening_stock)
+      : '',
     'Purchase Amount': Number.isFinite(Number(row?.purchase_amount)) ? Number(row.purchase_amount) : '',
     'Returned to Wholesale': Number.isFinite(Number(row?.returned_to_wholesale)) ? Number(row.returned_to_wholesale) : '',
-    'Closing Stock': Number.isFinite(Number(row?.closing_stock)) ? Number(row.closing_stock) : '',
+    'Closing Stock Value': Number.isFinite(Number(row?.closing_stock_value ?? row?.closing_stock))
+      ? Number(row.closing_stock_value ?? row.closing_stock)
+      : '',
     'Sales Amount': suppressSalesAmount
       ? ''
       : Number.isFinite(Number(row?.sales_amount))
@@ -514,10 +604,14 @@ export function exportWeeklySalesSnapshotToExcel({
     exportRows.push({
       'Sr. No': '',
       Family: 'TOTAL',
-      'Opening Stock': Number.isFinite(Number(totals.opening_stock)) ? Number(totals.opening_stock) : '',
+      'Opening Stock Value': Number.isFinite(Number(totals.opening_stock_value ?? totals.opening_stock))
+        ? Number(totals.opening_stock_value ?? totals.opening_stock)
+        : '',
       'Purchase Amount': Number.isFinite(Number(totals.purchase_amount)) ? Number(totals.purchase_amount) : '',
       'Returned to Wholesale': Number.isFinite(Number(totals.returned_to_wholesale)) ? Number(totals.returned_to_wholesale) : '',
-      'Closing Stock': Number.isFinite(Number(totals.closing_stock)) ? Number(totals.closing_stock) : '',
+      'Closing Stock Value': Number.isFinite(Number(totals.closing_stock_value ?? totals.closing_stock))
+        ? Number(totals.closing_stock_value ?? totals.closing_stock)
+        : '',
       'Sales Amount': suppressSalesAmount
         ? ''
         : Number.isFinite(Number(totals.sales_amount))
@@ -742,10 +836,10 @@ export function WeeklyNoActivityFamilyTable({ rows, showSourceColumn }) {
             {showSourceColumn && <th className="war-th">Source</th>}
             <th className="war-th wsr-th--item">FAMILY</th>
             <th className="war-th wsr-th--photo">Photo</th>
-            <th className="war-th">Opening Stock</th>
+            <th className="war-th">Opening Stock Value</th>
             <th className="war-th">Purchase Amount</th>
             <th className="war-th">Returned to Wholesale</th>
-            <th className="war-th">Closing Stock</th>
+            <th className="war-th">Closing Stock Value</th>
             <th className="war-th">Sales Amount</th>
           </tr>
         </thead>
@@ -863,7 +957,7 @@ export function WeeklySalesReportSection({
   const [familyClosingExporting, setFamilyClosingExporting] = useState(false)
   const [familyClosingExportError, setFamilyClosingExportError] = useState('')
 
-  const { items, loading, error, errorHint, notConfigured, validationErrors, refetch, zoho } =
+  const { items, loading, error, errorHint, notConfigured, validationErrors, refetch, zoho, reportMeta } =
     useWeeklySalesReport({
       reportGroup,
       fromDate,
@@ -884,6 +978,9 @@ export function WeeklySalesReportSection({
 
   const activeItems = openedSnapshot ? (Array.isArray(openedSnapshot.items) ? openedSnapshot.items : []) : items
   const activeZoho = openedSnapshot ? (openedSnapshot.zoho || null) : zoho
+  const activeReportMeta = openedSnapshot
+    ? (openedSnapshot.reportMeta || openedSnapshot.report_meta || null)
+    : reportMeta
   const activeDateLabel = openedSnapshot
     ? formatDateLabel(openedSnapshot.fromDate, openedSnapshot.toDate)
     : formatDateLabel(fromDate, toDate)
@@ -1088,6 +1185,7 @@ export function WeeklySalesReportSection({
       totals: grandTotal,
       zoho,
     })
+    snapshot.reportMeta = reportMeta ? cloneJson(reportMeta) : null
     const bundle = getPref(PREF_WEEKLY_SALES_SAVED_REPORTS, { version: 1, snapshots: [] })
     setPref(PREF_WEEKLY_SALES_SAVED_REPORTS, upsertWeeklySalesSnapshot(bundle, snapshot))
     setSaveStatus(`Saved ${title} snapshot`)
@@ -1107,6 +1205,7 @@ export function WeeklySalesReportSection({
     reportItems,
     grandTotal,
     zoho,
+    reportMeta,
     getPref,
     setPref,
   ])
@@ -1263,6 +1362,8 @@ export function WeeklySalesReportSection({
         </div>
       )}
 
+      <WeeklyReportMetaBanner reportMeta={activeReportMeta} />
+
       {notConfigured && <NotConfiguredCallout message={error} />}
 
       {error && !notConfigured && (
@@ -1309,10 +1410,10 @@ export function WeeklySalesReportSection({
                   <th className="war-th wsr-th--sr">SR. NO</th>
                   <th className="war-th wsr-th--item">FAMILY</th>
                   <th className="war-th wsr-th--photo">Photo</th>
-                  <th className="war-th">Opening Stock</th>
+                  <th className="war-th">Opening Stock Value</th>
                   <th className="war-th">Purchase Amount</th>
                   <th className="war-th">Returned to Wholesale</th>
-                  <th className="war-th">Closing Stock</th>
+                  <th className="war-th">Closing Stock Value</th>
                   <th className="war-th">Sales Amount</th>
                 </tr>
               </thead>
