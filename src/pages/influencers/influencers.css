@@ -166,12 +166,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.inf-page--list .inf-table--compact .inf-table__col--based .inf-table__muted {
-  display: block;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .inf-page--list .inf-table--compact .inf-table__col--actions {
   text-align: right;
 }

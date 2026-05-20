@@ -16,11 +16,6 @@ import { useAuth, hasPermission } from '../../contexts/AuthContext'
 import { useUserPreferences } from '../../contexts/UserPreferencesContext'
 import { PREF_INFLUENCER_LIST_COLS } from '../../constants/userPreferenceKeys'
 import { AddInfluencerPage } from './AddInfluencerPage'
-import { batchRefreshInstagramProfilePictures } from '../../lib/influencers'
-import {
-  markIgAvatarAutoSyncCompleted,
-  hasIgAvatarAutoSyncCompleted,
-} from '../../lib/igAvatarAutoSyncTab'
 import { resolveInfluencerProfileImageUrl } from '../../lib/influencerProfileImageUrl'
 import './influencers.css'
 
@@ -159,7 +154,7 @@ const PAGE_SIZE = 20
 
 /** Excel-style resizable list columns — widths persisted per user (API). */
 const LIST_COL_KEYS = [
-  'sr', 'name', 'nationality', 'ig', 'mobile', 'based', 'followers', 'pkg', 'insights', 'stage', 'payment', 'actions',
+  'sr', 'name', 'nationality', 'ig', 'mobile', 'followers', 'pkg', 'insights', 'stage', 'payment', 'actions',
 ]
 const DEFAULT_COL_WIDTHS = Object.freeze({
   sr: 46,
@@ -167,7 +162,6 @@ const DEFAULT_COL_WIDTHS = Object.freeze({
   nationality: 86,
   ig: 150,
   mobile: 118,
-  based: 72,
   followers: 92,
   pkg: 100,
   insights: 72,
@@ -176,10 +170,10 @@ const DEFAULT_COL_WIDTHS = Object.freeze({
   actions: 44,
 })
 const COL_WIDTH_MIN = Object.freeze({
-  sr: 36, name: 140, nationality: 64, ig: 100, mobile: 88, based: 52, followers: 72, pkg: 72, insights: 52, stage: 88, payment: 88, actions: 36,
+  sr: 36, name: 140, nationality: 64, ig: 100, mobile: 88, followers: 72, pkg: 72, insights: 52, stage: 88, payment: 88, actions: 36,
 })
 const COL_WIDTH_MAX = Object.freeze({
-  sr: 72, name: 520, nationality: 180, ig: 320, mobile: 260, based: 240, followers: 160, pkg: 200, insights: 140, stage: 320, payment: 300, actions: 100,
+  sr: 72, name: 520, nationality: 180, ig: 320, mobile: 260, followers: 160, pkg: 200, insights: 140, stage: 320, payment: 300, actions: 100,
 })
 
 function normalizeColWidths(parsed) {
@@ -341,8 +335,6 @@ export function InfluencerListPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const can = (action) => hasPermission(user, 'influencers', action)
-  /** Matches backend `requireInfluencersWrite` — any of these can run batch profile sync. */
-  const canWriteInfluencers = can('manage') || can('approve') || can('payments') || can('agreements')
   const { ready, getPref, setPref, prefsVersion } = useUserPreferences()
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const [showAddModal, setShowAddModal] = useState(false)
@@ -358,15 +350,11 @@ export function InfluencerListPage() {
   const [filterWorkflow, setFilterWorkflow] = useState('All')
   const [filterApproval, setFilterApproval] = useState('All')
   const [filterPayment, setFilterPayment] = useState('All')
-  const [filterBasedIn, setFilterBasedIn] = useState('All')
   const [filterNationality, setFilterNationality] = useState('All')
   const [filterCollab, setFilterCollab] = useState('All')
   const [filterFollowers, setFilterFollowers] = useState('All')
   const [quickChip, setQuickChip] = useState(QUICK_CHIP.ALL)
   const [sortBy, setSortBy] = useState('newest')
-  const [igSyncBusy, setIgSyncBusy] = useState(false)
-  const [igSyncHint, setIgSyncHint] = useState(null)
-  const igAutoRanRef = useRef(false)
   const [searchParams, setSearchParams] = useSearchParams()
   const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10))
   const setPage = useCallback((p) => {
@@ -379,7 +367,6 @@ export function InfluencerListPage() {
   }, [setSearchParams])
   const useServerPaging = listMeta && !listMeta.isFullListClientPaging
 
-  const cities = useMemo(() => ['All', ...new Set(influencers.map(i => i.basedIn).filter(Boolean))], [influencers])
   const nationalities = useMemo(() => ['All', ...new Set(influencers.map(i => i.nationality).filter(Boolean))], [influencers])
   const collabTypes = useMemo(() => ['All', ...new Set(influencers.map(i => i.collaborationType).filter(Boolean))], [influencers])
 
@@ -411,7 +398,6 @@ export function InfluencerListPage() {
       if (filterWorkflow !== 'All' && inf.workflowStatus !== filterWorkflow) return false
       if (filterApproval !== 'All' && inf.approvalStatus !== filterApproval) return false
       if (filterPayment !== 'All' && inf.paymentStatus !== filterPayment) return false
-      if (filterBasedIn !== 'All' && inf.basedIn !== filterBasedIn) return false
       if (filterNationality !== 'All' && inf.nationality !== filterNationality) return false
       if (filterCollab !== 'All' && inf.collaborationType !== filterCollab) return false
       if (!matchesFollowerFilter(inf.followersCount, filterFollowers)) return false
@@ -430,7 +416,7 @@ export function InfluencerListPage() {
     }
 
     return list
-  }, [influencers, search, filterWorkflow, filterApproval, filterPayment, filterBasedIn, filterNationality, filterCollab, filterFollowers, sortBy, quickChip])
+  }, [influencers, search, filterWorkflow, filterApproval, filterPayment, filterNationality, filterCollab, filterFollowers, sortBy, quickChip])
 
   const stats = useMemo(() => ({
     total: useServerPaging ? listMeta.total : influencers.length,
@@ -439,65 +425,10 @@ export function InfluencerListPage() {
     rejected: influencers.filter(i => i.approvalStatus === 'Rejected').length,
   }), [influencers, listMeta, useServerPaging])
 
-  const runBatchInstagramPics = useCallback(
-    async (isManual) => {
-      if (igSyncBusy) return
-      igAutoRanRef.current = true
-      setIgSyncBusy(true)
-      if (isManual) setIgSyncHint(null)
-      try {
-        const r = await batchRefreshInstagramProfilePictures({ onlyMissing: true, max: 200, delayMs: 400 })
-        if (r.graphConfigured && r.updated > 0) {
-          await reloadFromServer()
-          setIgSyncHint(
-            isManual
-              ? `Refreshed ${r.updated} profile photo(s).`
-              : `Loaded ${r.updated} profile photo(s) from Instagram.`,
-          )
-        } else if (!r.graphConfigured) {
-          setIgSyncHint(
-            'Server is missing Instagram Graph API settings (META_ACCESS_TOKEN, INSTAGRAM_BUSINESS_ACCOUNT_ID in backend .env).',
-          )
-        } else if (r.graphConfigured && r.results?.length) {
-          const anyPic = r.results.some((x) => x.success && x.profilePictureUrl)
-          if (!anyPic) {
-            setIgSyncHint('Instagram did not return profile images for these accounts (private, limits, or not discoverable).')
-          } else {
-            setIgSyncHint('Sync finished; all rows with handles already had photos, or some could not be updated.')
-          }
-        } else {
-          setIgSyncHint(null)
-        }
-      } catch (e) {
-        setIgSyncHint(e?.message || 'Profile photo sync failed.')
-      } finally {
-        if (!isManual) markIgAvatarAutoSyncCompleted()
-        setIgSyncBusy(false)
-      }
-    },
-    [igSyncBusy, reloadFromServer],
-  )
-
-  /** One automatic sync per browser tab: fills `instagram.picUrl` from the official API when the server is configured. */
-  useEffect(() => {
-    if (loading || loadError) return
-    if (!canWriteInfluencers) return
-    if (igAutoRanRef.current) return
-    if (hasIgAvatarAutoSyncCompleted()) return
-    const need = influencers.some(
-      (i) => i.instagram?.handle && String(i.instagram.handle).trim() && !i.instagram?.picUrl,
-    )
-    if (!need) {
-      markIgAvatarAutoSyncCompleted()
-      return
-    }
-    runBatchInstagramPics(false)
-  }, [loading, loadError, canWriteInfluencers, influencers, runBatchInstagramPics])
-
   useEffect(() => {
     setPage(1)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, filterWorkflow, filterApproval, filterPayment, filterBasedIn, filterNationality, filterCollab, filterFollowers, sortBy, quickChip])
+  }, [search, filterWorkflow, filterApproval, filterPayment, filterNationality, filterCollab, filterFollowers, sortBy, quickChip])
 
   const clientTotalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const currentPage = Math.min(page, clientTotalPages)
@@ -637,18 +568,6 @@ export function InfluencerListPage() {
           </p>
         </div>
         <div className="inf-page-actions">
-          {canWriteInfluencers && (
-            <button
-              type="button"
-              className="inf-btn inf-btn--ghost"
-              style={{ fontSize: '0.85rem' }}
-              disabled={igSyncBusy}
-              onClick={() => runBatchInstagramPics(true)}
-              title="Load profile photos from Instagram (official API)"
-            >
-              {igSyncBusy ? 'Loading photos…' : '↻ Load Instagram photos'}
-            </button>
-          )}
           {can('manage') && (
             <button className="inf-btn inf-btn--primary" onClick={() => setShowAddModal(true)}>
               + Add Influencer
@@ -656,11 +575,6 @@ export function InfluencerListPage() {
           )}
         </div>
       </div>
-      {igSyncHint && (
-        <p className="inf-page-subtitle" style={{ color: 'var(--muted, #6b6b6b)', marginTop: '0.35rem' }}>
-          {igSyncHint}
-        </p>
-      )}
 
       {/* Stats */}
       <div className="inf-stats-row">
@@ -707,9 +621,6 @@ export function InfluencerListPage() {
           <option value="All">All Payment</option>
           {['Not Requested','Bank Details Pending','Ready for Payment','Payment Processing','Paid'].map(s => <option key={s} value={s}>{s}</option>)}
         </select>
-        <select className="inf-select" value={filterBasedIn} onChange={(e) => { setQuickChip(QUICK_CHIP.ALL); setFilterBasedIn(e.target.value) }}>
-          {cities.map(c => <option key={c} value={c}>{c === 'All' ? 'All Cities' : c}</option>)}
-        </select>
         <select className="inf-select" value={filterNationality} onChange={(e) => { setQuickChip(QUICK_CHIP.ALL); setFilterNationality(e.target.value) }}>
           {nationalities.map((n) => (
             <option key={n} value={n}>{n === 'All' ? 'All Nationalities' : n}</option>
@@ -747,7 +658,6 @@ export function InfluencerListPage() {
               setFilterWorkflow('All')
               setFilterApproval('All')
               setFilterPayment('All')
-              setFilterBasedIn('All')
               setFilterNationality('All')
               setFilterCollab('All')
               setFilterFollowers('All')
@@ -799,13 +709,12 @@ export function InfluencerListPage() {
                 <ResizableTh colIndex={2} widthPx={colWidths.nationality} className="inf-table__col inf-table__col--hide-lg inf-table__col--nationality" onResizeStart={startColResize}>Nationality</ResizableTh>
                 <ResizableTh colIndex={3} widthPx={colWidths.ig} className="inf-table__col inf-table__col--ig" onResizeStart={startColResize}>Instagram</ResizableTh>
                 <ResizableTh colIndex={4} widthPx={colWidths.mobile} className="inf-table__col inf-table__col--mobile" onResizeStart={startColResize}>Mobile</ResizableTh>
-                <ResizableTh colIndex={5} widthPx={colWidths.based} className="inf-table__col inf-table__col--hide-lg inf-table__col--based" onResizeStart={startColResize}>Based In</ResizableTh>
-                <ResizableTh colIndex={6} widthPx={colWidths.followers} className="inf-table__col inf-table__col--num" onResizeStart={startColResize}>Followers</ResizableTh>
-                <ResizableTh colIndex={7} widthPx={colWidths.pkg} className="inf-table__col inf-table__col--pkg" onResizeStart={startColResize}>Package</ResizableTh>
-                <ResizableTh colIndex={8} widthPx={colWidths.insights} className="inf-table__col inf-table__col--tight" onResizeStart={startColResize}>Insights</ResizableTh>
-                <ResizableTh colIndex={9} widthPx={colWidths.stage} className="inf-table__th--badge-col inf-table__col--stage" onResizeStart={startColResize}>Stage</ResizableTh>
-                <ResizableTh colIndex={10} widthPx={colWidths.payment} className="inf-table__th--badge-col inf-table__col--tight" onResizeStart={startColResize}>Payment</ResizableTh>
-                <ResizableTh colIndex={11} widthPx={colWidths.actions} className="inf-table__col inf-table__col--actions" onResizeStart={startColResize}>Actions</ResizableTh>
+                <ResizableTh colIndex={5} widthPx={colWidths.followers} className="inf-table__col inf-table__col--num" onResizeStart={startColResize}>Followers</ResizableTh>
+                <ResizableTh colIndex={6} widthPx={colWidths.pkg} className="inf-table__col inf-table__col--pkg" onResizeStart={startColResize}>Package</ResizableTh>
+                <ResizableTh colIndex={7} widthPx={colWidths.insights} className="inf-table__col inf-table__col--tight" onResizeStart={startColResize}>Insights</ResizableTh>
+                <ResizableTh colIndex={8} widthPx={colWidths.stage} className="inf-table__th--badge-col inf-table__col--stage" onResizeStart={startColResize}>Stage</ResizableTh>
+                <ResizableTh colIndex={9} widthPx={colWidths.payment} className="inf-table__th--badge-col inf-table__col--tight" onResizeStart={startColResize}>Payment</ResizableTh>
+                <ResizableTh colIndex={10} widthPx={colWidths.actions} className="inf-table__col inf-table__col--actions" onResizeStart={startColResize}>Actions</ResizableTh>
               </tr>
             </thead>
             <tbody>
@@ -829,7 +738,6 @@ export function InfluencerListPage() {
                       <span className="inf-table__muted">{inf.mobile || '—'}</span>
                     </span>
                   </td>
-                  <td className="inf-table__col inf-table__col--hide-lg inf-table__col--based"><span className="inf-table__muted">{inf.basedIn || '—'}</span></td>
                   <td className="inf-table__col inf-table__col--num">
                     <span className="inf-table__cell-icon-row">
                       <Users size={13} className="inf-table__cell-icon" aria-hidden />
