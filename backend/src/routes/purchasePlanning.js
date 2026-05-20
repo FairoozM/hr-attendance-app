@@ -21,6 +21,7 @@ router.get('/vigil-uploads', ctrl.listVigilUploads)
 router.post('/generate-plan', ctrl.generatePlan)
 router.get('/plans', ctrl.listPlans)
 router.get('/plans/:id', ctrl.getPlan)
+router.delete('/plans/:id', ctrl.deletePlan)
 router.put('/plans/:id/items/:itemId', ctrl.updatePlanItem)
 router.post('/plans/:id/create-zoho-po', ctrl.createZohoPo)
 

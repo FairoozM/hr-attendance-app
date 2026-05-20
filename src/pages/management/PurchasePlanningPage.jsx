@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Trash2 } from 'lucide-react'
 import { api } from '../../api/client'
 import { loadRows as loadAllPriceRows } from './allPricesEcommerceUtils'
 import './DocumentExpiryPage.css'
@@ -923,6 +924,28 @@ export function PurchasePlanningPage() {
     }
   }, [load])
 
+  const deleteDraftPlan = useCallback(async (plan) => {
+    const label = plan.planNumber || plan.id
+    if (!window.confirm(`Delete draft plan ${label}? This cannot be undone.`)) return
+    setBusy(`delete-plan-${plan.id}`)
+    setError('')
+    try {
+      await api.delete(`/api/purchase-planning/plans/${plan.id}`)
+      if (activePlan?.id === plan.id) {
+        setActivePlan(null)
+        setFilters(EMPTY_FILTERS)
+        setPurchaseOrderNumber('')
+      }
+      setPlans((prev) => prev.filter((p) => p.id !== plan.id))
+      await load()
+      setNotice(`Deleted draft plan ${label}.`)
+    } catch (err) {
+      setError(err.message || 'Failed to delete draft plan')
+    } finally {
+      setBusy('')
+    }
+  }, [activePlan, load])
+
   const openPlan = useCallback(async (id) => {
     setBusy(`plan-${id}`)
     setError('')
@@ -1039,13 +1062,35 @@ export function PurchasePlanningPage() {
           </div>
           <div className="pp-plan-list">
             {plans.length === 0 && <span>No purchase plans generated yet.</span>}
-            {plans.slice(0, 8).map((plan) => (
-              <button key={plan.id} className={`pp-plan-card ${activePlanWithPrices?.id === plan.id ? 'pp-plan-card--active' : ''}`} onClick={() => openPlan(plan.id)}>
-                <strong>{plan.planNumber}</strong>
-                <span>{plan.itemsCount} items · final qty {plan.totalFinalQty}</span>
-                <Badge tone={plan.status === 'sent_to_zoho' ? 'success' : plan.status === 'failed' ? 'danger' : 'warning'}>{plan.status}</Badge>
-              </button>
-            ))}
+            {plans.slice(0, 8).map((plan) => {
+              const isActive = activePlanWithPrices?.id === plan.id
+              const isDraft = plan.status === 'draft'
+              return (
+                <div key={plan.id} className={`pp-plan-card-row${isActive ? ' pp-plan-card-row--active' : ''}`}>
+                  <button
+                    type="button"
+                    className={`pp-plan-card${isActive ? ' pp-plan-card--active' : ''}`}
+                    onClick={() => openPlan(plan.id)}
+                  >
+                    <strong>{plan.planNumber}</strong>
+                    <span>{plan.itemsCount} items · final qty {plan.totalFinalQty}</span>
+                    <Badge tone={plan.status === 'sent_to_zoho' ? 'success' : plan.status === 'failed' ? 'danger' : 'warning'}>{plan.status}</Badge>
+                  </button>
+                  {isDraft && (
+                    <button
+                      type="button"
+                      className="pp-plan-card__delete"
+                      aria-label={`Delete draft plan ${plan.planNumber}`}
+                      title="Delete draft"
+                      disabled={busy === `delete-plan-${plan.id}`}
+                      onClick={() => deleteDraftPlan(plan)}
+                    >
+                      <Trash2 size={18} aria-hidden />
+                    </button>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </section>
       </div>

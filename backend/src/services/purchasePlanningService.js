@@ -957,6 +957,25 @@ async function listPlans() {
   }))
 }
 
+async function deleteDraftPlan(id) {
+  const result = await query(
+    `DELETE FROM purchase_plans WHERE id = $1 AND status = 'draft' RETURNING id`,
+    [id]
+  )
+  if (result.rows.length > 0) {
+    return { deleted: true, id: result.rows[0].id }
+  }
+  const check = await query(`SELECT id, status FROM purchase_plans WHERE id = $1`, [id])
+  if (!check.rows[0]) {
+    const err = new Error('Purchase plan not found')
+    err.code = 'PLAN_NOT_FOUND'
+    throw err
+  }
+  const err = new Error('Only draft plans can be deleted')
+  err.code = 'PLAN_NOT_DRAFT'
+  throw err
+}
+
 async function getPlan(id) {
   const planResult = await query(`SELECT * FROM purchase_plans WHERE id = $1`, [id])
   const plan = planResult.rows[0]
@@ -1168,6 +1187,7 @@ module.exports = {
   generatePlan,
   listPlans,
   getPlan,
+  deleteDraftPlan,
   updatePlanItem,
   createZohoPurchaseOrder,
   _internals: {

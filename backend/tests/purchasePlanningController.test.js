@@ -41,6 +41,20 @@ function makeServiceMock(overrides = {}) {
       calls.push(['createZohoPurchaseOrder', planId, options])
       return { success: true }
     },
+    deleteDraftPlan: async (id) => {
+      calls.push(['deleteDraftPlan', id])
+      if (id === 99) {
+        const err = new Error('Purchase plan not found')
+        err.code = 'PLAN_NOT_FOUND'
+        throw err
+      }
+      if (id === 88) {
+        const err = new Error('Only draft plans can be deleted')
+        err.code = 'PLAN_NOT_DRAFT'
+        throw err
+      }
+      return { deleted: true, id }
+    },
     ...overrides,
     _calls: calls,
   }
@@ -208,6 +222,40 @@ test('controller: uploadLowStockSkus awaits previewLowStockUpload', async () => 
   assert.equal(previewCalled, true)
   assert.equal(res.statusCode, 200)
   assert.equal(res.body.saved, false)
+})
+
+test('controller: deletePlan returns 400 for invalid plan id', async () => {
+  const ctrl = loadController(makeServiceMock())
+  const { req, res } = makeReqRes({ params: { id: 'abc' }, user: ADMIN })
+  await ctrl.deletePlan(req, res)
+  assert.equal(res.statusCode, 400)
+  assert.equal(res.body.code, 'INVALID_PLAN_ID')
+})
+
+test('controller: deletePlan returns 404 when plan missing', async () => {
+  const ctrl = loadController(makeServiceMock())
+  const { req, res } = makeReqRes({ params: { id: '99' }, user: ADMIN })
+  await ctrl.deletePlan(req, res)
+  assert.equal(res.statusCode, 404)
+  assert.equal(res.body.code, 'PLAN_NOT_FOUND')
+})
+
+test('controller: deletePlan returns 400 when plan is not draft', async () => {
+  const ctrl = loadController(makeServiceMock())
+  const { req, res } = makeReqRes({ params: { id: '88' }, user: ADMIN })
+  await ctrl.deletePlan(req, res)
+  assert.equal(res.statusCode, 400)
+  assert.equal(res.body.code, 'PLAN_NOT_DRAFT')
+})
+
+test('controller: deletePlan succeeds for draft plan', async () => {
+  const stub = makeServiceMock()
+  const ctrl = loadController(stub)
+  const { req, res } = makeReqRes({ params: { id: '7' }, user: ADMIN })
+  await ctrl.deletePlan(req, res)
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(res.body, { deleted: true, id: 7 })
+  assert.deepEqual(stub._calls[0], ['deleteDraftPlan', 7])
 })
 
 test('controller: _internals pickPlanItemPatch and validateCreateZohoPoBody', () => {

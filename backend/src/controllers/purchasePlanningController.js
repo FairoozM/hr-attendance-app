@@ -42,6 +42,7 @@ function errorStatus(err) {
       'CSV_PARSE_ERROR',
       'EXCEL_PARSE_ERROR',
       'INVALID_PLAN_ID',
+      'PLAN_NOT_DRAFT',
       'INVALID_PLAN_ITEM_BODY',
       'INVALID_ZOHO_PO_PAYLOAD',
       'AUTH_REQUIRED',
@@ -304,6 +305,20 @@ async function getPlan(req, res) {
   }
 }
 
+async function deletePlan(req, res) {
+  const planId = parseId(req.params.id)
+  if (!planId) {
+    return res.status(400).json({ error: 'Invalid plan id', code: 'INVALID_PLAN_ID' })
+  }
+  try {
+    const result = await service.deleteDraftPlan(planId)
+    res.json(result)
+  } catch (err) {
+    logPurchasePlanningError('deletePlan', err, req, { planId })
+    sendError(res, err, 'Failed to delete purchase plan', 'DELETE_PLAN_FAILED')
+  }
+}
+
 async function updatePlanItem(req, res) {
   const planId = parseId(req.params.id)
   const itemId = parseId(req.params.itemId)
@@ -354,6 +369,7 @@ module.exports = {
   generatePlan,
   listPlans,
   getPlan,
+  deletePlan,
   updatePlanItem,
   createZohoPo,
   _internals: {

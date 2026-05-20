@@ -371,6 +371,42 @@
   gap: 0.55rem;
 }
 
+.pp-plan-card-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.4rem;
+}
+
+.pp-plan-card-row .pp-plan-card {
+  flex: 1;
+  min-width: 0;
+}
+
+.pp-plan-card__delete {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.6rem;
+  border: 1px solid var(--theme-border);
+  border-radius: 0.9rem;
+  background: var(--theme-surface-soft);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+}
+
+.pp-plan-card__delete:hover:not(:disabled) {
+  color: #c62828;
+  border-color: color-mix(in srgb, #c62828 45%, var(--theme-border));
+  background: color-mix(in srgb, #c62828 10%, var(--theme-surface-soft));
+}
+
+.pp-plan-card__delete:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .pp-plan-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
