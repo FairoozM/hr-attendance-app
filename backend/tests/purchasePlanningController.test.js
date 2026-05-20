@@ -14,7 +14,12 @@ function makeServiceMock(overrides = {}) {
       rows: [{ valid: true, sku: 'SKU1' }],
       summary: { invalidRows: 0, validRows: 1 },
     }),
-    saveLowStockUpload: async () => ({ saved: 1 }),
+    saveLowStockUpload: async () => ({
+      uploaded: 2,
+      matched: 1,
+      unmatched: 1,
+      items: [{ id: 1, sku: 'A', status: 'pending' }],
+    }),
     previewVigilUpload: async () => ({
       rows: [{ valid: true }],
       summary: { invalidRows: 0 },

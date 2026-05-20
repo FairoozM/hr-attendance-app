@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Trash2 } from 'lucide-react'
-import { api } from '../../api/client'
+import { api, PURCHASE_PLANNING_TIMEOUT_MS } from '../../api/client'
 import { loadRows as loadAllPriceRows } from './allPricesEcommerceUtils'
 import './DocumentExpiryPage.css'
 import './PurchasePlanningPage.css'
@@ -41,6 +41,13 @@ const EMPTY_LOW_STOCK_FILTERS = {
 
 const DEFAULT_LOW_STOCK_SORT = { key: 'sku', direction: 'asc' }
 const DEFAULT_PLAN_SORT = { key: 'sku', direction: 'asc' }
+
+/** Explicit timeout for purchase-planning calls (also applied globally via api client path rule). */
+const PP_REQUEST_OPTS = { timeoutMs: PURCHASE_PLANNING_TIMEOUT_MS }
+
+function ignoreCancelledPurchasePlanningRequest(err, signal) {
+  return Boolean(signal?.aborted && err?.code !== 'REQUEST_TIMEOUT')
+}
 
 function fmt(n) {
   const value = Number(n || 0)
@@ -217,10 +224,13 @@ function SummaryCards({ plan, lowStock }) {
 }
 
 function LowStockUploadPanel({ lowStock, loading = false, onUploaded, onRefreshZoho, refreshBusy }) {
+  const fileInputRef = useRef(null)
   const [file, setFile] = useState(null)
   const [preview, setPreview] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [busyAction, setBusyAction] = useState('')
   const [error, setError] = useState('')
+  const [savedMessage, setSavedMessage] = useState('')
   const [showMatched, setShowMatched] = useState(true)
   const [showUnmatched, setShowUnmatched] = useState(true)
   const [showLowAdvancedFilters, setShowLowAdvancedFilters] = useState(false)
@@ -301,22 +311,36 @@ function LowStockUploadPanel({ lowStock, loading = false, onUploaded, onRefreshZ
   const submit = useCallback(async (save) => {
     if (!file) return
     setBusy(true)
+    setBusyAction(save ? 'save' : 'preview')
     setError('')
+    setSavedMessage('')
     try {
       const form = new FormData()
       form.append('file', file)
       form.append('save', save ? 'true' : 'false')
-      const res = await api.postForm('/api/purchase-planning/low-stock-upload', form)
+      const path = save
+        ? '/api/purchase-planning/low-stock-upload?save=true'
+        : '/api/purchase-planning/low-stock-upload'
+      const res = await api.postForm(path, form, PP_REQUEST_OPTS)
       setPreview(res.preview)
       if (res.saved) {
+        const uploaded = Number(res.summary?.uploaded ?? 0)
+        const matched = Number(res.summary?.matched ?? 0)
+        const unmatched = Number(res.summary?.unmatched ?? 0)
+        setSavedMessage(
+          `Saved ${uploaded} low-stock SKU${uploaded === 1 ? '' : 's'} (${matched} matched in Zoho, ${unmatched} unmatched).`
+        )
         setFile(null)
+        setPreview(null)
+        if (fileInputRef.current) fileInputRef.current.value = ''
         onUploaded(res)
       }
     } catch (err) {
-      setError(err.message || 'Upload failed')
+      setError(err.message || (save ? 'Save failed' : 'Preview failed'))
       if (err.body?.preview) setPreview(err.body.preview)
     } finally {
       setBusy(false)
+      setBusyAction('')
     }
   }, [file, onUploaded])
 
@@ -328,17 +352,30 @@ function LowStockUploadPanel({ lowStock, loading = false, onUploaded, onRefreshZ
           <p>Upload the SKUs reported by the team. The app enriches only those SKUs from Zoho.</p>
         </div>
         <div className="pp-upload-actions">
-          <input type="file" accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => {
-            setFile(e.target.files?.[0] || null)
-            setPreview(null)
-            setError('')
-          }} />
-          <button className="btn" disabled={!file || busy} onClick={() => submit(false)}>Preview</button>
-          <button className="btn btn--primary" disabled={!file || busy || !preview || preview.summary.invalidRows > 0} onClick={() => submit(true)}>
-            Save low stock SKUs
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            onChange={(e) => {
+              setFile(e.target.files?.[0] || null)
+              setPreview(null)
+              setError('')
+              setSavedMessage('')
+            }}
+          />
+          <button className="btn" disabled={!file || busy} onClick={() => submit(false)}>
+            {busyAction === 'preview' ? 'Previewing…' : 'Preview'}
+          </button>
+          <button
+            className="btn btn--primary"
+            disabled={!file || busy || (preview && preview.summary.invalidRows > 0)}
+            onClick={() => submit(true)}
+          >
+            {busyAction === 'save' ? 'Saving…' : 'Save low stock SKUs'}
           </button>
         </div>
       </div>
+      {savedMessage && <div className="pp-notice">{savedMessage}</div>}
       {error && <div className="page-error">{error}</div>}
       {preview && (
         <div className="pp-preview">
@@ -543,7 +580,7 @@ function UploadPanel({ uploads, onUploaded }) {
       const form = new FormData()
       form.append('file', file)
       form.append('save', save ? 'true' : 'false')
-      const res = await api.postForm('/api/purchase-planning/vigil-upload', form)
+      const res = await api.postForm('/api/purchase-planning/vigil-upload', form, PP_REQUEST_OPTS)
       setPreview(res.preview)
       if (res.saved) {
         setFile(null)
@@ -814,66 +851,84 @@ export function PurchasePlanningPage() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [purchaseOrderNumber, setPurchaseOrderNumber] = useState('')
+  const loadAbortRef = useRef(null)
 
   const load = useCallback(async () => {
+    loadAbortRef.current?.abort()
+    const controller = new AbortController()
+    loadAbortRef.current = controller
+    const opts = { ...PP_REQUEST_OPTS, signal: controller.signal }
+
     setError('')
     setAllPriceRows(loadAllPriceRows() || [])
     setLoadingLowStock(true)
-    const lowStockPromise = api
-      .get('/api/purchase-planning/low-stock')
-      .then((low) => setLowStock(low.items || []))
-      .finally(() => setLoadingLowStock(false))
-    const [uploadRes, planRes] = await Promise.all([
-      api.get('/api/purchase-planning/vigil-uploads'),
-      api.get('/api/purchase-planning/plans'),
-    ])
-    setUploads(uploadRes.uploads || [])
-    setPlans(planRes.plans || [])
-    await lowStockPromise
+    try {
+      const lowStockPromise = api
+        .get('/api/purchase-planning/low-stock', opts)
+        .then((low) => {
+          if (!controller.signal.aborted) setLowStock(low.items || [])
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoadingLowStock(false)
+        })
+      const [uploadRes, planRes] = await Promise.all([
+        api.get('/api/purchase-planning/vigil-uploads', opts),
+        api.get('/api/purchase-planning/plans', opts),
+      ])
+      if (controller.signal.aborted) return
+      setUploads(uploadRes.uploads || [])
+      setPlans(planRes.plans || [])
+      await lowStockPromise
+    } catch (err) {
+      if (ignoreCancelledPurchasePlanningRequest(err, controller.signal)) return
+      setError(err.message || 'Failed to load purchase planning')
+      setLoadingLowStock(false)
+    }
   }, [])
 
   useEffect(() => {
-    let cancelled = false
+    const controller = new AbortController()
+    const opts = { ...PP_REQUEST_OPTS, signal: controller.signal }
     setLoading(true)
     setLoadingLowStock(true)
     setError('')
     setAllPriceRows(loadAllPriceRows() || [])
 
     Promise.all([
-      api.get('/api/purchase-planning/vigil-uploads'),
-      api.get('/api/purchase-planning/plans'),
+      api.get('/api/purchase-planning/vigil-uploads', opts),
+      api.get('/api/purchase-planning/plans', opts),
     ])
       .then(([uploadRes, planRes]) => {
-        if (cancelled) return
+        if (controller.signal.aborted) return
         setUploads(uploadRes.uploads || [])
         setPlans(planRes.plans || [])
       })
       .catch((err) => {
-        if (!cancelled) setError(err.message || 'Failed to load purchase planning')
+        if (ignoreCancelledPurchasePlanningRequest(err, controller.signal)) return
+        setError(err.message || 'Failed to load purchase planning')
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (!controller.signal.aborted) setLoading(false)
       })
 
     api
-      .get('/api/purchase-planning/low-stock')
+      .get('/api/purchase-planning/low-stock', opts)
       .then((low) => {
-        if (!cancelled) setLowStock(low.items || [])
+        if (!controller.signal.aborted) setLowStock(low.items || [])
       })
       .catch((err) => {
-        if (!cancelled) setError(err.message || 'Failed to load low-stock items')
+        if (ignoreCancelledPurchasePlanningRequest(err, controller.signal)) return
+        setError(err.message || 'Failed to load low-stock items')
       })
       .finally(() => {
-        if (!cancelled) setLoadingLowStock(false)
+        if (!controller.signal.aborted) setLoadingLowStock(false)
       })
 
-    return () => {
-      cancelled = true
-    }
+    return () => controller.abort()
   }, [])
 
   const refreshActivePlan = useCallback(async (id) => {
-    const res = await api.get(`/api/purchase-planning/plans/${id}`)
+    const res = await api.get(`/api/purchase-planning/plans/${id}`, PP_REQUEST_OPTS)
     setActivePlan(res.plan)
     return res.plan
   }, [])
@@ -883,11 +938,15 @@ export function PurchasePlanningPage() {
     [activePlan, allPriceRows]
   )
 
-  const handleLowStockUploaded = useCallback(async (res) => {
+  const handleLowStockUploaded = useCallback((res) => {
+    const uploaded = Number(res.summary?.uploaded ?? 0)
+    const matched = Number(res.summary?.matched ?? 0)
+    const unmatched = Number(res.summary?.unmatched ?? 0)
+    setError('')
+    setNotice(`Saved ${uploaded} low-stock SKU${uploaded === 1 ? '' : 's'} (${matched} matched in Zoho, ${unmatched} unmatched).`)
     setLowStock(res.items || [])
-    await load()
-    setNotice(`Saved ${res.summary.uploaded} uploaded low-stock SKUs (${res.summary.matched} matched in Zoho, ${res.summary.unmatched} unmatched).`)
-  }, [load])
+    setLoadingLowStock(false)
+  }, [])
 
   const refreshLowStockZoho = useCallback(async () => {
     const ok = window.confirm(
@@ -900,7 +959,8 @@ export function PurchasePlanningPage() {
     try {
       const res = await api.post('/api/purchase-planning/low-stock/refresh-zoho', {})
       setLowStock(res.items || [])
-      setNotice(`Refreshed ${res.summary.refreshed} uploaded SKUs (${res.summary.matched} matched in Zoho, ${res.summary.unmatched} unmatched).`)
+      const summary = res.summary || {}
+      setNotice(`Refreshed ${summary.refreshed ?? 0} uploaded SKUs (${summary.matched ?? 0} matched in Zoho, ${summary.unmatched ?? 0} unmatched).`)
     } catch (err) {
       setError(err.message || 'Zoho enrichment refresh failed')
     } finally {
@@ -913,7 +973,7 @@ export function PurchasePlanningPage() {
     setError('')
     setNotice('')
     try {
-      const res = await api.post('/api/purchase-planning/generate-plan', {}, { timeoutMs: 120_000 })
+      const res = await api.post('/api/purchase-planning/generate-plan', {}, PP_REQUEST_OPTS)
       setActivePlan(res.plan)
       await load()
       setNotice(`Generated draft plan ${res.plan.planNumber}.`)
@@ -930,7 +990,7 @@ export function PurchasePlanningPage() {
     setBusy(`delete-plan-${plan.id}`)
     setError('')
     try {
-      await api.delete(`/api/purchase-planning/plans/${plan.id}`)
+      await api.delete(`/api/purchase-planning/plans/${plan.id}`, PP_REQUEST_OPTS)
       if (activePlan?.id === plan.id) {
         setActivePlan(null)
         setFilters(EMPTY_FILTERS)
@@ -963,7 +1023,7 @@ export function PurchasePlanningPage() {
     const optimisticItems = activePlan.items.map((item) => item.id === itemId ? { ...item, ...patch } : item)
     setActivePlan({ ...activePlan, items: optimisticItems })
     try {
-      await api.put(`/api/purchase-planning/plans/${activePlan.id}/items/${itemId}`, patch)
+      await api.put(`/api/purchase-planning/plans/${activePlan.id}/items/${itemId}`, patch, PP_REQUEST_OPTS)
       await refreshActivePlan(activePlan.id)
     } catch (err) {
       setError(err.message || 'Failed to update plan item')
@@ -1001,7 +1061,11 @@ export function PurchasePlanningPage() {
         sku: item.sku,
         purchasePrice: Number(item.purchasePrice),
       }))
-      const res = await api.post(`/api/purchase-planning/plans/${pricedPlan.id}/create-zoho-po`, { purchaseOrderNumber: poNumber, purchasePrices })
+      const res = await api.post(
+        `/api/purchase-planning/plans/${pricedPlan.id}/create-zoho-po`,
+        { purchaseOrderNumber: poNumber, purchasePrices },
+        PP_REQUEST_OPTS
+      )
       await refreshActivePlan(pricedPlan.id)
       await load()
       setNotice(`Created Zoho purchase order ${res.zohoPurchaseOrderId || ''} with ${res.sentLines} lines.`)

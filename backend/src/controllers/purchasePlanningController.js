@@ -195,7 +195,8 @@ async function uploadLowStockSkus(req, res) {
       return res.status(400).json({ error: 'Low-stock SKU file is required', code: 'FILE_REQUIRED' })
     }
     const preview = await service.previewLowStockUpload(req.file.buffer, req.file.originalname)
-    const shouldSave = String(req.body && req.body.save).toLowerCase() === 'true'
+    const saveFlag = (req.query && req.query.save) ?? (req.body && req.body.save)
+    const shouldSave = String(saveFlag || '').toLowerCase() === 'true'
     if (!shouldSave) {
       return res.json({ saved: false, fileName: req.file.originalname, preview })
     }
@@ -208,9 +209,13 @@ async function uploadLowStockSkus(req, res) {
         preview,
       })
     }
-    const summary = await service.saveLowStockUpload({ rows: preview.rows })
-    const items = await service.listLowStock()
-    res.status(201).json({ saved: true, summary, items, preview })
+    const result = await service.saveLowStockUpload({ rows: preview.rows })
+    res.status(201).json({
+      saved: true,
+      summary: result,
+      items: result.items || [],
+      preview,
+    })
   } catch (err) {
     logPurchasePlanningError('uploadLowStockSkus', err, req)
     sendError(res, err, 'Failed to process low-stock SKU file', 'LOW_STOCK_UPLOAD_FAILED')
@@ -219,9 +224,8 @@ async function uploadLowStockSkus(req, res) {
 
 async function refreshLowStockZoho(req, res) {
   try {
-    const summary = await service.refreshLowStockZohoEnrichment()
-    const items = await service.listLowStock()
-    res.json({ summary, items })
+    const result = await service.refreshLowStockZohoEnrichment()
+    res.json({ summary: result, items: result.items || [] })
   } catch (err) {
     logPurchasePlanningError('refreshLowStockZoho', err, req)
     sendError(res, err, 'Failed to refresh low-stock Zoho enrichment', 'LOW_STOCK_ZOHO_REFRESH_FAILED')

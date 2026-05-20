@@ -316,7 +316,7 @@ async function saveUploadedLowStockSkus(skus) {
     uniqueSkus.push(sku)
   }
   if (uniqueSkus.length === 0) {
-    return { uploaded: 0, matched: 0, unmatched: 0 }
+    return { uploaded: 0, matched: 0, unmatched: 0, items: [] }
   }
 
   const enriched = await enrichUploadedLowStockSkus(uniqueSkus)
@@ -337,6 +337,7 @@ async function saveUploadedLowStockSkus(skus) {
     WHERE status IN ('pending', 'planned')
   `)
 
+  const savedRows = []
   let upserted = 0
   for (const item of enriched) {
     const result = await query(
@@ -353,7 +354,7 @@ async function saveUploadedLowStockSkus(skus) {
           low_stock_detected_at = NOW(),
           status = 'pending',
           updated_at = NOW()
-        RETURNING id
+        RETURNING *
       `,
       [
         item.sku,
@@ -365,12 +366,16 @@ async function saveUploadedLowStockSkus(skus) {
       ]
     )
     upserted += result.rowCount
+    if (result.rows[0]) savedRows.push(mapLowStockRow(result.rows[0]))
   }
+  const upload = await getLatestVigilUpload()
+  const items = applyVigilMatchesToLowStockRows(savedRows, coerceVigilRowsFromUpload(upload))
   return {
     uploaded: upserted,
     matched: enriched.filter((item) => item.matchedInZoho).length,
     unmatched: enriched.filter((item) => !item.matchedInZoho).length,
     uploadedKeys,
+    items,
   }
 }
 
@@ -425,10 +430,12 @@ async function refreshLowStockZohoEnrichment() {
     )
   }
 
+  const items = await listLowStock()
   return {
     refreshed: current.rows.length,
     matched,
     unmatched,
+    items,
   }
 }
 
@@ -436,10 +443,8 @@ async function listLowStock() {
   const result = await query(`
     SELECT *
     FROM purchase_low_stock_items
-    ORDER BY
-      CASE status WHEN 'pending' THEN 0 WHEN 'planned' THEN 1 WHEN 'ignored' THEN 2 ELSE 3 END,
-      current_zoho_stock ASC,
-      sku ASC
+    WHERE status = 'pending'
+    ORDER BY current_zoho_stock ASC, sku ASC
   `)
   const rows = result.rows.map(mapLowStockRow)
   const upload = await getLatestVigilUpload()

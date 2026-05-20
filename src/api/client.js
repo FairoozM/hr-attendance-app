@@ -40,18 +40,47 @@ export function clearLegacyHrAuthStorage() {
 
 const defaultFetchOpts = { credentials: 'include', cache: 'no-store' }
 
-/** Default for most API calls; long jobs (e.g. purchase plan generation) pass a higher timeoutMs. */
+/** Default for most API calls; long jobs pass a higher timeoutMs or use purchase-planning path default. */
 export const API_REQUEST_TIMEOUT_MS = 25_000
+
+/** Purchase planning runs Zoho enrichment + Vigil matching synchronously — needs a longer client window. */
+export const PURCHASE_PLANNING_TIMEOUT_MS = 120_000
+
+function timeoutMsForPath(path, explicitMs) {
+  if (Number(explicitMs) > 0) return Number(explicitMs)
+  const normalized = normalizeApiPath(typeof path === 'string' ? path : '')
+  if (normalized.includes('/purchase-planning')) return PURCHASE_PLANNING_TIMEOUT_MS
+  return API_REQUEST_TIMEOUT_MS
+}
+
+export function isAbortError(err) {
+  if (!err) return false
+  if (err.code === 'REQUEST_TIMEOUT') return true
+  const name = String(err.name || '')
+  if (name === 'AbortError' || name === 'TimeoutError') return true
+  if (err.code === 20 || err.code === 'ABORT_ERR') return true
+  const msg = String(err.message || '')
+  return /signal.*aborted|aborted without reason|request timed out/i.test(msg)
+}
 
 function fetchWithTimeout(url, options = {}, timeoutMs = API_REQUEST_TIMEOUT_MS) {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
   const { signal: callerSignal, ...rest } = options
   if (callerSignal) {
     if (callerSignal.aborted) controller.abort()
     else callerSignal.addEventListener('abort', () => controller.abort(), { once: true })
   }
-  return fetch(url, { ...rest, signal: controller.signal }).finally(() => clearTimeout(timer))
+  return fetch(url, { ...rest, signal: controller.signal })
+    .catch((err) => {
+      if (timedOut && isAbortError(err)) throw timeoutError(timeoutMs)
+      throw err
+    })
+    .finally(() => clearTimeout(timer))
 }
 
 function timeoutError(timeoutMs) {
@@ -294,7 +323,7 @@ export function downloadBlob(blob, filename) {
 async function request(method, path, body = null, opts = {}) {
   path = normalizeApiPath(path)
   const url = path.startsWith('http') ? path : resolveApiUrl(path)
-  const timeoutMs = Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : API_REQUEST_TIMEOUT_MS
+  const timeoutMs = timeoutMsForPath(path, opts.timeoutMs)
   const fetchOpts = { ...opts }
   delete fetchOpts.timeoutMs
   const options = {
@@ -309,34 +338,37 @@ async function request(method, path, body = null, opts = {}) {
     },
   }
   if (body != null) options.body = JSON.stringify(body)
-  let res
-  try {
-    res = await fetchWithTimeout(url, options, timeoutMs)
-  } catch (err) {
-    if (err && err.name === 'AbortError') throw timeoutError(timeoutMs)
-    throw err
-  }
+  const res = await fetchWithTimeout(url, options, timeoutMs)
   return handleResponse(res, url)
 }
 
-async function postForm(path, formData) {
+async function postForm(path, formData, opts = {}) {
   path = normalizeApiPath(path)
   const url = path.startsWith('http') ? path : resolveApiUrl(path)
-  const res = await fetchWithTimeout(url, {
-    ...defaultFetchOpts,
-    method: 'POST',
-    body: formData,
-    headers: {
-      ...getAuthHeaders(),
+  const timeoutMs = timeoutMsForPath(path, opts.timeoutMs)
+  const fetchOpts = { ...opts }
+  delete fetchOpts.timeoutMs
+  const res = await fetchWithTimeout(
+    url,
+    {
+      ...defaultFetchOpts,
+      ...fetchOpts,
+      method: 'POST',
+      body: formData,
+      headers: {
+        ...getAuthHeaders(),
+        ...(fetchOpts.headers || {}),
+      },
     },
-  })
+    timeoutMs
+  )
   return handleResponse(res, url)
 }
 
 export const api = {
   get: (path, opts) => request('GET', path, null, opts),
   post: (path, body, opts) => request('POST', path, body, opts),
-  postForm: (path, formData) => postForm(path, formData),
+  postForm: (path, formData, opts) => postForm(path, formData, opts),
   put: (path, body, opts) => request('PUT', path, body, opts),
   patch: (path, body, opts) => request('PATCH', path, body, opts),
   delete: (path, opts) => request('DELETE', path, null, opts),
