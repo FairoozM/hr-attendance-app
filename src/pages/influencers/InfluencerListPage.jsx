@@ -71,20 +71,6 @@ function InstagramCell({ handle, url }) {
   )
 }
 
-function workflowBadgeClass(status) {
-  const map = {
-    'New Lead': 'inf-badge--new-lead', 'Contacted': 'inf-badge--contacted',
-    'Waiting for Price': 'inf-badge--waiting', 'Waiting for Insights': 'inf-badge--waiting',
-    'Under Review': 'inf-badge--review', 'Shortlisted': 'inf-badge--shortlisted',
-    'Approved': 'inf-badge--approved', 'Rejected': 'inf-badge--rejected',
-    'Shoot Scheduled': 'inf-badge--scheduled', 'Shot Completed': 'inf-badge--completed',
-    'Waiting for Upload': 'inf-badge--upload', 'Uploaded': 'inf-badge--uploaded',
-    'Payment Pending': 'inf-badge--payment', 'Paid': 'inf-badge--paid',
-    'Closed': 'inf-badge--closed',
-  }
-  return map[status] || 'inf-badge--pending'
-}
-
 function paymentBadgeClass(status) {
   const map = {
     'Not Requested': 'inf-badge--not-requested', 'Bank Details Pending': 'inf-badge--waiting',
@@ -154,7 +140,7 @@ const PAGE_SIZE = 20
 
 /** Excel-style resizable list columns — widths persisted per user (API). */
 const LIST_COL_KEYS = [
-  'sr', 'name', 'nationality', 'ig', 'mobile', 'followers', 'pkg', 'insights', 'stage', 'payment', 'actions',
+  'sr', 'name', 'nationality', 'ig', 'mobile', 'followers', 'pkg', 'insights', 'payment', 'actions',
 ]
 const DEFAULT_COL_WIDTHS = Object.freeze({
   sr: 46,
@@ -165,15 +151,14 @@ const DEFAULT_COL_WIDTHS = Object.freeze({
   followers: 92,
   pkg: 100,
   insights: 72,
-  stage: 124,
   payment: 116,
   actions: 44,
 })
 const COL_WIDTH_MIN = Object.freeze({
-  sr: 36, name: 140, nationality: 64, ig: 100, mobile: 88, followers: 72, pkg: 72, insights: 52, stage: 88, payment: 88, actions: 36,
+  sr: 36, name: 140, nationality: 64, ig: 100, mobile: 88, followers: 72, pkg: 72, insights: 52, payment: 88, actions: 36,
 })
 const COL_WIDTH_MAX = Object.freeze({
-  sr: 72, name: 520, nationality: 180, ig: 320, mobile: 260, followers: 160, pkg: 200, insights: 140, stage: 320, payment: 300, actions: 100,
+  sr: 72, name: 520, nationality: 180, ig: 320, mobile: 260, followers: 160, pkg: 200, insights: 140, payment: 300, actions: 100,
 })
 
 function normalizeColWidths(parsed) {
@@ -347,7 +332,6 @@ export function InfluencerListPage() {
   }, [ready, prefsVersion, getPref])
 
   const [search, setSearch] = useState('')
-  const [filterWorkflow, setFilterWorkflow] = useState('All')
   const [filterApproval, setFilterApproval] = useState('All')
   const [filterPayment, setFilterPayment] = useState('All')
   const [filterNationality, setFilterNationality] = useState('All')
@@ -395,7 +379,6 @@ export function InfluencerListPage() {
       ) {
         return false
       }
-      if (filterWorkflow !== 'All' && inf.workflowStatus !== filterWorkflow) return false
       if (filterApproval !== 'All' && inf.approvalStatus !== filterApproval) return false
       if (filterPayment !== 'All' && inf.paymentStatus !== filterPayment) return false
       if (filterNationality !== 'All' && inf.nationality !== filterNationality) return false
@@ -416,7 +399,7 @@ export function InfluencerListPage() {
     }
 
     return list
-  }, [influencers, search, filterWorkflow, filterApproval, filterPayment, filterNationality, filterCollab, filterFollowers, sortBy, quickChip])
+  }, [influencers, search, filterApproval, filterPayment, filterNationality, filterCollab, filterFollowers, sortBy, quickChip])
 
   const stats = useMemo(() => ({
     total: useServerPaging ? listMeta.total : influencers.length,
@@ -428,7 +411,7 @@ export function InfluencerListPage() {
   useEffect(() => {
     setPage(1)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, filterWorkflow, filterApproval, filterPayment, filterNationality, filterCollab, filterFollowers, sortBy, quickChip])
+  }, [search, filterApproval, filterPayment, filterNationality, filterCollab, filterFollowers, sortBy, quickChip])
 
   const clientTotalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const currentPage = Math.min(page, clientTotalPages)
@@ -607,12 +590,6 @@ export function InfluencerListPage() {
             onChange={(e) => { setQuickChip(QUICK_CHIP.ALL); setSearch(e.target.value) }}
           />
         </div>
-        <select className="inf-select" value={filterWorkflow} onChange={(e) => { setQuickChip(QUICK_CHIP.ALL); setFilterWorkflow(e.target.value) }}>
-          <option value="All">All Stages</option>
-          {['New Lead','Contacted','Waiting for Price','Waiting for Insights','Under Review','Shortlisted','Approved','Rejected','Shoot Scheduled','Shot Completed','Waiting for Upload','Uploaded','Payment Pending','Paid','Closed'].map(s => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </select>
         <select className="inf-select" value={filterApproval} onChange={(e) => { setQuickChip(QUICK_CHIP.ALL); setFilterApproval(e.target.value) }}>
           <option value="All">All Approval</option>
           {['Pending','Shortlisted','Approved','Rejected'].map(s => <option key={s} value={s}>{s}</option>)}
@@ -655,7 +632,6 @@ export function InfluencerListPage() {
             type="button"
             className={`inf-chip ${quickChip === key ? 'inf-chip--active' : ''}`}
             onClick={() => {
-              setFilterWorkflow('All')
               setFilterApproval('All')
               setFilterPayment('All')
               setFilterNationality('All')
@@ -712,9 +688,8 @@ export function InfluencerListPage() {
                 <ResizableTh colIndex={5} widthPx={colWidths.followers} className="inf-table__col inf-table__col--num" onResizeStart={startColResize}>Followers</ResizableTh>
                 <ResizableTh colIndex={6} widthPx={colWidths.pkg} className="inf-table__col inf-table__col--pkg" onResizeStart={startColResize}>Package</ResizableTh>
                 <ResizableTh colIndex={7} widthPx={colWidths.insights} className="inf-table__col inf-table__col--tight" onResizeStart={startColResize}>Insights</ResizableTh>
-                <ResizableTh colIndex={8} widthPx={colWidths.stage} className="inf-table__th--badge-col inf-table__col--stage" onResizeStart={startColResize}>Stage</ResizableTh>
-                <ResizableTh colIndex={9} widthPx={colWidths.payment} className="inf-table__th--badge-col inf-table__col--tight" onResizeStart={startColResize}>Payment</ResizableTh>
-                <ResizableTh colIndex={10} widthPx={colWidths.actions} className="inf-table__col inf-table__col--actions" onResizeStart={startColResize}>Actions</ResizableTh>
+                <ResizableTh colIndex={8} widthPx={colWidths.payment} className="inf-table__th--badge-col inf-table__col--tight" onResizeStart={startColResize}>Payment</ResizableTh>
+                <ResizableTh colIndex={9} widthPx={colWidths.actions} className="inf-table__col inf-table__col--actions" onResizeStart={startColResize}>Actions</ResizableTh>
               </tr>
             </thead>
             <tbody>
@@ -748,14 +723,6 @@ export function InfluencerListPage() {
                   <td className="inf-table__col inf-table__col--tight">
                     <span className={`inf-badge inf-badge--table ${inf.insightsReceived ? 'inf-badge--approved' : 'inf-badge--waiting'}`}>
                       {inf.insightsReceived ? 'Yes' : 'No'}
-                    </span>
-                  </td>
-                  <td className="inf-table__cell--badge-col inf-table__col--stage">
-                    <span
-                      className={`inf-badge inf-badge--dot inf-badge--table ${workflowBadgeClass(inf.workflowStatus)}`}
-                      title={inf.workflowStatus}
-                    >
-                      {inf.workflowStatus}
                     </span>
                   </td>
                   <td className="inf-table__cell--badge-col inf-table__col--tight">
