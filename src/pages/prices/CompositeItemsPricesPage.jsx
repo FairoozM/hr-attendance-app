@@ -207,7 +207,7 @@ export function CompositeItemsPricesPage() {
           <p className="doc-page-subtitle">
             Fetch a <strong>single</strong> composite bundle from Zoho by SKU (one search + one composite detail + one
             call per component to read real Inventory SKUs). Component purchase prices come from your saved{' '}
-            <NavLink to="/prices/all-prices">All Prices (UAE &amp; KSA)</NavLink> list (this browser). Use one bundle
+            <NavLink to="/prices/all-prices">All Prices (UAE)</NavLink> list (this browser). Use one bundle
             shipping figure (e.g. FBA).
           </p>
         </div>

@@ -738,7 +738,7 @@ export function AllPricesPage() {
       <div className="page ap-ec-page">
         <div className="doc-page-hero">
           <div>
-            <h1 className="doc-page-title">All Prices (UAE &amp; KSA)</h1>
+            <h1 className="doc-page-title">All Prices (UAE)</h1>
             <p className="doc-page-subtitle">Loading your saved price list…</p>
           </div>
         </div>
@@ -750,7 +750,7 @@ export function AllPricesPage() {
     <div className="page ap-ec-page">
       <div className="doc-page-hero">
         <div>
-          <h1 className="doc-page-title">All Prices (UAE &amp; KSA)</h1>
+          <h1 className="doc-page-title">All Prices (UAE)</h1>
           <p className="doc-page-subtitle">
             Ecommerce selling price calculator (UAE · AED). Enter <strong>purchase price</strong> and{' '}
             <strong>shipping</strong>; sales price is derived so marketplace VAT, commission, advertising, and target

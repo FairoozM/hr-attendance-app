@@ -542,7 +542,7 @@ export function Layout() {
     if (location.pathname.startsWith('/account')) return 'My Account'
     if (location.pathname.startsWith('/management/purchase-planning')) return 'Purchase Planning'
     if (location.pathname.startsWith('/management/payments')) return 'Company payments'
-    if (location.pathname.startsWith('/prices/all-prices')) return 'All Prices (UAE & KSA)'
+    if (location.pathname.startsWith('/prices/all-prices')) return 'All Prices (UAE)'
     if (location.pathname.startsWith('/prices/historical-prices')) return 'Historical Prices'
     if (location.pathname.startsWith('/prices/duplicate-cleanup')) return 'Duplicate Price Cleanup'
     if (location.pathname.startsWith('/prices/composite-items/reports')) return 'Composite Items Price Reports'
@@ -606,7 +606,7 @@ export function Layout() {
   ].filter(Boolean)
 
   const pricesItems = [
-    can('prices', 'view') && { label: 'All Prices (UAE & KSA)', to: '/prices/all-prices' },
+    can('prices', 'view') && { label: 'All Prices (UAE)', to: '/prices/all-prices' },
     can('prices', 'view') && { label: 'Historical Prices', to: '/prices/historical-prices' },
     can('prices', 'view') && { label: 'Duplicate Price Cleanup', to: '/prices/duplicate-cleanup' },
     can('prices', 'view') && { label: 'Composite Items Prices', to: '/prices/composite-items' },
@@ -921,7 +921,7 @@ export function Layout() {
                     <div className="app-sidebar__section-label" role="presentation">
                       Prices
                     </div>
-                    <NavGroup label="Prices" hint="UAE & KSA" isActive={isPricesActive}>
+                    <NavGroup label="Prices" hint="UAE" isActive={isPricesActive}>
                       {pricesItems.map((item) => (
                         <NavLink
                           key={item.to}

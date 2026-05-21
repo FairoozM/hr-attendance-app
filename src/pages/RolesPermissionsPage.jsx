@@ -97,7 +97,7 @@ const MODULES = [
   {
     section: 'Prices',
     key: 'prices',
-    label: 'Prices (UAE & KSA)',
+    label: 'Prices (UAE)',
     permissions: [
       { key: 'view', label: 'View All Prices and Composite Items pricing tools' },
     ],
