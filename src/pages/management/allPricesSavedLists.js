@@ -1,7 +1,7 @@
 /** Named All Prices snapshots — persisted via user preferences (PREF_ALL_PRICES_SAVED_LISTS). */
 
-import { PREF_ALL_PRICES_SAVED_LISTS } from '../../constants/userPreferenceKeys'
 import { getUserPrefKey, requestUserPrefSave } from '../../lib/userPreferencesBridge'
+import { getAllPricesPrefsScope } from './allPricesMarketScope'
 import {
   formatLastSavedAt,
   isBrkhTemplateSeedRows,
@@ -80,7 +80,7 @@ function normalizeSavedListEntry(entry) {
 }
 
 export function readSavedListsStore() {
-  const raw = getUserPrefKey(PREF_ALL_PRICES_SAVED_LISTS, null)
+  const raw = getUserPrefKey(getAllPricesPrefsScope().savedLists, null)
   return normalizeSavedListsStore(raw)
 }
 
@@ -89,7 +89,7 @@ export function readSavedListsStore() {
  */
 export function persistSavedListsStore(store) {
   const normalized = normalizeSavedListsStore(store)
-  requestUserPrefSave(PREF_ALL_PRICES_SAVED_LISTS, normalized)
+  requestUserPrefSave(getAllPricesPrefsScope().savedLists, normalized)
   return normalized
 }
 

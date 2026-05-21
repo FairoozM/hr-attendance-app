@@ -1,9 +1,5 @@
-import {
-  PREF_ALL_PRICES_CLEANUP_BATCHES,
-  PREF_ALL_PRICES_HISTORY,
-  PREF_ALL_PRICES_IMPORT_BATCHES,
-} from '../../constants/userPreferenceKeys'
 import { getUserPrefKey, requestUserPrefSave } from '../../lib/userPreferencesBridge'
+import { getAllPricesMarket, PRICES_MARKET_KSA, PRICES_MARKET_UAE } from './allPricesMarket'
 import { normalizeItemNo } from './allPricesVersioning'
 
 const MAX_BATCHES = 100
@@ -24,20 +20,28 @@ export function normalizeHistoricalPricesStore(raw) {
   }
 }
 
-export function readHistoricalPricesStore() {
-  return normalizeHistoricalPricesStore(getUserPrefKey(PREF_ALL_PRICES_HISTORY, null))
+/** @param {string} [marketId] */
+export function historyPrefKeyForMarket(marketId) {
+  return getAllPricesMarket(marketId).prefs.history
 }
 
-export function persistHistoricalPricesStore(store) {
+/** @param {string} [marketId] */
+export function readHistoricalPricesStore(marketId = PRICES_MARKET_UAE) {
+  return normalizeHistoricalPricesStore(getUserPrefKey(historyPrefKeyForMarket(marketId), null))
+}
+
+/** @param {object} store @param {string} [marketId] */
+export function persistHistoricalPricesStore(store, marketId = PRICES_MARKET_UAE) {
   const normalized = normalizeHistoricalPricesStore(store)
-  requestUserPrefSave(PREF_ALL_PRICES_HISTORY, normalized)
+  requestUserPrefSave(historyPrefKeyForMarket(marketId), normalized)
   return normalized
 }
 
-export function appendHistoricalPrices(rows) {
+/** @param {unknown[]} rows @param {string} [marketId] */
+export function appendHistoricalPrices(rows, marketId = PRICES_MARKET_UAE) {
   const incoming = asArray(rows)
-  if (!incoming.length) return readHistoricalPricesStore()
-  const store = readHistoricalPricesStore()
+  if (!incoming.length) return readHistoricalPricesStore(marketId)
+  const store = readHistoricalPricesStore(marketId)
   const existingIds = new Set(store.rows.map((row) => row.historicalPriceId))
   const nextRows = [...store.rows]
   incoming.forEach((row) => {
@@ -45,14 +49,29 @@ export function appendHistoricalPrices(rows) {
     if (id && existingIds.has(id)) return
     nextRows.unshift({
       ...row,
+      market: marketId,
       historicalPriceId: id || `hist-${Math.random().toString(36).slice(2, 9)}`,
       normalizedItemNo: row.normalizedItemNo || normalizeItemNo(row.itemNo),
     })
   })
-  return persistHistoricalPricesStore({ ...store, rows: nextRows })
+  return persistHistoricalPricesStore({ ...store, rows: nextRows }, marketId)
+}
+
+/** Combined UAE + KSA rows for historical audit screens. */
+export function readAllHistoricalPriceRows() {
+  const uae = readHistoricalPricesStore(PRICES_MARKET_UAE).rows.map((row) => ({
+    ...row,
+    market: row.market || PRICES_MARKET_UAE,
+  }))
+  const ksa = readHistoricalPricesStore(PRICES_MARKET_KSA).rows.map((row) => ({
+    ...row,
+    market: row.market || PRICES_MARKET_KSA,
+  }))
+  return [...ksa, ...uae]
 }
 
 export function filterHistoricalPrices(rows, filters = {}) {
+  const region = String(filters.region || '').trim().toLowerCase()
   const q = String(filters.search || '').trim().toUpperCase()
   const source = String(filters.source || '').trim()
   const reason = String(filters.reason || '').trim().toLowerCase()
@@ -62,6 +81,7 @@ export function filterHistoricalPrices(rows, filters = {}) {
   const movedTo = String(filters.movedTo || '').trim()
 
   return asArray(rows).filter((row) => {
+    if (region && region !== 'all' && String(row.market || PRICES_MARKET_UAE) !== region) return false
     if (q && !normalizeItemNo(row.itemNo).includes(q)) return false
     if (source && row.source !== source) return false
     if (reason && !String(row.reason || '').toLowerCase().includes(reason)) return false
@@ -92,18 +112,18 @@ function appendBatch(key, batch) {
   return next
 }
 
-export function readCleanupBatchesStore() {
-  return readBatchStore(PREF_ALL_PRICES_CLEANUP_BATCHES)
+export function readCleanupBatchesStore(marketId = PRICES_MARKET_UAE) {
+  return readBatchStore(getAllPricesMarket(marketId).prefs.cleanupBatches)
 }
 
-export function appendCleanupBatch(batch) {
-  return appendBatch(PREF_ALL_PRICES_CLEANUP_BATCHES, batch)
+export function appendCleanupBatch(batch, marketId = PRICES_MARKET_UAE) {
+  return appendBatch(getAllPricesMarket(marketId).prefs.cleanupBatches, batch)
 }
 
-export function readImportBatchesStore() {
-  return readBatchStore(PREF_ALL_PRICES_IMPORT_BATCHES)
+export function readImportBatchesStore(marketId = PRICES_MARKET_UAE) {
+  return readBatchStore(getAllPricesMarket(marketId).prefs.importBatches)
 }
 
-export function appendImportBatch(batch) {
-  return appendBatch(PREF_ALL_PRICES_IMPORT_BATCHES, batch)
+export function appendImportBatch(batch, marketId = PRICES_MARKET_UAE) {
+  return appendBatch(getAllPricesMarket(marketId).prefs.importBatches, batch)
 }

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import '../Page.css'
 import './DocumentExpiryPage.css'
 import './AllPricesPage.css'
-import { PREF_ALL_PRICES_EC, PREF_ALL_PRICES_HISTORY, PREF_ALL_PRICES_SAVED_LISTS } from '../../constants/userPreferenceKeys'
+import { getAllPricesMarket, PRICES_MARKET_UAE } from './allPricesMarket'
+import { setAllPricesMarketScope } from './allPricesMarketScope'
 import { useUserPreferences } from '../../contexts/UserPreferencesContext'
 import { AllPricesActionToast } from './AllPricesActionToast'
 import { AllPricesConfirmModal } from './AllPricesConfirmModal'
@@ -73,8 +74,17 @@ function applySavedListToTableState(list) {
 
 const DRAFT_AUTOSAVE_MS = 450
 
-export function AllPricesPage() {
+/**
+ * @param {{ market?: import('./allPricesMarket').PricesMarketId }} props
+ */
+export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
+  const marketCfg = getAllPricesMarket(market)
   const { ready: prefsReady, getPref, setPref, prefsVersion } = useUserPreferences()
+
+  useEffect(() => {
+    setAllPricesMarketScope(market)
+    return () => setAllPricesMarketScope(PRICES_MARKET_UAE)
+  }, [market])
   const [rates, setRates] = useState({ ...DEFAULT_RATES })
   const [rows, setRows] = useState([])
   const [prefsLoaded, setPrefsLoaded] = useState(false)
@@ -148,7 +158,7 @@ export function AllPricesPage() {
       const normalized = persistSavedListsStore(store)
       setSavedListsStore(normalized)
       setActiveSavedListId(normalized.activeSavedListId)
-      setPref(PREF_ALL_PRICES_SAVED_LISTS, normalized)
+      setPref(marketCfg.prefs.savedLists, normalized)
       return normalized
     },
     [setPref],
@@ -166,7 +176,7 @@ export function AllPricesPage() {
         action: 'sync-draft-after-saved-list',
         preserveLastSavedAt: false,
       })
-      setPref(PREF_ALL_PRICES_EC, bundle)
+      setPref(marketCfg.prefs.ec, bundle)
       setLastSavedAt(savedAt)
       skipNextAutosaveRef.current = true
       setDraftSaveStatus('saved')
@@ -222,9 +232,9 @@ export function AllPricesPage() {
     const legacy = readLegacySavedListsFromLocalStorage()
     let listsStore = legacy?.savedLists?.length
       ? legacy
-      : normalizeSavedListsStore(getPref(PREF_ALL_PRICES_SAVED_LISTS, null))
+      : normalizeSavedListsStore(getPref(marketCfg.prefs.savedLists, null))
     if (legacy?.savedLists?.length) {
-      setPref(PREF_ALL_PRICES_SAVED_LISTS, legacy)
+      setPref(marketCfg.prefs.savedLists, legacy)
     }
     if (!listsStore.savedLists.length) {
       listsStore = readSavedListsStore()
@@ -240,19 +250,19 @@ export function AllPricesPage() {
     if (activeListOnLoad) {
       applyTableFromList(activeListOnLoad)
     } else {
-      const bundle = getPref(PREF_ALL_PRICES_EC, null)
+      const bundle = getPref(marketCfg.prefs.ec, null)
       applyBundleToState(bundle)
       setLoadedBaseline(null, DEFAULT_RATES, [], null)
     }
 
     skipNextAutosaveRef.current = true
     setPrefsLoaded(true)
-  }, [applyBundleToState, applyTableFromList, getPref, prefsLoaded, prefsReady, setLoadedBaseline, setPref])
+  }, [applyBundleToState, applyTableFromList, getPref, marketCfg.prefs.ec, marketCfg.prefs.savedLists, prefsLoaded, prefsReady, setLoadedBaseline, setPref])
 
   useEffect(() => {
     void prefsVersion
     if (!prefsReady || !prefsLoaded) return
-    const fromPref = getPref(PREF_ALL_PRICES_SAVED_LISTS, null)
+    const fromPref = getPref(marketCfg.prefs.savedLists, null)
     if (fromPref) {
       const normalized = readSavedListsStore()
       setSavedListsStore(normalized)
@@ -280,7 +290,7 @@ export function AllPricesPage() {
           setDraftSaveStatus('error')
           return
         }
-        setPref(PREF_ALL_PRICES_EC, buildAllPricesBundle(rates, rows, lastSavedAt || undefined))
+        setPref(marketCfg.prefs.ec, buildAllPricesBundle(rates, rows, lastSavedAt || undefined))
         setDraftSaveStatus('saved')
       } catch {
         setDraftSaveStatus('error')
@@ -290,7 +300,7 @@ export function AllPricesPage() {
     return () => {
       if (draftAutosaveTimerRef.current) clearTimeout(draftAutosaveTimerRef.current)
     }
-  }, [lastSavedAt, prefsLoaded, prefsReady, rates, rows, setPref])
+  }, [lastSavedAt, marketCfg.prefs.ec, prefsLoaded, prefsReady, rates, rows, setPref])
 
   useEffect(
     () => () => {
@@ -310,7 +320,7 @@ export function AllPricesPage() {
         setDraftSaveStatus('error')
         return
       }
-      setPref(PREF_ALL_PRICES_EC, buildAllPricesBundle(rates, rows, lastSavedAt || undefined))
+      setPref(marketCfg.prefs.ec, buildAllPricesBundle(rates, rows, lastSavedAt || undefined))
       setDraftSaveStatus('saved')
     } catch {
       setDraftSaveStatus('error')
@@ -599,9 +609,9 @@ export function AllPricesPage() {
 
   const persistHistoricalRows = useCallback((historyRows) => {
     if (!historyRows.length) return
-    const nextHistory = appendHistoricalPrices(historyRows)
-    setPref(PREF_ALL_PRICES_HISTORY, nextHistory)
-  }, [setPref])
+    const nextHistory = appendHistoricalPrices(historyRows, market)
+    setPref(marketCfg.prefs.history, nextHistory)
+  }, [market, marketCfg.prefs.history, setPref])
 
   const handleAutoCleanDuplicates = useCallback(() => {
     const snapshots = pushRecoverySnapshot({
@@ -738,7 +748,7 @@ export function AllPricesPage() {
       <div className="page ap-ec-page">
         <div className="doc-page-hero">
           <div>
-            <h1 className="doc-page-title">All Prices (UAE)</h1>
+            <h1 className="doc-page-title">{marketCfg.pageTitle}</h1>
             <p className="doc-page-subtitle">Loading your saved price list…</p>
           </div>
         </div>
@@ -750,9 +760,9 @@ export function AllPricesPage() {
     <div className="page ap-ec-page">
       <div className="doc-page-hero">
         <div>
-          <h1 className="doc-page-title">All Prices (UAE)</h1>
+          <h1 className="doc-page-title">{marketCfg.pageTitle}</h1>
           <p className="doc-page-subtitle">
-            Ecommerce selling price calculator (UAE · AED). Enter <strong>purchase price</strong> and{' '}
+            Ecommerce selling price calculator ({marketCfg.currencyHint}). Enter <strong>purchase price</strong> and{' '}
             <strong>shipping</strong>; sales price is derived so marketplace VAT, commission, advertising, and target
             profit are covered.
           </p>

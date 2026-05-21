@@ -542,6 +542,7 @@ export function Layout() {
     if (location.pathname.startsWith('/account')) return 'My Account'
     if (location.pathname.startsWith('/management/purchase-planning')) return 'Purchase Planning'
     if (location.pathname.startsWith('/management/payments')) return 'Company payments'
+    if (location.pathname.startsWith('/prices/all-prices-ksa')) return 'All Prices (KSA)'
     if (location.pathname.startsWith('/prices/all-prices')) return 'All Prices (UAE)'
     if (location.pathname.startsWith('/prices/historical-prices')) return 'Historical Prices'
     if (location.pathname.startsWith('/prices/duplicate-cleanup')) return 'Duplicate Price Cleanup'
@@ -607,6 +608,7 @@ export function Layout() {
 
   const pricesItems = [
     can('prices', 'view') && { label: 'All Prices (UAE)', to: '/prices/all-prices' },
+    can('prices', 'view') && { label: 'All Prices (KSA)', to: '/prices/all-prices-ksa' },
     can('prices', 'view') && { label: 'Historical Prices', to: '/prices/historical-prices' },
     can('prices', 'view') && { label: 'Duplicate Price Cleanup', to: '/prices/duplicate-cleanup' },
     can('prices', 'view') && { label: 'Composite Items Prices', to: '/prices/composite-items' },
@@ -730,7 +732,9 @@ export function Layout() {
       group: 'Prices',
       searchHint:
         i.to === '/prices/all-prices'
-          ? 'all prices uae ksa aed sar catalog sku zoho inventory pricing ecommerce'
+          ? 'all prices uae aed catalog sku zoho inventory pricing ecommerce'
+          : i.to === '/prices/all-prices-ksa'
+            ? 'all prices ksa sar catalog sku zoho inventory pricing ecommerce'
           : i.to === '/prices/historical-prices'
           ? 'historical prices old production price audit replaced moved duplicate cleanup import'
           : i.to === '/prices/duplicate-cleanup'
@@ -921,7 +925,7 @@ export function Layout() {
                     <div className="app-sidebar__section-label" role="presentation">
                       Prices
                     </div>
-                    <NavGroup label="Prices" hint="UAE" isActive={isPricesActive}>
+                    <NavGroup label="Prices" hint="UAE & KSA" isActive={isPricesActive}>
                       {pricesItems.map((item) => (
                         <NavLink
                           key={item.to}

@@ -1,7 +1,7 @@
 /** Ecommerce price list — persisted per user via API (see PREF_ALL_PRICES_EC). */
 
-import { PREF_ALL_PRICES_EC } from '../../constants/userPreferenceKeys'
 import { getUserPrefKey, requestUserPrefSave } from '../../lib/userPreferencesBridge'
+import { getAllPricesPrefsScope } from './allPricesMarketScope'
 
 export const STORAGE_KEY_RATES = 'hr-all-prices-ecommerce-rates-v1'
 export const STORAGE_KEY_ROWS = 'hr-all-prices-ecommerce-rows-v1'
@@ -181,7 +181,7 @@ export function normalizeAllPricesRates(raw) {
 }
 
 function readBundle() {
-  const b = getUserPrefKey(PREF_ALL_PRICES_EC, null)
+  const b = getUserPrefKey(getAllPricesPrefsScope().ec, null)
   return b && typeof b === 'object' ? b : {}
 }
 
@@ -268,7 +268,7 @@ export function saveAllPricesEcommerceBundle(partial, meta = {}) {
   }
 
   const next = buildAllPricesBundle(rates, rows, lastSavedAt || undefined)
-  requestUserPrefSave(PREF_ALL_PRICES_EC, next)
+  requestUserPrefSave(getAllPricesPrefsScope().ec, next)
   return { blocked: false }
 }
 

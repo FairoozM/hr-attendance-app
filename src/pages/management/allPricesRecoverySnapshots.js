@@ -1,7 +1,7 @@
 /** Recovery snapshots for All Prices destructive actions (max 20 per user). */
 
-import { PREF_ALL_PRICES_RECOVERY_SNAPSHOTS } from '../../constants/userPreferenceKeys'
 import { getUserPrefKey, requestUserPrefSave } from '../../lib/userPreferencesBridge'
+import { getAllPricesPrefsScope } from './allPricesMarketScope'
 import { makeRowId, normalizeAllPricesRates, normalizeAllPricesRows, parseLastSavedAt } from './allPricesEcommerceUtils'
 
 export const RECOVERY_SNAPSHOT_MAX = 20
@@ -58,7 +58,7 @@ function normalizeSnapshot(raw) {
  * @returns {import('./allPricesRecoverySnapshots').RecoverySnapshot[]}
  */
 export function readRecoverySnapshots() {
-  const raw = getUserPrefKey(PREF_ALL_PRICES_RECOVERY_SNAPSHOTS, null)
+  const raw = getUserPrefKey(getAllPricesPrefsScope().recovery, null)
   if (!Array.isArray(raw)) return []
   return raw.map(normalizeSnapshot).filter(Boolean)
 }
@@ -68,7 +68,7 @@ export function readRecoverySnapshots() {
  */
 export function persistRecoverySnapshots(snapshots) {
   const list = Array.isArray(snapshots) ? snapshots.map(normalizeSnapshot).filter(Boolean) : []
-  requestUserPrefSave(PREF_ALL_PRICES_RECOVERY_SNAPSHOTS, list.slice(0, RECOVERY_SNAPSHOT_MAX))
+  requestUserPrefSave(getAllPricesPrefsScope().recovery, list.slice(0, RECOVERY_SNAPSHOT_MAX))
   return list.slice(0, RECOVERY_SNAPSHOT_MAX)
 }
 

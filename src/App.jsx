@@ -251,7 +251,15 @@ function AppContent() {
           path="prices/all-prices"
           element={
             <PermissionGuard module="prices" action="view">
-              <AllPricesPage />
+              <AllPricesPage market="uae" />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="prices/all-prices-ksa"
+          element={
+            <PermissionGuard module="prices" action="view">
+              <AllPricesPage market="ksa" />
             </PermissionGuard>
           }
         />

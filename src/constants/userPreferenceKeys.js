@@ -12,6 +12,13 @@ export const PREF_ALL_PRICES_RECOVERY_SNAPSHOTS = 'all_prices_recovery_snapshots
 export const PREF_ALL_PRICES_HISTORY = 'all_prices_history_v1'
 export const PREF_ALL_PRICES_CLEANUP_BATCHES = 'all_prices_cleanup_batches_v1'
 export const PREF_ALL_PRICES_IMPORT_BATCHES = 'all_prices_import_batches_v1'
+/** KSA All Prices — separate draft/saved lists from UAE (same calculator defaults for now). */
+export const PREF_ALL_PRICES_EC_KSA = 'all_prices_ecommerce_ksa_v1'
+export const PREF_ALL_PRICES_SAVED_LISTS_KSA = 'all_prices_saved_lists_ksa_v1'
+export const PREF_ALL_PRICES_RECOVERY_SNAPSHOTS_KSA = 'all_prices_recovery_snapshots_ksa_v1'
+export const PREF_ALL_PRICES_HISTORY_KSA = 'all_prices_history_ksa_v1'
+export const PREF_ALL_PRICES_CLEANUP_BATCHES_KSA = 'all_prices_cleanup_batches_ksa_v1'
+export const PREF_ALL_PRICES_IMPORT_BATCHES_KSA = 'all_prices_import_batches_ksa_v1'
 export const PREF_INFLUENCER_PERF = 'influencer_performance_v1'
 export const PREF_INFLUENCER_LIST_COLS = 'influencer_list_col_widths_v1'
 export const PREF_AI_PLANNER = 'ai_planner_bundle_v2'

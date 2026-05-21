@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import '../Page.css'
 import './AllPricesPage.css'
-import { PREF_ALL_PRICES_EC, PREF_ALL_PRICES_HISTORY } from '../../constants/userPreferenceKeys'
+import { getAllPricesMarket, PRICES_MARKET_KSA, PRICES_MARKET_UAE } from './allPricesMarket'
 import { useUserPreferences } from '../../contexts/UserPreferencesContext'
 import {
   fmtMoney,
@@ -12,12 +12,13 @@ import {
 } from './allPricesEcommerceUtils'
 import {
   filterHistoricalPrices,
-  normalizeHistoricalPricesStore,
+  readAllHistoricalPriceRows,
 } from './allPricesHistoricalPrices'
 import { normalizeItemNo } from './allPricesVersioning'
 
 function exportHistoricalRows(rows) {
   const payload = rows.map((row) => ({
+    market: row.market,
     itemNo: row.itemNo,
     salesPriceAed: row.salesPriceAed,
     vat5: row.vat5,
@@ -49,6 +50,7 @@ function exportHistoricalRows(rows) {
 export function HistoricalPricesPage() {
   const navigate = useNavigate()
   const { ready: prefsReady, getPref, prefsVersion } = useUserPreferences()
+  const [regionFilter, setRegionFilter] = useState('all')
   const [filters, setFilters] = useState({
     search: '',
     source: '',
@@ -59,29 +61,37 @@ export function HistoricalPricesPage() {
     movedTo: '',
   })
 
-  const historyStore = useMemo(() => {
+  const allHistoryRows = useMemo(() => {
     void prefsVersion
-    return normalizeHistoricalPricesStore(getPref(PREF_ALL_PRICES_HISTORY, null))
+    return readAllHistoricalPriceRows()
   }, [getPref, prefsReady, prefsVersion])
 
-  const activeState = useMemo(
-    () => hydrateAllPricesStateFromBundle(getPref(PREF_ALL_PRICES_EC, null)),
-    [getPref, prefsVersion],
-  )
-
-  const activeItems = useMemo(
-    () => new Set(activeState.rows.map((row) => normalizeItemNo(row.itemNo)).filter(Boolean)),
-    [activeState.rows],
-  )
+  const activeItemsByMarket = useMemo(() => {
+    void prefsVersion
+    const uae = hydrateAllPricesStateFromBundle(
+      getPref(getAllPricesMarket(PRICES_MARKET_UAE).prefs.ec, null),
+    )
+    const ksa = hydrateAllPricesStateFromBundle(
+      getPref(getAllPricesMarket(PRICES_MARKET_KSA).prefs.ec, null),
+    )
+    return {
+      [PRICES_MARKET_UAE]: new Set(
+        uae.rows.map((row) => normalizeItemNo(row.itemNo)).filter(Boolean),
+      ),
+      [PRICES_MARKET_KSA]: new Set(
+        ksa.rows.map((row) => normalizeItemNo(row.itemNo)).filter(Boolean),
+      ),
+    }
+  }, [getPref, prefsVersion])
 
   const filteredRows = useMemo(
-    () => filterHistoricalPrices(historyStore.rows, filters),
-    [filters, historyStore.rows],
+    () => filterHistoricalPrices(allHistoryRows, { ...filters, region: regionFilter }),
+    [allHistoryRows, filters, regionFilter],
   )
 
   const sourceOptions = useMemo(
-    () => [...new Set(historyStore.rows.map((row) => row.source).filter(Boolean))].sort(),
-    [historyStore.rows],
+    () => [...new Set(allHistoryRows.map((row) => row.source).filter(Boolean))].sort(),
+    [allHistoryRows],
   )
 
   if (!prefsReady) {
@@ -103,13 +113,23 @@ export function HistoricalPricesPage() {
         <div>
           <h1 className="doc-page-title">Historical Prices</h1>
           <p className="doc-page-subtitle">
-            Audit old, replaced, imported older, and duplicate-cleaned prices. These rows are never used for active composite pricing.
+            Audit old, replaced, imported older, and duplicate-cleaned prices for UAE and KSA. These rows are never used
+            for active composite pricing.
           </p>
         </div>
       </div>
 
       <section className="page-section ap-ec-wrap">
         <div className="ap-ec-toolbar ap-ec-toolbar--filters">
+          <select
+            value={regionFilter}
+            onChange={(e) => setRegionFilter(e.target.value)}
+            aria-label="Market"
+          >
+            <option value="all">All markets</option>
+            <option value={PRICES_MARKET_UAE}>UAE</option>
+            <option value={PRICES_MARKET_KSA}>KSA</option>
+          </select>
           <input
             type="search"
             placeholder="Search item no."
@@ -118,7 +138,11 @@ export function HistoricalPricesPage() {
           />
           <select value={filters.source} onChange={(e) => setFilters((prev) => ({ ...prev, source: e.target.value }))}>
             <option value="">All sources</option>
-            {sourceOptions.map((source) => <option key={source} value={source}>{source}</option>)}
+            {sourceOptions.map((source) => (
+              <option key={source} value={source}>
+                {source}
+              </option>
+            ))}
           </select>
           <input
             type="search"
@@ -126,29 +150,82 @@ export function HistoricalPricesPage() {
             value={filters.reason}
             onChange={(e) => setFilters((prev) => ({ ...prev, reason: e.target.value }))}
           />
-          <label>Price from <input type="date" value={filters.priceDateFrom} onChange={(e) => setFilters((prev) => ({ ...prev, priceDateFrom: e.target.value }))} /></label>
-          <label>Price to <input type="date" value={filters.priceDateTo} onChange={(e) => setFilters((prev) => ({ ...prev, priceDateTo: e.target.value }))} /></label>
-          <label>Moved from <input type="date" value={filters.movedFrom} onChange={(e) => setFilters((prev) => ({ ...prev, movedFrom: e.target.value }))} /></label>
-          <label>Moved to <input type="date" value={filters.movedTo} onChange={(e) => setFilters((prev) => ({ ...prev, movedTo: e.target.value }))} /></label>
+          <label>
+            Price from{' '}
+            <input
+              type="date"
+              value={filters.priceDateFrom}
+              onChange={(e) => setFilters((prev) => ({ ...prev, priceDateFrom: e.target.value }))}
+            />
+          </label>
+          <label>
+            Price to{' '}
+            <input
+              type="date"
+              value={filters.priceDateTo}
+              onChange={(e) => setFilters((prev) => ({ ...prev, priceDateTo: e.target.value }))}
+            />
+          </label>
+          <label>
+            Moved from{' '}
+            <input
+              type="date"
+              value={filters.movedFrom}
+              onChange={(e) => setFilters((prev) => ({ ...prev, movedFrom: e.target.value }))}
+            />
+          </label>
+          <label>
+            Moved to{' '}
+            <input
+              type="date"
+              value={filters.movedTo}
+              onChange={(e) => setFilters((prev) => ({ ...prev, movedTo: e.target.value }))}
+            />
+          </label>
         </div>
 
         <div className="ap-ec-toolbar">
-          <button type="button" className="btn btn--ghost" onClick={() => exportHistoricalRows(filteredRows)} disabled={!filteredRows.length}>
+          <button
+            type="button"
+            className="btn btn--ghost"
+            onClick={() => exportHistoricalRows(filteredRows)}
+            disabled={!filteredRows.length}
+          >
             Export historical prices
           </button>
           <button type="button" className="btn btn--ghost" onClick={() => navigate('/prices/all-prices')}>
-            View All Prices
+            All Prices (UAE)
           </button>
-          <button type="button" className="btn btn--ghost" onClick={() => setFilters({ search: '', source: '', reason: '', priceDateFrom: '', priceDateTo: '', movedFrom: '', movedTo: '' })}>
+          <button type="button" className="btn btn--ghost" onClick={() => navigate('/prices/all-prices-ksa')}>
+            All Prices (KSA)
+          </button>
+          <button
+            type="button"
+            className="btn btn--ghost"
+            onClick={() =>
+              setFilters({
+                search: '',
+                source: '',
+                reason: '',
+                priceDateFrom: '',
+                priceDateTo: '',
+                movedFrom: '',
+                movedTo: '',
+              })
+            }
+          >
             Clear filters
           </button>
-          <span className="ap-ec-save-last">{filteredRows.length} of {historyStore.rows.length} historical rows</span>
+          <span className="ap-ec-save-last">
+            {filteredRows.length} of {allHistoryRows.length} historical rows
+          </span>
         </div>
 
         <div className="ap-table-scroll">
           <table className="ap-ec-table ap-ec-table--history">
             <thead>
               <tr>
+                <th>Market</th>
                 <th>Item No.</th>
                 <th>Sales Price AED</th>
                 <th>VAT</th>
@@ -170,34 +247,53 @@ export function HistoricalPricesPage() {
             </thead>
             <tbody>
               {filteredRows.length === 0 ? (
-                <tr><td colSpan={17} className="ap-ec-empty">No historical prices match these filters.</td></tr>
-              ) : filteredRows.map((row) => (
-                <tr key={row.historicalPriceId}>
-                  <td>{row.itemNo}</td>
-                  <td>{fmtMoney(row.salesPriceAed, 0)}</td>
-                  <td>{fmtMoney(row.vat5)}</td>
-                  <td>{fmtMoney(row.commission15)}</td>
-                  <td>{fmtMoney(row.advertising15)}</td>
-                  <td>{fmtMoney(row.shipping)}</td>
-                  <td>{fmtMoney(row.purchasePrice)}</td>
-                  <td>{fmtMoney(row.totalCost)}</td>
-                  <td>{fmtMoney(row.profitAed)}</td>
-                  <td>{fmtPct(row.profitPercent)}</td>
-                  <td>{row.pricingStatus || '—'}</td>
-                  <td>{row.originalDateOfPrices || '—'}</td>
-                  <td>{formatLastSavedAt(row.movedAt)}</td>
-                  <td>{row.movedBy || '—'}</td>
-                  <td>{row.reason || '—'}</td>
-                  <td>{row.source || '—'}</td>
-                  <td>
-                    {activeItems.has(normalizeItemNo(row.itemNo)) ? (
-                      <button type="button" className="btn btn--ghost btn--sm" onClick={() => navigate('/prices/all-prices')}>
-                        View current
-                      </button>
-                    ) : '—'}
+                <tr>
+                  <td colSpan={18} className="ap-ec-empty">
+                    No historical prices match these filters.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filteredRows.map((row) => {
+                  const rowMarket = row.market || PRICES_MARKET_UAE
+                  const marketCfg = getAllPricesMarket(rowMarket)
+                  const activeSet = activeItemsByMarket[rowMarket]
+                  const itemKey = normalizeItemNo(row.itemNo)
+                  return (
+                    <tr key={`${rowMarket}-${row.historicalPriceId}`}>
+                      <td>{marketCfg.label}</td>
+                      <td>{row.itemNo}</td>
+                      <td>{fmtMoney(row.salesPriceAed, 0)}</td>
+                      <td>{fmtMoney(row.vat5)}</td>
+                      <td>{fmtMoney(row.commission15)}</td>
+                      <td>{fmtMoney(row.advertising15)}</td>
+                      <td>{fmtMoney(row.shipping)}</td>
+                      <td>{fmtMoney(row.purchasePrice)}</td>
+                      <td>{fmtMoney(row.totalCost)}</td>
+                      <td>{fmtMoney(row.profitAed)}</td>
+                      <td>{fmtPct(row.profitPercent)}</td>
+                      <td>{row.pricingStatus || '—'}</td>
+                      <td>{row.originalDateOfPrices || '—'}</td>
+                      <td>{formatLastSavedAt(row.movedAt)}</td>
+                      <td>{row.movedBy || '—'}</td>
+                      <td>{row.reason || '—'}</td>
+                      <td>{row.source || '—'}</td>
+                      <td>
+                        {activeSet?.has(itemKey) ? (
+                          <button
+                            type="button"
+                            className="btn btn--ghost btn--sm"
+                            onClick={() => navigate(marketCfg.routeAllPrices)}
+                          >
+                            View current
+                          </button>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
             </tbody>
           </table>
         </div>
