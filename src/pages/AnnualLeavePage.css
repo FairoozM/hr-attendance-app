@@ -953,3 +953,118 @@
     display: none !important;
   }
 }
+
+/* ── CEO view ── */
+.al-ceo {
+  margin-bottom: 1.5rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  background: var(--theme-surface-soft);
+  box-shadow: var(--glass-shadow);
+}
+
+.al-ceo__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.al-ceo__title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.al-ceo__subtitle {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  max-width: 36rem;
+}
+
+.al-ceo__count {
+  flex-shrink: 0;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.al-table--ceo th {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.al-ceo__period {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.al-ceo__days {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.al-ceo__alt {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 8rem;
+}
+
+.al-ceo__alt-name {
+  font-weight: 600;
+}
+
+.al-ceo__alt-badge {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.al-ceo__alt-badge--available {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.al-ceo__alt-badge--unavailable {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.al-ceo__alt-badge--missing {
+  color: var(--text-muted);
+  background: var(--theme-glass-soft);
+}
+
+.al-ceo__join,
+.al-ceo__tenure {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.al-ceo__tenure strong {
+  font-size: 1.05rem;
+}
+
+.al-ceo__status {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.al-ceo__loading {
+  margin: 1.5rem 0;
+}

@@ -27,6 +27,7 @@ import { AnnualLeaveEditRowForm } from '../components/annualLeave/AnnualLeaveEdi
 import { ReturnFromLeaveModal } from '../components/annualLeave/ReturnFromLeaveModal'
 import { ExtendLeaveModal } from '../components/annualLeave/ExtendLeaveModal'
 import { ANNUAL_LEAVE_SECTIONS } from '../components/annualLeave/annualLeaveSectionConfig'
+import { AnnualLeaveCeoView } from '../components/annualLeave/AnnualLeaveCeoView'
 import './Page.css'
 import './AnnualLeavePage.css'
 
@@ -449,6 +450,15 @@ export function AnnualLeavePage() {
         {isAdmin && (
           <button
             type="button"
+            className={`al-tab ${activeTab === 'ceo' ? 'al-tab--active' : ''}`}
+            onClick={() => setActiveTab('ceo')}
+          >
+            CEO view
+          </button>
+        )}
+        {isAdmin && (
+          <button
+            type="button"
             className={`al-tab ${activeTab === 'salary' ? 'al-tab--active' : ''}`}
             onClick={() => setActiveTab('salary')}
           >
@@ -458,6 +468,26 @@ export function AnnualLeavePage() {
       </div>
 
       {activeTab === 'salary' && isAdmin && <AnnualLeaveSalaryPage embedded employees={employees} />}
+
+      {activeTab === 'ceo' && isAdmin && (
+        <>
+          {error && <p className="page-error">{error}</p>}
+          <AnnualLeaveFilters
+            tabCounts={tabCounts}
+            filterStatus={filterStatus}
+            setFilterStatus={handleSetFilterStatus}
+            search={search}
+            setSearch={setSearch}
+            deptFilter={deptFilter}
+            setDeptFilter={setDeptFilter}
+            departments={departments}
+            isAdmin={isAdmin}
+            shopVisitFilter={shopVisitFilter}
+            setShopVisitFilter={setShopVisitFilter}
+          />
+          <AnnualLeaveCeoView rows={filteredRequests} allRequests={requests} loading={loading} />
+        </>
+      )}
 
       {activeTab === 'requests' && (
         <>
