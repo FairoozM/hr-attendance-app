@@ -32,7 +32,14 @@ import './AnnualLeavePage.css'
 
 const PAGE_SIZE = 25
 
+/** Return recorded — effective_status is Completed even when DB status stays Approved. */
+function isLeaveEffectivelyCompleted(row) {
+  const es = row.effective_status || row.status
+  return Boolean(row.actual_return_date) || es === 'Completed' || row.status === 'Completed'
+}
+
 function hasOpenShopOrSalaryWork(row, { isAdmin = true } = {}) {
+  if (isLeaveEffectivelyCompleted(row)) return false
   if (row.status !== 'Approved') return false
   const sv = row.shop_visit_status || 'PendingSubmission'
   if (!isAdmin && sv === 'PendingSubmission') return true
@@ -43,6 +50,7 @@ function hasOpenShopOrSalaryWork(row, { isAdmin = true } = {}) {
 }
 
 function isNeedsAction(row, opts = {}) {
+  if (isLeaveEffectivelyCompleted(row)) return false
   const es = row.effective_status || row.status
   return (
     row.status === 'Pending' ||
@@ -60,6 +68,7 @@ function queueMatches(row, filterStatus, opts = {}) {
 
 function groupKeyForRow(row, opts = {}) {
   const es = row.effective_status || row.status
+  if (isLeaveEffectivelyCompleted(row)) return 'Completed'
   if (isNeedsAction(row, opts)) return 'NeedsAction'
   if (es === 'Ongoing' || es === 'ReturnPending' || es === 'Overstayed') return 'Ongoing'
   if (es === 'Approved') return 'Approved'
