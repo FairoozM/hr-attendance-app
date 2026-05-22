@@ -9,9 +9,11 @@ import { X, Plus } from 'lucide-react'
 import './NewIssueModal.css'
 
 const STATUS_OPTIONS = [
-  { value: 'Backlog',     label: 'Backlog'     },
-  { value: 'Todo',        label: 'Todo'        },
-  { value: 'In Progress', label: 'In Progress' },
+  { value: 'Backlog',            label: 'Backlog'            },
+  { value: 'Todo',               label: 'Todo'               },
+  { value: 'In Progress',        label: 'In Progress'        },
+  { value: 'In Review',          label: 'In Review'          },
+  { value: 'Ready for Release',  label: 'Ready for Release'  },
 ]
 
 const PRIORITY_OPTIONS = [
@@ -20,6 +22,19 @@ const PRIORITY_OPTIONS = [
   { value: 'High',        label: 'High'        },
   { value: 'Medium',      label: 'Medium'      },
   { value: 'Low',         label: 'Low'         },
+]
+
+// Product engineering issue types — kept subtle in the row, visible here in create modal
+const ISSUE_TYPE_OPTIONS = [
+  { value: 'feature',     label: 'Feature'     },
+  { value: 'bug',         label: 'Bug'         },
+  { value: 'ux/ui',       label: 'UX/UI'       },
+  { value: 'performance', label: 'Performance'  },
+  { value: 'scalability', label: 'Scalability'  },
+  { value: 'release',     label: 'Release'      },
+  { value: 'content',     label: 'Content'      },
+  { value: 'integration', label: 'Integration'  },
+  { value: 'task',        label: 'Task'         },
 ]
 
 export function NewIssueModal({
@@ -32,6 +47,7 @@ export function NewIssueModal({
   const [title,      setTitle]      = useState('')
   const [status,     setStatus]     = useState('Todo')
   const [priority,   setPriority]   = useState('Medium')
+  const [issueType,  setIssueType]  = useState('feature')
   const [assigneeId, setAssigneeId] = useState('')
   const [projectId,  setProjectId]  = useState('')
   const [saving,     setSaving]     = useState(false)
@@ -41,7 +57,7 @@ export function NewIssueModal({
   // Focus title on open
   useEffect(() => {
     if (open) {
-      setTitle(''); setStatus('Todo'); setPriority('Medium')
+      setTitle(''); setStatus('Todo'); setPriority('Medium'); setIssueType('feature')
       setAssigneeId(''); setProjectId(projects[0]?.id ? String(projects[0].id) : '')
       setError(''); setSaving(false)
       setTimeout(() => titleRef.current?.focus(), 60)
@@ -65,16 +81,15 @@ export function NewIssueModal({
     setError('')
     try {
       // Map UI fields → API payload (server uses "task" terminology internally)
+      // issue_type is stored in the existing project_tasks.issue_type column (added in Phase 1)
       await onCreate({
         projectId: Number(projectId),
         payload: {
-          title:             title.trim(),
+          title:            title.trim(),
           status,
           priority,
-          // server field: assignee_user_id
-          assignee_user_id:  assigneeId ? Number(assigneeId) : null,
-          // issue_type defaults to 'task' — Linear keeps types subtle
-          issue_type:        'task',
+          assignee_user_id: assigneeId ? Number(assigneeId) : null,
+          issue_type:       issueType,
         },
       })
       onClose()
@@ -146,8 +161,21 @@ export function NewIssueModal({
             </label>
           </div>
 
-          {/* Row: project, assignee */}
+          {/* Row: issue type, project */}
           <div className="nim-row">
+            <label className="nim-select-wrap">
+              <span className="nim-select-label">Type</span>
+              <select
+                className="nim-select"
+                value={issueType}
+                onChange={(e) => setIssueType(e.target.value)}
+              >
+                {ISSUE_TYPE_OPTIONS.map(({ value, label }) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </label>
+
             <label className="nim-select-wrap">
               <span className="nim-select-label">Project</span>
               <select
@@ -162,7 +190,10 @@ export function NewIssueModal({
                 ))}
               </select>
             </label>
+          </div>
 
+          {/* Row: assignee */}
+          <div className="nim-row">
             <label className="nim-select-wrap">
               <span className="nim-select-label">Assignee</span>
               <select

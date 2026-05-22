@@ -10,31 +10,35 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Circle, CheckCircle2, Clock, AlertCircle, XCircle,
-  GitPullRequest, Minus, ArrowUp, ArrowDown, ChevronsUp,
+  GitPullRequest, Rocket, Minus, ArrowUp, ArrowDown, ChevronsUp,
   UserCircle2, CalendarDays,
+  Bug, Zap, Pen, Gauge, Layers, Package, FileText, Plug,
 } from 'lucide-react'
 import './IssueRow.css'
 
 // ── Status config ─────────────────────────────────────────────────────────────
 export const STATUS_CONFIG = {
-  Backlog:      { Icon: Circle,       color: '#6b7280', label: 'Backlog'     },
-  Todo:         { Icon: Circle,       color: '#94a3b8', label: 'Todo'        },
-  'In Progress':{ Icon: Clock,        color: '#3b82f6', label: 'In Progress' },
-  'In Review':  { Icon: GitPullRequest,color: '#8b5cf6',label: 'In Review'   },
-  Done:         { Icon: CheckCircle2, color: '#10b981', label: 'Done'        },
-  Canceled:     { Icon: XCircle,      color: '#4b5563', label: 'Canceled'    },
+  Backlog:              { Icon: Circle,        color: '#6b7280', label: 'Backlog'            },
+  Todo:                 { Icon: Circle,        color: '#94a3b8', label: 'Todo'               },
+  'In Progress':        { Icon: Clock,         color: '#3b82f6', label: 'In Progress'        },
+  'In Review':          { Icon: GitPullRequest, color: '#8b5cf6', label: 'In Review'         },
+  'Ready for Release':  { Icon: Rocket,        color: '#10b981', label: 'Ready for Release'  },
+  Done:                 { Icon: CheckCircle2,  color: '#059669', label: 'Done'               },
+  Canceled:             { Icon: XCircle,       color: '#4b5563', label: 'Canceled'           },
 }
 
-// Normalise legacy status strings into Linear statuses
+// Normalise legacy and variant status strings → canonical Linear status
 export function normalizeStatus(raw) {
   if (!raw) return 'Backlog'
   const s = String(raw).toLowerCase().trim()
-  if (s === 'todo' || s === 'to do' || s === 'to-do') return 'Todo'
-  if (s === 'in_progress' || s === 'in progress')      return 'In Progress'
-  if (s === 'in_review'   || s === 'in review')        return 'In Review'
-  if (s === 'done' || s === 'completed')               return 'Done'
-  if (s === 'canceled' || s === 'cancelled')           return 'Canceled'
-  if (s === 'backlog')                                 return 'Backlog'
+  if (s === 'todo' || s === 'to do' || s === 'to-do')                                   return 'Todo'
+  if (s === 'in_progress' || s === 'in progress' || s === 'inprogress')                 return 'In Progress'
+  if (s === 'in_review'   || s === 'in review'   || s === 'inreview')                   return 'In Review'
+  if (s === 'ready for release' || s === 'ready_for_release' || s === 'release ready'
+      || s === 'readyforrelease' || s === 'ready')                                       return 'Ready for Release'
+  if (s === 'done' || s === 'completed')                                                 return 'Done'
+  if (s === 'canceled' || s === 'cancelled')                                             return 'Canceled'
+  if (s === 'backlog')                                                                   return 'Backlog'
   return 'Backlog'
 }
 
@@ -58,24 +62,43 @@ export function normalizePriority(raw) {
   return 'No Priority'
 }
 
-/** Generate a Linear-style issue key from project name + issue id */
+/** Generate a Linear-style issue key from project/team name + issue id */
 export function issueKey(projectName, id) {
   if (!projectName) return `ISS-${id}`
-  const words = String(projectName).trim().split(/\s+/).filter(Boolean)
+  const lower = String(projectName).toLowerCase()
   let code
-  if (words.length === 1) {
-    code = words[0].slice(0, 3).toUpperCase()
-  } else {
-    const lower = String(projectName).toLowerCase()
-    if (lower.includes('website') || lower.includes('web')) code = 'WEB'
-    else if (lower.includes('app') || lower.includes('mobile')) code = 'APP'
-    else if (lower.includes('backend') || lower.includes('api')) code = 'API'
-    else if (lower.includes('finance') || lower.includes('fin')) code = 'FIN'
-    else if (lower.includes('amazon') || lower.includes('amz')) code = 'AMZ'
-    else if (lower.includes('ops') || lower.includes('operations')) code = 'OPS'
+
+  // Product engineering team keyword matching (order matters — more specific first)
+  if (lower.includes('android') || lower.includes(' and ') || lower === 'and') code = 'AND'
+  else if (lower.includes('ios') || lower.includes('iphone') || lower.includes('apple')) code = 'IOS'
+  else if (lower.includes('ux') || lower.includes('ui') || lower.includes('design')) code = 'UX'
+  else if (lower.includes('backend') || lower.includes('api') || lower.includes('server')) code = 'API'
+  else if (lower.includes('data') || lower.includes(' bi') || lower === 'bi' || lower.includes('analytics')) code = 'BI'
+  else if (lower.includes('website') || lower.includes('web') || lower.includes('www')) code = 'WEB'
+  else if (lower.includes('mobile') || lower.includes('app')) code = 'APP'
+  else if (lower.includes('amazon') || lower.includes('amz')) code = 'AMZ'
+  else if (lower.includes('finance') || lower.includes('fin')) code = 'FIN'
+  else if (lower.includes('ops') || lower.includes('operations')) code = 'OPS'
+  else {
+    const words = String(projectName).trim().split(/\s+/).filter(Boolean)
+    if (words.length === 1) code = words[0].slice(0, 3).toUpperCase()
     else code = words.slice(0, 3).map((w) => w[0].toUpperCase()).join('')
   }
+
   return `${code}-${id}`
+}
+
+// ── Issue type config (subtle — icon only in row) ────────────────────────────
+export const ISSUE_TYPE_CONFIG = {
+  bug:         { Icon: Bug,      color: '#f87171', label: 'Bug'         },
+  feature:     { Icon: Zap,      color: '#a78bfa', label: 'Feature'     },
+  'ux/ui':     { Icon: Pen,      color: '#f472b6', label: 'UX/UI'       },
+  performance: { Icon: Gauge,    color: '#fb923c', label: 'Performance'  },
+  scalability: { Icon: Layers,   color: '#818cf8', label: 'Scalability'  },
+  release:     { Icon: Rocket,   color: '#34d399', label: 'Release'      },
+  content:     { Icon: FileText, color: '#94a3b8', label: 'Content'      },
+  integration: { Icon: Plug,     color: '#fbbf24', label: 'Integration'  },
+  task:        { Icon: Circle,   color: '#6b7280', label: 'Task'         },
 }
 
 function initialsFromName(name = '') {
@@ -161,6 +184,9 @@ export function IssueRow({
   const priority = normalizePriority(issue.priority)
   const statusCfg   = STATUS_CONFIG[status]   || STATUS_CONFIG.Backlog
   const priorityCfg = PRIORITY_CONFIG[priority] || PRIORITY_CONFIG['No Priority']
+  // Subtle issue type icon (shown only when issue_type is set and not 'task')
+  const typeKey  = String(issue.issueType || issue.issue_type || 'task').toLowerCase()
+  const typeCfg  = typeKey !== 'task' ? (ISSUE_TYPE_CONFIG[typeKey] || null) : null
   const key = issueKey(project?.name, issue.id)
   const due = fmtDate(issue.dueDate)
   const assigneeName = member?.displayName || member?.username || ''
@@ -209,6 +235,17 @@ export function IssueRow({
 
         {/* Issue key */}
         <span className="ir__key" title={key}>{key}</span>
+
+        {/* Subtle issue type icon (non-task types only) */}
+        {typeCfg && (
+          <typeCfg.Icon
+            size={11}
+            strokeWidth={2}
+            style={{ color: typeCfg.color, flexShrink: 0, opacity: 0.75 }}
+            title={typeCfg.label}
+            aria-label={typeCfg.label}
+          />
+        )}
 
         {/* Title */}
         <span className="ir__title">{issue.title || '(Untitled)'}</span>

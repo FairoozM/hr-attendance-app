@@ -1,30 +1,26 @@
 /**
  * LinearSidebar.jsx
  * Left navigation sidebar for the Linear-style issue tracker.
- * Does NOT mention "Jira", "Sprint", or "Task" anywhere.
+ * Product engineering workspace for Life Smile development teams.
+ * Does NOT mention "Jira", "Sprint", "Task", or legacy ops team names.
  */
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink } from 'react-router-dom'
 import {
-  Inbox, User, LayoutList, Map,
+  Inbox, LayoutList, Map,
   FolderOpen, RotateCcw, Tag, CheckCircle2,
-  Globe, Smartphone, Package, Wallet,
-  ChevronRight,
+  Globe, Smartphone, Server, PenTool, BarChart2, Apple,
 } from 'lucide-react'
 import './LinearSidebar.css'
 
-const MAIN_NAV = [
-  { to: '/projects/linear',          Icon: LayoutList,   label: 'My Issues'   },
-  { to: '/projects/linear/inbox',    Icon: Inbox,        label: 'Inbox',     badge: null },
-  { to: '/projects/linear/views',    Icon: LayoutList,   label: 'Views'      },
-  { to: '/projects/linear/roadmap',  Icon: Map,          label: 'Roadmap'    },
-]
-
-// Team entries with icons — reflect Life Smile team structure
+// ── Product engineering teams ─────────────────────────────────────────────────
+// key prefix used for issue keys (WEB-12, AND-5, etc.)
 const TEAMS = [
-  { key: 'website', label: 'Website', Icon: Globe,      color: '#3b82f6' },
-  { key: 'app',     label: 'Mobile App', Icon: Smartphone, color: '#10b981' },
-  { key: 'ops',     label: 'Operations', Icon: Package,  color: '#f59e0b' },
-  { key: 'finance', label: 'Finance',    Icon: Wallet,   color: '#8b5cf6' },
+  { key: 'website',  label: 'Website',      prefix: 'WEB', Icon: Globe,       color: '#3b82f6' },
+  { key: 'android',  label: 'Android App',  prefix: 'AND', Icon: Smartphone,  color: '#10b981' },
+  { key: 'ios',      label: 'iOS App',      prefix: 'IOS', Icon: Smartphone,  color: '#6366f1' },
+  { key: 'api',      label: 'Backend / API',prefix: 'API', Icon: Server,      color: '#f59e0b' },
+  { key: 'ux',       label: 'UX/UI Design', prefix: 'UX',  Icon: PenTool,     color: '#ec4899' },
+  { key: 'bi',       label: 'Data & BI',    prefix: 'BI',  Icon: BarChart2,   color: '#8b5cf6' },
 ]
 
 function SidebarSection({ title, children }) {
@@ -61,34 +57,36 @@ function SidebarLink({ to, Icon, label, badge, end = false, disabled = false }) 
 
 export function LinearSidebar({ projects = [], inboxCount = 0 }) {
   const workspaceLinks = [
-    { to: '/projects/linear/projects', Icon: FolderOpen, label: 'Projects' },
-    { to: '/projects/linear/cycles',   Icon: RotateCcw,  label: 'Cycles', disabled: true  },
-    { to: '/projects/linear/labels',   Icon: Tag,        label: 'Labels',  disabled: true  },
-    { to: '/projects/linear/completed',Icon: CheckCircle2,label: 'Completed', disabled: true },
+    { to: '/projects/linear/projects',  Icon: FolderOpen,   label: 'Projects'  },
+    { to: '/projects/linear/cycles',    Icon: RotateCcw,    label: 'Cycles',    disabled: true },
+    { to: '/projects/linear/labels',    Icon: Tag,          label: 'Labels',    disabled: true },
+    { to: '/projects/linear/completed', Icon: CheckCircle2, label: 'Completed', disabled: true },
   ]
 
   return (
     <aside className="lsb" aria-label="Issue tracker navigation">
       <div className="lsb-logo">
         <span className="lsb-logo__mark">LS</span>
-        <span className="lsb-logo__name">Life Smile Issues</span>
+        <span className="lsb-logo__name">Life Smile Dev</span>
       </div>
 
       <SidebarSection>
-        <SidebarLink to="/projects/linear" Icon={LayoutList} label="My Issues" end />
-        <SidebarLink to="/projects/linear/inbox"   Icon={Inbox}  label="Inbox"   badge={inboxCount || null} disabled />
-        <SidebarLink to="/projects/linear/views"   Icon={LayoutList} label="Views"    disabled />
-        <SidebarLink to="/projects/linear/roadmap" Icon={Map}    label="Roadmap"  disabled />
+        <SidebarLink to="/projects/linear" Icon={LayoutList} label="Issues" end />
+        <SidebarLink to="/projects/linear/inbox"   Icon={Inbox} label="Inbox"   badge={inboxCount || null} disabled />
+        <SidebarLink to="/projects/linear/views"   Icon={LayoutList} label="Views"   disabled />
+        <SidebarLink to="/projects/linear/roadmap" Icon={Map}   label="Roadmap" disabled />
       </SidebarSection>
 
       <SidebarSection title="Teams">
         {TEAMS.map(({ key, label, Icon, color }) => (
-          <SidebarLink
+          <NavLink
             key={key}
-            to={`/projects/linear`}
-            Icon={Icon}
-            label={label}
-          />
+            to="/projects/linear"
+            className={({ isActive }) => `lsb-link`}
+          >
+            <Icon size={14} strokeWidth={1.8} className="lsb-link__icon" style={{ color }} aria-hidden="true" />
+            <span className="lsb-link__label">{label}</span>
+          </NavLink>
         ))}
       </SidebarSection>
 
@@ -100,11 +98,11 @@ export function LinearSidebar({ projects = [], inboxCount = 0 }) {
 
       {projects.length > 0 && (
         <SidebarSection title="Projects">
-          {projects.slice(0, 6).map((p) => (
+          {projects.slice(0, 8).map((p) => (
             <NavLink
               key={p.id}
-              to={`/projects/linear`}
-              className={({ isActive }) => `lsb-link ${isActive ? 'lsb-link--active' : ''}`}
+              to="/projects/linear"
+              className={() => 'lsb-link'}
             >
               <span
                 className="lsb-proj-dot"
@@ -120,4 +118,5 @@ export function LinearSidebar({ projects = [], inboxCount = 0 }) {
   )
 }
 
+export { TEAMS }
 export default LinearSidebar

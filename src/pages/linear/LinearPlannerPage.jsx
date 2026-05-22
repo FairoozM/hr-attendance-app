@@ -22,8 +22,8 @@ import './LinearPlannerPage.css'
 // ── Grouping helpers ──────────────────────────────────────────────────────────
 
 function groupByStatus(issues) {
-  // Linear status order
-  const ORDER = ['In Progress', 'In Review', 'Todo', 'Backlog', 'Done', 'Canceled']
+  // Linear product engineering status order
+  const ORDER = ['In Progress', 'In Review', 'Ready for Release', 'Todo', 'Backlog', 'Done', 'Canceled']
   const groups = {}
   for (const issue of issues) {
     const s = normalizeStatus(issue.status)
@@ -278,7 +278,7 @@ export default function LinearPlannerPage() {
                 onSelect={setSelectedIssue}
                 onStatusChange={handleStatusChange}
                 onPriorityChange={handlePriorityChange}
-                defaultOpen={g.key !== 'Done' && g.key !== 'Canceled'}
+                defaultOpen={g.key !== 'Done' && g.key !== 'Canceled' && g.key !== 'Backlog'}
               />
             ))
           )}
