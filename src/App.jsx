@@ -77,6 +77,7 @@ import ProjectsIndexPage from './pages/projects/ProjectsIndexPage'
 import ProjectDetailPage from './pages/projects/ProjectDetailPage'
 import ProjectDashboardPage from './pages/projects/ProjectDashboardPage'
 import TrashPage from './pages/projects/TrashPage'
+import TeamProjectsPage from './pages/projects/TeamProjectsPage'
 import { AiUsageDashboard } from './pages/AiUsageDashboard'
 import { AmazonListingGenerator } from './pages/AmazonListingGenerator'
 import { AmazonSpApiTestPage } from './pages/AmazonSpApiTestPage'
@@ -436,6 +437,16 @@ function AppContent() {
           element={
             <PermissionGuard module="planner" action="view">
               <TrashPage />
+            </PermissionGuard>
+          }
+        />
+        {/* Team Planner Phase 2 — Jira-style list on /projects/team.
+            The existing /projects AI Planner is unchanged. */}
+        <Route
+          path="projects/team"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <TeamProjectsPage />
             </PermissionGuard>
           }
         />

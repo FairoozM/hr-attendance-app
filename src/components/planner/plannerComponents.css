@@ -1,0 +1,214 @@
+/* =============================================================
+   Team Planner — shared component styles
+   IssueTypeBadge, AssigneeAvatar, AssigneeAvatarGroup,
+   LabelPills, SprintBadge, TaskFiltersBar
+   ============================================================= */
+
+/* ── IssueTypeBadge (.itb) ──────────────────────────────────── */
+.itb {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.35rem;
+  border-radius: 5px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.itb__label { font-size: 0.68rem; }
+
+.itb--blue   { background: rgba(59,130,246,.15); color: #60a5fa; }
+.itb--red    { background: rgba(239,68,68,.15);  color: #f87171; }
+.itb--green  { background: rgba(16,185,129,.15); color: #34d399; }
+.itb--purple { background: rgba(139,92,246,.15); color: #a78bfa; }
+.itb--indigo { background: rgba(99,102,241,.15); color: #818cf8; }
+.itb--gray   { background: rgba(107,114,128,.15);color: #9ca3af; }
+.itb--teal   { background: rgba(20,184,166,.15); color: #2dd4bf; }
+.itb--amber  { background: rgba(245,158,11,.15); color: #fbbf24; }
+.itb--orange { background: rgba(249,115,22,.15); color: #fb923c; }
+.itb--pink   { background: rgba(236,72,153,.15); color: #f472b6; }
+
+/* ── AssigneeAvatar (.aa) ───────────────────────────────────── */
+.aa-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+.aa-wrap--unassigned { opacity: 0.45; }
+.aa-unassigned-icon  { color: var(--theme-text-muted); }
+
+.aa-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-weight: 700;
+  flex-shrink: 0;
+  background: hsl(calc(var(--aa-hue, 250)), 55%, 28%);
+  color: hsl(calc(var(--aa-hue, 250)), 90%, 82%);
+  border: 1.5px solid hsl(calc(var(--aa-hue, 250)), 50%, 40%);
+}
+.aa-img {
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1.5px solid var(--theme-border-subtle);
+}
+
+/* sizes */
+.aa-fallback--xs, .aa-img--xs { width: 20px; height: 20px; font-size: 0.55rem; }
+.aa-fallback--sm, .aa-img--sm { width: 26px; height: 26px; font-size: 0.62rem; }
+.aa-fallback--md, .aa-img--md { width: 34px; height: 34px; font-size: 0.72rem; }
+
+.aa-name {
+  font-size: 0.78rem;
+  color: var(--theme-text-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 9rem;
+}
+.aa-name--unassigned { color: var(--theme-text-muted); font-style: italic; }
+
+/* ── AssigneeAvatarGroup (.aag) ─────────────────────────────── */
+.aag-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.aag-slot { position: relative; margin-right: -6px; }
+.aag-slot:last-of-type { margin-right: 0; }
+.aag-overflow {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: var(--theme-surface-raised);
+  border: 1.5px solid var(--theme-border);
+  color: var(--theme-text-muted);
+  font-size: 0.58rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── LabelPills (.lp) ───────────────────────────────────────── */
+.lp-wrap {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  align-items: center;
+}
+.lp-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.4rem;
+  border-radius: 99px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--lp-color, #8b5cf6) 18%, transparent);
+  color: var(--lp-color, #a78bfa);
+  border: 1px solid color-mix(in srgb, var(--lp-color, #8b5cf6) 35%, transparent);
+  white-space: nowrap;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lp-pill--overflow {
+  background: var(--theme-surface-soft);
+  color: var(--theme-text-muted);
+  border-color: var(--theme-border-subtle);
+}
+
+/* ── SprintBadge (.sb) ──────────────────────────────────────── */
+.sb {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.12rem 0.38rem;
+  border-radius: 5px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  white-space: nowrap;
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sb__icon  { flex-shrink: 0; }
+.sb__name  { overflow: hidden; text-overflow: ellipsis; }
+.sb--active    { background: rgba(16,185,129,.15); color: #34d399; }
+.sb--completed { background: rgba(107,114,128,.12); color: #9ca3af; }
+.sb--draft     { background: rgba(99,102,241,.12);  color: #818cf8; }
+.sb--none      { background: transparent; color: var(--theme-text-muted); font-style: italic; font-size: 0.7rem; padding: 0; }
+
+/* ── TaskFiltersBar (.tfb) ──────────────────────────────────── */
+.tfb-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.8rem 1rem;
+  background: var(--theme-surface-soft);
+  border: 1px solid var(--theme-border-subtle);
+  border-radius: 10px;
+  margin-bottom: 1rem;
+}
+
+.tfb-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.tfb-row--primary { gap: 0.5rem; }
+.tfb-row--dropdowns { gap: 0.4rem; flex-wrap: wrap; }
+
+.tfb-search { flex: 1; min-width: 200px; max-width: 340px; }
+
+.tfb-toggles {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.tfb-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.28rem 0.65rem;
+  border-radius: 99px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--theme-border);
+  background: var(--theme-panel-bg);
+  color: var(--theme-text-soft);
+  transition: all 0.12s ease;
+  white-space: nowrap;
+}
+.tfb-toggle:hover { background: var(--theme-surface-raised); color: var(--theme-text); }
+.tfb-toggle--on {
+  background: rgba(99,102,241,.18);
+  color: #a5b4fc;
+  border-color: rgba(99,102,241,.4);
+}
+.tfb-toggle--overdue.tfb-toggle--on { background: rgba(239,68,68,.15); color: #f87171; border-color: rgba(239,68,68,.35); }
+.tfb-toggle--blocked.tfb-toggle--on { background: rgba(245,158,11,.15); color: #fbbf24; border-color: rgba(245,158,11,.35); }
+
+.tfb-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.28rem 0.7rem;
+  border-radius: 99px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid rgba(239,68,68,.3);
+  background: rgba(239,68,68,.08);
+  color: #f87171;
+  transition: all 0.12s ease;
+  white-space: nowrap;
+}
+.tfb-clear:hover { background: rgba(239,68,68,.18); }

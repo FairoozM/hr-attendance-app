@@ -15,7 +15,8 @@ import './Layout.css'
 
 /** AI Planner sub-routes (admin sidebar, rail, and global nav search). */
 const PLANNER_NAV_ITEMS = [
-  { to: '/projects', label: 'Task List' },
+  { to: '/projects',      label: 'Task List'     },
+  { to: '/projects/team', label: 'Team Planner'  },
   { to: '/projects/today', label: "Today's Plan" },
   { to: '/projects/dashboard', label: 'Dashboard' },
   { to: '/projects/trash', label: 'Deleted' },
@@ -571,6 +572,7 @@ export function Layout() {
     if (location.pathname.startsWith('/ai/listing-batches')) return 'Listing Batches'
     if (location.pathname.startsWith('/ai/amazon-listing')) return 'Amazon Listing'
     if (location.pathname === '/projects/dashboard') return 'AI Dashboard'
+    if (location.pathname === '/projects/team')      return 'Team Planner'
     if (location.pathname.startsWith('/projects/')) return 'Today\'s Plan'
     if (location.pathname === '/projects') return 'AI Task Planner'
     return 'Dashboard'
