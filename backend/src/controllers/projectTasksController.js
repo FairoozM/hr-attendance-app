@@ -76,7 +76,7 @@ async function updateTask(req, res) {
 async function deleteTask(req, res) {
   try {
     if (!requireAdmin(req, res)) return
-    await projectTasksService.deleteTask(req.params.taskId)
+    await projectTasksService.deleteTask(req.params.projectId, req.params.taskId)
     res.json({ success: true })
   } catch (err) {
     console.error('[tasks] delete error:', err)

@@ -257,13 +257,25 @@ async function updateTask(taskId, fields, actorUserId = null) {
   return after
 }
 
-async function deleteTask(taskId) {
+async function deleteTask(projectId, taskId) {
+  const check = await query(
+    `SELECT id FROM project_tasks WHERE id = $1 AND project_id = $2`,
+    [taskId, projectId]
+  )
+  if (check.rowCount === 0) {
+    const err = new Error('Issue not found in this project')
+    err.status = 404
+    throw err
+  }
+
   // Attachments: delete S3 objects first
   const attachments = await query(`SELECT s3_key FROM task_attachments WHERE task_id = $1`, [taskId])
   for (const a of attachments.rows) {
     await s3Service.deleteObjectIfExists(a.s3_key).catch(() => {})
   }
-  await query(`DELETE FROM project_tasks WHERE id = $1`, [taskId])
+
+  // task_comments / task_activity_log / dependencies cascade via FK ON DELETE CASCADE
+  await query(`DELETE FROM project_tasks WHERE id = $1 AND project_id = $2`, [taskId, projectId])
 }
 
 // ---------------------------------------------------------------------------

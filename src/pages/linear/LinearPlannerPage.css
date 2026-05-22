@@ -38,6 +38,19 @@
   animation: lpp-bar 1.4s ease infinite;
 }
 
+/* ── Success toast ────────────────────────────────────────── */
+.lpp__toast {
+  flex-shrink: 0;
+  padding: 0.5rem 1.1rem;
+  font-size: 0.78rem;
+  animation: lpp-hint 0.2s ease;
+}
+.lpp__toast--success {
+  background: rgba(16, 185, 129, 0.1);
+  border-bottom: 1px solid rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
 /* ── Error banner ─────────────────────────────────────────── */
 .lpp__error {
   display: flex;

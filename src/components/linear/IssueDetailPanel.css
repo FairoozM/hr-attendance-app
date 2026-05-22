@@ -207,6 +207,94 @@
   pointer-events: none;
 }
 
+/* Delete issue — danger zone */
+.idp__danger {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(239, 68, 68, 0.15);
+}
+
+.idp__delete-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #f87171;
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s ease, border-color 0.1s ease;
+}
+.idp__delete-trigger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.45);
+}
+.idp__delete-trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.idp__delete-confirm {
+  padding: 0.65rem 0.75rem;
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 8px;
+}
+
+.idp__delete-confirm-text {
+  margin: 0 0 0.65rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: #fca5a5;
+}
+
+.idp__delete-error {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  color: #f87171;
+}
+
+.idp__delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+.idp__delete-cancel {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.78rem;
+  color: var(--theme-text-soft, #94a3b8);
+  background: transparent;
+  border: 1px solid var(--theme-border-subtle, rgba(255, 255, 255, 0.1));
+  border-radius: 6px;
+  cursor: pointer;
+}
+.idp__delete-cancel:hover:not(:disabled) {
+  background: var(--theme-surface-soft, rgba(255, 255, 255, 0.04));
+}
+
+.idp__delete-confirm-btn {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #fff;
+  background: #dc2626;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.idp__delete-confirm-btn:hover:not(:disabled) {
+  background: #b91c1c;
+}
+.idp__delete-confirm-btn:disabled,
+.idp__delete-cancel:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /* IssueProperties */
 .ipr__row {
   display: grid;

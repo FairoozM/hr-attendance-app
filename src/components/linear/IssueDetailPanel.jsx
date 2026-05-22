@@ -3,7 +3,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { X, GitBranch, Link2, GitCommit } from 'lucide-react'
+import { X, GitBranch, Link2, GitCommit, Trash2 } from 'lucide-react'
 import { issueKey } from './IssueRow'
 import { IssueProperties } from './IssueProperties'
 import { IssueComments } from './IssueComments'
@@ -39,6 +39,7 @@ export function IssueDetailPanel({
   open,
   onClose,
   onUpdate,
+  onDelete,
   githubMeta,
   onGithubMetaChange,
 }) {
@@ -48,6 +49,9 @@ export function IssueDetailPanel({
   const [fields, setFields] = useState({})
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
   const [activityRefresh, setActivityRefresh] = useState(0)
   const titleRef = useRef(null)
 
@@ -68,6 +72,9 @@ export function IssueDetailPanel({
       blockedReason: issue.blockedReason,
     })
     setSaveError('')
+    setDeleteConfirmOpen(false)
+    setDeleteError('')
+    setDeleting(false)
     setTab('details')
     setTimeout(() => titleRef.current?.focus(), 80)
   }, [issue?.id, issue?.updatedAt])
@@ -123,6 +130,20 @@ export function IssueDetailPanel({
     if (description === (issue?.description || '')) return
     persist({ description })
   }, [description, issue?.description, persist])
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!issue || !onDelete) return
+    setDeleting(true)
+    setDeleteError('')
+    try {
+      await onDelete(issue.projectId, issue.id)
+      setDeleteConfirmOpen(false)
+    } catch (err) {
+      setDeleteError(err.message || 'Failed to delete issue')
+    } finally {
+      setDeleting(false)
+    }
+  }, [issue, onDelete])
 
   if (!open || !issue) return null
 
@@ -258,6 +279,55 @@ export function IssueDetailPanel({
                   />
                 </label>
               </section>
+
+              {onDelete && (
+                <section className="idp__danger">
+                  {!deleteConfirmOpen ? (
+                    <button
+                      type="button"
+                      className="idp__delete-trigger"
+                      onClick={() => {
+                        setDeleteConfirmOpen(true)
+                        setDeleteError('')
+                      }}
+                      disabled={saving || deleting}
+                    >
+                      <Trash2 size={14} strokeWidth={2} aria-hidden="true" />
+                      Delete Issue
+                    </button>
+                  ) : (
+                    <div className="idp__delete-confirm" role="alertdialog" aria-labelledby="idp-delete-title">
+                      <p id="idp-delete-title" className="idp__delete-confirm-text">
+                        Delete this issue? This cannot be undone.
+                      </p>
+                      {deleteError && (
+                        <p className="idp__delete-error">{deleteError}</p>
+                      )}
+                      <div className="idp__delete-actions">
+                        <button
+                          type="button"
+                          className="idp__delete-cancel"
+                          onClick={() => {
+                            setDeleteConfirmOpen(false)
+                            setDeleteError('')
+                          }}
+                          disabled={deleting}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="idp__delete-confirm-btn"
+                          onClick={handleDeleteConfirm}
+                          disabled={deleting}
+                        >
+                          {deleting ? 'Deleting…' : 'Delete'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </section>
+              )}
             </div>
           )}
 

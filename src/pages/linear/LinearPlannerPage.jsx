@@ -114,6 +114,7 @@ export default function LinearPlannerPage() {
   const [selectedIssue, setSelectedIssue] = useState(null)
   const [newIssueOpen,  setNewIssueOpen]  = useState(false)
   const [githubMetaByIssue, setGithubMetaByIssue] = useState({})
+  const [successMessage, setSuccessMessage] = useState('')
   const didFetch = useRef(false)
 
   // Fetch on mount
@@ -230,6 +231,18 @@ export default function LinearPlannerPage() {
     return updated
   }, [actions])
 
+  const handleIssueDelete = useCallback(async (projectId, taskId) => {
+    await actions.deleteTask(projectId, taskId)
+    setSelectedIssue(null)
+    setGithubMetaByIssue((prev) => {
+      const next = { ...prev }
+      delete next[`${projectId}-${taskId}`]
+      return next
+    })
+    setSuccessMessage('Issue deleted.')
+    window.setTimeout(() => setSuccessMessage(''), 4000)
+  }, [actions])
+
   const issueGithubKey = selectedIssue
     ? `${selectedIssue.projectId}-${selectedIssue.id}`
     : null
@@ -272,6 +285,12 @@ export default function LinearPlannerPage() {
           <div className="lpp__error" role="alert">
             <AlertCircle size={14} strokeWidth={2} aria-hidden="true" />
             <span>{error}</span>
+          </div>
+        )}
+
+        {successMessage && (
+          <div className="lpp__toast lpp__toast--success" role="status">
+            {successMessage}
           </div>
         )}
 
@@ -324,6 +343,7 @@ export default function LinearPlannerPage() {
         members={members}
         onClose={() => setSelectedIssue(null)}
         onUpdate={handleIssueUpdate}
+        onDelete={handleIssueDelete}
         githubMeta={issueGithubKey ? githubMetaByIssue[issueGithubKey] : undefined}
         onGithubMetaChange={(meta) => {
           if (!issueGithubKey) return
