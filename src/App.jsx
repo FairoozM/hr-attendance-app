@@ -88,6 +88,7 @@ import { AmazonFlatFileBulkGenerator } from './pages/AmazonFlatFileBulkGenerator
 import { ListingBatchesPage } from './pages/ListingBatchesPage'
 import { AiBudgetSettingsPage } from './pages/admin/AiBudgetSettingsPage'
 import { AIPlannerProvider } from './contexts/AIPlannerContext'
+import { TeamProjectsProvider } from './contexts/TeamProjectsContext'
 import { useEmployees } from './hooks/useEmployees'
 import { useAttendanceManagedEmployees } from './hooks/useAttendanceManagedEmployees'
 import { useAttendance, clearAllAttendanceStorage } from './hooks/useAttendance'
@@ -154,9 +155,11 @@ function AppContent() {
         path="/"
         element={
           <RequireAuth>
-            <AIPlannerProvider>
-              <Layout />
-            </AIPlannerProvider>
+            <TeamProjectsProvider>
+              <AIPlannerProvider>
+                <Layout />
+              </AIPlannerProvider>
+            </TeamProjectsProvider>
           </RequireAuth>
         }
       >

@@ -1060,6 +1060,8 @@ async function testConnection() {
   } catch (e) {
     console.error('[db] ensureCompositeItemsPriceReportTables skipped/failed (non-fatal):', e.message || e)
   }
+  // Team Planner Phase 1 — must run after projects, project_tasks, users tables exist
+  await ensureTeamPlannerTables()
 }
 
 async function ensureProjectsTable() {
@@ -1381,6 +1383,178 @@ async function ensureAmazonBulkListingTables() {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Team Planner Phase 1 — additive migrations
+// All helpers use IF NOT EXISTS / ADD COLUMN IF NOT EXISTS so they are safe
+// to run multiple times and never break existing data.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Extend projects with team-planner fields.
+ * project_type: 'software' | 'website' | 'mobile' | 'ops' | 'other'
+ */
+async function ensureProjectsTeamColumns() {
+  await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS project_type VARCHAR(30) NOT NULL DEFAULT 'software'`)
+  await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS emoji VARCHAR(10)`)
+  await query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS is_private BOOLEAN NOT NULL DEFAULT false`)
+}
+
+/**
+ * Extend project_tasks with Jira-style fields.
+ * All columns nullable or have safe defaults so existing rows are unaffected.
+ */
+async function ensureProjectTasksTeamColumns() {
+  // People
+  await query(`ALTER TABLE project_tasks ADD COLUMN IF NOT EXISTS assignee_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL`)
+  await query(`ALTER TABLE project_tasks ADD COLUMN IF NOT EXISTS reporter_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL`)
+  await query(`ALTER TABLE project_tasks ADD COLUMN IF NOT EXISTS reviewer_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL`)
+
+  // Issue classification
+  await query(`ALTER TABLE project_tasks ADD COLUMN IF NOT EXISTS issue_type VARCHAR(20) NOT NULL DEFAULT 'task'`)
+  // Allowed values: task | bug | story | epic | subtask
+
+  // Sprint linkage
+  await query(`ALTER TABLE project_tasks ADD COLUMN IF NOT EXISTS sprint_id INTEGER`)
+  // FK added after sprints table exists (see ensureSprintsTable); index below
+
+  // Estimation & effort
+  await query(`ALTER TABLE project_tasks ADD COLUMN IF NOT EXISTS story_points SMALLINT`)
+  // estimated_hours and actual_hours already exist on project_tasks (added at table creation)
+  // completed_at already exists on project_tasks
+
+  // Labels (simple text array — no join table needed at this scale)
+  await query(`ALTER TABLE project_tasks ADD COLUMN IF NOT EXISTS labels TEXT[] NOT NULL DEFAULT '{}'`)
+
+  // Blocker reason (free text explanation when status = 'Blocked')
+  await query(`ALTER TABLE project_tasks ADD COLUMN IF NOT EXISTS blocked_reason TEXT`)
+
+  // Indexes on frequently filtered columns
+  await query(`CREATE INDEX IF NOT EXISTS idx_project_tasks_assignee ON project_tasks(assignee_user_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_project_tasks_issue_type ON project_tasks(issue_type)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_project_tasks_sprint ON project_tasks(sprint_id)`)
+}
+
+/**
+ * project_members — who belongs to each project and in what role.
+ * role: 'owner' | 'member' | 'viewer'
+ */
+async function ensureProjectMembersTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS project_members (
+      id SERIAL PRIMARY KEY,
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      user_id    INTEGER NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
+      role       VARCHAR(20) NOT NULL DEFAULT 'member',
+      joined_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(project_id, user_id)
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_project_members_project ON project_members(project_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_project_members_user    ON project_members(user_id)`)
+}
+
+/**
+ * sprints — time-boxed work iterations per project.
+ * status: 'draft' | 'active' | 'completed'
+ */
+async function ensureSprintsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS sprints (
+      id         SERIAL PRIMARY KEY,
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      name       VARCHAR(255) NOT NULL,
+      goal       TEXT,
+      status     VARCHAR(20) NOT NULL DEFAULT 'draft',
+      start_date DATE,
+      end_date   DATE,
+      completed_at TIMESTAMPTZ,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_sprints_project ON sprints(project_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_sprints_status  ON sprints(status)`)
+
+  // Now safe to add the FK from project_tasks.sprint_id → sprints.id
+  // ADD CONSTRAINT IF NOT EXISTS is not standard in older Postgres; use a DO block
+  await query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'fk_project_tasks_sprint_id'
+          AND table_name = 'project_tasks'
+      ) THEN
+        ALTER TABLE project_tasks
+          ADD CONSTRAINT fk_project_tasks_sprint_id
+          FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE SET NULL;
+      END IF;
+    END $$;
+  `)
+}
+
+/**
+ * task_comments — threaded comments on any task.
+ */
+async function ensureTaskCommentsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS task_comments (
+      id         SERIAL PRIMARY KEY,
+      task_id    INTEGER NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+      user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      parent_id  INTEGER REFERENCES task_comments(id) ON DELETE CASCADE,
+      body       TEXT NOT NULL,
+      edited_at  TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_task_comments_task    ON task_comments(task_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_task_comments_user    ON task_comments(user_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_task_comments_created ON task_comments(created_at)`)
+}
+
+/**
+ * task_activity_log — append-only audit trail for every task change.
+ * action examples: 'status_changed', 'assignee_changed', 'comment_added', 'created', 'priority_changed'
+ */
+async function ensureTaskActivityTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS task_activity_log (
+      id         SERIAL PRIMARY KEY,
+      task_id    INTEGER NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+      user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      action     VARCHAR(60) NOT NULL,
+      old_value  TEXT,
+      new_value  TEXT,
+      meta       JSONB NOT NULL DEFAULT '{}',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_task_activity_task    ON task_activity_log(task_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_task_activity_user    ON task_activity_log(user_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_task_activity_created ON task_activity_log(created_at DESC)`)
+}
+
+/**
+ * Run all Phase 1 team-planner migrations in safe dependency order.
+ * Called from initDb() — safe to re-run on every server start.
+ */
+async function ensureTeamPlannerTables() {
+  try {
+    await ensureProjectsTeamColumns()
+    await ensureProjectTasksTeamColumns()
+    await ensureProjectMembersTable()
+    await ensureSprintsTable()          // must come after project_tasks sprint_id column added
+    await ensureTaskCommentsTable()
+    await ensureTaskActivityTable()
+    console.log('[db] Team planner tables: OK')
+  } catch (e) {
+    console.error('[db] ensureTeamPlannerTables skipped/failed (non-fatal):', e.message || e)
+  }
+}
+
 module.exports = {
   query,
   pool,
@@ -1401,4 +1575,5 @@ module.exports = {
   ensureItemReportGroupsImportLogTable,
   ensureAiBudgetAndUsageTables,
   ensureAmazonBulkListingTables,
+  ensureTeamPlannerTables,
 }

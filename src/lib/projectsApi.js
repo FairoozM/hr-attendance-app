@@ -1,0 +1,290 @@
+/**
+ * projectsApi.js
+ *
+ * Typed API service layer for the server-backed Team Planner.
+ * All functions use the shared `api` client (credentials:include, no-store).
+ *
+ * Shape conventions
+ * -----------------
+ * Server returns snake_case (e.g. due_date, assignee_user_id).
+ * This layer returns the raw server shape — let the UI/context normalise as needed.
+ * Helper `normalizeTask` and `normalizeProject` provide camelCase views where useful.
+ *
+ * Error handling
+ * --------------
+ * All functions throw on non-2xx (the `api` client already does this).
+ * Callers should catch and surface errors through their own state.
+ */
+
+import { api } from '../api/client'
+
+// ─── Normalisation helpers ────────────────────────────────────────────────────
+
+/**
+ * Convert a server task row (snake_case) into a UI-friendly camelCase object.
+ * Old AIPlannerContext tasks stay in their own format; this only applies to
+ * server tasks fetched via projectsApi.
+ */
+export function normalizeTask(row) {
+  if (!row) return null
+  return {
+    // Identity
+    id:              row.id,
+    projectId:       row.project_id,
+    sectionId:       row.section_id,
+    parentTaskId:    row.parent_task_id,
+
+    // Content
+    title:           row.title || '',
+    description:     row.description || '',
+
+    // Classification
+    issueType:       row.issue_type || 'task',
+    status:          row.status || 'Not Started',
+    priority:        row.priority || 'Medium',
+    labels:          Array.isArray(row.labels) ? row.labels : [],
+
+    // People
+    assigneeUserId:  row.assignee_user_id || null,
+    reporterUserId:  row.reporter_user_id || null,
+    reviewerUserId:  row.reviewer_user_id || null,
+
+    // Sprint & estimation
+    sprintId:        row.sprint_id || null,
+    storyPoints:     row.story_points ?? null,
+    estimatedHours:  row.estimated_hours ?? null,
+    actualHours:     row.actual_hours ?? null,
+    progressPercent: row.progress_percent ?? 0,
+
+    // Dates
+    startDate:       row.start_date || null,
+    dueDate:         row.due_date || null,
+    completedAt:     row.completed_at || null,
+
+    // Blocker
+    blockedReason:   row.blocked_reason || null,
+
+    // Meta
+    sortOrder:       row.sort_order ?? 0,
+    archived:        row.archived || false,
+    createdBy:       row.created_by || null,
+    createdAt:       row.created_at || null,
+    updatedAt:       row.updated_at || null,
+
+    // Relations loaded server-side
+    subtasks:        Array.isArray(row.subtasks) ? row.subtasks.map(normalizeTask) : [],
+    dependencies:    Array.isArray(row.dependencies) ? row.dependencies : [],
+    attachments:     Array.isArray(row.attachments) ? row.attachments : [],
+  }
+}
+
+/**
+ * Convert a server project row into a camelCase object.
+ */
+export function normalizeProject(row) {
+  if (!row) return null
+  return {
+    id:           row.id,
+    name:         row.name || '',
+    slug:         row.slug || '',
+    description:  row.description || '',
+    status:       row.status || 'Planning',
+    priority:     row.priority || 'Medium',
+    color:        row.color || '#8b5cf6',
+    emoji:        row.emoji || null,
+    projectType:  row.project_type || 'software',
+    isPrivate:    row.is_private || false,
+    startDate:    row.start_date || null,
+    dueDate:      row.due_date || null,
+    ownerUserId:  row.owner_user_id || null,
+    archived:     row.archived || false,
+    createdAt:    row.created_at || null,
+    updatedAt:    row.updated_at || null,
+    // Aggregates returned by dashboard/list endpoints
+    taskCount:    row.task_count ?? null,
+    doneCount:    row.done_count ?? null,
+    sections:     Array.isArray(row.sections) ? row.sections : [],
+    members:      Array.isArray(row.members)  ? row.members  : [],
+  }
+}
+
+/**
+ * Normalize a team member row from GET /api/team/members.
+ */
+export function normalizeMember(row) {
+  if (!row) return null
+  return {
+    id:          row.id,
+    username:    row.username || '',
+    displayName: row.display_name || row.username || '',
+    role:        row.role || 'employee',
+    plannerRole: row.planner_role || 'view',
+    avatarUrl:   row.avatar_url || null,
+    employeeId:  row.employee_id || null,
+    department:  row.department || null,
+    designation: row.designation || null,
+  }
+}
+
+// ─── Projects ────────────────────────────────────────────────────────────────
+
+export const projectsApi = {
+  /** List all projects (non-archived by default). */
+  list: (params = {}) => {
+    const qs = new URLSearchParams()
+    if (params.archived) qs.set('archived', 'true')
+    const path = `/api/projects${qs.toString() ? `?${qs}` : ''}`
+    return api.get(path).then((rows) =>
+      Array.isArray(rows) ? rows.map(normalizeProject) : []
+    )
+  },
+
+  /** Get a single project with its sections. */
+  get: (id) =>
+    api.get(`/api/projects/${id}`).then(normalizeProject),
+
+  /** Create a new project. */
+  create: (data) =>
+    api.post('/api/projects', data).then(normalizeProject),
+
+  /** Update a project. */
+  update: (id, data) =>
+    api.patch(`/api/projects/${id}`, data).then(normalizeProject),
+
+  /** Delete a project. */
+  delete: (id) =>
+    api.delete(`/api/projects/${id}`),
+
+  /** Get project dashboard stats. */
+  getDashboard: () =>
+    api.get('/api/projects/dashboard'),
+}
+
+// ─── Sections ────────────────────────────────────────────────────────────────
+
+export const sectionsApi = {
+  create: (projectId, data) =>
+    api.post(`/api/projects/${projectId}/sections`, data),
+
+  update: (projectId, sectionId, data) =>
+    api.patch(`/api/projects/${projectId}/sections/${sectionId}`, data),
+
+  delete: (projectId, sectionId) =>
+    api.delete(`/api/projects/${projectId}/sections/${sectionId}`),
+}
+
+// ─── Tasks ───────────────────────────────────────────────────────────────────
+
+export const tasksApi = {
+  /** List tasks for a project (returns normalized task objects). */
+  list: (projectId, params = {}) => {
+    const qs = new URLSearchParams()
+    if (params.sprintId)   qs.set('sprint_id',  String(params.sprintId))
+    if (params.assigneeId) qs.set('assignee_id', String(params.assigneeId))
+    if (params.issueType)  qs.set('issue_type',  params.issueType)
+    if (params.status)     qs.set('status',       params.status)
+    const path = `/api/projects/${projectId}/tasks${qs.toString() ? `?${qs}` : ''}`
+    return api.get(path).then((rows) =>
+      Array.isArray(rows) ? rows.map(normalizeTask) : []
+    )
+  },
+
+  /** Create a task inside a project. */
+  create: (projectId, data) =>
+    api.post(`/api/projects/${projectId}/tasks`, data).then(normalizeTask),
+
+  /** Update a task. */
+  update: (projectId, taskId, data) =>
+    api.patch(`/api/projects/${projectId}/tasks/${taskId}`, data).then(normalizeTask),
+
+  /** Delete a task. */
+  delete: (projectId, taskId) =>
+    api.delete(`/api/projects/${projectId}/tasks/${taskId}`),
+}
+
+// ─── Comments ────────────────────────────────────────────────────────────────
+
+export const commentsApi = {
+  /**
+   * List comments for a task.
+   * Route not yet wired on the backend in Phase 1 — placeholder for Phase 3.
+   */
+  list: (projectId, taskId) =>
+    api.get(`/api/projects/${projectId}/tasks/${taskId}/comments`),
+
+  create: (projectId, taskId, body) =>
+    api.post(`/api/projects/${projectId}/tasks/${taskId}/comments`, { body }),
+
+  update: (projectId, taskId, commentId, body) =>
+    api.patch(`/api/projects/${projectId}/tasks/${taskId}/comments/${commentId}`, { body }),
+
+  delete: (projectId, taskId, commentId) =>
+    api.delete(`/api/projects/${projectId}/tasks/${taskId}/comments/${commentId}`),
+}
+
+// ─── Activity log ────────────────────────────────────────────────────────────
+
+export const activityApi = {
+  /**
+   * Fetch activity log for a task.
+   * Route not yet wired in Phase 1 — placeholder for Phase 3.
+   */
+  list: (projectId, taskId) =>
+    api.get(`/api/projects/${projectId}/tasks/${taskId}/activity`),
+}
+
+// ─── Sprints ─────────────────────────────────────────────────────────────────
+
+export const sprintsApi = {
+  /**
+   * List sprints for a project.
+   * Route will be wired in Phase 5 — placeholder for now.
+   */
+  list: (projectId) =>
+    api.get(`/api/sprints?project_id=${projectId}`),
+
+  get: (sprintId) =>
+    api.get(`/api/sprints/${sprintId}`),
+
+  create: (data) =>
+    api.post('/api/sprints', data),
+
+  update: (sprintId, data) =>
+    api.patch(`/api/sprints/${sprintId}`, data),
+
+  start: (sprintId) =>
+    api.post(`/api/sprints/${sprintId}/start`),
+
+  complete: (sprintId) =>
+    api.post(`/api/sprints/${sprintId}/complete`),
+
+  delete: (sprintId) =>
+    api.delete(`/api/sprints/${sprintId}`),
+}
+
+// ─── Team members ─────────────────────────────────────────────────────────────
+
+export const teamApi = {
+  /** List users who have planner access. */
+  listMembers: () =>
+    api.get('/api/team/members').then((rows) =>
+      Array.isArray(rows) ? rows.map(normalizeMember) : []
+    ),
+}
+
+// ─── Convenience re-export ───────────────────────────────────────────────────
+
+export default {
+  projects:  projectsApi,
+  sections:  sectionsApi,
+  tasks:     tasksApi,
+  comments:  commentsApi,
+  activity:  activityApi,
+  sprints:   sprintsApi,
+  team:      teamApi,
+
+  // Direct helpers for convenience
+  normalizeTask,
+  normalizeProject,
+  normalizeMember,
+}

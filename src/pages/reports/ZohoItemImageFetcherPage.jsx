@@ -485,7 +485,7 @@ export function ZohoItemImageFetcherPage() {
                         aria-label={`Quantity for ${row.itemName || row.sku || 'item'}`}
                       />
                     </td>
-                    <td><LazyZohoImage row={row} /></td>
+                    <td className="zif-preview-cell"><LazyZohoImage row={row} /></td>
                     <td className="zif-action-cell">
                       {row.imageUrl ? (
                         <button
@@ -503,7 +503,7 @@ export function ZohoItemImageFetcherPage() {
                             }
                           }}
                         >
-                          <Download size={16} strokeWidth={2.2} aria-hidden="true" />
+                          <Download size={14} strokeWidth={2.2} aria-hidden="true" />
                         </button>
                       ) : (
                         <span className="zif-muted">{row.imageReference || row.message || '—'}</span>
@@ -512,7 +512,7 @@ export function ZohoItemImageFetcherPage() {
                     <td className="zif-status-cell">
                       {row.status === 'Found' ? (
                         <span className="zif-status zif-status--found zif-status--icon" title="Found">
-                          <Check size={14} strokeWidth={2.8} aria-hidden="true" />
+                          <Check size={12} strokeWidth={2.8} aria-hidden="true" />
                           <span className="visually-hidden">Found</span>
                         </span>
                       ) : (
