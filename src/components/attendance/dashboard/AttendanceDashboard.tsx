@@ -7,14 +7,10 @@ import { buildAttendanceSnapshotCsv } from '../../../utils/attendance/attendance
 import { AttendanceUnifiedHeader } from './AttendanceUnifiedHeader'
 import { AttendanceSummaryCards } from './AttendanceSummaryCards'
 import { AttendanceStatusLists } from './AttendanceStatusLists'
-import { AttendanceTrendCharts } from './AttendanceTrendCharts'
-import { AttendanceAlertsPanel } from './AttendanceAlertsPanel'
 import { AttendanceLoadingState } from './AttendanceLoadingState'
 import { AttendanceEmptyState } from './AttendanceEmptyState'
 import { AttendanceUnmarkedBanner } from './AttendanceUnmarkedBanner'
 import { AttendanceMonthHeatmap } from './AttendanceMonthHeatmap'
-import { AttendanceDepartmentBreakdown } from './AttendanceDepartmentBreakdown'
-import { AttendanceWhosInList } from './AttendanceWhosInList'
 import './AttendanceDashboard.css'
 
 type Props = {
@@ -122,32 +118,6 @@ export function AttendanceDashboard({
         department={dash.department}
         snapshotDay={dash.snapshotDay}
       />
-
-      <div className="adash-grid-2">
-        <AttendanceTrendCharts data={dash.trends} />
-        <AttendanceAlertsPanel alerts={dash.alerts} />
-      </div>
-
-      <div className="adash-grid-bottom">
-        <AttendanceDepartmentBreakdown
-          employees={employees}
-          attendance={attendance}
-          snapshotDay={dash.snapshotDay}
-          year={year}
-          month={month}
-          weeklyHolidayDay={weeklyHolidayDay}
-          department={dash.department}
-        />
-        <AttendanceWhosInList
-          employees={employees}
-          attendance={attendance}
-          snapshotDay={dash.snapshotDay}
-          year={year}
-          month={month}
-          weeklyHolidayDay={weeklyHolidayDay}
-          department={dash.department}
-        />
-      </div>
 
       <AttendanceStatusLists
         employees={employees}
