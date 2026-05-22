@@ -552,7 +552,7 @@ export function AttendanceGrid({
                                   className="attendance-sl-doc__link"
                                   title="Open medical certificate in a new tab"
                                 >
-                                  <Eye size={11} strokeWidth={2.2} />
+                                  <Eye size={6} strokeWidth={2.5} />
                                 </a>
                                 {removeSickLeaveDocument ? (
                                   <button
@@ -561,7 +561,7 @@ export function AttendanceGrid({
                                     title="Remove this file (you can upload a different one after)"
                                     onClick={() => removeSickLeaveDocument(emp.id, day)}
                                   >
-                                    <Trash2 size={11} strokeWidth={2.2} />
+                                    <Trash2 size={6} strokeWidth={2.5} />
                                   </button>
                                 ) : null}
                               </>
@@ -579,8 +579,8 @@ export function AttendanceGrid({
                                 onClick={() => openSickLeavePicker(emp.id, day)}
                               >
                                 {docUrl
-                                  ? <RefreshCw size={11} strokeWidth={2.4} />
-                                  : <Upload size={11} strokeWidth={2.2} />}
+                                  ? <RefreshCw size={6} strokeWidth={2.8} />
+                                  : <Upload size={6} strokeWidth={2.5} />}
                               </button>
                             ) : null}
                           </div>

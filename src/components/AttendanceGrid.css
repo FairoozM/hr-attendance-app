@@ -709,23 +709,23 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.18rem;
+  gap: 0.12rem;
   width: 100%;
   overflow: hidden;
-  max-width: 5rem;   /* fits 3 × 1.5rem circles + gaps */
+  max-width: 2.6rem;
   flex-wrap: nowrap;
 }
 
-/* The + / Replace button */
+/* The Upload / Replace button */
 .attendance-sl-doc__add {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 1.5rem;
-  height: 1.5rem;
+  width: 0.75rem;
+  height: 0.75rem;
   padding: 0;
-  border: 1.5px dashed rgba(99, 102, 241, 0.4);
+  border: 1px dashed rgba(99, 102, 241, 0.5);
   border-radius: 50%;
   background: transparent;
   color: var(--accent);
@@ -735,12 +735,12 @@
 
 .attendance-sl-doc__add--replace {
   border-style: solid;
-  border-color: rgba(99, 102, 241, 0.35);
+  border-color: rgba(99, 102, 241, 0.45);
 }
 
 .attendance-sl-doc__add:hover {
   border-color: var(--accent);
-  background: rgba(99, 102, 241, 0.12);
+  background: rgba(99, 102, 241, 0.15);
 }
 
 /* View file link */
@@ -749,17 +749,17 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 1.5rem;
-  height: 1.5rem;
+  width: 0.75rem;
+  height: 0.75rem;
   border-radius: 50%;
-  background: rgba(99, 102, 241, 0.12);
-  border: 1px solid rgba(99, 102, 241, 0.28);
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.35);
   color: var(--accent);
   text-decoration: none;
 }
 
 .attendance-sl-doc__link:hover {
-  background: rgba(99, 102, 241, 0.22);
+  background: rgba(99, 102, 241, 0.26);
   text-decoration: none;
 }
 
@@ -769,9 +769,9 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 1.5rem;
-  height: 1.5rem;
-  border: 1.5px solid rgba(248, 113, 113, 0.4);
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 1px solid rgba(248, 113, 113, 0.5);
   border-radius: 50%;
   background: transparent;
   color: var(--danger);
