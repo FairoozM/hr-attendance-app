@@ -7,30 +7,72 @@ import './ZohoItemImageFetcherPage.css'
 const MAX_SKUS = 1000
 const FETCH_BATCH_SIZE = 25
 
-/** Parse one pasted line: SKU only, or SKU + quantity (tab, comma, or trailing number). */
+function normalizePasteLine(line) {
+  return String(line || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\uFEFF/g, '')
+    .trim()
+}
+
+function looksLikeQty(token) {
+  const t = String(token || '').trim().replace(/,/g, '')
+  return /^\d+(\.\d+)?$/.test(t)
+}
+
+function cleanQtyToken(token) {
+  const t = String(token || '').trim()
+  const num = t.replace(/,/g, '').match(/^(\d+(?:\.\d+)?)/)
+  return num ? num[1] : ''
+}
+
+/** Parse one pasted line: SKU only, or SKU + quantity (tab, comma, multi-space, semicolon). */
 function parseSkuLine(line) {
-  const trimmed = String(line || '').trim()
+  const trimmed = normalizePasteLine(line)
   if (!trimmed) return null
 
+  // Excel / Sheets: tab or multiple spaces between columns
+  const colParts = trimmed.split(/\t+| {2,}|\s*;\s*/).map((p) => p.trim()).filter(Boolean)
+  if (colParts.length >= 2) {
+    const first = colParts[0]
+    const last = colParts[colParts.length - 1]
+    if (looksLikeQty(last) && !looksLikeQty(first)) {
+      return { sku: colParts.slice(0, -1).join(' '), qty: cleanQtyToken(last) }
+    }
+    if (looksLikeQty(first) && !looksLikeQty(last)) {
+      return { sku: colParts.slice(1).join(' '), qty: cleanQtyToken(first) }
+    }
+    // Two columns but qty not detected — treat col2 as qty text anyway if numeric-ish
+    if (colParts.length === 2 && cleanQtyToken(colParts[1])) {
+      return { sku: colParts[0], qty: cleanQtyToken(colParts[1]) }
+    }
+  }
+
   if (trimmed.includes('\t')) {
-    const parts = trimmed.split('\t').map((p) => p.trim())
-    const sku = parts[0]
-    const qty = parts.slice(1).join('\t').trim()
-    return sku ? { sku, qty } : null
+    const parts = trimmed.split('\t').map((p) => p.trim()).filter(Boolean)
+    if (parts.length >= 2) {
+      const last = parts[parts.length - 1]
+      const sku = looksLikeQty(parts[0]) && !looksLikeQty(last)
+        ? parts.slice(1).join(' ')
+        : parts.slice(0, -1).join(' ')
+      const qty = looksLikeQty(parts[0]) && !looksLikeQty(last)
+        ? cleanQtyToken(parts[0])
+        : cleanQtyToken(last)
+      return sku ? { sku, qty } : null
+    }
   }
 
   const commaIdx = trimmed.lastIndexOf(',')
   if (commaIdx > 0) {
     const maybeQty = trimmed.slice(commaIdx + 1).trim()
-    if (/^\d+(\.\d+)?$/.test(maybeQty)) {
+    if (looksLikeQty(maybeQty)) {
       const sku = trimmed.slice(0, commaIdx).trim()
-      if (sku) return { sku, qty: maybeQty }
+      if (sku) return { sku, qty: cleanQtyToken(maybeQty) }
     }
   }
 
-  const spaceMatch = trimmed.match(/^(.+?)\s+(\d+(?:\.\d+)?)\s*$/)
+  const spaceMatch = trimmed.match(/^(.+?)\s+(\d[\d,]*(?:\.\d+)?)\s*$/)
   if (spaceMatch) {
-    return { sku: spaceMatch[1].trim(), qty: spaceMatch[2] }
+    return { sku: spaceMatch[1].trim(), qty: cleanQtyToken(spaceMatch[2]) }
   }
 
   return { sku: trimmed, qty: '' }
@@ -39,11 +81,12 @@ function parseSkuLine(line) {
 function parseSkuText(text) {
   const lines = String(text || '')
     .split(/\r?\n/)
-    .map((line) => line.trim())
+    .map((line) => normalizePasteLine(line))
     .filter(Boolean)
   const seen = new Set()
   const skus = []
   const qtyBySku = {}
+  const qtyByIndex = []
   let duplicates = 0
   let withQty = 0
   for (const line of lines) {
@@ -61,11 +104,15 @@ function parseSkuText(text) {
       qtyBySku[key] = qty
       withQty += 1
     }
-    if (skus.length < MAX_SKUS) skus.push(sku)
+    if (skus.length < MAX_SKUS) {
+      qtyByIndex.push(qty || '')
+      skus.push(sku)
+    }
   }
   return {
     skus,
     qtyBySku,
+    qtyByIndex,
     inputCount: lines.length,
     duplicates,
     withQty,
@@ -73,14 +120,33 @@ function parseSkuText(text) {
   }
 }
 
-function attachQuantities(results, qtyBySku) {
-  if (!qtyBySku || !results?.length) return results
-  return results.map((row) => {
-    const key = String(row.sku || row.itemName || '')
-      .trim()
-      .toLowerCase()
-    const quantity = qtyBySku[key] ?? row.quantity ?? ''
-    return quantity === row.quantity ? row : { ...row, quantity }
+/** Match pasted qty to fetch results by row index (same order as API) plus name fallbacks. */
+function attachQuantities(results, inputSkus, qtyByIndex, qtyBySku) {
+  if (!results?.length) return results
+  return results.map((row, index) => {
+    let quantity = row.quantity ?? ''
+
+    if (qtyByIndex && qtyByIndex[index]) {
+      quantity = qtyByIndex[index]
+    }
+
+    if (!quantity && qtyBySku) {
+      const candidates = [
+        inputSkus?.[index],
+        row.sku,
+        row.itemName,
+      ]
+        .filter(Boolean)
+        .map((s) => String(s).trim().toLowerCase())
+      for (const key of candidates) {
+        if (qtyBySku[key]) {
+          quantity = qtyBySku[key]
+          break
+        }
+      }
+    }
+
+    return quantity === (row.quantity ?? '') ? row : { ...row, quantity }
   })
 }
 
@@ -233,7 +299,7 @@ export function ZohoItemImageFetcherPage() {
   }, [])
 
   const handleFetch = useCallback(async () => {
-    const { skus, qtyBySku } = parseSkuText(text)
+    const { skus, qtyBySku, qtyByIndex } = parseSkuText(text)
     if (skus.length === 0) {
       setError('Paste at least one SKU.')
       return
@@ -252,7 +318,7 @@ export function ZohoItemImageFetcherPage() {
         const data = await api.post('/api/zoho/items/images/fetch', { skus: batch })
         const batchResults = Array.isArray(data?.results) ? data.results : []
         all.push(...batchResults)
-        setResults(attachQuantities([...all], qtyBySku))
+        setResults(attachQuantities([...all], skus, qtyByIndex, qtyBySku))
         if (data?.usage) setUsage(normalizeUsage(data.usage))
         setProcessed((prev) => Math.min(skus.length, prev + batch.length))
       }
