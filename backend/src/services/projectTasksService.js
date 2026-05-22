@@ -1,5 +1,6 @@
 const { query } = require('../db')
 const s3Service = require('./s3Service')
+const taskActivityService = require('./taskActivityService')
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -187,10 +188,25 @@ async function createTask({
       sprint_id || null,
     ]
   )
-  return rowToTask(result.rows[0])
+  const task = rowToTask(result.rows[0])
+  if (created_by) {
+    await taskActivityService.logActivity(
+      task.id,
+      created_by,
+      'issue_created',
+      null,
+      task.title,
+      { project_id }
+    )
+  }
+  return task
 }
 
-async function updateTask(taskId, fields) {
+async function updateTask(taskId, fields, actorUserId = null) {
+  const beforeRow = await query(`SELECT * FROM project_tasks WHERE id = $1`, [taskId])
+  if (beforeRow.rowCount === 0) return null
+  const before = beforeRow.rows[0]
+
   const allowed = [
     'title', 'description', 'status', 'priority', 'start_date', 'due_date',
     'section_id', 'parent_task_id', 'estimated_hours', 'actual_hours',
@@ -234,7 +250,11 @@ async function updateTask(taskId, fields) {
     `UPDATE project_tasks SET ${sets.join(', ')} WHERE id = $${idx}`,
     values
   )
-  return getTaskById(taskId)
+  const after = await getTaskById(taskId)
+  if (actorUserId && after) {
+    await taskActivityService.logTaskFieldChanges(before, after, fields, actorUserId)
+  }
+  return after
 }
 
 async function deleteTask(taskId) {

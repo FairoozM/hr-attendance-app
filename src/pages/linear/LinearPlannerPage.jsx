@@ -16,6 +16,7 @@ import { LinearSidebar }  from '../../components/linear/LinearSidebar'
 import { LinearTopBar }   from '../../components/linear/LinearTopBar'
 import { IssueListGroup } from '../../components/linear/IssueListGroup'
 import { NewIssueModal }  from '../../components/linear/NewIssueModal'
+import { IssueDetailPanel } from '../../components/linear/IssueDetailPanel'
 import { STATUS_CONFIG, PRIORITY_CONFIG, normalizeStatus, normalizePriority } from '../../components/linear/IssueRow'
 import './LinearPlannerPage.css'
 
@@ -112,6 +113,7 @@ export default function LinearPlannerPage() {
   const [activeFilters, setActiveFilters] = useState({})
   const [selectedIssue, setSelectedIssue] = useState(null)
   const [newIssueOpen,  setNewIssueOpen]  = useState(false)
+  const [githubMetaByIssue, setGithubMetaByIssue] = useState({})
   const didFetch = useRef(false)
 
   // Fetch on mount
@@ -145,6 +147,15 @@ export default function LinearPlannerPage() {
     () => projects.flatMap((p) => getTasksForProject(p.id)),
     [projects, getTasksForProject]
   )
+
+  // Keep selected issue in sync with context cache after inline/list updates
+  useEffect(() => {
+    if (!selectedIssue) return
+    const fresh = allIssues.find(
+      (i) => i.id === selectedIssue.id && i.projectId === selectedIssue.projectId
+    )
+    if (fresh) setSelectedIssue(fresh)
+  }, [allIssues, selectedIssue?.id, selectedIssue?.projectId])
 
   // ── Filtering ───────────────────────────────────────────────────────────────
   const filteredIssues = useMemo(() => {
@@ -208,9 +219,20 @@ export default function LinearPlannerPage() {
 
   // ── Create issue ────────────────────────────────────────────────────────────
   const handleCreate = useCallback(async ({ projectId, payload }) => {
-    // TODO Phase 3: activity log entry after creation
     await actions.createTask(projectId, payload)
   }, [actions])
+
+  const handleIssueUpdate = useCallback(async (projectId, taskId, data) => {
+    const updated = await actions.updateTask(projectId, taskId, data)
+    setSelectedIssue((prev) =>
+      prev?.id === taskId && prev?.projectId === projectId ? updated : prev
+    )
+    return updated
+  }, [actions])
+
+  const issueGithubKey = selectedIssue
+    ? `${selectedIssue.projectId}-${selectedIssue.id}`
+    : null
 
   // ── Quick filter toggle ─────────────────────────────────────────────────────
   const toggleFilter = useCallback((id) => {
@@ -275,6 +297,7 @@ export default function LinearPlannerPage() {
                 projectMap={projectMap}
                 memberMap={memberMap}
                 selectedId={selectedIssue?.id}
+                selectedProjectId={selectedIssue?.projectId}
                 onSelect={setSelectedIssue}
                 onStatusChange={handleStatusChange}
                 onPriorityChange={handlePriorityChange}
@@ -294,18 +317,19 @@ export default function LinearPlannerPage() {
         members={members}
       />
 
-      {/* Issue detail placeholder — Phase 3 will build the full panel */}
-      {selectedIssue && (
-        <div className="lpp__detail-hint" role="status">
-          Selected: <strong>{selectedIssue.title}</strong> — Full issue panel coming in Phase 3.
-          <button
-            type="button"
-            className="lpp__detail-dismiss"
-            onClick={() => setSelectedIssue(null)}
-            aria-label="Dismiss"
-          >×</button>
-        </div>
-      )}
+      <IssueDetailPanel
+        open={Boolean(selectedIssue)}
+        issue={selectedIssue}
+        project={selectedIssue ? projectMap[selectedIssue.projectId] : null}
+        members={members}
+        onClose={() => setSelectedIssue(null)}
+        onUpdate={handleIssueUpdate}
+        githubMeta={issueGithubKey ? githubMetaByIssue[issueGithubKey] : undefined}
+        onGithubMetaChange={(meta) => {
+          if (!issueGithubKey) return
+          setGithubMetaByIssue((prev) => ({ ...prev, [issueGithubKey]: meta }))
+        }}
+      />
     </div>
   )
 }

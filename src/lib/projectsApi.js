@@ -111,6 +111,40 @@ export function normalizeProject(row) {
 /**
  * Normalize a team member row from GET /api/team/members.
  */
+export function normalizeComment(row) {
+  if (!row) return null
+  return {
+    id:         row.id,
+    taskId:     row.task_id,
+    userId:     row.user_id,
+    parentId:   row.parent_id,
+    body:       row.body || '',
+    createdAt:  row.created_at,
+    authorName: row.author_name || row.username || 'Unknown',
+  }
+}
+
+export function normalizeActivity(row) {
+  if (!row) return null
+  return {
+    id:         row.id,
+    taskId:     row.task_id,
+    userId:     row.user_id,
+    action:     row.action || '',
+    oldValue:   row.old_value,
+    newValue:   row.new_value,
+    meta:       (() => {
+      if (row.meta && typeof row.meta === 'object') return row.meta
+      if (typeof row.meta === 'string') {
+        try { return JSON.parse(row.meta) } catch { return {} }
+      }
+      return {}
+    })(),
+    createdAt:  row.created_at,
+    actorName:  row.author_name || row.username || 'System',
+  }
+}
+
 export function normalizeMember(row) {
   if (!row) return null
   return {
@@ -210,10 +244,12 @@ export const commentsApi = {
    * Route not yet wired on the backend in Phase 1 — placeholder for Phase 3.
    */
   list: (projectId, taskId) =>
-    api.get(`/api/projects/${projectId}/tasks/${taskId}/comments`),
+    api.get(`/api/projects/${projectId}/tasks/${taskId}/comments`).then((rows) =>
+      Array.isArray(rows) ? rows.map(normalizeComment) : []
+    ),
 
   create: (projectId, taskId, body) =>
-    api.post(`/api/projects/${projectId}/tasks/${taskId}/comments`, { body }),
+    api.post(`/api/projects/${projectId}/tasks/${taskId}/comments`, { body }).then(normalizeComment),
 
   update: (projectId, taskId, commentId, body) =>
     api.patch(`/api/projects/${projectId}/tasks/${taskId}/comments/${commentId}`, { body }),
@@ -230,7 +266,9 @@ export const activityApi = {
    * Route not yet wired in Phase 1 — placeholder for Phase 3.
    */
   list: (projectId, taskId) =>
-    api.get(`/api/projects/${projectId}/tasks/${taskId}/activity`),
+    api.get(`/api/projects/${projectId}/tasks/${taskId}/activity`).then((rows) =>
+      Array.isArray(rows) ? rows.map(normalizeActivity) : []
+    ),
 }
 
 // ─── Sprints ─────────────────────────────────────────────────────────────────
@@ -287,4 +325,6 @@ export default {
   normalizeTask,
   normalizeProject,
   normalizeMember,
+  normalizeComment,
+  normalizeActivity,
 }

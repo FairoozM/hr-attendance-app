@@ -15,6 +15,7 @@ export function IssueListGroup({
   projectMap = {},
   memberMap  = {},
   selectedId,
+  selectedProjectId,
   onSelect,
   onStatusChange,
   onPriorityChange,
@@ -60,7 +61,10 @@ export function IssueListGroup({
               issue={issue}
               project={projectMap[issue.projectId] || null}
               member={issue.assigneeUserId ? memberMap[issue.assigneeUserId] : null}
-              isSelected={selectedId === issue.id}
+              isSelected={
+                selectedId === issue.id &&
+                (selectedProjectId == null || selectedProjectId === issue.projectId)
+              }
               onSelect={onSelect}
               onStatusChange={onStatusChange}
               onPriorityChange={onPriorityChange}

@@ -31,7 +31,7 @@ async function createTask(req, res) {
       return res.status(400).json({ error: 'Task title is required' })
     }
     const task = await projectTasksService.createTask({
-      project_id: req.params.id,
+      project_id: Number(req.params.id),
       section_id: section_id || null,
       parent_task_id: parent_task_id || null,
       title: String(title).trim(),
@@ -60,7 +60,11 @@ async function createTask(req, res) {
 async function updateTask(req, res) {
   try {
     if (!requireAdmin(req, res)) return
-    const task = await projectTasksService.updateTask(req.params.taskId, req.body)
+    const task = await projectTasksService.updateTask(
+      req.params.taskId,
+      req.body,
+      req.user.userId
+    )
     if (!task) return res.status(404).json({ error: 'Task not found' })
     res.json(task)
   } catch (err) {

@@ -2,6 +2,8 @@ const express = require('express')
 const auth = require('../middleware/auth')
 const projectsController = require('../controllers/projectsController')
 const projectTasksController = require('../controllers/projectTasksController')
+const taskCommentsController = require('../controllers/taskCommentsController')
+const taskActivityController = require('../controllers/taskActivityController')
 
 const router = express.Router()
 
@@ -29,6 +31,25 @@ router.get('/:id/tasks', ...view, projectTasksController.listTasks)
 router.post('/:id/tasks', ...manage, projectTasksController.createTask)
 router.patch('/:projectId/tasks/:taskId', ...manage, projectTasksController.updateTask)
 router.delete('/:projectId/tasks/:taskId', ...manage, projectTasksController.deleteTask)
+
+// ---- Comments (Phase 3) ----
+router.get(
+  '/:projectId/tasks/:taskId/comments',
+  ...view,
+  taskCommentsController.listComments
+)
+router.post(
+  '/:projectId/tasks/:taskId/comments',
+  ...manage,
+  taskCommentsController.createComment
+)
+
+// ---- Activity log (Phase 3) ----
+router.get(
+  '/:projectId/tasks/:taskId/activity',
+  ...view,
+  taskActivityController.listActivity
+)
 
 // ---- Dependencies ----
 router.post('/:projectId/tasks/:taskId/dependencies', ...manage, projectTasksController.addDependency)
