@@ -711,9 +711,8 @@
   justify-content: center;
   gap: 0.18rem;
   width: 100%;
-  /* Prevent actions from breaking out of day column */
   overflow: hidden;
-  max-width: 2.6rem;
+  max-width: 5rem;   /* fits 3 × 1.5rem circles + gaps */
   flex-wrap: nowrap;
 }
 
@@ -723,31 +722,20 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 1.4rem;
-  height: 1.4rem;
+  width: 1.5rem;
+  height: 1.5rem;
   padding: 0;
   border: 1.5px dashed rgba(99, 102, 241, 0.4);
   border-radius: 50%;
   background: transparent;
   color: var(--accent);
-  font-size: 0.9rem;
-  font-weight: 700;
-  line-height: 1;
   cursor: pointer;
   transition: border-color 0.1s, background 0.1s;
 }
 
 .attendance-sl-doc__add--replace {
-  font-size: 0.5rem;
-  font-weight: 800;
-  width: 1.4rem;
-  height: 1.4rem;
-  border-radius: 50%;
-  letter-spacing: 0;
-  line-height: 1.1;
-  text-align: center;
-  padding: 0 0.1rem;
-  /* "Rpl" abbreviation for Replace in tiny circle */
+  border-style: solid;
+  border-color: rgba(99, 102, 241, 0.35);
 }
 
 .attendance-sl-doc__add:hover {
@@ -755,50 +743,41 @@
   background: rgba(99, 102, 241, 0.12);
 }
 
-/* View file link — icon-only dot */
+/* View file link */
 .attendance-sl-doc__link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 1.4rem;
-  height: 1.4rem;
+  width: 1.5rem;
+  height: 1.5rem;
   border-radius: 50%;
   background: rgba(99, 102, 241, 0.12);
   border: 1px solid rgba(99, 102, 241, 0.28);
   color: var(--accent);
-  font-size: 0.5rem;
-  font-weight: 800;
   text-decoration: none;
-  overflow: hidden;
-  white-space: nowrap;
-  letter-spacing: 0;
-  line-height: 1;
 }
 
 .attendance-sl-doc__link:hover {
-  background: rgba(99, 102, 241, 0.2);
+  background: rgba(99, 102, 241, 0.22);
   text-decoration: none;
 }
 
-/* Delete — red dot button */
+/* Delete — red circle button */
 .attendance-sl-doc__delete {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 1.4rem;
-  height: 1.4rem;
+  width: 1.5rem;
+  height: 1.5rem;
   border: 1.5px solid rgba(248, 113, 113, 0.4);
   border-radius: 50%;
   background: transparent;
   color: var(--danger);
-  font-size: 0.55rem;
-  font-weight: 800;
   cursor: pointer;
-  line-height: 1;
-  transition: background 0.1s, color 0.1s;
   padding: 0;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
 }
 
 .attendance-sl-doc__delete:hover {

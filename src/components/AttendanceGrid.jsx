@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo, useCallback, useLayoutEffect } from 'react'
+import { Eye, Trash2, RefreshCw, Upload } from 'lucide-react'
 import {
   STATUS_KEYS,
   STATUSES,
@@ -551,7 +552,7 @@ export function AttendanceGrid({
                                   className="attendance-sl-doc__link"
                                   title="Open medical certificate in a new tab"
                                 >
-                                  View file
+                                  <Eye size={11} strokeWidth={2.2} />
                                 </a>
                                 {removeSickLeaveDocument ? (
                                   <button
@@ -560,7 +561,7 @@ export function AttendanceGrid({
                                     title="Remove this file (you can upload a different one after)"
                                     onClick={() => removeSickLeaveDocument(emp.id, day)}
                                   >
-                                    Delete
+                                    <Trash2 size={11} strokeWidth={2.2} />
                                   </button>
                                 ) : null}
                               </>
@@ -577,7 +578,9 @@ export function AttendanceGrid({
                                 aria-label="Upload or replace medical certificate"
                                 onClick={() => openSickLeavePicker(emp.id, day)}
                               >
-                                {docUrl ? 'Replace' : '+'}
+                                {docUrl
+                                  ? <RefreshCw size={11} strokeWidth={2.4} />
+                                  : <Upload size={11} strokeWidth={2.2} />}
                               </button>
                             ) : null}
                           </div>
