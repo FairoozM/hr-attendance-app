@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Check, Download } from 'lucide-react'
 import { api, fetchBinary, postBinary, downloadBlob } from '../../api/client'
 import './WeeklyAdsReportPage.css'
 import './WeeklySalesReportPage.css'
@@ -485,11 +486,13 @@ export function ZohoItemImageFetcherPage() {
                       />
                     </td>
                     <td><LazyZohoImage row={row} /></td>
-                    <td>
+                    <td className="zif-action-cell">
                       {row.imageUrl ? (
                         <button
                           type="button"
-                          className="zif-link-btn"
+                          className="zif-icon-btn zif-icon-btn--download"
+                          title="Download image"
+                          aria-label={`Download image for ${row.itemName || row.sku || 'item'}`}
                           onClick={async () => {
                             try {
                               const { blob, contentType } = await fetchBinary(row.imageUrl)
@@ -500,15 +503,24 @@ export function ZohoItemImageFetcherPage() {
                             }
                           }}
                         >
-                          Download image
+                          <Download size={16} strokeWidth={2.2} aria-hidden="true" />
                         </button>
                       ) : (
                         <span className="zif-muted">{row.imageReference || row.message || '—'}</span>
                       )}
                     </td>
-                    <td>
-                      <span className={statusClass(row.status)}>{row.status || 'Error'}</span>
-                      {row.message && row.status !== 'Found' ? <div className="zif-row-message">{row.message}</div> : null}
+                    <td className="zif-status-cell">
+                      {row.status === 'Found' ? (
+                        <span className="zif-status zif-status--found zif-status--icon" title="Found">
+                          <Check size={14} strokeWidth={2.8} aria-hidden="true" />
+                          <span className="visually-hidden">Found</span>
+                        </span>
+                      ) : (
+                        <span className={statusClass(row.status)}>{row.status || 'Error'}</span>
+                      )}
+                      {row.message && row.status !== 'Found' ? (
+                        <div className="zif-row-message">{row.message}</div>
+                      ) : null}
                     </td>
                   </tr>
                 ))}
