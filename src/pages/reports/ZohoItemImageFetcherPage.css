@@ -151,6 +151,42 @@
   color: var(--text-primary, #0f172a);
 }
 
+.zif-qty-cell {
+  width: 7rem;
+  min-width: 6rem;
+}
+
+.zif-qty-input {
+  width: 100%;
+  max-width: 6.5rem;
+  height: 2.25rem;
+  padding: 0 0.55rem;
+  border: 1px solid var(--zif-border);
+  border-radius: 0.5rem;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+  background: #fff;
+  text-align: center;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.zif-qty-input::placeholder {
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.zif-qty-input:hover {
+  border-color: rgba(74, 124, 255, 0.45);
+}
+
+.zif-qty-input:focus {
+  outline: none;
+  border-color: #4a7cff;
+  box-shadow: 0 0 0 3px rgba(74, 124, 255, 0.14);
+}
+
 .zif-mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: #475569;

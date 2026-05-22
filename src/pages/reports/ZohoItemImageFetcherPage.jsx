@@ -7,6 +7,35 @@ import './ZohoItemImageFetcherPage.css'
 const MAX_SKUS = 1000
 const FETCH_BATCH_SIZE = 25
 
+/** Parse one pasted line: SKU only, or SKU + quantity (tab, comma, or trailing number). */
+function parseSkuLine(line) {
+  const trimmed = String(line || '').trim()
+  if (!trimmed) return null
+
+  if (trimmed.includes('\t')) {
+    const parts = trimmed.split('\t').map((p) => p.trim())
+    const sku = parts[0]
+    const qty = parts.slice(1).join('\t').trim()
+    return sku ? { sku, qty } : null
+  }
+
+  const commaIdx = trimmed.lastIndexOf(',')
+  if (commaIdx > 0) {
+    const maybeQty = trimmed.slice(commaIdx + 1).trim()
+    if (/^\d+(\.\d+)?$/.test(maybeQty)) {
+      const sku = trimmed.slice(0, commaIdx).trim()
+      if (sku) return { sku, qty: maybeQty }
+    }
+  }
+
+  const spaceMatch = trimmed.match(/^(.+?)\s+(\d+(?:\.\d+)?)\s*$/)
+  if (spaceMatch) {
+    return { sku: spaceMatch[1].trim(), qty: spaceMatch[2] }
+  }
+
+  return { sku: trimmed, qty: '' }
+}
+
 function parseSkuText(text) {
   const lines = String(text || '')
     .split(/\r?\n/)
@@ -14,22 +43,45 @@ function parseSkuText(text) {
     .filter(Boolean)
   const seen = new Set()
   const skus = []
+  const qtyBySku = {}
   let duplicates = 0
-  for (const sku of lines) {
+  let withQty = 0
+  for (const line of lines) {
+    const parsed = parseSkuLine(line)
+    if (!parsed?.sku) continue
+    const { sku, qty } = parsed
     const key = sku.toLowerCase()
     if (seen.has(key)) {
       duplicates += 1
+      if (qty) qtyBySku[key] = qty
       continue
     }
     seen.add(key)
+    if (qty) {
+      qtyBySku[key] = qty
+      withQty += 1
+    }
     if (skus.length < MAX_SKUS) skus.push(sku)
   }
   return {
     skus,
+    qtyBySku,
     inputCount: lines.length,
     duplicates,
+    withQty,
     truncated: lines.length - duplicates > MAX_SKUS,
   }
+}
+
+function attachQuantities(results, qtyBySku) {
+  if (!qtyBySku || !results?.length) return results
+  return results.map((row) => {
+    const key = String(row.sku || row.itemName || '')
+      .trim()
+      .toLowerCase()
+    const quantity = qtyBySku[key] ?? row.quantity ?? ''
+    return quantity === row.quantity ? row : { ...row, quantity }
+  })
 }
 
 function chunk(list, size) {
@@ -174,8 +226,14 @@ export function ZohoItemImageFetcherPage() {
     }
   }, [])
 
+  const updateQuantity = useCallback((index, quantity) => {
+    setResults((prev) =>
+      prev.map((row, i) => (i === index ? { ...row, quantity } : row))
+    )
+  }, [])
+
   const handleFetch = useCallback(async () => {
-    const { skus } = parseSkuText(text)
+    const { skus, qtyBySku } = parseSkuText(text)
     if (skus.length === 0) {
       setError('Paste at least one SKU.')
       return
@@ -194,7 +252,7 @@ export function ZohoItemImageFetcherPage() {
         const data = await api.post('/api/zoho/items/images/fetch', { skus: batch })
         const batchResults = Array.isArray(data?.results) ? data.results : []
         all.push(...batchResults)
-        setResults([...all])
+        setResults(attachQuantities([...all], qtyBySku))
         if (data?.usage) setUsage(normalizeUsage(data.usage))
         setProcessed((prev) => Math.min(skus.length, prev + batch.length))
       }
@@ -239,11 +297,13 @@ export function ZohoItemImageFetcherPage() {
           <div>
             <h2 className="war-section__title">SKU Input</h2>
             <p className="zif-muted">
-              One SKU per line. Empty lines and duplicates are removed before fetching.
+              One SKU per line, or paste SKU and quantity together (tab-separated from Excel, or comma / space before the number).
+              Quantities appear in the results table and can be edited there.
             </p>
           </div>
           <div className="zif-input-stats">
             <span>{parsed.skus.length} unique</span>
+            <span>{parsed.withQty} with qty</span>
             <span>{parsed.duplicates} duplicates</span>
             <span>{parsed.inputCount} pasted</span>
           </div>
@@ -253,7 +313,7 @@ export function ZohoItemImageFetcherPage() {
           className="zif-textarea"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder={'SKU-001\nSKU-002\nSKU-003'}
+          placeholder={'SKU-001\t10\nSKU-002,5\nSKU-003 12'}
           rows={12}
           disabled={loading}
         />
@@ -337,6 +397,7 @@ export function ZohoItemImageFetcherPage() {
               <thead>
                 <tr>
                   <th>Item Name</th>
+                  <th>Quantity</th>
                   <th>Image Preview</th>
                   <th>Download</th>
                   <th>Status</th>
@@ -346,6 +407,17 @@ export function ZohoItemImageFetcherPage() {
                 {results.map((row, index) => (
                   <tr key={`${row.itemName || row.sku || 'item'}-${row.itemId || index}-${index}`}>
                     <td className="zif-cell-strong">{row.itemName || '—'}</td>
+                    <td className="zif-qty-cell">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        className="zif-qty-input"
+                        value={row.quantity ?? ''}
+                        onChange={(e) => updateQuantity(index, e.target.value)}
+                        placeholder="—"
+                        aria-label={`Quantity for ${row.itemName || row.sku || 'item'}`}
+                      />
+                    </td>
                     <td><LazyZohoImage row={row} /></td>
                     <td>
                       {row.imageUrl ? (

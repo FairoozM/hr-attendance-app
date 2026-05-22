@@ -378,11 +378,12 @@ function normalizeResults(input) {
 }
 
 function buildCsv(results) {
-  const headers = ['Item Name', 'Image URL', 'Status', 'Message']
+  const headers = ['Item Name', 'Quantity', 'Image URL', 'Status', 'Message']
   const lines = [headers.map(csvEscape).join(',')]
   for (const row of normalizeResults(results)) {
     lines.push([
       row.itemName,
+      row.quantity != null ? String(row.quantity) : '',
       row.imageUrl || row.imageReference,
       row.status,
       row.message,
