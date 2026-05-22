@@ -14,6 +14,7 @@ import {
 } from '../utils/attendanceHelpers'
 import { ExcelStyleColumnFilter, excelFilterIsActive } from './ExcelStyleColumnFilter'
 import { SmoothHorizontalScrollbar } from './ui/SmoothHorizontalScrollbar'
+import { AttendanceCellDropdown } from './AttendanceCellDropdown'
 import './attendance/dashboard/AttendanceDashboard.css'
 import './AttendanceGrid.css'
 
@@ -510,7 +511,7 @@ export function AttendanceGrid({
                     month,
                     weeklyHolidayDay
                   )
-                  const colorClass = current ? `attendance-cell--${STATUSES[current].color}` : ''
+                  const colorClass = current ? `attendance-cell--${STATUSES[current].color}` : '' // kept for potential external use
                   const isFirstVisibleDay = day === displayDays[0]
                   const docUrl = sickLeaveDocuments[emp.id]?.[day]
                   const showSlUpload = current === 'SL'
@@ -524,23 +525,12 @@ export function AttendanceGrid({
                       <div
                         className={`attendance-cell-wrap${showSlUpload ? ' attendance-cell-wrap--with-sl' : ''}`}
                       >
-                        <select
-                          className={`attendance-cell attendance-cell--select ${colorClass}${dimAbsentView ? ' attendance-cell--dimmed' : ''}`}
+                        <AttendanceCellDropdown
                           value={current || ''}
-                          onChange={(e) => {
-                            const v = e.target.value
-                            setAttendanceFor(setAttendance, emp.id, day, v)
-                          }}
-                          title={current ? STATUSES[current].label : 'Select status'}
-                          aria-label={`Day ${day} status for ${emp.name}`}
-                        >
-                          <option value="">—</option>
-                          {STATUS_KEYS.map((k) => (
-                            <option key={k} value={k}>
-                              {k}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(v) => setAttendanceFor(setAttendance, emp.id, day, v)}
+                          ariaLabel={`Day ${day} status for ${emp.name}`}
+                          dimmed={dimAbsentView}
+                        />
                         {showSlUpload && (
                           <div className="attendance-sl-doc">
                             {docUrl ? (
