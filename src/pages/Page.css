@@ -82,6 +82,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  scroll-margin-top: var(--app-topbar-stack, 5.35rem);
 }
 
 .page-section--fill .attendance-grid-wrap {

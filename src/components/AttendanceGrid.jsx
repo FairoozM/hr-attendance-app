@@ -16,6 +16,21 @@ import { SmoothHorizontalScrollbar } from './ui/SmoothHorizontalScrollbar'
 import './attendance/dashboard/AttendanceDashboard.css'
 import './AttendanceGrid.css'
 
+/** Extract up to 2 initials from a full name. */
+function getInitials(name) {
+  if (!name) return '?'
+  const parts = name.trim().split(/\s+/)
+  if (parts.length === 1) return parts[0][0].toUpperCase()
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+
+/** Deterministic hue from a string (for avatar background). */
+function nameHue(name) {
+  let h = 0
+  for (let i = 0; i < (name || '').length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xfffff
+  return h % 360
+}
+
 function setAttendanceFor(setAttendance, employeeId, day, value) {
   setAttendance((prev) => {
     const next = { ...prev }
@@ -399,8 +414,17 @@ export function AttendanceGrid({
                   <tr key={emp.id}>
                     <td className="attendance-grid__td attendance-grid__td--sticky">
                       <div className="attendance-grid__cell-employee">
-                        <span className="attendance-grid__name">{emp.name}</span>
-                        <span className="attendance-grid__dept">{emp.department}</span>
+                        <span
+                          className="attendance-grid__avatar"
+                          style={{ '--avatar-hue': nameHue(emp.name) }}
+                          aria-hidden="true"
+                        >
+                          {getInitials(emp.name)}
+                        </span>
+                        <div className="attendance-grid__employee-info">
+                          <span className="attendance-grid__name">{emp.name}</span>
+                          <span className="attendance-grid__dept">{emp.department}</span>
+                        </div>
                       </div>
                     </td>
                   </tr>

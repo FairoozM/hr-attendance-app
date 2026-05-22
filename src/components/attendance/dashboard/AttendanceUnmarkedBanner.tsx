@@ -6,6 +6,13 @@ type Props = {
 export function AttendanceUnmarkedBanner({ count, snapshotLabel }: Props) {
   if (count <= 0) return null
 
+  const handleJumpClick = () => {
+    document.getElementById('attendance-detail-grid')?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+  }
+
   return (
     <div className="adash-banner adash-banner--warning" role="status">
       <div className="adash-banner__body">
@@ -16,9 +23,9 @@ export function AttendanceUnmarkedBanner({ count, snapshotLabel }: Props) {
             : `${count} employees have no attendance status on ${snapshotLabel}.`}
         </span>
       </div>
-      <a className="adash-banner__link" href="#attendance-detail-grid">
+      <button type="button" className="adash-banner__link" onClick={handleJumpClick}>
         Jump to grid
-      </a>
+      </button>
     </div>
   )
 }

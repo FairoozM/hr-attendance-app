@@ -10,13 +10,10 @@
 
 /* Single minimalist header (title + meta + overview filters) */
 .adash__shell {
-  border: 1px solid var(--theme-border);
-  border-radius: var(--radius-lg);
-  padding: 1rem 1.2rem;
-  background: var(--theme-glass-soft);
-  backdrop-filter: var(--glass-blur-lg);
-  -webkit-backdrop-filter: var(--glass-blur-lg);
-  box-shadow: var(--glass-shadow-panel);
+  border: 1px solid var(--theme-border-subtle);
+  border-radius: 0.75rem;
+  padding: 0.9rem 1.1rem;
+  background: color-mix(in srgb, var(--theme-panel-bg) 82%, var(--theme-bg-canvas));
 }
 
 .adash__shell-top {
@@ -78,41 +75,41 @@
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 0.75rem 1rem;
-  padding: 1rem 1.25rem;
+  padding: 0.9rem 1.15rem;
   background: var(--theme-glass-soft);
   backdrop-filter: var(--glass-blur-lg);
   -webkit-backdrop-filter: var(--glass-blur-lg);
-  border: 1px solid var(--theme-border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--theme-border-subtle);
+  border-radius: var(--radius-sm);
   box-shadow: var(--glass-shadow-panel);
 }
 
 .adash__field {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.22rem;
   min-width: 140px;
 }
 
 .adash__field label {
-  font-size: 0.66rem;
-  font-weight: 700;
+  font-size: 0.62rem;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   color: var(--theme-text-dim);
 }
 
 .adash__select,
 .adash__input,
 .adash__btn {
-  font-size: 0.88rem;
-  min-height: 2.85rem;
-  padding: 0.45rem 0.8rem;
-  border-radius: 1rem;
-  border: 1px solid var(--theme-border);
+  font-size: 0.85rem;
+  min-height: 2.65rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  border: 1.5px solid var(--theme-border);
   background: var(--theme-input-bg);
   color: var(--text);
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
 }
 
 .adash__input {
@@ -133,7 +130,8 @@
 .adash__input:focus,
 .adash__btn:focus {
   outline: none;
-  border-color: rgba(167, 139, 250, 0.42);
+  border-color: rgba(167, 139, 250, 0.5);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
 }
 
 .adash__field--grow {
@@ -145,17 +143,20 @@
 .adash__btn--clear-filters {
   margin-left: auto;
   align-self: flex-end;
-  font-weight: 600;
+  font-size: 0.8rem;
+  font-weight: 700;
   cursor: pointer;
   background: color-mix(in srgb, var(--theme-input-bg) 88%, transparent);
+  letter-spacing: 0.01em;
 }
 
 .adash__btn--clear-filters:hover:not(:disabled) {
   border-color: rgba(167, 139, 250, 0.35);
+  background: var(--accent-soft);
 }
 
 .adash__btn--clear-filters:disabled {
-  opacity: 0.42;
+  opacity: 0.38;
   cursor: not-allowed;
 }
 
@@ -165,7 +166,7 @@
 
 .adash__btn--export {
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 700;
   background: linear-gradient(to right, var(--primary), var(--accent));
   color: var(--theme-text-inverse);
   border-color: transparent;
@@ -262,13 +263,10 @@
 
 /* ── Panels ── */
 .adash-panel {
-  background: var(--theme-glass-soft);
-  backdrop-filter: var(--glass-blur-lg);
-  -webkit-backdrop-filter: var(--glass-blur-lg);
-  border: 1px solid var(--theme-border);
-  border-radius: var(--radius-lg);
-  padding: 1rem 1.25rem;
-  box-shadow: var(--glass-shadow-panel);
+  background: color-mix(in srgb, var(--theme-panel-bg) 82%, var(--theme-bg-canvas));
+  border: 1px solid var(--theme-border-subtle);
+  border-radius: 0.75rem;
+  padding: 0.9rem 1.1rem;
 }
 
 .adash-panel__title {
@@ -424,19 +422,19 @@
 /* ── Skeleton ── */
 .adash-skeleton--shell {
   width: 100%;
-  height: 5.25rem;
-  border-radius: var(--radius-lg);
+  height: 4.5rem;
+  border-radius: 0.75rem;
 }
 
 .adash-skeleton {
-  border-radius: var(--radius);
+  border-radius: 0.75rem;
   background: linear-gradient(90deg,
-    color-mix(in srgb, var(--theme-surface-soft) 72%, transparent) 25%,
+    color-mix(in srgb, var(--theme-surface-soft) 75%, transparent) 25%,
     color-mix(in srgb, var(--theme-surface-raised) 80%, transparent) 50%,
-    color-mix(in srgb, var(--theme-surface-soft) 72%, transparent) 75%
+    color-mix(in srgb, var(--theme-surface-soft) 75%, transparent) 75%
   );
   background-size: 200% 100%;
-  animation: adash-shimmer 1.4s ease-in-out infinite;
+  animation: adash-shimmer 1.5s ease-in-out infinite;
 }
 
 @keyframes adash-shimmer {
@@ -447,9 +445,10 @@
 /* ── Empty state ── */
 .adash-empty {
   text-align: center;
-  padding: 2rem 1rem;
+  padding: 2.5rem 1rem;
   color: var(--text-muted);
-  font-size: 0.88rem;
+  font-size: 0.84rem;
+  line-height: 1.5;
 }
 
 .adash-grid-2 {
@@ -484,10 +483,10 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem 1rem;
-  padding: 0.85rem 1.15rem;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--theme-border);
+  gap: 0.65rem 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--theme-border-subtle);
 }
 
 .adash-banner--warning {
@@ -522,6 +521,11 @@
   color: var(--primary, #6366f1);
   text-decoration: none;
   white-space: nowrap;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
 }
 
 .adash-banner__link:hover {
