@@ -86,7 +86,7 @@ export function AttendanceCellDropdown({ value = '', onChange, ariaLabel, dimmed
     }
 
     // center the 240px menu on the trigger, clamped within viewport
-    const menuW = 240
+    const menuW = 260
     let left = rect.left + rect.width / 2 - menuW / 2
     left = Math.max(8, Math.min(left, window.innerWidth - menuW - 8))
 

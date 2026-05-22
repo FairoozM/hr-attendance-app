@@ -183,6 +183,7 @@
   flex-direction: column;
   gap: 0.1rem;
   min-width: 0;
+  overflow: hidden;
 }
 
 .acd-option__label {
@@ -191,6 +192,8 @@
   color: var(--text);
   line-height: 1.2;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .acd-option__desc {

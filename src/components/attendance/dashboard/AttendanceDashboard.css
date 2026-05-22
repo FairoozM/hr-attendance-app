@@ -289,6 +289,82 @@
   gap: 1rem;
 }
 
+/* ── Combined Absent + Sick Leave card ─────────────────── */
+.adash-combined-card {
+  display: flex;
+  flex-direction: row;
+  gap: 0;
+  padding: 0 !important; /* override adash-panel padding */
+  overflow: hidden;
+}
+
+.adash-combined-card__divider {
+  width: 1px;
+  flex-shrink: 0;
+  background: var(--theme-border);
+  align-self: stretch;
+  margin: 0.75rem 0;
+}
+
+.adash-half-list {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.adash-half-list__head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.25rem;
+}
+
+.adash-half-list__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.15rem 0.42rem;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+
+.adash-half-list__title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text);
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adash-half-list__count {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.adash-half-list__empty {
+  padding: 0.5rem 0 !important;
+}
+
+.adash-half-list__rows {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Inside the combined card rows don't need the badge column */
+.adash-combined-card .adash-status-row {
+  grid-template-columns: auto 1fr;
+}
+
 .adash-status-block__head {
   font-size: 0.78rem;
   font-weight: 700;
