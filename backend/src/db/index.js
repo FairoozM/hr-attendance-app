@@ -1390,6 +1390,20 @@ async function ensureAmazonBulkListingTables() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * True when a named constraint already exists on a table (pg_catalog).
+ * Cheap SELECT on every startup — skips ALTER when the constraint is present.
+ */
+async function pgConstraintExistsOnTable(constraintName, tableName) {
+  const result = await query(
+    `SELECT 1 FROM pg_constraint
+     WHERE conname = $1 AND conrelid = $2::regclass
+     LIMIT 1`,
+    [constraintName, tableName]
+  )
+  return result.rowCount > 0
+}
+
+/**
  * Extend projects with team-planner fields.
  * project_type: 'software' | 'website' | 'mobile' | 'ops' | 'other'
  */
@@ -1477,22 +1491,14 @@ async function ensureSprintsTable() {
   await query(`CREATE INDEX IF NOT EXISTS idx_sprints_project ON sprints(project_id)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_sprints_status  ON sprints(status)`)
 
-  // Now safe to add the FK from project_tasks.sprint_id → sprints.id
-  // ADD CONSTRAINT IF NOT EXISTS is not standard in older Postgres; use a DO block
-  await query(`
-    DO $$
-    BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM information_schema.table_constraints
-        WHERE constraint_name = 'fk_project_tasks_sprint_id'
-          AND table_name = 'project_tasks'
-      ) THEN
-        ALTER TABLE project_tasks
-          ADD CONSTRAINT fk_project_tasks_sprint_id
-          FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE SET NULL;
-      END IF;
-    END $$;
-  `)
+  // FK from project_tasks.sprint_id → sprints.id (after sprint_id column + sprints table exist)
+  if (!(await pgConstraintExistsOnTable('fk_project_tasks_sprint_id', 'project_tasks'))) {
+    await query(`
+      ALTER TABLE project_tasks
+        ADD CONSTRAINT fk_project_tasks_sprint_id
+        FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE SET NULL
+    `)
+  }
 }
 
 /**
