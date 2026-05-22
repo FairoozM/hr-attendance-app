@@ -146,18 +146,25 @@ async function getTaskById(taskId) {
   return task
 }
 
-async function createTask({ project_id, section_id, parent_task_id, title, description, status, priority, start_date, due_date, estimated_hours, sort_order, created_by }) {
+async function createTask({
+  project_id, section_id, parent_task_id, title, description, status, priority,
+  start_date, due_date, estimated_hours, sort_order, created_by,
+  // Phase 1 team-planner fields
+  assignee_user_id, reporter_user_id, issue_type, story_points, labels, sprint_id,
+}) {
   const maxOrder = await query(
     `SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM project_tasks WHERE project_id = $1 AND section_id IS NOT DISTINCT FROM $2`,
     [project_id, section_id || null]
   )
   const nextOrder = sort_order ?? parseInt(maxOrder.rows[0].next_order || 0)
+  const labelArr = Array.isArray(labels) ? labels : []
 
   const result = await query(
     `INSERT INTO project_tasks
        (project_id, section_id, parent_task_id, title, description, status, priority,
-        start_date, due_date, estimated_hours, sort_order, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        start_date, due_date, estimated_hours, sort_order, created_by,
+        assignee_user_id, reporter_user_id, issue_type, story_points, labels, sprint_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
      RETURNING *`,
     [
       project_id,
@@ -165,13 +172,19 @@ async function createTask({ project_id, section_id, parent_task_id, title, descr
       parent_task_id || null,
       title,
       description || '',
-      status || 'Not Started',
+      status || 'Backlog',
       priority || 'Medium',
       start_date || null,
       due_date || null,
       estimated_hours || null,
       nextOrder,
       created_by || null,
+      assignee_user_id || null,
+      reporter_user_id || null,
+      issue_type || 'task',
+      story_points || null,
+      labelArr,
+      sprint_id || null,
     ]
   )
   return rowToTask(result.rows[0])
@@ -182,6 +195,9 @@ async function updateTask(taskId, fields) {
     'title', 'description', 'status', 'priority', 'start_date', 'due_date',
     'section_id', 'parent_task_id', 'estimated_hours', 'actual_hours',
     'progress_percent', 'sort_order', 'archived',
+    // Phase 1 team-planner fields
+    'assignee_user_id', 'reporter_user_id', 'reviewer_user_id',
+    'issue_type', 'sprint_id', 'story_points', 'blocked_reason',
   ]
   const sets = []
   const values = []
@@ -195,9 +211,18 @@ async function updateTask(taskId, fields) {
     }
   }
 
-  if (fields.status === 'Completed') {
+  // labels is a TEXT[] — pass raw array (pg will serialize correctly)
+  if (fields.labels !== undefined) {
+    const labelArr = Array.isArray(fields.labels) ? fields.labels : []
+    sets.push(`labels = $${idx}`)
+    values.push(labelArr)
+    idx++
+  }
+
+  const isDone = fields.status === 'Completed' || fields.status === 'Done'
+  if (isDone) {
     sets.push(`completed_at = NOW()`)
-  } else if (fields.status && fields.status !== 'Completed') {
+  } else if (fields.status && !isDone) {
     sets.push(`completed_at = NULL`)
   }
 

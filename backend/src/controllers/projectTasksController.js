@@ -22,7 +22,11 @@ async function listTasks(req, res) {
 async function createTask(req, res) {
   try {
     if (!requireAdmin(req, res)) return
-    const { title, description, status, priority, section_id, parent_task_id, start_date, due_date, estimated_hours, sort_order } = req.body
+    const {
+      title, description, status, priority, section_id, parent_task_id,
+      start_date, due_date, estimated_hours, sort_order,
+      assignee_user_id, reporter_user_id, issue_type, story_points, labels, sprint_id,
+    } = req.body
     if (!title || !String(title).trim()) {
       return res.status(400).json({ error: 'Task title is required' })
     }
@@ -39,6 +43,12 @@ async function createTask(req, res) {
       estimated_hours,
       sort_order,
       created_by: req.user.userId,
+      assignee_user_id: assignee_user_id || null,
+      reporter_user_id: reporter_user_id || null,
+      issue_type: issue_type || null,
+      story_points: story_points || null,
+      labels: labels || [],
+      sprint_id: sprint_id || null,
     })
     res.status(201).json(task)
   } catch (err) {
