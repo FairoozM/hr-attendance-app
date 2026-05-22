@@ -516,7 +516,14 @@
   overflow: hidden;
 }
 
-/* Initials avatar */
+/* Size the EmployeeAvatar inside the grid to match the compact row */
+.attendance-grid__cell-employee .employee-avatar--sm {
+  width: 1.875rem;
+  height: 1.875rem;
+  font-size: 0.62rem;
+}
+
+/* Initials avatar — kept for non-grid uses */
 .attendance-grid__avatar {
   flex-shrink: 0;
   width: 1.875rem;

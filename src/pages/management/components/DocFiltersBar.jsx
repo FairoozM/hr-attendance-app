@@ -1,5 +1,7 @@
 import { STATUS } from '../utils/docExpiryUtils'
 import { DOCUMENT_TYPES, COMPANIES } from '../data/seedDocuments'
+import { ModernSearchInput } from '../../../components/ui/ModernSearchInput'
+import { ModernSelect } from '../../../components/ui/ModernSelect'
 
 const QUICK_FILTERS = [
   { id: 'all',      label: 'All'      },
@@ -10,7 +12,7 @@ const QUICK_FILTERS = [
 ]
 
 export function DocFiltersBar({ filters, onChange, onQuickFilter, activeQuick }) {
-  const set = (key) => (e) => onChange({ ...filters, [key]: e.target.value })
+  const set = (key) => (val) => onChange({ ...filters, [key]: val })
 
   const clearAll = () =>
     onChange({ search: '', docType: '', company: '', status: '' })
@@ -31,25 +33,38 @@ export function DocFiltersBar({ filters, onChange, onQuickFilter, activeQuick })
       </div>
 
       <div className="doc-filters__fields">
-        <input
-          type="search"
+        <ModernSearchInput
           placeholder="Search by name, type, company..."
           value={filters.search}
           onChange={set('search')}
-          className="doc-filters__input"
         />
-        <select value={filters.docType} onChange={set('docType')} className="doc-filters__select">
-          <option value="">Type: All</option>
-          {DOCUMENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
-        <select value={filters.company} onChange={set('company')} className="doc-filters__select">
-          <option value="">Company: All</option>
-          {COMPANIES.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <select value={filters.status} onChange={set('status')} className="doc-filters__select">
-          <option value="">Status: All</option>
-          {Object.values(STATUS).map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <ModernSelect
+          value={filters.docType}
+          placeholder="Type: All"
+          options={[
+            { value: '', label: 'Type: All' },
+            ...DOCUMENT_TYPES.map(t => ({ value: t, label: t })),
+          ]}
+          onChange={set('docType')}
+        />
+        <ModernSelect
+          value={filters.company}
+          placeholder="Company: All"
+          options={[
+            { value: '', label: 'Company: All' },
+            ...COMPANIES.map(c => ({ value: c, label: c })),
+          ]}
+          onChange={set('company')}
+        />
+        <ModernSelect
+          value={filters.status}
+          placeholder="Status: All"
+          options={[
+            { value: '', label: 'Status: All' },
+            ...Object.values(STATUS).map(s => ({ value: s, label: s })),
+          ]}
+          onChange={set('status')}
+        />
         <button type="button" className="btn btn--ghost btn--sm" onClick={clearAll}>
           Clear
         </button>

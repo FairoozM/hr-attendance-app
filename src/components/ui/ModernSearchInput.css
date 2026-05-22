@@ -1,0 +1,102 @@
+/* ═════════════════════════════════════════
+   ModernSearchInput — search field
+   ═════════════════════════════════════════ */
+
+.msi-wrap {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.msi-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.msi-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 2.25rem;
+  border-radius: 0.625rem;
+  border: 1.5px solid var(--theme-border);
+  background: var(--theme-input-bg);
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
+}
+
+.msi-field:hover:not(.msi-field--disabled) {
+  border-color: var(--theme-border-strong);
+  background: var(--theme-input-bg-hover);
+}
+
+.msi-field:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  background: var(--theme-input-bg-hover);
+}
+
+.msi-field--disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.msi-icon {
+  display: flex;
+  align-items: center;
+  padding: 0 0 0 0.6rem;
+  color: var(--text-muted);
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+.msi-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 0.5rem;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.msi-input::placeholder {
+  color: var(--theme-input-placeholder);
+  font-weight: 400;
+}
+
+/* Remove native search cancel button */
+.msi-input::-webkit-search-cancel-button,
+.msi-input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.msi-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  margin-right: 0.3rem;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.1s, background 0.1s;
+}
+
+.msi-clear:hover {
+  color: var(--text);
+  background: var(--theme-surface-raised);
+}

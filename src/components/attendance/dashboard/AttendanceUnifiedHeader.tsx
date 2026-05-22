@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { AttendanceExportButton } from './AttendanceExportButton'
+import { ModernSelect } from '../../ui/ModernSelect'
 import type { AttendanceEmployee } from '../../../types/attendance'
 
 type Props = {
@@ -40,6 +41,14 @@ export function AttendanceUnifiedHeader({
     [daysInMonth]
   )
 
+  const deptOptions = useMemo(
+    () => [
+      { value: 'all', label: 'All departments' },
+      ...departments.map((d) => ({ value: d, label: d })),
+    ],
+    [departments]
+  )
+
   const peopleLabel = totalEmployees === 1 ? '1 person' : `${totalEmployees} people`
 
   return (
@@ -52,37 +61,18 @@ export function AttendanceUnifiedHeader({
           </p>
         </div>
         <div className="adash__shell-controls">
-          <div className="adash__field">
-            <label htmlFor="adash-day">Day</label>
-            <select
-              id="adash-day"
-              className="adash__select"
-              value={snapshotDay}
-              onChange={(e) => onSnapshotDayChange(Number(e.target.value))}
-            >
-              {dayOptions.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="adash__field">
-            <label htmlFor="adash-dept">Department</label>
-            <select
-              id="adash-dept"
-              className="adash__select"
-              value={department}
-              onChange={(e) => onDepartmentChange(e.target.value)}
-            >
-              <option value="all">All</option>
-              {departments.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-          </div>
+          <ModernSelect
+            label="Day"
+            value={snapshotDay}
+            options={dayOptions}
+            onChange={(v) => onSnapshotDayChange(Number(v))}
+          />
+          <ModernSelect
+            label="Department"
+            value={department}
+            options={deptOptions}
+            onChange={onDepartmentChange}
+          />
           <AttendanceExportButton onExport={onExport} disabled={exportDisabled} />
         </div>
       </div>

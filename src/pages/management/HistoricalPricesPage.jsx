@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import '../Page.css'
 import './AllPricesPage.css'
 import { getAllPricesMarket, PRICES_MARKET_KSA, PRICES_MARKET_UAE } from './allPricesMarket'
+import { ModernSelect } from '../../components/ui/ModernSelect'
+import { ModernSearchInput } from '../../components/ui/ModernSearchInput'
 import { useUserPreferences } from '../../contexts/UserPreferencesContext'
 import {
   fmtMoney,
@@ -121,34 +123,34 @@ export function HistoricalPricesPage() {
 
       <section className="page-section ap-ec-wrap">
         <div className="ap-ec-toolbar ap-ec-toolbar--filters">
-          <select
+          <ModernSelect
             value={regionFilter}
-            onChange={(e) => setRegionFilter(e.target.value)}
+            options={[
+              { value: 'all',              label: 'All markets' },
+              { value: PRICES_MARKET_UAE,  label: 'UAE'         },
+              { value: PRICES_MARKET_KSA,  label: 'KSA'         },
+            ]}
+            onChange={setRegionFilter}
             aria-label="Market"
-          >
-            <option value="all">All markets</option>
-            <option value={PRICES_MARKET_UAE}>UAE</option>
-            <option value={PRICES_MARKET_KSA}>KSA</option>
-          </select>
-          <input
-            type="search"
+          />
+          <ModernSearchInput
             placeholder="Search item no."
             value={filters.search}
-            onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))}
+            onChange={(v) => setFilters((prev) => ({ ...prev, search: v }))}
           />
-          <select value={filters.source} onChange={(e) => setFilters((prev) => ({ ...prev, source: e.target.value }))}>
-            <option value="">All sources</option>
-            {sourceOptions.map((source) => (
-              <option key={source} value={source}>
-                {source}
-              </option>
-            ))}
-          </select>
-          <input
-            type="search"
+          <ModernSelect
+            value={filters.source}
+            placeholder="All sources"
+            options={[
+              { value: '', label: 'All sources' },
+              ...sourceOptions.map((source) => ({ value: source, label: source })),
+            ]}
+            onChange={(v) => setFilters((prev) => ({ ...prev, source: v }))}
+          />
+          <ModernSearchInput
             placeholder="Reason contains…"
             value={filters.reason}
-            onChange={(e) => setFilters((prev) => ({ ...prev, reason: e.target.value }))}
+            onChange={(v) => setFilters((prev) => ({ ...prev, reason: v }))}
           />
           <label>
             Price from{' '}

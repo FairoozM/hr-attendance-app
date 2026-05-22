@@ -1,5 +1,9 @@
 import { DAY_NAMES_SHORT } from '../constants/attendance'
+import { ModernSelect } from './ui/ModernSelect'
+import { ModernButtonGroup } from './ui/ModernButtonGroup'
 import './MonthYearFilters.css'
+
+const DAY_OPTIONS = DAY_NAMES_SHORT.map((name, i) => ({ value: i, label: name }))
 
 export function MonthYearFilters({
   month,
@@ -11,54 +15,33 @@ export function MonthYearFilters({
   weeklyHolidayDay = 0,
   onWeeklyHolidayDayChange,
 }) {
+  const monthOptions = months.map((name, i) => ({ value: i, label: name }))
+  // yearOptions is an array of numbers — ModernSelect handles plain numbers natively
+
   return (
     <div className="month-year-filters">
-      <label className="filter-group">
-        <span className="filter-label">Month</span>
-        <select
-          value={month}
-          onChange={(e) => onMonthChange(Number(e.target.value))}
-          className="filter-select"
-          aria-label="Select month"
-        >
-          {months.map((name, i) => (
-            <option key={name} value={i}>
-              {name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="filter-group">
-        <span className="filter-label">Year</span>
-        <select
-          value={year}
-          onChange={(e) => onYearChange(Number(e.target.value))}
-          className="filter-select"
-          aria-label="Select year"
-        >
-          {yearOptions.map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
-          ))}
-        </select>
-      </label>
+      <ModernSelect
+        label="Month"
+        value={month}
+        options={monthOptions}
+        onChange={(v) => onMonthChange(Number(v))}
+        aria-label="Select month"
+      />
+      <ModernSelect
+        label="Year"
+        value={year}
+        options={yearOptions}
+        onChange={(v) => onYearChange(Number(v))}
+        aria-label="Select year"
+      />
       {onWeeklyHolidayDayChange && (
-        <label className="filter-group">
-          <span className="filter-label">Weekly holiday</span>
-          <select
-            value={weeklyHolidayDay}
-            onChange={(e) => onWeeklyHolidayDayChange(Number(e.target.value))}
-            className="filter-select"
-            aria-label="Select weekly holiday day"
-          >
-            {DAY_NAMES_SHORT.map((name, i) => (
-              <option key={name} value={i}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <ModernButtonGroup
+          label="Weekly holiday"
+          value={weeklyHolidayDay}
+          options={DAY_OPTIONS}
+          onChange={(v) => onWeeklyHolidayDayChange(Number(v))}
+          getShortLabel={(opt) => opt.label.slice(0, 2)}
+        />
       )}
     </div>
   )

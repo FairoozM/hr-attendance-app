@@ -1,0 +1,72 @@
+/* ═════════════════════════════════════════
+   ModernButtonGroup — segmented control
+   ═════════════════════════════════════════ */
+
+.mbg-wrap {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.mbg-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.mbg-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  padding: 0.2rem;
+  border-radius: 0.7rem;
+  border: 1.5px solid var(--theme-border);
+  background: var(--theme-input-bg);
+}
+
+.mbg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.75rem;
+  padding: 0 0.65rem;
+  border-radius: 0.45rem;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s, color 0.1s;
+  outline: none;
+}
+
+.mbg-btn:hover:not(.mbg-btn--selected) {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+}
+
+.mbg-btn:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.mbg-btn--selected {
+  background: var(--accent-soft-strong);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* Full label (default) / short label (hidden on wide, shown on narrow) */
+.mbg-btn__full  { display: inline; }
+.mbg-btn__short { display: none;   }
+
+@media (max-width: 520px) {
+  .mbg-btn__full  { display: none;   }
+  .mbg-btn__short { display: inline; }
+}

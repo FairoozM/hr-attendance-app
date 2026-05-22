@@ -1,0 +1,182 @@
+/* ═══════════════════════════════════════
+   ModernSelect — shared filter dropdown
+   ═══════════════════════════════════════ */
+
+/* Wrapper */
+.ms-wrap {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+/* Size modifiers control trigger height */
+.ms-wrap--sm .ms-trigger { height: 2rem;    font-size: 0.76rem; }
+.ms-wrap--md .ms-trigger { height: 2.25rem; font-size: 0.8rem;  }
+.ms-wrap--lg .ms-trigger { height: 2.6rem;  font-size: 0.85rem; }
+
+/* Label above the trigger */
+.ms-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Trigger button */
+.ms-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 0.75rem;
+  border-radius: 0.625rem;
+  border: 1.5px solid var(--theme-border);
+  background: var(--theme-input-bg);
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 500;
+  white-space: nowrap;
+  outline: none;
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
+}
+
+.ms-trigger:hover:not(.ms-trigger--disabled) {
+  border-color: var(--theme-border-strong);
+  background: var(--theme-input-bg-hover);
+}
+
+.ms-trigger--open,
+.ms-trigger:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  background: var(--theme-input-bg-hover);
+}
+
+.ms-trigger--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Value / placeholder text */
+.ms-trigger__value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.ms-trigger__value--placeholder {
+  color: var(--text-muted);
+}
+
+/* Right-side icons row (clear + chevron) */
+.ms-trigger__icons {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.ms-trigger__clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: color 0.1s, background 0.1s;
+}
+.ms-trigger__clear:hover {
+  color: var(--text);
+  background: var(--theme-surface-raised);
+}
+
+.ms-trigger__chevron {
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+.ms-trigger__chevron--open {
+  transform: rotate(180deg);
+}
+
+/* ─── Floating menu ─── */
+.ms-menu {
+  background: var(--theme-panel-bg);
+  border: 1px solid var(--theme-border-subtle);
+  border-radius: 0.75rem;
+  padding: 0.3rem;
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.2),
+    0 12px 32px -4px rgba(0, 0, 0, 0.38),
+    0 0 0 1px rgba(255, 255, 255, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 0.06rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--theme-border-subtle) transparent;
+  animation: ms-appear 0.1s ease both;
+}
+
+@keyframes ms-appear {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0);    }
+}
+
+/* ─── Option rows ─── */
+.ms-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  outline: none;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text);
+  transition: background 0.07s;
+}
+
+.ms-option:hover,
+.ms-option--active {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.ms-option--selected {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.ms-option--selected:hover,
+.ms-option--selected.ms-option--active {
+  background: rgba(99, 102, 241, 0.16);
+}
+
+.ms-option__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ms-option__check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.85rem;
+  flex-shrink: 0;
+  color: var(--accent);
+}

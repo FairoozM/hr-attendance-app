@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { SHOP_VISIT_FILTER_TABS } from './ShopVisitWorkflow'
+import { ModernSearchInput } from '../ui/ModernSearchInput'
+import { ModernSelect } from '../ui/ModernSelect'
 
 const FILTER_TABS = [
   { key: 'All', label: 'All requests' },
@@ -57,23 +59,21 @@ export function AnnualLeaveFilters({
           ))}
         </div>
         <div className="al-filter-bar__right">
-          <input
-            className="al-search"
-            type="search"
+          <ModernSearchInput
             placeholder="Search employee or code…"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={setSearch}
             aria-label="Search employees"
           />
           {departments.length > 0 && (
-            <select className="al-filter-select" value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)}>
-              <option value="">All departments</option>
-              {departments.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
+            <ModernSelect
+              value={deptFilter || ''}
+              options={[
+                { value: '', label: 'All departments' },
+                ...departments.map((d) => ({ value: d, label: d })),
+              ]}
+              onChange={setDeptFilter}
+            />
           )}
           <button
             type="button"

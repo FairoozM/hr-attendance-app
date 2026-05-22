@@ -15,6 +15,9 @@ import {
 import { ExcelStyleColumnFilter, excelFilterIsActive } from './ExcelStyleColumnFilter'
 import { SmoothHorizontalScrollbar } from './ui/SmoothHorizontalScrollbar'
 import { AttendanceCellDropdown } from './AttendanceCellDropdown'
+import { EmployeeAvatar } from './employees/EmployeeAvatar'
+import { ModernSearchInput } from './ui/ModernSearchInput'
+import { ModernSelect } from './ui/ModernSelect'
 import './attendance/dashboard/AttendanceDashboard.css'
 import './AttendanceGrid.css'
 
@@ -312,43 +315,32 @@ export function AttendanceGrid({
   return (
     <div className="attendance-grid-wrap">
       <div className="adash__filter-row attendance-grid-toolbar" aria-label="Grid filters">
-        <div className="adash__field adash__field--grow">
-          <label htmlFor="attendance-grid-search">Employee search</label>
-          <input
-            id="attendance-grid-search"
-            type="search"
-            className="adash__input"
-            placeholder="Name or department"
-            value={employeeSearch}
-            onChange={(e) => setEmployeeSearch(e.target.value)}
-            autoComplete="off"
-            spellCheck={false}
-          />
-        </div>
-        <div className="adash__field">
-          <label htmlFor="attendance-grid-cell-mode">Cell highlight</label>
-          <select
-            id="attendance-grid-cell-mode"
-            className="adash__select"
-            value={cellViewMode}
-            onChange={(e) => setCellViewMode(e.target.value)}
-          >
-            <option value="all">None — show all statuses normally</option>
-            <option value="absentOnly">Absent (A) — dim other cells</option>
-          </select>
-        </div>
-        <div className="adash__field">
-          <label htmlFor="attendance-grid-day-scope">Visible days</label>
-          <select
-            id="attendance-grid-day-scope"
-            className="adash__select"
-            value={dayScope}
-            onChange={(e) => setDayScope(e.target.value)}
-          >
-            <option value="all">Full month</option>
-            <option value="absentDaysOnly">Only days with absence (A)</option>
-          </select>
-        </div>
+        <ModernSearchInput
+          label="Employee search"
+          id="attendance-grid-search"
+          placeholder="Name or department"
+          value={employeeSearch}
+          onChange={setEmployeeSearch}
+          className="adash__field--grow"
+        />
+        <ModernSelect
+          label="Cell highlight"
+          value={cellViewMode}
+          options={[
+            { value: 'all',         label: 'None — show all statuses normally' },
+            { value: 'absentOnly',  label: 'Absent (A) — dim other cells'      },
+          ]}
+          onChange={setCellViewMode}
+        />
+        <ModernSelect
+          label="Visible days"
+          value={dayScope}
+          options={[
+            { value: 'all',           label: 'Full month'                  },
+            { value: 'absentDaysOnly', label: 'Only days with absence (A)' },
+          ]}
+          onChange={setDayScope}
+        />
         <button
           type="button"
           className="adash__btn adash__btn--clear-filters"
@@ -416,13 +408,12 @@ export function AttendanceGrid({
                   <tr key={emp.id}>
                     <td className="attendance-grid__td attendance-grid__td--sticky">
                       <div className="attendance-grid__cell-employee">
-                        <span
-                          className="attendance-grid__avatar"
-                          style={{ '--avatar-hue': nameHue(emp.name) }}
-                          aria-hidden="true"
-                        >
-                          {getInitials(emp.name)}
-                        </span>
+                        <EmployeeAvatar
+                          name={emp.name}
+                          photoUrl={emp.photoUrl}
+                          employeeId={emp.id}
+                          size="sm"
+                        />
                         <div className="attendance-grid__employee-info">
                           <span className="attendance-grid__name">{emp.name}</span>
                           <span className="attendance-grid__dept">{emp.department}</span>

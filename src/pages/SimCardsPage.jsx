@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Modal } from '../components/Modal'
 import { useSimCards } from '../hooks/useSimCards'
 import { useAuth, hasPermission } from '../contexts/AuthContext'
+import { ModernSearchInput } from '../components/ui/ModernSearchInput'
+import { ModernSelect } from '../components/ui/ModernSelect'
 import './Page.css'
 import './SimCardsPage.css'
 
@@ -253,40 +255,41 @@ export function SimCardsPage() {
         </div>
 
         <div className="sim-filters">
-          <div className="sim-filters__search">
-            <input
-              type="search"
-              placeholder="Search number, person, remarks, mobile, type, issued..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-          <select value={usage} onChange={(e) => setUsage(e.target.value)}>
-            <option value="All">Usage: All</option>
-            <option value="Yes">Usage: Yes</option>
-            <option value="No">Usage: No</option>
-          </select>
-          <select value={type} onChange={(e) => setType(e.target.value)}>
-            {typeOptions.map((x) => (
-              <option key={x} value={x}>
-                Type: {x}
-              </option>
-            ))}
-          </select>
-          <select value={issued} onChange={(e) => setIssued(e.target.value)}>
-            {issuedOptions.map((x) => (
-              <option key={x} value={x}>
-                issued: {x}
-              </option>
-            ))}
-          </select>
-          <select value={monthly} onChange={(e) => setMonthly(e.target.value)}>
-            <option value="All">Monthly Charges: All</option>
-            <option value="0">Monthly Charges: 0</option>
-            <option value="1-100">Monthly Charges: 1-100</option>
-            <option value="101-500">Monthly Charges: 101-500</option>
-            <option value=">500">Monthly Charges: &gt;500</option>
-          </select>
+          <ModernSearchInput
+            placeholder="Search number, person, remarks, mobile, type, issued..."
+            value={search}
+            onChange={setSearch}
+          />
+          <ModernSelect
+            value={usage}
+            options={[
+              { value: 'All', label: 'Usage: All' },
+              { value: 'Yes', label: 'Usage: Yes' },
+              { value: 'No',  label: 'Usage: No'  },
+            ]}
+            onChange={setUsage}
+          />
+          <ModernSelect
+            value={type}
+            options={typeOptions.map((x) => ({ value: x, label: `Type: ${x}` }))}
+            onChange={setType}
+          />
+          <ModernSelect
+            value={issued}
+            options={issuedOptions.map((x) => ({ value: x, label: `Issued: ${x}` }))}
+            onChange={setIssued}
+          />
+          <ModernSelect
+            value={monthly}
+            options={[
+              { value: 'All',    label: 'Monthly Charges: All'     },
+              { value: '0',      label: 'Monthly Charges: 0'       },
+              { value: '1-100',  label: 'Monthly Charges: 1–100'   },
+              { value: '101-500',label: 'Monthly Charges: 101–500' },
+              { value: '>500',   label: 'Monthly Charges: >500'    },
+            ]}
+            onChange={setMonthly}
+          />
           <button type="button" className="btn btn--ghost btn--sm" onClick={resetFilters}>
             Clear Filters
           </button>

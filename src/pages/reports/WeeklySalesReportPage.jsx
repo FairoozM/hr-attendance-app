@@ -12,6 +12,7 @@ import {
 } from '../../utils/zohoWeeklyItemImageCache'
 import './WeeklyAdsReportPage.css'
 import './WeeklySalesReportPage.css'
+import { ModernSelect } from '../../components/ui/ModernSelect'
 
 export function formatNum(val) {
   if (val == null) return '—'
@@ -1285,15 +1286,14 @@ export function WeeklySalesReportSection({
             </button>
           )}
           {enableSalesSort && withValues.length > 1 && (
-            <select
-              className="war-input wsr-sales-sort-select"
+            <ModernSelect
               value={salesSort}
-              onChange={(e) => setSalesSort(e.target.value === 'asc' ? 'asc' : 'desc')}
-              title="Sort by Sales Amount"
-            >
-              <option value="desc">Sales High → Low</option>
-              <option value="asc">Sales Low → High</option>
-            </select>
+              options={[
+                { value: 'desc', label: 'Sales High → Low' },
+                { value: 'asc',  label: 'Sales Low → High' },
+              ]}
+              onChange={(v) => setSalesSort(v === 'asc' ? 'asc' : 'desc')}
+            />
           )}
           <button
             type="button"
