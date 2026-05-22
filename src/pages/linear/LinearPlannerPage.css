@@ -1,0 +1,168 @@
+/* ============================================================
+   LinearPlannerPage.css
+   ============================================================ */
+
+/* ── Page shell: sidebar + main ──────────────────────────── */
+.lpp {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--theme-bg-canvas, #0f0f1a);
+}
+
+/* ── Main content area ────────────────────────────────────── */
+.lpp__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--theme-bg-canvas, #0f0f1a);
+}
+
+/* ── Loading bar ──────────────────────────────────────────── */
+@keyframes lpp-bar { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.lpp__loading-bar {
+  height: 2px;
+  background: var(--theme-border-subtle, rgba(255,255,255,.07));
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.lpp__loading-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, #6366f1, transparent);
+  animation: lpp-bar 1.4s ease infinite;
+}
+
+/* ── Error banner ─────────────────────────────────────────── */
+.lpp__error {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1.1rem;
+  background: rgba(239,68,68,.1);
+  border-bottom: 1px solid rgba(239,68,68,.2);
+  color: #f87171;
+  font-size: 0.78rem;
+  flex-shrink: 0;
+}
+
+/* ── List container ───────────────────────────────────────── */
+.lpp__list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem 0 2rem;
+}
+
+/* ── Group header styles (shared here for IssueListGroup) ── */
+.ilg { margin-bottom: 0.1rem; }
+
+.ilg__header {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 1.1rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  color: var(--theme-text-soft, #94a3b8);
+  font-size: 0.78rem;
+  font-weight: 500;
+  transition: background 0.08s;
+  border-radius: 4px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--theme-bg-canvas, #0f0f1a);
+}
+.ilg__header:hover { background: var(--theme-surface-soft, rgba(255,255,255,.04)); }
+
+.ilg__chevron {
+  color: var(--theme-text-muted, #6b7280);
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+.ilg__chevron--open { transform: rotate(90deg); }
+
+.ilg__title {
+  font-size: 0.79rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.ilg__count {
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--theme-text-muted, #6b7280);
+  background: var(--theme-surface-soft, rgba(255,255,255,.06));
+  padding: 0.05rem 0.4rem;
+  border-radius: 99px;
+}
+
+.ilg__items {}
+.ilg__empty {
+  padding: 0.55rem 1.1rem;
+  font-size: 0.75rem;
+  color: var(--theme-text-muted, #4b5563);
+  font-style: italic;
+}
+
+/* ── Empty state ──────────────────────────────────────────── */
+.lpp__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 5rem 2rem;
+  text-align: center;
+}
+.lpp__empty-title { font-size: 0.9rem; font-weight: 600; color: var(--theme-text-soft, #94a3b8); }
+.lpp__empty-sub   { font-size: 0.78rem; color: var(--theme-text-muted, #6b7280); max-width: 320px; }
+
+/* ── Detail hint bar (Phase 3 placeholder) ────────────────── */
+.lpp__detail-hint {
+  position: fixed;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--theme-panel-bg, #1a1a2e);
+  border: 1px solid var(--theme-border, rgba(255,255,255,.12));
+  border-radius: 8px;
+  padding: 0.55rem 1rem;
+  font-size: 0.78rem;
+  color: var(--theme-text-soft, #94a3b8);
+  box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  z-index: 1000;
+  max-width: 90vw;
+  animation: lpp-hint 0.2s ease;
+}
+@keyframes lpp-hint { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+.lpp__detail-dismiss {
+  background: none;
+  border: none;
+  color: var(--theme-text-muted, #6b7280);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0;
+  line-height: 1;
+  margin-left: 0.25rem;
+}
+.lpp__detail-dismiss:hover { color: var(--theme-text, #e2e8f0); }
+
+/* ── Responsive ───────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .lpp { flex-direction: column; }
+  .lsb { width: 100%; min-width: unset; height: auto; border-right: none; border-bottom: 1px solid var(--theme-border-subtle); flex-direction: row; flex-wrap: wrap; overflow: visible; padding: 0.3rem 0.5rem; }
+  .lsb-section { flex-direction: row; flex-wrap: wrap; gap: 0.15rem; }
+  .lsb-section__title { display: none; }
+  .lsb-logo { padding: 0.5rem; }
+}

@@ -1,0 +1,113 @@
+/* ============================================================
+   LinearSidebar.css
+   ============================================================ */
+
+.lsb {
+  width: 220px;
+  min-width: 220px;
+  height: 100%;
+  background: var(--theme-panel-bg, #13131f);
+  border-right: 1px solid var(--theme-border-subtle, rgba(255,255,255,.07));
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow-y: auto;
+  padding-bottom: 1rem;
+  flex-shrink: 0;
+}
+
+/* ── Logo ─────────────────────────────────────────────────── */
+.lsb-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.85rem 1rem 0.5rem;
+  margin-bottom: 0.25rem;
+}
+.lsb-logo__mark {
+  width: 24px; height: 24px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.65rem; font-weight: 800;
+  color: #fff; flex-shrink: 0; letter-spacing: 0.02em;
+}
+.lsb-logo__name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--theme-text, #e2e8f0);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Section ──────────────────────────────────────────────── */
+.lsb-section {
+  padding: 0.2rem 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.02rem;
+  margin-bottom: 0.1rem;
+}
+.lsb-section__title {
+  padding: 0.55rem 0.65rem 0.2rem;
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: var(--theme-text-muted, #4b5563);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+/* ── Links ────────────────────────────────────────────────── */
+.lsb-link {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.79rem;
+  font-weight: 450;
+  color: var(--theme-text-soft, #94a3b8);
+  text-decoration: none;
+  transition: background 0.08s, color 0.08s;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.lsb-link:hover           { background: var(--theme-surface-soft, rgba(255,255,255,.05)); color: var(--theme-text, #e2e8f0); }
+.lsb-link--active         { background: rgba(99,102,241,.15); color: #a5b4fc; }
+.lsb-link--active .lsb-link__icon { color: #a5b4fc; }
+.lsb-link--disabled       { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+
+.lsb-link__icon { flex-shrink: 0; color: inherit; }
+.lsb-link__label { overflow: hidden; text-overflow: ellipsis; flex: 1; }
+.lsb-link__badge {
+  background: rgba(239,68,68,.22);
+  color: #f87171;
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 0.04rem 0.38rem;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+.lsb-link__soon {
+  font-size: 0.58rem;
+  font-weight: 600;
+  color: var(--theme-text-muted);
+  background: var(--theme-surface-soft);
+  padding: 0.04rem 0.3rem;
+  border-radius: 3px;
+  margin-left: auto;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ── Project dot ──────────────────────────────────────────── */
+.lsb-proj-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}

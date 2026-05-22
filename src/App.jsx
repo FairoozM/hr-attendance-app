@@ -78,6 +78,7 @@ import ProjectDetailPage from './pages/projects/ProjectDetailPage'
 import ProjectDashboardPage from './pages/projects/ProjectDashboardPage'
 import TrashPage from './pages/projects/TrashPage'
 import TeamProjectsPage from './pages/projects/TeamProjectsPage'
+import LinearPlannerPage from './pages/linear/LinearPlannerPage'
 import { AiUsageDashboard } from './pages/AiUsageDashboard'
 import { AmazonListingGenerator } from './pages/AmazonListingGenerator'
 import { AmazonSpApiTestPage } from './pages/AmazonSpApiTestPage'
@@ -440,13 +441,24 @@ function AppContent() {
             </PermissionGuard>
           }
         />
-        {/* Team Planner Phase 2 — Jira-style list on /projects/team.
-            The existing /projects AI Planner is unchanged. */}
+        {/* /projects/team: kept accessible by URL but not promoted in nav.
+            Deprecated in favour of the new Linear-style issue tracker. */}
         <Route
           path="projects/team"
           element={
             <PermissionGuard module="planner" action="view">
               <TeamProjectsPage />
+            </PermissionGuard>
+          }
+        />
+        {/* Linear-style issue tracker — Phase 2.
+            This is the new primary issue tracker at /projects/linear.
+            /projects (AI Planner) remains completely untouched. */}
+        <Route
+          path="projects/linear/*"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <LinearPlannerPage />
             </PermissionGuard>
           }
         />

@@ -1,0 +1,183 @@
+/* ============================================================
+   IssueRow.css — Linear-style compact issue row
+   ============================================================ */
+
+/* ── Row ──────────────────────────────────────────────────── */
+.ir {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 1.1rem;
+  height: 36px;
+  border-bottom: 1px solid var(--theme-border-subtle, rgba(255,255,255,.06));
+  cursor: pointer;
+  transition: background 0.08s ease;
+  user-select: none;
+  outline: none;
+}
+.ir:last-child { border-bottom: none; }
+.ir:hover  { background: var(--theme-surface-soft, rgba(255,255,255,.04)); }
+.ir:focus-visible { box-shadow: inset 0 0 0 1px var(--accent, #8b5cf6); }
+.ir--selected { background: rgba(99,102,241,.07); }
+
+/* ── Status button ────────────────────────────────────────── */
+.ir__status-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.1s ease, opacity 0.1s ease;
+}
+.ir__status-btn:hover { opacity: 0.75; transform: scale(1.12); }
+
+/* ── Issue key ────────────────────────────────────────────── */
+.ir__key {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--theme-text-muted, #6b7280);
+  font-family: ui-monospace, 'SF Mono', monospace;
+  min-width: 52px;
+  flex-shrink: 0;
+  letter-spacing: 0.01em;
+}
+
+/* ── Title ────────────────────────────────────────────────── */
+.ir__title {
+  font-size: 0.82rem;
+  font-weight: 450;
+  color: var(--theme-text, #e2e8f0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 480px;
+  flex: 1;
+}
+
+/* ── Spacer ───────────────────────────────────────────────── */
+.ir__spacer { flex: 1; min-width: 0.5rem; }
+
+/* ── Labels ───────────────────────────────────────────────── */
+.ir__labels {
+  display: flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+.ir__label {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.06rem 0.42rem;
+  border-radius: 99px;
+  font-size: 0.64rem;
+  font-weight: 500;
+  background: rgba(99,102,241,.14);
+  color: #a5b4fc;
+  border: 1px solid rgba(99,102,241,.25);
+  white-space: nowrap;
+  max-width: 70px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Project chip ─────────────────────────────────────────── */
+.ir__project {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.06rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: color-mix(in srgb, var(--proj-color, #8b5cf6) 16%, transparent);
+  color: var(--proj-color, #a78bfa);
+  flex-shrink: 0;
+  cursor: default;
+}
+
+/* ── Due date ─────────────────────────────────────────────── */
+.ir__due {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.7rem;
+  color: var(--theme-text-muted, #6b7280);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.ir__due--overdue { color: #f87171; }
+
+/* ── Assignee ─────────────────────────────────────────────── */
+.ir__assignee {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.ir__avatar {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: hsl(calc(var(--av-hue, 250)), 50%, 28%);
+  color: hsl(calc(var(--av-hue, 250)), 90%, 80%);
+  border: 1.5px solid hsl(calc(var(--av-hue, 250)), 45%, 38%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.55rem;
+  font-weight: 700;
+}
+.ir__avatar--empty {
+  color: var(--theme-text-muted, #4b5563);
+}
+
+/* ── Priority button ──────────────────────────────────────── */
+.ir__priority-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px; height: 20px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: opacity 0.1s ease, transform 0.1s ease;
+  border-radius: 4px;
+}
+.ir__priority-btn:hover { opacity: 0.75; transform: scale(1.1); }
+
+/* ── Floating picker ──────────────────────────────────────── */
+.ir-picker {
+  position: fixed;
+  z-index: 3000;
+  background: var(--theme-panel-bg, #1e1e2e);
+  border: 1px solid var(--theme-border, rgba(255,255,255,.12));
+  border-radius: 8px;
+  padding: 0.25rem;
+  min-width: 150px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.4), 0 2px 6px rgba(0,0,0,.25);
+  list-style: none;
+  margin: 0;
+  animation: ir-pop 0.1s ease;
+}
+@keyframes ir-pop {
+  from { opacity: 0; transform: translateY(-4px) scale(.97); }
+  to   { opacity: 1; transform: none; }
+}
+.ir-picker__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.38rem 0.65rem;
+  border-radius: 5px;
+  font-size: 0.78rem;
+  font-weight: 450;
+  color: var(--theme-text-soft, #cbd5e1);
+  cursor: pointer;
+  transition: background 0.08s;
+}
+.ir-picker__item:hover    { background: var(--theme-surface-raised, rgba(255,255,255,.08)); color: var(--theme-text, #e2e8f0); }
+.ir-picker__item--active  { background: rgba(99,102,241,.15); color: #a5b4fc; }
