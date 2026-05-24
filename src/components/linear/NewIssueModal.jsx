@@ -6,6 +6,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Plus } from 'lucide-react'
+import { LabelPicker } from './LabelPicker'
 import './NewIssueModal.css'
 
 const STATUS_OPTIONS = [
@@ -50,6 +51,7 @@ export function NewIssueModal({
   const [issueType,  setIssueType]  = useState('feature')
   const [assigneeId, setAssigneeId] = useState('')
   const [projectId,  setProjectId]  = useState('')
+  const [labels,     setLabels]     = useState([])
   const [saving,     setSaving]     = useState(false)
   const [error,      setError]      = useState('')
   const titleRef = useRef(null)
@@ -59,7 +61,7 @@ export function NewIssueModal({
     if (open) {
       setTitle(''); setStatus('Todo'); setPriority('Medium'); setIssueType('feature')
       setAssigneeId(''); setProjectId(projects[0]?.id ? String(projects[0].id) : '')
-      setError(''); setSaving(false)
+      setLabels([]); setError(''); setSaving(false)
       setTimeout(() => titleRef.current?.focus(), 60)
     }
   }, [open, projects])
@@ -90,6 +92,7 @@ export function NewIssueModal({
           priority,
           assignee_user_id: assigneeId ? Number(assigneeId) : null,
           issue_type:       issueType,
+          labels,
         },
       })
       onClose()
@@ -209,6 +212,12 @@ export function NewIssueModal({
                 ))}
               </select>
             </label>
+          </div>
+
+          {/* Labels */}
+          <div className="nim-labels-row">
+            <span className="nim-select-label">Labels</span>
+            <LabelPicker labels={labels} onChange={setLabels} />
           </div>
 
           {/* Error */}

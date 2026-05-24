@@ -67,6 +67,8 @@
   display: flex;
   gap: 0.25rem;
   flex-shrink: 0;
+  max-width: 160px;
+  overflow: hidden;
 }
 .ir__label {
   display: inline-flex;
@@ -75,13 +77,17 @@
   border-radius: 99px;
   font-size: 0.64rem;
   font-weight: 500;
-  background: rgba(99,102,241,.14);
-  color: #a5b4fc;
-  border: 1px solid rgba(99,102,241,.25);
+  border: 1px solid;
   white-space: nowrap;
-  max-width: 70px;
+  max-width: 72px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.ir__label--more {
+  background: var(--theme-surface-soft, rgba(255,255,255,.07)) !important;
+  border-color: var(--theme-border-subtle, rgba(255,255,255,.12)) !important;
+  color: var(--theme-text-muted, #6b7280) !important;
+  max-width: none;
 }
 
 /* ── Project chip ─────────────────────────────────────────── */

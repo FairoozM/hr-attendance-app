@@ -29,6 +29,7 @@ function toApiPayload(patch) {
   if (patch.storyPoints !== undefined) out.story_points = patch.storyPoints
   if (patch.blockedReason !== undefined) out.blocked_reason = patch.blockedReason
   if (patch.sprintId !== undefined) out.sprint_id = patch.sprintId
+  if (patch.labels !== undefined) out.labels = Array.isArray(patch.labels) ? patch.labels : []
   return out
 }
 
@@ -67,6 +68,7 @@ export function IssueDetailPanel({
       priority: issue.priority,
       issueType: issue.issueType,
       assigneeUserId: issue.assigneeUserId,
+      labels: issue.labels || [],
       dueDate: issue.dueDate,
       storyPoints: issue.storyPoints,
       blockedReason: issue.blockedReason,
@@ -216,6 +218,7 @@ export function IssueDetailPanel({
                   priority={fields.priority}
                   issueType={fields.issueType}
                   assigneeUserId={fields.assigneeUserId}
+                  labels={fields.labels}
                   dueDate={fields.dueDate}
                   storyPoints={fields.storyPoints}
                   blockedReason={fields.blockedReason}

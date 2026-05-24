@@ -1,9 +1,11 @@
 /**
  * LinearTopBar.jsx
  * Top bar for the Linear-style issues page.
- * Search · filter chips · grouping selector · New Issue button
+ * Search · filter chips · label filter · grouping selector · New Issue button
  */
-import { Search, X, ChevronDown, Plus, SlidersHorizontal } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { Search, X, ChevronDown, Plus, SlidersHorizontal, Tag } from 'lucide-react'
+import { DEFAULT_LABELS, labelColors } from './linearLabels'
 import './LinearTopBar.css'
 
 const GROUP_OPTIONS = [
@@ -21,6 +23,93 @@ const QUICK_FILTERS = [
   { id: 'unassigned', label: 'Unassigned'     },
 ]
 
+function LabelFilterDropdown({ activeLabel, onSelect }) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const btnRef = useRef(null)
+  const menuRef = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handle(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target) &&
+          btnRef.current && !btnRef.current.contains(e.target)) {
+        setOpen(false); setSearch('')
+      }
+    }
+    function onKey(e) { if (e.key === 'Escape') { setOpen(false); setSearch('') } }
+    document.addEventListener('mousedown', handle)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', handle)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const filtered = DEFAULT_LABELS.filter(
+    (l) => search === '' || l.toLowerCase().includes(search.toLowerCase())
+  )
+
+  return (
+    <div className="ltb__label-wrap">
+      <button
+        ref={btnRef}
+        type="button"
+        className={`ltb__chip ltb__chip--label ${activeLabel ? 'ltb__chip--on' : ''}`}
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+      >
+        <Tag size={11} strokeWidth={2} aria-hidden="true" />
+        {activeLabel || 'Label'}
+        {activeLabel && (
+          <span
+            className="ltb__label-clear"
+            onClick={(e) => { e.stopPropagation(); onSelect(null) }}
+            role="button"
+            aria-label="Clear label filter"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onSelect(null) } }}
+          >
+            <X size={9} strokeWidth={2.5} aria-hidden="true" />
+          </span>
+        )}
+        <ChevronDown size={9} strokeWidth={2} aria-hidden="true" />
+      </button>
+
+      {open && (
+        <div ref={menuRef} className="ltb__label-menu" role="listbox">
+          <input
+            type="text"
+            className="ltb__label-search"
+            placeholder="Filter labels…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            autoFocus
+          />
+          <div className="ltb__label-options">
+            {filtered.map((lbl) => {
+              const c = labelColors(lbl)
+              return (
+                <button
+                  key={lbl}
+                  type="button"
+                  className={`ltb__label-option ${activeLabel === lbl ? 'ltb__label-option--on' : ''}`}
+                  onClick={() => { onSelect(lbl === activeLabel ? null : lbl); setOpen(false); setSearch('') }}
+                >
+                  <span className="ltb__label-dot" style={{ background: c.text }} />
+                  {lbl}
+                </button>
+              )
+            })}
+            {filtered.length === 0 && <p className="ltb__label-empty">No labels</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function LinearTopBar({
   search,
   onSearch,
@@ -28,6 +117,8 @@ export function LinearTopBar({
   onGroupBy,
   activeFilters = {},
   onFilterToggle,
+  activeLabel,
+  onLabelFilter,
   onNewIssue,
   title = 'All Issues',
   issueCount = null,
@@ -65,7 +156,7 @@ export function LinearTopBar({
         )}
       </div>
 
-      {/* Right: filter chips + grouping + new issue */}
+      {/* Right: filter chips + label filter + grouping + new issue */}
       <div className="ltb__right">
         {/* Quick filter chips */}
         <div className="ltb__chips">
@@ -79,6 +170,11 @@ export function LinearTopBar({
               {label}
             </button>
           ))}
+          {/* Label filter */}
+          <LabelFilterDropdown
+            activeLabel={activeLabel}
+            onSelect={onLabelFilter}
+          />
         </div>
 
         {/* Group by */}

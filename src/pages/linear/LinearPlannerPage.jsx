@@ -111,6 +111,7 @@ export default function LinearPlannerPage() {
   const [search,        setSearch]        = useState('')
   const [groupBy,       setGroupBy]       = useState('status')
   const [activeFilters, setActiveFilters] = useState({})
+  const [activeLabel,   setActiveLabel]   = useState(null)
   const [selectedIssue, setSelectedIssue] = useState(null)
   const [newIssueOpen,  setNewIssueOpen]  = useState(false)
   const [githubMetaByIssue, setGithubMetaByIssue] = useState({})
@@ -191,9 +192,15 @@ export default function LinearPlannerPage() {
         if (diff < 0 || diff > soonMs) return false
       }
 
+      // Label filter
+      if (activeLabel) {
+        const labels = Array.isArray(issue.labels) ? issue.labels : []
+        if (!labels.includes(activeLabel)) return false
+      }
+
       return true
     })
-  }, [allIssues, search, activeFilters, projectMap, memberMap, user])
+  }, [allIssues, search, activeFilters, activeLabel, projectMap, memberMap, user])
 
   // ── Grouping ─────────────────────────────────────────────────────────────────
   const groups = useMemo(() => {
@@ -257,8 +264,11 @@ export default function LinearPlannerPage() {
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="lpp">
-      {/* Left sidebar */}
-      <LinearSidebar projects={projects} />
+      <LinearSidebar
+        projects={projects}
+        activeLabel={activeLabel}
+        onLabelFilter={setActiveLabel}
+      />
 
       {/* Main content */}
       <main className="lpp__main">
@@ -270,6 +280,8 @@ export default function LinearPlannerPage() {
           onGroupBy={setGroupBy}
           activeFilters={activeFilters}
           onFilterToggle={toggleFilter}
+          activeLabel={activeLabel}
+          onLabelFilter={setActiveLabel}
           onNewIssue={() => setNewIssueOpen(true)}
           title="All Issues"
           issueCount={filteredIssues.length}

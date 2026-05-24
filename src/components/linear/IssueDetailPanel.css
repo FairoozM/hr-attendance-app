@@ -303,6 +303,9 @@
   gap: 0.5rem;
   margin-bottom: 0.45rem;
 }
+.ipr__row--labels {
+  align-items: flex-start;
+}
 .ipr__label {
   font-size: 0.75rem;
   color: var(--theme-text-soft, #94a3b8);

@@ -14,6 +14,7 @@ import {
   UserCircle2, CalendarDays,
   Bug, Zap, Pen, Gauge, Layers, Package, FileText, Plug,
 } from 'lucide-react'
+import { labelColors } from './linearLabels'
 import './IssueRow.css'
 
 // ── Status config ─────────────────────────────────────────────────────────────
@@ -255,10 +256,25 @@ export function IssueRow({
 
         {/* Labels */}
         {issue.labels?.length > 0 && (
-          <span className="ir__labels">
-            {issue.labels.slice(0, 2).map((lbl) => (
-              <span key={lbl} className="ir__label">{lbl}</span>
-            ))}
+          <span className="ir__labels" aria-label="Labels">
+            {issue.labels.slice(0, 2).map((lbl) => {
+              const c = labelColors(lbl)
+              return (
+                <span
+                  key={lbl}
+                  className="ir__label"
+                  style={{ background: c.bg, borderColor: c.border, color: c.text }}
+                  title={lbl}
+                >
+                  {lbl}
+                </span>
+              )
+            })}
+            {issue.labels.length > 2 && (
+              <span className="ir__label ir__label--more" title={issue.labels.slice(2).join(', ')}>
+                +{issue.labels.length - 2}
+              </span>
+            )}
           </span>
         )}
 

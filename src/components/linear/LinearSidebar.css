@@ -111,3 +111,65 @@
   border-radius: 50%;
   flex-shrink: 0;
 }
+
+/* ── Button-style sidebar link (Labels toggle) ────────────── */
+.lsb-link--btn {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+}
+
+/* badge accent */
+.lsb-link__badge--accent {
+  background: rgba(99,102,241,.25);
+  color: #a5b4fc;
+}
+
+/* ── Labels expanded list ─────────────────────────────────── */
+.lsb-labels {
+  margin: 0.15rem 0 0.25rem 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.lsb-label-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.28rem 0.5rem;
+  border-radius: 5px;
+  font-size: 0.72rem;
+  font-weight: 450;
+  color: var(--theme-text-soft, #94a3b8);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background 0.08s;
+}
+.lsb-label-item:hover { background: var(--theme-surface-soft, rgba(255,255,255,.05)); }
+.lsb-label-item--active {
+  color: var(--theme-text, #e2e8f0);
+  background: var(--theme-surface-soft, rgba(255,255,255,.06));
+  font-weight: 600;
+}
+.lsb-label-item--clear {
+  color: var(--theme-text-muted, #6b7280);
+  font-style: italic;
+}
+
+.lsb-label-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.lsb-label-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -8,6 +8,8 @@ import {
   normalizeStatus,
   normalizePriority,
 } from './IssueRow'
+import { LabelPicker } from './LabelPicker'
+import { normalizeLabels } from './linearLabels'
 
 const STATUS_OPTIONS = Object.entries(STATUS_CONFIG).map(([value, c]) => ({
   value,
@@ -60,6 +62,7 @@ export function IssueProperties({
   priority,
   issueType,
   assigneeUserId,
+  labels,
   dueDate,
   storyPoints,
   blockedReason,
@@ -68,9 +71,10 @@ export function IssueProperties({
   onChange,
   saving = false,
 }) {
-  const statusVal = normalizeStatus(status)
+  const statusVal   = normalizeStatus(status)
   const priorityVal = normalizePriority(priority)
-  const typeVal = String(issueType || 'task').toLowerCase()
+  const typeVal     = String(issueType || 'task').toLowerCase()
+  const labelArr    = normalizeLabels(labels)
 
   return (
     <div className="ipr">
@@ -161,6 +165,17 @@ export function IssueProperties({
           disabled={saving}
         />
       </FieldRow>
+
+      <div className="ipr__row ipr__row--labels">
+        <span className="ipr__label">Labels</span>
+        <div className="ipr__control">
+          <LabelPicker
+            labels={labelArr}
+            onChange={(newLabels) => onChange({ labels: newLabels })}
+            disabled={saving}
+          />
+        </div>
+      </div>
 
       {/* Subtle type hint */}
       {ISSUE_TYPE_CONFIG[typeVal] && (

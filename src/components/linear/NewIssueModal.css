@@ -114,6 +114,13 @@
 }
 .nim-select:focus { border-color: rgba(99,102,241,.6); }
 
+/* Labels row */
+.nim-labels-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
 /* Error */
 .nim-error {
   font-size: 0.76rem;

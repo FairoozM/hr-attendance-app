@@ -4,12 +4,14 @@
  * Product engineering workspace for Life Smile development teams.
  * Does NOT mention "Jira", "Sprint", "Task", or legacy ops team names.
  */
+import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
   Inbox, LayoutList, Map,
-  FolderOpen, RotateCcw, Tag, CheckCircle2,
-  Globe, Smartphone, Server, PenTool, BarChart2, Apple,
+  FolderOpen, RotateCcw, Tag, CheckCircle2, X,
+  Globe, Smartphone, Server, PenTool, BarChart2,
 } from 'lucide-react'
+import { DEFAULT_LABELS, labelColors } from './linearLabels'
 import './LinearSidebar.css'
 
 // ── Product engineering teams ─────────────────────────────────────────────────
@@ -55,11 +57,12 @@ function SidebarLink({ to, Icon, label, badge, end = false, disabled = false }) 
   )
 }
 
-export function LinearSidebar({ projects = [], inboxCount = 0 }) {
+export function LinearSidebar({ projects = [], inboxCount = 0, activeLabel, onLabelFilter }) {
+  const [labelsOpen, setLabelsOpen] = useState(false)
+
   const workspaceLinks = [
     { to: '/projects/linear/projects',  Icon: FolderOpen,   label: 'Projects'  },
     { to: '/projects/linear/cycles',    Icon: RotateCcw,    label: 'Cycles',    disabled: true },
-    { to: '/projects/linear/labels',    Icon: Tag,          label: 'Labels',    disabled: true },
     { to: '/projects/linear/completed', Icon: CheckCircle2, label: 'Completed', disabled: true },
   ]
 
@@ -82,7 +85,7 @@ export function LinearSidebar({ projects = [], inboxCount = 0 }) {
           <NavLink
             key={key}
             to="/projects/linear"
-            className={({ isActive }) => `lsb-link`}
+            className={() => 'lsb-link'}
           >
             <Icon size={14} strokeWidth={1.8} className="lsb-link__icon" style={{ color }} aria-hidden="true" />
             <span className="lsb-link__label">{label}</span>
@@ -91,6 +94,49 @@ export function LinearSidebar({ projects = [], inboxCount = 0 }) {
       </SidebarSection>
 
       <SidebarSection title="Workspace">
+        {/* Labels — interactive toggle */}
+        <button
+          type="button"
+          className={`lsb-link lsb-link--btn ${labelsOpen ? 'lsb-link--active' : ''}`}
+          onClick={() => setLabelsOpen((v) => !v)}
+          aria-expanded={labelsOpen}
+        >
+          <Tag size={14} strokeWidth={1.8} className="lsb-link__icon" aria-hidden="true" />
+          <span className="lsb-link__label">Labels</span>
+          {activeLabel && <span className="lsb-link__badge lsb-link__badge--accent">1</span>}
+        </button>
+
+        {/* Expanded label list */}
+        {labelsOpen && (
+          <div className="lsb-labels">
+            {activeLabel && (
+              <button
+                type="button"
+                className="lsb-label-item lsb-label-item--clear"
+                onClick={() => onLabelFilter?.(null)}
+              >
+                <X size={10} strokeWidth={2.5} aria-hidden="true" />
+                Clear filter
+              </button>
+            )}
+            {DEFAULT_LABELS.map((lbl) => {
+              const c = labelColors(lbl)
+              const isActive = activeLabel === lbl
+              return (
+                <button
+                  key={lbl}
+                  type="button"
+                  className={`lsb-label-item ${isActive ? 'lsb-label-item--active' : ''}`}
+                  onClick={() => onLabelFilter?.(isActive ? null : lbl)}
+                >
+                  <span className="lsb-label-dot" style={{ background: c.text }} />
+                  <span className="lsb-label-name">{lbl}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+
         {workspaceLinks.map(({ to, Icon, label, disabled }) => (
           <SidebarLink key={to} to={to} Icon={Icon} label={label} disabled={!!disabled} />
         ))}
