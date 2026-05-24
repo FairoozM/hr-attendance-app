@@ -101,7 +101,7 @@ export function LinearSidebar({
 
       <SidebarSection>
         <SidebarLink to="/projects/linear" Icon={LayoutList} label="Issues" end />
-        <SidebarLink to="/projects/linear/inbox"   Icon={Inbox}      label="Inbox"   badge={inboxCount || null} disabled />
+        <SidebarLink to="/projects/linear/inbox" Icon={Inbox} label="Inbox" badge={inboxCount || null} />
 
         {/* Views toggle */}
         <button

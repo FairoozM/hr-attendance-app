@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom'
 import {
   Search, X, Plus, LayoutList, Tag, RotateCcw, Bookmark, SlidersHorizontal,
   Globe, Server, Smartphone, AlertCircle, AlertTriangle, Rocket, Bug, User, Users,
-  XCircle, ArrowRight, FolderOpen, Layers, Map, BarChart2,
+  XCircle, ArrowRight, FolderOpen, Layers, Map, BarChart2, Inbox,
 } from 'lucide-react'
 import { DEFAULT_LABELS } from './linearLabels'
 import { issueKey, normalizeStatus } from './IssueRow'
@@ -163,6 +163,31 @@ function buildCommands({
     id: 'nav-issues', group: 'Navigate', label: 'Go to Issues',
     Icon: LayoutList, keywords: ['go', 'navigate', 'issues', 'linear'],
     action: () => { window.location.hash = '#/projects/linear'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-inbox', group: 'Navigate', label: 'Go to Inbox',
+    Icon: Inbox, keywords: ['go', 'navigate', 'inbox', 'notifications', 'attention'],
+    action: () => { window.location.hash = '#/projects/linear/inbox'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-inbox-review', group: 'Navigate', label: 'Inbox: Show Review Items',
+    Icon: Inbox, keywords: ['inbox', 'review', 'in review'],
+    action: () => { window.location.hash = '#/projects/linear/inbox'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-inbox-ready', group: 'Navigate', label: 'Inbox: Show Ready for Release',
+    Icon: Inbox, keywords: ['inbox', 'ready', 'release', 'ship'],
+    action: () => { window.location.hash = '#/projects/linear/inbox'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-inbox-overdue', group: 'Navigate', label: 'Inbox: Show Overdue Issues',
+    Icon: Inbox, keywords: ['inbox', 'overdue', 'due date'],
+    action: () => { window.location.hash = '#/projects/linear/inbox'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-inbox-blocked', group: 'Navigate', label: 'Inbox: Show Blocked Issues',
+    Icon: Inbox, keywords: ['inbox', 'blocked', 'blocker'],
+    action: () => { window.location.hash = '#/projects/linear/inbox'; onClose() },
   })
   cmds.push({
     id: 'nav-projects-page', group: 'Navigate', label: 'Go to Projects',
