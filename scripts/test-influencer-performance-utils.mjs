@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import {
   buildContractRows,
+  computeContractRankings,
   dedupePerformanceRecords,
   getVideoContractTimelines,
   normalizePerformanceRecord,
@@ -124,5 +125,37 @@ const campaignOnlyTimelines = getVideoContractTimelines([
 
 assert.equal(campaignOnlyTimelines.length, 1)
 assert.equal(campaignOnlyTimelines[0].recordedDays, 2)
+
+const rankingContracts = getVideoContractTimelines([
+  normalizePerformanceRecord({
+    id: 'rank-a',
+    contractId: 'contract-a',
+    influencerId: influencer.id,
+    date: '2026-05-01',
+    contractStartDate: '2026-05-01',
+    netProfitAed: 12068,
+  }),
+  normalizePerformanceRecord({
+    id: 'rank-b',
+    contractId: 'contract-b',
+    influencerId: influencer.id,
+    date: '2026-05-02',
+    contractStartDate: '2026-05-02',
+    netProfitAed: 11210,
+  }),
+  normalizePerformanceRecord({
+    id: 'rank-c',
+    contractId: 'contract-c',
+    influencerId: influencer.id,
+    date: '2026-05-03',
+    contractStartDate: '2026-05-03',
+    netProfitAed: 0,
+  }),
+], [influencer])
+
+const rankings = computeContractRankings(rankingContracts)
+assert.equal(rankings.get('contract-a')?.rank, 1)
+assert.equal(rankings.get('contract-b')?.rank, 2)
+assert.equal(rankings.get('contract-c')?.rank, 3)
 
 console.log('Influencer performance utility tests passed')

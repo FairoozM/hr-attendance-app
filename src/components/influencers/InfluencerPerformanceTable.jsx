@@ -83,7 +83,7 @@ function RankCell({ rankInfo }) {
   if (rank === 1) {
     return (
       <td className="ip-table__col--metric ip-table__col--rank">
-        <span className="ip-table__rank-pill ip-table__rank-pill--gold" title="1st place (contract composite)">
+        <span className="ip-table__rank-pill ip-table__rank-pill--gold" title="1st place (net profit)">
           <Crown size={14} strokeWidth={2.2} aria-hidden />
           <span>#{rank}</span>
         </span>
@@ -93,7 +93,7 @@ function RankCell({ rankInfo }) {
   if (rank === 2) {
     return (
       <td className="ip-table__col--metric ip-table__col--rank">
-        <span className="ip-table__rank-pill ip-table__rank-pill--silver" title="2nd place (contract composite)">
+        <span className="ip-table__rank-pill ip-table__rank-pill--silver" title="2nd place (net profit)">
           <Medal size={14} strokeWidth={2.2} aria-hidden />
           <span>#{rank}</span>
         </span>
@@ -103,7 +103,7 @@ function RankCell({ rankInfo }) {
   if (rank === 3) {
     return (
       <td className="ip-table__col--metric ip-table__col--rank">
-        <span className="ip-table__rank-pill ip-table__rank-pill--bronze" title="3rd place (contract composite)">
+        <span className="ip-table__rank-pill ip-table__rank-pill--bronze" title="3rd place (net profit)">
           <Medal size={14} strokeWidth={2.2} aria-hidden />
           <span>#{rank}</span>
         </span>

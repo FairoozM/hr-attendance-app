@@ -62,7 +62,7 @@ export function addTombstone(id, ts = Date.now()) {
 }
 
 export const PERFORMANCE_SORT_OPTIONS = [
-  { value: 'rank:asc', label: 'Best overall (90% profit · 10% rest)' },
+  { value: 'rank:asc', label: 'Best net profit (AED) first' },
   { value: 'date:desc', label: 'Newest records first' },
   { value: 'date:asc', label: 'Oldest records first' },
   { value: 'views:desc', label: 'Top views first' },

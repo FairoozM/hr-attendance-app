@@ -383,9 +383,9 @@ export function buildContractRows(records = [], influencers = [], rankingsByCont
 
   return rows.sort((a, b) => {
     if (sort.key === 'rank') {
-      const scoreA = rankingsByContractId.get(a.id)?.score ?? -1
-      const scoreB = rankingsByContractId.get(b.id)?.score ?? -1
-      if (scoreB !== scoreA) return sort.direction === 'asc' ? scoreB - scoreA : scoreA - scoreB
+      const rankA = rankingsByContractId.get(a.id)?.rank ?? Number.MAX_SAFE_INTEGER
+      const rankB = rankingsByContractId.get(b.id)?.rank ?? Number.MAX_SAFE_INTEGER
+      if (rankA !== rankB) return sort.direction === 'asc' ? rankA - rankB : rankB - rankA
       return String(b.latestDate || '').localeCompare(String(a.latestDate || ''))
     }
     if (sort.key === 'date') {
@@ -411,27 +411,10 @@ export function buildContractRows(records = [], influencers = [], rankingsByCont
   })
 }
 
-const RANK_PROFIT_WEIGHT = 0.9
-const RANK_ENGAGEMENT_WEIGHT = 0.1
-const RANK_ENGAGEMENT_METRICS = 5
-
 /**
- * Min–max normalize to 0–1. When all values are equal, returns 1 for every row (neutral “best”).
- */
-function normalizeMinMax(values) {
-  const nums = values.map((v) => toNumber(v))
-  const min = Math.min(...nums)
-  const max = Math.max(...nums)
-  if (!Number.isFinite(min) || !Number.isFinite(max) || max === min) {
-    return nums.map(() => 1)
-  }
-  return nums.map((v) => (v - min) / (max - min))
-}
-
-/**
- * Rank video contracts: 90% net profit (AED) + 10% split across views, likes, comments, shares, cost-inverted.
- * Uses each contract's **latest** daily record for metrics (snapshot, not summed totals).
- * @returns {Map<string, { rank: number, score: number, score100: number, contractId: string, breakdown: Record<string, number> }>}
+ * Rank video contracts by net profit (AED) from each contract's **latest** daily record.
+ * Higher net profit = better rank (1 is best).
+ * @returns {Map<string, { rank: number, score: number, score100: number, contractId: string }>}
  */
 export function computeContractRankings(contracts = []) {
   const out = new Map()
@@ -441,64 +424,29 @@ export function computeContractRankings(contracts = []) {
     const rec = contract.latest || {}
     return {
       contractId: String(contract.id || ''),
-      contract,
-      views: toNumber(rec.views),
-      likes: toNumber(rec.likes),
-      comments: toNumber(rec.comments),
-      shares: toNumber(rec.shares),
       netProfitAed: toNumber(rec.netProfitAed),
-      cost: toNumber(rec.cost),
       latestDate: isoDateSlice(rec.date) || '',
     }
   })
 
-  const normProfit = normalizeMinMax(rows.map((r) => r.netProfitAed))
-  const normViews = normalizeMinMax(rows.map((r) => r.views))
-  const normLikes = normalizeMinMax(rows.map((r) => r.likes))
-  const normComments = normalizeMinMax(rows.map((r) => r.comments))
-  const normShares = normalizeMinMax(rows.map((r) => r.shares))
-  const costs = rows.map((r) => r.cost)
-  const maxCost = Math.max(...costs, 0)
-  const costInverted = costs.map((c) => maxCost - c)
-  const normCostEff = normalizeMinMax(costInverted)
-
-  const scored = rows.map((row, i) => {
-    const engagementAvg = (
-      normViews[i] +
-      normLikes[i] +
-      normComments[i] +
-      normShares[i] +
-      normCostEff[i]
-    ) / RANK_ENGAGEMENT_METRICS
-    const score = RANK_PROFIT_WEIGHT * normProfit[i] + RANK_ENGAGEMENT_WEIGHT * engagementAvg
-    const breakdown = {
-      normProfit: normProfit[i],
-      normViews: normViews[i],
-      normLikes: normLikes[i],
-      normComments: normComments[i],
-      normShares: normShares[i],
-      normCostEff: normCostEff[i],
-      engagementAvg,
-    }
-    return { ...row, score, breakdown }
-  })
-
-  scored.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score
+  rows.sort((a, b) => {
     if (b.netProfitAed !== a.netProfitAed) return b.netProfitAed - a.netProfitAed
     return String(a.latestDate || '').localeCompare(String(b.latestDate || ''))
   })
 
-  scored.forEach((row, index) => {
+  const maxProfit = Math.max(...rows.map((row) => row.netProfitAed), 0)
+
+  rows.forEach((row, index) => {
     const rank = index + 1
-    const score = row.score
-    const score100 = Math.min(100, Math.max(0, Math.round(score * 100)))
+    const score = row.netProfitAed
+    const score100 = maxProfit > 0
+      ? Math.min(100, Math.max(0, Math.round((row.netProfitAed / maxProfit) * 100)))
+      : 0
     out.set(row.contractId, {
       rank,
       score,
       score100,
       contractId: row.contractId,
-      breakdown: row.breakdown,
     })
   })
 

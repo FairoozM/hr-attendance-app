@@ -86,7 +86,7 @@ function RankBadge({ rankInfo }) {
   const { rank } = rankInfo
   if (rank === 1) {
     return (
-      <span className="ip-table__rank-pill ip-table__rank-pill--gold shadow-sm" title="1st place (contract composite)">
+      <span className="ip-table__rank-pill ip-table__rank-pill--gold shadow-sm" title="1st place (net profit)">
         <Crown size={14} strokeWidth={2.2} aria-hidden />
         <span>#{rank}</span>
       </span>
@@ -94,7 +94,7 @@ function RankBadge({ rankInfo }) {
   }
   if (rank === 2) {
     return (
-      <span className="ip-table__rank-pill ip-table__rank-pill--silver shadow-sm" title="2nd place (contract composite)">
+      <span className="ip-table__rank-pill ip-table__rank-pill--silver shadow-sm" title="2nd place (net profit)">
         <Medal size={14} strokeWidth={2.2} aria-hidden />
         <span>#{rank}</span>
       </span>
@@ -102,7 +102,7 @@ function RankBadge({ rankInfo }) {
   }
   if (rank === 3) {
     return (
-      <span className="ip-table__rank-pill ip-table__rank-pill--bronze shadow-sm" title="3rd place (contract composite)">
+      <span className="ip-table__rank-pill ip-table__rank-pill--bronze shadow-sm" title="3rd place (net profit)">
         <Medal size={14} strokeWidth={2.2} aria-hidden />
         <span>#{rank}</span>
       </span>

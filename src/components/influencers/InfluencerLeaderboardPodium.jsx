@@ -83,9 +83,8 @@ function PodiumCard({
         <span className="ip-leaderboard-card__handle">@{username}</span>
         <span className="ip-leaderboard-card__campaign">{contract.campaignName || contract.videoTitle}</span>
       </div>
-      <div className="ip-leaderboard-card__score-chip" title="Composite score (0–100)">
-        {rankInfo.score100}
-        <span className="ip-leaderboard-card__score-label">pts</span>
+      <div className="ip-leaderboard-card__score-chip" title="Net profit (AED)">
+        {formatNumber(toNumber(rec.netProfitAed), { currency: 'AED' })}
       </div>
       <div className="ip-leaderboard-card__stats">
         <MiniStat label="Sales" value={formatNumber(rec.salesAed, { currency: 'AED' })} isBest={isBestSales} variant="sales" />
@@ -99,7 +98,7 @@ function PodiumCard({
 }
 
 /**
- * Top 4 contracts by composite rank, displayed in rank order.
+ * Top 4 contracts by net profit rank, displayed in rank order.
  */
 export function InfluencerLeaderboardPodium({
   videoContracts,
@@ -126,13 +125,13 @@ export function InfluencerLeaderboardPodium({
   const bests = getDatasetBestsFromContracts(videoContracts)
 
   return (
-    <section className="ip-leaderboard-podium" aria-label="Top video contracts by composite score">
+    <section className="ip-leaderboard-podium" aria-label="Top video contracts by net profit">
       <div className="ip-section-heading">
         <span className="ip-section-heading__icon"><Crown size={18} /></span>
         <div>
           <h2>Leaderboard</h2>
           <p className="ip-leaderboard-podium__subtitle">
-            Ranked by best overall (90% net profit · 10% engagement & cost efficiency). Click a card to open their contract timeline.
+            Ranked by net profit (AED). Click a card to open their contract timeline.
           </p>
         </div>
       </div>
