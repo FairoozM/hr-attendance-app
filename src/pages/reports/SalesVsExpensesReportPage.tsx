@@ -603,7 +603,7 @@ function TransactionTable({
             );
           })}
           <tr className={`sve-total-row sve-total-row--${color}`}>
-            <td colSpan={3} style={{ fontWeight: 800, fontSize: "0.95rem" }}>
+            <td colSpan={3} style={{ fontWeight: 800, fontSize: "1rem" }}>
               TOTAL {categoryLabel.toUpperCase()}
             </td>
             <td />

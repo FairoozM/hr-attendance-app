@@ -14,7 +14,7 @@
   background: #ffffff;
   border: 1px solid #dfe5ee;
   border-radius: 12px;
-  padding: 28px;
+  padding: 30px;
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
 }
 
@@ -374,15 +374,15 @@
 .sve-kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 20px;
-  margin-bottom: 32px;
+  gap: 22px;
+  margin-bottom: 34px;
 }
 
 .sve-kpi {
   background: #fff;
   border: 1px solid #dfe5ee;
   border-radius: 10px;
-  padding: 24px 20px 18px;
+  padding: 26px 20px 20px;
   position: relative;
   box-shadow: 0 4px 12px rgba(15, 23, 42, 0.07);
   overflow: hidden;
@@ -420,7 +420,7 @@
 .sve-kpi--blue .sve-kpi-icon { background: #dbeafe; color: #2563eb; }
 
 .sve-kpi-label {
-  font-size: 12px;
+  font-size: 13px;
   color: #475569;
   font-weight: 700;
   text-transform: uppercase;
@@ -428,8 +428,8 @@
 }
 
 .sve-kpi-value {
-  margin-top: 8px;
-  font-size: 22px;
+  margin-top: 9px;
+  font-size: 24px;
   font-weight: 800;
 }
 .sve-kpi--green .sve-kpi-value { color: #16a34a; }
@@ -440,7 +440,7 @@
 .sve-kpi-line {
   height: 1px;
   background: #e2e8f0;
-  margin: 16px 0 12px;
+  margin: 17px 0 13px;
 }
 
 .sve-kpi-change {
@@ -461,9 +461,9 @@
 }
 
 .sve-card-title {
-  font-size: 20px;
+  font-size: 21px;
   font-weight: 800;
-  padding: 20px 24px;
+  padding: 22px 24px;
   border-bottom: 1px solid #dfe5ee;
   color: #0f172a;
 }
@@ -472,9 +472,9 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 16.1px;
+  font-size: 17px;
   font-weight: 800;
-  padding: 14px 24px;
+  padding: 16px 24px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   border-bottom: 1px solid #dfe5ee;
@@ -503,14 +503,14 @@
 .sve-table th,
 .sve-table td {
   border: 1px solid #d8dee8;
-  padding: 10px 14px;
-  font-size: 16.1px;
+  padding: 12px 15px;
+  font-size: 17px;
 }
 
 .sve-table th {
   background: #f8fafc;
   color: #334155;
-  font-size: 12.65px;
+  font-size: 13.5px;
   text-transform: uppercase;
   font-weight: 800;
   letter-spacing: 0.06em;
@@ -532,7 +532,7 @@
   align-items: center;
   width: 100%;
   min-width: 0;
-  height: 36px;
+  height: 38px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   background: #fff;
@@ -543,10 +543,10 @@
 .sve-date-weekday-pill {
   flex: 0 0 40%;
   width: 40%;
-  height: 36px;
+  height: 38px;
   white-space: nowrap;
   padding: 0 4px;
-  font-size: 10.8px;
+  font-size: 11.5px;
   font-weight: 700;
   letter-spacing: 0.02em;
   color: #4338ca;
@@ -567,8 +567,8 @@
   width: 100%;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
-  padding: 5px 8px;
-  font-size: 14.95px;
+  padding: 6px 10px;
+  font-size: 16px;
   color: #0f172a;
   background: #f8fafc;
   transition: border-color 0.12s, box-shadow 0.12s;
@@ -592,10 +592,10 @@
   -webkit-appearance: none;
   appearance: none;
   box-sizing: border-box;
-  padding: 0 6px;
-  height: 36px;
-  line-height: 36px;
-  font-size: 13.4px;
+  padding: 0 7px;
+  height: 38px;
+  line-height: 38px;
+  font-size: 14px;
   text-align: center;
 }
 
@@ -604,7 +604,7 @@
   color: #94a3b8;
   font-size: 12px;
   font-weight: 800;
-  line-height: 36px;
+  line-height: 38px;
   text-align: center;
 }
 
@@ -634,7 +634,7 @@
   box-shadow: none !important;
 }
 
-.sve-input--amount { text-align: right; font-weight: 700; }
+.sve-input--amount { text-align: right; font-weight: 700; font-size: 17px; }
 .sve-input--green:focus { border-color: #16a34a; box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.12); }
 .sve-input--orange:focus { border-color: #f97316; box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.12); }
 .sve-input--red:focus { border-color: #ef4444; box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12); }
@@ -642,10 +642,10 @@
 .sve-capture-text {
   display: none;
   width: 100%;
-  min-height: 36px;
+  min-height: 38px;
   align-items: center;
   color: #0f172a;
-  font-size: 16.1px;
+  font-size: 17px;
   line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
@@ -654,8 +654,8 @@
 
 .sve-capture-text--date {
   justify-content: center;
-  min-height: 36px;
-  font-size: 14.2px;
+  min-height: 38px;
+  font-size: 15px;
   text-align: center;
 }
 
@@ -663,17 +663,18 @@
   justify-content: flex-end;
   text-align: right;
   font-weight: 800;
+  font-size: 17px;
 }
 
 .sve-category {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 26px;
+  min-height: 28px;
   line-height: 1;
-  padding: 5px 12px;
+  padding: 6px 12px;
   border-radius: 6px;
-  font-size: 13.8px;
+  font-size: 14.5px;
   font-weight: 600;
   box-sizing: border-box;
 }
@@ -687,12 +688,12 @@
 .sve-category--orange { background: #fff7ed; color: #f97316; border: 1px solid #fed7aa; }
 .sve-category--red { background: #fff1f2; color: #ef4444; border: 1px solid #fecaca; }
 
-.sve-amount { text-align: right; font-weight: 800; font-size: 17.25px; }
+.sve-amount { text-align: right; font-weight: 800; font-size: 18.5px; }
 .sve-amount--green { color: #16a34a; }
 .sve-amount--orange { color: #f97316; }
 .sve-amount--red { color: #ef4444; }
 
-.sve-total-row td { font-weight: 800; }
+.sve-total-row td { font-weight: 800; font-size: 17px; }
 .sve-total-row--green td { background: #f0fdf4; }
 .sve-total-row--orange td { background: #fff7ed; }
 .sve-total-row--red td { background: #fff1f2; }
@@ -702,11 +703,11 @@
   justify-content: flex-end;
   align-items: center;
   gap: 8px;
-  padding: 13px 22px;
+  padding: 14px 24px;
   border-left: 1px solid #d8dee8;
   border-right: 1px solid #d8dee8;
   border-bottom: 1px solid #d8dee8;
-  font-size: 17.25px;
+  font-size: 18.25px;
   font-weight: 800;
 }
 
@@ -1070,7 +1071,7 @@
 
 .sve-report.is-capturing .sve-capture-text--date,
 .sve-report.is-capturing .sve-date-weekday-pill {
-  height: 36px;
+  height: 38px;
   min-height: 0;
   line-height: 1.1;
 }
