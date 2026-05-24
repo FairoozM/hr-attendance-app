@@ -958,10 +958,15 @@
 .sve-report.is-capturing .sve-period-range,
 .sve-report.is-capturing .sve-period-input,
 .sve-report.is-capturing .sve-save-msg,
+.sve-report.is-capturing .sve-inf-picker,
 .sve-report.is-capturing .sve-inf-picker-interactive,
+.sve-report.is-capturing .sve-inf-picker--link-only,
+.sve-report.is-capturing .sve-inf-selected,
+.sve-report.is-capturing .sve-inf-dropdown,
 .sve-report.is-capturing .sve-inf-link-btn,
 .sve-report.is-capturing .sve-inf-clear-btn,
-.sve-report.is-capturing .sve-inf-picker {
+.sve-report.is-capturing .sve-inf-search,
+.sve-report.is-capturing .sve-capture-text--inf {
   display: none !important;
 }
 
@@ -1037,17 +1042,24 @@
   overflow: visible;
 }
 
+.sve-report.is-capturing .sve-header-influencer {
+  display: flex !important;
+  align-items: center;
+}
+
+.sve-report.is-capturing .sve-header-influencer .sve-inf-avatar--lg {
+  width: 64px;
+  height: 64px;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
 .sve-report.is-capturing .sve-header-influencer__name {
   position: static;
   top: auto;
   line-height: 1.3;
   overflow: visible;
   text-overflow: clip;
-}
-
-.sve-report.is-capturing .sve-inf-selected__name {
-  position: relative;
-  top: -7px;
 }
 
 .sve-report.is-capturing .sve-date-input-wrap {

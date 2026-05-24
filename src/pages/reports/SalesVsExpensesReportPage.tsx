@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { flushSync } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
@@ -649,6 +650,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
 
   const applySavedReport = useCallback((record: SavedReport) => {
@@ -826,7 +828,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
   const captureCanvas = useCallback(async () => {
     if (!reportRef.current) throw new Error("Report ref not ready");
     const target = reportRef.current;
-    target.classList.add("is-capturing");
+    flushSync(() => setIsCapturing(true));
     // Let capture-only styles and webfonts settle before html2canvas snapshots.
     if ("fonts" in document) {
       await document.fonts.ready;
@@ -842,7 +844,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
         windowHeight: target.scrollHeight,
       });
     } finally {
-      target.classList.remove("is-capturing");
+      flushSync(() => setIsCapturing(false));
     }
   }, []);
 
@@ -884,7 +886,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
 
   return (
     <div className="sve-page">
-      <div className="sve-report" ref={reportRef}>
+      <div className={`sve-report${isCapturing ? " is-capturing" : ""}`} ref={reportRef}>
 
         {/* ── Header ── */}
         <div className="sve-header">

@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom'
 import {
   Search, X, Plus, LayoutList, Tag, RotateCcw, Bookmark, SlidersHorizontal,
   Globe, Server, Smartphone, AlertCircle, AlertTriangle, Rocket, Bug, User, Users,
-  XCircle, ArrowRight, FolderOpen, Layers,
+  XCircle, ArrowRight, FolderOpen, Layers, Map,
 } from 'lucide-react'
 import { DEFAULT_LABELS } from './linearLabels'
 import { issueKey, normalizeStatus } from './IssueRow'
@@ -160,8 +160,28 @@ function buildCommands({
     action: () => { window.location.hash = '#/projects/linear/projects'; onClose() },
   })
   cmds.push({
-    id: 'nav-team', group: 'Navigate', label: 'Go to Team Projects (Legacy)',
-    Icon: FolderOpen, keywords: ['go', 'navigate', 'team'],
+    id: 'nav-team-link', group: 'Navigate', label: 'Go to Team',
+    Icon: Users, keywords: ['go', 'navigate', 'team', 'members'],
+    action: () => { window.location.hash = '#/projects/linear/team'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-roadmap', group: 'Navigate', label: 'Go to Roadmap',
+    Icon: Map, keywords: ['go', 'navigate', 'roadmap', 'plan', 'delivery'],
+    action: () => { window.location.hash = '#/projects/linear/roadmap'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-roadmap-now', group: 'Navigate', label: 'Roadmap: Now (In Progress)',
+    Icon: Map, keywords: ['roadmap', 'now', 'in progress', 'active'],
+    action: () => { window.location.hash = '#/projects/linear/roadmap'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-roadmap-ready', group: 'Navigate', label: 'Roadmap: Ready for Release',
+    Icon: Map, keywords: ['roadmap', 'ready', 'release', 'ship'],
+    action: () => { window.location.hash = '#/projects/linear/roadmap'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-team-link2', group: 'Navigate', label: 'Go to Team Projects (Legacy)',
+    Icon: FolderOpen, keywords: ['go', 'navigate', 'team', 'legacy'],
     action: () => { window.location.hash = '#/projects/team'; onClose() },
   })
   cmds.push({

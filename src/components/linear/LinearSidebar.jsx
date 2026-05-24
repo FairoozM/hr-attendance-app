@@ -152,7 +152,7 @@ export function LinearSidebar({
           </div>
         )}
 
-        <SidebarLink to="/projects/linear/roadmap" Icon={Map} label="Roadmap" disabled />
+        <SidebarLink to="/projects/linear/roadmap" Icon={Map} label="Roadmap" />
       </SidebarSection>
 
       <SidebarSection title="Teams">
