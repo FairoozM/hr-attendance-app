@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import { useUserPreferences } from "../../contexts/UserPreferencesContext";
@@ -211,6 +212,69 @@ function formatDateRangeLabel(start: string, end: string) {
     }
   };
   return `${fmtDate(start)} - ${fmtDate(end)}`;
+}
+
+const SVE_BASE_PATH = "/reports/sales-vs-expenses";
+
+function defaultPeriodStart() {
+  const d = new Date();
+  return isoDate(new Date(d.getFullYear(), d.getMonth(), 1));
+}
+
+function defaultPeriodEnd() {
+  const d = new Date();
+  return isoDate(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+}
+
+function inferPeriodBounds(period: string): { start?: string; end?: string } {
+  const parts = String(period || "")
+    .split(" - ")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length !== 2) return {};
+  const startMs = Date.parse(parts[0]);
+  const endMs = Date.parse(parts[1]);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return {};
+  return { start: isoDate(new Date(startMs)), end: isoDate(new Date(endMs)) };
+}
+
+function cloneDemoRows(rows: Transaction[]) {
+  return rows.map((t) => ({ ...t, id: uid() }));
+}
+
+function cloneSavedRows(rows: Transaction[]) {
+  return rows.map((t) => ({ ...t, id: uid() }));
+}
+
+function normalizeSavedReport(record: SavedReport): SavedReport {
+  const inferred = inferPeriodBounds(record.period);
+  const periodStart = record.periodStart || inferred.start || defaultPeriodStart();
+  const periodEnd = record.periodEnd || inferred.end || defaultPeriodEnd();
+  return {
+    ...record,
+    id: record.id || uid(),
+    periodStart,
+    periodEnd,
+    period: formatDateRangeLabel(periodStart, periodEnd),
+    sales: Array.isArray(record.sales) ? record.sales : [],
+    costs: Array.isArray(record.costs) ? record.costs : [],
+    expenses: Array.isArray(record.expenses) ? record.expenses : [],
+  };
+}
+
+function normalizeHistoryList(raw: unknown): SavedReport[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => normalizeSavedReport(item as SavedReport));
+}
+
+function historyNeedsMigration(raw: unknown, normalized: SavedReport[]): boolean {
+  if (!Array.isArray(raw)) return normalized.length > 0;
+  return raw.some((item, index) => {
+    const src = item as SavedReport;
+    const next = normalized[index];
+    if (!src?.id || !src?.periodStart || !src?.periodEnd) return true;
+    return src.id !== next?.id;
+  });
 }
 
 const DEMO_SALES: Transaction[] = [
@@ -567,21 +631,19 @@ function ProfitStrip({ label, value, tone }: { label: string; value: number; ton
 
 /* ── Main page ── */
 const SalesVsExpensesReportPage: React.FC = () => {
+  const navigate = useNavigate();
+  const { reportId: urlReportId } = useParams<{ reportId?: string }>();
   const { ready, getPref, setPref, prefsVersion } = useUserPreferences();
   const { influencers } = useInfluencers();
   const skipHistorySave = useRef(false);
+  const appliedReportIdRef = useRef<string | null>(null);
+  const historyHydratedRef = useRef(false);
 
-  const [periodStart, setPeriodStart] = useState(() => {
-    const d = new Date();
-    return isoDate(new Date(d.getFullYear(), d.getMonth(), 1));
-  });
-  const [periodEnd, setPeriodEnd] = useState(() => {
-    const d = new Date();
-    return isoDate(new Date(d.getFullYear(), d.getMonth() + 1, 0));
-  });
-  const [sales, setSales] = useState<Transaction[]>(DEMO_SALES);
-  const [costs, setCosts] = useState<Transaction[]>(DEMO_COSTS);
-  const [expenses, setExpenses] = useState<Transaction[]>(DEMO_EXPENSES);
+  const [periodStart, setPeriodStart] = useState(defaultPeriodStart);
+  const [periodEnd, setPeriodEnd] = useState(defaultPeriodEnd);
+  const [sales, setSales] = useState<Transaction[]>(() => cloneDemoRows(DEMO_SALES));
+  const [costs, setCosts] = useState<Transaction[]>(() => cloneDemoRows(DEMO_COSTS));
+  const [expenses, setExpenses] = useState<Transaction[]>(() => cloneDemoRows(DEMO_EXPENSES));
   const [history, setHistory] = useState<SavedReport[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -589,12 +651,65 @@ const SalesVsExpensesReportPage: React.FC = () => {
   const [exporting, setExporting] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
 
+  const applySavedReport = useCallback((record: SavedReport) => {
+    const normalized = normalizeSavedReport(record);
+    setPeriodStart(normalized.periodStart!);
+    setPeriodEnd(normalized.periodEnd!);
+    setSales(cloneSavedRows(normalized.sales));
+    setCosts(cloneSavedRows(normalized.costs));
+    setExpenses(cloneSavedRows(normalized.expenses));
+    appliedReportIdRef.current = normalized.id;
+  }, []);
+
+  const resetToNewReport = useCallback(() => {
+    setPeriodStart(defaultPeriodStart());
+    setPeriodEnd(defaultPeriodEnd());
+    setSales(cloneDemoRows(DEMO_SALES));
+    setCosts(cloneDemoRows(DEMO_COSTS));
+    setExpenses(cloneDemoRows(DEMO_EXPENSES));
+    appliedReportIdRef.current = null;
+  }, []);
+
   useEffect(() => {
     if (!ready) return;
-    const h = getPref(PREF_SALES_VS_EXPENSES, null);
+    const raw = getPref(PREF_SALES_VS_EXPENSES, null);
+    const normalized = normalizeHistoryList(raw);
     skipHistorySave.current = true;
-    setHistory(Array.isArray(h) ? (h as SavedReport[]) : []);
-  }, [ready, prefsVersion, getPref]);
+    setHistory(normalized);
+    historyHydratedRef.current = true;
+
+    if (historyNeedsMigration(raw, normalized)) {
+      window.setTimeout(() => {
+        setPref(PREF_SALES_VS_EXPENSES, normalized);
+      }, 0);
+    }
+  }, [ready, prefsVersion, getPref, setPref]);
+
+  useEffect(() => {
+    if (!ready || !historyHydratedRef.current) return;
+
+    if (!urlReportId) {
+      if (appliedReportIdRef.current !== null) {
+        resetToNewReport();
+      }
+      return;
+    }
+
+    if (appliedReportIdRef.current === urlReportId) return;
+
+    const record = history.find((r) => r.id === urlReportId);
+    if (record) {
+      applySavedReport(record);
+      setHistoryOpen(false);
+      return;
+    }
+
+    if (history.length > 0) {
+      navigate(SVE_BASE_PATH, { replace: true });
+      setSavedMsg("Saved report not found.");
+      window.setTimeout(() => setSavedMsg(null), 3000);
+    }
+  }, [ready, urlReportId, history, applySavedReport, resetToNewReport, navigate]);
 
   useEffect(() => {
     if (!ready) return;
@@ -674,14 +789,10 @@ const SalesVsExpensesReportPage: React.FC = () => {
 
   /* Save */
   const handleSave = useCallback(() => {
-    const existingIndex = history.findIndex((r) => {
-      if (r.periodStart || r.periodEnd) {
-        return r.periodStart === periodStart && r.periodEnd === periodEnd;
-      }
-      return r.period === periodLabel;
-    });
+    const targetId = urlReportId || appliedReportIdRef.current || uid();
+    const existingIndex = history.findIndex((r) => r.id === targetId);
     const record: SavedReport = {
-      id: existingIndex >= 0 ? history[existingIndex].id : uid(),
+      id: targetId,
       period: periodLabel,
       periodStart,
       periodEnd,
@@ -695,17 +806,22 @@ const SalesVsExpensesReportPage: React.FC = () => {
       ? history.map((r, i) => (i === existingIndex ? record : r))
       : [record, ...history];
     setHistory(next);
+    appliedReportIdRef.current = targetId;
+    if (urlReportId !== targetId) {
+      navigate(`${SVE_BASE_PATH}/${encodeURIComponent(targetId)}`, { replace: existingIndex >= 0 });
+    }
     setSavedMsg(`Report for "${periodLabel}" ${existingIndex >= 0 ? "updated" : "saved"}.`);
     setTimeout(() => setSavedMsg(null), 3000);
-  }, [periodLabel, periodStart, periodEnd, sales, costs, expenses, totals, history]);
+  }, [periodLabel, periodStart, periodEnd, sales, costs, expenses, totals, history, urlReportId, navigate]);
 
   const deleteRecord = useCallback((id: string) => {
     if (!window.confirm("Delete this saved report?")) return;
-    setHistory((prev) => {
-      const next = prev.filter((r) => r.id !== id);
-      return next;
-    });
-  }, []);
+    setHistory((prev) => prev.filter((r) => r.id !== id));
+    if (urlReportId === id || appliedReportIdRef.current === id) {
+      appliedReportIdRef.current = null;
+      navigate(SVE_BASE_PATH, { replace: true });
+    }
+  }, [urlReportId, navigate]);
 
   const captureCanvas = useCallback(async () => {
     if (!reportRef.current) throw new Error("Report ref not ready");
@@ -759,15 +875,14 @@ const SalesVsExpensesReportPage: React.FC = () => {
   }, [captureCanvas, periodLabel]);
 
   const loadRecord = useCallback((record: SavedReport) => {
-    if (record.periodStart) setPeriodStart(record.periodStart);
-    if (record.periodEnd) setPeriodEnd(record.periodEnd);
-    setSales(record.sales.map((t) => ({ ...t, id: uid() })));
-    setCosts(record.costs.map((t) => ({ ...t, id: uid() })));
-    setExpenses(record.expenses.map((t) => ({ ...t, id: uid() })));
+    const normalized = normalizeSavedReport(record);
+    appliedReportIdRef.current = normalized.id;
+    navigate(`${SVE_BASE_PATH}/${encodeURIComponent(normalized.id)}`);
+    applySavedReport(normalized);
     setHistoryOpen(false);
-    setSavedMsg(`Loaded report: "${record.period}"`);
+    setSavedMsg(`Loaded report: "${normalized.period}"`);
     setTimeout(() => setSavedMsg(null), 3000);
-  }, []);
+  }, [navigate, applySavedReport]);
 
   return (
     <div className="sve-page">

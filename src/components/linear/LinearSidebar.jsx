@@ -5,7 +5,7 @@
  * Does NOT mention "Jira", "Sprint", "Task", or legacy ops team names.
  */
 import { useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import {
   Inbox, LayoutList, Map,
   FolderOpen, RotateCcw, Tag, CheckCircle2, X, Plus,
@@ -78,6 +78,7 @@ export function LinearSidebar({
   onApplyView,
   onDeleteView,
 }) {
+  const navigate = useNavigate()
   const [labelsOpen, setLabelsOpen] = useState(false)
   const [cyclesOpen, setCyclesOpen] = useState(false)
   const [viewsOpen,  setViewsOpen]  = useState(true) // open by default
@@ -283,10 +284,12 @@ export function LinearSidebar({
       {projects.length > 0 && (
         <SidebarSection title="Projects">
           {projects.slice(0, 8).map((p) => (
-            <NavLink
+            <button
               key={p.id}
-              to="/projects/linear"
-              className={() => 'lsb-link'}
+              type="button"
+              className="lsb-link"
+              onClick={() => navigate('/projects/linear', { state: { filterProjectId: p.id } })}
+              title={`Open ${p.name} issues`}
             >
               <span
                 className="lsb-proj-dot"
@@ -294,7 +297,7 @@ export function LinearSidebar({
                 aria-hidden="true"
               />
               <span className="lsb-link__label">{p.name}</span>
-            </NavLink>
+            </button>
           ))}
         </SidebarSection>
       )}

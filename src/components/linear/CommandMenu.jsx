@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom'
 import {
   Search, X, Plus, LayoutList, Tag, RotateCcw, Bookmark, SlidersHorizontal,
   Globe, Server, Smartphone, AlertCircle, AlertTriangle, Rocket, Bug, User,
-  XCircle, ArrowRight, FolderOpen,
+  XCircle, ArrowRight, FolderOpen, Layers,
 } from 'lucide-react'
 import { DEFAULT_LABELS } from './linearLabels'
 import { issueKey, normalizeStatus } from './IssueRow'
@@ -27,9 +27,9 @@ const CYCLE_STATUS_COLOR = { planned: '#a5b4fc', active: '#6ee7b7', completed: '
 // ── Build flat command list ───────────────────────────────────────────────────
 
 function buildCommands({
-  allCycles, allViews,
+  allCycles, allViews, allProjects,
   onNewIssue, onApplyView, onSetGroupBy,
-  onSetActiveLabel, onSetActiveCycle,
+  onSetActiveLabel, onSetActiveCycle, onSetActiveProject,
   onClearFilters, onManageCycles, onClose,
 }) {
   const cmds = []
@@ -109,6 +109,25 @@ function buildCommands({
     action: () => { onManageCycles(); onClose() },
   })
 
+  // ── Projects ─────────────────────────────────────────────────────────────
+  for (const p of allProjects) {
+    cmds.push({
+      id: `project-${p.id}`, group: 'Projects', label: p.name,
+      Icon: FolderOpen, keywords: ['project', 'open', p.name.toLowerCase()],
+      action: () => {
+        // Navigate to Issues filtered by project
+        window.location.hash = '#/projects/linear'
+        onSetActiveProject?.(p.id)
+        onClose()
+      },
+    })
+  }
+  cmds.push({
+    id: 'nav-projects-overview', group: 'Projects', label: 'View All Projects',
+    Icon: Layers, keywords: ['projects', 'overview', 'all'],
+    action: () => { window.location.hash = '#/projects/linear/projects'; onClose() },
+  })
+
   // ── Navigation ───────────────────────────────────────────────────────────
   cmds.push({
     id: 'nav-issues', group: 'Navigate', label: 'Go to Issues',
@@ -116,8 +135,13 @@ function buildCommands({
     action: () => { window.location.hash = '#/projects/linear'; onClose() },
   })
   cmds.push({
-    id: 'nav-team', group: 'Navigate', label: 'Go to Projects',
-    Icon: FolderOpen, keywords: ['go', 'navigate', 'projects', 'team'],
+    id: 'nav-projects-page', group: 'Navigate', label: 'Go to Projects',
+    Icon: FolderOpen, keywords: ['go', 'navigate', 'projects', 'overview'],
+    action: () => { window.location.hash = '#/projects/linear/projects'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-team', group: 'Navigate', label: 'Go to Team Projects (Legacy)',
+    Icon: FolderOpen, keywords: ['go', 'navigate', 'team'],
     action: () => { window.location.hash = '#/projects/team'; onClose() },
   })
   cmds.push({
@@ -147,12 +171,14 @@ export function CommandMenu({
   allIssues = [],
   allCycles = [],
   allViews  = [],
+  allProjects = [],
   projectMap = {},
   onNewIssue,
   onApplyView,
   onSetGroupBy,
   onSetActiveLabel,
   onSetActiveCycle,
+  onSetActiveProject,
   onClearFilters,
   onManageCycles,
   onSelectIssue,
@@ -180,12 +206,12 @@ export function CommandMenu({
 
   // Build flat command list (memoised — only changes when deps change)
   const flatCommands = useMemo(() => buildCommands({
-    allCycles, allViews,
+    allCycles, allViews, allProjects,
     onNewIssue, onApplyView, onSetGroupBy,
-    onSetActiveLabel, onSetActiveCycle,
+    onSetActiveLabel, onSetActiveCycle, onSetActiveProject,
     onClearFilters, onManageCycles, onClose: handleClose,
-  }), [allCycles, allViews, onNewIssue, onApplyView, onSetGroupBy,
-      onSetActiveLabel, onSetActiveCycle, onClearFilters, onManageCycles, handleClose])
+  }), [allCycles, allViews, allProjects, onNewIssue, onApplyView, onSetGroupBy,
+      onSetActiveLabel, onSetActiveCycle, onSetActiveProject, onClearFilters, onManageCycles, handleClose])
 
   // Filter commands + search issues
   const { sections, flatItems } = useMemo(() => {

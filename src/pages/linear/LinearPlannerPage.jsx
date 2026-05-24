@@ -12,6 +12,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { AlertCircle } from 'lucide-react'
 import { useTeamProjectsContext } from '../../contexts/TeamProjectsContext'
 import { useAuth } from '../../contexts/AuthContext'
+import { useLocation } from 'react-router-dom'
 import { LinearSidebar }    from '../../components/linear/LinearSidebar'
 import { LinearTopBar }     from '../../components/linear/LinearTopBar'
 import { IssueListGroup }   from '../../components/linear/IssueListGroup'
@@ -108,6 +109,7 @@ function groupByProject(issues, projectMap) {
 // ── Main component ────────────────────────────────────────────────────────────
 export default function LinearPlannerPage() {
   const { user } = useAuth()
+  const location = useLocation()
   const {
     projects,
     members,
@@ -127,6 +129,7 @@ export default function LinearPlannerPage() {
   const [activeCycle,   setActiveCycle]   = useState(null)  // null | 'none' | cycleId (number)
   const [activeStatus,  setActiveStatus]  = useState(null)  // null | status string
   const [activePriority, setActivePriority] = useState(null)  // null | priority string
+  const [activeProject, setActiveProject] = useState(null)   // null | projectId (number)
   const [activeViewId,  setActiveViewId]  = useState(null)
   const [customViews,   setCustomViews]   = useState(() => loadCustomViews())
   const [selectedIssue, setSelectedIssue] = useState(null)
@@ -138,7 +141,16 @@ export default function LinearPlannerPage() {
   const [successMessage, setSuccessMessage] = useState('')
   const didFetch = useRef(false)
 
-  // Fetch on mount
+  // ── Apply project filter from navigation state (from Projects page) ────────
+  useEffect(() => {
+    if (location.state?.filterProjectId != null) {
+      setActiveProject(location.state.filterProjectId)
+      // Clear state so browser-back doesn't re-apply
+      window.history.replaceState({ ...window.history.state, usr: {} }, '')
+    }
+  }, [location.state?.filterProjectId])
+
+  // ── Fetch on mount ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (didFetch.current) return
     didFetch.current = true
@@ -250,9 +262,14 @@ export default function LinearPlannerPage() {
         if (normalizePriority(issue.priority) !== activePriority) return false
       }
 
+      // Project filter (set by Projects page navigation)
+      if (activeProject != null) {
+        if (String(issue.projectId) !== String(activeProject)) return false
+      }
+
       return true
     })
-  }, [allIssues, search, activeFilters, activeLabel, activeCycle, activeStatus, activePriority, projectMap, memberMap, user])
+  }, [allIssues, search, activeFilters, activeLabel, activeCycle, activeStatus, activePriority, activeProject, projectMap, memberMap, user])
 
   // ── Grouping ─────────────────────────────────────────────────────────────────
   const groups = useMemo(() => {
@@ -327,6 +344,7 @@ export default function LinearPlannerPage() {
     setActiveCycle(null)
     setActiveStatus(null)
     setActivePriority(null)
+    setActiveProject(null)
     setActiveViewId(null)
   }, [])
   const toggleFilter = useCallback((id) => {
@@ -431,8 +449,8 @@ export default function LinearPlannerPage() {
           onNewIssue={() => setNewIssueOpen(true)}
           onSaveView={() => setSaveViewOpen(true)}
           onOpenCmdMenu={() => setCmdMenuOpen(true)}
-          hasActiveFilters={hasActiveFilter({ search, activeFilters, activeLabel, activeCycle, activeStatus, activePriority })}
-          title="All Issues"
+          hasActiveFilters={hasActiveFilter({ search, activeFilters, activeLabel, activeCycle, activeStatus, activePriority }) || activeProject != null}
+          title={activeProject != null ? (projectMap[activeProject]?.name ?? 'Project') : 'All Issues'}
           issueCount={filteredIssues.length}
         />
 
@@ -540,11 +558,13 @@ export default function LinearPlannerPage() {
         allCycles={allCycles}
         allViews={[...BUILTIN_VIEWS, ...customViews]}
         projectMap={projectMap}
+        allProjects={projects}
         onNewIssue={() => { setNewIssueOpen(true) }}
         onApplyView={applyView}
         onSetGroupBy={(v) => { setGroupBy(v); setActiveViewId(null) }}
         onSetActiveLabel={(v) => { setActiveLabel(v); setActiveViewId(null) }}
         onSetActiveCycle={(v) => { setActiveCycle(v); setActiveViewId(null) }}
+        onSetActiveProject={(v) => { setActiveProject(v); setActiveViewId(null) }}
         onClearFilters={handleClearFilters}
         onManageCycles={() => setCyclesPanelOpen(true)}
         onSelectIssue={(issue) => setSelectedIssue(issue)}

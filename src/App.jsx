@@ -79,6 +79,7 @@ import ProjectDashboardPage from './pages/projects/ProjectDashboardPage'
 import TrashPage from './pages/projects/TrashPage'
 import TeamProjectsPage from './pages/projects/TeamProjectsPage'
 import LinearPlannerPage from './pages/linear/LinearPlannerPage'
+import LinearProjectsPage from './pages/linear/LinearProjectsPage'
 import { AiUsageDashboard } from './pages/AiUsageDashboard'
 import { AmazonListingGenerator } from './pages/AmazonListingGenerator'
 import { AmazonSpApiTestPage } from './pages/AmazonSpApiTestPage'
@@ -455,6 +456,23 @@ function AppContent() {
             This is the new primary issue tracker at /projects/linear.
             /projects (AI Planner) remains completely untouched. */}
         <Route
+          path="projects/linear"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <LinearPlannerPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="projects/linear/projects"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <LinearProjectsPage />
+            </PermissionGuard>
+          }
+        />
+        {/* Wildcard for any other /projects/linear/* sub-routes — keep Issues page */}
+        <Route
           path="projects/linear/*"
           element={
             <PermissionGuard module="planner" action="view">
@@ -465,6 +483,14 @@ function AppContent() {
 
         {/* Reports Module */}
         <Route path="reports">
+          <Route
+            path="sales-vs-expenses/:reportId"
+            element={
+              <PermissionGuard module="weekly_reports" action="view">
+                <SalesVsExpensesReportPage />
+              </PermissionGuard>
+            }
+          />
           <Route
             path="sales-vs-expenses"
             element={
