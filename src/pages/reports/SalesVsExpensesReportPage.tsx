@@ -242,7 +242,7 @@ function InfluencerAvatar({
 }: {
   name: string;
   imageUrl?: string;
-  size?: "sm" | "md";
+  size?: "sm" | "md" | "lg";
 }) {
   const [imgError, setImgError] = useState(false);
 
@@ -251,7 +251,12 @@ function InfluencerAvatar({
   }, [imageUrl]);
 
   const showImage = Boolean(imageUrl) && !imgError;
-  const cls = size === "sm" ? "sve-inf-avatar sve-inf-avatar--sm" : "sve-inf-avatar";
+  const cls =
+    size === "lg"
+      ? "sve-inf-avatar sve-inf-avatar--lg"
+      : size === "sm"
+        ? "sve-inf-avatar sve-inf-avatar--sm"
+        : "sve-inf-avatar";
 
   return (
     <div className={cls} aria-hidden="true">
@@ -388,7 +393,7 @@ function ReportInfluencerHeader({ influencers }: { influencers: ResolvedInfluenc
     <div className="sve-header-influencers" aria-label="Linked influencers">
       {influencers.map((inf) => (
         <div key={inf.id || inf.name} className="sve-header-influencer">
-          <InfluencerAvatar name={inf.name} imageUrl={inf.imageUrl} size="sm" />
+          <InfluencerAvatar name={inf.name} imageUrl={inf.imageUrl} size="lg" />
           <span className="sve-header-influencer__name">{inf.name}</span>
         </div>
       ))}
@@ -778,35 +783,37 @@ const SalesVsExpensesReportPage: React.FC = () => {
               Sales <span className="sve-title-vs">vs</span> Expenses
             </h1>
             <div className="sve-subtitle">Track your financial performance and key metrics</div>
-            <ReportInfluencerHeader influencers={headerInfluencers} />
           </div>
 
-          <div className="sve-period-box">
-            <div className="sve-period-icon"><span className="sve-icon-glyph">▣</span></div>
-            <div>
-              <div className="sve-period-label">Reporting Period</div>
-              <div className="sve-period-range">
-                <label className="sve-period-range__field">
-                  <span>From</span>
-                  <input
-                    type="date"
-                    className="sve-period-input"
-                    value={periodStart}
-                    onChange={(e) => setPeriodStart(e.target.value)}
-                  />
-                </label>
-                <label className="sve-period-range__field">
-                  <span>To</span>
-                  <input
-                    type="date"
-                    className="sve-period-input"
-                    value={periodEnd}
-                    onChange={(e) => setPeriodEnd(e.target.value)}
-                  />
-                </label>
+          <div className="sve-header-right">
+            <div className="sve-period-box">
+              <div className="sve-period-icon"><span className="sve-icon-glyph">▣</span></div>
+              <div>
+                <div className="sve-period-label">Reporting Period</div>
+                <div className="sve-period-range">
+                  <label className="sve-period-range__field">
+                    <span>From</span>
+                    <input
+                      type="date"
+                      className="sve-period-input"
+                      value={periodStart}
+                      onChange={(e) => setPeriodStart(e.target.value)}
+                    />
+                  </label>
+                  <label className="sve-period-range__field">
+                    <span>To</span>
+                    <input
+                      type="date"
+                      className="sve-period-input"
+                      value={periodEnd}
+                      onChange={(e) => setPeriodEnd(e.target.value)}
+                    />
+                  </label>
+                </div>
+                <div className="sve-period-date">{periodLabel}</div>
               </div>
-              <div className="sve-period-date">{periodLabel}</div>
             </div>
+            <ReportInfluencerHeader influencers={headerInfluencers} />
           </div>
         </div>
 
