@@ -2,6 +2,9 @@ import React, { useState, useCallback, useMemo, useRef, useEffect } from "react"
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import { useUserPreferences } from "../../contexts/UserPreferencesContext";
+import { useInfluencers } from "../../contexts/InfluencersContext";
+import { resolveInfluencerProfileImageUrl } from "../../lib/influencerProfileImageUrl";
+import type { Influencer } from "../../lib/influencers";
 import { PREF_SALES_VS_EXPENSES } from "../../constants/userPreferenceKeys";
 import "./SalesVsExpensesReportPage.css";
 
@@ -11,6 +14,14 @@ interface Transaction {
   date: string;
   description: string;
   amount: string;
+  /** Linked influencer for influencer expense rows (persisted in saved reports). */
+  influencerId?: string;
+}
+
+interface ResolvedInfluencer {
+  id?: string;
+  name: string;
+  imageUrl?: string;
 }
 
 interface ReportTotals {
@@ -97,6 +108,91 @@ function emptyRow(): Transaction {
   return { id: uid(), date: "", description: "", amount: "" };
 }
 
+function influencerInitials(name: string) {
+  return (
+    String(name || "IN")
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "IN"
+  );
+}
+
+function isInfluencerExpenseRow(row: Transaction) {
+  if (row.influencerId) return true;
+  return /influencer/i.test(row.description || "");
+}
+
+function parseInfluencerNameFromDescription(description: string): string | null {
+  const text = String(description || "").trim();
+  if (!text) return null;
+  const parenMatch = text.match(/influencer\s*exp\s*\(([^)]+)\)/i);
+  if (parenMatch?.[1]) return parenMatch[1].trim();
+  const trailingMatch = text.match(/influencer\s*exp\s*[-–—:]\s*(.+)$/i);
+  if (trailingMatch?.[1]) return trailingMatch[1].trim();
+  return null;
+}
+
+function buildInfluencerExpenseDescription(name: string) {
+  return `Influencer Exp (${name})`;
+}
+
+function findInfluencerByName(influencers: Influencer[], name: string): Influencer | null {
+  const needle = name.trim().toLowerCase();
+  if (!needle) return null;
+  const exact = influencers.find((inf) => String(inf.name || "").trim().toLowerCase() === needle);
+  if (exact) return exact;
+  const handleMatch = influencers.find((inf) => {
+    const handle = String(inf.instagram?.handle || "").replace(/^@/, "").trim().toLowerCase();
+    return handle && handle === needle;
+  });
+  return handleMatch || null;
+}
+
+function resolveLinkedInfluencer(row: Transaction, influencers: Influencer[]): ResolvedInfluencer | null {
+  if (row.influencerId) {
+    const linked = influencers.find((inf) => String(inf.id) === String(row.influencerId));
+    if (linked) {
+      return {
+        id: String(linked.id),
+        name: linked.name,
+        imageUrl: resolveInfluencerProfileImageUrl(linked),
+      };
+    }
+  }
+
+  if (!isInfluencerExpenseRow(row)) return null;
+
+  const parsedName = parseInfluencerNameFromDescription(row.description);
+  if (parsedName) {
+    const matched = findInfluencerByName(influencers, parsedName);
+    if (matched) {
+      return {
+        id: String(matched.id),
+        name: matched.name,
+        imageUrl: resolveInfluencerProfileImageUrl(matched),
+      };
+    }
+    return { name: parsedName };
+  }
+
+  return null;
+}
+
+function influencerSearchHaystack(inf: Influencer) {
+  return [
+    inf.name,
+    inf.instagram?.handle,
+    inf.email,
+    inf.mobile,
+    inf.niche,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
 function isoDate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -139,6 +235,167 @@ const DEMO_EXPENSES: Transaction[] = [
   { id: uid(), date: "28/05", description: "Miscellaneous", amount: "280" },
 ];
 
+function InfluencerAvatar({
+  name,
+  imageUrl,
+  size = "md",
+}: {
+  name: string;
+  imageUrl?: string;
+  size?: "sm" | "md";
+}) {
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [imageUrl]);
+
+  const showImage = Boolean(imageUrl) && !imgError;
+  const cls = size === "sm" ? "sve-inf-avatar sve-inf-avatar--sm" : "sve-inf-avatar";
+
+  return (
+    <div className={cls} aria-hidden="true">
+      {showImage ? (
+        <img src={imageUrl} alt="" onError={() => setImgError(true)} />
+      ) : (
+        <span>{influencerInitials(name)}</span>
+      )}
+    </div>
+  );
+}
+
+function InfluencerExpensePicker({
+  row,
+  influencers,
+  onSelect,
+}: {
+  row: Transaction;
+  influencers: Influencer[];
+  onSelect: (influencerId: string | null, description: string) => void;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const linked = useMemo(() => resolveLinkedInfluencer(row, influencers), [row, influencers]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const sorted = [...influencers].sort((a, b) =>
+      String(a.name || "").localeCompare(String(b.name || "")),
+    );
+    if (!q) return sorted.slice(0, 12);
+    return sorted.filter((inf) => influencerSearchHaystack(inf).includes(q)).slice(0, 12);
+  }, [influencers, query]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDocClick = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+
+  const handlePick = (inf: Influencer) => {
+    onSelect(String(inf.id), buildInfluencerExpenseDescription(inf.name));
+    setQuery("");
+    setOpen(false);
+  };
+
+  const handleClear = () => {
+    onSelect(null, row.description.replace(/influencer\s*exp\s*\([^)]*\)/i, "Influencer Exp").trim());
+    setQuery("");
+    setOpen(false);
+  };
+
+  if (!isInfluencerExpenseRow(row) && !linked) {
+    return (
+      <div className="sve-inf-picker sve-inf-picker--link-only">
+        <button
+          type="button"
+          className="sve-inf-link-btn"
+          onClick={() => onSelect(null, "Influencer Exp")}
+        >
+          Link influencer
+        </button>
+        <span className="sve-capture-text sve-capture-text--inf">—</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="sve-inf-picker" ref={rootRef}>
+      {linked ? (
+        <div className="sve-inf-selected">
+          <InfluencerAvatar name={linked.name} imageUrl={linked.imageUrl} size="sm" />
+          <span className="sve-inf-selected__name">{linked.name}</span>
+          <button type="button" className="sve-inf-clear-btn" onClick={handleClear} title="Clear influencer">
+            ✕
+          </button>
+        </div>
+      ) : null}
+
+      <div className="sve-inf-picker-interactive">
+        <input
+          className="sve-input sve-inf-search"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          placeholder={linked ? "Change influencer…" : "Search influencers…"}
+          autoComplete="off"
+        />
+        {open && (
+          <div className="sve-inf-dropdown" role="listbox">
+            {filtered.length === 0 ? (
+              <div className="sve-inf-dropdown__empty">No influencers found</div>
+            ) : (
+              filtered.map((inf) => (
+                <button
+                  key={inf.id}
+                  type="button"
+                  className="sve-inf-dropdown__option"
+                  onClick={() => handlePick(inf)}
+                >
+                  <InfluencerAvatar name={inf.name} imageUrl={resolveInfluencerProfileImageUrl(inf)} size="sm" />
+                  <span className="sve-inf-dropdown__meta">
+                    <strong>{inf.name}</strong>
+                    {inf.instagram?.handle ? (
+                      <small>{inf.instagram.handle.startsWith("@") ? inf.instagram.handle : `@${inf.instagram.handle}`}</small>
+                    ) : null}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
+      <span className="sve-capture-text sve-capture-text--inf">
+        {linked ? linked.name : "—"}
+      </span>
+    </div>
+  );
+}
+
+function ReportInfluencerHeader({ influencers }: { influencers: ResolvedInfluencer[] }) {
+  if (influencers.length === 0) return null;
+
+  return (
+    <div className="sve-header-influencers" aria-label="Linked influencers">
+      {influencers.map((inf) => (
+        <div key={inf.id || inf.name} className="sve-header-influencer">
+          <InfluencerAvatar name={inf.name} imageUrl={inf.imageUrl} size="sm" />
+          <span className="sve-header-influencer__name">{inf.name}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ── Transaction table sub-component ── */
 type Color = "green" | "orange" | "red";
 
@@ -151,9 +408,24 @@ interface TransactionTableProps {
   onUpdate: (id: string, field: keyof Transaction, value: string) => void;
   onAdd: () => void;
   onRemove: (id: string) => void;
+  influencers?: Influencer[];
+  enableInfluencerPicker?: boolean;
+  onInfluencerSelect?: (id: string, influencerId: string | null, description: string) => void;
 }
 
-function TransactionTable({ rows, color, label, categoryLabel, periodIso, onUpdate, onAdd, onRemove }: TransactionTableProps) {
+function TransactionTable({
+  rows,
+  color,
+  label,
+  categoryLabel,
+  periodIso,
+  onUpdate,
+  onAdd,
+  onRemove,
+  influencers = [],
+  enableInfluencerPicker = false,
+  onInfluencerSelect,
+}: TransactionTableProps) {
   const total = rows.reduce((sum, t) => sum + toNum(t.amount), 0);
   return (
     <>
@@ -217,6 +489,15 @@ function TransactionTable({ rows, color, label, categoryLabel, periodIso, onUpda
                   onChange={(e) => onUpdate(row.id, "description", e.target.value)}
                   placeholder="Description"
                 />
+                {enableInfluencerPicker && onInfluencerSelect ? (
+                  <InfluencerExpensePicker
+                    row={row}
+                    influencers={influencers}
+                    onSelect={(influencerId, description) =>
+                      onInfluencerSelect(row.id, influencerId, description)
+                    }
+                  />
+                ) : null}
                 <span className="sve-capture-text">{row.description || "—"}</span>
               </td>
               <td className="sve-td-center">
@@ -282,6 +563,7 @@ function ProfitStrip({ label, value, tone }: { label: string; value: number; ton
 /* ── Main page ── */
 const SalesVsExpensesReportPage: React.FC = () => {
   const { ready, getPref, setPref, prefsVersion } = useUserPreferences();
+  const { influencers } = useInfluencers();
   const skipHistorySave = useRef(false);
 
   const [periodStart, setPeriodStart] = useState(() => {
@@ -338,6 +620,20 @@ const SalesVsExpensesReportPage: React.FC = () => {
 
   const periodIso = useMemo(() => (periodStart ? periodStart.slice(0, 7) : ""), [periodStart]);
 
+  const headerInfluencers = useMemo(() => {
+    const seen = new Set<string>();
+    const result: ResolvedInfluencer[] = [];
+    for (const row of expenses) {
+      const resolved = resolveLinkedInfluencer(row, influencers);
+      if (!resolved) continue;
+      const key = resolved.id || resolved.name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(resolved);
+    }
+    return result;
+  }, [expenses, influencers]);
+
   /* Row handlers */
   const makeUpdater = useCallback(
     (setter: React.Dispatch<React.SetStateAction<Transaction[]>>) =>
@@ -355,6 +651,21 @@ const SalesVsExpensesReportPage: React.FC = () => {
       setter((prev) => prev.filter((r) => r.id !== id)),
     []
   );
+
+  const handleInfluencerSelect = useCallback((id: string, influencerId: string | null, description: string) => {
+    setExpenses((prev) =>
+      prev.map((row) => {
+        if (row.id !== id) return row;
+        const next: Transaction = { ...row, description };
+        if (influencerId) {
+          next.influencerId = influencerId;
+        } else {
+          delete next.influencerId;
+        }
+        return next;
+      }),
+    );
+  }, []);
 
   /* Save */
   const handleSave = useCallback(() => {
@@ -467,6 +778,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
               Sales <span className="sve-title-vs">vs</span> Expenses
             </h1>
             <div className="sve-subtitle">Track your financial performance and key metrics</div>
+            <ReportInfluencerHeader influencers={headerInfluencers} />
           </div>
 
           <div className="sve-period-box">
@@ -584,6 +896,9 @@ const SalesVsExpensesReportPage: React.FC = () => {
             onUpdate={makeUpdater(setExpenses)}
             onAdd={makeAdder(setExpenses)}
             onRemove={makeRemover(setExpenses)}
+            influencers={influencers}
+            enableInfluencerPicker
+            onInfluencerSelect={handleInfluencerSelect}
           />
           <ProfitStrip label="Net Profit" value={totals.netProfit} tone="teal" />
         </div>
