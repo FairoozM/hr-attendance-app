@@ -64,6 +64,9 @@ export function normalizeTask(row) {
     // Blocker
     blockedReason:   row.blocked_reason || null,
 
+    // Dev workflow metadata (Phase 6C)
+    devMeta:         row.dev_meta && typeof row.dev_meta === 'object' ? row.dev_meta : {},
+
     // Meta
     sortOrder:       row.sort_order ?? 0,
     archived:        row.archived || false,

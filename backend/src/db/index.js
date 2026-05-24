@@ -1442,6 +1442,9 @@ async function ensureProjectTasksTeamColumns() {
   // Blocker reason (free text explanation when status = 'Blocked')
   await query(`ALTER TABLE project_tasks ADD COLUMN IF NOT EXISTS blocked_reason TEXT`)
 
+  // Dev workflow metadata: branch, PR URL, PR status, commit ref (Phase 6C)
+  await query(`ALTER TABLE project_tasks ADD COLUMN IF NOT EXISTS dev_meta JSONB NOT NULL DEFAULT '{}'::jsonb`)
+
   // Indexes on frequently filtered columns
   await query(`CREATE INDEX IF NOT EXISTS idx_project_tasks_assignee ON project_tasks(assignee_user_id)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_project_tasks_issue_type ON project_tasks(issue_type)`)

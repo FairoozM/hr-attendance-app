@@ -3,12 +3,13 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { X, GitBranch, Link2, GitCommit, Trash2 } from 'lucide-react'
+import { X, Trash2 } from 'lucide-react'
 import { issueKey } from './IssueRow'
 import { IssueProperties } from './IssueProperties'
 import { IssueComments } from './IssueComments'
 import { IssueActivity } from './IssueActivity'
 import { IssueAIAssistant } from './IssueAIAssistant'
+import { IssueDevWorkflow } from './IssueDevWorkflow'
 import './IssueDetailPanel.css'
 
 const TABS = [
@@ -16,6 +17,7 @@ const TABS = [
   { id: 'comments', label: 'Comments' },
   { id: 'activity', label: 'Activity' },
   { id: 'ai',       label: 'AI'       },
+  { id: 'dev',      label: 'Dev'      },
 ]
 
 /** Map UI camelCase patch → API snake_case body */
@@ -32,6 +34,7 @@ function toApiPayload(patch) {
   if (patch.blockedReason !== undefined) out.blocked_reason = patch.blockedReason
   if (patch.sprintId !== undefined) out.sprint_id = patch.sprintId == null ? null : Number(patch.sprintId)
   if (patch.labels !== undefined) out.labels = Array.isArray(patch.labels) ? patch.labels : []
+  if (patch.devMeta !== undefined) out.dev_meta = patch.devMeta
   return out
 }
 
@@ -44,8 +47,6 @@ export function IssueDetailPanel({
   onClose,
   onUpdate,
   onDelete,
-  githubMeta,
-  onGithubMetaChange,
 }) {
   const [tab, setTab] = useState('details')
   const [title, setTitle] = useState('')
@@ -60,7 +61,6 @@ export function IssueDetailPanel({
   const titleRef = useRef(null)
 
   const key = issue ? issueKey(project?.name, issue.id) : ''
-  const gh = githubMeta || {}
 
   useEffect(() => {
     if (!issue) return
@@ -154,6 +154,11 @@ export function IssueDetailPanel({
   const handleAiReplaceTitle = useCallback((text) => {
     setTitle(text)
     persist({ title: text })
+  }, [persist])
+
+  // ── Dev Workflow callback ─────────────────────────────────────────────────
+  const handleSaveDevMeta = useCallback(async (devMeta) => {
+    await persist({ devMeta })
   }, [persist])
 
   const handleDeleteConfirm = useCallback(async () => {
@@ -254,60 +259,6 @@ export function IssueDetailPanel({
                 />
               </section>
 
-              <section className="idp__section idp__section--github">
-                <h3 className="idp__section-title">GitHub</h3>
-                <p className="idp__github-note">
-                  Link PRs and branches when integration is enabled. Not saved to the server yet.
-                </p>
-                <label className="idp__gh-field">
-                  <GitBranch size={12} aria-hidden="true" />
-                  <span>Branch</span>
-                  <input
-                    type="text"
-                    className="idp__gh-input"
-                    value={gh.branch || ''}
-                    onChange={(e) => onGithubMetaChange?.({ ...gh, branch: e.target.value })}
-                    placeholder="feature/web-checkout"
-                  />
-                </label>
-                <label className="idp__gh-field">
-                  <Link2 size={12} aria-hidden="true" />
-                  <span>PR URL</span>
-                  <input
-                    type="url"
-                    className="idp__gh-input"
-                    value={gh.prUrl || ''}
-                    onChange={(e) => onGithubMetaChange?.({ ...gh, prUrl: e.target.value })}
-                    placeholder="https://github.com/…/pull/42"
-                  />
-                </label>
-                <label className="idp__gh-field">
-                  <span className="idp__gh-icon">PR</span>
-                  <span>PR status</span>
-                  <select
-                    className="idp__gh-input"
-                    value={gh.prStatus || ''}
-                    onChange={(e) => onGithubMetaChange?.({ ...gh, prStatus: e.target.value })}
-                  >
-                    <option value="">—</option>
-                    <option value="open">Open</option>
-                    <option value="merged">Merged</option>
-                    <option value="closed">Closed</option>
-                  </select>
-                </label>
-                <label className="idp__gh-field">
-                  <GitCommit size={12} aria-hidden="true" />
-                  <span>Commit</span>
-                  <input
-                    type="text"
-                    className="idp__gh-input"
-                    value={gh.commitRef || ''}
-                    onChange={(e) => onGithubMetaChange?.({ ...gh, commitRef: e.target.value })}
-                    placeholder="a1b2c3d"
-                  />
-                </label>
-              </section>
-
               {onDelete && (
                 <section className="idp__danger">
                   {!deleteConfirmOpen ? (
@@ -382,6 +333,15 @@ export function IssueDetailPanel({
               onInsertDescription={handleAiInsertDescription}
               onAppendDescription={handleAiAppendDescription}
               onReplaceTitle={handleAiReplaceTitle}
+            />
+          )}
+
+          {tab === 'dev' && (
+            <IssueDevWorkflow
+              issue={issue}
+              project={project}
+              cycles={cycles}
+              onSaveDevMeta={handleSaveDevMeta}
             />
           )}
         </div>

@@ -285,6 +285,17 @@ export function IssueRow({
           </span>
         )}
 
+        {/* PR status chip — shown when dev_meta has a prStatus set */}
+        {issue.devMeta?.prStatus && (
+          <span
+            className={`ir__pr-chip ir__pr-chip--${issue.devMeta.prStatus}`}
+            title={`PR: ${issue.devMeta.prStatus}`}
+          >
+            <GitPullRequest size={10} strokeWidth={2.2} aria-hidden="true" />
+            {issue.devMeta.prStatus === 'in_review' ? 'Review' : issue.devMeta.prStatus.charAt(0).toUpperCase() + issue.devMeta.prStatus.slice(1)}
+          </span>
+        )}
+
         {/* Project chip */}
         {project && (
           <span

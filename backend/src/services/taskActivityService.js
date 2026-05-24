@@ -78,6 +78,20 @@ async function logTaskFieldChanges(before, after, fields, actorUserId) {
   if (fields.description !== undefined && String(before.description || '') !== String(after.description || '')) {
     await logActivity(after.id, actorUserId, 'description_updated', null, null, { truncated: true })
   }
+
+  if (fields.dev_meta !== undefined) {
+    // Log a single compact activity entry when dev metadata changes
+    const beforeMeta = before.dev_meta || {}
+    const afterMeta  = after.dev_meta  || {}
+    const changed = Object.keys(afterMeta).some((k) => {
+      const bv = beforeMeta[k] == null ? '' : String(beforeMeta[k])
+      const av = afterMeta[k]  == null ? '' : String(afterMeta[k])
+      return bv !== av
+    })
+    if (changed) {
+      await logActivity(after.id, actorUserId, 'dev_meta_updated', null, null, { summary: 'Dev metadata updated' })
+    }
+  }
 }
 
 module.exports = {

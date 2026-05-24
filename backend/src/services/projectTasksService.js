@@ -214,6 +214,8 @@ async function updateTask(taskId, fields, actorUserId = null) {
     // Phase 1 team-planner fields
     'assignee_user_id', 'reporter_user_id', 'reviewer_user_id',
     'issue_type', 'sprint_id', 'story_points', 'blocked_reason',
+    // Phase 6C dev workflow metadata
+    'dev_meta',
   ]
   const sets = []
   const values = []
@@ -221,8 +223,15 @@ async function updateTask(taskId, fields, actorUserId = null) {
 
   for (const key of allowed) {
     if (fields[key] !== undefined) {
-      sets.push(`${key} = $${idx}`)
-      values.push(fields[key] === '' ? null : fields[key])
+      if (key === 'dev_meta') {
+        // Merge incoming dev_meta object with existing; never wipe unrelated keys
+        const incoming = (fields[key] && typeof fields[key] === 'object') ? fields[key] : {}
+        sets.push(`dev_meta = dev_meta || $${idx}::jsonb`)
+        values.push(JSON.stringify(incoming))
+      } else {
+        sets.push(`${key} = $${idx}`)
+        values.push(fields[key] === '' ? null : fields[key])
+      }
       idx++
     }
   }
