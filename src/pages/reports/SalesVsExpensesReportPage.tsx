@@ -630,6 +630,158 @@ function ProfitStrip({ label, value, tone }: { label: string; value: number; ton
   );
 }
 
+type ReportViewMode = "desktop" | "mobile";
+
+function MobileKpiCard({
+  tone,
+  icon,
+  label,
+  value,
+  footer,
+}: {
+  tone: "green" | "orange" | "red" | "blue";
+  icon: string;
+  label: string;
+  value: number;
+  footer: React.ReactNode;
+}) {
+  return (
+    <div className={`sve-mobile-kpi sve-mobile-kpi--${tone}`}>
+      <div className="sve-mobile-kpi__icon">
+        <span className="sve-icon-glyph">{icon}</span>
+      </div>
+      <div className="sve-mobile-kpi__body">
+        <div className="sve-mobile-kpi__label">{label}</div>
+        <div className="sve-mobile-kpi__value">{fmt(value)}</div>
+        <div className="sve-mobile-kpi__footer">{footer}</div>
+      </div>
+    </div>
+  );
+}
+
+function MobileTransactionSection({
+  rows,
+  color,
+  label,
+  categoryLabel,
+  periodIso,
+  onUpdate,
+  onAdd,
+  onRemove,
+  influencers = [],
+  enableInfluencerPicker = false,
+  onInfluencerSelect,
+}: TransactionTableProps) {
+  const total = rows.reduce((sum, t) => sum + toNum(t.amount), 0);
+  return (
+    <section className={`sve-mobile-section sve-mobile-section--${color}`}>
+      <h3 className={`sve-mobile-section__title sve-mobile-section__title--${color}`}>
+        <span className={`sve-dot sve-dot--${color}`} />
+        {label}
+      </h3>
+      <div className="sve-mobile-section__cards">
+        {rows.map((row, i) => {
+          const dateWd = weekdayLabelForDateValue(periodIso, row.date);
+          const [dateStart = "", dateEnd = ""] = datePartsFromRowDate(row.date);
+          return (
+            <div key={row.id} className="sve-mobile-transaction-card">
+              <div className="sve-mobile-transaction-card__top">
+                <span className="sve-mobile-transaction-card__index">#{i + 1}</span>
+                <span className={`sve-category sve-category--${color}`}>
+                  <span className="sve-category-text">{categoryLabel}</span>
+                </span>
+                <button
+                  type="button"
+                  className="sve-remove-btn sve-mobile-transaction-card__remove"
+                  onClick={() => onRemove(row.id)}
+                  title="Remove row"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="sve-mobile-transaction-card__field">
+                <span className="sve-mobile-transaction-card__label">Date</span>
+                <div className="sve-date-box sve-mobile-transaction-card__date">
+                  <div className="sve-date-input-wrap">
+                    <input
+                      className="sve-input sve-input--date-part"
+                      value={dateStart}
+                      onChange={(e) => {
+                        onUpdate(row.id, "date", composeRowDate(formatDdMmInput(e.target.value), dateEnd));
+                      }}
+                      placeholder="DD/MM"
+                      maxLength={5}
+                    />
+                    <span className="sve-date-range-separator">-</span>
+                    <input
+                      className={`sve-input sve-input--date-part ${dateEnd ? "" : "sve-input--date-end-empty"}`}
+                      value={dateEnd}
+                      onChange={(e) => {
+                        onUpdate(row.id, "date", composeRowDate(dateStart, formatDdMmInput(e.target.value)));
+                      }}
+                      placeholder="To"
+                      maxLength={5}
+                    />
+                    <span className="sve-capture-text sve-capture-text--date">{row.date || "—"}</span>
+                  </div>
+                  {dateWd ? (
+                    <span className="sve-date-weekday-pill" title={dateWd}>
+                      <span className="sve-date-weekday-text">{dateWd}</span>
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+              <div className="sve-mobile-transaction-card__field">
+                <span className="sve-mobile-transaction-card__label">Description</span>
+                <input
+                  className="sve-input sve-mobile-transaction-card__input"
+                  value={row.description}
+                  onChange={(e) => onUpdate(row.id, "description", e.target.value)}
+                  placeholder="Description"
+                />
+                {enableInfluencerPicker && onInfluencerSelect ? (
+                  <InfluencerExpensePicker
+                    row={row}
+                    influencers={influencers}
+                    onSelect={(influencerId, description) =>
+                      onInfluencerSelect(row.id, influencerId, description)
+                    }
+                  />
+                ) : null}
+                <span className="sve-capture-text">{row.description || "—"}</span>
+              </div>
+              <div className="sve-mobile-transaction-card__field">
+                <span className="sve-mobile-transaction-card__label">Amount (AED)</span>
+                <input
+                  className={`sve-input sve-input--amount sve-input--${color} sve-mobile-transaction-card__input`}
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={row.amount}
+                  onChange={(e) => onUpdate(row.id, "amount", e.target.value)}
+                  placeholder="0.00"
+                />
+                <span className={`sve-capture-text sve-capture-text--amount sve-clr-${color}`}>
+                  {row.amount ? fmt(toNum(row.amount)) : "—"}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="sve-add-row-wrap">
+        <button type="button" className={`sve-add-btn sve-add-btn--${color}`} onClick={onAdd}>
+          + Add row
+        </button>
+      </div>
+      <div className={`sve-mobile-section__total sve-mobile-section__total--${color}`}>
+        <span>TOTAL {categoryLabel.toUpperCase()}</span>
+        <strong>{fmt(total)}</strong>
+      </div>
+    </section>
+  );
+}
+
 /* ── Main page ── */
 const SalesVsExpensesReportPage: React.FC = () => {
   const navigate = useNavigate();
@@ -651,6 +803,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [reportViewMode, setReportViewMode] = useState<ReportViewMode>("desktop");
   const reportRef = useRef<HTMLDivElement>(null);
 
   const applySavedReport = useCallback((record: SavedReport) => {
@@ -884,10 +1037,38 @@ const SalesVsExpensesReportPage: React.FC = () => {
     setTimeout(() => setSavedMsg(null), 3000);
   }, [navigate]);
 
+  const reportClassName = [
+    "sve-report",
+    reportViewMode === "mobile" ? "sve-report--mobile" : "sve-report--desktop",
+    isCapturing ? "is-capturing" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <div className="sve-page">
-      <div className={`sve-report${isCapturing ? " is-capturing" : ""}`} ref={reportRef}>
+      {!isCapturing && (
+        <div className="sve-view-toggle" role="group" aria-label="Report view mode">
+          <button
+            type="button"
+            className={`sve-view-toggle__btn${reportViewMode === "desktop" ? " sve-view-toggle__btn--active" : ""}`}
+            onClick={() => setReportViewMode("desktop")}
+          >
+            Desktop View
+          </button>
+          <button
+            type="button"
+            className={`sve-view-toggle__btn${reportViewMode === "mobile" ? " sve-view-toggle__btn--active" : ""}`}
+            onClick={() => setReportViewMode("mobile")}
+          >
+            Mobile View
+          </button>
+        </div>
+      )}
 
+      <div className={reportClassName} ref={reportRef}>
+        {reportViewMode === "desktop" ? (
+        <>
         {/* ── Header ── */}
         <div className="sve-header">
           <div>
@@ -1024,6 +1205,112 @@ const SalesVsExpensesReportPage: React.FC = () => {
           />
           <ProfitStrip label="Net Profit" value={totals.netProfit} tone="teal" />
         </div>
+        </>
+        ) : (
+        <>
+        {/* ── Mobile Header ── */}
+        <div className="sve-header sve-mobile-header">
+          <div className="sve-mobile-header__intro">
+            <div className="sve-badge">
+              <span className="sve-badge-text">Financial Overview</span>
+            </div>
+            <h1 className="sve-title">
+              Sales <span className="sve-title-vs">vs</span> Expenses
+            </h1>
+            <div className="sve-subtitle">Track your financial performance and key metrics</div>
+          </div>
+
+          <div className="sve-header-right sve-mobile-header__meta">
+            <div className="sve-period-box sve-mobile-period-box">
+              <div className="sve-period-icon"><span className="sve-icon-glyph">▣</span></div>
+              <div>
+                <div className="sve-period-label">Reporting Period</div>
+                <div className="sve-period-range">
+                  <label className="sve-period-range__field">
+                    <span>From</span>
+                    <input
+                      type="date"
+                      className="sve-period-input"
+                      value={periodStart}
+                      onChange={(e) => setPeriodStart(e.target.value)}
+                    />
+                  </label>
+                  <label className="sve-period-range__field">
+                    <span>To</span>
+                    <input
+                      type="date"
+                      className="sve-period-input"
+                      value={periodEnd}
+                      onChange={(e) => setPeriodEnd(e.target.value)}
+                    />
+                  </label>
+                </div>
+                <div className="sve-period-date">{periodLabel}</div>
+              </div>
+            </div>
+            <ReportInfluencerHeader influencers={headerInfluencers} />
+          </div>
+        </div>
+
+        {/* ── Mobile KPI Cards ── */}
+        <div className="sve-mobile-kpi-stack">
+          <MobileKpiCard tone="green" icon="↗" label="Total Sales" value={totals.sales} footer="Gross revenue" />
+          <MobileKpiCard tone="orange" icon="🏷️" label="Total Item Cost" value={totals.costs} footer="COGS" />
+          <MobileKpiCard tone="red" icon="▤" label="Total Expense" value={totals.expenses} footer="Operating expenses" />
+          <MobileKpiCard
+            tone="blue"
+            icon="💰"
+            label="Net Profit"
+            value={totals.netProfit}
+            footer={
+              <>
+                Margin: <b>{totals.margin.toFixed(1)}%</b>
+              </>
+            }
+          />
+        </div>
+
+        {/* ── Mobile Transaction Sections ── */}
+        <div className="sve-transaction-card sve-mobile-transactions">
+          <div className="sve-card-title">Transaction Details</div>
+          <MobileTransactionSection
+            rows={sales}
+            color="green"
+            label="Sales Transactions"
+            categoryLabel="Sales"
+            periodIso={periodIso}
+            onUpdate={makeUpdater(setSales)}
+            onAdd={makeAdder(setSales)}
+            onRemove={makeRemover(setSales)}
+          />
+          <MobileTransactionSection
+            rows={costs}
+            color="orange"
+            label="Item Cost Transactions"
+            categoryLabel="Item Cost"
+            periodIso={periodIso}
+            onUpdate={makeUpdater(setCosts)}
+            onAdd={makeAdder(setCosts)}
+            onRemove={makeRemover(setCosts)}
+          />
+          <ProfitStrip label="Gross Profit" value={totals.grossProfit} tone="blue" />
+          <MobileTransactionSection
+            rows={expenses}
+            color="red"
+            label="Expense Transactions"
+            categoryLabel="Expense"
+            periodIso={periodIso}
+            onUpdate={makeUpdater(setExpenses)}
+            onAdd={makeAdder(setExpenses)}
+            onRemove={makeRemover(setExpenses)}
+            influencers={influencers}
+            enableInfluencerPicker
+            onInfluencerSelect={handleInfluencerSelect}
+          />
+          <ProfitStrip label="Net Profit" value={totals.netProfit} tone="teal" />
+        </div>
+        </>
+        )}
 
         {/* ── Actions ── */}
         <div className="sve-actions">
