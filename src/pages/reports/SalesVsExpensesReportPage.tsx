@@ -876,13 +876,11 @@ const SalesVsExpensesReportPage: React.FC = () => {
 
   const loadRecord = useCallback((record: SavedReport) => {
     const normalized = normalizeSavedReport(record);
-    appliedReportIdRef.current = normalized.id;
     navigate(`${SVE_BASE_PATH}/${encodeURIComponent(normalized.id)}`);
-    applySavedReport(normalized);
     setHistoryOpen(false);
     setSavedMsg(`Loaded report: "${normalized.period}"`);
     setTimeout(() => setSavedMsg(null), 3000);
-  }, [navigate, applySavedReport]);
+  }, [navigate]);
 
   return (
     <div className="sve-page">
