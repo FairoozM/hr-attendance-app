@@ -694,14 +694,19 @@
 .sve-amount--red { color: #ef4444; }
 
 .sve-total-row td { font-weight: 800; font-size: 17px; }
-.sve-total-row__label {
+.sve-total-row__summary {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 14px;
   text-align: right;
+  white-space: nowrap;
+}
+.sve-total-row__label {
   font-weight: 800;
   font-size: 17px;
   color: #334155;
   letter-spacing: 0.02em;
-  white-space: nowrap;
-  padding-right: 12px;
 }
 .sve-total-row--green td { background: #f0fdf4; }
 .sve-total-row--orange td { background: #fff7ed; }
@@ -1007,6 +1012,7 @@
 .sve-report.is-capturing .sve-category,
 .sve-report.is-capturing .sve-profit-strip,
 .sve-report.is-capturing .sve-total-row__label,
+.sve-report.is-capturing .sve-total-row__summary,
 .sve-report.is-capturing .sve-total-row .sve-amount {
   line-height: 1.2;
 }
@@ -1025,6 +1031,7 @@
 .sve-report.is-capturing .sve-profit-strip span,
 .sve-report.is-capturing .sve-profit-strip strong,
 .sve-report.is-capturing .sve-total-row__label,
+.sve-report.is-capturing .sve-total-row__summary,
 .sve-report.is-capturing .sve-total-row .sve-amount {
   position: relative;
   top: -7px;
@@ -1103,6 +1110,24 @@
 .sve-report.is-capturing .sve-table th:last-child,
 .sve-report.is-capturing .sve-table td:last-child {
   display: none !important;
+}
+
+.sve-report.is-capturing .sve-total-row__summary {
+  display: flex !important;
+  justify-content: flex-end !important;
+  align-items: center;
+  overflow: visible;
+  white-space: nowrap;
+}
+
+.sve-report.is-capturing .sve-total-row__label {
+  overflow: visible;
+  text-overflow: clip;
+  flex-shrink: 0;
+}
+
+.sve-report.is-capturing .sve-total-row .sve-amount {
+  flex-shrink: 0;
 }
 
 /* ── Responsive ── */

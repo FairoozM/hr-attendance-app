@@ -604,8 +604,10 @@ function TransactionTable({
           })}
           <tr className={`sve-total-row sve-total-row--${color}`}>
             <td colSpan={3} aria-hidden="true" />
-            <td className="sve-total-row__label">TOTAL {categoryLabel.toUpperCase()}</td>
-            <td className={`sve-amount sve-amount--${color}`}>{fmt(total)}</td>
+            <td colSpan={2} className="sve-total-row__summary">
+              <span className="sve-total-row__label">TOTAL {categoryLabel.toUpperCase()}</span>
+              <span className={`sve-amount sve-amount--${color}`}>{fmt(total)}</span>
+            </td>
             <td aria-hidden="true" />
           </tr>
         </tbody>
