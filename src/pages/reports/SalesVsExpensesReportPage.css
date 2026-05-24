@@ -694,6 +694,19 @@
 .sve-amount--red { color: #ef4444; }
 
 .sve-total-row td { font-weight: 800; font-size: 17px; }
+.sve-total-row__summary {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 16px;
+  text-align: right;
+}
+.sve-total-row__label {
+  font-weight: 800;
+  font-size: 17px;
+  color: #334155;
+  letter-spacing: 0.02em;
+}
 .sve-total-row--green td { background: #f0fdf4; }
 .sve-total-row--orange td { background: #fff7ed; }
 .sve-total-row--red td { background: #fff1f2; }
@@ -996,7 +1009,9 @@
 .sve-report.is-capturing .sve-table th,
 .sve-report.is-capturing .sve-table td,
 .sve-report.is-capturing .sve-category,
-.sve-report.is-capturing .sve-profit-strip {
+.sve-report.is-capturing .sve-profit-strip,
+.sve-report.is-capturing .sve-total-row__label,
+.sve-report.is-capturing .sve-total-row__summary .sve-amount {
   line-height: 1.2;
 }
 
@@ -1012,7 +1027,9 @@
 .sve-report.is-capturing .sve-capture-text,
 .sve-report.is-capturing .sve-date-weekday-text,
 .sve-report.is-capturing .sve-profit-strip span,
-.sve-report.is-capturing .sve-profit-strip strong {
+.sve-report.is-capturing .sve-profit-strip strong,
+.sve-report.is-capturing .sve-total-row__label,
+.sve-report.is-capturing .sve-total-row__summary .sve-amount {
   position: relative;
   top: -7px;
 }
