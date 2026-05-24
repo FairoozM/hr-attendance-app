@@ -893,7 +893,7 @@ const SalesVsExpensesReportPage: React.FC = () => {
             <h1 className="sve-title">
               Sales <span className="sve-title-vs">vs</span> Expenses
             </h1>
-            <div className="sve-subtitle">Track your financial performance and key metrics</div>
+            <div className="sve-subtitle">Sales, item cost, and expenses by period.</div>
           </div>
 
           <div className="sve-header-right">
