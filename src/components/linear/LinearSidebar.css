@@ -168,8 +168,8 @@
   border-radius: 50%;
   flex-shrink: 0;
 }
-.lsb-label-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.lsb-cycles-manage {
+  color: var(--theme-text-muted, #6b7280);
+  font-style: italic;
+  gap: 0.4rem;
 }

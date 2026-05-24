@@ -271,12 +271,55 @@ export const activityApi = {
     ),
 }
 
-// ─── Sprints ─────────────────────────────────────────────────────────────────
+// ─── Cycles (Phase 4B) ───────────────────────────────────────────────────────
+// User-facing: "Cycle". Backed by the `sprints` table internally.
+
+/**
+ * Normalise a server sprint row into a UI-friendly Cycle object.
+ * Maps: sprint.status 'draft' → 'planned'; otherwise preserves value.
+ */
+export function normalizeCycle(row) {
+  if (!row) return null
+  const rawStatus = row.status || 'planned'
+  const status = rawStatus === 'draft' ? 'planned' : rawStatus
+  return {
+    id:          row.id,
+    projectId:   row.project_id,
+    name:        row.name || '',
+    goal:        row.goal || null,
+    status,          // 'planned' | 'active' | 'completed'
+    startDate:   row.start_date || null,
+    endDate:     row.end_date || null,
+    completedAt: row.completed_at || null,
+    sortOrder:   row.sort_order ?? 0,
+    createdBy:   row.created_by || null,
+    createdAt:   row.created_at || null,
+    updatedAt:   row.updated_at || null,
+  }
+}
+
+export const cyclesApi = {
+  /** List cycles for a project (GET /api/projects/:projectId/cycles). */
+  list: (projectId) =>
+    api.get(`/api/projects/${projectId}/cycles`).then((rows) =>
+      Array.isArray(rows) ? rows.map(normalizeCycle) : []
+    ),
+
+  /** Create a cycle (POST /api/projects/:projectId/cycles). */
+  create: (projectId, data) =>
+    api.post(`/api/projects/${projectId}/cycles`, data).then(normalizeCycle),
+
+  /** Update a cycle (PATCH /api/projects/:projectId/cycles/:cycleId). */
+  update: (projectId, cycleId, data) =>
+    api.patch(`/api/projects/${projectId}/cycles/${cycleId}`, data).then(normalizeCycle),
+}
+
+// ─── Sprints (legacy placeholder — superseded by cyclesApi above) ─────────────
 
 export const sprintsApi = {
   /**
-   * List sprints for a project.
-   * Route will be wired in Phase 5 — placeholder for now.
+   * Legacy placeholder — superseded by cyclesApi.
+   * Kept for backward-compatibility only; not used by the UI.
    */
   list: (projectId) =>
     api.get(`/api/sprints?project_id=${projectId}`),
@@ -318,6 +361,7 @@ export default {
   tasks:     tasksApi,
   comments:  commentsApi,
   activity:  activityApi,
+  cycles:    cyclesApi,
   sprints:   sprintsApi,
   team:      teamApi,
 
@@ -327,4 +371,5 @@ export default {
   normalizeMember,
   normalizeComment,
   normalizeActivity,
+  normalizeCycle,
 }

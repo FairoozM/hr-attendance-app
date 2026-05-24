@@ -14,6 +14,7 @@ export function IssueListGroup({
   issues = [],
   projectMap = {},
   memberMap  = {},
+  cycleMap   = {},
   selectedId,
   selectedProjectId,
   onSelect,
@@ -61,6 +62,7 @@ export function IssueListGroup({
               issue={issue}
               project={projectMap[issue.projectId] || null}
               member={issue.assigneeUserId ? memberMap[issue.assigneeUserId] : null}
+              cycle={issue.sprintId ? cycleMap[issue.sprintId] : null}
               isSelected={
                 selectedId === issue.id &&
                 (selectedProjectId == null || selectedProjectId === issue.projectId)

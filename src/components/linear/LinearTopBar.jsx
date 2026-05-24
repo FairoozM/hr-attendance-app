@@ -4,7 +4,7 @@
  * Search · filter chips · label filter · grouping selector · New Issue button
  */
 import { useState, useRef, useEffect } from 'react'
-import { Search, X, ChevronDown, Plus, SlidersHorizontal, Tag } from 'lucide-react'
+import { Search, X, ChevronDown, Plus, SlidersHorizontal, Tag, RotateCcw } from 'lucide-react'
 import { DEFAULT_LABELS, labelColors } from './linearLabels'
 import './LinearTopBar.css'
 
@@ -110,6 +110,109 @@ function LabelFilterDropdown({ activeLabel, onSelect }) {
   )
 }
 
+function CycleFilterDropdown({ activeCycle, cycles = [], onSelect }) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const btnRef = useRef(null)
+  const menuRef = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handle(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target) &&
+          btnRef.current && !btnRef.current.contains(e.target)) {
+        setOpen(false); setSearch('')
+      }
+    }
+    function onKey(e) { if (e.key === 'Escape') { setOpen(false); setSearch('') } }
+    document.addEventListener('mousedown', handle)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', handle)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const filtered = cycles.filter(
+    (c) => search === '' || c.name.toLowerCase().includes(search.toLowerCase())
+  )
+
+  const activeCycleName = activeCycle === 'none'
+    ? 'No Cycle'
+    : activeCycle != null
+      ? cycles.find((c) => c.id === activeCycle)?.name || 'Cycle'
+      : null
+
+  return (
+    <div className="ltb__label-wrap">
+      <button
+        ref={btnRef}
+        type="button"
+        className={`ltb__chip ltb__chip--label ${activeCycle != null ? 'ltb__chip--on' : ''}`}
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+      >
+        <RotateCcw size={11} strokeWidth={2} aria-hidden="true" />
+        {activeCycleName || 'Cycle'}
+        {activeCycle != null && (
+          <span
+            className="ltb__label-clear"
+            onClick={(e) => { e.stopPropagation(); onSelect(null) }}
+            role="button"
+            aria-label="Clear cycle filter"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onSelect(null) } }}
+          >
+            <X size={9} strokeWidth={2.5} aria-hidden="true" />
+          </span>
+        )}
+        <ChevronDown size={9} strokeWidth={2} aria-hidden="true" />
+      </button>
+
+      {open && (
+        <div ref={menuRef} className="ltb__label-menu" role="listbox">
+          <input
+            type="text"
+            className="ltb__label-search"
+            placeholder="Filter cycles…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            autoFocus
+          />
+          <div className="ltb__label-options">
+            {/* No Cycle option */}
+            <button
+              type="button"
+              className={`ltb__label-option ${activeCycle === 'none' ? 'ltb__label-option--on' : ''}`}
+              onClick={() => { onSelect(activeCycle === 'none' ? null : 'none'); setOpen(false); setSearch('') }}
+            >
+              <span className="ltb__label-dot" style={{ background: '#6b7280' }} />
+              No Cycle
+            </button>
+
+            {filtered.map((c) => {
+              const dotColor = c.status === 'active' ? '#6ee7b7' : c.status === 'completed' ? '#9ca3af' : '#a5b4fc'
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={`ltb__label-option ${activeCycle === c.id ? 'ltb__label-option--on' : ''}`}
+                  onClick={() => { onSelect(activeCycle === c.id ? null : c.id); setOpen(false); setSearch('') }}
+                >
+                  <span className="ltb__label-dot" style={{ background: dotColor }} />
+                  {c.name}
+                </button>
+              )
+            })}
+            {filtered.length === 0 && search && <p className="ltb__label-empty">No cycles found</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function LinearTopBar({
   search,
   onSearch,
@@ -119,6 +222,9 @@ export function LinearTopBar({
   onFilterToggle,
   activeLabel,
   onLabelFilter,
+  activeCycle,
+  onCycleFilter,
+  cycles = [],
   onNewIssue,
   title = 'All Issues',
   issueCount = null,
@@ -174,6 +280,12 @@ export function LinearTopBar({
           <LabelFilterDropdown
             activeLabel={activeLabel}
             onSelect={onLabelFilter}
+          />
+          {/* Cycle filter */}
+          <CycleFilterDropdown
+            activeCycle={activeCycle}
+            cycles={cycles}
+            onSelect={onCycleFilter}
           />
         </div>
 

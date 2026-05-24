@@ -4,6 +4,7 @@ const projectsController = require('../controllers/projectsController')
 const projectTasksController = require('../controllers/projectTasksController')
 const taskCommentsController = require('../controllers/taskCommentsController')
 const taskActivityController = require('../controllers/taskActivityController')
+const projectCyclesController = require('../controllers/projectCyclesController')
 
 const router = express.Router()
 
@@ -54,6 +55,12 @@ router.get(
 // ---- Dependencies ----
 router.post('/:projectId/tasks/:taskId/dependencies', ...manage, projectTasksController.addDependency)
 router.delete('/:projectId/tasks/:taskId/dependencies/:depId', ...manage, projectTasksController.removeDependency)
+
+// ---- Cycles (Phase 4B) — backed by sprints table internally ----
+// UI says "Cycle"; DB column/table remains sprint_id / sprints.
+router.get(   '/:projectId/cycles',            ...view,   projectCyclesController.listCycles)
+router.post(  '/:projectId/cycles',            ...manage, projectCyclesController.createCycle)
+router.patch( '/:projectId/cycles/:cycleId',   ...manage, projectCyclesController.updateCycle)
 
 // ---- Attachments ----
 router.post(

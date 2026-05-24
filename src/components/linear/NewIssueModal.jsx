@@ -44,6 +44,7 @@ export function NewIssueModal({
   onCreate,
   projects = [],
   members  = [],
+  cycles   = [],
 }) {
   const [title,      setTitle]      = useState('')
   const [status,     setStatus]     = useState('Todo')
@@ -52,6 +53,7 @@ export function NewIssueModal({
   const [assigneeId, setAssigneeId] = useState('')
   const [projectId,  setProjectId]  = useState('')
   const [labels,     setLabels]     = useState([])
+  const [cycleId,    setCycleId]    = useState('')
   const [saving,     setSaving]     = useState(false)
   const [error,      setError]      = useState('')
   const titleRef = useRef(null)
@@ -61,7 +63,7 @@ export function NewIssueModal({
     if (open) {
       setTitle(''); setStatus('Todo'); setPriority('Medium'); setIssueType('feature')
       setAssigneeId(''); setProjectId(projects[0]?.id ? String(projects[0].id) : '')
-      setLabels([]); setError(''); setSaving(false)
+      setLabels([]); setCycleId(''); setError(''); setSaving(false)
       setTimeout(() => titleRef.current?.focus(), 60)
     }
   }, [open, projects])
@@ -93,6 +95,7 @@ export function NewIssueModal({
           assignee_user_id: assigneeId ? Number(assigneeId) : null,
           issue_type:       issueType,
           labels,
+          sprint_id:        cycleId ? Number(cycleId) : null,
         },
       })
       onClose()
@@ -219,6 +222,27 @@ export function NewIssueModal({
             <span className="nim-select-label">Labels</span>
             <LabelPicker labels={labels} onChange={setLabels} />
           </div>
+
+          {/* Cycle (optional) */}
+          {cycles.length > 0 && (
+            <div className="nim-row">
+              <label className="nim-select-wrap">
+                <span className="nim-select-label">Cycle</span>
+                <select
+                  className="nim-select"
+                  value={cycleId}
+                  onChange={(e) => setCycleId(e.target.value)}
+                >
+                  <option value="">No Cycle</option>
+                  {cycles.map((c) => (
+                    <option key={c.id} value={String(c.id)}>
+                      {c.name}{c.status === 'active' ? ' ●' : c.status === 'completed' ? ' ✓' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
 
           {/* Error */}
           {error && <p className="nim-error" role="alert">{error}</p>}

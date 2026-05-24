@@ -17,6 +17,7 @@ import {
   projectsApi,
   tasksApi,
   teamApi,
+  cyclesApi,
   sprintsApi,
   normalizeTask,
   normalizeProject,
@@ -34,6 +35,7 @@ export function TeamProjectsProvider({ children }) {
   const [projects,  setProjects]  = useState([])
   const [members,   setMembers]   = useState([])
   const [sprints,   setSprints]   = useState({}) // { [projectId]: Sprint[] }
+  const [cycles,    setCycles]    = useState({}) // { [projectId]: Cycle[] }
   const [taskCache, setTaskCache] = useState({}) // { [projectId]: Task[] }
 
   const [loadingProjects, setLoadingProjects] = useState(false)
@@ -150,15 +152,45 @@ export function TeamProjectsProvider({ children }) {
     }
   }, [])
 
-  // ── Sprint actions ────────────────────────────────────────────────────────
+  // ── Sprint actions (legacy — kept for compat) ────────────────────────────
 
   const fetchSprints = useCallback(async (projectId) => {
     try {
       const rows = await sprintsApi.list(projectId)
       setSprints((prev) => ({ ...prev, [projectId]: Array.isArray(rows) ? rows : [] }))
     } catch {
-      // Sprints endpoint is Phase 5 — silently ignore 404s for now
+      // Legacy endpoint not available — silently ignore
     }
+  }, [])
+
+  // ── Cycle actions (Phase 4B) ──────────────────────────────────────────────
+
+  const fetchCycles = useCallback(async (projectId) => {
+    try {
+      const rows = await cyclesApi.list(projectId)
+      setCycles((prev) => ({ ...prev, [projectId]: Array.isArray(rows) ? rows : [] }))
+    } catch (err) {
+      console.error('[TeamProjects] fetchCycles:', err)
+      // Non-fatal: cycle pickers just show empty
+    }
+  }, [])
+
+  const createCycle = useCallback(async (projectId, data) => {
+    const cycle = await cyclesApi.create(projectId, data)
+    setCycles((prev) => ({
+      ...prev,
+      [projectId]: [...(prev[projectId] || []), cycle],
+    }))
+    return cycle
+  }, [])
+
+  const updateCycle = useCallback(async (projectId, cycleId, data) => {
+    const updated = await cyclesApi.update(projectId, cycleId, data)
+    setCycles((prev) => ({
+      ...prev,
+      [projectId]: (prev[projectId] || []).map((c) => (c.id === cycleId ? updated : c)),
+    }))
+    return updated
   }, [])
 
   // ── Normalisation helpers (re-exported for convenience) ───────────────────
@@ -173,6 +205,11 @@ export function TeamProjectsProvider({ children }) {
   const getSprintsForProject = useCallback(
     (projectId) => sprints[projectId] || [],
     [sprints]
+  )
+
+  const getCyclesForProject = useCallback(
+    (projectId) => cycles[projectId] || [],
+    [cycles]
   )
 
   const getMemberById = useCallback(
@@ -198,6 +235,7 @@ export function TeamProjectsProvider({ children }) {
     // Selectors
     getTasksForProject,
     getSprintsForProject,
+    getCyclesForProject,
     getMemberById,
 
     // Normalisation helpers (consumers can normalise ad-hoc data)
@@ -221,8 +259,13 @@ export function TeamProjectsProvider({ children }) {
       // Team
       fetchMembers,
 
-      // Sprints
+      // Sprints (legacy)
       fetchSprints,
+
+      // Cycles (Phase 4B)
+      fetchCycles,
+      createCycle,
+      updateCycle,
     },
   }
 

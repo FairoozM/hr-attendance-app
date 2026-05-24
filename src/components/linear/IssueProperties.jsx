@@ -63,6 +63,8 @@ export function IssueProperties({
   issueType,
   assigneeUserId,
   labels,
+  sprintId,
+  cycles = [],
   dueDate,
   storyPoints,
   blockedReason,
@@ -118,6 +120,24 @@ export function IssueProperties({
           {members.map((m) => (
             <option key={m.id} value={String(m.id)}>
               {m.displayName || m.username}
+            </option>
+          ))}
+        </select>
+      </FieldRow>
+
+      <FieldRow label="Cycle">
+        <select
+          className="ipr__select"
+          value={sprintId != null ? String(sprintId) : ''}
+          onChange={(e) => onChange({
+            sprintId: e.target.value ? Number(e.target.value) : null,
+          })}
+          disabled={saving}
+        >
+          <option value="">No Cycle</option>
+          {cycles.map((c) => (
+            <option key={c.id} value={String(c.id)}>
+              {c.name}{c.status === 'active' ? ' ●' : c.status === 'completed' ? ' ✓' : ''}
             </option>
           ))}
         </select>

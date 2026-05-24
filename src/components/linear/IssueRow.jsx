@@ -15,6 +15,7 @@ import {
   Bug, Zap, Pen, Gauge, Layers, Package, FileText, Plug,
 } from 'lucide-react'
 import { labelColors } from './linearLabels'
+import { CycleBadge } from './CycleBadge'
 import './IssueRow.css'
 
 // ── Status config ─────────────────────────────────────────────────────────────
@@ -171,6 +172,7 @@ export function IssueRow({
   issue,
   project,
   member,
+  cycle,
   onSelect,
   onStatusChange,
   onPriorityChange,
@@ -253,6 +255,11 @@ export function IssueRow({
 
         {/* Spacer */}
         <span className="ir__spacer" />
+
+        {/* Cycle badge */}
+        {cycle && (
+          <CycleBadge name={cycle.name} status={cycle.status} small />
+        )}
 
         {/* Labels */}
         {issue.labels?.length > 0 && (

@@ -8,7 +8,7 @@ import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
   Inbox, LayoutList, Map,
-  FolderOpen, RotateCcw, Tag, CheckCircle2, X,
+  FolderOpen, RotateCcw, Tag, CheckCircle2, X, Plus,
   Globe, Smartphone, Server, PenTool, BarChart2,
 } from 'lucide-react'
 import { DEFAULT_LABELS, labelColors } from './linearLabels'
@@ -57,12 +57,21 @@ function SidebarLink({ to, Icon, label, badge, end = false, disabled = false }) 
   )
 }
 
-export function LinearSidebar({ projects = [], inboxCount = 0, activeLabel, onLabelFilter }) {
+export function LinearSidebar({
+  projects = [],
+  inboxCount = 0,
+  activeLabel,
+  onLabelFilter,
+  cycles = [],
+  activeCycle,
+  onCycleFilter,
+  onManageCycles,
+}) {
   const [labelsOpen, setLabelsOpen] = useState(false)
+  const [cyclesOpen, setCyclesOpen] = useState(false)
 
   const workspaceLinks = [
     { to: '/projects/linear/projects',  Icon: FolderOpen,   label: 'Projects'  },
-    { to: '/projects/linear/cycles',    Icon: RotateCcw,    label: 'Cycles',    disabled: true },
     { to: '/projects/linear/completed', Icon: CheckCircle2, label: 'Completed', disabled: true },
   ]
 
@@ -75,9 +84,9 @@ export function LinearSidebar({ projects = [], inboxCount = 0, activeLabel, onLa
 
       <SidebarSection>
         <SidebarLink to="/projects/linear" Icon={LayoutList} label="Issues" end />
-        <SidebarLink to="/projects/linear/inbox"   Icon={Inbox} label="Inbox"   badge={inboxCount || null} disabled />
+        <SidebarLink to="/projects/linear/inbox"   Icon={Inbox}      label="Inbox"   badge={inboxCount || null} disabled />
         <SidebarLink to="/projects/linear/views"   Icon={LayoutList} label="Views"   disabled />
-        <SidebarLink to="/projects/linear/roadmap" Icon={Map}   label="Roadmap" disabled />
+        <SidebarLink to="/projects/linear/roadmap" Icon={Map}        label="Roadmap" disabled />
       </SidebarSection>
 
       <SidebarSection title="Teams">
@@ -94,6 +103,72 @@ export function LinearSidebar({ projects = [], inboxCount = 0, activeLabel, onLa
       </SidebarSection>
 
       <SidebarSection title="Workspace">
+        {/* Cycles — interactive toggle */}
+        <button
+          type="button"
+          className={`lsb-link lsb-link--btn ${cyclesOpen ? 'lsb-link--active' : ''}`}
+          onClick={() => setCyclesOpen((v) => !v)}
+          aria-expanded={cyclesOpen}
+        >
+          <RotateCcw size={14} strokeWidth={1.8} className="lsb-link__icon" aria-hidden="true" />
+          <span className="lsb-link__label">Cycles</span>
+          {activeCycle != null && activeCycle !== 'none' && (
+            <span className="lsb-link__badge lsb-link__badge--accent">1</span>
+          )}
+        </button>
+
+        {cyclesOpen && (
+          <div className="lsb-labels">
+            {/* Clear filter */}
+            {activeCycle != null && (
+              <button
+                type="button"
+                className="lsb-label-item lsb-label-item--clear"
+                onClick={() => onCycleFilter?.(null)}
+              >
+                <X size={10} strokeWidth={2.5} aria-hidden="true" />
+                Clear filter
+              </button>
+            )}
+
+            {/* No Cycle */}
+            <button
+              type="button"
+              className={`lsb-label-item ${activeCycle === 'none' ? 'lsb-label-item--active' : ''}`}
+              onClick={() => onCycleFilter?.(activeCycle === 'none' ? null : 'none')}
+            >
+              <span className="lsb-label-dot" style={{ background: '#6b7280' }} />
+              <span className="lsb-label-name">No Cycle</span>
+            </button>
+
+            {/* Cycle entries */}
+            {cycles.map((c) => {
+              const statusColor = c.status === 'active' ? '#6ee7b7' : c.status === 'completed' ? '#9ca3af' : '#a5b4fc'
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={`lsb-label-item ${activeCycle === c.id ? 'lsb-label-item--active' : ''}`}
+                  onClick={() => onCycleFilter?.(activeCycle === c.id ? null : c.id)}
+                >
+                  <span className="lsb-label-dot" style={{ background: statusColor }} />
+                  <span className="lsb-label-name">{c.name}</span>
+                </button>
+              )
+            })}
+
+            {/* Manage cycles button */}
+            <button
+              type="button"
+              className="lsb-label-item lsb-cycles-manage"
+              onClick={onManageCycles}
+            >
+              <Plus size={10} strokeWidth={2.5} aria-hidden="true" />
+              <span className="lsb-label-name">Manage Cycles</span>
+            </button>
+          </div>
+        )}
+
         {/* Labels — interactive toggle */}
         <button
           type="button"
@@ -106,7 +181,6 @@ export function LinearSidebar({ projects = [], inboxCount = 0, activeLabel, onLa
           {activeLabel && <span className="lsb-link__badge lsb-link__badge--accent">1</span>}
         </button>
 
-        {/* Expanded label list */}
         {labelsOpen && (
           <div className="lsb-labels">
             {activeLabel && (

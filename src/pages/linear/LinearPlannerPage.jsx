@@ -12,11 +12,12 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { AlertCircle } from 'lucide-react'
 import { useTeamProjectsContext } from '../../contexts/TeamProjectsContext'
 import { useAuth } from '../../contexts/AuthContext'
-import { LinearSidebar }  from '../../components/linear/LinearSidebar'
-import { LinearTopBar }   from '../../components/linear/LinearTopBar'
-import { IssueListGroup } from '../../components/linear/IssueListGroup'
-import { NewIssueModal }  from '../../components/linear/NewIssueModal'
+import { LinearSidebar }    from '../../components/linear/LinearSidebar'
+import { LinearTopBar }     from '../../components/linear/LinearTopBar'
+import { IssueListGroup }   from '../../components/linear/IssueListGroup'
+import { NewIssueModal }    from '../../components/linear/NewIssueModal'
 import { IssueDetailPanel } from '../../components/linear/IssueDetailPanel'
+import { CyclesPanel }      from '../../components/linear/CyclesPanel'
 import { STATUS_CONFIG, PRIORITY_CONFIG, normalizeStatus, normalizePriority } from '../../components/linear/IssueRow'
 import './LinearPlannerPage.css'
 
@@ -104,6 +105,7 @@ export default function LinearPlannerPage() {
     loadingTasks,
     error,
     getTasksForProject,
+    getCyclesForProject,
     getMemberById,
     actions,
   } = useTeamProjectsContext()
@@ -112,8 +114,10 @@ export default function LinearPlannerPage() {
   const [groupBy,       setGroupBy]       = useState('status')
   const [activeFilters, setActiveFilters] = useState({})
   const [activeLabel,   setActiveLabel]   = useState(null)
+  const [activeCycle,   setActiveCycle]   = useState(null)  // null | 'none' | cycleId (number)
   const [selectedIssue, setSelectedIssue] = useState(null)
   const [newIssueOpen,  setNewIssueOpen]  = useState(false)
+  const [cyclesPanelOpen, setCyclesPanelOpen] = useState(false)
   const [githubMetaByIssue, setGithubMetaByIssue] = useState({})
   const [successMessage, setSuccessMessage] = useState('')
   const didFetch = useRef(false)
@@ -126,9 +130,12 @@ export default function LinearPlannerPage() {
     actions.fetchMembers()
   }, [actions])
 
-  // Fetch issues for each project once loaded
+  // Fetch issues and cycles for each project once loaded
   useEffect(() => {
-    for (const p of projects) actions.fetchTasks(p.id)
+    for (const p of projects) {
+      actions.fetchTasks(p.id)
+      actions.fetchCycles(p.id)
+    }
   }, [projects, actions])
 
   // ── Derived maps ────────────────────────────────────────────────────────────
@@ -149,6 +156,18 @@ export default function LinearPlannerPage() {
     () => projects.flatMap((p) => getTasksForProject(p.id)),
     [projects, getTasksForProject]
   )
+
+  // All cycles (aggregated across all projects, keyed by ID)
+  const allCycles = useMemo(
+    () => projects.flatMap((p) => getCyclesForProject(p.id)),
+    [projects, getCyclesForProject]
+  )
+
+  const cycleMap = useMemo(() => {
+    const m = {}
+    for (const c of allCycles) m[c.id] = c
+    return m
+  }, [allCycles])
 
   // Keep selected issue in sync with context cache after inline/list updates
   useEffect(() => {
@@ -198,9 +217,16 @@ export default function LinearPlannerPage() {
         if (!labels.includes(activeLabel)) return false
       }
 
+      // Cycle filter: 'none' = no cycle, number = specific cycle ID
+      if (activeCycle === 'none') {
+        if (issue.sprintId != null) return false
+      } else if (activeCycle != null) {
+        if (issue.sprintId !== activeCycle) return false
+      }
+
       return true
     })
-  }, [allIssues, search, activeFilters, activeLabel, projectMap, memberMap, user])
+  }, [allIssues, search, activeFilters, activeLabel, activeCycle, projectMap, memberMap, user])
 
   // ── Grouping ─────────────────────────────────────────────────────────────────
   const groups = useMemo(() => {
@@ -268,6 +294,10 @@ export default function LinearPlannerPage() {
         projects={projects}
         activeLabel={activeLabel}
         onLabelFilter={setActiveLabel}
+        cycles={allCycles}
+        activeCycle={activeCycle}
+        onCycleFilter={setActiveCycle}
+        onManageCycles={() => setCyclesPanelOpen(true)}
       />
 
       {/* Main content */}
@@ -282,6 +312,9 @@ export default function LinearPlannerPage() {
           onFilterToggle={toggleFilter}
           activeLabel={activeLabel}
           onLabelFilter={setActiveLabel}
+          activeCycle={activeCycle}
+          onCycleFilter={setActiveCycle}
+          cycles={allCycles}
           onNewIssue={() => setNewIssueOpen(true)}
           title="All Issues"
           issueCount={filteredIssues.length}
@@ -327,6 +360,7 @@ export default function LinearPlannerPage() {
                 issues={g.issues}
                 projectMap={projectMap}
                 memberMap={memberMap}
+                cycleMap={cycleMap}
                 selectedId={selectedIssue?.id}
                 selectedProjectId={selectedIssue?.projectId}
                 onSelect={setSelectedIssue}
@@ -346,6 +380,7 @@ export default function LinearPlannerPage() {
         onCreate={handleCreate}
         projects={projects}
         members={members}
+        cycles={allCycles}
       />
 
       <IssueDetailPanel
@@ -353,6 +388,7 @@ export default function LinearPlannerPage() {
         issue={selectedIssue}
         project={selectedIssue ? projectMap[selectedIssue.projectId] : null}
         members={members}
+        cycles={selectedIssue ? getCyclesForProject(selectedIssue.projectId) : allCycles}
         onClose={() => setSelectedIssue(null)}
         onUpdate={handleIssueUpdate}
         onDelete={handleIssueDelete}
@@ -361,6 +397,16 @@ export default function LinearPlannerPage() {
           if (!issueGithubKey) return
           setGithubMetaByIssue((prev) => ({ ...prev, [issueGithubKey]: meta }))
         }}
+      />
+
+      {/* Cycles management modal */}
+      <CyclesPanel
+        open={cyclesPanelOpen}
+        onClose={() => setCyclesPanelOpen(false)}
+        projects={projects}
+        cycles={allCycles}
+        onCreateCycle={actions.createCycle}
+        onUpdateCycle={actions.updateCycle}
       />
     </div>
   )

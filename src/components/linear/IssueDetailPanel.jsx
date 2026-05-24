@@ -28,7 +28,7 @@ function toApiPayload(patch) {
   if (patch.dueDate !== undefined) out.due_date = patch.dueDate
   if (patch.storyPoints !== undefined) out.story_points = patch.storyPoints
   if (patch.blockedReason !== undefined) out.blocked_reason = patch.blockedReason
-  if (patch.sprintId !== undefined) out.sprint_id = patch.sprintId
+  if (patch.sprintId !== undefined) out.sprint_id = patch.sprintId == null ? null : Number(patch.sprintId)
   if (patch.labels !== undefined) out.labels = Array.isArray(patch.labels) ? patch.labels : []
   return out
 }
@@ -37,6 +37,7 @@ export function IssueDetailPanel({
   issue,
   project,
   members = [],
+  cycles = [],
   open,
   onClose,
   onUpdate,
@@ -68,6 +69,7 @@ export function IssueDetailPanel({
       priority: issue.priority,
       issueType: issue.issueType,
       assigneeUserId: issue.assigneeUserId,
+      sprintId: issue.sprintId ?? null,
       labels: issue.labels || [],
       dueDate: issue.dueDate,
       storyPoints: issue.storyPoints,
@@ -218,6 +220,8 @@ export function IssueDetailPanel({
                   priority={fields.priority}
                   issueType={fields.issueType}
                   assigneeUserId={fields.assigneeUserId}
+                  sprintId={fields.sprintId}
+                  cycles={cycles}
                   labels={fields.labels}
                   dueDate={fields.dueDate}
                   storyPoints={fields.storyPoints}
