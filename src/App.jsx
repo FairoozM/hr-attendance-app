@@ -80,6 +80,7 @@ import TrashPage from './pages/projects/TrashPage'
 import TeamProjectsPage from './pages/projects/TeamProjectsPage'
 import LinearPlannerPage from './pages/linear/LinearPlannerPage'
 import LinearProjectsPage from './pages/linear/LinearProjectsPage'
+import LinearTeamPage from './pages/linear/LinearTeamPage'
 import { AiUsageDashboard } from './pages/AiUsageDashboard'
 import { AmazonListingGenerator } from './pages/AmazonListingGenerator'
 import { AmazonSpApiTestPage } from './pages/AmazonSpApiTestPage'
@@ -468,6 +469,14 @@ function AppContent() {
           element={
             <PermissionGuard module="planner" action="view">
               <LinearProjectsPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="projects/linear/team"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <LinearTeamPage />
             </PermissionGuard>
           }
         />

@@ -169,7 +169,7 @@ export function saveCustomViewsToStorage(views) {
  */
 export function captureFilters({
   search, groupBy, activeFilters, activeLabel, activeCycle,
-  activeStatus, activePriority,
+  activeStatus, activePriority, activeAssignee, activeProject,
 }) {
   return {
     search:         search         ?? '',
@@ -179,17 +179,21 @@ export function captureFilters({
     activeCycle:    activeCycle    ?? null,
     activeStatus:   activeStatus   ?? null,
     activePriority: activePriority ?? null,
+    activeAssignee: activeAssignee ?? null,
+    activeProject:  activeProject  ?? null,
   }
 }
 
 /** Returns true if any non-default filter is set. */
-export function hasActiveFilter({ search, activeFilters, activeLabel, activeCycle, activeStatus, activePriority }) {
+export function hasActiveFilter({ search, activeFilters, activeLabel, activeCycle, activeStatus, activePriority, activeAssignee, activeProject }) {
   return (
     Boolean(search?.trim()) ||
     Object.values(activeFilters || {}).some(Boolean) ||
-    activeLabel != null ||
-    activeCycle != null ||
-    activeStatus != null ||
-    activePriority != null
+    activeLabel    != null ||
+    activeCycle    != null ||
+    activeStatus   != null ||
+    activePriority != null ||
+    activeAssignee != null ||
+    activeProject  != null
   )
 }

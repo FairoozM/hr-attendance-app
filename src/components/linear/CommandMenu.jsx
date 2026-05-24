@@ -8,7 +8,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Search, X, Plus, LayoutList, Tag, RotateCcw, Bookmark, SlidersHorizontal,
-  Globe, Server, Smartphone, AlertCircle, AlertTriangle, Rocket, Bug, User,
+  Globe, Server, Smartphone, AlertCircle, AlertTriangle, Rocket, Bug, User, Users,
   XCircle, ArrowRight, FolderOpen, Layers,
 } from 'lucide-react'
 import { DEFAULT_LABELS } from './linearLabels'
@@ -27,9 +27,9 @@ const CYCLE_STATUS_COLOR = { planned: '#a5b4fc', active: '#6ee7b7', completed: '
 // ── Build flat command list ───────────────────────────────────────────────────
 
 function buildCommands({
-  allCycles, allViews, allProjects,
+  allCycles, allViews, allProjects, allMembers,
   onNewIssue, onApplyView, onSetGroupBy,
-  onSetActiveLabel, onSetActiveCycle, onSetActiveProject,
+  onSetActiveLabel, onSetActiveCycle, onSetActiveProject, onSetActiveAssignee,
   onClearFilters, onManageCycles, onClose,
 }) {
   const cmds = []
@@ -109,6 +109,26 @@ function buildCommands({
     action: () => { onManageCycles(); onClose() },
   })
 
+  // ── Team / Assignee ──────────────────────────────────────────────────────
+  cmds.push({
+    id: 'nav-team-page', group: 'Team', label: 'Go to Team',
+    Icon: Users, keywords: ['team', 'members', 'workload', 'navigate'],
+    action: () => { window.location.hash = '#/projects/linear/team'; onClose() },
+  })
+  cmds.push({
+    id: 'assignee-unassigned', group: 'Team', label: 'Show Unassigned Issues',
+    Icon: User, keywords: ['unassigned', 'no assignee', 'filter'],
+    action: () => { onSetActiveAssignee?.('unassigned'); onClose() },
+  })
+  for (const m of allMembers) {
+    const name = m.displayName || m.username
+    cmds.push({
+      id: `assignee-${m.id}`, group: 'Team', label: `${name}'s Issues`,
+      Icon: User, keywords: ['assignee', 'member', name.toLowerCase()],
+      action: () => { onSetActiveAssignee?.(m.id); onClose() },
+    })
+  }
+
   // ── Projects ─────────────────────────────────────────────────────────────
   for (const p of allProjects) {
     cmds.push({
@@ -172,6 +192,7 @@ export function CommandMenu({
   allCycles = [],
   allViews  = [],
   allProjects = [],
+  allMembers  = [],
   projectMap = {},
   onNewIssue,
   onApplyView,
@@ -179,6 +200,7 @@ export function CommandMenu({
   onSetActiveLabel,
   onSetActiveCycle,
   onSetActiveProject,
+  onSetActiveAssignee,
   onClearFilters,
   onManageCycles,
   onSelectIssue,
@@ -206,12 +228,13 @@ export function CommandMenu({
 
   // Build flat command list (memoised — only changes when deps change)
   const flatCommands = useMemo(() => buildCommands({
-    allCycles, allViews, allProjects,
+    allCycles, allViews, allProjects, allMembers,
     onNewIssue, onApplyView, onSetGroupBy,
-    onSetActiveLabel, onSetActiveCycle, onSetActiveProject,
+    onSetActiveLabel, onSetActiveCycle, onSetActiveProject, onSetActiveAssignee,
     onClearFilters, onManageCycles, onClose: handleClose,
-  }), [allCycles, allViews, allProjects, onNewIssue, onApplyView, onSetGroupBy,
-      onSetActiveLabel, onSetActiveCycle, onSetActiveProject, onClearFilters, onManageCycles, handleClose])
+  }), [allCycles, allViews, allProjects, allMembers, onNewIssue, onApplyView, onSetGroupBy,
+      onSetActiveLabel, onSetActiveCycle, onSetActiveProject, onSetActiveAssignee,
+      onClearFilters, onManageCycles, handleClose])
 
   // Filter commands + search issues
   const { sections, flatItems } = useMemo(() => {

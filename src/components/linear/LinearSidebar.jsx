@@ -10,7 +10,7 @@ import {
   Inbox, LayoutList, Map,
   FolderOpen, RotateCcw, Tag, CheckCircle2, X, Plus,
   Globe, Smartphone, Server, PenTool, BarChart2,
-  Bookmark, AlertCircle, AlertTriangle, Rocket, User, Bug,
+  Bookmark, AlertCircle, AlertTriangle, Rocket, User, Bug, Users,
 } from 'lucide-react'
 import { DEFAULT_LABELS, labelColors } from './linearLabels'
 import './LinearSidebar.css'
@@ -85,6 +85,7 @@ export function LinearSidebar({
 
   const workspaceLinks = [
     { to: '/projects/linear/projects',  Icon: FolderOpen,   label: 'Projects'  },
+    { to: '/projects/linear/team',      Icon: Users,        label: 'Team'      },
     { to: '/projects/linear/completed', Icon: CheckCircle2, label: 'Completed', disabled: true },
   ]
 
@@ -158,7 +159,7 @@ export function LinearSidebar({
         {TEAMS.map(({ key, label, Icon, color }) => (
           <NavLink
             key={key}
-            to="/projects/linear"
+            to="/projects/linear/team"
             className={() => 'lsb-link'}
           >
             <Icon size={14} strokeWidth={1.8} className="lsb-link__icon" style={{ color }} aria-hidden="true" />

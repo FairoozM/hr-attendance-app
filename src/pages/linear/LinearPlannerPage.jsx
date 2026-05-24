@@ -130,6 +130,7 @@ export default function LinearPlannerPage() {
   const [activeStatus,  setActiveStatus]  = useState(null)  // null | status string
   const [activePriority, setActivePriority] = useState(null)  // null | priority string
   const [activeProject, setActiveProject] = useState(null)   // null | projectId (number)
+  const [activeAssignee, setActiveAssignee] = useState(null) // null | userId | 'unassigned'
   const [activeViewId,  setActiveViewId]  = useState(null)
   const [customViews,   setCustomViews]   = useState(() => loadCustomViews())
   const [selectedIssue, setSelectedIssue] = useState(null)
@@ -145,10 +146,13 @@ export default function LinearPlannerPage() {
   useEffect(() => {
     if (location.state?.filterProjectId != null) {
       setActiveProject(location.state.filterProjectId)
-      // Clear state so browser-back doesn't re-apply
       window.history.replaceState({ ...window.history.state, usr: {} }, '')
     }
-  }, [location.state?.filterProjectId])
+    if (location.state?.filterAssigneeId != null) {
+      setActiveAssignee(location.state.filterAssigneeId)
+      window.history.replaceState({ ...window.history.state, usr: {} }, '')
+    }
+  }, [location.state?.filterProjectId, location.state?.filterAssigneeId])
 
   // ── Fetch on mount ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -267,9 +271,16 @@ export default function LinearPlannerPage() {
         if (String(issue.projectId) !== String(activeProject)) return false
       }
 
+      // Assignee filter (set by Team page navigation or Cmd+K)
+      if (activeAssignee === 'unassigned') {
+        if (issue.assigneeUserId) return false
+      } else if (activeAssignee != null) {
+        if (String(issue.assigneeUserId) !== String(activeAssignee)) return false
+      }
+
       return true
     })
-  }, [allIssues, search, activeFilters, activeLabel, activeCycle, activeStatus, activePriority, activeProject, projectMap, memberMap, user])
+  }, [allIssues, search, activeFilters, activeLabel, activeCycle, activeStatus, activePriority, activeProject, activeAssignee, projectMap, memberMap, user])
 
   // ── Grouping ─────────────────────────────────────────────────────────────────
   const groups = useMemo(() => {
@@ -345,6 +356,7 @@ export default function LinearPlannerPage() {
     setActiveStatus(null)
     setActivePriority(null)
     setActiveProject(null)
+    setActiveAssignee(null)
     setActiveViewId(null)
   }, [])
   const toggleFilter = useCallback((id) => {
@@ -369,8 +381,9 @@ export default function LinearPlannerPage() {
     setActiveLabel(f.activeLabel ?? null)
     setActiveStatus(f.activeStatus ?? null)
     setActivePriority(f.activePriority ?? null)
+    setActiveAssignee(f.activeAssignee ?? null)
+    setActiveProject(f.activeProject ?? null)
 
-    // Resolve cycle sentinel → first active cycle
     if (f.activeCycle === ACTIVE_CYCLE_SENTINEL) {
       const activeCycleObj = allCycles.find((c) => c.status === 'active')
       setActiveCycle(activeCycleObj ? activeCycleObj.id : null)
@@ -391,7 +404,7 @@ export default function LinearPlannerPage() {
       builtin: false,
       filters: captureFilters({
         search, groupBy, activeFilters, activeLabel, activeCycle,
-        activeStatus, activePriority,
+        activeStatus, activePriority, activeAssignee, activeProject,
       }),
     }
     setCustomViews((prev) => {
@@ -400,7 +413,7 @@ export default function LinearPlannerPage() {
       return next
     })
     setActiveViewId(id)
-  }, [search, groupBy, activeFilters, activeLabel, activeCycle, activeStatus, activePriority])
+  }, [search, groupBy, activeFilters, activeLabel, activeCycle, activeStatus, activePriority, activeAssignee, activeProject])
 
   /** Delete a custom view (built-in views cannot be deleted). */
   const deleteCustomView = useCallback((viewId) => {
@@ -449,8 +462,13 @@ export default function LinearPlannerPage() {
           onNewIssue={() => setNewIssueOpen(true)}
           onSaveView={() => setSaveViewOpen(true)}
           onOpenCmdMenu={() => setCmdMenuOpen(true)}
-          hasActiveFilters={hasActiveFilter({ search, activeFilters, activeLabel, activeCycle, activeStatus, activePriority }) || activeProject != null}
-          title={activeProject != null ? (projectMap[activeProject]?.name ?? 'Project') : 'All Issues'}
+          hasActiveFilters={hasActiveFilter({ search, activeFilters, activeLabel, activeCycle, activeStatus, activePriority }) || activeProject != null || activeAssignee != null}
+          title={
+            activeProject != null  ? (projectMap[activeProject]?.name ?? 'Project') :
+            activeAssignee === 'unassigned' ? 'Unassigned Issues' :
+            activeAssignee != null ? (memberMap[activeAssignee]?.displayName ?? 'Assignee') :
+            'All Issues'
+          }
           issueCount={filteredIssues.length}
         />
 
@@ -559,12 +577,14 @@ export default function LinearPlannerPage() {
         allViews={[...BUILTIN_VIEWS, ...customViews]}
         projectMap={projectMap}
         allProjects={projects}
+        allMembers={members}
         onNewIssue={() => { setNewIssueOpen(true) }}
         onApplyView={applyView}
         onSetGroupBy={(v) => { setGroupBy(v); setActiveViewId(null) }}
         onSetActiveLabel={(v) => { setActiveLabel(v); setActiveViewId(null) }}
         onSetActiveCycle={(v) => { setActiveCycle(v); setActiveViewId(null) }}
         onSetActiveProject={(v) => { setActiveProject(v); setActiveViewId(null) }}
+        onSetActiveAssignee={(v) => { setActiveAssignee(v); setActiveViewId(null) }}
         onClearFilters={handleClearFilters}
         onManageCycles={() => setCyclesPanelOpen(true)}
         onSelectIssue={(issue) => setSelectedIssue(issue)}
