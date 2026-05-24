@@ -6,6 +6,7 @@ const taskCommentsController = require('../controllers/taskCommentsController')
 const taskActivityController = require('../controllers/taskActivityController')
 const projectCyclesController = require('../controllers/projectCyclesController')
 const issueAIController = require('../controllers/issueAIController')
+const issueGitHubController = require('../controllers/issueGitHubController')
 
 const router = express.Router()
 
@@ -68,6 +69,13 @@ router.post(
   '/:projectId/tasks/:taskId/ai/assist',
   ...view,
   issueAIController.aiAssist
+)
+
+// ---- GitHub PR Sync (Phase 7A) ----
+router.post(
+  '/:projectId/tasks/:taskId/github/sync-pr',
+  ...manage,
+  issueGitHubController.syncPr
 )
 
 // ---- Attachments ----

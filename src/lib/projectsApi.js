@@ -367,6 +367,26 @@ export async function linearIssueAiAssist(projectId, taskId, action, extraContex
   return { action: res.action, output: res.output }
 }
 
+// ─── GitHub PR Sync (Phase 7A) ────────────────────────────────────────────────
+
+/**
+ * Sync GitHub PR metadata into a task's dev_meta via the backend.
+ * @param {number|string} projectId
+ * @param {number|string} taskId
+ * @param {string} prUrl  – full GitHub PR URL
+ * @returns {Promise<{ devMeta: object }>}
+ */
+export async function syncIssueGithubPr(projectId, taskId, prUrl) {
+  const res = await api.post(
+    `/api/projects/${projectId}/tasks/${taskId}/github/sync-pr`,
+    { prUrl }
+  )
+  if (!res || !res.devMeta) {
+    throw new Error(res?.message || 'GitHub sync returned empty response')
+  }
+  return { devMeta: res.devMeta }
+}
+
 // ─── Team members ─────────────────────────────────────────────────────────────
 
 export const teamApi = {

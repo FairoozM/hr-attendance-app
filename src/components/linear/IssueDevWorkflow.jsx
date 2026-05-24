@@ -242,7 +242,7 @@ ${first ? `${first}\n\n` : ''}**Impact**: Affects users of ${project?.name || 't
 
 // ── Component ──────────────────────────────────────────────────────────────
 
-export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta }) {
+export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta, onSyncGithubPr }) {
   const suggestedBranch = generateBranchName(project?.name, issue?.id, issue?.title)
 
   // Local form state (initialized from issue.devMeta if present)
@@ -255,6 +255,10 @@ export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta })
   const [dirty, setDirty]   = useState(false)
   const [saving, setSaving] = useState(false)
 
+  // GitHub Sync state
+  const [syncing,    setSyncing]    = useState(false)
+  const [syncResult, setSyncResult] = useState(null)  // { ok: bool, message: string }
+
   // Copy feedback state per button id
   const [copied, setCopied] = useState({})
 
@@ -263,7 +267,7 @@ export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta })
   const [qaOpen,      setQaOpen]      = useState(false)
   const [noteOpen,    setNoteOpen]    = useState(false)
 
-  // Sync form when issue changes
+  // Sync form when issue changes (also clear sync result on issue change)
   useEffect(() => {
     if (!issue) return
     const meta = issue.devMeta || {}
@@ -274,6 +278,7 @@ export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta })
       commitRef:  meta.commitRef  || '',
     })
     setDirty(false)
+    setSyncResult(null)
   }, [issue?.id, issue?.updatedAt])
 
   const setField = useCallback((key, val) => {
@@ -321,6 +326,25 @@ export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta })
   const useBranchName = useCallback(() => {
     setField('branchName', suggestedBranch)
   }, [suggestedBranch, setField])
+
+  const handleSyncPr = useCallback(async () => {
+    if (!onSyncGithubPr) return
+    const url = form.prUrl.trim()
+    if (!url) {
+      setSyncResult({ ok: false, message: 'Enter a GitHub pull request URL first.' })
+      return
+    }
+    setSyncing(true)
+    setSyncResult(null)
+    try {
+      await onSyncGithubPr(url)
+      setSyncResult({ ok: true, message: 'PR synced.' })
+    } catch (err) {
+      setSyncResult({ ok: false, message: err.message || 'GitHub sync failed.' })
+    } finally {
+      setSyncing(false)
+    }
+  }, [form.prUrl, onSyncGithubPr])
 
   if (!issue) return null
 
@@ -391,6 +415,17 @@ export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta })
               onChange={(e) => setField('prUrl', e.target.value)}
               placeholder="https://github.com/org/repo/pull/42"
             />
+            {onSyncGithubPr && (
+              <button
+                type="button"
+                className={`idw__sync-btn ${syncing ? 'idw__sync-btn--loading' : ''}`}
+                onClick={handleSyncPr}
+                disabled={syncing || saving}
+                title="Fetch PR metadata from GitHub"
+              >
+                {syncing ? 'Syncing…' : 'Sync PR'}
+              </button>
+            )}
           </label>
 
           <label className="idw__field">
@@ -444,6 +479,20 @@ export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta })
             <span className="idw__saved-hint">Saved</span>
           )}
         </div>
+
+        {/* Sync result message */}
+        {syncResult && (
+          <div className={`idw__sync-result ${syncResult.ok ? 'idw__sync-result--ok' : 'idw__sync-result--err'}`} role="status">
+            {syncResult.message}
+          </div>
+        )}
+
+        {/* Merged suggestion */}
+        {(form.prStatus === 'merged' || issue?.devMeta?.prStatus === 'merged') && (
+          <div className="idw__merged-hint" role="note">
+            PR is merged. You may move this issue to <strong>Ready for Release</strong> or <strong>Done</strong>.
+          </div>
+        )}
       </section>
 
       {/* ── Copy helpers ─────────────────────────────────────────────── */}

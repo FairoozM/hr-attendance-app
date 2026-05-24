@@ -10,6 +10,7 @@ import { IssueComments } from './IssueComments'
 import { IssueActivity } from './IssueActivity'
 import { IssueAIAssistant } from './IssueAIAssistant'
 import { IssueDevWorkflow } from './IssueDevWorkflow'
+import { syncIssueGithubPr } from '../../lib/projectsApi'
 import './IssueDetailPanel.css'
 
 const TABS = [
@@ -160,6 +161,13 @@ export function IssueDetailPanel({
   const handleSaveDevMeta = useCallback(async (devMeta) => {
     await persist({ devMeta })
   }, [persist])
+
+  const handleSyncGithubPr = useCallback(async (prUrl) => {
+    if (!issue) return
+    const { devMeta } = await syncIssueGithubPr(issue.projectId, issue.id, prUrl)
+    // Persist locally so the panel and row chips update immediately
+    await persist({ devMeta })
+  }, [issue, persist])
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!issue || !onDelete) return
@@ -342,6 +350,7 @@ export function IssueDetailPanel({
               project={project}
               cycles={cycles}
               onSaveDevMeta={handleSaveDevMeta}
+              onSyncGithubPr={handleSyncGithubPr}
             />
           )}
         </div>
