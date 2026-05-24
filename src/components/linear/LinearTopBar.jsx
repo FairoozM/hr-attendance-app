@@ -4,7 +4,7 @@
  * Search · filter chips · label filter · grouping selector · New Issue button
  */
 import { useState, useRef, useEffect } from 'react'
-import { Search, X, ChevronDown, Plus, SlidersHorizontal, Tag, RotateCcw } from 'lucide-react'
+import { Search, X, ChevronDown, Plus, SlidersHorizontal, Tag, RotateCcw, Bookmark } from 'lucide-react'
 import { DEFAULT_LABELS, labelColors } from './linearLabels'
 import './LinearTopBar.css'
 
@@ -226,6 +226,8 @@ export function LinearTopBar({
   onCycleFilter,
   cycles = [],
   onNewIssue,
+  onSaveView,
+  hasActiveFilters = false,
   title = 'All Issues',
   issueCount = null,
 }) {
@@ -314,6 +316,17 @@ export function LinearTopBar({
         >
           <Plus size={13} strokeWidth={2.5} aria-hidden="true" />
           New Issue
+        </button>
+
+        {/* Save View */}
+        <button
+          type="button"
+          className={`ltb__save-btn ${hasActiveFilters ? 'ltb__save-btn--active' : ''}`}
+          onClick={onSaveView}
+          aria-label="Save current filters as a view"
+          title="Save current filters as a view"
+        >
+          <Bookmark size={13} strokeWidth={2} aria-hidden="true" />
         </button>
       </div>
     </div>

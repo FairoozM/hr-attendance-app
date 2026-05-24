@@ -18,7 +18,16 @@ import { IssueListGroup }   from '../../components/linear/IssueListGroup'
 import { NewIssueModal }    from '../../components/linear/NewIssueModal'
 import { IssueDetailPanel } from '../../components/linear/IssueDetailPanel'
 import { CyclesPanel }      from '../../components/linear/CyclesPanel'
+import { SaveViewModal }    from '../../components/linear/SaveViewModal'
 import { STATUS_CONFIG, PRIORITY_CONFIG, normalizeStatus, normalizePriority } from '../../components/linear/IssueRow'
+import {
+  BUILTIN_VIEWS,
+  ACTIVE_CYCLE_SENTINEL,
+  loadCustomViews,
+  saveCustomViewsToStorage,
+  captureFilters,
+  hasActiveFilter,
+} from '../../components/linear/savedViews'
 import './LinearPlannerPage.css'
 
 // ── Grouping helpers ──────────────────────────────────────────────────────────
@@ -115,9 +124,14 @@ export default function LinearPlannerPage() {
   const [activeFilters, setActiveFilters] = useState({})
   const [activeLabel,   setActiveLabel]   = useState(null)
   const [activeCycle,   setActiveCycle]   = useState(null)  // null | 'none' | cycleId (number)
+  const [activeStatus,  setActiveStatus]  = useState(null)  // null | status string
+  const [activePriority, setActivePriority] = useState(null)  // null | priority string
+  const [activeViewId,  setActiveViewId]  = useState(null)
+  const [customViews,   setCustomViews]   = useState(() => loadCustomViews())
   const [selectedIssue, setSelectedIssue] = useState(null)
   const [newIssueOpen,  setNewIssueOpen]  = useState(false)
   const [cyclesPanelOpen, setCyclesPanelOpen] = useState(false)
+  const [saveViewOpen,  setSaveViewOpen]  = useState(false)
   const [githubMetaByIssue, setGithubMetaByIssue] = useState({})
   const [successMessage, setSuccessMessage] = useState('')
   const didFetch = useRef(false)
@@ -224,9 +238,19 @@ export default function LinearPlannerPage() {
         if (issue.sprintId !== activeCycle) return false
       }
 
+      // Status filter (set by views)
+      if (activeStatus) {
+        if (normalizeStatus(issue.status) !== activeStatus) return false
+      }
+
+      // Priority filter (set by views)
+      if (activePriority) {
+        if (normalizePriority(issue.priority) !== activePriority) return false
+      }
+
       return true
     })
-  }, [allIssues, search, activeFilters, activeLabel, activeCycle, projectMap, memberMap, user])
+  }, [allIssues, search, activeFilters, activeLabel, activeCycle, activeStatus, activePriority, projectMap, memberMap, user])
 
   // ── Grouping ─────────────────────────────────────────────────────────────────
   const groups = useMemo(() => {
@@ -283,7 +307,68 @@ export default function LinearPlannerPage() {
   // ── Quick filter toggle ─────────────────────────────────────────────────────
   const toggleFilter = useCallback((id) => {
     setActiveFilters((prev) => ({ ...prev, [id]: !prev[id] }))
+    setActiveViewId(null)
   }, [])
+
+  // ── Wrappers that clear activeViewId on manual filter change ─────────────────
+  const handleSearch       = useCallback((v) => { setSearch(v);        setActiveViewId(null) }, [])
+  const handleGroupBy      = useCallback((v) => { setGroupBy(v);       setActiveViewId(null) }, [])
+  const handleLabelFilter  = useCallback((v) => { setActiveLabel(v);   setActiveViewId(null) }, [])
+  const handleCycleFilter  = useCallback((v) => { setActiveCycle(v);   setActiveViewId(null) }, [])
+
+  // ── Saved views ──────────────────────────────────────────────────────────────
+
+  /** Apply a view — resolves ACTIVE_CYCLE_SENTINEL if needed. */
+  const applyView = useCallback((view) => {
+    const f = view.filters
+    setSearch(f.search ?? '')
+    setGroupBy(f.groupBy ?? 'status')
+    setActiveFilters(f.activeFilters ?? {})
+    setActiveLabel(f.activeLabel ?? null)
+    setActiveStatus(f.activeStatus ?? null)
+    setActivePriority(f.activePriority ?? null)
+
+    // Resolve cycle sentinel → first active cycle
+    if (f.activeCycle === ACTIVE_CYCLE_SENTINEL) {
+      const activeCycleObj = allCycles.find((c) => c.status === 'active')
+      setActiveCycle(activeCycleObj ? activeCycleObj.id : null)
+    } else {
+      setActiveCycle(f.activeCycle ?? null)
+    }
+
+    setActiveViewId(view.id)
+  }, [allCycles])
+
+  /** Capture current filters and save as a new custom view. */
+  const saveCurrentView = useCallback((name) => {
+    const id = `custom-${Date.now()}`
+    const newView = {
+      id,
+      label: name,
+      icon: 'Bookmark',
+      builtin: false,
+      filters: captureFilters({
+        search, groupBy, activeFilters, activeLabel, activeCycle,
+        activeStatus, activePriority,
+      }),
+    }
+    setCustomViews((prev) => {
+      const next = [...prev, newView]
+      saveCustomViewsToStorage(next)
+      return next
+    })
+    setActiveViewId(id)
+  }, [search, groupBy, activeFilters, activeLabel, activeCycle, activeStatus, activePriority])
+
+  /** Delete a custom view (built-in views cannot be deleted). */
+  const deleteCustomView = useCallback((viewId) => {
+    setCustomViews((prev) => {
+      const next = prev.filter((v) => v.id !== viewId)
+      saveCustomViewsToStorage(next)
+      return next
+    })
+    if (activeViewId === viewId) setActiveViewId(null)
+  }, [activeViewId])
 
   const anyLoading = loadingProjects || Object.values(loadingTasks).some(Boolean)
 
@@ -293,11 +378,15 @@ export default function LinearPlannerPage() {
       <LinearSidebar
         projects={projects}
         activeLabel={activeLabel}
-        onLabelFilter={setActiveLabel}
+        onLabelFilter={handleLabelFilter}
         cycles={allCycles}
         activeCycle={activeCycle}
-        onCycleFilter={setActiveCycle}
+        onCycleFilter={handleCycleFilter}
         onManageCycles={() => setCyclesPanelOpen(true)}
+        allViews={[...BUILTIN_VIEWS, ...customViews]}
+        activeViewId={activeViewId}
+        onApplyView={applyView}
+        onDeleteView={deleteCustomView}
       />
 
       {/* Main content */}
@@ -305,17 +394,19 @@ export default function LinearPlannerPage() {
         {/* Top bar */}
         <LinearTopBar
           search={search}
-          onSearch={setSearch}
+          onSearch={handleSearch}
           groupBy={groupBy}
-          onGroupBy={setGroupBy}
+          onGroupBy={handleGroupBy}
           activeFilters={activeFilters}
           onFilterToggle={toggleFilter}
           activeLabel={activeLabel}
-          onLabelFilter={setActiveLabel}
+          onLabelFilter={handleLabelFilter}
           activeCycle={activeCycle}
-          onCycleFilter={setActiveCycle}
+          onCycleFilter={handleCycleFilter}
           cycles={allCycles}
           onNewIssue={() => setNewIssueOpen(true)}
+          onSaveView={() => setSaveViewOpen(true)}
+          hasActiveFilters={hasActiveFilter({ search, activeFilters, activeLabel, activeCycle, activeStatus, activePriority })}
           title="All Issues"
           issueCount={filteredIssues.length}
         />
@@ -407,6 +498,13 @@ export default function LinearPlannerPage() {
         cycles={allCycles}
         onCreateCycle={actions.createCycle}
         onUpdateCycle={actions.updateCycle}
+      />
+
+      {/* Save View modal */}
+      <SaveViewModal
+        open={saveViewOpen}
+        onClose={() => setSaveViewOpen(false)}
+        onSave={saveCurrentView}
       />
     </div>
   )

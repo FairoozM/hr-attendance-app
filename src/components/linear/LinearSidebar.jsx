@@ -10,9 +10,16 @@ import {
   Inbox, LayoutList, Map,
   FolderOpen, RotateCcw, Tag, CheckCircle2, X, Plus,
   Globe, Smartphone, Server, PenTool, BarChart2,
+  Bookmark, AlertCircle, AlertTriangle, Rocket, User, Bug,
 } from 'lucide-react'
 import { DEFAULT_LABELS, labelColors } from './linearLabels'
 import './LinearSidebar.css'
+
+// Map string icon names (from savedViews.js) to Lucide components
+const VIEW_ICON_MAP = {
+  LayoutList,  User, Bug, AlertCircle, RotateCcw,
+  Rocket, AlertTriangle, Smartphone, Server, Bookmark,
+}
 
 // ── Product engineering teams ─────────────────────────────────────────────────
 // key prefix used for issue keys (WEB-12, AND-5, etc.)
@@ -66,14 +73,21 @@ export function LinearSidebar({
   activeCycle,
   onCycleFilter,
   onManageCycles,
+  allViews = [],
+  activeViewId,
+  onApplyView,
+  onDeleteView,
 }) {
   const [labelsOpen, setLabelsOpen] = useState(false)
   const [cyclesOpen, setCyclesOpen] = useState(false)
+  const [viewsOpen,  setViewsOpen]  = useState(true) // open by default
 
   const workspaceLinks = [
     { to: '/projects/linear/projects',  Icon: FolderOpen,   label: 'Projects'  },
     { to: '/projects/linear/completed', Icon: CheckCircle2, label: 'Completed', disabled: true },
   ]
+
+  const customViews = allViews.filter((v) => !v.builtin)
 
   return (
     <aside className="lsb" aria-label="Issue tracker navigation">
@@ -85,8 +99,58 @@ export function LinearSidebar({
       <SidebarSection>
         <SidebarLink to="/projects/linear" Icon={LayoutList} label="Issues" end />
         <SidebarLink to="/projects/linear/inbox"   Icon={Inbox}      label="Inbox"   badge={inboxCount || null} disabled />
-        <SidebarLink to="/projects/linear/views"   Icon={LayoutList} label="Views"   disabled />
-        <SidebarLink to="/projects/linear/roadmap" Icon={Map}        label="Roadmap" disabled />
+
+        {/* Views toggle */}
+        <button
+          type="button"
+          className={`lsb-link lsb-link--btn ${viewsOpen ? 'lsb-link--active' : ''}`}
+          onClick={() => setViewsOpen((v) => !v)}
+          aria-expanded={viewsOpen}
+        >
+          <Map size={14} strokeWidth={1.8} className="lsb-link__icon" aria-hidden="true" />
+          <span className="lsb-link__label">Views</span>
+          {customViews.length > 0 && (
+            <span className="lsb-link__badge">{customViews.length}</span>
+          )}
+        </button>
+
+        {viewsOpen && (
+          <div className="lsb-labels lsb-views">
+            {allViews.map((view) => {
+              const Icon = VIEW_ICON_MAP[view.icon] || Bookmark
+              const isActive = activeViewId === view.id
+              return (
+                <div
+                  key={view.id}
+                  className={`lsb-view-row ${isActive ? 'lsb-view-row--active' : ''}`}
+                >
+                  <button
+                    type="button"
+                    className="lsb-view-btn"
+                    onClick={() => onApplyView?.(view)}
+                    title={view.label}
+                  >
+                    <Icon size={11} strokeWidth={2} className="lsb-view-icon" aria-hidden="true" />
+                    <span className="lsb-label-name">{view.label}</span>
+                  </button>
+                  {!view.builtin && (
+                    <button
+                      type="button"
+                      className="lsb-view-delete"
+                      onClick={(e) => { e.stopPropagation(); onDeleteView?.(view.id) }}
+                      aria-label={`Delete view ${view.label}`}
+                      title="Delete view"
+                    >
+                      <X size={9} strokeWidth={2.5} aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        <SidebarLink to="/projects/linear/roadmap" Icon={Map} label="Roadmap" disabled />
       </SidebarSection>
 
       <SidebarSection title="Teams">

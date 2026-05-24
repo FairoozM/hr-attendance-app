@@ -159,6 +159,28 @@
 .ltb__new-btn:hover    { background: #4f46e5; }
 .ltb__new-btn:active   { transform: scale(.97); }
 
+/* ── Save View button ─────────────────────────────────────── */
+.ltb__save-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid var(--theme-border-subtle, rgba(255,255,255,.1));
+  color: var(--theme-text-muted, #6b7280);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+  flex-shrink: 0;
+}
+.ltb__save-btn:hover { background: var(--theme-surface-soft, rgba(255,255,255,.06)); color: var(--theme-text-soft, #94a3b8); }
+.ltb__save-btn--active {
+  border-color: rgba(99,102,241,.4);
+  color: #a5b4fc;
+  background: rgba(99,102,241,.1);
+}
+
 /* ── Label filter dropdown ────────────────────────────────── */
 .ltb__label-wrap {
   position: relative;

@@ -173,3 +173,52 @@
   font-style: italic;
   gap: 0.4rem;
 }
+
+/* ── Views section ────────────────────────────────────────── */
+.lsb-views { gap: 0.05rem; }
+
+.lsb-view-row {
+  display: flex;
+  align-items: center;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.lsb-view-row--active { background: var(--theme-surface-soft, rgba(255,255,255,.07)); }
+.lsb-view-row--active .lsb-view-btn { color: var(--theme-text, #e2e8f0); font-weight: 600; }
+
+.lsb-view-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.28rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 450;
+  color: var(--theme-text-soft, #94a3b8);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+  transition: background 0.08s;
+}
+.lsb-view-btn:hover { background: var(--theme-surface-soft, rgba(255,255,255,.05)); }
+.lsb-view-icon { flex-shrink: 0; color: var(--theme-text-muted, #6b7280); }
+
+.lsb-view-delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--theme-text-muted, #6b7280);
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.1s, background 0.1s;
+  flex-shrink: 0;
+}
+.lsb-view-row:hover .lsb-view-delete { opacity: 1; }
+.lsb-view-delete:hover { background: rgba(239,68,68,.15); color: #f87171; }
