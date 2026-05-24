@@ -8,12 +8,14 @@ import { issueKey } from './IssueRow'
 import { IssueProperties } from './IssueProperties'
 import { IssueComments } from './IssueComments'
 import { IssueActivity } from './IssueActivity'
+import { IssueAIAssistant } from './IssueAIAssistant'
 import './IssueDetailPanel.css'
 
 const TABS = [
-  { id: 'details', label: 'Details' },
+  { id: 'details',  label: 'Details'  },
   { id: 'comments', label: 'Comments' },
   { id: 'activity', label: 'Activity' },
+  { id: 'ai',       label: 'AI'       },
 ]
 
 /** Map UI camelCase patch → API snake_case body */
@@ -134,6 +136,25 @@ export function IssueDetailPanel({
     if (description === (issue?.description || '')) return
     persist({ description })
   }, [description, issue?.description, persist])
+
+  // ── AI Assistant callbacks ────────────────────────────────────────────────
+  const handleAiInsertDescription = useCallback((text) => {
+    setDescription(text)
+    // Persist immediately so user sees it saved
+    persist({ description: text })
+  }, [persist])
+
+  const handleAiAppendDescription = useCallback((text) => {
+    const current = description || ''
+    const next = current ? `${current}\n\n${text}` : text
+    setDescription(next)
+    persist({ description: next })
+  }, [description, persist])
+
+  const handleAiReplaceTitle = useCallback((text) => {
+    setTitle(text)
+    persist({ title: text })
+  }, [persist])
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!issue || !onDelete) return
@@ -351,6 +372,16 @@ export function IssueDetailPanel({
               projectId={issue.projectId}
               issueId={issue.id}
               refreshKey={activityRefresh}
+            />
+          )}
+
+          {tab === 'ai' && (
+            <IssueAIAssistant
+              issue={issue}
+              project={project}
+              onInsertDescription={handleAiInsertDescription}
+              onAppendDescription={handleAiAppendDescription}
+              onReplaceTitle={handleAiReplaceTitle}
             />
           )}
         </div>

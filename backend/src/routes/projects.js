@@ -5,6 +5,7 @@ const projectTasksController = require('../controllers/projectTasksController')
 const taskCommentsController = require('../controllers/taskCommentsController')
 const taskActivityController = require('../controllers/taskActivityController')
 const projectCyclesController = require('../controllers/projectCyclesController')
+const issueAIController = require('../controllers/issueAIController')
 
 const router = express.Router()
 
@@ -61,6 +62,13 @@ router.delete('/:projectId/tasks/:taskId/dependencies/:depId', ...manage, projec
 router.get(   '/:projectId/cycles',            ...view,   projectCyclesController.listCycles)
 router.post(  '/:projectId/cycles',            ...manage, projectCyclesController.createCycle)
 router.patch( '/:projectId/cycles/:cycleId',   ...manage, projectCyclesController.updateCycle)
+
+// ---- Issue AI Assistant (Phase 6B) ----
+router.post(
+  '/:projectId/tasks/:taskId/ai/assist',
+  ...view,
+  issueAIController.aiAssist
+)
 
 // ---- Attachments ----
 router.post(

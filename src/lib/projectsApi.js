@@ -343,6 +343,27 @@ export const sprintsApi = {
     api.delete(`/api/sprints/${sprintId}`),
 }
 
+// ─── Issue AI Assistant (Phase 6B) ────────────────────────────────────────────
+
+/**
+ * Call the Issue AI Assistant backend.
+ * @param {number|string} projectId
+ * @param {number|string} taskId
+ * @param {string} action  – improve_title | draft_description | acceptance_criteria | qa_checklist | cursor_prompt | release_note
+ * @param {string} [extraContext] – optional extra context string
+ * @returns {Promise<{ action: string, output: string }>}
+ */
+export async function linearIssueAiAssist(projectId, taskId, action, extraContext = '') {
+  const res = await api.post(`/api/projects/${projectId}/tasks/${taskId}/ai/assist`, {
+    action,
+    extra_context: extraContext || '',
+  })
+  if (!res || !res.output) {
+    throw new Error(res?.message || 'AI returned empty output')
+  }
+  return { action: res.action, output: res.output }
+}
+
 // ─── Team members ─────────────────────────────────────────────────────────────
 
 export const teamApi = {
