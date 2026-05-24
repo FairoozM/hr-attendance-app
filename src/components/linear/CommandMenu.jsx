@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom'
 import {
   Search, X, Plus, LayoutList, Tag, RotateCcw, Bookmark, SlidersHorizontal,
   Globe, Server, Smartphone, AlertCircle, AlertTriangle, Rocket, Bug, User, Users,
-  XCircle, ArrowRight, FolderOpen, Layers, Map, BarChart2, Inbox,
+  XCircle, ArrowRight, FolderOpen, Layers, Map, BarChart2, Inbox, Package,
 } from 'lucide-react'
 import { DEFAULT_LABELS } from './linearLabels'
 import { issueKey, normalizeStatus } from './IssueRow'
@@ -218,6 +218,21 @@ function buildCommands({
     id: 'nav-team-link2', group: 'Navigate', label: 'Go to Team Projects (Legacy)',
     Icon: FolderOpen, keywords: ['go', 'navigate', 'team', 'legacy'],
     action: () => { window.location.hash = '#/projects/team'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-releases', group: 'Navigate', label: 'Go to Releases',
+    Icon: Package, keywords: ['go', 'navigate', 'releases', 'qa', 'handoff', 'deploy', 'ship'],
+    action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-releases-ready', group: 'Navigate', label: 'Releases: Show Ready for Release',
+    Icon: Rocket, keywords: ['releases', 'ready', 'release', 'ship', 'qa'],
+    action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-releases-notes', group: 'Navigate', label: 'Releases: Copy Release Notes',
+    Icon: Package, keywords: ['releases', 'release notes', 'copy', 'notes'],
+    action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
   })
   cmds.push({
     id: 'nav-planner', group: 'Navigate', label: 'Go to AI Planner',
