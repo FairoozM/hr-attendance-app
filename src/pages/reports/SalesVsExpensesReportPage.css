@@ -1032,7 +1032,19 @@
   display: flex !important;
 }
 
-.sve-report.is-capturing .sve-header-influencer__name,
+.sve-report.is-capturing .sve-header-influencer,
+.sve-report.is-capturing .sve-header-influencers {
+  overflow: visible;
+}
+
+.sve-report.is-capturing .sve-header-influencer__name {
+  position: static;
+  top: auto;
+  line-height: 1.3;
+  overflow: visible;
+  text-overflow: clip;
+}
+
 .sve-report.is-capturing .sve-inf-selected__name {
   position: relative;
   top: -7px;
