@@ -64,6 +64,22 @@ export function IssueAIAssistant({ issue, project, onInsertDescription, onAppend
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
+    }).catch(() => {
+      // Fallback: select all text in a temporary textarea
+      try {
+        const ta = document.createElement('textarea')
+        ta.value = text
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      } catch {
+        // Copy not available in this context
+      }
     })
   }, [output, activeAction, selectedTitle])
 

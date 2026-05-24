@@ -394,7 +394,7 @@ export default function LinearInboxPage() {
 
         {/* Items list */}
         <div className="ibx__list">
-          {activeItems.length === 0 && !showDismissed && (
+          {activeItems.length === 0 && !showDismissed && !anyLoading && (
             <div className="ibx__empty">
               <div className="ibx__empty-title">All clear</div>
               <div className="ibx__empty-sub">No attention items match the current filters.</div>

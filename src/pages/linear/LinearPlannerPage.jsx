@@ -493,7 +493,7 @@ export default function LinearPlannerPage() {
 
         {/* Issue groups */}
         <div className="lpp__list">
-          {groups.length === 0 ? (
+          {groups.length === 0 && !anyLoading ? (
             <div className="lpp__empty">
               <div className="lpp__empty-title">No issues found</div>
               <div className="lpp__empty-sub">

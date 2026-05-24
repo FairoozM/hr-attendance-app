@@ -217,3 +217,21 @@
   padding: 0.05rem 0.3rem;
   color: var(--theme-text-muted, #9ca3af);
 }
+
+/* ── Mobile: fit viewport on small screens ──────────────────────────────── */
+@media (max-width: 480px) {
+  .cm-overlay {
+    padding-top: 20px;
+    align-items: flex-start;
+  }
+
+  .cm-panel {
+    width: 100vw;
+    border-radius: 0 0 12px 12px;
+    max-height: 85vh;
+  }
+
+  .cm-footer {
+    display: none;
+  }
+}

@@ -467,3 +467,27 @@
 .iact__sep {
   margin: 0 0.25rem;
 }
+
+/* ── Mobile: full-width panel, compact tabs ──────────────────────────────── */
+@media (max-width: 480px) {
+  .idp {
+    width: 100vw;
+    border-left: none;
+  }
+
+  .idp__tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .idp__tabs::-webkit-scrollbar { display: none; }
+
+  .idp__tab {
+    padding: 0.5rem 0.7rem;
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+
+  .idp__title-input {
+    font-size: 0.95rem;
+  }
+}

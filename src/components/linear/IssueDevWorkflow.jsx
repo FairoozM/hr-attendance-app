@@ -303,9 +303,18 @@ export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta })
   }, [onSaveDevMeta])
 
   const copyText = useCallback((id, text) => {
-    navigator.clipboard.writeText(text).then(() => {
+    const markCopied = () => {
       setCopied((prev) => ({ ...prev, [id]: true }))
       setTimeout(() => setCopied((prev) => ({ ...prev, [id]: false })), 2000)
+    }
+    navigator.clipboard.writeText(text).then(markCopied).catch(() => {
+      try {
+        const ta = document.createElement('textarea')
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'
+        document.body.appendChild(ta); ta.select()
+        document.execCommand('copy'); document.body.removeChild(ta)
+        markCopied()
+      } catch { /* clipboard not available */ }
     })
   }, [])
 

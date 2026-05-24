@@ -35,7 +35,7 @@ const ISSUE_TYPE_OPTIONS = [
   { value: 'release',     label: 'Release'      },
   { value: 'content',     label: 'Content'      },
   { value: 'integration', label: 'Integration'  },
-  { value: 'task',        label: 'Task'         },
+  { value: 'task',        label: 'General'      },
 ]
 
 export function NewIssueModal({

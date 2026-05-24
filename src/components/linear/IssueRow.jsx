@@ -100,7 +100,7 @@ export const ISSUE_TYPE_CONFIG = {
   release:     { Icon: Rocket,   color: '#34d399', label: 'Release'      },
   content:     { Icon: FileText, color: '#94a3b8', label: 'Content'      },
   integration: { Icon: Plug,     color: '#fbbf24', label: 'Integration'  },
-  task:        { Icon: Circle,   color: '#6b7280', label: 'Task'         },
+  task:        { Icon: Circle,   color: '#6b7280', label: 'General'     },
 }
 
 function initialsFromName(name = '') {

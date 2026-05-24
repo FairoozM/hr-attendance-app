@@ -81,7 +81,7 @@ function IssuePreviewRow({ issue }) {
 export default function LinearTeamPage() {
   const navigate = useNavigate()
   const {
-    projects, members, loadingProjects, loadingMembers, error,
+    projects, members, loadingProjects, loadingMembers, loadingTasks, error,
     getTasksForProject, getCyclesForProject,
   } = useTeamProjectsContext()
 
@@ -111,7 +111,7 @@ export default function LinearTeamPage() {
     return memberStats(issues, activeCycleIds)
   }, [allIssues, activeCycleIds])
 
-  const anyLoading = loadingProjects || loadingMembers
+  const anyLoading = loadingProjects || loadingMembers || Object.values(loadingTasks).some(Boolean)
 
   function openAssignee(userId) {
     navigate('/projects/linear', { state: { filterAssigneeId: userId } })

@@ -215,8 +215,8 @@ function buildCommands({
     action: () => { window.location.hash = '#/projects/linear/roadmap'; onClose() },
   })
   cmds.push({
-    id: 'nav-team-link2', group: 'Navigate', label: 'Go to Team Projects (Legacy)',
-    Icon: FolderOpen, keywords: ['go', 'navigate', 'team', 'legacy'],
+    id: 'nav-team-link2', group: 'Navigate', label: 'Go to Team Planner (Classic)',
+    Icon: FolderOpen, keywords: ['go', 'navigate', 'team', 'classic', 'planner'],
     action: () => { window.location.hash = '#/projects/team'; onClose() },
   })
   cmds.push({

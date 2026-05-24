@@ -197,10 +197,10 @@ export function IssueProperties({
         </div>
       </div>
 
-      {/* Subtle type hint */}
-      {ISSUE_TYPE_CONFIG[typeVal] && (
+      {/* Subtle type hint — only shown for non-default types */}
+      {ISSUE_TYPE_CONFIG[typeVal] && typeVal !== 'task' && (
         <p className="ipr__hint">
-          {ISSUE_TYPE_CONFIG[typeVal].label} issue
+          {ISSUE_TYPE_CONFIG[typeVal].label}
         </p>
       )}
     </div>

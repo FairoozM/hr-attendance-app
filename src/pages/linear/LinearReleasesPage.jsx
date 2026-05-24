@@ -406,9 +406,15 @@ function ReleaseIssueCard({ issue, project, member, cycle, selected, onToggle, o
 function CopyButton({ label, text, disabled, className = '' }) {
   const [copied, setCopied] = useState(false)
   const copy = () => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+    const markCopied = () => { setCopied(true); setTimeout(() => setCopied(false), 2000) }
+    navigator.clipboard.writeText(text).then(markCopied).catch(() => {
+      try {
+        const ta = document.createElement('textarea')
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'
+        document.body.appendChild(ta); ta.select()
+        document.execCommand('copy'); document.body.removeChild(ta)
+        markCopied()
+      } catch { /* clipboard not available */ }
     })
   }
   return (
@@ -619,7 +625,7 @@ export default function LinearReleasesPage() {
   const visibleDone = doneIssues.slice(0, donePage * DONE_PAGE_SIZE)
   const hasMoreDone = doneIssues.length > visibleDone.length
 
-  const loading = loadingProjects || loadingTasks
+  const loading = loadingProjects || Object.values(loadingTasks).some(Boolean)
 
   return (
     <div className="rel">
