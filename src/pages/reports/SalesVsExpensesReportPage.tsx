@@ -501,7 +501,7 @@ function TransactionTable({
     <>
       <div className={`sve-section-title sve-section-title--${color}`}>
         <span className={`sve-dot sve-dot--${color}`} />
-        {label}
+        <span className="sve-section-title-text">{label}</span>
       </div>
       <table className="sve-table">
         <thead>

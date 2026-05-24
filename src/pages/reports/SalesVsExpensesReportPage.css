@@ -483,6 +483,10 @@
 .sve-section-title--orange { color: #f97316; }
 .sve-section-title--red { color: #ef4444; }
 
+.sve-section-title-text {
+  line-height: 1.2;
+}
+
 .sve-dot {
   width: 10px;
   height: 10px;
@@ -1027,7 +1031,7 @@
 .sve-report.is-capturing .sve-kpi-value,
 .sve-report.is-capturing .sve-kpi-change,
 .sve-report.is-capturing .sve-card-title,
-.sve-report.is-capturing .sve-section-title,
+.sve-report.is-capturing .sve-section-title-text,
 .sve-report.is-capturing .sve-capture-text,
 .sve-report.is-capturing .sve-date-weekday-text,
 .sve-report.is-capturing .sve-profit-strip span,
@@ -1049,6 +1053,18 @@
 .sve-report.is-capturing .sve-category-text {
   position: relative;
   top: -8px;
+}
+
+.sve-report.is-capturing .sve-section-title {
+  display: flex !important;
+  align-items: center !important;
+}
+
+.sve-report.is-capturing .sve-dot {
+  position: static;
+  top: auto;
+  align-self: center;
+  flex-shrink: 0;
 }
 
 .sve-report.is-capturing .sve-input {
