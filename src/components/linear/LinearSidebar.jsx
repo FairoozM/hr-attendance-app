@@ -86,6 +86,7 @@ export function LinearSidebar({
   const workspaceLinks = [
     { to: '/projects/linear/projects',  Icon: FolderOpen,   label: 'Projects'  },
     { to: '/projects/linear/team',      Icon: Users,        label: 'Team'      },
+    { to: '/projects/linear/workload',  Icon: BarChart2,    label: 'Workload'  },
     { to: '/projects/linear/completed', Icon: CheckCircle2, label: 'Completed', disabled: true },
   ]
 

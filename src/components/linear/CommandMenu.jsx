@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom'
 import {
   Search, X, Plus, LayoutList, Tag, RotateCcw, Bookmark, SlidersHorizontal,
   Globe, Server, Smartphone, AlertCircle, AlertTriangle, Rocket, Bug, User, Users,
-  XCircle, ArrowRight, FolderOpen, Layers, Map,
+  XCircle, ArrowRight, FolderOpen, Layers, Map, BarChart2,
 } from 'lucide-react'
 import { DEFAULT_LABELS } from './linearLabels'
 import { issueKey, normalizeStatus } from './IssueRow'
@@ -114,6 +114,16 @@ function buildCommands({
     id: 'nav-team-page', group: 'Team', label: 'Go to Team',
     Icon: Users, keywords: ['team', 'members', 'workload', 'navigate'],
     action: () => { window.location.hash = '#/projects/linear/team'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-workload', group: 'Team', label: 'Go to Workload',
+    Icon: BarChart2, keywords: ['workload', 'capacity', 'load', 'navigate'],
+    action: () => { window.location.hash = '#/projects/linear/workload'; onClose() },
+  })
+  cmds.push({
+    id: 'workload-unassigned', group: 'Team', label: 'Show Unassigned Work',
+    Icon: User, keywords: ['unassigned', 'no assignee', 'workload'],
+    action: () => { onSetActiveAssignee?.('unassigned'); window.location.hash = '#/projects/linear'; onClose() },
   })
   cmds.push({
     id: 'assignee-unassigned', group: 'Team', label: 'Show Unassigned Issues',

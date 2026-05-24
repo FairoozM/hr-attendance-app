@@ -82,6 +82,7 @@ import LinearPlannerPage from './pages/linear/LinearPlannerPage'
 import LinearProjectsPage from './pages/linear/LinearProjectsPage'
 import LinearTeamPage from './pages/linear/LinearTeamPage'
 import LinearRoadmapPage from './pages/linear/LinearRoadmapPage'
+import LinearWorkloadPage from './pages/linear/LinearWorkloadPage'
 import { AiUsageDashboard } from './pages/AiUsageDashboard'
 import { AmazonListingGenerator } from './pages/AmazonListingGenerator'
 import { AmazonSpApiTestPage } from './pages/AmazonSpApiTestPage'
@@ -486,6 +487,14 @@ function AppContent() {
           element={
             <PermissionGuard module="planner" action="view">
               <LinearRoadmapPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="projects/linear/workload"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <LinearWorkloadPage />
             </PermissionGuard>
           }
         />
