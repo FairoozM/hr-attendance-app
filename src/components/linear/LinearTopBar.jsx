@@ -227,6 +227,7 @@ export function LinearTopBar({
   cycles = [],
   onNewIssue,
   onSaveView,
+  onOpenCmdMenu,
   hasActiveFilters = false,
   title = 'All Issues',
   issueCount = null,
@@ -328,6 +329,19 @@ export function LinearTopBar({
         >
           <Bookmark size={13} strokeWidth={2} aria-hidden="true" />
         </button>
+
+        {/* Cmd+K hint */}
+        {onOpenCmdMenu && (
+          <button
+            type="button"
+            className="ltb__cmdk"
+            onClick={onOpenCmdMenu}
+            aria-label="Open command menu"
+            title="Command menu (⌘K)"
+          >
+            <span className="ltb__cmdk-text">⌘K</span>
+          </button>
+        )}
       </div>
     </div>
   )

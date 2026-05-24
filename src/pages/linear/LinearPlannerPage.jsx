@@ -19,6 +19,7 @@ import { NewIssueModal }    from '../../components/linear/NewIssueModal'
 import { IssueDetailPanel } from '../../components/linear/IssueDetailPanel'
 import { CyclesPanel }      from '../../components/linear/CyclesPanel'
 import { SaveViewModal }    from '../../components/linear/SaveViewModal'
+import { CommandMenu }      from '../../components/linear/CommandMenu'
 import { STATUS_CONFIG, PRIORITY_CONFIG, normalizeStatus, normalizePriority } from '../../components/linear/IssueRow'
 import {
   BUILTIN_VIEWS,
@@ -132,6 +133,7 @@ export default function LinearPlannerPage() {
   const [newIssueOpen,  setNewIssueOpen]  = useState(false)
   const [cyclesPanelOpen, setCyclesPanelOpen] = useState(false)
   const [saveViewOpen,  setSaveViewOpen]  = useState(false)
+  const [cmdMenuOpen,   setCmdMenuOpen]   = useState(false)
   const [githubMetaByIssue, setGithubMetaByIssue] = useState({})
   const [successMessage, setSuccessMessage] = useState('')
   const didFetch = useRef(false)
@@ -304,7 +306,29 @@ export default function LinearPlannerPage() {
     ? `${selectedIssue.projectId}-${selectedIssue.id}`
     : null
 
-  // ── Quick filter toggle ─────────────────────────────────────────────────────
+  // ── Global Cmd+K / Ctrl+K listener ─────────────────────────────────────────
+  useEffect(() => {
+    function onKeyDown(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setCmdMenuOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  // ── Clear all filters ────────────────────────────────────────────────────────
+  const handleClearFilters = useCallback(() => {
+    setSearch('')
+    setGroupBy('status')
+    setActiveFilters({})
+    setActiveLabel(null)
+    setActiveCycle(null)
+    setActiveStatus(null)
+    setActivePriority(null)
+    setActiveViewId(null)
+  }, [])
   const toggleFilter = useCallback((id) => {
     setActiveFilters((prev) => ({ ...prev, [id]: !prev[id] }))
     setActiveViewId(null)
@@ -406,6 +430,7 @@ export default function LinearPlannerPage() {
           cycles={allCycles}
           onNewIssue={() => setNewIssueOpen(true)}
           onSaveView={() => setSaveViewOpen(true)}
+          onOpenCmdMenu={() => setCmdMenuOpen(true)}
           hasActiveFilters={hasActiveFilter({ search, activeFilters, activeLabel, activeCycle, activeStatus, activePriority })}
           title="All Issues"
           issueCount={filteredIssues.length}
@@ -505,6 +530,24 @@ export default function LinearPlannerPage() {
         open={saveViewOpen}
         onClose={() => setSaveViewOpen(false)}
         onSave={saveCurrentView}
+      />
+
+      {/* Command Menu — Cmd+K / Ctrl+K */}
+      <CommandMenu
+        open={cmdMenuOpen}
+        onClose={() => setCmdMenuOpen(false)}
+        allIssues={allIssues}
+        allCycles={allCycles}
+        allViews={[...BUILTIN_VIEWS, ...customViews]}
+        projectMap={projectMap}
+        onNewIssue={() => { setNewIssueOpen(true) }}
+        onApplyView={applyView}
+        onSetGroupBy={(v) => { setGroupBy(v); setActiveViewId(null) }}
+        onSetActiveLabel={(v) => { setActiveLabel(v); setActiveViewId(null) }}
+        onSetActiveCycle={(v) => { setActiveCycle(v); setActiveViewId(null) }}
+        onClearFilters={handleClearFilters}
+        onManageCycles={() => setCyclesPanelOpen(true)}
+        onSelectIssue={(issue) => setSelectedIssue(issue)}
       />
     </div>
   )
