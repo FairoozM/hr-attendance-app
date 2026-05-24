@@ -693,24 +693,28 @@
 .sve-amount--orange { color: #f97316; }
 .sve-amount--red { color: #ef4444; }
 
-.sve-total-row td { font-weight: 800; font-size: 17px; }
-.sve-total-row__summary {
+.sve-total-strip {
   display: flex;
   justify-content: flex-end;
   align-items: center;
   gap: 14px;
-  text-align: right;
-  white-space: nowrap;
+  padding: 14px 24px;
+  border-left: 1px solid #d8dee8;
+  border-right: 1px solid #d8dee8;
+  border-bottom: 1px solid #d8dee8;
+  font-weight: 800;
 }
-.sve-total-row__label {
+
+.sve-total-strip__label {
   font-weight: 800;
   font-size: 17px;
   color: #334155;
   letter-spacing: 0.02em;
 }
-.sve-total-row--green td { background: #f0fdf4; }
-.sve-total-row--orange td { background: #fff7ed; }
-.sve-total-row--red td { background: #fff1f2; }
+
+.sve-total-strip--green { background: #f0fdf4; }
+.sve-total-strip--orange { background: #fff7ed; }
+.sve-total-strip--red { background: #fff1f2; }
 
 .sve-profit-strip {
   display: flex;
@@ -1011,9 +1015,7 @@
 .sve-report.is-capturing .sve-table td,
 .sve-report.is-capturing .sve-category,
 .sve-report.is-capturing .sve-profit-strip,
-.sve-report.is-capturing .sve-total-row__label,
-.sve-report.is-capturing .sve-total-row__summary,
-.sve-report.is-capturing .sve-total-row .sve-amount {
+.sve-report.is-capturing .sve-total-strip {
   line-height: 1.2;
 }
 
@@ -1030,9 +1032,8 @@
 .sve-report.is-capturing .sve-date-weekday-text,
 .sve-report.is-capturing .sve-profit-strip span,
 .sve-report.is-capturing .sve-profit-strip strong,
-.sve-report.is-capturing .sve-total-row__label,
-.sve-report.is-capturing .sve-total-row__summary,
-.sve-report.is-capturing .sve-total-row .sve-amount {
+.sve-report.is-capturing .sve-total-strip__label,
+.sve-report.is-capturing .sve-total-strip .sve-amount {
   position: relative;
   top: -7px;
 }
@@ -1110,24 +1111,6 @@
 .sve-report.is-capturing .sve-table th:last-child,
 .sve-report.is-capturing .sve-table td:last-child {
   display: none !important;
-}
-
-.sve-report.is-capturing .sve-total-row__summary {
-  display: flex !important;
-  justify-content: flex-end !important;
-  align-items: center;
-  overflow: visible;
-  white-space: nowrap;
-}
-
-.sve-report.is-capturing .sve-total-row__label {
-  overflow: visible;
-  text-overflow: clip;
-  flex-shrink: 0;
-}
-
-.sve-report.is-capturing .sve-total-row .sve-amount {
-  flex-shrink: 0;
 }
 
 /* ── Responsive ── */

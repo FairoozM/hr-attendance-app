@@ -602,16 +602,12 @@ function TransactionTable({
             </tr>
             );
           })}
-          <tr className={`sve-total-row sve-total-row--${color}`}>
-            <td colSpan={3} aria-hidden="true" />
-            <td colSpan={2} className="sve-total-row__summary">
-              <span className="sve-total-row__label">TOTAL {categoryLabel.toUpperCase()}</span>
-              <span className={`sve-amount sve-amount--${color}`}>{fmt(total)}</span>
-            </td>
-            <td aria-hidden="true" />
-          </tr>
         </tbody>
       </table>
+      <div className={`sve-total-strip sve-total-strip--${color}`}>
+        <span className="sve-total-strip__label">TOTAL {categoryLabel.toUpperCase()}</span>
+        <strong className={`sve-amount sve-amount--${color}`}>{fmt(total)}</strong>
+      </div>
       <div className="sve-add-row-wrap">
         <button type="button" className={`sve-add-btn sve-add-btn--${color}`} onClick={onAdd}>
           + Add row
