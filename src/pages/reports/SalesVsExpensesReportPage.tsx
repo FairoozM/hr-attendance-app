@@ -880,6 +880,18 @@ const SalesVsExpensesReportPage: React.FC = () => {
     setTimeout(() => setSavedMsg(null), 3000);
   }, [navigate]);
 
+  const handleCreateNewReport = useCallback(() => {
+    if (!window.confirm("Start a new report? Unsaved changes to the current report will be lost.")) return;
+    resetToNewReport();
+    setHistoryOpen(false);
+    setExpandedId(null);
+    setSavedMsg("New report started.");
+    window.setTimeout(() => setSavedMsg(null), 3000);
+    if (urlReportId) {
+      navigate(SVE_BASE_PATH, { replace: true });
+    }
+  }, [resetToNewReport, navigate, urlReportId]);
+
   return (
     <div className="sve-page">
       <div className={`sve-report${isCapturing ? " is-capturing" : ""}`} ref={reportRef}>
@@ -1025,6 +1037,9 @@ const SalesVsExpensesReportPage: React.FC = () => {
         <div className="sve-actions">
           <button type="button" className="sve-btn sve-btn--primary" onClick={handleSave}>
             💾 Save Report
+          </button>
+          <button type="button" className="sve-btn sve-btn--outline" onClick={handleCreateNewReport}>
+            + New Report
           </button>
           <button
             type="button"
