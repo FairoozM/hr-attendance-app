@@ -5,15 +5,18 @@
  *
  * Read-only diagnostics — never exposes token/secret values.
  * Uses GET /api/projects/integrations/github/status (manage permission).
+ * Phase 7E: adds GitHub Audit tab backed by task_activity_log.
  */
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import {
   GitPullRequest, CheckCircle2, AlertTriangle, XCircle,
   Copy, Check, RefreshCw, Settings, Webhook,
-  Key, Link2, Code2, Zap,
+  Key, Link2, Code2, Zap, GitMerge, GitBranch,
+  ExternalLink, Filter, Search as SearchIcon,
 } from 'lucide-react'
 import { LinearSidebar } from '../../components/linear/LinearSidebar'
-import { getGithubIntegrationStatus } from '../../lib/projectsApi'
+import { getGithubIntegrationStatus, getGithubAuditLog } from '../../lib/projectsApi'
+import { issueKey } from '../../components/linear/IssueRow'
 import './LinearSettingsPage.css'
 
 // ── API base URL helper (frontend) ────────────────────────────────────────────

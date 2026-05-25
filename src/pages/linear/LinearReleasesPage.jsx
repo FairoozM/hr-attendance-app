@@ -9,6 +9,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { ChevronDown, X, Copy, Check, Package, ChevronRight, CheckSquare, Square } from 'lucide-react'
 import { useTeamProjectsContext } from '../../contexts/TeamProjectsContext'
+import { ReleaseApprovalPanel } from '../../components/linear/ReleaseApprovalPanel'
 import { LinearSidebar } from '../../components/linear/LinearSidebar'
 import { IssueDetailPanel } from '../../components/linear/IssueDetailPanel'
 import { issueKey, normalizeStatus, normalizePriority, STATUS_CONFIG, PRIORITY_CONFIG, ISSUE_TYPE_CONFIG } from '../../components/linear/IssueRow'
@@ -403,6 +404,11 @@ function ReleaseIssueCard({ issue, project, member, cycle, selected, onToggle, o
             : <span className="rel-card__qa rel-card__qa--pending"  title="Not QA Approved">QA?</span>
           }
 
+          {/* Not-ready warning */}
+          {!['Ready for Release', 'QA Approved', 'Done'].includes(status) && (
+            <span className="rel-card__warn" title={`Status: ${status} — not ready for release`}>⚠ Not Ready</span>
+          )}
+
           {/* PR URL */}
           {prUrl && (
             <a
@@ -464,6 +470,7 @@ export default function LinearReleasesPage() {
     loadingProjects,
     loadingTasks,
     error,
+    user,
     getTasksForProject,
     getCyclesForProject,
     actions,
@@ -578,6 +585,12 @@ export default function LinearReleasesPage() {
   const handleDelete = useCallback(async (projectId, taskId) => {
     await actions.deleteTask(projectId, taskId)
     setPanelIssue(null)
+  }, [actions])
+
+  const handleMoveToDone = useCallback(async (issues) => {
+    for (const iss of issues) {
+      await actions.updateTask(iss.projectId, iss.id, { status: 'Done' })
+    }
   }, [actions])
 
   // ── Filtered issue sets ────────────────────────────────────────────────────
@@ -844,6 +857,15 @@ export default function LinearReleasesPage() {
 
               {/* Preview accordion */}
               <ReleasePreview label="Release Notes Preview" text={releaseNotesText} />
+
+              {/* Release Approval Panel */}
+              <ReleaseApprovalPanel
+                selectedIssues={selectedIssues}
+                projectsMap={projectsMap}
+                membersMap={membersMap}
+                currentUser={user || null}
+                onMoveToDone={handleMoveToDone}
+              />
             </>
           )}
         </section>

@@ -10,6 +10,7 @@ import {
   Search, X, Plus, LayoutList, Tag, RotateCcw, Bookmark, SlidersHorizontal,
   Globe, Server, Smartphone, AlertCircle, AlertTriangle, Rocket, Bug, User, Users,
   XCircle, ArrowRight, FolderOpen, Layers, Map, BarChart2, Inbox, Package, Settings, GitBranch,
+  ClipboardCheck,
 } from 'lucide-react'
 import { DEFAULT_LABELS } from './linearLabels'
 import { issueKey, normalizeStatus } from './IssueRow'
@@ -232,6 +233,21 @@ function buildCommands({
   cmds.push({
     id: 'nav-releases-notes', group: 'Navigate', label: 'Releases: Copy Release Notes',
     Icon: Package, keywords: ['releases', 'release notes', 'copy', 'notes'],
+    action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-release-approval', group: 'Navigate', label: 'Releases: Release Approval Panel',
+    Icon: ClipboardCheck, keywords: ['releases', 'release', 'approval', 'sign-off', 'signoff', 'approve', 'deploy'],
+    action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-release-deploy', group: 'Navigate', label: 'Releases: Copy Deployment Checklist',
+    Icon: Rocket, keywords: ['releases', 'deploy', 'deployment', 'checklist', 'copy', 'sign-off'],
+    action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-release-smoke', group: 'Navigate', label: 'Releases: Copy Smoke Test',
+    Icon: ClipboardCheck, keywords: ['releases', 'smoke', 'test', 'post-deploy', 'qa', 'copy'],
     action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
   })
   cmds.push({
