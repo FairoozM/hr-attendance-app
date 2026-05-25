@@ -236,6 +236,7 @@ router.post(
   projectTasksController.getAttachmentUploadUrl
 )
 router.post('/:projectId/tasks/:taskId/attachments', ...manage, projectTasksController.saveAttachment)
+router.patch('/:projectId/tasks/:taskId/attachments/:attachId', ...manage, projectTasksController.patchAttachment)
 router.delete('/:projectId/tasks/:taskId/attachments/:attachId', ...manage, projectTasksController.deleteAttachment)
 router.get(
   '/:projectId/tasks/:taskId/attachments/:attachId/download-url',

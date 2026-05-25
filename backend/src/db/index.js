@@ -981,6 +981,11 @@ async function testConnection() {
     console.error('[db] ensureTaskAttachmentsTable skipped/failed (non-fatal):', e.message || e)
   }
   try {
+    await ensureTaskAttachmentKindColumn()
+  } catch (e) {
+    console.error('[db] ensureTaskAttachmentKindColumn skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
     await ensureItemReportGroupsTable()
   } catch (e) {
     console.error('[db] ensureItemReportGroupsTable skipped/failed (non-fatal):', e.message || e)
@@ -1159,6 +1164,13 @@ async function ensureTaskAttachmentsTable() {
     )
   `)
   await query(`CREATE INDEX IF NOT EXISTS idx_task_attachments_task_id ON task_attachments(task_id)`)
+}
+
+async function ensureTaskAttachmentKindColumn() {
+  await query(`
+    ALTER TABLE task_attachments
+      ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'attachment'
+  `)
 }
 
 /** AI usage tracking + Amazon listing generations (OpenAI proxy — key stays server-side only). */

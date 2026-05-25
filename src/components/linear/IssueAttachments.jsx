@@ -5,17 +5,21 @@
  *   1. Pick/drop file → validate type + size client-side
  *   2. POST .../attachments/upload-url → presigned PUT URL + s3Key
  *   3. PUT file to S3 directly (no backend involvement, no auth header)
- *   4. POST .../attachments → save metadata → gets row back
+ *   4. POST .../attachments → save metadata (incl. kind) → gets row back
  *   5. GET .../attachments/:id/download-url → show thumbnail / open lightbox
  *
- * Activity logging happens server-side on save and delete.
+ * Activity logging happens server-side on save, delete, and kind change.
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Upload, FileText, X, Trash2, ExternalLink, Eye, AlertCircle, Loader2, Sparkles } from 'lucide-react'
+import {
+  Upload, FileText, X, Trash2, ExternalLink, Eye,
+  AlertCircle, Loader2, Sparkles, ChevronDown,
+} from 'lucide-react'
 import {
   listAttachmentsApi,
   getAttachmentUploadUrlApi,
   saveAttachmentMetaApi,
+  patchAttachmentApi,
   deleteAttachmentApi,
   getAttachmentDownloadUrlApi,
 } from '../../lib/projectsApi'
@@ -28,6 +32,53 @@ const ALLOWED_TYPES = new Set([
   'image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif', 'application/pdf',
 ])
 const MAX_SIZE_BYTES = 10 * 1024 * 1024  // 10 MB
+
+// ── Kind metadata ─────────────────────────────────────────────────────────────
+
+export const KIND_OPTIONS = [
+  { value: 'attachment',       label: 'Attachment' },
+  { value: 'bug_evidence',     label: 'Bug Evidence' },
+  { value: 'before',           label: 'Before' },
+  { value: 'after',            label: 'After' },
+  { value: 'qa_proof',         label: 'QA Proof' },
+  { value: 'design_reference', label: 'Design Reference' },
+  { value: 'release_evidence', label: 'Release Evidence' },
+]
+
+const KIND_LABEL = Object.fromEntries(KIND_OPTIONS.map((o) => [o.value, o.label]))
+
+// Group display order (group label → kind values it covers)
+const GROUPS = [
+  { id: 'bug_evidence',     label: 'Bug Evidence',      kinds: ['bug_evidence'] },
+  { id: 'before_after',     label: 'Before / After',    kinds: ['before', 'after'] },
+  { id: 'qa_proof',         label: 'QA Proof',          kinds: ['qa_proof'] },
+  { id: 'design_reference', label: 'Design Reference',  kinds: ['design_reference'] },
+  { id: 'release_evidence', label: 'Release Evidence',  kinds: ['release_evidence'] },
+  { id: 'attachment',       label: 'Attachments',       kinds: ['attachment'] },
+]
+
+function groupAttachments(atts) {
+  const result = []
+  for (const g of GROUPS) {
+    const items = atts.filter((a) => g.kinds.includes(a.kind || 'attachment'))
+    if (items.length > 0) result.push({ ...g, items })
+  }
+  return result
+}
+
+// Kind badge color class
+function kindClass(kind) {
+  const map = {
+    attachment:       '',
+    before:           'ia-kind--before',
+    after:            'ia-kind--after',
+    bug_evidence:     'ia-kind--bug',
+    qa_proof:         'ia-kind--qa',
+    design_reference: 'ia-kind--design',
+    release_evidence: 'ia-kind--release',
+  }
+  return map[kind] || ''
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -86,10 +137,23 @@ function ImageLightbox({ url, name, onClose }) {
 
 // ── Attachment card ───────────────────────────────────────────────────────────
 
-function AttachmentCard({ att, signedUrl, onView, onOpen, onDelete, onAnalyze }) {
+function AttachmentCard({ att, signedUrl, onView, onOpen, onDelete, onAnalyze, onKindChange }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [kindChanging, setKindChanging] = useState(false)
   const img = isImage(att.file_type)
   const isPdf = att.file_type === 'application/pdf'
+  const currentKind = att.kind || 'attachment'
+
+  const handleKindChange = async (e) => {
+    const newKind = e.target.value
+    if (newKind === currentKind) return
+    setKindChanging(true)
+    try {
+      await onKindChange(att, newKind)
+    } finally {
+      setKindChanging(false)
+    }
+  }
 
   return (
     <div className="ia-card">
@@ -112,6 +176,32 @@ function AttachmentCard({ att, signedUrl, onView, onOpen, onDelete, onAnalyze })
           {att.file_size ? ` · ${formatBytes(att.file_size)}` : ''}
           {att.uploaded_at ? ` · ${fmtDate(att.uploaded_at)}` : ''}
         </p>
+
+        {/* Kind selector */}
+        <div className="ia-card__kind-row">
+          <span className={`ia-kind-badge ${kindClass(currentKind)}`}>
+            {KIND_LABEL[currentKind] || 'Attachment'}
+          </span>
+          <div className="ia-card__kind-select-wrap">
+            <select
+              className="ia-card__kind-select"
+              value={currentKind}
+              onChange={handleKindChange}
+              disabled={kindChanging}
+              aria-label="Change classification"
+              title="Change classification"
+            >
+              {KIND_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            {kindChanging
+              ? <Loader2 size={10} className="ia-card__kind-spin" />
+              : <ChevronDown size={10} className="ia-card__kind-chevron" />
+            }
+          </div>
+        </div>
+
         {/* AI Analyze button — images only */}
         {img && (
           <button
@@ -179,6 +269,9 @@ export function IssueAttachments({ issue, project, onAppendDescription }) {
   const [uploading,    setUploading]    = useState(false)
   const [uploadError,  setUploadError]  = useState('')
   const [uploadingName, setUploadingName] = useState('')
+
+  // Kind to apply on next upload
+  const [pendingKind, setPendingKind] = useState('attachment')
 
   // Delete state
   const [deleting, setDeleting] = useState(null) // attachmentId
@@ -259,6 +352,7 @@ export function IssueAttachments({ issue, project, onAppendDescription }) {
         fileName: file.name,
         fileType: file.type,
         fileSize: file.size,
+        kind: pendingKind,
       })
 
       // 4. Update list + fetch signed URL for new attachment
@@ -325,7 +419,21 @@ export function IssueAttachments({ issue, project, onAppendDescription }) {
     }
   }, [projectId, taskId, signedUrls])
 
+  // ── Kind change ───────────────────────────────────────────────────────────
+  const handleKindChange = useCallback(async (att, newKind) => {
+    try {
+      const updated = await patchAttachmentApi(projectId, taskId, att.id, { kind: newKind })
+      setAttachments((prev) =>
+        prev.map((a) => (a.id === att.id ? { ...a, kind: updated.kind || newKind } : a))
+      )
+    } catch (err) {
+      setUploadError(err.message || 'Could not update classification.')
+    }
+  }, [projectId, taskId])
+
   // ── Render ────────────────────────────────────────────────────────────────
+  const grouped = groupAttachments(attachments)
+
   return (
     <div className="ia">
       {/* Upload zone */}
@@ -364,6 +472,26 @@ export function IssueAttachments({ issue, project, onAppendDescription }) {
         )}
       </div>
 
+      {/* Upload kind selector */}
+      {!uploading && (
+        <div className="ia__upload-kind-row" onClick={(e) => e.stopPropagation()}>
+          <span className="ia__upload-kind-label">Upload as:</span>
+          <div className="ia__upload-kind-wrap">
+            <select
+              className="ia__upload-kind-select"
+              value={pendingKind}
+              onChange={(e) => setPendingKind(e.target.value)}
+              aria-label="Upload classification"
+            >
+              {KIND_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <ChevronDown size={11} className="ia__upload-kind-chevron" />
+          </div>
+        </div>
+      )}
+
       {/* Error */}
       {uploadError && (
         <div className="ia__error" role="alert">
@@ -375,19 +503,30 @@ export function IssueAttachments({ issue, project, onAppendDescription }) {
         </div>
       )}
 
-      {/* Attachment grid */}
-      {attachments.length > 0 ? (
-        <div className="ia__grid">
-          {attachments.map((att) => (
-            <AttachmentCard
-              key={att.id}
-              att={att}
-              signedUrl={signedUrls[att.id] || null}
-              onView={handleView}
-              onOpen={handleOpen}
-              onDelete={deleting === att.id ? () => {} : handleDelete}
-              onAnalyze={setAnalyzingAttachment}
-            />
+      {/* Grouped attachment sections */}
+      {grouped.length > 0 ? (
+        <div className="ia__groups">
+          {grouped.map((g) => (
+            <div key={g.id} className="ia__group">
+              <div className="ia__group-header">
+                <span className={`ia-kind-badge ${kindClass(g.kinds[0])}`}>{g.label}</span>
+                <span className="ia__group-count">{g.items.length}</span>
+              </div>
+              <div className="ia__grid">
+                {g.items.map((att) => (
+                  <AttachmentCard
+                    key={att.id}
+                    att={att}
+                    signedUrl={signedUrls[att.id] || null}
+                    onView={handleView}
+                    onOpen={handleOpen}
+                    onDelete={deleting === att.id ? () => {} : handleDelete}
+                    onAnalyze={setAnalyzingAttachment}
+                    onKindChange={handleKindChange}
+                  />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       ) : (
@@ -396,7 +535,7 @@ export function IssueAttachments({ issue, project, onAppendDescription }) {
         )
       )}
 
-      {/* AI Analysis panel — shown inline below the grid */}
+      {/* AI Analysis panel — shown inline below the groups */}
       {analyzingAttachment && projectId && taskId && (
         <AttachmentAIAnalysis
           projectId={projectId}
@@ -405,6 +544,7 @@ export function IssueAttachments({ issue, project, onAppendDescription }) {
           fileName={analyzingAttachment.file_name}
           onClose={() => setAnalyzingAttachment(null)}
           onAppendDescription={onAppendDescription || (() => {})}
+          onClassify={(newKind) => handleKindChange(analyzingAttachment, newKind)}
         />
       )}
 

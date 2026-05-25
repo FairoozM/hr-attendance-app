@@ -8,16 +8,27 @@
  *   - Acceptance Criteria (+ Append button)
  *   - QA Checklist (+ Copy button)
  *   - Cursor Prompt (+ Copy button)
+ *   - Classify As (+ set kind without auto-save)
  *
  * Does NOT auto-save. All actions require explicit user interaction.
  */
 import { useState, useEffect, useCallback } from 'react'
 import {
   Sparkles, X, Copy, Check, ChevronDown, ChevronUp,
-  AlertCircle, Loader2, Plus,
+  AlertCircle, Loader2, Plus, Tag,
 } from 'lucide-react'
 import { analyzeIssueAttachment } from '../../lib/projectsApi'
 import './AttachmentAIAnalysis.css'
+
+// Classify options shown in the AI panel (subset relevant to AI context)
+const AI_CLASSIFY_OPTIONS = [
+  { value: 'bug_evidence',     label: 'Bug Evidence' },
+  { value: 'qa_proof',         label: 'QA Proof' },
+  { value: 'design_reference', label: 'Design Reference' },
+  { value: 'release_evidence', label: 'Release Evidence' },
+  { value: 'before',           label: 'Before' },
+  { value: 'after',            label: 'After' },
+]
 
 // ── Copy helper ────────────────────────────────────────────────────────────────
 
@@ -92,6 +103,7 @@ function Section({ title, children, defaultOpen = true }) {
  *   fileName: string,
  *   onClose: () => void,
  *   onAppendDescription: (text: string) => void,
+ *   onClassify?: (kind: string) => void,
  * }} props
  */
 export function AttachmentAIAnalysis({
@@ -101,13 +113,15 @@ export function AttachmentAIAnalysis({
   fileName,
   onClose,
   onAppendDescription,
+  onClassify,
 }) {
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState('')
   const [analysis, setAnalysis] = useState(null)
 
-  // Track which "Append" buttons showed a success flash
-  const [appended, setAppended] = useState({})
+  // Track which "Append"/"Classify" buttons showed a success flash
+  const [appended,    setAppended]    = useState({})
+  const [classified,  setClassified]  = useState(null) // currently set kind
 
   const flash = useCallback((key) => {
     setAppended((p) => ({ ...p, [key]: true }))
@@ -150,6 +164,12 @@ export function AttachmentAIAnalysis({
     const text = analysis.acceptanceCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')
     onAppendDescription(`**Acceptance Criteria**\n\n${text}`)
     flash('ac')
+  }
+
+  const handleClassify = (kindValue) => {
+    if (!onClassify) return
+    onClassify(kindValue)
+    setClassified(kindValue)
   }
 
   const listText = (items) =>
@@ -288,6 +308,30 @@ export function AttachmentAIAnalysis({
                 <pre className="aaa__pre">{analysis.cursorPrompt}</pre>
                 <div className="aaa__row-actions">
                   <CopyBtn text={analysis.cursorPrompt} label="Copy Cursor Prompt" />
+                </div>
+              </Section>
+            )}
+
+            {/* Classify screenshot */}
+            {onClassify && (
+              <Section title="Classify Screenshot" defaultOpen={true}>
+                <p className="aaa__classify-hint">
+                  Save this screenshot to the issue under a specific category.
+                </p>
+                <div className="aaa__classify-grid">
+                  {AI_CLASSIFY_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      className={`aaa__classify-btn ${classified === opt.value ? 'aaa__classify-btn--active' : ''}`}
+                      onClick={() => handleClassify(opt.value)}
+                      title={`Classify as ${opt.label}`}
+                    >
+                      {classified === opt.value ? <Check size={11} /> : <Tag size={11} />}
+                      {opt.label}
+                      {classified === opt.value && <span className="aaa__classify-check"> ✓</span>}
+                    </button>
+                  ))}
                 </div>
               </Section>
             )}

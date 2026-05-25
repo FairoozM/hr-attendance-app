@@ -379,10 +379,17 @@ export function getAttachmentUploadUrlApi(projectId, taskId, { fileName, content
   })
 }
 
-export function saveAttachmentMetaApi(projectId, taskId, { s3Key, fileName, fileType, fileSize }) {
+export function saveAttachmentMetaApi(projectId, taskId, { s3Key, fileName, fileType, fileSize, kind }) {
   return api.post(`/api/projects/${projectId}/tasks/${taskId}/attachments`, {
-    s3Key, fileName, fileType, fileSize,
+    s3Key, fileName, fileType, fileSize, kind,
   })
+}
+
+export function patchAttachmentApi(projectId, taskId, attachmentId, { kind }) {
+  return api.patch(
+    `/api/projects/${projectId}/tasks/${taskId}/attachments/${attachmentId}`,
+    { kind }
+  )
 }
 
 export function deleteAttachmentApi(projectId, taskId, attachmentId) {

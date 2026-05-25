@@ -133,7 +133,7 @@ async function getAttachmentUploadUrl(req, res) {
 async function saveAttachment(req, res) {
   try {
     if (!requireAdmin(req, res)) return
-    const { s3Key, fileName, fileType, fileSize } = req.body
+    const { s3Key, fileName, fileType, fileSize, kind } = req.body
     if (!s3Key || !fileName) {
       return res.status(400).json({ error: 's3Key and fileName are required' })
     }
@@ -142,12 +142,30 @@ async function saveAttachment(req, res) {
       fileName,
       fileType,
       fileSize,
-      uploadedBy: req.user.userId,
+      kind,
+      uploadedBy: req.user?.userId,
     })
     res.status(201).json(attachment)
   } catch (err) {
     console.error('[tasks] saveAttachment error:', err)
     res.status(500).json({ error: 'Failed to save attachment', detail: String(err.message || '').slice(0, 240) })
+  }
+}
+
+async function patchAttachment(req, res) {
+  try {
+    const attachmentId = Number(req.params.attachId)
+    const { kind } = req.body
+    if (!kind) return res.status(400).json({ error: 'kind is required' })
+    const att = await projectTasksService.patchAttachment(
+      attachmentId, { kind }, req.user?.userId
+    )
+    res.json(att)
+  } catch (err) {
+    if (err.code === 'NOT_FOUND')    return res.status(404).json({ error: err.message })
+    if (err.code === 'INVALID_KIND') return res.status(400).json({ error: err.message })
+    console.error('[tasks] patchAttachment error:', err)
+    res.status(500).json({ error: 'Failed to update attachment', detail: String(err.message || '').slice(0, 240) })
   }
 }
 
@@ -193,6 +211,7 @@ module.exports = {
   removeDependency,
   getAttachmentUploadUrl,
   saveAttachment,
+  patchAttachment,
   deleteAttachment,
   getAttachmentDownloadUrl,
   listAttachments,

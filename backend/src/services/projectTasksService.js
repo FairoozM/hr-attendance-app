@@ -315,26 +315,72 @@ async function removeDependency(dependencyId) {
 // Attachments
 // ---------------------------------------------------------------------------
 
+const ALLOWED_KINDS = new Set([
+  'attachment', 'before', 'after', 'bug_evidence', 'qa_proof', 'design_reference', 'release_evidence',
+])
+
+const KIND_LABELS = {
+  attachment:        'Attachment',
+  before:            'Before',
+  after:             'After',
+  bug_evidence:      'Bug Evidence',
+  qa_proof:          'QA Proof',
+  design_reference:  'Design Reference',
+  release_evidence:  'Release Evidence',
+}
+
 async function getAttachmentUploadUrl(taskId, { fileName, contentType, fileSize }) {
   const s3Key = s3Service.createTaskAttachmentKey(taskId, fileName)
   const uploadUrl = await s3Service.getUploadUrl({ key: s3Key, contentType })
   return { uploadUrl, s3Key }
 }
 
-async function saveAttachment(taskId, { s3Key, fileName, fileType, fileSize, uploadedBy }) {
+async function saveAttachment(taskId, { s3Key, fileName, fileType, fileSize, uploadedBy, kind = 'attachment' }) {
+  const safeKind = ALLOWED_KINDS.has(kind) ? kind : 'attachment'
   const result = await query(
-    `INSERT INTO task_attachments (task_id, file_name, s3_key, file_type, file_size, uploaded_by)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO task_attachments (task_id, file_name, s3_key, file_type, file_size, uploaded_by, kind)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING *`,
-    [taskId, fileName, s3Key, fileType || null, fileSize || null, uploadedBy || null]
+    [taskId, fileName, s3Key, fileType || null, fileSize || null, uploadedBy || null, safeKind]
   )
   const att = result.rows[0]
-  // Log activity
+  const kindLabel = KIND_LABELS[safeKind] || safeKind
   await taskActivityService.logActivity(
     taskId, uploadedBy || null, 'attachment_added', null, null,
-    { summary: `Attachment added: ${fileName}` }
+    { summary: `Attachment added (${kindLabel}): ${fileName}` }
   ).catch(() => {})
   return att
+}
+
+async function patchAttachment(attachmentId, { kind }, actorUserId) {
+  if (!ALLOWED_KINDS.has(kind)) {
+    const err = new Error('Invalid kind value.')
+    err.code = 'INVALID_KIND'
+    throw err
+  }
+  const current = await query(
+    `SELECT id, task_id, file_name, kind FROM task_attachments WHERE id = $1`,
+    [attachmentId]
+  )
+  if (!current.rows.length) {
+    const err = new Error('Attachment not found.')
+    err.code = 'NOT_FOUND'
+    throw err
+  }
+  const old = current.rows[0]
+  const result = await query(
+    `UPDATE task_attachments SET kind = $1 WHERE id = $2 RETURNING *`,
+    [kind, attachmentId]
+  )
+  // Log only when kind actually changes
+  if (old.kind !== kind) {
+    const kindLabel = KIND_LABELS[kind] || kind
+    await taskActivityService.logActivity(
+      old.task_id, actorUserId || null, 'attachment_classified', null, null,
+      { summary: `Attachment classified as ${kindLabel}: ${old.file_name}` }
+    ).catch(() => {})
+  }
+  return result.rows[0]
 }
 
 async function deleteAttachment(attachmentId, actorUserId) {
@@ -346,7 +392,6 @@ async function deleteAttachment(attachmentId, actorUserId) {
     const { task_id, s3_key, file_name } = result.rows[0]
     await s3Service.deleteObjectIfExists(s3_key).catch(() => {})
     await query(`DELETE FROM task_attachments WHERE id = $1`, [attachmentId])
-    // Log activity
     await taskActivityService.logActivity(
       task_id, actorUserId || null, 'attachment_deleted', null, null,
       { summary: `Attachment deleted: ${file_name}` }
@@ -382,8 +427,10 @@ module.exports = {
   removeDependency,
   getAttachmentUploadUrl,
   saveAttachment,
+  patchAttachment,
   deleteAttachment,
   getAttachmentDownloadUrl,
   listAttachments,
   wouldCreateCycle,
+  ALLOWED_KINDS,
 }
