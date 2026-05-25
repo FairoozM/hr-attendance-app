@@ -1,0 +1,278 @@
+/* ── Container ───────────────────────────────────────────────────────────────── */
+.ia {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 2px 0 12px;
+}
+
+/* ── Upload zone ─────────────────────────────────────────────────────────────── */
+.ia__input {
+  display: none;
+}
+
+.ia__zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 20px 16px;
+  border: 2px dashed var(--border, #d1d5db);
+  border-radius: 10px;
+  background: var(--surface-2, #f9fafb);
+  color: var(--text-muted, #6b7280);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  user-select: none;
+}
+
+.ia__zone:hover:not(.ia__zone--uploading),
+.ia__zone--drag {
+  border-color: var(--accent, #7c3aed);
+  background: #f5f3ff;
+  color: var(--accent, #7c3aed);
+}
+
+.ia__zone--uploading {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.ia__zone-label {
+  font-size: 13px;
+}
+
+.ia__zone-hint {
+  font-size: 11.5px;
+  color: var(--text-muted, #9ca3af);
+}
+
+@keyframes ia-spin {
+  to { transform: rotate(360deg); }
+}
+
+.ia__zone-spin {
+  animation: ia-spin 1s linear infinite;
+  color: var(--accent, #7c3aed);
+}
+
+/* ── Error ───────────────────────────────────────────────────────────────────── */
+.ia__error {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  border-radius: 7px;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.ia__error-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #991b1b;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+}
+
+/* ── Empty state ─────────────────────────────────────────────────────────────── */
+.ia__empty {
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-muted, #9ca3af);
+  padding: 8px 0 0;
+  margin: 0;
+}
+
+/* ── Grid ────────────────────────────────────────────────────────────────────── */
+.ia__grid {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+/* ── Card ────────────────────────────────────────────────────────────────────── */
+.ia-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--surface-2, #f9fafb);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  transition: border-color 0.1s;
+}
+
+.ia-card:hover {
+  border-color: #c4b5fd;
+}
+
+/* Thumbnail */
+.ia-card__thumb {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface-1, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.ia-card__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ia-card__file-icon {
+  color: var(--text-muted, #9ca3af);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Info */
+.ia-card__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ia-card__name {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-primary, #111827);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ia-card__meta {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--text-muted, #6b7280);
+}
+
+/* Actions */
+.ia-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.ia-card__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: var(--surface-1, #fff);
+  cursor: pointer;
+  color: var(--text-muted, #6b7280);
+  transition: background 0.1s, color 0.1s;
+}
+
+.ia-card__btn--view:hover {
+  background: #ede9fe;
+  color: #6d28d9;
+  border-color: #ddd6fe;
+}
+
+.ia-card__btn--delete:hover {
+  background: #fee2e2;
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+.ia-card__confirm {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ia-card__confirm-yes {
+  padding: 3px 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #fff;
+  background: #dc2626;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ia-card__confirm-no {
+  padding: 3px 8px;
+  font-size: 11.5px;
+  color: var(--text-secondary, #374151);
+  background: var(--surface-1, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* ── Lightbox ────────────────────────────────────────────────────────────────── */
+.ia-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  background: rgba(0, 0, 0, 0.88);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  cursor: pointer;
+}
+
+.ia-lightbox__close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.12);
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.ia-lightbox__close:hover {
+  background: rgba(255,255,255,0.22);
+}
+
+.ia-lightbox__img {
+  max-width: 90vw;
+  max-height: 80vh;
+  object-fit: contain;
+  border-radius: 8px;
+  cursor: default;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+}
+
+.ia-lightbox__name {
+  margin-top: 12px;
+  font-size: 13px;
+  color: rgba(255,255,255,0.7);
+  cursor: default;
+}

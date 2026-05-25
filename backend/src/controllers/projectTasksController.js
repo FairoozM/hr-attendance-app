@@ -154,11 +154,21 @@ async function saveAttachment(req, res) {
 async function deleteAttachment(req, res) {
   try {
     if (!requireAdmin(req, res)) return
-    await projectTasksService.deleteAttachment(req.params.attachId)
+    await projectTasksService.deleteAttachment(req.params.attachId, req.user?.userId)
     res.json({ success: true })
   } catch (err) {
     console.error('[tasks] deleteAttachment error:', err)
     res.status(500).json({ error: 'Failed to delete attachment', detail: String(err.message || '').slice(0, 240) })
+  }
+}
+
+async function listAttachments(req, res) {
+  try {
+    const rows = await projectTasksService.listAttachments(req.params.taskId)
+    res.json(rows)
+  } catch (err) {
+    console.error('[tasks] listAttachments error:', err)
+    res.status(500).json({ error: 'Failed to list attachments', detail: String(err.message || '').slice(0, 240) })
   }
 }
 
@@ -185,4 +195,5 @@ module.exports = {
   saveAttachment,
   deleteAttachment,
   getAttachmentDownloadUrl,
+  listAttachments,
 }

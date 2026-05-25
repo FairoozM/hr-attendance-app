@@ -10,6 +10,7 @@ import { IssueComments } from './IssueComments'
 import { IssueActivity } from './IssueActivity'
 import { IssueAIAssistant } from './IssueAIAssistant'
 import { IssueDevWorkflow } from './IssueDevWorkflow'
+import { IssueAttachments } from './IssueAttachments'
 import { syncIssueGithubPr } from '../../lib/projectsApi'
 import './IssueDetailPanel.css'
 
@@ -19,6 +20,7 @@ const TABS = [
   { id: 'activity', label: 'Activity' },
   { id: 'ai',       label: 'AI'       },
   { id: 'dev',      label: 'Dev'      },
+  { id: 'files',    label: 'Files'    },
 ]
 
 /** Map UI camelCase patch → API snake_case body */
@@ -238,6 +240,9 @@ export function IssueDetailPanel({
               onClick={() => setTab(t.id)}
             >
               {t.label}
+              {t.id === 'files' && issue?.attachments?.length > 0 && (
+                <span className="idp__tab-badge">{issue.attachments.length}</span>
+              )}
             </button>
           ))}
         </nav>
@@ -369,6 +374,10 @@ export function IssueDetailPanel({
               onApplyStatusSuggestion={handleApplyStatusSuggestion}
               onDismissStatusSuggestion={handleDismissStatusSuggestion}
             />
+          )}
+
+          {tab === 'files' && (
+            <IssueAttachments issue={issue} project={project} />
           )}
         </div>
 

@@ -328,15 +328,32 @@ async function saveAttachment(taskId, { s3Key, fileName, fileType, fileSize, upl
      RETURNING *`,
     [taskId, fileName, s3Key, fileType || null, fileSize || null, uploadedBy || null]
   )
-  return result.rows[0]
+  const att = result.rows[0]
+  // Log activity
+  await taskActivityService.logActivity(
+    taskId, uploadedBy || null, 'attachment_added', null, null,
+    { summary: `Attachment added: ${fileName}` }
+  ).catch(() => {})
+  return att
 }
 
-async function deleteAttachment(attachmentId) {
-  const result = await query(`SELECT s3_key FROM task_attachments WHERE id = $1`, [attachmentId])
+async function deleteAttachment(attachmentId, actorUserId) {
+  const result = await query(
+    `SELECT task_id, s3_key, file_name FROM task_attachments WHERE id = $1`,
+    [attachmentId]
+  )
   if (result.rowCount > 0) {
-    await s3Service.deleteObjectIfExists(result.rows[0].s3_key).catch(() => {})
+    const { task_id, s3_key, file_name } = result.rows[0]
+    await s3Service.deleteObjectIfExists(s3_key).catch(() => {})
+    await query(`DELETE FROM task_attachments WHERE id = $1`, [attachmentId])
+    // Log activity
+    await taskActivityService.logActivity(
+      task_id, actorUserId || null, 'attachment_deleted', null, null,
+      { summary: `Attachment deleted: ${file_name}` }
+    ).catch(() => {})
+  } else {
+    await query(`DELETE FROM task_attachments WHERE id = $1`, [attachmentId])
   }
-  await query(`DELETE FROM task_attachments WHERE id = $1`, [attachmentId])
 }
 
 async function getAttachmentDownloadUrl(attachmentId) {
@@ -345,6 +362,14 @@ async function getAttachmentDownloadUrl(attachmentId) {
   const attachment = result.rows[0]
   const url = await s3Service.getDownloadUrl({ key: attachment.s3_key })
   return { ...attachment, downloadUrl: url }
+}
+
+async function listAttachments(taskId) {
+  const result = await query(
+    `SELECT * FROM task_attachments WHERE task_id = $1 ORDER BY uploaded_at ASC`,
+    [taskId]
+  )
+  return result.rows
 }
 
 module.exports = {
@@ -359,5 +384,6 @@ module.exports = {
   saveAttachment,
   deleteAttachment,
   getAttachmentDownloadUrl,
+  listAttachments,
   wouldCreateCycle,
 }

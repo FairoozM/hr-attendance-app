@@ -367,6 +367,32 @@ export async function linearIssueAiAssist(projectId, taskId, action, extraContex
   return { action: res.action, output: res.output }
 }
 
+// ─── Attachments (Phase 8A) ───────────────────────────────────────────────────
+
+export function listAttachmentsApi(projectId, taskId) {
+  return api.get(`/api/projects/${projectId}/tasks/${taskId}/attachments`)
+}
+
+export function getAttachmentUploadUrlApi(projectId, taskId, { fileName, contentType, fileSize }) {
+  return api.post(`/api/projects/${projectId}/tasks/${taskId}/attachments/upload-url`, {
+    fileName, contentType, fileSize,
+  })
+}
+
+export function saveAttachmentMetaApi(projectId, taskId, { s3Key, fileName, fileType, fileSize }) {
+  return api.post(`/api/projects/${projectId}/tasks/${taskId}/attachments`, {
+    s3Key, fileName, fileType, fileSize,
+  })
+}
+
+export function deleteAttachmentApi(projectId, taskId, attachmentId) {
+  return api.delete(`/api/projects/${projectId}/tasks/${taskId}/attachments/${attachmentId}`)
+}
+
+export function getAttachmentDownloadUrlApi(projectId, taskId, attachmentId) {
+  return api.get(`/api/projects/${projectId}/tasks/${taskId}/attachments/${attachmentId}/download-url`)
+}
+
 // ─── GitHub PR Sync (Phase 7A) ────────────────────────────────────────────────
 
 /**
@@ -393,6 +419,14 @@ export async function syncIssueGithubPr(projectId, taskId, prUrl) {
  */
 export async function getGithubIntegrationStatus() {
   return api.get('/api/projects/integrations/github/status')
+}
+
+/**
+ * Fetch GitHub automation audit log (matched events from task_activity_log).
+ * Never returns token/secret values.
+ */
+export async function getGithubAuditLog({ limit = 100, offset = 0 } = {}) {
+  return api.get(`/api/projects/integrations/github/audit?limit=${limit}&offset=${offset}`)
 }
 
 // ─── Team members ─────────────────────────────────────────────────────────────

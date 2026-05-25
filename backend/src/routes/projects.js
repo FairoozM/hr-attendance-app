@@ -155,7 +155,80 @@ router.get('/integrations/github/status', ...manage, async (req, res) => {
   }
 })
 
+// ---- GitHub Automation Audit Log (Phase 7E) ----
+// TODO: Unmatched webhook events (no task found) are not yet stored — they are
+//       silently ignored. A future phase can add a github_webhook_log table for
+//       these. For now, only matched events (from task_activity_log) appear here.
+router.get('/integrations/github/audit', ...manage, async (req, res) => {
+  try {
+    const { query } = require('../db')
+    const limit  = Math.min(parseInt(req.query.limit, 10) || 100, 500)
+    const offset = parseInt(req.query.offset, 10) || 0
+
+    const result = await query(
+      `SELECT
+          al.id,
+          al.task_id,
+          al.user_id,
+          al.meta,
+          al.created_at,
+          pt.project_id,
+          pt.dev_meta,
+          p.name AS project_name
+        FROM task_activity_log al
+        JOIN project_tasks pt ON pt.id = al.task_id
+        JOIN projects       p  ON p.id  = pt.project_id
+        WHERE al.action = 'dev_meta_updated'
+          AND al.meta->>'summary' ILIKE 'GitHub PR%'
+        ORDER BY al.created_at DESC
+        LIMIT $1 OFFSET $2`,
+      [limit, offset]
+    )
+
+    // Parse each row's summary string into structured fields
+    // Format from 7A: "GitHub PR synced: owner/repo#123 (open)"
+    // Format from 7B: "GitHub PR opened: owner/repo#123 (open)"
+    const SUMMARY_RE = /^(GitHub PR [^:]+):\s+([^#\s]+)#(\d+)\s*\(([^)]+)\)/i
+
+    const rows = result.rows.map((row) => {
+      const summary = row.meta?.summary || ''
+      const m = SUMMARY_RE.exec(summary)
+
+      const eventVerb  = m ? m[1].trim() : 'GitHub PR updated'
+      const repo       = m ? m[2].trim() : (row.dev_meta?.repo || '')
+      const prNumber   = m ? parseInt(m[3], 10) : (row.dev_meta?.prNumber || null)
+      const prStatus   = m ? m[4].trim() : (row.dev_meta?.prStatus || '')
+
+      // "synced" = Phase 7A manual sync; any other verb = Phase 7B webhook
+      const source = eventVerb.toLowerCase().includes('synced') ? 'manual-sync' : 'webhook'
+
+      return {
+        id:          row.id,
+        createdAt:   row.created_at,
+        taskId:      row.task_id,
+        projectId:   row.project_id,
+        projectName: row.project_name || '',
+        actorUserId: row.user_id,
+        eventType:   eventVerb,
+        message:     summary,
+        source,
+        repo,
+        prNumber,
+        prStatus,
+        prUrl:       row.dev_meta?.prUrl || null,
+        matched:     true,
+      }
+    })
+
+    return res.json({ rows, total: rows.length })
+  } catch (err) {
+    console.error('[github/audit]', err.message)
+    return res.status(500).json({ error: 'Failed to fetch GitHub audit log.' })
+  }
+})
+
 // ---- Attachments ----
+router.get('/:projectId/tasks/:taskId/attachments', ...view, projectTasksController.listAttachments)
 router.post(
   '/:projectId/tasks/:taskId/attachments/upload-url',
   ...manage,
