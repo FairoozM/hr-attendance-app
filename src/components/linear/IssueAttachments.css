@@ -165,6 +165,36 @@
   color: var(--text-muted, #6b7280);
 }
 
+.ia-card__ai-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--primary) 7%, transparent);
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+
+.ia-card__ai-btn:hover {
+  background: color-mix(in srgb, var(--primary) 15%, transparent);
+  border-color: var(--primary);
+}
+
+.ia-card__ai-note {
+  display: block;
+  margin-top: 5px;
+  font-size: 10.5px;
+  color: var(--text-muted, #9ca3af);
+  font-style: italic;
+}
+
 /* Actions */
 .ia-card__actions {
   display: flex;

@@ -6,7 +6,8 @@ const taskCommentsController = require('../controllers/taskCommentsController')
 const taskActivityController = require('../controllers/taskActivityController')
 const projectCyclesController = require('../controllers/projectCyclesController')
 const issueAIController = require('../controllers/issueAIController')
-const issueGitHubController = require('../controllers/issueGitHubController')
+const issueGitHubController  = require('../controllers/issueGitHubController')
+const attachmentAIController = require('../controllers/attachmentAIController')
 
 const router = express.Router()
 
@@ -240,6 +241,13 @@ router.get(
   '/:projectId/tasks/:taskId/attachments/:attachId/download-url',
   ...view,
   projectTasksController.getAttachmentDownloadUrl
+)
+
+// ---- Attachment AI Analysis ----
+router.post(
+  '/:projectId/tasks/:taskId/attachments/:attachmentId/ai/analyze',
+  ...manage,
+  attachmentAIController.analyze
 )
 
 module.exports = router

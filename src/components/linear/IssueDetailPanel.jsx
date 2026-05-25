@@ -377,7 +377,11 @@ export function IssueDetailPanel({
           )}
 
           {tab === 'files' && (
-            <IssueAttachments issue={issue} project={project} />
+            <IssueAttachments
+              issue={issue}
+              project={project}
+              onAppendDescription={handleAiAppendDescription}
+            />
           )}
         </div>
 

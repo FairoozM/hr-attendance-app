@@ -429,6 +429,22 @@ export async function getGithubAuditLog({ limit = 100, offset = 0 } = {}) {
   return api.get(`/api/projects/integrations/github/audit?limit=${limit}&offset=${offset}`)
 }
 
+/**
+ * Analyze an image attachment with AI vision.
+ * The backend fetches the image from S3 — never from the frontend.
+ *
+ * @param {number} projectId
+ * @param {number} taskId
+ * @param {number} attachmentId
+ * @returns {Promise<{ success: boolean, analysis?: object, message?: string }>}
+ */
+export async function analyzeIssueAttachment(projectId, taskId, attachmentId) {
+  return api.post(
+    `/api/projects/${projectId}/tasks/${taskId}/attachments/${attachmentId}/ai/analyze`,
+    {}
+  )
+}
+
 // ─── Team members ─────────────────────────────────────────────────────────────
 
 export const teamApi = {

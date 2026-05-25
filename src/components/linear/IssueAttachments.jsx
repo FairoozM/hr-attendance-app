@@ -11,7 +11,7 @@
  * Activity logging happens server-side on save and delete.
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Upload, FileText, X, Trash2, ExternalLink, Eye, AlertCircle, Loader2 } from 'lucide-react'
+import { Upload, FileText, X, Trash2, ExternalLink, Eye, AlertCircle, Loader2, Sparkles } from 'lucide-react'
 import {
   listAttachmentsApi,
   getAttachmentUploadUrlApi,
@@ -19,6 +19,7 @@ import {
   deleteAttachmentApi,
   getAttachmentDownloadUrlApi,
 } from '../../lib/projectsApi'
+import { AttachmentAIAnalysis } from './AttachmentAIAnalysis'
 import './IssueAttachments.css'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -85,9 +86,10 @@ function ImageLightbox({ url, name, onClose }) {
 
 // ── Attachment card ───────────────────────────────────────────────────────────
 
-function AttachmentCard({ att, signedUrl, onView, onOpen, onDelete }) {
+function AttachmentCard({ att, signedUrl, onView, onOpen, onDelete, onAnalyze }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const img = isImage(att.file_type)
+  const isPdf = att.file_type === 'application/pdf'
 
   return (
     <div className="ia-card">
@@ -110,6 +112,22 @@ function AttachmentCard({ att, signedUrl, onView, onOpen, onDelete }) {
           {att.file_size ? ` · ${formatBytes(att.file_size)}` : ''}
           {att.uploaded_at ? ` · ${fmtDate(att.uploaded_at)}` : ''}
         </p>
+        {/* AI Analyze button — images only */}
+        {img && (
+          <button
+            type="button"
+            className="ia-card__ai-btn"
+            onClick={() => onAnalyze(att)}
+            title="Analyze with AI"
+          >
+            <Sparkles size={11} />
+            Analyze with AI
+          </button>
+        )}
+        {/* Non-image AI notice */}
+        {isPdf && (
+          <span className="ia-card__ai-note">AI analysis not supported for PDFs yet.</span>
+        )}
       </div>
 
       {/* Actions */}
@@ -149,7 +167,7 @@ function AttachmentCard({ att, signedUrl, onView, onOpen, onDelete }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function IssueAttachments({ issue, project }) {
+export function IssueAttachments({ issue, project, onAppendDescription }) {
   const projectId = issue?.projectId || project?.id
   const taskId    = issue?.id
 
@@ -167,6 +185,9 @@ export function IssueAttachments({ issue, project }) {
 
   // Lightbox
   const [preview, setPreview] = useState(null) // { url, name }
+
+  // AI analysis — holds the attachment to analyze (or null)
+  const [analyzingAttachment, setAnalyzingAttachment] = useState(null)
 
   // Drag-over state
   const [dragOver, setDragOver] = useState(false)
@@ -365,6 +386,7 @@ export function IssueAttachments({ issue, project }) {
               onView={handleView}
               onOpen={handleOpen}
               onDelete={deleting === att.id ? () => {} : handleDelete}
+              onAnalyze={setAnalyzingAttachment}
             />
           ))}
         </div>
@@ -372,6 +394,18 @@ export function IssueAttachments({ issue, project }) {
         !uploading && (
           <p className="ia__empty">No attachments yet. Upload screenshots, PDFs, or evidence files.</p>
         )
+      )}
+
+      {/* AI Analysis panel — shown inline below the grid */}
+      {analyzingAttachment && projectId && taskId && (
+        <AttachmentAIAnalysis
+          projectId={projectId}
+          taskId={taskId}
+          attachmentId={analyzingAttachment.id}
+          fileName={analyzingAttachment.file_name}
+          onClose={() => setAnalyzingAttachment(null)}
+          onAppendDescription={onAppendDescription || (() => {})}
+        />
       )}
 
       {/* Image lightbox */}

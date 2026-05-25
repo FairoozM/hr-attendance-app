@@ -1,0 +1,271 @@
+/* AttachmentAIAnalysis ─ analysis panel that appears inside the Files tab */
+
+.aaa {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+  margin-top: 12px;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+
+.aaa__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 12px;
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.aaa__header-icon {
+  display: flex;
+  align-items: center;
+  color: var(--primary);
+}
+
+.aaa__header-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.aaa__header-file {
+  font-weight: 400;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.aaa__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.aaa__close:hover {
+  background: var(--hover);
+  color: var(--text-primary);
+}
+
+/* ── Body ────────────────────────────────────────────────────────────────── */
+
+.aaa__body {
+  padding: 0;
+  max-height: 480px;
+  overflow-y: auto;
+}
+
+/* ── Loading / Error ────────────────────────────────────────────────────── */
+
+.aaa__loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 14px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.aaa__spin {
+  animation: aaa-spin 1s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes aaa-spin {
+  to { transform: rotate(360deg); }
+}
+
+.aaa__error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 14px;
+  color: var(--red, #e74c3c);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.aaa__error svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* ── Sections ────────────────────────────────────────────────────────────── */
+
+.aaa__section {
+  border-bottom: 1px solid var(--border);
+}
+
+.aaa__section:last-child {
+  border-bottom: none;
+}
+
+.aaa__section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  transition: background 0.12s;
+}
+
+.aaa__section-header:hover {
+  background: var(--hover);
+  color: var(--text-primary);
+}
+
+.aaa__section-title {
+  flex: 1;
+}
+
+.aaa__section-body {
+  padding: 4px 12px 12px;
+}
+
+/* ── Content ─────────────────────────────────────────────────────────────── */
+
+.aaa__summary {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+.aaa__para {
+  font-size: 12.5px;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.aaa__list {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  font-size: 12.5px;
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+.aaa__list li {
+  margin-bottom: 3px;
+}
+
+.aaa__list--ordered {
+  list-style-type: decimal;
+}
+
+.aaa__pre {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--surface-raised, var(--hover));
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 10px;
+  margin: 0 0 8px;
+  color: var(--text-primary);
+  overflow-x: auto;
+}
+
+/* ── Action rows ─────────────────────────────────────────────────────────── */
+
+.aaa__row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+/* Copy button */
+.aaa__copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+
+.aaa__copy-btn:hover {
+  background: var(--hover);
+  color: var(--text-primary);
+  border-color: var(--border-strong, var(--border));
+}
+
+.aaa__copy-btn--done {
+  color: var(--green, #27ae60);
+  border-color: var(--green, #27ae60);
+}
+
+/* Append button */
+.aaa__append-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  cursor: pointer;
+  font-size: 11.5px;
+  color: var(--primary);
+  transition: background 0.12s, color 0.12s;
+  white-space: nowrap;
+}
+
+.aaa__append-btn:hover {
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+.aaa__append-btn--done {
+  color: var(--green, #27ae60);
+  border-color: var(--green, #27ae60);
+  background: color-mix(in srgb, var(--green, #27ae60) 10%, transparent);
+}
+
+/* ── Mobile ─────────────────────────────────────────────────────────────── */
+
+@media (max-width: 600px) {
+  .aaa__body {
+    max-height: 360px;
+  }
+
+  .aaa__row-actions {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
