@@ -100,7 +100,7 @@ function CopyBtn({ label, getText, size = 'sm' }) {
 
 // ── Text generators ───────────────────────────────────────────────────────────
 
-function buildApprovalSummary({ releaseName, releaseType, environment, selectedIssues, projectsMap, approvalState, deployedState, signOffNotes, r }) {
+function buildApprovalSummary({ releaseName, releaseType, environment, selectedIssues, projectsMap, approvalState, deployedState, signOffNotes, r, sopSummaryText }) {
   if (!r) return ''
   const date = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
   const lines = [
@@ -142,6 +142,7 @@ function buildApprovalSummary({ releaseName, releaseType, environment, selectedI
     lines.push('')
     lines.push(`**Notes**: ${signOffNotes}`)
   }
+  if (sopSummaryText) lines.push(sopSummaryText)
 
   return lines.join('\n')
 }
@@ -273,6 +274,7 @@ export function ReleaseApprovalPanel({
   membersMap,
   currentUser,
   onMoveToDone,
+  sopWarning = null,
 }) {
   // Load persisted draft
   const saved = safeLocalLoad(STORAGE_KEY) || {}
@@ -294,6 +296,7 @@ export function ReleaseApprovalPanel({
   const [moveDoneConfirm,   setMoveDoneConfirm]    = useState(false)
   const [moveDoneDone,      setMoveDoneDone]       = useState(false)
   const [overrideWarnings,  setOverrideWarnings]   = useState(false)
+  const [sopApproveWarn,    setSopApproveWarn]      = useState(false)
   const [collapsed,         setCollapsed]           = useState(false)
 
   const r = useMemo(() => calcReadiness(selectedIssues), [selectedIssues])
@@ -322,6 +325,12 @@ export function ReleaseApprovalPanel({
 
   // ── Actions ───────────────────────────────────────────────────────────────
   const handleApprove = () => {
+    // Warn if SOP compliance is below 70%
+    if (sopWarning && !sopApproveWarn) {
+      setSopApproveWarn(true)
+      return
+    }
+    setSopApproveWarn(false)
     const state = {
       approved:     true,
       approvedBy:   currentUser?.userId || currentUser?.id || null,
@@ -376,7 +385,8 @@ export function ReleaseApprovalPanel({
   }
 
   // ── Copy text builders ────────────────────────────────────────────────────
-  const ctx = { releaseName, releaseType, environment, deploymentNeeds, signOffNotes, approvalState, deployedState, selectedIssues, projectsMap, r }
+  const sopSummaryText = sopWarning ? `\n\n## SOP Checklist\n⚠️ Release approved with incomplete SOP checklist.\n${sopWarning}` : ''
+  const ctx = { releaseName, releaseType, environment, deploymentNeeds, signOffNotes, approvalState, deployedState, selectedIssues, projectsMap, r, sopSummaryText }
   const getApprovalSummary  = () => buildApprovalSummary(ctx)
   const getDeploySignOff    = () => buildDeploymentSignOff(ctx)
   const getSmokeTest        = () => buildSmokeTest(ctx)
@@ -570,6 +580,20 @@ export function ReleaseApprovalPanel({
                 </div>
               )}
             </div>
+
+            {/* SOP compliance warning */}
+            {sopApproveWarn && !approvalState.approved && (
+              <div className="rap__warn-banner rap__warn-banner--sop" role="alert">
+                <AlertTriangle size={13} />
+                <span>{sopWarning} Approve release anyway?</span>
+                <button type="button" className="rap__warn-yes" onClick={handleApprove}>
+                  Approve Anyway
+                </button>
+                <button type="button" className="rap__warn-no" onClick={() => setSopApproveWarn(false)}>
+                  Cancel
+                </button>
+              </div>
+            )}
 
             {/* Override warning */}
             {overrideWarnings && !approvalState.approved && (

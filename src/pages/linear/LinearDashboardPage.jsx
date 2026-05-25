@@ -11,7 +11,7 @@ import {
   LayoutDashboard, TrendingUp, AlertTriangle, CheckCircle2, ShieldCheck,
   Clock, Rocket, Users, Plus, Inbox, Map, BarChart2, Smartphone,
   Globe, Server, RefreshCw, ChevronDown, ChevronUp, Circle,
-  AlertCircle, XCircle, Package, Filter, ArrowRight,
+  AlertCircle, XCircle, Package, Filter, ArrowRight, ClipboardList,
 } from 'lucide-react'
 import { LinearSidebar }  from '../../components/linear/LinearSidebar'
 import { IssueDetailPanel } from '../../components/linear/IssueDetailPanel'
@@ -23,6 +23,7 @@ import { useTeamProjectsContext } from '../../contexts/TeamProjectsContext'
 import {
   loadMobileReleases, loadWebDeployments,
 } from '../../lib/linearReleaseStorage'
+import { issueNeedsSop } from '../../lib/linearChecklistCompliance'
 import './LinearDashboardPage.css'
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
@@ -382,6 +383,7 @@ export default function LinearDashboardPage() {
       }).length,
       blocked:       active.filter(i => i.blockedReason && i.blockedReason.trim()).length,
       unassignedHighPri: active.filter(i => !i.assigneeUserId && ['Urgent','High'].includes(normalizePriority(i.priority))).length,
+      sopNeedsWork:  active.filter(i => issueNeedsSop(i, projectsMap[i.projectId])).length,
       total:         filteredIssues.length,
     }
   }, [filteredIssues])
@@ -548,8 +550,9 @@ export default function LinearDashboardPage() {
               <MetricCard label="Ready for Release"    value={metrics.readyForRelease}    icon={Rocket}        color="#10b981"  onClick={() => navigate('/projects/linear/releases')} />
               <MetricCard label="QA Approved"          value={metrics.qaApproved}         icon={ShieldCheck}   color="#0891b2"  />
               <MetricCard label="Done"                 value={metrics.done}               icon={CheckCircle2}  color="#059669"  />
-              <MetricCard label="Overdue"              value={metrics.overdue}            icon={Clock}         color="#ef4444"  alert={metrics.overdue > 0} sublabel={metrics.overdue > 0 ? 'Needs attention' : 'All on track'} />
-              <MetricCard label="Unassigned High Pri"  value={metrics.unassignedHighPri}  icon={AlertTriangle} color="#f59e0b"  alert={metrics.unassignedHighPri > 0} onClick={() => navigate('/projects/linear')} />
+              <MetricCard label="Overdue"              value={metrics.overdue}            icon={Clock}          color="#ef4444"  alert={metrics.overdue > 0} sublabel={metrics.overdue > 0 ? 'Needs attention' : 'All on track'} />
+              <MetricCard label="Unassigned High Pri"  value={metrics.unassignedHighPri}  icon={AlertTriangle}  color="#f59e0b"  alert={metrics.unassignedHighPri > 0} onClick={() => navigate('/projects/linear')} />
+              <MetricCard label="SOP Needs Work"       value={metrics.sopNeedsWork}       icon={ClipboardList}  color="#7c3aed"  alert={metrics.sopNeedsWork > 0} sublabel={metrics.sopNeedsWork > 0 ? 'Checklists incomplete' : 'All good'} onClick={() => navigate('/projects/linear/inbox')} />
             </div>
           </DashSection>
 

@@ -12,11 +12,12 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   ShieldCheck, ShieldOff, CheckCircle2, XCircle,
   FileText, Image, AlertTriangle, Info, Loader2,
-  ChevronDown, ChevronRight, BookOpen,
+  ChevronDown, ChevronRight, BookOpen, ClipboardList,
 } from 'lucide-react'
 import { listAttachmentsApi } from '../../lib/projectsApi'
 import { getRelatedDocsForQA } from '../../lib/linearDocsMatcher'
 import { RelatedDocsList } from './RelatedDocsList'
+import { getIssueChecklistCompliance } from '../../lib/linearChecklistCompliance'
 import './IssueQAReview.css'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -150,6 +151,17 @@ export function IssueQAReview({
   // Checklist collapse state
   const [showChecklist, setShowChecklist] = useState(true)
 
+  // SOP compliance warning (shown when approving with < 70% completion)
+  const [approveWarnOpen, setApproveWarnOpen] = useState(false)
+
+  // SOP compliance (recomputed when issue changes)
+  const [sopCompliance, setSopCompliance] = useState(null)
+
+  useEffect(() => {
+    try { setSopCompliance(getIssueChecklistCompliance(issue, project)) }
+    catch { setSopCompliance(null) }
+  }, [issue?.id, issue?.devMeta])
+
   // Sync notes if issue prop changes
   useEffect(() => {
     setNotes(qa.notes || '')
@@ -189,6 +201,16 @@ export function IssueQAReview({
   // ── Actions ───────────────────────────────────────────────────────────────
 
   const handleApprove = async () => {
+    // If compliance is below 70% and user hasn't confirmed yet, show warning
+    if (
+      sopCompliance?.hasChecklists &&
+      sopCompliance.overallPct < 70 &&
+      !approveWarnOpen
+    ) {
+      setApproveWarnOpen(true)
+      return
+    }
+    setApproveWarnOpen(false)
     setActing(true)
     try {
       await onApprove(notes, true)
@@ -333,6 +355,71 @@ export function IssueQAReview({
           <button type="button" className="qa__confirm-no" onClick={() => setMoveDoneConfirm(false)}>
             Cancel
           </button>
+        </div>
+      )}
+
+      {/* SOP Approve confirmation (< 70% compliance) */}
+      {approveWarnOpen && (
+        <div className="qa__confirm-banner qa__confirm-banner--sop" role="alert">
+          <AlertTriangle size={13} />
+          <span>
+            SOP checklist is <strong>{sopCompliance?.overallPct ?? 0}%</strong> complete.
+            Approve QA anyway?
+          </span>
+          <button type="button" className="qa__confirm-yes" onClick={handleApprove}>
+            Approve anyway
+          </button>
+          <button type="button" className="qa__confirm-no" onClick={() => setApproveWarnOpen(false)}>
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* ── SOP Compliance card ──────────────────────────────────────────── */}
+      {sopCompliance && (
+        <div className="qa__section">
+          <p className="qa__section-title">
+            <ClipboardList size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+            SOP Compliance
+          </p>
+          {!sopCompliance.hasChecklists ? (
+            <p className="qa__sop-none">No SOP checklist linked to this issue.</p>
+          ) : (
+            <>
+              <div className="qa__sop-overall">
+                <span
+                  className="qa__sop-badge"
+                  style={{ '--sop-color': sopCompliance.status.color }}
+                >
+                  {sopCompliance.status.label}
+                </span>
+                <span className="qa__sop-pct">{sopCompliance.overallPct}% overall</span>
+              </div>
+              {sopCompliance.progresses.map(p => (
+                <div key={p.doc.id} className="qa__sop-row">
+                  <span className="qa__sop-doc-title">{p.doc.title}</span>
+                  <div className="qa__sop-bar-wrap">
+                    <div className="qa__sop-bar">
+                      <div
+                        className="qa__sop-bar-fill"
+                        style={{ width: `${p.pct}%`, background: p.status.color }}
+                      />
+                    </div>
+                    <span className="qa__sop-frac">{p.done}/{p.total}</span>
+                  </div>
+                  {onRunChecklist && (
+                    <button
+                      type="button"
+                      className="qa__sop-run-btn"
+                      onClick={() => onRunChecklist(p.doc)}
+                    >
+                      {p.done > 0 ? 'Continue' : 'Run'}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </>
+          )}
         </div>
       )}
 

@@ -343,6 +343,14 @@
 }
 .rap__warn-no:hover { background: color-mix(in srgb, #f59e0b 15%, transparent); }
 
+/* SOP warning banner variant */
+.rap__warn-banner--sop {
+  background: rgba(245, 158, 11, 0.09);
+  border-color: rgba(245, 158, 11, 0.4);
+}
+.rap__warn-banner--sop .rap__warn-yes { background: #d97706; }
+.rap__warn-banner--sop .rap__warn-yes:hover { background: #b45309; }
+
 /* Move to Done section */
 .rap__move-done-section {
   padding-top: 6px;

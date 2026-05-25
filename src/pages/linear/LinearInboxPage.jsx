@@ -16,6 +16,7 @@ import {
   STATUS_CONFIG, PRIORITY_CONFIG,
 } from '../../components/linear/IssueRow'
 import { labelColors } from '../../components/linear/linearLabels'
+import { issueNeedsSop } from '../../lib/linearChecklistCompliance'
 import './LinearInboxPage.css'
 
 // ── LocalStorage ──────────────────────────────────────────────────────────────
@@ -36,23 +37,27 @@ const REASONS = [
   { id: 'assigned',   label: 'Assigned to you',           color: '#6366f1' },
   { id: 'review',     label: 'Needs Review',              color: '#8b5cf6' },
   { id: 'needs_qa',   label: 'Needs QA',                  color: '#0891b2' },
+  { id: 'sop_needed', label: 'SOP Needed',                color: '#7c3aed' },
   { id: 'ready',      label: 'Ready for Release',         color: '#10b981' },
   { id: 'highpri',    label: 'High Priority',             color: '#f59e0b' },
   { id: 'unassigned', label: 'Unassigned High Pri',       color: '#94a3b8' },
 ]
 const REASON_MAP = Object.fromEntries(REASONS.map((r) => [r.id, r]))
 
-function classifyIssue(issue, currentUserId, today) {
+function classifyIssue(issue, currentUserId, today, projectsMap) {
   const status = normalizeStatus(issue.status)
   const pri    = normalizePriority(issue.priority)
   // Skip done/canceled
   if (status === 'Done' || status === 'Canceled') return null
 
-  // Priority order: Blocked > Overdue > Assigned > Review > Ready > HighPri > Unassigned
+  // Priority order: Blocked > Overdue > Assigned > Review > SOP Needed > Needs QA > Ready > HighPri > Unassigned
   if (issue.blockedReason)                                                        return 'blocked'
   if (issue.dueDate && new Date(issue.dueDate) < today)                          return 'overdue'
   if (currentUserId && String(issue.assigneeUserId) === String(currentUserId))   return 'assigned'
   if (status === 'In Review')                                                     return 'review'
+  // SOP Needed: ready-for-release with incomplete checklist
+  if ((status === 'Ready for Release' || status === 'QA Approved') &&
+      issueNeedsSop(issue, projectsMap?.[issue.projectId]))                       return 'sop_needed'
   if (status === 'Ready for Release' && !issue.devMeta?.qaApproval?.approved)    return 'needs_qa'
   if (status === 'Ready for Release' || status === 'QA Approved')                return 'ready'
   if (['Urgent','High'].includes(pri))                                            return 'highpri'
@@ -263,11 +268,11 @@ export default function LinearInboxPage() {
     const currentUserId = user?.userId
     const items = []
     for (const issue of allIssues) {
-      const reason = classifyIssue(issue, currentUserId, today)
+      const reason = classifyIssue(issue, currentUserId, today, projectMap)
       if (reason) items.push({ issue, reason, id: itemId(issue) })
     }
-    // Sort: blocked > overdue > assigned > review > needs_qa > ready > highpri > unassigned
-    const ORDER = ['blocked','overdue','assigned','review','needs_qa','ready','highpri','unassigned']
+    // Sort: blocked > overdue > assigned > review > sop_needed > needs_qa > ready > highpri > unassigned
+    const ORDER = ['blocked','overdue','assigned','review','sop_needed','needs_qa','ready','highpri','unassigned']
     items.sort((a, b) => ORDER.indexOf(a.reason) - ORDER.indexOf(b.reason))
     return items
   }, [allIssues, user?.userId, today])

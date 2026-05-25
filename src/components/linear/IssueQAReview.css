@@ -206,6 +206,100 @@
 
 .qa__confirm-no:hover { background: var(--hover); }
 
+/* SOP confirmation banner variant */
+.qa__confirm-banner--sop {
+  background: rgba(245, 158, 11, 0.09);
+  border-color: rgba(245, 158, 11, 0.4);
+}
+.qa__confirm-banner--sop .qa__confirm-yes {
+  background: #d97706;
+}
+.qa__confirm-banner--sop .qa__confirm-yes:hover { background: #b45309; }
+
+/* ── SOP Compliance section ─────────────────────────────────────────────── */
+
+.qa__sop-none {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.qa__sop-overall {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.qa__sop-badge {
+  padding: 2px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--sop-color, #9ca3af);
+  background: color-mix(in srgb, var(--sop-color, #9ca3af) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sop-color, #9ca3af) 28%, transparent);
+}
+.qa__sop-pct {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.qa__sop-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+.qa__sop-doc-title {
+  font-size: 11.5px;
+  color: var(--text-primary);
+  min-width: 120px;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.qa__sop-bar-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.qa__sop-bar {
+  flex: 1;
+  height: 5px;
+  background: var(--hover, #f3f4f6);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.qa__sop-bar-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.25s ease;
+}
+.qa__sop-frac {
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  min-width: 30px;
+  text-align: right;
+}
+.qa__sop-run-btn {
+  padding: 2px 9px;
+  border-radius: 5px;
+  border: 1px solid rgba(124, 58, 237, 0.3);
+  background: rgba(124, 58, 237, 0.07);
+  color: #7c3aed;
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.1s;
+}
+.qa__sop-run-btn:hover { background: rgba(124, 58, 237, 0.15); }
+
 /* ── Sections ────────────────────────────────────────────────────────────── */
 
 .qa__section {

@@ -20,6 +20,7 @@ import { CycleBadge } from '../../components/linear/CycleBadge'
 import { RelatedDocsList } from '../../components/linear/RelatedDocsList'
 import { getRelatedDocsForRelease } from '../../lib/linearDocsMatcher'
 import { ChecklistRunner } from '../../components/linear/ChecklistRunner'
+import { getReleaseChecklistCompliance, buildReleaseSopSummaryText } from '../../lib/linearChecklistCompliance'
 import { labelColors } from '../../components/linear/linearLabels'
 import './LinearReleasesPage.css'
 
@@ -664,14 +665,26 @@ export default function LinearReleasesPage() {
   const hasSelection = selectedIssues.length > 0
 
   const releaseNotesText      = hasSelection ? buildReleaseNotes(selectedIssues, projectsMap, allCycles) : ''
-  const qaHandoffText         = hasSelection ? buildQaHandoff(selectedIssues, projectsMap) : ''
   const deployChecklistText   = hasSelection ? buildDeploymentChecklist(selectedIssues, projectsMap) : ''
+
+  // QA Handoff includes SOP summary if available
+  const qaHandoffBase         = hasSelection ? buildQaHandoff(selectedIssues, projectsMap) : ''
+  const qaHandoffSopSuffix    = releaseCompliance && buildReleaseSopSummaryText(releaseCompliance)
+  const qaHandoffText         = qaHandoffBase + (qaHandoffSopSuffix ? '\n\n' + qaHandoffSopSuffix : '')
 
   // Related docs for selected issues
   const releaseDocs = useMemo(
     () => getRelatedDocsForRelease(selectedIssues, projectsMap),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [selectedIssues.map(i => i.id).join(','), projectsMap]
+  )
+
+  // SOP compliance for selected issues
+  const releaseSelectionKey = selectedIssues.map(i => i.id).sort().join('_') || 'release'
+  const releaseCompliance = useMemo(
+    () => hasSelection ? getReleaseChecklistCompliance(releaseSelectionKey, selectedIssues, projectsMap) : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [releaseSelectionKey, hasSelection]
   )
 
   // ── Pagination ─────────────────────────────────────────────────────────────
@@ -888,6 +901,41 @@ export default function LinearReleasesPage() {
                 />
               </div>
 
+              {/* SOP Compliance summary */}
+              {releaseCompliance && releaseCompliance.relTotalItems > 0 && (
+                <div className={`rel__sop-compliance ${releaseCompliance.warningNeeded ? 'rel__sop-compliance--warn' : ''}`}>
+                  <div className="rel__sop-header">
+                    <span
+                      className="rel__sop-badge"
+                      style={{ '--sop-color': releaseCompliance.releaseStatus.color }}
+                    >
+                      {releaseCompliance.releaseStatus.label}
+                    </span>
+                    <span className="rel__sop-title">Release SOP Compliance — {releaseCompliance.releasePct}%</span>
+                    {releaseCompliance.warningNeeded && (
+                      <span className="rel__sop-warn-icon" title="Some checklists are below 70%">⚠</span>
+                    )}
+                  </div>
+                  <div className="rel__sop-bar-wrap">
+                    <div className="rel__sop-bar">
+                      <div
+                        className="rel__sop-bar-fill"
+                        style={{ width: `${releaseCompliance.releasePct}%`, background: releaseCompliance.releaseStatus.color }}
+                      />
+                    </div>
+                    <span className="rel__sop-frac">
+                      {releaseCompliance.releaseProgresses.reduce((s,p) => s+p.done, 0)}/
+                      {releaseCompliance.relTotalItems} items
+                    </span>
+                  </div>
+                  {releaseCompliance.issueCompliances.some(ic => ic.hasChecklists && ic.pct < 70) && (
+                    <p className="rel__sop-issue-warn">
+                      ⚠ Some issues have incomplete SOP checklists.
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Release Approval Panel */}
               <ReleaseApprovalPanel
                 selectedIssues={selectedIssues}
@@ -895,6 +943,7 @@ export default function LinearReleasesPage() {
                 membersMap={membersMap}
                 currentUser={user || null}
                 onMoveToDone={handleMoveToDone}
+                sopWarning={releaseCompliance?.warningNeeded ? `Release SOP checklist is ${releaseCompliance.releasePct}% complete.` : null}
               />
             </>
           )}
