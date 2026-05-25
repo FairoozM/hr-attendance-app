@@ -7,7 +7,7 @@
 import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
-  Inbox, LayoutList, Map, LayoutDashboard, FileText,
+  Inbox, LayoutList, Map, LayoutDashboard, FileText, BookOpen,
   FolderOpen, RotateCcw, Tag, CheckCircle2, X, Plus,
   Globe, Smartphone, Server, PenTool, BarChart2,
   Bookmark, AlertCircle, AlertTriangle, Rocket, User, Bug, Users, Settings,
@@ -86,6 +86,7 @@ export function LinearSidebar({
   const workspaceLinks = [
     { to: '/projects/linear/dashboard',       Icon: LayoutDashboard, label: 'Dashboard'     },
     { to: '/projects/linear/reports/weekly',  Icon: FileText,        label: 'Weekly Report' },
+    { to: '/projects/linear/docs',            Icon: BookOpen,        label: 'Docs'          },
     { to: '/projects/linear/projects',        Icon: FolderOpen,      label: 'Projects'      },
     { to: '/projects/linear/team',            Icon: Users,           label: 'Team'          },
     { to: '/projects/linear/workload',        Icon: BarChart2,       label: 'Workload'      },

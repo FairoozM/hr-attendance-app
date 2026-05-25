@@ -3,7 +3,8 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Trash2 } from 'lucide-react'
+import { X, Trash2, BookOpen, ArrowRight } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { issueKey } from './IssueRow'
 import { IssueProperties } from './IssueProperties'
 import { IssueComments } from './IssueComments'
@@ -13,6 +14,7 @@ import { IssueDevWorkflow } from './IssueDevWorkflow'
 import { IssueAttachments } from './IssueAttachments'
 import { IssueQAReview } from './IssueQAReview'
 import { syncIssueGithubPr, approveIssueQA, revokeIssueQA, normalizeTask } from '../../lib/projectsApi'
+import { loadDocsForIssue } from '../../lib/relatedDocs'
 import './IssueDetailPanel.css'
 
 const TABS = [
@@ -53,6 +55,7 @@ export function IssueDetailPanel({
   onUpdate,
   onDelete,
 }) {
+  const navigate = useNavigate()
   const [tab, setTab] = useState('details')
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -63,6 +66,7 @@ export function IssueDetailPanel({
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const [activityRefresh, setActivityRefresh] = useState(0)
+  const [relatedDocs, setRelatedDocs] = useState([])
   const titleRef = useRef(null)
 
   const key = issue ? issueKey(project?.name, issue.id) : ''
@@ -87,6 +91,13 @@ export function IssueDetailPanel({
     setDeleteError('')
     setDeleting(false)
     setTab('details')
+    // Load related docs from localStorage
+    try {
+      setRelatedDocs(loadDocsForIssue({
+        projectName: project?.name || '',
+        labels: issue.labels || [],
+      }))
+    } catch { setRelatedDocs([]) }
     setTimeout(() => titleRef.current?.focus(), 80)
   }, [issue?.id, issue?.updatedAt])
 
@@ -336,6 +347,36 @@ export function IssueDetailPanel({
                   saving={saving}
                 />
               </section>
+
+              {/* Related Docs — lightweight links to matching docs */}
+              {relatedDocs.length > 0 && (
+                <section className="idp__section idp__section--docs">
+                  <h3 className="idp__section-title">
+                    <BookOpen size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                    Related Docs
+                  </h3>
+                  <div className="idp__docs-chips">
+                    {relatedDocs.map(d => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        className="idp__doc-chip"
+                        onClick={() => navigate('/projects/linear/docs')}
+                        title={d.summary || d.title}
+                      >
+                        {d.title}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className="idp__doc-chip idp__doc-chip--all"
+                      onClick={() => navigate('/projects/linear/docs')}
+                    >
+                      <ArrowRight size={11} /> All Docs
+                    </button>
+                  </div>
+                </section>
+              )}
 
               {onDelete && (
                 <section className="idp__danger">

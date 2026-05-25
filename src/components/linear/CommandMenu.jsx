@@ -10,7 +10,7 @@ import {
   Search, X, Plus, LayoutList, Tag, RotateCcw, Bookmark, SlidersHorizontal,
   Globe, Server, Smartphone, AlertCircle, AlertTriangle, Rocket, Bug, User, Users,
   XCircle, ArrowRight, FolderOpen, Layers, Map, BarChart2, Inbox, Package, Settings, GitBranch,
-  ClipboardCheck, Calendar, LayoutDashboard, TrendingUp, ShieldCheck, FileText, Copy, Sparkles,
+  ClipboardCheck, Calendar, LayoutDashboard, TrendingUp, ShieldCheck, FileText, Copy, Sparkles, BookOpen,
 } from 'lucide-react'
 import { DEFAULT_LABELS } from './linearLabels'
 import { issueKey, normalizeStatus } from './IssueRow'
@@ -219,6 +219,37 @@ function buildCommands({
     id: 'report-ai-whatsapp', group: 'Reports', label: 'Generate WhatsApp Product Update',
     Icon: Sparkles, keywords: ['ai', 'generate', 'whatsapp', 'update', 'message', 'team'],
     action: () => { window.location.hash = '#/projects/linear/reports/weekly'; onClose() },
+  })
+  // ── Docs ──────────────────────────────────────────────────────────────────
+  cmds.push({
+    id: 'nav-docs', group: 'Navigate', label: 'Go to Docs',
+    Icon: BookOpen, keywords: ['go', 'navigate', 'docs', 'knowledge', 'base', 'documentation'],
+    action: () => { window.location.hash = '#/projects/linear/docs'; onClose() },
+  })
+  cmds.push({
+    id: 'docs-new', group: 'Docs', label: 'New Doc',
+    Icon: Plus, keywords: ['new', 'doc', 'create', 'documentation', 'knowledge'],
+    action: () => { window.location.hash = '#/projects/linear/docs'; onClose() },
+  })
+  cmds.push({
+    id: 'docs-search', group: 'Docs', label: 'Search Docs',
+    Icon: Search, keywords: ['search', 'find', 'docs', 'documentation'],
+    action: () => { window.location.hash = '#/projects/linear/docs'; onClose() },
+  })
+  cmds.push({
+    id: 'docs-checkout-smoke', group: 'Docs', label: 'Open: Checkout Smoke Test',
+    Icon: BookOpen, keywords: ['checkout', 'smoke', 'test', 'qa', 'website'],
+    action: () => { window.location.hash = '#/projects/linear/docs'; onClose() },
+  })
+  cmds.push({
+    id: 'docs-android-checklist', group: 'Docs', label: 'Open: Android Release Checklist',
+    Icon: BookOpen, keywords: ['android', 'release', 'checklist', 'play-store'],
+    action: () => { window.location.hash = '#/projects/linear/docs'; onClose() },
+  })
+  cmds.push({
+    id: 'docs-backend-deploy', group: 'Docs', label: 'Open: Backend Deployment Checklist',
+    Icon: BookOpen, keywords: ['backend', 'deployment', 'checklist', 'api', 'server'],
+    action: () => { window.location.hash = '#/projects/linear/docs'; onClose() },
   })
   cmds.push({
     id: 'nav-inbox-review', group: 'Navigate', label: 'Inbox: Show Review Items',
