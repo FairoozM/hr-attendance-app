@@ -11,7 +11,8 @@ import { IssueActivity } from './IssueActivity'
 import { IssueAIAssistant } from './IssueAIAssistant'
 import { IssueDevWorkflow } from './IssueDevWorkflow'
 import { IssueAttachments } from './IssueAttachments'
-import { syncIssueGithubPr } from '../../lib/projectsApi'
+import { IssueQAReview } from './IssueQAReview'
+import { syncIssueGithubPr, approveIssueQA, revokeIssueQA, normalizeTask } from '../../lib/projectsApi'
 import './IssueDetailPanel.css'
 
 const TABS = [
@@ -21,6 +22,7 @@ const TABS = [
   { id: 'ai',       label: 'AI'       },
   { id: 'dev',      label: 'Dev'      },
   { id: 'files',    label: 'Files'    },
+  { id: 'qa',       label: 'QA'       },
 ]
 
 /** Map UI camelCase patch → API snake_case body */
@@ -186,6 +188,51 @@ export function IssueDetailPanel({
     await persist({ devMeta: { dismissedGithubSuggestions: [...existing, key] } })
   }, [issue, persist])
 
+  // ── QA Review callbacks ───────────────────────────────────────────────────
+  const handleQaApprove = useCallback(async (notes, moveToQaApproved) => {
+    if (!issue) return
+    setSaving(true)
+    try {
+      const raw = await approveIssueQA(issue.projectId, issue.id, { notes, moveToQaApproved })
+      if (raw) {
+        const normalized = normalizeTask(raw)
+        // Update local fields so the panel reflects the new status immediately
+        setFields((f) => ({ ...f, status: normalized.status }))
+        // Notify parent context (triggers re-render with updated issue)
+        onUpdate?.(issue.projectId, issue.id, {})
+      }
+    } catch (err) {
+      console.error('[qa] approve failed:', err)
+    } finally {
+      setSaving(false)
+    }
+  }, [issue, onUpdate, setSaving])
+
+  const handleQaRevoke = useCallback(async () => {
+    if (!issue) return
+    setSaving(true)
+    try {
+      await revokeIssueQA(issue.projectId, issue.id)
+      onUpdate?.(issue.projectId, issue.id, {})
+    } catch (err) {
+      console.error('[qa] revoke failed:', err)
+    } finally {
+      setSaving(false)
+    }
+  }, [issue, onUpdate, setSaving])
+
+  const handleQaSaveNotes = useCallback(async (notes) => {
+    if (!issue) return
+    // Merge notes into existing qaApproval without touching approved/approvedBy/approvedAt
+    const currentQA = issue.devMeta?.qaApproval || {}
+    await persist({ devMeta: { qaApproval: { ...currentQA, notes } } })
+    setActivityRefresh((n) => n + 1)
+  }, [issue, persist])
+
+  const handleQaMoveToDone = useCallback(async () => {
+    await persist({ status: 'Done' })
+  }, [persist])
+
   const handleDeleteConfirm = useCallback(async () => {
     if (!issue || !onDelete) return
     setDeleting(true)
@@ -242,6 +289,9 @@ export function IssueDetailPanel({
               {t.label}
               {t.id === 'files' && issue?.attachments?.length > 0 && (
                 <span className="idp__tab-badge">{issue.attachments.length}</span>
+              )}
+              {t.id === 'qa' && issue?.devMeta?.qaApproval?.approved && (
+                <span className="idp__tab-badge idp__tab-badge--qa">✓</span>
               )}
             </button>
           ))}
@@ -381,6 +431,19 @@ export function IssueDetailPanel({
               issue={issue}
               project={project}
               onAppendDescription={handleAiAppendDescription}
+            />
+          )}
+
+          {tab === 'qa' && (
+            <IssueQAReview
+              issue={issue}
+              project={project}
+              members={members}
+              currentUser={null}
+              onApprove={handleQaApprove}
+              onRevoke={handleQaRevoke}
+              onSaveNotes={handleQaSaveNotes}
+              onMoveToDone={handleQaMoveToDone}
             />
           )}
         </div>

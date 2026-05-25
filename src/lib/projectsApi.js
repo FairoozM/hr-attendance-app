@@ -452,6 +452,28 @@ export async function analyzeIssueAttachment(projectId, taskId, attachmentId) {
   )
 }
 
+// ─── QA Review ────────────────────────────────────────────────────────────────
+
+/**
+ * Approve QA for an issue.
+ * @param {number} projectId
+ * @param {number} taskId
+ * @param {{ notes?: string, moveToQaApproved?: boolean }} opts
+ */
+export async function approveIssueQA(projectId, taskId, { notes = '', moveToQaApproved = true } = {}) {
+  return api.post(`/api/projects/${projectId}/tasks/${taskId}/qa/approve`, {
+    notes,
+    moveToQaApproved,
+  })
+}
+
+/**
+ * Revoke QA approval for an issue.
+ */
+export async function revokeIssueQA(projectId, taskId) {
+  return api.post(`/api/projects/${projectId}/tasks/${taskId}/qa/revoke`, {})
+}
+
 // ─── Team members ─────────────────────────────────────────────────────────────
 
 export const teamApi = {

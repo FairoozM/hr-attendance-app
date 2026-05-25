@@ -33,7 +33,7 @@ function assignColumn(issue, activeCycleIds) {
   const s = normalizeStatus(issue.status)
   if (s === 'Canceled')             return 'canceled'
   if (s === 'Done')                 return 'shipped'
-  if (s === 'Ready for Release')    return 'ready'
+  if (s === 'Ready for Release' || s === 'QA Approved') return 'ready'
   if (s === 'In Progress' || s === 'In Review') return 'now'
   if (s === 'Todo')                 return 'next'
   if (s === 'Backlog') {
@@ -111,7 +111,7 @@ function RoadmapCard({ issue, project, member, cycle, onClick }) {
         </div>
       )}
 
-      {/* Bottom row: priority | project | cycle | assignee | due */}
+      {/* Bottom row: priority | project | cycle | assignee | due | QA chip */}
       <div className="rdm-card__meta">
         {priCfg && (
           <span className="rdm-card__meta-item" title={`Priority: ${pri}`} style={{ color: priCfg.color }}>
@@ -137,6 +137,9 @@ function RoadmapCard({ issue, project, member, cycle, onClick }) {
           <span className={`rdm-card__due ${overdue ? 'rdm-card__due--overdue' : ''}`}>
             {due.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
           </span>
+        )}
+        {issue.devMeta?.qaApproval?.approved && (
+          <span className="rdm-card__qa-chip" title="QA Approved">QA ✓</span>
         )}
       </div>
     </button>

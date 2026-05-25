@@ -31,13 +31,14 @@ function itemId(issue) { return `${issue.projectId}-${issue.id}` }
 
 // ── Reason definitions ────────────────────────────────────────────────────────
 const REASONS = [
-  { id: 'blocked',    label: 'Blocked',             color: '#ef4444' },
-  { id: 'overdue',    label: 'Overdue',              color: '#f97316' },
-  { id: 'assigned',   label: 'Assigned to you',      color: '#6366f1' },
-  { id: 'review',     label: 'Needs Review',         color: '#8b5cf6' },
-  { id: 'ready',      label: 'Ready for Release',    color: '#10b981' },
-  { id: 'highpri',    label: 'High Priority',        color: '#f59e0b' },
-  { id: 'unassigned', label: 'Unassigned High Pri',  color: '#94a3b8' },
+  { id: 'blocked',    label: 'Blocked',                  color: '#ef4444' },
+  { id: 'overdue',    label: 'Overdue',                   color: '#f97316' },
+  { id: 'assigned',   label: 'Assigned to you',           color: '#6366f1' },
+  { id: 'review',     label: 'Needs Review',              color: '#8b5cf6' },
+  { id: 'needs_qa',   label: 'Needs QA',                  color: '#0891b2' },
+  { id: 'ready',      label: 'Ready for Release',         color: '#10b981' },
+  { id: 'highpri',    label: 'High Priority',             color: '#f59e0b' },
+  { id: 'unassigned', label: 'Unassigned High Pri',       color: '#94a3b8' },
 ]
 const REASON_MAP = Object.fromEntries(REASONS.map((r) => [r.id, r]))
 
@@ -52,7 +53,8 @@ function classifyIssue(issue, currentUserId, today) {
   if (issue.dueDate && new Date(issue.dueDate) < today)                          return 'overdue'
   if (currentUserId && String(issue.assigneeUserId) === String(currentUserId))   return 'assigned'
   if (status === 'In Review')                                                     return 'review'
-  if (status === 'Ready for Release')                                             return 'ready'
+  if (status === 'Ready for Release' && !issue.devMeta?.qaApproval?.approved)    return 'needs_qa'
+  if (status === 'Ready for Release' || status === 'QA Approved')                return 'ready'
   if (['Urgent','High'].includes(pri))                                            return 'highpri'
   if (!issue.assigneeUserId && ['Urgent','High'].includes(pri))                  return 'unassigned'
   return null
@@ -264,8 +266,8 @@ export default function LinearInboxPage() {
       const reason = classifyIssue(issue, currentUserId, today)
       if (reason) items.push({ issue, reason, id: itemId(issue) })
     }
-    // Sort: blocked > overdue > assigned > review > ready > highpri > unassigned
-    const ORDER = ['blocked','overdue','assigned','review','ready','highpri','unassigned']
+    // Sort: blocked > overdue > assigned > review > needs_qa > ready > highpri > unassigned
+    const ORDER = ['blocked','overdue','assigned','review','needs_qa','ready','highpri','unassigned']
     items.sort((a, b) => ORDER.indexOf(a.reason) - ORDER.indexOf(b.reason))
     return items
   }, [allIssues, user?.userId, today])

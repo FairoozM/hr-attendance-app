@@ -132,6 +132,18 @@ function buildReleaseNotes(selected, projectsMap, cycles) {
   lines.push('- Confirm no pending DB migrations')
   lines.push('- Validate on staging before production deploy')
 
+  // QA approval summary
+  const notApproved = selected.filter((iss) => !iss.devMeta?.qaApproval?.approved)
+  if (notApproved.length > 0) {
+    lines.push('')
+    lines.push('## ⚠️ QA Not Approved')
+    lines.push(`${notApproved.length} issue(s) have not been QA approved:`)
+    for (const iss of notApproved) {
+      const proj = projectsMap[iss.projectId]
+      lines.push(`- [ ] ${issueKey(proj?.name, iss.id)}: ${iss.title}`)
+    }
+  }
+
   return lines.join('\n').trim()
 }
 
@@ -384,6 +396,12 @@ function ReleaseIssueCard({ issue, project, member, cycle, selected, onToggle, o
               {PR_STATUS_LABELS[prSt] || prSt}
             </span>
           )}
+
+          {/* QA approval chip */}
+          {issue.devMeta?.qaApproval?.approved
+            ? <span className="rel-card__qa rel-card__qa--approved" title="QA Approved">QA ✓</span>
+            : <span className="rel-card__qa rel-card__qa--pending"  title="Not QA Approved">QA?</span>
+          }
 
           {/* PR URL */}
           {prUrl && (

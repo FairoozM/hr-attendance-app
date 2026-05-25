@@ -8,6 +8,7 @@ const projectCyclesController = require('../controllers/projectCyclesController'
 const issueAIController = require('../controllers/issueAIController')
 const issueGitHubController  = require('../controllers/issueGitHubController')
 const attachmentAIController = require('../controllers/attachmentAIController')
+const issueQAController      = require('../controllers/issueQAController')
 
 const router = express.Router()
 
@@ -250,5 +251,9 @@ router.post(
   ...manage,
   attachmentAIController.analyze
 )
+
+// ---- QA Review ----
+router.post('/:projectId/tasks/:taskId/qa/approve', ...manage, issueQAController.approve)
+router.post('/:projectId/tasks/:taskId/qa/revoke',  ...manage, issueQAController.revoke)
 
 module.exports = router

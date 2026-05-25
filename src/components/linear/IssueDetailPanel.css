@@ -135,6 +135,10 @@
   vertical-align: middle;
 }
 
+.idp__tab-badge--qa {
+  background: #0891b2;
+}
+
 .idp__save-error {
   flex-shrink: 0;
   padding: 0.4rem 1rem;

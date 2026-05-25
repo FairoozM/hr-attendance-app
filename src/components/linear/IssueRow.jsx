@@ -11,7 +11,7 @@ import { createPortal } from 'react-dom'
 import {
   Circle, CheckCircle2, Clock, AlertCircle, XCircle,
   GitPullRequest, Rocket, Minus, ArrowUp, ArrowDown, ChevronsUp,
-  UserCircle2, CalendarDays,
+  UserCircle2, CalendarDays, ShieldCheck,
   Bug, Zap, Pen, Gauge, Layers, Package, FileText, Plug,
 } from 'lucide-react'
 import { labelColors } from './linearLabels'
@@ -25,6 +25,7 @@ export const STATUS_CONFIG = {
   'In Progress':        { Icon: Clock,         color: '#3b82f6', label: 'In Progress'        },
   'In Review':          { Icon: GitPullRequest, color: '#8b5cf6', label: 'In Review'         },
   'Ready for Release':  { Icon: Rocket,        color: '#10b981', label: 'Ready for Release'  },
+  'QA Approved':        { Icon: ShieldCheck,   color: '#0891b2', label: 'QA Approved'        },
   Done:                 { Icon: CheckCircle2,  color: '#059669', label: 'Done'               },
   Canceled:             { Icon: XCircle,       color: '#4b5563', label: 'Canceled'           },
 }
@@ -38,6 +39,7 @@ export function normalizeStatus(raw) {
   if (s === 'in_review'   || s === 'in review'   || s === 'inreview')                   return 'In Review'
   if (s === 'ready for release' || s === 'ready_for_release' || s === 'release ready'
       || s === 'readyforrelease' || s === 'ready')                                       return 'Ready for Release'
+  if (s === 'qa approved' || s === 'qa_approved' || s === 'qaapproved')                 return 'QA Approved'
   if (s === 'done' || s === 'completed')                                                 return 'Done'
   if (s === 'canceled' || s === 'cancelled')                                             return 'Canceled'
   if (s === 'backlog')                                                                   return 'Backlog'
