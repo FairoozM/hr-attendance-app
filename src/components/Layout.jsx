@@ -649,26 +649,22 @@ export function Layout() {
     setIsSidebarOpen(true)
   }, [hasAmazonAccess, isAmazonActive])
 
-  // Keep slim rail focused on the module that matches the current route.
-  useEffect(() => {
-    if (navMode !== 'rail') return
+  const isAutoRailPath = useMemo(() => {
     const path = location.pathname
-    let section = null
-    if (path.startsWith('/prices')) section = 'prices'
-    else if (path.startsWith('/reports')) section = 'reports'
-    else if (path.startsWith('/management')) section = 'management'
-    else if (path.startsWith('/influencers')) section = 'influencers'
-    else if (path.startsWith('/lists')) section = 'lists'
-    else if (path.startsWith('/projects')) section = 'planner'
-    else if (path.startsWith('/ai/amazon') || path.startsWith('/ai/listing-batches')) section = 'amazon'
-    else if (path.startsWith('/ai')) section = 'ai'
-    else if (path.startsWith('/admin/zoho')) section = 'zoho'
-    else if (path.startsWith('/settings') || path.startsWith('/roles-permissions') || path.startsWith('/admin/')) section = 'admin'
-    else if (HR_ROUTES.some((r) => path.startsWith(r))) section = 'hr'
-    if (section && section !== focusedSection) {
-      setFocusedSection(section)
-    }
-  }, [navMode, location.pathname, focusedSection])
+    if (hasAnyPricesAccess && path.startsWith('/prices')) return true
+    if (hasWeeklyReportsAccess && path.startsWith('/reports')) return true
+    if (hasAmazonAccess && (path.startsWith('/ai/amazon') || path.startsWith('/ai/listing-batches'))) return true
+    if (hasAiHubAccess && path.startsWith('/ai')) return true
+    return false
+  }, [location.pathname, hasAnyPricesAccess, hasWeeklyReportsAccess, hasAiHubAccess, hasAmazonAccess])
+
+  // Slim rail + left inset only on Prices / Reports / AI / Amazon. Everywhere else use the normal overlay sidebar.
+  useEffect(() => {
+    if (isAutoRailPath) return
+    setNavMode('full')
+    setFocusedSection(null)
+    setIsSidebarOpen(false)
+  }, [isAutoRailPath, location.pathname])
 
   const managementItems = [
     can('document_expiry', 'view') && { label: 'Document Expiry Tracker', to: '/management/document-expiry' },
@@ -821,7 +817,7 @@ export function Layout() {
   const showSidebarBackdrop = isSidebarOpen && navMode === 'full'
 
   return (
-    <div className={`app ${isSidebarOpen && navMode === 'rail' ? 'app--nav-rail' : ''}`.trim()}>
+    <div className={`app ${isSidebarOpen && navMode === 'rail' && isAutoRailPath ? 'app--nav-rail' : ''}`.trim()}>
       <div className="app__aurora app__aurora--left" aria-hidden />
       <div className="app__aurora app__aurora--right" aria-hidden />
       <div className="app__aurora app__aurora--bottom" aria-hidden />
