@@ -278,6 +278,93 @@
   line-height: 1.5;
 }
 
+/* GitHub Automation Suggestion */
+.idw__suggestion {
+  margin: 4px 0 6px;
+  padding: 10px 12px;
+  background: var(--surface-accent, #f5f3ff);
+  border: 1px solid var(--border-accent, #ddd6fe);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.idw__suggestion-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.idw__suggestion-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #6d28d9;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.idw__suggestion-dismiss {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  font-size: 13px;
+  color: #9ca3af;
+  cursor: pointer;
+  line-height: 1;
+  transition: color 0.1s;
+}
+
+.idw__suggestion-dismiss:hover {
+  color: #6b7280;
+}
+
+.idw__suggestion-reason {
+  margin: 0;
+  font-size: 12.5px;
+  color: #374151;
+  line-height: 1.4;
+}
+
+.idw__suggestion-cta {
+  margin: 0;
+  font-size: 12px;
+  color: #5b21b6;
+}
+
+.idw__suggestion-cta strong {
+  font-weight: 600;
+}
+
+.idw__suggestion-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.idw__suggestion-apply {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #fff;
+  background: #7c3aed;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.idw__suggestion-apply:hover:not(:disabled) {
+  background: #6d28d9;
+}
+
+.idw__suggestion-apply:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* Webhook automation note */
 .idw__webhook-note {
   display: flex;

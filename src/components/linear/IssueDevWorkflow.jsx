@@ -49,6 +49,165 @@ const PR_STATUSES = [
   { value: 'closed',      label: 'Closed' },
 ]
 
+// ── Status suggestion logic ────────────────────────────────────────────────
+
+/**
+ * Canonical status strings used internally by the app (DB representation).
+ * We output these when calling the update API.
+ */
+const STATUS_CANONICAL = {
+  'In Progress':       'in_progress',
+  'In Review':         'in_review',
+  'Ready for Release': 'ready_for_release',
+  'Todo':              'todo',
+  'Canceled':          'canceled',
+}
+
+/**
+ * Normalise a raw DB status string to the display label used in STATUS_CONFIG.
+ */
+function normalizeStatusLabel(raw = '') {
+  const s = String(raw).toLowerCase().trim()
+  if (s === 'todo' || s === 'to do')                                              return 'Todo'
+  if (s === 'in_progress' || s === 'in progress')                                 return 'In Progress'
+  if (s === 'in_review'   || s === 'in review')                                   return 'In Review'
+  if (s === 'ready_for_release' || s === 'ready for release' || s === 'ready')    return 'Ready for Release'
+  if (s === 'done' || s === 'completed')                                           return 'Done'
+  if (s === 'canceled' || s === 'cancelled')                                       return 'Canceled'
+  return 'Backlog'
+}
+
+/**
+ * Derive the automation suggestion from devMeta.prStatus and the issue's
+ * current status. Returns null when nothing should be shown.
+ *
+ * @param {string} prStatus        – devMeta.prStatus value
+ * @param {string} issueStatus     – raw status from issue (DB string)
+ * @param {string[]} dismissed     – devMeta.dismissedGithubSuggestions
+ * @returns {{ key, label, reason, options }|null}
+ *          options is an array when multiple Apply choices are offered.
+ */
+function buildGithubSuggestion(prStatus, issueStatus, dismissed = []) {
+  if (!prStatus) return null
+  const currentLabel = normalizeStatusLabel(issueStatus)
+  if (currentLabel === 'Done') return null
+
+  const dismissedSet = new Set(dismissed)
+
+  switch (prStatus) {
+    case 'draft': {
+      const key = 'draft-in-progress'
+      if (dismissedSet.has(key))                    return null
+      if (currentLabel === 'In Progress')           return null
+      return {
+        key,
+        label:   'In Progress',
+        reason:  'PR is in draft — work is in progress.',
+        options: ['In Progress'],
+      }
+    }
+
+    case 'open': {
+      const key = 'open-in-review'
+      if (dismissedSet.has(key))                    return null
+      if (currentLabel === 'In Review')             return null
+      return {
+        key,
+        label:   'In Review',
+        reason:  'PR is open and awaiting review.',
+        options: ['In Review'],
+      }
+    }
+
+    case 'in_review': {
+      const key = 'in-review-in-review'
+      if (dismissedSet.has(key))                    return null
+      if (currentLabel === 'In Review')             return null
+      return {
+        key,
+        label:   'In Review',
+        reason:  'PR is ready for review.',
+        options: ['In Review'],
+      }
+    }
+
+    case 'merged': {
+      const key = 'merged-ready-for-release'
+      if (dismissedSet.has(key))                    return null
+      if (currentLabel === 'Ready for Release')     return null
+      return {
+        key,
+        label:   'Ready for Release',
+        reason:  'GitHub PR was merged.',
+        options: ['Ready for Release'],
+      }
+    }
+
+    case 'closed': {
+      const key = 'closed-todo-or-canceled'
+      if (dismissedSet.has(key))                    return null
+      if (currentLabel === 'Todo' || currentLabel === 'Canceled') return null
+      return {
+        key,
+        label:   'Todo or Canceled',
+        reason:  'GitHub PR was closed without merging.',
+        options: ['Todo', 'Canceled'],
+      }
+    }
+
+    default:
+      return null
+  }
+}
+
+// ── GithubStatusSuggestion sub-component ────────────────────────────────────
+
+function GithubStatusSuggestion({ suggestion, applying, onApply, onDismiss }) {
+  if (!suggestion) return null
+
+  const prStatusLabels = {
+    draft:     'Draft PR',
+    open:      'Open PR',
+    in_review: 'PR in Review',
+    merged:    'PR Merged',
+    closed:    'PR Closed',
+  }
+
+  return (
+    <div className="idw__suggestion" role="note" aria-label="GitHub automation suggestion">
+      <div className="idw__suggestion-header">
+        <span className="idw__suggestion-badge">⚡ GitHub Automation</span>
+        <button
+          type="button"
+          className="idw__suggestion-dismiss"
+          onClick={() => onDismiss(suggestion.key)}
+          title="Dismiss this suggestion"
+          aria-label="Dismiss suggestion"
+        >
+          ✕
+        </button>
+      </div>
+      <p className="idw__suggestion-reason">{suggestion.reason}</p>
+      <p className="idw__suggestion-cta">
+        Suggested: Move issue to <strong>{suggestion.label}</strong>
+      </p>
+      <div className="idw__suggestion-actions">
+        {suggestion.options.map((opt) => (
+          <button
+            key={opt}
+            type="button"
+            className="idw__suggestion-apply"
+            onClick={() => onApply(STATUS_CANONICAL[opt] || opt.toLowerCase().replace(/\s+/g, '_'))}
+            disabled={applying}
+          >
+            {applying ? 'Applying…' : `Move to ${opt}`}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Copy helpers ───────────────────────────────────────────────────────────
 
 /**
@@ -242,7 +401,7 @@ ${first ? `${first}\n\n` : ''}**Impact**: Affects users of ${project?.name || 't
 
 // ── Component ──────────────────────────────────────────────────────────────
 
-export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta, onSyncGithubPr }) {
+export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta, onSyncGithubPr, onApplyStatusSuggestion, onDismissStatusSuggestion }) {
   const suggestedBranch = generateBranchName(project?.name, issue?.id, issue?.title)
 
   // Local form state (initialized from issue.devMeta if present)
@@ -258,6 +417,9 @@ export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta, o
   // GitHub Sync state
   const [syncing,    setSyncing]    = useState(false)
   const [syncResult, setSyncResult] = useState(null)  // { ok: bool, message: string }
+
+  // Status suggestion applying state
+  const [applying, setApplying] = useState(false)
 
   // Copy feedback state per button id
   const [copied, setCopied] = useState({})
@@ -346,12 +508,34 @@ export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta, o
     }
   }, [form.prUrl, onSyncGithubPr])
 
+  const handleApplySuggestion = useCallback(async (statusValue) => {
+    if (!onApplyStatusSuggestion) return
+    setApplying(true)
+    try {
+      await onApplyStatusSuggestion(statusValue)
+    } finally {
+      setApplying(false)
+    }
+  }, [onApplyStatusSuggestion])
+
+  const handleDismissSuggestion = useCallback(async (key) => {
+    if (!onDismissStatusSuggestion) return
+    await onDismissStatusSuggestion(key)
+  }, [onDismissStatusSuggestion])
+
   if (!issue) return null
 
   const displayBranch = form.branchName || suggestedBranch
   const cursorPrompt  = buildCursorPrompt({ issue, project, devMeta: form })
   const qaChecklist   = buildQaChecklist({ issue, project })
   const releaseNote   = buildReleaseNote({ issue, project })
+
+  // Derive GitHub automation suggestion from current devMeta + issue status
+  const suggestion = buildGithubSuggestion(
+    issue?.devMeta?.prStatus,
+    issue?.status,
+    issue?.devMeta?.dismissedGithubSuggestions
+  )
 
   return (
     <div className="idw">
@@ -494,6 +678,16 @@ export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta, o
           </div>
         )}
       </section>
+
+      {/* ── GitHub Automation Suggestion ─────────────────────────────── */}
+      {suggestion && (
+        <GithubStatusSuggestion
+          suggestion={suggestion}
+          applying={applying}
+          onApply={handleApplySuggestion}
+          onDismiss={handleDismissSuggestion}
+        />
+      )}
 
       {/* ── Webhook automation note ──────────────────────────────────────── */}
       <div className="idw__webhook-note" role="note">

@@ -169,6 +169,21 @@ export function IssueDetailPanel({
     await persist({ devMeta })
   }, [issue, persist])
 
+  // ── GitHub Status Suggestions (Phase 7C) ─────────────────────────────────
+  const handleApplyStatusSuggestion = useCallback(async (statusValue) => {
+    if (!issue) return
+    await persist({ status: statusValue })
+  }, [issue, persist])
+
+  const handleDismissStatusSuggestion = useCallback(async (key) => {
+    if (!issue) return
+    const existing = Array.isArray(issue.devMeta?.dismissedGithubSuggestions)
+      ? issue.devMeta.dismissedGithubSuggestions
+      : []
+    if (existing.includes(key)) return
+    await persist({ devMeta: { dismissedGithubSuggestions: [...existing, key] } })
+  }, [issue, persist])
+
   const handleDeleteConfirm = useCallback(async () => {
     if (!issue || !onDelete) return
     setDeleting(true)
@@ -351,6 +366,8 @@ export function IssueDetailPanel({
               cycles={cycles}
               onSaveDevMeta={handleSaveDevMeta}
               onSyncGithubPr={handleSyncGithubPr}
+              onApplyStatusSuggestion={handleApplyStatusSuggestion}
+              onDismissStatusSuggestion={handleDismissStatusSuggestion}
             />
           )}
         </div>
