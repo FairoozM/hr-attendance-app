@@ -16,6 +16,7 @@ import { IssueQAReview } from './IssueQAReview'
 import { syncIssueGithubPr, approveIssueQA, revokeIssueQA, normalizeTask } from '../../lib/projectsApi'
 import { getRelatedDocsForIssue } from '../../lib/linearDocsMatcher'
 import { RelatedDocsList } from './RelatedDocsList'
+import { ChecklistRunner } from './ChecklistRunner'
 import './IssueDetailPanel.css'
 
 const TABS = [
@@ -67,7 +68,8 @@ export function IssueDetailPanel({
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const [activityRefresh, setActivityRefresh] = useState(0)
-  const [relatedDocs, setRelatedDocs] = useState([])
+  const [relatedDocs, setRelatedDocs]         = useState([])
+  const [checklistDoc, setChecklistDoc]       = useState(null)
   const titleRef = useRef(null)
 
   const key = issue ? issueKey(project?.name, issue.id) : ''
@@ -258,7 +260,7 @@ export function IssueDetailPanel({
 
   if (!open || !issue) return null
 
-  return createPortal(
+  const panel = createPortal(
     <>
       <button
         type="button"
@@ -352,7 +354,11 @@ export function IssueDetailPanel({
                   <BookOpen size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
                   Related Docs
                 </h3>
-                <RelatedDocsList docs={relatedDocs} emptyMessage="No related docs for this issue." />
+                <RelatedDocsList
+                  docs={relatedDocs}
+                  emptyMessage="No related docs for this issue."
+                  onRunChecklist={setChecklistDoc}
+                />
               </section>
 
               {onDelete && (
@@ -462,6 +468,7 @@ export function IssueDetailPanel({
               onRevoke={handleQaRevoke}
               onSaveNotes={handleQaSaveNotes}
               onMoveToDone={handleQaMoveToDone}
+              onRunChecklist={setChecklistDoc}
             />
           )}
         </div>
@@ -472,6 +479,21 @@ export function IssueDetailPanel({
       </aside>
     </>,
     document.body
+  )
+
+  return (
+    <>
+      {panel}
+      {checklistDoc && issue && (
+        <ChecklistRunner
+          doc={checklistDoc}
+          contextType="issue"
+          contextId={String(issue.id)}
+          contextLabel={`Issue ${key}`}
+          onClose={() => setChecklistDoc(null)}
+        />
+      )}
+    </>
   )
 }
 

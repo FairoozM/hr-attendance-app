@@ -68,7 +68,26 @@
 .rdl__copy:hover  { background: var(--hover); color: var(--text-primary); }
 .rdl__copy--ok    { color: #059669; border-color: #059669; opacity: 1 !important; }
 
-/* View all link */
+/* Run checklist button */
+.rdl__run {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  border: 1px solid rgba(124, 58, 237, 0.3);
+  background: rgba(124, 58, 237, 0.07);
+  color: #7c3aed;
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s, background 0.1s;
+  flex-shrink: 0;
+}
+.rdl__row:hover .rdl__run { opacity: 1; }
+.rdl__run:hover { background: rgba(124, 58, 237, 0.15); }
+
 .rdl__view-all {
   display: inline-flex;
   align-items: center;

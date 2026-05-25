@@ -125,6 +125,7 @@ export function IssueQAReview({
   onRevoke,
   onSaveNotes,
   onMoveToDone,
+  onRunChecklist,
 }) {
   const qa       = issue?.devMeta?.qaApproval || {}
   const approved = qa.approved === true
@@ -417,7 +418,7 @@ export function IssueQAReview({
           <BookOpen size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
           QA Docs
         </p>
-        <RelatedDocsList docs={qaDocs} emptyMessage="No QA docs matched." showViewAll />
+        <RelatedDocsList docs={qaDocs} emptyMessage="No QA docs matched." showViewAll onRunChecklist={onRunChecklist} />
       </div>
 
     </div>

@@ -19,6 +19,7 @@ import { issueKey, normalizeStatus, normalizePriority, STATUS_CONFIG, PRIORITY_C
 import { CycleBadge } from '../../components/linear/CycleBadge'
 import { RelatedDocsList } from '../../components/linear/RelatedDocsList'
 import { getRelatedDocsForRelease } from '../../lib/linearDocsMatcher'
+import { ChecklistRunner } from '../../components/linear/ChecklistRunner'
 import { labelColors } from '../../components/linear/linearLabels'
 import './LinearReleasesPage.css'
 
@@ -583,6 +584,9 @@ export default function LinearReleasesPage() {
   const handleOpenIssue = useCallback((issue) => setPanelIssue(issue), [])
   const handleClosePanel = useCallback(() => setPanelIssue(null), [])
 
+  // ── Release checklist runner ───────────────────────────────────────────────
+  const [releaseChecklistDoc, setReleaseChecklistDoc] = useState(null)
+
   const handleUpdate = useCallback(async (projectId, taskId, data) => {
     return actions.updateTask(projectId, taskId, data)
   }, [actions])
@@ -880,6 +884,7 @@ export default function LinearReleasesPage() {
                   docs={releaseDocs}
                   emptyMessage="Select issues to see relevant docs."
                   showViewAll
+                  onRunChecklist={setReleaseChecklistDoc}
                 />
               </div>
 
@@ -934,6 +939,17 @@ export default function LinearReleasesPage() {
         onUpdate={handleUpdate}
         onDelete={handleDelete}
       />
+
+      {/* Release checklist runner */}
+      {releaseChecklistDoc && (
+        <ChecklistRunner
+          doc={releaseChecklistDoc}
+          contextType="release"
+          contextId={selectedIssues.map(i => i.id).sort().join('_') || 'release'}
+          contextLabel={`Release (${selectedIssues.length} issue${selectedIssues.length !== 1 ? 's' : ''})`}
+          onClose={() => setReleaseChecklistDoc(null)}
+        />
+      )}
     </div>
   )
 }

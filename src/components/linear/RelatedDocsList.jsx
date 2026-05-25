@@ -4,7 +4,8 @@
  */
 import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { BookOpen, Copy, CheckCircle2, ArrowRight } from 'lucide-react'
+import { BookOpen, Copy, CheckCircle2, ArrowRight, ClipboardList } from 'lucide-react'
+import { extractChecklistItems } from '../../lib/linearChecklistRuns'
 import './RelatedDocsList.css'
 
 const CAT_COLORS = {
@@ -33,9 +34,10 @@ async function copyText(text) {
   }
 }
 
-function DocRow({ doc }) {
+function DocRow({ doc, onRunChecklist }) {
   const [copied, setCopied] = useState(false)
   const color = CAT_COLORS[doc.category] || '#9ca3af'
+  const hasItems = extractChecklistItems(doc.content || '').length > 0
 
   const handleCopy = useCallback(async (e) => {
     e.stopPropagation()
@@ -48,6 +50,17 @@ function DocRow({ doc }) {
     <div className="rdl__row">
       <span className="rdl__cat" style={{ '--rdl-cat': color }}>{doc.category}</span>
       <span className="rdl__title" title={doc.summary || doc.title}>{doc.title}</span>
+      {onRunChecklist && hasItems && (
+        <button
+          type="button"
+          className="rdl__run"
+          onClick={(e) => { e.stopPropagation(); onRunChecklist(doc) }}
+          title="Run checklist"
+        >
+          <ClipboardList size={11} />
+          Run
+        </button>
+      )}
       <button
         type="button"
         className={`rdl__copy ${copied ? 'rdl__copy--ok' : ''}`}
@@ -62,9 +75,14 @@ function DocRow({ doc }) {
 }
 
 /**
- * @param {{ docs: object[], emptyMessage?: string, showViewAll?: boolean, title?: string }} props
+ * @param {{
+ *   docs: object[],
+ *   emptyMessage?: string,
+ *   showViewAll?: boolean,
+ *   onRunChecklist?: (doc: object) => void,
+ * }} props
  */
-export function RelatedDocsList({ docs = [], emptyMessage = 'No related docs.', showViewAll = true, title = 'Related Docs' }) {
+export function RelatedDocsList({ docs = [], emptyMessage = 'No related docs.', showViewAll = true, onRunChecklist }) {
   const navigate = useNavigate()
 
   if (docs.length === 0) {
@@ -83,7 +101,7 @@ export function RelatedDocsList({ docs = [], emptyMessage = 'No related docs.', 
 
   return (
     <div className="rdl">
-      {docs.map(d => <DocRow key={d.id} doc={d} />)}
+      {docs.map(d => <DocRow key={d.id} doc={d} onRunChecklist={onRunChecklist} />)}
       {showViewAll && (
         <button type="button" className="rdl__view-all" onClick={() => navigate('/projects/linear/docs')}>
           <ArrowRight size={11} /> View all docs
