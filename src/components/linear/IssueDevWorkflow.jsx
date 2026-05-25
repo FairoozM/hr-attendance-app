@@ -495,6 +495,12 @@ export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta, o
         )}
       </section>
 
+      {/* ── Webhook automation note ──────────────────────────────────────── */}
+      <div className="idw__webhook-note" role="note">
+        <span className="idw__webhook-note-icon" aria-hidden="true">⚡</span>
+        GitHub webhook automation can update this metadata automatically when configured.
+      </div>
+
       {/* ── Copy helpers ─────────────────────────────────────────────── */}
       <section className="idw__section">
         <h3 className="idw__section-title">Copy Helpers</h3>

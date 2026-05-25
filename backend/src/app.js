@@ -51,6 +51,12 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' })
 })
 
+// ── Integration webhooks — mounted BEFORE express.json() so the GitHub route
+//    can capture the raw body Buffer needed for HMAC SHA-256 verification.
+//    The route itself applies express.raw({ type: 'application/json' }) locally.
+const integrationsRoutes = require('./routes/integrations')
+app.use('/api/integrations', integrationsRoutes)
+
 app.use(express.json({ limit: '10mb' }))
 
 // Auth router — POST /api/auth/login, POST /api/auth/logout, GET /api/auth/me, …
