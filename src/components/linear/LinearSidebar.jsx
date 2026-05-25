@@ -10,7 +10,7 @@ import {
   Inbox, LayoutList, Map,
   FolderOpen, RotateCcw, Tag, CheckCircle2, X, Plus,
   Globe, Smartphone, Server, PenTool, BarChart2,
-  Bookmark, AlertCircle, AlertTriangle, Rocket, User, Bug, Users,
+  Bookmark, AlertCircle, AlertTriangle, Rocket, User, Bug, Users, Settings,
 } from 'lucide-react'
 import { DEFAULT_LABELS, labelColors } from './linearLabels'
 import './LinearSidebar.css'
@@ -88,6 +88,7 @@ export function LinearSidebar({
     { to: '/projects/linear/team',      Icon: Users,        label: 'Team'      },
     { to: '/projects/linear/workload',  Icon: BarChart2,    label: 'Workload'  },
     { to: '/projects/linear/releases',  Icon: Rocket,       label: 'Releases'  },
+    { to: '/projects/linear/settings',  Icon: Settings,     label: 'Settings'  },
   ]
 
   const customViews = allViews.filter((v) => !v.builtin)

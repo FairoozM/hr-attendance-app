@@ -387,6 +387,14 @@ export async function syncIssueGithubPr(projectId, taskId, prUrl) {
   return { devMeta: res.devMeta }
 }
 
+/**
+ * Fetch GitHub integration diagnostics from the backend.
+ * Never returns token/secret values — safe to display in UI.
+ */
+export async function getGithubIntegrationStatus() {
+  return api.get('/api/projects/integrations/github/status')
+}
+
 // ─── Team members ─────────────────────────────────────────────────────────────
 
 export const teamApi = {

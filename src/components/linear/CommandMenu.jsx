@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom'
 import {
   Search, X, Plus, LayoutList, Tag, RotateCcw, Bookmark, SlidersHorizontal,
   Globe, Server, Smartphone, AlertCircle, AlertTriangle, Rocket, Bug, User, Users,
-  XCircle, ArrowRight, FolderOpen, Layers, Map, BarChart2, Inbox, Package,
+  XCircle, ArrowRight, FolderOpen, Layers, Map, BarChart2, Inbox, Package, Settings, GitBranch,
 } from 'lucide-react'
 import { DEFAULT_LABELS } from './linearLabels'
 import { issueKey, normalizeStatus } from './IssueRow'
@@ -233,6 +233,16 @@ function buildCommands({
     id: 'nav-releases-notes', group: 'Navigate', label: 'Releases: Copy Release Notes',
     Icon: Package, keywords: ['releases', 'release notes', 'copy', 'notes'],
     action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-settings', group: 'Navigate', label: 'Go to Settings',
+    Icon: Settings, keywords: ['go', 'navigate', 'settings', 'github', 'integration', 'config'],
+    action: () => { window.location.hash = '#/projects/linear/settings'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-github-settings', group: 'Navigate', label: 'Go to GitHub Integration Settings',
+    Icon: GitBranch, keywords: ['go', 'navigate', 'github', 'webhook', 'token', 'settings', 'integration'],
+    action: () => { window.location.hash = '#/projects/linear/settings'; onClose() },
   })
   cmds.push({
     id: 'nav-planner', group: 'Navigate', label: 'Go to AI Planner',

@@ -78,6 +78,83 @@ router.post(
   issueGitHubController.syncPr
 )
 
+// ---- GitHub Integration Diagnostics (Phase 7D) ----
+router.get('/integrations/github/status', ...manage, async (req, res) => {
+  try {
+    const tokenConfigured   = !!(process.env.GITHUB_TOKEN          && process.env.GITHUB_TOKEN.trim())
+    const secretConfigured  = !!(process.env.GITHUB_WEBHOOK_SECRET && process.env.GITHUB_WEBHOOK_SECRET.trim())
+
+    // Last webhook event — query most-recently updated task that has a lastWebhookAction
+    const { query } = require('../db')
+    const webhookRow = await query(
+      `SELECT
+         id,
+         dev_meta->>'lastWebhookAction' AS last_action,
+         dev_meta->>'repo'              AS last_repo,
+         dev_meta->>'githubUpdatedAt'   AS last_github_ts,
+         updated_at
+       FROM project_tasks
+       WHERE dev_meta ? 'lastWebhookAction'
+       ORDER BY updated_at DESC
+       LIMIT 1`
+    )
+    const lastWebhook = webhookRow.rows[0] || null
+
+    // Last manual sync — most-recently updated task that has prTitle (set by 7A sync)
+    const syncRow = await query(
+      `SELECT
+         id,
+         dev_meta->>'prTitle'         AS pr_title,
+         dev_meta->>'repo'            AS repo,
+         dev_meta->>'githubUpdatedAt' AS github_ts,
+         updated_at
+       FROM project_tasks
+       WHERE dev_meta ? 'prTitle'
+         AND NOT (dev_meta ? 'lastWebhookAction')
+       ORDER BY updated_at DESC
+       LIMIT 1`
+    )
+    // also check webhook tasks for manual-sync indicator — combine both
+    const syncRow2 = await query(
+      `SELECT
+         id,
+         dev_meta->>'prTitle'         AS pr_title,
+         dev_meta->>'repo'            AS repo,
+         dev_meta->>'githubUpdatedAt' AS github_ts,
+         updated_at
+       FROM project_tasks
+       WHERE dev_meta ? 'prTitle'
+       ORDER BY updated_at DESC
+       LIMIT 1`
+    )
+    const lastSync = syncRow2.rows[0] || syncRow.rows[0] || null
+
+    return res.json({
+      githubTokenConfigured:          tokenConfigured,
+      githubWebhookSecretConfigured:  secretConfigured,
+      manualSyncAvailable:            tokenConfigured,
+      webhookAvailable:               secretConfigured,
+      webhookPath:                    '/api/integrations/github/webhook',
+      supportedEvents:                ['pull_request'],
+      supportedActions:               ['opened', 'edited', 'synchronize', 'ready_for_review', 'closed', 'reopened'],
+      supportedIssueKeys:             ['WEB', 'AND', 'IOS', 'API', 'UX', 'BI'],
+      ...(lastWebhook ? {
+        lastWebhookReceivedAt:   lastWebhook.updated_at,
+        lastWebhookAction:       lastWebhook.last_action,
+        lastWebhookRepo:         lastWebhook.last_repo,
+        lastWebhookIssueId:      lastWebhook.id,
+      } : {}),
+      ...(lastSync ? {
+        lastManualSyncAt:        lastSync.updated_at,
+        lastManualSyncRepo:      lastSync.repo,
+      } : {}),
+    })
+  } catch (err) {
+    console.error('[github/status]', err.message)
+    return res.status(500).json({ error: 'Failed to fetch GitHub integration status.' })
+  }
+})
+
 // ---- Attachments ----
 router.post(
   '/:projectId/tasks/:taskId/attachments/upload-url',
