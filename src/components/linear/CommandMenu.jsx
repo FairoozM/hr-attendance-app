@@ -266,6 +266,26 @@ function buildCommands({
     action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
   })
   cmds.push({
+    id: 'nav-web-deployments', group: 'Navigate', label: 'Go to Website Deployments',
+    Icon: Server, keywords: ['website', 'web', 'backend', 'deploy', 'deployment', 'frontend', 'navigate'],
+    action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-create-deployment', group: 'Navigate', label: 'Create Deployment',
+    Icon: Server, keywords: ['create', 'new', 'deployment', 'frontend', 'backend', 'full stack', 'database'],
+    action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-smoke-test', group: 'Navigate', label: 'Releases: Copy Smoke Test Plan',
+    Icon: ClipboardCheck, keywords: ['smoke', 'test', 'plan', 'copy', 'deployment', 'web'],
+    action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-rollback-plan', group: 'Navigate', label: 'Releases: Copy Rollback Plan',
+    Icon: Server, keywords: ['rollback', 'plan', 'copy', 'deployment', 'revert'],
+    action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
+  })
+  cmds.push({
     id: 'nav-settings', group: 'Navigate', label: 'Go to Settings',
     Icon: Settings, keywords: ['go', 'navigate', 'settings', 'github', 'integration', 'config'],
     action: () => { window.location.hash = '#/projects/linear/settings'; onClose() },
