@@ -232,11 +232,12 @@
     padding-bottom: 0.5rem;
   }
 
-  /* Hide all text labels, badges, section headers, views list */
+  /* Hide text labels, badges, section titles, views list — keep link rows visible */
   .lsb-logo__name,
   .lsb-logo__badge,
-  .lsb-section,
+  .lsb-section__title,
   .lsb-view-row,
+  .lsb-labels,
   .lsb-link__label,
   .lsb-link__badge,
   .lsb-team-row__name,

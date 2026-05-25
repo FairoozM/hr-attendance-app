@@ -629,6 +629,13 @@ export function Layout() {
   }, [hasAnyPricesAccess, location.pathname])
 
   useEffect(() => {
+    if (!hasWeeklyReportsAccess || !location.pathname.startsWith('/reports')) return
+    setNavMode('rail')
+    setFocusedSection('reports')
+    setIsSidebarOpen(true)
+  }, [hasWeeklyReportsAccess, location.pathname])
+
+  useEffect(() => {
     if (!hasAiHubAccess || !location.pathname.startsWith('/ai') || isAmazonActive) return
     setNavMode('rail')
     setFocusedSection('ai')
@@ -641,6 +648,27 @@ export function Layout() {
     setFocusedSection('amazon')
     setIsSidebarOpen(true)
   }, [hasAmazonAccess, isAmazonActive])
+
+  // Keep slim rail focused on the module that matches the current route.
+  useEffect(() => {
+    if (navMode !== 'rail') return
+    const path = location.pathname
+    let section = null
+    if (path.startsWith('/prices')) section = 'prices'
+    else if (path.startsWith('/reports')) section = 'reports'
+    else if (path.startsWith('/management')) section = 'management'
+    else if (path.startsWith('/influencers')) section = 'influencers'
+    else if (path.startsWith('/lists')) section = 'lists'
+    else if (path.startsWith('/projects')) section = 'planner'
+    else if (path.startsWith('/ai/amazon') || path.startsWith('/ai/listing-batches')) section = 'amazon'
+    else if (path.startsWith('/ai')) section = 'ai'
+    else if (path.startsWith('/admin/zoho')) section = 'zoho'
+    else if (path.startsWith('/settings') || path.startsWith('/roles-permissions') || path.startsWith('/admin/')) section = 'admin'
+    else if (HR_ROUTES.some((r) => path.startsWith(r))) section = 'hr'
+    if (section && section !== focusedSection) {
+      setFocusedSection(section)
+    }
+  }, [navMode, location.pathname, focusedSection])
 
   const managementItems = [
     can('document_expiry', 'view') && { label: 'Document Expiry Tracker', to: '/management/document-expiry' },
