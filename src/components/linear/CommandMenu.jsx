@@ -10,7 +10,7 @@ import {
   Search, X, Plus, LayoutList, Tag, RotateCcw, Bookmark, SlidersHorizontal,
   Globe, Server, Smartphone, AlertCircle, AlertTriangle, Rocket, Bug, User, Users,
   XCircle, ArrowRight, FolderOpen, Layers, Map, BarChart2, Inbox, Package, Settings, GitBranch,
-  ClipboardCheck, Calendar, LayoutDashboard, TrendingUp, ShieldCheck,
+  ClipboardCheck, Calendar, LayoutDashboard, TrendingUp, ShieldCheck, FileText, Copy,
 } from 'lucide-react'
 import { DEFAULT_LABELS } from './linearLabels'
 import { issueKey, normalizeStatus } from './IssueRow'
@@ -189,6 +189,21 @@ function buildCommands({
     id: 'dash-workload-risk', group: 'Dashboard', label: 'Show Workload Risk',
     Icon: AlertTriangle, keywords: ['dashboard', 'workload', 'risk', 'overloaded', 'unassigned'],
     action: () => { window.location.hash = '#/projects/linear/dashboard'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-weekly-report', group: 'Navigate', label: 'Go to Weekly Report',
+    Icon: FileText, keywords: ['go', 'navigate', 'weekly', 'report', 'executive', 'summary'],
+    action: () => { window.location.hash = '#/projects/linear/reports/weekly'; onClose() },
+  })
+  cmds.push({
+    id: 'report-copy-full', group: 'Reports', label: 'Copy Weekly Product Report',
+    Icon: Copy, keywords: ['copy', 'weekly', 'report', 'full', 'export'],
+    action: () => { window.location.hash = '#/projects/linear/reports/weekly'; onClose() },
+  })
+  cmds.push({
+    id: 'report-copy-blockers', group: 'Reports', label: 'Copy Blockers Report',
+    Icon: AlertTriangle, keywords: ['copy', 'blockers', 'risks', 'report', 'overdue'],
+    action: () => { window.location.hash = '#/projects/linear/reports/weekly'; onClose() },
   })
   cmds.push({
     id: 'nav-inbox-review', group: 'Navigate', label: 'Inbox: Show Review Items',

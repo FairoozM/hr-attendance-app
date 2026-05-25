@@ -81,6 +81,7 @@ import TeamProjectsPage from './pages/projects/TeamProjectsPage'
 import LinearPlannerPage from './pages/linear/LinearPlannerPage'
 import LinearDashboardPage from './pages/linear/LinearDashboardPage'
 import LinearProjectsPage from './pages/linear/LinearProjectsPage'
+import LinearWeeklyReportPage from './pages/linear/LinearWeeklyReportPage'
 import LinearTeamPage from './pages/linear/LinearTeamPage'
 import LinearRoadmapPage from './pages/linear/LinearRoadmapPage'
 import LinearWorkloadPage from './pages/linear/LinearWorkloadPage'
@@ -467,6 +468,14 @@ function AppContent() {
           element={
             <PermissionGuard module="planner" action="view">
               <LinearDashboardPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="projects/linear/reports/weekly"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <LinearWeeklyReportPage />
             </PermissionGuard>
           }
         />
