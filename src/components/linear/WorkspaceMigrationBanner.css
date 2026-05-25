@@ -1,0 +1,86 @@
+.wmb {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--color-surface, #1e1e2e);
+  border: 1px solid var(--color-warning, #f59e0b);
+  border-left: 3px solid var(--color-warning, #f59e0b);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--color-text, #e2e8f0);
+}
+
+.wmb__icon {
+  flex-shrink: 0;
+  color: var(--color-warning, #f59e0b);
+  margin-top: 1px;
+}
+
+.wmb__text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wmb__text strong {
+  font-weight: 600;
+  color: var(--color-text, #e2e8f0);
+}
+
+.wmb__sub {
+  color: var(--color-text-muted, #94a3b8);
+  font-size: 12px;
+}
+
+.wmb__err {
+  color: #f87171;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.wmb__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.wmb__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  border-radius: 5px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.wmb__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.wmb__btn--import {
+  background: var(--color-accent, #6366f1);
+  color: #fff;
+}
+
+.wmb__btn--import:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.wmb__btn--dismiss {
+  background: transparent;
+  color: var(--color-text-muted, #94a3b8);
+  padding: 4px 6px;
+}
+
+.wmb__btn--dismiss:hover {
+  color: var(--color-text, #e2e8f0);
+}

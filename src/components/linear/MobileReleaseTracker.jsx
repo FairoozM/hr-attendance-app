@@ -1,18 +1,22 @@
 /**
  * MobileReleaseTracker
  *
- * Lightweight mobile release tracking for Android and iOS app releases.
- * Persists to localStorage under lifesmile.linear.mobileReleases.v1.
- * No backend routes. Frontend-first for Phase 10A.
+ * Mobile release tracking for Android and iOS app releases.
+ * Shared data persisted to backend (Phase 14A). Falls back to localStorage on API error.
  */
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Smartphone, Plus, Edit2, Trash2, ChevronDown, ChevronUp,
   Check, Copy, X, AlertTriangle, CheckSquare, Square,
-  ExternalLink, Link,
+  ExternalLink, Link, WifiOff,
 } from 'lucide-react'
 import { normalizeStatus, issueKey } from './IssueRow'
+import WorkspaceMigrationBanner from './WorkspaceMigrationBanner'
+import {
+  listMobileReleasesApi, createMobileReleaseApi, updateMobileReleaseApi, deleteMobileReleaseApi,
+  isMigrated, markMigrated,
+} from '../../lib/linearWorkspaceApi'
 import './MobileReleaseTracker.css'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -68,7 +72,7 @@ const DEFAULT_CHECKLIST = () => ({
   ios:     Object.fromEntries(IOS_CHECKLIST.map((i)     => [i.id, false])),
 })
 
-// ── Storage helpers ───────────────────────────────────────────────────────────
+// ── Storage helpers (localStorage fallback / migration cache) ─────────────────
 
 function loadReleases() {
   try {
@@ -81,6 +85,44 @@ function loadReleases() {
 
 function saveReleases(releases) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ releases })) } catch { /* ignore */ }
+}
+
+// ── Backend ↔ frontend field normalizers ──────────────────────────────────────
+
+function normalizeRelease(row) {
+  if (!row) return null
+  return {
+    id:             row.id,
+    name:           row.name || '',
+    platform:       row.platform || 'Android',
+    version:        row.version_number || row.version || '',
+    buildNumber:    row.build_number || row.buildNumber || '',
+    status:         row.status || 'Planning',
+    targetDate:     row.target_date ? row.target_date.split('T')[0] : (row.targetDate || ''),
+    submittedAt:    row.submitted_at || row.submittedAt || '',
+    releasedAt:     row.released_at || row.releasedAt || '',
+    notes:          row.notes || '',
+    storeLinks:     row.store_links || row.storeLinks || {},
+    linkedIssueIds: row.linked_issue_ids || row.linkedIssueIds || [],
+    checklist:      row.checklist || {},
+  }
+}
+
+function denormalizeRelease(r) {
+  return {
+    name:             r.name,
+    platform:         r.platform,
+    version_number:   r.version || '',
+    build_number:     r.buildNumber || '',
+    status:           r.status,
+    target_date:      r.targetDate || null,
+    submitted_at:     r.submittedAt || null,
+    released_at:      r.releasedAt || null,
+    notes:            r.notes || '',
+    store_links:      r.storeLinks || {},
+    linked_issue_ids: r.linkedIssueIds || [],
+    checklist:        r.checklist || {},
+  }
 }
 
 function newRelease(overrides = {}) {
@@ -646,14 +688,40 @@ function MobileReleaseModal({ release, allIssues, projectsMap, onSave, onClose }
  * }} props
  */
 export function MobileReleaseTracker({ allIssues, selectedIssues, projectsMap }) {
-  const [releases,      setReleases]      = useState(() => loadReleases())
-  const [modalRelease,  setModalRelease]  = useState(null)
-  const [filterStatus,  setFilterStatus]  = useState('all')
-  const [filterPlatform,setFilterPlatform] = useState('all')
-  const [collapsed,     setCollapsed]     = useState(false)
+  const [releases,       setReleases]       = useState([])
+  const [loading,        setLoading]        = useState(true)
+  const [backendError,   setBackendError]   = useState(false)
+  const [showMigration,  setShowMigration]  = useState(false)
+  const [modalRelease,   setModalRelease]   = useState(null)
+  const [filterStatus,   setFilterStatus]   = useState('all')
+  const [filterPlatform, setFilterPlatform] = useState('all')
+  const [collapsed,      setCollapsed]      = useState(false)
 
-  // Persist on every change
-  useEffect(() => { saveReleases(releases) }, [releases])
+  // Load from backend on mount
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const rows = await listMobileReleasesApi()
+        if (cancelled) return
+        const normalized = (rows || []).map(normalizeRelease)
+        setReleases(normalized)
+        saveReleases(normalized)
+        if (normalized.length === 0 && !isMigrated()) {
+          const local = loadReleases()
+          if (local?.length > 0) setShowMigration(true)
+        }
+      } catch (err) {
+        if (cancelled) return
+        console.error('[MobileReleaseTracker] backend load failed:', err)
+        setBackendError(true)
+        setReleases(loadReleases())
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   // ── CRUD ────────────────────────────────────────────────────────────────────
   const handleNew = useCallback(() => {
@@ -670,33 +738,83 @@ export function MobileReleaseTracker({ allIssues, selectedIssues, projectsMap })
     setModalRelease({ ...release })
   }, [])
 
-  const handleSave = useCallback((form) => {
-    setReleases((prev) => {
-      const idx = prev.findIndex((r) => r.id === form.id)
-      if (idx === -1) return [...prev, form]
-      const next = [...prev]
-      next[idx] = { ...next[idx], ...form }
-      return next
-    })
+  const handleSave = useCallback(async (form) => {
+    const isLocalId = !form.id || (typeof form.id === 'string' && form.id.startsWith('mr-'))
+    try {
+      let result
+      if (isLocalId) {
+        result = normalizeRelease(await createMobileReleaseApi(denormalizeRelease(form)))
+      } else {
+        result = normalizeRelease(await updateMobileReleaseApi(form.id, denormalizeRelease(form)))
+      }
+      setReleases((prev) => {
+        const idx = prev.findIndex((r) => r.id === form.id)
+        const next = idx === -1 ? [...prev, result] : prev.map((r, i) => i === idx ? result : r)
+        saveReleases(next)
+        return next
+      })
+    } catch (err) {
+      console.error('[MobileReleaseTracker] save failed, using local fallback:', err)
+      setReleases((prev) => {
+        const idx = prev.findIndex((r) => r.id === form.id)
+        const next = idx === -1 ? [...prev, form] : prev.map((r, i) => i === idx ? { ...r, ...form } : r)
+        saveReleases(next)
+        return next
+      })
+    }
     setModalRelease(null)
   }, [])
 
-  const handleDelete = useCallback((id) => {
-    setReleases((prev) => prev.filter((r) => r.id !== id))
+  const handleDelete = useCallback(async (id) => {
+    const isLocalId = typeof id === 'string'
+    if (!isLocalId) {
+      try { await deleteMobileReleaseApi(id) } catch (err) {
+        console.error('[MobileReleaseTracker] delete failed:', err)
+      }
+    }
+    setReleases((prev) => {
+      const next = prev.filter((r) => r.id !== id)
+      saveReleases(next)
+      return next
+    })
   }, [])
 
-  const handleChecklistChange = useCallback((releaseId) => (platform, itemId, checked) => {
-    setReleases((prev) => prev.map((r) => {
-      if (r.id !== releaseId) return r
-      return {
-        ...r,
-        checklist: {
-          ...r.checklist,
-          [platform]: { ...(r.checklist?.[platform] || {}), [itemId]: checked },
-        },
-      }
-    }))
+  const handleChecklistChange = useCallback((releaseId) => async (platform, itemId, checked) => {
+    setReleases((prev) => {
+      const next = prev.map((r) => {
+        if (r.id !== releaseId) return r
+        const updated = {
+          ...r,
+          checklist: {
+            ...r.checklist,
+            [platform]: { ...(r.checklist?.[platform] || {}), [itemId]: checked },
+          },
+        }
+        const isLocalId = typeof r.id === 'string'
+        if (!isLocalId) {
+          updateMobileReleaseApi(r.id, { checklist: updated.checklist }).catch(() => {})
+        }
+        return updated
+      })
+      saveReleases(next)
+      return next
+    })
   }, [])
+
+  const handleMigrateLocal = async () => {
+    const local = loadReleases()
+    if (!local?.length) return true
+    try {
+      const results = await Promise.all(
+        local.map(r => createMobileReleaseApi(denormalizeRelease(r)).then(normalizeRelease))
+      )
+      setReleases(results)
+      saveReleases(results)
+      markMigrated()
+      setShowMigration(false)
+      return true
+    } catch { return false }
+  }
 
   // ── Filtered list ───────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -734,6 +852,11 @@ export function MobileReleaseTracker({ allIssues, selectedIssues, projectsMap })
           {releases.length > 0 && (
             <span className="mrt__header-count">{releases.length}</span>
           )}
+          {backendError && (
+            <span className="mrt__offline-badge" title="Using local data — backend unavailable">
+              <WifiOff size={11} /> Local
+            </span>
+          )}
         </div>
         <div className="mrt__header-right">
           <button type="button" className="mrt__new-btn" onClick={handleNew}>
@@ -753,6 +876,16 @@ export function MobileReleaseTracker({ allIssues, selectedIssues, projectsMap })
 
       {!collapsed && (
         <>
+          {/* Migration banner */}
+          {showMigration && (
+            <WorkspaceMigrationBanner
+              localItemCount={loadReleases().length}
+              resourceLabel="mobile releases"
+              onImport={handleMigrateLocal}
+              onDismiss={() => { markMigrated(); setShowMigration(false) }}
+            />
+          )}
+
           {/* Suggestion banner */}
           {showSuggest && (
             <div className="mrt__suggest-banner">

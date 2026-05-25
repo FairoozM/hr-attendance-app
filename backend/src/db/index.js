@@ -1067,6 +1067,13 @@ async function testConnection() {
   }
   // Team Planner Phase 1 — must run after projects, project_tasks, users tables exist
   await ensureTeamPlannerTables()
+  // Linear Workspace shared tables (Phase 14A)
+  try {
+    const { ensureLinearWorkspaceTables } = require('./linearWorkspaceMigrations')
+    await ensureLinearWorkspaceTables()
+  } catch (e) {
+    console.error('[db] ensureLinearWorkspaceTables skipped/failed (non-fatal):', e.message || e)
+  }
 }
 
 async function ensureProjectsTable() {

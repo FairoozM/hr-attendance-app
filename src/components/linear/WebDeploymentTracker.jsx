@@ -1,18 +1,22 @@
 /**
  * WebDeploymentTracker
  *
- * Lightweight website & backend deployment tracking for lifesmile.ae releases.
- * Persists to localStorage under lifesmile.linear.webDeployments.v1.
- * No backend routes. Frontend-first for Phase 10B.
+ * Website & backend deployment tracking for lifesmile.ae releases.
+ * Shared data persisted to backend (Phase 14A). Falls back to localStorage on API error.
  * Does NOT execute deploys, call AWS, or expose credentials.
  */
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Server, Plus, Edit2, Trash2, ChevronDown, ChevronUp,
-  Check, Copy, X, AlertTriangle, Link, ExternalLink, Globe,
+  Check, Copy, X, AlertTriangle, Link, ExternalLink, Globe, WifiOff,
 } from 'lucide-react'
 import { normalizeStatus, issueKey } from './IssueRow'
+import WorkspaceMigrationBanner from './WorkspaceMigrationBanner'
+import {
+  listDeploymentsApi, createDeploymentApi, updateDeploymentApi, deleteDeploymentApi,
+  isMigrated, markMigrated,
+} from '../../lib/linearWorkspaceApi'
 import './WebDeploymentTracker.css'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -87,7 +91,7 @@ function checklistsForType(deployType) {
   }
 }
 
-// ── Storage helpers ───────────────────────────────────────────────────────────
+// ── Storage helpers (localStorage fallback / migration cache) ─────────────────
 
 function loadDeployments() {
   try {
@@ -100,6 +104,46 @@ function loadDeployments() {
 
 function saveDeployments(deployments) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ deployments })) } catch { /* ignore */ }
+}
+
+// ── Backend ↔ frontend field normalizers ──────────────────────────────────────
+
+function normalizeDeployment(row) {
+  if (!row) return null
+  return {
+    id:             row.id,
+    name:           row.name || '',
+    deployType:     row.deployment_type || row.deployType || 'Frontend',
+    environment:    row.environment || 'Production',
+    status:         row.status || 'Planning',
+    targetDate:     row.target_date ? row.target_date.split('T')[0] : (row.targetDate || ''),
+    startedAt:      row.started_at  || row.startedAt  || '',
+    deployedAt:     row.deployed_at || row.deployedAt || '',
+    verifiedAt:     row.verified_at || row.verifiedAt || '',
+    deployedBy:     row.deployed_by || row.deployedBy || '',
+    verifiedBy:     row.verified_by || row.verifiedBy || '',
+    notes:          row.notes           || '',
+    rollbackNotes:  row.rollback_notes  || row.rollbackNotes || '',
+    linkedIssueIds: row.linked_issue_ids || row.linkedIssueIds || [],
+    checklist:      row.checklist || {},
+  }
+}
+
+function denormalizeDeployment(d) {
+  return {
+    name:             d.name,
+    deployment_type:  d.deployType || '',
+    environment:      d.environment || '',
+    status:           d.status,
+    target_date:      d.targetDate  || null,
+    started_at:       d.startedAt   || null,
+    deployed_at:      d.deployedAt  || null,
+    verified_at:      d.verifiedAt  || null,
+    notes:            d.notes         || '',
+    rollback_notes:   d.rollbackNotes || '',
+    linked_issue_ids: d.linkedIssueIds || [],
+    checklist:        d.checklist || {},
+  }
 }
 
 function defaultChecklist() {
@@ -735,13 +779,40 @@ function DeploymentModal({ deployment, allIssues, projectsMap, onSave, onClose }
  * }} props
  */
 export function WebDeploymentTracker({ allIssues, selectedIssues, projectsMap }) {
-  const [deployments,   setDeployments]   = useState(() => loadDeployments())
-  const [modalDeploy,   setModalDeploy]   = useState(null)
-  const [filterStatus,  setFilterStatus]  = useState('all')
-  const [filterType,    setFilterType]    = useState('all')
-  const [collapsed,     setCollapsed]     = useState(false)
+  const [deployments,  setDeployments]  = useState([])
+  const [loading,      setLoading]      = useState(true)
+  const [backendError, setBackendError] = useState(false)
+  const [showMigration,setShowMigration]= useState(false)
+  const [modalDeploy,  setModalDeploy]  = useState(null)
+  const [filterStatus, setFilterStatus] = useState('all')
+  const [filterType,   setFilterType]   = useState('all')
+  const [collapsed,    setCollapsed]    = useState(false)
 
-  useEffect(() => { saveDeployments(deployments) }, [deployments])
+  // Load from backend on mount
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const rows = await listDeploymentsApi()
+        if (cancelled) return
+        const normalized = (rows || []).map(normalizeDeployment)
+        setDeployments(normalized)
+        saveDeployments(normalized)
+        if (normalized.length === 0 && !isMigrated()) {
+          const local = loadDeployments()
+          if (local?.length > 0) setShowMigration(true)
+        }
+      } catch (err) {
+        if (cancelled) return
+        console.error('[WebDeploymentTracker] backend load failed:', err)
+        setBackendError(true)
+        setDeployments(loadDeployments())
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   // ── CRUD ───────────────────────────────────────────────────────────────────
   const handleNew = useCallback(() => {
@@ -754,31 +825,83 @@ export function WebDeploymentTracker({ allIssues, selectedIssues, projectsMap })
 
   const handleEdit = useCallback((dep) => { setModalDeploy({ ...dep }) }, [])
 
-  const handleSave = useCallback((form) => {
-    setDeployments((prev) => {
-      const idx = prev.findIndex((d) => d.id === form.id)
-      if (idx === -1) return [...prev, form]
-      const next = [...prev]; next[idx] = { ...next[idx], ...form }; return next
-    })
+  const handleSave = useCallback(async (form) => {
+    const isLocalId = !form.id || (typeof form.id === 'string' && form.id.startsWith('wd-'))
+    try {
+      let result
+      if (isLocalId) {
+        result = normalizeDeployment(await createDeploymentApi(denormalizeDeployment(form)))
+      } else {
+        result = normalizeDeployment(await updateDeploymentApi(form.id, denormalizeDeployment(form)))
+      }
+      setDeployments((prev) => {
+        const idx = prev.findIndex((d) => d.id === form.id)
+        const next = idx === -1 ? [...prev, result] : prev.map((d, i) => i === idx ? result : d)
+        saveDeployments(next)
+        return next
+      })
+    } catch (err) {
+      console.error('[WebDeploymentTracker] save failed, using local fallback:', err)
+      setDeployments((prev) => {
+        const idx = prev.findIndex((d) => d.id === form.id)
+        const next = idx === -1 ? [...prev, form] : prev.map((d, i) => i === idx ? { ...d, ...form } : d)
+        saveDeployments(next)
+        return next
+      })
+    }
     setModalDeploy(null)
   }, [])
 
-  const handleDelete = useCallback((id) => {
-    setDeployments((prev) => prev.filter((d) => d.id !== id))
+  const handleDelete = useCallback(async (id) => {
+    const isLocalId = typeof id === 'string'
+    if (!isLocalId) {
+      try { await deleteDeploymentApi(id) } catch (err) {
+        console.error('[WebDeploymentTracker] delete failed:', err)
+      }
+    }
+    setDeployments((prev) => {
+      const next = prev.filter((d) => d.id !== id)
+      saveDeployments(next)
+      return next
+    })
   }, [])
 
   const handleChecklistChange = useCallback((depId, clKey, itemId, checked) => {
-    setDeployments((prev) => prev.map((d) => {
-      if (d.id !== depId) return d
-      return {
-        ...d,
-        checklist: {
-          ...d.checklist,
-          [clKey]: { ...(d.checklist?.[clKey] || {}), [itemId]: checked },
-        },
-      }
-    }))
+    setDeployments((prev) => {
+      const next = prev.map((d) => {
+        if (d.id !== depId) return d
+        const updated = {
+          ...d,
+          checklist: {
+            ...d.checklist,
+            [clKey]: { ...(d.checklist?.[clKey] || {}), [itemId]: checked },
+          },
+        }
+        const isLocalId = typeof d.id === 'string'
+        if (!isLocalId) {
+          updateDeploymentApi(d.id, { checklist: updated.checklist }).catch(() => {})
+        }
+        return updated
+      })
+      saveDeployments(next)
+      return next
+    })
   }, [])
+
+  const handleMigrateLocal = async () => {
+    const local = loadDeployments()
+    if (!local?.length) return true
+    try {
+      const results = await Promise.all(
+        local.map(d => createDeploymentApi(denormalizeDeployment(d)).then(normalizeDeployment))
+      )
+      setDeployments(results)
+      saveDeployments(results)
+      markMigrated()
+      setShowMigration(false)
+      return true
+    } catch { return false }
+  }
 
   // ── Filtered + sorted list ─────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -813,6 +936,11 @@ export function WebDeploymentTracker({ allIssues, selectedIssues, projectsMap })
           {deployments.length > 0 && (
             <span className="wdt__header-count">{deployments.length}</span>
           )}
+          {backendError && (
+            <span className="wdt__offline-badge" title="Using local data — backend unavailable">
+              <WifiOff size={11} /> Local
+            </span>
+          )}
         </div>
         <div className="wdt__header-right">
           <button type="button" className="wdt__new-btn" onClick={handleNew}>
@@ -831,6 +959,16 @@ export function WebDeploymentTracker({ allIssues, selectedIssues, projectsMap })
 
       {!collapsed && (
         <>
+          {/* Migration banner */}
+          {showMigration && (
+            <WorkspaceMigrationBanner
+              localItemCount={loadDeployments().length}
+              resourceLabel="deployments"
+              onImport={handleMigrateLocal}
+              onDismiss={() => { markMigrated(); setShowMigration(false) }}
+            />
+          )}
+
           {/* Suggestion banner */}
           {showSuggest && (
             <div className="wdt__suggest-banner">

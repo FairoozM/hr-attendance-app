@@ -2,8 +2,8 @@
  * LinearDocsPage.jsx
  * /#/projects/linear/docs
  *
- * Lightweight Product Docs / Knowledge Base for Life Smile dev teams.
- * Frontend-only. Persisted to localStorage (lifesmile.linear.docs.v1).
+ * Product Docs / Knowledge Base for Life Smile dev teams.
+ * Shared data persisted to backend (Phase 14A). Falls back to localStorage on API error.
  */
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -11,10 +11,15 @@ import {
   BookOpen, Plus, Search, X, Edit2, Copy, CheckCircle2, Trash2,
   Tag, Calendar, FileText, ChevronDown, Globe, Smartphone, Server,
   PenTool, BarChart2, Rocket, Shield, AlertTriangle, BookMarked,
-  Save, ArrowLeft,
+  Save, ArrowLeft, Wifi, WifiOff,
 } from 'lucide-react'
 import { getWorkflowHints } from '../../lib/linearDocsMatcher'
 import { LinearSidebar } from '../../components/linear/LinearSidebar'
+import WorkspaceMigrationBanner from '../../components/linear/WorkspaceMigrationBanner'
+import {
+  listDocsApi, createDocApi, updateDocApi, deleteDocApi,
+  isMigrated, markMigrated,
+} from '../../lib/linearWorkspaceApi'
 import './LinearDocsPage.css'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -483,7 +488,7 @@ After deployment:
   }),
 ]
 
-// ── localStorage helpers ──────────────────────────────────────────────────────
+// ── localStorage helpers (used as cache / fallback) ──────────────────────────
 
 function loadDocs() {
   try {
@@ -507,6 +512,39 @@ function saveDocs(docs) {
 function getInitialDocs() {
   const stored = loadDocs()
   return stored ?? STARTER_DOCS
+}
+
+// ── Backend ↔ frontend field normalizers ─────────────────────────────────────
+
+/** Backend (snake_case) → frontend (camelCase) */
+function normalizeDoc(row) {
+  if (!row) return null
+  return {
+    id:             row.id,
+    title:          row.title || '',
+    category:       row.category || 'QA',
+    tags:           row.tags || [],
+    summary:        row.summary || '',
+    content:        row.content || '',
+    relatedProject: row.related_project_name || '',
+    relatedLabels:  row.related_labels || [],
+    createdAt:      row.created_at || row.createdAt || new Date().toISOString(),
+    updatedAt:      row.updated_at || row.updatedAt || new Date().toISOString(),
+  }
+}
+
+/** Frontend (camelCase) → backend (snake_case) */
+function denormalizeDoc(doc) {
+  return {
+    title:          doc.title,
+    category:       doc.category,
+    tags:           Array.isArray(doc.tags) ? doc.tags
+                      : (doc.tags || '').split(',').map(t => t.trim()).filter(Boolean),
+    summary:        doc.summary || '',
+    content:        doc.content || '',
+    related_labels: Array.isArray(doc.relatedLabels) ? doc.relatedLabels
+                      : (doc.relatedLabels || '').split(',').map(t => t.trim()).filter(Boolean),
+  }
 }
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
@@ -762,14 +800,41 @@ function DocEditorModal({ doc, onSave, onDelete, onClose }) {
 
 export default function LinearDocsPage() {
   const navigate = useNavigate()
-  const [docs,    setDocs]    = useState(getInitialDocs)
-  const [search,  setSearch]  = useState('')
-  const [catFilter, setCatFilter] = useState('all')
-  const [editDoc, setEditDoc] = useState(null)  // null=closed, {}=new, {...}=editing
-  const [showEditor, setShowEditor] = useState(false)
+  const [docs,         setDocs]         = useState([])
+  const [loading,      setLoading]      = useState(true)
+  const [backendError, setBackendError] = useState(false)
+  const [showMigration, setShowMigration] = useState(false)
+  const [search,       setSearch]       = useState('')
+  const [catFilter,    setCatFilter]    = useState('all')
+  const [editDoc,      setEditDoc]      = useState(null)
+  const [showEditor,   setShowEditor]   = useState(false)
 
-  // Persist on change
-  useEffect(() => { saveDocs(docs) }, [docs])
+  // Load from backend on mount; fall back to localStorage on error
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const rows = await listDocsApi()
+        if (cancelled) return
+        const normalized = (rows || []).map(normalizeDoc)
+        setDocs(normalized)
+        saveDocs(normalized) // keep localStorage cache in sync for linearDocsMatcher
+        if (normalized.length === 0 && !isMigrated()) {
+          const local = loadDocs()
+          if (local?.length > 0) setShowMigration(true)
+        }
+      } catch (err) {
+        if (cancelled) return
+        console.error('[LinearDocsPage] backend load failed:', err)
+        setBackendError(true)
+        const local = loadDocs()
+        setDocs(local ?? STARTER_DOCS)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   // Filtered docs
   const filtered = useMemo(() => {
@@ -803,18 +868,47 @@ export default function LinearDocsPage() {
     setShowEditor(true)
   }, [])
 
-  const handleSave = useCallback((savedDoc) => {
-    setDocs(prev => {
-      const idx = prev.findIndex(d => d.id === savedDoc.id)
-      if (idx === -1) return [...prev, savedDoc]
-      const next = [...prev]; next[idx] = savedDoc; return next
-    })
+  const handleSave = useCallback(async (savedDoc) => {
+    const payload = denormalizeDoc(savedDoc)
+    const isLocalId = !savedDoc.id || (typeof savedDoc.id === 'string' && savedDoc.id.startsWith('doc_'))
+    try {
+      let result
+      if (isLocalId) {
+        result = normalizeDoc(await createDocApi(payload))
+      } else {
+        result = normalizeDoc(await updateDocApi(savedDoc.id, payload))
+      }
+      setDocs(prev => {
+        const idx = prev.findIndex(d => d.id === savedDoc.id)
+        const next = idx === -1 ? [...prev, result] : prev.map((d, i) => i === idx ? result : d)
+        saveDocs(next)
+        return next
+      })
+    } catch (err) {
+      console.error('[docs] API save failed, falling back to local:', err)
+      setDocs(prev => {
+        const idx = prev.findIndex(d => d.id === savedDoc.id)
+        const next = idx === -1 ? [...prev, savedDoc] : prev.map((d, i) => i === idx ? savedDoc : d)
+        saveDocs(next)
+        return next
+      })
+    }
     setShowEditor(false)
     setEditDoc(null)
   }, [])
 
-  const handleDelete = useCallback((id) => {
-    setDocs(prev => prev.filter(d => d.id !== id))
+  const handleDelete = useCallback(async (id) => {
+    const isLocalId = typeof id === 'string'
+    if (!isLocalId) {
+      try { await deleteDocApi(id) } catch (err) {
+        console.error('[docs] API delete failed:', err)
+      }
+    }
+    setDocs(prev => {
+      const next = prev.filter(d => d.id !== id)
+      saveDocs(next)
+      return next
+    })
     setShowEditor(false)
     setEditDoc(null)
   }, [])
@@ -823,6 +917,23 @@ export default function LinearDocsPage() {
     setShowEditor(false)
     setEditDoc(null)
   }, [])
+
+  const handleMigrateLocal = async () => {
+    const localDocs = loadDocs()
+    if (!localDocs?.length) return true
+    try {
+      const results = await Promise.all(
+        localDocs.map(d => createDocApi(denormalizeDoc(d)).then(normalizeDoc))
+      )
+      setDocs(results)
+      saveDocs(results)
+      markMigrated()
+      setShowMigration(false)
+      return true
+    } catch {
+      return false
+    }
+  }
 
   return (
     <div className="ldocs">
@@ -839,6 +950,11 @@ export default function LinearDocsPage() {
             </div>
           </div>
           <div className="ldocs__header-right">
+            {backendError && (
+              <span className="ldocs__offline-badge" title="Using local cache — backend unavailable">
+                <WifiOff size={12} /> Local
+              </span>
+            )}
             <div className="ldocs__search-wrap">
               <Search size={13} className="ldocs__search-icon" />
               <input
@@ -858,6 +974,16 @@ export default function LinearDocsPage() {
             </button>
           </div>
         </header>
+
+        {/* ── Migration banner ─────────────────────────────────────────── */}
+        {showMigration && (
+          <WorkspaceMigrationBanner
+            localItemCount={loadDocs()?.length ?? 0}
+            resourceLabel="docs"
+            onImport={handleMigrateLocal}
+            onDismiss={() => { markMigrated(); setShowMigration(false) }}
+          />
+        )}
 
         {/* ── Category filter tabs ─────────────────────────────────────── */}
         <div className="ldocs__cats">
@@ -888,7 +1014,9 @@ export default function LinearDocsPage() {
 
         {/* ── Doc grid ────────────────────────────────────────────────── */}
         <main className="ldocs__main">
-          {filtered.length === 0 ? (
+          {loading ? (
+            <div className="ldocs__loading">Loading docs…</div>
+          ) : filtered.length === 0 ? (
             <div className="ldocs__empty">
               <BookOpen size={32} className="ldocs__empty-icon" />
               <p className="ldocs__empty-title">

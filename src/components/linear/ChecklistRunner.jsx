@@ -1,9 +1,9 @@
 /**
  * ChecklistRunner.jsx
  * Modal for executing a doc checklist against an issue or release context.
- * State persists to localStorage via linearChecklistRuns.js.
+ * State persisted to shared backend (Phase 14A). Falls back to localStorage.
  */
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import {
   X, CheckSquare, Square, RotateCcw, Copy, CheckCircle2,
@@ -13,6 +13,9 @@ import {
   loadRun, saveRun, deleteRun,
   extractChecklistItems, itemKey, buildRunResultText,
 } from '../../lib/linearChecklistRuns'
+import {
+  listChecklistRunsApi, upsertChecklistRunApi, deleteChecklistRunApi,
+} from '../../lib/linearWorkspaceApi'
 import './ChecklistRunner.css'
 
 // ── Clipboard helper ───────────────────────────────────────────────────────
@@ -48,32 +51,63 @@ export function ChecklistRunner({ doc, contextType, contextId, contextLabel, onC
   const [completedItems, setCompletedItems] = useState({})
   const [notes, setNotes]                   = useState('')
   const [copied, setCopied]                 = useState(false)
+  const backendRunId = useRef(null)   // server-assigned id for PATCH/DELETE
 
-  // Load persisted run on mount
+  // Load persisted run on mount — try backend first, fall back to localStorage
   useEffect(() => {
     if (!doc || !contextId) return
-    const run = loadRun(contextType, contextId, doc.id)
-    if (run) {
-      setCompletedItems(run.completedItems || {})
-      setNotes(run.notes || '')
-    } else {
-      setCompletedItems({})
-      setNotes('')
-    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const runs = await listChecklistRunsApi({ context_type: contextType, context_id: contextId })
+        if (cancelled) return
+        const docIdNum = typeof doc.id === 'number' ? doc.id : null
+        const match = runs.find(r =>
+          (docIdNum && r.doc_id === docIdNum) ||
+          r.doc_title === doc.title
+        )
+        if (match) {
+          backendRunId.current = match.id
+          setCompletedItems(typeof match.completed_items === 'object' ? match.completed_items : {})
+          setNotes(match.notes || '')
+          return
+        }
+      } catch { /* fall through to localStorage */ }
+      // localStorage fallback
+      const run = loadRun(contextType, contextId, doc.id)
+      if (run) {
+        setCompletedItems(run.completedItems || {})
+        setNotes(run.notes || '')
+      } else {
+        setCompletedItems({})
+        setNotes('')
+      }
+    })()
+    return () => { cancelled = true }
   }, [doc?.id, contextType, contextId])
 
-  // Persist after every state change
+  // Persist after every state change (debounced via the effect dep array)
   useEffect(() => {
     if (!doc || !contextId) return
+    const docIdNum = typeof doc.id === 'number' ? doc.id : null
+    // Always keep localStorage cache in sync
     saveRun(contextType, {
-      id:             `${contextId}__${doc.id}`,
-      contextType,
-      contextId,
-      docId:          doc.id,
-      docTitle:       doc.title,
-      completedItems,
-      notes,
+      id: `${contextId}__${doc.id}`,
+      contextType, contextId,
+      docId: doc.id, docTitle: doc.title,
+      completedItems, notes,
     })
+    // Try backend upsert
+    upsertChecklistRunApi({
+      context_type:    contextType,
+      context_id:      contextId,
+      doc_id:          docIdNum,
+      doc_title:       doc.title,
+      completed_items: completedItems,
+      notes,
+    }).then(result => {
+      if (result?.id) backendRunId.current = result.id
+    }).catch(() => { /* silently ignore — localStorage already updated */ })
   }, [completedItems, notes])
 
   // Computed progress
@@ -97,7 +131,13 @@ export function ChecklistRunner({ doc, contextType, contextId, contextLabel, onC
   const reset = useCallback(() => {
     setCompletedItems({})
     setNotes('')
-    if (doc && contextId) deleteRun(contextType, contextId, doc.id)
+    if (doc && contextId) {
+      deleteRun(contextType, contextId, doc.id)
+      if (backendRunId.current) {
+        deleteChecklistRunApi(backendRunId.current).catch(() => {})
+        backendRunId.current = null
+      }
+    }
   }, [doc?.id, contextType, contextId])
 
   const handleCopy = useCallback(async () => {

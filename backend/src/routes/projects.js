@@ -10,6 +10,7 @@ const issueGitHubController  = require('../controllers/issueGitHubController')
 const attachmentAIController = require('../controllers/attachmentAIController')
 const issueQAController      = require('../controllers/issueQAController')
 const weeklyReportAIController = require('../controllers/weeklyReportAIController')
+const linearWorkspaceController = require('../controllers/linearWorkspaceController')
 
 const router = express.Router()
 
@@ -25,6 +26,32 @@ router.get('/dashboard', ...view, projectsController.getDashboard)
 // ---- Weekly Report AI Summary (Phase 11C) ----
 // Must be registered BEFORE /:id routes to avoid param collision.
 router.post('/linear/reports/weekly/ai-summary', ...view, weeklyReportAIController.generateSummary)
+
+// ---- Linear Workspace (Phase 14A) — registered before /:id to avoid collision ----
+router.get   ('/linear/docs',                    ...view,   linearWorkspaceController.listDocs)
+router.post  ('/linear/docs',                    ...manage, linearWorkspaceController.createDoc)
+router.get   ('/linear/docs/:id',                ...view,   linearWorkspaceController.getDoc)
+router.patch ('/linear/docs/:id',                ...manage, linearWorkspaceController.updateDoc)
+router.delete('/linear/docs/:id',                ...manage, linearWorkspaceController.deleteDoc)
+
+router.get   ('/linear/intake',                  ...view,   linearWorkspaceController.listIntake)
+router.post  ('/linear/intake',                  ...manage, linearWorkspaceController.createIntake)
+router.patch ('/linear/intake/:id',              ...manage, linearWorkspaceController.updateIntake)
+router.delete('/linear/intake/:id',              ...manage, linearWorkspaceController.deleteIntake)
+
+router.get   ('/linear/mobile-releases',         ...view,   linearWorkspaceController.listMobileReleases)
+router.post  ('/linear/mobile-releases',         ...manage, linearWorkspaceController.createMobileRelease)
+router.patch ('/linear/mobile-releases/:id',     ...manage, linearWorkspaceController.updateMobileRelease)
+router.delete('/linear/mobile-releases/:id',     ...manage, linearWorkspaceController.deleteMobileRelease)
+
+router.get   ('/linear/deployments',             ...view,   linearWorkspaceController.listDeployments)
+router.post  ('/linear/deployments',             ...manage, linearWorkspaceController.createDeployment)
+router.patch ('/linear/deployments/:id',         ...manage, linearWorkspaceController.updateDeployment)
+router.delete('/linear/deployments/:id',         ...manage, linearWorkspaceController.deleteDeployment)
+
+router.get   ('/linear/checklist-runs',          ...view,   linearWorkspaceController.listChecklistRuns)
+router.post  ('/linear/checklist-runs',          ...manage, linearWorkspaceController.upsertChecklistRun)
+router.delete('/linear/checklist-runs/:id',      ...manage, linearWorkspaceController.deleteChecklistRun)
 
 router.get('/', ...view, projectsController.listProjects)
 router.post('/', ...manage, projectsController.createProject)
