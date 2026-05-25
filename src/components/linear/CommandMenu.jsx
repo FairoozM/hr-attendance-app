@@ -10,7 +10,7 @@ import {
   Search, X, Plus, LayoutList, Tag, RotateCcw, Bookmark, SlidersHorizontal,
   Globe, Server, Smartphone, AlertCircle, AlertTriangle, Rocket, Bug, User, Users,
   XCircle, ArrowRight, FolderOpen, Layers, Map, BarChart2, Inbox, Package, Settings, GitBranch,
-  ClipboardCheck, Calendar,
+  ClipboardCheck, Calendar, LayoutDashboard, TrendingUp, ShieldCheck,
 } from 'lucide-react'
 import { DEFAULT_LABELS } from './linearLabels'
 import { issueKey, normalizeStatus } from './IssueRow'
@@ -169,6 +169,26 @@ function buildCommands({
     id: 'nav-inbox', group: 'Navigate', label: 'Go to Inbox',
     Icon: Inbox, keywords: ['go', 'navigate', 'inbox', 'notifications', 'attention'],
     action: () => { window.location.hash = '#/projects/linear/inbox'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-dashboard', group: 'Navigate', label: 'Go to Dashboard',
+    Icon: LayoutDashboard, keywords: ['go', 'navigate', 'dashboard', 'analytics', 'health', 'overview'],
+    action: () => { window.location.hash = '#/projects/linear/dashboard'; onClose() },
+  })
+  cmds.push({
+    id: 'dash-product-health', group: 'Dashboard', label: 'Show Product Health',
+    Icon: TrendingUp, keywords: ['dashboard', 'product', 'health', 'status', 'metrics'],
+    action: () => { window.location.hash = '#/projects/linear/dashboard'; onClose() },
+  })
+  cmds.push({
+    id: 'dash-release-readiness', group: 'Dashboard', label: 'Show Release Readiness',
+    Icon: ShieldCheck, keywords: ['dashboard', 'release', 'readiness', 'qa', 'approved'],
+    action: () => { window.location.hash = '#/projects/linear/dashboard'; onClose() },
+  })
+  cmds.push({
+    id: 'dash-workload-risk', group: 'Dashboard', label: 'Show Workload Risk',
+    Icon: AlertTriangle, keywords: ['dashboard', 'workload', 'risk', 'overloaded', 'unassigned'],
+    action: () => { window.location.hash = '#/projects/linear/dashboard'; onClose() },
   })
   cmds.push({
     id: 'nav-inbox-review', group: 'Navigate', label: 'Inbox: Show Review Items',

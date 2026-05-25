@@ -79,6 +79,7 @@ import ProjectDashboardPage from './pages/projects/ProjectDashboardPage'
 import TrashPage from './pages/projects/TrashPage'
 import TeamProjectsPage from './pages/projects/TeamProjectsPage'
 import LinearPlannerPage from './pages/linear/LinearPlannerPage'
+import LinearDashboardPage from './pages/linear/LinearDashboardPage'
 import LinearProjectsPage from './pages/linear/LinearProjectsPage'
 import LinearTeamPage from './pages/linear/LinearTeamPage'
 import LinearRoadmapPage from './pages/linear/LinearRoadmapPage'
@@ -461,6 +462,14 @@ function AppContent() {
         {/* Linear-style issue tracker — Phase 2.
             This is the new primary issue tracker at /projects/linear.
             /projects (AI Planner) remains completely untouched. */}
+        <Route
+          path="projects/linear/dashboard"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <LinearDashboardPage />
+            </PermissionGuard>
+          }
+        />
         <Route
           path="projects/linear"
           element={

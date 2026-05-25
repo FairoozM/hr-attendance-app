@@ -7,7 +7,7 @@
 import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
-  Inbox, LayoutList, Map,
+  Inbox, LayoutList, Map, LayoutDashboard,
   FolderOpen, RotateCcw, Tag, CheckCircle2, X, Plus,
   Globe, Smartphone, Server, PenTool, BarChart2,
   Bookmark, AlertCircle, AlertTriangle, Rocket, User, Bug, Users, Settings,
@@ -84,11 +84,12 @@ export function LinearSidebar({
   const [viewsOpen,  setViewsOpen]  = useState(true) // open by default
 
   const workspaceLinks = [
-    { to: '/projects/linear/projects',  Icon: FolderOpen,   label: 'Projects'  },
-    { to: '/projects/linear/team',      Icon: Users,        label: 'Team'      },
-    { to: '/projects/linear/workload',  Icon: BarChart2,    label: 'Workload'  },
-    { to: '/projects/linear/releases',  Icon: Rocket,       label: 'Releases'  },
-    { to: '/projects/linear/settings',  Icon: Settings,     label: 'Settings'  },
+    { to: '/projects/linear/dashboard', Icon: LayoutDashboard, label: 'Dashboard' },
+    { to: '/projects/linear/projects',  Icon: FolderOpen,      label: 'Projects'  },
+    { to: '/projects/linear/team',      Icon: Users,           label: 'Team'      },
+    { to: '/projects/linear/workload',  Icon: BarChart2,       label: 'Workload'  },
+    { to: '/projects/linear/releases',  Icon: Rocket,          label: 'Releases'  },
+    { to: '/projects/linear/settings',  Icon: Settings,        label: 'Settings'  },
   ]
 
   const customViews = allViews.filter((v) => !v.builtin)
