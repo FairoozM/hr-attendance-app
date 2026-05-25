@@ -277,6 +277,22 @@
   color: var(--text-secondary);
 }
 
+.doc-card__workflow-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.doc-card__workflow-hint {
+  padding: 1px 7px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  background: color-mix(in srgb, #7c3aed 10%, transparent);
+  color: #7c3aed;
+  border: 1px solid color-mix(in srgb, #7c3aed 25%, transparent);
+}
+
 .doc-card__footer {
   display: flex;
   align-items: center;

@@ -13,6 +13,7 @@ import {
   PenTool, BarChart2, Rocket, Shield, AlertTriangle, BookMarked,
   Save, ArrowLeft,
 } from 'lucide-react'
+import { getWorkflowHints } from '../../lib/linearDocsMatcher'
 import { LinearSidebar } from '../../components/linear/LinearSidebar'
 import './LinearDocsPage.css'
 
@@ -587,6 +588,17 @@ function DocCard({ doc, onEdit, onCopy }) {
           ))}
         </div>
       )}
+
+      {(() => {
+        const hints = getWorkflowHints(doc.title)
+        return hints.length > 0 ? (
+          <div className="doc-card__workflow-hints">
+            {hints.map(h => (
+              <span key={h} className="doc-card__workflow-hint">{h}</span>
+            ))}
+          </div>
+        ) : null
+      })()}
 
       <div className="doc-card__footer">
         <span className="doc-card__date">

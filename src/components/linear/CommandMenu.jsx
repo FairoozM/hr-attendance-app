@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { DEFAULT_LABELS } from './linearLabels'
 import { issueKey, normalizeStatus } from './IssueRow'
+import { loadAllDocs } from '../../lib/linearDocsMatcher'
 import './CommandMenu.css'
 
 // ── Icon map for view icons (string → component) ──────────────────────────────
@@ -31,7 +32,7 @@ function buildCommands({
   allCycles, allViews, allProjects, allMembers,
   onNewIssue, onApplyView, onSetGroupBy,
   onSetActiveLabel, onSetActiveCycle, onSetActiveProject, onSetActiveAssignee,
-  onClearFilters, onManageCycles, onClose,
+  onClearFilters, onManageCycles, onClose, activeIssue,
 }) {
   const cmds = []
 
@@ -236,21 +237,34 @@ function buildCommands({
     Icon: Search, keywords: ['search', 'find', 'docs', 'documentation'],
     action: () => { window.location.hash = '#/projects/linear/docs'; onClose() },
   })
-  cmds.push({
-    id: 'docs-checkout-smoke', group: 'Docs', label: 'Open: Checkout Smoke Test',
-    Icon: BookOpen, keywords: ['checkout', 'smoke', 'test', 'qa', 'website'],
-    action: () => { window.location.hash = '#/projects/linear/docs'; onClose() },
-  })
-  cmds.push({
-    id: 'docs-android-checklist', group: 'Docs', label: 'Open: Android Release Checklist',
-    Icon: BookOpen, keywords: ['android', 'release', 'checklist', 'play-store'],
-    action: () => { window.location.hash = '#/projects/linear/docs'; onClose() },
-  })
-  cmds.push({
-    id: 'docs-backend-deploy', group: 'Docs', label: 'Open: Backend Deployment Checklist',
-    Icon: BookOpen, keywords: ['backend', 'deployment', 'checklist', 'api', 'server'],
-    action: () => { window.location.hash = '#/projects/linear/docs'; onClose() },
-  })
+  // Dynamic doc entries from localStorage — enables "Search Docs" to find real content
+  try {
+    const allDocs = loadAllDocs()
+    for (const doc of allDocs.slice(0, 30)) {
+      const kws = [
+        ...(doc.title || '').toLowerCase().split(/\s+/),
+        ...(doc.tags || []).map(t => t.toLowerCase()),
+        (doc.category || '').toLowerCase(),
+        ...((doc.summary || '').toLowerCase().split(/\s+/).slice(0, 8)),
+      ]
+      cmds.push({
+        id: `doc-open-${doc.id}`,
+        group: 'Docs',
+        label: `Open: ${doc.title}`,
+        Icon: BookOpen,
+        keywords: kws,
+        action: () => { window.location.hash = '#/projects/linear/docs'; onClose() },
+      })
+    }
+  } catch { /* ignore */ }
+  // Related docs for current issue (if open)
+  if (activeIssue) {
+    cmds.push({
+      id: 'docs-related-issue', group: 'Docs', label: 'Open Related Docs (this issue)',
+      Icon: BookOpen, keywords: ['related', 'docs', 'issue', 'open'],
+      action: () => { window.location.hash = '#/projects/linear/docs'; onClose() },
+    })
+  }
   cmds.push({
     id: 'nav-inbox-review', group: 'Navigate', label: 'Inbox: Show Review Items',
     Icon: Inbox, keywords: ['inbox', 'review', 'in review'],
@@ -421,6 +435,7 @@ export function CommandMenu({
   allProjects = [],
   allMembers  = [],
   projectMap = {},
+  activeIssue = null,
   onNewIssue,
   onApplyView,
   onSetGroupBy,
@@ -458,10 +473,10 @@ export function CommandMenu({
     allCycles, allViews, allProjects, allMembers,
     onNewIssue, onApplyView, onSetGroupBy,
     onSetActiveLabel, onSetActiveCycle, onSetActiveProject, onSetActiveAssignee,
-    onClearFilters, onManageCycles, onClose: handleClose,
+    onClearFilters, onManageCycles, onClose: handleClose, activeIssue,
   }), [allCycles, allViews, allProjects, allMembers, onNewIssue, onApplyView, onSetGroupBy,
       onSetActiveLabel, onSetActiveCycle, onSetActiveProject, onSetActiveAssignee,
-      onClearFilters, onManageCycles, handleClose])
+      onClearFilters, onManageCycles, handleClose, activeIssue])
 
   // Filter commands + search issues
   const { sections, flatItems } = useMemo(() => {

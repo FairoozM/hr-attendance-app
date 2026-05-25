@@ -11,12 +11,14 @@
  *
  * Safety: Nothing auto-saves. User must click Save.
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   GitBranch, Link2, GitCommit, GitPullRequest,
-  Copy, Check, Save, Trash2, ChevronDown, ChevronRight,
+  Copy, Check, Save, Trash2, ChevronDown, ChevronRight, BookOpen,
 } from 'lucide-react'
 import { issueKey } from './IssueRow'
+import { getRelatedDocsForDev } from '../../lib/linearDocsMatcher'
+import { RelatedDocsList } from './RelatedDocsList'
 import './IssueDevWorkflow.css'
 
 // ── Branch slug generation ─────────────────────────────────────────────────
@@ -537,6 +539,9 @@ export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta, o
     issue?.devMeta?.dismissedGithubSuggestions
   )
 
+  // Related dev docs from linearDocsMatcher
+  const devDocs = useMemo(() => getRelatedDocsForDev(issue, project), [issue, project])
+
   return (
     <div className="idw">
       {/* ── Branch helper ─────────────────────────────────────────────── */}
@@ -768,6 +773,16 @@ export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta, o
           {noteOpen && <pre className="idw__preview">{releaseNote}</pre>}
         </div>
       </section>
+
+      {/* ── Related Dev Docs ─────────────────────────────────────────────── */}
+      <section className="idw__section">
+        <h3 className="idw__section-title">
+          <BookOpen size={13} aria-hidden="true" />
+          Dev Docs
+        </h3>
+        <RelatedDocsList docs={devDocs} emptyMessage="No dev docs matched." showViewAll />
+      </section>
+
     </div>
   )
 }

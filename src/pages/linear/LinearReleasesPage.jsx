@@ -7,7 +7,7 @@
  * No backend calls, no new migrations.
  */
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import { ChevronDown, X, Copy, Check, Package, ChevronRight, CheckSquare, Square } from 'lucide-react'
+import { ChevronDown, X, Copy, Check, Package, ChevronRight, CheckSquare, Square, BookOpen } from 'lucide-react'
 import { useTeamProjectsContext } from '../../contexts/TeamProjectsContext'
 import { ReleaseApprovalPanel } from '../../components/linear/ReleaseApprovalPanel'
 import { MobileReleaseTracker }  from '../../components/linear/MobileReleaseTracker'
@@ -17,6 +17,8 @@ import { LinearSidebar } from '../../components/linear/LinearSidebar'
 import { IssueDetailPanel } from '../../components/linear/IssueDetailPanel'
 import { issueKey, normalizeStatus, normalizePriority, STATUS_CONFIG, PRIORITY_CONFIG, ISSUE_TYPE_CONFIG } from '../../components/linear/IssueRow'
 import { CycleBadge } from '../../components/linear/CycleBadge'
+import { RelatedDocsList } from '../../components/linear/RelatedDocsList'
+import { getRelatedDocsForRelease } from '../../lib/linearDocsMatcher'
 import { labelColors } from '../../components/linear/linearLabels'
 import './LinearReleasesPage.css'
 
@@ -661,6 +663,13 @@ export default function LinearReleasesPage() {
   const qaHandoffText         = hasSelection ? buildQaHandoff(selectedIssues, projectsMap) : ''
   const deployChecklistText   = hasSelection ? buildDeploymentChecklist(selectedIssues, projectsMap) : ''
 
+  // Related docs for selected issues
+  const releaseDocs = useMemo(
+    () => getRelatedDocsForRelease(selectedIssues, projectsMap),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedIssues.map(i => i.id).join(','), projectsMap]
+  )
+
   // ── Pagination ─────────────────────────────────────────────────────────────
   const visibleDone = doneIssues.slice(0, donePage * DONE_PAGE_SIZE)
   const hasMoreDone = doneIssues.length > visibleDone.length
@@ -860,6 +869,19 @@ export default function LinearReleasesPage() {
 
               {/* Preview accordion */}
               <ReleasePreview label="Release Notes Preview" text={releaseNotesText} />
+
+              {/* Related Docs for this release */}
+              <div className="rel__related-docs">
+                <h3 className="rel__related-docs-title">
+                  <BookOpen size={13} />
+                  Release Docs
+                </h3>
+                <RelatedDocsList
+                  docs={releaseDocs}
+                  emptyMessage="Select issues to see relevant docs."
+                  showViewAll
+                />
+              </div>
 
               {/* Release Approval Panel */}
               <ReleaseApprovalPanel

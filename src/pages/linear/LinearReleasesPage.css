@@ -437,6 +437,23 @@
 .rel__selected-chip-remove:hover { opacity: 1; }
 
 /* Copy actions */
+.rel__related-docs {
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, #7c3aed 5%, transparent);
+  border: 1px solid color-mix(in srgb, #7c3aed 18%, transparent);
+  border-radius: 10px;
+}
+.rel__related-docs-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #7c3aed;
+  margin: 0 0 8px;
+}
+
 .rel__copy-actions {
   display: flex;
   flex-wrap: wrap;

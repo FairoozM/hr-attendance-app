@@ -8,13 +8,15 @@
  * QA metadata lives in issue.devMeta.qaApproval:
  *   { approved, approvedBy, approvedAt, notes }
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   ShieldCheck, ShieldOff, CheckCircle2, XCircle,
   FileText, Image, AlertTriangle, Info, Loader2,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, BookOpen,
 } from 'lucide-react'
 import { listAttachmentsApi } from '../../lib/projectsApi'
+import { getRelatedDocsForQA } from '../../lib/linearDocsMatcher'
+import { RelatedDocsList } from './RelatedDocsList'
 import './IssueQAReview.css'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -175,6 +177,8 @@ export function IssueQAReview({
   const hasReleaseEvidence = attachments.some((a) => a.kind === 'release_evidence')
 
   const qaSuggestions = buildQaChecklist(platforms, hasBefore, hasAfter)
+
+  const qaDocs = useMemo(() => getRelatedDocsForQA(issue, project), [issue, project])
 
   const flash = (msg, ms = 2000) => {
     setActionMsg(msg)
@@ -406,6 +410,16 @@ export function IssueQAReview({
           </ul>
         )}
       </div>
+
+      {/* ── Related QA Docs ──────────────────────────────────────────────── */}
+      <div className="qa__section">
+        <p className="qa__section-title">
+          <BookOpen size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+          QA Docs
+        </p>
+        <RelatedDocsList docs={qaDocs} emptyMessage="No QA docs matched." showViewAll />
+      </div>
+
     </div>
   )
 }
