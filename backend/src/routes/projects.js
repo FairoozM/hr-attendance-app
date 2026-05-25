@@ -9,6 +9,7 @@ const issueAIController = require('../controllers/issueAIController')
 const issueGitHubController  = require('../controllers/issueGitHubController')
 const attachmentAIController = require('../controllers/attachmentAIController')
 const issueQAController      = require('../controllers/issueQAController')
+const weeklyReportAIController = require('../controllers/weeklyReportAIController')
 
 const router = express.Router()
 
@@ -20,6 +21,11 @@ const manage = [auth.requirePermission('planner', 'manage')]
 
 // ---- Projects ----
 router.get('/dashboard', ...view, projectsController.getDashboard)
+
+// ---- Weekly Report AI Summary (Phase 11C) ----
+// Must be registered BEFORE /:id routes to avoid param collision.
+router.post('/linear/reports/weekly/ai-summary', ...view, weeklyReportAIController.generateSummary)
+
 router.get('/', ...view, projectsController.listProjects)
 router.post('/', ...manage, projectsController.createProject)
 router.get('/:id', ...view, projectsController.getProject)

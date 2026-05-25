@@ -10,7 +10,7 @@ import {
   Search, X, Plus, LayoutList, Tag, RotateCcw, Bookmark, SlidersHorizontal,
   Globe, Server, Smartphone, AlertCircle, AlertTriangle, Rocket, Bug, User, Users,
   XCircle, ArrowRight, FolderOpen, Layers, Map, BarChart2, Inbox, Package, Settings, GitBranch,
-  ClipboardCheck, Calendar, LayoutDashboard, TrendingUp, ShieldCheck, FileText, Copy,
+  ClipboardCheck, Calendar, LayoutDashboard, TrendingUp, ShieldCheck, FileText, Copy, Sparkles,
 } from 'lucide-react'
 import { DEFAULT_LABELS } from './linearLabels'
 import { issueKey, normalizeStatus } from './IssueRow'
@@ -203,6 +203,21 @@ function buildCommands({
   cmds.push({
     id: 'report-copy-blockers', group: 'Reports', label: 'Copy Blockers Report',
     Icon: AlertTriangle, keywords: ['copy', 'blockers', 'risks', 'report', 'overdue'],
+    action: () => { window.location.hash = '#/projects/linear/reports/weekly'; onClose() },
+  })
+  cmds.push({
+    id: 'report-ai-exec-summary', group: 'Reports', label: 'Generate Weekly Executive Summary',
+    Icon: Sparkles, keywords: ['ai', 'generate', 'weekly', 'executive', 'summary', 'report'],
+    action: () => { window.location.hash = '#/projects/linear/reports/weekly'; onClose() },
+  })
+  cmds.push({
+    id: 'report-ai-blockers', group: 'Reports', label: 'Generate Blockers Summary',
+    Icon: AlertTriangle, keywords: ['ai', 'generate', 'blockers', 'risks', 'summary'],
+    action: () => { window.location.hash = '#/projects/linear/reports/weekly'; onClose() },
+  })
+  cmds.push({
+    id: 'report-ai-whatsapp', group: 'Reports', label: 'Generate WhatsApp Product Update',
+    Icon: Sparkles, keywords: ['ai', 'generate', 'whatsapp', 'update', 'message', 'team'],
     action: () => { window.location.hash = '#/projects/linear/reports/weekly'; onClose() },
   })
   cmds.push({

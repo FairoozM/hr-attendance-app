@@ -474,6 +474,22 @@ export async function revokeIssueQA(projectId, taskId) {
   return api.post(`/api/projects/${projectId}/tasks/${taskId}/qa/revoke`, {})
 }
 
+// ── Weekly Report AI Summary (Phase 11C) ──────────────────────────────────────
+
+/**
+ * Generate an AI summary for the weekly product report.
+ *
+ * @param {'executive_summary'|'decision_brief'|'blockers_summary'|'release_plan'|'whatsapp_update'} action
+ * @param {object} reportData  – sanitised report payload (no PII beyond display names)
+ * @returns {Promise<{ success: boolean, action: string, output?: string, message?: string }>}
+ */
+export async function weeklyReportAISummaryApi(action, reportData) {
+  return api.post('/api/projects/linear/reports/weekly/ai-summary', {
+    action,
+    reportData,
+  })
+}
+
 // ─── Team members ─────────────────────────────────────────────────────────────
 
 export const teamApi = {

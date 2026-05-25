@@ -11,7 +11,7 @@ import {
   FileText, Calendar, RefreshCw, Copy, CheckCircle2, Printer,
   AlertTriangle, Rocket, ShieldCheck, Clock, Users, XCircle,
   Circle, ArrowRight, Smartphone, Globe, Server, Filter,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, Sparkles, Loader,
 } from 'lucide-react'
 import { LinearSidebar }  from '../../components/linear/LinearSidebar'
 import { IssueDetailPanel } from '../../components/linear/IssueDetailPanel'
@@ -21,6 +21,7 @@ import {
 } from '../../components/linear/IssueRow'
 import { useTeamProjectsContext } from '../../contexts/TeamProjectsContext'
 import { loadMobileReleases, loadWebDeployments, loadReleaseApprovalDraft } from '../../lib/linearReleaseStorage'
+import { weeklyReportAISummaryApi } from '../../lib/projectsApi'
 import './LinearWeeklyReportPage.css'
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
@@ -525,6 +526,117 @@ export default function LinearWeeklyReportPage() {
   const handleUpdate     = useCallback(async (pId, tId, data) => actions.updateTask(pId, tId, data), [actions])
   const handleDelete     = useCallback(async (pId, tId) => { await actions.deleteTask(pId, tId); setPanelIssue(null) }, [actions])
 
+  // ── AI Report Assistant state ──────────────────────────────────────────────
+  const [aiPanelOpen,    setAiPanelOpen]    = useState(true)
+  const [aiAction,       setAiAction]       = useState(null)   // active action key
+  const [aiLoading,      setAiLoading]      = useState(false)
+  const [aiOutput,       setAiOutput]       = useState('')
+  const [aiError,        setAiError]        = useState('')
+  const [aiCopied,       setAiCopied]       = useState(false)
+  const [execOverridden, setExecOverridden] = useState(false)
+
+  const AI_ACTIONS = [
+    { key: 'executive_summary', label: 'Executive Summary', emoji: '📊' },
+    { key: 'decision_brief',    label: 'Decision Brief',    emoji: '🎯' },
+    { key: 'blockers_summary',  label: 'Blockers Summary',  emoji: '⚠️' },
+    { key: 'release_plan',      label: 'Release Plan',      emoji: '🚀' },
+    { key: 'whatsapp_update',   label: 'WhatsApp Update',   emoji: '💬' },
+  ]
+
+  // Build a sanitised payload — only summary-level data, no raw IDs
+  const buildAIReportPayload = useCallback(() => {
+    const issueShort = (i) => ({
+      key:      issueKey(projectsMap[i.projectId]?.name, i.id),
+      title:    i.title,
+      priority: normalizePriority(i.priority),
+      assignee: i.assigneeUserId ? (membersMap[i.assigneeUserId]?.displayName || membersMap[i.assigneeUserId]?.username || 'Unassigned') : 'Unassigned',
+      status:   normalizeStatus(i.status),
+      project:  projectsMap[i.projectId]?.name || '?',
+      ...(i.blockedReason ? { blockedReason: i.blockedReason } : {}),
+      ...(i.dueDate ? { dueDate: i.dueDate } : {}),
+    })
+    return {
+      dateRange: weekLabel,
+      metrics: {
+        openIssues:          reportData.totalOpen,
+        completedThisWeek:   reportData.completedThisWeek.length,
+        readyForRelease:     reportData.rfrIssues.length,
+        qaApproved:          reportData.qaApproved.length,
+        blocked:             reportData.blocked.length,
+        overdue:             reportData.overdue.length,
+        unassignedHighPri:   reportData.unassignedHighPri.length,
+        upcomingReleases:    reportData.upcomingMobile.length + reportData.upcomingDeploys.length,
+      },
+      completedIssues:  reportData.completedThisWeek.slice(0, 10).map(issueShort),
+      readyForRelease:  reportData.rfrIssues.slice(0, 10).map(i => ({
+        ...issueShort(i),
+        qaApproved: !!i.devMeta?.qaApproval?.approved,
+        prStatus:   i.devMeta?.prStatus || null,
+      })),
+      blockers: reportData.blocked.slice(0, 8).map(issueShort),
+      overdue:  reportData.overdue.slice(0, 8).map(issueShort),
+      unassignedHighPri: reportData.unassignedHighPri.slice(0, 5).map(issueShort),
+      workload: reportData.topLoaded.slice(0, 5).map(({ member: m, open: o, inReview: ir, highPri: hp }) => ({
+        name: m.displayName || m.username,
+        openIssues: o,
+        inReview: ir,
+        highPriority: hp,
+      })),
+      releases: [
+        ...reportData.upcomingMobile.map(r => ({
+          type: 'mobile',
+          name: r.name,
+          platform: r.platform,
+          version: r.version,
+          status: r.status,
+          targetDate: r.targetDate,
+        })),
+        ...reportData.upcomingDeploys.map(d => ({
+          type: 'deployment',
+          name: d.name,
+          deployType: d.type,
+          status: d.status,
+          targetDate: d.targetDate,
+        })),
+      ],
+      decisionsNeeded: reportData.decisions,
+    }
+  }, [reportData, projectsMap, membersMap, weekLabel])
+
+  const handleAIAction = useCallback(async (actionKey) => {
+    setAiAction(actionKey)
+    setAiLoading(true)
+    setAiOutput('')
+    setAiError('')
+    setExecOverridden(false)
+    try {
+      const payload = buildAIReportPayload()
+      const res = await weeklyReportAISummaryApi(actionKey, payload)
+      if (res.success) {
+        setAiOutput(res.output)
+      } else {
+        setAiError(res.message || 'AI request failed.')
+      }
+    } catch (err) {
+      setAiError(err?.message || 'AI request failed. Please try again.')
+    } finally {
+      setAiLoading(false)
+    }
+  }, [buildAIReportPayload])
+
+  const handleAICopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(aiOutput)
+    } catch {
+      const ta = document.createElement('textarea')
+      ta.value = aiOutput; ta.style.position = 'fixed'; ta.style.opacity = '0'
+      document.body.appendChild(ta); ta.select()
+      document.execCommand('copy'); document.body.removeChild(ta)
+    }
+    setAiCopied(true)
+    setTimeout(() => setAiCopied(false), 1800)
+  }, [aiOutput])
+
   const filterActive = filterProject !== 'all' || filterAssignee !== 'all' || filterLabel !== 'all'
   const loading      = loadingProjects || loadingTasks
 
@@ -586,6 +698,80 @@ export default function LinearWeeklyReportPage() {
         </div>
 
         {error && <div className="wrp__error">{error}</div>}
+
+        {/* ── AI Report Assistant ───────────────────────────────────────── */}
+        <div className={`wrp__ai-panel ${aiPanelOpen ? '' : 'wrp__ai-panel--collapsed'}`}>
+          <div className="wrp__ai-header" onClick={() => setAiPanelOpen(v => !v)} role="button" tabIndex={0}
+            onKeyDown={e => e.key === 'Enter' && setAiPanelOpen(v => !v)}>
+            <Sparkles size={14} className="wrp__ai-header-icon" />
+            <span className="wrp__ai-header-title">AI Report Assistant</span>
+            <span className="wrp__ai-header-hint">AI-powered — not saved automatically</span>
+            <span className="wrp__ai-header-toggle">{aiPanelOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}</span>
+          </div>
+          {aiPanelOpen && (
+            <div className="wrp__ai-body">
+              <div className="wrp__ai-actions">
+                {AI_ACTIONS.map(({ key, label, emoji }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`wrp__ai-action-btn ${aiAction === key && aiLoading ? 'wrp__ai-action-btn--loading' : ''} ${aiAction === key && aiOutput && !aiLoading ? 'wrp__ai-action-btn--active' : ''}`}
+                    onClick={() => handleAIAction(key)}
+                    disabled={aiLoading}
+                  >
+                    {aiAction === key && aiLoading
+                      ? <Loader size={12} className="wrp__ai-spin" />
+                      : <span>{emoji}</span>
+                    }
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Output area */}
+              {(aiOutput || aiError || aiLoading) && (
+                <div className="wrp__ai-output-wrap">
+                  {aiLoading && (
+                    <div className="wrp__ai-loading">
+                      <Loader size={16} className="wrp__ai-spin" />
+                      Generating {AI_ACTIONS.find(a => a.key === aiAction)?.label}…
+                    </div>
+                  )}
+                  {aiError && !aiLoading && (
+                    <div className="wrp__ai-error">
+                      <AlertTriangle size={13} />
+                      {aiError}
+                    </div>
+                  )}
+                  {aiOutput && !aiLoading && (
+                    <>
+                      <pre className="wrp__ai-output">{aiOutput}</pre>
+                      <div className="wrp__ai-output-actions">
+                        <button
+                          type="button"
+                          className={`wrp__ai-copy-btn ${aiCopied ? 'wrp__ai-copy-btn--copied' : ''}`}
+                          onClick={handleAICopy}
+                        >
+                          {aiCopied ? <><CheckCircle2 size={12} /> Copied!</> : <><Copy size={12} /> Copy</>}
+                        </button>
+                        <span className="wrp__ai-output-label">
+                          {AI_ACTIONS.find(a => a.key === aiAction)?.emoji} {AI_ACTIONS.find(a => a.key === aiAction)?.label}
+                        </span>
+                        <button
+                          type="button"
+                          className="wrp__ai-clear-btn"
+                          onClick={() => { setAiOutput(''); setAiError(''); setAiAction(null) }}
+                        >
+                          <XCircle size={12} /> Clear
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* ── Report content ────────────────────────────────────────────── */}
         <main className="wrp__main" id="wrp-print-area">
