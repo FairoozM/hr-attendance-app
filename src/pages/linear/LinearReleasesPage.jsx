@@ -10,6 +10,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { ChevronDown, X, Copy, Check, Package, ChevronRight, CheckSquare, Square } from 'lucide-react'
 import { useTeamProjectsContext } from '../../contexts/TeamProjectsContext'
 import { ReleaseApprovalPanel } from '../../components/linear/ReleaseApprovalPanel'
+import { MobileReleaseTracker } from '../../components/linear/MobileReleaseTracker'
 import { LinearSidebar } from '../../components/linear/LinearSidebar'
 import { IssueDetailPanel } from '../../components/linear/IssueDetailPanel'
 import { issueKey, normalizeStatus, normalizePriority, STATUS_CONFIG, PRIORITY_CONFIG, ISSUE_TYPE_CONFIG } from '../../components/linear/IssueRow'
@@ -868,6 +869,15 @@ export default function LinearReleasesPage() {
               />
             </>
           )}
+        </section>
+
+        {/* ── Mobile Release Tracker ────────────────────────────────────── */}
+        <section className="rel__section rel__section--mobile">
+          <MobileReleaseTracker
+            allIssues={allIssues}
+            selectedIssues={selectedIssues}
+            projectsMap={projectsMap}
+          />
         </section>
       </main>
 

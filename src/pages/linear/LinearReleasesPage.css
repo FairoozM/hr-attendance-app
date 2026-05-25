@@ -374,6 +374,11 @@
   background: var(--surface-1, #fff);
 }
 
+/* Mobile release tracker section */
+.rel__section--mobile {
+  /* tracker has its own border/radius internally */
+}
+
 .rel__builder-hint {
   font-size: 13px;
   color: var(--text-muted, #6b7280);

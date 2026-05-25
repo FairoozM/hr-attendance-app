@@ -251,6 +251,21 @@ function buildCommands({
     action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
   })
   cmds.push({
+    id: 'nav-mobile-releases', group: 'Navigate', label: 'Go to Mobile Releases',
+    Icon: Smartphone, keywords: ['mobile', 'android', 'ios', 'app store', 'play store', 'releases', 'navigate'],
+    action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-mobile-create', group: 'Navigate', label: 'Create Mobile Release',
+    Icon: Smartphone, keywords: ['mobile', 'android', 'ios', 'create', 'new', 'release'],
+    action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-mobile-qa', group: 'Navigate', label: 'Releases: Copy Mobile QA Handoff',
+    Icon: ClipboardCheck, keywords: ['mobile', 'qa', 'handoff', 'android', 'ios', 'copy'],
+    action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
+  })
+  cmds.push({
     id: 'nav-settings', group: 'Navigate', label: 'Go to Settings',
     Icon: Settings, keywords: ['go', 'navigate', 'settings', 'github', 'integration', 'config'],
     action: () => { window.location.hash = '#/projects/linear/settings'; onClose() },
