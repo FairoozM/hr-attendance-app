@@ -12,6 +12,7 @@ import { useTeamProjectsContext } from '../../contexts/TeamProjectsContext'
 import { ReleaseApprovalPanel } from '../../components/linear/ReleaseApprovalPanel'
 import { MobileReleaseTracker }  from '../../components/linear/MobileReleaseTracker'
 import { WebDeploymentTracker }  from '../../components/linear/WebDeploymentTracker'
+import { ReleaseCalendar }       from '../../components/linear/ReleaseCalendar'
 import { LinearSidebar } from '../../components/linear/LinearSidebar'
 import { IssueDetailPanel } from '../../components/linear/IssueDetailPanel'
 import { issueKey, normalizeStatus, normalizePriority, STATUS_CONFIG, PRIORITY_CONFIG, ISSUE_TYPE_CONFIG } from '../../components/linear/IssueRow'
@@ -870,6 +871,15 @@ export default function LinearReleasesPage() {
               />
             </>
           )}
+        </section>
+
+        {/* ── Release Calendar ──────────────────────────────────────────── */}
+        <section className="rel__section rel__section--calendar" id="release-calendar">
+          <ReleaseCalendar
+            allIssues={allIssues}
+            projectsMap={projectsMap}
+            onOpenIssue={handleOpenIssue}
+          />
         </section>
 
         {/* ── Mobile Release Tracker ────────────────────────────────────── */}

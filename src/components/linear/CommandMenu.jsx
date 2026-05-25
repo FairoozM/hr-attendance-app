@@ -10,7 +10,7 @@ import {
   Search, X, Plus, LayoutList, Tag, RotateCcw, Bookmark, SlidersHorizontal,
   Globe, Server, Smartphone, AlertCircle, AlertTriangle, Rocket, Bug, User, Users,
   XCircle, ArrowRight, FolderOpen, Layers, Map, BarChart2, Inbox, Package, Settings, GitBranch,
-  ClipboardCheck,
+  ClipboardCheck, Calendar,
 } from 'lucide-react'
 import { DEFAULT_LABELS } from './linearLabels'
 import { issueKey, normalizeStatus } from './IssueRow'
@@ -283,6 +283,21 @@ function buildCommands({
   cmds.push({
     id: 'nav-rollback-plan', group: 'Navigate', label: 'Releases: Copy Rollback Plan',
     Icon: Server, keywords: ['rollback', 'plan', 'copy', 'deployment', 'revert'],
+    action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-release-calendar', group: 'Navigate', label: 'Go to Release Calendar',
+    Icon: Calendar, keywords: ['calendar', 'timeline', 'releases', 'schedule', 'this week', 'upcoming'],
+    action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-release-this-week', group: 'Navigate', label: 'Release Calendar: This Week',
+    Icon: Calendar, keywords: ['calendar', 'this week', 'releases', 'upcoming', 'schedule'],
+    action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-release-overdue', group: 'Navigate', label: 'Release Calendar: Show Overdue',
+    Icon: AlertTriangle, keywords: ['overdue', 'calendar', 'releases', 'late', 'missed'],
     action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
   })
   cmds.push({
