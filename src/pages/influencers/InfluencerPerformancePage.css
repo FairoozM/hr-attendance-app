@@ -1526,9 +1526,10 @@
 .ip-hud-day-head {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.28rem;
   min-width: 0;
+  margin-bottom: 0.8rem;
 }
 
 .ip-hud-day-head-main,
@@ -1538,9 +1539,15 @@
 
 .ip-hud-day-head-main {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   flex: 1 1 auto;
   gap: 0.38rem;
+}
+
+.ip-hud-day-head-copy {
+  display: flex;
+  align-items: center;
+  min-height: 1.85rem;
 }
 
 .ip-step-badge {
@@ -1578,12 +1585,12 @@
 }
 
 .ip-hud-day-date {
-  display: block;
-  margin-bottom: 0.8rem;
+  display: inline-flex;
+  align-items: center;
   color: rgba(0, 0, 0, 0.42);
   font-size: 0.98rem;
   font-weight: 800;
-  line-height: 1.05;
+  line-height: 1;
   white-space: nowrap;
 }
 
@@ -3248,6 +3255,10 @@
 
   .ip-hud-day-head-main {
     gap: 0.34rem;
+  }
+
+  .ip-hud-day-head-copy {
+    min-height: 1.72rem;
   }
 
   .ip-step-badge {
