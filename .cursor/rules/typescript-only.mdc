@@ -1,0 +1,12 @@
+---
+description: Require TypeScript instead of plain JavaScript
+alwaysApply: true
+---
+
+# TypeScript Only
+
+- Use TypeScript for all new code in this app.
+- Do not create new `.js` or `.jsx` source files.
+- Prefer `.ts` and `.tsx` for new modules, components, hooks, utilities, and tests.
+- When editing an existing JavaScript source file, prefer converting it to TypeScript instead of extending the JavaScript version when the scope is reasonable.
+- Avoid plain JavaScript patterns such as untyped props, `any`-like loose data flow, and implicit object shapes when a typed alternative is available.

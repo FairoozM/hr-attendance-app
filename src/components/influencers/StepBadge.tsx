@@ -1,4 +1,9 @@
-export function StepBadge({ number, className = '' }) {
+interface StepBadgeProps {
+  number?: number | string | null
+  className?: string
+}
+
+export function StepBadge({ number, className = '' }: StepBadgeProps) {
   const value = Number(number)
   const displayNumber = Number.isFinite(value) ? Math.max(1, Math.trunc(value)) : ''
 

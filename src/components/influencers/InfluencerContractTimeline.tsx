@@ -1,12 +1,96 @@
 import { useEffect, useState } from 'react'
-import { CalendarClock, Check, ExternalLink, Eye, GalleryHorizontal, Heart, MessageCircle, Pencil, Send, Trash2 } from 'lucide-react'
+import {
+  CalendarClock,
+  Check,
+  ExternalLink,
+  Eye,
+  GalleryHorizontal,
+  Heart,
+  MessageCircle,
+  Pencil,
+  Send,
+  Trash2,
+  type LucideIcon,
+} from 'lucide-react'
 import { formatNumber, parseMetricInput, toNumber } from '../../utils/influencerPerformanceUtils'
 import { influencerInitials } from './influencerPerformanceTableShared'
 import { StepBadge } from './StepBadge'
 
-function contractStatus(contract) {
-  if (contract.recordedDays >= contract.monitoringDays) return 'Completed'
-  if (contract.recordedDays > 0) return 'Monitoring'
+type TimelineMetricKey = 'views' | 'storyViews' | 'shares' | 'likes' | 'comments'
+
+interface TimelineRecord {
+  id?: string | number
+  influencerId?: string | number
+  date?: string
+  platform?: string
+  postUrl?: string
+  campaignName?: string
+  contractId?: string | number
+  contractStartDate?: string
+  monitoringDays?: number
+  views?: number
+  storyViews?: number
+  likes?: number
+  comments?: number
+  shares?: number
+  salesAed?: number
+  cost?: number
+  netProfitAed?: number
+  notes?: string
+  screenshotUrl?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+interface TimelineDay {
+  dayNumber?: number
+  date?: string
+  record?: TimelineRecord | null
+  isRecorded?: boolean
+}
+
+interface TimelineInfluencer {
+  name?: string
+  profileImage?: string | null
+  followers?: number | string
+}
+
+interface TimelineContract {
+  id: string | number
+  influencerId?: string | number
+  influencer?: TimelineInfluencer
+  platform?: string
+  postUrl?: string
+  campaignName?: string
+  contractStartDate?: string
+  monitoringDays?: number
+  recordedDays?: number
+  latest?: TimelineRecord
+  days?: TimelineDay[]
+  totals?: Partial<Record<TimelineMetricKey, number>>
+  averageEngagementRate?: number | string
+}
+
+interface InfluencerContractTimelineProps {
+  contracts: TimelineContract[]
+  onEditRecord?: (record: TimelineRecord) => void
+  onDeleteRecord?: (recordId: string | number) => void
+  onEditContract?: (contract: TimelineContract) => void
+  onSaveRecord?: (record: TimelineRecord) => void
+}
+
+interface MetricConfigItem {
+  label: string
+  key: TimelineMetricKey
+  Icon: LucideIcon
+}
+
+type DayDraft = Partial<Record<TimelineMetricKey, string | number>>
+type DraftsState = Record<string, DayDraft>
+
+function contractStatus(contract: TimelineContract) {
+  if (toNumber(contract.recordedDays) >= toNumber(contract.monitoringDays)) return 'Completed'
+  if (toNumber(contract.recordedDays) > 0) return 'Monitoring'
   return 'Pending'
 }
 
@@ -17,7 +101,13 @@ const timelineDateFormatter = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'UTC',
 })
 
-export function InfluencerContractTimeline({ contracts, onEditRecord, onDeleteRecord, onEditContract, onSaveRecord }) {
+export function InfluencerContractTimeline({
+  contracts,
+  onEditRecord,
+  onDeleteRecord,
+  onEditContract,
+  onSaveRecord,
+}: InfluencerContractTimelineProps) {
   return (
     <section className="ip-contract-panel" aria-label="Video contract monitoring">
       <div className="ip-section-heading">
@@ -46,7 +136,7 @@ export function InfluencerContractTimeline({ contracts, onEditRecord, onDeleteRe
   )
 }
 
-function displayDate(date) {
+function displayDate(date?: string | null) {
   const iso = String(date || '').slice(0, 10)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '—'
   const [year, month, day] = iso.split('-').map(Number)
@@ -55,7 +145,7 @@ function displayDate(date) {
   return timelineDateFormatter.format(utcDate)
 }
 
-function metricTotal(contract, key) {
+function metricTotal(contract: TimelineContract, key: TimelineMetricKey) {
   const days = Array.isArray(contract?.days) ? contract.days : []
   const fromDays = days.reduce((sum, day) => sum + toNumber(day?.record?.[key]), 0)
   const anyDayRecorded = days.some((day) => day?.isRecorded)
@@ -63,30 +153,36 @@ function metricTotal(contract, key) {
   return toNumber(contract?.totals?.[key])
 }
 
-function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContract, onSaveRecord }) {
+function HudContractCard({
+  contract,
+  onEditRecord,
+  onDeleteRecord,
+  onEditContract,
+  onSaveRecord,
+}: Omit<InfluencerContractTimelineProps, 'contracts'> & { contract: TimelineContract }) {
   const influencer = contract.influencer
   const influencerName = influencer?.name || 'Influencer'
-  const profileImage = influencer?.profileImage
+  const profileImage = influencer?.profileImage || ''
   const days = Array.isArray(contract?.days) ? contract.days : []
   const [avatarPhotoLoaded, setAvatarPhotoLoaded] = useState(false)
   const [avatarPhotoFailed, setAvatarPhotoFailed] = useState(false)
-  const [drafts, setDrafts] = useState({})
+  const [drafts, setDrafts] = useState<DraftsState>({})
 
   useEffect(() => {
     setAvatarPhotoLoaded(false)
     setAvatarPhotoFailed(false)
   }, [profileImage])
-  /** `${draftKey}:${metricKey}` — when set, that inline metric shows raw digits for editing (blur shows K-style like totals). */
-  const [focusedMetricCell, setFocusedMetricCell] = useState(null)
-  const metricConfig = [
-    ['Views', 'views', Eye],
-    ['Story', 'storyViews', GalleryHorizontal],
-    ['Shares', 'shares', Send],
-    ['Likes', 'likes', Heart],
-    ['Cmts', 'comments', MessageCircle],
+
+  const [focusedMetricCell, setFocusedMetricCell] = useState<string | null>(null)
+  const metricConfig: MetricConfigItem[] = [
+    { label: 'Views', key: 'views', Icon: Eye },
+    { label: 'Story', key: 'storyViews', Icon: GalleryHorizontal },
+    { label: 'Shares', key: 'shares', Icon: Send },
+    { label: 'Likes', key: 'likes', Icon: Heart },
+    { label: 'Cmts', key: 'comments', Icon: MessageCircle },
   ]
 
-  const totals = {
+  const totals: Record<TimelineMetricKey, number> = {
     views: metricTotal(contract, 'views'),
     storyViews: metricTotal(contract, 'storyViews'),
     likes: metricTotal(contract, 'likes'),
@@ -94,7 +190,7 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
     comments: metricTotal(contract, 'comments'),
   }
 
-  function makeDraftRecord(day) {
+  function makeDraftRecord(day: TimelineDay): TimelineRecord {
     return {
       influencerId: contract.influencerId,
       date: day.date,
@@ -116,17 +212,17 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
     }
   }
 
-  function draftKey(day) {
+  function draftKey(day: TimelineDay) {
     return String(day?.record?.id || `${contract.id}:${day?.date || day?.dayNumber || ''}`)
   }
 
-  function getDraft(day, key) {
+  function getDraft(day: TimelineDay, key: TimelineMetricKey) {
     const id = draftKey(day)
     if (drafts[id]?.[key] != null) return drafts[id][key]
     return day?.isRecorded ? toNumber(day?.record?.[key]) : ''
   }
 
-  function updateDraft(day, key, value) {
+  function updateDraft(day: TimelineDay, key: TimelineMetricKey, value: string | number) {
     setDrafts((current) => ({
       ...current,
       [draftKey(day)]: {
@@ -136,28 +232,27 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
     }))
   }
 
-  function hasDraft(day) {
+  function hasDraft(day: TimelineDay) {
     const values = drafts[draftKey(day)]
     if (!values) return false
-    return metricConfig.some(([, key]) => {
+    return metricConfig.some(({ key }) => {
       if (values[key] == null) return false
       return parseMetricInput(values[key]) !== toNumber(day?.record?.[key])
     })
   }
 
-  function metricCellFocusId(day, key) {
+  function metricCellFocusId(day: TimelineDay, key: TimelineMetricKey) {
     return `${draftKey(day)}:${key}`
   }
 
-  /** Match header/total: abbreviated K/M unless this cell is focused for editing. */
-  function inlineMetricDisplayValue(day, key) {
+  function inlineMetricDisplayValue(day: TimelineDay, key: TimelineMetricKey) {
     const raw = getDraft(day, key)
     if (raw === '' || raw == null) return ''
     if (focusedMetricCell === metricCellFocusId(day, key)) return String(raw)
     return formatNumber(parseMetricInput(raw))
   }
 
-  function saveDay(day) {
+  function saveDay(day: TimelineDay) {
     if (!onSaveRecord || !day?.date) return
     const values = drafts[draftKey(day)] || {}
     const base = day?.record || makeDraftRecord(day)
@@ -255,12 +350,12 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
         </div>
         <div className="ip-hud-header-totals" aria-label="Total performance summary">
           {[
-            ['views', 'Total Views', totals.views, Eye],
-            ['storyViews', 'Total Story Views', totals.storyViews, GalleryHorizontal],
-            ['likes', 'Total Likes', totals.likes, Heart],
-            ['shares', 'Total Shares', totals.shares, Send],
-            ['comments', 'Total Comments', totals.comments, MessageCircle],
-          ].map(([key, label, value, Icon]) => (
+            { key: 'views', label: 'Total Views', value: totals.views, Icon: Eye },
+            { key: 'storyViews', label: 'Total Story Views', value: totals.storyViews, Icon: GalleryHorizontal },
+            { key: 'likes', label: 'Total Likes', value: totals.likes, Icon: Heart },
+            { key: 'shares', label: 'Total Shares', value: totals.shares, Icon: Send },
+            { key: 'comments', label: 'Total Comments', value: totals.comments, Icon: MessageCircle },
+          ].map(({ key, label, value, Icon }) => (
             <div key={key} className={`ip-hud-header-total ip-hud-header-total--${key}`}>
               <span>
                 <Icon size={16} />
@@ -316,7 +411,9 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
                   <button
                     type="button"
                     disabled={!day?.isRecorded || !day?.record?.id}
-                    onClick={() => { if (day?.isRecorded && day?.record?.id) onDeleteRecord(day.record.id) }}
+                    onClick={() => {
+                      if (day?.isRecorded && day?.record?.id) onDeleteRecord(day.record.id)
+                    }}
                     aria-label={`Delete day ${day?.dayNumber || ''}`}
                     title={day?.isRecorded ? 'Delete this day' : 'No saved record to delete'}
                   >
@@ -325,7 +422,7 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
                 ) : null}
               </div>
             </div>
-            {metricConfig.map(([label, key, Icon]) => (
+            {metricConfig.map(({ label, key, Icon }) => (
               <div key={key} className="ip-hud-metric-row">
                 <span><Icon size={15} /> {label}</span>
                 {onSaveRecord ? (
@@ -369,7 +466,7 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
           <div className="ip-hud-day-head">
             <div className="ip-hud-day-total-title">Total</div>
           </div>
-          {metricConfig.map(([label, key, Icon]) => (
+          {metricConfig.map(({ label, key, Icon }) => (
             <div key={key} className="ip-hud-metric-row">
               <span><Icon size={13} /> {label}</span>
               <strong className={`ip-hud-value ip-hud-value--${key}`}>
