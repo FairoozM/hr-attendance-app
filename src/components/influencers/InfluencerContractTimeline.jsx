@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CalendarClock, Check, ExternalLink, Eye, Heart, MessageCircle, Pencil, Send, Trash2 } from 'lucide-react'
+import { CalendarClock, Check, ExternalLink, Eye, GalleryHorizontal, Heart, MessageCircle, Pencil, Send, Trash2 } from 'lucide-react'
 import { formatNumber, parseMetricInput, toNumber } from '../../utils/influencerPerformanceUtils'
 import { fmtDMY } from '../../utils/dateFormat'
 import { influencerInitials } from './influencerPerformanceTableShared'
@@ -68,6 +68,7 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
   const [focusedMetricCell, setFocusedMetricCell] = useState(null)
   const metricConfig = [
     ['Views', 'views', Eye],
+    ['Story', 'storyViews', GalleryHorizontal],
     ['Shares', 'shares', Send],
     ['Likes', 'likes', Heart],
     ['Cmts', 'comments', MessageCircle],
@@ -75,6 +76,7 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
 
   const totals = {
     views: metricTotal(contract, 'views'),
+    storyViews: metricTotal(contract, 'storyViews'),
     likes: metricTotal(contract, 'likes'),
     shares: metricTotal(contract, 'shares'),
     comments: metricTotal(contract, 'comments'),
@@ -91,6 +93,7 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
       contractStartDate: contract.contractStartDate,
       monitoringDays: contract.monitoringDays,
       views: 0,
+      storyViews: 0,
       likes: 0,
       comments: 0,
       shares: 0,
@@ -170,6 +173,7 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
     onSaveRecord({
       ...base,
       views: values.views == null ? toNumber(base.views) : parseMetricInput(values.views),
+      storyViews: values.storyViews == null ? toNumber(base.storyViews) : parseMetricInput(values.storyViews),
       shares: values.shares == null ? toNumber(base.shares) : parseMetricInput(values.shares),
       likes: values.likes == null ? toNumber(base.likes) : parseMetricInput(values.likes),
       comments: values.comments == null ? toNumber(base.comments) : parseMetricInput(values.comments),
@@ -240,6 +244,7 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
         <div className="ip-hud-header-totals" aria-label="Total performance summary">
           {[
             ['views', 'Total Views', totals.views, Eye],
+            ['storyViews', 'Total Story', totals.storyViews, GalleryHorizontal],
             ['likes', 'Total Likes', totals.likes, Heart],
             ['shares', 'Total Shares', totals.shares, Send],
             ['comments', 'Total Comments', totals.comments, MessageCircle],

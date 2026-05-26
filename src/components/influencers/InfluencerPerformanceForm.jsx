@@ -180,7 +180,7 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
         <div>
           <h2>{editingRecord ? 'Edit record' : 'Add record'}</h2>
           <p>
-            Influencer, contract, and financial fields. Daily views, likes, comments, and shares are edited in the contract timeline.
+            Influencer, contract, and financial fields. Daily views, story views, likes, comments, and shares are edited in the contract timeline.
           </p>
         </div>
       </div>

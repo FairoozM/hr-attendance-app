@@ -247,6 +247,7 @@ function makeContractSeed(record, influencersById, daysFallback) {
       likes: 0,
       comments: 0,
       shares: 0,
+      storyViews: 0,
       saves: 0,
       cost: 0,
       salesAed: 0,
@@ -268,6 +269,7 @@ function addRecordToContract(contract, record) {
   contract.totals.likes += toNumber(record.likes)
   contract.totals.comments += toNumber(record.comments)
   contract.totals.shares += toNumber(record.shares)
+  contract.totals.storyViews += toNumber(record.storyViews)
   contract.totals.saves += toNumber(record.saves)
   /* cost / sales / net profit are contract-level (latest check-in only), not summed — see getVideoContractTimelines */
 }
