@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { CalendarClock, Check, ExternalLink, Eye, GalleryHorizontal, Heart, MessageCircle, Pencil, Send, Trash2 } from 'lucide-react'
 import { formatNumber, parseMetricInput, toNumber } from '../../utils/influencerPerformanceUtils'
-import { fmtDMY } from '../../utils/dateFormat'
 import { influencerInitials } from './influencerPerformanceTableShared'
 import { StepBadge } from './StepBadge'
 
@@ -10,6 +9,13 @@ function contractStatus(contract) {
   if (contract.recordedDays > 0) return 'Monitoring'
   return 'Pending'
 }
+
+const timelineDateFormatter = new Intl.DateTimeFormat('en-GB', {
+  day: '2-digit',
+  month: 'short',
+  year: '2-digit',
+  timeZone: 'UTC',
+})
 
 export function InfluencerContractTimeline({ contracts, onEditRecord, onDeleteRecord, onEditContract, onSaveRecord }) {
   return (
@@ -41,7 +47,12 @@ export function InfluencerContractTimeline({ contracts, onEditRecord, onDeleteRe
 }
 
 function displayDate(date) {
-  return fmtDMY(date)
+  const iso = String(date || '').slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '—'
+  const [year, month, day] = iso.split('-').map(Number)
+  const utcDate = new Date(Date.UTC(year, month - 1, day))
+  if (Number.isNaN(utcDate.getTime())) return '—'
+  return timelineDateFormatter.format(utcDate)
 }
 
 function metricTotal(contract, key) {
