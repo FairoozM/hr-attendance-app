@@ -24,6 +24,12 @@ const PLANNER_NAV_ITEMS = [
 
 const AI_NAV_ITEMS = [
   { to: '/ai/usage', label: 'AI Usage' },
+  {
+    to: '/ai/noon-integration',
+    label: 'Noon API Integration',
+    adminOnly: true,
+    searchHint: 'noon partners api service account whoami product admin integration',
+  },
 ]
 
 const AMAZON_NAV_ITEMS = [
@@ -562,6 +568,7 @@ export function Layout() {
     if (location.pathname.startsWith('/ai/amazon-zoho-stock')) return 'Amazon + Zoho Stock'
     if (location.pathname.startsWith('/admin/ai-budget')) return 'AI Budget Settings'
     if (location.pathname.startsWith('/admin/item-report-groups')) return 'Item Report Groups'
+    if (location.pathname.startsWith('/ai/noon-integration')) return 'Noon API Integration'
     if (location.pathname.startsWith('/ai/usage')) return 'AI Usage'
     if (location.pathname.startsWith('/ai/amazon-sync-health')) return 'Amazon Sync Health'
     if (location.pathname.startsWith('/ai/amazon-dashboard')) return 'Amazon BI Dashboard'

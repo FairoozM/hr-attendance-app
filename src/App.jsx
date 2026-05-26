@@ -93,6 +93,7 @@ import { AmazonOrdersDashboardPage } from './pages/AmazonOrdersDashboardPage'
 import { AmazonSyncHealthPage } from './pages/AmazonSyncHealthPage'
 import { AmazonZohoStockPage } from './pages/AmazonZohoStockPage'
 import { AmazonFlatFileBulkGenerator } from './pages/AmazonFlatFileBulkGenerator'
+import NoonIntegrationPage from './pages/NoonIntegrationPage'
 import { ListingBatchesPage } from './pages/ListingBatchesPage'
 import { AiBudgetSettingsPage } from './pages/admin/AiBudgetSettingsPage'
 import { AIPlannerProvider } from './contexts/AIPlannerContext'
@@ -347,6 +348,14 @@ function AppContent() {
             <AiHubGuard>
               <AiUsageDashboard />
             </AiHubGuard>
+          }
+        />
+        <Route
+          path="ai/noon-integration"
+          element={
+            <AdminOnly>
+              <NoonIntegrationPage />
+            </AdminOnly>
           }
         />
         <Route

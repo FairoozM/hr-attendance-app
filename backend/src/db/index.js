@@ -1074,6 +1074,13 @@ async function testConnection() {
   } catch (e) {
     console.error('[db] ensureLinearWorkspaceTables skipped/failed (non-fatal):', e.message || e)
   }
+  try {
+    const { ensureNoonProductSnapshotsTable } = require('../services/noon/noonSnapshotStore')
+    await ensureNoonProductSnapshotsTable()
+    console.log('[db] Noon product snapshot table: OK')
+  } catch (e) {
+    console.error('[db] ensureNoonProductSnapshotsTable skipped/failed (non-fatal):', e.message || e)
+  }
 }
 
 async function ensureProjectsTable() {

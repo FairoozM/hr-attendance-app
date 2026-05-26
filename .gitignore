@@ -11,3 +11,8 @@ secrets.json
 backend/node_modules
 backend/.env
 backend/dist
+backend/secrets/
+backend/secrets/*
+!backend/secrets/README.md
+*service-account*.json
+*.pem
