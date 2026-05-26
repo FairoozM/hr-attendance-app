@@ -3,6 +3,7 @@ import { CalendarClock, Check, ExternalLink, Eye, GalleryHorizontal, Heart, Mess
 import { formatNumber, parseMetricInput, toNumber } from '../../utils/influencerPerformanceUtils'
 import { fmtDMY } from '../../utils/dateFormat'
 import { influencerInitials } from './influencerPerformanceTableShared'
+import { StepBadge } from './StepBadge'
 
 function contractStatus(contract) {
   if (contract.recordedDays >= contract.monitoringDays) return 'Completed'
@@ -250,7 +251,10 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
             ['comments', 'Total Comments', totals.comments, MessageCircle],
           ].map(([key, label, value, Icon]) => (
             <div key={key} className={`ip-hud-header-total ip-hud-header-total--${key}`}>
-              <span><Icon size={16} /> {label}</span>
+              <span>
+                <Icon size={16} />
+                <span className="ip-hud-header-total__label">{label}</span>
+              </span>
               <strong>{formatNumber(value)}</strong>
             </div>
           ))}
@@ -268,8 +272,11 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
         ) : days.map((day) => (
           <section key={day.dayNumber} className={`ip-hud-day ${day.isRecorded ? 'ip-hud-day--active' : ''}`}>
             <div className="ip-hud-day-head">
-              <div>
-                <span className="ip-hud-day-date">{displayDate(day?.date)}</span>
+              <div className="ip-hud-day-head-main">
+                <StepBadge number={day?.dayNumber} className={day?.isRecorded ? 'ip-step-badge--active' : ''} />
+                <div className="ip-hud-day-head-copy">
+                  <span className="ip-hud-day-date">{displayDate(day?.date)}</span>
+                </div>
               </div>
               <div className="ip-hud-day-actions">
                 {onEditRecord ? (
