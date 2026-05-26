@@ -14,8 +14,15 @@ import {
   Key, Link2, Code2, Zap, GitMerge, GitBranch,
   ExternalLink, Filter, Search as SearchIcon,
 } from 'lucide-react'
+import { useAuth } from '../../contexts/AuthContext'
 import { LinearSidebar } from '../../components/linear/LinearSidebar'
+import LinearAccessDenied from '../../components/linear/LinearAccessDenied'
 import { getGithubIntegrationStatus, getGithubAuditLog } from '../../lib/projectsApi'
+import {
+  LINEAR_ROLE_CAPABILITIES,
+  canAccessLinearSettings,
+  getUserWorkspaceRole,
+} from '../../lib/linearPermissions'
 import { issueKey } from '../../components/linear/IssueRow'
 import './LinearSettingsPage.css'
 
@@ -68,9 +75,20 @@ function CopyBtn({ text, label = 'Copy' }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function LinearSettingsPage() {
+  const { user } = useAuth()
   const [status,    setStatus]   = useState(null)
   const [loading,   setLoading]  = useState(true)
   const [error,     setError]    = useState('')
+  const workspaceRole = getUserWorkspaceRole(user)
+
+  if (!canAccessLinearSettings(user)) {
+    return (
+      <LinearAccessDenied
+        title="Access Denied"
+        message="You do not have permission to view GitHub integration settings."
+      />
+    )
+  }
 
   const fetchStatus = useCallback(async () => {
     setLoading(true)
@@ -114,6 +132,21 @@ export default function LinearSettingsPage() {
         </header>
 
         <div className="lsp-content">
+          <div className="lsp__card lsp__card--full">
+            <div className="lsp__card-header">
+              <span className="lsp__card-icon"><ShieldCheck size={16} /></span>
+              <h2 className="lsp__card-title">Permissions</h2>
+            </div>
+            <p className="lsp__card-body">
+              Current workspace role: <strong>{workspaceRole ? workspaceRole[0].toUpperCase() + workspaceRole.slice(1) : 'No access'}</strong>
+            </p>
+            <ul className="lsp__steps">
+              {(workspaceRole ? LINEAR_ROLE_CAPABILITIES[workspaceRole] : []).map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+
           {/* ── Overall status banner ─────────────────────────────────────── */}
           {!loading && !error && status && (
             <div className={`lsp__banner ${allReady ? 'lsp__banner--ready' : 'lsp__banner--warn'}`}>

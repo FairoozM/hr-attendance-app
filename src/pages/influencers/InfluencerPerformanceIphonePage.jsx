@@ -3,12 +3,11 @@ import { ChevronLeft, Gauge, Plus, Save, Search, X } from 'lucide-react'
 import { InfluencerContractTimeline } from '../../components/influencers/InfluencerContractTimeline'
 import { InfluencerPerformanceForm } from '../../components/influencers/InfluencerPerformanceForm'
 import { InfluencerPerformanceDebugBoundary } from '../../components/influencers/InfluencerPerformanceDebugBoundary'
-import { InfluencerPerformanceTableIphone } from '../../components/influencers/InfluencerPerformanceTableIphone'
 import { useAuth, canMutateInfluencerPerformance } from '../../contexts/AuthContext'
 import { influencerInitials } from '../../components/influencers/influencerPerformanceTableShared'
 import { formatNumber } from '../../utils/influencerPerformanceUtils'
 import { fmtDMYRange } from '../../utils/dateFormat'
-import { CONTRACT_TIMELINE_RESULTS_CAP, PERFORMANCE_SORT_OPTIONS } from './influencerPerformanceScreenShared'
+import { CONTRACT_TIMELINE_RESULTS_CAP } from './influencerPerformanceScreenShared'
 import { useInfluencerPerformanceScreen } from './useInfluencerPerformanceScreen'
 import './influencers.css'
 import './InfluencerPerformancePage.css'
@@ -30,7 +29,6 @@ function InfluencerPerformanceIphonePageBody() {
     influencersById,
     syncHint,
     setSyncHint,
-    sort,
     editingRecord,
     setEditingRecord,
     editingContract,
@@ -41,23 +39,13 @@ function InfluencerPerformanceIphonePageBody() {
     setActiveMonitorContractId,
     contractTimelineQuery,
     setContractTimelineQuery,
-    tableDateFrom,
-    setTableDateFrom,
-    tableDateTo,
-    setTableDateTo,
-    contractsTotal,
     contractTimelineOptions,
     contractTimelineAnchorRef,
     canWritePerformance,
-    showNetProfitColumn,
-    filteredContracts,
-    rankingsByContractId,
     activeMonitorContracts,
-    handleSortPreset,
     handleSubmit,
     handleDelete,
     handleSaveContractEdit,
-    toggleActiveMonitorContract,
   } = useInfluencerPerformanceScreen()
 
   return (
@@ -68,8 +56,8 @@ function InfluencerPerformanceIphonePageBody() {
         </Link>
         <div className="ip-page--iphone__title-block">
           <span className="ip-eyebrow"><Gauge size={14} /> Phone view</span>
-          <h1 className="inf-page-title">Influencer ranking</h1>
-          <p className="inf-page-subtitle">Same data as the full dashboard — laid out as stacked cards for small screens.</p>
+          <h1 className="inf-page-title">Influencer performance</h1>
+          <p className="inf-page-subtitle">Open contract timelines quickly and manage daily check-ins from phone view.</p>
           {syncHint ? (
             <p className="inf-page-subtitle ip-sync-hint" role="status">{syncHint}</p>
           ) : null}
@@ -95,68 +83,6 @@ function InfluencerPerformanceIphonePageBody() {
           <Plus size={15} /> Add
         </button>
       </header>
-
-      <section className="ip-filter-panel ip-performance-sort-panel ip-page--iphone__sort" aria-label="Sort performance records">
-        <div className="ip-performance-sort-panel__body">
-          <label className="ip-field ip-performance-sort-panel__select">
-            <span>Sort</span>
-            <select
-              className="ip-control"
-              value={`${sort.key}:${sort.direction}`}
-              onChange={(event) => handleSortPreset(event.target.value)}
-            >
-              {PERFORMANCE_SORT_OPTIONS.filter((option) => !option.adminOnly || showNetProfitColumn).map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-          <div className="ip-performance-sort-panel__quick" aria-label="Quick filters">
-            {[
-              ['rank:asc', 'Best'],
-              ['views:desc', 'Views'],
-              ['date:desc', 'Newest'],
-            ].map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                className={`inf-btn inf-btn--ghost inf-btn--xs ${`${sort.key}:${sort.direction}` === value ? 'ip-performance-sort-panel__quick-active' : ''}`}
-                onClick={() => handleSortPreset(value)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <InfluencerPerformanceTableIphone
-        records={filteredContracts}
-        influencersById={influencersById}
-        rankingsByContractId={rankingsByContractId}
-        showNetProfitColumn={showNetProfitColumn}
-        dateFrom={tableDateFrom}
-        dateTo={tableDateTo}
-        onDateFromChange={setTableDateFrom}
-        onDateToChange={setTableDateTo}
-        onClearTableDates={() => {
-          setTableDateFrom('')
-          setTableDateTo('')
-        }}
-        totalContracts={contractsTotal}
-        onEdit={canWritePerformance ? (row) => row?.latest && setEditingRecord(row.latest) : undefined}
-        onDelete={canWritePerformance ? (contractId) => {
-          const row = filteredContracts.find((item) => String(item.id) === String(contractId))
-          const rid =
-            row?.latest?.id ||
-            [...(row?.records || [])]
-              .filter((r) => r && r.id)
-              .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')))
-              .at(-1)?.id
-          if (rid) handleDelete(rid)
-        } : undefined}
-        activeMonitorInfluencerId={activeMonitorContractId}
-        onToggleMonitor={(_influencerId, row) => toggleActiveMonitorContract(row)}
-      />
 
       <div ref={contractTimelineAnchorRef} className="ip-contract-timeline-anchor ip-page--iphone__timeline">
         <section className="ip-contract-pin-panel" aria-label="Pinned contract timeline search">

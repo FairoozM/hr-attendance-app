@@ -11,6 +11,7 @@
  */
 
 const { query } = require('../db')
+const { getUserWorkspaceRole } = require('../utils/linearPermissions')
 
 /**
  * Resolve a display name from the user + employee rows.
@@ -27,7 +28,15 @@ function resolveDisplayName(row) {
  * Admins always get 'admin'. Others: manage > view.
  */
 function resolvePlannerRole(row) {
-  if (row.role === 'admin') return 'admin'
+  const workspaceRole = getUserWorkspaceRole({
+    role: row.role,
+    permissions: row.permissions,
+    userId: row.id,
+    linearWorkspaceRole: row.linear_workspace_role,
+  })
+  if (workspaceRole === 'admin') return 'admin'
+  if (workspaceRole === 'manager') return 'manage'
+  if (workspaceRole) return 'view'
   const perms = row.permissions || {}
   if (perms.planner === 'manage' || perms.planner?.manage) return 'manage'
   if (perms.planner === 'view'   || perms.planner?.view)   return 'view'
@@ -49,6 +58,7 @@ async function listMembers(req, res) {
         u.username,
         u.role,
         u.permissions,
+        u.linear_workspace_role,
         u.employee_id,
         e.full_name,
         e.photo_url,
@@ -60,6 +70,11 @@ async function listMembers(req, res) {
         u.role = 'admin'
         OR (u.permissions->>'planner' IS NOT NULL)
         OR (u.permissions->'planner' IS NOT NULL)
+        OR (u.permissions->>'linear_workspace' IS NOT NULL)
+        OR (u.permissions->'linear_workspace' IS NOT NULL)
+        OR (u.permissions->>'linear' IS NOT NULL)
+        OR (u.permissions->'linear' IS NOT NULL)
+        OR u.linear_workspace_role IS NOT NULL
       ORDER BY e.full_name NULLS LAST, u.username
     `)
 

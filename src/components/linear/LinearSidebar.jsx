@@ -4,14 +4,31 @@
  * Product engineering workspace for Life Smile development teams.
  * Does NOT mention "Jira", "Sprint", "Task", or legacy ops team names.
  */
-import { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   Inbox, LayoutList, Map, LayoutDashboard, FileText, BookOpen,
   FolderOpen, RotateCcw, Tag, CheckCircle2, X, Plus,
   Globe, Smartphone, Server, PenTool, BarChart2,
-  Bookmark, AlertCircle, AlertTriangle, Rocket, User, Bug, Users, Settings,
+  Bookmark, AlertCircle, AlertTriangle, Rocket, User, Bug, Users, Settings, History, Archive, ShieldAlert, Bell, Search,
 } from 'lucide-react'
+import { useAuth, hasPermission } from '../../contexts/AuthContext'
+import { useTeamProjectsContext } from '../../contexts/TeamProjectsContext'
+import { useUserPreferences } from '../../contexts/UserPreferencesContext'
+import {
+  canAccessLinearSettings,
+  canCreateDigestOutbox,
+  canViewAudit,
+  canExportWorkspace,
+  canManageWorkspaceUsers,
+} from '../../lib/linearPermissions'
+import {
+  LINEAR_NOTIFICATIONS_DISMISSED_KEY,
+  LINEAR_NOTIFICATIONS_READ_KEY,
+  buildIssueAttentionNotifications,
+  countUnreadNotifications,
+  readNotificationIdList,
+} from '../../lib/linearNotifications'
 import { DEFAULT_LABELS, labelColors } from './linearLabels'
 import './LinearSidebar.css'
 
@@ -78,20 +95,86 @@ export function LinearSidebar({
   onApplyView,
   onDeleteView,
 }) {
+  const { user } = useAuth()
+  const { getPref, prefsVersion } = useUserPreferences()
+  const {
+    projects: contextProjects,
+    getTasksForProject,
+    actions,
+  } = useTeamProjectsContext()
   const navigate = useNavigate()
   const [labelsOpen, setLabelsOpen] = useState(false)
   const [cyclesOpen, setCyclesOpen] = useState(false)
   const [viewsOpen,  setViewsOpen]  = useState(true) // open by default
+  const fetchedRef = useRef(false)
+  const canManagePlanner = hasPermission(user, 'planner', 'manage')
+  const canOpenSettings = canAccessLinearSettings(user) || canManagePlanner
+  const canOpenAudit = canViewAudit(user)
+  const canOpenBackup = canExportWorkspace(user)
+  const canOpenUsers = canManageWorkspaceUsers(user)
+  const canOpenDigestOutbox = canCreateDigestOutbox(user)
+  const sidebarProjects = projects.length > 0 ? projects : contextProjects
+
+  useEffect(() => {
+    if (fetchedRef.current) return
+    fetchedRef.current = true
+    actions.fetchProjects()
+  }, [actions])
+
+  useEffect(() => {
+    if (!contextProjects.length) return
+    contextProjects.forEach((project) => {
+      actions.fetchTasks(project.id)
+    })
+  }, [contextProjects, actions])
+
+  const notificationProjectsMap = useMemo(() => {
+    const map = {}
+    contextProjects.forEach((project) => {
+      map[project.id] = project
+    })
+    return map
+  }, [contextProjects])
+
+  const notificationIssues = useMemo(
+    () => contextProjects.flatMap((project) => getTasksForProject(project.id) || []),
+    [contextProjects, getTasksForProject]
+  )
+
+  const readIds = useMemo(
+    () => new Set(readNotificationIdList(getPref(LINEAR_NOTIFICATIONS_READ_KEY, []))),
+    [getPref, prefsVersion]
+  )
+
+  const dismissedIds = useMemo(
+    () => new Set(readNotificationIdList(getPref(LINEAR_NOTIFICATIONS_DISMISSED_KEY, []))),
+    [getPref, prefsVersion]
+  )
+
+  const notificationsUnreadCount = useMemo(() => {
+    const notificationItems = buildIssueAttentionNotifications({
+      user,
+      issues: notificationIssues,
+      projectsMap: notificationProjectsMap,
+      membersMap: {},
+    })
+    return countUnreadNotifications(notificationItems, readIds, dismissedIds)
+  }, [user, notificationIssues, notificationProjectsMap, readIds, dismissedIds])
 
   const workspaceLinks = [
     { to: '/projects/linear/dashboard',       Icon: LayoutDashboard, label: 'Dashboard'     },
+    { to: '/projects/linear/search',          Icon: Search,          label: 'Search'        },
+    { to: '/projects/linear/notifications',   Icon: Bell,            label: 'Notifications', badge: notificationsUnreadCount || null },
+    { to: '/projects/linear/notifications/settings', Icon: Settings, label: 'Notification Settings' },
+    ...(canOpenDigestOutbox ? [{ to: '/projects/linear/notifications/outbox', Icon: Archive, label: 'Digest Outbox' }] : []),
     { to: '/projects/linear/reports/weekly',  Icon: FileText,        label: 'Weekly Report' },
     { to: '/projects/linear/docs',            Icon: BookOpen,        label: 'Docs'          },
     { to: '/projects/linear/projects',        Icon: FolderOpen,      label: 'Projects'      },
     { to: '/projects/linear/team',            Icon: Users,           label: 'Team'          },
     { to: '/projects/linear/workload',        Icon: BarChart2,       label: 'Workload'      },
     { to: '/projects/linear/releases',        Icon: Rocket,          label: 'Releases'      },
-    { to: '/projects/linear/settings',        Icon: Settings,        label: 'Settings'      },
+    { to: '/projects/linear/launch',          Icon: CheckCircle2,    label: 'Launch Control' },
+    { to: '/projects/linear/launch/history',  Icon: History,         label: 'Launch History' },
   ]
 
   const customViews = allViews.filter((v) => !v.builtin)
@@ -229,14 +312,16 @@ export function LinearSidebar({
             })}
 
             {/* Manage cycles button */}
-            <button
-              type="button"
-              className="lsb-label-item lsb-cycles-manage"
-              onClick={onManageCycles}
-            >
-              <Plus size={10} strokeWidth={2.5} aria-hidden="true" />
-              <span className="lsb-label-name">Manage Cycles</span>
-            </button>
+            {canManagePlanner && (
+              <button
+                type="button"
+                className="lsb-label-item lsb-cycles-manage"
+                onClick={onManageCycles}
+              >
+                <Plus size={10} strokeWidth={2.5} aria-hidden="true" />
+                <span className="lsb-label-name">Manage Cycles</span>
+              </button>
+            )}
           </div>
         )}
 
@@ -282,14 +367,14 @@ export function LinearSidebar({
           </div>
         )}
 
-        {workspaceLinks.map(({ to, Icon, label, disabled }) => (
-          <SidebarLink key={to} to={to} Icon={Icon} label={label} disabled={!!disabled} />
+        {workspaceLinks.map(({ to, Icon, label, disabled, badge }) => (
+          <SidebarLink key={to} to={to} Icon={Icon} label={label} badge={badge} disabled={!!disabled} />
         ))}
       </SidebarSection>
 
-      {projects.length > 0 && (
+      {sidebarProjects.length > 0 && (
         <SidebarSection title="Projects">
-          {projects.slice(0, 8).map((p) => (
+          {sidebarProjects.slice(0, 8).map((p) => (
             <button
               key={p.id}
               type="button"
@@ -305,6 +390,32 @@ export function LinearSidebar({
               <span className="lsb-link__label">{p.name}</span>
             </button>
           ))}
+        </SidebarSection>
+      )}
+
+      {(canOpenSettings || canOpenAudit || canOpenBackup || canOpenUsers) && (
+        <SidebarSection title="Settings / Admin">
+          {canOpenSettings && (
+            <SidebarLink to="/projects/linear/settings" Icon={Settings} label="Settings" />
+          )}
+          {canOpenUsers && (
+            <>
+              <SidebarLink to="/projects/linear/admin/users" Icon={Users} label="Users & Roles" />
+              <SidebarLink to="/projects/linear/admin/permissions" Icon={ShieldAlert} label="Permissions Audit" />
+            </>
+          )}
+          {canOpenAudit && (
+            <>
+              <SidebarLink to="/projects/linear/smoke-tests" Icon={CheckCircle2} label="Smoke Tests" />
+              <SidebarLink to="/projects/linear/health" Icon={AlertCircle} label="Health" />
+              <SidebarLink to="/projects/linear/audit" Icon={History} label="Audit Log" />
+            </>
+          )}
+          {canOpenBackup && (
+            <>
+              <SidebarLink to="/projects/linear/admin/backup" Icon={Archive} label="Backup & Export" />
+            </>
+          )}
         </SidebarSection>
       )}
     </aside>

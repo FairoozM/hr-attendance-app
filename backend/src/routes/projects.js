@@ -28,6 +28,25 @@ router.get('/dashboard', ...view, projectsController.getDashboard)
 router.post('/linear/reports/weekly/ai-summary', ...view, weeklyReportAIController.generateSummary)
 
 // ---- Linear Workspace (Phase 14A) — registered before /:id to avoid collision ----
+router.get   ('/linear/admin/users',             linearWorkspaceController.listWorkspaceUsers)
+router.patch ('/linear/admin/users/:userId/role',linearWorkspaceController.updateWorkspaceUserRole)
+router.get   ('/linear/admin/permissions/audit', linearWorkspaceController.getPermissionsAudit)
+router.post  ('/linear/admin/permissions/simulate', linearWorkspaceController.simulatePermissions)
+router.get   ('/linear/admin/export',            linearWorkspaceController.exportWorkspaceData)
+router.post  ('/linear/admin/import/dry-run',    linearWorkspaceController.dryRunImportWorkspaceData)
+router.post  ('/linear/admin/import/preview',    linearWorkspaceController.previewImportWorkspaceData)
+router.post  ('/linear/admin/import/apply',      linearWorkspaceController.applyImportWorkspaceData)
+router.get   ('/linear/smoke-tests',             ...view, linearWorkspaceController.listWorkspaceSmokeTests)
+router.post  ('/linear/smoke-tests/run',         ...view, linearWorkspaceController.runWorkspaceSmokeTests)
+router.get   ('/linear/health',                  ...view, linearWorkspaceController.getWorkspaceHealth)
+router.get   ('/linear/audit',                   linearWorkspaceController.getAuditLog)
+router.get   ('/linear/search',                  ...view, linearWorkspaceController.searchWorkspace)
+router.get   ('/linear/notifications/preferences', ...view, linearWorkspaceController.getNotificationPreferences)
+router.patch ('/linear/notifications/preferences', ...view, linearWorkspaceController.updateNotificationPreferences)
+router.get   ('/linear/notifications/digests',     ...view, linearWorkspaceController.listDigestOutbox)
+router.post  ('/linear/notifications/digests',     ...view, linearWorkspaceController.createDigestOutbox)
+router.patch ('/linear/notifications/digests/:id', ...view, linearWorkspaceController.updateDigestOutbox)
+router.delete('/linear/notifications/digests/:id', ...view, linearWorkspaceController.deleteDigestOutbox)
 router.get   ('/linear/docs',                    ...view,   linearWorkspaceController.listDocs)
 router.post  ('/linear/docs',                    ...manage, linearWorkspaceController.createDoc)
 router.get   ('/linear/docs/:id',                ...view,   linearWorkspaceController.getDoc)
@@ -35,9 +54,9 @@ router.patch ('/linear/docs/:id',                ...manage, linearWorkspaceContr
 router.delete('/linear/docs/:id',                ...manage, linearWorkspaceController.deleteDoc)
 
 router.get   ('/linear/intake',                  ...view,   linearWorkspaceController.listIntake)
-router.post  ('/linear/intake',                  ...manage, linearWorkspaceController.createIntake)
-router.patch ('/linear/intake/:id',              ...manage, linearWorkspaceController.updateIntake)
-router.delete('/linear/intake/:id',              ...manage, linearWorkspaceController.deleteIntake)
+router.post  ('/linear/intake',                  linearWorkspaceController.createIntake)
+router.patch ('/linear/intake/:id',              linearWorkspaceController.updateIntake)
+router.delete('/linear/intake/:id',              linearWorkspaceController.deleteIntake)
 
 router.get   ('/linear/mobile-releases',         ...view,   linearWorkspaceController.listMobileReleases)
 router.post  ('/linear/mobile-releases',         ...manage, linearWorkspaceController.createMobileRelease)
@@ -48,6 +67,11 @@ router.get   ('/linear/deployments',             ...view,   linearWorkspaceContr
 router.post  ('/linear/deployments',             ...manage, linearWorkspaceController.createDeployment)
 router.patch ('/linear/deployments/:id',         ...manage, linearWorkspaceController.updateDeployment)
 router.delete('/linear/deployments/:id',         ...manage, linearWorkspaceController.deleteDeployment)
+
+router.get   ('/linear/launch-records',          ...view,   linearWorkspaceController.listLaunchRecords)
+router.post  ('/linear/launch-records',          ...view,   linearWorkspaceController.createLaunchRecord)
+router.patch ('/linear/launch-records/:id',      ...view,   linearWorkspaceController.updateLaunchRecord)
+router.delete('/linear/launch-records/:id',      ...view,   linearWorkspaceController.deleteLaunchRecord)
 
 router.get   ('/linear/checklist-runs',          ...view,   linearWorkspaceController.listChecklistRuns)
 router.post  ('/linear/checklist-runs',          ...manage, linearWorkspaceController.upsertChecklistRun)
@@ -66,9 +90,9 @@ router.delete('/:id/sections/:sectionId', ...manage, projectsController.deleteSe
 
 // ---- Tasks ----
 router.get('/:id/tasks', ...view, projectTasksController.listTasks)
-router.post('/:id/tasks', ...manage, projectTasksController.createTask)
-router.patch('/:projectId/tasks/:taskId', ...manage, projectTasksController.updateTask)
-router.delete('/:projectId/tasks/:taskId', ...manage, projectTasksController.deleteTask)
+router.post('/:id/tasks', projectTasksController.createTask)
+router.patch('/:projectId/tasks/:taskId', projectTasksController.updateTask)
+router.delete('/:projectId/tasks/:taskId', projectTasksController.deleteTask)
 
 // ---- Comments (Phase 3) ----
 router.get(
@@ -78,7 +102,6 @@ router.get(
 )
 router.post(
   '/:projectId/tasks/:taskId/comments',
-  ...manage,
   taskCommentsController.createComment
 )
 
@@ -109,7 +132,6 @@ router.post(
 // ---- GitHub PR Sync (Phase 7A) ----
 router.post(
   '/:projectId/tasks/:taskId/github/sync-pr',
-  ...manage,
   issueGitHubController.syncPr
 )
 
@@ -266,12 +288,11 @@ router.get('/integrations/github/audit', ...manage, async (req, res) => {
 router.get('/:projectId/tasks/:taskId/attachments', ...view, projectTasksController.listAttachments)
 router.post(
   '/:projectId/tasks/:taskId/attachments/upload-url',
-  ...manage,
   projectTasksController.getAttachmentUploadUrl
 )
-router.post('/:projectId/tasks/:taskId/attachments', ...manage, projectTasksController.saveAttachment)
-router.patch('/:projectId/tasks/:taskId/attachments/:attachId', ...manage, projectTasksController.patchAttachment)
-router.delete('/:projectId/tasks/:taskId/attachments/:attachId', ...manage, projectTasksController.deleteAttachment)
+router.post('/:projectId/tasks/:taskId/attachments', projectTasksController.saveAttachment)
+router.patch('/:projectId/tasks/:taskId/attachments/:attachId', projectTasksController.patchAttachment)
+router.delete('/:projectId/tasks/:taskId/attachments/:attachId', projectTasksController.deleteAttachment)
 router.get(
   '/:projectId/tasks/:taskId/attachments/:attachId/download-url',
   ...view,
@@ -286,7 +307,7 @@ router.post(
 )
 
 // ---- QA Review ----
-router.post('/:projectId/tasks/:taskId/qa/approve', ...manage, issueQAController.approve)
-router.post('/:projectId/tasks/:taskId/qa/revoke',  ...manage, issueQAController.revoke)
+router.post('/:projectId/tasks/:taskId/qa/approve', issueQAController.approve)
+router.post('/:projectId/tasks/:taskId/qa/revoke',  issueQAController.revoke)
 
 module.exports = router

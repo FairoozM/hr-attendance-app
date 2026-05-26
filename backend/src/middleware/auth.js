@@ -1,4 +1,9 @@
 const jwt = require('jsonwebtoken')
+const {
+  canAccessLinearSettings,
+  canManageCycles,
+  canViewLinear,
+} = require('../utils/linearPermissions')
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hr-attendance-dev-secret-change-me'
 
@@ -28,16 +33,18 @@ async function attachAuth(req, res, next) {
     // Always fetch fresh permissions from DB so changes apply immediately
     const { query } = require('../db')
     const row = await query(
-      'SELECT permissions FROM users WHERE id = $1',
+      'SELECT permissions, linear_workspace_role FROM users WHERE id = $1',
       [String(payload.sub)]
     )
     const permissions = row.rows[0]?.permissions || {}
+    const linearWorkspaceRole = row.rows[0]?.linear_workspace_role || null
 
     req.user = {
       userId: String(payload.sub),
       role: payload.role,
       employeeId: payload.employeeId != null ? String(payload.employeeId) : null,
       permissions,
+      linearWorkspaceRole,
     }
     next()
   } catch {
@@ -101,6 +108,18 @@ function requireInfluencersWrite(req, res, next) {
 function requirePermission(module, action) {
   return function permissionCheck(req, res, next) {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' })
+
+    // Linear workspace access is governed by the effective workspace role,
+    // even for app admins when an explicit workspace role is set.
+    if (module === 'planner') {
+      if (action === 'view' && canViewLinear(req.user)) return next()
+      if (action === 'manage' && canManageCycles(req.user)) return next()
+      if (action === 'settings' && canAccessLinearSettings(req.user)) return next()
+      return res.status(403).json({
+        error: `Access denied: requires ${module} ${action} permission`,
+      })
+    }
+
     if (req.user.role === 'admin') return next()
     if (req.user.role === 'warehouse') return next()
 
@@ -142,8 +161,6 @@ function requirePermission(module, action) {
     ) {
       return next()
     }
-    // planner: manage implies view
-    if (action === 'view' && module === 'planner' && mod.manage) return next()
     // company_payments: write permissions imply view
     if (
       action === 'view' &&

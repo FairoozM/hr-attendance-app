@@ -1,7 +1,7 @@
 /**
  * CommandMenu.jsx
  * Linear-style Cmd+K / Ctrl+K command palette for the Issues module.
- * Fully frontend — no backend calls.
+ * Mixes local commands with lightweight backend workspace search.
  * Opened by keyboard shortcut or TopBar button.
  */
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
@@ -11,7 +11,31 @@ import {
   Globe, Server, Smartphone, AlertCircle, AlertTriangle, Rocket, Bug, User, Users,
   XCircle, ArrowRight, FolderOpen, Layers, Map, BarChart2, Inbox, Package, Settings, GitBranch,
   ClipboardCheck, Calendar, LayoutDashboard, TrendingUp, ShieldCheck, FileText, Copy, Sparkles, BookOpen,
+  History, Archive, Bell,
 } from 'lucide-react'
+import { isAbortError } from '../../api/client'
+import { useAuth } from '../../contexts/AuthContext'
+import { useUserPreferences } from '../../contexts/UserPreferencesContext'
+import {
+  canAccessLinearSettings,
+  canCreateDigestOutbox,
+  canCreateIssue,
+  canExportWorkspace,
+  canManageDeployments,
+  canManageDocs,
+  canManageReleases,
+  canManageWorkspaceUsers,
+  canViewAudit,
+} from '../../lib/linearPermissions'
+import {
+  buildLinearSearchHref,
+  getBuiltinLinearSearches,
+  LINEAR_SAVED_SEARCHES_KEY,
+  normalizeLinearSavedSearches,
+  normalizeLinearSearchType,
+  upsertLinearSavedSearch,
+} from '../../lib/linearSavedSearches'
+import { searchLinearWorkspaceApi } from '../../lib/linearWorkspaceApi'
 import { DEFAULT_LABELS } from './linearLabels'
 import { issueKey, normalizeStatus } from './IssueRow'
 import { loadAllDocs } from '../../lib/linearDocsMatcher'
@@ -24,6 +48,15 @@ const VIEW_ICON_MAP = {
   Rocket, AlertTriangle, Smartphone, Server, Bookmark, FolderOpen,
 }
 
+const WORKSPACE_RESULT_ICON_MAP = {
+  issue: LayoutList,
+  doc: BookOpen,
+  intake: ClipboardCheck,
+  mobile_release: Package,
+  deployment: Server,
+  audit: History,
+}
+
 const CYCLE_STATUS_COLOR = { planned: '#a5b4fc', active: '#6ee7b7', completed: '#9ca3af' }
 
 // ── Build flat command list ───────────────────────────────────────────────────
@@ -33,15 +66,18 @@ function buildCommands({
   onNewIssue, onApplyView, onSetGroupBy,
   onSetActiveLabel, onSetActiveCycle, onSetActiveProject, onSetActiveAssignee,
   onClearFilters, onManageCycles, onClose, activeIssue,
+  permissions,
 }) {
   const cmds = []
 
   // ── Issue actions ────────────────────────────────────────────────────────
-  cmds.push({
-    id: 'new-issue', group: 'Issues', label: 'New Issue',
-    Icon: Plus, hint: '⌘N', keywords: ['create', 'add', 'new', 'issue'],
-    action: () => { onNewIssue(); onClose() },
-  })
+  if (permissions.canCreateIssues) {
+    cmds.push({
+      id: 'new-issue', group: 'Issues', label: 'New Issue',
+      Icon: Plus, hint: '⌘N', keywords: ['create', 'add', 'new', 'issue'],
+      action: () => { onNewIssue(); onClose() },
+    })
+  }
   cmds.push({
     id: 'clear-filters', group: 'Issues', label: 'Clear All Filters',
     Icon: XCircle, keywords: ['reset', 'clear', 'remove', 'filter'],
@@ -167,9 +203,66 @@ function buildCommands({
     action: () => { window.location.hash = '#/projects/linear'; onClose() },
   })
   cmds.push({
+    id: 'nav-search', group: 'Navigate', label: 'Go to Search',
+    Icon: Search, keywords: ['go', 'navigate', 'search', 'workspace search', 'find'],
+    action: () => { window.location.hash = '#/projects/linear/search'; onClose() },
+  })
+  cmds.push({
     id: 'nav-inbox', group: 'Navigate', label: 'Go to Inbox',
     Icon: Inbox, keywords: ['go', 'navigate', 'inbox', 'notifications', 'attention'],
     action: () => { window.location.hash = '#/projects/linear/inbox'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-notifications', group: 'Navigate', label: 'Go to Notifications',
+    Icon: Bell, keywords: ['go', 'navigate', 'notifications', 'digest', 'updates'],
+    action: () => { window.location.hash = '#/projects/linear/notifications'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-notification-settings', group: 'Navigate', label: 'Go to Notification Settings',
+    Icon: Settings, keywords: ['go', 'navigate', 'notification settings', 'digest settings', 'preferences'],
+    action: () => { window.location.hash = '#/projects/linear/notifications/settings'; onClose() },
+  })
+  if (permissions.canUseDigestOutbox) {
+    cmds.push({
+      id: 'nav-digest-outbox', group: 'Navigate', label: 'Go to Digest Outbox',
+      Icon: Archive, keywords: ['go', 'navigate', 'digest outbox', 'drafts', 'whatsapp', 'email'],
+      action: () => { window.location.hash = '#/projects/linear/notifications/outbox'; onClose() },
+    })
+    cmds.push({
+      id: 'save-digest-outbox', group: 'Navigate', label: 'Save Current Digest to Outbox',
+      Icon: Archive, keywords: ['save', 'current digest', 'outbox', 'draft'],
+      action: () => { window.location.hash = '#/projects/linear/notifications?action=save-digest&digest=daily'; onClose() },
+    })
+    cmds.push({
+      id: 'copy-latest-weekly-digest', group: 'Navigate', label: 'Copy Latest Weekly Digest',
+      Icon: Copy, keywords: ['copy', 'latest', 'weekly', 'digest', 'outbox'],
+      action: () => { window.location.hash = '#/projects/linear/notifications?digest=weekly&copy=markdown'; onClose() },
+    })
+  }
+  cmds.push({
+    id: 'copy-daily-digest', group: 'Navigate', label: 'Copy Daily Digest',
+    Icon: Copy, keywords: ['copy', 'daily', 'digest', 'notifications', 'update'],
+    action: () => { window.location.hash = '#/projects/linear/notifications?digest=daily&copy=markdown'; onClose() },
+  })
+  cmds.push({
+    id: 'copy-weekly-digest', group: 'Navigate', label: 'Copy Weekly Digest',
+    Icon: Copy, keywords: ['copy', 'weekly', 'digest', 'notifications', 'update'],
+    action: () => { window.location.hash = '#/projects/linear/notifications?digest=weekly&copy=markdown'; onClose() },
+  })
+  cmds.push({
+    id: 'mark-notifications-read', group: 'Navigate', label: 'Mark Notifications Read',
+    Icon: Bell, keywords: ['notifications', 'read', 'mark all', 'clear unread'],
+    action: () => { window.location.hash = '#/projects/linear/notifications?action=mark-all-read'; onClose() },
+  })
+  cmds.push({
+    id: 'preview-daily-digest', group: 'Navigate', label: 'Preview Daily Digest',
+    Icon: Bell, keywords: ['preview', 'daily', 'digest', 'notification settings'],
+    action: () => { window.location.hash = '#/projects/linear/notifications/settings?preview=daily'; onClose() },
+  })
+  cmds.push({
+    id: 'preview-weekly-digest', group: 'Navigate', label: 'Preview Weekly Digest',
+    Icon: Bell, keywords: ['preview', 'weekly', 'digest', 'notification settings'],
+    action: () => { window.location.hash = '#/projects/linear/notifications/settings?preview=weekly'; onClose() },
   })
   cmds.push({
     id: 'nav-dashboard', group: 'Navigate', label: 'Go to Dashboard',
@@ -227,11 +320,13 @@ function buildCommands({
     Icon: BookOpen, keywords: ['go', 'navigate', 'docs', 'knowledge', 'base', 'documentation'],
     action: () => { window.location.hash = '#/projects/linear/docs'; onClose() },
   })
-  cmds.push({
-    id: 'docs-new', group: 'Docs', label: 'New Doc',
-    Icon: Plus, keywords: ['new', 'doc', 'create', 'documentation', 'knowledge'],
-    action: () => { window.location.hash = '#/projects/linear/docs'; onClose() },
-  })
+  if (permissions.canManageDocs) {
+    cmds.push({
+      id: 'docs-new', group: 'Docs', label: 'New Doc',
+      Icon: Plus, keywords: ['new', 'doc', 'create', 'documentation', 'knowledge'],
+      action: () => { window.location.hash = '#/projects/linear/docs'; onClose() },
+    })
+  }
   cmds.push({
     id: 'docs-search', group: 'Docs', label: 'Search Docs',
     Icon: Search, keywords: ['search', 'find', 'docs', 'documentation'],
@@ -321,6 +416,45 @@ function buildCommands({
     action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
   })
   cmds.push({
+    id: 'nav-launch-control', group: 'Navigate', label: 'Go to Launch Control',
+    Icon: Rocket, keywords: ['go', 'navigate', 'launch', 'launch control', 'release readiness', 'ship'],
+    action: () => { window.location.hash = '#/projects/linear/launch'; onClose() },
+  })
+  cmds.push({
+    id: 'nav-launch-history', group: 'Navigate', label: 'Go to Launch History',
+    Icon: History, keywords: ['go', 'navigate', 'launch history', 'post deploy', 'review', 'release history'],
+    action: () => { window.location.hash = '#/projects/linear/launch/history'; onClose() },
+  })
+  cmds.push({
+    id: 'copy-launch-summary', group: 'Navigate', label: 'Copy Launch Summary',
+    Icon: Copy, keywords: ['copy', 'launch', 'summary', 'readiness', 'release'],
+    action: () => { window.location.hash = '#/projects/linear/launch?action=copy-summary'; onClose() },
+  })
+  cmds.push({
+    id: 'copy-launch-rollback', group: 'Navigate', label: 'Copy Rollback Plan',
+    Icon: Copy, keywords: ['copy', 'launch', 'rollback', 'revert', 'plan'],
+    action: () => { window.location.hash = '#/projects/linear/launch?action=copy-rollback'; onClose() },
+  })
+  if (permissions.canViewAudit) {
+    cmds.push({
+      id: 'save-launch-record', group: 'Navigate', label: 'Save Launch Record',
+      Icon: CheckCircle2, keywords: ['save', 'launch', 'record', 'history', 'post deploy'],
+      action: () => { window.location.hash = '#/projects/linear/launch?action=save-record'; onClose() },
+    })
+  }
+  cmds.push({
+    id: 'copy-last-post-deploy-review', group: 'Navigate', label: 'Copy Last Post-Deploy Review',
+    Icon: Copy, keywords: ['copy', 'last', 'post deploy', 'review', 'launch history'],
+    action: () => { window.location.hash = '#/projects/linear/launch/history?action=copy-last-review'; onClose() },
+  })
+  if (permissions.canViewAudit) {
+    cmds.push({
+      id: 'run-launch-health', group: 'Navigate', label: 'Run Launch Health Check',
+      Icon: ShieldCheck, keywords: ['run', 'launch', 'health', 'check', 'diagnostics', 'release'],
+      action: () => { window.location.hash = '#/projects/linear/launch?action=run-health'; onClose() },
+    })
+  }
+  cmds.push({
     id: 'nav-releases-ready', group: 'Navigate', label: 'Releases: Show Ready for Release',
     Icon: Rocket, keywords: ['releases', 'ready', 'release', 'ship', 'qa'],
     action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
@@ -350,11 +484,13 @@ function buildCommands({
     Icon: Smartphone, keywords: ['mobile', 'android', 'ios', 'app store', 'play store', 'releases', 'navigate'],
     action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
   })
-  cmds.push({
-    id: 'nav-mobile-create', group: 'Navigate', label: 'Create Mobile Release',
-    Icon: Smartphone, keywords: ['mobile', 'android', 'ios', 'create', 'new', 'release'],
-    action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
-  })
+  if (permissions.canManageReleases) {
+    cmds.push({
+      id: 'nav-mobile-create', group: 'Navigate', label: 'Create Mobile Release',
+      Icon: Smartphone, keywords: ['mobile', 'android', 'ios', 'create', 'new', 'release'],
+      action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
+    })
+  }
   cmds.push({
     id: 'nav-mobile-qa', group: 'Navigate', label: 'Releases: Copy Mobile QA Handoff',
     Icon: ClipboardCheck, keywords: ['mobile', 'qa', 'handoff', 'android', 'ios', 'copy'],
@@ -365,11 +501,13 @@ function buildCommands({
     Icon: Server, keywords: ['website', 'web', 'backend', 'deploy', 'deployment', 'frontend', 'navigate'],
     action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
   })
-  cmds.push({
-    id: 'nav-create-deployment', group: 'Navigate', label: 'Create Deployment',
-    Icon: Server, keywords: ['create', 'new', 'deployment', 'frontend', 'backend', 'full stack', 'database'],
-    action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
-  })
+  if (permissions.canManageDeployments) {
+    cmds.push({
+      id: 'nav-create-deployment', group: 'Navigate', label: 'Create Deployment',
+      Icon: Server, keywords: ['create', 'new', 'deployment', 'frontend', 'backend', 'full stack', 'database'],
+      action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
+    })
+  }
   cmds.push({
     id: 'nav-smoke-test', group: 'Navigate', label: 'Releases: Copy Smoke Test Plan',
     Icon: ClipboardCheck, keywords: ['smoke', 'test', 'plan', 'copy', 'deployment', 'web'],
@@ -395,16 +533,89 @@ function buildCommands({
     Icon: AlertTriangle, keywords: ['overdue', 'calendar', 'releases', 'late', 'missed'],
     action: () => { window.location.hash = '#/projects/linear/releases'; onClose() },
   })
-  cmds.push({
-    id: 'nav-settings', group: 'Navigate', label: 'Go to Settings',
-    Icon: Settings, keywords: ['go', 'navigate', 'settings', 'github', 'integration', 'config'],
-    action: () => { window.location.hash = '#/projects/linear/settings'; onClose() },
-  })
-  cmds.push({
-    id: 'nav-github-settings', group: 'Navigate', label: 'Go to GitHub Integration Settings',
-    Icon: GitBranch, keywords: ['go', 'navigate', 'github', 'webhook', 'token', 'settings', 'integration'],
-    action: () => { window.location.hash = '#/projects/linear/settings'; onClose() },
-  })
+  if (permissions.canAccessSettings) {
+    cmds.push({
+      id: 'nav-settings', group: 'Navigate', label: 'Go to Settings',
+      Icon: Settings, keywords: ['go', 'navigate', 'settings', 'github', 'integration', 'config'],
+      action: () => { window.location.hash = '#/projects/linear/settings'; onClose() },
+    })
+    cmds.push({
+      id: 'nav-github-settings', group: 'Navigate', label: 'Go to GitHub Integration Settings',
+      Icon: GitBranch, keywords: ['go', 'navigate', 'github', 'webhook', 'token', 'settings', 'integration'],
+      action: () => { window.location.hash = '#/projects/linear/settings'; onClose() },
+    })
+  }
+  if (permissions.canManageUsers) {
+    cmds.push({
+      id: 'nav-users-roles', group: 'Navigate', label: 'Go to Users & Roles',
+      Icon: Users, keywords: ['users', 'roles', 'permissions', 'workspace access', 'admin'],
+      action: () => { window.location.hash = '#/projects/linear/admin/users'; onClose() },
+    })
+    cmds.push({
+      id: 'nav-manage-linear-roles', group: 'Navigate', label: 'Manage Linear Roles',
+      Icon: Users, keywords: ['manage', 'linear', 'roles', 'workspace', 'access', 'permissions'],
+      action: () => { window.location.hash = '#/projects/linear/admin/users'; onClose() },
+    })
+    cmds.push({
+      id: 'nav-permissions-audit', group: 'Navigate', label: 'Go to Permissions Audit',
+      Icon: ShieldCheck, keywords: ['permissions', 'audit', 'roles', 'access', 'verify', 'admin'],
+      action: () => { window.location.hash = '#/projects/linear/admin/permissions'; onClose() },
+    })
+    cmds.push({
+      id: 'nav-simulate-linear-role', group: 'Navigate', label: 'Simulate Linear Role',
+      Icon: ShieldCheck, keywords: ['simulate', 'linear', 'role', 'permissions', 'access'],
+      action: () => { window.location.hash = '#/projects/linear/admin/permissions'; onClose() },
+    })
+  }
+  if (permissions.canViewAudit) {
+    cmds.push({
+      id: 'nav-smoke-tests', group: 'Navigate', label: 'Go to Smoke Tests',
+      Icon: ClipboardCheck, keywords: ['smoke', 'tests', 'deployment', 'verify', 'post deploy', 'checks'],
+      action: () => { window.location.hash = '#/projects/linear/smoke-tests'; onClose() },
+    })
+    cmds.push({
+      id: 'run-smoke-tests', group: 'Navigate', label: 'Run Smoke Tests',
+      Icon: ClipboardCheck, keywords: ['run', 'smoke', 'tests', 'deployment', 'verify'],
+      action: () => { window.location.hash = '#/projects/linear/smoke-tests?action=run-all'; onClose() },
+    })
+    cmds.push({
+      id: 'copy-smoke-test-report', group: 'Navigate', label: 'Copy Smoke Test Report',
+      Icon: Copy, keywords: ['copy', 'smoke', 'test', 'report', 'deployment'],
+      action: () => { window.location.hash = '#/projects/linear/smoke-tests?action=copy-report'; onClose() },
+    })
+    cmds.push({
+      id: 'nav-workspace-health', group: 'Navigate', label: 'Go to Workspace Health',
+      Icon: ShieldCheck, keywords: ['workspace', 'health', 'status', 'diagnostics', 'admin'],
+      action: () => { window.location.hash = '#/projects/linear/health'; onClose() },
+    })
+    cmds.push({
+      id: 'copy-workspace-health', group: 'Navigate', label: 'Copy Health Summary',
+      Icon: Copy, keywords: ['copy', 'health', 'summary', 'diagnostics', 'status'],
+      action: () => { window.location.hash = '#/projects/linear/health?action=copy-summary'; onClose() },
+    })
+    cmds.push({
+      id: 'nav-audit-log', group: 'Navigate', label: 'Go to Audit Log',
+      Icon: History, keywords: ['go', 'navigate', 'audit', 'history', 'admin', 'changes'],
+      action: () => { window.location.hash = '#/projects/linear/audit'; onClose() },
+    })
+    cmds.push({
+      id: 'nav-audit-recent', group: 'Navigate', label: 'Show Recent Changes',
+      Icon: History, keywords: ['recent', 'changes', 'history', 'audit', 'activity'],
+      action: () => { window.location.hash = '#/projects/linear/audit'; onClose() },
+    })
+  }
+  if (permissions.canExportWorkspace) {
+    cmds.push({
+      id: 'nav-backup-export', group: 'Navigate', label: 'Go to Backup & Export',
+      Icon: Archive, keywords: ['backup', 'export', 'admin', 'download', 'workspace'],
+      action: () => { window.location.hash = '#/projects/linear/admin/backup'; onClose() },
+    })
+    cmds.push({
+      id: 'nav-export-workspace', group: 'Navigate', label: 'Export Linear Workspace',
+      Icon: Archive, keywords: ['export', 'backup', 'linear', 'workspace', 'json'],
+      action: () => { window.location.hash = '#/projects/linear/admin/backup'; onClose() },
+    })
+  }
   cmds.push({
     id: 'nav-planner', group: 'Navigate', label: 'Go to AI Planner',
     Icon: Server, keywords: ['go', 'navigate', 'ai', 'planner'],
@@ -422,6 +633,18 @@ function scoreMatch(item, q) {
   if (label.includes(q)) return 2
   if (item.keywords?.some((k) => k.includes(q))) return 1
   return 0
+}
+
+function readCurrentSearchState(canSeeAudit) {
+  const hash = String(window.location.hash || '')
+  const [pathPart, queryPart = ''] = hash.split('?')
+  const isSearchPage = pathPart === '#/projects/linear/search' || pathPart === '#/projects/linear/intake'
+  const params = new URLSearchParams(queryPart)
+  return {
+    isSearchPage,
+    query: String(params.get('q') || '').trim(),
+    type: normalizeLinearSearchType(params.get('type') || (pathPart === '#/projects/linear/intake' ? 'intake' : 'all'), canSeeAudit),
+  }
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -447,8 +670,12 @@ export function CommandMenu({
   onManageCycles,
   onSelectIssue,
 }) {
+  const { user } = useAuth()
+  const { getPref, setPref, prefsVersion } = useUserPreferences()
   const [query, setQuery]     = useState('')
   const [selIdx, setSelIdx]   = useState(0)
+  const [workspaceResults, setWorkspaceResults] = useState([])
+  const [workspaceSearchLoading, setWorkspaceSearchLoading] = useState(false)
   const inputRef  = useRef(null)
   const listRef   = useRef(null)
   const selectedRef = useRef(null)
@@ -466,17 +693,137 @@ export function CommandMenu({
     onClose()
     setQuery('')
     setSelIdx(0)
+    setWorkspaceResults([])
+    setWorkspaceSearchLoading(false)
   }, [onClose])
 
+  useEffect(() => {
+    if (!open) return
+    const q = query.trim()
+    if (q.length < 2) {
+      setWorkspaceResults([])
+      setWorkspaceSearchLoading(false)
+      return
+    }
+
+    let cancelled = false
+    const controller = new AbortController()
+    const timer = window.setTimeout(async () => {
+      setWorkspaceSearchLoading(true)
+      try {
+        const data = await searchLinearWorkspaceApi(
+          { q, type: 'all', limit: 6 },
+          { signal: controller.signal }
+        )
+        if (!cancelled) {
+          setWorkspaceResults(Array.isArray(data?.results) ? data.results : [])
+        }
+      } catch (error) {
+        if (isAbortError(error)) return
+        if (!cancelled) setWorkspaceResults([])
+      } finally {
+        if (!cancelled) setWorkspaceSearchLoading(false)
+      }
+    }, 250)
+
+    return () => {
+      cancelled = true
+      controller.abort()
+      window.clearTimeout(timer)
+    }
+  }, [open, query])
+
+  const canSeeAudit = canViewAudit(user)
+  const savedSearches = useMemo(
+    () => normalizeLinearSavedSearches(getPref(LINEAR_SAVED_SEARCHES_KEY, []), canSeeAudit),
+    [getPref, prefsVersion, canSeeAudit]
+  )
+
+  const currentSearchState = useMemo(
+    () => readCurrentSearchState(canSeeAudit),
+    [open, canSeeAudit]
+  )
+
+  const extraSearchCommands = useMemo(() => {
+    const cmds = []
+
+    getBuiltinLinearSearches(canSeeAudit).forEach((search) => {
+      cmds.push({
+        id: `builtin-search-${search.id}`,
+        group: 'Search',
+        label: `Search: ${search.name}`,
+        Icon: Search,
+        keywords: ['search', 'workspace', search.name.toLowerCase(), search.query.toLowerCase(), search.type],
+        action: () => {
+          window.location.hash = buildLinearSearchHref({ query: search.query, type: search.type })
+          handleClose()
+        },
+      })
+    })
+
+    savedSearches.forEach((search) => {
+      cmds.push({
+        id: `saved-search-${search.createdAt}-${search.name}`,
+        group: 'Search',
+        label: `Search: ${search.name}`,
+        Icon: Bookmark,
+        keywords: ['saved search', 'search', search.name.toLowerCase(), search.query.toLowerCase(), search.type],
+        action: () => {
+          window.location.hash = buildLinearSearchHref({ query: search.query, type: search.type })
+          handleClose()
+        },
+      })
+    })
+
+    if (currentSearchState.isSearchPage && currentSearchState.query.length >= 2) {
+      cmds.push({
+        id: 'save-current-search',
+        group: 'Search',
+        label: 'Save Current Search',
+        Icon: Bookmark,
+        keywords: ['save', 'current', 'search', currentSearchState.query.toLowerCase()],
+        action: () => {
+          const name = window.prompt('Saved search name', currentSearchState.query)
+          if (!name || !name.trim()) return
+          setPref(
+            LINEAR_SAVED_SEARCHES_KEY,
+            upsertLinearSavedSearch(savedSearches, {
+              name: name.trim(),
+              query: currentSearchState.query,
+              type: currentSearchState.type,
+            })
+          )
+          handleClose()
+        },
+      })
+    }
+
+    return cmds
+  }, [canSeeAudit, currentSearchState, handleClose, savedSearches, setPref])
+
   // Build flat command list (memoised — only changes when deps change)
-  const flatCommands = useMemo(() => buildCommands({
-    allCycles, allViews, allProjects, allMembers,
-    onNewIssue, onApplyView, onSetGroupBy,
-    onSetActiveLabel, onSetActiveCycle, onSetActiveProject, onSetActiveAssignee,
-    onClearFilters, onManageCycles, onClose: handleClose, activeIssue,
-  }), [allCycles, allViews, allProjects, allMembers, onNewIssue, onApplyView, onSetGroupBy,
+  const flatCommands = useMemo(() => {
+    const baseCommands = buildCommands({
+      allCycles, allViews, allProjects, allMembers,
+      onNewIssue, onApplyView, onSetGroupBy,
       onSetActiveLabel, onSetActiveCycle, onSetActiveProject, onSetActiveAssignee,
-      onClearFilters, onManageCycles, handleClose, activeIssue])
+      onClearFilters, onManageCycles, onClose: handleClose, activeIssue,
+      permissions: {
+        canCreateIssues: canCreateIssue(user),
+        canManageDocs: canManageDocs(user),
+        canManageReleases: canManageReleases(user),
+        canManageDeployments: canManageDeployments(user),
+        canAccessSettings: canAccessLinearSettings(user),
+        canManageUsers: canManageWorkspaceUsers(user),
+        canViewAudit: canSeeAudit,
+        canExportWorkspace: canExportWorkspace(user),
+        canUseDigestOutbox: canCreateDigestOutbox(user),
+      },
+    })
+    return [...extraSearchCommands, ...baseCommands]
+  }, [allCycles, allViews, allProjects, allMembers, onNewIssue, onApplyView, onSetGroupBy,
+      onSetActiveLabel, onSetActiveCycle, onSetActiveProject, onSetActiveAssignee,
+      onClearFilters, onManageCycles, handleClose, activeIssue, user, canSeeAudit, extraSearchCommands])
 
   // Filter commands + search issues
   const { sections, flatItems } = useMemo(() => {
@@ -512,9 +859,25 @@ export function CommandMenu({
       if (issueItems.length) sects.push({ group: 'Issues', items: issueItems })
     }
 
+    if (q && workspaceSearchLoading) {
+      sects.push({
+        group: 'Workspace Search',
+        items: [{ type: 'status', id: 'workspace-search-loading', label: 'Searching workspace…' }],
+      })
+    } else if (q && workspaceResults.length) {
+      sects.push({
+        group: 'Workspace Search',
+        items: workspaceResults.map((result, index) => ({
+          type: 'workspace',
+          result,
+          id: `workspace-${result.type}-${result.id}-${index}`,
+        })),
+      })
+    }
+
     const flat = sects.flatMap((s) => s.items)
     return { sections: sects, flatItems: flat }
-  }, [query, flatCommands, allIssues, projectMap])
+  }, [query, flatCommands, allIssues, projectMap, workspaceResults, workspaceSearchLoading])
 
   // Keep selectedIndex in range
   const clampedIdx = flatItems.length ? Math.min(selIdx, flatItems.length - 1) : 0
@@ -541,6 +904,10 @@ export function CommandMenu({
         if (!item) return
         if (item.type === 'command') item.action?.()
         if (item.type === 'issue') { onSelectIssue?.(item.issue); handleClose() }
+        if (item.type === 'workspace') {
+          if (item.result?.url) window.location.hash = item.result.url
+          handleClose()
+        }
       }
     }
     window.addEventListener('keydown', onKey)
@@ -578,7 +945,7 @@ export function CommandMenu({
             ref={inputRef}
             type="text"
             className="cm-search"
-            placeholder="Type a command or search issues…"
+            placeholder="Type a command or search workspace…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             aria-label="Command search"
@@ -626,6 +993,47 @@ export function CommandMenu({
                       <span className="cm-item__label">{issue.title}</span>
                       <span className="cm-item__hint cm-item__hint--status">{statusNorm}</span>
                     </button>
+                  )
+                }
+
+                if (item.type === 'workspace') {
+                  const result = item.result
+                  const Icon = WORKSPACE_RESULT_ICON_MAP[result.type] || Search
+                  return (
+                    <button
+                      key={item.id}
+                      ref={ref}
+                      type="button"
+                      role="option"
+                      aria-selected={isSelected}
+                      className={`cm-item ${isSelected ? 'cm-item--selected' : ''}`}
+                      onClick={() => { if (result?.url) window.location.hash = result.url; handleClose() }}
+                      onMouseMove={() => setSelIdx(idx)}
+                    >
+                      <span className="cm-item__icon">
+                        <Icon size={13} strokeWidth={2} aria-hidden="true" />
+                      </span>
+                      <span className="cm-item__label">{result.title}</span>
+                      <span className="cm-item__hint">{result.subtitle || String(result.type).replace(/_/g, ' ')}</span>
+                    </button>
+                  )
+                }
+
+                if (item.type === 'status') {
+                  return (
+                    <div
+                      key={item.id}
+                      ref={ref}
+                      className={`cm-item ${isSelected ? 'cm-item--selected' : ''}`}
+                      onMouseMove={() => setSelIdx(idx)}
+                      role="option"
+                      aria-selected={isSelected}
+                    >
+                      <span className="cm-item__icon">
+                        <Loader2 size={13} strokeWidth={2} className="cm-searching" aria-hidden="true" />
+                      </span>
+                      <span className="cm-item__label">{item.label}</span>
+                    </div>
                   )
                 }
 

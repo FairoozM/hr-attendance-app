@@ -13,6 +13,7 @@ function buildUserPayload(row) {
     employeeId: row.employee_id != null ? String(row.employee_id) : null,
     displayName: String(displayName),
     permissions: row.permissions || {},
+    linearWorkspaceRole: row.linear_workspace_role || null,
   }
 }
 

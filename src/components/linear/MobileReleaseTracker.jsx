@@ -277,7 +277,7 @@ function CopyBtn({ label, getText, size = 'sm' }) {
 
 // ── Checklist accordion ───────────────────────────────────────────────────────
 
-function ChecklistSection({ title, items, values, onChange, platform }) {
+function ChecklistSection({ title, items, values, onChange, platform, disabled = false }) {
   const [open, setOpen] = useState(false)
   const done  = items.filter((i) => values?.[i.id]).length
   const total = items.length
@@ -302,6 +302,7 @@ function ChecklistSection({ title, items, values, onChange, platform }) {
                 type="checkbox"
                 className="mrt__cl-check"
                 checked={!!values?.[item.id]}
+                disabled={disabled}
                 onChange={(e) => onChange(platform, item.id, e.target.checked)}
               />
               <span className={values?.[item.id] ? 'mrt__cl-item-done' : ''}>{item.label}</span>
@@ -317,6 +318,7 @@ function ChecklistSection({ title, items, values, onChange, platform }) {
 
 function MobileReleaseCard({
   release, allIssues, projectsMap, onEdit, onDelete, onChecklistChange,
+  canManageReleases = true,
 }) {
   const [expanded,  setExpanded]  = useState(false)
   const [delConfirm, setDelConfirm] = useState(false)
@@ -361,19 +363,23 @@ function MobileReleaseCard({
           >
             {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           </button>
-          <button type="button" className="mrt__icon-btn" onClick={() => onEdit(release)} aria-label="Edit">
-            <Edit2 size={13} />
-          </button>
-          {!delConfirm ? (
-            <button type="button" className="mrt__icon-btn mrt__icon-btn--del" onClick={() => setDelConfirm(true)} aria-label="Delete">
-              <Trash2 size={13} />
-            </button>
-          ) : (
-            <span className="mrt__del-confirm">
-              Delete?
-              <button type="button" className="mrt__del-yes" onClick={() => onDelete(release.id)}>Yes</button>
-              <button type="button" className="mrt__del-no"  onClick={() => setDelConfirm(false)}>No</button>
-            </span>
+          {canManageReleases && (
+            <>
+              <button type="button" className="mrt__icon-btn" onClick={() => onEdit(release)} aria-label="Edit">
+                <Edit2 size={13} />
+              </button>
+              {!delConfirm ? (
+                <button type="button" className="mrt__icon-btn mrt__icon-btn--del" onClick={() => setDelConfirm(true)} aria-label="Delete">
+                  <Trash2 size={13} />
+                </button>
+              ) : (
+                <span className="mrt__del-confirm">
+                  Delete?
+                  <button type="button" className="mrt__del-yes" onClick={() => onDelete(release.id)}>Yes</button>
+                  <button type="button" className="mrt__del-no"  onClick={() => setDelConfirm(false)}>No</button>
+                </span>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -457,6 +463,7 @@ function MobileReleaseCard({
               values={release.checklist?.android}
               onChange={onChecklistChange(release.id)}
               platform="android"
+              disabled={!canManageReleases}
             />
           )}
           {needsIOS && (
@@ -466,6 +473,7 @@ function MobileReleaseCard({
               values={release.checklist?.ios}
               onChange={onChecklistChange(release.id)}
               platform="ios"
+              disabled={!canManageReleases}
             />
           )}
 
@@ -687,7 +695,7 @@ function MobileReleaseModal({ release, allIssues, projectsMap, onSave, onClose }
  *   projectsMap: Record<string, object>,
  * }} props
  */
-export function MobileReleaseTracker({ allIssues, selectedIssues, projectsMap }) {
+export function MobileReleaseTracker({ allIssues, selectedIssues, projectsMap, canManageReleases = true }) {
   const [releases,       setReleases]       = useState([])
   const [loading,        setLoading]        = useState(true)
   const [backendError,   setBackendError]   = useState(false)
@@ -725,6 +733,7 @@ export function MobileReleaseTracker({ allIssues, selectedIssues, projectsMap })
 
   // ── CRUD ────────────────────────────────────────────────────────────────────
   const handleNew = useCallback(() => {
+    if (!canManageReleases) return
     const detectedPlatform = selectedIssues.length > 0
       ? detectPlatform(selectedIssues, projectsMap)
       : 'Android'
@@ -732,7 +741,7 @@ export function MobileReleaseTracker({ allIssues, selectedIssues, projectsMap })
       platform:       detectedPlatform,
       linkedIssueIds: selectedIssues.map((i) => i.id),
     }))
-  }, [selectedIssues, projectsMap])
+  }, [canManageReleases, selectedIssues, projectsMap])
 
   const handleEdit = useCallback((release) => {
     setModalRelease({ ...release })
@@ -859,7 +868,7 @@ export function MobileReleaseTracker({ allIssues, selectedIssues, projectsMap })
           )}
         </div>
         <div className="mrt__header-right">
-          <button type="button" className="mrt__new-btn" onClick={handleNew}>
+          <button type="button" className="mrt__new-btn" onClick={handleNew} disabled={!canManageReleases} title={canManageReleases ? 'Create mobile release' : 'You do not have permission to perform this action.'}>
             <Plus size={13} />
             New Mobile Release
           </button>
@@ -887,7 +896,7 @@ export function MobileReleaseTracker({ allIssues, selectedIssues, projectsMap })
           )}
 
           {/* Suggestion banner */}
-          {showSuggest && (
+          {showSuggest && canManageReleases && (
             <div className="mrt__suggest-banner">
               <Smartphone size={13} />
               <span>
@@ -919,7 +928,7 @@ export function MobileReleaseTracker({ allIssues, selectedIssues, projectsMap })
               <Smartphone size={28} className="mrt__empty-icon" />
               <p>No mobile releases yet.</p>
               <p>Create a release to track Android or iOS app submissions.</p>
-              <button type="button" className="mrt__new-btn" onClick={handleNew}>
+              <button type="button" className="mrt__new-btn" onClick={handleNew} disabled={!canManageReleases} title={canManageReleases ? 'Create mobile release' : 'You do not have permission to perform this action.'}>
                 <Plus size={13} /> New Mobile Release
               </button>
             </div>
@@ -934,6 +943,7 @@ export function MobileReleaseTracker({ allIssues, selectedIssues, projectsMap })
                   onEdit={handleEdit}
                   onDelete={handleDelete}
                   onChecklistChange={handleChecklistChange}
+                  canManageReleases={canManageReleases}
                 />
               ))}
             </div>
@@ -942,7 +952,7 @@ export function MobileReleaseTracker({ allIssues, selectedIssues, projectsMap })
       )}
 
       {/* Modal */}
-      {modalRelease && (
+      {modalRelease && canManageReleases && (
         <MobileReleaseModal
           release={modalRelease}
           allIssues={allIssues}

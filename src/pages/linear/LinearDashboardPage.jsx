@@ -279,13 +279,11 @@ function AttentionIssueRow({ issue, projectsMap, onClick }) {
 export default function LinearDashboardPage() {
   const navigate  = useNavigate()
   const {
-    projects, members, loadingProjects, loadingTasks, error,
+    projects, members, loadingProjects, loadingMembers, loadingTasks, error,
     getTasksForProject, getCyclesForProject, actions,
   } = useTeamProjectsContext()
 
   const fetchedRef = useRef(false)
-  const [allIssues, setAllIssues] = useState([])
-  const [allCycles, setAllCycles] = useState([])
   const [panelIssue, setPanelIssue] = useState(null)
 
   // Filters
@@ -307,25 +305,11 @@ export default function LinearDashboardPage() {
 
   useEffect(() => {
     if (!projects.length) return
-    const fetch = async () => {
-      const allT = []; const allC = []
-      for (const p of projects) {
-        await actions.fetchTasks(p.id)
-        await actions.fetchCycles(p.id)
-        allT.push(...(getTasksForProject(p.id) || []))
-        allC.push(...(getCyclesForProject(p.id) || []))
-      }
-      setAllIssues(allT)
-      setAllCycles(allC)
-    }
-    fetch()
-  }, [projects]) // eslint-disable-line
-
-  useEffect(() => {
-    const issues = []
-    for (const p of projects) issues.push(...(getTasksForProject(p.id) || []))
-    setAllIssues(issues)
-  }, [projects, getTasksForProject])
+    projects.forEach((project) => {
+      actions.fetchTasks(project.id)
+      actions.fetchCycles(project.id)
+    })
+  }, [projects, actions])
 
   useEffect(() => {
     setMobileReleases(loadMobileReleases())
@@ -339,6 +323,18 @@ export default function LinearDashboardPage() {
   const membersMap = useMemo(() => {
     const m = {}; members.forEach(mb => m[mb.id] = mb); return m
   }, [members])
+
+  const allIssues = useMemo(() => {
+    const issues = []
+    for (const project of projects) issues.push(...(getTasksForProject(project.id) || []))
+    return issues
+  }, [projects, getTasksForProject])
+
+  const allCycles = useMemo(() => {
+    const cycles = []
+    for (const project of projects) cycles.push(...(getCyclesForProject(project.id) || []))
+    return cycles
+  }, [projects, getCyclesForProject])
 
   const cyclesMap = useMemo(() => {
     const m = {}; allCycles.forEach(c => m[c.id] = c); return m
@@ -487,7 +483,7 @@ export default function LinearDashboardPage() {
   const handleDelete      = useCallback(async (pId, tId) => { await actions.deleteTask(pId, tId); setPanelIssue(null) }, [actions])
 
   const filterActive = filterProject !== 'all' || filterCycle !== 'all' || filterAssignee !== 'all' || dateRange !== 'all'
-  const loading      = loadingProjects || loadingTasks
+  const loading = loadingProjects || loadingMembers || Object.values(loadingTasks).some(Boolean)
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (

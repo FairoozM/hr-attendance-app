@@ -60,12 +60,12 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': attendanceApiProxy(),
+      '^/api(?:/|$)': attendanceApiProxy(),
     },
   },
   preview: {
     proxy: {
-      '/api': attendanceApiProxy(),
+      '^/api(?:/|$)': attendanceApiProxy(),
     },
   },
 })

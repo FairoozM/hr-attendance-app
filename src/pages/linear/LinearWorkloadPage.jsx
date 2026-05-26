@@ -206,21 +206,43 @@ export default function LinearWorkloadPage() {
   }), [filteredIssues])
 
   // ── Per-member stats ─────────────────────────────────────────────────────────
-  const memberRows = useMemo(() =>
-    members.map((m) => {
-      const assigned   = filteredIssues.filter((i) => String(i.assigneeUserId) === String(m.id))
-      const open       = assigned.filter(isOpen)
-      const inProgress = assigned.filter(isActive)
-      const inReview   = assigned.filter((i) => normalizeStatus(i.status) === 'In Review')
-      const ready      = assigned.filter(isReady)
-      const highPri    = open.filter(isHighPri)
-      const inCycle    = open.filter((i) => activeCycleIds.has(i.sprintId))
-      const storyPts   = open.reduce((s, i) => s + (Number(i.storyPoints) || 0), 0)
-      return { member: m, open: open.length, inProgress: inProgress.length,
-               inReview: inReview.length, ready: ready.length, highPri: highPri.length,
-               inCycle: inCycle.length, storyPts }
-    }).sort((a, b) => b.open - a.open),
-  [members, filteredIssues, activeCycleIds])
+  const memberRows = useMemo(() => {
+    const statsByMember = {}
+    members.forEach((member) => {
+      statsByMember[String(member.id)] = {
+        open: 0,
+        inProgress: 0,
+        inReview: 0,
+        ready: 0,
+        highPri: 0,
+        inCycle: 0,
+        storyPts: 0,
+      }
+    })
+
+    filteredIssues.forEach((issue) => {
+      const memberId = issue.assigneeUserId == null ? null : String(issue.assigneeUserId)
+      if (!memberId || !statsByMember[memberId]) return
+
+      const status = normalizeStatus(issue.status)
+      const open = isOpen(issue)
+      const stats = statsByMember[memberId]
+
+      if (open) {
+        stats.open += 1
+        stats.storyPts += Number(issue.storyPoints) || 0
+        if (isHighPri(issue)) stats.highPri += 1
+        if (activeCycleIds.has(issue.sprintId)) stats.inCycle += 1
+      }
+      if (status === 'In Progress') stats.inProgress += 1
+      if (status === 'In Review') stats.inReview += 1
+      if (status === 'Ready for Release') stats.ready += 1
+    })
+
+    return members
+      .map((member) => ({ member, ...(statsByMember[String(member.id)] || {}) }))
+      .sort((a, b) => b.open - a.open)
+  }, [members, filteredIssues, activeCycleIds])
 
   const overloadedCount = memberRows.filter((r) => r.open >= Math.round(WORKLOAD_CAP * 0.85)).length
 

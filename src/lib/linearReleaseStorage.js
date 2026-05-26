@@ -11,11 +11,20 @@ const KEYS = {
   RELEASE_APPROVAL:   'lifesmile.linear.releaseApproval.v1',
 }
 
+const storageCache = new Map()
+
 function safeLoad(key, defaultVal = null) {
   try {
     const raw = localStorage.getItem(key)
-    if (!raw) return defaultVal
-    return JSON.parse(raw) ?? defaultVal
+    if (!raw) {
+      storageCache.delete(key)
+      return defaultVal
+    }
+    const cached = storageCache.get(key)
+    if (cached && cached.raw === raw) return cached.value
+    const parsed = JSON.parse(raw) ?? defaultVal
+    storageCache.set(key, { raw, value: parsed })
+    return parsed
   } catch { return defaultVal }
 }
 

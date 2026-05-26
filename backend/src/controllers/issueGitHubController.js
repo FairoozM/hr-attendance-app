@@ -6,6 +6,16 @@
 'use strict'
 
 const { syncPrMetadata, parsePrUrl } = require('../services/githubPrService')
+const projectTasksService = require('../services/projectTasksService')
+const { canUseGitHubSync } = require('../utils/linearPermissions')
+
+function sendForbidden(res) {
+  return res.status(403).json({
+    success: false,
+    error: 'Forbidden',
+    message: 'You do not have permission to perform this action.',
+  })
+}
 
 async function syncPr(req, res) {
   const projectId = Number(req.params.projectId)
@@ -24,6 +34,13 @@ async function syncPr(req, res) {
   }
 
   try {
+    const task = await projectTasksService.getTaskById(taskId)
+    if (!task || Number(task.project_id) !== projectId) {
+      return res.status(404).json({ success: false, message: 'Issue not found.' })
+    }
+    if (!canUseGitHubSync(req.user, task)) {
+      return sendForbidden(res)
+    }
     const { devMeta } = await syncPrMetadata({
       taskId,
       projectId,

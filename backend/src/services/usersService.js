@@ -15,6 +15,7 @@ async function findByUsername(email) {
   const result = await query(
     `SELECT u.id, u.username, u.password_hash, u.role, u.employee_id,
             u.permissions,
+            u.linear_workspace_role,
             e.full_name AS employee_full_name
      FROM users u
      LEFT JOIN employees e ON e.id = u.employee_id
@@ -29,7 +30,7 @@ const findByEmail = findByUsername
 
 async function findById(id) {
   const result = await query(
-    `SELECT id, username, password_hash, role, employee_id, permissions FROM users WHERE id = $1`,
+    `SELECT id, username, password_hash, role, employee_id, permissions, linear_workspace_role FROM users WHERE id = $1`,
     [id]
   )
   return result.rows[0] || null
@@ -39,6 +40,7 @@ async function findByIdJoined(id) {
   const result = await query(
     `SELECT u.id, u.username, u.password_hash, u.role, u.employee_id,
             u.permissions,
+            u.linear_workspace_role,
             e.full_name AS employee_full_name
      FROM users u
      LEFT JOIN employees e ON e.id = u.employee_id
@@ -50,7 +52,7 @@ async function findByIdJoined(id) {
 
 async function findByEmployeeId(employeeId) {
   const result = await query(
-    `SELECT id, username, password_hash, role, employee_id, permissions FROM users WHERE employee_id = $1`,
+    `SELECT id, username, password_hash, role, employee_id, permissions, linear_workspace_role FROM users WHERE employee_id = $1`,
     [employeeId]
   )
   return result.rows[0] || null

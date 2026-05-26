@@ -4,6 +4,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Loader2, Circle } from 'lucide-react'
 import { activityApi } from '../../lib/projectsApi'
+import { useAuth } from '../../contexts/AuthContext'
 
 const ACTION_LABELS = {
   issue_created: 'Issue created',
@@ -44,6 +45,7 @@ function describeEntry(entry) {
 }
 
 export function IssueActivity({ projectId, issueId, refreshKey = 0 }) {
+  const { user } = useAuth()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -70,6 +72,14 @@ export function IssueActivity({ projectId, issueId, refreshKey = 0 }) {
 
   return (
     <div className="iact">
+      {user?.role === 'admin' && issueId && (
+        <p className="iact__meta" style={{ marginBottom: 12 }}>
+          <a href={`#/projects/linear/audit?relatedIssueId=${encodeURIComponent(issueId)}`}>
+            View admin audit history
+          </a>
+        </p>
+      )}
+
       {loading && (
         <div className="iact__status">
           <Loader2 size={14} className="iact__spin" aria-hidden="true" />

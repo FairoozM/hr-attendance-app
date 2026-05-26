@@ -6,9 +6,10 @@
  * Frontend-only: uses existing TeamProjectsContext data + issue.devMeta.
  * No backend calls, no new migrations.
  */
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { memo, useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { ChevronDown, X, Copy, Check, Package, ChevronRight, CheckSquare, Square, BookOpen } from 'lucide-react'
 import { useTeamProjectsContext } from '../../contexts/TeamProjectsContext'
+import { useAuth } from '../../contexts/AuthContext'
 import { ReleaseApprovalPanel } from '../../components/linear/ReleaseApprovalPanel'
 import { MobileReleaseTracker }  from '../../components/linear/MobileReleaseTracker'
 import { WebDeploymentTracker }  from '../../components/linear/WebDeploymentTracker'
@@ -21,6 +22,12 @@ import { RelatedDocsList } from '../../components/linear/RelatedDocsList'
 import { getRelatedDocsForRelease } from '../../lib/linearDocsMatcher'
 import { ChecklistRunner } from '../../components/linear/ChecklistRunner'
 import { getReleaseChecklistCompliance, buildReleaseSopSummaryText } from '../../lib/linearChecklistCompliance'
+import {
+  canApproveRelease,
+  canManageDeployments,
+  canManageReleases,
+  canRunChecklists,
+} from '../../lib/linearPermissions'
 import { labelColors } from '../../components/linear/linearLabels'
 import './LinearReleasesPage.css'
 
@@ -320,7 +327,7 @@ function buildDeploymentChecklist(selected, projectsMap) {
 
 // ── Issue card ────────────────────────────────────────────────────────────────
 
-function ReleaseIssueCard({ issue, project, member, cycle, selected, onToggle, onOpen }) {
+const ReleaseIssueCard = memo(function ReleaseIssueCard({ issue, project, member, cycle, selected, onToggle, onOpen }) {
   const key    = issueKey(project?.name, issue.id)
   const status = normalizeStatus(issue.status)
   const sCfg   = STATUS_CONFIG[status] || STATUS_CONFIG.Backlog
@@ -436,7 +443,7 @@ function ReleaseIssueCard({ issue, project, member, cycle, selected, onToggle, o
       </div>
     </div>
   )
-}
+})
 
 // ── Copy button with feedback ─────────────────────────────────────────────────
 
@@ -471,21 +478,24 @@ function CopyButton({ label, text, disabled, className = '' }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function LinearReleasesPage() {
+  const { user } = useAuth()
   const {
     projects,
     members,
     loadingProjects,
+    loadingMembers,
     loadingTasks,
     error,
-    user,
     getTasksForProject,
     getCyclesForProject,
     actions,
   } = useTeamProjectsContext()
 
   const fetchedRef    = useRef(false)
-  const [allIssues, setAllIssues] = useState([])
-  const [allCycles, setAllCycles] = useState([])
+  const canApproveReleasePermission = canApproveRelease(user)
+  const canManageReleaseRecords = canManageReleases(user)
+  const canManageDeploymentRecords = canManageDeployments(user)
+  const canRunReleaseChecklists = canRunChecklists(user)
   const [donePage,  setDonePage]  = useState(1)
   const DONE_PAGE_SIZE = 20
 
@@ -499,28 +509,11 @@ export default function LinearReleasesPage() {
 
   useEffect(() => {
     if (!projects.length) return
-    const fetch = async () => {
-      for (const p of projects) {
-        await actions.fetchTasks(p.id)
-        await actions.fetchCycles(p.id)
-      }
-    }
-    fetch()
-  }, [projects.length]) // eslint-disable-line
-
-  useEffect(() => {
-    if (!projects.length) return
-    const tasks = []
-    const cycles = []
-    for (const p of projects) {
-      const pt = getTasksForProject(p.id)
-      const pc = getCyclesForProject(p.id)
-      tasks.push(...pt)
-      cycles.push(...pc)
-    }
-    setAllIssues(tasks)
-    setAllCycles(cycles)
-  }, [projects, getTasksForProject, getCyclesForProject])
+    projects.forEach((project) => {
+      actions.fetchTasks(project.id)
+      actions.fetchCycles(project.id)
+    })
+  }, [projects, actions])
 
   // ── Lookups ────────────────────────────────────────────────────────────────
   const projectsMap = useMemo(() => {
@@ -534,6 +527,18 @@ export default function LinearReleasesPage() {
     for (const mb of members) m[mb.id] = mb
     return m
   }, [members])
+
+  const allIssues = useMemo(() => {
+    const tasks = []
+    for (const project of projects) tasks.push(...(getTasksForProject(project.id) || []))
+    return tasks
+  }, [projects, getTasksForProject])
+
+  const allCycles = useMemo(() => {
+    const cycles = []
+    for (const project of projects) cycles.push(...(getCyclesForProject(project.id) || []))
+    return cycles
+  }, [projects, getCyclesForProject])
 
   const cyclesMap = useMemo(() => {
     const m = {}
@@ -598,10 +603,13 @@ export default function LinearReleasesPage() {
   }, [actions])
 
   const handleMoveToDone = useCallback(async (issues) => {
+    if (!canApproveReleasePermission) {
+      throw new Error('You do not have permission to perform this action.')
+    }
     for (const iss of issues) {
       await actions.updateTask(iss.projectId, iss.id, { status: 'Done' })
     }
-  }, [actions])
+  }, [actions, canApproveReleasePermission])
 
   // ── Filtered issue sets ────────────────────────────────────────────────────
   function applyFilters(issues) {
@@ -691,7 +699,7 @@ export default function LinearReleasesPage() {
   const visibleDone = doneIssues.slice(0, donePage * DONE_PAGE_SIZE)
   const hasMoreDone = doneIssues.length > visibleDone.length
 
-  const loading = loadingProjects || Object.values(loadingTasks).some(Boolean)
+  const loading = loadingProjects || loadingMembers || Object.values(loadingTasks).some(Boolean)
 
   return (
     <div className="rel">
@@ -897,7 +905,7 @@ export default function LinearReleasesPage() {
                   docs={releaseDocs}
                   emptyMessage="Select issues to see relevant docs."
                   showViewAll
-                  onRunChecklist={setReleaseChecklistDoc}
+                  onRunChecklist={canRunReleaseChecklists ? setReleaseChecklistDoc : undefined}
                 />
               </div>
 
@@ -944,6 +952,7 @@ export default function LinearReleasesPage() {
                 currentUser={user || null}
                 onMoveToDone={handleMoveToDone}
                 sopWarning={releaseCompliance?.warningNeeded ? `Release SOP checklist is ${releaseCompliance.releasePct}% complete.` : null}
+                canApproveRelease={canApproveReleasePermission}
               />
             </>
           )}
@@ -964,6 +973,7 @@ export default function LinearReleasesPage() {
             allIssues={allIssues}
             selectedIssues={selectedIssues}
             projectsMap={projectsMap}
+            canManageReleases={canManageReleaseRecords}
           />
         </section>
 
@@ -973,6 +983,7 @@ export default function LinearReleasesPage() {
             allIssues={allIssues}
             selectedIssues={selectedIssues}
             projectsMap={projectsMap}
+            canManageDeployments={canManageDeploymentRecords}
           />
         </section>
       </main>
@@ -990,7 +1001,7 @@ export default function LinearReleasesPage() {
       />
 
       {/* Release checklist runner */}
-      {releaseChecklistDoc && (
+      {releaseChecklistDoc && canRunReleaseChecklists && (
         <ChecklistRunner
           doc={releaseChecklistDoc}
           contextType="release"

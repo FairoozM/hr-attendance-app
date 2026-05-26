@@ -127,6 +127,9 @@ export function IssueQAReview({
   onSaveNotes,
   onMoveToDone,
   onRunChecklist,
+  canApproveQa = true,
+  canEditNotes = true,
+  canMoveToDone = true,
 }) {
   const qa       = issue?.devMeta?.qaApproval || {}
   const approved = qa.approved === true
@@ -306,7 +309,7 @@ export function IssueQAReview({
 
       {/* ── Actions ──────────────────────────────────────────────────────── */}
       <div className="qa__actions">
-        {!approved && (
+        {!approved && canApproveQa && (
           <button
             type="button"
             className="qa__btn qa__btn--approve"
@@ -318,7 +321,7 @@ export function IssueQAReview({
           </button>
         )}
 
-        {approved && (
+        {approved && canApproveQa && (
           <button
             type="button"
             className="qa__btn qa__btn--revoke"
@@ -330,7 +333,7 @@ export function IssueQAReview({
           </button>
         )}
 
-        {!isDone && (
+        {!isDone && canMoveToDone && (
           <button
             type="button"
             className={`qa__btn qa__btn--done ${!approved ? 'qa__btn--done-warn' : ''}`}
@@ -345,7 +348,7 @@ export function IssueQAReview({
       </div>
 
       {/* Move-to-Done confirmation when not approved */}
-      {moveDoneConfirm && (
+      {moveDoneConfirm && canMoveToDone && (
         <div className="qa__confirm-banner" role="alert">
           <AlertTriangle size={13} />
           <span>Issue is not QA approved. Move to Done anyway?</span>
@@ -359,7 +362,7 @@ export function IssueQAReview({
       )}
 
       {/* SOP Approve confirmation (< 70% compliance) */}
-      {approveWarnOpen && (
+      {approveWarnOpen && canApproveQa && (
         <div className="qa__confirm-banner qa__confirm-banner--sop" role="alert">
           <AlertTriangle size={13} />
           <span>
@@ -432,20 +435,25 @@ export function IssueQAReview({
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Add QA notes, reproduction steps, or test observations…"
           rows={4}
+          disabled={!canEditNotes}
         />
-        <button
-          type="button"
-          className={`qa__btn qa__btn--save ${notesSaved ? 'qa__btn--saved' : ''}`}
-          onClick={handleSaveNotes}
-          disabled={savingNotes}
-        >
-          {savingNotes
-            ? <><Loader2 size={12} className="qa__spin" /> Saving…</>
-            : notesSaved
-              ? 'Notes Saved'
-              : 'Save Notes'
-          }
-        </button>
+        {canEditNotes ? (
+          <button
+            type="button"
+            className={`qa__btn qa__btn--save ${notesSaved ? 'qa__btn--saved' : ''}`}
+            onClick={handleSaveNotes}
+            disabled={savingNotes}
+          >
+            {savingNotes
+              ? <><Loader2 size={12} className="qa__spin" /> Saving…</>
+              : notesSaved
+                ? 'Notes Saved'
+                : 'Save Notes'
+            }
+          </button>
+        ) : (
+          <p className="qa__status-meta">You do not have permission to perform this action.</p>
+        )}
       </div>
 
       {/* ── Evidence checklist ───────────────────────────────────────────── */}

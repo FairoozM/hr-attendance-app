@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useCallback, useEffect } from 'rea
 import { api, clearLegacyHrAuthStorage } from '../api/client'
 import { clearPrefCache } from '../lib/userPreferencesBridge'
 import { useIdleLogout } from '../hooks/useIdleLogout'
+import { getUserWorkspaceRole } from '../lib/linearPermissions'
 
 export const AuthContext = createContext(null)
 
@@ -93,10 +94,20 @@ export function useAuth() {
  */
 export function hasPermission(user, module, action) {
   if (!user) return false
-  if (user.role === 'admin') return true
-  if (user.role === 'warehouse') return true
   const p = user.permissions || {}
   const mod = p[module] || {}
+  const workspaceRole = getUserWorkspaceRole(user)
+  // linear workspace access is governed by the effective workspace role,
+  // even for app admins when an explicit workspace role is set.
+  if (module === 'planner' && action === 'view' && workspaceRole) return true
+  if (module === 'planner' && action === 'manage' && ['manager', 'admin'].includes(workspaceRole || '')) {
+    return true
+  }
+  if (module === 'planner' && action === 'settings' && ['manager', 'admin'].includes(workspaceRole || '')) {
+    return true
+  }
+  if (user.role === 'admin') return true
+  if (user.role === 'warehouse') return true
   // manage always implies view for any module
   if (action === 'view' && mod.manage) return true
   // leave: approve implies view

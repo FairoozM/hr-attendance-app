@@ -275,9 +275,10 @@ export function ReleaseApprovalPanel({
   currentUser,
   onMoveToDone,
   sopWarning = null,
+  canApproveRelease = true,
 }) {
-  // Load persisted draft
-  const saved = safeLocalLoad(STORAGE_KEY) || {}
+  // Load persisted draft once; the draft can be fairly large.
+  const saved = useMemo(() => safeLocalLoad(STORAGE_KEY) || {}, [])
 
   // Form state
   const [releaseName,     setReleaseName]     = useState(saved.releaseName     || '')
@@ -307,11 +308,14 @@ export function ReleaseApprovalPanel({
 
   // ── Persist form state to localStorage ───────────────────────────────────
   useEffect(() => {
-    safeLocalSave(STORAGE_KEY, {
-      releaseName, releaseType, environment, deploymentNeeds, signOffNotes,
-      approvalState, deployedState,
-      selectedIssueIds: selectedIssues.map((i) => i.id),
-    })
+    const timer = window.setTimeout(() => {
+      safeLocalSave(STORAGE_KEY, {
+        releaseName, releaseType, environment, deploymentNeeds, signOffNotes,
+        approvalState, deployedState,
+        selectedIssueIds: selectedIssues.map((i) => i.id),
+      })
+    }, 250)
+    return () => window.clearTimeout(timer)
   }, [releaseName, releaseType, environment, deploymentNeeds, signOffNotes, approvalState, deployedState])
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -561,8 +565,8 @@ export function ReleaseApprovalPanel({
                   type="button"
                   className="rap__btn rap__btn--approve"
                   onClick={handleApprove}
-                  disabled={!releaseName.trim()}
-                  title={!releaseName.trim() ? 'Enter a release name first' : 'Mark Release Approved'}
+                  disabled={!releaseName.trim() || !canApproveRelease}
+                  title={!canApproveRelease ? 'You do not have permission to perform this action.' : !releaseName.trim() ? 'Enter a release name first' : 'Mark Release Approved'}
                 >
                   <ShieldCheck size={13} />
                   Mark Release Approved
@@ -574,9 +578,11 @@ export function ReleaseApprovalPanel({
                     Release Approved by <strong>{approvalState.approverName || 'Team'}</strong>
                     {approvalState.approvedAt ? ` · ${fmtDateTime(approvalState.approvedAt)}` : ''}
                   </span>
-                  <button type="button" className="rap__revoke-btn" onClick={handleRevokeApproval}>
-                    Revoke
-                  </button>
+                  {canApproveRelease && (
+                    <button type="button" className="rap__revoke-btn" onClick={handleRevokeApproval}>
+                      Revoke
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -586,7 +592,7 @@ export function ReleaseApprovalPanel({
               <div className="rap__warn-banner rap__warn-banner--sop" role="alert">
                 <AlertTriangle size={13} />
                 <span>{sopWarning} Approve release anyway?</span>
-                <button type="button" className="rap__warn-yes" onClick={handleApprove}>
+                <button type="button" className="rap__warn-yes" onClick={handleApprove} disabled={!canApproveRelease}>
                   Approve Anyway
                 </button>
                 <button type="button" className="rap__warn-no" onClick={() => setSopApproveWarn(false)}>
@@ -616,6 +622,8 @@ export function ReleaseApprovalPanel({
                   type="button"
                   className="rap__btn rap__btn--deploy"
                   onClick={handleMarkDeployed}
+                  disabled={!canApproveRelease}
+                  title={!canApproveRelease ? 'You do not have permission to perform this action.' : undefined}
                 >
                   <Rocket size={13} />
                   Mark Deployed
@@ -627,19 +635,21 @@ export function ReleaseApprovalPanel({
                     Deployed by <strong>{deployedState.deployerName || 'Team'}</strong>
                     {deployedState.deployedAt ? ` · ${fmtDateTime(deployedState.deployedAt)}` : ''}
                   </span>
-                  <button
-                    type="button"
-                    className="rap__revoke-btn"
-                    onClick={() => setDeployedState({ deployed: false })}
-                  >
-                    Undo
-                  </button>
+                  {canApproveRelease && (
+                    <button
+                      type="button"
+                      className="rap__revoke-btn"
+                      onClick={() => setDeployedState({ deployed: false })}
+                    >
+                      Undo
+                    </button>
+                  )}
                 </div>
               )}
             </div>
 
             {/* Move to Done */}
-            {deployedState.deployed && (
+            {deployedState.deployed && canApproveRelease && (
               <div className="rap__move-done-section">
                 <label className="rap__checkbox-label rap__checkbox-label--move">
                   <input
@@ -690,6 +700,12 @@ export function ReleaseApprovalPanel({
                   </p>
                 )}
               </div>
+            )}
+
+            {!canApproveRelease && (
+              <p className="rap__summary-sub">
+                You do not have permission to perform this action.
+              </p>
             )}
           </div>
 

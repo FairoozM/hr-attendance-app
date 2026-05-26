@@ -30,6 +30,7 @@ import {
   captureFilters,
   hasActiveFilter,
 } from '../../components/linear/savedViews'
+import { canCreateIssue, canEditIssue } from '../../lib/linearPermissions'
 import './LinearPlannerPage.css'
 
 // ── Grouping helpers ──────────────────────────────────────────────────────────
@@ -141,6 +142,7 @@ export default function LinearPlannerPage() {
   const [githubMetaByIssue, setGithubMetaByIssue] = useState({})
   const [successMessage, setSuccessMessage] = useState('')
   const didFetch = useRef(false)
+  const canCreateIssues = canCreateIssue(user)
 
   // ── Apply project filter from navigation state (from Projects page) ────────
   useEffect(() => {
@@ -209,6 +211,17 @@ export default function LinearPlannerPage() {
     )
     if (fresh) setSelectedIssue(fresh)
   }, [allIssues, selectedIssue?.id, selectedIssue?.projectId])
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const issueId = Number(params.get('issueId') || '')
+    const projectId = Number(params.get('projectId') || '')
+    if (!issueId) return
+    const match = allIssues.find((issue) => (
+      issue.id === issueId && (!projectId || issue.projectId === projectId)
+    ))
+    if (match) setSelectedIssue(match)
+  }, [allIssues, location.search])
 
   // ── Filtering ───────────────────────────────────────────────────────────────
   const filteredIssues = useMemo(() => {
@@ -307,8 +320,11 @@ export default function LinearPlannerPage() {
 
   // ── Create issue ────────────────────────────────────────────────────────────
   const handleCreate = useCallback(async ({ projectId, payload }) => {
+    if (!canCreateIssues) {
+      throw new Error('You do not have permission to perform this action.')
+    }
     await actions.createTask(projectId, payload)
-  }, [actions])
+  }, [actions, canCreateIssues])
 
   const handleIssueUpdate = useCallback(async (projectId, taskId, data) => {
     const updated = await actions.updateTask(projectId, taskId, data)
@@ -462,6 +478,7 @@ export default function LinearPlannerPage() {
           onNewIssue={() => setNewIssueOpen(true)}
           onSaveView={() => setSaveViewOpen(true)}
           onOpenCmdMenu={() => setCmdMenuOpen(true)}
+          canCreateIssues={canCreateIssues}
           hasActiveFilters={hasActiveFilter({ search, activeFilters, activeLabel, activeCycle, activeStatus, activePriority }) || activeProject != null || activeAssignee != null}
           title={
             activeProject != null  ? (projectMap[activeProject]?.name ?? 'Project') :
@@ -518,6 +535,7 @@ export default function LinearPlannerPage() {
                 onSelect={setSelectedIssue}
                 onStatusChange={handleStatusChange}
                 onPriorityChange={handlePriorityChange}
+                canEditIssue={(issue) => canEditIssue(user, issue)}
                 defaultOpen={g.key !== 'Done' && g.key !== 'Canceled' && g.key !== 'Backlog'}
               />
             ))

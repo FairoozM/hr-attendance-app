@@ -129,6 +129,18 @@ const MODULES = [
       { key: 'manage', label: 'Create and edit projects, tasks, sections, and dependencies (includes view)' },
     ],
   },
+  {
+    section: 'Planner',
+    key: 'linear_workspace',
+    label: 'Product Workspace',
+    permissions: [
+      { key: 'viewer', label: 'Viewer — read issues, docs, releases, roadmap, dashboard, and reports' },
+      { key: 'contributor', label: 'Contributor — create issues, comments, attachments, and intake items' },
+      { key: 'developer', label: 'Developer — update assigned issues, dev metadata, checklists, and GitHub sync' },
+      { key: 'qa', label: 'QA — save QA notes, approve or revoke QA, and upload QA proof' },
+      { key: 'manager', label: 'Manager — manage docs, intake, releases, deployments, audit, and release sign-off' },
+    ],
+  },
 ]
 
 function modulesGroupedBySection() {

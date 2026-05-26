@@ -1,6 +1,7 @@
 const { query } = require('../db')
 const s3Service = require('./s3Service')
 const taskActivityService = require('./taskActivityService')
+const { logLinearAudit } = require('./linearAuditService')
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -14,6 +15,55 @@ function rowToTask(row) {
     estimated_hours: row.estimated_hours ? parseFloat(row.estimated_hours) : null,
     actual_hours: row.actual_hours ? parseFloat(row.actual_hours) : null,
   }
+}
+
+function taskAuditSnapshot(task) {
+  if (!task) return null
+  return {
+    id: task.id,
+    project_id: task.project_id,
+    title: task.title,
+    description: task.description,
+    status: task.status,
+    priority: task.priority,
+    due_date: task.due_date,
+    assignee_user_id: task.assignee_user_id,
+    reporter_user_id: task.reporter_user_id,
+    reviewer_user_id: task.reviewer_user_id,
+    issue_type: task.issue_type,
+    sprint_id: task.sprint_id,
+    story_points: task.story_points,
+    blocked_reason: task.blocked_reason,
+    labels: task.labels,
+    dev_meta: task.dev_meta || {},
+    completed_at: task.completed_at,
+    created_at: task.created_at,
+    updated_at: task.updated_at,
+  }
+}
+
+function attachmentAuditSnapshot(attachment) {
+  if (!attachment) return null
+  return {
+    id: attachment.id,
+    task_id: attachment.task_id,
+    file_name: attachment.file_name,
+    file_type: attachment.file_type,
+    file_size: attachment.file_size,
+    kind: attachment.kind,
+    uploaded_by: attachment.uploaded_by,
+    uploaded_at: attachment.uploaded_at,
+  }
+}
+
+function diffTaskFields(before, after) {
+  const keys = [
+    'title', 'description', 'status', 'priority', 'due_date',
+    'assignee_user_id', 'reporter_user_id', 'reviewer_user_id',
+    'issue_type', 'sprint_id', 'story_points', 'blocked_reason',
+    'labels', 'dev_meta', 'completed_at',
+  ]
+  return keys.filter((key) => JSON.stringify(before?.[key] ?? null) !== JSON.stringify(after?.[key] ?? null))
 }
 
 // ---------------------------------------------------------------------------
@@ -53,13 +103,33 @@ async function wouldCreateCycle(taskId, dependsOnTaskId) {
 // Tasks
 // ---------------------------------------------------------------------------
 
-async function getTasksForProject(projectId) {
+async function getTasksForProject(projectId, filters = {}) {
+  const where = ['t.project_id = $1', 't.archived = false']
+  const params = [projectId]
+
+  if (filters.sprintId != null && filters.sprintId !== '') {
+    params.push(filters.sprintId)
+    where.push(`t.sprint_id = $${params.length}`)
+  }
+  if (filters.assigneeId != null && filters.assigneeId !== '') {
+    params.push(filters.assigneeId)
+    where.push(`t.assignee_user_id = $${params.length}`)
+  }
+  if (filters.issueType) {
+    params.push(filters.issueType)
+    where.push(`t.issue_type = $${params.length}`)
+  }
+  if (filters.status) {
+    params.push(filters.status)
+    where.push(`t.status = $${params.length}`)
+  }
+
   const tasks = await query(
     `SELECT t.*
      FROM project_tasks t
-     WHERE t.project_id = $1 AND t.archived = false
+     WHERE ${where.join(' AND ')}
      ORDER BY t.sort_order ASC, t.id ASC`,
-    [projectId]
+    params
   )
 
   const taskIds = tasks.rows.map((t) => t.id)
@@ -199,6 +269,18 @@ async function createTask({
       { project_id }
     )
   }
+  await logLinearAudit({
+    entityType: 'issue',
+    entityId: String(task.id),
+    action: 'created',
+    actorUserId: created_by,
+    summary: `Issue created: ${task.title || 'Untitled issue'}`,
+    afterSnapshot: taskAuditSnapshot(task),
+    metadata: {
+      projectId: project_id,
+      issueId: task.id,
+    },
+  })
   return task
 }
 
@@ -260,15 +342,36 @@ async function updateTask(taskId, fields, actorUserId = null) {
     values
   )
   const after = await getTaskById(taskId)
-  if (actorUserId && after) {
-    await taskActivityService.logTaskFieldChanges(before, after, fields, actorUserId)
+  if (after) {
+    if (actorUserId) {
+      await taskActivityService.logTaskFieldChanges(before, after, fields, actorUserId)
+    }
+    const delta = diffTaskFields(before, after)
+    const action = delta.includes('status') ? 'status_changed' : 'updated'
+    const summary = delta.includes('status')
+      ? `Issue status changed to ${after.status || 'Updated'}: ${after.title || 'Untitled issue'}`
+      : `Issue updated: ${after.title || 'Untitled issue'}`
+    await logLinearAudit({
+      entityType: 'issue',
+      entityId: String(taskId),
+      action,
+      actorUserId,
+      summary,
+      beforeSnapshot: taskAuditSnapshot(before),
+      afterSnapshot: taskAuditSnapshot(after),
+      metadata: {
+        projectId: after.project_id || before.project_id,
+        issueId: taskId,
+        changedFields: delta,
+      },
+    })
   }
   return after
 }
 
-async function deleteTask(projectId, taskId) {
+async function deleteTask(projectId, taskId, actorUserId = null) {
   const check = await query(
-    `SELECT id FROM project_tasks WHERE id = $1 AND project_id = $2`,
+    `SELECT * FROM project_tasks WHERE id = $1 AND project_id = $2`,
     [taskId, projectId]
   )
   if (check.rowCount === 0) {
@@ -276,6 +379,7 @@ async function deleteTask(projectId, taskId) {
     err.status = 404
     throw err
   }
+  const before = check.rows[0]
 
   // Attachments: delete S3 objects first
   const attachments = await query(`SELECT s3_key FROM task_attachments WHERE task_id = $1`, [taskId])
@@ -285,6 +389,18 @@ async function deleteTask(projectId, taskId) {
 
   // task_comments / task_activity_log / dependencies cascade via FK ON DELETE CASCADE
   await query(`DELETE FROM project_tasks WHERE id = $1 AND project_id = $2`, [taskId, projectId])
+  await logLinearAudit({
+    entityType: 'issue',
+    entityId: String(taskId),
+    action: 'deleted',
+    actorUserId,
+    summary: `Issue deleted: ${before.title || 'Untitled issue'}`,
+    beforeSnapshot: taskAuditSnapshot(before),
+    metadata: {
+      projectId,
+      issueId: taskId,
+    },
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -349,6 +465,20 @@ async function saveAttachment(taskId, { s3Key, fileName, fileType, fileSize, upl
     taskId, uploadedBy || null, 'attachment_added', null, null,
     { summary: `Attachment added (${kindLabel}): ${fileName}` }
   ).catch(() => {})
+  await logLinearAudit({
+    entityType: 'attachment',
+    entityId: String(att.id),
+    action: 'attachment_uploaded',
+    actorUserId: uploadedBy,
+    summary: `Attachment uploaded for issue ${taskId}: ${fileName}`,
+    afterSnapshot: attachmentAuditSnapshot(att),
+    metadata: {
+      taskId,
+      issueId: taskId,
+      kind: safeKind,
+      fileName,
+    },
+  })
   return att
 }
 
@@ -385,7 +515,7 @@ async function patchAttachment(attachmentId, { kind }, actorUserId) {
 
 async function deleteAttachment(attachmentId, actorUserId) {
   const result = await query(
-    `SELECT task_id, s3_key, file_name FROM task_attachments WHERE id = $1`,
+    `SELECT * FROM task_attachments WHERE id = $1`,
     [attachmentId]
   )
   if (result.rowCount > 0) {
@@ -396,6 +526,19 @@ async function deleteAttachment(attachmentId, actorUserId) {
       task_id, actorUserId || null, 'attachment_deleted', null, null,
       { summary: `Attachment deleted: ${file_name}` }
     ).catch(() => {})
+    await logLinearAudit({
+      entityType: 'attachment',
+      entityId: String(attachmentId),
+      action: 'attachment_deleted',
+      actorUserId,
+      summary: `Attachment deleted from issue ${task_id}: ${file_name}`,
+      beforeSnapshot: attachmentAuditSnapshot(result.rows[0]),
+      metadata: {
+        taskId: task_id,
+        issueId: task_id,
+        fileName: file_name,
+      },
+    })
   } else {
     await query(`DELETE FROM task_attachments WHERE id = $1`, [attachmentId])
   }

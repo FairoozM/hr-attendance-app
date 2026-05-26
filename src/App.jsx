@@ -76,6 +76,10 @@ import TrashPage from './pages/projects/TrashPage'
 import TeamProjectsPage from './pages/projects/TeamProjectsPage'
 import LinearPlannerPage from './pages/linear/LinearPlannerPage'
 import LinearDashboardPage from './pages/linear/LinearDashboardPage'
+import LinearNotificationsPage from './pages/linear/LinearNotificationsPage'
+import LinearNotificationSettingsPage from './pages/linear/LinearNotificationSettingsPage'
+import LinearDigestOutboxPage from './pages/linear/LinearDigestOutboxPage'
+import LinearSearchPage from './pages/linear/LinearSearchPage'
 import LinearProjectsPage from './pages/linear/LinearProjectsPage'
 import LinearWeeklyReportPage from './pages/linear/LinearWeeklyReportPage'
 import LinearDocsPage from './pages/linear/LinearDocsPage'
@@ -84,7 +88,15 @@ import LinearRoadmapPage from './pages/linear/LinearRoadmapPage'
 import LinearWorkloadPage from './pages/linear/LinearWorkloadPage'
 import LinearInboxPage from './pages/linear/LinearInboxPage'
 import LinearReleasesPage from './pages/linear/LinearReleasesPage'
+import LinearLaunchControlPage from './pages/linear/LinearLaunchControlPage'
+import LinearLaunchHistoryPage from './pages/linear/LinearLaunchHistoryPage'
 import LinearSettingsPage from './pages/linear/LinearSettingsPage'
+import LinearHealthPage from './pages/linear/LinearHealthPage'
+import LinearSmokeTestsPage from './pages/linear/LinearSmokeTestsPage'
+import LinearAuditPage from './pages/linear/LinearAuditPage'
+import LinearAdminBackupPage from './pages/linear/LinearAdminBackupPage'
+import LinearUserRolesPage from './pages/linear/LinearUserRolesPage'
+import LinearPermissionsAuditPage from './pages/linear/LinearPermissionsAuditPage'
 import { AiUsageDashboard } from './pages/AiUsageDashboard'
 import { AmazonListingGenerator } from './pages/AmazonListingGenerator'
 import { AmazonSpApiTestPage } from './pages/AmazonSpApiTestPage'
@@ -502,6 +514,46 @@ function AppContent() {
           }
         />
         <Route
+          path="projects/linear/notifications"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <LinearNotificationsPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="projects/linear/notifications/settings"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <LinearNotificationSettingsPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="projects/linear/notifications/outbox"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <LinearDigestOutboxPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="projects/linear/search"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <LinearSearchPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="projects/linear/intake"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <LinearSearchPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
           path="projects/linear/projects"
           element={
             <PermissionGuard module="planner" action="view">
@@ -550,10 +602,74 @@ function AppContent() {
           }
         />
         <Route
+          path="projects/linear/launch"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <LinearLaunchControlPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="projects/linear/launch/history"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <LinearLaunchHistoryPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
           path="projects/linear/settings"
           element={
             <PermissionGuard module="planner" action="manage">
               <LinearSettingsPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="projects/linear/smoke-tests"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <LinearSmokeTestsPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="projects/linear/health"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <LinearHealthPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="projects/linear/audit"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <LinearAuditPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="projects/linear/admin/backup"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <LinearAdminBackupPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="projects/linear/admin/users"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <LinearUserRolesPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="projects/linear/admin/permissions"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <LinearPermissionsAuditPage />
             </PermissionGuard>
           }
         />

@@ -186,13 +186,11 @@ function ReportIssueRow({ issue, projectsMap, membersMap, onClick, extra }) {
 export default function LinearWeeklyReportPage() {
   const navigate = useNavigate()
   const {
-    projects, members, loadingProjects, loadingTasks, error,
+    projects, members, loadingProjects, loadingMembers, loadingTasks, error,
     getTasksForProject, getCyclesForProject, actions,
   } = useTeamProjectsContext()
 
   const fetchedRef  = useRef(false)
-  const [allIssues, setAllIssues] = useState([])
-  const [allCycles, setAllCycles] = useState([])
   const [panelIssue, setPanelIssue] = useState(null)
 
   // Filters
@@ -214,24 +212,11 @@ export default function LinearWeeklyReportPage() {
 
   useEffect(() => {
     if (!projects.length) return
-    const fetch = async () => {
-      for (const p of projects) {
-        await actions.fetchTasks(p.id)
-        await actions.fetchCycles(p.id)
-      }
-    }
-    fetch()
-  }, [projects]) // eslint-disable-line
-
-  useEffect(() => {
-    const issues = []; const cycles = []
-    for (const p of projects) {
-      issues.push(...(getTasksForProject(p.id) || []))
-      cycles.push(...(getCyclesForProject(p.id) || []))
-    }
-    setAllIssues(issues)
-    setAllCycles(cycles)
-  }, [projects, getTasksForProject, getCyclesForProject])
+    projects.forEach((project) => {
+      actions.fetchTasks(project.id)
+      actions.fetchCycles(project.id)
+    })
+  }, [projects, actions])
 
   useEffect(() => {
     setMobileReleases(loadMobileReleases())
@@ -246,6 +231,18 @@ export default function LinearWeeklyReportPage() {
   const membersMap = useMemo(() => {
     const m = {}; members.forEach(mb => m[mb.id] = mb); return m
   }, [members])
+
+  const allIssues = useMemo(() => {
+    const issues = []
+    for (const project of projects) issues.push(...(getTasksForProject(project.id) || []))
+    return issues
+  }, [projects, getTasksForProject])
+
+  const allCycles = useMemo(() => {
+    const cycles = []
+    for (const project of projects) cycles.push(...(getCyclesForProject(project.id) || []))
+    return cycles
+  }, [projects, getCyclesForProject])
 
   // ── Week bounds ────────────────────────────────────────────────────────────
   const { mon: weekMon, sun: weekSun } = useMemo(() => weekBounds(), [])
@@ -638,7 +635,7 @@ export default function LinearWeeklyReportPage() {
   }, [aiOutput])
 
   const filterActive = filterProject !== 'all' || filterAssignee !== 'all' || filterLabel !== 'all'
-  const loading      = loadingProjects || loadingTasks
+  const loading = loadingProjects || loadingMembers || Object.values(loadingTasks).some(Boolean)
 
   const { completedThisWeek: cw, rfrIssues: rfr, qaApproved: qa,
           blocked, overdue, unassignedHighPri: uhp, prOpenOnRelease: prOpen,

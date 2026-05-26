@@ -7,6 +7,7 @@
  */
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../../contexts/AuthContext'
 import {
   BookOpen, Plus, Search, X, Edit2, Copy, CheckCircle2, Trash2,
   Tag, Calendar, FileText, ChevronDown, Globe, Smartphone, Server,
@@ -20,6 +21,7 @@ import {
   listDocsApi, createDocApi, updateDocApi, deleteDocApi,
   isMigrated, markMigrated,
 } from '../../lib/linearWorkspaceApi'
+import { canManageDocs, LINEAR_PERMISSION_DENIED_MESSAGE } from '../../lib/linearPermissions'
 import './LinearDocsPage.css'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -587,7 +589,7 @@ async function copyText(text) {
 
 // ── Doc Card ──────────────────────────────────────────────────────────────────
 
-function DocCard({ doc, onEdit, onCopy }) {
+function DocCard({ doc, onEdit, onCopy, canEdit = true }) {
   const [copied, setCopied] = useState(false)
   const catCfg = CATEGORY_MAP[doc.category] || {}
   const CatIcon = catCfg.Icon || FileText
@@ -643,7 +645,7 @@ function DocCard({ doc, onEdit, onCopy }) {
           <Calendar size={10} /> {fmtDateShort(doc.updatedAt)}
         </span>
         <button type="button" className="doc-card__edit-btn" onClick={e => { e.stopPropagation(); onEdit(doc) }}>
-          <Edit2 size={11} /> Edit
+          <Edit2 size={11} /> {canEdit ? 'Edit' : 'View'}
         </button>
       </div>
     </div>
@@ -657,7 +659,7 @@ const EMPTY_FORM = {
   relatedProject: '', relatedLabels: '',
 }
 
-function DocEditorModal({ doc, onSave, onDelete, onClose }) {
+function DocEditorModal({ doc, onSave, onDelete, onClose, readOnly = false }) {
   const isNew = !doc?.id
   const [form, setForm] = useState(() => {
     if (!doc) return EMPTY_FORM
@@ -680,6 +682,7 @@ function DocEditorModal({ doc, onSave, onDelete, onClose }) {
   const set = (key) => (e) => setForm(f => ({ ...f, [key]: e.target.value }))
 
   const handleSave = () => {
+    if (readOnly) return
     if (!form.title.trim()) { titleRef.current?.focus(); return }
     const tags = form.tags.split(',').map(t => t.trim()).filter(Boolean)
     const relatedLabels = form.relatedLabels.split(',').map(t => t.trim()).filter(Boolean)
@@ -725,11 +728,12 @@ function DocEditorModal({ doc, onSave, onDelete, onClose }) {
             <div className="dem__field">
               <label className="dem__label">Title *</label>
               <input ref={titleRef} className="dem__input" value={form.title} onChange={set('title')}
+                disabled={readOnly}
                 placeholder="Doc title" maxLength={120} />
             </div>
             <div className="dem__field">
               <label className="dem__label">Category</label>
-              <select className="dem__select" value={form.category} onChange={set('category')}>
+              <select className="dem__select" value={form.category} onChange={set('category')} disabled={readOnly}>
                 {CATEGORIES.map(c => <option key={c.key} value={c.key}>{c.key}</option>)}
               </select>
             </div>
@@ -737,19 +741,19 @@ function DocEditorModal({ doc, onSave, onDelete, onClose }) {
 
           <div className="dem__field">
             <label className="dem__label">Summary</label>
-            <input className="dem__input" value={form.summary} onChange={set('summary')}
+            <input className="dem__input" value={form.summary} onChange={set('summary')} disabled={readOnly}
               placeholder="One sentence description" maxLength={200} />
           </div>
 
           <div className="dem__row dem__row--2col">
             <div className="dem__field">
               <label className="dem__label">Tags <span className="dem__label-hint">(comma-separated)</span></label>
-              <input className="dem__input" value={form.tags} onChange={set('tags')}
+              <input className="dem__input" value={form.tags} onChange={set('tags')} disabled={readOnly}
                 placeholder="qa, checklist, website" />
             </div>
             <div className="dem__field">
               <label className="dem__label">Related Project</label>
-              <input className="dem__input" value={form.relatedProject} onChange={set('relatedProject')}
+              <input className="dem__input" value={form.relatedProject} onChange={set('relatedProject')} disabled={readOnly}
                 placeholder="Life Smile Website" />
             </div>
           </div>
@@ -759,7 +763,7 @@ function DocEditorModal({ doc, onSave, onDelete, onClose }) {
               Content
               <span className="dem__label-hint"> — plain text or markdown checklist (- [ ] item)</span>
             </label>
-            <textarea className="dem__textarea" value={form.content} onChange={set('content')}
+            <textarea className="dem__textarea" value={form.content} onChange={set('content')} disabled={readOnly}
               placeholder="Write the doc content here. Use - [ ] for checklist items." rows={18} />
           </div>
         </div>
@@ -767,12 +771,12 @@ function DocEditorModal({ doc, onSave, onDelete, onClose }) {
         {/* Footer */}
         <div className="dem__footer">
           <div className="dem__footer-left">
-            {!isNew && !deleteConfirm && (
+            {!readOnly && !isNew && !deleteConfirm && (
               <button type="button" className="dem__delete-btn" onClick={() => setDeleteConfirm(true)}>
                 <Trash2 size={13} /> Delete
               </button>
             )}
-            {!isNew && deleteConfirm && (
+            {!readOnly && !isNew && deleteConfirm && (
               <>
                 <span className="dem__delete-confirm-msg">Delete this doc?</span>
                 <button type="button" className="dem__delete-confirm-btn" onClick={() => onDelete(doc.id)}>
@@ -786,9 +790,13 @@ function DocEditorModal({ doc, onSave, onDelete, onClose }) {
           </div>
           <div className="dem__footer-right">
             <button type="button" className="dem__cancel-btn" onClick={onClose}>Cancel</button>
-            <button type="button" className="dem__save-btn" onClick={handleSave}>
-              <Save size={13} /> {isNew ? 'Create Doc' : 'Save Changes'}
-            </button>
+            {!readOnly ? (
+              <button type="button" className="dem__save-btn" onClick={handleSave}>
+                <Save size={13} /> {isNew ? 'Create Doc' : 'Save Changes'}
+              </button>
+            ) : (
+              <span className="dem__label-hint">{LINEAR_PERMISSION_DENIED_MESSAGE}</span>
+            )}
           </div>
         </div>
       </div>
@@ -800,6 +808,7 @@ function DocEditorModal({ doc, onSave, onDelete, onClose }) {
 
 export default function LinearDocsPage() {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [docs,         setDocs]         = useState([])
   const [loading,      setLoading]      = useState(true)
   const [backendError, setBackendError] = useState(false)
@@ -808,6 +817,7 @@ export default function LinearDocsPage() {
   const [catFilter,    setCatFilter]    = useState('all')
   const [editDoc,      setEditDoc]      = useState(null)
   const [showEditor,   setShowEditor]   = useState(false)
+  const canEditDocs = canManageDocs(user)
 
   // Load from backend on mount; fall back to localStorage on error
   useEffect(() => {
@@ -864,11 +874,13 @@ export default function LinearDocsPage() {
   }, [])
 
   const handleNew = useCallback(() => {
+    if (!canEditDocs) return
     setEditDoc(null)
     setShowEditor(true)
-  }, [])
+  }, [canEditDocs])
 
   const handleSave = useCallback(async (savedDoc) => {
+    if (!canEditDocs) return
     const payload = denormalizeDoc(savedDoc)
     const isLocalId = !savedDoc.id || (typeof savedDoc.id === 'string' && savedDoc.id.startsWith('doc_'))
     try {
@@ -895,9 +907,10 @@ export default function LinearDocsPage() {
     }
     setShowEditor(false)
     setEditDoc(null)
-  }, [])
+  }, [canEditDocs])
 
   const handleDelete = useCallback(async (id) => {
+    if (!canEditDocs) return
     const isLocalId = typeof id === 'string'
     if (!isLocalId) {
       try { await deleteDocApi(id) } catch (err) {
@@ -911,7 +924,7 @@ export default function LinearDocsPage() {
     })
     setShowEditor(false)
     setEditDoc(null)
-  }, [])
+  }, [canEditDocs])
 
   const handleClose = useCallback(() => {
     setShowEditor(false)
@@ -969,7 +982,13 @@ export default function LinearDocsPage() {
                 </button>
               )}
             </div>
-            <button type="button" className="ldocs__new-btn" onClick={handleNew}>
+            <button
+              type="button"
+              className="ldocs__new-btn"
+              onClick={handleNew}
+              disabled={!canEditDocs}
+              title={canEditDocs ? 'Create a new doc' : LINEAR_PERMISSION_DENIED_MESSAGE}
+            >
               <Plus size={14} /> New Doc
             </button>
           </div>
@@ -1026,7 +1045,13 @@ export default function LinearDocsPage() {
                 {search ? 'Try a different search term or clear the filter.' : 'Create your first doc to get started.'}
               </p>
               {!search && catFilter === 'all' && (
-                <button type="button" className="ldocs__empty-btn" onClick={handleNew}>
+                <button
+                  type="button"
+                  className="ldocs__empty-btn"
+                  onClick={handleNew}
+                  disabled={!canEditDocs}
+                  title={canEditDocs ? 'Create a new doc' : LINEAR_PERMISSION_DENIED_MESSAGE}
+                >
                   <Plus size={13} /> Create Doc
                 </button>
               )}
@@ -1034,7 +1059,7 @@ export default function LinearDocsPage() {
           ) : (
             <div className="ldocs__grid">
               {filtered.map(doc => (
-                <DocCard key={doc.id} doc={doc} onEdit={handleEdit} />
+                <DocCard key={doc.id} doc={doc} onEdit={handleEdit} canEdit={canEditDocs} />
               ))}
             </div>
           )}
@@ -1048,6 +1073,7 @@ export default function LinearDocsPage() {
           onSave={handleSave}
           onDelete={handleDelete}
           onClose={handleClose}
+          readOnly={!canEditDocs}
         />
       )}
     </div>

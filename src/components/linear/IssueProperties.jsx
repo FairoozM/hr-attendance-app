@@ -72,6 +72,7 @@ export function IssueProperties({
   members = [],
   onChange,
   saving = false,
+  disabled = false,
 }) {
   const statusVal   = normalizeStatus(status)
   const priorityVal = normalizePriority(priority)
@@ -85,7 +86,7 @@ export function IssueProperties({
           value={statusVal}
           onChange={(v) => onChange({ status: v })}
           options={STATUS_OPTIONS}
-          disabled={saving}
+          disabled={saving || disabled}
         />
       </FieldRow>
 
@@ -94,7 +95,7 @@ export function IssueProperties({
           value={priorityVal}
           onChange={(v) => onChange({ priority: v })}
           options={PRIORITY_OPTIONS}
-          disabled={saving}
+          disabled={saving || disabled}
         />
       </FieldRow>
 
@@ -103,7 +104,7 @@ export function IssueProperties({
           value={typeVal}
           onChange={(v) => onChange({ issueType: v })}
           options={ISSUE_TYPE_OPTIONS}
-          disabled={saving}
+          disabled={saving || disabled}
         />
       </FieldRow>
 
@@ -114,7 +115,7 @@ export function IssueProperties({
           onChange={(e) => onChange({
             assigneeUserId: e.target.value ? Number(e.target.value) : null,
           })}
-          disabled={saving}
+          disabled={saving || disabled}
         >
           <option value="">Unassigned</option>
           {members.map((m) => (
@@ -132,7 +133,7 @@ export function IssueProperties({
           onChange={(e) => onChange({
             sprintId: e.target.value ? Number(e.target.value) : null,
           })}
-          disabled={saving}
+          disabled={saving || disabled}
         >
           <option value="">No Cycle</option>
           {cycles.map((c) => (
@@ -155,7 +156,7 @@ export function IssueProperties({
           className="ipr__input"
           value={dueDate ? String(dueDate).slice(0, 10) : ''}
           onChange={(e) => onChange({ dueDate: e.target.value || null })}
-          disabled={saving}
+          disabled={saving || disabled}
         />
       </FieldRow>
 
@@ -171,7 +172,7 @@ export function IssueProperties({
             onChange({ storyPoints: v === '' ? null : Number(v) })
           }}
           placeholder="—"
-          disabled={saving}
+          disabled={saving || disabled}
         />
       </FieldRow>
 
@@ -182,7 +183,7 @@ export function IssueProperties({
           value={blockedReason || ''}
           onChange={(e) => onChange({ blockedReason: e.target.value })}
           placeholder="Why is this blocked?"
-          disabled={saving}
+          disabled={saving || disabled}
         />
       </FieldRow>
 
@@ -192,7 +193,7 @@ export function IssueProperties({
           <LabelPicker
             labels={labelArr}
             onChange={(newLabels) => onChange({ labels: newLabels })}
-            disabled={saving}
+            disabled={saving || disabled}
           />
         </div>
       </div>

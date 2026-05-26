@@ -5,7 +5,7 @@
  * Reuses IssueDetailPanel for inline editing — no new API routes.
  * Uses existing TeamProjectsContext data only.
  */
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+import { memo, useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { Map, AlertCircle, ChevronDown, X, Check } from 'lucide-react'
 import { useTeamProjectsContext } from '../../contexts/TeamProjectsContext'
 import { LinearSidebar }    from '../../components/linear/LinearSidebar'
@@ -63,7 +63,7 @@ function memberInitials(m) {
 }
 
 // ── Roadmap issue card ────────────────────────────────────────────────────────
-function RoadmapCard({ issue, project, member, cycle, onClick }) {
+const RoadmapCard = memo(function RoadmapCard({ issue, project, member, cycle, onClick }) {
   const key      = issueKey(project?.name, issue.id)
   const prefix   = inferPrefix(project?.name)
   const status   = normalizeStatus(issue.status)
@@ -144,7 +144,7 @@ function RoadmapCard({ issue, project, member, cycle, onClick }) {
       </div>
     </button>
   )
-}
+})
 
 // ── Roadmap column ────────────────────────────────────────────────────────────
 function RoadmapColumn({ col, issues, projectMap, memberMap, cycleMap, onSelect }) {

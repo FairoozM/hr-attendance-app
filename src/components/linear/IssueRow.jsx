@@ -6,7 +6,7 @@
  * Data note: the server calls these "tasks" internally.
  * The UI calls them "issues". No backend field is renamed here.
  */
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { memo, useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Circle, CheckCircle2, Clock, AlertCircle, XCircle,
@@ -54,6 +54,9 @@ export const PRIORITY_CONFIG = {
   Medium:        { Icon: Minus,      color: '#f59e0b', label: 'Medium'      },
   Low:           { Icon: ArrowDown,  color: '#3b82f6', label: 'Low'         },
 }
+
+const STATUS_OPTIONS = Object.entries(STATUS_CONFIG).map(([value, config]) => ({ value, ...config }))
+const PRIORITY_OPTIONS = Object.entries(PRIORITY_CONFIG).map(([value, config]) => ({ value, ...config }))
 
 // Normalise legacy priority strings
 export function normalizePriority(raw) {
@@ -169,8 +172,21 @@ function FloatingPicker({ anchorEl, options, currentValue, onSelect, onClose }) 
   )
 }
 
+function issueRowPropsEqual(prevProps, nextProps) {
+  return (
+    prevProps.issue === nextProps.issue &&
+    prevProps.project === nextProps.project &&
+    prevProps.member === nextProps.member &&
+    prevProps.cycle === nextProps.cycle &&
+    prevProps.isSelected === nextProps.isSelected &&
+    prevProps.onSelect === nextProps.onSelect &&
+    prevProps.onStatusChange === nextProps.onStatusChange &&
+    prevProps.onPriorityChange === nextProps.onPriorityChange
+  )
+}
+
 // ── IssueRow ──────────────────────────────────────────────────────────────────
-export function IssueRow({
+export const IssueRow = memo(function IssueRow({
   issue,
   project,
   member,
@@ -195,21 +211,22 @@ export function IssueRow({
   const key = issueKey(project?.name, issue.id)
   const due = fmtDate(issue.dueDate)
   const assigneeName = member?.displayName || member?.username || ''
-
-  const statusOptions   = Object.entries(STATUS_CONFIG).map(([value, c]) => ({ value, ...c }))
-  const priorityOptions = Object.entries(PRIORITY_CONFIG).map(([value, c]) => ({ value, ...c }))
+  const canEditStatus = typeof onStatusChange === 'function'
+  const canEditPriority = typeof onPriorityChange === 'function'
 
   const handleStatusClick = useCallback((e) => {
     e.stopPropagation()
+    if (!canEditStatus) return
     setStatusPicker((v) => !v)
     setPriorityPicker(false)
-  }, [])
+  }, [canEditStatus])
 
   const handlePriorityClick = useCallback((e) => {
     e.stopPropagation()
+    if (!canEditPriority) return
     setPriorityPicker((v) => !v)
     setStatusPicker(false)
-  }, [])
+  }, [canEditPriority])
 
   return (
     <>
@@ -227,8 +244,9 @@ export function IssueRow({
           type="button"
           className="ir__status-btn"
           onClick={handleStatusClick}
-          title={statusCfg.label}
+          title={canEditStatus ? statusCfg.label : 'You do not have permission to perform this action.'}
           aria-label={`Status: ${statusCfg.label}`}
+          disabled={!canEditStatus}
         >
           <statusCfg.Icon
             size={15}
@@ -334,8 +352,9 @@ export function IssueRow({
           type="button"
           className="ir__priority-btn"
           onClick={handlePriorityClick}
-          title={`Priority: ${priorityCfg.label}`}
+          title={canEditPriority ? `Priority: ${priorityCfg.label}` : 'You do not have permission to perform this action.'}
           aria-label={`Priority: ${priorityCfg.label}`}
+          disabled={!canEditPriority}
         >
           <priorityCfg.Icon
             size={13}
@@ -347,10 +366,10 @@ export function IssueRow({
       </div>
 
       {/* Status picker */}
-      {statusPicker && (
+      {statusPicker && canEditStatus && (
         <FloatingPicker
           anchorEl={statusRef.current}
-          options={statusOptions}
+          options={STATUS_OPTIONS}
           currentValue={status}
           onSelect={(v) => onStatusChange(issue, v)}
           onClose={() => setStatusPicker(false)}
@@ -358,10 +377,10 @@ export function IssueRow({
       )}
 
       {/* Priority picker */}
-      {priorityPicker && (
+      {priorityPicker && canEditPriority && (
         <FloatingPicker
           anchorEl={priorityRef.current}
-          options={priorityOptions}
+          options={PRIORITY_OPTIONS}
           currentValue={priority}
           onSelect={(v) => onPriorityChange(issue, v)}
           onClose={() => setPriorityPicker(false)}
@@ -369,6 +388,6 @@ export function IssueRow({
       )}
     </>
   )
-}
+}, issueRowPropsEqual)
 
 export default IssueRow

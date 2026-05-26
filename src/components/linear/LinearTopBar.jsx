@@ -231,6 +231,7 @@ export function LinearTopBar({
   hasActiveFilters = false,
   title = 'All Issues',
   issueCount = null,
+  canCreateIssues = true,
 }) {
   return (
     <div className="ltb">
@@ -313,7 +314,9 @@ export function LinearTopBar({
           type="button"
           className="ltb__new-btn"
           onClick={onNewIssue}
+          disabled={!canCreateIssues}
           aria-label="Create new issue"
+          title={canCreateIssues ? 'Create new issue' : 'You do not have permission to perform this action.'}
         >
           <Plus size={13} strokeWidth={2.5} aria-hidden="true" />
           New Issue

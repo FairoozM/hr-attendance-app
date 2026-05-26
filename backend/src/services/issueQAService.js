@@ -8,6 +8,7 @@
 const { query } = require('../db')
 const projectTasksService = require('./projectTasksService')
 const taskActivityService = require('./taskActivityService')
+const { logLinearAudit } = require('./linearAuditService')
 
 async function getTaskForProject(taskId, projectId) {
   const res = await query(
@@ -46,6 +47,26 @@ async function approveQA(taskId, projectId, { notes = '', moveToQaApproved = tru
     taskId, actorUserId || null, 'qa_approved', null, null,
     { summary: 'QA approved' }
   ).catch(() => {})
+  await logLinearAudit({
+    entityType: 'qa_approval',
+    entityId: String(taskId),
+    action: 'qa_approved',
+    actorUserId,
+    summary: `QA approved for issue ${taskId}`,
+    beforeSnapshot: {
+      qaApproval: currentQA,
+      status: row.status,
+    },
+    afterSnapshot: {
+      qaApproval,
+      status: updated?.status,
+    },
+    metadata: {
+      taskId,
+      projectId,
+      moveToQaApproved,
+    },
+  })
   return updated
 }
 
@@ -71,6 +92,25 @@ async function revokeQA(taskId, projectId, actorUserId) {
     taskId, actorUserId || null, 'qa_revoked', null, null,
     { summary: 'QA approval revoked' }
   ).catch(() => {})
+  await logLinearAudit({
+    entityType: 'qa_approval',
+    entityId: String(taskId),
+    action: 'qa_revoked',
+    actorUserId,
+    summary: `QA approval revoked for issue ${taskId}`,
+    beforeSnapshot: {
+      qaApproval: currentQA,
+      status: row.status,
+    },
+    afterSnapshot: {
+      qaApproval,
+      status: updated?.status,
+    },
+    metadata: {
+      taskId,
+      projectId,
+    },
+  })
   return updated
 }
 

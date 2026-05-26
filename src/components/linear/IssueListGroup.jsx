@@ -20,6 +20,7 @@ export function IssueListGroup({
   onSelect,
   onStatusChange,
   onPriorityChange,
+  canEditIssue,
   defaultOpen = true,
 }) {
   const [open, setOpen] = useState(defaultOpen)
@@ -56,22 +57,25 @@ export function IssueListGroup({
       {/* Issue rows */}
       {open && issues.length > 0 && (
         <div className="ilg__items" role="rowgroup">
-          {issues.map((issue) => (
-            <IssueRow
-              key={`${issue.projectId}-${issue.id}`}
-              issue={issue}
-              project={projectMap[issue.projectId] || null}
-              member={issue.assigneeUserId ? memberMap[issue.assigneeUserId] : null}
-              cycle={issue.sprintId ? cycleMap[issue.sprintId] : null}
-              isSelected={
-                selectedId === issue.id &&
-                (selectedProjectId == null || selectedProjectId === issue.projectId)
-              }
-              onSelect={onSelect}
-              onStatusChange={onStatusChange}
-              onPriorityChange={onPriorityChange}
-            />
-          ))}
+          {issues.map((issue) => {
+            const editable = typeof canEditIssue === 'function' ? canEditIssue(issue) : true
+            return (
+              <IssueRow
+                key={`${issue.projectId}-${issue.id}`}
+                issue={issue}
+                project={projectMap[issue.projectId] || null}
+                member={issue.assigneeUserId ? memberMap[issue.assigneeUserId] : null}
+                cycle={issue.sprintId ? cycleMap[issue.sprintId] : null}
+                isSelected={
+                  selectedId === issue.id &&
+                  (selectedProjectId == null || selectedProjectId === issue.projectId)
+                }
+                onSelect={onSelect}
+                onStatusChange={editable ? onStatusChange : undefined}
+                onPriorityChange={editable ? onPriorityChange : undefined}
+              />
+            )
+          })}
         </div>
       )}
 

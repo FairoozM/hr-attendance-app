@@ -1,10 +1,19 @@
 const { approveQA, revokeQA } = require('../services/issueQAService')
+const { canApproveQA } = require('../utils/linearPermissions')
+
+function sendForbidden(res) {
+  return res.status(403).json({
+    error: 'Forbidden',
+    message: 'You do not have permission to perform this action.',
+  })
+}
 
 /**
  * POST /api/projects/:projectId/tasks/:taskId/qa/approve
  * Body: { notes?: string, moveToQaApproved?: boolean }
  */
 async function approve(req, res) {
+  if (!canApproveQA(req.user)) return sendForbidden(res)
   const projectId = Number(req.params.projectId)
   const taskId    = Number(req.params.taskId)
   if (!projectId || !taskId) return res.status(400).json({ error: 'Invalid route parameters.' })
@@ -24,6 +33,7 @@ async function approve(req, res) {
  * POST /api/projects/:projectId/tasks/:taskId/qa/revoke
  */
 async function revoke(req, res) {
+  if (!canApproveQA(req.user)) return sendForbidden(res)
   const projectId = Number(req.params.projectId)
   const taskId    = Number(req.params.taskId)
   if (!projectId || !taskId) return res.status(400).json({ error: 'Invalid route parameters.' })

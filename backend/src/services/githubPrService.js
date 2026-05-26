@@ -10,6 +10,7 @@
 const axios = require('axios')
 const { query } = require('../db')
 const taskActivityService = require('./taskActivityService')
+const { logLinearAudit } = require('./linearAuditService')
 
 const GITHUB_API = 'https://api.github.com'
 const PR_URL_RE  = /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i
@@ -148,6 +149,28 @@ async function syncPrMetadata({ taskId, projectId, prUrl, actorUserId }) {
       { summary: `GitHub PR synced: ${owner}/${repo}#${number} (${prStatus})` }
     )
   }
+
+  await logLinearAudit({
+    entityType: 'github',
+    entityId: `${owner}/${repo}#${number}`,
+    action: 'github_pr_synced',
+    actorUserId,
+    summary: `GitHub PR synced for issue ${taskId}: ${owner}/${repo}#${number}`,
+    afterSnapshot: {
+      repo: `${owner}/${repo}`,
+      prNumber: number,
+      prStatus,
+      taskId,
+      projectId,
+      devMeta: updatedDevMeta,
+    },
+    metadata: {
+      source: 'manual',
+      taskId,
+      projectId,
+      prUrl: prData.html_url || prUrl,
+    },
+  })
 
   return { devMeta: updatedDevMeta }
 }

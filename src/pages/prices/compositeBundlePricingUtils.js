@@ -2,7 +2,10 @@
 
 import { PREF_SAVED_COMPOSITES } from '../../constants/userPreferenceKeys'
 import { getUserPrefKey, requestUserPrefSave } from '../../lib/userPreferencesBridge'
-import resolver from '../../../shared/compositeComponentPricingResolver.cjs'
+import {
+  buildPurchasePriceMap as buildResolverPurchasePriceMap,
+  findPurchaseMatchForComponent as findResolverPurchaseMatchForComponent,
+} from './compositeComponentPricingResolver'
 
 export const STORAGE_KEY_SAVED_COMPOSITES = 'hr-saved-composite-items-v1'
 export const SAVED_COMPOSITES_UPDATED_EVENT = 'hr-saved-composite-items-updated'
@@ -241,7 +244,7 @@ function normalizePurchaseMatch(value, matchedKey, matchKind) {
 /**
  * Build lookup from ecommerce price list rows: itemNo variant → row match metadata.
  */
-export const buildPurchasePriceMap = resolver.buildPurchasePriceMap
+export const buildPurchasePriceMap = buildResolverPurchasePriceMap
 
 /** Normalize component keys and also try base SKU when Zoho adds a trailing color token. */
 export function expandMatchVariants(raw) {
@@ -254,7 +257,7 @@ export function expandMatchVariants(raw) {
  * @param {{ sku?: string, name?: string, match_keys?: string[] }} component
  */
 export function findPurchaseMatchForComponent(purchaseMap, component) {
-  const result = resolver.findPurchaseMatchForComponent(purchaseMap, component)
+  const result = findResolverPurchaseMatchForComponent(purchaseMap, component)
   return result.status === 'matched' ? result.match : null
 }
 

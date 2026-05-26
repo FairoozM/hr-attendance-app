@@ -137,7 +137,16 @@ function ImageLightbox({ url, name, onClose }) {
 
 // ── Attachment card ───────────────────────────────────────────────────────────
 
-function AttachmentCard({ att, signedUrl, onView, onOpen, onDelete, onAnalyze, onKindChange }) {
+function AttachmentCard({
+  att,
+  signedUrl,
+  onView,
+  onOpen,
+  onDelete,
+  onAnalyze,
+  onKindChange,
+  canManageAttachments = true,
+}) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [kindChanging, setKindChanging] = useState(false)
   const img = isImage(att.file_type)
@@ -187,7 +196,7 @@ function AttachmentCard({ att, signedUrl, onView, onOpen, onDelete, onAnalyze, o
               className="ia-card__kind-select"
               value={currentKind}
               onChange={handleKindChange}
-              disabled={kindChanging}
+              disabled={kindChanging || !canManageAttachments}
               aria-label="Change classification"
               title="Change classification"
             >
@@ -203,7 +212,7 @@ function AttachmentCard({ att, signedUrl, onView, onOpen, onDelete, onAnalyze, o
         </div>
 
         {/* AI Analyze button — images only */}
-        {img && (
+        {img && canManageAttachments && (
           <button
             type="button"
             className="ia-card__ai-btn"
@@ -231,7 +240,7 @@ function AttachmentCard({ att, signedUrl, onView, onOpen, onDelete, onAnalyze, o
           {img ? <Eye size={13} /> : <ExternalLink size={13} />}
         </button>
 
-        {!confirmDelete ? (
+        {canManageAttachments && !confirmDelete ? (
           <button
             type="button"
             className="ia-card__btn ia-card__btn--delete"
@@ -240,7 +249,7 @@ function AttachmentCard({ att, signedUrl, onView, onOpen, onDelete, onAnalyze, o
           >
             <Trash2 size={13} />
           </button>
-        ) : (
+        ) : canManageAttachments ? (
           <span className="ia-card__confirm">
             <button type="button" className="ia-card__confirm-yes" onClick={() => onDelete(att)}>
               Delete
@@ -249,7 +258,7 @@ function AttachmentCard({ att, signedUrl, onView, onOpen, onDelete, onAnalyze, o
               Cancel
             </button>
           </span>
-        )}
+        ) : null}
       </div>
     </div>
   )
@@ -257,7 +266,7 @@ function AttachmentCard({ att, signedUrl, onView, onOpen, onDelete, onAnalyze, o
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function IssueAttachments({ issue, project, onAppendDescription }) {
+export function IssueAttachments({ issue, project, onAppendDescription, canManageAttachments = true }) {
   const projectId = issue?.projectId || project?.id
   const taskId    = issue?.id
 
@@ -372,11 +381,12 @@ export function IssueAttachments({ issue, project, onAppendDescription }) {
   }, [projectId, taskId])
 
   const handleFiles = useCallback((files) => {
+    if (!canManageAttachments) return
     const arr = Array.from(files)
     if (!arr.length) return
     // Upload sequentially to avoid race conditions
     arr.reduce((p, f) => p.then(() => uploadFile(f)), Promise.resolve())
-  }, [uploadFile])
+  }, [canManageAttachments, uploadFile])
 
   const handleInputChange = (e) => { handleFiles(e.target.files); e.target.value = '' }
 
@@ -386,6 +396,7 @@ export function IssueAttachments({ issue, project, onAppendDescription }) {
   const handleDrop      = (e) => {
     e.preventDefault()
     setDragOver(false)
+    if (!canManageAttachments) return
     handleFiles(e.dataTransfer.files)
   }
 
@@ -442,10 +453,10 @@ export function IssueAttachments({ issue, project, onAppendDescription }) {
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={() => !uploading && inputRef.current?.click()}
+        onClick={() => !uploading && canManageAttachments && inputRef.current?.click()}
         role="button"
-        tabIndex={0}
-        onKeyDown={(e) => e.key === 'Enter' && !uploading && inputRef.current?.click()}
+        tabIndex={canManageAttachments ? 0 : -1}
+        onKeyDown={(e) => e.key === 'Enter' && !uploading && canManageAttachments && inputRef.current?.click()}
         aria-label="Upload files"
       >
         <input
@@ -454,6 +465,7 @@ export function IssueAttachments({ issue, project, onAppendDescription }) {
           accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,application/pdf"
           multiple
           className="ia__input"
+          disabled={!canManageAttachments}
           onChange={handleInputChange}
         />
         {uploading ? (
@@ -465,7 +477,13 @@ export function IssueAttachments({ issue, project, onAppendDescription }) {
           <>
             <Upload size={18} aria-hidden="true" />
             <span className="ia__zone-label">
-              Drop files or <strong>click to upload</strong>
+              {canManageAttachments ? (
+                <>
+                  Drop files or <strong>click to upload</strong>
+                </>
+              ) : (
+                'Attachments are read-only for your role.'
+              )}
             </span>
             <span className="ia__zone-hint">PNG, JPG, WEBP, GIF, PDF · Max 10 MB</span>
           </>
@@ -473,7 +491,7 @@ export function IssueAttachments({ issue, project, onAppendDescription }) {
       </div>
 
       {/* Upload kind selector */}
-      {!uploading && (
+      {!uploading && canManageAttachments && (
         <div className="ia__upload-kind-row" onClick={(e) => e.stopPropagation()}>
           <span className="ia__upload-kind-label">Upload as:</span>
           <div className="ia__upload-kind-wrap">
@@ -523,6 +541,7 @@ export function IssueAttachments({ issue, project, onAppendDescription }) {
                     onDelete={deleting === att.id ? () => {} : handleDelete}
                     onAnalyze={setAnalyzingAttachment}
                     onKindChange={handleKindChange}
+                    canManageAttachments={canManageAttachments}
                   />
                 ))}
               </div>

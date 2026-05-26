@@ -403,7 +403,17 @@ ${first ? `${first}\n\n` : ''}**Impact**: Affects users of ${project?.name || 't
 
 // ── Component ──────────────────────────────────────────────────────────────
 
-export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta, onSyncGithubPr, onApplyStatusSuggestion, onDismissStatusSuggestion }) {
+export function IssueDevWorkflow({
+  issue,
+  project,
+  cycles = [],
+  onSaveDevMeta,
+  onSyncGithubPr,
+  onApplyStatusSuggestion,
+  onDismissStatusSuggestion,
+  canEditDevMeta = true,
+  canSyncGithub = true,
+}) {
   const suggestedBranch = generateBranchName(project?.name, issue?.id, issue?.title)
 
   // Local form state (initialized from issue.devMeta if present)
@@ -566,6 +576,7 @@ export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta, o
               type="button"
               className="idw__use-btn"
               onClick={useBranchName}
+              disabled={!canEditDevMeta}
               title="Use as branch name below"
             >
               Use
@@ -591,6 +602,7 @@ export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta, o
               value={form.branchName}
               onChange={(e) => setField('branchName', e.target.value)}
               placeholder={suggestedBranch}
+              disabled={!canEditDevMeta}
             />
           </label>
 
@@ -603,8 +615,9 @@ export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta, o
               value={form.prUrl}
               onChange={(e) => setField('prUrl', e.target.value)}
               placeholder="https://github.com/org/repo/pull/42"
+              disabled={!canEditDevMeta}
             />
-            {onSyncGithubPr && (
+            {onSyncGithubPr && canSyncGithub && (
               <button
                 type="button"
                 className={`idw__sync-btn ${syncing ? 'idw__sync-btn--loading' : ''}`}
@@ -624,6 +637,7 @@ export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta, o
               className="idw__input idw__select"
               value={form.prStatus}
               onChange={(e) => setField('prStatus', e.target.value)}
+              disabled={!canEditDevMeta}
             >
               {PR_STATUSES.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
@@ -640,6 +654,7 @@ export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta, o
               value={form.commitRef}
               onChange={(e) => setField('commitRef', e.target.value)}
               placeholder="a1b2c3d"
+              disabled={!canEditDevMeta}
             />
           </label>
         </div>
@@ -649,7 +664,7 @@ export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta, o
             type="button"
             className={`idw__save-btn ${dirty ? 'idw__save-btn--dirty' : ''}`}
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || !canEditDevMeta}
           >
             <Save size={13} aria-hidden="true" />
             {saving ? 'Saving…' : 'Save'}
@@ -658,7 +673,7 @@ export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta, o
             type="button"
             className="idw__clear-btn"
             onClick={handleClear}
-            disabled={saving}
+            disabled={saving || !canEditDevMeta}
             title="Clear all GitHub metadata"
           >
             <Trash2 size={12} aria-hidden="true" />
@@ -685,7 +700,7 @@ export function IssueDevWorkflow({ issue, project, cycles = [], onSaveDevMeta, o
       </section>
 
       {/* ── GitHub Automation Suggestion ─────────────────────────────── */}
-      {suggestion && (
+      {suggestion && canEditDevMeta && (
         <GithubStatusSuggestion
           suggestion={suggestion}
           applying={applying}

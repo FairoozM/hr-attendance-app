@@ -34,6 +34,10 @@
   from { opacity: 0; transform: scale(.96) translateY(-8px); }
   to   { opacity: 1; transform: none; }
 }
+@keyframes cm-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 
 /* ── Search row ───────────────────────────────────────────── */
 .cm-search-wrap {
@@ -181,6 +185,9 @@
   border-radius: 4px;
   padding: 0.05rem 0.4rem;
   font-size: 0.68rem;
+}
+.cm-searching {
+  animation: cm-spin 1s linear infinite;
 }
 
 /* ── Empty ────────────────────────────────────────────────── */

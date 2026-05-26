@@ -1,16 +1,19 @@
 const taskCommentsService = require('../services/taskCommentsService')
+const {
+  canCommentOnIssue,
+  canViewLinear,
+} = require('../utils/linearPermissions')
 
-function requireAdmin(req, res) {
-  if (!req.user || req.user.role !== 'admin') {
-    res.status(403).json({ error: 'Admin access required' })
-    return false
-  }
-  return true
+function sendForbidden(res) {
+  return res.status(403).json({
+    error: 'Forbidden',
+    message: 'You do not have permission to perform this action.',
+  })
 }
 
 async function listComments(req, res) {
   try {
-    if (!requireAdmin(req, res)) return
+    if (!canViewLinear(req.user)) return sendForbidden(res)
     const comments = await taskCommentsService.listCommentsForTask(
       req.params.projectId,
       req.params.taskId
@@ -25,7 +28,7 @@ async function listComments(req, res) {
 
 async function createComment(req, res) {
   try {
-    if (!requireAdmin(req, res)) return
+    if (!canCommentOnIssue(req.user)) return sendForbidden(res)
     const comment = await taskCommentsService.createComment(
       req.params.projectId,
       req.params.taskId,

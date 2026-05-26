@@ -422,7 +422,7 @@ function CopyBtn({ label, getText }) {
 
 // ── Checklist accordion ───────────────────────────────────────────────────────
 
-function ChecklistSection({ title, items, values, onChange }) {
+function ChecklistSection({ title, items, values, onChange, disabled = false }) {
   const [open, setOpen] = useState(false)
   const done  = items.filter((i) => values?.[i.id]).length
   const total = items.length
@@ -443,6 +443,7 @@ function ChecklistSection({ title, items, values, onChange }) {
                 type="checkbox"
                 className="wdt__cl-check"
                 checked={!!values?.[item.id]}
+                disabled={disabled}
                 onChange={(e) => onChange(item.id, e.target.checked)}
               />
               <span className={values?.[item.id] ? 'wdt__cl-item-done' : ''}>{item.label}</span>
@@ -456,7 +457,7 @@ function ChecklistSection({ title, items, values, onChange }) {
 
 // ── Deployment card ───────────────────────────────────────────────────────────
 
-function DeploymentCard({ dep, allIssues, projectsMap, onEdit, onDelete, onChecklistChange }) {
+function DeploymentCard({ dep, allIssues, projectsMap, onEdit, onDelete, onChecklistChange, canManageDeployments = true }) {
   const [expanded,   setExpanded]   = useState(false)
   const [delConfirm, setDelConfirm] = useState(false)
 
@@ -486,19 +487,23 @@ function DeploymentCard({ dep, allIssues, projectsMap, onEdit, onDelete, onCheck
           <button type="button" className="wdt__icon-btn" onClick={() => setExpanded((v) => !v)} aria-label={expanded ? 'Collapse' : 'Expand'}>
             {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           </button>
-          <button type="button" className="wdt__icon-btn" onClick={() => onEdit(dep)} aria-label="Edit">
-            <Edit2 size={13} />
-          </button>
-          {!delConfirm ? (
-            <button type="button" className="wdt__icon-btn wdt__icon-btn--del" onClick={() => setDelConfirm(true)} aria-label="Delete">
-              <Trash2 size={13} />
-            </button>
-          ) : (
-            <span className="wdt__del-confirm">
-              Delete?
-              <button type="button" className="wdt__del-yes" onClick={() => onDelete(dep.id)}>Yes</button>
-              <button type="button" className="wdt__del-no"  onClick={() => setDelConfirm(false)}>No</button>
-            </span>
+          {canManageDeployments && (
+            <>
+              <button type="button" className="wdt__icon-btn" onClick={() => onEdit(dep)} aria-label="Edit">
+                <Edit2 size={13} />
+              </button>
+              {!delConfirm ? (
+                <button type="button" className="wdt__icon-btn wdt__icon-btn--del" onClick={() => setDelConfirm(true)} aria-label="Delete">
+                  <Trash2 size={13} />
+                </button>
+              ) : (
+                <span className="wdt__del-confirm">
+                  Delete?
+                  <button type="button" className="wdt__del-yes" onClick={() => onDelete(dep.id)}>Yes</button>
+                  <button type="button" className="wdt__del-no"  onClick={() => setDelConfirm(false)}>No</button>
+                </span>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -574,6 +579,7 @@ function DeploymentCard({ dep, allIssues, projectsMap, onEdit, onDelete, onCheck
               items={list}
               values={dep.checklist?.[key]}
               onChange={(itemId, checked) => onChecklistChange(dep.id, key, itemId, checked)}
+              disabled={!canManageDeployments}
             />
           ))}
 
@@ -778,7 +784,7 @@ function DeploymentModal({ deployment, allIssues, projectsMap, onSave, onClose }
  *   projectsMap: Record<string, object>,
  * }} props
  */
-export function WebDeploymentTracker({ allIssues, selectedIssues, projectsMap }) {
+export function WebDeploymentTracker({ allIssues, selectedIssues, projectsMap, canManageDeployments = true }) {
   const [deployments,  setDeployments]  = useState([])
   const [loading,      setLoading]      = useState(true)
   const [backendError, setBackendError] = useState(false)
@@ -816,12 +822,13 @@ export function WebDeploymentTracker({ allIssues, selectedIssues, projectsMap })
 
   // ── CRUD ───────────────────────────────────────────────────────────────────
   const handleNew = useCallback(() => {
+    if (!canManageDeployments) return
     const detectedType = detectDeployType(selectedIssues, projectsMap)
     setModalDeploy(newDeployment({
       deployType:     detectedType,
       linkedIssueIds: selectedIssues.map((i) => i.id),
     }))
-  }, [selectedIssues, projectsMap])
+  }, [canManageDeployments, selectedIssues, projectsMap])
 
   const handleEdit = useCallback((dep) => { setModalDeploy({ ...dep }) }, [])
 
@@ -943,7 +950,7 @@ export function WebDeploymentTracker({ allIssues, selectedIssues, projectsMap })
           )}
         </div>
         <div className="wdt__header-right">
-          <button type="button" className="wdt__new-btn" onClick={handleNew}>
+          <button type="button" className="wdt__new-btn" onClick={handleNew} disabled={!canManageDeployments} title={canManageDeployments ? 'Create deployment' : 'You do not have permission to perform this action.'}>
             <Plus size={13} /> New Deployment
           </button>
           <button
@@ -970,7 +977,7 @@ export function WebDeploymentTracker({ allIssues, selectedIssues, projectsMap })
           )}
 
           {/* Suggestion banner */}
-          {showSuggest && (
+          {showSuggest && canManageDeployments && (
             <div className="wdt__suggest-banner">
               <Server size={13} />
               <span>
@@ -1002,7 +1009,7 @@ export function WebDeploymentTracker({ allIssues, selectedIssues, projectsMap })
               <Globe size={28} className="wdt__empty-icon" />
               <p>No deployments yet.</p>
               <p>Create a deployment to track frontend, backend, or database releases for lifesmile.ae.</p>
-              <button type="button" className="wdt__new-btn" onClick={handleNew}>
+              <button type="button" className="wdt__new-btn" onClick={handleNew} disabled={!canManageDeployments} title={canManageDeployments ? 'Create deployment' : 'You do not have permission to perform this action.'}>
                 <Plus size={13} /> New Deployment
               </button>
             </div>
@@ -1017,6 +1024,7 @@ export function WebDeploymentTracker({ allIssues, selectedIssues, projectsMap })
                   onEdit={handleEdit}
                   onDelete={handleDelete}
                   onChecklistChange={handleChecklistChange}
+                  canManageDeployments={canManageDeployments}
                 />
               ))}
             </div>
@@ -1025,7 +1033,7 @@ export function WebDeploymentTracker({ allIssues, selectedIssues, projectsMap })
       )}
 
       {/* Modal */}
-      {modalDeploy && (
+      {modalDeploy && canManageDeployments && (
         <DeploymentModal
           deployment={modalDeploy}
           allIssues={allIssues}

@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Trash2, BookOpen } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../../contexts/AuthContext'
 import { issueKey } from './IssueRow'
 import { IssueProperties } from './IssueProperties'
 import { IssueComments } from './IssueComments'
@@ -17,6 +18,17 @@ import { syncIssueGithubPr, approveIssueQA, revokeIssueQA, normalizeTask } from 
 import { getRelatedDocsForIssue } from '../../lib/linearDocsMatcher'
 import { RelatedDocsList } from './RelatedDocsList'
 import { ChecklistRunner } from './ChecklistRunner'
+import {
+  canApproveQA,
+  canApproveRelease,
+  canDeleteIssue,
+  canEditIssueTitleOrDescription,
+  canManageIssueAttachments,
+  canManageIssueProperties,
+  canRunChecklists,
+  canUseGitHubSync,
+  LINEAR_PERMISSION_DENIED_MESSAGE,
+} from '../../lib/linearPermissions'
 import './IssueDetailPanel.css'
 
 const TABS = [
@@ -58,6 +70,7 @@ export function IssueDetailPanel({
   onDelete,
 }) {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [tab, setTab] = useState('details')
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -73,6 +86,14 @@ export function IssueDetailPanel({
   const titleRef = useRef(null)
 
   const key = issue ? issueKey(project?.name, issue.id) : ''
+  const canEditText = canEditIssueTitleOrDescription(user)
+  const canEditProperties = canManageIssueProperties(user, issue)
+  const canDeleteCurrentIssue = canDeleteIssue(user)
+  const canSyncGithub = canUseGitHubSync(user, issue)
+  const canApproveQa = canApproveQA(user)
+  const canMoveIssueToDone = canApproveRelease(user)
+  const canManageAttachments = canManageIssueAttachments(user)
+  const canRunIssueChecklists = canRunChecklists(user)
 
   useEffect(() => {
     if (!issue) return
@@ -112,6 +133,13 @@ export function IssueDetailPanel({
 
   const persist = useCallback(async (patch) => {
     if (!issue || !onUpdate) return
+    const isTextEdit = patch.title !== undefined || patch.description !== undefined
+    if (isTextEdit && !canEditText) {
+      throw new Error(LINEAR_PERMISSION_DENIED_MESSAGE)
+    }
+    if (!isTextEdit && !canEditProperties) {
+      throw new Error(LINEAR_PERMISSION_DENIED_MESSAGE)
+    }
     setSaving(true)
     setSaveError('')
     try {
@@ -135,7 +163,7 @@ export function IssueDetailPanel({
     } finally {
       setSaving(false)
     }
-  }, [issue, onUpdate])
+  }, [canEditProperties, canEditText, issue, onUpdate])
 
   const handlePropertiesChange = useCallback((patch) => {
     setFields((prev) => ({ ...prev, ...patch }))
@@ -285,7 +313,8 @@ export function IssueDetailPanel({
             onBlur={handleTitleBlur}
             onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
             placeholder="Issue title"
-            disabled={saving}
+            disabled={saving || !canEditText}
+            title={!canEditText ? LINEAR_PERMISSION_DENIED_MESSAGE : undefined}
           />
         </header>
 
@@ -324,7 +353,8 @@ export function IssueDetailPanel({
                   onChange={(e) => setDescription(e.target.value)}
                   onBlur={handleDescriptionBlur}
                   placeholder="Add a description…"
-                  disabled={saving}
+                  disabled={saving || !canEditText}
+                  title={!canEditText ? LINEAR_PERMISSION_DENIED_MESSAGE : undefined}
                 />
               </section>
 
@@ -345,6 +375,7 @@ export function IssueDetailPanel({
                   members={members}
                   onChange={handlePropertiesChange}
                   saving={saving}
+                  disabled={!canEditProperties}
                 />
               </section>
 
@@ -361,7 +392,7 @@ export function IssueDetailPanel({
                 />
               </section>
 
-              {onDelete && (
+              {onDelete && canDeleteCurrentIssue && (
                 <section className="idp__danger">
                   {!deleteConfirmOpen ? (
                     <button
@@ -443,10 +474,12 @@ export function IssueDetailPanel({
               issue={issue}
               project={project}
               cycles={cycles}
-              onSaveDevMeta={handleSaveDevMeta}
-              onSyncGithubPr={handleSyncGithubPr}
+              onSaveDevMeta={canEditProperties ? handleSaveDevMeta : undefined}
+              onSyncGithubPr={canSyncGithub ? handleSyncGithubPr : undefined}
               onApplyStatusSuggestion={handleApplyStatusSuggestion}
               onDismissStatusSuggestion={handleDismissStatusSuggestion}
+              canEditDevMeta={canEditProperties}
+              canSyncGithub={canSyncGithub}
             />
           )}
 
@@ -455,6 +488,7 @@ export function IssueDetailPanel({
               issue={issue}
               project={project}
               onAppendDescription={handleAiAppendDescription}
+              canManageAttachments={canManageAttachments}
             />
           )}
 
@@ -463,12 +497,15 @@ export function IssueDetailPanel({
               issue={issue}
               project={project}
               members={members}
-              currentUser={null}
-              onApprove={handleQaApprove}
-              onRevoke={handleQaRevoke}
-              onSaveNotes={handleQaSaveNotes}
-              onMoveToDone={handleQaMoveToDone}
-              onRunChecklist={setChecklistDoc}
+              currentUser={user || null}
+              onApprove={canApproveQa ? handleQaApprove : undefined}
+              onRevoke={canApproveQa ? handleQaRevoke : undefined}
+              onSaveNotes={canEditProperties ? handleQaSaveNotes : undefined}
+              onMoveToDone={canMoveIssueToDone ? handleQaMoveToDone : undefined}
+              onRunChecklist={canRunIssueChecklists ? setChecklistDoc : undefined}
+              canApproveQa={canApproveQa}
+              canEditNotes={canEditProperties}
+              canMoveToDone={canMoveIssueToDone}
             />
           )}
         </div>
@@ -484,7 +521,7 @@ export function IssueDetailPanel({
   return (
     <>
       {panel}
-      {checklistDoc && issue && (
+      {checklistDoc && issue && canRunIssueChecklists && (
         <ChecklistRunner
           doc={checklistDoc}
           contextType="issue"

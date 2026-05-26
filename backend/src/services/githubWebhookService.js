@@ -22,6 +22,7 @@
 const crypto = require('crypto')
 const { query } = require('../db')
 const { logActivity } = require('./taskActivityService')
+const { logLinearAudit } = require('./linearAuditService')
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -226,6 +227,27 @@ async function processPullRequestEvent(action, payload) {
       null,
       { summary: `${label}: ${repo}#${pr.number} (${prStatus})` }
     )
+
+    await logLinearAudit({
+      entityType: 'github',
+      entityId: `${repo}#${pr.number}`,
+      action: 'github_pr_synced',
+      actorName: 'GitHub',
+      summary: `GitHub webhook matched issue ${taskId}: ${repo}#${pr.number}`,
+      afterSnapshot: {
+        repo,
+        prNumber: pr.number,
+        prStatus,
+        taskId,
+        action,
+      },
+      metadata: {
+        source: 'webhook',
+        taskId,
+        prUrl: pr.html_url || '',
+        lastWebhookAction: action,
+      },
+    })
 
     matched.push(taskId)
   }
