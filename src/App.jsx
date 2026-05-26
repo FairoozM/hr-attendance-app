@@ -52,9 +52,7 @@ function AiHubGuard({ children }) {
 }
 import { PaymentsPage } from './pages/influencers/PaymentsPage'
 import { AgreementsPage } from './pages/influencers/AgreementsPage'
-import { ReportsPage } from './pages/influencers/ReportsPage'
 import { InfluencerPerformancePage } from './pages/influencers/InfluencerPerformancePage'
-import { InfluencerPerformanceIphonePage } from './pages/influencers/InfluencerPerformanceIphonePage'
 import { SimCardsPage } from './pages/SimCardsPage'
 import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
 import { PaymentsPage as CompanyPaymentsPage } from './pages/management/PaymentsPage'
@@ -664,16 +662,6 @@ function AppContent() {
           <Route path="agreements" element={
             <PermissionGuard module="influencers" action="agreements">
               <AgreementsPage />
-            </PermissionGuard>
-          } />
-          <Route path="reports" element={
-            <PermissionGuard module="influencers" action="view">
-              <ReportsPage />
-            </PermissionGuard>
-          } />
-          <Route path="performance/iphone" element={
-            <PermissionGuard module="influencers" action="performance">
-              <InfluencerPerformanceIphonePage />
             </PermissionGuard>
           } />
           <Route path="performance" element={
