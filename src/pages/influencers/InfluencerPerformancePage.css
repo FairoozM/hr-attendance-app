@@ -1539,7 +1539,8 @@
 .ip-hud-day-head-main {
   display: flex;
   align-items: flex-start;
-  gap: 0.45rem;
+  flex: 1 1 auto;
+  gap: 0.38rem;
 }
 
 .ip-step-badge {
@@ -1580,8 +1581,10 @@
   display: block;
   margin-bottom: 0.8rem;
   color: rgba(0, 0, 0, 0.42);
-  font-size: 1.19rem;
+  font-size: 0.98rem;
   font-weight: 800;
+  line-height: 1.05;
+  white-space: nowrap;
 }
 
 .ip-hud-day--active .ip-hud-day-date {
@@ -3244,7 +3247,7 @@
   }
 
   .ip-hud-day-head-main {
-    gap: 0.4rem;
+    gap: 0.34rem;
   }
 
   .ip-step-badge {
@@ -3252,6 +3255,10 @@
     width: 1.72rem;
     height: 1.72rem;
     font-size: 0.74rem;
+  }
+
+  .ip-hud-day-date {
+    font-size: 0.94rem;
   }
 
   .ip-filter-panel__footer,
