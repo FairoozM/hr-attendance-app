@@ -244,7 +244,7 @@ function HudContractCard({ contract, onEditRecord, onDeleteRecord, onEditContrac
         <div className="ip-hud-header-totals" aria-label="Total performance summary">
           {[
             ['views', 'Total Views', totals.views, Eye],
-            ['storyViews', 'Total Story', totals.storyViews, GalleryHorizontal],
+            ['storyViews', 'Total Story Views', totals.storyViews, GalleryHorizontal],
             ['likes', 'Total Likes', totals.likes, Heart],
             ['shares', 'Total Shares', totals.shares, Send],
             ['comments', 'Total Comments', totals.comments, MessageCircle],
