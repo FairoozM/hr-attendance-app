@@ -23,7 +23,6 @@ import { ItemReportGroupsAdminPage } from './pages/admin/ItemReportGroupsAdminPa
 import BulkZohoInvoicePage from './pages/admin/BulkZohoInvoicePage'
 import { InfluencerListPage } from './pages/influencers/InfluencerListPage'
 import { AddInfluencerPage } from './pages/influencers/AddInfluencerPage'
-import { PipelinePage } from './pages/influencers/PipelinePage'
 /** /influencers/:id (legacy profile URL) — send users straight to the editor. */
 function InfluencerIdToEditRedirect() {
   const { id } = useParams()
@@ -51,7 +50,6 @@ function AiHubGuard({ children }) {
   if (!allowed) return <Navigate to="/account" replace />
   return children
 }
-import { ShootSchedulePage } from './pages/influencers/ShootSchedulePage'
 import { PaymentsPage } from './pages/influencers/PaymentsPage'
 import { AgreementsPage } from './pages/influencers/AgreementsPage'
 import { ReportsPage } from './pages/influencers/ReportsPage'
@@ -656,16 +654,6 @@ function AppContent() {
           <Route path="new" element={
             <PermissionGuard module="influencers" action="manage">
               <AddInfluencerPage />
-            </PermissionGuard>
-          } />
-          <Route path="pipeline" element={
-            <PermissionGuard module="influencers" action="view">
-              <PipelinePage />
-            </PermissionGuard>
-          } />
-          <Route path="schedule" element={
-            <PermissionGuard module="influencers" action="view">
-              <ShootSchedulePage />
             </PermissionGuard>
           } />
           <Route path="payments" element={

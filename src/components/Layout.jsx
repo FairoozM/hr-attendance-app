@@ -581,8 +581,6 @@ export function Layout() {
 
   const INFLUENCER_ITEMS = [
     can('influencers', 'view') && { label: 'Influencer List', to: '/influencers/list' },
-    can('influencers', 'view') && { label: 'Pipeline', to: '/influencers/pipeline' },
-    can('influencers', 'view') && { label: 'Shoot Schedule', to: '/influencers/schedule' },
     can('influencers', 'agreements') && { label: 'Agreements', to: '/influencers/agreements' },
     can('influencers', 'payments') && { label: 'Payments', to: '/influencers/payments' },
     can('influencers', 'performance') && { label: 'Performance', to: '/influencers/performance' },
