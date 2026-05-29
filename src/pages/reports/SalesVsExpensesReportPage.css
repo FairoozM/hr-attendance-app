@@ -454,6 +454,7 @@
 .sve-kpi-change {
   font-size: 13px;
   color: #64748b;
+  text-align: center;
 }
 .sve-kpi--green .sve-kpi-change b { color: #16a34a; }
 .sve-kpi--orange .sve-kpi-change b { color: #f97316; }
@@ -553,8 +554,8 @@
 }
 
 .sve-date-weekday-pill {
-  flex: 0 0 40%;
-  width: 40%;
+  flex: 0 0 52%;
+  width: 52%;
   height: 38px;
   white-space: nowrap;
   padding: 0 4px;
@@ -604,7 +605,7 @@
   -webkit-appearance: none;
   appearance: none;
   box-sizing: border-box;
-  padding: 0 7px;
+  padding: 0 4px;
   height: 38px;
   line-height: 38px;
   font-size: 14px;
@@ -612,7 +613,7 @@
 }
 
 .sve-date-range-separator {
-  flex: 0 0 10px;
+  flex: 0 0 8px;
   color: #94a3b8;
   font-size: 12px;
   font-weight: 800;
@@ -621,8 +622,8 @@
 }
 
 .sve-date-input-wrap {
-  flex: 0 0 60%;
-  width: 60%;
+  flex: 0 0 48%;
+  width: 48%;
   min-width: 0;
   display: flex;
   align-items: center;
