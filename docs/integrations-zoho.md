@@ -36,6 +36,21 @@ Weekly reports use the **Zoho Inventory REST API** from the Express backend (OAu
 - `weeklyReportZohoData.js` — `fetchZohoItemRowsForGroupMembers`: `item_report_groups` ∩ Zoho items; opening reconciled from `from_date`→today (`getStockReconstruction`), closing from Items API (see `ZOHO_WEEKLY_REPORT_INTEGRATION`)  
 - `zohoService.js` — validate rows, attach `_zoho` on API items; membership driven by `fetchZohoItemRowsForGroupMembers` (no post-filter)  
 
+## Purchase Planning
+
+Admin module at `/management/purchase-planning` — low-stock upload, Vigil wholesale matching, Zoho enrichment, draft plans, and PO creation. Uses the same OAuth stack plus warehouse-scoped items, `salesbyitem`, and composite item detail APIs.
+
+See **`docs/purchase-planning.md`** for architecture, data model, API routes, quantity logic, and workflow.
+
+Additional env (optional):
+
+| Variable | Purpose |
+|----------|---------|
+| `PURCHASE_PLANNING_WAREHOUSE_ID` / `LIFE_SMILE_WAREHOUSE_ID` | Zoho warehouse for Life Smile stock |
+| `PURCHASE_PLANNING_WAREHOUSE_NAME` | Default `LIFE SMILE` |
+| `ZOHO_PURCHASE_VENDOR_ID` | PO vendor contact id |
+| `PURCHASE_PLANNING_REPORT_GROUP` | Fallback vendor from weekly report config |
+
 ## Business report groups
 
 Still **`item_report_groups` only**. Zoho **Family** is display metadata, not a membership key.

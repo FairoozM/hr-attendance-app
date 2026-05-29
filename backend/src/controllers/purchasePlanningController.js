@@ -30,11 +30,12 @@ function logPurchasePlanningError(action, err, req, extra = {}) {
 function errorStatus(err) {
   if (!err) return 500
   if (['PLAN_NOT_FOUND', 'PLAN_ITEM_NOT_FOUND'].includes(err.code)) return 404
+  if (['ENRICHMENT_RUNNING', 'PLAN_NOT_EDITABLE', 'DUPLICATE_PO'].includes(err.code)) return 409
   if (
     [
       'NO_VIGIL_UPLOAD',
       'NO_LOW_STOCK_ITEMS',
-      'DUPLICATE_PO',
+      'LOW_STOCK_ZOHO_MATCH_INCOMPLETE',
       'NO_PO_LINES',
       'ZOHO_VENDOR_NOT_CONFIGURED',
       'ZOHO_PO_NUMBER_REQUIRED',
@@ -43,6 +44,7 @@ function errorStatus(err) {
       'EXCEL_PARSE_ERROR',
       'INVALID_PLAN_ID',
       'PLAN_NOT_DRAFT',
+      'PLAN_HAS_NO_ITEMS',
       'INVALID_PLAN_ITEM_BODY',
       'INVALID_ZOHO_PO_PAYLOAD',
       'AUTH_REQUIRED',
@@ -57,10 +59,12 @@ function errorStatus(err) {
 
 function sendError(res, err, fallbackMessage, fallbackCode) {
   const status = errorStatus(err)
-  res.status(status).json({
+  const payload = {
     error: (err && err.message) || fallbackMessage,
     code: (err && err.code) || fallbackCode,
-  })
+  }
+  if (err && err.details) payload.details = err.details
+  res.status(status).json(payload)
 }
 
 /** Valid numeric user id for record-creating actions; null if missing or malformed. */
@@ -308,6 +312,20 @@ async function generatePlan(req, res) {
   }
 }
 
+async function refreshDraftPlanZohoData(req, res) {
+  const planId = parseId(req.params.id)
+  if (!planId) {
+    return res.status(400).json({ error: 'Invalid plan id', code: 'INVALID_PLAN_ID' })
+  }
+  try {
+    const result = await service.refreshDraftPlanZohoData(planId)
+    res.json(result)
+  } catch (err) {
+    logPurchasePlanningError('refreshDraftPlanZohoData', err, req, { planId })
+    sendError(res, err, 'Failed to refresh draft plan from Zoho', 'REFRESH_PLAN_ZOHO_FAILED')
+  }
+}
+
 async function listPlans(req, res) {
   try {
     res.json({ plans: await service.listPlans() })
@@ -394,6 +412,7 @@ module.exports = {
   uploadVigilCsv,
   listVigilUploads,
   generatePlan,
+  refreshDraftPlanZohoData,
   listPlans,
   getPlan,
   deletePlan,

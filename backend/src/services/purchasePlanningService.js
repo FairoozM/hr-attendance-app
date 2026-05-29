@@ -18,6 +18,10 @@ const DEFAULT_PURCHASE_PLANNING_WAREHOUSE_NAME = 'LIFE SMILE'
 const DEFAULT_PURCHASE_PLANNING_REPORT_GROUP = 'default'
 const MAX_COMPOSITE_USAGE_LOOKUPS = 80
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 function clean(value) {
   return String(value == null ? '' : value).trim()
 }
@@ -392,6 +396,7 @@ async function saveUploadedLowStockSkus(skus) {
 
 const lowStockEnrichmentJob = {
   running: false,
+  queuedAgain: false,
   lastError: null,
   lastCompletedAt: null,
   lastSummary: null,
@@ -400,6 +405,7 @@ const lowStockEnrichmentJob = {
 function getLowStockEnrichmentStatus() {
   return {
     running: lowStockEnrichmentJob.running,
+    queuedAgain: lowStockEnrichmentJob.queuedAgain,
     lastError: lowStockEnrichmentJob.lastError,
     lastCompletedAt: lowStockEnrichmentJob.lastCompletedAt,
     lastSummary: lowStockEnrichmentJob.lastSummary
@@ -412,22 +418,35 @@ function getLowStockEnrichmentStatus() {
   }
 }
 
-function queueLowStockZohoEnrichment() {
-  if (lowStockEnrichmentJob.running) return
+async function runLowStockEnrichmentJobOnce() {
   lowStockEnrichmentJob.running = true
   lowStockEnrichmentJob.lastError = null
-  refreshLowStockZohoEnrichment()
-    .then((summary) => {
-      lowStockEnrichmentJob.lastSummary = summary
-      lowStockEnrichmentJob.lastCompletedAt = new Date().toISOString()
-    })
-    .catch((err) => {
-      lowStockEnrichmentJob.lastError = (err && err.message) || String(err)
-      console.error('[purchase-planning] background Zoho enrichment failed:', err)
-    })
-    .finally(() => {
-      lowStockEnrichmentJob.running = false
-    })
+  try {
+    const summary = await refreshLowStockZohoEnrichment()
+    lowStockEnrichmentJob.lastSummary = summary
+    lowStockEnrichmentJob.lastCompletedAt = new Date().toISOString()
+  } catch (err) {
+    lowStockEnrichmentJob.lastError = (err && err.message) || String(err)
+    console.error('[purchase-planning] background Zoho enrichment failed:', err)
+  } finally {
+    lowStockEnrichmentJob.running = false
+    if (lowStockEnrichmentJob.queuedAgain) {
+      lowStockEnrichmentJob.queuedAgain = false
+      await runLowStockEnrichmentJobOnce()
+    }
+  }
+}
+
+function queueLowStockZohoEnrichment() {
+  if (lowStockEnrichmentJob.running) {
+    lowStockEnrichmentJob.queuedAgain = true
+    return
+  }
+  runLowStockEnrichmentJobOnce().catch((err) => {
+    lowStockEnrichmentJob.running = false
+    lowStockEnrichmentJob.lastError = (err && err.message) || String(err)
+    console.error('[purchase-planning] background Zoho enrichment failed:', err)
+  })
 }
 
 async function refreshLowStockZohoEnrichment() {
@@ -874,6 +893,76 @@ function nextZohoPurchaseOrderReference(planNumber) {
   return `${base || 'PP'}-${stamp}-${suffix}`
 }
 
+function planItemNotes(match, available, wasAdjustedForVigil) {
+  if (!match.matched) return 'No matching Vigil stock row'
+  if (available <= 0) return 'Unavailable in wholesale stock'
+  if (wasAdjustedForVigil) return 'Vigil stock below required usage; final qty auto-adjusted'
+  return ''
+}
+
+const SYSTEM_PLAN_NOTES = new Set([
+  'No matching Vigil stock row',
+  'Unavailable in wholesale stock',
+  'Vigil stock below required usage; final qty auto-adjusted',
+])
+
+function isSystemGeneratedNote(notes) {
+  return SYSTEM_PLAN_NOTES.has(clean(notes))
+}
+
+function resolveRefreshUserFields(item, autoFinalQty, autoIncluded, autoNotes) {
+  const preserveFinalQty = Number(item.finalQty) !== Number(item.suggestedQty)
+  const preserveNotes = clean(item.notes) && !isSystemGeneratedNote(item.notes)
+  return {
+    finalQty: preserveFinalQty ? Number(item.finalQty) : autoFinalQty,
+    included: item.included,
+    notes: preserveNotes ? clean(item.notes) : autoNotes,
+    purchasePrice: item.purchasePrice,
+  }
+}
+
+async function waitForLowStockEnrichment(maxWaitMs = 120_000, pollMs = 500) {
+  const deadline = Date.now() + maxWaitMs
+  while (lowStockEnrichmentJob.running && Date.now() < deadline) {
+    await sleep(pollMs)
+  }
+  if (lowStockEnrichmentJob.running) {
+    const err = new Error('Zoho enrichment is still running; try again in a moment')
+    err.code = 'ENRICHMENT_RUNNING'
+    throw err
+  }
+}
+
+function assertPendingSkusZohoReady(lowStock) {
+  const unmatched = (Array.isArray(lowStock) ? lowStock : []).filter((item) => !clean(item.zohoItemId))
+  if (unmatched.length === 0) return
+  const err = new Error(`${unmatched.length} pending SKU(s) not matched in Zoho`)
+  err.code = 'LOW_STOCK_ZOHO_MATCH_INCOMPLETE'
+  err.details = {
+    unmatchedCount: unmatched.length,
+    unmatchedSkus: unmatched.slice(0, 20).map((item) => item.sku),
+  }
+  throw err
+}
+
+function assertPlanEligibleForPo(planRow) {
+  if (clean(planRow.zoho_purchase_order_id)) {
+    const err = new Error('This purchase plan already has a Zoho purchase order')
+    err.code = 'DUPLICATE_PO'
+    throw err
+  }
+  if (planRow.status === 'sent_to_zoho') {
+    const err = new Error('This purchase plan was already sent to Zoho')
+    err.code = 'DUPLICATE_PO'
+    throw err
+  }
+  if (planRow.status !== 'draft' && planRow.status !== 'failed') {
+    const err = new Error('Only draft or failed plans without an existing PO can create a Zoho purchase order')
+    err.code = 'DUPLICATE_PO'
+    throw err
+  }
+}
+
 async function generatePlan({ createdBy }) {
   const upload = await getLatestVigilUpload()
   if (!upload) {
@@ -882,12 +971,25 @@ async function generatePlan({ createdBy }) {
     throw err
   }
 
-  const lowStock = (await listLowStock()).filter((item) => item.status === 'pending')
+  let lowStock = (await listLowStock()).filter((item) => item.status === 'pending')
   if (lowStock.length === 0) {
     const err = new Error('Upload low-stock SKUs before generating a purchase plan')
     err.code = 'NO_LOW_STOCK_ITEMS'
     throw err
   }
+  if (lowStockEnrichmentJob.running) {
+    await waitForLowStockEnrichment()
+  }
+  if (lowStock.some((item) => !clean(item.zohoItemId))) {
+    await refreshLowStockZohoEnrichment()
+    lowStock = (await listLowStock()).filter((item) => item.status === 'pending')
+    if (lowStock.length === 0) {
+      const err = new Error('Upload low-stock SKUs before generating a purchase plan')
+      err.code = 'NO_LOW_STOCK_ITEMS'
+      throw err
+    }
+  }
+  assertPendingSkusZohoReady(lowStock)
   const vigilRows = coerceVigilRowsFromUpload(upload)
   const fromDate = isoDateDaysAgo(92)
   const toDate = todayIso()
@@ -932,13 +1034,7 @@ async function generatePlan({ createdBy }) {
         vigilAvailable: available,
       })
       const included = finalQty > 0 && available > 0 && match.matched
-      const notes = !match.matched
-        ? 'No matching Vigil stock row'
-        : available <= 0
-          ? 'Unavailable in wholesale stock'
-          : wasAdjustedForVigil
-            ? 'Vigil stock below required usage; final qty auto-adjusted'
-          : ''
+      const notes = planItemNotes(match, available, wasAdjustedForVigil)
 
       const itemResult = await client.query(
         `
@@ -995,6 +1091,109 @@ async function generatePlan({ createdBy }) {
   }
 }
 
+async function refreshDraftPlanZohoData(planId) {
+  const plan = await getPlan(planId)
+  if (!plan) {
+    const err = new Error('Purchase plan not found')
+    err.code = 'PLAN_NOT_FOUND'
+    throw err
+  }
+  if (plan.status !== 'draft') {
+    const err = new Error('Only draft plans can be refreshed from Zoho')
+    err.code = 'PLAN_NOT_DRAFT'
+    throw err
+  }
+  if (!Array.isArray(plan.items) || plan.items.length === 0) {
+    const err = new Error('Purchase plan has no line items to refresh')
+    err.code = 'PLAN_HAS_NO_ITEMS'
+    throw err
+  }
+
+  const upload = await getLatestVigilUpload()
+  const vigilRows = coerceVigilRowsFromUpload(upload)
+  const vigilIndexes = buildVigilIndexes(vigilRows)
+  const enriched = await enrichUploadedLowStockSkus(plan.items.map((item) => item.sku))
+  const enrichedBySku = new Map(enriched.map((item) => [normalizeSku(item.sku), item]))
+  const { salesAggregate, bundleUsageAggregate } = await fetchLast3MonthsSalesAggregate()
+
+  let matched = 0
+  let unmatched = 0
+  for (const item of plan.items) {
+    const zoho = enrichedBySku.get(normalizeSku(item.sku)) || {}
+    if (zoho.matchedInZoho) matched += 1
+    else unmatched += 1
+    const match = matchZohoSkuToVigilWithIndexes(vigilIndexes, item.sku)
+    const totalSales = zoho.matchedInZoho
+      ? salesQtyForItem(salesAggregate, { sku: item.sku, zoho_item_id: zoho.zohoItemId })
+      : 0
+    const totalBundle = zoho.matchedInZoho
+      ? bundleUsageQtyForItem(bundleUsageAggregate, { sku: item.sku, zoho_item_id: zoho.zohoItemId })
+      : 0
+    const totalUsage = totalSales + totalBundle
+    const averageMonthlyUsage = totalUsage / 3
+    const available = match.matched ? Math.max(0, Math.floor(match.wholesaleAvailableQty)) : 0
+    const { suggestedQty, finalQty: autoFinalQty, wasAdjustedForVigil } = calculatePlanQuantities({
+      totalSales,
+      totalBundle,
+      vigilAvailable: available,
+    })
+    const autoIncluded = autoFinalQty > 0 && available > 0 && match.matched
+    const autoNotes = planItemNotes(match, available, wasAdjustedForVigil)
+    const userFields = resolveRefreshUserFields(item, autoFinalQty, autoIncluded, autoNotes)
+
+    await query(
+      `
+        UPDATE purchase_plan_items
+        SET
+          item_name = $2,
+          zoho_item_id = $3,
+          current_zoho_stock = $4,
+          vigil_code = $5,
+          wholesale_available_qty = $6,
+          match_type = $7,
+          total_sales_last_3_months = $8,
+          total_bundle_usage_last_3_months = $9,
+          total_usage_last_3_months = $10,
+          average_monthly_usage = $11,
+          suggested_qty = $12,
+          final_qty = $13,
+          included = $14,
+          notes = $15,
+          purchase_price = $16
+        WHERE id = $1
+      `,
+      [
+        item.id,
+        zoho.matchedInZoho ? zoho.itemName : '',
+        zoho.matchedInZoho ? zoho.zohoItemId : '',
+        zoho.matchedInZoho ? zoho.currentZohoStock : 0,
+        match.matchedVigilCode || '',
+        available,
+        match.matchType,
+        totalSales,
+        totalBundle,
+        totalUsage,
+        averageMonthlyUsage,
+        suggestedQty,
+        userFields.finalQty,
+        userFields.included,
+        userFields.notes,
+        userFields.purchasePrice,
+      ]
+    )
+  }
+
+  const refreshedPlan = await getPlan(planId)
+  return {
+    plan: refreshedPlan,
+    summary: {
+      refreshed: plan.items.length,
+      matched,
+      unmatched,
+    },
+  }
+}
+
 async function listPlans() {
   const result = await query(`
     SELECT p.*,
@@ -1014,22 +1213,54 @@ async function listPlans() {
 }
 
 async function deleteDraftPlan(id) {
-  const result = await query(
-    `DELETE FROM purchase_plans WHERE id = $1 AND status = 'draft' RETURNING id`,
-    [id]
-  )
-  if (result.rows.length > 0) {
-    return { deleted: true, id: result.rows[0].id }
-  }
-  const check = await query(`SELECT id, status FROM purchase_plans WHERE id = $1`, [id])
-  if (!check.rows[0]) {
-    const err = new Error('Purchase plan not found')
-    err.code = 'PLAN_NOT_FOUND'
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const planResult = await client.query(
+      `SELECT id, status FROM purchase_plans WHERE id = $1 FOR UPDATE`,
+      [id]
+    )
+    const planRow = planResult.rows[0]
+    if (!planRow) {
+      const err = new Error('Purchase plan not found')
+      err.code = 'PLAN_NOT_FOUND'
+      throw err
+    }
+    if (planRow.status !== 'draft') {
+      const err = new Error('Only draft plans can be deleted')
+      err.code = 'PLAN_NOT_DRAFT'
+      throw err
+    }
+
+    const skuResult = await client.query(
+      `SELECT sku FROM purchase_plan_items WHERE purchase_plan_id = $1`,
+      [id]
+    )
+    const skus = skuResult.rows.map((row) => row.sku)
+
+    await client.query(`DELETE FROM purchase_plans WHERE id = $1`, [id])
+
+    let restoredSkuCount = 0
+    if (skus.length > 0) {
+      const restoreResult = await client.query(
+        `
+          UPDATE purchase_low_stock_items
+          SET status = 'pending', updated_at = NOW()
+          WHERE sku = ANY($1::text[]) AND status = 'planned'
+        `,
+        [skus]
+      )
+      restoredSkuCount = restoreResult.rowCount || 0
+    }
+
+    await client.query('COMMIT')
+    return { deleted: true, id: planRow.id, restoredSkuCount }
+  } catch (err) {
+    await client.query('ROLLBACK')
     throw err
+  } finally {
+    client.release()
   }
-  const err = new Error('Only draft plans can be deleted')
-  err.code = 'PLAN_NOT_DRAFT'
-  throw err
 }
 
 async function getPlan(id) {
@@ -1046,6 +1277,17 @@ async function getPlan(id) {
 }
 
 async function updatePlanItem(planId, itemId, patch) {
+  const planRow = await query(`SELECT status FROM purchase_plans WHERE id = $1`, [planId])
+  if (!planRow.rows[0]) {
+    const err = new Error('Purchase plan not found')
+    err.code = 'PLAN_NOT_FOUND'
+    throw err
+  }
+  if (planRow.rows[0].status !== 'draft') {
+    const err = new Error('Only draft plans can be edited')
+    err.code = 'PLAN_NOT_EDITABLE'
+    throw err
+  }
   const finalQty = patch.finalQty == null ? null : Math.max(0, Math.floor(toNumber(patch.finalQty, 0)))
   const included = patch.included == null ? null : Boolean(patch.included)
   const purchasePrice = patch.purchasePrice == null || patch.purchasePrice === ''
@@ -1125,12 +1367,6 @@ function sortPurchaseOrderLinesBySku(items) {
 }
 
 async function createZohoPurchaseOrder(planId, options = {}) {
-  const plan = await getPlan(planId)
-  if (!plan) {
-    const err = new Error('Purchase plan not found')
-    err.code = 'PLAN_NOT_FOUND'
-    throw err
-  }
   const config = readZohoConfig()
   if (config.code !== 'ok') {
     const err = new Error('Zoho is not configured')
@@ -1139,54 +1375,80 @@ async function createZohoPurchaseOrder(planId, options = {}) {
   }
 
   const vendor = resolvePurchaseOrderVendor()
-  const pricedItems = applyPurchasePricesToPlanItems(plan.items || [], options.purchasePrices)
-
-  const selected = sortPurchaseOrderLinesBySku(
-    pricedItems.filter((item) =>
-      item.included &&
-      item.finalQty > 0 &&
-      clean(item.zohoItemId)
-    )
-  )
-  if (selected.length === 0) {
-    const err = new Error('No included rows with finalQty > 0 and Zoho item id were found')
-    err.code = 'NO_PO_LINES'
-    throw err
-  }
-  const missingPrices = selected.filter((item) => !Number.isFinite(Number(item.purchasePrice)) || Number(item.purchasePrice) <= 0)
-  if (missingPrices.length > 0) {
-    const err = new Error(`Purchase price is missing for ${missingPrices.length} selected line(s): ${missingPrices.slice(0, 5).map((item) => item.sku).join(', ')}`)
-    err.code = 'ZOHO_PO_PRICE_REQUIRED'
-    throw err
-  }
-
   const requestedPoNumber = clean(options.purchaseOrderNumber)
   if (!requestedPoNumber) {
     const err = new Error('Enter a purchase order number before sending to Zoho')
     err.code = 'ZOHO_PO_NUMBER_REQUIRED'
     throw err
   }
-  const zohoReferenceNumber = nextZohoPurchaseOrderReference(plan.planNumber)
-  const payload = {
-    vendor_id: vendor.vendorId,
-    purchaseorder_number: requestedPoNumber,
-    date: todayIso(),
-    reference_number: zohoReferenceNumber,
-    notes: `Generated from HR & BI Purchase Planning plan ${plan.planNumber}. Review completed by admin before sending.`,
-    line_items: selected.map((item) => ({
-      item_id: item.zohoItemId,
-      quantity: item.finalQty,
-      rate: Number(item.purchasePrice),
-    })),
-  }
 
+  const client = await pool.connect()
   try {
+    await client.query('BEGIN')
+    const planResult = await client.query(
+      `SELECT * FROM purchase_plans WHERE id = $1 FOR UPDATE`,
+      [planId]
+    )
+    const planRow = planResult.rows[0]
+    if (!planRow) {
+      const err = new Error('Purchase plan not found')
+      err.code = 'PLAN_NOT_FOUND'
+      throw err
+    }
+    assertPlanEligibleForPo(planRow)
+
+    const itemsResult = await client.query(
+      `
+        SELECT *
+        FROM purchase_plan_items
+        WHERE purchase_plan_id = $1
+        ORDER BY included DESC, suggested_qty DESC, sku ASC
+      `,
+      [planId]
+    )
+    const plan = mapPlanRow(planRow, itemsResult.rows.map(mapPlanItemRow))
+    const pricedItems = applyPurchasePricesToPlanItems(plan.items || [], options.purchasePrices)
+
+    const selected = sortPurchaseOrderLinesBySku(
+      pricedItems.filter((item) =>
+        item.included &&
+        item.finalQty > 0 &&
+        clean(item.zohoItemId)
+      )
+    )
+    if (selected.length === 0) {
+      const err = new Error('No included rows with finalQty > 0 and Zoho item id were found')
+      err.code = 'NO_PO_LINES'
+      throw err
+    }
+    const missingPrices = selected.filter((item) => !Number.isFinite(Number(item.purchasePrice)) || Number(item.purchasePrice) <= 0)
+    if (missingPrices.length > 0) {
+      const err = new Error(`Purchase price is missing for ${missingPrices.length} selected line(s): ${missingPrices.slice(0, 5).map((item) => item.sku).join(', ')}`)
+      err.code = 'ZOHO_PO_PRICE_REQUIRED'
+      throw err
+    }
+
     for (const item of selected) {
-      await query(
+      await client.query(
         `UPDATE purchase_plan_items SET purchase_price = $3 WHERE purchase_plan_id = $1 AND id = $2`,
         [plan.id, item.id, Number(item.purchasePrice)]
       )
     }
+
+    const zohoReferenceNumber = nextZohoPurchaseOrderReference(plan.planNumber)
+    const payload = {
+      vendor_id: vendor.vendorId,
+      purchaseorder_number: requestedPoNumber,
+      date: todayIso(),
+      reference_number: zohoReferenceNumber,
+      notes: `Generated from HR & BI Purchase Planning plan ${plan.planNumber}. Review completed by admin before sending.`,
+      line_items: selected.map((item) => ({
+        item_id: item.zohoItemId,
+        quantity: item.finalQty,
+        rate: Number(item.purchasePrice),
+      })),
+    }
+
     const json = await zohoApiRequest(
       `${INVENTORY_V1}/purchaseorders`,
       new URLSearchParams(),
@@ -1196,7 +1458,8 @@ async function createZohoPurchaseOrder(planId, options = {}) {
     )
     const po = (json && json.purchaseorder) || (json && json.purchase_order) || json || {}
     const zohoPurchaseOrderId = clean(po.purchaseorder_id || po.purchase_order_id || po.purchaseorderId || po.id)
-    await query(
+
+    await client.query(
       `
         UPDATE purchase_plans
         SET status = 'sent_to_zoho', zoho_purchase_order_id = $2, zoho_error = NULL
@@ -1204,7 +1467,7 @@ async function createZohoPurchaseOrder(planId, options = {}) {
       `,
       [plan.id, zohoPurchaseOrderId || null]
     )
-    await query(
+    await client.query(
       `
         UPDATE purchase_low_stock_items
         SET status = 'ordered', updated_at = NOW()
@@ -1212,6 +1475,8 @@ async function createZohoPurchaseOrder(planId, options = {}) {
       `,
       [selected.map((item) => item.sku)]
     )
+
+    await client.query('COMMIT')
     return {
       success: true,
       zohoPurchaseOrderId,
@@ -1220,11 +1485,24 @@ async function createZohoPurchaseOrder(planId, options = {}) {
       skippedLines: (plan.items || []).length - selected.length,
     }
   } catch (err) {
-    await query(
-      `UPDATE purchase_plans SET status = 'failed', zoho_error = $2 WHERE id = $1`,
-      [plan.id, err.message || String(err)]
-    )
+    try {
+      await client.query('ROLLBACK')
+    } catch (_) {
+      // ignore rollback failure
+    }
+    if (planId && err && err.code !== 'DUPLICATE_PO' && err.code !== 'PLAN_NOT_FOUND' && err.code !== 'NO_PO_LINES' && err.code !== 'ZOHO_PO_PRICE_REQUIRED') {
+      try {
+        await query(
+          `UPDATE purchase_plans SET status = 'failed', zoho_error = $2 WHERE id = $1 AND status IN ('draft', 'failed')`,
+          [planId, err.message || String(err)]
+        )
+      } catch (_) {
+        // ignore follow-up status update failure
+      }
+    }
     throw err
+  } finally {
+    client.release()
   }
 }
 
@@ -1243,6 +1521,7 @@ module.exports = {
   saveVigilUpload,
   listVigilUploads,
   generatePlan,
+  refreshDraftPlanZohoData,
   listPlans,
   getPlan,
   deleteDraftPlan,
@@ -1261,5 +1540,12 @@ module.exports = {
     applyVigilMatchesToLowStockRows,
     applyPurchasePricesToPlanItems,
     sortPurchaseOrderLinesBySku,
+    planItemNotes,
+    isSystemGeneratedNote,
+    resolveRefreshUserFields,
+    assertPendingSkusZohoReady,
+    assertPlanEligibleForPo,
+    waitForLowStockEnrichment,
+    lowStockEnrichmentJob,
   },
 }

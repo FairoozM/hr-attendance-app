@@ -254,13 +254,24 @@ test('controller: deletePlan returns 400 when plan is not draft', async () => {
 })
 
 test('controller: deletePlan succeeds for draft plan', async () => {
-  const stub = makeServiceMock()
+  const stub = makeServiceMock({
+    deleteDraftPlan: async (id) => ({ deleted: true, id, restoredSkuCount: 3 }),
+  })
   const ctrl = loadController(stub)
   const { req, res } = makeReqRes({ params: { id: '7' }, user: ADMIN })
   await ctrl.deletePlan(req, res)
   assert.equal(res.statusCode, 200)
-  assert.deepEqual(res.body, { deleted: true, id: 7 })
-  assert.deepEqual(stub._calls[0], ['deleteDraftPlan', 7])
+  assert.deepEqual(res.body, { deleted: true, id: 7, restoredSkuCount: 3 })
+})
+
+test('controller: errorStatus maps conflict and validation codes', () => {
+  const ctrl = loadController(makeServiceMock())
+  const { errorStatus } = ctrl._internals
+  assert.equal(errorStatus({ code: 'DUPLICATE_PO' }), 409)
+  assert.equal(errorStatus({ code: 'ENRICHMENT_RUNNING' }), 409)
+  assert.equal(errorStatus({ code: 'PLAN_NOT_EDITABLE' }), 409)
+  assert.equal(errorStatus({ code: 'LOW_STOCK_ZOHO_MATCH_INCOMPLETE' }), 400)
+  assert.equal(errorStatus({ code: 'PLAN_HAS_NO_ITEMS' }), 400)
 })
 
 test('controller: _internals pickPlanItemPatch and validateCreateZohoPoBody', () => {
