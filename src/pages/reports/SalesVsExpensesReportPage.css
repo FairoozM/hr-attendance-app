@@ -401,8 +401,13 @@
 
 .sve-kpi-content {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   align-items: center;
+}
+
+.sve-kpi-content > div:not(.sve-kpi-icon) {
+  min-width: 0;
+  flex: 1;
 }
 
 .sve-kpi-icon {
@@ -424,13 +429,16 @@
   color: #475569;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.03em;
+  line-height: 1.25;
+  white-space: nowrap;
 }
 
 .sve-kpi-value {
   margin-top: 9px;
   font-size: 24px;
   font-weight: 800;
+  line-height: 1.1;
 }
 .sve-kpi--green .sve-kpi-value { color: #16a34a; }
 .sve-kpi--orange .sve-kpi-value { color: #f97316; }
@@ -1005,6 +1013,20 @@
 .sve-report.is-capturing .sve-kpi-icon,
 .sve-report.is-capturing .sve-period-icon {
   line-height: 1;
+}
+
+.sve-report.is-capturing .sve-kpi-icon {
+  width: 56px;
+  height: 56px;
+  font-size: 24px;
+}
+
+.sve-report.is-capturing .sve-kpi-content {
+  gap: 10px;
+}
+
+.sve-report.is-capturing .sve-kpi-label {
+  letter-spacing: 0.02em;
 }
 
 .sve-report.is-capturing .sve-badge,
