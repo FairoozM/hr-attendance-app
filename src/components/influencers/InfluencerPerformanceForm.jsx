@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BadgeDollarSign, FileImage, Link2, NotebookPen, Save, Sparkles, X } from 'lucide-react'
+import { BadgeDollarSign, CalendarDays, FileImage, Link2, NotebookPen, Save, Sparkles, X } from 'lucide-react'
 import { useAuth, canViewInfluencerPerformanceNetProfit } from '../../contexts/AuthContext'
 import {
   addDays,
   calculateEngagementRate,
+  formatIsoDateDdMmYyyy,
   getDayNumber,
   INFLUENCER_PLATFORMS,
   normalizePerformanceRecord,
+  parseDdMmYyyyToIso,
 } from '../../utils/influencerPerformanceUtils'
 
 const emptyForm = {
@@ -44,6 +46,7 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
   const [form, setForm] = useState(emptyForm)
   const [errors, setErrors] = useState({})
   const [influencerQuery, setInfluencerQuery] = useState('')
+  const [openingDateText, setOpeningDateText] = useState(() => formatIsoDateDdMmYyyy(emptyForm.contractStartDate))
 
   useEffect(() => {
     if (editingRecord) {
@@ -74,6 +77,10 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
     setErrors({})
   }, [editingRecord, influencers])
 
+  useEffect(() => {
+    setOpeningDateText(formatIsoDateDdMmYyyy(form.contractStartDate))
+  }, [form.contractStartDate])
+
   const selectedInfluencer = useMemo(
     () => influencers.find((item) => String(item.id) === String(form.influencerId)),
     [form.influencerId, influencers],
@@ -99,11 +106,12 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
 
   function validate() {
     const next = {}
+    const openingIso = parseDdMmYyyyToIso(openingDateText) || form.contractStartDate
     if (!form.influencerId) next.influencerId = 'Select an influencer'
     if (!form.date) next.date = 'Missing check date'
     if (!form.platform) next.platform = 'Select a platform'
     if (!form.campaignName.trim()) next.campaignName = 'Contract / campaign is required'
-    if (!form.contractStartDate) next.contractStartDate = 'Missing contract start date'
+    if (!openingIso) next.contractStartDate = 'Enter contract opening date as dd/mm/yyyy (e.g. 04/05/2026)'
     ;['salesAed', 'cost'].forEach((key) => {
       if (Number(form[key]) < 0) next[key] = 'Value cannot be negative'
     })
@@ -139,7 +147,7 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
     event.preventDefault()
     if (!validate()) return
     const dateIso = form.date
-    const startIso = form.contractStartDate || dateIso
+    const startIso = parseDdMmYyyyToIso(openingDateText) || form.contractStartDate || dateIso
     const now = new Date().toISOString()
     const merged = { ...form, date: dateIso, contractStartDate: startIso }
     if (!showNetProfit && editingRecord && Object.prototype.hasOwnProperty.call(editingRecord, 'netProfitAed')) {
@@ -192,7 +200,7 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
               <span>1</span>
               <div>
                 <h3>Video contract</h3>
-                <p>Influencer, platform, window, campaign, and video link.</p>
+                <p>Influencer, platform, window, contract opening date, campaign, and video link.</p>
               </div>
             </div>
 
@@ -246,6 +254,39 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
                   </select>
                 </Field>
               </div>
+
+              <Field label="Contract opening date" error={errors.contractStartDate}>
+                <div className="ip-control-icon">
+                  <CalendarDays size={16} />
+                  <input
+                    className="ip-control"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    placeholder="dd/mm/yyyy"
+                    maxLength={10}
+                    value={openingDateText}
+                    onChange={(event) => {
+                      const v = event.target.value
+                      setOpeningDateText(v)
+                      const iso = parseDdMmYyyyToIso(v.trim())
+                      if (iso) set('contractStartDate', iso)
+                    }}
+                    onBlur={() => {
+                      const iso = parseDdMmYyyyToIso(openingDateText)
+                      if (iso) {
+                        set('contractStartDate', iso)
+                        setOpeningDateText(formatIsoDateDdMmYyyy(iso))
+                        if (errors.contractStartDate) setErrors((prev) => ({ ...prev, contractStartDate: '' }))
+                      } else if (openingDateText.trim()) {
+                        setErrors((prev) => ({ ...prev, contractStartDate: 'Use dd/mm/yyyy' }))
+                        setOpeningDateText(formatIsoDateDdMmYyyy(form.contractStartDate))
+                      }
+                    }}
+                    aria-invalid={Boolean(errors.contractStartDate)}
+                  />
+                </div>
+              </Field>
 
               <Field label="Contract / campaign" error={errors.campaignName}>
                 <div className="ip-control-icon">
