@@ -1744,6 +1744,28 @@
   box-shadow: 0 0 0 3px rgba(0, 140, 200, 0.08);
 }
 
+.ip-hud-value-select {
+  width: 5.4rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  outline: none;
+  padding: 0.08rem 0.12rem;
+  font-family: 'Space Mono', ui-monospace, monospace;
+  font-size: clamp(0.86rem, 1.2vw, 1rem);
+  font-weight: 800;
+  text-align: right;
+  cursor: pointer;
+  appearance: auto;
+}
+
+.ip-hud-value-select:hover,
+.ip-hud-value-select:focus {
+  border-color: rgba(13, 148, 136, 0.42);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.1);
+}
+
 .ip-hud-value--views { color: #007fb5; }
 .ip-hud-value--storyViews { color: #0d9488; }
 .ip-hud-value--shares { color: #6d44d4; }

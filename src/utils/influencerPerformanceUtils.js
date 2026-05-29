@@ -11,6 +11,25 @@ export function toNumber(value) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+/** storyViews is a yes/no flag (1 = posted); legacy rows may store large view counts. */
+export function isStoryPosting(value) {
+  return toNumber(value) > 0
+}
+
+export function storyPostingLabel(value) {
+  return isStoryPosting(value) ? 'Yes' : 'No'
+}
+
+/** True when any saved day on the contract has story posting. */
+export function contractHasStoryPosting(contract) {
+  const days = Array.isArray(contract?.days) ? contract.days : []
+  if (days.some((day) => day?.isRecorded && isStoryPosting(day?.record?.storyViews))) return true
+  if (Array.isArray(contract?.records)) {
+    return contract.records.some((rec) => isStoryPosting(rec?.storyViews))
+  }
+  return isStoryPosting(contract?.totals?.storyViews)
+}
+
 /**
  * Parse inline metric field text: supports optional K/M suffix (e.g. 98.5K, 1.2M).
  * Falls back to {@link toNumber} for plain digit strings. Use for timeline inputs, not currency.
@@ -269,7 +288,10 @@ function addRecordToContract(contract, record) {
   contract.totals.likes += toNumber(record.likes)
   contract.totals.comments += toNumber(record.comments)
   contract.totals.shares += toNumber(record.shares)
-  contract.totals.storyViews += toNumber(record.storyViews)
+  contract.totals.storyViews = Math.max(
+    contract.totals.storyViews,
+    isStoryPosting(record.storyViews) ? 1 : 0,
+  )
   contract.totals.saves += toNumber(record.saves)
   /* cost / sales / net profit are contract-level (latest check-in only), not summed — see getVideoContractTimelines */
 }
@@ -336,6 +358,7 @@ export function getVideoContractTimelines(records = [], influencers = [], daysFa
         cost: toNumber(latest?.cost),
         salesAed: toNumber(latest?.salesAed),
         netProfitAed: toNumber(latest?.netProfitAed),
+        storyViews: orderedRecords.some((rec) => isStoryPosting(rec.storyViews)) ? 1 : 0,
       }
       return {
         ...contract,
@@ -559,7 +582,7 @@ export function normalizePerformanceRecord(record) {
     shares: toNumber(record.shares),
     saves: toNumber(record.saves),
     salesAed: toNumber(record.salesAed),
-    storyViews: toNumber(record.storyViews),
+    storyViews: isStoryPosting(record.storyViews) ? 1 : 0,
     cost: toNumber(record.cost),
     netProfitAed: record.netProfitAed != null && String(record.netProfitAed).trim() !== ''
       ? toNumber(record.netProfitAed)

@@ -12,11 +12,18 @@ import {
   Trash2,
   type LucideIcon,
 } from 'lucide-react'
-import { formatNumber, parseMetricInput, toNumber } from '../../utils/influencerPerformanceUtils'
+import {
+  formatNumber,
+  isStoryPosting,
+  parseMetricInput,
+  storyPostingLabel,
+  toNumber,
+} from '../../utils/influencerPerformanceUtils'
 import { influencerInitials } from './influencerPerformanceTableShared'
 import { StepBadge } from './StepBadge'
 
-type TimelineMetricKey = 'views' | 'storyViews' | 'shares' | 'likes' | 'comments'
+type TimelineMetricKey = 'views' | 'shares' | 'likes' | 'comments'
+type StoryPostingChoice = '' | 'yes' | 'no'
 
 interface TimelineRecord {
   id?: string | number
@@ -85,7 +92,9 @@ interface MetricConfigItem {
   Icon: LucideIcon
 }
 
-type DayDraft = Partial<Record<TimelineMetricKey, string | number>>
+type DayDraft = Partial<Record<TimelineMetricKey, string | number>> & {
+  storyPosting?: StoryPostingChoice
+}
 type DraftsState = Record<string, DayDraft>
 
 function contractStatus(contract: TimelineContract) {
@@ -176,7 +185,6 @@ function HudContractCard({
   const [focusedMetricCell, setFocusedMetricCell] = useState<string | null>(null)
   const metricConfig: MetricConfigItem[] = [
     { label: 'Views', key: 'views', Icon: Eye },
-    { label: 'Story', key: 'storyViews', Icon: GalleryHorizontal },
     { label: 'Shares', key: 'shares', Icon: Send },
     { label: 'Likes', key: 'likes', Icon: Heart },
     { label: 'Cmts', key: 'comments', Icon: MessageCircle },
@@ -184,10 +192,38 @@ function HudContractCard({
 
   const totals: Record<TimelineMetricKey, number> = {
     views: metricTotal(contract, 'views'),
-    storyViews: metricTotal(contract, 'storyViews'),
     likes: metricTotal(contract, 'likes'),
     shares: metricTotal(contract, 'shares'),
     comments: metricTotal(contract, 'comments'),
+  }
+
+  function getStoryDraft(day: TimelineDay): StoryPostingChoice {
+    const id = draftKey(day)
+    const draft = drafts[id]?.storyPosting
+    if (draft === 'yes' || draft === 'no') return draft
+    if (!day?.isRecorded) return ''
+    return isStoryPosting(day?.record?.storyViews) ? 'yes' : 'no'
+  }
+
+  function updateStoryDraft(day: TimelineDay, value: StoryPostingChoice) {
+    setDrafts((current) => ({
+      ...current,
+      [draftKey(day)]: {
+        ...current[draftKey(day)],
+        storyPosting: value,
+      },
+    }))
+  }
+
+  function dayStoryPosted(day: TimelineDay) {
+    const draft = getStoryDraft(day)
+    if (draft === 'yes') return true
+    if (draft === 'no') return false
+    return Boolean(day?.isRecorded && isStoryPosting(day?.record?.storyViews))
+  }
+
+  function contractStoryPostingSummary(): 'Yes' | 'No' {
+    return days.some((day) => dayStoryPosted(day)) ? 'Yes' : 'No'
   }
 
   function makeDraftRecord(day: TimelineDay): TimelineRecord {
@@ -235,6 +271,12 @@ function HudContractCard({
   function hasDraft(day: TimelineDay) {
     const values = drafts[draftKey(day)]
     if (!values) return false
+    if (values.storyPosting === 'yes' || values.storyPosting === 'no') {
+      const saved: StoryPostingChoice = day?.isRecorded
+        ? (isStoryPosting(day?.record?.storyViews) ? 'yes' : 'no')
+        : ''
+      if (values.storyPosting !== saved) return true
+    }
     return metricConfig.some(({ key }) => {
       if (values[key] == null) return false
       return parseMetricInput(values[key]) !== toNumber(day?.record?.[key])
@@ -277,10 +319,19 @@ function HudContractCard({
       netProfitAed = undefined
     }
 
+    const storyDraft = values.storyPosting
+    const storyViews = storyDraft === 'yes'
+      ? 1
+      : storyDraft === 'no'
+        ? 0
+        : toNumber(base.storyViews) > 0
+          ? 1
+          : 0
+
     onSaveRecord({
       ...base,
       views: values.views == null ? toNumber(base.views) : parseMetricInput(values.views),
-      storyViews: values.storyViews == null ? toNumber(base.storyViews) : parseMetricInput(values.storyViews),
+      storyViews,
       shares: values.shares == null ? toNumber(base.shares) : parseMetricInput(values.shares),
       likes: values.likes == null ? toNumber(base.likes) : parseMetricInput(values.likes),
       comments: values.comments == null ? toNumber(base.comments) : parseMetricInput(values.comments),
@@ -350,20 +401,26 @@ function HudContractCard({
         </div>
         <div className="ip-hud-header-totals" aria-label="Total performance summary">
           {[
-            { key: 'views', label: 'Total Views', value: totals.views, Icon: Eye },
-            { key: 'storyViews', label: 'Total Story Views', value: totals.storyViews, Icon: GalleryHorizontal },
-            { key: 'likes', label: 'Total Likes', value: totals.likes, Icon: Heart },
-            { key: 'shares', label: 'Total Shares', value: totals.shares, Icon: Send },
-            { key: 'comments', label: 'Total Comments', value: totals.comments, Icon: MessageCircle },
+            { key: 'views', label: 'Total Views', value: formatNumber(totals.views), Icon: Eye },
+            { key: 'likes', label: 'Total Likes', value: formatNumber(totals.likes), Icon: Heart },
+            { key: 'shares', label: 'Total Shares', value: formatNumber(totals.shares), Icon: Send },
+            { key: 'comments', label: 'Total Comments', value: formatNumber(totals.comments), Icon: MessageCircle },
           ].map(({ key, label, value, Icon }) => (
             <div key={key} className={`ip-hud-header-total ip-hud-header-total--${key}`}>
               <span>
                 <Icon size={16} />
                 <span className="ip-hud-header-total__label">{label}</span>
               </span>
-              <strong>{formatNumber(value)}</strong>
+              <strong>{value}</strong>
             </div>
           ))}
+          <div className="ip-hud-header-total ip-hud-header-total--storyViews">
+            <span>
+              <GalleryHorizontal size={16} />
+              <span className="ip-hud-header-total__label">Story posting</span>
+            </span>
+            <strong>{contractStoryPostingSummary()}</strong>
+          </div>
         </div>
         <div className="ip-hud-meta">
           <div className="ip-hud-platform"><span className="ip-hud-platform-dot" />{contract.platform}</div>
@@ -460,6 +517,25 @@ function HudContractCard({
                 )}
               </div>
             ))}
+            <div className="ip-hud-metric-row">
+              <span><GalleryHorizontal size={15} /> Story posting</span>
+              {onSaveRecord ? (
+                <select
+                  className="ip-hud-value ip-hud-value-select ip-hud-value--storyViews"
+                  value={getStoryDraft(day)}
+                  aria-label={`Story posting for ${displayDate(day?.date)}`}
+                  onChange={(event) => updateStoryDraft(day, event.currentTarget.value as StoryPostingChoice)}
+                >
+                  <option value="">—</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
+                </select>
+              ) : (
+                <strong className="ip-hud-value ip-hud-value--storyViews">
+                  {day?.isRecorded ? storyPostingLabel(day?.record?.storyViews) : '-'}
+                </strong>
+              )}
+            </div>
           </section>
         ))}
         <section className="ip-hud-day ip-hud-day--total" aria-label="Total performance">
@@ -474,6 +550,12 @@ function HudContractCard({
               </strong>
             </div>
           ))}
+          <div className="ip-hud-metric-row">
+            <span><GalleryHorizontal size={13} /> Story posting</span>
+            <strong className="ip-hud-value ip-hud-value--storyViews">
+              {contractStoryPostingSummary()}
+            </strong>
+          </div>
         </section>
       </div>
 
