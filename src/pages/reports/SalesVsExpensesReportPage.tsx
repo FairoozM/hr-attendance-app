@@ -509,8 +509,8 @@ function TransactionTable({
             <th style={{ width: "5%" }}>#</th>
             <th style={{ width: "30%" }}>Date</th>
             <th>Description</th>
-            <th style={{ width: "13%" }}>Category</th>
-            <th style={{ width: "19%" }}>Amount (AED)</th>
+            <th style={{ width: "15%" }}>Category</th>
+            <th style={{ width: "17%" }}>Amount (AED)</th>
             <th style={{ width: "5%" }} />
           </tr>
         </thead>
