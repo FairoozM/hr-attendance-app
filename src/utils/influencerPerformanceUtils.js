@@ -4,6 +4,34 @@ export const INFLUENCER_PLATFORMS = ['TikTok', 'Instagram', 'Snapchat', 'YouTube
 
 export const INFLUENCER_PERFORMANCE_STATUSES = ['Active', 'Paused', 'Completed']
 
+/** HUD always shows five day columns; active contract window is 3–5 days. */
+export const CONTRACT_TIMELINE_DISPLAY_DAYS = 5
+export const CONTRACT_MONITORING_DAYS_MIN = 3
+export const CONTRACT_MONITORING_DAYS_MAX = 5
+
+export function clampMonitoringDays(days) {
+  const n = toNumber(days)
+  if (!n) return CONTRACT_MONITORING_DAYS_MAX
+  return Math.min(CONTRACT_MONITORING_DAYS_MAX, Math.max(CONTRACT_MONITORING_DAYS_MIN, Math.round(n)))
+}
+
+/** Inclusive calendar days from contract opening through ending (3–5). */
+export function monitoringDaysFromContractDates(startIso, endIso) {
+  const start = isoDateSlice(startIso)
+  const end = isoDateSlice(endIso)
+  if (!start || !end) return null
+  const span = daysBetweenIso(start, end)
+  if (!Number.isFinite(span) || span < 0) return null
+  return clampMonitoringDays(span + 1)
+}
+
+export function contractEndDateFromStartAndDays(startIso, monitoringDays) {
+  const start = isoDateSlice(startIso)
+  const days = clampMonitoringDays(monitoringDays)
+  if (!start) return ''
+  return addDays(start, Math.max(0, days - 1))
+}
+
 export function toNumber(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (value == null || value === '') return 0
@@ -259,7 +287,7 @@ function makeContractSeed(record, influencersById, daysFallback) {
     campaignName: record.campaignName || 'Campaign',
     contractStartDate: start || record.date,
     latestDate: isoDateSlice(record.date),
-    monitoringDays: toNumber(record.monitoringDays) || daysFallback,
+    monitoringDays: clampMonitoringDays(record.monitoringDays || daysFallback),
     records: [],
     totals: {
       views: 0,
@@ -332,10 +360,12 @@ export function getVideoContractTimelines(records = [], influencers = [], daysFa
       // Anchor window so the earliest saved check-in always maps to a column (avoids empty HUD when
       // contract start and check-in date were misaligned by a day or saved out of order).
       const startDate = minIsoDate(declaredStart, earliestCheckIn) || declaredStart
-      const monitoringDays = Math.max(4, Math.min(7, toNumber(contract.monitoringDays) || daysFallback))
-      const days = Array.from({ length: monitoringDays }, (_, index) => ({
+      const monitoringDays = clampMonitoringDays(toNumber(contract.monitoringDays) || daysFallback)
+      const contractEndDate = contractEndDateFromStartAndDays(startDate, monitoringDays)
+      const days = Array.from({ length: CONTRACT_TIMELINE_DISPLAY_DAYS }, (_, index) => ({
         dayNumber: index + 1,
         date: addDays(startDate, index),
+        inContractWindow: index < monitoringDays,
         record: null,
         isRecorded: false,
       }))
@@ -364,11 +394,12 @@ export function getVideoContractTimelines(records = [], influencers = [], daysFa
         ...contract,
         id: contract.id,
         contractStartDate: startDate,
+        contractEndDate,
         monitoringDays,
         days,
         latest,
         totals,
-        recordedDays: days.filter((item) => item.isRecorded).length,
+        recordedDays: days.filter((item) => item.inContractWindow && item.isRecorded).length,
         averageEngagementRate: calculateEngagementRate(totals),
       }
     })
@@ -568,13 +599,18 @@ export function getHighestEngagementRecord(records = [], influencers = []) {
 export function normalizePerformanceRecord(record) {
   const date = isoDateSlice(record.date) || record.date
   const contractStartDate = isoDateSlice(record.contractStartDate || record.date) || record.contractStartDate || date
+  const fromDates = monitoringDaysFromContractDates(contractStartDate, record.contractEndDate)
+  const monitoringDays = clampMonitoringDays(fromDates ?? record.monitoringDays ?? 5)
+  const contractEndDate = isoDateSlice(record.contractEndDate)
+    || contractEndDateFromStartAndDays(contractStartDate, monitoringDays)
   const contractId = ensurePerformanceContractId({ ...record, contractStartDate, date })
   const normalized = {
     ...record,
     date,
     contractId,
     contractStartDate,
-    monitoringDays: Math.max(4, Math.min(7, toNumber(record.monitoringDays) || 5)),
+    contractEndDate,
+    monitoringDays,
     videoTitle: record.videoTitle || record.campaignName || 'Contracted video',
     views: toNumber(record.views),
     likes: toNumber(record.likes),

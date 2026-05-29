@@ -134,13 +134,26 @@ export function mergePerformanceRecordIntoList(list, record) {
       item.date === normalized.date
     )
   ))
+  let next
   if (sameDayIndex >= 0) {
-    return list.map((item, index) => (
+    next = list.map((item, index) => (
       index === sameDayIndex ? { ...normalized, id: item.id || normalized.id || makeRecordId() } : item
     ))
+  } else if (normalized.id) {
+    next = list.map((item) => (item.id === normalized.id ? normalized : item))
+  } else {
+    next = [{ ...normalized, id: makeRecordId() }, ...list]
   }
-  if (normalized.id) {
-    return list.map((item) => (item.id === normalized.id ? normalized : item))
+  if (!normalized.contractId) return next
+  const contractFields = {
+    contractStartDate: normalized.contractStartDate,
+    contractEndDate: normalized.contractEndDate,
+    monitoringDays: normalized.monitoringDays,
+    platform: normalized.platform,
+    postUrl: normalized.postUrl,
+    campaignName: normalized.campaignName,
   }
-  return [{ ...normalized, id: makeRecordId() }, ...list]
+  return next.map((item) => (
+    item.contractId === normalized.contractId ? { ...item, ...contractFields } : item
+  ))
 }

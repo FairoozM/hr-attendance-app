@@ -54,6 +54,8 @@ interface TimelineDay {
   date?: string
   record?: TimelineRecord | null
   isRecorded?: boolean
+  /** False for display-only columns after the contract window (HUD always shows 5 days). */
+  inContractWindow?: boolean
 }
 
 interface TimelineInfluencer {
@@ -295,7 +297,7 @@ function HudContractCard({
   }
 
   function saveDay(day: TimelineDay) {
-    if (!onSaveRecord || !day?.date) return
+    if (!onSaveRecord || !day?.date || day.inContractWindow === false) return
     const values = drafts[draftKey(day)] || {}
     const base = day?.record || makeDraftRecord(day)
     const now = new Date().toISOString()
@@ -432,8 +434,17 @@ function HudContractCard({
       <div className="ip-hud-days">
         {days.length === 0 ? (
           <div className="ip-empty-row">No daily timeline records are available for this contract.</div>
-        ) : days.map((day) => (
-          <section key={day.dayNumber} className={`ip-hud-day ${day.isRecorded ? 'ip-hud-day--active' : ''}`}>
+        ) : days.map((day) => {
+          const inWindow = day.inContractWindow !== false
+          return (
+          <section
+            key={day.dayNumber}
+            className={[
+              'ip-hud-day',
+              day.isRecorded && inWindow ? 'ip-hud-day--active' : '',
+              !inWindow ? 'ip-hud-day--outside-window' : '',
+            ].filter(Boolean).join(' ')}
+          >
             <div className="ip-hud-day-head">
               <div className="ip-hud-day-head-main">
                 <StepBadge number={day?.dayNumber} className={day?.isRecorded ? 'ip-step-badge--active' : ''} />
@@ -442,7 +453,7 @@ function HudContractCard({
                 </div>
               </div>
               <div className="ip-hud-day-actions">
-                {onEditRecord ? (
+                {onEditRecord && inWindow ? (
                   <button
                     type="button"
                     onClick={() => onEditRecord(day?.record || makeDraftRecord(day))}
@@ -452,7 +463,7 @@ function HudContractCard({
                     <Pencil size={12} />
                   </button>
                 ) : null}
-                {onSaveRecord ? (
+                {onSaveRecord && inWindow ? (
                   <button
                     type="button"
                     className="ip-hud-day-save"
@@ -464,7 +475,7 @@ function HudContractCard({
                     <Check size={12} />
                   </button>
                 ) : null}
-                {onDeleteRecord ? (
+                {onDeleteRecord && inWindow ? (
                   <button
                     type="button"
                     disabled={!day?.isRecorded || !day?.record?.id}
@@ -482,7 +493,9 @@ function HudContractCard({
             {metricConfig.map(({ label, key, Icon }) => (
               <div key={key} className="ip-hud-metric-row">
                 <span><Icon size={15} /> {label}</span>
-                {onSaveRecord ? (
+                {!inWindow ? (
+                  <strong className={`ip-hud-value ip-hud-value--muted ip-hud-value--${key}`}>—</strong>
+                ) : onSaveRecord ? (
                   <input
                     className={`ip-hud-value ip-hud-value-input ip-hud-value--${key}`}
                     inputMode="numeric"
@@ -519,7 +532,9 @@ function HudContractCard({
             ))}
             <div className="ip-hud-metric-row">
               <span><GalleryHorizontal size={15} /> Story posting</span>
-              {onSaveRecord ? (
+              {!inWindow ? (
+                <strong className="ip-hud-value ip-hud-value--muted ip-hud-value--storyViews">—</strong>
+              ) : onSaveRecord ? (
                 <select
                   className="ip-hud-value ip-hud-value-select ip-hud-value--storyViews"
                   value={getStoryDraft(day)}
@@ -537,7 +552,8 @@ function HudContractCard({
               )}
             </div>
           </section>
-        ))}
+          )
+        })}
         <section className="ip-hud-day ip-hud-day--total" aria-label="Total performance">
           <div className="ip-hud-day-head">
             <div className="ip-hud-day-total-title">Total</div>

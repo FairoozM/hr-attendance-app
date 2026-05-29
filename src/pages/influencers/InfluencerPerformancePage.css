@@ -1749,14 +1749,22 @@
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
+  background-image: none;
   outline: none;
   padding: 0.08rem 0.12rem;
+  padding-right: 0.12rem;
   font-family: 'Space Mono', ui-monospace, monospace;
   font-size: clamp(0.86rem, 1.2vw, 1rem);
   font-weight: 800;
   text-align: right;
   cursor: pointer;
-  appearance: auto;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+}
+
+.ip-hud-value-select::-ms-expand {
+  display: none;
 }
 
 .ip-hud-value-select:hover,
@@ -1764,6 +1772,24 @@
   border-color: rgba(13, 148, 136, 0.42);
   background: rgba(255, 255, 255, 0.72);
   box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.1);
+}
+
+.ip-hud-day--outside-window {
+  opacity: 0.42;
+  pointer-events: none;
+}
+
+.ip-hud-day--outside-window .ip-hud-day-date::after {
+  content: ' · outside window';
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(15, 23, 42, 0.45);
+}
+
+.ip-hud-value--muted {
+  color: rgba(15, 23, 42, 0.35) !important;
 }
 
 .ip-hud-value--views { color: #007fb5; }

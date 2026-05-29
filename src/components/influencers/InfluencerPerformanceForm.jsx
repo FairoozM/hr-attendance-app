@@ -4,9 +4,13 @@ import { useAuth, canViewInfluencerPerformanceNetProfit } from '../../contexts/A
 import {
   addDays,
   calculateEngagementRate,
+  clampMonitoringDays,
+  contractEndDateFromStartAndDays,
+  daysBetweenIso,
   formatIsoDateDdMmYyyy,
   getDayNumber,
   INFLUENCER_PLATFORMS,
+  monitoringDaysFromContractDates,
   normalizePerformanceRecord,
   parseDdMmYyyyToIso,
 } from '../../utils/influencerPerformanceUtils'
@@ -18,6 +22,7 @@ const emptyForm = {
   postUrl: '',
   campaignName: '',
   contractStartDate: new Date().toISOString().slice(0, 10),
+  contractEndDate: new Date().toISOString().slice(0, 10),
   monitoringDays: 5,
   views: '',
   likes: '',
@@ -47,13 +52,20 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
   const [errors, setErrors] = useState({})
   const [influencerQuery, setInfluencerQuery] = useState('')
   const [openingDateText, setOpeningDateText] = useState(() => formatIsoDateDdMmYyyy(emptyForm.contractStartDate))
+  const [endingDateText, setEndingDateText] = useState(() => formatIsoDateDdMmYyyy(emptyForm.contractEndDate))
 
   useEffect(() => {
     if (editingRecord) {
       const editedInfluencer = influencers.find((item) => String(item.id) === String(editingRecord.influencerId))
+      const start = editingRecord.contractStartDate || editingRecord.date || emptyForm.contractStartDate
+      const days = clampMonitoringDays(editingRecord.monitoringDays)
+      const end = editingRecord.contractEndDate || contractEndDateFromStartAndDays(start, days)
       setForm({
         ...emptyForm,
         ...editingRecord,
+        contractStartDate: start,
+        contractEndDate: end,
+        monitoringDays: days,
         views: String(editingRecord.views ?? ''),
         likes: String(editingRecord.likes ?? ''),
         comments: String(editingRecord.comments ?? ''),
@@ -66,13 +78,19 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
       setErrors({})
       return
     }
-    setForm((prev) => ({
-      ...emptyForm,
-      influencerId: prev.influencerId || '',
-      platform: prev.platform || 'Instagram',
-      campaignName: prev.campaignName || '',
-      contractStartDate: prev.contractStartDate || emptyForm.contractStartDate,
-    }))
+    setForm((prev) => {
+      const start = prev.contractStartDate || emptyForm.contractStartDate
+      const days = clampMonitoringDays(prev.monitoringDays)
+      return {
+        ...emptyForm,
+        influencerId: prev.influencerId || '',
+        platform: prev.platform || 'Instagram',
+        campaignName: prev.campaignName || '',
+        contractStartDate: start,
+        contractEndDate: prev.contractEndDate || contractEndDateFromStartAndDays(start, days),
+        monitoringDays: days,
+      }
+    })
     setInfluencerQuery('')
     setErrors({})
   }, [editingRecord, influencers])
@@ -80,6 +98,10 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
   useEffect(() => {
     setOpeningDateText(formatIsoDateDdMmYyyy(form.contractStartDate))
   }, [form.contractStartDate])
+
+  useEffect(() => {
+    setEndingDateText(formatIsoDateDdMmYyyy(form.contractEndDate))
+  }, [form.contractEndDate])
 
   const selectedInfluencer = useMemo(
     () => influencers.find((item) => String(item.id) === String(form.influencerId)),
@@ -104,14 +126,47 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
     if (errors[name]) setErrors((prev) => ({ ...prev, [name]: '' }))
   }
 
+  function syncWindowFromDates(startIso, endIso) {
+    const days = monitoringDaysFromContractDates(startIso, endIso)
+    if (days) set('monitoringDays', days)
+  }
+
+  function applyOpeningIso(iso) {
+    if (!iso) return
+    set('contractStartDate', iso)
+    const endIso = parseDdMmYyyyToIso(endingDateText) || form.contractEndDate
+    if (endIso) {
+      syncWindowFromDates(iso, endIso)
+    } else {
+      const end = contractEndDateFromStartAndDays(iso, form.monitoringDays)
+      set('contractEndDate', end)
+    }
+  }
+
+  function applyEndingIso(iso) {
+    if (!iso) return
+    set('contractEndDate', iso)
+    const startIso = parseDdMmYyyyToIso(openingDateText) || form.contractStartDate
+    if (startIso) syncWindowFromDates(startIso, iso)
+  }
+
   function validate() {
     const next = {}
     const openingIso = parseDdMmYyyyToIso(openingDateText) || form.contractStartDate
+    const endingIso = parseDdMmYyyyToIso(endingDateText) || form.contractEndDate
     if (!form.influencerId) next.influencerId = 'Select an influencer'
     if (!form.date) next.date = 'Missing check date'
     if (!form.platform) next.platform = 'Select a platform'
     if (!form.campaignName.trim()) next.campaignName = 'Contract / campaign is required'
     if (!openingIso) next.contractStartDate = 'Enter contract opening date as dd/mm/yyyy (e.g. 04/05/2026)'
+    if (!endingIso) next.contractEndDate = 'Enter contract ending date as dd/mm/yyyy'
+    if (openingIso && endingIso && daysBetweenIso(openingIso, endingIso) < 0) {
+      next.contractEndDate = 'Ending date must be on or after opening date'
+    }
+    if (openingIso && endingIso) {
+      const windowDays = monitoringDaysFromContractDates(openingIso, endingIso)
+      if (!windowDays) next.contractEndDate = 'Contract window must be 3 to 5 days'
+    }
     ;['salesAed', 'cost'].forEach((key) => {
       if (Number(form[key]) < 0) next[key] = 'Value cannot be negative'
     })
@@ -148,8 +203,10 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
     if (!validate()) return
     const dateIso = form.date
     const startIso = parseDdMmYyyyToIso(openingDateText) || form.contractStartDate || dateIso
+    const endIso = parseDdMmYyyyToIso(endingDateText) || form.contractEndDate || contractEndDateFromStartAndDays(startIso, form.monitoringDays)
+    const windowDays = monitoringDaysFromContractDates(startIso, endIso) || clampMonitoringDays(form.monitoringDays)
     const now = new Date().toISOString()
-    const merged = { ...form, date: dateIso, contractStartDate: startIso }
+    const merged = { ...form, date: dateIso, contractStartDate: startIso, contractEndDate: endIso, monitoringDays: windowDays }
     if (!showNetProfit && editingRecord && Object.prototype.hasOwnProperty.call(editingRecord, 'netProfitAed')) {
       merged.netProfitAed = editingRecord.netProfitAed
     }
@@ -158,7 +215,8 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
       id: editingRecord?.id,
       screenshotUrl: form.screenshotUrl,
       contractStartDate: startIso || dateIso,
-      monitoringDays: Number(form.monitoringDays) || 5,
+      contractEndDate: endIso,
+      monitoringDays: windowDays,
       createdAt: editingRecord?.createdAt || now,
       updatedAt: now,
       saves: editingRecord != null ? editingRecord.saves : 0,
@@ -174,7 +232,8 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
         campaignName: form.campaignName,
         postUrl: form.postUrl,
         contractStartDate: contractStart,
-        monitoringDays: form.monitoringDays || 5,
+        contractEndDate: endIso,
+        monitoringDays: windowDays,
         date: nextDate,
       })
     }
@@ -200,7 +259,7 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
               <span>1</span>
               <div>
                 <h3>Video contract</h3>
-                <p>Influencer, platform, window, contract opening date, campaign, and video link.</p>
+                <p>Influencer, platform, contract dates, campaign, and video link.</p>
               </div>
             </div>
 
@@ -236,56 +295,89 @@ export function InfluencerPerformanceForm({ influencers, editingRecord, onSubmit
                 </div>
               </Field>
 
-              <div className="ip-form-inline">
-                <Field label="Platform" error={errors.platform}>
-                  <select className="ip-control" value={form.platform} onChange={(event) => set('platform', event.target.value)}>
-                    {INFLUENCER_PLATFORMS.map((platform) => (
-                      <option key={platform} value={platform}>{platform}</option>
-                    ))}
-                  </select>
+              <Field label="Platform" error={errors.platform}>
+                <select className="ip-control" value={form.platform} onChange={(event) => set('platform', event.target.value)}>
+                  {INFLUENCER_PLATFORMS.map((platform) => (
+                    <option key={platform} value={platform}>{platform}</option>
+                  ))}
+                </select>
+              </Field>
+
+              <div className="ip-form-inline ip-form-inline--dates">
+                <Field label="Contract opening date" error={errors.contractStartDate}>
+                  <div className="ip-control-icon">
+                    <CalendarDays size={16} />
+                    <input
+                      className="ip-control"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      placeholder="dd/mm/yyyy"
+                      maxLength={10}
+                      value={openingDateText}
+                      onChange={(event) => {
+                        const v = event.target.value
+                        setOpeningDateText(v)
+                        const iso = parseDdMmYyyyToIso(v.trim())
+                        if (iso) applyOpeningIso(iso)
+                      }}
+                      onBlur={() => {
+                        const iso = parseDdMmYyyyToIso(openingDateText)
+                        if (iso) {
+                          applyOpeningIso(iso)
+                          setOpeningDateText(formatIsoDateDdMmYyyy(iso))
+                          if (errors.contractStartDate) setErrors((prev) => ({ ...prev, contractStartDate: '' }))
+                        } else if (openingDateText.trim()) {
+                          setErrors((prev) => ({ ...prev, contractStartDate: 'Use dd/mm/yyyy' }))
+                          setOpeningDateText(formatIsoDateDdMmYyyy(form.contractStartDate))
+                        }
+                      }}
+                      aria-invalid={Boolean(errors.contractStartDate)}
+                    />
+                  </div>
                 </Field>
 
-                <Field label="Window">
-                  <select className="ip-control" value={form.monitoringDays} onChange={(event) => set('monitoringDays', event.target.value)}>
-                    <option value={4}>4 days</option>
-                    <option value={5}>5 days</option>
-                    <option value={6}>6 days</option>
-                    <option value={7}>7 days</option>
-                  </select>
+                <Field label="Contract ending date" error={errors.contractEndDate}>
+                  <div className="ip-control-icon">
+                    <CalendarDays size={16} />
+                    <input
+                      className="ip-control"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      placeholder="dd/mm/yyyy"
+                      maxLength={10}
+                      value={endingDateText}
+                      onChange={(event) => {
+                        const v = event.target.value
+                        setEndingDateText(v)
+                        const iso = parseDdMmYyyyToIso(v.trim())
+                        if (iso) applyEndingIso(iso)
+                      }}
+                      onBlur={() => {
+                        const iso = parseDdMmYyyyToIso(endingDateText)
+                        if (iso) {
+                          applyEndingIso(iso)
+                          setEndingDateText(formatIsoDateDdMmYyyy(iso))
+                          if (errors.contractEndDate) setErrors((prev) => ({ ...prev, contractEndDate: '' }))
+                        } else if (endingDateText.trim()) {
+                          setErrors((prev) => ({ ...prev, contractEndDate: 'Use dd/mm/yyyy' }))
+                          setEndingDateText(formatIsoDateDdMmYyyy(form.contractEndDate))
+                        }
+                      }}
+                      aria-invalid={Boolean(errors.contractEndDate)}
+                    />
+                  </div>
                 </Field>
               </div>
 
-              <Field label="Contract opening date" error={errors.contractStartDate}>
-                <div className="ip-control-icon">
-                  <CalendarDays size={16} />
-                  <input
-                    className="ip-control"
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete="off"
-                    placeholder="dd/mm/yyyy"
-                    maxLength={10}
-                    value={openingDateText}
-                    onChange={(event) => {
-                      const v = event.target.value
-                      setOpeningDateText(v)
-                      const iso = parseDdMmYyyyToIso(v.trim())
-                      if (iso) set('contractStartDate', iso)
-                    }}
-                    onBlur={() => {
-                      const iso = parseDdMmYyyyToIso(openingDateText)
-                      if (iso) {
-                        set('contractStartDate', iso)
-                        setOpeningDateText(formatIsoDateDdMmYyyy(iso))
-                        if (errors.contractStartDate) setErrors((prev) => ({ ...prev, contractStartDate: '' }))
-                      } else if (openingDateText.trim()) {
-                        setErrors((prev) => ({ ...prev, contractStartDate: 'Use dd/mm/yyyy' }))
-                        setOpeningDateText(formatIsoDateDdMmYyyy(form.contractStartDate))
-                      }
-                    }}
-                    aria-invalid={Boolean(errors.contractStartDate)}
-                  />
-                </div>
+              <Field label="Window (days)">
+                <input
+                  className="ip-control ip-control--readonly"
+                  readOnly
+                  value={`${clampMonitoringDays(form.monitoringDays)} days (auto)`}
+                  aria-label={`Contract window ${clampMonitoringDays(form.monitoringDays)} days`}
+                />
               </Field>
 
               <Field label="Contract / campaign" error={errors.campaignName}>

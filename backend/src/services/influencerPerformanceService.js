@@ -52,7 +52,8 @@ async function upsertContractFromRecord(record, updatedByUserId) {
   const contractId = ensureContractId(record)
   const start = isoDateSlice(record.contractStartDate || record.date) || null
   const monitoringDays = Number.parseInt(String(record.monitoringDays || 5), 10)
-  const validDays = Number.isFinite(monitoringDays) ? Math.max(4, Math.min(7, monitoringDays)) : 5
+  const validDays = Number.isFinite(monitoringDays) ? Math.max(3, Math.min(5, monitoringDays)) : 5
+  const endIso = isoDateSlice(record.contractEndDate)
   const body = {
     id: contractId,
     influencerId: record.influencerId,
@@ -61,6 +62,7 @@ async function upsertContractFromRecord(record, updatedByUserId) {
     videoTitle: record.videoTitle || record.campaignName || 'Contracted video',
     postUrl: record.postUrl || '',
     contractStartDate: start,
+    contractEndDate: endIso || null,
     monitoringDays: validDays,
   }
   await query(
