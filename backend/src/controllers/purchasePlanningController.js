@@ -210,11 +210,13 @@ async function uploadLowStockSkus(req, res) {
       })
     }
     const result = await service.saveLowStockUpload({ rows: preview.rows })
+    service.queueLowStockZohoEnrichment()
     res.status(201).json({
       saved: true,
       summary: result,
       items: result.items || [],
       preview,
+      enrichmentQueued: true,
     })
   } catch (err) {
     logPurchasePlanningError('uploadLowStockSkus', err, req)
@@ -224,11 +226,31 @@ async function uploadLowStockSkus(req, res) {
 
 async function refreshLowStockZoho(req, res) {
   try {
-    const result = await service.refreshLowStockZohoEnrichment()
-    res.json({ summary: result, items: result.items || [] })
+    const pending = await service.listLowStock()
+    if (pending.length === 0) {
+      return res.status(400).json({
+        error: 'Upload low-stock SKUs before refreshing Zoho enrichment',
+        code: 'NO_LOW_STOCK_ITEMS',
+      })
+    }
+    service.queueLowStockZohoEnrichment()
+    res.json({
+      ok: true,
+      enrichmentQueued: true,
+      status: service.getLowStockEnrichmentStatus(),
+    })
   } catch (err) {
     logPurchasePlanningError('refreshLowStockZoho', err, req)
     sendError(res, err, 'Failed to refresh low-stock Zoho enrichment', 'LOW_STOCK_ZOHO_REFRESH_FAILED')
+  }
+}
+
+async function getLowStockEnrichmentStatus(req, res) {
+  try {
+    res.json(service.getLowStockEnrichmentStatus())
+  } catch (err) {
+    logPurchasePlanningError('getLowStockEnrichmentStatus', err, req)
+    sendError(res, err, 'Failed to read low-stock enrichment status', 'LOW_STOCK_ENRICHMENT_STATUS_FAILED')
   }
 }
 
@@ -368,6 +390,7 @@ module.exports = {
   listLowStock,
   uploadLowStockSkus,
   refreshLowStockZoho,
+  getLowStockEnrichmentStatus,
   uploadVigilCsv,
   listVigilUploads,
   generatePlan,

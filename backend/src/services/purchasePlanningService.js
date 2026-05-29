@@ -305,31 +305,11 @@ async function enrichUploadedLowStockSkus(skus) {
   })
 }
 
-async function saveUploadedLowStockSkus(skus) {
-  const uniqueSkus = []
-  const seen = new Set()
-  for (const raw of Array.isArray(skus) ? skus : []) {
-    const sku = clean(raw)
-    const key = normalizeSku(sku)
-    if (!sku || seen.has(key)) continue
-    seen.add(key)
-    uniqueSkus.push(sku)
+async function persistLowStockItems(items) {
+  const rows = Array.isArray(items) ? items : []
+  if (rows.length === 0) {
+    return { uploaded: 0, items: [], uploadedKeys: [] }
   }
-  if (uniqueSkus.length === 0) {
-    return { uploaded: 0, matched: 0, unmatched: 0, items: [] }
-  }
-
-  const enriched = await enrichUploadedLowStockSkus(uniqueSkus)
-  const { salesAggregate, bundleUsageAggregate } = await fetchLast3MonthsSalesAggregate()
-  for (const item of enriched) {
-    item.totalSalesLast3Months = item.matchedInZoho
-      ? salesQtyForItem(salesAggregate, { sku: item.sku, zoho_item_id: item.zohoItemId })
-      : 0
-    item.totalBundleUsageLast3Months = item.matchedInZoho
-      ? bundleUsageQtyForItem(bundleUsageAggregate, { sku: item.sku, zoho_item_id: item.zohoItemId })
-      : 0
-  }
-  const uploadedKeys = enriched.map((item) => normalizeSku(item.sku))
 
   await query(`
     UPDATE purchase_low_stock_items
@@ -339,7 +319,7 @@ async function saveUploadedLowStockSkus(skus) {
 
   const savedRows = []
   let upserted = 0
-  for (const item of enriched) {
+  for (const item of rows) {
     const result = await query(
       `
         INSERT INTO purchase_low_stock_items
@@ -358,9 +338,9 @@ async function saveUploadedLowStockSkus(skus) {
       `,
       [
         item.sku,
-        item.itemName,
-        item.zohoItemId,
-        item.currentZohoStock,
+        item.itemName || '',
+        item.zohoItemId || '',
+        item.currentZohoStock || 0,
         item.totalSalesLast3Months || 0,
         item.totalBundleUsageLast3Months || 0,
       ]
@@ -369,14 +349,85 @@ async function saveUploadedLowStockSkus(skus) {
     if (result.rows[0]) savedRows.push(mapLowStockRow(result.rows[0]))
   }
   const upload = await getLatestVigilUpload()
-  const items = applyVigilMatchesToLowStockRows(savedRows, coerceVigilRowsFromUpload(upload))
+  const persisted = applyVigilMatchesToLowStockRows(savedRows, coerceVigilRowsFromUpload(upload))
   return {
     uploaded: upserted,
-    matched: enriched.filter((item) => item.matchedInZoho).length,
-    unmatched: enriched.filter((item) => !item.matchedInZoho).length,
-    uploadedKeys,
-    items,
+    items: persisted,
+    uploadedKeys: persisted.map((row) => normalizeSku(row.sku)),
   }
+}
+
+async function saveUploadedLowStockSkus(skus) {
+  const uniqueSkus = []
+  const seen = new Set()
+  for (const raw of Array.isArray(skus) ? skus : []) {
+    const sku = clean(raw)
+    const key = normalizeSku(sku)
+    if (!sku || seen.has(key)) continue
+    seen.add(key)
+    uniqueSkus.push(sku)
+  }
+  if (uniqueSkus.length === 0) {
+    return { uploaded: 0, matched: 0, unmatched: 0, items: [], enrichmentPending: false }
+  }
+
+  const minimalItems = uniqueSkus.map((sku) => ({
+    sku,
+    itemName: '',
+    zohoItemId: '',
+    currentZohoStock: 0,
+    totalSalesLast3Months: 0,
+    totalBundleUsageLast3Months: 0,
+  }))
+  const persisted = await persistLowStockItems(minimalItems)
+  return {
+    uploaded: persisted.uploaded,
+    matched: 0,
+    unmatched: uniqueSkus.length,
+    uploadedKeys: persisted.uploadedKeys,
+    items: persisted.items,
+    enrichmentPending: true,
+  }
+}
+
+const lowStockEnrichmentJob = {
+  running: false,
+  lastError: null,
+  lastCompletedAt: null,
+  lastSummary: null,
+}
+
+function getLowStockEnrichmentStatus() {
+  return {
+    running: lowStockEnrichmentJob.running,
+    lastError: lowStockEnrichmentJob.lastError,
+    lastCompletedAt: lowStockEnrichmentJob.lastCompletedAt,
+    lastSummary: lowStockEnrichmentJob.lastSummary
+      ? {
+          refreshed: lowStockEnrichmentJob.lastSummary.refreshed,
+          matched: lowStockEnrichmentJob.lastSummary.matched,
+          unmatched: lowStockEnrichmentJob.lastSummary.unmatched,
+        }
+      : null,
+  }
+}
+
+function queueLowStockZohoEnrichment() {
+  if (lowStockEnrichmentJob.running) return
+  lowStockEnrichmentJob.running = true
+  lowStockEnrichmentJob.lastError = null
+  refreshLowStockZohoEnrichment()
+    .then((summary) => {
+      lowStockEnrichmentJob.lastSummary = summary
+      lowStockEnrichmentJob.lastCompletedAt = new Date().toISOString()
+    })
+    .catch((err) => {
+      lowStockEnrichmentJob.lastError = (err && err.message) || String(err)
+      console.error('[purchase-planning] background Zoho enrichment failed:', err)
+    })
+    .finally(() => {
+      lowStockEnrichmentJob.running = false
+    })
 }
 
 async function refreshLowStockZohoEnrichment() {
@@ -1182,6 +1233,8 @@ module.exports = {
   enrichUploadedLowStockSkus,
   saveUploadedLowStockSkus,
   refreshLowStockZohoEnrichment,
+  queueLowStockZohoEnrichment,
+  getLowStockEnrichmentStatus,
   listLowStock,
   previewLowStockUpload,
   saveLowStockUpload,

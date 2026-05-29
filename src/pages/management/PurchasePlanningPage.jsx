@@ -325,15 +325,15 @@ function LowStockUploadPanel({ lowStock, loading = false, onUploaded, onRefreshZ
       setPreview(res.preview)
       if (res.saved) {
         const uploaded = Number(res.summary?.uploaded ?? 0)
-        const matched = Number(res.summary?.matched ?? 0)
-        const unmatched = Number(res.summary?.unmatched ?? 0)
         setSavedMessage(
-          `Saved ${uploaded} low-stock SKU${uploaded === 1 ? '' : 's'} (${matched} matched in Zoho, ${unmatched} unmatched).`
+          res.enrichmentQueued
+            ? `Saved ${uploaded} low-stock SKU${uploaded === 1 ? '' : 's'}. Enriching from Zoho in the background…`
+            : `Saved ${uploaded} low-stock SKU${uploaded === 1 ? '' : 's'} (${Number(res.summary?.matched ?? 0)} matched in Zoho, ${Number(res.summary?.unmatched ?? 0)} unmatched).`
         )
         setFile(null)
         setPreview(null)
         if (fileInputRef.current) fileInputRef.current.value = ''
-        onUploaded(res)
+        await onUploaded(res)
       }
     } catch (err) {
       setError(err.message || (save ? 'Save failed' : 'Preview failed'))
@@ -938,15 +938,48 @@ export function PurchasePlanningPage() {
     [activePlan, allPriceRows]
   )
 
-  const handleLowStockUploaded = useCallback((res) => {
+  const pollLowStockEnrichment = useCallback(async () => {
+    const deadline = Date.now() + 180_000
+    while (Date.now() < deadline) {
+      try {
+        const statusRes = await api.get('/api/purchase-planning/low-stock/enrichment-status', PP_REQUEST_OPTS)
+        const listRes = await api.get('/api/purchase-planning/low-stock', PP_REQUEST_OPTS)
+        setLowStock(listRes.items || [])
+        if (!statusRes.running) {
+          if (statusRes.lastError) {
+            setError(`Zoho enrichment failed: ${statusRes.lastError}`)
+          } else if (statusRes.lastSummary) {
+            const summary = statusRes.lastSummary
+            setNotice(
+              `Enriched ${summary.refreshed ?? 0} uploaded SKU${summary.refreshed === 1 ? '' : 's'} (${summary.matched ?? 0} matched in Zoho, ${summary.unmatched ?? 0} unmatched).`
+            )
+          }
+          return
+        }
+        setNotice('Saved low-stock SKUs. Enriching from Zoho…')
+      } catch (err) {
+        setError(err.message || 'Failed while waiting for Zoho enrichment')
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2500))
+    }
+    setError('Zoho enrichment is taking longer than expected. Refresh the page or click Refresh Zoho.')
+  }, [])
+
+  const handleLowStockUploaded = useCallback(async (res) => {
     const uploaded = Number(res.summary?.uploaded ?? 0)
-    const matched = Number(res.summary?.matched ?? 0)
-    const unmatched = Number(res.summary?.unmatched ?? 0)
     setError('')
-    setNotice(`Saved ${uploaded} low-stock SKU${uploaded === 1 ? '' : 's'} (${matched} matched in Zoho, ${unmatched} unmatched).`)
     setLowStock(res.items || [])
     setLoadingLowStock(false)
-  }, [])
+    if (res.enrichmentQueued) {
+      setNotice(`Saved ${uploaded} low-stock SKU${uploaded === 1 ? '' : 's'}. Enriching from Zoho…`)
+      await pollLowStockEnrichment()
+      return
+    }
+    const matched = Number(res.summary?.matched ?? 0)
+    const unmatched = Number(res.summary?.unmatched ?? 0)
+    setNotice(`Saved ${uploaded} low-stock SKU${uploaded === 1 ? '' : 's'} (${matched} matched in Zoho, ${unmatched} unmatched).`)
+  }, [pollLowStockEnrichment])
 
   const refreshLowStockZoho = useCallback(async () => {
     const ok = window.confirm(
@@ -957,16 +990,15 @@ export function PurchasePlanningPage() {
     setError('')
     setNotice('')
     try {
-      const res = await api.post('/api/purchase-planning/low-stock/refresh-zoho', {})
-      setLowStock(res.items || [])
-      const summary = res.summary || {}
-      setNotice(`Refreshed ${summary.refreshed ?? 0} uploaded SKUs (${summary.matched ?? 0} matched in Zoho, ${summary.unmatched ?? 0} unmatched).`)
+      await api.post('/api/purchase-planning/low-stock/refresh-zoho', {})
+      setNotice('Refreshing Zoho enrichment…')
+      await pollLowStockEnrichment()
     } catch (err) {
       setError(err.message || 'Zoho enrichment refresh failed')
     } finally {
       setBusy('')
     }
-  }, [])
+  }, [pollLowStockEnrichment])
 
   const generatePlan = useCallback(async () => {
     setBusy('generate')
