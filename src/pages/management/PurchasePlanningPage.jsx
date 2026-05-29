@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Trash2 } from 'lucide-react'
 import { api, PURCHASE_PLANNING_TIMEOUT_MS } from '../../api/client'
-import { loadRows as loadAllPriceRows } from './allPricesEcommerceUtils'
+import { useUserPreferences } from '../../contexts/UserPreferencesContext'
+import { resolveAllPricesRowsFromBundle } from './allPricesEcommerceUtils'
+import { getAllPricesPrefsScope } from './allPricesMarketScope'
 import './DocumentExpiryPage.css'
 import './PurchasePlanningPage.css'
 
@@ -921,11 +923,11 @@ function PlanTable({ plan, filters, onFiltersChange, onItemChange, onRefreshZoho
 }
 
 export function PurchasePlanningPage() {
+  const { ready: prefsReady, getPref, prefsVersion } = useUserPreferences()
   const [lowStock, setLowStock] = useState([])
   const [uploads, setUploads] = useState([])
   const [plans, setPlans] = useState([])
   const [activePlan, setActivePlan] = useState(null)
-  const [allPriceRows, setAllPriceRows] = useState(() => loadAllPriceRows() || [])
   const [filters, setFilters] = useState(EMPTY_FILTERS)
   const [loading, setLoading] = useState(true)
   const [loadingLowStock, setLoadingLowStock] = useState(true)
@@ -953,6 +955,13 @@ export function PurchasePlanningPage() {
         ? `${pendingNeedsEnrichment.length} pending SKU${pendingNeedsEnrichment.length === 1 ? '' : 's'} still need Zoho enrichment.`
         : ''
 
+  const allPriceRows = useMemo(() => {
+    void prefsVersion
+    if (!prefsReady) return []
+    const bundle = getPref(getAllPricesPrefsScope().ec, null)
+    return resolveAllPricesRowsFromBundle(bundle) || []
+  }, [getPref, prefsReady, prefsVersion])
+
   const load = useCallback(async () => {
     loadAbortRef.current?.abort()
     const controller = new AbortController()
@@ -960,7 +969,6 @@ export function PurchasePlanningPage() {
     const opts = { ...PP_REQUEST_OPTS, signal: controller.signal }
 
     setError('')
-    setAllPriceRows(loadAllPriceRows() || [])
     setLoadingLowStock(true)
     try {
       const lowStockPromise = api
@@ -992,7 +1000,6 @@ export function PurchasePlanningPage() {
     setLoading(true)
     setLoadingLowStock(true)
     setError('')
-    setAllPriceRows(loadAllPriceRows() || [])
 
     Promise.all([
       api.get('/api/purchase-planning/vigil-uploads', opts),
@@ -1218,9 +1225,7 @@ export function PurchasePlanningPage() {
       setError('Enter a PO number before sending to Zoho')
       return
     }
-    const latestPriceRows = loadAllPriceRows() || []
-    setAllPriceRows(latestPriceRows)
-    const pricedPlan = enrichPlanWithPurchasePrices(activePlanWithPrices, latestPriceRows)
+    const pricedPlan = activePlanWithPrices
     const selectedItems = (pricedPlan.items || []).filter((item) =>
       item.included &&
       Number(item.finalQty || 0) > 0 &&
