@@ -1,76 +1,19 @@
-import { Pencil } from 'lucide-react'
-import { useCallback, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { alDaysBetween } from '../../utils/annualLeaveUtils'
 import {
   alternateAvailabilityForRow,
-  calculateLeaveAppliedThisYear,
-  getLeaveEntitlement,
   CEO_SORT_OPTIONS,
   CEO_STATUS_FILTERS,
   computeCeoOverviewStats,
-  fmtLeavePeriodCeo,
-  formatDate,
-  getStatusStyle,
-  normalizeCeoLastReturnDateMap,
   resolveAlternateEmployeePhotoUrl,
-  resolveLastAnnualLeaveReturnDate,
-  roundupMonthsUntilLeave,
+  splitCeoDisplayDate,
 } from '../../utils/annualLeaveCeoView'
-import { leaveStatusDisplay } from './annualLeaveLabels'
 import { ModernSearchInput } from '../ui/ModernSearchInput'
 import { ModernSelect } from '../ui/ModernSelect'
 import { ANNUAL_LEAVE_STORAGE_KEY } from '../../lib/annualLeaveMockData'
-import { useUserPreferences } from '../../contexts/UserPreferencesContext'
-import { PREF_CEO_AL_LAST_RETURN_DATES } from '../../constants/userPreferenceKeys'
 
 const CEO_PAGE_SIZE = 24
-const CEO_EMP_AVATAR_SIZE = 88
-const CEO_ALT_AVATAR_SIZE = 80
-
-const CEO_TABLE_COLUMNS = [
-  { key: 'emp', label: 'Employee' },
-  { key: 'period', label: 'Leave period' },
-  { key: 'applied', label: 'Annual leave applied' },
-  { key: 'alt', label: 'Alternate / availability' },
-  { key: 'lastReturn', label: 'Last annual leave return' },
-  { key: 'tenure', label: 'Tenure at leave start' },
-  { key: 'status', label: 'Status' },
-]
-
-function CeoTableHead() {
-  return (
-    <>
-      <colgroup>
-        {CEO_TABLE_COLUMNS.map((col) => (
-          <col key={col.key} className={`al-ceo-table__col al-ceo-table__col--${col.key}`} />
-        ))}
-      </colgroup>
-      <thead>
-        <tr>
-          {CEO_TABLE_COLUMNS.map((col) => (
-            <th key={col.key} scope="col" className={`al-ceo-table__col al-ceo-table__col--${col.key}`}>
-              {col.label}
-            </th>
-          ))}
-        </tr>
-      </thead>
-    </>
-  )
-}
-
-function SkeletonRow() {
-  return (
-    <tr className="al-ceo-table__row al-ceo-table__row--skeleton" aria-hidden>
-      <td><div className="al-ceo-card__sk-avatar" /></td>
-      <td><div className="al-ceo-card__sk-line al-ceo-card__sk-line--lg" /></td>
-      <td><div className="al-ceo-card__sk-line" /></td>
-      <td><div className="al-ceo-card__sk-block" /></td>
-      <td><div className="al-ceo-card__sk-line" /></td>
-      <td><div className="al-ceo-card__sk-line" /></td>
-      <td><div className="al-ceo-card__sk-line" /></td>
-    </tr>
-  )
-}
+const CEO_ROW_GRID = 'grid-cols-[205px_300px_230px]'
 
 function SummaryMetric({ label, value }) {
   return (
@@ -81,186 +24,197 @@ function SummaryMetric({ label, value }) {
   )
 }
 
-/** Rounded-square avatar for CEO view (2× default size). */
-function CeoAvatar({ name, photoUrl, size = CEO_EMP_AVATAR_SIZE }) {
-  const [imgFailed, setImgFailed] = useState(false)
-  const initial = (name || '?')[0].toUpperCase()
-  const showImg = Boolean(photoUrl) && !imgFailed
+function CeoDateBlock({ label, isoDate, compact = false }) {
+  const parts = splitCeoDisplayDate(isoDate)
+  if (!parts) return null
 
   return (
     <div
-      className="al-avatar al-ceo-avatar"
-      style={{ width: size, height: size, fontSize: size * 0.38 }}
+      className={
+        compact
+          ? 'flex min-w-[74px] flex-col items-center rounded-md border border-neutral-200 bg-neutral-50 px-1.5 py-1 text-center'
+          : 'flex min-w-[70px] flex-col items-center rounded-md border border-neutral-200 bg-white px-1.5 py-1 text-center'
+      }
     >
-      {showImg ? (
-        <img src={photoUrl} alt="" onError={() => setImgFailed(true)} />
-      ) : (
-        initial
-      )}
+      <div className="mb-0 text-center text-[6px] font-extrabold uppercase tracking-[0.12em] text-neutral-400">
+        {label}
+      </div>
+      <div className="flex items-baseline justify-center gap-1">
+        <span className="text-[15px] font-black leading-none tracking-[-0.06em] text-neutral-950">
+          {parts.day}
+        </span>
+        <span className="text-[9px] font-bold uppercase leading-none text-neutral-700">{parts.month}</span>
+      </div>
+      <div className="mt-0 w-full text-center text-[8px] font-bold leading-none text-neutral-400">
+        {parts.year}
+      </div>
     </div>
   )
 }
 
-/** Manual last return date when not available from completed leave records. */
-function LastReturnDateCell({ employeeId, resolved, onSaveManual }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState('')
-
-  const startEdit = () => {
-    setDraft(resolved.date || '')
-    setEditing(true)
-  }
-
-  const cancelEdit = () => {
-    setEditing(false)
-    setDraft('')
-  }
-
-  const saveEdit = () => {
-    if (!draft || employeeId == null) return
-    onSaveManual(employeeId, draft)
-    setEditing(false)
-    setDraft('')
-  }
-
-  if (resolved.date && !editing) {
-    return (
-      <div className="al-ceo-last-return">
-        <span className="al-ceo-card__value">{formatDate(resolved.date)}</span>
-        {resolved.source === 'manual' ? (
-          <button
-            type="button"
-            className="al-ceo-last-return__edit-icon"
-            onClick={startEdit}
-            aria-label="Edit last return date"
-            title="Edit last return date"
-          >
-            <Pencil size={14} aria-hidden />
-          </button>
-        ) : null}
-      </div>
-    )
-  }
-
-  if (editing) {
-    return (
-      <div className="al-ceo-last-return al-ceo-last-return--edit">
-        <input
-          type="date"
-          className="al-ceo-last-return__input"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          aria-label="Last annual leave return date"
-        />
-        <div className="al-ceo-last-return__actions">
-          <button type="button" className="al-ceo-last-return__action" disabled={!draft} onClick={saveEdit}>
-            Save
-          </button>
-          <button type="button" className="al-ceo-last-return__action al-ceo-last-return__action--muted" onClick={cancelEdit}>
-            Cancel
-          </button>
-        </div>
-      </div>
-    )
-  }
-
+function CeoLeavePeriod({ fromDate, toDate, days }) {
   return (
-    <button type="button" className="al-ceo-last-return__add" onClick={startEdit}>
-      Add date
-    </button>
+    <div className="grid min-w-[260px] grid-cols-[1fr_66px_1fr] items-center rounded-lg border border-neutral-200 bg-neutral-50/80 p-0.5">
+      <CeoDateBlock label="From" isoDate={fromDate} compact />
+
+      <div className="flex min-w-[66px] flex-col items-center justify-center gap-1 px-1.5">
+        <div className="flex h-4 w-4 items-center justify-center rounded-full border border-neutral-200 bg-white text-[10px] font-bold text-neutral-400">
+          →
+        </div>
+        <span className="inline-flex w-[56px] items-center justify-center rounded-full bg-neutral-950 px-1.5 py-[3px] text-center text-[8px] font-black leading-none tracking-[-0.02em] text-white shadow-sm ring-1 ring-neutral-800 whitespace-nowrap">
+          {days} days
+        </span>
+      </div>
+
+      <CeoDateBlock label="To" isoDate={toDate} />
+    </div>
   )
 }
 
-/** One table row = one annual leave request. */
-function LeaveRequestRow({ row, allRequests, manualReturnDates, onSaveManualReturn }) {
-  const appliedThisYear = calculateLeaveAppliedThisYear(row, allRequests)
-  const entitlement = getLeaveEntitlement(row)
-  const alt = alternateAvailabilityForRow(row, allRequests)
-  const alternatePhotoUrl = resolveAlternateEmployeePhotoUrl(row)
-  const lastReturn = resolveLastAnnualLeaveReturnDate(row, allRequests, manualReturnDates)
-  const months = lastReturn.date ? roundupMonthsUntilLeave(lastReturn.date, row.from_date) : null
-  const es = row.effective_status || row.status
-  const statusStyle = getStatusStyle(es)
-  const role = row.department || row.designation || ''
-  const remainingHint =
-    entitlement != null
-      ? `${Math.max(0, entitlement - appliedThisYear)} remaining of ${entitlement}`
-      : null
+function CeoPersonPhoto({ name, photoUrl }) {
+  const [imgFailed, setImgFailed] = useState(false)
+  const initial = (name || '?')[0].toUpperCase()
+  const showImg = Boolean(photoUrl) && !imgFailed
+
+  if (showImg) {
+    return (
+      <img
+        src={photoUrl}
+        alt=""
+        className="h-8 w-8 shrink-0 rounded-md border border-neutral-200 object-cover"
+        onError={() => setImgFailed(true)}
+      />
+    )
+  }
 
   return (
-    <tr className="al-ceo-table__row">
-      <td className="al-ceo-table__cell al-ceo-table__cell--emp">
-        <div className="al-ceo-card__person">
-          <CeoAvatar name={row.full_name} photoUrl={row.photo_url} size={CEO_EMP_AVATAR_SIZE} />
-          <div>
-            <span className="al-ceo-card__name">{row.full_name || '—'}</span>
-            {role ? <span className="al-ceo-card__role">{role}</span> : null}
+    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-neutral-200 bg-neutral-100 text-[11px] font-bold text-neutral-600">
+      {initial}
+    </div>
+  )
+}
+
+function CeoPerson({ photoUrl, name, role, children }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <CeoPersonPhoto name={name} photoUrl={photoUrl} />
+      <div className="min-w-0">
+        <div className="truncate text-[12px] font-bold leading-tight tracking-[-0.03em] text-neutral-950">
+          {name || '—'}
+        </div>
+        {role ? <div className="mt-0 text-[10px] font-medium text-neutral-500">{role}</div> : null}
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function CeoAltBadge({ status, label }) {
+  if (status === 'available') {
+    return (
+      <span className="mt-0.5 inline-flex rounded-full bg-emerald-50 px-1.5 py-[2px] text-[9px] font-bold leading-none text-emerald-800 ring-1 ring-emerald-100">
+        {label}
+      </span>
+    )
+  }
+  if (status === 'unavailable') {
+    return (
+      <span className="mt-0.5 inline-flex rounded-full bg-red-50 px-1.5 py-[2px] text-[9px] font-bold leading-none text-red-800 ring-1 ring-red-100">
+        {label}
+      </span>
+    )
+  }
+  return (
+    <span className="mt-0.5 inline-flex rounded-full bg-neutral-100 px-1.5 py-[2px] text-[9px] font-bold leading-none text-neutral-600 ring-1 ring-neutral-200">
+      {label}
+    </span>
+  )
+}
+
+function CeoRowSkeleton() {
+  return (
+    <div
+      className={`grid ${CEO_ROW_GRID} items-center rounded-2xl border border-neutral-200 bg-white shadow-sm`}
+      aria-hidden
+    >
+      <div className="px-4 py-3">
+        <div className="flex items-center gap-2">
+          <div className="h-8 w-8 rounded-md bg-neutral-100" />
+          <div className="space-y-1">
+            <div className="h-3 w-24 rounded bg-neutral-100" />
+            <div className="h-2 w-16 rounded bg-neutral-100" />
           </div>
         </div>
-      </td>
+      </div>
+      <div className="border-x border-neutral-100 px-4 py-3">
+        <div className="mx-auto h-14 w-[260px] rounded-lg bg-neutral-100" />
+      </div>
+      <div className="px-4 py-3">
+        <div className="flex items-center gap-2">
+          <div className="h-8 w-8 rounded-md bg-neutral-100" />
+          <div className="h-3 w-20 rounded bg-neutral-100" />
+        </div>
+      </div>
+    </div>
+  )
+}
 
-      <td className="al-ceo-table__cell al-ceo-table__cell--period">
-        <span className="al-ceo-card__period">{fmtLeavePeriodCeo(row.from_date, row.to_date)}</span>
-      </td>
+function LeaveRequestCard({ row, allRequests }) {
+  const days = row.leave_days ?? alDaysBetween(row.from_date, row.to_date)
+  const alt = alternateAvailabilityForRow(row, allRequests)
+  const alternatePhotoUrl = resolveAlternateEmployeePhotoUrl(row)
+  const role = row.department || row.designation || ''
 
-      <td className="al-ceo-table__cell al-ceo-table__cell--applied">
-        <span className="al-ceo-card__value al-ceo-card__value--applied">
-          <strong>{appliedThisYear}</strong> day{appliedThisYear !== 1 ? 's' : ''}
-        </span>
-        {remainingHint ? <span className="al-ceo-card__days">{remainingHint}</span> : null}
-      </td>
+  return (
+    <div
+      className={`grid ${CEO_ROW_GRID} items-center rounded-2xl border border-neutral-200 bg-white shadow-sm transition hover:border-neutral-300 hover:shadow-md`}
+    >
+      <div className="px-4 py-3">
+        <CeoPerson photoUrl={row.photo_url} name={row.full_name} role={role} />
+      </div>
 
-      <td className="al-ceo-table__cell al-ceo-table__cell--alt">
+      <div className="flex justify-center border-x border-neutral-100 px-4 py-3">
+        <CeoLeavePeriod fromDate={row.from_date} toDate={row.to_date} days={days} />
+      </div>
+
+      <div className="px-4 py-3">
         {alt.name ? (
-          <div className="al-ceo-card__alt">
-            <CeoAvatar name={alt.name} photoUrl={alternatePhotoUrl} size={CEO_ALT_AVATAR_SIZE} />
-            <div>
-              <span className="al-ceo-card__alt-name">{alt.name}</span>
-              <span className={`al-ceo-alt-badge al-ceo-alt-badge--${alt.status}`}>
-                {alt.label}
-              </span>
-            </div>
-          </div>
+          <CeoPerson photoUrl={alternatePhotoUrl} name={alt.name}>
+            <CeoAltBadge status={alt.status} label={alt.label} />
+          </CeoPerson>
         ) : (
-          <div className="al-ceo-card__alt al-ceo-card__alt--missing">
-            <span className="al-ceo-card__alt-name">—</span>
-            <span className="al-ceo-alt-badge al-ceo-alt-badge--missing">Not assigned</span>
-          </div>
+          <CeoPerson photoUrl={null} name="—">
+            <CeoAltBadge status="missing" label="Not assigned" />
+          </CeoPerson>
         )}
-      </td>
+      </div>
+    </div>
+  )
+}
 
-      <td className="al-ceo-table__cell al-ceo-table__cell--lastReturn">
-        <LastReturnDateCell
-          employeeId={row.employee_id}
-          resolved={lastReturn}
-          onSaveManual={onSaveManualReturn}
-        />
-      </td>
-
-      <td className="al-ceo-table__cell al-ceo-table__cell--tenure">
-        <span className="al-ceo-card__value al-ceo-card__value--tenure">
-          {months != null ? (
-            <>
-              <strong>{months}</strong> mo
-            </>
-          ) : (
-            '—'
-          )}
-        </span>
-      </td>
-
-      <td className="al-ceo-table__cell al-ceo-table__cell--status">
-        <span className={`al-ceo-status al-ceo-status--${statusStyle}`}>
-          {leaveStatusDisplay(es)}
-        </span>
-      </td>
-    </tr>
+function CeoPlanBoard({ children }) {
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-neutral-200 bg-white/60 p-2 shadow-sm">
+      <div className="min-w-[760px]">
+        <div className={`mb-2 grid ${CEO_ROW_GRID} rounded-xl border border-neutral-200 bg-[#f0eee9]`}>
+          <div className="px-4 py-2 text-left text-[10px] font-extrabold uppercase tracking-[0.1em] text-neutral-500">
+            Employee
+          </div>
+          <div className="border-x border-neutral-200 px-4 py-2 text-center text-[10px] font-extrabold uppercase tracking-[0.1em] text-neutral-500">
+            Leave Period
+          </div>
+          <div className="px-4 py-2 text-left text-[10px] font-extrabold uppercase tracking-[0.1em] text-neutral-500">
+            Alternate / Availability
+          </div>
+        </div>
+        <div className="space-y-2">{children}</div>
+      </div>
+    </div>
   )
 }
 
 /**
- * CEO overview — one row per annual leave request.
- * Shows leave period, alternate cover + availability, tenure, status.
+ * CEO overview — row-card layout: employee, leave period blocks, alternate cover.
  */
 export function AnnualLeaveCeoView({
   rows,
@@ -278,23 +232,6 @@ export function AnnualLeaveCeoView({
   const [deptFilter, setDeptFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
   const [sortKey, setSortKey] = useState('from_date_asc')
-  const { getPref, setPref, prefsVersion } = useUserPreferences()
-
-  const manualReturnDates = useMemo(
-    () => normalizeCeoLastReturnDateMap(getPref(PREF_CEO_AL_LAST_RETURN_DATES, {})),
-    [getPref, prefsVersion],
-  )
-
-  const saveManualReturn = useCallback(
-    (employeeId, dateIso) => {
-      if (employeeId == null || !dateIso) return
-      setPref(PREF_CEO_AL_LAST_RETURN_DATES, {
-        ...manualReturnDates,
-        [String(employeeId)]: dateIso,
-      })
-    },
-    [manualReturnDates, setPref],
-  )
 
   const stats = useMemo(
     () => computeCeoOverviewStats(allRequests || rows, dashboard, employeeCount),
@@ -358,21 +295,16 @@ export function AnnualLeaveCeoView({
       <section className="al-ceo-overview" aria-busy="true" aria-label="Loading CEO leave overview">
         <header className="al-ceo-overview__header">
           <p className="al-ceo-overview__eyebrow">CEO Overview</p>
-          <h2 className="al-ceo-overview__title">Annual Leave</h2>
+          <h2 className="al-ceo-overview__title">Annual Leave Plan</h2>
           <p className="al-ceo-overview__subtitle">
-            Leave periods, cover, last return date, and tenure since last annual leave.
+            Row-card layout with each leave entry wrapped in one clean container.
           </p>
         </header>
-        <div className="al-ceo-table-wrap">
-          <table className="al-ceo-table">
-            <CeoTableHead />
-            <tbody>
-              {[1, 2, 3, 4].map((i) => (
-                <SkeletonRow key={i} />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <CeoPlanBoard>
+          {[1, 2, 3, 4].map((i) => (
+            <CeoRowSkeleton key={i} />
+          ))}
+        </CeoPlanBoard>
       </section>
     )
   }
@@ -382,7 +314,7 @@ export function AnnualLeaveCeoView({
       <section className="al-ceo-overview" aria-label="CEO leave overview error">
         <header className="al-ceo-overview__header">
           <p className="al-ceo-overview__eyebrow">CEO Overview</p>
-          <h2 className="al-ceo-overview__title">Annual Leave</h2>
+          <h2 className="al-ceo-overview__title">Annual Leave Plan</h2>
         </header>
         <div className="al-ceo-overview__error" role="alert">
           <p>{error}</p>
@@ -418,10 +350,10 @@ export function AnnualLeaveCeoView({
         <div className="al-ceo-overview__intro">
           <p className="al-ceo-overview__eyebrow">CEO Overview</p>
           <h2 id="al-ceo-overview-title" className="al-ceo-overview__title">
-            Annual Leave
+            Annual Leave Plan
           </h2>
           <p className="al-ceo-overview__subtitle">
-            Leave periods, cover, last return date, and tenure since last annual leave.
+            Row-card layout with each leave entry wrapped in one clean container.
           </p>
         </div>
         <div className="al-ceo-overview__stats" aria-label="Leave overview statistics">
@@ -489,22 +421,11 @@ export function AnnualLeaveCeoView({
         </div>
       ) : (
         <>
-          <div className="al-ceo-table-wrap">
-            <table className="al-ceo-table">
-              <CeoTableHead />
-              <tbody>
-                {visible.map((row) => (
-                  <LeaveRequestRow
-                    key={row.id}
-                    row={row}
-                    allRequests={allRequests || rows}
-                    manualReturnDates={manualReturnDates}
-                    onSaveManualReturn={saveManualReturn}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <CeoPlanBoard>
+            {visible.map((row) => (
+              <LeaveRequestCard key={row.id} row={row} allRequests={allRequests || rows} />
+            ))}
+          </CeoPlanBoard>
 
           {remaining > 0 && (
             <div className="al-ceo-overview__more">

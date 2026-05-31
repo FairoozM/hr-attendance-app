@@ -3,6 +3,15 @@ import { alDaysBetween } from './annualLeaveUtils'
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
+/** Parts for CEO leave period date blocks (e.g. 12 Aug 2026). */
+export function splitCeoDisplayDate(isoOrDate) {
+  const iso = fmtISO(isoOrDate)
+  if (!iso) return null
+  const [y, m, d] = iso.split('-').map(Number)
+  if (!y || !m || !d) return null
+  return { day: String(d), month: MONTHS_SHORT[m - 1], year: String(y) }
+}
+
 /** e.g. 4 Apr to 4 May 2026 */
 export function fmtLeavePeriodCeo(fromIso, toIso) {
   const f = fmtISO(fromIso)
