@@ -13,8 +13,8 @@ import { ModernSelect } from '../ui/ModernSelect'
 import { ANNUAL_LEAVE_STORAGE_KEY } from '../../lib/annualLeaveMockData'
 
 const CEO_PAGE_SIZE = 24
-const CEO_EMP_AVATAR_SIZE = 88
-const CEO_ALT_AVATAR_SIZE = 80
+const CEO_EMP_AVATAR_SIZE = 70
+const CEO_ALT_AVATAR_SIZE = 64
 
 function SummaryMetric({ label, value }) {
   return (
@@ -33,18 +33,18 @@ function CeoDateBlock({ label, isoDate, compact = false }) {
     <div
       className={
         compact
-          ? 'flex min-w-[74px] flex-col items-center rounded-md border border-neutral-200 bg-neutral-50 px-1.5 py-1 text-center'
-          : 'flex min-w-[70px] flex-col items-center rounded-md border border-neutral-200 bg-white px-1.5 py-1 text-center'
+          ? 'flex min-w-[60px] flex-col items-center rounded-md border border-neutral-200 bg-neutral-50 px-1 py-0.5 text-center'
+          : 'flex min-w-[56px] flex-col items-center rounded-md border border-neutral-200 bg-white px-1 py-0.5 text-center'
       }
     >
       <div className="mb-0 text-center text-[6px] font-extrabold uppercase tracking-[0.12em] text-neutral-400">
         {label}
       </div>
       <div className="flex items-baseline justify-center gap-1">
-        <span className="text-[15px] font-black leading-none tracking-[-0.06em] text-neutral-950">
+        <span className="text-[12px] font-black leading-none tracking-[-0.06em] text-neutral-950">
           {parts.day}
         </span>
-        <span className="text-[9px] font-bold uppercase leading-none text-neutral-700">{parts.month}</span>
+        <span className="text-[8px] font-bold uppercase leading-none text-neutral-700">{parts.month}</span>
       </div>
       <div className="mt-0 w-full text-center text-[8px] font-bold leading-none text-neutral-400">
         {parts.year}
@@ -55,11 +55,11 @@ function CeoDateBlock({ label, isoDate, compact = false }) {
 
 function CeoLeavePeriod({ fromDate, toDate, days }) {
   return (
-    <div className="al-ceo-leave-period al-ceo-leave-period__track grid w-[280px] grid-cols-[1fr_auto_1fr] items-center rounded-lg border border-neutral-200 bg-neutral-50/80 p-1">
+    <div className="al-ceo-leave-period al-ceo-leave-period__track grid w-[280px] grid-cols-[1fr_auto_1fr] items-center rounded-lg border border-neutral-200 bg-neutral-50/80 p-0.5">
       <CeoDateBlock label="From" isoDate={fromDate} compact />
 
-      <div className="flex min-w-[4.75rem] flex-col items-center justify-center gap-1 px-1">
-        <div className="flex h-5 w-5 items-center justify-center rounded-full border border-neutral-200 bg-white text-[11px] font-bold text-neutral-400">
+      <div className="flex min-w-[3.75rem] flex-col items-center justify-center gap-0.5 px-0.5">
+        <div className="flex h-4 w-4 items-center justify-center rounded-full border border-neutral-200 bg-white text-[9px] font-bold text-neutral-400">
           →
         </div>
         <span className="al-ceo-days-pill">
@@ -101,13 +101,16 @@ function CeoPersonPhoto({ name, photoUrl, size = CEO_EMP_AVATAR_SIZE }) {
 
 function CeoPerson({ photoUrl, name, role, children, avatarSize = CEO_EMP_AVATAR_SIZE }) {
   return (
-    <div className="flex min-w-0 items-center gap-3">
+    <div className="flex min-w-0 items-center gap-2.5">
       <CeoPersonPhoto name={name} photoUrl={photoUrl} size={avatarSize} />
-      <div className="min-w-0">
-        <div className="truncate text-[13px] font-bold leading-tight tracking-[-0.03em] text-neutral-950">
+      <div className="min-w-0 flex-1">
+        <div
+          className="truncate text-[13px] font-bold leading-snug tracking-[-0.03em] text-neutral-950"
+          title={name || undefined}
+        >
           {name || '—'}
         </div>
-        {role ? <div className="mt-0 text-[10px] font-medium text-neutral-500">{role}</div> : null}
+        {role ? <div className="truncate text-[10px] font-medium leading-snug text-neutral-500" title={role}>{role}</div> : null}
         {children}
       </div>
     </div>
@@ -140,7 +143,7 @@ function CeoRowSkeleton() {
   return (
     <div className="al-ceo-plan-row al-ceo-plan-grid" aria-hidden>
       <div className="al-ceo-plan-cell al-ceo-plan-cell--emp">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           <div className="al-ceo-plan-avatar bg-neutral-100" style={{ width: CEO_EMP_AVATAR_SIZE, height: CEO_EMP_AVATAR_SIZE }} />
           <div className="space-y-1">
             <div className="h-3 w-24 rounded bg-neutral-100" />
@@ -149,10 +152,10 @@ function CeoRowSkeleton() {
         </div>
       </div>
       <div className="al-ceo-plan-cell al-ceo-plan-cell--period">
-        <div className="mx-auto h-14 w-[280px] rounded-lg bg-neutral-100" />
+        <div className="mx-auto h-11 w-[280px] rounded-lg bg-neutral-100" />
       </div>
       <div className="al-ceo-plan-cell al-ceo-plan-cell--alt">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           <div className="al-ceo-plan-avatar bg-neutral-100" style={{ width: CEO_ALT_AVATAR_SIZE, height: CEO_ALT_AVATAR_SIZE }} />
           <div className="h-3 w-20 rounded bg-neutral-100" />
         </div>
