@@ -28,6 +28,7 @@ import { ReturnFromLeaveModal } from '../components/annualLeave/ReturnFromLeaveM
 import { ExtendLeaveModal } from '../components/annualLeave/ExtendLeaveModal'
 import { ANNUAL_LEAVE_SECTIONS } from '../components/annualLeave/annualLeaveSectionConfig'
 import { AnnualLeaveCeoView } from '../components/annualLeave/AnnualLeaveCeoView'
+import { useCeoAnnualLeaveRows } from '../hooks/useCeoAnnualLeaveRows'
 import './Page.css'
 import './AnnualLeavePage.css'
 
@@ -105,7 +106,15 @@ export function AnnualLeavePage() {
     completeShopVisit,
     applyShopVisitCalculator,
     patchShopVisitAdminNote,
+    refresh,
   } = useAnnualLeave()
+
+  const {
+    rows: ceoRows,
+    allRequests: ceoAllRequests,
+    usingMock: ceoUsingMock,
+    resetMockData: ceoResetMockData,
+  } = useCeoAnnualLeaveRows(requests, loading)
 
   const [activeTab, setActiveTab] = useState('requests')
   const [filterStatus, setFilterStatus] = useState('All')
@@ -470,23 +479,17 @@ export function AnnualLeavePage() {
       {activeTab === 'salary' && isAdmin && <AnnualLeaveSalaryPage embedded employees={employees} />}
 
       {activeTab === 'ceo' && isAdmin && (
-        <>
-          {error && <p className="page-error">{error}</p>}
-          <AnnualLeaveFilters
-            tabCounts={tabCounts}
-            filterStatus={filterStatus}
-            setFilterStatus={handleSetFilterStatus}
-            search={search}
-            setSearch={setSearch}
-            deptFilter={deptFilter}
-            setDeptFilter={setDeptFilter}
-            departments={departments}
-            isAdmin={isAdmin}
-            shopVisitFilter={shopVisitFilter}
-            setShopVisitFilter={setShopVisitFilter}
-          />
-          <AnnualLeaveCeoView rows={filteredRequests} allRequests={requests} loading={loading} />
-        </>
+        <AnnualLeaveCeoView
+          rows={ceoRows}
+          allRequests={ceoAllRequests}
+          loading={loading}
+          error={ceoUsingMock ? null : error}
+          dashboard={ceoUsingMock ? null : dashboard}
+          onRetry={refresh}
+          employeeCount={ceoUsingMock ? ceoRows.length : employees.length}
+          usingMockData={ceoUsingMock}
+          onResetMockData={import.meta.env.DEV ? ceoResetMockData : undefined}
+        />
       )}
 
       {activeTab === 'requests' && (
