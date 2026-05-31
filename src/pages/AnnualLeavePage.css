@@ -1140,10 +1140,71 @@
   color: var(--ceo-muted);
 }
 
-.al-ceo-card-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+.al-ceo-table-wrap {
+  overflow-x: auto;
+  border-radius: var(--ceo-radius);
+  background: var(--ceo-surface);
+  border: 1px solid var(--ceo-border);
+  box-shadow: var(--ceo-shadow);
+}
+
+.al-ceo-table {
+  width: 100%;
+  min-width: 72rem;
+  border-collapse: collapse;
+}
+
+.al-ceo-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.al-ceo-table thead tr {
+  background: color-mix(in srgb, var(--ceo-surface) 92%, var(--ceo-muted));
+  border-bottom: 1px solid var(--ceo-border);
+}
+
+.al-ceo-table th {
+  padding: 0.75rem 1.15rem;
+  text-align: left;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ceo-muted);
+  white-space: nowrap;
+}
+
+.al-ceo-table td {
+  padding: 1.05rem 1.15rem;
+  border-bottom: 1px solid var(--ceo-border);
+  vertical-align: top;
+  color: var(--ceo-text);
+}
+
+.al-ceo-table__row:last-child td {
+  border-bottom: none;
+}
+
+.al-ceo-table__row:hover td {
+  background: rgba(26, 26, 26, 0.02);
+}
+
+.al-ceo-table__cell--period .al-ceo-card__period,
+.al-ceo-table__cell--period .al-ceo-card__days,
+.al-ceo-table__cell--applied .al-ceo-card__value,
+.al-ceo-table__cell--applied .al-ceo-card__days {
+  display: block;
+}
+
+.al-ceo-table__cell--period .al-ceo-card__days,
+.al-ceo-table__cell--applied .al-ceo-card__days {
+  margin-top: 0.35rem;
+}
+
+.al-ceo-table__row--skeleton td {
+  vertical-align: middle;
 }
 
 .al-ceo-card {
@@ -1398,11 +1459,7 @@
 }
 
 .al-ceo-card--skeleton {
-  display: grid;
-  grid-template-columns: 1.25fr 0.95fr 1.15fr 0.75fr 0.75fr 0.65fr;
-  gap: 1rem;
-  padding: 1.15rem;
-  pointer-events: none;
+  display: none;
 }
 
 .al-ceo-card__sk-avatar {
@@ -1449,19 +1506,8 @@
 }
 
 @media (max-width: 1100px) {
-  .al-ceo-card__grid,
-  .al-ceo-card--skeleton {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .al-ceo-card__col--emp {
-    grid-column: 1 / -1;
-  }
-
-  .al-ceo-card__col--join,
-  .al-ceo-card__col--tenure,
-  .al-ceo-card__col--applied {
-    grid-column: span 1;
+  .al-ceo-table {
+    min-width: 64rem;
   }
 }
 
@@ -1476,9 +1522,8 @@
     min-width: 0;
   }
 
-  .al-ceo-card__grid,
-  .al-ceo-card--skeleton {
-    grid-template-columns: 1fr;
+  .al-ceo-table {
+    min-width: 56rem;
   }
 
   .al-ceo-toolbar__filters {

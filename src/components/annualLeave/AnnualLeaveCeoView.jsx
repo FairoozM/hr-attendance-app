@@ -22,18 +22,27 @@ const CEO_PAGE_SIZE = 24
 const CEO_EMP_AVATAR_SIZE = 88
 const CEO_ALT_AVATAR_SIZE = 80
 
-function SkeletonCard() {
+const CEO_TABLE_COLUMNS = [
+  { key: 'emp', label: 'Employee' },
+  { key: 'period', label: 'Leave period' },
+  { key: 'applied', label: 'Annual leave applied' },
+  { key: 'alt', label: 'Alternate / availability' },
+  { key: 'join', label: 'Joining date' },
+  { key: 'tenure', label: 'Tenure at leave start' },
+  { key: 'status', label: 'Status' },
+]
+
+function SkeletonRow() {
   return (
-    <div className="al-ceo-card al-ceo-card--skeleton" aria-hidden>
-      <div className="al-ceo-card__sk-avatar" />
-      <div className="al-ceo-card__sk-body">
-        <div className="al-ceo-card__sk-line al-ceo-card__sk-line--lg" />
-        <div className="al-ceo-card__sk-line" />
-      </div>
-      <div className="al-ceo-card__sk-block" />
-      <div className="al-ceo-card__sk-alt" />
-      <div className="al-ceo-card__sk-block" />
-    </div>
+    <tr className="al-ceo-table__row al-ceo-table__row--skeleton" aria-hidden>
+      <td><div className="al-ceo-card__sk-avatar" /></td>
+      <td><div className="al-ceo-card__sk-line al-ceo-card__sk-line--lg" /></td>
+      <td><div className="al-ceo-card__sk-line" /></td>
+      <td><div className="al-ceo-card__sk-block" /></td>
+      <td><div className="al-ceo-card__sk-line" /></td>
+      <td><div className="al-ceo-card__sk-line" /></td>
+      <td><div className="al-ceo-card__sk-line" /></td>
+    </tr>
   )
 }
 
@@ -66,8 +75,8 @@ function CeoAvatar({ name, photoUrl, size = CEO_EMP_AVATAR_SIZE }) {
   )
 }
 
-/** One card = one annual leave request (single block, not installments). */
-function LeaveRequestCard({ row, allRequests }) {
+/** One table row = one annual leave request. */
+function LeaveRequestRow({ row, allRequests }) {
   const days = row.leave_days ?? alDaysBetween(row.from_date, row.to_date)
   const appliedThisYear = calculateLeaveAppliedThisYear(row, allRequests)
   const entitlement = getLeaveEntitlement(row)
@@ -78,87 +87,78 @@ function LeaveRequestCard({ row, allRequests }) {
   const es = row.effective_status || row.status
   const statusStyle = getStatusStyle(es)
   const role = row.department || row.designation || ''
+  const remainingHint =
+    entitlement != null
+      ? `${Math.max(0, entitlement - appliedThisYear)} remaining of ${entitlement}`
+      : null
 
   return (
-    <article className="al-ceo-card">
-      <div className="al-ceo-card__grid">
-        <div className="al-ceo-card__col al-ceo-card__col--emp">
-          <span className="al-ceo-card__col-label">Employee</span>
-          <div className="al-ceo-card__person">
-            <CeoAvatar name={row.full_name} photoUrl={row.photo_url} size={CEO_EMP_AVATAR_SIZE} />
-            <div>
-              <span className="al-ceo-card__name">{row.full_name || '—'}</span>
-              {role ? <span className="al-ceo-card__role">{role}</span> : null}
-            </div>
+    <tr className="al-ceo-table__row">
+      <td className="al-ceo-table__cell al-ceo-table__cell--emp">
+        <div className="al-ceo-card__person">
+          <CeoAvatar name={row.full_name} photoUrl={row.photo_url} size={CEO_EMP_AVATAR_SIZE} />
+          <div>
+            <span className="al-ceo-card__name">{row.full_name || '—'}</span>
+            {role ? <span className="al-ceo-card__role">{role}</span> : null}
           </div>
         </div>
+      </td>
 
-        <div className="al-ceo-card__col al-ceo-card__col--period">
-          <span className="al-ceo-card__col-label">Leave period</span>
-          <span className="al-ceo-card__period">{fmtLeavePeriodCeo(row.from_date, row.to_date)}</span>
-          <span className="al-ceo-card__days">
-            {days} day{days !== 1 ? 's' : ''} this request
-          </span>
-        </div>
+      <td className="al-ceo-table__cell al-ceo-table__cell--period">
+        <span className="al-ceo-card__period">{fmtLeavePeriodCeo(row.from_date, row.to_date)}</span>
+        <span className="al-ceo-card__days">
+          {days} day{days !== 1 ? 's' : ''} this request
+        </span>
+      </td>
 
-        <div className="al-ceo-card__col al-ceo-card__col--applied">
-          <span className="al-ceo-card__col-label">Annual leave applied</span>
-          <span className="al-ceo-card__value al-ceo-card__value--applied">
-            <strong>{appliedThisYear}</strong> day{appliedThisYear !== 1 ? 's' : ''}
-          </span>
-          <span className="al-ceo-card__days">
-            {entitlement != null
-              ? `${Math.max(0, entitlement - appliedThisYear)} remaining of ${entitlement}`
-              : 'This calendar year'}
-          </span>
-        </div>
+      <td className="al-ceo-table__cell al-ceo-table__cell--applied">
+        <span className="al-ceo-card__value al-ceo-card__value--applied">
+          <strong>{appliedThisYear}</strong> day{appliedThisYear !== 1 ? 's' : ''}
+        </span>
+        {remainingHint ? <span className="al-ceo-card__days">{remainingHint}</span> : null}
+      </td>
 
-        <div className="al-ceo-card__col al-ceo-card__col--alt">
-          <span className="al-ceo-card__col-label">Alternate / availability</span>
-          {alt.name ? (
-            <div className="al-ceo-card__alt">
-              <CeoAvatar name={alt.name} photoUrl={alternatePhotoUrl} size={CEO_ALT_AVATAR_SIZE} />
-              <div>
-                <span className="al-ceo-card__alt-name">{alt.name}</span>
-                <span className={`al-ceo-alt-badge al-ceo-alt-badge--${alt.status}`}>
-                  {alt.label}
-                </span>
-              </div>
+      <td className="al-ceo-table__cell al-ceo-table__cell--alt">
+        {alt.name ? (
+          <div className="al-ceo-card__alt">
+            <CeoAvatar name={alt.name} photoUrl={alternatePhotoUrl} size={CEO_ALT_AVATAR_SIZE} />
+            <div>
+              <span className="al-ceo-card__alt-name">{alt.name}</span>
+              <span className={`al-ceo-alt-badge al-ceo-alt-badge--${alt.status}`}>
+                {alt.label}
+              </span>
             </div>
+          </div>
+        ) : (
+          <div className="al-ceo-card__alt al-ceo-card__alt--missing">
+            <span className="al-ceo-card__alt-name">—</span>
+            <span className="al-ceo-alt-badge al-ceo-alt-badge--missing">Not assigned</span>
+          </div>
+        )}
+      </td>
+
+      <td className="al-ceo-table__cell al-ceo-table__cell--join">
+        <span className="al-ceo-card__value">{joining ? formatDate(joining) : '—'}</span>
+      </td>
+
+      <td className="al-ceo-table__cell al-ceo-table__cell--tenure">
+        <span className="al-ceo-card__value al-ceo-card__value--tenure">
+          {months != null ? (
+            <>
+              <strong>{months}</strong> mo
+            </>
           ) : (
-            <div className="al-ceo-card__alt al-ceo-card__alt--missing">
-              <span className="al-ceo-card__alt-name">—</span>
-              <span className="al-ceo-alt-badge al-ceo-alt-badge--missing">Not assigned</span>
-            </div>
+            '—'
           )}
-        </div>
+        </span>
+      </td>
 
-        <div className="al-ceo-card__col al-ceo-card__col--join">
-          <span className="al-ceo-card__col-label">Joining date</span>
-          <span className="al-ceo-card__value">{joining ? formatDate(joining) : '—'}</span>
-        </div>
-
-        <div className="al-ceo-card__col al-ceo-card__col--tenure">
-          <span className="al-ceo-card__col-label">Tenure at leave start</span>
-          <span className="al-ceo-card__value al-ceo-card__value--tenure">
-            {months != null ? (
-              <>
-                <strong>{months}</strong> mo
-              </>
-            ) : (
-              '—'
-            )}
-          </span>
-        </div>
-
-        <div className="al-ceo-card__col al-ceo-card__col--status">
-          <span className="al-ceo-card__col-label">Status</span>
-          <span className={`al-ceo-status al-ceo-status--${statusStyle}`}>
-            {leaveStatusDisplay(es)}
-          </span>
-        </div>
-      </div>
-    </article>
+      <td className="al-ceo-table__cell al-ceo-table__cell--status">
+        <span className={`al-ceo-status al-ceo-status--${statusStyle}`}>
+          {leaveStatusDisplay(es)}
+        </span>
+      </td>
+    </tr>
   )
 }
 
@@ -250,10 +250,23 @@ export function AnnualLeaveCeoView({
             At-a-glance leave periods, cover, and tenure before each leave starts.
           </p>
         </header>
-        <div className="al-ceo-card-list">
-          {[1, 2, 3, 4].map((i) => (
-            <SkeletonCard key={i} />
-          ))}
+        <div className="al-ceo-table-wrap">
+          <table className="al-ceo-table">
+            <thead>
+              <tr>
+                {CEO_TABLE_COLUMNS.map((col) => (
+                  <th key={col.key} scope="col">
+                    {col.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {[1, 2, 3, 4].map((i) => (
+                <SkeletonRow key={i} />
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
     )
@@ -371,14 +384,27 @@ export function AnnualLeaveCeoView({
         </div>
       ) : (
         <>
-          <div className="al-ceo-card-list">
-            {visible.map((row) => (
-              <LeaveRequestCard
-                key={row.id}
-                row={row}
-                allRequests={allRequests || rows}
-              />
-            ))}
+          <div className="al-ceo-table-wrap">
+            <table className="al-ceo-table">
+              <thead>
+                <tr>
+                  {CEO_TABLE_COLUMNS.map((col) => (
+                    <th key={col.key} scope="col">
+                      {col.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((row) => (
+                  <LeaveRequestRow
+                    key={row.id}
+                    row={row}
+                    allRequests={allRequests || rows}
+                  />
+                ))}
+              </tbody>
+            </table>
           </div>
 
           {remaining > 0 && (
