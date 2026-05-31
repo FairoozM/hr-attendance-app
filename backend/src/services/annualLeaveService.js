@@ -116,6 +116,7 @@ const RICH_SELECT = `
   e.designation,
   e.joining_date AS employee_joining_date,
   alt_leave.full_name AS alternate_employee_full_name,
+  alt_leave.photo_doc_key AS alternate_employee_photo_doc_key,
   (al.to_date + INTERVAL '1 day')::date                                AS expected_return_date,
   (al.to_date::date - al.from_date::date + 1)                         AS leave_days,
   CASE

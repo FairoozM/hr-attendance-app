@@ -73,6 +73,19 @@ export function formatDate(date) {
   return fmtDMY(date) || '—'
 }
 
+/** Signed alternate employee photo URL from API row (supports snake_case and camelCase). */
+export function resolveAlternateEmployeePhotoUrl(record) {
+  if (!record || typeof record !== 'object') return null
+  const url =
+    record.alternateEmployeePhotoUrl ||
+    record.alternate_employee_photo_url ||
+    record.alternatePhotoUrl ||
+    record.alternateProfileImage ||
+    null
+  if (url == null || String(url).trim() === '') return null
+  return String(url)
+}
+
 function rowLeaveDays(row) {
   return row?.leave_days ?? alDaysBetween(row?.from_date, row?.to_date)
 }

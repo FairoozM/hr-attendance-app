@@ -34,6 +34,18 @@ async function attachLeavePhotoUrl(row) {
       /* keep existing */
     }
   }
+  if (row.alternate_employee_photo_doc_key) {
+    try {
+      const alternatePhotoUrl = await s3Service.getDownloadUrl({
+        key: row.alternate_employee_photo_doc_key,
+        expiresIn: 3600,
+      })
+      row.alternate_employee_photo_url = alternatePhotoUrl
+      row.alternateEmployeePhotoUrl = alternatePhotoUrl
+    } catch {
+      /* keep existing */
+    }
+  }
   return row
 }
 

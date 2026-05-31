@@ -8,6 +8,7 @@ import {
   fmtLeavePeriodCeo,
   formatDate,
   getStatusStyle,
+  resolveAlternateEmployeePhotoUrl,
   roundupMonthsUntilLeave,
 } from '../../utils/annualLeaveCeoView'
 import { EmpAvatar } from './EmpAvatar'
@@ -42,10 +43,28 @@ function SummaryMetric({ label, value }) {
   )
 }
 
+/** Avatar with initials fallback when photo URL is missing or fails to load. */
+function SafeAvatar({ name, photoUrl, size = 40 }) {
+  const [imgFailed, setImgFailed] = useState(false)
+  const initial = (name || '?')[0].toUpperCase()
+  const showImg = Boolean(photoUrl) && !imgFailed
+
+  return (
+    <div className="al-avatar" style={{ width: size, height: size, fontSize: size * 0.42 }}>
+      {showImg ? (
+        <img src={photoUrl} alt="" onError={() => setImgFailed(true)} />
+      ) : (
+        initial
+      )}
+    </div>
+  )
+}
+
 /** One card = one annual leave request (single block, not installments). */
 function LeaveRequestCard({ row, allRequests }) {
   const days = row.leave_days ?? alDaysBetween(row.from_date, row.to_date)
   const alt = alternateAvailabilityForRow(row, allRequests)
+  const alternatePhotoUrl = resolveAlternateEmployeePhotoUrl(row)
   const joining = row.employee_joining_date
   const months = roundupMonthsUntilLeave(joining, row.from_date)
   const es = row.effective_status || row.status
@@ -78,11 +97,7 @@ function LeaveRequestCard({ row, allRequests }) {
           <span className="al-ceo-card__col-label">Alternate / availability</span>
           {alt.name ? (
             <div className="al-ceo-card__alt">
-              <EmpAvatar
-                name={alt.name}
-                photoUrl={row.alternate_employee_photo_url}
-                size={40}
-              />
+              <SafeAvatar name={alt.name} photoUrl={alternatePhotoUrl} size={40} />
               <div>
                 <span className="al-ceo-card__alt-name">{alt.name}</span>
                 <span className={`al-ceo-alt-badge al-ceo-alt-badge--${alt.status}`}>
