@@ -117,6 +117,14 @@ function CeoPerson({ photoUrl, name, role, children, avatarSize = CEO_EMP_AVATAR
   )
 }
 
+function CeoVacationBadge() {
+  return (
+    <span className="mt-0.5 inline-flex rounded-full bg-red-50 px-1.5 py-[2px] text-[9px] font-bold leading-none text-red-800 ring-1 ring-red-100">
+      Going for vacation
+    </span>
+  )
+}
+
 function CeoAltBadge({ status, label }) {
   if (status === 'available') {
     return (
@@ -173,7 +181,9 @@ function LeaveRequestCard({ row, allRequests }) {
   return (
     <div className="al-ceo-plan-row al-ceo-plan-grid">
       <div className="al-ceo-plan-cell al-ceo-plan-cell--emp">
-        <CeoPerson photoUrl={row.photo_url} name={row.full_name} role={role} avatarSize={CEO_EMP_AVATAR_SIZE} />
+        <CeoPerson photoUrl={row.photo_url} name={row.full_name} role={role} avatarSize={CEO_EMP_AVATAR_SIZE}>
+          <CeoVacationBadge />
+        </CeoPerson>
       </div>
 
       <div className="al-ceo-plan-cell al-ceo-plan-cell--period">
