@@ -1284,10 +1284,38 @@
 }
 
 .al-ceo-last-return {
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
+  flex-direction: row;
   align-items: center;
+  justify-content: center;
   gap: 0.35rem;
+}
+
+.al-ceo-last-return__edit-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ceo-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.al-ceo-last-return:hover .al-ceo-last-return__edit-icon,
+.al-ceo-last-return:focus-within .al-ceo-last-return__edit-icon,
+.al-ceo-last-return__edit-icon:focus-visible {
+  opacity: 1;
+}
+
+.al-ceo-last-return__edit-icon:hover {
+  color: var(--ceo-text);
+  background: rgba(26, 26, 26, 0.06);
 }
 
 .al-ceo-last-return--edit {

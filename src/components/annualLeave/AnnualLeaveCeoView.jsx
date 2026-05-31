@@ -1,3 +1,4 @@
+import { Pencil } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { alDaysBetween } from '../../utils/annualLeaveUtils'
 import {
@@ -127,8 +128,14 @@ function LastReturnDateCell({ employeeId, resolved, onSaveManual }) {
       <div className="al-ceo-last-return">
         <span className="al-ceo-card__value">{formatDate(resolved.date)}</span>
         {resolved.source === 'manual' ? (
-          <button type="button" className="al-ceo-last-return__action" onClick={startEdit}>
-            Edit
+          <button
+            type="button"
+            className="al-ceo-last-return__edit-icon"
+            onClick={startEdit}
+            aria-label="Edit last return date"
+            title="Edit last return date"
+          >
+            <Pencil size={14} aria-hidden />
           </button>
         ) : null}
       </div>
