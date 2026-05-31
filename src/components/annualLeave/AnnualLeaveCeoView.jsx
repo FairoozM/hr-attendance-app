@@ -32,6 +32,27 @@ const CEO_TABLE_COLUMNS = [
   { key: 'status', label: 'Status' },
 ]
 
+function CeoTableHead() {
+  return (
+    <>
+      <colgroup>
+        {CEO_TABLE_COLUMNS.map((col) => (
+          <col key={col.key} className={`al-ceo-table__col al-ceo-table__col--${col.key}`} />
+        ))}
+      </colgroup>
+      <thead>
+        <tr>
+          {CEO_TABLE_COLUMNS.map((col) => (
+            <th key={col.key} scope="col" className={`al-ceo-table__col al-ceo-table__col--${col.key}`}>
+              {col.label}
+            </th>
+          ))}
+        </tr>
+      </thead>
+    </>
+  )
+}
+
 function SkeletonRow() {
   return (
     <tr className="al-ceo-table__row al-ceo-table__row--skeleton" aria-hidden>
@@ -248,15 +269,7 @@ export function AnnualLeaveCeoView({
         </header>
         <div className="al-ceo-table-wrap">
           <table className="al-ceo-table">
-            <thead>
-              <tr>
-                {CEO_TABLE_COLUMNS.map((col) => (
-                  <th key={col.key} scope="col">
-                    {col.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
+            <CeoTableHead />
             <tbody>
               {[1, 2, 3, 4].map((i) => (
                 <SkeletonRow key={i} />
@@ -382,15 +395,7 @@ export function AnnualLeaveCeoView({
         <>
           <div className="al-ceo-table-wrap">
             <table className="al-ceo-table">
-              <thead>
-                <tr>
-                  {CEO_TABLE_COLUMNS.map((col) => (
-                    <th key={col.key} scope="col">
-                      {col.label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
+              <CeoTableHead />
               <tbody>
                 {visible.map((row) => (
                   <LeaveRequestRow

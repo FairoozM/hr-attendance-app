@@ -1151,8 +1151,9 @@
 }
 
 .al-ceo-table {
-  width: 100%;
-  min-width: 72rem;
+  width: max-content;
+  max-width: 100%;
+  table-layout: auto;
   border-collapse: collapse;
   border: 1px solid var(--ceo-table-border-strong);
 }
@@ -1168,7 +1169,7 @@
 }
 
 .al-ceo-table th {
-  padding: 0.75rem 1.15rem;
+  padding: 0.75rem 1rem;
   text-align: left;
   font-size: 0.64rem;
   font-weight: 700;
@@ -1178,6 +1179,7 @@
   white-space: nowrap;
   border-bottom: 2px solid var(--ceo-table-border-strong);
   border-right: 1px solid var(--ceo-table-border);
+  vertical-align: middle;
 }
 
 .al-ceo-table th:last-child {
@@ -1185,15 +1187,71 @@
 }
 
 .al-ceo-table td {
-  padding: 1.05rem 1.15rem;
+  padding: 1.05rem 1rem;
   border-bottom: 1px solid var(--ceo-table-border);
   border-right: 1px solid var(--ceo-table-border);
-  vertical-align: top;
+  vertical-align: middle;
   color: var(--ceo-text);
 }
 
 .al-ceo-table td:last-child {
   border-right: none;
+}
+
+/* Shrink compact columns to content; wide columns grow naturally */
+.al-ceo-table__col--period,
+.al-ceo-table__col--applied,
+.al-ceo-table__col--join,
+.al-ceo-table__col--tenure,
+.al-ceo-table__col--status {
+  width: 1%;
+}
+
+.al-ceo-table__col--period,
+.al-ceo-table__cell--period,
+.al-ceo-table__col--applied,
+.al-ceo-table__cell--applied,
+.al-ceo-table__col--join,
+.al-ceo-table__cell--join,
+.al-ceo-table__col--tenure,
+.al-ceo-table__cell--tenure,
+.al-ceo-table__col--status,
+.al-ceo-table__cell--status {
+  text-align: center;
+}
+
+.al-ceo-table__cell--period,
+.al-ceo-table__cell--join,
+.al-ceo-table__cell--tenure,
+.al-ceo-table__cell--status {
+  white-space: nowrap;
+}
+
+.al-ceo-table__col--period,
+.al-ceo-table__col--applied,
+.al-ceo-table__col--join,
+.al-ceo-table__col--tenure,
+.al-ceo-table__col--status,
+.al-ceo-table__cell--period,
+.al-ceo-table__cell--applied,
+.al-ceo-table__cell--join,
+.al-ceo-table__cell--tenure,
+.al-ceo-table__cell--status {
+  padding-left: 0.85rem;
+  padding-right: 0.85rem;
+}
+
+.al-ceo-table__col--emp,
+.al-ceo-table__cell--emp,
+.al-ceo-table__col--alt,
+.al-ceo-table__cell--alt {
+  text-align: left;
+}
+
+.al-ceo-table__cell--emp .al-ceo-card__person,
+.al-ceo-table__cell--alt .al-ceo-card__alt {
+  width: max-content;
+  max-width: 100%;
 }
 
 .al-ceo-table__row:last-child td {
@@ -1207,10 +1265,16 @@
 .al-ceo-table__cell--applied .al-ceo-card__value,
 .al-ceo-table__cell--applied .al-ceo-card__days {
   display: block;
+  text-align: center;
 }
 
 .al-ceo-table__cell--applied .al-ceo-card__days {
   margin-top: 0.35rem;
+  white-space: normal;
+}
+
+.al-ceo-table__cell--status .al-ceo-status {
+  display: inline-flex;
 }
 
 .al-ceo-table__row--skeleton td {
@@ -1515,12 +1579,6 @@
   100% { background-position: -200% 0; }
 }
 
-@media (max-width: 1100px) {
-  .al-ceo-table {
-    min-width: 64rem;
-  }
-}
-
 @media (max-width: 720px) {
   .al-ceo-overview {
     padding: 1rem;
@@ -1530,10 +1588,6 @@
   .al-ceo-overview__stats {
     width: 100%;
     min-width: 0;
-  }
-
-  .al-ceo-table {
-    min-width: 56rem;
   }
 
   .al-ceo-toolbar__filters {
