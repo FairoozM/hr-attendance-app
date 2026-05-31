@@ -13,7 +13,9 @@ import { ModernSelect } from '../ui/ModernSelect'
 import { ANNUAL_LEAVE_STORAGE_KEY } from '../../lib/annualLeaveMockData'
 
 const CEO_PAGE_SIZE = 24
-const CEO_ROW_GRID = 'grid-cols-[205px_300px_230px]'
+const CEO_EMP_AVATAR_SIZE = 88
+const CEO_ALT_AVATAR_SIZE = 80
+const CEO_ROW_GRID = 'grid-cols-[minmax(280px,1.25fr)_minmax(320px,1.35fr)_minmax(260px,1fr)]'
 
 function SummaryMetric({ label, value }) {
   return (
@@ -54,15 +56,15 @@ function CeoDateBlock({ label, isoDate, compact = false }) {
 
 function CeoLeavePeriod({ fromDate, toDate, days }) {
   return (
-    <div className="grid min-w-[260px] grid-cols-[1fr_66px_1fr] items-center rounded-lg border border-neutral-200 bg-neutral-50/80 p-0.5">
+    <div className="al-ceo-leave-period grid min-w-[280px] grid-cols-[1fr_72px_1fr] items-center rounded-lg border border-neutral-200 bg-neutral-50/80 p-1">
       <CeoDateBlock label="From" isoDate={fromDate} compact />
 
-      <div className="flex min-w-[66px] flex-col items-center justify-center gap-1 px-1.5">
-        <div className="flex h-4 w-4 items-center justify-center rounded-full border border-neutral-200 bg-white text-[10px] font-bold text-neutral-400">
+      <div className="flex min-w-[72px] flex-col items-center justify-center gap-1.5 px-1">
+        <div className="flex h-5 w-5 items-center justify-center rounded-full border border-neutral-200 bg-white text-[11px] font-bold text-neutral-400">
           →
         </div>
-        <span className="inline-flex w-[56px] items-center justify-center rounded-full bg-neutral-950 px-1.5 py-[3px] text-center text-[8px] font-black leading-none tracking-[-0.02em] text-white shadow-sm ring-1 ring-neutral-800 whitespace-nowrap">
-          {days} days
+        <span className="al-ceo-days-pill">
+          {days} day{days !== 1 ? 's' : ''}
         </span>
       </div>
 
@@ -71,7 +73,7 @@ function CeoLeavePeriod({ fromDate, toDate, days }) {
   )
 }
 
-function CeoPersonPhoto({ name, photoUrl }) {
+function CeoPersonPhoto({ name, photoUrl, size = CEO_EMP_AVATAR_SIZE }) {
   const [imgFailed, setImgFailed] = useState(false)
   const initial = (name || '?')[0].toUpperCase()
   const showImg = Boolean(photoUrl) && !imgFailed
@@ -81,25 +83,29 @@ function CeoPersonPhoto({ name, photoUrl }) {
       <img
         src={photoUrl}
         alt=""
-        className="h-8 w-8 shrink-0 rounded-md border border-neutral-200 object-cover"
+        className="al-ceo-plan-avatar shrink-0 border border-neutral-200 object-cover"
+        style={{ width: size, height: size, fontSize: size * 0.38 }}
         onError={() => setImgFailed(true)}
       />
     )
   }
 
   return (
-    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-neutral-200 bg-neutral-100 text-[11px] font-bold text-neutral-600">
+    <div
+      className="al-ceo-plan-avatar flex shrink-0 items-center justify-center border border-neutral-200 bg-neutral-100 font-bold text-neutral-600"
+      style={{ width: size, height: size, fontSize: size * 0.38 }}
+    >
       {initial}
     </div>
   )
 }
 
-function CeoPerson({ photoUrl, name, role, children }) {
+function CeoPerson({ photoUrl, name, role, children, avatarSize = CEO_EMP_AVATAR_SIZE }) {
   return (
-    <div className="flex min-w-0 items-center gap-2">
-      <CeoPersonPhoto name={name} photoUrl={photoUrl} />
+    <div className="flex min-w-0 items-center gap-3">
+      <CeoPersonPhoto name={name} photoUrl={photoUrl} size={avatarSize} />
       <div className="min-w-0">
-        <div className="truncate text-[12px] font-bold leading-tight tracking-[-0.03em] text-neutral-950">
+        <div className="truncate text-[13px] font-bold leading-tight tracking-[-0.03em] text-neutral-950">
           {name || '—'}
         </div>
         {role ? <div className="mt-0 text-[10px] font-medium text-neutral-500">{role}</div> : null}
@@ -134,24 +140,24 @@ function CeoAltBadge({ status, label }) {
 function CeoRowSkeleton() {
   return (
     <div
-      className={`grid ${CEO_ROW_GRID} items-center rounded-2xl border border-neutral-200 bg-white shadow-sm`}
+      className={`al-ceo-plan-row grid ${CEO_ROW_GRID} items-center rounded-2xl border border-neutral-200 bg-white shadow-sm transition hover:border-neutral-300 hover:shadow-md`}
       aria-hidden
     >
-      <div className="px-4 py-3">
-        <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-md bg-neutral-100" />
+      <div className="px-5 py-5">
+        <div className="flex items-center gap-3">
+          <div className="al-ceo-plan-avatar bg-neutral-100" style={{ width: CEO_EMP_AVATAR_SIZE, height: CEO_EMP_AVATAR_SIZE }} />
           <div className="space-y-1">
             <div className="h-3 w-24 rounded bg-neutral-100" />
             <div className="h-2 w-16 rounded bg-neutral-100" />
           </div>
         </div>
       </div>
-      <div className="border-x border-neutral-100 px-4 py-3">
-        <div className="mx-auto h-14 w-[260px] rounded-lg bg-neutral-100" />
+      <div className="border-x border-neutral-100 px-5 py-5">
+        <div className="mx-auto h-16 w-[280px] rounded-lg bg-neutral-100" />
       </div>
-      <div className="px-4 py-3">
-        <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-md bg-neutral-100" />
+      <div className="px-5 py-5">
+        <div className="flex items-center gap-3">
+          <div className="al-ceo-plan-avatar bg-neutral-100" style={{ width: CEO_ALT_AVATAR_SIZE, height: CEO_ALT_AVATAR_SIZE }} />
           <div className="h-3 w-20 rounded bg-neutral-100" />
         </div>
       </div>
@@ -167,23 +173,23 @@ function LeaveRequestCard({ row, allRequests }) {
 
   return (
     <div
-      className={`grid ${CEO_ROW_GRID} items-center rounded-2xl border border-neutral-200 bg-white shadow-sm transition hover:border-neutral-300 hover:shadow-md`}
+      className={`al-ceo-plan-row grid ${CEO_ROW_GRID} items-center rounded-2xl border border-neutral-200 bg-white shadow-sm transition hover:border-neutral-300 hover:shadow-md`}
     >
-      <div className="px-4 py-3">
-        <CeoPerson photoUrl={row.photo_url} name={row.full_name} role={role} />
+      <div className="px-5 py-5">
+        <CeoPerson photoUrl={row.photo_url} name={row.full_name} role={role} avatarSize={CEO_EMP_AVATAR_SIZE} />
       </div>
 
-      <div className="flex justify-center border-x border-neutral-100 px-4 py-3">
+      <div className="flex justify-center border-x border-neutral-100 px-5 py-5">
         <CeoLeavePeriod fromDate={row.from_date} toDate={row.to_date} days={days} />
       </div>
 
-      <div className="px-4 py-3">
+      <div className="px-5 py-5">
         {alt.name ? (
-          <CeoPerson photoUrl={alternatePhotoUrl} name={alt.name}>
+          <CeoPerson photoUrl={alternatePhotoUrl} name={alt.name} avatarSize={CEO_ALT_AVATAR_SIZE}>
             <CeoAltBadge status={alt.status} label={alt.label} />
           </CeoPerson>
         ) : (
-          <CeoPerson photoUrl={null} name="—">
+          <CeoPerson photoUrl={null} name="—" avatarSize={CEO_ALT_AVATAR_SIZE}>
             <CeoAltBadge status="missing" label="Not assigned" />
           </CeoPerson>
         )}
@@ -195,15 +201,15 @@ function LeaveRequestCard({ row, allRequests }) {
 function CeoPlanBoard({ children }) {
   return (
     <div className="overflow-x-auto rounded-2xl border border-neutral-200 bg-white/60 p-2 shadow-sm">
-      <div className="min-w-[760px]">
+      <div className="min-w-[860px]">
         <div className={`mb-2 grid ${CEO_ROW_GRID} rounded-xl border border-neutral-200 bg-[#f0eee9]`}>
-          <div className="px-4 py-2 text-left text-[10px] font-extrabold uppercase tracking-[0.1em] text-neutral-500">
+          <div className="px-5 py-3 text-left text-[10px] font-extrabold uppercase tracking-[0.1em] text-neutral-500">
             Employee
           </div>
-          <div className="border-x border-neutral-200 px-4 py-2 text-center text-[10px] font-extrabold uppercase tracking-[0.1em] text-neutral-500">
+          <div className="border-x border-neutral-200 px-5 py-3 text-center text-[10px] font-extrabold uppercase tracking-[0.1em] text-neutral-500">
             Leave Period
           </div>
-          <div className="px-4 py-2 text-left text-[10px] font-extrabold uppercase tracking-[0.1em] text-neutral-500">
+          <div className="px-5 py-3 text-left text-[10px] font-extrabold uppercase tracking-[0.1em] text-neutral-500">
             Alternate / Availability
           </div>
         </div>

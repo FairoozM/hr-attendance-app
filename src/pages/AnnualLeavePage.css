@@ -996,6 +996,40 @@
   font-size: 0.84rem;
 }
 
+/* Row-card plan layout (CEO view) */
+.al-ceo-plan-avatar {
+  border-radius: 18px;
+}
+
+.al-ceo-plan-avatar img {
+  border-radius: inherit;
+}
+
+.al-ceo-days-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 4.25rem;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  background: #171717;
+  color: #ffffff !important;
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12), inset 0 0 0 1px #262626;
+}
+
+.al-ceo-plan-row {
+  min-height: 7.5rem;
+}
+
+.al-ceo-leave-period {
+  padding: 0.35rem !important;
+}
+
 .al-ceo-detail__value--notes {
   font-weight: 500;
   line-height: 1.45;
