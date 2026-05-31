@@ -958,6 +958,8 @@
   --ceo-bg: #f7f5f2;
   --ceo-surface: rgba(255, 253, 251, 0.92);
   --ceo-border: rgba(26, 26, 26, 0.07);
+  --ceo-table-border: rgba(26, 26, 26, 0.18);
+  --ceo-table-border-strong: rgba(26, 26, 26, 0.28);
   --ceo-text: #1a1a1a;
   --ceo-muted: #6b6560;
   --ceo-stone: #e8e4df;
@@ -1144,7 +1146,7 @@
   overflow-x: auto;
   border-radius: var(--ceo-radius);
   background: var(--ceo-surface);
-  border: 1px solid var(--ceo-border);
+  border: 1px solid var(--ceo-table-border-strong);
   box-shadow: var(--ceo-shadow);
 }
 
@@ -1152,6 +1154,7 @@
   width: 100%;
   min-width: 72rem;
   border-collapse: collapse;
+  border: 1px solid var(--ceo-table-border-strong);
 }
 
 .al-ceo-table thead {
@@ -1161,8 +1164,7 @@
 }
 
 .al-ceo-table thead tr {
-  background: color-mix(in srgb, var(--ceo-surface) 92%, var(--ceo-muted));
-  border-bottom: 1px solid var(--ceo-border);
+  background: color-mix(in srgb, var(--ceo-surface) 88%, var(--ceo-muted));
 }
 
 .al-ceo-table th {
@@ -1174,31 +1176,39 @@
   text-transform: uppercase;
   color: var(--ceo-muted);
   white-space: nowrap;
+  border-bottom: 2px solid var(--ceo-table-border-strong);
+  border-right: 1px solid var(--ceo-table-border);
+}
+
+.al-ceo-table th:last-child {
+  border-right: none;
 }
 
 .al-ceo-table td {
   padding: 1.05rem 1.15rem;
-  border-bottom: 1px solid var(--ceo-border);
+  border-bottom: 1px solid var(--ceo-table-border);
+  border-right: 1px solid var(--ceo-table-border);
   vertical-align: top;
   color: var(--ceo-text);
 }
 
+.al-ceo-table td:last-child {
+  border-right: none;
+}
+
 .al-ceo-table__row:last-child td {
-  border-bottom: none;
+  border-bottom: 1px solid var(--ceo-table-border);
 }
 
 .al-ceo-table__row:hover td {
-  background: rgba(26, 26, 26, 0.02);
+  background: rgba(26, 26, 26, 0.03);
 }
 
-.al-ceo-table__cell--period .al-ceo-card__period,
-.al-ceo-table__cell--period .al-ceo-card__days,
 .al-ceo-table__cell--applied .al-ceo-card__value,
 .al-ceo-table__cell--applied .al-ceo-card__days {
   display: block;
 }
 
-.al-ceo-table__cell--period .al-ceo-card__days,
 .al-ceo-table__cell--applied .al-ceo-card__days {
   margin-top: 0.35rem;
 }

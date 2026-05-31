@@ -77,7 +77,6 @@ function CeoAvatar({ name, photoUrl, size = CEO_EMP_AVATAR_SIZE }) {
 
 /** One table row = one annual leave request. */
 function LeaveRequestRow({ row, allRequests }) {
-  const days = row.leave_days ?? alDaysBetween(row.from_date, row.to_date)
   const appliedThisYear = calculateLeaveAppliedThisYear(row, allRequests)
   const entitlement = getLeaveEntitlement(row)
   const alt = alternateAvailabilityForRow(row, allRequests)
@@ -106,9 +105,6 @@ function LeaveRequestRow({ row, allRequests }) {
 
       <td className="al-ceo-table__cell al-ceo-table__cell--period">
         <span className="al-ceo-card__period">{fmtLeavePeriodCeo(row.from_date, row.to_date)}</span>
-        <span className="al-ceo-card__days">
-          {days} day{days !== 1 ? 's' : ''} this request
-        </span>
       </td>
 
       <td className="al-ceo-table__cell al-ceo-table__cell--applied">
