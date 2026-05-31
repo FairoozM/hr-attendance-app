@@ -60,7 +60,8 @@ export function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
-  const { user, login } = useAuth()
+  const [submitting, setSubmitting] = useState(false)
+  const { user, login, sessionError } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const from = location.state?.from?.pathname || '/'
@@ -149,6 +150,7 @@ export function LoginPage() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    setSubmitting(true)
     try {
       const u = await login(email.trim(), password)
       if (u.role === 'employee') {
@@ -157,7 +159,18 @@ export function LoginPage() {
         navigate(from, { replace: true })
       }
     } catch (err) {
-      setError(err.message || 'Login failed')
+      const msg = err?.message || 'Login failed'
+      setError(
+        /timed out after 25s|REQUEST_TIMEOUT|AbortError/i.test(String(err?.name || '') + msg)
+          ? import.meta.env.DEV
+            ? 'API timed out. Use http://localhost:5173 with backend running (cd backend && npm run dev on port 5001).'
+            : 'API timed out. The production backend may be down — try again shortly or contact admin.'
+          : /fetch failed|network|unreachable|503/i.test(msg)
+            ? 'Could not reach the API server. Ensure the backend is running (cd backend && npm run dev).'
+            : msg,
+      )
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -231,9 +244,9 @@ export function LoginPage() {
           ) : (
             <>
               <form className="login-form" onSubmit={handleSubmit}>
-                {error && (
+                {(sessionError || error) && (
                   <p className="login-error" role="alert">
-                    {error}
+                    {error || sessionError}
                   </p>
                 )}
                 <label className="login-label">
@@ -259,8 +272,8 @@ export function LoginPage() {
                     required
                   />
                 </label>
-                <button type="submit" className="btn btn--primary login-submit">
-                  Sign in
+                <button type="submit" className="btn btn--primary login-submit" disabled={submitting}>
+                  {submitting ? 'Signing in…' : 'Sign in'}
                 </button>
               </form>
               {showApiDebug && <ApiRoutingDebug />}

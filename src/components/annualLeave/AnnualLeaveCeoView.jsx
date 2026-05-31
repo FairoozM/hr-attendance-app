@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import { alDaysBetween } from '../../utils/annualLeaveUtils'
 import {
   alternateAvailabilityForRow,
+  calculateLeaveAppliedThisYear,
+  getLeaveEntitlement,
   CEO_SORT_OPTIONS,
   CEO_STATUS_FILTERS,
   computeCeoOverviewStats,
@@ -11,13 +13,14 @@ import {
   resolveAlternateEmployeePhotoUrl,
   roundupMonthsUntilLeave,
 } from '../../utils/annualLeaveCeoView'
-import { EmpAvatar } from './EmpAvatar'
 import { leaveStatusDisplay } from './annualLeaveLabels'
 import { ModernSearchInput } from '../ui/ModernSearchInput'
 import { ModernSelect } from '../ui/ModernSelect'
 import { ANNUAL_LEAVE_STORAGE_KEY } from '../../lib/annualLeaveMockData'
 
 const CEO_PAGE_SIZE = 24
+const CEO_EMP_AVATAR_SIZE = 88
+const CEO_ALT_AVATAR_SIZE = 80
 
 function SkeletonCard() {
   return (
@@ -43,14 +46,17 @@ function SummaryMetric({ label, value }) {
   )
 }
 
-/** Avatar with initials fallback when photo URL is missing or fails to load. */
-function SafeAvatar({ name, photoUrl, size = 40 }) {
+/** Rounded-square avatar for CEO view (2× default size). */
+function CeoAvatar({ name, photoUrl, size = CEO_EMP_AVATAR_SIZE }) {
   const [imgFailed, setImgFailed] = useState(false)
   const initial = (name || '?')[0].toUpperCase()
   const showImg = Boolean(photoUrl) && !imgFailed
 
   return (
-    <div className="al-avatar" style={{ width: size, height: size, fontSize: size * 0.42 }}>
+    <div
+      className="al-avatar al-ceo-avatar"
+      style={{ width: size, height: size, fontSize: size * 0.38 }}
+    >
       {showImg ? (
         <img src={photoUrl} alt="" onError={() => setImgFailed(true)} />
       ) : (
@@ -63,6 +69,8 @@ function SafeAvatar({ name, photoUrl, size = 40 }) {
 /** One card = one annual leave request (single block, not installments). */
 function LeaveRequestCard({ row, allRequests }) {
   const days = row.leave_days ?? alDaysBetween(row.from_date, row.to_date)
+  const appliedThisYear = calculateLeaveAppliedThisYear(row, allRequests)
+  const entitlement = getLeaveEntitlement(row)
   const alt = alternateAvailabilityForRow(row, allRequests)
   const alternatePhotoUrl = resolveAlternateEmployeePhotoUrl(row)
   const joining = row.employee_joining_date
@@ -77,7 +85,7 @@ function LeaveRequestCard({ row, allRequests }) {
         <div className="al-ceo-card__col al-ceo-card__col--emp">
           <span className="al-ceo-card__col-label">Employee</span>
           <div className="al-ceo-card__person">
-            <EmpAvatar name={row.full_name} photoUrl={row.photo_url} size={44} />
+            <CeoAvatar name={row.full_name} photoUrl={row.photo_url} size={CEO_EMP_AVATAR_SIZE} />
             <div>
               <span className="al-ceo-card__name">{row.full_name || '—'}</span>
               {role ? <span className="al-ceo-card__role">{role}</span> : null}
@@ -89,7 +97,19 @@ function LeaveRequestCard({ row, allRequests }) {
           <span className="al-ceo-card__col-label">Leave period</span>
           <span className="al-ceo-card__period">{fmtLeavePeriodCeo(row.from_date, row.to_date)}</span>
           <span className="al-ceo-card__days">
-            {days} day{days !== 1 ? 's' : ''}
+            {days} day{days !== 1 ? 's' : ''} this request
+          </span>
+        </div>
+
+        <div className="al-ceo-card__col al-ceo-card__col--applied">
+          <span className="al-ceo-card__col-label">Annual leave applied</span>
+          <span className="al-ceo-card__value al-ceo-card__value--applied">
+            <strong>{appliedThisYear}</strong> day{appliedThisYear !== 1 ? 's' : ''}
+          </span>
+          <span className="al-ceo-card__days">
+            {entitlement != null
+              ? `${Math.max(0, entitlement - appliedThisYear)} remaining of ${entitlement}`
+              : 'This calendar year'}
           </span>
         </div>
 
@@ -97,7 +117,7 @@ function LeaveRequestCard({ row, allRequests }) {
           <span className="al-ceo-card__col-label">Alternate / availability</span>
           {alt.name ? (
             <div className="al-ceo-card__alt">
-              <SafeAvatar name={alt.name} photoUrl={alternatePhotoUrl} size={40} />
+              <CeoAvatar name={alt.name} photoUrl={alternatePhotoUrl} size={CEO_ALT_AVATAR_SIZE} />
               <div>
                 <span className="al-ceo-card__alt-name">{alt.name}</span>
                 <span className={`al-ceo-alt-badge al-ceo-alt-badge--${alt.status}`}>

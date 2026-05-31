@@ -101,6 +101,10 @@ function countsTowardUsage(row) {
   return status === 'Approved' || status === 'Completed' || row?.actual_return_date != null
 }
 
+function countsAsApplied(row) {
+  return row?.status !== 'Rejected'
+}
+
 /** Entitlement from salary calculator snapshot when present on this request. */
 export function getLeaveEntitlement(record) {
   const snap = record?.calculator_snapshot
@@ -109,6 +113,24 @@ export function getLeaveEntitlement(record) {
   if (raw == null || raw === '') return null
   const n = Number(raw)
   return Number.isFinite(n) && n >= 0 ? n : null
+}
+
+/** All non-rejected annual leave days applied by this employee in the current calendar year. */
+export function calculateLeaveAppliedThisYear(record, allRequests) {
+  if (record?._devMockLeaveApplied != null) {
+    const n = Number(record._devMockLeaveApplied)
+    return Number.isFinite(n) && n >= 0 ? n : 0
+  }
+  const empId = record?.employee_id
+  if (empId == null) return 0
+  return (allRequests || [])
+    .filter(
+      (r) =>
+        String(r.employee_id) === String(empId) &&
+        countsAsApplied(r) &&
+        isCurrentYear(r.from_date),
+    )
+    .reduce((sum, r) => sum + rowLeaveDays(r), 0)
 }
 
 /** Approved / completed leave days for this employee in the current calendar year. */

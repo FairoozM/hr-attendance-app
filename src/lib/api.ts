@@ -37,10 +37,29 @@ function getAuthHeaders(): Record<string, string> {
   return {}
 }
 
+function isLocalDevApiHost(url: string): boolean {
+  if (!url) return false
+  try {
+    const host = new URL(url.startsWith("http") ? url : `http://${url}`).hostname
+    return host === "localhost" || host === "127.0.0.1"
+  } catch {
+    return /localhost|127\.0\.0\.1/i.test(url)
+  }
+}
+
 export function getApiBaseUrl(): string {
   migrateLegacyBackendUrlOnce()
-  const runtime = window.API_RUNTIME_CONFIG?.API_BASE_URL?.trim()
   const env = import.meta.env.VITE_API_BASE_URL?.trim()
+
+  if (import.meta.env.DEV) {
+    const mem = apiBaseUrlMemory.trim()
+    if (mem && isLocalDevApiHost(mem)) return trimSlash(mem)
+    if (env && isLocalDevApiHost(env)) return trimSlash(env)
+    // Always use Vite /api proxy in dev — ignore CloudFront/production URLs in memory or runtime config
+    return ""
+  }
+
+  const runtime = window.API_RUNTIME_CONFIG?.API_BASE_URL?.trim()
   const base = runtime || apiBaseUrlMemory || env || ""
   return base ? trimSlash(base) : ""
 }

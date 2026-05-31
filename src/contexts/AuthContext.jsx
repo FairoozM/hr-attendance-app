@@ -26,8 +26,27 @@ export function AuthProvider({ children }) {
       .catch((err) => {
         if (cancelled) return
         setUser(null)
-        if (err?.name === 'AbortError') {
-          setSessionError('Could not reach the server (request timed out).')
+        if (err?.name === 'AbortError' || err?.code === 'REQUEST_TIMEOUT') {
+          setSessionError(
+            import.meta.env.DEV
+              ? 'API timed out. Use http://localhost:5173 and ensure backend is running on port 5001.'
+              : 'API timed out. The production backend may be down — try again shortly.',
+          )
+          return
+        }
+        const msg = String(err?.message || '')
+        const unreachable =
+          err?.status === 503 ||
+          err?.body?.error === 'API server unreachable' ||
+          /API server unreachable|Could not reach|ECONNREFUSED|fetch failed/i.test(msg)
+        if (unreachable) {
+          setSessionError(
+            'Could not reach the API server. Ensure the backend is running (cd backend && npm run dev on port 5001).',
+          )
+          return
+        }
+        if (err?.status >= 500) {
+          setSessionError(msg || 'Server error while verifying session.')
         }
       })
       .finally(() => {
