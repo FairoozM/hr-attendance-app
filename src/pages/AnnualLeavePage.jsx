@@ -1,7 +1,11 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useEmployees } from '../hooks/useEmployees'
 import { useAnnualLeave } from '../hooks/useAnnualLeave'
+import {
+  useUrlSearchParamState,
+  useUrlStringParamState,
+} from '../hooks/useUrlSearchParamState'
 import { AnnualLeaveSalaryPage } from './AnnualLeaveSalaryPage'
 import { fmtISO } from '../utils/dateFormat'
 import { alDaysBetween } from '../utils/annualLeaveUtils'
@@ -33,6 +37,28 @@ import './Page.css'
 import './AnnualLeavePage.css'
 
 const PAGE_SIZE = 25
+
+const AL_TABS = ['requests', 'ceo', 'salary']
+const AL_FILTER_STATUSES = [
+  'All',
+  'queue:needsAction',
+  'Ongoing',
+  'Approved',
+  'ReturnPending',
+  'Overstayed',
+  'Completed',
+  'Rejected',
+]
+const AL_SHOP_FILTERS = [
+  'All',
+  'ShopPendingSubmission',
+  'ShopSubmitted',
+  'ShopConfirmed',
+  'ShopMoneyCalculated',
+  'ShopCompleted',
+]
+const AL_SORT_COLUMNS = ['name', 'from_date', 'status', 'return_date', 'updated_at']
+const AL_SORT_DIRS = ['asc', 'desc']
 
 /** Return recorded — effective_status is Completed even when DB status stays Approved. */
 function isLeaveEffectivelyCompleted(row) {
@@ -116,11 +142,20 @@ export function AnnualLeavePage() {
     resetMockData: ceoResetMockData,
   } = useCeoAnnualLeaveRows(requests, loading)
 
-  const [activeTab, setActiveTab] = useState('requests')
-  const [filterStatus, setFilterStatus] = useState('All')
-  const [shopVisitFilter, setShopVisitFilter] = useState('All')
-  const [search, setSearch] = useState('')
-  const [deptFilter, setDeptFilter] = useState('')
+  const [activeTab, setActiveTab] = useUrlSearchParamState('tab', {
+    defaultValue: 'requests',
+    allowed: AL_TABS,
+  })
+  const [filterStatus, setFilterStatus] = useUrlSearchParamState('status', {
+    defaultValue: 'All',
+    allowed: AL_FILTER_STATUSES,
+  })
+  const [shopVisitFilter, setShopVisitFilter] = useUrlSearchParamState('shop', {
+    defaultValue: 'All',
+    allowed: AL_SHOP_FILTERS,
+  })
+  const [search, setSearch] = useUrlStringParamState('q')
+  const [deptFilter, setDeptFilter] = useUrlStringParamState('dept')
   const [expandedId, setExpandedId] = useState(null)
   const [editingRow, setEditingRow] = useState(null)
   const [confirmRow, setConfirmRow] = useState(null)
@@ -134,12 +169,24 @@ export function AnnualLeavePage() {
   const [adminNoteRow, setAdminNoteRow] = useState(null)
   const [markCompleteSubmitting, setMarkCompleteSubmitting] = useState(false)
   const [markCompleteErr, setMarkCompleteErr] = useState('')
-  const [sortBy, setSortBy] = useState('from_date')
-  const [sortDir, setSortDir] = useState('desc')
+  const [sortBy, setSortBy] = useUrlSearchParamState('sort', {
+    defaultValue: 'from_date',
+    allowed: AL_SORT_COLUMNS,
+  })
+  const [sortDir, setSortDir] = useUrlSearchParamState('dir', {
+    defaultValue: 'desc',
+    allowed: AL_SORT_DIRS,
+  })
   const [letterBusyId, setLetterBusyId] = useState(null)
   const [shopToast, setShopToast] = useState(null)
   const [requestFormOpen, setRequestFormOpen] = useState(false)
   const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE)
+
+  useEffect(() => {
+    if (!isAdmin && (activeTab === 'ceo' || activeTab === 'salary')) {
+      setActiveTab('requests')
+    }
+  }, [isAdmin, activeTab, setActiveTab])
 
   const showToast = useCallback((t, type = 'success') => {
     setShopToast({ type, text: t })
@@ -178,16 +225,17 @@ export function AnnualLeavePage() {
     [regenerateLeaveLetter, showToast]
   )
 
-  const handleSort = useCallback((col) => {
-    setSortBy((prev) => {
-      if (prev === col) {
-        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-        return col
+  const handleSort = useCallback(
+    (col) => {
+      if (sortBy === col) {
+        setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
+      } else {
+        setSortBy(col)
+        setSortDir('asc')
       }
-      setSortDir('asc')
-      return col
-    })
-  }, [])
+    },
+    [sortBy, sortDir, setSortBy, setSortDir],
+  )
 
   const departments = useMemo(() => {
     const s = new Set(requests.map((r) => r.department).filter(Boolean))

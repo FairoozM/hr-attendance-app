@@ -4,8 +4,9 @@
  * Frontend-only. Dismissed items stored in localStorage.
  * Uses TeamProjectsContext + AuthContext — no new API routes or migrations.
  */
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Inbox, AlertCircle, ChevronDown, X, Check, Eye, EyeOff, Trash2 } from 'lucide-react'
+import { useUrlSearchParamState } from '../../hooks/useUrlSearchParamState'
 import { useTeamProjectsContext } from '../../contexts/TeamProjectsContext'
 import { useAuth }               from '../../contexts/AuthContext'
 import { LinearSidebar }         from '../../components/linear/LinearSidebar'
@@ -213,7 +214,15 @@ export default function LinearInboxPage() {
   const [dismissed,      setDismissed]     = useState(() => loadDismissed())
   const [showDismissed,  setShowDismissed] = useState(false)
   const [selectedIssue,  setSelectedIssue] = useState(null)
-  const [filterReason,   setFilterReason]  = useState(null)
+  const [reasonParam, setReasonParam] = useUrlSearchParamState('reason', {
+    defaultValue: '',
+    allowed: ['', 'assigned', 'blocked', 'overdue', 'review', 'ready', 'highpri', 'unassigned'],
+  })
+  const filterReason = reasonParam || null
+  const setFilterReason = useCallback(
+    (value) => setReasonParam(value || ''),
+    [setReasonParam],
+  )
   const [filterProject,  setFilterProject] = useState(null)
   const [filterPriority, setFilterPriority]= useState(null)
   const [filterCycle,    setFilterCycle]   = useState(null)

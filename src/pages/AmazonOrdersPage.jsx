@@ -1,6 +1,7 @@
-import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { api } from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
+import { useUrlSearchParamState } from '../hooks/useUrlSearchParamState'
 import { AmazonSkuImageThumb } from '../components/AmazonSkuImageThumb'
 
 const MARKETPLACES = [
@@ -238,7 +239,10 @@ export function AmazonOrdersPage() {
   const isAdmin = user?.role === 'admin'
 
   const defaultRange = getDefaultDateRangeIso()
-  const [marketplaceKey, setMarketplaceKey] = useState('uae')
+  const [marketplaceKey, setMarketplaceKey] = useUrlSearchParamState('marketplace', {
+    defaultValue: 'uae',
+    allowed: ['uae', 'ksa'],
+  })
   const [dateFrom, setDateFrom] = useState(() => isoToDateInputValue(defaultRange.createdAfter))
   const [dateTo, setDateTo] = useState(() => isoToDateInputValue(defaultRange.createdBefore))
   const [rangeError, setRangeError] = useState('')

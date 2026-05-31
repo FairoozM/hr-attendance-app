@@ -9,6 +9,10 @@ import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import {
+  useUrlSearchParamState,
+  useUrlStringParamState,
+} from '../../hooks/useUrlSearchParamState'
+import {
   BookOpen, Plus, Search, X, Edit2, Copy, CheckCircle2, Trash2,
   Tag, Calendar, FileText, ChevronDown, Globe, Smartphone, Server,
   PenTool, BarChart2, Rocket, Shield, AlertTriangle, BookMarked,
@@ -42,6 +46,7 @@ export const CATEGORIES = [
 ]
 
 const CATEGORY_MAP = Object.fromEntries(CATEGORIES.map(c => [c.key, c]))
+const DOC_CAT_KEYS = ['all', ...CATEGORIES.map((c) => c.key)]
 
 function catColor(key) { return CATEGORY_MAP[key]?.color || '#9ca3af' }
 
@@ -813,8 +818,11 @@ export default function LinearDocsPage() {
   const [loading,      setLoading]      = useState(true)
   const [backendError, setBackendError] = useState(false)
   const [showMigration, setShowMigration] = useState(false)
-  const [search,       setSearch]       = useState('')
-  const [catFilter,    setCatFilter]    = useState('all')
+  const [search, setSearch] = useUrlStringParamState('q')
+  const [catFilter, setCatFilter] = useUrlSearchParamState('cat', {
+    defaultValue: 'all',
+    allowed: DOC_CAT_KEYS,
+  })
   const [editDoc,      setEditDoc]      = useState(null)
   const [showEditor,   setShowEditor]   = useState(false)
   const canEditDocs = canManageDocs(user)

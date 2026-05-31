@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback } from 'react'
 import { Modal } from '../../components/Modal'
+import { useUrlSearchParamState } from '../../hooks/useUrlSearchParamState'
 import { DocSummaryCards } from './components/DocSummaryCards'
 import { DocFiltersBar } from './components/DocFiltersBar'
 import { DocForm } from './components/DocForm'
@@ -15,11 +16,16 @@ const EMPTY_FILTERS = {
   status: '',
 }
 
+const DOC_QUICK_FILTERS = ['all', 'vat', 'expired', 'due-soon', 'urgent']
+
 export function DocumentExpiryPage() {
   const { items: documents, loading, error, createItem, updateItem, deleteItem } = useDocumentExpiry()
 
   const [filters, setFilters]       = useState(EMPTY_FILTERS)
-  const [activeQuick, setActiveQuick] = useState('all')
+  const [activeQuick, setActiveQuick] = useUrlSearchParamState('quick', {
+    defaultValue: 'all',
+    allowed: DOC_QUICK_FILTERS,
+  })
 
   const [formOpen, setFormOpen]     = useState(false)
   const [editTarget, setEditTarget] = useState(null)

@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { useUrlSearchParamState } from '../../hooks/useUrlSearchParamState'
 import {
   LayoutList, LayoutDashboard, CalendarDays,
   Plus, RefreshCw, AlertCircle, Inbox,
@@ -418,7 +419,10 @@ export default function TeamProjectsPage() {
     actions,
   } = useTeamProjectsContext()
 
-  const [view,         setView]         = useState('list')
+  const [view, setView] = useUrlSearchParamState('view', {
+    defaultValue: 'list',
+    allowed: ['list', 'board', 'calendar'],
+  })
   const [filters,      setFilters]      = useState(DEFAULT_FILTERS)
   const [sortCol,      setSortCol]      = useState('dueDate')
   const [sortDir,      setSortDir]      = useState('asc')

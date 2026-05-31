@@ -8,6 +8,10 @@ import {
   resolveAlternateEmployeePhotoUrl,
   splitCeoDisplayDate,
 } from '../../utils/annualLeaveCeoView'
+import {
+  useUrlSearchParamState,
+  useUrlStringParamState,
+} from '../../hooks/useUrlSearchParamState'
 import { ModernSearchInput } from '../ui/ModernSearchInput'
 import { ModernSelect } from '../ui/ModernSelect'
 import { ANNUAL_LEAVE_STORAGE_KEY } from '../../lib/annualLeaveMockData'
@@ -15,6 +19,8 @@ import { ANNUAL_LEAVE_STORAGE_KEY } from '../../lib/annualLeaveMockData'
 const CEO_PAGE_SIZE = 24
 const CEO_EMP_AVATAR_SIZE = 70
 const CEO_ALT_AVATAR_SIZE = 64
+const CEO_STATUS_KEYS = ['All', 'Pending', 'Approved', 'Ongoing', 'ReturnPending', 'Overstayed', 'Completed', 'Rejected']
+const CEO_SORT_KEYS = ['from_date_asc', 'from_date_desc', 'name_asc', 'days_desc']
 
 function SummaryMetric({ label, value }) {
   return (
@@ -241,10 +247,16 @@ export function AnnualLeaveCeoView({
   onResetMockData,
 }) {
   const [limit, setLimit] = useState(CEO_PAGE_SIZE)
-  const [search, setSearch] = useState('')
-  const [deptFilter, setDeptFilter] = useState('')
-  const [statusFilter, setStatusFilter] = useState('All')
-  const [sortKey, setSortKey] = useState('from_date_asc')
+  const [search, setSearch] = useUrlStringParamState('q')
+  const [deptFilter, setDeptFilter] = useUrlStringParamState('dept')
+  const [statusFilter, setStatusFilter] = useUrlSearchParamState('status', {
+    defaultValue: 'All',
+    allowed: CEO_STATUS_KEYS,
+  })
+  const [sortKey, setSortKey] = useUrlSearchParamState('sort', {
+    defaultValue: 'from_date_asc',
+    allowed: CEO_SORT_KEYS,
+  })
 
   const stats = useMemo(
     () => computeCeoOverviewStats(allRequests || rows, dashboard, employeeCount),

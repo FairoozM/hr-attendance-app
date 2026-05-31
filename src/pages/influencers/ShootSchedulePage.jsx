@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useInfluencers, SHOOT_STATUSES } from '../../contexts/InfluencersContext'
+import { useUrlSearchParamState } from '../../hooks/useUrlSearchParamState'
 import { fmtDMY } from '../../utils/dateFormat'
 import './influencers.css'
 
@@ -16,7 +17,10 @@ function shootBadge(status) {
 export function ShootSchedulePage() {
   const { influencers, updateInfluencer } = useInfluencers()
   const navigate = useNavigate()
-  const [view, setView] = useState('cards')
+  const [view, setView] = useUrlSearchParamState('view', {
+    defaultValue: 'cards',
+    allowed: ['cards', 'list'],
+  })
   const [filterStatus, setFilterStatus] = useState('All')
 
   const scheduled = useMemo(() => {

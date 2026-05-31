@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
+import { useUrlSearchParamState } from '../../hooks/useUrlSearchParamState'
 import { ChevronRight, Copy, CornerDownRight, CheckCircle2, Circle, ListTree, ExternalLink, Link2, Trash2, Repeat, LayoutDashboard, Sun } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useAIPlanner } from '../../contexts/AIPlannerContext'
@@ -1239,7 +1240,10 @@ function UndoToast({ title, onUndo, onDismiss, secondsLeft }) {
 export default function ProjectsIndexPage() {
   const { user } = useAuth()
   const { tasks, rawTasks, sections, addSection, updateTask, reorderTasksInSection, deleteTask, restoreTask } = useAIPlanner()
-  const [listNav, setListNav] = useState('all')
+  const [listNav, setListNav] = useUrlSearchParamState('nav', {
+    defaultValue: 'all',
+    allowed: ['all', 'todo', 'blocked', 'done', 'today', 'followup'],
+  })
   const [catFilter, setCatFilter]       = useState('')
   const [datePicker, setDatePicker]     = useState(null)
   const [plannerTipVisible, setPlannerTipVisible] = useState(true)

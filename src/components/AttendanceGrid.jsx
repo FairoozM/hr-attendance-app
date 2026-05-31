@@ -1,5 +1,6 @@
 import { useState, useRef, useMemo, useCallback, useLayoutEffect } from 'react'
 import { Eye, Trash2, RefreshCw, Upload } from 'lucide-react'
+import { useUrlSearchParamState } from '../hooks/useUrlSearchParamState'
 import {
   STATUS_KEYS,
   STATUSES,
@@ -85,8 +86,14 @@ export function AttendanceGrid({
   const [slUploadTarget, setSlUploadTarget] = useState(null)
 
   const [employeeSearch, setEmployeeSearch] = useState('')
-  const [cellViewMode, setCellViewMode] = useState('all')
-  const [dayScope, setDayScope] = useState('all')
+  const [cellViewMode, setCellViewMode] = useUrlSearchParamState('cellView', {
+    defaultValue: 'all',
+    allowed: ['all', 'absentOnly'],
+  })
+  const [dayScope, setDayScope] = useUrlSearchParamState('dayScope', {
+    defaultValue: 'all',
+    allowed: ['all', 'absentDaysOnly'],
+  })
   /** Per-day: `undefined` = all statuses; else `Set` of allowed keys (`empty`, `P`, …). */
   const [dayIncluded, setDayIncluded] = useState({})
   /** Per summary column: `undefined` = all counts; else `Set` of allowed numeric strings. */
@@ -267,7 +274,7 @@ export function AttendanceGrid({
     setDayIncluded({})
     setSummaryIncluded({})
     setOpenFilterId(null)
-  }, [])
+  }, [setCellViewMode, setDayScope])
 
   const hasActiveAttendanceFilters = useMemo(() => {
     if (employeeSearch.trim() !== '') return true

@@ -1,5 +1,10 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
+import {
+  useUrlIntParamState,
+  useUrlSearchParamState,
+  useUrlStringParamState,
+} from '../hooks/useUrlSearchParamState'
 import { Modal } from './Modal'
 import { EmployeeForm } from './EmployeeForm'
 import { useSettings } from '../contexts/SettingsContext'
@@ -27,6 +32,8 @@ import { downloadEmployeesCsv } from './employees/employeeExport'
 import './EmployeeList.css'
 
 const PAGE_SIZE = 20
+const EMPLOYEE_SORT_KEYS = ['name', 'department', 'primaryLocation', 'joiningDate', 'employmentStatus']
+const EMPLOYEE_SORT_DIRS = ['asc', 'desc']
 
 function compareRows(a, b, sortKey, sortDir) {
   const mul = sortDir === 'asc' ? 1 : -1
@@ -146,22 +153,19 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
   const [viewEmployee, setViewEmployee] = useState(null)
   const [attendanceTogglePending, setAttendanceTogglePending] = useState(false)
 
-  const [search, setSearch] = useState('')
-  const [department, setDepartment] = useState('all')
-  const [designation, setDesignation] = useState('all')
-  const [status, setStatus] = useState('all')
-  const [sortKey, setSortKey] = useState('name')
-  const [sortDir, setSortDir] = useState('asc')
-  const [searchParams, setSearchParams] = useSearchParams()
-  const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10))
-  const setPage = useCallback((p) => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev)
-      if (p <= 1) next.delete('page')
-      else next.set('page', String(p))
-      return next
-    }, { replace: true })
-  }, [setSearchParams])
+  const [search, setSearch] = useUrlStringParamState('q')
+  const [department, setDepartment] = useUrlStringParamState('dept', 'all')
+  const [designation, setDesignation] = useUrlStringParamState('designation', 'all')
+  const [status, setStatus] = useUrlStringParamState('status', 'all')
+  const [sortKey, setSortKey] = useUrlSearchParamState('sort', {
+    defaultValue: 'name',
+    allowed: EMPLOYEE_SORT_KEYS,
+  })
+  const [sortDir, setSortDir] = useUrlSearchParamState('dir', {
+    defaultValue: 'asc',
+    allowed: EMPLOYEE_SORT_DIRS,
+  })
+  const [page, setPage] = useUrlIntParamState('page', { defaultValue: 1, min: 1 })
   const [columnFilters, setColumnFilters] = useState(() => emptyColumnFilters())
 
   const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), [])
@@ -335,13 +339,13 @@ export function EmployeeList({ employees, onAdd, onEdit, onDelete }) {
   const handleSort = useCallback(
     (key) => {
       if (sortKey === key) {
-        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+        setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
       } else {
         setSortKey(key)
         setSortDir('asc')
       }
     },
-    [sortKey]
+    [sortKey, sortDir, setSortKey, setSortDir],
   )
 
   const openAdd = () => {

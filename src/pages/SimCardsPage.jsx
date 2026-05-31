@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { Modal } from '../components/Modal'
 import { useSimCards } from '../hooks/useSimCards'
 import { useAuth, hasPermission } from '../contexts/AuthContext'
+import {
+  useUrlSearchParamState,
+  useUrlStringParamState,
+} from '../hooks/useUrlSearchParamState'
 import { ModernSearchInput } from '../components/ui/ModernSearchInput'
 import { ModernSelect } from '../components/ui/ModernSelect'
 import './Page.css'
@@ -127,11 +131,17 @@ export function SimCardsPage() {
   const canEdit = hasPermission(user, 'sim_cards', 'edit')
   const canDelete = hasPermission(user, 'sim_cards', 'delete')
 
-  const [search, setSearch] = useState('')
-  const [usage, setUsage] = useState('All')
-  const [type, setType] = useState('All')
-  const [issued, setIssued] = useState('All')
-  const [monthly, setMonthly] = useState('All')
+  const [search, setSearch] = useUrlStringParamState('q')
+  const [usage, setUsage] = useUrlSearchParamState('usage', {
+    defaultValue: 'All',
+    allowed: ['All', 'Yes', 'No'],
+  })
+  const [type, setType] = useUrlStringParamState('type', 'All')
+  const [issued, setIssued] = useUrlStringParamState('issued', 'All')
+  const [monthly, setMonthly] = useUrlSearchParamState('monthly', {
+    defaultValue: 'All',
+    allowed: ['All', '0', '1-100', '101-500', '>500'],
+  })
 
   const [modalOpen, setModalOpen] = useState(false)
   const [modalMode, setModalMode] = useState('create')

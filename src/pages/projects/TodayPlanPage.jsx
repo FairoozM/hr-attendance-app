@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { CalendarDays, List, RefreshCw, BrainCircuit } from 'lucide-react'
 import { usePlanner } from '../../contexts/PlannerContext'
+import { useUrlSearchParamState } from '../../hooks/useUrlSearchParamState'
 import { TimeBlockCalendar } from '../../components/projects/TimeBlockCalendar'
 import { DailyScheduleView } from '../../components/projects/DailyScheduleView'
 import { TaskDrawer } from '../../components/projects/TaskDrawer'
@@ -14,7 +15,10 @@ export default function TodayPlanPage() {
     selectedProjectId,
   } = usePlanner()
 
-  const [view,         setView]         = useState('schedule') // 'schedule' | 'calendar'
+  const [view, setView] = useUrlSearchParamState('view', {
+    defaultValue: 'schedule',
+    allowed: ['schedule', 'calendar'],
+  })
   const [selectedTask, setSelectedTask] = useState(null)
   const [refreshing,   setRefreshing]   = useState(false)
 

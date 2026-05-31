@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useCallback } from 'react'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 import { useAuth, hasPermission } from './contexts/AuthContext'
@@ -13,7 +13,7 @@ import { RequireAuth } from './components/RequireAuth'
 import { PermissionGuard, LeaveSelfServiceGuard } from './components/PermissionGuard'
 import { LoginPage } from './pages/LoginPage'
 import { EmployeeAccountPage } from './pages/EmployeeAccountPage'
-import { AttendancePage } from './pages/AttendancePage'
+import { AttendanceRouteContainer } from './pages/AttendanceRouteContainer'
 import { EmployeesPage } from './pages/EmployeesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { AnnualLeavePage } from './pages/AnnualLeavePage'
@@ -111,18 +111,10 @@ import { AiBudgetSettingsPage } from './pages/admin/AiBudgetSettingsPage'
 import { AIPlannerProvider } from './contexts/AIPlannerContext'
 import { TeamProjectsProvider } from './contexts/TeamProjectsContext'
 import { useEmployees } from './hooks/useEmployees'
-import { useAttendanceManagedEmployees } from './hooks/useAttendanceManagedEmployees'
-import { useAttendance, clearAllAttendanceStorage } from './hooks/useAttendance'
-import { useWeeklyHolidayDay } from './hooks/useWeeklyHolidayDay'
-import { employeesForAttendance } from './utils/employeeAttendance'
+import { clearAllAttendanceStorage } from './hooks/useAttendance'
 import './App.css'
 
-const currentDate = new Date()
-
 function AppContent() {
-  const [month, setMonth] = useState(currentDate.getMonth())
-  const [year, setYear] = useState(currentDate.getFullYear())
-  const [weeklyHolidayDay, setWeeklyHolidayDay] = useWeeklyHolidayDay()
   const {
     employees,
     loading: employeesLoading,
@@ -133,41 +125,11 @@ function AppContent() {
     resetToDefault,
   } = useEmployees()
 
-  const {
-    employees: managedEmployees,
-    loading: managedEmployeesLoading,
-  } = useAttendanceManagedEmployees()
-
-  const attendanceScopeEmployees = useMemo(
-    () => employeesForAttendance(managedEmployees),
-    [managedEmployees]
-  )
-
-  const {
-    attendance,
-    sickLeaveDocuments,
-    setAttendance,
-    uploadSickLeaveDocument,
-    removeSickLeaveDocument,
-    loading: attendanceLoading,
-    error: attendanceError,
-  } = useAttendance(attendanceScopeEmployees, month, year)
-
   const handleResetDemoData = useCallback(() => {
     clearAllAttendanceStorage()
     resetToDefault()
     window.location.reload()
   }, [resetToDefault])
-
-  const daysInMonth = useMemo(() => {
-    const d = new Date(year, month + 1, 0)
-    return d.getDate()
-  }, [month, year])
-
-  const yearOptions = useMemo(() => {
-    const current = currentDate.getFullYear()
-    return Array.from({ length: 5 }, (_, i) => current - 2 + i)
-  }, [])
 
   return (
     <Routes>
@@ -198,24 +160,7 @@ function AppContent() {
           path="attendance"
           element={
             <PermissionGuard module="attendance" action="view">
-              <AttendancePage
-                month={month}
-                year={year}
-                setMonth={setMonth}
-                setYear={setYear}
-                employees={attendanceScopeEmployees}
-                attendance={attendance}
-                setAttendance={setAttendance}
-                sickLeaveDocuments={sickLeaveDocuments}
-                uploadSickLeaveDocument={uploadSickLeaveDocument}
-                removeSickLeaveDocument={removeSickLeaveDocument}
-                daysInMonth={daysInMonth}
-                yearOptions={yearOptions}
-                weeklyHolidayDay={weeklyHolidayDay}
-                onWeeklyHolidayDayChange={setWeeklyHolidayDay}
-                loading={attendanceLoading || managedEmployeesLoading}
-                error={attendanceError}
-              />
+              <AttendanceRouteContainer />
             </PermissionGuard>
           }
         />
