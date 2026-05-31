@@ -15,7 +15,6 @@ import { ANNUAL_LEAVE_STORAGE_KEY } from '../../lib/annualLeaveMockData'
 const CEO_PAGE_SIZE = 24
 const CEO_EMP_AVATAR_SIZE = 88
 const CEO_ALT_AVATAR_SIZE = 80
-const CEO_ROW_GRID = 'grid-cols-[minmax(280px,1.25fr)_minmax(320px,1.35fr)_minmax(260px,1fr)]'
 
 function SummaryMetric({ label, value }) {
   return (
@@ -56,10 +55,10 @@ function CeoDateBlock({ label, isoDate, compact = false }) {
 
 function CeoLeavePeriod({ fromDate, toDate, days }) {
   return (
-    <div className="al-ceo-leave-period grid min-w-[280px] grid-cols-[1fr_72px_1fr] items-center rounded-lg border border-neutral-200 bg-neutral-50/80 p-1">
+    <div className="al-ceo-leave-period al-ceo-leave-period__track grid w-full max-w-[360px] grid-cols-[1fr_auto_1fr] items-center rounded-lg border border-neutral-200 bg-neutral-50/80 p-1">
       <CeoDateBlock label="From" isoDate={fromDate} compact />
 
-      <div className="flex min-w-[72px] flex-col items-center justify-center gap-1.5 px-1">
+      <div className="flex min-w-[4.75rem] flex-col items-center justify-center gap-1 px-1">
         <div className="flex h-5 w-5 items-center justify-center rounded-full border border-neutral-200 bg-white text-[11px] font-bold text-neutral-400">
           →
         </div>
@@ -139,11 +138,8 @@ function CeoAltBadge({ status, label }) {
 
 function CeoRowSkeleton() {
   return (
-    <div
-      className={`al-ceo-plan-row grid ${CEO_ROW_GRID} items-center rounded-2xl border border-neutral-200 bg-white shadow-sm transition hover:border-neutral-300 hover:shadow-md`}
-      aria-hidden
-    >
-      <div className="px-5 py-5">
+    <div className="al-ceo-plan-row al-ceo-plan-grid" aria-hidden>
+      <div className="al-ceo-plan-cell al-ceo-plan-cell--emp">
         <div className="flex items-center gap-3">
           <div className="al-ceo-plan-avatar bg-neutral-100" style={{ width: CEO_EMP_AVATAR_SIZE, height: CEO_EMP_AVATAR_SIZE }} />
           <div className="space-y-1">
@@ -152,10 +148,10 @@ function CeoRowSkeleton() {
           </div>
         </div>
       </div>
-      <div className="border-x border-neutral-100 px-5 py-5">
-        <div className="mx-auto h-16 w-[280px] rounded-lg bg-neutral-100" />
+      <div className="al-ceo-plan-cell al-ceo-plan-cell--period">
+        <div className="mx-auto h-14 w-full max-w-[360px] rounded-lg bg-neutral-100" />
       </div>
-      <div className="px-5 py-5">
+      <div className="al-ceo-plan-cell al-ceo-plan-cell--alt">
         <div className="flex items-center gap-3">
           <div className="al-ceo-plan-avatar bg-neutral-100" style={{ width: CEO_ALT_AVATAR_SIZE, height: CEO_ALT_AVATAR_SIZE }} />
           <div className="h-3 w-20 rounded bg-neutral-100" />
@@ -172,18 +168,16 @@ function LeaveRequestCard({ row, allRequests }) {
   const role = row.department || row.designation || ''
 
   return (
-    <div
-      className={`al-ceo-plan-row grid ${CEO_ROW_GRID} items-center rounded-2xl border border-neutral-200 bg-white shadow-sm transition hover:border-neutral-300 hover:shadow-md`}
-    >
-      <div className="px-5 py-5">
+    <div className="al-ceo-plan-row al-ceo-plan-grid">
+      <div className="al-ceo-plan-cell al-ceo-plan-cell--emp">
         <CeoPerson photoUrl={row.photo_url} name={row.full_name} role={role} avatarSize={CEO_EMP_AVATAR_SIZE} />
       </div>
 
-      <div className="flex justify-center border-x border-neutral-100 px-5 py-5">
+      <div className="al-ceo-plan-cell al-ceo-plan-cell--period">
         <CeoLeavePeriod fromDate={row.from_date} toDate={row.to_date} days={days} />
       </div>
 
-      <div className="px-5 py-5">
+      <div className="al-ceo-plan-cell al-ceo-plan-cell--alt">
         {alt.name ? (
           <CeoPerson photoUrl={alternatePhotoUrl} name={alt.name} avatarSize={CEO_ALT_AVATAR_SIZE}>
             <CeoAltBadge status={alt.status} label={alt.label} />
@@ -200,20 +194,20 @@ function LeaveRequestCard({ row, allRequests }) {
 
 function CeoPlanBoard({ children }) {
   return (
-    <div className="overflow-x-auto rounded-2xl border border-neutral-200 bg-white/60 p-2 shadow-sm">
-      <div className="min-w-[860px]">
-        <div className={`mb-2 grid ${CEO_ROW_GRID} rounded-xl border border-neutral-200 bg-[#f0eee9]`}>
-          <div className="px-5 py-3 text-left text-[10px] font-extrabold uppercase tracking-[0.1em] text-neutral-500">
+    <div className="al-ceo-plan-board overflow-x-auto rounded-2xl border border-neutral-200 bg-white/60 p-2 shadow-sm">
+      <div className="al-ceo-plan-board__inner">
+        <div className="al-ceo-plan-grid al-ceo-plan-grid--head mb-2 rounded-xl border border-neutral-200 bg-[#f0eee9]">
+          <div className="al-ceo-plan-cell al-ceo-plan-cell--emp al-ceo-plan-cell--head">
             Employee
           </div>
-          <div className="border-x border-neutral-200 px-5 py-3 text-center text-[10px] font-extrabold uppercase tracking-[0.1em] text-neutral-500">
+          <div className="al-ceo-plan-cell al-ceo-plan-cell--period al-ceo-plan-cell--head">
             Leave Period
           </div>
-          <div className="px-5 py-3 text-left text-[10px] font-extrabold uppercase tracking-[0.1em] text-neutral-500">
+          <div className="al-ceo-plan-cell al-ceo-plan-cell--alt al-ceo-plan-cell--head">
             Alternate / Availability
           </div>
         </div>
-        <div className="space-y-2">{children}</div>
+        <div className="al-ceo-plan-list">{children}</div>
       </div>
     </div>
   )

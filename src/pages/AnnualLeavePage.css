@@ -997,6 +997,81 @@
 }
 
 /* Row-card plan layout (CEO view) */
+.al-ceo-plan-board__inner {
+  width: 100%;
+  min-width: min(100%, 760px);
+}
+
+.al-ceo-plan-grid {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.35fr) minmax(0, 1fr);
+  align-items: center;
+}
+
+.al-ceo-plan-grid--head {
+  min-height: 0;
+}
+
+.al-ceo-plan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.al-ceo-plan-row {
+  width: 100%;
+  border-radius: 1rem;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.al-ceo-plan-row:hover {
+  border-color: rgba(0, 0, 0, 0.14);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+}
+
+.al-ceo-plan-cell {
+  min-width: 0;
+  padding: 1rem 1.15rem;
+}
+
+.al-ceo-plan-cell--period {
+  display: flex;
+  justify-content: center;
+  border-left: 1px solid rgba(0, 0, 0, 0.06);
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.al-ceo-plan-cell--head {
+  padding: 0.55rem 1.15rem;
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #737373;
+}
+
+.al-ceo-plan-cell--emp.al-ceo-plan-cell--head {
+  text-align: left;
+}
+
+.al-ceo-plan-cell--period.al-ceo-plan-cell--head {
+  text-align: center;
+  border-left: 1px solid rgba(0, 0, 0, 0.08);
+  border-right: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.al-ceo-plan-cell--alt.al-ceo-plan-cell--head {
+  text-align: left;
+}
+
+.al-ceo-leave-period__track {
+  margin: 0 auto;
+}
+
 .al-ceo-plan-avatar {
   border-radius: 18px;
 }
@@ -1020,14 +1095,6 @@
   letter-spacing: -0.02em;
   white-space: nowrap;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12), inset 0 0 0 1px #262626;
-}
-
-.al-ceo-plan-row {
-  min-height: 7.5rem;
-}
-
-.al-ceo-leave-period {
-  padding: 0.35rem !important;
 }
 
 .al-ceo-detail__value--notes {
