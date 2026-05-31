@@ -55,7 +55,7 @@ function CeoDateBlock({ label, isoDate, compact = false }) {
 
 function CeoLeavePeriod({ fromDate, toDate, days }) {
   return (
-    <div className="al-ceo-leave-period al-ceo-leave-period__track grid w-full max-w-[360px] grid-cols-[1fr_auto_1fr] items-center rounded-lg border border-neutral-200 bg-neutral-50/80 p-1">
+    <div className="al-ceo-leave-period al-ceo-leave-period__track grid w-[280px] grid-cols-[1fr_auto_1fr] items-center rounded-lg border border-neutral-200 bg-neutral-50/80 p-1">
       <CeoDateBlock label="From" isoDate={fromDate} compact />
 
       <div className="flex min-w-[4.75rem] flex-col items-center justify-center gap-1 px-1">
@@ -149,7 +149,7 @@ function CeoRowSkeleton() {
         </div>
       </div>
       <div className="al-ceo-plan-cell al-ceo-plan-cell--period">
-        <div className="mx-auto h-14 w-full max-w-[360px] rounded-lg bg-neutral-100" />
+        <div className="mx-auto h-14 w-[280px] rounded-lg bg-neutral-100" />
       </div>
       <div className="al-ceo-plan-cell al-ceo-plan-cell--alt">
         <div className="flex items-center gap-3">
