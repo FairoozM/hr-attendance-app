@@ -18,17 +18,60 @@ export function fmtLeavePeriodCeo(fromIso, toIso) {
   return `${fLabel} ${fy} to ${tLabel}`
 }
 
-/** Whole months of service from joining until leave starts (partial month rounds up). */
-export function roundupMonthsUntilLeave(joiningIso, leaveStartIso) {
-  const join = fmtISO(joiningIso)
+/** Whole months from a reference date until leave starts (partial month rounds up). */
+export function roundupMonthsUntilLeave(referenceIso, leaveStartIso) {
+  const ref = fmtISO(referenceIso)
   const start = fmtISO(leaveStartIso)
-  if (!join || !start) return null
-  if (start < join) return 0
-  const d0 = new Date(`${join}T12:00:00Z`)
+  if (!ref || !start) return null
+  if (start < ref) return 0
+  const d0 = new Date(`${ref}T12:00:00Z`)
   const d1 = new Date(`${start}T12:00:00Z`)
   if (Number.isNaN(d0.getTime()) || Number.isNaN(d1.getTime())) return null
   const totalDays = Math.max(0, Math.floor((d1 - d0) / 86400000))
   return Math.max(0, Math.ceil(totalDays / 30))
+}
+
+/** Latest confirmed return date from this employee's other annual leaves before the current request starts. */
+export function getComputedLastAnnualLeaveReturnDate(record, allRequests) {
+  const empId = record?.employee_id
+  const beforeDate = fmtISO(record?.from_date)
+  if (empId == null || !beforeDate) return null
+
+  let latest = null
+  for (const r of allRequests || []) {
+    if (String(r.employee_id) !== String(empId)) continue
+    if (r.id === record.id) continue
+    const ret = fmtISO(r.actual_return_date)
+    if (!ret || ret >= beforeDate) continue
+    if (!latest || ret > latest) latest = ret
+  }
+  return latest
+}
+
+/**
+ * Resolve last annual leave return: API history first, then admin manual entry.
+ * @returns {{ date: string|null, source: 'computed'|'manual'|null }}
+ */
+export function resolveLastAnnualLeaveReturnDate(record, allRequests, manualByEmployee = {}) {
+  const computed = getComputedLastAnnualLeaveReturnDate(record, allRequests)
+  if (computed) return { date: computed, source: 'computed' }
+
+  const raw = manualByEmployee[String(record?.employee_id)]
+  const manual = fmtISO(raw)
+  if (manual) return { date: manual, source: 'manual' }
+
+  return { date: null, source: null }
+}
+
+/** Normalize user-pref map of employeeId → ISO date. */
+export function normalizeCeoLastReturnDateMap(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const out = {}
+  for (const [empId, raw] of Object.entries(value)) {
+    const iso = fmtISO(raw)
+    if (iso) out[String(empId)] = iso
+  }
+  return out
 }
 
 function rangesOverlap(aFrom, aTo, bFrom, bTo) {

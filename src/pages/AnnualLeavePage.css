@@ -1201,6 +1201,7 @@
 /* Shrink compact columns to content; wide columns grow naturally */
 .al-ceo-table__col--period,
 .al-ceo-table__col--applied,
+.al-ceo-table__col--lastReturn,
 .al-ceo-table__col--join,
 .al-ceo-table__col--tenure,
 .al-ceo-table__col--status {
@@ -1211,6 +1212,8 @@
 .al-ceo-table__cell--period,
 .al-ceo-table__col--applied,
 .al-ceo-table__cell--applied,
+.al-ceo-table__col--lastReturn,
+.al-ceo-table__cell--lastReturn,
 .al-ceo-table__col--join,
 .al-ceo-table__cell--join,
 .al-ceo-table__col--tenure,
@@ -1221,6 +1224,7 @@
 }
 
 .al-ceo-table__cell--period,
+.al-ceo-table__cell--lastReturn,
 .al-ceo-table__cell--join,
 .al-ceo-table__cell--tenure,
 .al-ceo-table__cell--status {
@@ -1229,11 +1233,13 @@
 
 .al-ceo-table__col--period,
 .al-ceo-table__col--applied,
+.al-ceo-table__col--lastReturn,
 .al-ceo-table__col--join,
 .al-ceo-table__col--tenure,
 .al-ceo-table__col--status,
 .al-ceo-table__cell--period,
 .al-ceo-table__cell--applied,
+.al-ceo-table__cell--lastReturn,
 .al-ceo-table__cell--join,
 .al-ceo-table__cell--tenure,
 .al-ceo-table__cell--status {
@@ -1275,6 +1281,68 @@
 
 .al-ceo-table__cell--status .al-ceo-status {
   display: inline-flex;
+}
+
+.al-ceo-last-return {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.al-ceo-last-return--edit {
+  align-items: stretch;
+  min-width: 9rem;
+  white-space: normal;
+}
+
+.al-ceo-last-return__input {
+  width: 100%;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--ceo-table-border);
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ceo-text);
+  background: var(--ceo-surface);
+}
+
+.al-ceo-last-return__actions {
+  display: flex;
+  justify-content: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.al-ceo-last-return__action,
+.al-ceo-last-return__add {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ceo-muted);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.al-ceo-last-return__action:hover,
+.al-ceo-last-return__add:hover {
+  color: var(--ceo-text);
+}
+
+.al-ceo-last-return__action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.al-ceo-last-return__action--muted {
+  font-weight: 600;
+}
+
+.al-ceo-table__cell--lastReturn {
+  white-space: normal;
 }
 
 .al-ceo-table__row--skeleton td {

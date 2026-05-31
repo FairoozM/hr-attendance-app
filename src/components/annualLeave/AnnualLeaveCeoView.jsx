@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { alDaysBetween } from '../../utils/annualLeaveUtils'
 import {
   alternateAvailabilityForRow,
@@ -10,13 +10,17 @@ import {
   fmtLeavePeriodCeo,
   formatDate,
   getStatusStyle,
+  normalizeCeoLastReturnDateMap,
   resolveAlternateEmployeePhotoUrl,
+  resolveLastAnnualLeaveReturnDate,
   roundupMonthsUntilLeave,
 } from '../../utils/annualLeaveCeoView'
 import { leaveStatusDisplay } from './annualLeaveLabels'
 import { ModernSearchInput } from '../ui/ModernSearchInput'
 import { ModernSelect } from '../ui/ModernSelect'
 import { ANNUAL_LEAVE_STORAGE_KEY } from '../../lib/annualLeaveMockData'
+import { useUserPreferences } from '../../contexts/UserPreferencesContext'
+import { PREF_CEO_AL_LAST_RETURN_DATES } from '../../constants/userPreferenceKeys'
 
 const CEO_PAGE_SIZE = 24
 const CEO_EMP_AVATAR_SIZE = 88
@@ -27,7 +31,7 @@ const CEO_TABLE_COLUMNS = [
   { key: 'period', label: 'Leave period' },
   { key: 'applied', label: 'Annual leave applied' },
   { key: 'alt', label: 'Alternate / availability' },
-  { key: 'join', label: 'Joining date' },
+  { key: 'lastReturn', label: 'Last annual leave return' },
   { key: 'tenure', label: 'Tenure at leave start' },
   { key: 'status', label: 'Status' },
 ]
@@ -96,14 +100,78 @@ function CeoAvatar({ name, photoUrl, size = CEO_EMP_AVATAR_SIZE }) {
   )
 }
 
+/** Manual last return date when not available from completed leave records. */
+function LastReturnDateCell({ employeeId, resolved, onSaveManual }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+
+  const startEdit = () => {
+    setDraft(resolved.date || '')
+    setEditing(true)
+  }
+
+  const cancelEdit = () => {
+    setEditing(false)
+    setDraft('')
+  }
+
+  const saveEdit = () => {
+    if (!draft || employeeId == null) return
+    onSaveManual(employeeId, draft)
+    setEditing(false)
+    setDraft('')
+  }
+
+  if (resolved.date && !editing) {
+    return (
+      <div className="al-ceo-last-return">
+        <span className="al-ceo-card__value">{formatDate(resolved.date)}</span>
+        {resolved.source === 'manual' ? (
+          <button type="button" className="al-ceo-last-return__action" onClick={startEdit}>
+            Edit
+          </button>
+        ) : null}
+      </div>
+    )
+  }
+
+  if (editing) {
+    return (
+      <div className="al-ceo-last-return al-ceo-last-return--edit">
+        <input
+          type="date"
+          className="al-ceo-last-return__input"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          aria-label="Last annual leave return date"
+        />
+        <div className="al-ceo-last-return__actions">
+          <button type="button" className="al-ceo-last-return__action" disabled={!draft} onClick={saveEdit}>
+            Save
+          </button>
+          <button type="button" className="al-ceo-last-return__action al-ceo-last-return__action--muted" onClick={cancelEdit}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <button type="button" className="al-ceo-last-return__add" onClick={startEdit}>
+      Add date
+    </button>
+  )
+}
+
 /** One table row = one annual leave request. */
-function LeaveRequestRow({ row, allRequests }) {
+function LeaveRequestRow({ row, allRequests, manualReturnDates, onSaveManualReturn }) {
   const appliedThisYear = calculateLeaveAppliedThisYear(row, allRequests)
   const entitlement = getLeaveEntitlement(row)
   const alt = alternateAvailabilityForRow(row, allRequests)
   const alternatePhotoUrl = resolveAlternateEmployeePhotoUrl(row)
-  const joining = row.employee_joining_date
-  const months = roundupMonthsUntilLeave(joining, row.from_date)
+  const lastReturn = resolveLastAnnualLeaveReturnDate(row, allRequests, manualReturnDates)
+  const months = lastReturn.date ? roundupMonthsUntilLeave(lastReturn.date, row.from_date) : null
   const es = row.effective_status || row.status
   const statusStyle = getStatusStyle(es)
   const role = row.department || row.designation || ''
@@ -154,8 +222,12 @@ function LeaveRequestRow({ row, allRequests }) {
         )}
       </td>
 
-      <td className="al-ceo-table__cell al-ceo-table__cell--join">
-        <span className="al-ceo-card__value">{joining ? formatDate(joining) : '—'}</span>
+      <td className="al-ceo-table__cell al-ceo-table__cell--lastReturn">
+        <LastReturnDateCell
+          employeeId={row.employee_id}
+          resolved={lastReturn}
+          onSaveManual={onSaveManualReturn}
+        />
       </td>
 
       <td className="al-ceo-table__cell al-ceo-table__cell--tenure">
@@ -199,6 +271,23 @@ export function AnnualLeaveCeoView({
   const [deptFilter, setDeptFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
   const [sortKey, setSortKey] = useState('from_date_asc')
+  const { getPref, setPref, prefsVersion } = useUserPreferences()
+
+  const manualReturnDates = useMemo(
+    () => normalizeCeoLastReturnDateMap(getPref(PREF_CEO_AL_LAST_RETURN_DATES, {})),
+    [getPref, prefsVersion],
+  )
+
+  const saveManualReturn = useCallback(
+    (employeeId, dateIso) => {
+      if (employeeId == null || !dateIso) return
+      setPref(PREF_CEO_AL_LAST_RETURN_DATES, {
+        ...manualReturnDates,
+        [String(employeeId)]: dateIso,
+      })
+    },
+    [manualReturnDates, setPref],
+  )
 
   const stats = useMemo(
     () => computeCeoOverviewStats(allRequests || rows, dashboard, employeeCount),
@@ -264,7 +353,7 @@ export function AnnualLeaveCeoView({
           <p className="al-ceo-overview__eyebrow">CEO Overview</p>
           <h2 className="al-ceo-overview__title">Annual Leave</h2>
           <p className="al-ceo-overview__subtitle">
-            At-a-glance leave periods, cover, and tenure before each leave starts.
+            Leave periods, cover, last return date, and tenure since last annual leave.
           </p>
         </header>
         <div className="al-ceo-table-wrap">
@@ -325,7 +414,7 @@ export function AnnualLeaveCeoView({
             Annual Leave
           </h2>
           <p className="al-ceo-overview__subtitle">
-            At-a-glance leave periods, cover, and tenure before each leave starts.
+            Leave periods, cover, last return date, and tenure since last annual leave.
           </p>
         </div>
         <div className="al-ceo-overview__stats" aria-label="Leave overview statistics">
@@ -402,6 +491,8 @@ export function AnnualLeaveCeoView({
                     key={row.id}
                     row={row}
                     allRequests={allRequests || rows}
+                    manualReturnDates={manualReturnDates}
+                    onSaveManualReturn={saveManualReturn}
                   />
                 ))}
               </tbody>

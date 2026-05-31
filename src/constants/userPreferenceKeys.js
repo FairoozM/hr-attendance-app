@@ -21,6 +21,8 @@ export const PREF_ALL_PRICES_CLEANUP_BATCHES_KSA = 'all_prices_cleanup_batches_k
 export const PREF_ALL_PRICES_IMPORT_BATCHES_KSA = 'all_prices_import_batches_ksa_v1'
 export const PREF_INFLUENCER_PERF = 'influencer_performance_v1'
 export const PREF_INFLUENCER_LIST_COLS = 'influencer_list_col_widths_v1'
+/** CEO annual leave view — manual last return date per employee when not in API data. */
+export const PREF_CEO_AL_LAST_RETURN_DATES = 'ceo_al_last_return_dates_v1'
 export const PREF_AI_PLANNER = 'ai_planner_bundle_v2'
 export const PREF_THEME = 'theme_pref_v1'
 export const PREF_WEEKLY_SALES_SAVED_REPORTS = 'weekly_sales_saved_reports_v1'
