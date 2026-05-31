@@ -247,13 +247,13 @@ export function AnnualLeaveCeoView({
   onResetMockData,
 }) {
   const [limit, setLimit] = useState(CEO_PAGE_SIZE)
-  const [search, setSearch] = useUrlStringParamState('q')
-  const [deptFilter, setDeptFilter] = useUrlStringParamState('dept')
-  const [statusFilter, setStatusFilter] = useUrlSearchParamState('status', {
+  const [search, setSearch] = useUrlStringParamState('ceoQ')
+  const [deptFilter, setDeptFilter] = useUrlStringParamState('ceoDept')
+  const [statusFilter, setStatusFilter] = useUrlSearchParamState('ceoStatus', {
     defaultValue: 'All',
     allowed: CEO_STATUS_KEYS,
   })
-  const [sortKey, setSortKey] = useUrlSearchParamState('sort', {
+  const [sortKey, setSortKey] = useUrlSearchParamState('ceoSort', {
     defaultValue: 'from_date_asc',
     allowed: CEO_SORT_KEYS,
   })
