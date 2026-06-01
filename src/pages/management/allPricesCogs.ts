@@ -72,9 +72,10 @@ export function buildCostLookup(rows: AllPricesCostRow[] | null | undefined): Ma
 }
 
 /**
- * Join sales-by-item rows to All Prices cost prices by SKU and compute COGS.
- * COGS per line = qty * purchasePrice. Rows whose SKU has no matching cost
- * price are returned under `unmatched` so nothing is silently dropped.
+ * Join sales-by-item rows to All Prices cost prices by item number and compute
+ * COGS. The Zoho item name holds the code that matches the All Prices `itemNo`
+ * (Zoho `sku` is usually blank). COGS per line = qty * purchasePrice. Rows with
+ * no matching cost price are returned under `unmatched` so nothing is dropped.
  */
 export function computeCogs(
   salesRows: SalesByItemRow[] | null | undefined,
@@ -93,8 +94,10 @@ export function computeCogs(
     const qty = toFiniteNumber(row?.qty) ?? 0
     const salesAmount = toFiniteNumber(row?.sales_amount) ?? 0
     const unitPrice = toFiniteNumber(row?.unit_price) ?? 0
-    const normalizedSku = normalizeItemNo(row?.sku)
-    const costPrice = normalizedSku ? costLookup.get(normalizedSku) : undefined
+    // Zoho's `sku` is usually empty; the Zoho item name carries the code that
+    // matches the All Prices `itemNo`. Match on item name first, sku as fallback.
+    const normalizedKey = normalizeItemNo(row?.item_name) || normalizeItemNo(row?.sku)
+    const costPrice = normalizedKey ? costLookup.get(normalizedKey) : undefined
 
     if (costPrice == null) {
       unmatched.push(row)

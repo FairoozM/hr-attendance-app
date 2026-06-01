@@ -123,7 +123,8 @@ export function AllPricesCogsPanel({ rows, currencyLabel = 'AED' }: AllPricesCog
     <section className="page-section ap-cogs" aria-label="COGS calculation">
       <div className="ap-cogs-note" role="note">
         Cost of goods sold for a date range. The unit cost is your <strong>purchase price</strong> from
-        the current All Prices list, matched by SKU. <strong>COGS = quantity x purchase price</strong>.
+        the current All Prices list, matched by <strong>item number</strong> (the Zoho item name).{' '}
+        <strong>COGS = quantity x purchase price</strong>.
         Leave the customer blank to use the fast all-customers report; pick a customer to compute COGS
         from that customer's invoices (slower, more API calls).
       </div>
@@ -207,11 +208,11 @@ export function AllPricesCogsPanel({ rows, currencyLabel = 'AED' }: AllPricesCog
             Matched <strong>{result.totals.matchedCount}</strong> item(s).{' '}
             {result.totals.unmatchedCount > 0 ? (
               <span>
-                <strong>{result.totals.unmatchedCount}</strong> sold SKU(s) have no cost price in All
-                Prices (see below).
+                <strong>{result.totals.unmatchedCount}</strong> sold item(s) have no matching item
+                number in All Prices (see below).
               </span>
             ) : (
-              <span>All sold SKUs were priced.</span>
+              <span>All sold items were priced.</span>
             )}
             {meta?.truncated ? (
               <span className="ap-cogs-meta__warn"> Sales data was truncated by Zoho pagination; totals may be partial.</span>
@@ -222,8 +223,7 @@ export function AllPricesCogsPanel({ rows, currencyLabel = 'AED' }: AllPricesCog
             <table className="ap-cogs-table">
               <thead>
                 <tr>
-                  <th>SKU</th>
-                  <th>Item</th>
+                  <th>Item No</th>
                   <th className="num">Qty</th>
                   <th className="num">Unit sales price</th>
                   <th className="num">Cost price</th>
@@ -236,14 +236,13 @@ export function AllPricesCogsPanel({ rows, currencyLabel = 'AED' }: AllPricesCog
               <tbody>
                 {result.matched.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="ap-cogs-empty">
+                    <td colSpan={8} className="ap-cogs-empty">
                       No matched items for this date range.
                     </td>
                   </tr>
                 ) : (
                   result.matched.map((r) => (
-                    <tr key={r.itemId || r.sku}>
-                      <td>{r.sku || '—'}</td>
+                    <tr key={r.itemId || r.itemName}>
                       <td>{r.itemName || '—'}</td>
                       <td className="num">{money(r.qty)}</td>
                       <td className="num">{money(r.unitPrice)}</td>
@@ -259,7 +258,7 @@ export function AllPricesCogsPanel({ rows, currencyLabel = 'AED' }: AllPricesCog
               {result.matched.length > 0 ? (
                 <tfoot>
                   <tr>
-                    <td colSpan={2}>Total</td>
+                    <td>Total</td>
                     <td className="num">{money(result.totals.totalQty)}</td>
                     <td className="num">—</td>
                     <td className="num">—</td>
@@ -275,26 +274,24 @@ export function AllPricesCogsPanel({ rows, currencyLabel = 'AED' }: AllPricesCog
 
           {result.unmatched.length > 0 ? (
             <div className="ap-cogs-unmatched">
-              <h3>Unmatched SKUs (no cost price in All Prices)</h3>
+              <h3>Unmatched items (no matching item number in All Prices)</h3>
               <p className="ap-cogs-unmatched__hint">
-                Add these SKUs (with a purchase price) to the All Prices list so they are included in
-                COGS.
+                Add these item numbers (with a purchase price) to the All Prices list so they are
+                included in COGS.
               </p>
               <div className="ap-cogs-table-wrap">
                 <table className="ap-cogs-table">
                   <thead>
                     <tr>
-                      <th>SKU</th>
-                      <th>Item</th>
+                      <th>Item No</th>
                       <th className="num">Qty</th>
                       <th className="num">Revenue</th>
                     </tr>
                   </thead>
                   <tbody>
                     {result.unmatched.map((r) => (
-                      <tr key={r.item_id || r.sku || r.item_name}>
-                        <td>{r.sku || '—'}</td>
-                        <td>{r.item_name || '—'}</td>
+                      <tr key={r.item_id || r.item_name || r.sku}>
+                        <td>{r.item_name || r.sku || '—'}</td>
                         <td className="num">{money(r.qty)}</td>
                         <td className="num">{money(r.sales_amount)}</td>
                       </tr>
