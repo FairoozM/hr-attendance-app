@@ -20,6 +20,9 @@
  *   getValue     fn(opt)  → string | number
  *   clearable    bool     show an X button to clear the current value
  *   size         'sm'|'md'|'lg'
+ *   multiple     bool     multi-select mode; `value` is an array of values and
+ *                         `onChange` is called with the next array (menu stays open)
+ *   multipleSummary fn(count) → string   label shown when >1 item is selected
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react'
@@ -53,6 +56,8 @@ export function ModernSelect({
   getValue,
   clearable = false,
   size = 'md',
+  multiple = false,
+  multipleSummary,
 }) {
   const [open, setOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
@@ -89,11 +94,26 @@ export function ModernSelect({
     [getLabel]
   )
 
+  const selectedValues = multiple && Array.isArray(value) ? value.map((v) => String(v)) : []
+
   const selectedOption = options.find((opt) => {
     const v = getOptionValue(opt)
     return value !== undefined && value !== null && String(v) === String(value)
   })
-  const displayLabel = selectedOption ? getOptionLabel(selectedOption) : ''
+
+  let displayLabel = ''
+  if (multiple) {
+    if (selectedValues.length === 1) {
+      const only = options.find((opt) => String(getOptionValue(opt)) === selectedValues[0])
+      displayLabel = only ? getOptionLabel(only) : selectedValues[0]
+    } else if (selectedValues.length > 1) {
+      displayLabel = multipleSummary
+        ? multipleSummary(selectedValues.length)
+        : `${selectedValues.length} selected`
+    }
+  } else {
+    displayLabel = selectedOption ? getOptionLabel(selectedOption) : ''
+  }
 
   const positionMenu = useCallback(() => {
     const btn = triggerRef.current
@@ -129,10 +149,20 @@ export function ModernSelect({
 
   const selectOption = useCallback(
     (opt) => {
-      onChange(getOptionValue(opt))
+      const optValue = getOptionValue(opt)
+      if (multiple) {
+        const sv = String(optValue)
+        const current = Array.isArray(value) ? value.map((v) => String(v)) : []
+        const next = current.includes(sv)
+          ? current.filter((v) => v !== sv)
+          : [...current, sv]
+        onChange(next)
+        return
+      }
+      onChange(optValue)
       closeMenu()
     },
-    [onChange, getOptionValue, closeMenu]
+    [onChange, getOptionValue, closeMenu, multiple, value]
   )
 
   useEffect(() => {
@@ -201,8 +231,8 @@ export function ModernSelect({
               role="button"
               tabIndex={0}
               aria-label="Clear"
-              onClick={(e) => { e.stopPropagation(); onChange(''); closeMenu() }}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); onChange('') } }}
+              onClick={(e) => { e.stopPropagation(); onChange(multiple ? [] : ''); closeMenu() }}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); onChange(multiple ? [] : '') } }}
             >
               <X size={11} strokeWidth={2.5} />
             </span>
@@ -220,6 +250,7 @@ export function ModernSelect({
           <div
             ref={menuRef}
             role="listbox"
+            aria-multiselectable={multiple || undefined}
             className="ms-menu"
             style={menuStyle}
             onKeyDown={handleMenuKey}
@@ -227,7 +258,9 @@ export function ModernSelect({
             {options.map((opt, idx) => {
               const optValue = getOptionValue(opt)
               const optLabel = getOptionLabel(opt)
-              const isSelected = value !== undefined && value !== null && String(optValue) === String(value)
+              const isSelected = multiple
+                ? selectedValues.includes(String(optValue))
+                : value !== undefined && value !== null && String(optValue) === String(value)
               const isActive = idx === activeIndex
               return (
                 <div

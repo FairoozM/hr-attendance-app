@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { alDaysBetween } from '../../utils/annualLeaveUtils'
 import {
   alternateAvailabilityForRow,
@@ -248,7 +248,7 @@ export function AnnualLeaveCeoView({
 }) {
   const [limit, setLimit] = useState(CEO_PAGE_SIZE)
   const [search, setSearch] = useUrlStringParamState('ceoQ')
-  const [deptFilter, setDeptFilter] = useUrlStringParamState('ceoDept')
+  const [deptParam, setDeptParam] = useUrlStringParamState('ceoDept')
   const [statusFilter, setStatusFilter] = useUrlSearchParamState('ceoStatus', {
     defaultValue: 'All',
     allowed: CEO_STATUS_KEYS,
@@ -268,9 +268,19 @@ export function AnnualLeaveCeoView({
     return Array.from(s).sort()
   }, [rows])
 
+  const selectedDepts = useMemo(
+    () => (deptParam ? deptParam.split(',').map((d) => d.trim()).filter(Boolean) : []),
+    [deptParam],
+  )
+
+  const setSelectedDepts = useCallback(
+    (next) => setDeptParam((Array.isArray(next) ? next : []).join(',')),
+    [setDeptParam],
+  )
+
   const filtered = useMemo(() => {
     let list = [...(rows || [])].filter((r) => r.from_date && r.to_date)
-    if (deptFilter) list = list.filter((r) => r.department === deptFilter)
+    if (selectedDepts.length) list = list.filter((r) => selectedDepts.includes(r.department))
     if (statusFilter !== 'All') {
       list = list.filter((r) => (r.effective_status || r.status) === statusFilter)
     }
@@ -310,7 +320,7 @@ export function AnnualLeaveCeoView({
       }
     })
     return list
-  }, [rows, deptFilter, statusFilter, search, sortKey])
+  }, [rows, selectedDepts, statusFilter, search, sortKey])
 
   const visible = filtered.slice(0, limit)
   const remaining = Math.max(0, filtered.length - visible.length)
@@ -402,12 +412,13 @@ export function AnnualLeaveCeoView({
           />
           {departments.length > 0 && (
             <ModernSelect
-              value={deptFilter || ''}
-              options={[
-                { value: '', label: 'All departments' },
-                ...departments.map((d) => ({ value: d, label: d })),
-              ]}
-              onChange={setDeptFilter}
+              multiple
+              value={selectedDepts}
+              placeholder="All departments"
+              multipleSummary={(n) => `${n} departments`}
+              options={departments.map((d) => ({ value: d, label: d }))}
+              onChange={setSelectedDepts}
+              clearable
             />
           )}
           <ModernSelect
@@ -430,13 +441,13 @@ export function AnnualLeaveCeoView({
         <div className="al-ceo-overview__empty">
           <div className="al-ceo-overview__empty-icon" aria-hidden />
           <p>No annual leave requests found.</p>
-          {(search || deptFilter || statusFilter !== 'All') && (
+          {(search || selectedDepts.length || statusFilter !== 'All') && (
             <button
               type="button"
               className="al-ceo-btn al-ceo-btn--ghost"
               onClick={() => {
                 setSearch('')
-                setDeptFilter('')
+                setSelectedDepts([])
                 setStatusFilter('All')
               }}
             >
