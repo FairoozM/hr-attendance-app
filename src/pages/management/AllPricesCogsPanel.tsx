@@ -301,6 +301,40 @@ export function AllPricesCogsPanel({ rows, currencyLabel = 'AED' }: AllPricesCog
               </div>
             </div>
           ) : null}
+
+          <div className="ap-cogs-totals-footer">
+            <h3>Totals</h3>
+            <table className="ap-cogs-table ap-cogs-totals-table">
+              <tbody>
+                <tr>
+                  <th scope="row">Total COGS</th>
+                  <td className="num">{money(result.totals.totalCogs)} {currencyLabel}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Total revenue</th>
+                  <td className="num">{money(result.totals.totalRevenue)} {currencyLabel}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Gross profit</th>
+                  <td className="num">{money(result.totals.grossProfit)} {currencyLabel}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Margin</th>
+                  <td className="num">{fmtPct(result.totals.marginPct, 1)}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Units sold</th>
+                  <td className="num">{money(result.totals.totalQty)}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Items matched / unmatched</th>
+                  <td className="num">
+                    {result.totals.matchedCount} / {result.totals.unmatchedCount}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </>
       ) : (
         !loading && (
