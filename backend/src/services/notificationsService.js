@@ -1,4 +1,5 @@
 const { query } = require('../db')
+const documentExpiryNotificationsService = require('./documentExpiryNotificationsService')
 
 const REMINDER_TYPE = 'shop_visit_main_shop_reminder'
 const TRIGGER_PREFIX = 'shop_visit_reminder:'
@@ -85,7 +86,7 @@ async function syncShopVisitReminders() {
 /**
  * List notifications relevant today onward (scheduled day reached), newest first.
  */
-async function listForAdmin({ limit = 50 } = {}) {
+async function listSystemNotifications({ limit = 50 } = {}) {
   await syncShopVisitReminders()
   const lim = Math.min(Math.max(parseInt(String(limit), 10) || 50, 1), 200)
   const result = await query(
@@ -99,15 +100,29 @@ async function listForAdmin({ limit = 50 } = {}) {
   return result.rows
 }
 
+async function listForAdmin({ limit = 50 } = {}) {
+  const [docReminders, systemRows] = await Promise.all([
+    documentExpiryNotificationsService.listVisibleReminders(),
+    listSystemNotifications({ limit }),
+  ])
+  return [...docReminders, ...systemRows]
+}
+
 async function unreadCountForAdmin() {
-  await syncShopVisitReminders()
-  const result = await query(
-    `SELECT COUNT(*)::int AS c
-     FROM notifications n
-     WHERE n.is_read = false
-       AND n.scheduled_for <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date`
-  )
-  return result.rows[0]?.c ?? 0
+  const [docCount, systemCount] = await Promise.all([
+    documentExpiryNotificationsService.unreadCount(),
+    (async () => {
+      await syncShopVisitReminders()
+      const result = await query(
+        `SELECT COUNT(*)::int AS c
+         FROM notifications n
+         WHERE n.is_read = false
+           AND n.scheduled_for <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date`
+      )
+      return result.rows[0]?.c ?? 0
+    })(),
+  ])
+  return docCount + systemCount
 }
 
 async function markRead(id) {

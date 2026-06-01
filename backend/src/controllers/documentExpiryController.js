@@ -1,4 +1,6 @@
 const svc = require('../services/documentExpiryService')
+const notificationActionsService = require('../services/notificationActionsService')
+const documentExpiryNotificationsService = require('../services/documentExpiryNotificationsService')
 
 function clean(v) {
   return v == null ? '' : String(v).trim()
@@ -75,7 +77,22 @@ async function update(req, res) {
     if (!existing) return res.status(404).json({ error: 'Document expiry record not found' })
     const payload = normalizePayload(req.body)
     if (payload.errors.length) return res.status(400).json({ error: payload.errors.join('; ') })
+    const oldKey = documentExpiryNotificationsService.buildNotificationKey(existing)
     const row = await svc.update(id, payload.value)
+    const newKey = documentExpiryNotificationsService.buildNotificationKey(row)
+    if (oldKey !== newKey || payload.value.expiry_date !== existing.expiry_date) {
+      try {
+        await notificationActionsService.resolve({
+          notificationKey: oldKey,
+          userId: req.user?.id ?? null,
+          sourceType: documentExpiryNotificationsService.SOURCE_TYPE,
+          sourceId: String(id),
+          dueDate: String(existing.expiry_date || '').slice(0, 10) || null,
+        })
+      } catch (resolveErr) {
+        console.error('[document-expiry] resolve old notification action:', resolveErr)
+      }
+    }
     res.json(mapRow(row))
   } catch (err) {
     console.error('[document-expiry] update error:', err)

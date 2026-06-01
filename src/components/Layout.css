@@ -1027,6 +1027,197 @@
 .notif-doc-badge--urgent   { background: rgba(251, 146, 60, 0.22);  color: #fb923c; }
 .notif-doc-badge--due-soon { background: rgba(251, 191, 36, 0.2);   color: #fbbf24; }
 
+.notif-item__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
+.notif-action-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.65rem;
+  padding: 0 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--theme-border);
+  background: var(--theme-glass-soft);
+  color: var(--text-soft);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.notif-action-pill:hover:not(:disabled) {
+  background: var(--theme-input-bg-hover);
+  border-color: var(--theme-border-strong);
+  color: var(--text);
+}
+
+.notif-action-pill:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.notif-action-pill--primary {
+  border-color: rgba(99, 102, 241, 0.35);
+  background: rgba(99, 102, 241, 0.12);
+  color: #a5b4fc;
+}
+
+.notif-action-pill--primary:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.22);
+  color: #c7d2fe;
+}
+
+.notif-action-pill--muted {
+  border-color: rgba(148, 163, 184, 0.25);
+}
+
+.notif-action-pill--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-muted);
+}
+
+.notif-action-pill--danger {
+  border-color: rgba(248, 113, 113, 0.35);
+  background: rgba(248, 113, 113, 0.12);
+  color: #fca5a5;
+}
+
+.notif-snooze-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.notif-snooze-menu__item {
+  width: 100%;
+  text-align: left;
+  min-height: 2.4rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--theme-border);
+  background: var(--theme-surface-soft);
+  color: var(--text);
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.notif-snooze-menu__item:hover:not(:disabled) {
+  background: var(--theme-surface-raised);
+}
+
+.notif-snooze-menu__custom {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 0.35rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--theme-border-subtle);
+}
+
+.notif-renew-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.notif-renew-form__subtitle {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--text-muted);
+}
+
+.notif-renew-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
+.notif-renew-form__field input,
+.notif-renew-form__field textarea {
+  width: 100%;
+  border-radius: 0.65rem;
+  border: 1px solid var(--theme-border);
+  background: var(--theme-input-bg);
+  color: var(--text);
+  padding: 0.55rem 0.65rem;
+  font: inherit;
+}
+
+.notif-renew-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.notif-renew-form__error {
+  margin: 0;
+  color: #f87171;
+  font-size: 0.82rem;
+}
+
+.notif-ignore-modal__text {
+  margin: 0 0 0.5rem;
+  font-size: 0.84rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.notif-toast {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  max-width: min(22rem, calc(100vw - 2rem));
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.85rem;
+  border: 1px solid var(--theme-border);
+  background: var(--theme-panel-bg);
+  box-shadow: var(--glass-shadow-panel);
+  font-size: 0.84rem;
+}
+
+.notif-toast--success {
+  border-color: rgba(52, 211, 153, 0.35);
+}
+
+.notif-toast--error {
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
+.notif-toast__close {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+@media (max-width: 540px) {
+  .notif-item__actions {
+    gap: 0.28rem;
+  }
+
+  .notif-action-pill {
+    font-size: 0.64rem;
+    padding: 0 0.45rem;
+  }
+}
+
 .app-main {
   flex: 1;
   min-width: 0;

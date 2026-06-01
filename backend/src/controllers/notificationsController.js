@@ -1,4 +1,14 @@
 const notificationsService = require('../services/notificationsService')
+const notificationActionsService = require('../services/notificationActionsService')
+const documentExpiryNotificationsService = require('../services/documentExpiryNotificationsService')
+
+function parseActionMeta(body) {
+  return {
+    sourceType: String(body.sourceType || body.source_type || '').trim(),
+    sourceId: String(body.sourceId || body.source_id || '').trim(),
+    dueDate: String(body.dueDate || body.due_date || '').slice(0, 10) || null,
+  }
+}
 
 async function list(req, res) {
   try {
@@ -44,4 +54,64 @@ async function markAllRead(req, res) {
   }
 }
 
-module.exports = { list, unreadCount, markRead, markAllRead }
+async function snooze(req, res) {
+  try {
+    const key = decodeURIComponent(String(req.params.key || ''))
+    const { snoozedUntil } = req.body || {}
+    const meta = parseActionMeta(req.body || {})
+    const row = await notificationActionsService.snooze({
+      notificationKey: key,
+      snoozedUntil,
+      userId: req.user?.id ?? null,
+      ...meta,
+    })
+    res.json(row)
+  } catch (err) {
+    console.error('[notifications] snooze:', err)
+    res.status(400).json({ error: err.message || 'Failed to snooze notification' })
+  }
+}
+
+async function ignoreNotification(req, res) {
+  try {
+    const key = decodeURIComponent(String(req.params.key || ''))
+    const reason = String(req.body?.reason || '').trim()
+    const meta = parseActionMeta(req.body || {})
+    const row = await notificationActionsService.ignore({
+      notificationKey: key,
+      userId: req.user?.id ?? null,
+      reason,
+      ...meta,
+    })
+    res.json(row)
+  } catch (err) {
+    console.error('[notifications] ignore:', err)
+    res.status(400).json({ error: err.message || 'Failed to ignore notification' })
+  }
+}
+
+async function resolveNotification(req, res) {
+  try {
+    const key = decodeURIComponent(String(req.params.key || ''))
+    const meta = parseActionMeta(req.body || {})
+    const row = await notificationActionsService.resolve({
+      notificationKey: key,
+      userId: req.user?.id ?? null,
+      ...meta,
+    })
+    res.json(row)
+  } catch (err) {
+    console.error('[notifications] resolve:', err)
+    res.status(400).json({ error: err.message || 'Failed to resolve notification' })
+  }
+}
+
+module.exports = {
+  list,
+  unreadCount,
+  markRead,
+  markAllRead,
+  snooze,
+  ignoreNotification,
+  resolveNotification,
+}

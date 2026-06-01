@@ -4,8 +4,13 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useSettings } from '../contexts/SettingsContext'
 import { useAuth, hasPermission, hasAnyModulePermission } from '../contexts/AuthContext'
 import { useNotifications } from '../hooks/useNotifications'
-import { useDocumentReminders } from '../hooks/useDocumentReminders'
 import { useDocumentExpiry } from '../hooks/useDocumentExpiry'
+import { DocExpiryRenewModal } from './notifications/DocExpiryRenewModal'
+import {
+  NotificationSnoozeMenu,
+  NotificationIgnoreModal,
+  NotificationToast,
+} from './notifications/NotificationActionModals'
 import { RoleGuard } from './RoleGuard'
 import { ThemeToggle } from './ThemeToggle'
 import { fmtDMY } from '../utils/dateFormat'
@@ -284,10 +289,27 @@ const DOC_URGENCY_LABEL = { expired: 'Expired', urgent: 'Urgent', 'due-soon': 'D
 const DOC_URGENCY_CLS   = { expired: 'notif-doc-badge--expired', urgent: 'notif-doc-badge--urgent', 'due-soon': 'notif-doc-badge--due-soon' }
 const BRAND_TITLE = 'Business Intelligence (BI) - Life Smile'
 
-function NotificationsBell({ docReminders = [] }) {
-  const { items, unread, loading, refresh, markRead, markAllRead, dismiss } = useNotifications(true)
+function NotificationsBell({ documentRecords = [], onDocumentsChanged }) {
+  const navigate = useNavigate()
+  const {
+    docReminders,
+    systemItems,
+    unread,
+    loading,
+    refresh,
+    markRead,
+    markAllRead,
+    dismiss,
+    snooze,
+    ignoreNotification,
+    resolveNotification,
+    actionLoadingKey,
+  } = useNotifications(true)
   const [open, setOpen] = useState(false)
-  const [dismissedDocIds, setDismissedDocIds] = useState(() => new Set())
+  const [toast, setToast] = useState(null)
+  const [renewDocId, setRenewDocId] = useState(null)
+  const [snoozeTarget, setSnoozeTarget] = useState(null)
+  const [ignoreTarget, setIgnoreTarget] = useState(null)
   const wrapRef = useRef(null)
 
   useEffect(() => {
@@ -299,12 +321,38 @@ function NotificationsBell({ docReminders = [] }) {
     return () => document.removeEventListener('mousedown', onDocClick)
   }, [open])
 
-  const visibleDocReminders = docReminders.filter((n) => !dismissedDocIds.has(n.id))
-  const totalUnread = unread + visibleDocReminders.length
+  const showToast = useCallback((message, type = 'success') => {
+    setToast({ message, type })
+    window.setTimeout(() => setToast(null), 4500)
+  }, [])
 
-  function dismissDoc(id) {
-    setDismissedDocIds((prev) => new Set([...prev, id]))
-  }
+  const handleSnooze = useCallback(async (date) => {
+    if (!snoozeTarget) return
+    try {
+      await snooze(snoozeTarget, date)
+      showToast(`Notification snoozed until ${fmtDMY(date)}.`)
+      setSnoozeTarget(null)
+    } catch (err) {
+      showToast(err.message || 'Could not snooze notification.', 'error')
+    }
+  }, [snooze, snoozeTarget, showToast])
+
+  const handleIgnore = useCallback(async (reason) => {
+    if (!ignoreTarget) return
+    try {
+      await ignoreNotification(ignoreTarget, reason)
+      showToast('Notification ignored.')
+      setIgnoreTarget(null)
+    } catch (err) {
+      showToast(err.message || 'Could not ignore notification.', 'error')
+    }
+  }, [ignoreNotification, ignoreTarget, showToast])
+
+  const handleRenewSaved = useCallback(async (expiryDate) => {
+    showToast(`Document renewed until ${fmtDMY(expiryDate)}.`)
+    await onDocumentsChanged?.()
+    await refresh()
+  }, [onDocumentsChanged, refresh, showToast])
 
   return (
     <div className="notif-bell-wrap" ref={wrapRef}>
@@ -322,8 +370,8 @@ function NotificationsBell({ docReminders = [] }) {
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
           <path d="M13.73 21a2 2 0 0 1-3.46 0" />
         </svg>
-        {totalUnread > 0 && (
-          <span className="notif-bell-badge">{totalUnread > 99 ? '99+' : totalUnread}</span>
+        {unread > 0 && (
+          <span className="notif-bell-badge">{unread > 99 ? '99+' : unread}</span>
         )}
       </button>
 
@@ -331,7 +379,7 @@ function NotificationsBell({ docReminders = [] }) {
         <div className="notif-panel" role="dialog" aria-label="Notifications">
           <div className="notif-panel__head">
             <span>Notifications</span>
-            {items.some((n) => !n.is_read) && (
+            {systemItems.some((n) => !n.is_read) && (
               <button type="button" className="notif-panel__mark-all" onClick={() => markAllRead()}>
                 Mark all read
               </button>
@@ -339,54 +387,85 @@ function NotificationsBell({ docReminders = [] }) {
           </div>
 
           <div className="notif-panel__body">
-            {/* ── Document reminder section ── */}
-            {visibleDocReminders.length > 0 && (
+            {docReminders.length > 0 && (
               <>
                 <div className="notif-section-label">Document Reminders</div>
-                {visibleDocReminders.map((n) => (
-                  <div key={n.id} className="notif-item notif-item--doc">
-                    <div className="notif-item__row">
-                      <span className="notif-item__title">
-                        {n.title}
-                        <span className={`notif-doc-badge ${DOC_URGENCY_CLS[n._urgency] || ''}`}>
-                          {DOC_URGENCY_LABEL[n._urgency] || n._urgency}
+                {docReminders.map((n) => {
+                  const urgency = n.urgency || n._urgency || 'due-soon'
+                  const busy = actionLoadingKey === n.notification_key
+                  return (
+                    <div key={n.notification_key || n.id} className="notif-item notif-item--doc">
+                      <div className="notif-item__row">
+                        <span className="notif-item__title">
+                          {n.title}
+                          <span className={`notif-doc-badge ${DOC_URGENCY_CLS[urgency] || ''}`}>
+                            {DOC_URGENCY_LABEL[urgency] || urgency}
+                          </span>
                         </span>
+                      </div>
+                      {(n.company || n.document_type || n._company || n._docType) && (
+                        <span className="notif-item__company">
+                          {n.company || n._company}
+                          {(n.document_type || n._docType) ? ` · ${n.document_type || n._docType}` : ''}
+                        </span>
+                      )}
+                      <span className="notif-item__msg">{n.message}</span>
+                      <span className="notif-item__meta">
+                        {n.scheduled_for ? fmtDMY(n.scheduled_for) : ''}
                       </span>
-                      <button
-                        type="button"
-                        className="notif-item__dismiss"
-                        aria-label="Dismiss notification"
-                        onClick={() => dismissDoc(n.id)}
-                      >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
-                          <line x1="18" y1="6" x2="6" y2="18" />
-                          <line x1="6" y1="6" x2="18" y2="18" />
-                        </svg>
-                      </button>
+                      <div className="notif-item__actions">
+                        <button
+                          type="button"
+                          className="notif-action-pill notif-action-pill--primary"
+                          disabled={busy}
+                          onClick={() => setRenewDocId(n.source_id || String(n.id).replace(/^doc-reminder-/, ''))}
+                        >
+                          Update
+                        </button>
+                        <button
+                          type="button"
+                          className="notif-action-pill"
+                          disabled={busy}
+                          onClick={() => setSnoozeTarget(n)}
+                        >
+                          Snooze
+                        </button>
+                        <button
+                          type="button"
+                          className="notif-action-pill notif-action-pill--muted"
+                          disabled={busy}
+                          onClick={() => setIgnoreTarget(n)}
+                        >
+                          Ignore
+                        </button>
+                        <button
+                          type="button"
+                          className="notif-action-pill notif-action-pill--ghost"
+                          disabled={busy}
+                          onClick={() => {
+                            setOpen(false)
+                            navigate('/management/document-expiry')
+                          }}
+                        >
+                          View
+                        </button>
+                      </div>
                     </div>
-                    {n._company && (
-                      <span className="notif-item__company">{n._company}{n._docType ? ` · ${n._docType}` : ''}</span>
-                    )}
-                    <span className="notif-item__msg">{n.message}</span>
-                    <span className="notif-item__meta">
-                      {n.scheduled_for ? fmtDMY(n.scheduled_for) : ''}
-                    </span>
-                  </div>
-                ))}
+                  )
+                })}
               </>
             )}
 
-            {/* ── HR / system notifications section ── */}
-            {visibleDocReminders.length > 0 && (items.length > 0 || loading) && (
+            {docReminders.length > 0 && (systemItems.length > 0 || loading) && (
               <div className="notif-section-label">System Notifications</div>
             )}
 
             {loading && <div className="notif-panel__empty">Loading…</div>}
-            {!loading && items.length === 0 && visibleDocReminders.length === 0 && (
+            {!loading && systemItems.length === 0 && docReminders.length === 0 && (
               <div className="notif-panel__empty">No notifications yet.</div>
             )}
             {!loading &&
-              items.map((n) => (
+              systemItems.map((n) => (
                 <div
                   key={n.id}
                   className={`notif-item ${n.is_read ? 'notif-item--read' : ''}`}
@@ -407,7 +486,8 @@ function NotificationsBell({ docReminders = [] }) {
                     <button
                       type="button"
                       className="notif-item__dismiss"
-                      aria-label="Dismiss notification"
+                      aria-label="Mark as read and hide"
+                      title="Mark as read and hide"
                       onClick={() => dismiss(n.id)}
                     >
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
@@ -421,6 +501,39 @@ function NotificationsBell({ docReminders = [] }) {
           </div>
         </div>
       )}
+
+      <NotificationSnoozeMenu
+        open={Boolean(snoozeTarget)}
+        onClose={() => setSnoozeTarget(null)}
+        onSnooze={handleSnooze}
+        loading={Boolean(actionLoadingKey)}
+      />
+
+      <NotificationIgnoreModal
+        open={Boolean(ignoreTarget)}
+        onClose={() => setIgnoreTarget(null)}
+        onConfirm={handleIgnore}
+        loading={Boolean(actionLoadingKey)}
+      />
+
+      <DocExpiryRenewModal
+        open={Boolean(renewDocId)}
+        documentId={renewDocId}
+        documentRecords={documentRecords}
+        onClose={() => setRenewDocId(null)}
+        onSaved={handleRenewSaved}
+        onResolve={() => {
+          const n = docReminders.find((r) => String(r.source_id) === String(renewDocId))
+          if (n) return resolveNotification(n)
+          return null
+        }}
+      />
+
+      <NotificationToast
+        message={toast?.message}
+        type={toast?.type}
+        onClose={() => setToast(null)}
+      />
     </div>
   )
 }
@@ -461,8 +574,7 @@ export function Layout() {
   const isEmployee = user?.role === 'employee'
   const can = (module, action) => hasPermission(user, module, action)
 
-  const { items: docExpiryItems } = useDocumentExpiry()
-  const docReminders = useDocumentReminders(docExpiryItems)
+  const { items: docExpiryItems, refetch: refetchDocumentExpiry } = useDocumentExpiry()
 
   const toggleSidebar = useCallback(() => {
     // In rail mode, hamburger returns to the full sidebar navigation.
@@ -1208,7 +1320,12 @@ export function Layout() {
               <span className="app-topbar__user-name">{user?.displayName || user?.username}</span>
               <span className="app-topbar__user-badge">{user?.role}</span>
             </div>
-            {isAdmin && <NotificationsBell docReminders={docReminders} />}
+            {isAdmin && (
+              <NotificationsBell
+                documentRecords={docExpiryItems}
+                onDocumentsChanged={refetchDocumentExpiry}
+              />
+            )}
             <ThemeToggle />
             <button
               type="button"

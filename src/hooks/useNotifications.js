@@ -8,8 +8,16 @@ function dismissedArrayToSet(arr) {
   return new Set(arr.map((id) => String(id)))
 }
 
+function isDocReminder(n) {
+  return n?.type === 'document_expiry' || n?._isDocReminder === true
+}
+
+function encodeNotificationKey(key) {
+  return encodeURIComponent(String(key || ''))
+}
+
 /**
- * Admin-only HR notifications (e.g. main shop visit reminders).
+ * Admin-only HR notifications (shop visit reminders + document expiry compliance).
  * No-op when `enabled` is false.
  */
 export function useNotifications(enabled) {
@@ -17,6 +25,7 @@ export function useNotifications(enabled) {
   const [items, setItems] = useState([])
   const [unread, setUnread] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [actionLoadingKey, setActionLoadingKey] = useState(null)
 
   const load = useCallback(async () => {
     if (!enabled) return
@@ -28,12 +37,14 @@ export function useNotifications(enabled) {
       ])
       const dismissedIds = ready ? dismissedArrayToSet(getPref(PREF_NOTIFICATIONS_DISMISSED, [])) : new Set()
       const all = Array.isArray(list) ? list : []
-      const visible = all.filter((n) => !dismissedIds.has(String(n.id)))
+      const visible = all.filter((n) => isDocReminder(n) || !dismissedIds.has(String(n.id)))
       setItems(visible)
 
       const serverUnread = typeof uc?.unread === 'number' ? uc.unread : 0
-      const visibleUnread = visible.filter((n) => !n.is_read).length
-      setUnread(Math.min(serverUnread, visibleUnread))
+      const hiddenUnread = all.filter(
+        (n) => !isDocReminder(n) && dismissedIds.has(String(n.id)) && !n.is_read
+      ).length
+      setUnread(Math.max(0, serverUnread - hiddenUnread))
     } catch {
       setItems([])
       setUnread(0)
@@ -81,5 +92,78 @@ export function useNotifications(enabled) {
     }
   }, [items, ready, getPref, setPref])
 
-  return { items, unread, loading, refresh: load, markRead, markAllRead, dismiss }
+  const snooze = useCallback(async (notification, snoozedUntil) => {
+    if (!enabled || !notification?.notification_key) return null
+    const key = notification.notification_key
+    setActionLoadingKey(key)
+    try {
+      await api.post(`/api/notifications/${encodeNotificationKey(key)}/snooze`, {
+        snoozedUntil,
+        sourceType: notification.source_type,
+        sourceId: notification.source_id,
+        dueDate: notification.due_date || notification.scheduled_for,
+      })
+      setItems((prev) => prev.filter((n) => n.notification_key !== key))
+      setUnread((prev) => Math.max(0, prev - 1))
+      return snoozedUntil
+    } finally {
+      setActionLoadingKey(null)
+    }
+  }, [enabled])
+
+  const ignoreNotification = useCallback(async (notification, reason = '') => {
+    if (!enabled || !notification?.notification_key) return null
+    const key = notification.notification_key
+    setActionLoadingKey(key)
+    try {
+      await api.post(`/api/notifications/${encodeNotificationKey(key)}/ignore`, {
+        reason,
+        sourceType: notification.source_type,
+        sourceId: notification.source_id,
+        dueDate: notification.due_date || notification.scheduled_for,
+      })
+      setItems((prev) => prev.filter((n) => n.notification_key !== key))
+      setUnread((prev) => Math.max(0, prev - 1))
+      return true
+    } finally {
+      setActionLoadingKey(null)
+    }
+  }, [enabled])
+
+  const resolveNotification = useCallback(async (notification) => {
+    if (!enabled || !notification?.notification_key) return null
+    const key = notification.notification_key
+    setActionLoadingKey(key)
+    try {
+      await api.post(`/api/notifications/${encodeNotificationKey(key)}/resolve`, {
+        sourceType: notification.source_type,
+        sourceId: notification.source_id,
+        dueDate: notification.due_date || notification.scheduled_for,
+      })
+      setItems((prev) => prev.filter((n) => n.notification_key !== key))
+      setUnread((prev) => Math.max(0, prev - 1))
+      return true
+    } finally {
+      setActionLoadingKey(null)
+    }
+  }, [enabled])
+
+  const docReminders = items.filter(isDocReminder)
+  const systemItems = items.filter((n) => !isDocReminder(n))
+
+  return {
+    items,
+    docReminders,
+    systemItems,
+    unread,
+    loading,
+    actionLoadingKey,
+    refresh: load,
+    markRead,
+    markAllRead,
+    dismiss,
+    snooze,
+    ignoreNotification,
+    resolveNotification,
+  }
 }
