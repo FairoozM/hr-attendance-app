@@ -19,6 +19,8 @@
 const { listAllItems, listItemsForWarehouse, zohoApiRequest, fetchListPaginated } = require('./zohoInventoryClient')
 const {
   getSales,
+  getSalesByItemForCustomer,
+  fetchInventoryCustomers,
   getPurchases,
   getVendorCredits,
 } = require('./weeklyReportZohoTransactions')
@@ -179,6 +181,8 @@ module.exports = {
   INVENTORY_V1,
   orgEnvHint,
   getSales,
+  getSalesByItemForCustomer,
+  fetchInventoryCustomers,
   getPurchases,
   getVendorCredits,
 }

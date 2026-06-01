@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../../api/client'
 import { fmtMoney, fmtPct } from './allPricesEcommerceUtils'
 import {
@@ -20,9 +20,19 @@ interface SalesByItemResponse {
     from_date?: string
     to_date?: string
     source?: string | null
+    customer_id?: string | null
     truncated?: boolean
     fallback_used?: boolean
   }
+}
+
+interface CogsCustomer {
+  contact_id: string
+  contact_name: string
+}
+
+interface CustomersResponse {
+  contacts?: CogsCustomer[]
 }
 
 function isoDaysAgo(days: number): string {
@@ -42,6 +52,38 @@ export function AllPricesCogsPanel({ rows, currencyLabel = 'AED' }: AllPricesCog
   const [error, setError] = useState('')
   const [salesRows, setSalesRows] = useState<SalesByItemRow[] | null>(null)
   const [meta, setMeta] = useState<SalesByItemResponse['meta'] | null>(null)
+  const [customers, setCustomers] = useState<CogsCustomer[]>([])
+  const [customerId, setCustomerId] = useState('')
+  const [customersLoading, setCustomersLoading] = useState(false)
+  const [customersError, setCustomersError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    setCustomersLoading(true)
+    setCustomersError('')
+    api
+      .get('/api/prices/cogs/customers')
+      .then((data) => {
+        if (cancelled) return
+        const list = (data as CustomersResponse)?.contacts
+        setCustomers(Array.isArray(list) ? list : [])
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        setCustomersError(err instanceof Error ? err.message : 'Failed to load customers.')
+      })
+      .finally(() => {
+        if (!cancelled) setCustomersLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const selectedCustomerName = useMemo(
+    () => customers.find((c) => c.contact_id === customerId)?.contact_name || '',
+    [customers, customerId]
+  )
 
   const costLookup = useMemo(() => buildCostLookup(rows), [rows])
 
@@ -60,8 +102,9 @@ export function AllPricesCogsPanel({ rows, currencyLabel = 'AED' }: AllPricesCog
     setLoading(true)
     setError('')
     try {
-      const qs = new URLSearchParams({ from_date: fromDate, to_date: toDate }).toString()
-      const data = (await api.get(`/api/prices/cogs/sales-by-item?${qs}`)) as SalesByItemResponse
+      const params = new URLSearchParams({ from_date: fromDate, to_date: toDate })
+      if (customerId) params.set('customer_id', customerId)
+      const data = (await api.get(`/api/prices/cogs/sales-by-item?${params.toString()}`)) as SalesByItemResponse
       setSalesRows(Array.isArray(data?.rows) ? data.rows : [])
       setMeta(data?.meta || null)
     } catch (err) {
@@ -72,16 +115,17 @@ export function AllPricesCogsPanel({ rows, currencyLabel = 'AED' }: AllPricesCog
     } finally {
       setLoading(false)
     }
-  }, [datesInvalid, fromDate, toDate])
+  }, [datesInvalid, fromDate, toDate, customerId])
 
   const money = (n: number) => fmtMoney(n, 2)
 
   return (
     <section className="page-section ap-cogs" aria-label="COGS calculation">
       <div className="ap-cogs-note" role="note">
-        Cost of goods sold for a date range. Sales (SKU, quantity, unit price) come from Zoho
-        sales-by-item; the unit cost is your <strong>purchase price</strong> from the current All
-        Prices list, matched by SKU. <strong>COGS = quantity x purchase price</strong>.
+        Cost of goods sold for a date range. The unit cost is your <strong>purchase price</strong> from
+        the current All Prices list, matched by SKU. <strong>COGS = quantity x purchase price</strong>.
+        Leave the customer blank to use the fast all-customers report; pick a customer to compute COGS
+        from that customer's invoices (slower, more API calls).
       </div>
 
       <div className="ap-cogs-controls">
@@ -93,10 +137,27 @@ export function AllPricesCogsPanel({ rows, currencyLabel = 'AED' }: AllPricesCog
           To
           <input type="date" value={toDate} min={fromDate} max={todayIso()} onChange={(e) => setToDate(e.target.value)} />
         </label>
+        <label className="ap-cogs-customer">
+          Customer
+          <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} disabled={customersLoading}>
+            <option value="">{customersLoading ? 'Loading customers…' : 'All customers'}</option>
+            {customers.map((c) => (
+              <option key={c.contact_id} value={c.contact_id}>
+                {c.contact_name || c.contact_id}
+              </option>
+            ))}
+          </select>
+        </label>
         <button type="button" className="btn btn--primary" onClick={handleCalculate} disabled={loading || datesInvalid}>
           {loading ? 'Calculating…' : 'Calculate COGS'}
         </button>
       </div>
+
+      {customersError ? (
+        <p className="ap-cogs-meta__warn" role="alert">
+          Could not load customers: {customersError}
+        </p>
+      ) : null}
 
       {error ? (
         <p className="ap-ec-error" role="alert">
@@ -136,6 +197,13 @@ export function AllPricesCogsPanel({ rows, currencyLabel = 'AED' }: AllPricesCog
           </div>
 
           <div className="ap-cogs-meta">
+            {meta?.customer_id ? (
+              <span>
+                Customer: <strong>{selectedCustomerName || meta.customer_id}</strong>.{' '}
+              </span>
+            ) : (
+              <span>All customers. </span>
+            )}
             Matched <strong>{result.totals.matchedCount}</strong> item(s).{' '}
             {result.totals.unmatchedCount > 0 ? (
               <span>

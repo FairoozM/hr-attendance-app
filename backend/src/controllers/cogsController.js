@@ -10,7 +10,11 @@
  * applies quota limits, caching, and the invoice-detail fallback.
  */
 
-const { getSales } = require('../integrations/zoho/zohoAdapter')
+const {
+  getSales,
+  getSalesByItemForCustomer,
+  fetchInventoryCustomers,
+} = require('../integrations/zoho/zohoAdapter')
 const { validateDateRange, handleZohoError } = require('./weeklyReportsController')
 
 function toMinimalSalesRow(line) {
@@ -38,11 +42,22 @@ async function getSalesByItem(req, res) {
 
   const warehouseId =
     req.query.warehouse_id != null ? String(req.query.warehouse_id).trim() : ''
+  const customerId =
+    req.query.customer_id != null && String(req.query.customer_id).trim() !== ''
+      ? String(req.query.customer_id).trim()
+      : ''
 
   try {
-    const sales = await getSales(range.from_date, range.to_date, {
-      warehouseId: warehouseId || undefined,
-    })
+    // No customer → fast pre-aggregated salesbyitem report.
+    // Customer selected → derive from that customer's invoices (slower, API-heavy).
+    const sales = customerId
+      ? await getSalesByItemForCustomer(range.from_date, range.to_date, customerId, {
+          warehouseId: warehouseId || undefined,
+        })
+      : await getSales(range.from_date, range.to_date, {
+          warehouseId: warehouseId || undefined,
+        })
+    if (sales && sales.error) throw sales.error
     const lines = Array.isArray(sales && sales.lines) ? sales.lines : []
     const rows = lines.map(toMinimalSalesRow).filter((r) => r.qty > 0)
     return res.json({
@@ -51,6 +66,7 @@ async function getSalesByItem(req, res) {
         from_date: range.from_date,
         to_date: range.to_date,
         warehouse_id: warehouseId || null,
+        customer_id: customerId || null,
         source: sales && sales.source ? sales.source : null,
         truncated: !!(sales && sales.list_truncated),
         fallback_used: !!(sales && sales.fallback_used),
@@ -61,6 +77,20 @@ async function getSalesByItem(req, res) {
   }
 }
 
+/**
+ * GET /api/prices/cogs/customers
+ * Customer list for the COGS customer filter (Zoho Inventory contacts).
+ */
+async function getCustomers(req, res) {
+  try {
+    const contacts = await fetchInventoryCustomers({ bust: req.query.bust === '1' })
+    return res.json({ contacts })
+  } catch (err) {
+    return await handleZohoError(res, err, 'getCustomers')
+  }
+}
+
 module.exports = {
   getSalesByItem,
+  getCustomers,
 }

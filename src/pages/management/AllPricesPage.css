@@ -886,13 +886,19 @@
   color: var(--text-muted);
 }
 
-.ap-cogs-controls input {
+.ap-cogs-controls input,
+.ap-cogs-controls select {
   padding: 0.4rem 0.55rem;
   border-radius: var(--radius-md, 8px);
   border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
   background: rgba(255, 255, 255, 0.04);
   color: var(--text);
   font-size: 0.85rem;
+}
+
+.ap-cogs-customer select {
+  min-width: 14rem;
+  max-width: 22rem;
 }
 
 .ap-cogs-summary {

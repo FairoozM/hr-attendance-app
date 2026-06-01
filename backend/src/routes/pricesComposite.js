@@ -13,6 +13,13 @@ router.get(
   cogsCtrl.getSalesByItem
 )
 
+router.get(
+  '/cogs/customers',
+  auth.requireAuth,
+  auth.requirePermission('prices', 'view'),
+  cogsCtrl.getCustomers
+)
+
 router.post(
   '/composite-items/lookup',
   auth.requireAuth,

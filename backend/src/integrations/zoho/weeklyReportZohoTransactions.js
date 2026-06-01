@@ -1304,6 +1304,215 @@ async function getSales(fromDate, toDate, opts = {}) {
   return p
 }
 
+// ── Sales-by-item for a single customer (invoice-based) ──────────────────────
+// The Zoho `salesbyitem` report cannot be filtered by customer, so per-customer
+// COGS is derived from that customer's invoices: list invoices filtered by
+// customer_id + date range, then aggregate line items per item (SKU). This is
+// more API-intensive than the report path (per-invoice detail fan-out), so it is
+// TTL-cached + in-flight deduped.
+
+/** @type {Map<string, { value: object, expiresAt: number }>} */
+const _customerSalesCache = new Map()
+/** @type {Map<string, Promise<object>>} */
+const _customerSalesInFlight = new Map()
+
+async function fetchCustomerInvoiceLineRows(fromDate, toDate, customerId, opts = {}) {
+  const onW = typeof opts.onWarning === 'function' ? opts.onWarning : () => {}
+  const lineFilter = makeWarehouseLineFilter(opts)
+  const params = new URLSearchParams()
+  if (customerId) params.set('customer_id', String(customerId))
+  if (fromDate) params.set('date_start', fromDate)
+  if (toDate) params.set('date_end', toDate)
+  params.set('sort_column', 'date')
+  params.set('sort_order', 'A')
+
+  const { rows, truncated, pages } = await fetchListPaginated(
+    `${INVENTORY_V1}/invoices`,
+    'invoices',
+    MAX_DEFAULT_PAGES,
+    params,
+  )
+  if (truncated) {
+    onW('Invoices list may be incomplete: pagination cap reached. Narrow the date range.')
+  }
+
+  const invoices = rows.filter((inv) => {
+    if (!isNotVoidStatus(inv)) return false
+    const d = inv && inv.date != null ? String(inv.date) : ''
+    return isDateInRangeIncl(d, fromDate, toDate)
+  })
+
+  const lineRows = []
+  const needDetail = []
+  for (const inv of invoices) {
+    if (invoiceListRowHasUsableLineItems(inv)) {
+      appendInvoiceLineRows(lineRows, inv, lineFilter)
+    } else {
+      needDetail.push(inv)
+    }
+  }
+
+  const detailTasks = needDetail.map((inv) => async () => {
+    const iid = inv && inv.invoice_id != null ? String(inv.invoice_id).trim() : ''
+    if (!iid) return inv
+    const cached = getCachedDocDetail(_invoiceDetailById, iid)
+    if (cached) return cached
+    try {
+      const json = await zohoApiRequest(`${INVENTORY_V1}/invoices/${encodeURIComponent(iid)}`)
+      const full = (json && json.invoice) || inv
+      if (full && full !== inv) setCachedDocDetail(_invoiceDetailById, iid, full)
+      return full
+    } catch (e) {
+      onW(`GET /invoices/${iid} - ${e && e.message ? e.message : String(e)}`)
+      return inv
+    }
+  })
+  const detailInvoices = await promiseConcurrent(detailTasks, DETAIL_CONCURRENCY)
+  for (const inv of detailInvoices) appendInvoiceLineRows(lineRows, inv, lineFilter)
+
+  return { lineRows, list_truncated: !!truncated, list_pages: pages || 0, document_count: invoices.length }
+}
+
+/** Aggregate invoice line rows into per-item sales lines (qty + amount). */
+function aggregateInvoiceLineRowsByItem(lineRows) {
+  const byItem = new Map()
+  for (const row of Array.isArray(lineRows) ? lineRows : []) {
+    const key = makeSalesByItemKey(row)
+    if (!key) continue
+    const existing = byItem.get(key)
+    const quantity = Number(row.quantity) || 0
+    const itemTotal = Number(row.item_total) || 0
+    if (existing) {
+      existing.quantity += quantity
+      existing.item_total += itemTotal
+      if (!existing.sku && row.sku) existing.sku = row.sku
+      if (!existing.name && row.name) existing.name = row.name
+      if (!existing.item_id && row.item_id) existing.item_id = row.item_id
+    } else {
+      byItem.set(key, {
+        type: 'sales_by_item',
+        document_id: '',
+        document_date: '',
+        item_id: row.item_id || '',
+        name: row.name || '',
+        sku: row.sku || '',
+        quantity: Math.max(0, quantity),
+        item_total: Math.max(0, itemTotal),
+        warehouse_id: '',
+        warehouse_name: '',
+      })
+    }
+  }
+  return [...byItem.values()].map((l) => ({
+    ...l,
+    quantity: Math.max(0, l.quantity),
+    item_total: Math.max(0, l.item_total),
+  }))
+}
+
+async function getSalesByItemForCustomerUncached(fromDate, toDate, customerId, opts = {}) {
+  const t0 = Date.now()
+  try {
+    const { lineRows, list_truncated, list_pages, document_count } = await fetchCustomerInvoiceLineRows(
+      fromDate,
+      toDate,
+      customerId,
+      opts,
+    )
+    const lines = aggregateInvoiceLineRowsByItem(lineRows)
+    console.log(
+      `[zoho-timing] sales-by-item for customer ${customerId}: ${lines.length} item(s) from ${document_count} invoice(s), ${Date.now() - t0}ms`,
+    )
+    return {
+      lines,
+      line_count: lines.length,
+      document_count,
+      list_truncated,
+      list_pages,
+      error: null,
+      source: 'zoho_inventory_invoices_by_customer',
+      fallback_used: false,
+      cached: false,
+    }
+  } catch (err) {
+    return {
+      lines: [],
+      line_count: 0,
+      document_count: 0,
+      list_truncated: false,
+      list_pages: 0,
+      error: err,
+      source: 'zoho_inventory_invoices_by_customer',
+      fallback_used: false,
+      cached: false,
+    }
+  }
+}
+
+/**
+ * Sales-by-item aggregated from a single customer's invoices.
+ * @param {string} fromDate YYYY-MM-DD
+ * @param {string} toDate YYYY-MM-DD
+ * @param {string} customerId Zoho contact id
+ * @param {object} [opts] { warehouseId, excludeWarehouseId, onWarning }
+ */
+async function getSalesByItemForCustomer(fromDate, toDate, customerId, opts = {}) {
+  const cid = customerId != null ? String(customerId).trim() : ''
+  if (!cid) {
+    const e = new Error('customer_id is required')
+    e.code = 'CUSTOMER_ID_REQUIRED'
+    throw e
+  }
+  const key = [
+    String(fromDate || ''),
+    String(toDate || ''),
+    cid,
+    normalizeWarehouseId(opts.warehouseId),
+    normalizeWarehouseId(opts.excludeWarehouseId),
+  ].join('|')
+  const hit = _customerSalesCache.get(key)
+  if (hit && Date.now() < hit.expiresAt) return { ...hit.value, cached: true }
+  if (_customerSalesInFlight.has(key)) return _customerSalesInFlight.get(key)
+  const p = getSalesByItemForCustomerUncached(fromDate, toDate, cid, opts)
+    .then((value) => {
+      const withCache = { ...value, cached: false }
+      if (withCache && !withCache.error && SALES_DETAIL_CACHE_TTL_MS > 0) {
+        _customerSalesCache.set(key, { value: withCache, expiresAt: Date.now() + SALES_DETAIL_CACHE_TTL_MS })
+      }
+      return withCache
+    })
+    .finally(() => {
+      _customerSalesInFlight.delete(key)
+    })
+  _customerSalesInFlight.set(key, p)
+  return p
+}
+
+/** @type {{ contacts: object[], expiresAt: number } | null} */
+let _inventoryCustomerCache = null
+const INVENTORY_CUSTOMER_CACHE_TTL_MS = 30 * 60 * 1000
+
+/** Fetch active customers from Zoho Inventory contacts (ids usable with the invoices filter). */
+async function fetchInventoryCustomers(opts = {}) {
+  if (!opts.bust && _inventoryCustomerCache && Date.now() < _inventoryCustomerCache.expiresAt) {
+    return _inventoryCustomerCache.contacts
+  }
+  const params = new URLSearchParams({
+    contact_type: 'customer',
+    sort_column: 'contact_name',
+    sort_order: 'A',
+  })
+  const { rows } = await fetchListPaginated(`${INVENTORY_V1}/contacts`, 'contacts', MAX_DEFAULT_PAGES, params)
+  const contacts = (Array.isArray(rows) ? rows : [])
+    .map((c) => ({
+      contact_id: c && c.contact_id != null ? String(c.contact_id) : '',
+      contact_name: c && c.contact_name != null ? String(c.contact_name) : '',
+    }))
+    .filter((c) => c.contact_id)
+  _inventoryCustomerCache = { contacts, expiresAt: Date.now() + INVENTORY_CUSTOMER_CACHE_TTL_MS }
+  return contacts
+}
+
 /** @type {Map<string, { value: object, expiresAt: number }>} */
 const _stockReconCache = new Map()
 /** @type {Map<string, Promise<object>>} */
@@ -1816,6 +2025,8 @@ async function getInventoryAdjustments(fromDate, toDate, opts = {}) {
 
 module.exports = {
   getSales,
+  getSalesByItemForCustomer,
+  fetchInventoryCustomers,
   getPurchases,
   getVendorCredits,
   getStockReconstruction,
