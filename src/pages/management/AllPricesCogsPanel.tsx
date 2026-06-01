@@ -3,9 +3,11 @@ import { api } from '../../api/client'
 import { fmtMoney, fmtPct } from './allPricesEcommerceUtils'
 import {
   buildCostLookup,
+  buildPurchaseCostLookup,
   computeCogs,
   type AllPricesCostRow,
   type CogsResult,
+  type PurchaseCost,
   type SalesByItemRow,
 } from './allPricesCogs'
 
@@ -33,6 +35,10 @@ interface CogsCustomer {
 
 interface CustomersResponse {
   contacts?: CogsCustomer[]
+}
+
+interface PurchaseCostsResponse {
+  costs?: PurchaseCost[]
 }
 
 function isoDaysAgo(days: number): string {
@@ -85,12 +91,15 @@ export function AllPricesCogsPanel({ rows, currencyLabel = 'AED' }: AllPricesCog
     [customers, customerId]
   )
 
+  const [purchaseCosts, setPurchaseCosts] = useState<PurchaseCost[]>([])
+
   const costLookup = useMemo(() => buildCostLookup(rows), [rows])
+  const purchaseCostLookup = useMemo(() => buildPurchaseCostLookup(purchaseCosts), [purchaseCosts])
 
   const result = useMemo<CogsResult | null>(() => {
     if (!salesRows) return null
-    return computeCogs(salesRows, costLookup)
-  }, [salesRows, costLookup])
+    return computeCogs(salesRows, costLookup, purchaseCostLookup)
+  }, [salesRows, costLookup, purchaseCostLookup])
 
   const datesInvalid = !fromDate || !toDate || fromDate > toDate
 
@@ -104,9 +113,17 @@ export function AllPricesCogsPanel({ rows, currencyLabel = 'AED' }: AllPricesCog
     try {
       const params = new URLSearchParams({ from_date: fromDate, to_date: toDate })
       if (customerId) params.set('customer_id', customerId)
-      const data = (await api.get(`/api/prices/cogs/sales-by-item?${params.toString()}`)) as SalesByItemResponse
+      // Fetch sales and the purchase-order cost fallback in parallel. PO costs are
+      // best-effort: if they fail we still compute COGS from All Prices alone.
+      const [data, poData] = await Promise.all([
+        api.get(`/api/prices/cogs/sales-by-item?${params.toString()}`) as Promise<SalesByItemResponse>,
+        (api.get('/api/prices/cogs/purchase-costs') as Promise<PurchaseCostsResponse>).catch(
+          () => ({ costs: [] } as PurchaseCostsResponse)
+        ),
+      ])
       setSalesRows(Array.isArray(data?.rows) ? data.rows : [])
       setMeta(data?.meta || null)
+      setPurchaseCosts(Array.isArray(poData?.costs) ? poData.costs : [])
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load sales data.'
       setError(message)
@@ -123,8 +140,9 @@ export function AllPricesCogsPanel({ rows, currencyLabel = 'AED' }: AllPricesCog
     <section className="page-section ap-cogs" aria-label="COGS calculation">
       <div className="ap-cogs-note" role="note">
         Cost of goods sold for a date range. The unit cost is your <strong>purchase price</strong> from
-        the current All Prices list, matched by <strong>item number</strong> (the Zoho item name).{' '}
-        <strong>COGS = quantity x purchase price</strong>.
+        the current All Prices list, matched by <strong>item number</strong> (the Zoho item name). When
+        an item is not in All Prices, the latest <strong>purchase-order</strong> cost is used as a
+        fallback. <strong>COGS = quantity x unit cost</strong>.
         Leave the customer blank to use the fast all-customers report; pick a customer to compute COGS
         from that customer's invoices (slower, more API calls).
       </div>
@@ -205,7 +223,14 @@ export function AllPricesCogsPanel({ rows, currencyLabel = 'AED' }: AllPricesCog
             ) : (
               <span>All customers. </span>
             )}
-            Matched <strong>{result.totals.matchedCount}</strong> item(s).{' '}
+            Matched <strong>{result.totals.matchedCount}</strong> item(s)
+            {result.totals.matchedFromPurchaseOrders > 0 ? (
+              <span>
+                {' '}({result.totals.matchedFromAllPrices} from All Prices,{' '}
+                {result.totals.matchedFromPurchaseOrders} from purchase orders)
+              </span>
+            ) : null}
+            .{' '}
             {result.totals.unmatchedCount > 0 ? (
               <span>
                 <strong>{result.totals.unmatchedCount}</strong> sold item(s) have no matching item
@@ -227,6 +252,7 @@ export function AllPricesCogsPanel({ rows, currencyLabel = 'AED' }: AllPricesCog
                   <th className="num">Qty</th>
                   <th className="num">Unit sales price</th>
                   <th className="num">Cost price</th>
+                  <th>Cost source</th>
                   <th className="num">COGS</th>
                   <th className="num">Revenue</th>
                   <th className="num">Profit</th>
@@ -236,7 +262,7 @@ export function AllPricesCogsPanel({ rows, currencyLabel = 'AED' }: AllPricesCog
               <tbody>
                 {result.matched.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="ap-cogs-empty">
+                    <td colSpan={9} className="ap-cogs-empty">
                       No matched items for this date range.
                     </td>
                   </tr>
@@ -247,6 +273,7 @@ export function AllPricesCogsPanel({ rows, currencyLabel = 'AED' }: AllPricesCog
                       <td className="num">{money(r.qty)}</td>
                       <td className="num">{money(r.unitPrice)}</td>
                       <td className="num">{money(r.costPrice)}</td>
+                      <td>{r.costSource === 'purchase_order' ? 'Purchase order' : 'All Prices'}</td>
                       <td className="num">{money(r.cogs)}</td>
                       <td className="num">{money(r.salesAmount)}</td>
                       <td className="num">{money(r.profit)}</td>
@@ -262,6 +289,7 @@ export function AllPricesCogsPanel({ rows, currencyLabel = 'AED' }: AllPricesCog
                     <td className="num">{money(result.totals.totalQty)}</td>
                     <td className="num">—</td>
                     <td className="num">—</td>
+                    <td>—</td>
                     <td className="num">{money(result.totals.totalCogs)}</td>
                     <td className="num">{money(result.totals.totalRevenue)}</td>
                     <td className="num">{money(result.totals.grossProfit)}</td>

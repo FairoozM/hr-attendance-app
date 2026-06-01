@@ -14,6 +14,7 @@ const {
   getSales,
   getSalesByItemForCustomer,
   fetchInventoryCustomers,
+  fetchLatestPurchaseOrderCosts,
 } = require('../integrations/zoho/zohoAdapter')
 const { validateDateRange, handleZohoError } = require('./weeklyReportsController')
 
@@ -90,7 +91,22 @@ async function getCustomers(req, res) {
   }
 }
 
+/**
+ * GET /api/prices/cogs/purchase-costs
+ * Latest purchase-order unit cost per item — used as a COGS cost fallback when
+ * an item has no price in All Prices.
+ */
+async function getPurchaseCosts(req, res) {
+  try {
+    const costs = await fetchLatestPurchaseOrderCosts({ bust: req.query.bust === '1' })
+    return res.json({ costs })
+  } catch (err) {
+    return await handleZohoError(res, err, 'getPurchaseCosts')
+  }
+}
+
 module.exports = {
   getSalesByItem,
   getCustomers,
+  getPurchaseCosts,
 }

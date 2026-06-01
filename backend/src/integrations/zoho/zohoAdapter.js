@@ -21,6 +21,7 @@ const {
   getSales,
   getSalesByItemForCustomer,
   fetchInventoryCustomers,
+  fetchLatestPurchaseOrderCosts,
   getPurchases,
   getVendorCredits,
 } = require('./weeklyReportZohoTransactions')
@@ -183,6 +184,7 @@ module.exports = {
   getSales,
   getSalesByItemForCustomer,
   fetchInventoryCustomers,
+  fetchLatestPurchaseOrderCosts,
   getPurchases,
   getVendorCredits,
 }

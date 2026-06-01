@@ -20,6 +20,13 @@ router.get(
   cogsCtrl.getCustomers
 )
 
+router.get(
+  '/cogs/purchase-costs',
+  auth.requireAuth,
+  auth.requirePermission('prices', 'view'),
+  cogsCtrl.getPurchaseCosts
+)
+
 router.post(
   '/composite-items/lookup',
   auth.requireAuth,

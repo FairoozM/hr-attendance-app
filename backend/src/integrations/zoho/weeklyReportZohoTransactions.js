@@ -1513,6 +1513,102 @@ async function fetchInventoryCustomers(opts = {}) {
   return contacts
 }
 
+// ── Latest purchase-order cost per item (COGS cost fallback) ─────────────────
+// When an item has no cost in All Prices, fall back to the unit rate from that
+// item's most recent purchase order. Purchase orders rarely include line items
+// on the list response, so each PO is fetched in detail (cached). Result is
+// TTL-cached globally since "latest cost" changes slowly.
+
+/** @type {Map<string, { doc: object, expiresAt: number }>} */
+const _purchaseOrderDetailById = new Map()
+/** @type {{ costs: object[], expiresAt: number } | null} */
+let _purchaseOrderCostCache = null
+const PURCHASE_ORDER_COST_CACHE_TTL_MS = 30 * 60 * 1000
+
+/** Unit purchase rate from a PO line item (Zoho field names vary). */
+function purchaseOrderLineUnitRate(li) {
+  if (!li || typeof li !== 'object') return 0
+  for (const rk of ['rate', 'purchase_rate', 'item_rate', 'bcy_rate']) {
+    if (li[rk] == null || li[rk] === '') continue
+    const r = parseLineQty(li[rk])
+    if (r > 0) return r
+  }
+  const n = normalizeVendorCreditLineItem(li)
+  if (n.quantity > 0 && n.item_total > 0) return n.item_total / n.quantity
+  return 0
+}
+
+/**
+ * Build a list of latest purchase costs per item from recent purchase orders.
+ * @param {object} [opts] { bust?: boolean, onWarning?: (m: string) => void }
+ * @returns {Promise<Array<{ item_id: string, item_name: string, sku: string, rate: number, date: string }>>}
+ */
+async function fetchLatestPurchaseOrderCosts(opts = {}) {
+  if (!opts.bust && _purchaseOrderCostCache && Date.now() < _purchaseOrderCostCache.expiresAt) {
+    return _purchaseOrderCostCache.costs
+  }
+  const onW = typeof opts.onWarning === 'function' ? opts.onWarning : () => {}
+  const t0 = Date.now()
+
+  const params = new URLSearchParams({ sort_column: 'date', sort_order: 'D' })
+  const { rows, truncated } = await fetchListPaginated(
+    `${INVENTORY_V1}/purchaseorders`,
+    'purchaseorders',
+    MAX_DEFAULT_PAGES,
+    params,
+  )
+  if (truncated) onW('Purchase order list truncated (pagination cap); some items may use an older cost.')
+
+  const detailTasks = (Array.isArray(rows) ? rows : []).map((po) => async () => {
+    const usableLineItems = normalizeZohoLineItems(po && po.line_items)
+    if (usableLineItems.length > 0) return po
+    const pid =
+      po && (po.purchaseorder_id != null ? po.purchaseorder_id : po.purchase_order_id) != null
+        ? String(po.purchaseorder_id != null ? po.purchaseorder_id : po.purchase_order_id).trim()
+        : ''
+    if (!pid) return po
+    const cached = getCachedDocDetail(_purchaseOrderDetailById, pid)
+    if (cached) return cached
+    try {
+      const json = await zohoApiRequest(`${INVENTORY_V1}/purchaseorders/${encodeURIComponent(pid)}`)
+      const full = (json && (json.purchaseorder || json.purchase_order)) || po
+      if (full && full !== po) setCachedDocDetail(_purchaseOrderDetailById, pid, full)
+      return full
+    } catch (e) {
+      onW(`GET /purchaseorders/${pid} - ${e && e.message ? e.message : String(e)}`)
+      return po
+    }
+  })
+  const detailPOs = await promiseConcurrent(detailTasks, DETAIL_CONCURRENCY)
+
+  const entries = []
+  for (const po of detailPOs) {
+    const date = po && po.date != null ? String(po.date).slice(0, 10) : ''
+    for (const li of normalizeZohoLineItems(po && po.line_items)) {
+      const n = normalizeVendorCreditLineItem(li)
+      const rate = purchaseOrderLineUnitRate(li)
+      if (rate <= 0) continue
+      if (!n.item_id && !n.name && !n.sku) continue
+      entries.push({ item_id: n.item_id, item_name: n.name, sku: n.sku, rate, date })
+    }
+  }
+
+  // Newest first → first occurrence per item is the latest cost.
+  entries.sort((a, b) => String(b.date).localeCompare(String(a.date)))
+  const byItem = new Map()
+  for (const e of entries) {
+    const key = e.item_id ? `id:${e.item_id}` : e.sku ? `sku:${e.sku.toLowerCase()}` : `name:${String(e.item_name).toLowerCase()}`
+    if (!key || byItem.has(key)) continue
+    byItem.set(key, e)
+  }
+  const costs = [...byItem.values()]
+  console.log(
+    `[zoho-timing] purchase-order costs: ${costs.length} item(s) from ${detailPOs.length} PO(s), ${Date.now() - t0}ms`,
+  )
+  _purchaseOrderCostCache = { costs, expiresAt: Date.now() + PURCHASE_ORDER_COST_CACHE_TTL_MS }
+  return costs
+}
+
 /** @type {Map<string, { value: object, expiresAt: number }>} */
 const _stockReconCache = new Map()
 /** @type {Map<string, Promise<object>>} */
@@ -2027,6 +2123,7 @@ module.exports = {
   getSales,
   getSalesByItemForCustomer,
   fetchInventoryCustomers,
+  fetchLatestPurchaseOrderCosts,
   getPurchases,
   getVendorCredits,
   getStockReconstruction,
