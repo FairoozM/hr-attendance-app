@@ -2,8 +2,16 @@ const express = require('express')
 const auth = require('../middleware/auth')
 const ctrl = require('../controllers/compositeItemsPricingController')
 const reportCtrl = require('../controllers/compositeItemsPriceReportController')
+const cogsCtrl = require('../controllers/cogsController')
 
 const router = express.Router()
+
+router.get(
+  '/cogs/sales-by-item',
+  auth.requireAuth,
+  auth.requirePermission('prices', 'view'),
+  cogsCtrl.getSalesByItem
+)
 
 router.post(
   '/composite-items/lookup',

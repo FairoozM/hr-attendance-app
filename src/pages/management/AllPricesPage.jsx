@@ -4,6 +4,7 @@ import './DocumentExpiryPage.css'
 import './AllPricesPage.css'
 import { getAllPricesMarket, PRICES_MARKET_UAE } from './allPricesMarket'
 import { setAllPricesMarketScope } from './allPricesMarketScope'
+import { AllPricesCogsPanel } from './AllPricesCogsPanel'
 import { useUserPreferences } from '../../contexts/UserPreferencesContext'
 import { AllPricesActionToast } from './AllPricesActionToast'
 import { AllPricesConfirmModal } from './AllPricesConfirmModal'
@@ -81,12 +82,19 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
   const marketCfg = getAllPricesMarket(market)
   const { ready: prefsReady, getPref, setPref, prefsVersion } = useUserPreferences()
 
+  const cogsEnabled = market === PRICES_MARKET_UAE
+
   useEffect(() => {
     setAllPricesMarketScope(market)
     return () => setAllPricesMarketScope(PRICES_MARKET_UAE)
   }, [market])
+
+  useEffect(() => {
+    if (!cogsEnabled) setActiveTab('prices')
+  }, [cogsEnabled])
   const [rates, setRates] = useState({ ...DEFAULT_RATES })
   const [rows, setRows] = useState([])
+  const [activeTab, setActiveTab] = useState('prices')
   const [prefsLoaded, setPrefsLoaded] = useState(false)
   const [pasteText, setPasteText] = useState('')
   const [pasteFeedback, setPasteFeedback] = useState({ type: '', text: '' })
@@ -769,6 +777,32 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
         </div>
       </div>
 
+      {cogsEnabled ? (
+        <div className="ap-tabs" role="tablist" aria-label="All Prices views">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'prices'}
+            className={`ap-tab${activeTab === 'prices' ? ' ap-tab--active' : ''}`}
+            onClick={() => setActiveTab('prices')}
+          >
+            Price list
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'cogs'}
+            className={`ap-tab${activeTab === 'cogs' ? ' ap-tab--active' : ''}`}
+            onClick={() => setActiveTab('cogs')}
+          >
+            COGS
+          </button>
+        </div>
+      ) : null}
+
+      {activeTab === 'cogs' ? (
+        <AllPricesCogsPanel rows={rows} currencyLabel="AED" />
+      ) : (
       <section className="page-section ap-ec-wrap" aria-label="Ecommerce price list">
         <div className="ap-ec-formula-note" role="note">
           <strong>Required sales price</strong> when purchase + shipping are known:{' '}
@@ -1241,6 +1275,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
           </table>
         </div>
       </section>
+      )}
 
       <AllPricesConfirmModal
         open={Boolean(confirmModal)}

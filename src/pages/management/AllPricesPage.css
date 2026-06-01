@@ -820,3 +820,184 @@
 :root[data-theme='comfort'] .ap-ec-table tbody td.col-accent {
   background: rgba(254, 243, 199, 0.35);
 }
+
+/* ── COGS tab ─────────────────────────────────────────────────────────────── */
+
+.ap-tabs {
+  display: inline-flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  margin-top: 0.65rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ap-tab {
+  padding: 0.4rem 0.95rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius-md, 8px);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.ap-tab:hover {
+  color: var(--text);
+}
+
+.ap-tab--active {
+  background: rgba(59, 130, 246, 0.16);
+  color: var(--text);
+}
+
+.ap-cogs {
+  max-width: 100%;
+  margin-top: 0.65rem;
+}
+
+.ap-cogs-note {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+  padding: 0.65rem 0.85rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+  background: rgba(255, 255, 255, 0.03);
+  margin-bottom: 0.75rem;
+}
+
+.ap-cogs-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.ap-cogs-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.ap-cogs-controls input {
+  padding: 0.4rem 0.55rem;
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.ap-cogs-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.ap-cogs-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 9rem;
+  padding: 0.6rem 0.85rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ap-cogs-card__label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.ap-cogs-card__value {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ap-cogs-meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 0.6rem;
+}
+
+.ap-cogs-meta__warn {
+  color: var(--warning, #f59e0b);
+}
+
+.ap-cogs-table-wrap {
+  overflow-x: auto;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+}
+
+.ap-cogs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.ap-cogs-table th,
+.ap-cogs-table td {
+  padding: 0.45rem 0.65rem;
+  text-align: left;
+  border-bottom: 1px solid var(--glass-border, rgba(255, 255, 255, 0.07));
+  white-space: nowrap;
+}
+
+.ap-cogs-table th.num,
+.ap-cogs-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ap-cogs-table thead th {
+  font-weight: 600;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ap-cogs-table tfoot td {
+  font-weight: 700;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ap-cogs-empty {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 1rem;
+}
+
+.ap-cogs-unmatched {
+  margin-top: 1.1rem;
+}
+
+.ap-cogs-unmatched h3 {
+  font-size: 0.9rem;
+  margin: 0 0 0.25rem;
+}
+
+.ap-cogs-unmatched__hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: 0 0 0.5rem;
+}
+
+.ap-cogs-placeholder {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  padding: 1rem 0;
+}
