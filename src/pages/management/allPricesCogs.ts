@@ -1,4 +1,8 @@
-import { normalizeItemNo } from './allPricesVersioning'
+import {
+  buildPurchasePriceMap,
+  expandMatchCandidates,
+  findPurchaseMatchForComponent,
+} from '../prices/compositeComponentPricingResolver.js'
 
 /** Minimal sales-by-item row returned by GET /api/prices/cogs/sales-by-item. */
 export interface SalesByItemRow {
@@ -75,26 +79,36 @@ function toFiniteNumber(value: unknown): number | null {
 }
 
 /**
- * Build a lookup of normalized SKU (itemNo) -> unit purchase price.
- * Only rows with a positive, finite purchase price are included. When the same
- * itemNo appears more than once, the last valid value wins.
+ * Build All Prices lookup with the same SKU variant keys used in composite /
+ * purchase planning (itemNo without color matches Zoho item names with color).
  */
-export function buildCostLookup(rows: AllPricesCostRow[] | null | undefined): Map<string, number> {
-  const lookup = new Map<string, number>()
-  if (!Array.isArray(rows)) return lookup
-  for (const row of rows) {
-    const key = normalizeItemNo(row?.itemNo)
-    if (!key) continue
-    const price = toFiniteNumber(row?.purchasePrice)
-    if (price == null || price <= 0) continue
-    lookup.set(key, price)
-  }
-  return lookup
+export function buildCostLookup(rows: AllPricesCostRow[] | null | undefined) {
+  return buildPurchasePriceMap(rows)
+}
+
+function salesRowMatchKeys(row: SalesByItemRow): string[] {
+  const keys = [row?.item_name, row?.sku].filter((v) => v != null && String(v).trim() !== '')
+  return keys.map((v) => String(v))
+}
+
+function findAllPricesCostForSalesRow(
+  row: SalesByItemRow,
+  purchaseMap: ReturnType<typeof buildPurchasePriceMap>
+): number | null {
+  const result = findPurchaseMatchForComponent(purchaseMap, {
+    sku: row.sku,
+    name: row.item_name,
+    match_keys: salesRowMatchKeys(row),
+  })
+  if (result.status !== 'matched' || !result.match) return null
+  const price = Number(result.match.purchasePrice)
+  return Number.isFinite(price) && price > 0 ? price : null
 }
 
 /**
- * Build purchase-order cost lookups: by Zoho item id (primary, most reliable)
- * and by normalized item name / sku (fallback). Only positive rates are kept.
+ * Build purchase-order cost lookups. Keys use the same expandMatchCandidates
+ * variants as purchase planning so a colored Zoho sales name can match a PO line
+ * keyed without color (and vice versa).
  */
 export function buildPurchaseCostLookup(costs: PurchaseCost[] | null | undefined): PurchaseCostLookup {
   const byItemId = new Map<string, number>()
@@ -104,25 +118,46 @@ export function buildPurchaseCostLookup(costs: PurchaseCost[] | null | undefined
     if (rate == null || rate <= 0) continue
     const itemId = c?.item_id != null ? String(c.item_id).trim() : ''
     if (itemId && !byItemId.has(itemId)) byItemId.set(itemId, rate)
-    const nameKey = normalizeItemNo(c?.item_name)
-    if (nameKey && !byKey.has(nameKey)) byKey.set(nameKey, rate)
-    const skuKey = normalizeItemNo(c?.sku)
-    if (skuKey && !byKey.has(skuKey)) byKey.set(skuKey, rate)
+    for (const raw of [c?.item_name, c?.sku]) {
+      if (raw == null || String(raw).trim() === '') continue
+      for (const { key } of expandMatchCandidates(String(raw))) {
+        if (!byKey.has(key)) byKey.set(key, rate)
+      }
+    }
   }
   return { byItemId, byKey }
 }
 
+function findPurchaseOrderCostForSalesRow(
+  row: SalesByItemRow,
+  lookup: PurchaseCostLookup
+): number | null {
+  const itemId = row?.item_id != null ? String(row.item_id).trim() : ''
+  if (itemId) {
+    const byId = lookup.byItemId.get(itemId)
+    if (byId != null && byId > 0) return byId
+  }
+  const tried = new Set<string>()
+  for (const raw of salesRowMatchKeys(row)) {
+    for (const { key } of expandMatchCandidates(raw)) {
+      if (tried.has(key)) continue
+      tried.add(key)
+      const rate = lookup.byKey.get(key)
+      if (rate != null && rate > 0) return rate
+    }
+  }
+  return null
+}
+
 /**
- * Join sales-by-item rows to cost prices and compute COGS. Cost is taken from
- * All Prices first (matched by item number = the Zoho item name, since Zoho
- * `sku` is usually blank); when missing, it falls back to the latest
- * purchase-order cost (matched by Zoho item id, then by name/sku). COGS per
- * line = qty * unit cost. Rows with no cost from either source are returned
- * under `unmatched` so nothing is dropped.
+ * Join sales-by-item rows to cost prices and compute COGS. All Prices is matched
+ * using the same color-stripping logic as purchase planning / composite pricing
+ * (e.g. Zoho LIFEP17-14-BEIGE → All Prices LIFEP17-14). When missing, falls back
+ * to the latest purchase-order cost. COGS per line = qty * unit cost.
  */
 export function computeCogs(
   salesRows: SalesByItemRow[] | null | undefined,
-  costLookup: Map<string, number>,
+  costLookup: ReturnType<typeof buildPurchasePriceMap>,
   purchaseCostLookup?: PurchaseCostLookup | null
 ): CogsResult {
   const matched: CogsRow[] = []
@@ -140,17 +175,12 @@ export function computeCogs(
     const qty = toFiniteNumber(row?.qty) ?? 0
     const salesAmount = toFiniteNumber(row?.sales_amount) ?? 0
     const unitPrice = toFiniteNumber(row?.unit_price) ?? 0
-    // Zoho's `sku` is usually empty; the Zoho item name carries the code that
-    // matches the All Prices `itemNo`. Match on item name first, sku as fallback.
-    const normalizedKey = normalizeItemNo(row?.item_name) || normalizeItemNo(row?.sku)
-    let costPrice = normalizedKey ? costLookup.get(normalizedKey) : undefined
+
+    let costPrice = findAllPricesCostForSalesRow(row, costLookup)
     let costSource: CostSource = 'all_prices'
 
     if (costPrice == null && purchaseCostLookup) {
-      const itemId = row?.item_id != null ? String(row.item_id).trim() : ''
-      const poCost =
-        (itemId && purchaseCostLookup.byItemId.get(itemId)) ||
-        (normalizedKey ? purchaseCostLookup.byKey.get(normalizedKey) : undefined)
+      const poCost = findPurchaseOrderCostForSalesRow(row, purchaseCostLookup)
       if (poCost != null) {
         costPrice = poCost
         costSource = 'purchase_order'

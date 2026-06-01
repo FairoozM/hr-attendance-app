@@ -140,9 +140,10 @@ export function AllPricesCogsPanel({ rows, currencyLabel = 'AED' }: AllPricesCog
     <section className="page-section ap-cogs" aria-label="COGS calculation">
       <div className="ap-cogs-note" role="note">
         Cost of goods sold for a date range. The unit cost is your <strong>purchase price</strong> from
-        the current All Prices list, matched by <strong>item number</strong> (the Zoho item name). When
-        an item is not in All Prices, the latest <strong>purchase-order</strong> cost is used as a
-        fallback. <strong>COGS = quantity x unit cost</strong>.
+        the current All Prices list, matched by <strong>item number</strong> (Zoho item names with a
+        color suffix match All Prices rows without color, same as purchase planning). When an item is
+        not in All Prices, the latest <strong>purchase-order</strong> cost is used as a fallback.{' '}
+        <strong>COGS = quantity x unit cost</strong>.
         Leave the customer blank to use the fast all-customers report; pick a customer to compute COGS
         from that customer's invoices (slower, more API calls).
       </div>

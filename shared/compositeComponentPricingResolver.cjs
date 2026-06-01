@@ -84,7 +84,23 @@ function expandColorlessSkuVariants(raw) {
     if (looksLikeSkuBase(base)) out.push(base)
     break
   }
+  const lastPart = parts[parts.length - 1]
+  const split = splitAttachedColorToken(lastPart)
+  if (split) {
+    const base = [...parts.slice(0, -1), split.base].join('-')
+    if (looksLikeSkuBase(base) && !out.includes(base)) out.push(base)
+  }
   return out
+}
+
+function splitAttachedColorToken(token) {
+  const normalized = String(token || '').trim().toLowerCase()
+  for (const color of CORE_COLOR_SUFFIX_TOKENS) {
+    if (!normalized.endsWith(color) || normalized.length <= color.length) continue
+    const base = normalized.slice(0, -color.length)
+    if (/\d$/.test(base) || /[a-z]\d+$/.test(base)) return { base, color }
+  }
+  return null
 }
 
 function addMatchCandidates(out, seen, raw, matchKind) {
