@@ -186,6 +186,15 @@ function mapDbRow(r) {
   }
 }
 
+function appendListingStatusScope(clauses, stockFilter) {
+  const sf = String(stockFilter || 'all').trim()
+  if (sf === 'sellerCentralInactiveOos') {
+    clauses.push(`listing_status = 'INACTIVE_OOS'`)
+    return
+  }
+  clauses.push(`listing_status = 'ACTIVE'`)
+}
+
 function buildWhere(filters = {}) {
   const clauses = []
   const values = []
@@ -194,6 +203,8 @@ function buildWhere(filters = {}) {
     values.push(marketplace)
     clauses.push(`marketplace_key = $${values.length}`)
   }
+  const stockFilter = String(filters.stockFilter || 'all').trim()
+  appendListingStatusScope(clauses, stockFilter)
   const search = String(filters.search || '').trim()
   if (search) {
     values.push(`%${search.toLowerCase()}%`)
@@ -204,14 +215,10 @@ function buildWhere(filters = {}) {
       OR LOWER(COALESCE(title, '')) LIKE $${values.length}
     )`)
   }
-  const stockFilter = String(filters.stockFilter || 'all').trim()
   if (stockFilter === 'amazonOutOfStock') {
     clauses.push(
-      `listing_status = 'ACTIVE' AND GREATEST(COALESCE(amazon_total_qty, 0), COALESCE(amazon_available_qty, 0)) = 0`
+      `GREATEST(COALESCE(amazon_total_qty, 0), COALESCE(amazon_available_qty, 0)) = 0`
     )
-  }
-  if (stockFilter === 'sellerCentralInactiveOos') {
-    clauses.push(`listing_status = 'INACTIVE_OOS'`)
   }
   if (stockFilter === 'zohoOutOfStock') clauses.push(`COALESCE(zoho_available_qty, 0) = 0 AND zoho_stock_status <> 'Not Found'`)
   if (stockFilter === 'mismatch') clauses.push(`is_mismatch = true`)
@@ -274,7 +281,7 @@ async function getComparisonSummary(filters = {}) {
   const whereSql = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
   const r = await query(
     `SELECT
-      COUNT(*)::int AS total_active_listings,
+      COUNT(*) FILTER (WHERE listing_status = 'ACTIVE')::int AS total_active_listings,
       COUNT(*) FILTER (
         WHERE listing_status = 'ACTIVE'
           AND GREATEST(COALESCE(amazon_total_qty, 0), COALESCE(amazon_available_qty, 0)) = 0

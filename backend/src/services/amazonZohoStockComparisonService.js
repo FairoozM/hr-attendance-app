@@ -2,12 +2,8 @@ const { marketplaceIdForKey } = require('./amazonSpApiService')
 const store = require('./amazonZohoStockComparisonStore')
 const {
   fetchActiveAmazonListings,
-  fetchInactiveAmazonListings,
   fetchAmazonInventoryForListings,
   fetchAfnManageInventoryBySku,
-  mergeAmazonInventoryRecords,
-  emptyFbaInventory,
-  isAmazonFbaOutOfStock,
   marketplaceLabel,
   afnReportWarningMessage,
 } = require('./amazonListingsInventoryReadService')
@@ -96,18 +92,6 @@ function mergeRows({
 
 async function refreshMarketplace({ marketplaceKey, progress }) {
   const listingResult = await fetchActiveAmazonListings({ marketplaceKey, progress })
-  let inactiveOosListings = []
-  let inactiveWarning = null
-  try {
-    const inactiveResult = await fetchInactiveAmazonListings({ marketplaceKey, progress })
-    inactiveOosListings = inactiveResult.listings
-  } catch (e) {
-    inactiveWarning = `Inactive listings report failed for ${marketplaceLabel(marketplaceKey)}; Seller Central OOS filter may be empty until refresh succeeds.`
-    console.warn('[amazon-zoho-stock] inactive listings:', marketplaceKey, e?.message || e)
-  }
-
-  const activeKeys = new Set(listingResult.listings.map((l) => l.normalizedSku))
-  const inactiveCandidates = inactiveOosListings.filter((l) => !activeKeys.has(l.normalizedSku))
   const marketplaceId = marketplaceIdForKey(marketplaceKey)
 
   let afnReportBySku = new Map()
@@ -131,12 +115,6 @@ async function refreshMarketplace({ marketplaceKey, progress }) {
     console.warn('[amazon-zoho-stock] AFN report failed:', marketplaceKey, e?.message || e)
   }
 
-  const inactiveOnly = inactiveCandidates.filter((l) => {
-    const afn = afnReportBySku.get(l.normalizedSku)
-    const inv = mergeAmazonInventoryRecords(emptyFbaInventory('fba_api_not_returned'), afn)
-    return isAmazonFbaOutOfStock(inv)
-  })
-
   const invActive = await fetchAmazonInventoryForListings({
     marketplaceKey,
     marketplaceId,
@@ -148,38 +126,17 @@ async function refreshMarketplace({ marketplaceKey, progress }) {
   })
 
   const inventoryBySku = new Map(invActive.inventoryBySku)
-  let invInactiveWarning = null
-
-  if (inactiveOnly.length > 0) {
-    const invInactive = await fetchAmazonInventoryForListings({
-      marketplaceKey,
-      marketplaceId,
-      listings: inactiveOnly,
-      progress,
-      afnReportBySku,
-      skipAfnReport: true,
-      afnReportFailed,
-    })
-    for (const [key, inv] of invInactive.inventoryBySku) {
-      inventoryBySku.set(key, inv)
-    }
-    invInactiveWarning = invInactive.afnReportWarning
-  }
-
-  const allListings = [...listingResult.listings, ...inactiveOnly]
   const fetchedTimes = [listingResult.fetchedAt, invActive.fetchedAt].map((t) => new Date(t).getTime())
   const warnings = []
-  if (inactiveWarning) warnings.push(inactiveWarning)
   if (afnReportWarning) warnings.push(afnReportWarning)
   if (invActive.afnReportWarning) warnings.push(invActive.afnReportWarning)
-  if (invInactiveWarning) warnings.push(invInactiveWarning)
 
   return {
     marketplaceKey,
-    listings: allListings,
+    listings: listingResult.listings,
     inventoryBySku,
     inactiveWarning: warnings.length ? warnings.join(' ') : null,
-    inactiveOosCount: inactiveOnly.length,
+    inactiveOosCount: 0,
     amazonFetchedAt: new Date(Math.max(...fetchedTimes)).toISOString(),
   }
 }

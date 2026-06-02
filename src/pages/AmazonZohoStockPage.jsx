@@ -3,11 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { api, fetchBinary, downloadBlob } from '../api/client'
 
 const STOCK_FILTERS = [
-  { value: 'all', label: 'All' },
-  {
-    value: 'sellerCentralInactiveOos',
-    label: 'Seller Central inactive OOS (Manage Inventory → Inactive → Out of stock)',
-  },
+  { value: 'all', label: 'Active listings (default)' },
   { value: 'amazonOutOfStock', label: 'Active · FBA on-hand & fulfillable 0' },
   { value: 'zohoOutOfStock', label: 'Zoho Out of Stock' },
   { value: 'mismatch', label: 'Mismatch' },
@@ -266,16 +262,17 @@ export function AmazonZohoStockPage() {
         <p className="ainv-page__eyebrow">Admin Inventory</p>
         <h1 className="ainv-page__title">Amazon + Zoho Stock Comparison</h1>
         <p className="ainv-page__lead">
-          Compare Amazon listings against Zoho Life Smile warehouse stock. Refresh pulls FBA API +
-          AFN Manage Inventory report (Seller Flex on-hand). Use SC Inactive OOS for the ~26 SKUs bucket.
+          Compare <strong>active</strong> Amazon listings against Zoho Life Smile warehouse stock. Refresh pulls FBA
+          API + AFN Manage Inventory (Seller Flex on-hand). Inactive listings you closed in Seller Central are not
+          included.
         </p>
         <div className="ainv-callout-emerald">
           <p className="ainv-callout-emerald__title">Out of stock workflow (use this instead of slow clearance scans)</p>
           <ol>
             <li>Pick marketplace (UAE or KSA), click <strong>Refresh</strong> once (background sync).</li>
             <li>
-              Click <strong>Seller Central inactive OOS</strong> (your ~26 SKUs) or <strong>Amazon Out of Stock</strong>{' '}
-              for the larger FBA zero-stock set.
+              Click <strong>Amazon Out of Stock</strong> for active listings where FBA on-hand and fulfillable are both
+              zero (not the full catalog).
             </li>
             <li>
               Open{' '}
@@ -412,27 +409,20 @@ export function AmazonZohoStockPage() {
         ) : null}
       </section>
 
-      <section className="grid gap-3 md:grid-cols-3 xl:grid-cols-7">
+      <section className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
         <SummaryCard
-          label="Total Active Listings"
+          label="Active Listings"
           value={summary.totalActiveListings || 0}
           active={stockFilter === 'all'}
           onClick={() => applyStockFilter('all')}
-          hint="Click to clear filter"
-        />
-        <SummaryCard
-          label="SC Inactive OOS"
-          value={summary.sellerCentralInactiveOos || 0}
-          active={stockFilter === 'sellerCentralInactiveOos'}
-          onClick={() => applyStockFilter('sellerCentralInactiveOos')}
-          hint="Seller Central Inactive → Out of stock"
+          hint="All active SKUs with stock data"
         />
         <SummaryCard
           label="Amazon Out of Stock"
           value={summary.amazonOutOfStock || 0}
           active={stockFilter === 'amazonOutOfStock'}
           onClick={() => applyStockFilter('amazonOutOfStock')}
-          hint="Active · FBA on-hand & fulfillable 0"
+          hint="Active only · FBA qty = 0 (zeros expected)"
         />
         <SummaryCard
           label="Zoho Out of Stock"
@@ -489,11 +479,9 @@ export function AmazonZohoStockPage() {
             </h2>
             <p className="text-sm" style={{ color: 'var(--text-dim)' }}>
               Showing {rows.length} of {formatNumber(pagination.total)} rows
-              {stockFilter === 'sellerCentralInactiveOos'
-                ? ' (Inactive → Out of stock)'
-                : stockFilter === 'amazonOutOfStock'
-                  ? ' (active · FBA on-hand & fulfillable = 0)'
-                  : ''}
+              {stockFilter === 'amazonOutOfStock'
+                ? ' (active · FBA qty = 0 by design)'
+                : ' (active listings only)'}
               .
             </p>
           </div>
