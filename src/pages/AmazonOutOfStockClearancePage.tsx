@@ -297,6 +297,13 @@ export function AmazonOutOfStockClearancePage() {
         </p>
       </header>
 
+      <AmazonOosSkusTable
+        rows={amazonRows}
+        marketplace={marketplace}
+        loading={fetchingAmazon}
+        fetchedAt={fetchedAt}
+      />
+
       <section className="rounded-3xl border border-emerald-400/25 bg-emerald-500/10 p-5 backdrop-blur-md">
         <p className="text-sm font-semibold text-emerald-100">Step 1 — refresh OOS list (fast)</p>
         <p className="mt-1 text-sm text-emerald-50/90">
@@ -388,13 +395,6 @@ export function AmazonOutOfStockClearancePage() {
         )}
       </section>
 
-      <AmazonOosSkusTable
-        rows={amazonRows}
-        marketplace={marketplace}
-        loading={fetchingAmazon}
-        fetchedAt={fetchedAt}
-      />
-
       {error && (
         <div className="rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
           {error}
@@ -412,7 +412,12 @@ export function AmazonOutOfStockClearancePage() {
         </ul>
       )}
 
-      <SummaryCards summary={summary} amazonCount={amazonRows.length} />
+      {summary ? (
+        <section>
+          <h2 className="mb-3 text-lg font-bold text-white">After calculate</h2>
+          <SummaryCards summary={summary} />
+        </section>
+      ) : null}
 
       <VigilUploadPanel
         onConfirmed={(rows) => {

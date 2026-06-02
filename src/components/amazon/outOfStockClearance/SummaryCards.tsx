@@ -8,7 +8,6 @@ interface SummaryCardsProps {
     needsManualReview?: number
     totalRecommendedUnits?: number
   } | null
-  amazonCount?: number
 }
 
 function formatNumber(value: number | undefined) {
@@ -25,11 +24,10 @@ function SummaryCard({ label, value }: { label: string; value: string | number }
   )
 }
 
-export function SummaryCards({ summary, amazonCount }: SummaryCardsProps) {
+export function SummaryCards({ summary }: SummaryCardsProps) {
   const s = summary || {}
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-      <SummaryCard label="Amazon OOS SKUs" value={formatNumber(amazonCount ?? s.totalOutOfStock)} />
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       <SummaryCard label="Ready to Update" value={formatNumber(s.readyToUpdate)} />
       <SummaryCard label="No Stock Available" value={formatNumber(s.noStockAvailable)} />
       <SummaryCard label="Zoho Not Matched" value={formatNumber(s.zohoNotMatched)} />
