@@ -32,10 +32,31 @@ function sendError(res, err) {
   })
 }
 
+/** Fast path: read OOS rows from amazon_zoho_stock_comparison cache (CloudFront-safe). */
 async function getOutOfStock(req, res) {
   try {
     const marketplace = req.query.marketplace
-    const json = await service.getOutOfStockSkus(marketplace)
+    const json = await service.getOutOfStockFromCache(marketplace)
+    res.json(json)
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
+/** Start background SP-API fetch (avoids CloudFront ~30s origin timeout). */
+async function postOutOfStockFetch(req, res) {
+  try {
+    const marketplace = req.body?.marketplace || req.query?.marketplace
+    const json = service.startOutOfStockFetch(marketplace)
+    res.status(202).json(json)
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
+async function getOutOfStockFetchStatus(req, res) {
+  try {
+    const json = service.getOutOfStockFetchStatus(req.params.jobId)
     res.json(json)
   } catch (err) {
     sendError(res, err)
@@ -102,6 +123,8 @@ async function postUpdateAmazon(req, res) {
 
 module.exports = {
   getOutOfStock,
+  postOutOfStockFetch,
+  getOutOfStockFetchStatus,
   postZohoStock,
   postVigilPreview,
   postCalculate,

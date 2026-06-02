@@ -1,4 +1,6 @@
-const { fetchOutOfStockAmazonSkus, normalizeMarketplaceKey } = require('./amazonListingsInventoryReadService')
+const { normalizeMarketplaceKey } = require('./amazonListingsInventoryReadService')
+const store = require('./amazonZohoStockComparisonStore')
+const fetchJobs = require('./amazonOutOfStockClearanceJobService')
 const {
   fetchZohoStockForSkus,
   zohoMapToRows,
@@ -18,7 +20,35 @@ function parseMarketplaceQuery(raw) {
   return mk === 'ksa' ? 'KSA' : 'UAE'
 }
 
-async function getOutOfStockSkus(marketplace) {
+function mapCachedComparisonRow(row, marketplaceKey) {
+  return {
+    marketplaceKey,
+    marketplace: row.marketplace,
+    amazonSku: row.sellerSku,
+    normalizedSku: row.normalizedSku,
+    title: row.title,
+    asin: row.asin,
+    amazonCurrentQty: Number(row.amazon?.availableQty) || 0,
+    amazonStockStatus: row.amazon?.stockStatus || 'Out of Stock',
+    fulfillmentChannel: row.fulfillmentChannel,
+    image: row.image,
+    dataSource: 'cache',
+  }
+}
+
+function mapCachedZohoRows(rows) {
+  return rows
+    .filter((row) => row.zoho && row.zoho.stockStatus !== 'Not Found' && row.zoho.sku)
+    .map((row) => ({
+      sku: row.zoho.sku,
+      normalizedSku: row.zoho.normalizedSku || row.normalizedSku,
+      itemName: row.zoho.itemName,
+      availableQty: Number(row.zoho.availableQty) || 0,
+      warehouseName: row.zoho.warehouseName,
+    }))
+}
+
+async function getOutOfStockFromCache(marketplace) {
   const mk = normalizeMarketplaceKey(marketplace)
   if (!mk) {
     const err = new Error('Invalid marketplace. Use UAE or KSA.')
@@ -26,17 +56,74 @@ async function getOutOfStockSkus(marketplace) {
     err.status = 400
     throw err
   }
-  const result = await fetchOutOfStockAmazonSkus({ marketplaceKey: mk })
+  const cached = await store.selectAllComparisonRows({
+    marketplace: mk,
+    stockFilter: 'amazonOutOfStock',
+  })
+  const meta = await store.getComparisonSummary({ marketplace: mk })
+  const warnings = []
+  if (!meta.timestamps.comparisonGeneratedAt) {
+    warnings.push(
+      'No cached Amazon + Zoho stock data yet. Use “Refresh from Amazon (live)” or run Refresh on Amazon + Zoho Stock first.'
+    )
+  }
+  const rows = cached.map((row) => mapCachedComparisonRow(row, mk))
+  if (rows.length === 0 && meta.timestamps.comparisonGeneratedAt) {
+    warnings.push('No out-of-stock SKUs in cache for this marketplace.')
+  }
   return {
     success: true,
-    marketplace: result.marketplace,
-    marketplaceKey: result.marketplaceKey,
-    rows: result.rows,
-    totalListings: result.totalListings,
-    outOfStockCount: result.rows.length,
-    fetchedAt: result.fetchedAt,
-    warnings: result.rows.length === 0 ? ['No out-of-stock SKUs found for this marketplace.'] : [],
+    source: 'cache',
+    marketplace: mk === 'ksa' ? 'KSA' : 'UAE',
+    marketplaceKey: mk,
+    rows,
+    zohoRowsFromCache: mapCachedZohoRows(cached),
+    totalListings: meta.summary?.totalActiveListings ?? null,
+    outOfStockCount: rows.length,
+    fetchedAt: meta.timestamps.comparisonGeneratedAt,
+    amazonLastFetchedAt: meta.timestamps.amazonLastFetchedAt,
+    warnings,
   }
+}
+
+function startOutOfStockFetch(marketplace) {
+  const mk = normalizeMarketplaceKey(marketplace)
+  if (!mk) {
+    const err = new Error('Invalid marketplace. Use UAE or KSA.')
+    err.code = 'INVALID_MARKETPLACE'
+    err.status = 400
+    throw err
+  }
+  const job = fetchJobs.startOutOfStockFetchJob({ marketplaceKey: mk })
+  return {
+    success: true,
+    ...job,
+    message:
+      'Amazon fetch started in the background. This can take several minutes (listings report + FBA inventory).',
+  }
+}
+
+function getOutOfStockFetchStatus(jobId) {
+  const job = fetchJobs.getOutOfStockFetchJob(jobId)
+  if (!job) {
+    const err = new Error('Fetch job not found')
+    err.code = 'FETCH_JOB_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  const payload = { success: true, ...job }
+  if (job.status === 'completed' && job.result) {
+    payload.marketplace = job.result.marketplace
+    payload.marketplaceKey = job.result.marketplaceKey
+    payload.rows = job.result.rows
+    payload.totalListings = job.result.totalListings
+    payload.outOfStockCount = job.result.rows.length
+    payload.fetchedAt = job.result.fetchedAt
+    payload.source = 'live'
+    payload.warnings =
+      job.result.rows.length === 0 ? ['No out-of-stock SKUs found for this marketplace.'] : []
+  }
+  return payload
 }
 
 async function getZohoStockForSkus({ marketplace, skus }) {
@@ -148,7 +235,9 @@ function updateAmazonStub() {
 }
 
 module.exports = {
-  getOutOfStockSkus,
+  getOutOfStockFromCache,
+  startOutOfStockFetch,
+  getOutOfStockFetchStatus,
   getZohoStockForSkus,
   previewVigilFile,
   calculate,

@@ -1,10 +1,12 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { SummaryCards } from '../components/amazon/outOfStockClearance/SummaryCards'
 import { VigilUploadPanel } from '../components/amazon/outOfStockClearance/VigilUploadPanel'
 import { ResultsTable } from '../components/amazon/outOfStockClearance/ResultsTable'
 import { ManualEditModal } from '../components/amazon/outOfStockClearance/ManualEditModal'
 import {
-  fetchAmazonOutOfStock,
+  fetchAmazonOutOfStockFromCache,
+  startAmazonOutOfStockFetch,
+  getAmazonOutOfStockFetchStatus,
   fetchZohoStockForClearance,
   calculateClearance,
   exportClearanceRows,
@@ -13,6 +15,7 @@ import {
   type ClearanceSummary,
   type ManualMapping,
   type MarketplaceCode,
+  type OutOfStockFetchJob,
   type VigilParsedRow,
   type ZohoStockRow,
 } from '../api/amazonOutOfStockClearance'
@@ -33,6 +36,9 @@ export function AmazonOutOfStockClearancePage() {
   const [maxRecommendedQty, setMaxRecommendedQty] = useState<string>('')
 
   const [fetchingAmazon, setFetchingAmazon] = useState(false)
+  const [fetchJob, setFetchJob] = useState<OutOfStockFetchJob | null>(null)
+  const [fetchProgress, setFetchProgress] = useState('')
+  const [dataSource, setDataSource] = useState<'cache' | 'live' | null>(null)
   const [calculating, setCalculating] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState('')
@@ -42,32 +48,88 @@ export function AmazonOutOfStockClearancePage() {
   const [editRow, setEditRow] = useState<ClearanceResultRow | null>(null)
   const [showUpdateModal, setShowUpdateModal] = useState(false)
 
-  const runFetchAmazon = useCallback(async () => {
+  const applyFetchResult = useCallback((json: OutOfStockFetchJob & { zohoRowsFromCache?: ZohoStockRow[] }) => {
+    const rows = Array.isArray(json.rows) ? json.rows : []
+    setAmazonRows(rows)
+    setFetchedAt(json.fetchedAt || null)
+    setWarnings(Array.isArray(json.warnings) ? json.warnings : [])
+    setDataSource(json.source === 'live' ? 'live' : json.source === 'cache' ? 'cache' : null)
+    if (Array.isArray(json.zohoRowsFromCache) && json.zohoRowsFromCache.length > 0) {
+      setZohoRows(json.zohoRowsFromCache)
+    }
+  }, [])
+
+  const runLoadFromCache = useCallback(async () => {
     setFetchingAmazon(true)
+    setFetchJob(null)
+    setFetchProgress('')
     setError('')
     setWarnings([])
     setResultRows([])
     setSummary(null)
     setSelectedIds(new Set())
     try {
-      const json = await fetchAmazonOutOfStock(marketplace)
+      const json = await fetchAmazonOutOfStockFromCache(marketplace)
       if (!json?.success) {
-        setError(json?.error || 'Failed to fetch Amazon SKUs')
+        setError((json as { error?: string }).error || 'Failed to load cached SKUs')
         return
       }
-      const rows = Array.isArray(json.rows) ? json.rows : []
-      setAmazonRows(rows)
-      setFetchedAt(json.fetchedAt || null)
-      setWarnings(Array.isArray(json.warnings) ? json.warnings : [])
-      if (rows.length === 0) {
-        setWarnings((w) => [...w, 'No out-of-stock SKUs found for this marketplace.'])
-      }
+      applyFetchResult(json)
     } catch (e) {
       setError(safeError(e))
     } finally {
       setFetchingAmazon(false)
     }
-  }, [marketplace])
+  }, [marketplace, applyFetchResult])
+
+  const runLiveFetchAmazon = useCallback(async () => {
+    setFetchingAmazon(true)
+    setFetchJob(null)
+    setFetchProgress('Starting Amazon fetch…')
+    setError('')
+    setWarnings([
+      'Live fetch runs in the background and may take 2–10 minutes (listings report + FBA inventory).',
+    ])
+    setResultRows([])
+    setSummary(null)
+    setSelectedIds(new Set())
+    try {
+      const json = await startAmazonOutOfStockFetch(marketplace)
+      setFetchJob(json)
+      if (!['queued', 'running'].includes(json.status)) {
+        setFetchingAmazon(false)
+        if (json.status === 'completed' && json.rows) applyFetchResult(json)
+        if (json.status === 'failed') setError(json.error || 'Amazon fetch failed')
+      }
+    } catch (e) {
+      setError(safeError(e))
+      setFetchingAmazon(false)
+    }
+  }, [marketplace, applyFetchResult])
+
+  useEffect(() => {
+    if (!fetchJob?.jobId || !['queued', 'running'].includes(fetchJob.status)) return undefined
+    const step = fetchJob.progress?.step
+    if (step) setFetchProgress(step)
+    const timer = window.setInterval(async () => {
+      try {
+        const json = await getAmazonOutOfStockFetchStatus(fetchJob.jobId)
+        setFetchJob(json)
+        if (json.progress?.step) setFetchProgress(json.progress.step)
+        if (json.status === 'completed') {
+          setFetchingAmazon(false)
+          applyFetchResult(json)
+        } else if (json.status === 'failed') {
+          setFetchingAmazon(false)
+          setError(json.error || 'Amazon fetch failed')
+        }
+      } catch (e) {
+        setFetchingAmazon(false)
+        setError(safeError(e))
+      }
+    }, 4000)
+    return () => window.clearInterval(timer)
+  }, [fetchJob?.jobId, fetchJob?.status, applyFetchResult])
 
   const runCalculate = useCallback(async () => {
     if (amazonRows.length === 0) {
@@ -224,17 +286,33 @@ export function AmazonOutOfStockClearancePage() {
               />
             </label>
           </div>
-          <button
-            type="button"
-            className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
-            disabled={fetchingAmazon}
-            onClick={() => void runFetchAmazon()}
-          >
-            {fetchingAmazon ? 'Fetching from Amazon…' : 'Fetch Amazon Out of Stock SKUs'}
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              className="rounded-xl border border-white/15 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white hover:bg-white/10 disabled:opacity-50"
+              disabled={fetchingAmazon}
+              onClick={() => void runLoadFromCache()}
+            >
+              Load from cache (fast)
+            </button>
+            <button
+              type="button"
+              className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+              disabled={fetchingAmazon}
+              onClick={() => void runLiveFetchAmazon()}
+            >
+              {fetchingAmazon && fetchJob ? 'Refreshing from Amazon…' : 'Refresh from Amazon (live)'}
+            </button>
+          </div>
         </div>
+        {fetchingAmazon && fetchProgress && (
+          <p className="mt-3 text-sm text-sky-200/90">{fetchProgress}</p>
+        )}
         {fetchedAt && (
-          <p className="mt-3 text-xs text-slate-500">Amazon data fetched at {new Date(fetchedAt).toLocaleString()}</p>
+          <p className="mt-3 text-xs text-slate-500">
+            Data {dataSource === 'live' ? 'from live Amazon' : dataSource === 'cache' ? 'from cache' : ''} ·{' '}
+            {new Date(fetchedAt).toLocaleString()}
+          </p>
         )}
         {amazonRows.length > 0 && !fetchingAmazon && (
           <p className="mt-2 text-sm text-emerald-200/90">{amazonRows.length} out-of-stock SKU(s) loaded.</p>

@@ -13,6 +13,8 @@ const router = express.Router({ mergeParams: true })
 router.use(requireAuth, requireAdmin)
 
 router.get('/out-of-stock', ctrl.getOutOfStock)
+router.post('/out-of-stock/fetch', ctrl.postOutOfStockFetch)
+router.get('/out-of-stock/fetch/:jobId', ctrl.getOutOfStockFetchStatus)
 router.post('/zoho-stock', ctrl.postZohoStock)
 router.post('/vigil-preview', upload.single('file'), ctrl.postVigilPreview)
 router.post('/calculate', ctrl.postCalculate)

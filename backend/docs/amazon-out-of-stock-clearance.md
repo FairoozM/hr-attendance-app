@@ -18,7 +18,9 @@ All require `requireAuth` + `requireAdmin`.
 
 | Method | Path |
 |--------|------|
-| GET | `/api/amazon/out-of-stock-clearance/out-of-stock?marketplace=UAE\|KSA` |
+| GET | `/api/amazon/out-of-stock-clearance/out-of-stock?marketplace=UAE\|KSA` | **Fast** — OOS rows from `amazon_zoho_stock_comparison` cache |
+| POST | `/api/amazon/out-of-stock-clearance/out-of-stock/fetch` | Start **background** live SP-API job (202; poll below) |
+| GET | `/api/amazon/out-of-stock-clearance/out-of-stock/fetch/:jobId` | Poll job; returns `rows` when `completed` |
 | POST | `/api/amazon/out-of-stock-clearance/zoho-stock` |
 | POST | `/api/amazon/out-of-stock-clearance/vigil-preview` (multipart `file`, optional `columnMapping` JSON) |
 | POST | `/api/amazon/out-of-stock-clearance/calculate` |
@@ -55,5 +57,5 @@ All require `requireAuth` + `requireAdmin`.
 ## Limitations
 
 - OOS = FBA fulfillable qty 0; merchant-fulfilled listing quantity not used.
-- Live SP-API per fetch (report poll up to ~8 minutes); no DB cache for this module.
+- Live SP-API uses a **background job** (CloudFront origin timeout ~30s cannot hold a synchronous report poll). Use **Load from cache** for instant results after **Amazon + Zoho Stock → Refresh**.
 - Vigil upload is in-memory for the session only.

@@ -104,17 +104,44 @@ export interface VigilPreviewResponse {
   message?: string
 }
 
-const opts = { timeoutMs: CLEARANCE_TIMEOUT_MS }
+const longOpts = { timeoutMs: CLEARANCE_TIMEOUT_MS }
 
-export async function fetchAmazonOutOfStock(marketplace: MarketplaceCode) {
+export interface OutOfStockFetchJob {
+  success?: boolean
+  jobId: string
+  status: 'queued' | 'running' | 'completed' | 'failed'
+  progress?: { step: string; current: number; total: number }
+  error?: string
+  rows?: AmazonOosRow[]
+  zohoRowsFromCache?: ZohoStockRow[]
+  fetchedAt?: string
+  warnings?: string[]
+  source?: 'cache' | 'live'
+  message?: string
+}
+
+/** Fast: reads PostgreSQL cache from Amazon + Zoho Stock refresh (seconds). */
+export async function fetchAmazonOutOfStockFromCache(marketplace: MarketplaceCode) {
   return api.get(
-    `/api/amazon/out-of-stock-clearance/out-of-stock?marketplace=${encodeURIComponent(marketplace)}`,
-    opts
-  )
+    `/api/amazon/out-of-stock-clearance/out-of-stock?marketplace=${encodeURIComponent(marketplace)}`
+  ) as Promise<OutOfStockFetchJob & { outOfStockCount?: number }>
+}
+
+/** Starts background SP-API job; poll with getAmazonOutOfStockFetchStatus. */
+export async function startAmazonOutOfStockFetch(marketplace: MarketplaceCode) {
+  return api.post('/api/amazon/out-of-stock-clearance/out-of-stock/fetch', { marketplace }) as Promise<
+    OutOfStockFetchJob
+  >
+}
+
+export async function getAmazonOutOfStockFetchStatus(jobId: string) {
+  return api.get(
+    `/api/amazon/out-of-stock-clearance/out-of-stock/fetch/${encodeURIComponent(jobId)}`
+  ) as Promise<OutOfStockFetchJob>
 }
 
 export async function fetchZohoStockForClearance(marketplace: MarketplaceCode, skus: string[]) {
-  return api.post('/api/amazon/out-of-stock-clearance/zoho-stock', { marketplace, skus }, opts)
+  return api.post('/api/amazon/out-of-stock-clearance/zoho-stock', { marketplace, skus }, longOpts)
 }
 
 export async function previewVigilStockFile(
@@ -126,7 +153,7 @@ export async function previewVigilStockFile(
   if (columnMapping) {
     form.append('columnMapping', JSON.stringify(columnMapping))
   }
-  return api.postForm('/api/amazon/out-of-stock-clearance/vigil-preview', form, opts)
+  return api.postForm('/api/amazon/out-of-stock-clearance/vigil-preview', form, longOpts)
 }
 
 export async function calculateClearance(body: {
@@ -139,7 +166,7 @@ export async function calculateClearance(body: {
   respectManualOverrides?: boolean
   confirmOverwriteManual?: boolean
 }) {
-  return api.post('/api/amazon/out-of-stock-clearance/calculate', body, opts)
+  return api.post('/api/amazon/out-of-stock-clearance/calculate', body, longOpts)
 }
 
 export async function exportClearanceRows(body: {
@@ -151,5 +178,5 @@ export async function exportClearanceRows(body: {
 }
 
 export async function updateAmazonInventoryStub(body: unknown) {
-  return api.post('/api/amazon/out-of-stock-clearance/update-amazon', body, opts)
+  return api.post('/api/amazon/out-of-stock-clearance/update-amazon', body, longOpts)
 }
