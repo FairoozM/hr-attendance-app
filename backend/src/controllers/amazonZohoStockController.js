@@ -31,8 +31,10 @@ function parseFilters(query) {
 
 async function getAmazonZohoStock(req, res) {
   try {
-    const data = await comparisonService.readCachedAmazonZohoStock(parseFilters(req.query || {}))
-    return res.json(data)
+    const filters = parseFilters(req.query || {})
+    const refreshRunning = await refreshJobs.isRefreshRunning(filters.marketplace)
+    const data = await comparisonService.readCachedAmazonZohoStock(filters, { refreshRunning })
+    return res.json({ ...data, refreshRunning })
   } catch (e) {
     console.error('[amazon-zoho-stock] read failed:', e?.message || e)
     return res.status(500).json({
@@ -45,7 +47,7 @@ async function getAmazonZohoStock(req, res) {
 async function postAmazonZohoStockRefresh(req, res) {
   try {
     const marketplace = parseMarketplace(req.body?.marketplace || req.query?.marketplace || 'all')
-    const job = refreshJobs.startAmazonZohoStockRefresh({ marketplace })
+    const job = await refreshJobs.startAmazonZohoStockRefresh({ marketplace })
     return res.json({
       success: true,
       jobId: job.jobId,
@@ -66,7 +68,7 @@ async function postAmazonZohoStockRefresh(req, res) {
 
 async function getAmazonZohoStockRefreshStatus(req, res) {
   try {
-    const job = refreshJobs.getAmazonZohoStockRefreshJob(req.params.jobId)
+    const job = await refreshJobs.getAmazonZohoStockRefreshJob(req.params.jobId)
     if (!job) {
       return res.status(404).json({ success: false, error: 'Refresh job not found' })
     }

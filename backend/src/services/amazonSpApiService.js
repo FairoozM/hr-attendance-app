@@ -757,6 +757,48 @@ async function getAmazonReport(reportId, options = {}) {
   });
 }
 
+/**
+ * List reports (e.g. reuse a recent DONE AFN report instead of createReport during the 30-min cooldown).
+ * @see https://developer-docs.amazon.com/sp-api/docs/reports-api-v2021-06-30-reference
+ */
+async function listAmazonReports(params = {}) {
+  const p = params && typeof params === 'object' ? params : {};
+  const mk = normalizeMarketplaceKey(p.marketplaceKey != null ? p.marketplaceKey : 'uae');
+  const queryParams = {};
+  if (p.reportTypes != null) {
+    const types = Array.isArray(p.reportTypes) ? p.reportTypes : [p.reportTypes];
+    const cleaned = types.map((t) => String(t).trim()).filter(Boolean);
+    if (cleaned.length > 0) queryParams.reportTypes = cleaned;
+  }
+  if (p.processingStatuses != null) {
+    const statuses = Array.isArray(p.processingStatuses) ? p.processingStatuses : [p.processingStatuses];
+    const cleaned = statuses.map((s) => String(s).trim()).filter(Boolean);
+    if (cleaned.length > 0) queryParams.processingStatuses = cleaned;
+  }
+  if (p.marketplaceIds != null) {
+    const ids = Array.isArray(p.marketplaceIds) ? p.marketplaceIds : [p.marketplaceIds];
+    const cleaned = ids.map((id) => String(id).trim()).filter(Boolean);
+    if (cleaned.length > 0) queryParams.marketplaceIds = cleaned;
+  }
+  if (p.createdSince != null && String(p.createdSince).trim()) {
+    queryParams.createdSince = String(p.createdSince).trim();
+  }
+  if (p.pageSize != null) {
+    const n = parseInt(String(p.pageSize), 10);
+    if (Number.isFinite(n) && n > 0) queryParams.pageSize = n;
+  }
+  if (p.nextToken != null && String(p.nextToken).trim()) {
+    queryParams.nextToken = String(p.nextToken).trim();
+  }
+  return callAmazonSpApi(REPORTS_2021_PATH, {
+    marketplaceKey: mk,
+    method: 'GET',
+    params: queryParams,
+    paramsSerializer: { indexes: null },
+    amazonOperation: 'listReports',
+  });
+}
+
 async function getAmazonReportDocument(reportDocumentId, options = {}) {
   const opts = options && typeof options === 'object' ? options : {};
   const mk = normalizeMarketplaceKey(opts.marketplaceKey != null ? opts.marketplaceKey : 'uae');
@@ -817,6 +859,7 @@ module.exports = {
   searchAmazonCatalogItems,
   marketplaceIdForKey,
   createAmazonListingsReport,
+  listAmazonReports,
   getAmazonReport,
   getAmazonReportDocument,
   downloadAmazonReportDocument,

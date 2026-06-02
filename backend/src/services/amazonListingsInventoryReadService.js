@@ -1,6 +1,7 @@
 const {
   marketplaceIdForKey,
   createAmazonListingsReport,
+  listAmazonReports,
   getAmazonReport,
   getAmazonReportDocument,
   downloadAmazonReportDocument,
@@ -11,6 +12,9 @@ const { normalizeSku } = require('../utils/normalizeSku')
 
 const REPORT_POLL_INTERVAL_MS = 10_000
 const REPORT_TIMEOUT_MS = 8 * 60_000
+/** Near-real-time FBA reports (incl. AFN manage inventory) cannot be regenerated more than once per ~30 minutes. */
+const AFN_REPORT_REUSE_PREFERRED_MS = 40 * 60_000
+const AFN_REPORT_REUSE_FALLBACK_MS = 24 * 60 * 60_000
 const LISTINGS_REPORT_TYPE = process.env.AMAZON_LISTINGS_REPORT_TYPE || 'GET_MERCHANT_LISTINGS_DATA'
 const INACTIVE_LISTINGS_REPORT_TYPE =
   process.env.AMAZON_INACTIVE_LISTINGS_REPORT_TYPE || 'GET_MERCHANT_LISTINGS_INACTIVE_DATA'
@@ -188,7 +192,91 @@ function dedupeListings(listings) {
   return deduped
 }
 
-async function downloadAmazonMerchantListingsReport({ marketplaceKey, marketplaceId, reportType, progressLabel, progress }) {
+async function parseAmazonReportDocument(marketplaceKey, reportDocumentId) {
+  const doc = await getAmazonReportDocument(reportDocumentId, { marketplaceKey })
+  throwAmazonSpApiIfFailed(doc, 'getListingsReportDocument', marketplaceKey)
+  const download = await downloadAmazonReportDocument(doc.data?.url, {
+    marketplaceKey,
+    compressionAlgorithm: doc.data?.compressionAlgorithm,
+  })
+  if (download.status < 200 || download.status >= 300) {
+    throwAmazonSpApiIfFailed(download, 'downloadListingsReportDocument', marketplaceKey)
+  }
+  return parseDelimitedReport(download.data)
+}
+
+async function tryDownloadRecentAmazonReport({
+  marketplaceKey,
+  marketplaceId,
+  reportType,
+  maxAgeMs,
+  progressLabel,
+  progress,
+}) {
+  const createdSince = new Date(Date.now() - maxAgeMs).toISOString()
+  const list = await listAmazonReports({
+    marketplaceKey,
+    reportTypes: [reportType],
+    processingStatuses: ['DONE'],
+    marketplaceIds: [marketplaceId],
+    createdSince,
+    pageSize: 20,
+  })
+  throwAmazonSpApiIfFailed(list, 'listReports', marketplaceKey)
+  const reports = Array.isArray(list.data?.reports) ? list.data.reports : []
+  const sorted = reports
+    .filter((r) => r && r.reportDocumentId)
+    .sort((a, b) => new Date(b.createdTime || 0).getTime() - new Date(a.createdTime || 0).getTime())
+  for (const candidate of sorted) {
+    try {
+      const rows = await parseAmazonReportDocument(marketplaceKey, candidate.reportDocumentId)
+      progress?.({
+        step: `Using recent ${progressLabel} (report ${candidate.reportId || 'cached'})`,
+        current: rows.length,
+        total: rows.length,
+      })
+      return { rows, reportId: candidate.reportId }
+    } catch (e) {
+      console.warn(
+        '[amazon-inventory] recent report document download failed:',
+        marketplaceKey,
+        candidate.reportId,
+        e?.message || e
+      )
+    }
+  }
+  return null
+}
+
+function afnReportWarningMessage(err) {
+  const detail = err?.message ? String(err.message).trim() : ''
+  const base =
+    'AFN manage inventory report unavailable; Seller Flex on-hand may be incomplete until a fresh report succeeds (~30 min between Amazon generations).'
+  return detail ? `${base} (${detail})` : base
+}
+
+async function downloadAmazonMerchantListingsReport({
+  marketplaceKey,
+  marketplaceId,
+  reportType,
+  progressLabel,
+  progress,
+  preferReuse = false,
+  reuseMaxAgeMs = AFN_REPORT_REUSE_PREFERRED_MS,
+  reuseFallbackMaxAgeMs = AFN_REPORT_REUSE_FALLBACK_MS,
+}) {
+  if (preferReuse) {
+    const reused = await tryDownloadRecentAmazonReport({
+      marketplaceKey,
+      marketplaceId,
+      reportType,
+      maxAgeMs: reuseMaxAgeMs,
+      progressLabel,
+      progress,
+    })
+    if (reused?.rows) return reused.rows
+  }
+
   progress?.({ step: `Requesting Amazon ${marketplaceLabel(marketplaceKey)} ${progressLabel}`, current: 0, total: 0 })
   const create = await createAmazonListingsReport({
     marketplaceKey,
@@ -218,12 +306,34 @@ async function downloadAmazonMerchantListingsReport({ marketplaceKey, marketplac
     })
     if (processingStatus === 'DONE') break
     if (['CANCELLED', 'FATAL'].includes(processingStatus)) {
+      if (preferReuse) {
+        const fallback = await tryDownloadRecentAmazonReport({
+          marketplaceKey,
+          marketplaceId,
+          reportType,
+          maxAgeMs: reuseFallbackMaxAgeMs,
+          progressLabel,
+          progress,
+        })
+        if (fallback?.rows) return fallback.rows
+      }
       const err = new Error(`Amazon listings report ${processingStatus.toLowerCase()}`)
       err.code = 'AMAZON_LISTINGS_REPORT_FAILED'
       throw err
     }
   }
   if (!report || String(report.processingStatus || '').toUpperCase() !== 'DONE') {
+    if (preferReuse) {
+      const fallback = await tryDownloadRecentAmazonReport({
+        marketplaceKey,
+        marketplaceId,
+        reportType,
+        maxAgeMs: reuseFallbackMaxAgeMs,
+        progressLabel,
+        progress,
+      })
+      if (fallback?.rows) return fallback.rows
+    }
     const err = new Error('Amazon listings report timed out')
     err.code = 'AMAZON_LISTINGS_REPORT_TIMEOUT'
     throw err
@@ -234,16 +344,7 @@ async function downloadAmazonMerchantListingsReport({ marketplaceKey, marketplac
     err.code = 'AMAZON_LISTINGS_REPORT_DOCUMENT_MISSING'
     throw err
   }
-  const doc = await getAmazonReportDocument(reportDocumentId, { marketplaceKey })
-  throwAmazonSpApiIfFailed(doc, 'getListingsReportDocument', marketplaceKey)
-  const download = await downloadAmazonReportDocument(doc.data?.url, {
-    marketplaceKey,
-    compressionAlgorithm: doc.data?.compressionAlgorithm,
-  })
-  if (download.status < 200 || download.status >= 300) {
-    throwAmazonSpApiIfFailed(download, 'downloadListingsReportDocument', marketplaceKey)
-  }
-  return parseDelimitedReport(download.data)
+  return parseAmazonReportDocument(marketplaceKey, reportDocumentId)
 }
 
 async function fetchActiveAmazonListings({ marketplaceKey, progress }) {
@@ -319,25 +420,60 @@ function isAmazonFbaOutOfStock(inv) {
 }
 
 function mapAfnManageInventoryRow(row) {
-  const sellerSku = first(row, ['sku', 'seller-sku', 'seller sku', 'SellerSKU'])
+  const sellerSku = first(row, ['sku', 'seller-sku', 'seller sku', 'sellersku'])
   if (!sellerSku) return null
   const afnWarehouse = toNumber(
-    first(row, ['afn-warehouse-quantity', 'afn-total-quantity', 'afn-total-supply-quantity']),
+    first(row, [
+      'afn-warehouse-quantity',
+      'afn_warehouse_quantity',
+      'afn-total-quantity',
+      'afn_total_quantity',
+      'afn-total-supply-quantity',
+      'afn_total_supply_quantity',
+    ]),
     NaN
   )
-  const afnFulfillable = toNumber(first(row, ['afn-fulfillable-quantity']), 0)
-  const afnReserved = toNumber(first(row, ['afn-reserved-quantity']), 0)
+  const afnFulfillable = toNumber(
+    first(row, ['afn-fulfillable-quantity', 'afn_fulfillable_quantity']),
+    0
+  )
+  const afnReserved = toNumber(first(row, ['afn-reserved-quantity', 'afn_reserved_quantity']), 0)
   const onHand = Number.isFinite(afnWarehouse) && afnWarehouse >= 0 ? afnWarehouse : afnFulfillable + afnReserved
   return {
     sellerSku,
     availableQty: afnFulfillable,
     inboundQty: 0,
     reservedQty: afnReserved,
-    unfulfillableQty: toNumber(first(row, ['afn-unsellable-quantity', 'afn-unfulfillable-quantity']), 0),
+    unfulfillableQty: toNumber(
+      first(row, [
+        'afn-unsellable-quantity',
+        'afn_unsellable_quantity',
+        'afn-unfulfillable-quantity',
+        'afn_unfulfillable_quantity',
+      ]),
+      0
+    ),
     totalQty: onHand,
     stockStatus: onHand > 0 || afnFulfillable > 0 ? 'In Stock' : 'Out of Stock',
     stockSource: 'afn_manage_inventory_report',
   }
+}
+
+function emptyFbaInventory(stockSource = 'fba_api_not_returned') {
+  return {
+    availableQty: 0,
+    inboundQty: 0,
+    reservedQty: 0,
+    unfulfillableQty: 0,
+    totalQty: 0,
+    stockStatus: 'Out of Stock',
+    stockSource,
+  }
+}
+
+/** True when GET /fba/inventory/v1/summaries returned a row for this SKU (not batch omission). */
+function fbaWasReturnedInBatch(inv) {
+  return Boolean(inv && inv.stockSource === 'fba_api')
 }
 
 /**
@@ -345,29 +481,32 @@ function mapAfnManageInventoryRow(row) {
  * GET /fba/inventory/v1/summaries. Merge both sources and keep the higher quantities.
  */
 function mergeAmazonInventoryRecords(fbaApiInv, afnReportInv) {
-  const empty = {
-    availableQty: 0,
-    inboundQty: 0,
-    reservedQty: 0,
-    unfulfillableQty: 0,
-    totalQty: 0,
-    stockStatus: 'Out of Stock',
-    stockSource: 'none',
-  }
-  const api = fbaApiInv || empty
+  const api = fbaApiInv || emptyFbaInventory('none')
   if (!afnReportInv) return { ...api, stockSource: api.stockSource || 'fba_api' }
 
   const apiOnHand = amazonOnHandQty(api)
   const apiFulfillable = toNumber(api.availableQty, 0)
   const reportOnHand = amazonOnHandQty(afnReportInv)
   const reportFulfillable = toNumber(afnReportInv.availableQty, 0)
-  const onHand = Math.max(apiOnHand, reportOnHand)
-  const fulfillable = Math.max(apiFulfillable, reportFulfillable)
+  const apiReturned = fbaWasReturnedInBatch(api)
+
+  let onHand
+  let fulfillable
+  let stockSource
+  if (apiReturned) {
+    onHand = Math.max(apiOnHand, reportOnHand)
+    fulfillable = Math.max(apiFulfillable, reportFulfillable)
+    stockSource =
+      reportOnHand > apiOnHand && apiOnHand <= 0
+        ? 'afn_manage_inventory_report'
+        : 'fba_api'
+  } else {
+    onHand = reportOnHand
+    fulfillable = reportFulfillable
+    stockSource = reportOnHand > 0 || reportFulfillable > 0 ? 'afn_manage_inventory_report' : api.stockSource
+  }
+
   const stockStatus = onHand > 0 || fulfillable > 0 ? 'In Stock' : 'Out of Stock'
-  const stockSource =
-    reportOnHand > apiOnHand || (apiOnHand <= 0 && reportOnHand > 0)
-      ? 'afn_manage_inventory_report'
-      : api.stockSource || 'fba_api'
 
   return {
     availableQty: fulfillable,
@@ -400,6 +539,7 @@ async function fetchAfnManageInventoryBySku({ marketplaceKey, progress }) {
     reportType: AFN_INVENTORY_REPORT_TYPE,
     progressLabel: 'AFN manage inventory report (Seller Flex on-hand)',
     progress,
+    preferReuse: true,
   })
   const inventoryBySku = new Map()
   for (const row of rawRows) {
@@ -444,18 +584,54 @@ function mapInventorySummary(row) {
   }
 }
 
-async function fetchAmazonInventoryForListings({ marketplaceKey, marketplaceId, listings, progress }) {
+function singleSkuBackfillMax(afnUnavailable = false) {
+  const envKey = afnUnavailable
+    ? 'AMAZON_FBA_SINGLE_SKU_BACKFILL_MAX_AFN_FAILURE'
+    : 'AMAZON_FBA_SINGLE_SKU_BACKFILL_MAX'
+  const fallback = afnUnavailable ? '400' : '100'
+  return Math.max(0, parseInt(String(process.env[envKey] || fallback), 10) || Number(fallback))
+}
+
+function singleSkuBackfillConcurrency() {
+  return Math.max(1, Math.min(20, parseInt(String(process.env.AMAZON_FBA_SINGLE_SKU_BACKFILL_CONCURRENCY || '8'), 10) || 8))
+}
+
+function buildSingleSkuBackfillList(listings, fbaApiBySku, afnReportBySku, afnUnavailable, max) {
+  const withAfnHint = []
+  const withoutAfnHint = []
+  for (const listing of listings) {
+    if (listing.listingStatus !== 'ACTIVE') continue
+    const key = listing.normalizedSku || normalizeSku(listing.sellerSku)
+    if (!key) continue
+    if (fbaWasReturnedInBatch(fbaApiBySku.get(key))) continue
+    const afn = afnReportBySku.get(key)
+    const afnOnHand = amazonOnHandQty(afn)
+    const afnFulfillable = toNumber(afn?.availableQty, 0)
+    if (afnOnHand > 0 || afnFulfillable > 0) {
+      withAfnHint.push(listing.sellerSku)
+    } else if (afnUnavailable) {
+      withoutAfnHint.push(listing.sellerSku)
+    }
+  }
+  return [...withAfnHint, ...withoutAfnHint].slice(0, max)
+}
+
+async function fetchFbaInventoryBatches({ marketplaceKey, marketplaceId, listings, progress }) {
   const skus = listings.map((row) => row.sellerSku).filter(Boolean)
   const fbaApiBySku = new Map()
+  if (skus.length === 0) return fbaApiBySku
+
   const batches = chunk(skus, 50)
   let current = 0
-  for (const batch of batches) {
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+    const batch = batches[batchIndex]
     current += batch.length
     progress?.({
-      step: `Fetching Amazon ${marketplaceLabel(marketplaceKey)} FBA inventory API`,
+      step: `Fetching Amazon ${marketplaceLabel(marketplaceKey)} FBA inventory API (batch ${batchIndex + 1}/${batches.length})`,
       current,
       total: skus.length,
     })
+    const returnedKeys = new Set()
     let nextToken = null
     do {
       const res = await getAmazonFbaInventorySummaries({
@@ -468,60 +644,124 @@ async function fetchAmazonInventoryForListings({ marketplaceKey, marketplaceId, 
       for (const summary of inventorySummaryList(res.data)) {
         const mapped = mapInventorySummary(summary)
         const key = normalizeSku(mapped.sellerSku)
-        if (key) fbaApiBySku.set(key, mapped)
+        if (key) {
+          fbaApiBySku.set(key, mapped)
+          returnedKeys.add(key)
+        }
       }
       nextToken = nextTokenFromInventory(res.data)
     } while (nextToken)
-  }
 
-  let afnReportBySku = new Map()
-  let afnReportWarning = null
-  try {
-    progress?.({
-      step: `Fetching Amazon ${marketplaceLabel(marketplaceKey)} AFN manage inventory report`,
-      current: skus.length,
-      total: skus.length,
-    })
-    const afnResult = await fetchAfnManageInventoryBySku({ marketplaceKey, progress })
-    afnReportBySku = afnResult.inventoryBySku
-  } catch (e) {
-    afnReportWarning =
-      'AFN manage inventory report failed; Seller Flex on-hand may show as 0 until this report succeeds.'
-    console.warn('[amazon-inventory] AFN manage inventory report failed:', marketplaceKey, e?.message || e)
-  }
-
-  // Listings/AFN reports may use Unicode dashes in SKU; FBA API often returns ASCII '-'.
-  // Re-fetch FBA for listing SKUs missing from batch responses so we do not show AFN-only stale qty.
-  const missingFromFba = []
-  for (const listing of listings) {
-    const key = listing.normalizedSku || normalizeSku(listing.sellerSku)
-    if (key && !fbaApiBySku.has(key)) missingFromFba.push(listing.sellerSku)
-  }
-  if (missingFromFba.length > 0) {
-    progress?.({
-      step: `Backfilling ${missingFromFba.length} SKU(s) missing from FBA batch response`,
-      current: skus.length,
-      total: skus.length,
-    })
-    for (const batch of chunk(missingFromFba, 50)) {
-      let nextToken = null
-      do {
-        const res = await getAmazonFbaInventorySummaries({
-          marketplaceKey,
-          marketplaceId,
-          sellerSkus: batch,
-          nextToken,
-        })
-        throwAmazonSpApiIfFailed(res, 'getFbaInventorySummaries', marketplaceKey)
-        for (const summary of inventorySummaryList(res.data)) {
-          const mapped = mapInventorySummary(summary)
-          const key = normalizeSku(mapped.sellerSku)
-          if (key) fbaApiBySku.set(key, mapped)
-        }
-        nextToken = nextTokenFromInventory(res.data)
-      } while (nextToken)
+    for (const sellerSku of batch) {
+      const key = normalizeSku(sellerSku)
+      if (key && !returnedKeys.has(key) && !fbaApiBySku.has(key)) {
+        fbaApiBySku.set(key, emptyFbaInventory('fba_api_not_returned'))
+      }
     }
   }
+  return fbaApiBySku
+}
+
+async function lookupSingleSkuFbaInventory({ marketplaceKey, marketplaceId, sellerSku, fbaApiBySku }) {
+  const res = await getAmazonFbaInventorySummaries({
+    marketplaceKey,
+    marketplaceId,
+    sellerSkus: [sellerSku],
+  })
+  throwAmazonSpApiIfFailed(res, 'getFbaInventorySummaries', marketplaceKey)
+  for (const summary of inventorySummaryList(res.data)) {
+    const mapped = mapInventorySummary(summary)
+    const key = normalizeSku(mapped.sellerSku)
+    if (key) fbaApiBySku.set(key, mapped)
+  }
+}
+
+async function sellerFlexSingleSkuBackfill({
+  marketplaceKey,
+  marketplaceId,
+  listings,
+  fbaApiBySku,
+  afnReportBySku,
+  afnUnavailable = false,
+  progress,
+}) {
+  const max = singleSkuBackfillMax(afnUnavailable)
+  if (max <= 0) return
+
+  const toFetch = buildSingleSkuBackfillList(listings, fbaApiBySku, afnReportBySku, afnUnavailable, max)
+  if (toFetch.length === 0) return
+
+  const concurrency = singleSkuBackfillConcurrency()
+  let completed = 0
+  for (let i = 0; i < toFetch.length; i += concurrency) {
+    const batch = toFetch.slice(i, i + concurrency)
+    await Promise.all(
+      batch.map(async (sellerSku) => {
+        try {
+          await lookupSingleSkuFbaInventory({ marketplaceKey, marketplaceId, sellerSku, fbaApiBySku })
+        } catch (e) {
+          console.warn('[amazon-inventory] single-SKU FBA lookup failed:', sellerSku, e?.message || e)
+        } finally {
+          completed += 1
+          progress?.({
+            step: afnUnavailable
+              ? `FBA per-SKU recovery (${completed}/${toFetch.length})`
+              : `Seller Flex FBA lookup (${completed}/${toFetch.length})`,
+            current: completed,
+            total: toFetch.length,
+          })
+        }
+      })
+    )
+  }
+}
+
+async function fetchAmazonInventoryForListings({
+  marketplaceKey,
+  marketplaceId,
+  listings,
+  progress,
+  afnReportBySku: preloadedAfnReportBySku = null,
+  skipAfnReport = false,
+  afnReportFailed = false,
+}) {
+  const fbaApiBySku = await fetchFbaInventoryBatches({ marketplaceKey, marketplaceId, listings, progress })
+
+  let afnReportBySku = preloadedAfnReportBySku
+  let afnReportWarning = null
+  let afnUnavailable = Boolean(afnReportFailed)
+  if (!afnReportBySku && !skipAfnReport) {
+    try {
+      progress?.({
+        step: `Fetching Amazon ${marketplaceLabel(marketplaceKey)} AFN manage inventory report`,
+        current: 0,
+        total: listings.length,
+      })
+      const afnResult = await fetchAfnManageInventoryBySku({ marketplaceKey, progress })
+      afnReportBySku = afnResult.inventoryBySku
+    } catch (e) {
+      afnReportWarning = afnReportWarningMessage(e)
+      afnUnavailable = true
+      console.warn('[amazon-inventory] AFN manage inventory report failed:', marketplaceKey, e?.message || e)
+      afnReportBySku = new Map()
+    }
+  }
+  if (!afnReportBySku) {
+    afnReportBySku = new Map()
+    if (afnReportFailed) afnUnavailable = true
+  } else if (afnReportFailed && afnReportBySku.size === 0) {
+    afnUnavailable = true
+  }
+
+  await sellerFlexSingleSkuBackfill({
+    marketplaceKey,
+    marketplaceId,
+    listings,
+    fbaApiBySku,
+    afnReportBySku,
+    afnUnavailable,
+    progress,
+  })
 
   return {
     inventoryBySku: mergeInventoryMaps(fbaApiBySku, afnReportBySku),
@@ -751,9 +991,14 @@ module.exports = {
   amazonOnHandQty,
   isAmazonFbaOutOfStock,
   mergeAmazonInventoryRecords,
+  emptyFbaInventory,
+  fbaWasReturnedInBatch,
   mapAfnManageInventoryRow,
+  afnReportWarningMessage,
+  buildSingleSkuBackfillList,
   fetchActiveAmazonListings,
   fetchInactiveAmazonListings,
+  fetchAfnManageInventoryBySku,
   fetchAmazonInventoryForListings,
   fetchOutOfStockAmazonSkus,
   fetchOutOfStockViaFbaInventorySummaries,

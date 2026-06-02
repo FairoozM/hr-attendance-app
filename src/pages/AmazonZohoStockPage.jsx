@@ -197,6 +197,9 @@ export function AmazonZohoStockPage() {
       try {
         const json = await getAmazonZohoStockRefreshStatus(job.jobId)
         setJob(json)
+        if (json.status === 'running' || json.status === 'queued') {
+          void loadData()
+        }
         if (json.status === 'completed') {
           setRefreshing(false)
           setRefreshError('')
@@ -204,6 +207,7 @@ export function AmazonZohoStockPage() {
         } else if (json.status === 'failed') {
           setRefreshing(false)
           setRefreshError(json.error || 'Refresh failed. Last cached data is still shown.')
+          void loadData()
         }
       } catch (e) {
         setRefreshing(false)
@@ -244,8 +248,17 @@ export function AmazonZohoStockPage() {
   const rows = Array.isArray(payload?.data) ? payload.data : []
   const pagination = payload?.pagination || { page, limit, total: 0, pages: 1 }
   const summary = payload?.summary || {}
-  const warnings = Array.isArray(payload?.warnings) ? payload.warnings : []
+  const allWarnings = Array.isArray(payload?.warnings) ? payload.warnings : []
   const timestamps = payload?.timestamps || {}
+  const syncInProgress =
+    refreshing || ['queued', 'running'].includes(job?.status || '') || Boolean(payload?.refreshRunning)
+  const warnings = syncInProgress
+    ? allWarnings.filter(
+        (w) =>
+          !String(w).includes('older than') &&
+          !String(w).toLowerCase().includes('run refresh for fresh')
+      )
+    : allWarnings
 
   return (
     <div className="ainv-page mx-auto flex max-w-[120rem] flex-col gap-8 px-4 pb-16 pt-4 md:px-6">
@@ -376,10 +389,14 @@ export function AmazonZohoStockPage() {
           <div>Comparison generated: <span className="font-mono" style={{ color: 'var(--text-soft)' }}>{formatDateTime(timestamps.comparisonGeneratedAt)}</span></div>
         </div>
 
-        {job?.jobId && ['queued', 'running'].includes(job.status) ? (
+        {syncInProgress ? (
           <div className="ainv-banner ainv-banner--sky mt-4">
-            Syncing: {job.progress?.step || job.status}
-            {job.progress?.total > 0 ? ` (${formatNumber(job.progress.current)} / ${formatNumber(job.progress.total)})` : ''}
+            Syncing: {job?.progress?.step || 'Running refresh…'}
+            {job?.progress?.total > 0
+              ? ` (${formatNumber(job.progress.current)} / ${formatNumber(job.progress.total)})`
+              : ''}
+            {' '}
+            — table updates after each marketplace is saved.
           </div>
         ) : null}
         {refreshError ? (

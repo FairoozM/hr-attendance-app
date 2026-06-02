@@ -4,8 +4,12 @@ const {
   fetchActiveAmazonListings,
   fetchInactiveAmazonListings,
   fetchAmazonInventoryForListings,
+  fetchAfnManageInventoryBySku,
+  mergeAmazonInventoryRecords,
+  emptyFbaInventory,
   isAmazonFbaOutOfStock,
   marketplaceLabel,
+  afnReportWarningMessage,
 } = require('./amazonListingsInventoryReadService')
 const {
   fetchZohoStockForSkus,
@@ -101,111 +105,182 @@ async function refreshMarketplace({ marketplaceKey, progress }) {
     inactiveWarning = `Inactive listings report failed for ${marketplaceLabel(marketplaceKey)}; Seller Central OOS filter may be empty until refresh succeeds.`
     console.warn('[amazon-zoho-stock] inactive listings:', marketplaceKey, e?.message || e)
   }
+
   const activeKeys = new Set(listingResult.listings.map((l) => l.normalizedSku))
   const inactiveCandidates = inactiveOosListings.filter((l) => !activeKeys.has(l.normalizedSku))
-  const listingsForInventory = [...listingResult.listings, ...inactiveCandidates]
   const marketplaceId = marketplaceIdForKey(marketplaceKey)
-  const invResult = await fetchAmazonInventoryForListings({
-    marketplaceKey,
-    marketplaceId,
-    listings: listingsForInventory,
-    progress,
-  })
+
+  let afnReportBySku = new Map()
+  let afnReportWarning = null
+  let afnReportFailed = false
+  try {
+    progress?.({
+      step: `Fetching Amazon ${marketplaceLabel(marketplaceKey)} AFN manage inventory report`,
+      current: 0,
+      total: listingResult.listings.length,
+    })
+    const afnResult = await fetchAfnManageInventoryBySku({ marketplaceKey, progress })
+    afnReportBySku = afnResult.inventoryBySku
+    if (afnReportBySku.size === 0) {
+      afnReportWarning =
+        'AFN manage inventory report returned no rows; FBA API quantities are used where available.'
+    }
+  } catch (e) {
+    afnReportFailed = true
+    afnReportWarning = afnReportWarningMessage(e)
+    console.warn('[amazon-zoho-stock] AFN report failed:', marketplaceKey, e?.message || e)
+  }
+
   const inactiveOnly = inactiveCandidates.filter((l) => {
-    const inv = invResult.inventoryBySku.get(l.normalizedSku)
+    const afn = afnReportBySku.get(l.normalizedSku)
+    const inv = mergeAmazonInventoryRecords(emptyFbaInventory('fba_api_not_returned'), afn)
     return isAmazonFbaOutOfStock(inv)
   })
+
+  const invActive = await fetchAmazonInventoryForListings({
+    marketplaceKey,
+    marketplaceId,
+    listings: listingResult.listings,
+    progress,
+    afnReportBySku,
+    skipAfnReport: true,
+    afnReportFailed,
+  })
+
+  const inventoryBySku = new Map(invActive.inventoryBySku)
+  let invInactiveWarning = null
+
+  if (inactiveOnly.length > 0) {
+    const invInactive = await fetchAmazonInventoryForListings({
+      marketplaceKey,
+      marketplaceId,
+      listings: inactiveOnly,
+      progress,
+      afnReportBySku,
+      skipAfnReport: true,
+      afnReportFailed,
+    })
+    for (const [key, inv] of invInactive.inventoryBySku) {
+      inventoryBySku.set(key, inv)
+    }
+    invInactiveWarning = invInactive.afnReportWarning
+  }
+
   const allListings = [...listingResult.listings, ...inactiveOnly]
-  const fetchedTimes = [listingResult.fetchedAt, invResult.fetchedAt].map((t) => new Date(t).getTime())
+  const fetchedTimes = [listingResult.fetchedAt, invActive.fetchedAt].map((t) => new Date(t).getTime())
   const warnings = []
   if (inactiveWarning) warnings.push(inactiveWarning)
-  if (invResult.afnReportWarning) warnings.push(invResult.afnReportWarning)
+  if (afnReportWarning) warnings.push(afnReportWarning)
+  if (invActive.afnReportWarning) warnings.push(invActive.afnReportWarning)
+  if (invInactiveWarning) warnings.push(invInactiveWarning)
+
   return {
     marketplaceKey,
     listings: allListings,
-    inventoryBySku: invResult.inventoryBySku,
+    inventoryBySku,
     inactiveWarning: warnings.length ? warnings.join(' ') : null,
     inactiveOosCount: inactiveOnly.length,
     amazonFetchedAt: new Date(Math.max(...fetchedTimes)).toISOString(),
   }
 }
 
-async function refreshAmazonZohoStockComparison({ marketplace = 'all', progress } = {}) {
+function attachRowWarnings(rows, messages) {
+  const list = messages.filter(Boolean)
+  if (list.length === 0) return rows
+  return rows.map((row) => ({
+    ...row,
+    warnings: [...(row.warnings || []), ...list],
+  }))
+}
+
+async function refreshAmazonZohoStockComparison({ marketplace = 'all', progress, onMarketplaceComplete } = {}) {
   const mkRaw = String(marketplace || 'all').trim().toLowerCase()
   const marketplaceKeys = mkRaw === 'uae' || mkRaw === 'ksa' ? [mkRaw] : ['uae', 'ksa']
-  const amazonResults = []
   const amazonWarnings = []
+  const comparisonGeneratedAt = new Date().toISOString()
+  let totalRows = 0
+  const zohoMeta = { warehouses: [], matchRates: [] }
+
   for (const marketplaceKey of marketplaceKeys) {
+    let amazonResult
     try {
-      amazonResults.push(await refreshMarketplace({ marketplaceKey, progress }))
+      amazonResult = await refreshMarketplace({ marketplaceKey, progress })
     } catch (e) {
       const message = `Amazon ${marketplaceLabel(marketplaceKey)} refresh failed; existing cached rows for that marketplace were kept.`
       amazonWarnings.push(message)
       console.warn('[amazon-zoho-stock] Amazon refresh failed:', marketplaceKey, e?.message || e)
       if (marketplaceKeys.length === 1) throw e
+      continue
     }
-  }
-  if (amazonResults.length === 0) {
-    const err = new Error('Amazon refresh failed for all marketplaces')
-    err.code = 'AMAZON_ZOHO_STOCK_AMAZON_FAILED'
-    throw err
-  }
-  const skus = []
-  for (const result of amazonResults) {
-    for (const listing of result.listings) skus.push(listing.sellerSku)
-  }
-  let zohoWarning = null
-  let zohoResult
-  try {
-    zohoResult = await fetchZohoStockForSkus({ skus, progress })
-  } catch (e) {
-    zohoWarning = 'Zoho stock refresh failed; Amazon listings were refreshed with Zoho status Unknown.'
-    console.warn('[amazon-zoho-stock] Zoho refresh failed:', e?.message || e)
-    zohoResult = {
-      zohoBySku: new Map(),
-      warehouse: { warehouseName: process.env.ZOHO_LIFE_SMILE_WAREHOUSE_NAME || 'Life Smile Warehouse' },
-      fetchedAt: null,
+
+    let zohoWarning = null
+    let zohoResult
+    try {
+      zohoResult = await fetchZohoStockForSkus({
+        skus: amazonResult.listings.map((l) => l.sellerSku),
+        progress,
+      })
+      zohoMeta.warehouses.push(zohoResult.warehouse)
+      zohoMeta.matchRates.push({
+        marketplaceKey,
+        matched: zohoResult.matchStats?.matched || 0,
+        requested: zohoResult.matchStats?.requested || amazonResult.listings.length,
+        zohoItemsScanned: zohoResult.matchStats?.zohoItemsScanned || 0,
+      })
+      const requested = zohoResult.matchStats?.requested || 0
+      const matched = zohoResult.matchStats?.matched || 0
+      if (requested > 0 && matched / requested < 0.1) {
+        zohoWarning = `Zoho matched only ${matched} of ${requested} Amazon SKUs for ${marketplaceLabel(marketplaceKey)}. Check ZOHO_LIFE_SMILE_WAREHOUSE_ID / warehouse name and SKU formats.`
+      }
+    } catch (e) {
+      zohoWarning = 'Zoho stock refresh failed; Amazon listings were refreshed with Zoho status Unknown.'
+      console.warn('[amazon-zoho-stock] Zoho refresh failed:', e?.message || e)
+      zohoResult = {
+        zohoBySku: new Map(),
+        warehouse: { warehouseName: process.env.ZOHO_LIFE_SMILE_WAREHOUSE_NAME || 'Life Smile Warehouse' },
+        fetchedAt: null,
+        matchStats: { matched: 0, requested: amazonResult.listings.length, zohoItemsScanned: 0 },
+      }
     }
-  }
-  const comparisonGeneratedAt = new Date().toISOString()
-  let totalRows = 0
-  for (const result of amazonResults) {
-    const rows = mergeRows({
-      listings: result.listings,
-      inventoryBySku: result.inventoryBySku,
+
+    let rows = mergeRows({
+      listings: amazonResult.listings,
+      inventoryBySku: amazonResult.inventoryBySku,
       zohoBySku: zohoResult.zohoBySku,
-      amazonFetchedAt: result.amazonFetchedAt,
+      amazonFetchedAt: amazonResult.amazonFetchedAt,
       zohoFetchedAt: zohoResult.fetchedAt,
       comparisonGeneratedAt,
       zohoUnavailable: Boolean(zohoWarning),
       zohoWarehouseName: zohoResult.warehouse?.warehouseName,
     })
-    if (zohoWarning) {
-      rows.forEach((row) => {
-        row.warnings = [...(row.warnings || []), zohoWarning]
-      })
-    }
-    if (amazonWarnings.length > 0) {
-      rows.forEach((row) => {
-        row.warnings = [...(row.warnings || []), ...amazonWarnings]
-      })
-    }
-    if (result.inactiveWarning) {
-      rows.forEach((row) => {
-        row.warnings = [...(row.warnings || []), result.inactiveWarning]
-      })
-    }
-    await store.replaceMarketplaceRows(result.marketplaceKey, rows)
+    rows = attachRowWarnings(rows, [zohoWarning, ...amazonWarnings, amazonResult.inactiveWarning])
+    await store.replaceMarketplaceRows(amazonResult.marketplaceKey, rows)
     totalRows += rows.length
+
+    if (typeof onMarketplaceComplete === 'function') {
+      await onMarketplaceComplete({
+        marketplaceKey: amazonResult.marketplaceKey,
+        rowsInserted: rows.length,
+        zohoMatchStats: zohoResult.matchStats,
+      })
+    }
   }
+
+  if (totalRows === 0 && amazonWarnings.length >= marketplaceKeys.length) {
+    const err = new Error('Amazon refresh failed for all marketplaces')
+    err.code = 'AMAZON_ZOHO_STOCK_AMAZON_FAILED'
+    throw err
+  }
+
   return {
     totalRows,
     marketplaces: marketplaceKeys,
     comparisonGeneratedAt,
+    zohoMeta,
   }
 }
 
-async function readCachedAmazonZohoStock(filters = {}) {
+async function readCachedAmazonZohoStock(filters = {}, options = {}) {
   const result = await store.selectComparisonRows(filters)
   const meta = await store.getComparisonSummary(filters)
   const warnings = []
@@ -213,7 +288,12 @@ async function readCachedAmazonZohoStock(filters = {}) {
   warnings.push(...(await store.getWarningMessages(filters)))
   if (!generated) warnings.push('No cached comparison data is available yet. Run refresh to generate it.')
   const ttlMinutes = Math.max(1, parseInt(String(process.env.AMAZON_ZOHO_STOCK_CACHE_TTL_MINUTES || '15'), 10) || 15)
-  if (generated && Date.now() - new Date(generated).getTime() > ttlMinutes * 60_000) {
+  const refreshRunning = Boolean(options.refreshRunning)
+  if (
+    !refreshRunning &&
+    generated &&
+    Date.now() - new Date(generated).getTime() > ttlMinutes * 60_000
+  ) {
     warnings.push(`Cached comparison data is older than ${ttlMinutes} minutes. Run refresh for fresh stock.`)
   }
   return {

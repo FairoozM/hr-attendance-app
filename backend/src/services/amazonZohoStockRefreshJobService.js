@@ -1,8 +1,14 @@
 const crypto = require('crypto')
 const comparisonService = require('./amazonZohoStockComparisonService')
+const jobStore = require('./amazonZohoStockRefreshJobStore')
 
-const jobs = new Map()
-let activeJobId = null
+let tablesReady = false
+
+async function ensureTables() {
+  if (tablesReady) return
+  await jobStore.ensureAmazonZohoStockRefreshJobTable()
+  tablesReady = true
+}
 
 function serializeJob(job) {
   if (!job) return null
@@ -13,17 +19,8 @@ function serializeJob(job) {
     startedAt: job.startedAt,
     completedAt: job.completedAt,
     error: job.error,
+    totalRows: job.totalRows,
   }
-}
-
-function activeJob() {
-  if (!activeJobId) return null
-  const job = jobs.get(activeJobId)
-  if (!job || !['queued', 'running'].includes(job.status)) {
-    activeJobId = null
-    return null
-  }
-  return job
 }
 
 function safeError(err) {
@@ -31,63 +28,86 @@ function safeError(err) {
   return msg.replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [redacted]').slice(0, 800)
 }
 
-function startAmazonZohoStockRefresh(options = {}) {
-  const running = activeJob()
+async function startAmazonZohoStockRefresh(options = {}) {
+  await ensureTables()
+  await jobStore.markStaleJobsFailed()
+
+  const marketplace = String(options.marketplace || 'all').trim().toLowerCase()
+  const running = await jobStore.findRunningJob(marketplace)
   if (running) return serializeJob(running)
 
   const jobId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`
   const now = new Date().toISOString()
-  const job = {
-    jobId,
-    status: 'queued',
-    progress: { step: 'Queued', current: 0, total: 0 },
-    startedAt: now,
-    completedAt: null,
-    error: null,
-  }
-  jobs.set(jobId, job)
-  activeJobId = jobId
+  await jobStore.insertJob({ jobId, marketplace })
 
   setImmediate(async () => {
-    job.status = 'running'
-    job.progress = { step: 'Starting refresh', current: 0, total: 0 }
+    await jobStore.updateJob(jobId, {
+      status: 'running',
+      progress: { step: 'Starting refresh', current: 0, total: 0 },
+    })
     try {
       const result = await comparisonService.refreshAmazonZohoStockComparison({
-        marketplace: options.marketplace || 'all',
+        marketplace,
         progress: (progress) => {
-          job.progress = {
-            step: progress.step || job.progress.step,
-            current: Number.isFinite(Number(progress.current)) ? Number(progress.current) : job.progress.current,
-            total: Number.isFinite(Number(progress.total)) ? Number(progress.total) : job.progress.total,
-          }
+          void jobStore.updateJob(jobId, {
+            status: 'running',
+            progress: {
+              step: progress.step || 'Running',
+              current: Number.isFinite(Number(progress.current)) ? Number(progress.current) : 0,
+              total: Number.isFinite(Number(progress.total)) ? Number(progress.total) : 0,
+            },
+          })
+        },
+        onMarketplaceComplete: async ({ marketplaceKey, rowsInserted, zohoMatchStats }) => {
+          await jobStore.updateJob(jobId, {
+            status: 'running',
+            progress: {
+              step: `Saved ${marketplaceKey.toUpperCase()} cache (${rowsInserted} rows)`,
+              current: rowsInserted,
+              total: rowsInserted,
+            },
+            metadata: { lastMarketplaceSaved: marketplaceKey, zohoMatchStats },
+          })
         },
       })
-      job.progress = {
-        step: `Completed ${result.totalRows} comparison rows`,
-        current: result.totalRows,
-        total: result.totalRows,
-      }
-      job.status = 'completed'
-      job.completedAt = new Date().toISOString()
+      await jobStore.updateJob(jobId, {
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+        totalRows: result.totalRows,
+        progress: {
+          step: `Completed ${result.totalRows} comparison rows`,
+          current: result.totalRows,
+          total: result.totalRows,
+        },
+        metadata: { zohoMeta: result.zohoMeta },
+      })
     } catch (e) {
-      job.status = 'failed'
-      job.error = safeError(e)
-      job.completedAt = new Date().toISOString()
+      await jobStore.updateJob(jobId, {
+        status: 'failed',
+        error: safeError(e),
+        completedAt: new Date().toISOString(),
+      })
       console.error('[amazon-zoho-stock-refresh]', e?.message || e)
-    } finally {
-      if (activeJobId === jobId) activeJobId = null
     }
   })
 
-  return serializeJob(job)
+  return serializeJob(await jobStore.getJob(jobId))
 }
 
-function getAmazonZohoStockRefreshJob(jobId) {
-  const id = String(jobId || '').trim()
-  return serializeJob(jobs.get(id))
+async function getAmazonZohoStockRefreshJob(jobId) {
+  await ensureTables()
+  return serializeJob(await jobStore.getJob(jobId))
+}
+
+async function isRefreshRunning(marketplace = 'all') {
+  await ensureTables()
+  await jobStore.markStaleJobsFailed()
+  const job = await jobStore.findRunningJob(marketplace)
+  return Boolean(job)
 }
 
 module.exports = {
   startAmazonZohoStockRefresh,
   getAmazonZohoStockRefreshJob,
+  isRefreshRunning,
 }
