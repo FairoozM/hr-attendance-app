@@ -1,14 +1,34 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { api, fetchBinary, downloadBlob } from '../api/client'
 
 const STOCK_FILTERS = [
   { value: 'all', label: 'All' },
-  { value: 'amazonOutOfStock', label: 'Amazon Out of Stock' },
+  { value: 'amazonOutOfStock', label: 'Amazon Out of Stock (FBA qty 0)' },
   { value: 'zohoOutOfStock', label: 'Zoho Out of Stock' },
   { value: 'mismatch', label: 'Mismatch' },
   { value: 'bothOutOfStock', label: 'Both Out of Stock' },
   { value: 'zohoNotFound', label: 'Zoho Not Found' },
 ]
+
+const VALID_STOCK_FILTERS = new Set(STOCK_FILTERS.map((f) => f.value))
+const VALID_MARKETPLACES = new Set(['all', 'uae', 'ksa'])
+
+function parseStockFilter(raw) {
+  const v = String(raw || 'all').trim()
+  return VALID_STOCK_FILTERS.has(v) ? v : 'all'
+}
+
+function parseMarketplace(raw) {
+  const v = String(raw || 'all').trim().toLowerCase()
+  return VALID_MARKETPLACES.has(v) ? v : 'all'
+}
+
+function marketplaceToClearance(mk) {
+  if (mk === 'ksa') return 'KSA'
+  if (mk === 'uae') return 'UAE'
+  return 'UAE'
+}
 
 function buildQuery(params) {
   const qs = new URLSearchParams()
@@ -48,12 +68,23 @@ function statusBadgeClass(label) {
   return 'border-slate-500/40 bg-slate-500/10 text-slate-200'
 }
 
-function SummaryCard({ label, value }) {
+function SummaryCard({ label, value, active, onClick, hint }) {
+  const interactive = typeof onClick === 'function'
+  const Tag = interactive ? 'button' : 'div'
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+    <Tag
+      type={interactive ? 'button' : undefined}
+      onClick={onClick}
+      className={`rounded-2xl border p-4 text-left transition ${
+        active
+          ? 'border-emerald-400/50 bg-emerald-500/15 ring-1 ring-emerald-400/30'
+          : 'border-white/10 bg-white/[0.04]'
+      } ${interactive ? 'cursor-pointer hover:border-emerald-400/40 hover:bg-emerald-500/10' : ''}`}
+    >
       <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{label}</p>
       <p className="mt-2 text-2xl font-bold text-white">{formatNumber(value)}</p>
-    </div>
+      {hint ? <p className="mt-1 text-xs text-slate-500">{hint}</p> : null}
+    </Tag>
   )
 }
 
@@ -76,9 +107,10 @@ async function exportAmazonZohoStock(params) {
 }
 
 export function AmazonZohoStockPage() {
-  const [marketplace, setMarketplace] = useState('all')
-  const [search, setSearch] = useState('')
-  const [stockFilter, setStockFilter] = useState('all')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [marketplace, setMarketplace] = useState(() => parseMarketplace(searchParams.get('marketplace')))
+  const [search, setSearch] = useState(() => String(searchParams.get('search') || ''))
+  const [stockFilter, setStockFilter] = useState(() => parseStockFilter(searchParams.get('stockFilter')))
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(50)
   const [payload, setPayload] = useState(null)
@@ -88,6 +120,28 @@ export function AmazonZohoStockPage() {
   const [job, setJob] = useState(null)
   const [error, setError] = useState('')
   const [refreshError, setRefreshError] = useState('')
+
+  const syncUrl = useCallback((next) => {
+    const params = new URLSearchParams()
+    if (next.marketplace && next.marketplace !== 'all') params.set('marketplace', next.marketplace)
+    if (next.stockFilter && next.stockFilter !== 'all') params.set('stockFilter', next.stockFilter)
+    if (next.search) params.set('search', next.search)
+    setSearchParams(params, { replace: true })
+  }, [setSearchParams])
+
+  const applyStockFilter = useCallback((value) => {
+    const v = parseStockFilter(value)
+    setStockFilter(v)
+    setPage(1)
+    syncUrl({ marketplace, stockFilter: v, search })
+  }, [marketplace, search, syncUrl])
+
+  const applyMarketplace = useCallback((value) => {
+    const v = parseMarketplace(value)
+    setMarketplace(v)
+    setPage(1)
+    syncUrl({ marketplace: v, stockFilter, search })
+  }, [stockFilter, search, syncUrl])
 
   const queryParams = useMemo(() => ({
     marketplace,
@@ -182,9 +236,26 @@ export function AmazonZohoStockPage() {
           Amazon + Zoho Stock Comparison
         </h1>
         <p className="mt-2 max-w-4xl text-sm leading-relaxed text-slate-400">
-          Compare active Amazon listings, including 0-stock active listings, against Zoho Life Smile warehouse stock.
-          Data is served from cache; use Refresh to run the Amazon and Zoho sync in the background.
+          Compare active Amazon listings (including FBA qty 0) against Zoho Life Smile warehouse stock.
+          This is the fast path for your out-of-stock SKUs — no full-catalog Amazon scan on every click.
         </p>
+        <div className="mt-4 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-50">
+          <p className="font-semibold text-emerald-100">Out of stock workflow (use this instead of slow clearance scans)</p>
+          <ol className="mt-2 list-decimal space-y-1 pl-5 text-emerald-50/90">
+            <li>Pick marketplace (UAE or KSA), click <strong>Refresh</strong> once (background sync).</li>
+            <li>Click the <strong>Amazon Out of Stock</strong> card below — instant filter from cache.</li>
+            <li>
+              Open{' '}
+              <Link
+                className="font-semibold text-white underline"
+                to={`/ai/amazon-out-of-stock-clearance?marketplace=${encodeURIComponent(marketplaceToClearance(marketplace))}`}
+              >
+                Out of Stock Clearance
+              </Link>{' '}
+              for Vigil upload and replenishment recommendations.
+            </li>
+          </ol>
+        </div>
       </header>
 
       <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 backdrop-blur-md">
@@ -195,7 +266,7 @@ export function AmazonZohoStockPage() {
               <select
                 className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100"
                 value={marketplace}
-                onChange={(e) => { setMarketplace(e.target.value); setPage(1) }}
+                onChange={(e) => applyMarketplace(e.target.value)}
               >
                 <option value="all">All</option>
                 <option value="uae">UAE</option>
@@ -208,7 +279,11 @@ export function AmazonZohoStockPage() {
                 className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100"
                 placeholder="SKU / ASIN / title"
                 value={search}
-                onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+                onChange={(e) => {
+                  setSearch(e.target.value)
+                  setPage(1)
+                  syncUrl({ marketplace, stockFilter, search: e.target.value })
+                }}
               />
             </label>
             <label className="text-sm text-slate-400">
@@ -216,7 +291,7 @@ export function AmazonZohoStockPage() {
               <select
                 className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100"
                 value={stockFilter}
-                onChange={(e) => { setStockFilter(e.target.value); setPage(1) }}
+                onChange={(e) => applyStockFilter(e.target.value)}
               >
                 {STOCK_FILTERS.map((item) => (
                   <option key={item.value} value={item.value}>{item.label}</option>
@@ -248,11 +323,21 @@ export function AmazonZohoStockPage() {
             </button>
             <button
               type="button"
+              onClick={() => {
+                applyStockFilter('amazonOutOfStock')
+              }}
+              disabled={loading}
+              className="rounded-xl border border-amber-400/40 bg-amber-500/15 px-4 py-2 text-sm font-semibold text-amber-50 hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Show Amazon OOS
+            </button>
+            <button
+              type="button"
               onClick={startRefresh}
               disabled={refreshing || ['queued', 'running'].includes(job?.status)}
               className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {refreshing || ['queued', 'running'].includes(job?.status) ? 'Refreshing…' : 'Refresh'}
+              {refreshing || ['queued', 'running'].includes(job?.status) ? 'Refreshing…' : 'Refresh Amazon + Zoho'}
             </button>
             <button
               type="button"
@@ -291,14 +376,61 @@ export function AmazonZohoStockPage() {
       </section>
 
       <section className="grid gap-3 md:grid-cols-3 xl:grid-cols-7">
-        <SummaryCard label="Total Active Listings" value={summary.totalActiveListings || 0} />
-        <SummaryCard label="Amazon Out of Stock" value={summary.amazonOutOfStock || 0} />
-        <SummaryCard label="Zoho Out of Stock" value={summary.zohoOutOfStock || 0} />
-        <SummaryCard label="Stock Mismatches" value={summary.mismatches || 0} />
-        <SummaryCard label="Zoho Not Found" value={summary.zohoNotFound || 0} />
-        <SummaryCard label="Both Out of Stock" value={summary.bothOutOfStock || 0} />
+        <SummaryCard
+          label="Total Active Listings"
+          value={summary.totalActiveListings || 0}
+          active={stockFilter === 'all'}
+          onClick={() => applyStockFilter('all')}
+          hint="Click to clear filter"
+        />
+        <SummaryCard
+          label="Amazon Out of Stock"
+          value={summary.amazonOutOfStock || 0}
+          active={stockFilter === 'amazonOutOfStock'}
+          onClick={() => applyStockFilter('amazonOutOfStock')}
+          hint="FBA fulfillable qty = 0 · click to filter"
+        />
+        <SummaryCard
+          label="Zoho Out of Stock"
+          value={summary.zohoOutOfStock || 0}
+          active={stockFilter === 'zohoOutOfStock'}
+          onClick={() => applyStockFilter('zohoOutOfStock')}
+        />
+        <SummaryCard
+          label="Stock Mismatches"
+          value={summary.mismatches || 0}
+          active={stockFilter === 'mismatch'}
+          onClick={() => applyStockFilter('mismatch')}
+        />
+        <SummaryCard
+          label="Zoho Not Found"
+          value={summary.zohoNotFound || 0}
+          active={stockFilter === 'zohoNotFound'}
+          onClick={() => applyStockFilter('zohoNotFound')}
+        />
+        <SummaryCard
+          label="Both Out of Stock"
+          value={summary.bothOutOfStock || 0}
+          active={stockFilter === 'bothOutOfStock'}
+          onClick={() => applyStockFilter('bothOutOfStock')}
+        />
         <SummaryCard label="Low Zoho Stock" value={summary.lowZohoStock || 0} />
       </section>
+
+      {stockFilter === 'amazonOutOfStock' && (summary.amazonOutOfStock || 0) > 0 ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-sky-400/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
+          <span>
+            Showing {formatNumber(pagination.total)} Amazon out-of-stock SKU(s) from cache
+            {marketplace !== 'all' ? ` (${marketplace.toUpperCase()})` : ''}.
+          </span>
+          <Link
+            className="rounded-lg bg-sky-600 px-3 py-1.5 font-semibold text-white hover:bg-sky-500"
+            to={`/ai/amazon-out-of-stock-clearance?marketplace=${encodeURIComponent(marketplaceToClearance(marketplace))}`}
+          >
+            Continue to Clearance →
+          </Link>
+        </div>
+      ) : null}
 
       <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 backdrop-blur-md">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">

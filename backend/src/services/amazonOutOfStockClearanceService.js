@@ -64,7 +64,7 @@ async function getOutOfStockFromCache(marketplace) {
   const warnings = []
   if (!meta.timestamps.comparisonGeneratedAt) {
     warnings.push(
-      'No cached Amazon + Zoho stock data yet. Use “Refresh from Amazon (live)” or run Refresh on Amazon + Zoho Stock first.'
+      'No cached Amazon + Zoho stock data yet. Open Amazon + Zoho Stock, pick marketplace, click Refresh Amazon + Zoho, then filter Amazon Out of Stock.'
     )
   }
   const rows = cached.map((row) => mapCachedComparisonRow(row, mk))

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { SummaryCards } from '../components/amazon/outOfStockClearance/SummaryCards'
 import { VigilUploadPanel } from '../components/amazon/outOfStockClearance/VigilUploadPanel'
 import { ResultsTable } from '../components/amazon/outOfStockClearance/ResultsTable'
@@ -24,8 +25,21 @@ function safeError(err: unknown) {
   return err instanceof Error ? err.message : 'Request failed'
 }
 
+function marketplaceFromQuery(raw: string | null): MarketplaceCode {
+  const v = String(raw || '').trim().toUpperCase()
+  return v === 'KSA' ? 'KSA' : 'UAE'
+}
+
+function marketplaceToZohoStockPath(mk: MarketplaceCode) {
+  const slug = mk === 'KSA' ? 'ksa' : 'uae'
+  return `/ai/amazon-zoho-stock?marketplace=${slug}&stockFilter=amazonOutOfStock`
+}
+
 export function AmazonOutOfStockClearancePage() {
-  const [marketplace, setMarketplace] = useState<MarketplaceCode>('UAE')
+  const [searchParams] = useSearchParams()
+  const [marketplace, setMarketplace] = useState<MarketplaceCode>(() =>
+    marketplaceFromQuery(searchParams.get('marketplace'))
+  )
   const [amazonRows, setAmazonRows] = useState<AmazonOosRow[]>([])
   const [zohoRows, setZohoRows] = useState<ZohoStockRow[]>([])
   const [vigilRows, setVigilRows] = useState<VigilParsedRow[]>([])
@@ -145,6 +159,10 @@ export function AmazonOutOfStockClearancePage() {
     }, 4000)
     return () => window.clearInterval(timer)
   }, [fetchJob?.jobId, fetchJob?.status, applyFetchResult])
+
+  useEffect(() => {
+    void runLoadFromCache()
+  }, [runLoadFromCache])
 
   const runCalculate = useCallback(async () => {
     if (amazonRows.length === 0) {
@@ -269,12 +287,43 @@ export function AmazonOutOfStockClearancePage() {
           Amazon Out of Stock Clearance
         </h1>
         <p className="mt-2 max-w-4xl text-sm leading-relaxed text-slate-400">
-          Find Amazon UAE/KSA SKUs with zero FBA fulfillable quantity, compare Life Smile Zoho stock and
-          Vigil wholesale availability, and get recommended replenishment quantities. Amazon SP-API has no
-          dedicated “out of stock” endpoint — we use paginated FBA inventory summaries and filter locally.
-          Amazon inventory updates are not enabled in this release.
+          Replenishment workflow for Amazon UAE/KSA SKUs with zero FBA fulfillable quantity. OOS SKUs are
+          loaded from the same cache as{' '}
+          <Link className="text-emerald-300 underline" to={marketplaceToZohoStockPath(marketplace)}>
+            Amazon + Zoho Stock
+          </Link>{' '}
+          (refresh once there, filter Amazon Out of Stock). Amazon inventory writes are not enabled yet.
         </p>
       </header>
+
+      <section className="rounded-3xl border border-emerald-400/25 bg-emerald-500/10 p-5 backdrop-blur-md">
+        <p className="text-sm font-semibold text-emerald-100">Step 1 — refresh OOS list (fast)</p>
+        <p className="mt-1 text-sm text-emerald-50/90">
+          On{' '}
+          <Link className="font-semibold text-white underline" to={marketplaceToZohoStockPath(marketplace)}>
+            Amazon + Zoho Stock
+          </Link>
+          : choose {marketplace}, click <strong>Refresh Amazon + Zoho</strong>, then{' '}
+          <strong>Show Amazon OOS</strong> or the <strong>Amazon Out of Stock</strong> summary card. This page
+          reloads those cached rows automatically.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Link
+            className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
+            to={marketplaceToZohoStockPath(marketplace)}
+          >
+            Open Amazon + Zoho Stock (OOS filter) →
+          </Link>
+          <button
+            type="button"
+            className="rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10 disabled:opacity-50"
+            disabled={fetchingAmazon}
+            onClick={() => void runLoadFromCache()}
+          >
+            {fetchingAmazon ? 'Loading cache…' : 'Reload OOS from cache'}
+          </button>
+        </div>
+      </section>
 
       <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 backdrop-blur-md">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -302,34 +351,31 @@ export function AmazonOutOfStockClearancePage() {
               />
             </label>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
+        </div>
+        <details className="mt-4 rounded-xl border border-white/10 bg-slate-950/40 px-4 py-3">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-300">
+            Advanced — live Amazon sync (only if cache is empty or stale)
+          </summary>
+          <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
-              className="rounded-xl border border-white/15 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white hover:bg-white/10 disabled:opacity-50"
-              disabled={fetchingAmazon}
-              onClick={() => void runLoadFromCache()}
-            >
-              Load from cache (fast)
-            </button>
-            <button
-              type="button"
-              className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+              className="rounded-xl border border-white/15 px-4 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-50"
               disabled={fetchingAmazon}
               onClick={() => void runLiveFetchAmazon('fast')}
             >
-              {fetchingAmazon && fetchJob ? 'Refreshing Amazon FBA…' : 'Refresh Amazon FBA (fast)'}
+              {fetchingAmazon && fetchJob ? 'Refreshing…' : 'Refresh FBA for cached SKUs'}
             </button>
             <button
               type="button"
-              className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-2.5 text-sm text-sky-100 hover:bg-sky-500/20 disabled:opacity-50"
+              className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-sm text-sky-100 hover:bg-sky-500/20 disabled:opacity-50"
               disabled={fetchingAmazon}
-              title="Pages Amazon FBA Inventory API — no listings report"
+              title="Pages entire FBA catalog — slow"
               onClick={() => void runLiveFetchAmazon('fba')}
             >
-              Discover all OOS (FBA API)
+              Discover all OOS (slow)
             </button>
           </div>
-        </div>
+        </details>
         {fetchingAmazon && fetchProgress && (
           <p className="mt-3 text-sm text-sky-200/90">{fetchProgress}</p>
         )}
