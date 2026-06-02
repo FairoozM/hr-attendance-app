@@ -13,13 +13,13 @@ const STATUS_OPTIONS = [
 
 function statusBadgeClass(status: string) {
   const s = status.toLowerCase()
-  if (s.includes('ready')) return 'border-emerald-400/40 bg-emerald-500/10 text-emerald-100'
-  if (s.includes('no stock')) return 'border-slate-500/40 bg-slate-500/10 text-slate-300'
-  if (s.includes('zoho')) return 'border-orange-400/40 bg-orange-500/10 text-orange-200'
-  if (s.includes('vigil')) return 'border-amber-400/40 bg-amber-500/10 text-amber-100'
-  if (s.includes('color') || s.includes('base')) return 'border-sky-400/40 bg-sky-500/10 text-sky-100'
-  if (s.includes('manual')) return 'border-rose-400/40 bg-rose-500/10 text-rose-100'
-  return 'border-slate-500/40 bg-slate-500/10 text-slate-200'
+  if (s.includes('ready')) return 'ainv-badge ainv-badge--ok'
+  if (s.includes('no stock')) return 'ainv-badge ainv-badge--neutral'
+  if (s.includes('zoho')) return 'ainv-badge ainv-badge--warn'
+  if (s.includes('vigil')) return 'ainv-badge ainv-badge--warn'
+  if (s.includes('color') || s.includes('base')) return 'ainv-badge ainv-badge--ok'
+  if (s.includes('manual')) return 'ainv-badge ainv-badge--danger'
+  return 'ainv-badge ainv-badge--neutral'
 }
 
 interface ResultsTableProps {
@@ -62,19 +62,19 @@ export function ResultsTable({
   const allSelected = readyIds.length > 0 && readyIds.every((id) => selectedIds.has(id))
 
   return (
-    <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 backdrop-blur-md">
+    <section className="ainv-panel">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <h2 className="text-lg font-semibold text-white">Recommendations</h2>
+        <h2 className="ainv-section-title">Recommendations</h2>
         <div className="grid flex-1 gap-3 sm:grid-cols-3">
           <input
             type="search"
             placeholder="Search SKU or title"
-            className="rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100"
+            className="ainv-input"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
           <select
-            className="rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100"
+            className="ainv-input"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
@@ -85,7 +85,7 @@ export function ResultsTable({
             ))}
           </select>
           <select
-            className="rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100"
+            className="ainv-input"
             value={matchFilter}
             onChange={(e) => setMatchFilter(e.target.value)}
           >
@@ -97,10 +97,10 @@ export function ResultsTable({
           </select>
         </div>
       </div>
-      <div className="mt-4 overflow-x-auto">
-        <table className="min-w-[1100px] w-full text-left text-sm text-slate-200">
-          <thead className="text-xs uppercase tracking-wide text-slate-500">
-            <tr className="border-b border-white/10">
+      <div className="ainv-table-wrap mt-4" style={{ maxHeight: 'none' }}>
+        <table className="ainv-table" style={{ minWidth: '1100px' }}>
+          <thead>
+            <tr>
               <th className="px-2 py-3">
                 <input
                   type="checkbox"
@@ -126,7 +126,7 @@ export function ResultsTable({
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={13} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={13} className="py-8 text-center ainv-table__muted">
                   No rows match your filters.
                 </td>
               </tr>
@@ -135,7 +135,7 @@ export function ResultsTable({
                 const manual = manualMappings[row.amazonSku]
                 const canSelect = row.status === 'Ready to Update'
                 return (
-                  <tr key={row.id} className="border-b border-white/5 hover:bg-white/[0.02]">
+                  <tr key={row.id}>
                     <td className="px-2 py-2">
                       <input
                         type="checkbox"
@@ -154,29 +154,25 @@ export function ResultsTable({
                     <td className="px-2 py-2">
                       <div className="font-mono text-xs">{row.vigilMatchedCode || '—'}</div>
                       {row.vigilMatchedName && (
-                        <div className="truncate text-xs text-slate-500">{row.vigilMatchedName}</div>
+                        <div className="truncate text-xs ainv-table__muted">{row.vigilMatchedName}</div>
                       )}
                     </td>
                     <td className="px-2 py-2 text-right">{row.vigilQty}</td>
                     <td className="px-2 py-2 text-right">{row.totalAvailableQty}</td>
-                    <td className="px-2 py-2 text-right font-semibold text-emerald-200">
+                    <td className="px-2 py-2 text-right ainv-table__qty-rec">
                       {row.recommendedAmazonUpdateQty}
                       {row.manuallyEdited || manual?.locked ? (
-                        <span className="ml-1 text-xs text-amber-300">*</span>
+                        <span className="ml-1 text-xs ainv-table__status-inactive">*</span>
                       ) : null}
                     </td>
                     <td className="px-2 py-2 text-xs">{row.matchMethod}</td>
                     <td className="px-2 py-2">
-                      <span
-                        className={`inline-block rounded-lg border px-2 py-0.5 text-xs ${statusBadgeClass(row.status)}`}
-                      >
-                        {row.status}
-                      </span>
+                      <span className={statusBadgeClass(row.status)}>{row.status}</span>
                     </td>
                     <td className="px-2 py-2">
                       <button
                         type="button"
-                        className="text-xs text-sky-300 hover:text-sky-200"
+                        className="text-xs ainv-link-emerald"
                         onClick={() => onEditRow(row)}
                       >
                         Edit
@@ -189,7 +185,7 @@ export function ResultsTable({
           </tbody>
         </table>
       </div>
-      <p className="mt-2 text-xs text-slate-500">
+      <p className="mt-2 text-xs ainv-table__muted">
         Showing {filtered.length} of {rows.length} rows. * = manually edited.
       </p>
     </section>

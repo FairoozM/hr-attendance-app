@@ -439,6 +439,44 @@
   color: var(--text);
 }
 
+:root[data-theme='light'] .bg-slate-950,
+:root[data-theme='comfort'] .bg-slate-950,
+:root[data-theme='light'] .bg-slate-950\/50,
+:root[data-theme='comfort'] .bg-slate-950\/50,
+:root[data-theme='light'] .bg-slate-950\/80,
+:root[data-theme='comfort'] .bg-slate-950\/80,
+:root[data-theme='light'] .bg-slate-950\/40,
+:root[data-theme='comfort'] .bg-slate-950\/40,
+:root[data-theme='light'] .bg-slate-900,
+:root[data-theme='comfort'] .bg-slate-900 {
+  background-color: var(--theme-input-bg) !important;
+}
+
+:root[data-theme='light'] .text-emerald-50,
+:root[data-theme='comfort'] .text-emerald-50,
+:root[data-theme='light'] .text-emerald-50\/90,
+:root[data-theme='comfort'] .text-emerald-50\/90 {
+  color: #064e3b !important;
+}
+
+:root[data-theme='light'] .text-emerald-100,
+:root[data-theme='comfort'] .text-emerald-100 {
+  color: #065f46 !important;
+}
+
+:root[data-theme='light'] .text-amber-50,
+:root[data-theme='comfort'] .text-amber-50 {
+  color: #78350f !important;
+}
+
+:root[data-theme='light'] .bg-clip-text.text-transparent,
+:root[data-theme='comfort'] .bg-clip-text.text-transparent {
+  background-image: var(--theme-heading-gradient) !important;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent !important;
+}
+
 /* Keep filled action buttons, badges, and alerts legible after the global remap. */
 :root[data-theme='light'] .bg-violet-500.text-white,
 :root[data-theme='comfort'] .bg-violet-500.text-white,

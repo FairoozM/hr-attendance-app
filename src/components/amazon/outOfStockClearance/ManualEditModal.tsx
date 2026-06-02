@@ -22,49 +22,37 @@ export function ManualEditModal({ row, onClose, onSave }: ManualEditModalProps) 
   if (!row) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-6 shadow-xl">
-        <h3 className="text-lg font-semibold text-white">Manual review — {row.amazonSku}</h3>
-        <p className="mt-1 text-sm text-slate-400">{row.amazonTitle}</p>
+    <div className="ainv-modal-backdrop">
+      <div className="ainv-modal w-full max-w-md">
+        <h3 className="ainv-modal__title">Manual review — {row.amazonSku}</h3>
+        <p className="ainv-modal__body">{row.amazonTitle}</p>
         <div className="mt-4 space-y-3">
-          <label className="block text-sm text-slate-400">
+          <label className="ainv-label">
             Zoho SKU
-            <input
-              className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white"
-              value={zohoSku}
-              onChange={(e) => setZohoSku(e.target.value)}
-            />
+            <input className="ainv-input" value={zohoSku} onChange={(e) => setZohoSku(e.target.value)} />
           </label>
-          <label className="block text-sm text-slate-400">
+          <label className="ainv-label">
             Vigil item code
-            <input
-              className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white"
-              value={vigilCode}
-              onChange={(e) => setVigilCode(e.target.value)}
-            />
+            <input className="ainv-input" value={vigilCode} onChange={(e) => setVigilCode(e.target.value)} />
           </label>
-          <label className="block text-sm text-slate-400">
+          <label className="ainv-label">
             Recommended Amazon update qty
             <input
               type="number"
               min={0}
-              className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white"
+              className="ainv-input"
               value={recommendedQty}
               onChange={(e) => setRecommendedQty(e.target.value)}
             />
           </label>
         </div>
         <div className="mt-6 flex justify-end gap-2">
-          <button
-            type="button"
-            className="rounded-xl border border-white/15 px-4 py-2 text-sm text-slate-300"
-            onClick={onClose}
-          >
+          <button type="button" className="ainv-btn" onClick={onClose}>
             Cancel
           </button>
           <button
             type="button"
-            className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white"
+            className="ainv-btn ainv-btn--primary-emerald"
             onClick={() => {
               onSave(row.amazonSku, {
                 locked: true,

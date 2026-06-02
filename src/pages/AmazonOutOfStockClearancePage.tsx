@@ -288,16 +288,14 @@ export function AmazonOutOfStockClearancePage() {
   )
 
   return (
-    <div className="mx-auto flex max-w-[120rem] flex-col gap-8 px-4 pb-16 pt-4 md:px-6">
-      <header className="rounded-3xl border border-white/10 bg-gradient-to-br from-amber-500/10 via-transparent to-emerald-600/10 p-6 backdrop-blur-xl">
-        <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-300/90">Admin · Amazon</p>
-        <h1 className="mt-1 bg-gradient-to-r from-white to-slate-300 bg-clip-text text-3xl font-bold tracking-tight text-transparent md:text-4xl">
-          Amazon Out of Stock Clearance
-        </h1>
-        <p className="mt-2 max-w-4xl text-sm leading-relaxed text-slate-400">
+    <div className="ainv-page mx-auto flex max-w-[120rem] flex-col gap-8 px-4 pb-16 pt-4 md:px-6">
+      <header className="ainv-page__header">
+        <p className="ainv-page__eyebrow ainv-page__eyebrow--amber">Admin · Amazon</p>
+        <h1 className="ainv-page__title">Amazon Out of Stock Clearance</h1>
+        <p className="ainv-page__lead">
           Replenishment workflow for Amazon UAE/KSA SKUs with zero FBA fulfillable quantity. OOS SKUs are
           loaded from the same cache as{' '}
-          <Link className="text-emerald-300 underline" to={marketplaceToZohoStockPath(marketplace, oosFilter)}>
+          <Link className="ainv-link-emerald" to={marketplaceToZohoStockPath(marketplace, oosFilter)}>
             Amazon + Zoho Stock
           </Link>{' '}
           (refresh once there — includes Amazon inactive OOS report). Amazon inventory writes are not enabled yet.
@@ -312,11 +310,11 @@ export function AmazonOutOfStockClearancePage() {
         fetchedAt={fetchedAt}
       />
 
-      <section className="rounded-3xl border border-emerald-400/25 bg-emerald-500/10 p-5 backdrop-blur-md">
-        <p className="text-sm font-semibold text-emerald-100">Step 1 — refresh OOS list (fast)</p>
-        <p className="mt-1 text-sm text-emerald-50/90">
+      <section className="ainv-step-panel">
+        <p className="ainv-step-panel__title">Step 1 — refresh OOS list (fast)</p>
+        <p className="ainv-step-panel__body">
           On{' '}
-          <Link className="font-semibold text-white underline" to={marketplaceToZohoStockPath(marketplace, oosFilter)}>
+          <Link to={marketplaceToZohoStockPath(marketplace, oosFilter)}>
             Amazon + Zoho Stock
           </Link>
           : choose {marketplace}, click <strong>Refresh Amazon + Zoho</strong> (pulls inactive OOS report), then
@@ -324,14 +322,14 @@ export function AmazonOutOfStockClearancePage() {
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <Link
-            className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
+            className="ainv-btn ainv-btn--primary-emerald"
             to={marketplaceToZohoStockPath(marketplace, oosFilter)}
           >
             Open Amazon + Zoho Stock →
           </Link>
           <button
             type="button"
-            className="rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10 disabled:opacity-50"
+            className="ainv-btn"
             disabled={fetchingAmazon}
             onClick={() => void runLoadFromCache()}
           >
@@ -340,13 +338,13 @@ export function AmazonOutOfStockClearancePage() {
         </div>
       </section>
 
-      <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 backdrop-blur-md">
+      <section className="ainv-panel">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="grid flex-1 gap-3 md:grid-cols-3">
-            <label className="text-sm text-slate-400">
+            <label className="ainv-label">
               Marketplace
               <select
-                className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100"
+                className="ainv-input"
                 value={marketplace}
                 onChange={(e) => setMarketplace(e.target.value as MarketplaceCode)}
               >
@@ -354,10 +352,10 @@ export function AmazonOutOfStockClearancePage() {
                 <option value="KSA">KSA</option>
               </select>
             </label>
-            <label className="text-sm text-slate-400 md:col-span-2">
+            <label className="ainv-label md:col-span-2">
               OOS source (Amazon filter)
               <select
-                className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100"
+                className="ainv-input"
                 value={oosFilter}
                 onChange={(e) => setOosFilter(e.target.value as AmazonOosFilter)}
               >
@@ -369,27 +367,27 @@ export function AmazonOutOfStockClearancePage() {
                 </option>
               </select>
             </label>
-            <label className="text-sm text-slate-400 md:col-span-3">
+            <label className="ainv-label md:col-span-3">
               Max recommended qty (optional cap)
               <input
                 type="number"
                 min={0}
                 placeholder="No cap"
-                className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100"
+                className="ainv-input"
                 value={maxRecommendedQty}
                 onChange={(e) => setMaxRecommendedQty(e.target.value)}
               />
             </label>
           </div>
         </div>
-        <details className="mt-4 rounded-xl border border-white/10 bg-slate-950/40 px-4 py-3">
-          <summary className="cursor-pointer text-sm font-semibold text-slate-300">
+        <details className="ainv-details">
+          <summary>
             Advanced — live Amazon sync (only if cache is empty or stale)
           </summary>
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
-              className="rounded-xl border border-white/15 px-4 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-50"
+              className="ainv-btn"
               disabled={fetchingAmazon}
               onClick={() => void runLiveFetchAmazon('fast')}
             >
@@ -397,7 +395,7 @@ export function AmazonOutOfStockClearancePage() {
             </button>
             <button
               type="button"
-              className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-sm text-sky-100 hover:bg-sky-500/20 disabled:opacity-50"
+              className="ainv-btn ainv-btn--primary-sky"
               disabled={fetchingAmazon}
               title="Pages entire FBA catalog — slow"
               onClick={() => void runLiveFetchAmazon('fba')}
@@ -407,10 +405,10 @@ export function AmazonOutOfStockClearancePage() {
           </div>
         </details>
         {fetchingAmazon && fetchProgress && (
-          <p className="mt-3 text-sm text-sky-200/90">{fetchProgress}</p>
+          <p className="ainv-banner ainv-banner--sky mt-3">{fetchProgress}</p>
         )}
         {fetchedAt && (
-          <p className="mt-3 text-xs text-slate-500">
+          <p className="mt-3 text-xs" style={{ color: 'var(--text-dim)' }}>
             Data {dataSource === 'live' ? 'from live Amazon' : dataSource === 'cache' ? 'from cache' : ''} ·{' '}
             {new Date(fetchedAt).toLocaleString()}
           </p>
@@ -418,7 +416,7 @@ export function AmazonOutOfStockClearancePage() {
       </section>
 
       {error && (
-        <div className="rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+        <div className="ainv-banner ainv-banner--rose">
           {error}
           <button type="button" className="ml-3 underline" onClick={() => setError('')}>
             Dismiss
@@ -427,7 +425,7 @@ export function AmazonOutOfStockClearancePage() {
       )}
 
       {warnings.length > 0 && (
-        <ul className="rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+        <ul className="ainv-banner ainv-banner--amber">
           {warnings.map((w) => (
             <li key={w}>{w}</li>
           ))}
@@ -436,7 +434,7 @@ export function AmazonOutOfStockClearancePage() {
 
       {summary ? (
         <section>
-          <h2 className="mb-3 text-lg font-bold text-white">After calculate</h2>
+          <h2 className="ainv-section-title mb-3">After calculate</h2>
           <SummaryCards summary={summary} />
         </section>
       ) : null}
@@ -451,7 +449,7 @@ export function AmazonOutOfStockClearancePage() {
       <div className="flex flex-wrap gap-3">
         <button
           type="button"
-          className="rounded-xl bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50"
+          className="ainv-btn ainv-btn--primary-sky"
           disabled={calculating || amazonRows.length === 0 || vigilRows.length === 0}
           onClick={() => void runCalculate()}
         >
@@ -459,7 +457,7 @@ export function AmazonOutOfStockClearancePage() {
         </button>
         <button
           type="button"
-          className="rounded-xl border border-white/15 px-4 py-2 text-sm text-white disabled:opacity-50"
+          className="ainv-btn"
           disabled={exporting || resultRows.length === 0}
           onClick={() => void handleExport('full')}
         >
@@ -467,7 +465,7 @@ export function AmazonOutOfStockClearancePage() {
         </button>
         <button
           type="button"
-          className="rounded-xl border border-white/15 px-4 py-2 text-sm text-white disabled:opacity-50"
+          className="ainv-btn"
           disabled={exporting || resultRows.length === 0}
           onClick={() => void handleExport('ready')}
         >
@@ -475,7 +473,7 @@ export function AmazonOutOfStockClearancePage() {
         </button>
         <button
           type="button"
-          className="rounded-xl border border-white/15 px-4 py-2 text-sm text-white disabled:opacity-50"
+          className="ainv-btn"
           disabled={exporting || resultRows.length === 0}
           onClick={() => void handleExport('manualReview')}
         >
@@ -484,7 +482,7 @@ export function AmazonOutOfStockClearancePage() {
         <button
           type="button"
           title="Amazon inventory write API is not enabled in this release"
-          className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-500 cursor-not-allowed"
+          className="ainv-btn cursor-not-allowed opacity-50"
           disabled
           onClick={() => setShowUpdateModal(true)}
         >
@@ -514,21 +512,17 @@ export function AmazonOutOfStockClearancePage() {
       />
 
       {showUpdateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="max-w-lg rounded-2xl border border-white/10 bg-slate-900 p-6">
-            <h3 className="text-lg font-semibold text-white">Update Amazon inventory</h3>
-            <p className="mt-2 text-sm text-slate-400">
+        <div className="ainv-modal-backdrop">
+          <div className="ainv-modal max-w-lg">
+            <h3 className="ainv-modal__title">Update Amazon inventory</h3>
+            <p className="ainv-modal__body">
               Marketplace: {marketplace} · {selectedRows.length} SKU(s) · {totalSelectedQty} total units
             </p>
-            <p className="mt-4 text-sm text-amber-200">
+            <p className="ainv-modal__warn">
               Amazon SP-API inventory updates are disabled in this release. Export recommendations and
               update inventory manually, or enable Stage 2 when available.
             </p>
-            <button
-              type="button"
-              className="mt-4 rounded-xl border border-white/15 px-4 py-2 text-sm text-white"
-              onClick={() => setShowUpdateModal(false)}
-            >
+            <button type="button" className="ainv-btn mt-4" onClick={() => setShowUpdateModal(false)}>
               Close
             </button>
           </div>

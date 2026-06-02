@@ -60,16 +60,17 @@ export function VigilUploadPanel({ onConfirmed }: VigilUploadPanelProps) {
   const headers = preview?.availableHeaders || preview?.headers || []
 
   return (
-    <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 backdrop-blur-md">
-      <h2 className="text-lg font-semibold text-white">Vigil wholesale stock upload</h2>
-      <p className="mt-1 text-sm text-slate-400">
+    <section className="ainv-panel">
+      <h2 className="ainv-section-title">Vigil wholesale stock upload</h2>
+      <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>
         Upload Excel or CSV. Preview and confirm column mapping before calculation.
       </p>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <input
           type="file"
           accept=".csv,.xls,.xlsx,text/csv"
-          className="text-sm text-slate-300"
+          className="text-sm"
+          style={{ color: 'var(--text-soft)' }}
           onChange={(e) => {
             setFile(e.target.files?.[0] || null)
             setPreview(null)
@@ -79,7 +80,7 @@ export function VigilUploadPanel({ onConfirmed }: VigilUploadPanelProps) {
         />
         <button
           type="button"
-          className="rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-50"
+          className="ainv-btn"
           disabled={!file || busy}
           onClick={() => void runPreview()}
         >
@@ -87,20 +88,20 @@ export function VigilUploadPanel({ onConfirmed }: VigilUploadPanelProps) {
         </button>
         <button
           type="button"
-          className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+          className="ainv-btn ainv-btn--primary-emerald"
           disabled={!preview || busy || preview.summary.validRows === 0 || (needsMapping && (!itemCodeHeader || !stockHeader))}
           onClick={confirmRows}
         >
           Confirm Vigil data
         </button>
       </div>
-      {error && <p className="mt-3 text-sm text-amber-200">{error}</p>}
+      {error && <p className="ainv-banner ainv-banner--amber mt-3">{error}</p>}
       {needsMapping && headers.length > 0 && (
         <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <label className="text-sm text-slate-400">
+          <label className="ainv-label">
             Item code column
             <select
-              className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100"
+              className="ainv-input"
               value={itemCodeHeader}
               onChange={(e) => setItemCodeHeader(e.target.value)}
             >
@@ -112,10 +113,10 @@ export function VigilUploadPanel({ onConfirmed }: VigilUploadPanelProps) {
               ))}
             </select>
           </label>
-          <label className="text-sm text-slate-400">
+          <label className="ainv-label">
             Stock quantity column
             <select
-              className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100"
+              className="ainv-input"
               value={stockHeader}
               onChange={(e) => setStockHeader(e.target.value)}
             >
@@ -129,7 +130,7 @@ export function VigilUploadPanel({ onConfirmed }: VigilUploadPanelProps) {
           </label>
           <button
             type="button"
-            className="md:col-span-2 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-100"
+            className="ainv-btn ainv-btn--amber md:col-span-2"
             disabled={!itemCodeHeader || !stockHeader || busy}
             onClick={() =>
               void runPreview({ itemCodeHeader, stockHeader })
@@ -140,13 +141,13 @@ export function VigilUploadPanel({ onConfirmed }: VigilUploadPanelProps) {
         </div>
       )}
       {preview && (
-        <div className="mt-4 overflow-x-auto rounded-xl border border-white/10">
-          <p className="border-b border-white/10 px-4 py-2 text-xs text-slate-400">
+        <div className="ainv-table-wrap mt-4" style={{ maxHeight: 'none' }}>
+          <p className="px-4 py-2 text-xs ainv-table__muted" style={{ borderBottom: '1px solid var(--theme-border)' }}>
             {preview.summary.validRows} valid / {preview.summary.invalidRows} invalid — Item:{' '}
             {preview.summary.itemCodeHeader || '—'} · Stock: {preview.summary.stockHeader || '—'}
           </p>
-          <table className="min-w-full text-left text-sm text-slate-200">
-            <thead className="bg-white/5 text-xs uppercase text-slate-500">
+          <table className="ainv-table">
+            <thead>
               <tr>
                 <th className="px-3 py-2">Row</th>
                 <th className="px-3 py-2">Item code</th>
@@ -156,7 +157,7 @@ export function VigilUploadPanel({ onConfirmed }: VigilUploadPanelProps) {
             </thead>
             <tbody>
               {preview.rows.slice(0, 10).map((row) => (
-                <tr key={row.rowNumber} className="border-t border-white/5">
+                <tr key={row.rowNumber}>
                   <td className="px-3 py-2">{row.rowNumber}</td>
                   <td className="px-3 py-2">{row.itemCode || '—'}</td>
                   <td className="px-3 py-2">{row.availableStock}</td>

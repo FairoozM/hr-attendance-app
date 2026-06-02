@@ -6,6 +6,7 @@ import { preloadApiBaseUrl, getApiBaseUrl } from './lib/api'
 import { installScrollIdleHook } from './lib/scrollIdle'
 import { installDisableNumberInputNudges } from './lib/disableNumberInputNudges'
 import './index.css'
+import './styles/amazonInventoryPage.css'
 
 preloadApiBaseUrl()
 console.log('API base URL =', getApiBaseUrl())

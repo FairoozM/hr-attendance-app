@@ -17,9 +17,9 @@ function formatNumber(value: number | undefined) {
 
 function SummaryCard({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{label}</p>
-      <p className="mt-2 text-2xl font-bold text-white">{value}</p>
+    <div className="ainv-summary-card">
+      <p className="ainv-summary-card__label">{label}</p>
+      <p className="ainv-summary-card__value">{value}</p>
     </div>
   )
 }

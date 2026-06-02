@@ -96,18 +96,15 @@ export function AmazonOosSkusTable({
   }
 
   return (
-    <section
-      id="oos-sku-list"
-      className="scroll-mt-4 rounded-3xl border-2 border-emerald-400/30 bg-white/[0.03] p-6 backdrop-blur-md"
-    >
+    <section id="oos-sku-list" className="ainv-oos-section">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-300/90">SKU list</p>
-          <h2 className="mt-1 text-2xl font-bold text-white">
+          <p className="ainv-oos-section__eyebrow">SKU list</p>
+          <h2 className="ainv-oos-section__title">
             {loading ? '…' : formatQty(rows.length)}{' '}
             {isScInactive ? 'Seller Central inactive OOS SKUs' : 'Amazon FBA zero-stock SKUs'}
           </h2>
-          <p className="mt-2 max-w-2xl text-sm text-slate-400">
+          <p className="mt-2 max-w-2xl text-sm" style={{ color: 'var(--text-muted)' }}>
             {isScInactive
               ? 'From Amazon GET_MERCHANT_LISTINGS_INACTIVE_DATA — same bucket as Seller Central Manage Inventory → Inactive → Out of stock.'
               : 'Active listings where FBA on-hand and fulfillable are both 0 (much larger set than SC inactive OOS).'}
@@ -116,7 +113,7 @@ export function AmazonOosSkusTable({
             for the full list.
           </p>
           {!loading && rows.length > 0 ? (
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-sm" style={{ color: 'var(--text-dim)' }}>
               Page {page} of {totalPages} · {formatQty(filtered.length)} matching
               {search ? ' search' : ''}
               {fetchedAt ? ` · cache ${new Date(fetchedAt).toLocaleString()}` : ''}
@@ -127,14 +124,14 @@ export function AmazonOosSkusTable({
           <input
             type="search"
             placeholder="Search SKU / ASIN / title"
-            className="flex-1 rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100"
+            className="ainv-input flex-1"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             disabled={loading || rows.length === 0}
           />
           <button
             type="button"
-            className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50"
+            className="ainv-btn ainv-btn--primary-sky"
             disabled={loading || filtered.length === 0}
             onClick={exportCsv}
           >
@@ -143,35 +140,35 @@ export function AmazonOosSkusTable({
         </div>
       </div>
 
-      <div className="mt-4 overflow-auto rounded-2xl border border-white/10 bg-slate-950/50">
-        <table className="min-w-full text-left text-sm text-slate-200">
-          <thead className="sticky top-0 z-10 bg-slate-950 text-xs uppercase tracking-widest text-slate-500">
+      <div className="ainv-table-wrap mt-4">
+        <table className="ainv-table">
+          <thead>
             <tr>
-              <th className="px-3 py-3">#</th>
-              <th className="px-3 py-3">SKU</th>
-              <th className="px-3 py-3">ASIN</th>
-              <th className="px-3 py-3">Title</th>
-              <th className="px-3 py-3">Listing status</th>
-              <th className="px-3 py-3">Marketplace</th>
-              <th className="px-3 py-3">FBA on-hand</th>
-              <th className="px-3 py-3">FBA fulfillable</th>
+              <th>#</th>
+              <th>SKU</th>
+              <th>ASIN</th>
+              <th>Title</th>
+              <th>Listing status</th>
+              <th>Marketplace</th>
+              <th>FBA on-hand</th>
+              <th>FBA fulfillable</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={8} className="px-3 py-10 text-center text-slate-500">
+                <td colSpan={8} className="py-10 text-center ainv-table__muted">
                   Loading out-of-stock SKUs…
                 </td>
               </tr>
             ) : null}
             {!loading && filtered.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-3 py-10 text-center text-slate-400">
+                <td colSpan={8} className="py-10 text-center ainv-table__muted">
                   {rows.length === 0 ? (
                     <span>
                       No out-of-stock SKUs in cache for {marketplace}.{' '}
-                      <Link className="text-emerald-300 underline" to={marketplaceToZohoPath(marketplace, oosFilter)}>
+                      <Link className="ainv-link-emerald" to={marketplaceToZohoPath(marketplace, oosFilter)}>
                         Refresh on Amazon + Zoho Stock
                       </Link>{' '}
                       then return here.
@@ -186,17 +183,17 @@ export function AmazonOosSkusTable({
               ? pageRows.map((row, index) => {
                   const rowNum = (page - 1) * pageSize + index + 1
                   return (
-                    <tr key={`${row.marketplaceKey}:${row.amazonSku}`} className="border-t border-white/5">
-                      <td className="px-3 py-2 text-slate-500">{rowNum}</td>
-                      <td className="px-3 py-2 font-mono text-xs text-white">{row.amazonSku}</td>
-                      <td className="px-3 py-2 font-mono text-xs text-slate-400">{row.asin || '—'}</td>
-                      <td className="max-w-md px-3 py-2 text-slate-300">{row.title || row.amazonTitle || '—'}</td>
-                      <td className="px-3 py-2 text-xs text-amber-200/90">
+                    <tr key={`${row.marketplaceKey}:${row.amazonSku}`}>
+                      <td className="ainv-table__muted">{rowNum}</td>
+                      <td className="ainv-table__sku">{row.amazonSku}</td>
+                      <td className="ainv-table__sku ainv-table__muted">{row.asin || '—'}</td>
+                      <td className="max-w-md">{row.title || row.amazonTitle || '—'}</td>
+                      <td className="ainv-table__status-inactive">
                         {row.listingStatus === 'INACTIVE_OOS' ? 'Inactive · OOS' : row.listingStatus || '—'}
                       </td>
-                      <td className="px-3 py-2">{row.marketplace}</td>
-                      <td className="px-3 py-2 font-semibold text-amber-200">{formatQty(row.amazonCurrentQty)}</td>
-                      <td className="px-3 py-2 text-slate-400">{formatQty(row.amazonFulfillableQty)}</td>
+                      <td>{row.marketplace}</td>
+                      <td className="font-semibold ainv-table__status-inactive">{formatQty(row.amazonCurrentQty)}</td>
+                      <td className="ainv-table__muted">{formatQty(row.amazonFulfillableQty)}</td>
                     </tr>
                   )
                 })
@@ -206,12 +203,12 @@ export function AmazonOosSkusTable({
       </div>
 
       {!loading && filtered.length > 0 ? (
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-400">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm" style={{ color: 'var(--text-muted)' }}>
           <div className="flex items-center gap-2">
             <label>
               Rows per page
               <select
-                className="ml-2 rounded-lg border border-white/10 bg-slate-950 px-2 py-1 text-slate-100"
+                className="ainv-input ml-2 !mt-0 !w-auto inline-block"
                 value={pageSize}
                 onChange={(e) => setPageSize(Number(e.target.value))}
               >
@@ -226,7 +223,7 @@ export function AmazonOosSkusTable({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="rounded-lg border border-white/10 px-3 py-1 hover:bg-white/10 disabled:opacity-40"
+              className="ainv-pagination-btn"
               disabled={page <= 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
             >
@@ -237,7 +234,7 @@ export function AmazonOosSkusTable({
             </span>
             <button
               type="button"
-              className="rounded-lg border border-white/10 px-3 py-1 hover:bg-white/10 disabled:opacity-40"
+              className="ainv-pagination-btn"
               disabled={page >= totalPages}
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             >
