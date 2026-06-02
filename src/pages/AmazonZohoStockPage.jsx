@@ -257,8 +257,8 @@ export function AmazonZohoStockPage() {
           Amazon + Zoho Stock Comparison
         </h1>
         <p className="mt-2 max-w-4xl text-sm leading-relaxed text-slate-400">
-          Compare active Amazon listings (including FBA qty 0) against Zoho Life Smile warehouse stock.
-          This is the fast path for your out-of-stock SKUs — no full-catalog Amazon scan on every click.
+          Compare Amazon listings against Zoho Life Smile warehouse stock. Refresh pulls FBA API +
+          AFN Manage Inventory report (Seller Flex on-hand). Use SC Inactive OOS for the ~26 SKUs bucket.
         </p>
         <div className="mt-4 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-50">
           <p className="font-semibold text-emerald-100">Out of stock workflow (use this instead of slow clearance scans)</p>
@@ -458,7 +458,7 @@ export function AmazonZohoStockPage() {
           </span>
           <Link
             className="rounded-lg bg-sky-600 px-3 py-1.5 font-semibold text-white hover:bg-sky-500"
-            to={`/ai/amazon-out-of-stock-clearance?marketplace=${encodeURIComponent(marketplaceToClearance(marketplace))}`}
+            to={`/ai/amazon-out-of-stock-clearance?marketplace=${encodeURIComponent(marketplaceToClearance(marketplace))}&oosFilter=${stockFilter === 'sellerCentralInactiveOos' ? 'sellerCentralInactiveOos' : 'amazonFbaZero'}`}
           >
             Continue to Clearance →
           </Link>

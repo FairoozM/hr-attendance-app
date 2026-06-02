@@ -4,6 +4,7 @@ const {
   fetchActiveAmazonListings,
   fetchInactiveAmazonListings,
   fetchAmazonInventoryForListings,
+  isAmazonFbaOutOfStock,
   marketplaceLabel,
 } = require('./amazonListingsInventoryReadService')
 const {
@@ -101,21 +102,29 @@ async function refreshMarketplace({ marketplaceKey, progress }) {
     console.warn('[amazon-zoho-stock] inactive listings:', marketplaceKey, e?.message || e)
   }
   const activeKeys = new Set(listingResult.listings.map((l) => l.normalizedSku))
-  const inactiveOnly = inactiveOosListings.filter((l) => !activeKeys.has(l.normalizedSku))
-  const allListings = [...listingResult.listings, ...inactiveOnly]
+  const inactiveCandidates = inactiveOosListings.filter((l) => !activeKeys.has(l.normalizedSku))
+  const listingsForInventory = [...listingResult.listings, ...inactiveCandidates]
   const marketplaceId = marketplaceIdForKey(marketplaceKey)
   const invResult = await fetchAmazonInventoryForListings({
     marketplaceKey,
     marketplaceId,
-    listings: allListings,
+    listings: listingsForInventory,
     progress,
   })
+  const inactiveOnly = inactiveCandidates.filter((l) => {
+    const inv = invResult.inventoryBySku.get(l.normalizedSku)
+    return isAmazonFbaOutOfStock(inv)
+  })
+  const allListings = [...listingResult.listings, ...inactiveOnly]
   const fetchedTimes = [listingResult.fetchedAt, invResult.fetchedAt].map((t) => new Date(t).getTime())
+  const warnings = []
+  if (inactiveWarning) warnings.push(inactiveWarning)
+  if (invResult.afnReportWarning) warnings.push(invResult.afnReportWarning)
   return {
     marketplaceKey,
     listings: allListings,
     inventoryBySku: invResult.inventoryBySku,
-    inactiveWarning,
+    inactiveWarning: warnings.length ? warnings.join(' ') : null,
     inactiveOosCount: inactiveOnly.length,
     amazonFetchedAt: new Date(Math.max(...fetchedTimes)).toISOString(),
   }

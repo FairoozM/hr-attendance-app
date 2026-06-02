@@ -112,7 +112,8 @@ export function AmazonOosSkusTable({
               ? 'From Amazon GET_MERCHANT_LISTINGS_INACTIVE_DATA — same bucket as Seller Central Manage Inventory → Inactive → Out of stock.'
               : 'Active listings where FBA on-hand and fulfillable are both 0 (much larger set than SC inactive OOS).'}
             {' '}
-            Export CSV for the full list.
+            On-hand uses AFN Manage Inventory report merged with FBA API (includes Seller Flex). Export CSV
+            for the full list.
           </p>
           {!loading && rows.length > 0 ? (
             <p className="mt-1 text-sm text-slate-500">

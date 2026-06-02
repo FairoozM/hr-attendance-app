@@ -14,6 +14,9 @@ const REPORT_TIMEOUT_MS = 8 * 60_000
 const LISTINGS_REPORT_TYPE = process.env.AMAZON_LISTINGS_REPORT_TYPE || 'GET_MERCHANT_LISTINGS_DATA'
 const INACTIVE_LISTINGS_REPORT_TYPE =
   process.env.AMAZON_INACTIVE_LISTINGS_REPORT_TYPE || 'GET_MERCHANT_LISTINGS_INACTIVE_DATA'
+/** Manage FBA Inventory report — includes Seller Flex / FBA Onsite on-hand (afn-warehouse-quantity). */
+const AFN_INVENTORY_REPORT_TYPE =
+  process.env.AMAZON_AFN_INVENTORY_REPORT_TYPE || 'GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA'
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -315,6 +318,102 @@ function isAmazonFbaOutOfStock(inv) {
   return amazonOnHandQty(inv) <= 0 && toNumber(inv.availableQty, 0) <= 0
 }
 
+function mapAfnManageInventoryRow(row) {
+  const sellerSku = first(row, ['sku', 'seller-sku', 'seller sku', 'SellerSKU'])
+  if (!sellerSku) return null
+  const afnWarehouse = toNumber(
+    first(row, ['afn-warehouse-quantity', 'afn-total-quantity', 'afn-total-supply-quantity']),
+    NaN
+  )
+  const afnFulfillable = toNumber(first(row, ['afn-fulfillable-quantity']), 0)
+  const afnReserved = toNumber(first(row, ['afn-reserved-quantity']), 0)
+  const onHand = Number.isFinite(afnWarehouse) && afnWarehouse >= 0 ? afnWarehouse : afnFulfillable + afnReserved
+  return {
+    sellerSku,
+    availableQty: afnFulfillable,
+    inboundQty: 0,
+    reservedQty: afnReserved,
+    unfulfillableQty: toNumber(first(row, ['afn-unsellable-quantity', 'afn-unfulfillable-quantity']), 0),
+    totalQty: onHand,
+    stockStatus: onHand > 0 || afnFulfillable > 0 ? 'In Stock' : 'Out of Stock',
+    stockSource: 'afn_manage_inventory_report',
+  }
+}
+
+/**
+ * Seller Flex / FBA Onsite on-hand often appears in the AFN manage inventory report but not in
+ * GET /fba/inventory/v1/summaries. Merge both sources and keep the higher quantities.
+ */
+function mergeAmazonInventoryRecords(fbaApiInv, afnReportInv) {
+  const empty = {
+    availableQty: 0,
+    inboundQty: 0,
+    reservedQty: 0,
+    unfulfillableQty: 0,
+    totalQty: 0,
+    stockStatus: 'Out of Stock',
+    stockSource: 'none',
+  }
+  const api = fbaApiInv || empty
+  if (!afnReportInv) return { ...api, stockSource: api.stockSource || 'fba_api' }
+
+  const apiOnHand = amazonOnHandQty(api)
+  const apiFulfillable = toNumber(api.availableQty, 0)
+  const reportOnHand = amazonOnHandQty(afnReportInv)
+  const reportFulfillable = toNumber(afnReportInv.availableQty, 0)
+  const onHand = Math.max(apiOnHand, reportOnHand)
+  const fulfillable = Math.max(apiFulfillable, reportFulfillable)
+  const stockStatus = onHand > 0 || fulfillable > 0 ? 'In Stock' : 'Out of Stock'
+  const stockSource =
+    reportOnHand > apiOnHand || (apiOnHand <= 0 && reportOnHand > 0)
+      ? 'afn_manage_inventory_report'
+      : api.stockSource || 'fba_api'
+
+  return {
+    availableQty: fulfillable,
+    inboundQty: toNumber(api.inboundQty, 0),
+    reservedQty: Math.max(toNumber(api.reservedQty, 0), toNumber(afnReportInv.reservedQty, 0)),
+    unfulfillableQty: Math.max(
+      toNumber(api.unfulfillableQty, 0),
+      toNumber(afnReportInv.unfulfillableQty, 0)
+    ),
+    totalQty: onHand,
+    stockStatus,
+    stockSource,
+  }
+}
+
+function mergeInventoryMaps(fbaApiMap, afnReportMap) {
+  const keys = new Set([...fbaApiMap.keys(), ...afnReportMap.keys()])
+  const merged = new Map()
+  for (const key of keys) {
+    merged.set(key, mergeAmazonInventoryRecords(fbaApiMap.get(key), afnReportMap.get(key)))
+  }
+  return merged
+}
+
+async function fetchAfnManageInventoryBySku({ marketplaceKey, progress }) {
+  const marketplaceId = marketplaceIdForKey(marketplaceKey)
+  const rawRows = await downloadAmazonMerchantListingsReport({
+    marketplaceKey,
+    marketplaceId,
+    reportType: AFN_INVENTORY_REPORT_TYPE,
+    progressLabel: 'AFN manage inventory report (Seller Flex on-hand)',
+    progress,
+  })
+  const inventoryBySku = new Map()
+  for (const row of rawRows) {
+    const mapped = mapAfnManageInventoryRow(row)
+    if (!mapped) continue
+    const key = normalizeSku(mapped.sellerSku)
+    if (key) inventoryBySku.set(key, mapped)
+  }
+  return {
+    inventoryBySku,
+    fetchedAt: new Date().toISOString(),
+  }
+}
+
 function mapInventorySummary(row) {
   const details = row?.inventoryDetails || {}
   const reserved = details.reservedQuantity || {}
@@ -341,18 +440,19 @@ function mapInventorySummary(row) {
     unfulfillableQty: unfulfillable,
     totalQty: onHand,
     stockStatus,
+    stockSource: 'fba_api',
   }
 }
 
 async function fetchAmazonInventoryForListings({ marketplaceKey, marketplaceId, listings, progress }) {
   const skus = listings.map((row) => row.sellerSku).filter(Boolean)
-  const inventoryBySku = new Map()
+  const fbaApiBySku = new Map()
   const batches = chunk(skus, 50)
   let current = 0
   for (const batch of batches) {
     current += batch.length
     progress?.({
-      step: `Fetching Amazon ${marketplaceLabel(marketplaceKey)} FBA inventory`,
+      step: `Fetching Amazon ${marketplaceLabel(marketplaceKey)} FBA inventory API`,
       current,
       total: skus.length,
     })
@@ -368,14 +468,32 @@ async function fetchAmazonInventoryForListings({ marketplaceKey, marketplaceId, 
       for (const summary of inventorySummaryList(res.data)) {
         const mapped = mapInventorySummary(summary)
         const key = normalizeSku(mapped.sellerSku)
-        if (key) inventoryBySku.set(key, mapped)
+        if (key) fbaApiBySku.set(key, mapped)
       }
       nextToken = nextTokenFromInventory(res.data)
     } while (nextToken)
   }
+
+  let afnReportBySku = new Map()
+  let afnReportWarning = null
+  try {
+    progress?.({
+      step: `Fetching Amazon ${marketplaceLabel(marketplaceKey)} AFN manage inventory report`,
+      current: skus.length,
+      total: skus.length,
+    })
+    const afnResult = await fetchAfnManageInventoryBySku({ marketplaceKey, progress })
+    afnReportBySku = afnResult.inventoryBySku
+  } catch (e) {
+    afnReportWarning =
+      'AFN manage inventory report failed; Seller Flex on-hand may show as 0 until this report succeeds.'
+    console.warn('[amazon-inventory] AFN manage inventory report failed:', marketplaceKey, e?.message || e)
+  }
+
   return {
-    inventoryBySku,
+    inventoryBySku: mergeInventoryMaps(fbaApiBySku, afnReportBySku),
     fetchedAt: new Date().toISOString(),
+    afnReportWarning,
   }
 }
 
@@ -599,6 +717,8 @@ module.exports = {
   mapInventorySummary,
   amazonOnHandQty,
   isAmazonFbaOutOfStock,
+  mergeAmazonInventoryRecords,
+  mapAfnManageInventoryRow,
   fetchActiveAmazonListings,
   fetchInactiveAmazonListings,
   fetchAmazonInventoryForListings,
