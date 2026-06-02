@@ -490,6 +490,39 @@ async function fetchAmazonInventoryForListings({ marketplaceKey, marketplaceId, 
     console.warn('[amazon-inventory] AFN manage inventory report failed:', marketplaceKey, e?.message || e)
   }
 
+  // Listings/AFN reports may use Unicode dashes in SKU; FBA API often returns ASCII '-'.
+  // Re-fetch FBA for listing SKUs missing from batch responses so we do not show AFN-only stale qty.
+  const missingFromFba = []
+  for (const listing of listings) {
+    const key = listing.normalizedSku || normalizeSku(listing.sellerSku)
+    if (key && !fbaApiBySku.has(key)) missingFromFba.push(listing.sellerSku)
+  }
+  if (missingFromFba.length > 0) {
+    progress?.({
+      step: `Backfilling ${missingFromFba.length} SKU(s) missing from FBA batch response`,
+      current: skus.length,
+      total: skus.length,
+    })
+    for (const batch of chunk(missingFromFba, 50)) {
+      let nextToken = null
+      do {
+        const res = await getAmazonFbaInventorySummaries({
+          marketplaceKey,
+          marketplaceId,
+          sellerSkus: batch,
+          nextToken,
+        })
+        throwAmazonSpApiIfFailed(res, 'getFbaInventorySummaries', marketplaceKey)
+        for (const summary of inventorySummaryList(res.data)) {
+          const mapped = mapInventorySummary(summary)
+          const key = normalizeSku(mapped.sellerSku)
+          if (key) fbaApiBySku.set(key, mapped)
+        }
+        nextToken = nextTokenFromInventory(res.data)
+      } while (nextToken)
+    }
+  }
+
   return {
     inventoryBySku: mergeInventoryMaps(fbaApiBySku, afnReportBySku),
     fetchedAt: new Date().toISOString(),
