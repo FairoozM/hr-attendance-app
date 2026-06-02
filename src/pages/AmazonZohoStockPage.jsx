@@ -129,12 +129,19 @@ export function AmazonZohoStockPage() {
     setSearchParams(params, { replace: true })
   }, [setSearchParams])
 
+  const scrollToSkuList = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      document.getElementById('comparison-rows')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }, [])
+
   const applyStockFilter = useCallback((value) => {
     const v = parseStockFilter(value)
     setStockFilter(v)
     setPage(1)
     syncUrl({ marketplace, stockFilter: v, search })
-  }, [marketplace, search, syncUrl])
+    if (v === 'amazonOutOfStock') scrollToSkuList()
+  }, [marketplace, search, syncUrl, scrollToSkuList])
 
   const applyMarketplace = useCallback((value) => {
     const v = parseMarketplace(value)
@@ -171,6 +178,12 @@ export function AmazonZohoStockPage() {
   useEffect(() => {
     void loadData()
   }, [loadData])
+
+  useEffect(() => {
+    if (stockFilter === 'amazonOutOfStock' && !loading && (payload?.pagination?.total || 0) > 0) {
+      scrollToSkuList()
+    }
+  }, [stockFilter, loading, payload?.pagination?.total, scrollToSkuList])
 
   useEffect(() => {
     if (!job?.jobId || !['queued', 'running'].includes(job.status)) return undefined
@@ -325,11 +338,12 @@ export function AmazonZohoStockPage() {
               type="button"
               onClick={() => {
                 applyStockFilter('amazonOutOfStock')
+                scrollToSkuList()
               }}
               disabled={loading}
               className="rounded-xl border border-amber-400/40 bg-amber-500/15 px-4 py-2 text-sm font-semibold text-amber-50 hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Show Amazon OOS
+              Show Amazon OOS list ↓
             </button>
             <button
               type="button"
@@ -432,12 +446,15 @@ export function AmazonZohoStockPage() {
         </div>
       ) : null}
 
-      <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 backdrop-blur-md">
+      <section id="comparison-rows" className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 backdrop-blur-md scroll-mt-6">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 className="text-lg font-bold text-white">Comparison rows</h2>
+            <h2 className="text-lg font-bold text-white">
+              {stockFilter === 'amazonOutOfStock' ? 'Amazon out-of-stock SKU list' : 'Comparison rows'}
+            </h2>
             <p className="text-sm text-slate-500">
-              Showing {rows.length} of {formatNumber(pagination.total)} rows.
+              Showing {rows.length} of {formatNumber(pagination.total)} rows
+              {stockFilter === 'amazonOutOfStock' ? ' (FBA fulfillable qty = 0)' : ''}.
             </p>
           </div>
           <div className="flex items-center gap-2 text-sm text-slate-400">

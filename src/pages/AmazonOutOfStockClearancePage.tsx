@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { SummaryCards } from '../components/amazon/outOfStockClearance/SummaryCards'
 import { VigilUploadPanel } from '../components/amazon/outOfStockClearance/VigilUploadPanel'
+import { AmazonOosSkusTable } from '../components/amazon/outOfStockClearance/AmazonOosSkusTable'
 import { ResultsTable } from '../components/amazon/outOfStockClearance/ResultsTable'
 import { ManualEditModal } from '../components/amazon/outOfStockClearance/ManualEditModal'
 import {
@@ -385,10 +386,14 @@ export function AmazonOutOfStockClearancePage() {
             {new Date(fetchedAt).toLocaleString()}
           </p>
         )}
-        {amazonRows.length > 0 && !fetchingAmazon && (
-          <p className="mt-2 text-sm text-emerald-200/90">{amazonRows.length} out-of-stock SKU(s) loaded.</p>
-        )}
       </section>
+
+      <AmazonOosSkusTable
+        rows={amazonRows}
+        marketplace={marketplace}
+        loading={fetchingAmazon}
+        fetchedAt={fetchedAt}
+      />
 
       {error && (
         <div className="rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
