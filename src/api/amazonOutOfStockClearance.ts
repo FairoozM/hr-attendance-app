@@ -12,6 +12,7 @@ export interface AmazonOosRow {
   title?: string
   amazonTitle?: string
   amazonCurrentQty: number
+  amazonFulfillableQty?: number
   asin?: string
 }
 

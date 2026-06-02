@@ -58,11 +58,12 @@ function mergeRows({
       committedQty: 0,
       stockStatus: zohoUnavailable ? 'Unknown' : 'Not Found',
     }
-    const amazonAvailable = toNumber(amazon.availableQty)
+    const amazonOnHand = toNumber(amazon.totalQty, toNumber(amazon.availableQty))
+    const amazonFulfillable = toNumber(amazon.availableQty)
     const zohoAvailable = toNumber(zoho.availableQty)
-    const difference = zohoAvailable - amazonAvailable
+    const difference = zohoAvailable - amazonOnHand
     const recommendedAction = deriveRecommendedAction({
-      amazonAvailable,
+      amazonAvailable: amazonOnHand,
       zohoAvailable,
       zohoStatus: zoho.stockStatus,
       difference,

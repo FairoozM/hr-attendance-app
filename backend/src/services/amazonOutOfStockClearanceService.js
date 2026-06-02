@@ -28,7 +28,11 @@ function mapCachedComparisonRow(row, marketplaceKey) {
     normalizedSku: row.normalizedSku,
     title: row.title,
     asin: row.asin,
-    amazonCurrentQty: Number(row.amazon?.availableQty) || 0,
+    amazonCurrentQty:
+      Number(row.amazon?.totalQty) > 0
+        ? Number(row.amazon.totalQty)
+        : Number(row.amazon?.availableQty) || 0,
+    amazonFulfillableQty: Number(row.amazon?.availableQty) || 0,
     amazonStockStatus: row.amazon?.stockStatus || 'Out of Stock',
     fulfillmentChannel: row.fulfillmentChannel,
     image: row.image,

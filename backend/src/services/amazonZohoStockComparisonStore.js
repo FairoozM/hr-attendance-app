@@ -205,10 +205,18 @@ function buildWhere(filters = {}) {
     )`)
   }
   const stockFilter = String(filters.stockFilter || 'all').trim()
-  if (stockFilter === 'amazonOutOfStock') clauses.push(`COALESCE(amazon_available_qty, 0) = 0`)
+  if (stockFilter === 'amazonOutOfStock') {
+    clauses.push(
+      `GREATEST(COALESCE(amazon_total_qty, 0), COALESCE(amazon_available_qty, 0)) = 0`
+    )
+  }
   if (stockFilter === 'zohoOutOfStock') clauses.push(`COALESCE(zoho_available_qty, 0) = 0 AND zoho_stock_status <> 'Not Found'`)
   if (stockFilter === 'mismatch') clauses.push(`is_mismatch = true`)
-  if (stockFilter === 'bothOutOfStock') clauses.push(`COALESCE(amazon_available_qty, 0) = 0 AND COALESCE(zoho_available_qty, 0) = 0`)
+  if (stockFilter === 'bothOutOfStock') {
+    clauses.push(
+      `GREATEST(COALESCE(amazon_total_qty, 0), COALESCE(amazon_available_qty, 0)) = 0 AND COALESCE(zoho_available_qty, 0) = 0`
+    )
+  }
   if (stockFilter === 'zohoNotFound') clauses.push(`zoho_stock_status = 'Not Found'`)
   return {
     whereSql: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '',
@@ -264,11 +272,14 @@ async function getComparisonSummary(filters = {}) {
   const r = await query(
     `SELECT
       COUNT(*)::int AS total_active_listings,
-      COUNT(*) FILTER (WHERE COALESCE(amazon_available_qty, 0) = 0)::int AS amazon_out_of_stock,
+      COUNT(*) FILTER (WHERE GREATEST(COALESCE(amazon_total_qty, 0), COALESCE(amazon_available_qty, 0)) = 0)::int AS amazon_out_of_stock,
       COUNT(*) FILTER (WHERE COALESCE(zoho_available_qty, 0) = 0 AND zoho_stock_status <> 'Not Found')::int AS zoho_out_of_stock,
       COUNT(*) FILTER (WHERE is_mismatch = true)::int AS mismatches,
       COUNT(*) FILTER (WHERE zoho_stock_status = 'Not Found')::int AS zoho_not_found,
-      COUNT(*) FILTER (WHERE COALESCE(amazon_available_qty, 0) = 0 AND COALESCE(zoho_available_qty, 0) = 0)::int AS both_out_of_stock,
+      COUNT(*) FILTER (
+        WHERE GREATEST(COALESCE(amazon_total_qty, 0), COALESCE(amazon_available_qty, 0)) = 0
+          AND COALESCE(zoho_available_qty, 0) = 0
+      )::int AS both_out_of_stock,
       COUNT(*) FILTER (WHERE recommended_action = 'Low Zoho stock warning')::int AS low_zoho_stock,
       MAX(amazon_last_fetched_at) AS amazon_last_fetched_at,
       MAX(zoho_last_fetched_at) AS zoho_last_fetched_at,

@@ -22,7 +22,7 @@ function csvEscape(value: unknown) {
 }
 
 function rowsToCsv(rows: AmazonOosRow[]) {
-  const headers = ['Marketplace', 'SKU', 'ASIN', 'Title', 'FBA Available']
+  const headers = ['Marketplace', 'SKU', 'ASIN', 'Title', 'FBA On-hand', 'FBA Fulfillable']
   const lines = [headers.map(csvEscape).join(',')]
   for (const row of rows) {
     lines.push(
@@ -32,6 +32,7 @@ function rowsToCsv(rows: AmazonOosRow[]) {
         row.asin,
         row.title || row.amazonTitle,
         row.amazonCurrentQty,
+        row.amazonFulfillableQty ?? '',
       ]
         .map(csvEscape)
         .join(',')
@@ -96,8 +97,8 @@ export function AmazonOosSkusTable({ rows, marketplace, loading, fetchedAt }: Am
             {loading ? '…' : formatQty(rows.length)} Amazon out-of-stock SKUs
           </h2>
           <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            Active listings with FBA fulfillable qty = 0 (not the same as Seller Central&apos;s smaller
-            &quot;Inactive → Out of stock&quot; bucket). Scroll this table or export CSV for the full list.
+          Out of stock = FBA on-hand and fulfillable both 0 (matches Seller Central on-hand, not
+          fulfillable-only). Scroll this table or export CSV for the full list.
           </p>
           {!loading && rows.length > 0 ? (
             <p className="mt-1 text-sm text-slate-500">
@@ -136,20 +137,21 @@ export function AmazonOosSkusTable({ rows, marketplace, loading, fetchedAt }: Am
               <th className="px-3 py-3">ASIN</th>
               <th className="px-3 py-3">Title</th>
               <th className="px-3 py-3">Marketplace</th>
-              <th className="px-3 py-3">FBA available</th>
+              <th className="px-3 py-3">FBA on-hand</th>
+              <th className="px-3 py-3">FBA fulfillable</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={6} className="px-3 py-10 text-center text-slate-500">
+                <td colSpan={7} className="px-3 py-10 text-center text-slate-500">
                   Loading out-of-stock SKUs…
                 </td>
               </tr>
             ) : null}
             {!loading && filtered.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-3 py-10 text-center text-slate-400">
+                <td colSpan={7} className="px-3 py-10 text-center text-slate-400">
                   {rows.length === 0 ? (
                     <span>
                       No out-of-stock SKUs in cache for {marketplace}.{' '}
@@ -175,6 +177,7 @@ export function AmazonOosSkusTable({ rows, marketplace, loading, fetchedAt }: Am
                       <td className="max-w-md px-3 py-2 text-slate-300">{row.title || row.amazonTitle || '—'}</td>
                       <td className="px-3 py-2">{row.marketplace}</td>
                       <td className="px-3 py-2 font-semibold text-amber-200">{formatQty(row.amazonCurrentQty)}</td>
+                      <td className="px-3 py-2 text-slate-400">{formatQty(row.amazonFulfillableQty)}</td>
                     </tr>
                   )
                 })

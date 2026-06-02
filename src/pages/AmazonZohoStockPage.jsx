@@ -4,7 +4,7 @@ import { api, fetchBinary, downloadBlob } from '../api/client'
 
 const STOCK_FILTERS = [
   { value: 'all', label: 'All' },
-  { value: 'amazonOutOfStock', label: 'Amazon Out of Stock (FBA qty 0)' },
+  { value: 'amazonOutOfStock', label: 'Amazon Out of Stock (on-hand & fulfillable 0)' },
   { value: 'zohoOutOfStock', label: 'Zoho Out of Stock' },
   { value: 'mismatch', label: 'Mismatch' },
   { value: 'bothOutOfStock', label: 'Both Out of Stock' },
@@ -402,7 +402,7 @@ export function AmazonZohoStockPage() {
           value={summary.amazonOutOfStock || 0}
           active={stockFilter === 'amazonOutOfStock'}
           onClick={() => applyStockFilter('amazonOutOfStock')}
-          hint="FBA fulfillable qty = 0 · click to filter"
+          hint="FBA on-hand and fulfillable both 0 · click to filter"
         />
         <SummaryCard
           label="Zoho Out of Stock"
@@ -454,7 +454,7 @@ export function AmazonZohoStockPage() {
             </h2>
             <p className="text-sm text-slate-500">
               Showing {rows.length} of {formatNumber(pagination.total)} rows
-              {stockFilter === 'amazonOutOfStock' ? ' (FBA fulfillable qty = 0)' : ''}.
+              {stockFilter === 'amazonOutOfStock' ? ' (FBA on-hand & fulfillable = 0)' : ''}.
             </p>
           </div>
           <div className="flex items-center gap-2 text-sm text-slate-400">
@@ -488,7 +488,8 @@ export function AmazonZohoStockPage() {
                 <th className="px-3 py-3">Title</th>
                 <th className="px-3 py-3">Marketplace</th>
                 <th className="px-3 py-3">Price</th>
-                <th className="px-3 py-3">Amazon Available FBA</th>
+                <th className="px-3 py-3">FBA on-hand (total)</th>
+                <th className="px-3 py-3">FBA fulfillable</th>
                 <th className="px-3 py-3">Amazon Reserved</th>
                 <th className="px-3 py-3">Amazon Inbound</th>
                 <th className="px-3 py-3">Amazon Unfulfillable</th>
@@ -516,7 +517,10 @@ export function AmazonZohoStockPage() {
                   <td className="px-3 py-3">
                     {row.price?.amount == null ? '—' : `${row.price.currencyCode || ''} ${formatNumber(row.price.amount)}`}
                   </td>
-                  <td className="px-3 py-3 font-semibold">{formatNumber(row.amazon?.availableQty)}</td>
+                  <td className="px-3 py-3 font-semibold">
+                    {formatNumber(row.amazon?.totalQty ?? row.amazon?.availableQty)}
+                  </td>
+                  <td className="px-3 py-3">{formatNumber(row.amazon?.availableQty)}</td>
                   <td className="px-3 py-3">{formatNumber(row.amazon?.reservedQty)}</td>
                   <td className="px-3 py-3">{formatNumber(row.amazon?.inboundQty)}</td>
                   <td className="px-3 py-3">{formatNumber(row.amazon?.unfulfillableQty)}</td>
@@ -540,14 +544,14 @@ export function AmazonZohoStockPage() {
               ))}
               {!loading && rows.length === 0 ? (
                 <tr>
-                  <td colSpan={15} className="px-3 py-12 text-center text-slate-500">
+                  <td colSpan={16} className="px-3 py-12 text-center text-slate-500">
                     No comparison rows found. Run refresh to generate cached data or adjust filters.
                   </td>
                 </tr>
               ) : null}
               {loading ? (
                 <tr>
-                  <td colSpan={15} className="px-3 py-12 text-center text-slate-500">Loading cached comparison data…</td>
+                  <td colSpan={16} className="px-3 py-12 text-center text-slate-500">Loading cached comparison data…</td>
                 </tr>
               ) : null}
             </tbody>

@@ -218,6 +218,20 @@ function nextTokenFromInventory(data) {
   return payload?.pagination?.nextToken || payload?.nextToken || data?.nextToken || null
 }
 
+/** Seller Central "On-hand (FBA)" aligns with totalQuantity; buyable units are fulfillableQuantity. */
+function amazonOnHandQty(inv) {
+  if (!inv) return 0
+  const total = toNumber(inv.totalQty, NaN)
+  const fulfillable = toNumber(inv.availableQty, 0)
+  if (Number.isFinite(total) && total > 0) return total
+  return fulfillable
+}
+
+function isAmazonFbaOutOfStock(inv) {
+  if (!inv) return true
+  return amazonOnHandQty(inv) <= 0 && toNumber(inv.availableQty, 0) <= 0
+}
+
 function mapInventorySummary(row) {
   const details = row?.inventoryDetails || {}
   const reserved = details.reservedQuantity || {}
@@ -229,18 +243,21 @@ function mapInventorySummary(row) {
     toNumber(reserved.totalReservedQuantity) ||
     toNumber(details.reservedQuantity) ||
     toNumber(row.reservedQuantity)
-  const available = toNumber(row?.totalQuantity, NaN)
-  const fulfillable = toNumber(details.fulfillableQuantity, Number.isFinite(available) ? available : 0)
+  const totalFromApi = toNumber(row?.totalQuantity, NaN)
+  const fulfillable = toNumber(details.fulfillableQuantity, 0)
   const unfulfillable = toNumber(details.unfulfillableQuantity)
-  const total = Number.isFinite(available) ? available : fulfillable + inbound + reservedQty + unfulfillable
+  const onHand = Number.isFinite(totalFromApi)
+    ? totalFromApi
+    : fulfillable + inbound + reservedQty
+  const stockStatus = onHand > 0 || fulfillable > 0 ? 'In Stock' : 'Out of Stock'
   return {
     sellerSku: clean(row?.sellerSku || row?.SellerSKU || row?.sku),
     availableQty: fulfillable,
     inboundQty: inbound,
     reservedQty,
     unfulfillableQty: unfulfillable,
-    totalQty: total,
-    stockStatus: fulfillable > 0 ? 'In Stock' : 'Out of Stock',
+    totalQty: onHand,
+    stockStatus,
   }
 }
 
@@ -287,7 +304,8 @@ function normalizeMarketplaceKey(raw) {
 }
 
 function buildOutOfStockRow(listing, inv, marketplaceId, mk) {
-  const availableQty = inv ? toNumber(inv.availableQty) : 0
+  const onHand = amazonOnHandQty(inv)
+  const fulfillable = inv ? toNumber(inv.availableQty) : 0
   return {
     marketplaceKey: mk,
     marketplace: marketplaceLabel(mk),
@@ -296,7 +314,8 @@ function buildOutOfStockRow(listing, inv, marketplaceId, mk) {
     normalizedSku: listing.normalizedSku,
     title: listing.title,
     asin: listing.asin,
-    amazonCurrentQty: availableQty,
+    amazonCurrentQty: onHand,
+    amazonFulfillableQty: fulfillable,
     amazonStockStatus: inv?.stockStatus || 'Out of Stock',
     fulfillmentChannel: listing.fulfillmentChannel,
     image: listing.image,
@@ -307,8 +326,7 @@ function filterOutOfStockRows(listings, inventoryBySku, marketplaceId, mk) {
   const outOfStock = []
   for (const listing of listings) {
     const inv = inventoryBySku.get(listing.normalizedSku)
-    const availableQty = inv ? toNumber(inv.availableQty) : 0
-    if (availableQty > 0) continue
+    if (!isAmazonFbaOutOfStock(inv)) continue
     outOfStock.push(buildOutOfStockRow(listing, inv, marketplaceId, mk))
   }
   return outOfStock
@@ -376,7 +394,7 @@ function inventorySummaryToOosRow(row, mk, marketplaceId) {
   const mapped = mapInventorySummary(row)
   const sellerSku = mapped.sellerSku
   if (!sellerSku) return null
-  if (toNumber(mapped.availableQty) > 0) return null
+  if (!isAmazonFbaOutOfStock(mapped)) return null
   const normalizedSku = normalizeSku(sellerSku)
   return {
     marketplaceKey: mk,
@@ -386,8 +404,9 @@ function inventorySummaryToOosRow(row, mk, marketplaceId) {
     normalizedSku,
     title: clean(row?.productName || row?.itemName || ''),
     asin: clean(row?.asin || ''),
-    amazonCurrentQty: 0,
-    amazonStockStatus: 'Out of Stock',
+    amazonCurrentQty: amazonOnHandQty(mapped),
+    amazonFulfillableQty: toNumber(mapped.availableQty, 0),
+    amazonStockStatus: mapped.stockStatus || 'Out of Stock',
     fulfillmentChannel: 'AMAZON',
     image: '',
   }
@@ -492,6 +511,8 @@ module.exports = {
   parseDelimitedReport,
   mapListingRow,
   mapInventorySummary,
+  amazonOnHandQty,
+  isAmazonFbaOutOfStock,
   fetchActiveAmazonListings,
   fetchAmazonInventoryForListings,
   fetchOutOfStockAmazonSkus,
