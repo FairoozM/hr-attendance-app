@@ -262,9 +262,8 @@ export function AmazonZohoStockPage() {
         <p className="ainv-page__eyebrow">Admin Inventory</p>
         <h1 className="ainv-page__title">Amazon + Zoho Stock Comparison</h1>
         <p className="ainv-page__lead">
-          Compare <strong>active</strong> Amazon listings against Zoho Life Smile warehouse stock. Refresh pulls FBA
-          API + AFN Manage Inventory (Seller Flex on-hand). Inactive listings you closed in Seller Central are not
-          included.
+          Compare <strong>Seller Flex / Amazon-fulfilled</strong> active listings against Zoho stock. FBM and search
+          suppressed SKUs are excluded. Refresh pulls FBA API + AFN Manage Inventory for on-hand.
         </p>
         <div className="ainv-callout-emerald">
           <p className="ainv-callout-emerald__title">Out of stock workflow (use this instead of slow clearance scans)</p>
@@ -411,11 +410,11 @@ export function AmazonZohoStockPage() {
 
       <section className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
         <SummaryCard
-          label="Active Listings"
+          label="Seller Flex Listings"
           value={summary.totalActiveListings || 0}
           active={stockFilter === 'all'}
           onClick={() => applyStockFilter('all')}
-          hint="All active SKUs with stock data"
+          hint="Amazon-fulfilled active SKUs only"
         />
         <SummaryCard
           label="Amazon Out of Stock"
@@ -480,8 +479,8 @@ export function AmazonZohoStockPage() {
             <p className="text-sm" style={{ color: 'var(--text-dim)' }}>
               Showing {rows.length} of {formatNumber(pagination.total)} rows
               {stockFilter === 'amazonOutOfStock'
-                ? ' (active · FBA qty = 0 by design)'
-                : ' (active listings only)'}
+                ? ' (Seller Flex · FBA qty = 0 by design)'
+                : ' (Seller Flex / Amazon-fulfilled only)'}
               .
             </p>
           </div>
@@ -512,6 +511,7 @@ export function AmazonZohoStockPage() {
               <tr>
                 <th className="px-3 py-3">Image</th>
                 <th className="px-3 py-3">Listing status</th>
+                <th className="px-3 py-3">Fulfillment</th>
                 <th className="px-3 py-3">SKU</th>
                 <th className="px-3 py-3">ASIN</th>
                 <th className="px-3 py-3">Title</th>
@@ -542,9 +542,18 @@ export function AmazonZohoStockPage() {
                   <td className="ainv-table__status-inactive">
                     {row.listingStatus === 'INACTIVE_OOS'
                       ? 'Inactive · OOS'
-                      : row.listingStatus === 'ACTIVE'
-                        ? 'Active'
-                        : row.listingStatus || '—'}
+                      : row.listingStatus === 'SEARCH_SUPPRESSED'
+                        ? 'Search suppressed'
+                        : row.listingStatus === 'ACTIVE'
+                          ? 'Active'
+                          : row.listingStatus || '—'}
+                  </td>
+                  <td className="px-3 py-3 text-xs ainv-table__muted">
+                    {row.fulfillmentChannel === 'AMAZON' || String(row.fulfillmentChannel || '').includes('AMAZON')
+                      ? 'Amazon'
+                      : row.fulfillmentChannel === 'DEFAULT'
+                        ? 'FBM'
+                        : row.fulfillmentChannel || '—'}
                   </td>
                   <td className="ainv-table__sku">{row.sellerSku}</td>
                   <td className="ainv-table__sku ainv-table__muted">{row.asin || '—'}</td>
@@ -580,14 +589,14 @@ export function AmazonZohoStockPage() {
               ))}
               {!loading && rows.length === 0 ? (
                 <tr>
-                  <td colSpan={17} className="py-12 text-center ainv-table__muted">
+                  <td colSpan={18} className="py-12 text-center ainv-table__muted">
                     No comparison rows found. Run refresh to generate cached data or adjust filters.
                   </td>
                 </tr>
               ) : null}
               {loading ? (
                 <tr>
-                  <td colSpan={17} className="py-12 text-center ainv-table__muted">Loading cached comparison data…</td>
+                  <td colSpan={18} className="py-12 text-center ainv-table__muted">Loading cached comparison data…</td>
                 </tr>
               ) : null}
             </tbody>

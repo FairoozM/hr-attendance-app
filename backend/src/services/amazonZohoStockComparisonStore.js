@@ -193,6 +193,7 @@ function appendListingStatusScope(clauses, stockFilter) {
     return
   }
   clauses.push(`listing_status = 'ACTIVE'`)
+  clauses.push(`UPPER(COALESCE(fulfillment_channel, '')) LIKE '%AMAZON%'`)
 }
 
 function buildWhere(filters = {}) {
@@ -281,7 +282,10 @@ async function getComparisonSummary(filters = {}) {
   const whereSql = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
   const r = await query(
     `SELECT
-      COUNT(*) FILTER (WHERE listing_status = 'ACTIVE')::int AS total_active_listings,
+      COUNT(*) FILTER (
+        WHERE listing_status = 'ACTIVE'
+          AND UPPER(COALESCE(fulfillment_channel, '')) LIKE '%AMAZON%'
+      )::int AS total_active_listings,
       COUNT(*) FILTER (
         WHERE listing_status = 'ACTIVE'
           AND GREATEST(COALESCE(amazon_total_qty, 0), COALESCE(amazon_available_qty, 0)) = 0

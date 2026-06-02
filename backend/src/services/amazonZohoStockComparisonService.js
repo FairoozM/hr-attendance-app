@@ -128,8 +128,15 @@ async function refreshMarketplace({ marketplaceKey, progress }) {
   const inventoryBySku = new Map(invActive.inventoryBySku)
   const fetchedTimes = [listingResult.fetchedAt, invActive.fetchedAt].map((t) => new Date(t).getTime())
   const warnings = []
+  if (listingResult.suppressedWarning) warnings.push(listingResult.suppressedWarning)
   if (afnReportWarning) warnings.push(afnReportWarning)
   if (invActive.afnReportWarning) warnings.push(invActive.afnReportWarning)
+  const meta = listingResult.filterMeta
+  if (meta?.sellerFlexOnly && (meta.excludedFbm > 0 || meta.excludedSuppressed > 0)) {
+    warnings.push(
+      `Seller Flex scope: kept ${meta.sellerFlexCount} Amazon-fulfilled listings; excluded ${meta.excludedFbm} FBM/MFN and ${meta.excludedSuppressed} search-suppressed.`
+    )
+  }
 
   return {
     marketplaceKey,

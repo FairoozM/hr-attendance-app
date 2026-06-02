@@ -21,6 +21,12 @@ const INACTIVE_LISTINGS_REPORT_TYPE =
 /** Manage FBA Inventory report — includes Seller Flex / FBA Onsite on-hand (afn-warehouse-quantity). */
 const AFN_INVENTORY_REPORT_TYPE =
   process.env.AMAZON_AFN_INVENTORY_REPORT_TYPE || 'GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA'
+const SUPPRESSED_LISTINGS_REPORT_TYPE =
+  process.env.AMAZON_SUPPRESSED_LISTINGS_REPORT_TYPE || 'GET_MERCHANTS_LISTINGS_FYP_REPORT'
+
+function sellerFlexOnlyEnabled() {
+  return String(process.env.AMAZON_ZOHO_SELLER_FLEX_ONLY || '1').trim() !== '0'
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -102,6 +108,7 @@ function isActiveListingRow(row) {
     'deleted',
     'blocked',
     'suppressed',
+    'search suppressed',
     'missing',
     'removed',
     'detail page removed',
@@ -128,12 +135,56 @@ function classifyInactiveListingRow(row) {
   return 'other_inactive'
 }
 
+/** MFN/FBM = DEFAULT; FBA / Seller Flex = AMAZON (or contains "amazon"). */
+function parseReportFulfillmentChannel(row) {
+  const raw = first(row, ['fulfillment-channel', 'fulfillment channel', 'fulfillment_channel']).toLowerCase()
+  if (!raw) return 'UNKNOWN'
+  if (raw.includes('amazon') || raw === 'afn' || raw.includes('fba')) return 'AMAZON'
+  if (raw === 'default' || raw.includes('merchant') || raw === 'mfn') return 'DEFAULT'
+  return 'UNKNOWN'
+}
+
+function isAmazonFulfilledChannel(channel) {
+  const c = String(channel || '').trim().toUpperCase()
+  return c === 'AMAZON' || c.includes('AMAZON')
+}
+
+function parseListingStatusFromReportRow(row) {
+  const status = first(row, ['status', 'listing-status', 'item-status']).toLowerCase()
+  const raw = Object.values(row || {}).join(' ').toLowerCase()
+  if (raw.includes('search suppressed') || status.includes('search suppressed')) return 'SEARCH_SUPPRESSED'
+  if (status.includes('suppressed')) return 'SEARCH_SUPPRESSED'
+  return 'ACTIVE'
+}
+
+function filterSellerFlexActiveListings(listings, suppressedSkus = new Set()) {
+  const out = []
+  let excludedFbm = 0
+  let excludedSuppressed = 0
+  let excludedUnknownChannel = 0
+  for (const listing of listings) {
+    if (!listing) continue
+    if (listing.listingStatus === 'SEARCH_SUPPRESSED' || suppressedSkus.has(listing.normalizedSku)) {
+      excludedSuppressed += 1
+      continue
+    }
+    if (!isAmazonFulfilledChannel(listing.fulfillmentChannel)) {
+      if (listing.fulfillmentChannel === 'UNKNOWN') excludedUnknownChannel += 1
+      else excludedFbm += 1
+      continue
+    }
+    out.push(listing)
+  }
+  return { listings: out, excludedFbm, excludedSuppressed, excludedUnknownChannel }
+}
+
 function mapListingRow(row, marketplaceKey, marketplaceId) {
   const sellerSku = first(row, ['seller-sku', 'seller sku', 'sku', 'SellerSKU'])
   if (!sellerSku) return null
   if (!isActiveListingRow(row)) return null
+  const listingStatus = parseListingStatusFromReportRow(row)
+  if (listingStatus === 'SEARCH_SUPPRESSED') return null
   const amount = first(row, ['price', 'standard-price', 'your-price', 'listing-price'])
-  const quantity = first(row, ['quantity', 'fulfillment-channel'])
   const image = first(row, ['image-url', 'main-image-url', 'image'])
   return {
     marketplaceKey,
@@ -145,7 +196,7 @@ function mapListingRow(row, marketplaceKey, marketplaceId) {
     title: first(row, ['item-name', 'title', 'product-name']),
     image,
     listingStatus: 'ACTIVE',
-    fulfillmentChannel: String(quantity).toLowerCase().includes('amazon') ? 'AMAZON' : 'AMAZON',
+    fulfillmentChannel: parseReportFulfillmentChannel(row),
     price: {
       amount: amount ? toNumber(amount, null) : null,
       currencyCode: defaultCurrency(marketplaceKey),
@@ -159,7 +210,6 @@ function mapInactiveListingRow(row, marketplaceKey, marketplaceId) {
   const inactiveClass = classifyInactiveListingRow(row)
   if (inactiveClass !== 'out_of_stock') return null
   const amount = first(row, ['price', 'standard-price', 'your-price', 'listing-price'])
-  const quantity = first(row, ['quantity', 'fulfillment-channel'])
   const image = first(row, ['image-url', 'main-image-url', 'image'])
   return {
     marketplaceKey,
@@ -172,7 +222,7 @@ function mapInactiveListingRow(row, marketplaceKey, marketplaceId) {
     image,
     listingStatus: 'INACTIVE_OOS',
     inactiveClass,
-    fulfillmentChannel: String(quantity).toLowerCase().includes('amazon') ? 'AMAZON' : 'AMAZON',
+    fulfillmentChannel: parseReportFulfillmentChannel(row),
     price: {
       amount: amount ? toNumber(amount, null) : null,
       currencyCode: defaultCurrency(marketplaceKey),
@@ -347,7 +397,31 @@ async function downloadAmazonMerchantListingsReport({
   return parseAmazonReportDocument(marketplaceKey, reportDocumentId)
 }
 
-async function fetchActiveAmazonListings({ marketplaceKey, progress }) {
+async function fetchSuppressedListingSkus({ marketplaceKey, progress }) {
+  const marketplaceId = marketplaceIdForKey(marketplaceKey)
+  try {
+    const rawRows = await downloadAmazonMerchantListingsReport({
+      marketplaceKey,
+      marketplaceId,
+      reportType: SUPPRESSED_LISTINGS_REPORT_TYPE,
+      progressLabel: 'search suppressed listings (FYP report)',
+      progress,
+      preferReuse: true,
+    })
+    const suppressedSkus = new Set()
+    for (const row of rawRows) {
+      const sellerSku = first(row, ['sku', 'seller-sku', 'seller sku', 'sellersku'])
+      if (sellerSku) suppressedSkus.add(normalizeSku(sellerSku))
+    }
+    return { suppressedSkus, warning: null }
+  } catch (e) {
+    const warning = `Search suppressed listings report failed; FBM/suppressed SKUs may still appear until it succeeds. (${e?.message || e})`
+    console.warn('[amazon-inventory] suppressed listings report:', marketplaceKey, e?.message || e)
+    return { suppressedSkus: new Set(), warning }
+  }
+}
+
+async function fetchActiveAmazonListings({ marketplaceKey, progress, sellerFlexOnly = sellerFlexOnlyEnabled() }) {
   const marketplaceId = marketplaceIdForKey(marketplaceKey)
   const rawRows = await downloadAmazonMerchantListingsReport({
     marketplaceKey,
@@ -356,14 +430,49 @@ async function fetchActiveAmazonListings({ marketplaceKey, progress }) {
     progressLabel: 'active listings report',
     progress,
   })
-  const listings = dedupeListings(
+  let suppressedSkus = new Set()
+  let suppressedWarning = null
+  if (sellerFlexOnly) {
+    const suppressed = await fetchSuppressedListingSkus({ marketplaceKey, progress })
+    suppressedSkus = suppressed.suppressedSkus
+    suppressedWarning = suppressed.warning
+  }
+
+  const mapped = dedupeListings(
     rawRows
       .map((row) => mapListingRow(row, marketplaceKey, marketplaceId))
       .filter((row) => row && row.normalizedSku)
   )
+
+  let listings = mapped
+  let filterMeta = null
+  if (sellerFlexOnly) {
+    const filtered = filterSellerFlexActiveListings(mapped, suppressedSkus)
+    listings = filtered.listings
+    filterMeta = {
+      sellerFlexOnly: true,
+      rawActiveCount: mapped.length,
+      sellerFlexCount: listings.length,
+      excludedFbm: filtered.excludedFbm,
+      excludedSuppressed: filtered.excludedSuppressed,
+      excludedUnknownChannel: filtered.excludedUnknownChannel,
+    }
+    if (filterMeta.excludedFbm > 0 || filterMeta.excludedSuppressed > 0) {
+      console.info(
+        '[amazon-inventory] seller-flex filter',
+        marketplaceKey,
+        `kept=${listings.length}`,
+        `fbm=${filterMeta.excludedFbm}`,
+        `suppressed=${filterMeta.excludedSuppressed}`
+      )
+    }
+  }
+
   return {
     listings,
     fetchedAt: new Date().toISOString(),
+    suppressedWarning,
+    filterMeta,
   }
 }
 
@@ -996,7 +1105,11 @@ module.exports = {
   mapAfnManageInventoryRow,
   afnReportWarningMessage,
   buildSingleSkuBackfillList,
+  parseReportFulfillmentChannel,
+  isAmazonFulfilledChannel,
+  filterSellerFlexActiveListings,
   fetchActiveAmazonListings,
+  fetchSuppressedListingSkus,
   fetchInactiveAmazonListings,
   fetchAfnManageInventoryBySku,
   fetchAmazonInventoryForListings,

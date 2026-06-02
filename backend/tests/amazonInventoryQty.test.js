@@ -10,6 +10,9 @@ const {
   isAmazonFbaOutOfStock,
   amazonOnHandQty,
   buildSingleSkuBackfillList,
+  parseReportFulfillmentChannel,
+  filterSellerFlexActiveListings,
+  mapListingRow,
 } = require('../src/services/amazonListingsInventoryReadService')
 
 describe('Amazon FBA quantity mapping', () => {
@@ -89,6 +92,60 @@ describe('Amazon FBA quantity mapping', () => {
     const merged = mergeAmazonInventoryRecords(omitted, report)
     assert.equal(merged.totalQty, 1)
     assert.equal(merged.stockSource, 'afn_manage_inventory_report')
+  })
+
+  it('parses fulfillment-channel: DEFAULT is FBM, AMAZON is Seller Flex / FBA', () => {
+    assert.equal(parseReportFulfillmentChannel({ 'fulfillment-channel': 'DEFAULT' }), 'DEFAULT')
+    assert.equal(parseReportFulfillmentChannel({ 'fulfillment-channel': 'AMAZON' }), 'AMAZON')
+    assert.equal(parseReportFulfillmentChannel({ 'fulfillment-channel': 'Amazon EU' }), 'AMAZON')
+  })
+
+  it('excludes FBM and search-suppressed SKUs from Seller Flex listing scope', () => {
+    const listings = [
+      {
+        listingStatus: 'ACTIVE',
+        fulfillmentChannel: 'AMAZON',
+        normalizedSku: 'sf-sku',
+        sellerSku: 'SF-SKU',
+      },
+      {
+        listingStatus: 'ACTIVE',
+        fulfillmentChannel: 'DEFAULT',
+        normalizedSku: 'fbm-sku',
+        sellerSku: 'FBM-SKU',
+      },
+      {
+        listingStatus: 'ACTIVE',
+        fulfillmentChannel: 'AMAZON',
+        normalizedSku: 'sup-sku',
+        sellerSku: 'SUP-SKU',
+      },
+    ]
+    const suppressedSkus = new Set(['sup-sku'])
+    const { listings: kept, excludedFbm, excludedSuppressed } = filterSellerFlexActiveListings(
+      listings,
+      suppressedSkus
+    )
+    assert.equal(kept.length, 1)
+    assert.equal(kept[0].normalizedSku, 'sf-sku')
+    assert.equal(excludedFbm, 1)
+    assert.equal(excludedSuppressed, 1)
+  })
+
+  it('maps merchant report row with DEFAULT fulfillment as FBM not AMAZON', () => {
+    const row = mapListingRow(
+      {
+        sku: '5FP2-24-BLACK',
+        'fulfillment-channel': 'DEFAULT',
+        status: 'Active',
+        asin1: 'B0TEST',
+        'item-name': 'Test Pan',
+      },
+      'uae',
+      'A2TEST'
+    )
+    assert.equal(row?.fulfillmentChannel, 'DEFAULT')
+    assert.equal(row?.listingStatus, 'ACTIVE')
   })
 
   it('queues per-SKU FBA recovery for batch omissions when AFN report is unavailable', () => {
