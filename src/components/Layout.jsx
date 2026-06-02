@@ -65,6 +65,12 @@ const AMAZON_NAV_ITEMS = [
     adminOnly: true,
     searchHint: 'amazon zoho stock comparison inventory fba life smile warehouse mismatch out of stock',
   },
+  {
+    to: '/ai/amazon-out-of-stock-clearance',
+    label: 'Amazon Out of Stock Clearance',
+    adminOnly: true,
+    searchHint: 'amazon out of stock clearance zoho vigil life smile replenish uae ksa',
+  },
   { to: '/ai/amazon-listing', label: 'Amazon Listing' },
   { to: '/ai/amazon-bulk-listing', label: 'Amazon Bulk Generator' },
   { to: '/ai/listing-batches', label: 'Listing Batches' },
@@ -678,6 +684,7 @@ export function Layout() {
     if (location.pathname.startsWith('/taxation/ksa-vat')) return 'KSA VAT Tax'
     if (location.pathname.startsWith('/admin/zoho/bulk-invoice')) return 'Bulk Zoho Invoice'
     if (location.pathname.startsWith('/ai/amazon-zoho-stock')) return 'Amazon + Zoho Stock'
+    if (location.pathname.startsWith('/ai/amazon-out-of-stock-clearance')) return 'Amazon Out of Stock Clearance'
     if (location.pathname.startsWith('/admin/ai-budget')) return 'AI Budget Settings'
     if (location.pathname.startsWith('/admin/item-report-groups')) return 'Item Report Groups'
     if (location.pathname.startsWith('/ai/noon-integration')) return 'Noon API Integration'

@@ -104,6 +104,7 @@ import { AmazonOrdersPage } from './pages/AmazonOrdersPage'
 import { AmazonOrdersDashboardPage } from './pages/AmazonOrdersDashboardPage'
 import { AmazonSyncHealthPage } from './pages/AmazonSyncHealthPage'
 import { AmazonZohoStockPage } from './pages/AmazonZohoStockPage'
+import { AmazonOutOfStockClearancePage } from './pages/AmazonOutOfStockClearancePage'
 import { AmazonFlatFileBulkGenerator } from './pages/AmazonFlatFileBulkGenerator'
 import NoonIntegrationPage from './pages/NoonIntegrationPage'
 import { ListingBatchesPage } from './pages/ListingBatchesPage'
@@ -352,6 +353,14 @@ function AppContent() {
           element={
             <AdminOnly>
               <AmazonZohoStockPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="ai/amazon-out-of-stock-clearance"
+          element={
+            <AdminOnly>
+              <AmazonOutOfStockClearancePage />
             </AdminOnly>
           }
         />

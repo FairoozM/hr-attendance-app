@@ -318,6 +318,7 @@ module.exports = {
   normalizeSku,
   extractColor,
   getParentSku,
+  expandExactMatchVariants,
   expandMatchCandidates,
   buildVigilIndexes,
   matchZohoSkuToVigilWithIndexes,

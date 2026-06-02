@@ -1,6 +1,11 @@
 const { query, pool } = require('../db')
 const { parseCsv, indexHeaders, cellOf } = require('../utils/csv')
-const XLSX = require('xlsx')
+const {
+  previewVigilUpload,
+  parseVigilExcel,
+  parseTabularExcel,
+  isExcelFile,
+} = require('./vigilStockParseService')
 const {
   normalizeSku,
   buildVigilIndexes,
@@ -555,146 +560,10 @@ function coerceVigilRowsFromUpload(upload) {
   return Array.isArray(rows) ? rows : []
 }
 
-function vigilStockFromRawRow(raw, headerIdx, stockHeader, codeColumnIndex) {
-  if (stockHeader) {
-    return toNumber(cellOf(raw, headerIdx, stockHeader), NaN)
-  }
-  const start = Number.isInteger(codeColumnIndex) && codeColumnIndex >= 0 ? codeColumnIndex + 1 : 1
-  for (let i = start; i < raw.length; i += 1) {
-    const n = toNumber(raw[i], NaN)
-    if (Number.isFinite(n)) return n
-  }
-  return NaN
-}
-
-function parseTabularExcel(buffer) {
-  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: false })
-  const sheetName = workbook.SheetNames && workbook.SheetNames[0]
-  if (!sheetName) {
-    const err = new Error('Excel workbook does not contain any sheets')
-    err.code = 'EXCEL_PARSE_ERROR'
-    throw err
-  }
-  const worksheet = workbook.Sheets[sheetName]
-  const rows = XLSX.utils.sheet_to_json(worksheet, {
-    header: 1,
-    raw: false,
-    defval: '',
-    blankrows: false,
-  })
-  if (!rows.length) {
-    const err = new Error('Excel sheet is empty')
-    err.code = 'EXCEL_PARSE_ERROR'
-    throw err
-  }
-  const headers = rows[0].map((cell) => clean(cell))
-  if (!headers.length || headers.every((header) => !header)) {
-    const err = new Error('Excel header row is empty')
-    err.code = 'EXCEL_PARSE_ERROR'
-    throw err
-  }
-  const bodyRows = rows.slice(1)
-    .filter((row) => Array.isArray(row) && row.some((cell) => clean(cell) !== ''))
-    .map((row) => {
-      const out = row.map((cell) => clean(cell))
-      while (out.length < headers.length) out.push('')
-      out.length = headers.length
-      return out
-    })
-  return { headers, rows: bodyRows }
-}
-
 function parseTabularUpload(buffer, fileName = '') {
   if (isExcelFile(fileName)) return parseTabularExcel(buffer)
   const parsed = parseCsv(buffer.toString('utf8'))
   return { headers: parsed.headers, rows: parsed.rows }
-}
-
-function parseVigilRows(headers, rawRows) {
-  const headerIdx = indexHeaders(headers)
-  const itemCodeHeader = findHeader(headerIdx, [
-    'item code',
-    'item_code',
-    'itemcode',
-    'item no',
-    'item no.',
-    'item number',
-    'item #',
-    'product code',
-    'product',
-    'material code',
-    'article',
-    'code',
-    'sku',
-    'item',
-  ])
-  const stockHeader = findHeader(headerIdx, [
-    'available stock',
-    'available_stock',
-    'available qty',
-    'available_qty',
-    'available quantity',
-    'wholesale stock',
-    'wholesale qty',
-    'free stock',
-    'on hand',
-    'onhand',
-    'balance',
-    'stock',
-    'qty',
-    'quantity',
-    'available',
-  ])
-  const codeColumnIndex = itemCodeHeader ? headerIdx.get(itemCodeHeader) : 0
-
-  const rows = rawRows.map((raw, index) => {
-    const itemCode = itemCodeHeader
-      ? cellOf(raw, headerIdx, itemCodeHeader)
-      : clean(raw[0])
-    const availableStock = vigilStockFromRawRow(raw, headerIdx, stockHeader, codeColumnIndex)
-    const errors = []
-    if (!itemCode) errors.push('Missing item code')
-    if (!Number.isFinite(availableStock)) errors.push('Invalid available stock')
-    return {
-      rowNumber: index + 2,
-      itemCode: clean(itemCode),
-      normalizedItemCode: normalizeSku(itemCode),
-      availableStock: Number.isFinite(availableStock) ? availableStock : 0,
-      errors,
-      valid: errors.length === 0,
-    }
-  })
-
-  return {
-    headers,
-    rows,
-    summary: {
-      rows: rows.length,
-      validRows: rows.filter((row) => row.valid).length,
-      invalidRows: rows.filter((row) => !row.valid).length,
-      itemCodeHeader,
-      stockHeader,
-    },
-  }
-}
-
-function parseVigilCsv(text) {
-  const parsed = parseCsv(text)
-  return parseVigilRows(parsed.headers, parsed.rows)
-}
-
-function parseVigilExcel(buffer) {
-  const parsed = parseTabularExcel(buffer)
-  return parseVigilRows(parsed.headers, parsed.rows)
-}
-
-function isExcelFile(fileName) {
-  return /\.(xlsx|xls)$/i.test(clean(fileName))
-}
-
-async function previewVigilUpload(buffer, fileName = '') {
-  if (isExcelFile(fileName)) return parseVigilExcel(buffer)
-  return parseVigilCsv(buffer.toString('utf8'))
 }
 
 function parseLowStockRows(headers, rawRows) {
