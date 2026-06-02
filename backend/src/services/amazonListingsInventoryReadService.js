@@ -286,6 +286,93 @@ function normalizeMarketplaceKey(raw) {
   return null
 }
 
+function buildOutOfStockRow(listing, inv, marketplaceId, mk) {
+  const availableQty = inv ? toNumber(inv.availableQty) : 0
+  return {
+    marketplaceKey: mk,
+    marketplace: marketplaceLabel(mk),
+    marketplaceId,
+    amazonSku: listing.sellerSku,
+    normalizedSku: listing.normalizedSku,
+    title: listing.title,
+    asin: listing.asin,
+    amazonCurrentQty: availableQty,
+    amazonStockStatus: inv?.stockStatus || 'Out of Stock',
+    fulfillmentChannel: listing.fulfillmentChannel,
+    image: listing.image,
+  }
+}
+
+function filterOutOfStockRows(listings, inventoryBySku, marketplaceId, mk) {
+  const outOfStock = []
+  for (const listing of listings) {
+    const inv = inventoryBySku.get(listing.normalizedSku)
+    const availableQty = inv ? toNumber(inv.availableQty) : 0
+    if (availableQty > 0) continue
+    outOfStock.push(buildOutOfStockRow(listing, inv, marketplaceId, mk))
+  }
+  return outOfStock
+}
+
+function listingFromCachedComparisonRow(row, mk, marketplaceId) {
+  return {
+    marketplaceKey: mk,
+    marketplace: row.marketplace || marketplaceLabel(mk),
+    marketplaceId,
+    sellerSku: row.sellerSku,
+    normalizedSku: row.normalizedSku,
+    title: row.title || '',
+    asin: row.asin || '',
+    fulfillmentChannel: row.fulfillmentChannel || '',
+    image: row.image || '',
+  }
+}
+
+/**
+ * Fast path: re-query FBA inventory only for SKUs already in amazon_zoho_stock_comparison cache.
+ * Typical runtime: seconds to ~2 min (batched by 50 SKUs), not a full listings report.
+ */
+async function fetchOutOfStockFromCachedComparisonRows({ marketplaceKey, cachedRows, progress }) {
+  const mk = normalizeMarketplaceKey(marketplaceKey)
+  if (!mk) {
+    const err = new Error('Invalid marketplace. Use UAE or KSA.')
+    err.code = 'INVALID_MARKETPLACE'
+    throw err
+  }
+  const rows = Array.isArray(cachedRows) ? cachedRows : []
+  if (rows.length === 0) {
+    const err = new Error(
+      'No cached Amazon listings for this marketplace. Run Amazon + Zoho Stock → Refresh first, or use a full catalog scan.'
+    )
+    err.code = 'AMAZON_OOS_CACHE_EMPTY'
+    throw err
+  }
+  const marketplaceId = marketplaceIdForKey(mk)
+  const listings = rows.map((row) => listingFromCachedComparisonRow(row, mk, marketplaceId))
+  progress?.({
+    step: `Refreshing Amazon FBA inventory for ${listings.length} cached SKU(s)`,
+    current: 0,
+    total: listings.length,
+  })
+  const invResult = await fetchAmazonInventoryForListings({
+    marketplaceKey: mk,
+    marketplaceId,
+    listings,
+    progress,
+  })
+  const outOfStock = filterOutOfStockRows(listings, invResult.inventoryBySku, marketplaceId, mk)
+  return {
+    marketplace: marketplaceLabel(mk),
+    marketplaceKey: mk,
+    rows: outOfStock,
+    totalListings: listings.length,
+    scannedSkuCount: listings.length,
+    fetchMode: 'fast',
+    fetchedAt: invResult.fetchedAt,
+  }
+}
+
+/** Slow path: full merchant listings report + FBA inventory for every active listing (finds new OOS SKUs). */
 async function fetchOutOfStockAmazonSkus({ marketplaceKey, progress }) {
   const mk = normalizeMarketplaceKey(marketplaceKey)
   if (!mk) {
@@ -301,30 +388,19 @@ async function fetchOutOfStockAmazonSkus({ marketplaceKey, progress }) {
     listings: listingResult.listings,
     progress,
   })
-  const outOfStock = []
-  for (const listing of listingResult.listings) {
-    const inv = invResult.inventoryBySku.get(listing.normalizedSku)
-    const availableQty = inv ? toNumber(inv.availableQty) : 0
-    if (availableQty > 0) continue
-    outOfStock.push({
-      marketplaceKey: mk,
-      marketplace: marketplaceLabel(mk),
-      marketplaceId,
-      amazonSku: listing.sellerSku,
-      normalizedSku: listing.normalizedSku,
-      title: listing.title,
-      asin: listing.asin,
-      amazonCurrentQty: availableQty,
-      amazonStockStatus: inv?.stockStatus || 'Out of Stock',
-      fulfillmentChannel: listing.fulfillmentChannel,
-      image: listing.image,
-    })
-  }
+  const outOfStock = filterOutOfStockRows(
+    listingResult.listings,
+    invResult.inventoryBySku,
+    marketplaceId,
+    mk
+  )
   return {
     marketplace: marketplaceLabel(mk),
     marketplaceKey: mk,
     rows: outOfStock,
     totalListings: listingResult.listings.length,
+    scannedSkuCount: listingResult.listings.length,
+    fetchMode: 'full',
     fetchedAt: new Date(
       Math.max(new Date(listingResult.fetchedAt).getTime(), new Date(invResult.fetchedAt).getTime())
     ).toISOString(),
@@ -339,5 +415,6 @@ module.exports = {
   fetchActiveAmazonListings,
   fetchAmazonInventoryForListings,
   fetchOutOfStockAmazonSkus,
+  fetchOutOfStockFromCachedComparisonRows,
   normalizeMarketplaceKey,
 }

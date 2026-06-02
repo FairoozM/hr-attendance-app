@@ -19,7 +19,7 @@ All require `requireAuth` + `requireAdmin`.
 | Method | Path |
 |--------|------|
 | GET | `/api/amazon/out-of-stock-clearance/out-of-stock?marketplace=UAE\|KSA` | **Fast** — OOS rows from `amazon_zoho_stock_comparison` cache |
-| POST | `/api/amazon/out-of-stock-clearance/out-of-stock/fetch` | Start **background** live SP-API job (202; poll below) |
+| POST | `/api/amazon/out-of-stock-clearance/out-of-stock/fetch` | Body `{ marketplace, mode: "fast" \| "full" }` — background job (202). **fast** (default): FBA inventory for cached SKUs only. **full**: entire listings report. |
 | GET | `/api/amazon/out-of-stock-clearance/out-of-stock/fetch/:jobId` | Poll job; returns `rows` when `completed` |
 | POST | `/api/amazon/out-of-stock-clearance/zoho-stock` |
 | POST | `/api/amazon/out-of-stock-clearance/vigil-preview` (multipart `file`, optional `columnMapping` JSON) |
@@ -57,5 +57,5 @@ All require `requireAuth` + `requireAdmin`.
 ## Limitations
 
 - OOS = FBA fulfillable qty 0; merchant-fulfilled listing quantity not used.
-- Live SP-API uses a **background job** (CloudFront origin timeout ~30s cannot hold a synchronous report poll). Use **Load from cache** for instant results after **Amazon + Zoho Stock → Refresh**.
+- Live SP-API uses a **background job** (CloudFront ~30s limit). **Refresh Amazon FBA (fast)** re-queries FBA for SKUs already in the Amazon + Zoho cache — typically under a minute, not proportional to 24 OOS rows. **Full catalog scan** downloads Amazon’s merchant listings report for **all** active SKUs (minutes). Use **Load from cache** for instant results with no Amazon calls.
 - Vigil upload is in-memory for the session only.

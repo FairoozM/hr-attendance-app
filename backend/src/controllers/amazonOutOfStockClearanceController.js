@@ -13,6 +13,9 @@ function safeMessage(err) {
   if (err.code === 'AMAZON_LISTINGS_REPORT_TIMEOUT') {
     return 'Amazon listings report timed out. Try again in a few minutes.'
   }
+  if (err.code === 'AMAZON_OOS_CACHE_EMPTY') {
+    return err.message
+  }
   if (err.code === 'VIGIL_FILE_EMPTY' || err.code === 'VIGIL_PARSE_INVALID') {
     return err.message
   }
@@ -47,7 +50,8 @@ async function getOutOfStock(req, res) {
 async function postOutOfStockFetch(req, res) {
   try {
     const marketplace = req.body?.marketplace || req.query?.marketplace
-    const json = service.startOutOfStockFetch(marketplace)
+    const mode = req.body?.mode || req.query?.mode || 'fast'
+    const json = service.startOutOfStockFetch(marketplace, mode)
     res.status(202).json(json)
   } catch (err) {
     sendError(res, err)

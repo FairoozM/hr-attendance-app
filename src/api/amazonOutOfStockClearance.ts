@@ -127,9 +127,14 @@ export async function fetchAmazonOutOfStockFromCache(marketplace: MarketplaceCod
   ) as Promise<OutOfStockFetchJob & { outOfStockCount?: number }>
 }
 
+export type AmazonOosFetchMode = 'fast' | 'full'
+
 /** Starts background SP-API job; poll with getAmazonOutOfStockFetchStatus. */
-export async function startAmazonOutOfStockFetch(marketplace: MarketplaceCode) {
-  return api.post('/api/amazon/out-of-stock-clearance/out-of-stock/fetch', { marketplace }) as Promise<
+export async function startAmazonOutOfStockFetch(
+  marketplace: MarketplaceCode,
+  mode: AmazonOosFetchMode = 'fast'
+) {
+  return api.post('/api/amazon/out-of-stock-clearance/out-of-stock/fetch', { marketplace, mode }) as Promise<
     OutOfStockFetchJob
   >
 }

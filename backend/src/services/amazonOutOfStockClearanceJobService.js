@@ -1,5 +1,9 @@
 const crypto = require('crypto')
-const { fetchOutOfStockAmazonSkus } = require('./amazonListingsInventoryReadService')
+const {
+  fetchOutOfStockAmazonSkus,
+  fetchOutOfStockFromCachedComparisonRows,
+} = require('./amazonListingsInventoryReadService')
+const store = require('./amazonZohoStockComparisonStore')
 
 const jobs = new Map()
 let activeJobId = null
@@ -37,6 +41,7 @@ function startOutOfStockFetchJob(options = {}) {
   if (running) return serializeJob(running)
 
   const marketplaceKey = String(options.marketplaceKey || 'uae').toLowerCase() === 'ksa' ? 'ksa' : 'uae'
+  const mode = String(options.mode || 'fast').toLowerCase() === 'full' ? 'full' : 'fast'
   const jobId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`
   const now = new Date().toISOString()
   const job = {
@@ -48,24 +53,37 @@ function startOutOfStockFetchJob(options = {}) {
     error: null,
     result: null,
     marketplaceKey,
+    mode,
   }
   jobs.set(jobId, job)
   activeJobId = jobId
 
   setImmediate(async () => {
     job.status = 'running'
-    job.progress = { step: 'Starting Amazon out-of-stock fetch', current: 0, total: 0 }
+    job.progress = {
+      step:
+        mode === 'full'
+          ? 'Starting full catalog scan (listings report)'
+          : 'Starting fast FBA refresh from cache',
+      current: 0,
+      total: 0,
+    }
     try {
-      const result = await fetchOutOfStockAmazonSkus({
-        marketplaceKey,
-        progress: (progress) => {
-          job.progress = {
-            step: progress.step || job.progress.step,
-            current: Number.isFinite(Number(progress.current)) ? Number(progress.current) : job.progress.current,
-            total: Number.isFinite(Number(progress.total)) ? Number(progress.total) : job.progress.total,
-          }
-        },
-      })
+      const progress = (p) => {
+        job.progress = {
+          step: p.step || job.progress.step,
+          current: Number.isFinite(Number(p.current)) ? Number(p.current) : job.progress.current,
+          total: Number.isFinite(Number(p.total)) ? Number(p.total) : job.progress.total,
+        }
+      }
+      const result =
+        mode === 'full'
+          ? await fetchOutOfStockAmazonSkus({ marketplaceKey, progress })
+          : await fetchOutOfStockFromCachedComparisonRows({
+              marketplaceKey,
+              cachedRows: await store.selectAllComparisonRows({ marketplace: marketplaceKey }),
+              progress,
+            })
       job.result = result
       job.progress = {
         step: `Found ${result.rows.length} out-of-stock SKU(s)`,

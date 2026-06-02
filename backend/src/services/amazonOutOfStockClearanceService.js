@@ -86,7 +86,7 @@ async function getOutOfStockFromCache(marketplace) {
   }
 }
 
-function startOutOfStockFetch(marketplace) {
+function startOutOfStockFetch(marketplace, mode = 'fast') {
   const mk = normalizeMarketplaceKey(marketplace)
   if (!mk) {
     const err = new Error('Invalid marketplace. Use UAE or KSA.')
@@ -94,12 +94,16 @@ function startOutOfStockFetch(marketplace) {
     err.status = 400
     throw err
   }
-  const job = fetchJobs.startOutOfStockFetchJob({ marketplaceKey: mk })
+  const fetchMode = String(mode || 'fast').toLowerCase() === 'full' ? 'full' : 'fast'
+  const job = fetchJobs.startOutOfStockFetchJob({ marketplaceKey: mk, mode: fetchMode })
   return {
     success: true,
     ...job,
+    mode: fetchMode,
     message:
-      'Amazon fetch started in the background. This can take several minutes (listings report + FBA inventory).',
+      fetchMode === 'full'
+        ? 'Full catalog scan started (listings report for all SKUs — usually several minutes).'
+        : 'Fast FBA refresh started (re-checks inventory for cached SKUs only — usually under a minute).',
   }
 }
 

@@ -82,30 +82,39 @@ export function AmazonOutOfStockClearancePage() {
     }
   }, [marketplace, applyFetchResult])
 
-  const runLiveFetchAmazon = useCallback(async () => {
-    setFetchingAmazon(true)
-    setFetchJob(null)
-    setFetchProgress('Starting Amazon fetch…')
-    setError('')
-    setWarnings([
-      'Live fetch runs in the background and may take 2–10 minutes (listings report + FBA inventory).',
-    ])
-    setResultRows([])
-    setSummary(null)
-    setSelectedIds(new Set())
-    try {
-      const json = await startAmazonOutOfStockFetch(marketplace)
-      setFetchJob(json)
-      if (!['queued', 'running'].includes(json.status)) {
+  const runLiveFetchAmazon = useCallback(
+    async (mode: 'fast' | 'full' = 'fast') => {
+      setFetchingAmazon(true)
+      setFetchJob(null)
+      setFetchProgress(
+        mode === 'full' ? 'Starting full catalog scan…' : 'Refreshing FBA inventory for cached SKUs…'
+      )
+      setError('')
+      setWarnings(
+        mode === 'full'
+          ? [
+              'Full scan downloads Amazon’s entire listings report (all SKUs), then checks FBA stock — usually several minutes, not proportional to how many are out of stock.',
+            ]
+          : []
+      )
+      setResultRows([])
+      setSummary(null)
+      setSelectedIds(new Set())
+      try {
+        const json = await startAmazonOutOfStockFetch(marketplace, mode)
+        setFetchJob(json)
+        if (!['queued', 'running'].includes(json.status)) {
+          setFetchingAmazon(false)
+          if (json.status === 'completed' && json.rows) applyFetchResult(json)
+          if (json.status === 'failed') setError(json.error || 'Amazon fetch failed')
+        }
+      } catch (e) {
+        setError(safeError(e))
         setFetchingAmazon(false)
-        if (json.status === 'completed' && json.rows) applyFetchResult(json)
-        if (json.status === 'failed') setError(json.error || 'Amazon fetch failed')
       }
-    } catch (e) {
-      setError(safeError(e))
-      setFetchingAmazon(false)
-    }
-  }, [marketplace, applyFetchResult])
+    },
+    [marketplace, applyFetchResult]
+  )
 
   useEffect(() => {
     if (!fetchJob?.jobId || !['queued', 'running'].includes(fetchJob.status)) return undefined
@@ -255,8 +264,9 @@ export function AmazonOutOfStockClearancePage() {
         </h1>
         <p className="mt-2 max-w-4xl text-sm leading-relaxed text-slate-400">
           Find Amazon UAE/KSA SKUs with zero FBA fulfillable quantity, compare Life Smile Zoho stock and
-          Vigil wholesale availability, and get recommended replenishment quantities. Amazon inventory
-          updates are not enabled in this release.
+          Vigil wholesale availability, and get recommended replenishment quantities. Live refresh re-checks
+          FBA stock for SKUs already cached from Amazon + Zoho Stock (not one API call per OOS row). Amazon
+          inventory updates are not enabled in this release.
         </p>
       </header>
 
@@ -299,9 +309,18 @@ export function AmazonOutOfStockClearancePage() {
               type="button"
               className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
               disabled={fetchingAmazon}
-              onClick={() => void runLiveFetchAmazon()}
+              onClick={() => void runLiveFetchAmazon('fast')}
             >
-              {fetchingAmazon && fetchJob ? 'Refreshing from Amazon…' : 'Refresh from Amazon (live)'}
+              {fetchingAmazon && fetchJob ? 'Refreshing Amazon FBA…' : 'Refresh Amazon FBA (fast)'}
+            </button>
+            <button
+              type="button"
+              className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-100 hover:bg-amber-500/20 disabled:opacity-50"
+              disabled={fetchingAmazon}
+              title="Downloads full listings report for every SKU — slow"
+              onClick={() => void runLiveFetchAmazon('full')}
+            >
+              Full catalog scan (slow)
             </button>
           </div>
         </div>
