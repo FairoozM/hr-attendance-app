@@ -127,7 +127,7 @@ export async function fetchAmazonOutOfStockFromCache(marketplace: MarketplaceCod
   ) as Promise<OutOfStockFetchJob & { outOfStockCount?: number }>
 }
 
-export type AmazonOosFetchMode = 'fast' | 'full'
+export type AmazonOosFetchMode = 'fast' | 'fba' | 'listings-report'
 
 /** Starts background SP-API job; poll with getAmazonOutOfStockFetchStatus. */
 export async function startAmazonOutOfStockFetch(

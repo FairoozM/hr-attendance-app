@@ -372,7 +372,87 @@ async function fetchOutOfStockFromCachedComparisonRows({ marketplaceKey, cachedR
   }
 }
 
-/** Slow path: full merchant listings report + FBA inventory for every active listing (finds new OOS SKUs). */
+function inventorySummaryToOosRow(row, mk, marketplaceId) {
+  const mapped = mapInventorySummary(row)
+  const sellerSku = mapped.sellerSku
+  if (!sellerSku) return null
+  if (toNumber(mapped.availableQty) > 0) return null
+  const normalizedSku = normalizeSku(sellerSku)
+  return {
+    marketplaceKey: mk,
+    marketplace: marketplaceLabel(mk),
+    marketplaceId,
+    amazonSku: sellerSku,
+    normalizedSku,
+    title: clean(row?.productName || row?.itemName || ''),
+    asin: clean(row?.asin || ''),
+    amazonCurrentQty: 0,
+    amazonStockStatus: 'Out of Stock',
+    fulfillmentChannel: 'AMAZON',
+    image: '',
+  }
+}
+
+/**
+ * Discover OOS SKUs via Amazon's only practical bulk inventory API:
+ * GET /fba/inventory/v1/summaries (paginated). Amazon does not offer a server-side
+ * "out of stock only" filter — we page all FBA summaries and keep fulfillableQuantity === 0.
+ * No listings report (avoids multi-minute report generation).
+ */
+async function fetchOutOfStockViaFbaInventorySummaries({ marketplaceKey, progress }) {
+  const mk = normalizeMarketplaceKey(marketplaceKey)
+  if (!mk) {
+    const err = new Error('Invalid marketplace. Use UAE or KSA.')
+    err.code = 'INVALID_MARKETPLACE'
+    throw err
+  }
+  const marketplaceId = marketplaceIdForKey(mk)
+  const outOfStock = []
+  const seen = new Set()
+  let nextToken = null
+  let page = 0
+  let scanned = 0
+  const startedAt = Date.now()
+  do {
+    page += 1
+    progress?.({
+      step: `Reading FBA inventory from Amazon (page ${page})`,
+      current: scanned,
+      total: 0,
+    })
+    const res = await getAmazonFbaInventorySummaries({
+      marketplaceKey: mk,
+      marketplaceId,
+      nextToken,
+    })
+    throwAmazonSpApiIfFailed(res, 'getFbaInventorySummaries', marketplaceKey)
+    for (const summary of inventorySummaryList(res.data)) {
+      scanned += 1
+      const row = inventorySummaryToOosRow(summary, mk, marketplaceId)
+      if (!row || seen.has(row.normalizedSku)) continue
+      seen.add(row.normalizedSku)
+      outOfStock.push(row)
+    }
+    nextToken = nextTokenFromInventory(res.data)
+    progress?.({
+      step: `FBA inventory page ${page}: ${outOfStock.length} out of stock (${scanned} SKUs scanned)`,
+      current: scanned,
+      total: 0,
+    })
+  } while (nextToken)
+
+  return {
+    marketplace: marketplaceLabel(mk),
+    marketplaceKey: mk,
+    rows: outOfStock,
+    totalListings: scanned,
+    scannedSkuCount: scanned,
+    fetchMode: 'fba',
+    fetchedAt: new Date(startedAt).toISOString(),
+  }
+}
+
+/** Legacy: listings report + FBA (slow). Prefer fetchOutOfStockViaFbaInventorySummaries. */
 async function fetchOutOfStockAmazonSkus({ marketplaceKey, progress }) {
   const mk = normalizeMarketplaceKey(marketplaceKey)
   if (!mk) {
@@ -400,7 +480,7 @@ async function fetchOutOfStockAmazonSkus({ marketplaceKey, progress }) {
     rows: outOfStock,
     totalListings: listingResult.listings.length,
     scannedSkuCount: listingResult.listings.length,
-    fetchMode: 'full',
+    fetchMode: 'listings-report',
     fetchedAt: new Date(
       Math.max(new Date(listingResult.fetchedAt).getTime(), new Date(invResult.fetchedAt).getTime())
     ).toISOString(),
@@ -415,6 +495,7 @@ module.exports = {
   fetchActiveAmazonListings,
   fetchAmazonInventoryForListings,
   fetchOutOfStockAmazonSkus,
+  fetchOutOfStockViaFbaInventorySummaries,
   fetchOutOfStockFromCachedComparisonRows,
   normalizeMarketplaceKey,
 }

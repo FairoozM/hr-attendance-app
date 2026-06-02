@@ -94,16 +94,24 @@ function startOutOfStockFetch(marketplace, mode = 'fast') {
     err.status = 400
     throw err
   }
-  const fetchMode = String(mode || 'fast').toLowerCase() === 'full' ? 'full' : 'fast'
+  const modeRaw = String(mode || 'fast').toLowerCase()
+  const fetchMode =
+    modeRaw === 'fba' || modeRaw === 'discover' || modeRaw === 'full'
+      ? 'fba'
+      : modeRaw === 'listings-report'
+        ? 'listings-report'
+        : 'fast'
   const job = fetchJobs.startOutOfStockFetchJob({ marketplaceKey: mk, mode: fetchMode })
   return {
     success: true,
     ...job,
     mode: fetchMode,
     message:
-      fetchMode === 'full'
-        ? 'Full catalog scan started (listings report for all SKUs — usually several minutes).'
-        : 'Fast FBA refresh started (re-checks inventory for cached SKUs only — usually under a minute).',
+      fetchMode === 'fba'
+        ? 'FBA inventory scan started (Amazon has no “out of stock only” API — we page /fba/inventory/v1/summaries and filter).'
+        : fetchMode === 'listings-report'
+          ? 'Legacy listings report scan started (slow).'
+          : 'Fast FBA refresh started (re-checks inventory for cached SKUs only — usually under a minute).',
   }
 }
 

@@ -83,19 +83,25 @@ export function AmazonOutOfStockClearancePage() {
   }, [marketplace, applyFetchResult])
 
   const runLiveFetchAmazon = useCallback(
-    async (mode: 'fast' | 'full' = 'fast') => {
+    async (mode: 'fast' | 'fba' | 'listings-report' = 'fast') => {
       setFetchingAmazon(true)
       setFetchJob(null)
       setFetchProgress(
-        mode === 'full' ? 'Starting full catalog scan…' : 'Refreshing FBA inventory for cached SKUs…'
+        mode === 'fba'
+          ? 'Scanning Amazon FBA inventory API…'
+          : mode === 'listings-report'
+            ? 'Starting legacy listings report…'
+            : 'Refreshing FBA inventory for cached SKUs…'
       )
       setError('')
       setWarnings(
-        mode === 'full'
+        mode === 'fba'
           ? [
-              'Full scan downloads Amazon’s entire listings report (all SKUs), then checks FBA stock — usually several minutes, not proportional to how many are out of stock.',
+              'Amazon has no “out of stock SKUs” endpoint. We page GET /fba/inventory/v1/summaries and filter fulfillable qty = 0 (time depends on total FBA SKU count, not your 24 OOS rows).',
             ]
-          : []
+          : mode === 'listings-report'
+            ? ['Legacy path uses the slow merchant listings report. Prefer "Discover all OOS (FBA API)".']
+            : []
       )
       setResultRows([])
       setSummary(null)
@@ -264,9 +270,9 @@ export function AmazonOutOfStockClearancePage() {
         </h1>
         <p className="mt-2 max-w-4xl text-sm leading-relaxed text-slate-400">
           Find Amazon UAE/KSA SKUs with zero FBA fulfillable quantity, compare Life Smile Zoho stock and
-          Vigil wholesale availability, and get recommended replenishment quantities. Live refresh re-checks
-          FBA stock for SKUs already cached from Amazon + Zoho Stock (not one API call per OOS row). Amazon
-          inventory updates are not enabled in this release.
+          Vigil wholesale availability, and get recommended replenishment quantities. Amazon SP-API has no
+          dedicated “out of stock” endpoint — we use paginated FBA inventory summaries and filter locally.
+          Amazon inventory updates are not enabled in this release.
         </p>
       </header>
 
@@ -315,12 +321,12 @@ export function AmazonOutOfStockClearancePage() {
             </button>
             <button
               type="button"
-              className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-100 hover:bg-amber-500/20 disabled:opacity-50"
+              className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-2.5 text-sm text-sky-100 hover:bg-sky-500/20 disabled:opacity-50"
               disabled={fetchingAmazon}
-              title="Downloads full listings report for every SKU — slow"
-              onClick={() => void runLiveFetchAmazon('full')}
+              title="Pages Amazon FBA Inventory API — no listings report"
+              onClick={() => void runLiveFetchAmazon('fba')}
             >
-              Full catalog scan (slow)
+              Discover all OOS (FBA API)
             </button>
           </div>
         </div>

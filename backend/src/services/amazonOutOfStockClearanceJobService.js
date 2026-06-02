@@ -1,6 +1,7 @@
 const crypto = require('crypto')
 const {
   fetchOutOfStockAmazonSkus,
+  fetchOutOfStockViaFbaInventorySummaries,
   fetchOutOfStockFromCachedComparisonRows,
 } = require('./amazonListingsInventoryReadService')
 const store = require('./amazonZohoStockComparisonStore')
@@ -41,7 +42,9 @@ function startOutOfStockFetchJob(options = {}) {
   if (running) return serializeJob(running)
 
   const marketplaceKey = String(options.marketplaceKey || 'uae').toLowerCase() === 'ksa' ? 'ksa' : 'uae'
-  const mode = String(options.mode || 'fast').toLowerCase() === 'full' ? 'full' : 'fast'
+  const modeRaw = String(options.mode || 'fast').toLowerCase()
+  const mode =
+    modeRaw === 'fba' || modeRaw === 'discover' || modeRaw === 'full' ? 'fba' : modeRaw === 'listings-report' ? 'listings-report' : 'fast'
   const jobId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`
   const now = new Date().toISOString()
   const job = {
@@ -62,9 +65,11 @@ function startOutOfStockFetchJob(options = {}) {
     job.status = 'running'
     job.progress = {
       step:
-        mode === 'full'
-          ? 'Starting full catalog scan (listings report)'
-          : 'Starting fast FBA refresh from cache',
+        mode === 'fba'
+          ? 'Scanning FBA inventory summaries from Amazon'
+          : mode === 'listings-report'
+            ? 'Starting listings report (legacy, slow)'
+            : 'Starting fast FBA refresh from cache',
       current: 0,
       total: 0,
     }
@@ -77,13 +82,15 @@ function startOutOfStockFetchJob(options = {}) {
         }
       }
       const result =
-        mode === 'full'
-          ? await fetchOutOfStockAmazonSkus({ marketplaceKey, progress })
-          : await fetchOutOfStockFromCachedComparisonRows({
-              marketplaceKey,
-              cachedRows: await store.selectAllComparisonRows({ marketplace: marketplaceKey }),
-              progress,
-            })
+        mode === 'fba'
+          ? await fetchOutOfStockViaFbaInventorySummaries({ marketplaceKey, progress })
+          : mode === 'listings-report'
+            ? await fetchOutOfStockAmazonSkus({ marketplaceKey, progress })
+            : await fetchOutOfStockFromCachedComparisonRows({
+                marketplaceKey,
+                cachedRows: await store.selectAllComparisonRows({ marketplace: marketplaceKey }),
+                progress,
+              })
       job.result = result
       job.progress = {
         step: `Found ${result.rows.length} out-of-stock SKU(s)`,
