@@ -16,6 +16,7 @@ import {
   type ClearanceResultRow,
   type ClearanceSummary,
   type ManualMapping,
+  type AmazonOosFilter,
   type MarketplaceCode,
   type OutOfStockFetchJob,
   type VigilParsedRow,
@@ -31,9 +32,11 @@ function marketplaceFromQuery(raw: string | null): MarketplaceCode {
   return v === 'KSA' ? 'KSA' : 'UAE'
 }
 
-function marketplaceToZohoStockPath(mk: MarketplaceCode) {
+function marketplaceToZohoStockPath(mk: MarketplaceCode, oosFilter: AmazonOosFilter) {
   const slug = mk === 'KSA' ? 'ksa' : 'uae'
-  return `/ai/amazon-zoho-stock?marketplace=${slug}&stockFilter=amazonOutOfStock`
+  const stockFilter =
+    oosFilter === 'sellerCentralInactiveOos' ? 'sellerCentralInactiveOos' : 'amazonOutOfStock'
+  return `/ai/amazon-zoho-stock?marketplace=${slug}&stockFilter=${stockFilter}`
 }
 
 export function AmazonOutOfStockClearancePage() {
@@ -41,6 +44,10 @@ export function AmazonOutOfStockClearancePage() {
   const [marketplace, setMarketplace] = useState<MarketplaceCode>(() =>
     marketplaceFromQuery(searchParams.get('marketplace'))
   )
+  const [oosFilter, setOosFilter] = useState<AmazonOosFilter>(() => {
+    const q = searchParams.get('oosFilter')
+    return q === 'amazonFbaZero' ? 'amazonFbaZero' : 'sellerCentralInactiveOos'
+  })
   const [amazonRows, setAmazonRows] = useState<AmazonOosRow[]>([])
   const [zohoRows, setZohoRows] = useState<ZohoStockRow[]>([])
   const [vigilRows, setVigilRows] = useState<VigilParsedRow[]>([])
@@ -84,7 +91,7 @@ export function AmazonOutOfStockClearancePage() {
     setSummary(null)
     setSelectedIds(new Set())
     try {
-      const json = await fetchAmazonOutOfStockFromCache(marketplace)
+      const json = await fetchAmazonOutOfStockFromCache(marketplace, oosFilter)
       if (!json?.success) {
         setError((json as { error?: string }).error || 'Failed to load cached SKUs')
         return
@@ -95,7 +102,7 @@ export function AmazonOutOfStockClearancePage() {
     } finally {
       setFetchingAmazon(false)
     }
-  }, [marketplace, applyFetchResult])
+  }, [marketplace, oosFilter, applyFetchResult])
 
   const runLiveFetchAmazon = useCallback(
     async (mode: 'fast' | 'fba' | 'listings-report' = 'fast') => {
@@ -290,16 +297,17 @@ export function AmazonOutOfStockClearancePage() {
         <p className="mt-2 max-w-4xl text-sm leading-relaxed text-slate-400">
           Replenishment workflow for Amazon UAE/KSA SKUs with zero FBA fulfillable quantity. OOS SKUs are
           loaded from the same cache as{' '}
-          <Link className="text-emerald-300 underline" to={marketplaceToZohoStockPath(marketplace)}>
+          <Link className="text-emerald-300 underline" to={marketplaceToZohoStockPath(marketplace, oosFilter)}>
             Amazon + Zoho Stock
           </Link>{' '}
-          (refresh once there, filter Amazon Out of Stock). Amazon inventory writes are not enabled yet.
+          (refresh once there — includes Amazon inactive OOS report). Amazon inventory writes are not enabled yet.
         </p>
       </header>
 
       <AmazonOosSkusTable
         rows={amazonRows}
         marketplace={marketplace}
+        oosFilter={oosFilter}
         loading={fetchingAmazon}
         fetchedAt={fetchedAt}
       />
@@ -308,19 +316,18 @@ export function AmazonOutOfStockClearancePage() {
         <p className="text-sm font-semibold text-emerald-100">Step 1 — refresh OOS list (fast)</p>
         <p className="mt-1 text-sm text-emerald-50/90">
           On{' '}
-          <Link className="font-semibold text-white underline" to={marketplaceToZohoStockPath(marketplace)}>
+          <Link className="font-semibold text-white underline" to={marketplaceToZohoStockPath(marketplace, oosFilter)}>
             Amazon + Zoho Stock
           </Link>
-          : choose {marketplace}, click <strong>Refresh Amazon + Zoho</strong>, then{' '}
-          <strong>Show Amazon OOS</strong> or the <strong>Amazon Out of Stock</strong> summary card. This page
-          reloads those cached rows automatically.
+          : choose {marketplace}, click <strong>Refresh Amazon + Zoho</strong> (pulls inactive OOS report), then
+          filter <strong>Seller Central inactive OOS</strong>. This page reloads from cache automatically.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <Link
             className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
-            to={marketplaceToZohoStockPath(marketplace)}
+            to={marketplaceToZohoStockPath(marketplace, oosFilter)}
           >
-            Open Amazon + Zoho Stock (OOS filter) →
+            Open Amazon + Zoho Stock →
           </Link>
           <button
             type="button"
@@ -335,7 +342,7 @@ export function AmazonOutOfStockClearancePage() {
 
       <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 backdrop-blur-md">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="grid flex-1 gap-3 sm:grid-cols-3">
+          <div className="grid flex-1 gap-3 md:grid-cols-3">
             <label className="text-sm text-slate-400">
               Marketplace
               <select
@@ -347,7 +354,22 @@ export function AmazonOutOfStockClearancePage() {
                 <option value="KSA">KSA</option>
               </select>
             </label>
-            <label className="text-sm text-slate-400 sm:col-span-2">
+            <label className="text-sm text-slate-400 md:col-span-2">
+              OOS source (Amazon filter)
+              <select
+                className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100"
+                value={oosFilter}
+                onChange={(e) => setOosFilter(e.target.value as AmazonOosFilter)}
+              >
+                <option value="sellerCentralInactiveOos">
+                  Seller Central — Inactive → Out of stock (~26)
+                </option>
+                <option value="amazonFbaZero">
+                  Active listings — FBA on-hand &amp; fulfillable both 0 (~1300+)
+                </option>
+              </select>
+            </label>
+            <label className="text-sm text-slate-400 md:col-span-3">
               Max recommended qty (optional cap)
               <input
                 type="number"

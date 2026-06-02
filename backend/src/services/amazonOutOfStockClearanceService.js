@@ -36,6 +36,7 @@ function mapCachedComparisonRow(row, marketplaceKey) {
     amazonStockStatus: row.amazon?.stockStatus || 'Out of Stock',
     fulfillmentChannel: row.fulfillmentChannel,
     image: row.image,
+    listingStatus: row.listingStatus || '',
     dataSource: 'cache',
   }
 }
@@ -52,7 +53,12 @@ function mapCachedZohoRows(rows) {
     }))
 }
 
-async function getOutOfStockFromCache(marketplace) {
+function parseOosFilter(raw) {
+  const v = String(raw || 'amazonFbaZero').trim()
+  return v === 'sellerCentralInactiveOos' ? 'sellerCentralInactiveOos' : 'amazonFbaZero'
+}
+
+async function getOutOfStockFromCache(marketplace, oosFilter = 'amazonFbaZero') {
   const mk = normalizeMarketplaceKey(marketplace)
   if (!mk) {
     const err = new Error('Invalid marketplace. Use UAE or KSA.')
@@ -60,9 +66,12 @@ async function getOutOfStockFromCache(marketplace) {
     err.status = 400
     throw err
   }
+  const filter = parseOosFilter(oosFilter)
+  const stockFilter =
+    filter === 'sellerCentralInactiveOos' ? 'sellerCentralInactiveOos' : 'amazonOutOfStock'
   const cached = await store.selectAllComparisonRows({
     marketplace: mk,
-    stockFilter: 'amazonOutOfStock',
+    stockFilter,
   })
   const meta = await store.getComparisonSummary({ marketplace: mk })
   const warnings = []
@@ -73,11 +82,16 @@ async function getOutOfStockFromCache(marketplace) {
   }
   const rows = cached.map((row) => mapCachedComparisonRow(row, mk))
   if (rows.length === 0 && meta.timestamps.comparisonGeneratedAt) {
-    warnings.push('No out-of-stock SKUs in cache for this marketplace.')
+    warnings.push(
+      filter === 'sellerCentralInactiveOos'
+        ? 'No Seller Central inactive OOS SKUs in cache. Run Refresh on Amazon + Zoho Stock (includes inactive report).'
+        : 'No out-of-stock SKUs in cache for this marketplace.'
+    )
   }
   return {
     success: true,
     source: 'cache',
+    oosFilter: filter,
     marketplace: mk === 'ksa' ? 'KSA' : 'UAE',
     marketplaceKey: mk,
     rows,

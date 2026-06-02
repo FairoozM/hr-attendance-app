@@ -2,6 +2,7 @@ const { marketplaceIdForKey } = require('./amazonSpApiService')
 const store = require('./amazonZohoStockComparisonStore')
 const {
   fetchActiveAmazonListings,
+  fetchInactiveAmazonListings,
   fetchAmazonInventoryForListings,
   marketplaceLabel,
 } = require('./amazonListingsInventoryReadService')
@@ -90,20 +91,33 @@ function mergeRows({
 
 async function refreshMarketplace({ marketplaceKey, progress }) {
   const listingResult = await fetchActiveAmazonListings({ marketplaceKey, progress })
+  let inactiveOosListings = []
+  let inactiveWarning = null
+  try {
+    const inactiveResult = await fetchInactiveAmazonListings({ marketplaceKey, progress })
+    inactiveOosListings = inactiveResult.listings
+  } catch (e) {
+    inactiveWarning = `Inactive listings report failed for ${marketplaceLabel(marketplaceKey)}; Seller Central OOS filter may be empty until refresh succeeds.`
+    console.warn('[amazon-zoho-stock] inactive listings:', marketplaceKey, e?.message || e)
+  }
+  const activeKeys = new Set(listingResult.listings.map((l) => l.normalizedSku))
+  const inactiveOnly = inactiveOosListings.filter((l) => !activeKeys.has(l.normalizedSku))
+  const allListings = [...listingResult.listings, ...inactiveOnly]
   const marketplaceId = marketplaceIdForKey(marketplaceKey)
   const invResult = await fetchAmazonInventoryForListings({
     marketplaceKey,
     marketplaceId,
-    listings: listingResult.listings,
+    listings: allListings,
     progress,
   })
+  const fetchedTimes = [listingResult.fetchedAt, invResult.fetchedAt].map((t) => new Date(t).getTime())
   return {
     marketplaceKey,
-    listings: listingResult.listings,
+    listings: allListings,
     inventoryBySku: invResult.inventoryBySku,
-    amazonFetchedAt: new Date(
-      Math.max(new Date(listingResult.fetchedAt).getTime(), new Date(invResult.fetchedAt).getTime())
-    ).toISOString(),
+    inactiveWarning,
+    inactiveOosCount: inactiveOnly.length,
+    amazonFetchedAt: new Date(Math.max(...fetchedTimes)).toISOString(),
   }
 }
 
@@ -165,6 +179,11 @@ async function refreshAmazonZohoStockComparison({ marketplace = 'all', progress 
     if (amazonWarnings.length > 0) {
       rows.forEach((row) => {
         row.warnings = [...(row.warnings || []), ...amazonWarnings]
+      })
+    }
+    if (result.inactiveWarning) {
+      rows.forEach((row) => {
+        row.warnings = [...(row.warnings || []), result.inactiveWarning]
       })
     }
     await store.replaceMarketplaceRows(result.marketplaceKey, rows)

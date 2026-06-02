@@ -39,7 +39,8 @@ function sendError(res, err) {
 async function getOutOfStock(req, res) {
   try {
     const marketplace = req.query.marketplace
-    const json = await service.getOutOfStockFromCache(marketplace)
+    const oosFilter = req.query.oosFilter
+    const json = await service.getOutOfStockFromCache(marketplace, oosFilter)
     res.json(json)
   } catch (err) {
     sendError(res, err)

@@ -4,6 +4,9 @@ const CLEARANCE_TIMEOUT_MS = 480_000
 
 export type MarketplaceCode = 'UAE' | 'KSA'
 
+/** amazonFbaZero = active listings with FBA on-hand 0; sellerCentralInactiveOos = SC Inactive→OOS report */
+export type AmazonOosFilter = 'amazonFbaZero' | 'sellerCentralInactiveOos'
+
 export interface AmazonOosRow {
   marketplaceKey: string
   marketplace: string
@@ -13,6 +16,7 @@ export interface AmazonOosRow {
   amazonTitle?: string
   amazonCurrentQty: number
   amazonFulfillableQty?: number
+  listingStatus?: string
   asin?: string
 }
 
@@ -122,10 +126,17 @@ export interface OutOfStockFetchJob {
 }
 
 /** Fast: reads PostgreSQL cache from Amazon + Zoho Stock refresh (seconds). */
-export async function fetchAmazonOutOfStockFromCache(marketplace: MarketplaceCode) {
+export async function fetchAmazonOutOfStockFromCache(
+  marketplace: MarketplaceCode,
+  oosFilter: AmazonOosFilter = 'sellerCentralInactiveOos'
+) {
+  const qs = new URLSearchParams({
+    marketplace,
+    oosFilter,
+  })
   return api.get(
-    `/api/amazon/out-of-stock-clearance/out-of-stock?marketplace=${encodeURIComponent(marketplace)}`
-  ) as Promise<OutOfStockFetchJob & { outOfStockCount?: number }>
+    `/api/amazon/out-of-stock-clearance/out-of-stock?${qs.toString()}`
+  ) as Promise<OutOfStockFetchJob & { outOfStockCount?: number; oosFilter?: AmazonOosFilter }>
 }
 
 export type AmazonOosFetchMode = 'fast' | 'fba' | 'listings-report'

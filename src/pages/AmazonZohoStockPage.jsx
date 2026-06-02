@@ -4,7 +4,11 @@ import { api, fetchBinary, downloadBlob } from '../api/client'
 
 const STOCK_FILTERS = [
   { value: 'all', label: 'All' },
-  { value: 'amazonOutOfStock', label: 'Amazon Out of Stock (on-hand & fulfillable 0)' },
+  {
+    value: 'sellerCentralInactiveOos',
+    label: 'Seller Central inactive OOS (Manage Inventory → Inactive → Out of stock)',
+  },
+  { value: 'amazonOutOfStock', label: 'Active · FBA on-hand & fulfillable 0' },
   { value: 'zohoOutOfStock', label: 'Zoho Out of Stock' },
   { value: 'mismatch', label: 'Mismatch' },
   { value: 'bothOutOfStock', label: 'Both Out of Stock' },
@@ -140,7 +144,7 @@ export function AmazonZohoStockPage() {
     setStockFilter(v)
     setPage(1)
     syncUrl({ marketplace, stockFilter: v, search })
-    if (v === 'amazonOutOfStock') scrollToSkuList()
+    if (v === 'amazonOutOfStock' || v === 'sellerCentralInactiveOos') scrollToSkuList()
   }, [marketplace, search, syncUrl, scrollToSkuList])
 
   const applyMarketplace = useCallback((value) => {
@@ -180,7 +184,11 @@ export function AmazonZohoStockPage() {
   }, [loadData])
 
   useEffect(() => {
-    if (stockFilter === 'amazonOutOfStock' && !loading && (payload?.pagination?.total || 0) > 0) {
+    if (
+      (stockFilter === 'amazonOutOfStock' || stockFilter === 'sellerCentralInactiveOos') &&
+      !loading &&
+      (payload?.pagination?.total || 0) > 0
+    ) {
       scrollToSkuList()
     }
   }, [stockFilter, loading, payload?.pagination?.total, scrollToSkuList])
@@ -256,12 +264,15 @@ export function AmazonZohoStockPage() {
           <p className="font-semibold text-emerald-100">Out of stock workflow (use this instead of slow clearance scans)</p>
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-emerald-50/90">
             <li>Pick marketplace (UAE or KSA), click <strong>Refresh</strong> once (background sync).</li>
-            <li>Click the <strong>Amazon Out of Stock</strong> card below — instant filter from cache.</li>
+            <li>
+              Click <strong>Seller Central inactive OOS</strong> (your ~26 SKUs) or <strong>Amazon Out of Stock</strong>{' '}
+              for the larger FBA zero-stock set.
+            </li>
             <li>
               Open{' '}
               <Link
                 className="font-semibold text-white underline"
-                to={`/ai/amazon-out-of-stock-clearance?marketplace=${encodeURIComponent(marketplaceToClearance(marketplace))}`}
+                to={`/ai/amazon-out-of-stock-clearance?marketplace=${encodeURIComponent(marketplaceToClearance(marketplace))}&oosFilter=sellerCentralInactiveOos`}
               >
                 Out of Stock Clearance
               </Link>{' '}
@@ -398,11 +409,18 @@ export function AmazonZohoStockPage() {
           hint="Click to clear filter"
         />
         <SummaryCard
+          label="SC Inactive OOS"
+          value={summary.sellerCentralInactiveOos || 0}
+          active={stockFilter === 'sellerCentralInactiveOos'}
+          onClick={() => applyStockFilter('sellerCentralInactiveOos')}
+          hint="Seller Central Inactive → Out of stock"
+        />
+        <SummaryCard
           label="Amazon Out of Stock"
           value={summary.amazonOutOfStock || 0}
           active={stockFilter === 'amazonOutOfStock'}
           onClick={() => applyStockFilter('amazonOutOfStock')}
-          hint="FBA on-hand and fulfillable both 0 · click to filter"
+          hint="Active · FBA on-hand & fulfillable 0"
         />
         <SummaryCard
           label="Zoho Out of Stock"
@@ -431,10 +449,11 @@ export function AmazonZohoStockPage() {
         <SummaryCard label="Low Zoho Stock" value={summary.lowZohoStock || 0} />
       </section>
 
-      {stockFilter === 'amazonOutOfStock' && (summary.amazonOutOfStock || 0) > 0 ? (
+      {(stockFilter === 'amazonOutOfStock' || stockFilter === 'sellerCentralInactiveOos') &&
+      (summary.amazonOutOfStock || summary.sellerCentralInactiveOos || 0) > 0 ? (
         <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-sky-400/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
           <span>
-            Showing {formatNumber(pagination.total)} Amazon out-of-stock SKU(s) from cache
+            Showing {formatNumber(pagination.total)} SKU(s) from cache
             {marketplace !== 'all' ? ` (${marketplace.toUpperCase()})` : ''}.
           </span>
           <Link
@@ -450,11 +469,20 @@ export function AmazonZohoStockPage() {
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-lg font-bold text-white">
-              {stockFilter === 'amazonOutOfStock' ? 'Amazon out-of-stock SKU list' : 'Comparison rows'}
+              {stockFilter === 'sellerCentralInactiveOos'
+                ? 'Seller Central inactive OOS SKU list'
+                : stockFilter === 'amazonOutOfStock'
+                  ? 'Amazon active · FBA zero-stock SKU list'
+                  : 'Comparison rows'}
             </h2>
             <p className="text-sm text-slate-500">
               Showing {rows.length} of {formatNumber(pagination.total)} rows
-              {stockFilter === 'amazonOutOfStock' ? ' (FBA on-hand & fulfillable = 0)' : ''}.
+              {stockFilter === 'sellerCentralInactiveOos'
+                ? ' (Inactive → Out of stock)'
+                : stockFilter === 'amazonOutOfStock'
+                  ? ' (active · FBA on-hand & fulfillable = 0)'
+                  : ''}
+              .
             </p>
           </div>
           <div className="flex items-center gap-2 text-sm text-slate-400">
@@ -483,6 +511,7 @@ export function AmazonZohoStockPage() {
             <thead className="sticky top-0 z-10 bg-slate-950 text-xs uppercase tracking-widest text-slate-500">
               <tr>
                 <th className="px-3 py-3">Image</th>
+                <th className="px-3 py-3">Listing status</th>
                 <th className="px-3 py-3">SKU</th>
                 <th className="px-3 py-3">ASIN</th>
                 <th className="px-3 py-3">Title</th>
@@ -509,6 +538,13 @@ export function AmazonZohoStockPage() {
                     ) : (
                       <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5 text-xs text-slate-500">No img</div>
                     )}
+                  </td>
+                  <td className="px-3 py-2 text-xs text-amber-200/90">
+                    {row.listingStatus === 'INACTIVE_OOS'
+                      ? 'Inactive · OOS'
+                      : row.listingStatus === 'ACTIVE'
+                        ? 'Active'
+                        : row.listingStatus || '—'}
                   </td>
                   <td className="px-3 py-3 font-mono text-xs text-slate-100">{row.sellerSku}</td>
                   <td className="px-3 py-3 font-mono text-xs text-slate-400">{row.asin || '—'}</td>
@@ -544,14 +580,14 @@ export function AmazonZohoStockPage() {
               ))}
               {!loading && rows.length === 0 ? (
                 <tr>
-                  <td colSpan={16} className="px-3 py-12 text-center text-slate-500">
+                  <td colSpan={17} className="px-3 py-12 text-center text-slate-500">
                     No comparison rows found. Run refresh to generate cached data or adjust filters.
                   </td>
                 </tr>
               ) : null}
               {loading ? (
                 <tr>
-                  <td colSpan={16} className="px-3 py-12 text-center text-slate-500">Loading cached comparison data…</td>
+                  <td colSpan={17} className="px-3 py-12 text-center text-slate-500">Loading cached comparison data…</td>
                 </tr>
               ) : null}
             </tbody>

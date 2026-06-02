@@ -12,6 +12,8 @@ const { normalizeSku } = require('../utils/normalizeSku')
 const REPORT_POLL_INTERVAL_MS = 10_000
 const REPORT_TIMEOUT_MS = 8 * 60_000
 const LISTINGS_REPORT_TYPE = process.env.AMAZON_LISTINGS_REPORT_TYPE || 'GET_MERCHANT_LISTINGS_DATA'
+const INACTIVE_LISTINGS_REPORT_TYPE =
+  process.env.AMAZON_INACTIVE_LISTINGS_REPORT_TYPE || 'GET_MERCHANT_LISTINGS_INACTIVE_DATA'
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -103,6 +105,22 @@ function isActiveListingRow(row) {
   return true
 }
 
+/** Seller Central: Inactive → Out of stock (excludes blocked, suppressed, closed). */
+function classifyInactiveListingRow(row) {
+  const raw = Object.values(row || {}).join(' ').toLowerCase()
+  const status = first(row, ['status', 'listing-status', 'item-status', 'item-is-marketplace']).toLowerCase()
+  const qtyRaw = first(row, ['quantity', 'afn-warehouse-quantity', 'warehouse-quantity', 'pending-quantity'])
+  const qty = toNumber(qtyRaw, NaN)
+
+  if (raw.includes('blocked')) return 'blocked'
+  if (raw.includes('suppressed') || raw.includes('search suppressed')) return 'suppressed'
+  if (raw.includes('detail page removed')) return 'detail_page_removed'
+  if (raw.includes('closed') || raw.includes('ended') || raw.includes('deleted')) return 'closed'
+  if (status.includes('out of stock') || status.includes('out-of-stock')) return 'out_of_stock'
+  if (Number.isFinite(qty) && qty <= 0) return 'out_of_stock'
+  return 'other_inactive'
+}
+
 function mapListingRow(row, marketplaceKey, marketplaceId) {
   const sellerSku = first(row, ['seller-sku', 'seller sku', 'sku', 'SellerSKU'])
   if (!sellerSku) return null
@@ -128,13 +146,51 @@ function mapListingRow(row, marketplaceKey, marketplaceId) {
   }
 }
 
-async function fetchActiveAmazonListings({ marketplaceKey, progress }) {
-  const marketplaceId = marketplaceIdForKey(marketplaceKey)
-  progress?.({ step: `Requesting Amazon ${marketplaceLabel(marketplaceKey)} active listings report`, current: 0, total: 0 })
+function mapInactiveListingRow(row, marketplaceKey, marketplaceId) {
+  const sellerSku = first(row, ['seller-sku', 'seller sku', 'sku', 'SellerSKU'])
+  if (!sellerSku) return null
+  const inactiveClass = classifyInactiveListingRow(row)
+  if (inactiveClass !== 'out_of_stock') return null
+  const amount = first(row, ['price', 'standard-price', 'your-price', 'listing-price'])
+  const quantity = first(row, ['quantity', 'fulfillment-channel'])
+  const image = first(row, ['image-url', 'main-image-url', 'image'])
+  return {
+    marketplaceKey,
+    marketplace: marketplaceLabel(marketplaceKey),
+    marketplaceId,
+    sellerSku,
+    normalizedSku: normalizeSku(sellerSku),
+    asin: first(row, ['asin1', 'asin', 'ASIN']),
+    title: first(row, ['item-name', 'title', 'product-name']),
+    image,
+    listingStatus: 'INACTIVE_OOS',
+    inactiveClass,
+    fulfillmentChannel: String(quantity).toLowerCase().includes('amazon') ? 'AMAZON' : 'AMAZON',
+    price: {
+      amount: amount ? toNumber(amount, null) : null,
+      currencyCode: defaultCurrency(marketplaceKey),
+    },
+  }
+}
+
+function dedupeListings(listings) {
+  const deduped = []
+  const seen = new Set()
+  for (const row of listings) {
+    const key = `${row.marketplaceKey}:${row.normalizedSku}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    deduped.push(row)
+  }
+  return deduped
+}
+
+async function downloadAmazonMerchantListingsReport({ marketplaceKey, marketplaceId, reportType, progressLabel, progress }) {
+  progress?.({ step: `Requesting Amazon ${marketplaceLabel(marketplaceKey)} ${progressLabel}`, current: 0, total: 0 })
   const create = await createAmazonListingsReport({
     marketplaceKey,
     marketplaceId,
-    reportType: LISTINGS_REPORT_TYPE,
+    reportType,
   })
   throwAmazonSpApiIfFailed(create, 'createListingsReport', marketplaceKey)
   const reportId = create.data?.reportId
@@ -153,7 +209,7 @@ async function fetchActiveAmazonListings({ marketplaceKey, progress }) {
     report = status.data
     const processingStatus = String(report?.processingStatus || '').toUpperCase()
     progress?.({
-      step: `Waiting for Amazon ${marketplaceLabel(marketplaceKey)} listings report (${processingStatus || 'PENDING'})`,
+      step: `Waiting for ${progressLabel} (${processingStatus || 'PENDING'})`,
       current: 0,
       total: 0,
     })
@@ -184,19 +240,46 @@ async function fetchActiveAmazonListings({ marketplaceKey, progress }) {
   if (download.status < 200 || download.status >= 300) {
     throwAmazonSpApiIfFailed(download, 'downloadListingsReportDocument', marketplaceKey)
   }
-  const rows = parseDelimitedReport(download.data)
-    .map((row) => mapListingRow(row, marketplaceKey, marketplaceId))
-    .filter((row) => row && row.normalizedSku)
-  const deduped = []
-  const seen = new Set()
-  for (const row of rows) {
-    const key = `${row.marketplaceKey}:${row.normalizedSku}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    deduped.push(row)
-  }
+  return parseDelimitedReport(download.data)
+}
+
+async function fetchActiveAmazonListings({ marketplaceKey, progress }) {
+  const marketplaceId = marketplaceIdForKey(marketplaceKey)
+  const rawRows = await downloadAmazonMerchantListingsReport({
+    marketplaceKey,
+    marketplaceId,
+    reportType: LISTINGS_REPORT_TYPE,
+    progressLabel: 'active listings report',
+    progress,
+  })
+  const listings = dedupeListings(
+    rawRows
+      .map((row) => mapListingRow(row, marketplaceKey, marketplaceId))
+      .filter((row) => row && row.normalizedSku)
+  )
   return {
-    listings: deduped,
+    listings,
+    fetchedAt: new Date().toISOString(),
+  }
+}
+
+/** Seller Central Manage Inventory → Inactive → Out of stock (GET_MERCHANT_LISTINGS_INACTIVE_DATA). */
+async function fetchInactiveAmazonListings({ marketplaceKey, progress }) {
+  const marketplaceId = marketplaceIdForKey(marketplaceKey)
+  const rawRows = await downloadAmazonMerchantListingsReport({
+    marketplaceKey,
+    marketplaceId,
+    reportType: INACTIVE_LISTINGS_REPORT_TYPE,
+    progressLabel: 'inactive listings report (Seller Central OOS)',
+    progress,
+  })
+  const listings = dedupeListings(
+    rawRows
+      .map((row) => mapInactiveListingRow(row, marketplaceKey, marketplaceId))
+      .filter((row) => row && row.normalizedSku)
+  )
+  return {
+    listings,
     fetchedAt: new Date().toISOString(),
   }
 }
@@ -343,6 +426,7 @@ function listingFromCachedComparisonRow(row, mk, marketplaceId) {
     asin: row.asin || '',
     fulfillmentChannel: row.fulfillmentChannel || '',
     image: row.image || '',
+    listingStatus: row.listingStatus || 'ACTIVE',
   }
 }
 
@@ -510,10 +594,13 @@ module.exports = {
   marketplaceLabel,
   parseDelimitedReport,
   mapListingRow,
+  mapInactiveListingRow,
+  classifyInactiveListingRow,
   mapInventorySummary,
   amazonOnHandQty,
   isAmazonFbaOutOfStock,
   fetchActiveAmazonListings,
+  fetchInactiveAmazonListings,
   fetchAmazonInventoryForListings,
   fetchOutOfStockAmazonSkus,
   fetchOutOfStockViaFbaInventorySummaries,

@@ -2,6 +2,8 @@ const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
 const {
   mapInventorySummary,
+  classifyInactiveListingRow,
+  mapInactiveListingRow,
   isAmazonFbaOutOfStock,
   amazonOnHandQty,
 } = require('../src/services/amazonListingsInventoryReadService')
@@ -21,6 +23,28 @@ describe('Amazon FBA quantity mapping', () => {
     assert.equal(mapped.stockStatus, 'In Stock')
     assert.equal(isAmazonFbaOutOfStock(mapped), false)
     assert.equal(amazonOnHandQty(mapped), 3)
+  })
+
+  it('classifies inactive report row as Seller Central out_of_stock when qty is 0', () => {
+    assert.equal(classifyInactiveListingRow({ quantity: '0', status: 'Inactive' }), 'out_of_stock')
+    const mapped = mapInactiveListingRow(
+      {
+        'seller-sku': 'LIFEP12-10SILVERR',
+        quantity: '0',
+        'item-name': 'Test',
+        asin1: 'B0TEST',
+      },
+      'uae',
+      'AE'
+    )
+    assert.equal(mapped?.listingStatus, 'INACTIVE_OOS')
+    assert.equal(mapped?.sellerSku, 'LIFEP12-10SILVERR')
+  })
+
+  it('excludes blocked inactive rows from Seller Central OOS mapping', () => {
+    assert.equal(classifyInactiveListingRow({ status: 'blocked' }), 'blocked')
+    const mapped = mapInactiveListingRow({ 'seller-sku': 'X', status: 'blocked' }, 'uae', 'AE')
+    assert.equal(mapped, null)
   })
 
   it('marks out of stock only when on-hand and fulfillable are both zero', () => {

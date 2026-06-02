@@ -207,8 +207,11 @@ function buildWhere(filters = {}) {
   const stockFilter = String(filters.stockFilter || 'all').trim()
   if (stockFilter === 'amazonOutOfStock') {
     clauses.push(
-      `GREATEST(COALESCE(amazon_total_qty, 0), COALESCE(amazon_available_qty, 0)) = 0`
+      `listing_status = 'ACTIVE' AND GREATEST(COALESCE(amazon_total_qty, 0), COALESCE(amazon_available_qty, 0)) = 0`
     )
+  }
+  if (stockFilter === 'sellerCentralInactiveOos') {
+    clauses.push(`listing_status = 'INACTIVE_OOS'`)
   }
   if (stockFilter === 'zohoOutOfStock') clauses.push(`COALESCE(zoho_available_qty, 0) = 0 AND zoho_stock_status <> 'Not Found'`)
   if (stockFilter === 'mismatch') clauses.push(`is_mismatch = true`)
@@ -272,7 +275,11 @@ async function getComparisonSummary(filters = {}) {
   const r = await query(
     `SELECT
       COUNT(*)::int AS total_active_listings,
-      COUNT(*) FILTER (WHERE GREATEST(COALESCE(amazon_total_qty, 0), COALESCE(amazon_available_qty, 0)) = 0)::int AS amazon_out_of_stock,
+      COUNT(*) FILTER (
+        WHERE listing_status = 'ACTIVE'
+          AND GREATEST(COALESCE(amazon_total_qty, 0), COALESCE(amazon_available_qty, 0)) = 0
+      )::int AS amazon_out_of_stock,
+      COUNT(*) FILTER (WHERE listing_status = 'INACTIVE_OOS')::int AS seller_central_inactive_oos,
       COUNT(*) FILTER (WHERE COALESCE(zoho_available_qty, 0) = 0 AND zoho_stock_status <> 'Not Found')::int AS zoho_out_of_stock,
       COUNT(*) FILTER (WHERE is_mismatch = true)::int AS mismatches,
       COUNT(*) FILTER (WHERE zoho_stock_status = 'Not Found')::int AS zoho_not_found,
@@ -292,6 +299,7 @@ async function getComparisonSummary(filters = {}) {
     summary: {
       totalActiveListings: Number(row.total_active_listings || 0),
       amazonOutOfStock: Number(row.amazon_out_of_stock || 0),
+      sellerCentralInactiveOos: Number(row.seller_central_inactive_oos || 0),
       zohoOutOfStock: Number(row.zoho_out_of_stock || 0),
       mismatches: Number(row.mismatches || 0),
       zohoNotFound: Number(row.zoho_not_found || 0),

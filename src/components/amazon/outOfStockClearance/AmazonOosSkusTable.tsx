@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { downloadBlob } from '../../../api/client'
-import type { AmazonOosRow, MarketplaceCode } from '../../../api/amazonOutOfStockClearance'
+import type { AmazonOosFilter, AmazonOosRow, MarketplaceCode } from '../../../api/amazonOutOfStockClearance'
 
 const PAGE_SIZES = [25, 50, 100, 200]
 
@@ -10,9 +10,11 @@ function formatQty(value: number | undefined) {
   return value.toLocaleString()
 }
 
-function marketplaceToZohoPath(mk: MarketplaceCode) {
+function marketplaceToZohoPath(mk: MarketplaceCode, oosFilter: AmazonOosFilter) {
   const slug = mk === 'KSA' ? 'ksa' : 'uae'
-  return `/ai/amazon-zoho-stock?marketplace=${slug}&stockFilter=amazonOutOfStock`
+  const stockFilter =
+    oosFilter === 'sellerCentralInactiveOos' ? 'sellerCentralInactiveOos' : 'amazonOutOfStock'
+  return `/ai/amazon-zoho-stock?marketplace=${slug}&stockFilter=${stockFilter}`
 }
 
 function csvEscape(value: unknown) {
@@ -44,11 +46,19 @@ function rowsToCsv(rows: AmazonOosRow[]) {
 interface AmazonOosSkusTableProps {
   rows: AmazonOosRow[]
   marketplace: MarketplaceCode
+  oosFilter?: AmazonOosFilter
   loading?: boolean
   fetchedAt?: string | null
 }
 
-export function AmazonOosSkusTable({ rows, marketplace, loading, fetchedAt }: AmazonOosSkusTableProps) {
+export function AmazonOosSkusTable({
+  rows,
+  marketplace,
+  oosFilter = 'sellerCentralInactiveOos',
+  loading,
+  fetchedAt,
+}: AmazonOosSkusTableProps) {
+  const isScInactive = oosFilter === 'sellerCentralInactiveOos'
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
@@ -94,11 +104,15 @@ export function AmazonOosSkusTable({ rows, marketplace, loading, fetchedAt }: Am
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-300/90">SKU list</p>
           <h2 className="mt-1 text-2xl font-bold text-white">
-            {loading ? '…' : formatQty(rows.length)} Amazon out-of-stock SKUs
+            {loading ? '…' : formatQty(rows.length)}{' '}
+            {isScInactive ? 'Seller Central inactive OOS SKUs' : 'Amazon FBA zero-stock SKUs'}
           </h2>
           <p className="mt-2 max-w-2xl text-sm text-slate-400">
-          Out of stock = FBA on-hand and fulfillable both 0 (matches Seller Central on-hand, not
-          fulfillable-only). Scroll this table or export CSV for the full list.
+            {isScInactive
+              ? 'From Amazon GET_MERCHANT_LISTINGS_INACTIVE_DATA — same bucket as Seller Central Manage Inventory → Inactive → Out of stock.'
+              : 'Active listings where FBA on-hand and fulfillable are both 0 (much larger set than SC inactive OOS).'}
+            {' '}
+            Export CSV for the full list.
           </p>
           {!loading && rows.length > 0 ? (
             <p className="mt-1 text-sm text-slate-500">
@@ -136,6 +150,7 @@ export function AmazonOosSkusTable({ rows, marketplace, loading, fetchedAt }: Am
               <th className="px-3 py-3">SKU</th>
               <th className="px-3 py-3">ASIN</th>
               <th className="px-3 py-3">Title</th>
+              <th className="px-3 py-3">Listing status</th>
               <th className="px-3 py-3">Marketplace</th>
               <th className="px-3 py-3">FBA on-hand</th>
               <th className="px-3 py-3">FBA fulfillable</th>
@@ -144,18 +159,18 @@ export function AmazonOosSkusTable({ rows, marketplace, loading, fetchedAt }: Am
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={7} className="px-3 py-10 text-center text-slate-500">
+                <td colSpan={8} className="px-3 py-10 text-center text-slate-500">
                   Loading out-of-stock SKUs…
                 </td>
               </tr>
             ) : null}
             {!loading && filtered.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-3 py-10 text-center text-slate-400">
+                <td colSpan={8} className="px-3 py-10 text-center text-slate-400">
                   {rows.length === 0 ? (
                     <span>
                       No out-of-stock SKUs in cache for {marketplace}.{' '}
-                      <Link className="text-emerald-300 underline" to={marketplaceToZohoPath(marketplace)}>
+                      <Link className="text-emerald-300 underline" to={marketplaceToZohoPath(marketplace, oosFilter)}>
                         Refresh on Amazon + Zoho Stock
                       </Link>{' '}
                       then return here.
@@ -175,6 +190,9 @@ export function AmazonOosSkusTable({ rows, marketplace, loading, fetchedAt }: Am
                       <td className="px-3 py-2 font-mono text-xs text-white">{row.amazonSku}</td>
                       <td className="px-3 py-2 font-mono text-xs text-slate-400">{row.asin || '—'}</td>
                       <td className="max-w-md px-3 py-2 text-slate-300">{row.title || row.amazonTitle || '—'}</td>
+                      <td className="px-3 py-2 text-xs text-amber-200/90">
+                        {row.listingStatus === 'INACTIVE_OOS' ? 'Inactive · OOS' : row.listingStatus || '—'}
+                      </td>
                       <td className="px-3 py-2">{row.marketplace}</td>
                       <td className="px-3 py-2 font-semibold text-amber-200">{formatQty(row.amazonCurrentQty)}</td>
                       <td className="px-3 py-2 text-slate-400">{formatQty(row.amazonFulfillableQty)}</td>
