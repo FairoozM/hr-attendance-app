@@ -1,926 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Trash2 } from 'lucide-react'
-import { api, PURCHASE_PLANNING_TIMEOUT_MS } from '../../api/client'
 import { useUserPreferences } from '../../contexts/UserPreferencesContext'
-import { resolveAllPricesRowsFromBundle } from './allPricesEcommerceUtils'
-import { getAllPricesPrefsScope } from './allPricesMarketScope'
+import { api } from '../../api/client'
+import { CreateZohoPoStep } from './CreateZohoPoStep'
+import { GeneratePlanStep } from './GeneratePlanStep'
+import { LowStockUploadStep } from './LowStockUploadStep'
+import { PurchasePlanningStatusCards } from './PurchasePlanningStatusCards'
+import { PurchasePlanningStepper, StepPanel } from './PurchasePlanningStepper'
+import { ReviewPlanStep } from './ReviewPlanStep'
+import { VigilUploadStep } from './VigilUploadStep'
+import { ZohoEnrichmentStep } from './ZohoEnrichmentStep'
+import {
+  PP_REQUEST_OPTS,
+  PP_STEPS,
+  EMPTY_FILTERS,
+  computeWorkflow,
+  enrichPlanWithPurchasePrices,
+  ignoreCancelledPurchasePlanningRequest,
+  pollLowStockEnrichment,
+  resolveAllPriceRows,
+} from './purchasePlanningUtils'
 import './DocumentExpiryPage.css'
 import './PurchasePlanningPage.css'
-
-const EMPTY_FILTERS = {
-  search: '',
-  matchStatus: '',
-  includedStatus: '',
-  quick: '',
-  stockMin: '',
-  stockMax: '',
-  wholesaleMin: '',
-  wholesaleMax: '',
-  salesMin: '',
-  salesMax: '',
-  bundleMin: '',
-  bundleMax: '',
-  avgMin: '',
-  avgMax: '',
-  suggestedMin: '',
-  suggestedMax: '',
-  finalMin: '',
-  finalMax: '',
-}
-
-const EMPTY_LOW_STOCK_FILTERS = {
-  search: '',
-  quick: '',
-  vigilMin: '',
-  vigilMax: '',
-  stockMin: '',
-  stockMax: '',
-  salesMin: '',
-  salesMax: '',
-  bundleMin: '',
-  bundleMax: '',
-}
-
-const DEFAULT_LOW_STOCK_SORT = { key: 'sku', direction: 'asc' }
-const DEFAULT_PLAN_SORT = { key: 'sku', direction: 'asc' }
-
-/** Explicit timeout for purchase-planning calls (also applied globally via api client path rule). */
-const PP_REQUEST_OPTS = { timeoutMs: PURCHASE_PLANNING_TIMEOUT_MS }
-
-function ignoreCancelledPurchasePlanningRequest(err, signal) {
-  return Boolean(signal?.aborted && err?.code !== 'REQUEST_TIMEOUT')
-}
-
-function fmt(n) {
-  const value = Number(n || 0)
-  return Number.isInteger(value) ? String(value) : value.toFixed(1)
-}
-
-function fmtPrice(n) {
-  const value = Number(n)
-  if (!Number.isFinite(value) || value <= 0) return '-'
-  return value.toFixed(2)
-}
-
-function normalizePriceLookupKey(value) {
-  return String(value || '')
-    .trim()
-    .replace(/\u00A0/g, ' ')
-    .replace(/[–—]/g, '-')
-    .replace(/[_/]+/g, '-')
-    .replace(/\s*-\s*/g, '-')
-    .replace(/\s+/g, ' ')
-    .toUpperCase()
-}
-
-function buildPurchasePriceLookup(priceRows) {
-  const lookup = new Map()
-  for (const row of Array.isArray(priceRows) ? priceRows : []) {
-    const key = normalizePriceLookupKey(row.itemNo)
-    const price = Number(row.purchasePrice)
-    if (!key || !Number.isFinite(price) || price <= 0) continue
-    lookup.set(key, price)
-  }
-  return lookup
-}
-
-function findPurchasePriceForItem(item, lookup) {
-  const candidates = [item.sku, item.vigilCode, item.itemName]
-  for (const candidate of candidates) {
-    const key = normalizePriceLookupKey(candidate)
-    if (key && lookup.has(key)) return lookup.get(key)
-  }
-  return Number.isFinite(Number(item.purchasePrice)) && Number(item.purchasePrice) > 0
-    ? Number(item.purchasePrice)
-    : null
-}
-
-function enrichPlanWithPurchasePrices(plan, priceRows) {
-  if (!plan) return plan
-  const lookup = buildPurchasePriceLookup(priceRows)
-  return {
-    ...plan,
-    items: (plan.items || []).map((item) => ({
-      ...item,
-      purchasePrice: findPurchasePriceForItem(item, lookup),
-    })),
-  }
-}
-
-function getStockRemark(item) {
-  const vigilStock = Number(item.vigilStock ?? item.wholesaleAvailableQty ?? 0)
-  const zohoStock = Number(item.currentZohoStock || 0)
-  return vigilStock <= 0 && zohoStock <= 3 ? 'Out of stock' : ''
-}
-
-function getPoStockStatus(item) {
-  const remaining = Number(item.wholesaleAvailableQty || 0) - Number(item.finalQty || 0)
-  if (remaining < 0) return { label: 'Adjust qty', tone: 'danger', remaining }
-  if (remaining >= 50) return { label: 'Ok', tone: 'success', remaining }
-  return { label: 'Critical', tone: remaining > 10 ? 'warning' : 'danger', remaining }
-}
-
-function includesText(value, filter) {
-  const needle = String(filter || '').trim().toLowerCase()
-  if (!needle) return true
-  return String(value || '').toLowerCase().includes(needle)
-}
-
-function includesAnyText(values, filter) {
-  const needle = String(filter || '').trim().toLowerCase()
-  if (!needle) return true
-  return values.some((value) => String(value || '').toLowerCase().includes(needle))
-}
-
-function inNumberRange(value, min, max) {
-  const n = Number(value || 0)
-  const minValue = String(min || '').trim() === '' ? null : Number(min)
-  const maxValue = String(max || '').trim() === '' ? null : Number(max)
-  if (minValue != null && Number.isFinite(minValue) && n < minValue) return false
-  if (maxValue != null && Number.isFinite(maxValue) && n > maxValue) return false
-  return true
-}
-
-function nextSort(current, key) {
-  if (current.key !== key) return { key, direction: 'asc' }
-  return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
-}
-
-function compareSortValues(a, b) {
-  const aNumber = typeof a === 'number' ? a : Number.NaN
-  const bNumber = typeof b === 'number' ? b : Number.NaN
-  if (Number.isFinite(aNumber) && Number.isFinite(bNumber)) return aNumber - bNumber
-  return String(a || '').localeCompare(String(b || ''), undefined, { numeric: true, sensitivity: 'base' })
-}
-
-function sortRows(rows, sort, accessors) {
-  const accessor = accessors[sort.key]
-  if (!accessor) return rows
-  const direction = sort.direction === 'desc' ? -1 : 1
-  return [...rows].sort((a, b) => compareSortValues(accessor(a), accessor(b)) * direction)
-}
-
-function Badge({ children, tone = 'muted' }) {
-  return <span className={`pp-badge pp-badge--${tone}`}>{children}</span>
-}
-
-function FilterChip({ active, children, onClick }) {
-  return (
-    <button type="button" className={`pp-filter-chip ${active ? 'pp-filter-chip--active' : ''}`} onClick={onClick}>
-      {children}
-    </button>
-  )
-}
-
-function SortHeader({ label, sortKey, sort, onSort }) {
-  const active = sort.key === sortKey
-  return (
-    <th>
-      <button
-        type="button"
-        className={`pp-sort-header ${active ? 'pp-sort-header--active' : ''}`}
-        onClick={() => onSort(nextSort(sort, sortKey))}
-      >
-        <span>{label}</span>
-        <span className="pp-sort-header__icon">{active ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}</span>
-      </button>
-    </th>
-  )
-}
-
-function SummaryCards({ plan, lowStock }) {
-  const items = plan?.items || []
-  const matched = items.filter((item) => item.matchType !== 'not_found').length
-  const unavailable = items.filter((item) => item.wholesaleAvailableQty <= 0 || item.matchType === 'not_found').length
-  const totalSuggested = items.reduce((sum, item) => sum + Number(item.suggestedQty || 0), 0)
-  const totalFinal = items.reduce((sum, item) => sum + (item.included ? Number(item.finalQty || 0) : 0), 0)
-
-  return (
-    <div className="doc-summary-cards pp-summary">
-      <div className="doc-summary-card doc-summary-card--total">
-        <span className="doc-summary-card__count">{lowStock.length}</span>
-        <span className="doc-summary-card__label">Low stock SKUs</span>
-      </div>
-      <div className="doc-summary-card doc-summary-card--ok">
-        <span className="doc-summary-card__count">{matched}</span>
-        <span className="doc-summary-card__label">Matched SKUs</span>
-      </div>
-      <div className="doc-summary-card doc-summary-card--expired">
-        <span className="doc-summary-card__count">{items.length - matched}</span>
-        <span className="doc-summary-card__label">Unmatched SKUs</span>
-      </div>
-      <div className="doc-summary-card doc-summary-card--due-soon">
-        <span className="doc-summary-card__count">{totalSuggested}</span>
-        <span className="doc-summary-card__label">Suggested Qty</span>
-      </div>
-      <div className="doc-summary-card doc-summary-card--urgent">
-        <span className="doc-summary-card__count">{totalFinal}</span>
-        <span className="doc-summary-card__label">Final Qty</span>
-      </div>
-      <div className="doc-summary-card doc-summary-card--expired">
-        <span className="doc-summary-card__count">{unavailable}</span>
-        <span className="doc-summary-card__label">Wholesale unavailable</span>
-      </div>
-    </div>
-  )
-}
-
-function LowStockUploadPanel({ lowStock, loading = false, onUploaded, onRefreshZoho, refreshBusy, enrichmentRunning = false }) {
-  const fileInputRef = useRef(null)
-  const [file, setFile] = useState(null)
-  const [preview, setPreview] = useState(null)
-  const [busy, setBusy] = useState(false)
-  const [busyAction, setBusyAction] = useState('')
-  const [error, setError] = useState('')
-  const [savedMessage, setSavedMessage] = useState('')
-  const [showMatched, setShowMatched] = useState(true)
-  const [showUnmatched, setShowUnmatched] = useState(true)
-  const [showLowAdvancedFilters, setShowLowAdvancedFilters] = useState(false)
-  const [lowStockFilters, setLowStockFilters] = useState(EMPTY_LOW_STOCK_FILTERS)
-  const [lowStockSort, setLowStockSort] = useState(DEFAULT_LOW_STOCK_SORT)
-
-  const pendingLowStock = useMemo(
-    () =>
-      lowStock
-        .filter((item) => item.status === 'pending')
-        .sort((a, b) => String(a.sku || '').localeCompare(String(b.sku || ''))),
-    [lowStock]
-  )
-
-  const filteredLowStock = useMemo(
-    () =>
-      pendingLowStock.filter((item) => {
-        if (!includesAnyText([item.sku, item.itemName], lowStockFilters.search)) return false
-        if (lowStockFilters.quick === 'no-stock' && Number(item.currentZohoStock || 0) > 0) return false
-        if (lowStockFilters.quick === 'has-sales' && Number(item.totalSalesLast3Months || 0) <= 0) return false
-        if (lowStockFilters.quick === 'has-vigil' && Number(item.vigilStock || 0) <= 0) return false
-        if (lowStockFilters.quick === 'composite-used' && Number(item.totalBundleUsageLast3Months || 0) <= 0) return false
-        if (!inNumberRange(item.vigilStock, lowStockFilters.vigilMin, lowStockFilters.vigilMax)) return false
-        if (!inNumberRange(item.currentZohoStock, lowStockFilters.stockMin, lowStockFilters.stockMax)) return false
-        if (!inNumberRange(item.totalSalesLast3Months, lowStockFilters.salesMin, lowStockFilters.salesMax)) return false
-        if (!inNumberRange(item.totalBundleUsageLast3Months, lowStockFilters.bundleMin, lowStockFilters.bundleMax)) return false
-        return true
-      }),
-    [pendingLowStock, lowStockFilters]
-  )
-
-  const sortedLowStock = useMemo(
-    () =>
-      sortRows(filteredLowStock, lowStockSort, {
-        sku: (item) => item.sku,
-        itemName: (item) => item.itemName,
-        status: (item) => (item.zohoItemId ? 'matched' : 'not matched'),
-        vigilCode: (item) => item.vigilCode || 'Not found',
-        vigilStock: (item) => Number(item.vigilStock || 0),
-        currentZohoStock: (item) => Number(item.currentZohoStock || 0),
-        totalSalesLast3Months: (item) => Number(item.totalSalesLast3Months || 0),
-        totalBundleUsageLast3Months: (item) => Number(item.totalBundleUsageLast3Months || 0),
-        remarks: (item) => getStockRemark(item),
-      }),
-    [filteredLowStock, lowStockSort]
-  )
-
-  const matchedLowStock = useMemo(
-    () => sortedLowStock.filter((item) => String(item.zohoItemId || '').trim()),
-    [sortedLowStock]
-  )
-
-  const unmatchedLowStock = useMemo(
-    () => sortedLowStock.filter((item) => !String(item.zohoItemId || '').trim()),
-    [sortedLowStock]
-  )
-
-  const copyUnmatched = useCallback(async () => {
-    const text = unmatchedLowStock.map((item) => item.sku).join('\n')
-    if (!text) return
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch (_) {
-      window.prompt('Copy unmatched SKUs', text)
-    }
-  }, [unmatchedLowStock])
-
-  const copyMatched = useCallback(async () => {
-    const text = matchedLowStock.map((item) => item.sku).join('\n')
-    if (!text) return
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch (_) {
-      window.prompt('Copy matched SKUs', text)
-    }
-  }, [matchedLowStock])
-
-  const submit = useCallback(async (save) => {
-    if (!file) return
-    setBusy(true)
-    setBusyAction(save ? 'save' : 'preview')
-    setError('')
-    setSavedMessage('')
-    try {
-      const form = new FormData()
-      form.append('file', file)
-      form.append('save', save ? 'true' : 'false')
-      const path = save
-        ? '/api/purchase-planning/low-stock-upload?save=true'
-        : '/api/purchase-planning/low-stock-upload'
-      const res = await api.postForm(path, form, PP_REQUEST_OPTS)
-      setPreview(res.preview)
-      if (res.saved) {
-        const uploaded = Number(res.summary?.uploaded ?? 0)
-        setSavedMessage(
-          res.enrichmentQueued
-            ? `Saved ${uploaded} low-stock SKU${uploaded === 1 ? '' : 's'}. Enriching from Zoho in the background…`
-            : `Saved ${uploaded} low-stock SKU${uploaded === 1 ? '' : 's'} (${Number(res.summary?.matched ?? 0)} matched in Zoho, ${Number(res.summary?.unmatched ?? 0)} unmatched).`
-        )
-        setFile(null)
-        setPreview(null)
-        if (fileInputRef.current) fileInputRef.current.value = ''
-        await onUploaded(res)
-      }
-    } catch (err) {
-      setError(err.message || (save ? 'Save failed' : 'Preview failed'))
-      if (err.body?.preview) setPreview(err.body.preview)
-    } finally {
-      setBusy(false)
-      setBusyAction('')
-    }
-  }, [file, onUploaded])
-
-  return (
-    <section className="pp-panel">
-      <div className="pp-panel__head">
-        <div>
-          <h2>Low Stock SKU Upload</h2>
-          <p>Upload the SKUs reported by the team. The app enriches only those SKUs from Zoho.</p>
-        </div>
-        <div className="pp-upload-actions">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            onChange={(e) => {
-              setFile(e.target.files?.[0] || null)
-              setPreview(null)
-              setError('')
-              setSavedMessage('')
-            }}
-          />
-          <button className="btn" disabled={!file || busy} onClick={() => submit(false)}>
-            {busyAction === 'preview' ? 'Previewing…' : 'Preview'}
-          </button>
-          <button
-            className="btn btn--primary"
-            disabled={!file || busy || (preview && preview.summary.invalidRows > 0)}
-            onClick={() => submit(true)}
-          >
-            {busyAction === 'save' ? 'Saving…' : 'Save low stock SKUs'}
-          </button>
-        </div>
-      </div>
-      {savedMessage && <div className="pp-notice">{savedMessage}</div>}
-      {error && <div className="page-error">{error}</div>}
-      {preview && (
-        <div className="pp-preview">
-          <div className="pp-preview__meta">
-            <Badge tone={preview.summary.invalidRows ? 'danger' : 'success'}>
-              {preview.summary.validRows} valid / {preview.summary.invalidRows} invalid
-            </Badge>
-            <span>SKU column: {preview.summary.skuHeader || 'first column'}</span>
-          </div>
-          <div className="doc-table-wrap">
-            <table className="doc-table pp-preview-table">
-              <thead>
-                <tr>
-                  <th>Row</th>
-                  <th>SKU</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {preview.rows.slice(0, 12).map((row) => (
-                  <tr key={row.rowNumber} className={!row.valid ? 'pp-row--invalid' : ''}>
-                    <td>{row.rowNumber}</td>
-                    <td>{row.sku || '-'}</td>
-                    <td>{row.valid ? <Badge tone="success">Valid</Badge> : <Badge tone="danger">{row.errors.join(', ')}</Badge>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-      <div className="pp-upload-history">
-        <strong>Current low-stock set</strong>
-        <span>
-          {loading
-            ? 'Loading low-stock items…'
-            : `${lowStock.filter((item) => item.status === 'pending').length} pending SKUs ready for plan generation`}
-        </span>
-      </div>
-      <div className="pp-upload-history">
-        <strong>Zoho enrichment</strong>
-        <span>
-          {enrichmentRunning
-            ? 'Enriching uploaded SKUs from Zoho in the background…'
-            : 'Refresh item names and Life Smile warehouse available-for-sale stock for uploaded SKUs. May use Zoho API calls if the item cache is expired.'}
-        </span>
-        <button
-          className="btn"
-          disabled={refreshBusy || enrichmentRunning || lowStock.filter((item) => item.status === 'pending').length === 0}
-          onClick={onRefreshZoho}
-        >
-          {enrichmentRunning ? 'Enriching…' : 'Refresh Zoho item cache / enrich uploaded SKUs'}
-        </button>
-      </div>
-      {pendingLowStock.length > 0 && (
-        <div className="pp-filter-toolbar">
-          <div className="pp-filter-toolbar__main">
-            <input
-              className="pp-filter-search"
-              value={lowStockFilters.search}
-              onChange={(e) => setLowStockFilters({ ...lowStockFilters, search: e.target.value })}
-              placeholder="Search SKU or Zoho item name"
-            />
-            <div className="pp-filter-chips">
-              <FilterChip active={lowStockFilters.quick === ''} onClick={() => setLowStockFilters({ ...lowStockFilters, quick: '' })}>All</FilterChip>
-              <FilterChip active={lowStockFilters.quick === 'no-stock'} onClick={() => setLowStockFilters({ ...lowStockFilters, quick: lowStockFilters.quick === 'no-stock' ? '' : 'no-stock' })}>No stock</FilterChip>
-              <FilterChip active={lowStockFilters.quick === 'has-sales'} onClick={() => setLowStockFilters({ ...lowStockFilters, quick: lowStockFilters.quick === 'has-sales' ? '' : 'has-sales' })}>Has sales</FilterChip>
-              <FilterChip active={lowStockFilters.quick === 'has-vigil'} onClick={() => setLowStockFilters({ ...lowStockFilters, quick: lowStockFilters.quick === 'has-vigil' ? '' : 'has-vigil' })}>Has Vigil stock</FilterChip>
-              <FilterChip active={lowStockFilters.quick === 'composite-used'} onClick={() => setLowStockFilters({ ...lowStockFilters, quick: lowStockFilters.quick === 'composite-used' ? '' : 'composite-used' })}>Used in composite</FilterChip>
-            </div>
-            <button className="btn btn--sm" type="button" onClick={() => setShowLowAdvancedFilters((v) => !v)}>
-              {showLowAdvancedFilters ? 'Hide advanced' : 'Advanced'}
-            </button>
-            <button className="btn btn--sm" type="button" onClick={() => setLowStockFilters(EMPTY_LOW_STOCK_FILTERS)}>Clear</button>
-            <span className="pp-filter-count">{filteredLowStock.length} of {pendingLowStock.length} SKUs</span>
-          </div>
-          {showLowAdvancedFilters && (
-            <div className="pp-filter-toolbar__advanced">
-              <label><span>Vigil</span><input type="number" value={lowStockFilters.vigilMin} onChange={(e) => setLowStockFilters({ ...lowStockFilters, vigilMin: e.target.value })} placeholder="Min" /><input type="number" value={lowStockFilters.vigilMax} onChange={(e) => setLowStockFilters({ ...lowStockFilters, vigilMax: e.target.value })} placeholder="Max" /></label>
-              <label><span>Stock</span><input type="number" value={lowStockFilters.stockMin} onChange={(e) => setLowStockFilters({ ...lowStockFilters, stockMin: e.target.value })} placeholder="Min" /><input type="number" value={lowStockFilters.stockMax} onChange={(e) => setLowStockFilters({ ...lowStockFilters, stockMax: e.target.value })} placeholder="Max" /></label>
-              <label><span>Sales 3M</span><input type="number" value={lowStockFilters.salesMin} onChange={(e) => setLowStockFilters({ ...lowStockFilters, salesMin: e.target.value })} placeholder="Min" /><input type="number" value={lowStockFilters.salesMax} onChange={(e) => setLowStockFilters({ ...lowStockFilters, salesMax: e.target.value })} placeholder="Max" /></label>
-              <label><span>Composite</span><input type="number" value={lowStockFilters.bundleMin} onChange={(e) => setLowStockFilters({ ...lowStockFilters, bundleMin: e.target.value })} placeholder="Min" /><input type="number" value={lowStockFilters.bundleMax} onChange={(e) => setLowStockFilters({ ...lowStockFilters, bundleMax: e.target.value })} placeholder="Max" /></label>
-            </div>
-          )}
-        </div>
-      )}
-      {matchedLowStock.length > 0 && (
-        <div className="pp-enrichment-list pp-enrichment-list--matched">
-          <div className="pp-enrichment-list__head">
-            <div>
-              <strong>Matched in Zoho</strong>
-              <span>{matchedLowStock.length} pending uploaded SKUs matched to Zoho items.</span>
-            </div>
-            <div className="pp-enrichment-list__actions">
-              <button className="btn btn--sm" type="button" onClick={() => setShowMatched((v) => !v)}>
-                {showMatched ? 'Hide list' : 'Show list'}
-              </button>
-              <button className="btn btn--sm" type="button" onClick={copyMatched}>
-                Copy SKUs
-              </button>
-            </div>
-          </div>
-          {showMatched && (
-            <div className="doc-table-wrap pp-enrichment-list__table-wrap">
-              <table className="doc-table pp-enrichment-list__table">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <SortHeader label="Uploaded SKU" sortKey="sku" sort={lowStockSort} onSort={setLowStockSort} />
-                    <SortHeader label="Zoho item name" sortKey="itemName" sort={lowStockSort} onSort={setLowStockSort} />
-                    <SortHeader label="Vigil item" sortKey="vigilCode" sort={lowStockSort} onSort={setLowStockSort} />
-                    <SortHeader label="Vigil stocks" sortKey="vigilStock" sort={lowStockSort} onSort={setLowStockSort} />
-                    <SortHeader label="Life Smile Available Stock" sortKey="currentZohoStock" sort={lowStockSort} onSort={setLowStockSort} />
-                    <SortHeader label="Sales Qty (3M)" sortKey="totalSalesLast3Months" sort={lowStockSort} onSort={setLowStockSort} />
-                    <SortHeader label="Composite Usage Qty" sortKey="totalBundleUsageLast3Months" sort={lowStockSort} onSort={setLowStockSort} />
-                    <SortHeader label="Remarks" sortKey="remarks" sort={lowStockSort} onSort={setLowStockSort} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {matchedLowStock.map((item, index) => (
-                    <tr key={item.id || item.sku}>
-                      <td>{index + 1}</td>
-                      <td className="pp-mono">{item.sku}</td>
-                      <td>{item.itemName || '-'}</td>
-                      <td className="pp-mono">{item.vigilCode || 'Not found'}</td>
-                      <td>{fmt(item.vigilStock)}</td>
-                      <td>{fmt(item.currentZohoStock)}</td>
-                      <td>{fmt(item.totalSalesLast3Months)}</td>
-                      <td>{fmt(item.totalBundleUsageLast3Months)}</td>
-                      <td className={getStockRemark(item) ? 'pp-remark pp-remark--danger' : 'pp-remark'}>{getStockRemark(item) || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-      {unmatchedLowStock.length > 0 && (
-        <div className="pp-enrichment-list pp-enrichment-list--unmatched">
-          <div className="pp-enrichment-list__head">
-            <div>
-              <strong>Unmatched in Zoho</strong>
-              <span>{unmatchedLowStock.length} pending uploaded SKUs could not be matched to a Zoho item.</span>
-            </div>
-            <div className="pp-enrichment-list__actions">
-              <button className="btn btn--sm" type="button" onClick={() => setShowUnmatched((v) => !v)}>
-                {showUnmatched ? 'Hide list' : 'Show list'}
-              </button>
-              <button className="btn btn--sm" type="button" onClick={copyUnmatched}>
-                Copy SKUs
-              </button>
-            </div>
-          </div>
-          {showUnmatched && (
-            <div className="doc-table-wrap pp-enrichment-list__table-wrap">
-              <table className="doc-table pp-enrichment-list__table">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <SortHeader label="Uploaded SKU" sortKey="sku" sort={lowStockSort} onSort={setLowStockSort} />
-                    <SortHeader label="Status" sortKey="status" sort={lowStockSort} onSort={setLowStockSort} />
-                    <SortHeader label="Vigil item" sortKey="vigilCode" sort={lowStockSort} onSort={setLowStockSort} />
-                    <SortHeader label="Vigil stocks" sortKey="vigilStock" sort={lowStockSort} onSort={setLowStockSort} />
-                    <SortHeader label="Life Smile Available Stock" sortKey="currentZohoStock" sort={lowStockSort} onSort={setLowStockSort} />
-                    <SortHeader label="Sales Qty (3M)" sortKey="totalSalesLast3Months" sort={lowStockSort} onSort={setLowStockSort} />
-                    <SortHeader label="Composite Usage Qty" sortKey="totalBundleUsageLast3Months" sort={lowStockSort} onSort={setLowStockSort} />
-                    <SortHeader label="Remarks" sortKey="remarks" sort={lowStockSort} onSort={setLowStockSort} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {unmatchedLowStock.map((item, index) => (
-                    <tr key={item.id || item.sku}>
-                      <td>{index + 1}</td>
-                      <td className="pp-mono">{item.sku}</td>
-                      <td><Badge tone="danger">Not matched</Badge></td>
-                      <td className="pp-mono">{item.vigilCode || 'Not found'}</td>
-                      <td>{fmt(item.vigilStock)}</td>
-                      <td>{fmt(item.currentZohoStock)}</td>
-                      <td>{fmt(item.totalSalesLast3Months)}</td>
-                      <td>{fmt(item.totalBundleUsageLast3Months)}</td>
-                      <td className={getStockRemark(item) ? 'pp-remark pp-remark--danger' : 'pp-remark'}>{getStockRemark(item) || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-    </section>
-  )
-}
-
-function UploadPanel({ uploads, onUploaded }) {
-  const [file, setFile] = useState(null)
-  const [preview, setPreview] = useState(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-
-  const submit = useCallback(async (save) => {
-    if (!file) return
-    setBusy(true)
-    setError('')
-    try {
-      const form = new FormData()
-      form.append('file', file)
-      form.append('save', save ? 'true' : 'false')
-      const res = await api.postForm('/api/purchase-planning/vigil-upload', form, PP_REQUEST_OPTS)
-      setPreview(res.preview)
-      if (res.saved) {
-        setFile(null)
-        onUploaded()
-      }
-    } catch (err) {
-      setError(err.message || 'Upload failed')
-      if (err.body?.preview) setPreview(err.body.preview)
-    } finally {
-      setBusy(false)
-    }
-  }, [file, onUploaded])
-
-  return (
-    <section className="pp-panel">
-      <div className="pp-panel__head">
-        <div>
-          <h2>Vigil Stock Upload</h2>
-          <p>Preview CSV or Excel wholesale stock rows before saving them as the active upload.</p>
-        </div>
-        <div className="pp-upload-actions">
-          <input type="file" accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => {
-            setFile(e.target.files?.[0] || null)
-            setPreview(null)
-            setError('')
-          }} />
-          <button className="btn" disabled={!file || busy} onClick={() => submit(false)}>Preview</button>
-          <button className="btn btn--primary" disabled={!file || busy || !preview || preview.summary.invalidRows > 0} onClick={() => submit(true)}>
-            Save upload
-          </button>
-        </div>
-      </div>
-      {error && <div className="page-error">{error}</div>}
-      {preview && (
-        <div className="pp-preview">
-          <div className="pp-preview__meta">
-            <Badge tone={preview.summary.invalidRows ? 'danger' : 'success'}>
-              {preview.summary.validRows} valid / {preview.summary.invalidRows} invalid
-            </Badge>
-            <span>Item code: {preview.summary.itemCodeHeader || 'missing'}</span>
-            <span>Stock: {preview.summary.stockHeader || 'missing'}</span>
-          </div>
-          <div className="doc-table-wrap">
-            <table className="doc-table pp-preview-table">
-              <thead>
-                <tr>
-                  <th>Row</th>
-                  <th>Item code</th>
-                  <th>Available stock</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {preview.rows.slice(0, 12).map((row) => (
-                  <tr key={row.rowNumber} className={!row.valid ? 'pp-row--invalid' : ''}>
-                    <td>{row.rowNumber}</td>
-                    <td>{row.itemCode || '-'}</td>
-                    <td>{fmt(row.availableStock)}</td>
-                    <td>{row.valid ? <Badge tone="success">Valid</Badge> : <Badge tone="danger">{row.errors.join(', ')}</Badge>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-      <div className="pp-upload-history">
-        <strong>Latest uploads</strong>
-        {uploads.length === 0 ? <span>No saved Vigil uploads yet.</span> : uploads.slice(0, 3).map((upload) => (
-          <span key={upload.id}>{upload.fileName} · {upload.rowsCount} rows</span>
-        ))}
-      </div>
-    </section>
-  )
-}
-
-function PlanTable({ plan, filters, onFiltersChange, onItemChange, onRefreshZohoData, refreshPlanBusy, readOnly = false }) {
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
-  const [planSort, setPlanSort] = useState(DEFAULT_PLAN_SORT)
-  const [qtyDrafts, setQtyDrafts] = useState({})
-  const [savingItemId, setSavingItemId] = useState(null)
-  const qtyDebounceRef = useRef({})
-
-  useEffect(() => {
-    const next = {}
-    for (const item of plan?.items || []) {
-      next[item.id] = String(item.finalQty ?? 0)
-    }
-    setQtyDrafts(next)
-    setSavingItemId(null)
-    for (const timer of Object.values(qtyDebounceRef.current)) {
-      clearTimeout(timer)
-    }
-    qtyDebounceRef.current = {}
-  }, [plan?.id, plan?.items])
-
-  useEffect(() => () => {
-    for (const timer of Object.values(qtyDebounceRef.current)) {
-      clearTimeout(timer)
-    }
-  }, [])
-
-  const commitFinalQty = useCallback(async (item) => {
-    if (readOnly || !item) return
-    const raw = qtyDrafts[item.id]
-    if (raw === '' || raw == null) return
-    const parsed = Number(raw)
-    if (!Number.isFinite(parsed) || parsed < 0) return
-    const nextQty = Math.floor(parsed)
-    if (nextQty === Number(item.finalQty || 0)) return
-    if (qtyDebounceRef.current[item.id]) {
-      clearTimeout(qtyDebounceRef.current[item.id])
-      delete qtyDebounceRef.current[item.id]
-    }
-    setSavingItemId(item.id)
-    try {
-      await onItemChange(item.id, { finalQty: nextQty })
-    } finally {
-      setSavingItemId((current) => (current === item.id ? null : current))
-    }
-  }, [onItemChange, qtyDrafts, readOnly])
-
-  const scheduleFinalQtySave = useCallback((item) => {
-    if (readOnly || !item) return
-    if (qtyDebounceRef.current[item.id]) {
-      clearTimeout(qtyDebounceRef.current[item.id])
-    }
-    qtyDebounceRef.current[item.id] = setTimeout(() => {
-      delete qtyDebounceRef.current[item.id]
-      commitFinalQty(item)
-    }, 700)
-  }, [commitFinalQty, readOnly])
-  const filteredRows = useMemo(() => {
-    const source = plan?.items || []
-    return source.filter((item) => {
-      if (filters.matchStatus && item.matchType !== filters.matchStatus) return false
-      if (!includesAnyText([item.sku, item.itemName, item.vigilCode], filters.search)) return false
-      if (filters.quick === 'need-order' && Number(item.finalQty || 0) <= 0) return false
-      if (filters.quick === 'no-wholesale' && Number(item.wholesaleAvailableQty || 0) > 0 && item.matchType !== 'not_found') return false
-      if (filters.quick === 'composite-used' && Number(item.totalBundleUsageLast3Months || 0) <= 0) return false
-      if (!inNumberRange(item.currentZohoStock, filters.stockMin, filters.stockMax)) return false
-      if (!inNumberRange(item.wholesaleAvailableQty, filters.wholesaleMin, filters.wholesaleMax)) return false
-      if (!inNumberRange(item.totalSalesLast3Months, filters.salesMin, filters.salesMax)) return false
-      if (!inNumberRange(item.totalBundleUsageLast3Months, filters.bundleMin, filters.bundleMax)) return false
-      if (!inNumberRange(item.averageMonthlyUsage, filters.avgMin, filters.avgMax)) return false
-      if (!inNumberRange(item.suggestedQty, filters.suggestedMin, filters.suggestedMax)) return false
-      if (!inNumberRange(item.finalQty, filters.finalMin, filters.finalMax)) return false
-      if (filters.includedStatus === 'included' && !item.included) return false
-      if (filters.includedStatus === 'ignored' && item.included) return false
-      return true
-    })
-  }, [plan, filters])
-
-  const rows = useMemo(
-    () =>
-      sortRows(filteredRows, planSort, {
-        sku: (item) => item.sku,
-        itemName: (item) => item.itemName,
-        currentZohoStock: (item) => Number(item.currentZohoStock || 0),
-        vigilCode: (item) => item.vigilCode,
-        wholesaleAvailableQty: (item) => Number(item.wholesaleAvailableQty || 0),
-        totalSalesLast3Months: (item) => Number(item.totalSalesLast3Months || 0),
-        totalBundleUsageLast3Months: (item) => Number(item.totalBundleUsageLast3Months || 0),
-        averageMonthlyUsage: (item) => Number(item.averageMonthlyUsage || 0),
-        suggestedQty: (item) => Number(item.suggestedQty || 0),
-        finalQty: (item) => Number(item.finalQty || 0),
-        purchasePrice: (item) => Number(item.purchasePrice || 0),
-        poStatus: (item) => getPoStockStatus(item).label,
-        matchType: (item) => item.matchType,
-        remarks: (item) => getStockRemark(item),
-        included: (item) => (item.included ? 'included' : 'ignored'),
-      }),
-    [filteredRows, planSort]
-  )
-
-  if (!plan) {
-    return <div className="pp-empty">Generate or open a draft purchase plan to review SKUs and final quantities.</div>
-  }
-
-  return (
-    <section className="pp-panel">
-      <div className="pp-panel__head">
-        <div>
-          <h2>{plan.planNumber}</h2>
-          <p>Status: <Badge tone={plan.status === 'sent_to_zoho' ? 'success' : plan.status === 'failed' ? 'danger' : 'warning'}>{plan.status}</Badge></p>
-        </div>
-        <div className="pp-panel__head-actions">
-          {plan.status === 'draft' && onRefreshZohoData && (
-            <button
-              type="button"
-              className="btn"
-              disabled={refreshPlanBusy}
-              onClick={onRefreshZohoData}
-            >
-              {refreshPlanBusy ? 'Refreshing Zoho data…' : 'Refresh Zoho data'}
-            </button>
-          )}
-          {plan.zohoPurchaseOrderId && <Badge tone="success">Zoho PO {plan.zohoPurchaseOrderId}</Badge>}
-        </div>
-      </div>
-
-      <div className="pp-filter-toolbar">
-        <div className="pp-filter-toolbar__main">
-          <input
-            className="pp-filter-search"
-            value={filters.search}
-            onChange={(e) => onFiltersChange({ ...filters, search: e.target.value })}
-            placeholder="Search SKU, item name, or Vigil code"
-          />
-          <div className="pp-filter-chips">
-            <FilterChip active={filters.quick === ''} onClick={() => onFiltersChange({ ...filters, quick: '' })}>All</FilterChip>
-            <FilterChip active={filters.quick === 'need-order'} onClick={() => onFiltersChange({ ...filters, quick: filters.quick === 'need-order' ? '' : 'need-order' })}>Need order</FilterChip>
-            <FilterChip active={filters.quick === 'no-wholesale'} onClick={() => onFiltersChange({ ...filters, quick: filters.quick === 'no-wholesale' ? '' : 'no-wholesale' })}>No wholesale</FilterChip>
-            <FilterChip active={filters.quick === 'composite-used'} onClick={() => onFiltersChange({ ...filters, quick: filters.quick === 'composite-used' ? '' : 'composite-used' })}>Used in composite</FilterChip>
-          </div>
-          <select value={filters.matchStatus} onChange={(e) => onFiltersChange({ ...filters, matchStatus: e.target.value })}>
-            <option value="">Any match</option>
-            <option value="exact">Exact</option>
-            <option value="parent">Parent</option>
-            <option value="not_found">Not found</option>
-          </select>
-          <select value={filters.includedStatus} onChange={(e) => onFiltersChange({ ...filters, includedStatus: e.target.value })}>
-            <option value="">Any action</option>
-            <option value="included">Included</option>
-            <option value="ignored">Ignored</option>
-          </select>
-          <button className="btn btn--sm" type="button" onClick={() => setShowAdvancedFilters((v) => !v)}>
-            {showAdvancedFilters ? 'Hide advanced' : 'Advanced'}
-          </button>
-          <button className="btn btn--sm" type="button" onClick={() => onFiltersChange(EMPTY_FILTERS)}>Clear</button>
-          <span className="pp-filter-count">{rows.length} of {plan.items.length} lines</span>
-        </div>
-        {showAdvancedFilters && (
-          <div className="pp-filter-toolbar__advanced pp-filter-toolbar__advanced--wide">
-            <label><span>Zoho stock</span><input type="number" value={filters.stockMin} onChange={(e) => onFiltersChange({ ...filters, stockMin: e.target.value })} placeholder="Min" /><input type="number" value={filters.stockMax} onChange={(e) => onFiltersChange({ ...filters, stockMax: e.target.value })} placeholder="Max" /></label>
-            <label><span>Wholesale</span><input type="number" value={filters.wholesaleMin} onChange={(e) => onFiltersChange({ ...filters, wholesaleMin: e.target.value })} placeholder="Min" /><input type="number" value={filters.wholesaleMax} onChange={(e) => onFiltersChange({ ...filters, wholesaleMax: e.target.value })} placeholder="Max" /></label>
-            <label><span>Sales 3M</span><input type="number" value={filters.salesMin} onChange={(e) => onFiltersChange({ ...filters, salesMin: e.target.value })} placeholder="Min" /><input type="number" value={filters.salesMax} onChange={(e) => onFiltersChange({ ...filters, salesMax: e.target.value })} placeholder="Max" /></label>
-            <label><span>Bundle 3M</span><input type="number" value={filters.bundleMin} onChange={(e) => onFiltersChange({ ...filters, bundleMin: e.target.value })} placeholder="Min" /><input type="number" value={filters.bundleMax} onChange={(e) => onFiltersChange({ ...filters, bundleMax: e.target.value })} placeholder="Max" /></label>
-            <label><span>Avg monthly</span><input type="number" value={filters.avgMin} onChange={(e) => onFiltersChange({ ...filters, avgMin: e.target.value })} placeholder="Min" /><input type="number" value={filters.avgMax} onChange={(e) => onFiltersChange({ ...filters, avgMax: e.target.value })} placeholder="Max" /></label>
-            <label><span>Suggested</span><input type="number" value={filters.suggestedMin} onChange={(e) => onFiltersChange({ ...filters, suggestedMin: e.target.value })} placeholder="Min" /><input type="number" value={filters.suggestedMax} onChange={(e) => onFiltersChange({ ...filters, suggestedMax: e.target.value })} placeholder="Max" /></label>
-            <label><span>Final qty</span><input type="number" value={filters.finalMin} onChange={(e) => onFiltersChange({ ...filters, finalMin: e.target.value })} placeholder="Min" /><input type="number" value={filters.finalMax} onChange={(e) => onFiltersChange({ ...filters, finalMax: e.target.value })} placeholder="Max" /></label>
-          </div>
-        )}
-      </div>
-
-      <div className="doc-table-wrap">
-        <table className="doc-table pp-plan-table">
-          <thead>
-            <tr>
-              <SortHeader label="SKU" sortKey="sku" sort={planSort} onSort={setPlanSort} />
-              <SortHeader label="Item Name" sortKey="itemName" sort={planSort} onSort={setPlanSort} />
-              <SortHeader label="Zoho Stock" sortKey="currentZohoStock" sort={planSort} onSort={setPlanSort} />
-              <SortHeader label="Vigil Code" sortKey="vigilCode" sort={planSort} onSort={setPlanSort} />
-              <SortHeader label="Wholesale" sortKey="wholesaleAvailableQty" sort={planSort} onSort={setPlanSort} />
-              <SortHeader label="Sales 3M" sortKey="totalSalesLast3Months" sort={planSort} onSort={setPlanSort} />
-              <SortHeader label="Bundle 3M" sortKey="totalBundleUsageLast3Months" sort={planSort} onSort={setPlanSort} />
-              <SortHeader label="Avg Monthly" sortKey="averageMonthlyUsage" sort={planSort} onSort={setPlanSort} />
-              <SortHeader label="Suggested" sortKey="suggestedQty" sort={planSort} onSort={setPlanSort} />
-              <SortHeader label="Final Qty" sortKey="finalQty" sort={planSort} onSort={setPlanSort} />
-              <SortHeader label="Purchase Price" sortKey="purchasePrice" sort={planSort} onSort={setPlanSort} />
-              <SortHeader label="Status after PO" sortKey="poStatus" sort={planSort} onSort={setPlanSort} />
-              <SortHeader label="Match" sortKey="matchType" sort={planSort} onSort={setPlanSort} />
-              <SortHeader label="Remarks" sortKey="remarks" sort={planSort} onSort={setPlanSort} />
-              <SortHeader label="Action" sortKey="included" sort={planSort} onSort={setPlanSort} />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((item) => (
-              <tr key={item.id} className={!item.included ? 'pp-row--muted' : ''}>
-                <td><strong>{item.sku}</strong></td>
-                <td>{item.itemName}</td>
-                <td>{fmt(item.currentZohoStock)}</td>
-                <td>{item.vigilCode || '-'}</td>
-                <td>{fmt(item.wholesaleAvailableQty)}</td>
-                <td>{fmt(item.totalSalesLast3Months)}</td>
-                <td>{fmt(item.totalBundleUsageLast3Months)}</td>
-                <td>{fmt(item.averageMonthlyUsage)}</td>
-                <td>{item.suggestedQty}</td>
-                <td>
-                  <input
-                    className="pp-qty-input"
-                    type="number"
-                    min="0"
-                    disabled={readOnly || savingItemId === item.id}
-                    value={qtyDrafts[item.id] ?? String(item.finalQty ?? 0)}
-                    onChange={(e) => {
-                      const value = e.target.value
-                      setQtyDrafts((prev) => ({ ...prev, [item.id]: value }))
-                      scheduleFinalQtySave(item)
-                    }}
-                    onBlur={() => commitFinalQty(item)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault()
-                        commitFinalQty(item)
-                      }
-                    }}
-                  />
-                </td>
-                <td className={item.purchasePrice ? 'pp-price-cell' : 'pp-price-cell pp-price-cell--missing'}>
-                  {fmtPrice(item.purchasePrice)}
-                </td>
-                <td>
-                  <Badge tone={getPoStockStatus(item).tone}>{getPoStockStatus(item).label}</Badge>
-                  <span className="pp-status-detail">Rem {fmt(getPoStockStatus(item).remaining)}</span>
-                </td>
-                <td>
-                  <Badge tone={item.matchType === 'exact' ? 'success' : item.matchType === 'parent' ? 'warning' : 'danger'}>
-                    {item.matchType}
-                  </Badge>
-                </td>
-                <td className={getStockRemark(item) ? 'pp-remark pp-remark--danger' : 'pp-remark'}>{getStockRemark(item) || '-'}</td>
-                <td>
-                  <button
-                    className="btn btn--sm"
-                    disabled={readOnly}
-                    onClick={() => onItemChange(item.id, { included: !item.included })}
-                  >
-                    {item.included ? 'Ignore' : 'Include'}
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan="15" className="pp-empty-cell">No items match the current filters.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  )
-}
 
 export function PurchasePlanningPage() {
   const { ready: prefsReady, getPref, prefsVersion } = useUserPreferences()
@@ -936,38 +36,41 @@ export function PurchasePlanningPage() {
   const [notice, setNotice] = useState('')
   const [purchaseOrderNumber, setPurchaseOrderNumber] = useState('')
   const [enrichmentRunning, setEnrichmentRunning] = useState(false)
+  const [enrichmentError, setEnrichmentError] = useState(null)
+  const [enrichmentSummary, setEnrichmentSummary] = useState(null)
+  const [activeStep, setActiveStep] = useState(null)
   const loadAbortRef = useRef(null)
 
-  const pendingLowStockItems = useMemo(
-    () => lowStock.filter((item) => item.status === 'pending'),
-    [lowStock]
+  const allPriceRows = useMemo(
+    () => resolveAllPriceRows(getPref, prefsReady, prefsVersion),
+    [getPref, prefsReady, prefsVersion]
   )
-  const pendingNeedsEnrichment = useMemo(
-    () => pendingLowStockItems.filter((item) => !String(item.zohoItemId || '').trim()),
-    [pendingLowStockItems]
-  )
-  const canGeneratePlan = pendingLowStockItems.length > 0 && !enrichmentRunning && pendingNeedsEnrichment.length === 0
-  const generatePlanBlockedReason = enrichmentRunning
-    ? 'Waiting for Zoho enrichment to finish…'
-    : pendingLowStockItems.length === 0
-      ? 'Upload low-stock SKUs first.'
-      : pendingNeedsEnrichment.length > 0
-        ? `${pendingNeedsEnrichment.length} pending SKU${pendingNeedsEnrichment.length === 1 ? '' : 's'} still need Zoho enrichment.`
-        : ''
 
-  const allPriceRows = useMemo(() => {
-    void prefsVersion
-    if (!prefsReady) return []
-    const bundle = getPref(getAllPricesPrefsScope().ec, null)
-    return resolveAllPricesRowsFromBundle(bundle) || []
-  }, [getPref, prefsReady, prefsVersion])
+  const workflow = useMemo(
+    () =>
+      computeWorkflow({
+        uploads,
+        lowStock,
+        enrichmentRunning,
+        enrichmentError,
+        activePlan,
+        plans,
+      }),
+    [uploads, lowStock, enrichmentRunning, enrichmentError, activePlan, plans]
+  )
+
+  const currentStep = activeStep ?? workflow.suggestedStep
+
+  const activePlanWithPrices = useMemo(
+    () => enrichPlanWithPurchasePrices(activePlan, allPriceRows),
+    [activePlan, allPriceRows]
+  )
 
   const load = useCallback(async () => {
     loadAbortRef.current?.abort()
     const controller = new AbortController()
     loadAbortRef.current = controller
     const opts = { ...PP_REQUEST_OPTS, signal: controller.signal }
-
     setError('')
     setLoadingLowStock(true)
     try {
@@ -999,8 +102,6 @@ export function PurchasePlanningPage() {
     const opts = { ...PP_REQUEST_OPTS, signal: controller.signal }
     setLoading(true)
     setLoadingLowStock(true)
-    setError('')
-
     Promise.all([
       api.get('/api/purchase-planning/vigil-uploads', opts),
       api.get('/api/purchase-planning/plans', opts),
@@ -1025,7 +126,6 @@ export function PurchasePlanningPage() {
       })
       .catch((err) => {
         if (ignoreCancelledPurchasePlanningRequest(err, controller.signal)) return
-        setError(err.message || 'Failed to load low-stock items')
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoadingLowStock(false)
@@ -1040,120 +140,81 @@ export function PurchasePlanningPage() {
     return res.plan
   }, [])
 
-  const activePlanWithPrices = useMemo(
-    () => enrichPlanWithPurchasePrices(activePlan, allPriceRows),
-    [activePlan, allPriceRows]
-  )
-
-  const pollLowStockEnrichment = useCallback(async () => {
+  const runEnrichmentPoll = useCallback(async () => {
     setEnrichmentRunning(true)
-    const deadline = Date.now() + 180_000
-    while (Date.now() < deadline) {
-      try {
-        const statusRes = await api.get('/api/purchase-planning/low-stock/enrichment-status', PP_REQUEST_OPTS)
-        const listRes = await api.get('/api/purchase-planning/low-stock', PP_REQUEST_OPTS)
-        setLowStock(listRes.items || [])
-        if (!statusRes.running) {
-          setEnrichmentRunning(false)
-          if (statusRes.lastError) {
-            setError(`Zoho enrichment failed: ${statusRes.lastError}`)
-          } else if (statusRes.lastSummary) {
-            const summary = statusRes.lastSummary
-            setNotice(
-              `Enriched ${summary.refreshed ?? 0} uploaded SKU${summary.refreshed === 1 ? '' : 's'} (${summary.matched ?? 0} matched in Zoho, ${summary.unmatched ?? 0} unmatched).`
-            )
-          }
-          return
-        }
-        setNotice('Saved low-stock SKUs. Enriching from Zoho…')
-      } catch (err) {
-        setEnrichmentRunning(false)
-        setError(err.message || 'Failed while waiting for Zoho enrichment')
-        return
+    setEnrichmentError(null)
+    try {
+      const result = await pollLowStockEnrichment({
+        onTick: async (tick) => {
+          setLowStock(tick.items)
+          if (tick.lastSummary) setEnrichmentSummary(tick.lastSummary)
+        },
+      })
+      setLowStock(result.items)
+      if (result.lastError) {
+        setEnrichmentError(result.lastError)
+        setError(`Zoho enrichment failed: ${result.lastError}`)
+      } else if (result.lastSummary) {
+        setEnrichmentSummary(result.lastSummary)
+        const s = result.lastSummary
+        setNotice(
+          `Enriched ${s.refreshed ?? 0} SKU(s): ${s.matched ?? 0} matched, ${s.unmatched ?? 0} unmatched in Zoho.`
+        )
+        if ((s.unmatched ?? 0) === 0) setActiveStep(4)
       }
-      await new Promise((resolve) => setTimeout(resolve, 2500))
+    } catch (err) {
+      setEnrichmentError(err.message || String(err))
+      setError(err.message || 'Enrichment timed out')
+    } finally {
+      setEnrichmentRunning(false)
     }
-    setEnrichmentRunning(false)
-    setError('Zoho enrichment is taking longer than expected. Refresh the page or click Refresh Zoho.')
   }, [])
 
-  const syncEnrichmentStatus = useCallback(async () => {
-    try {
-      const statusRes = await api.get('/api/purchase-planning/low-stock/enrichment-status', PP_REQUEST_OPTS)
-      setEnrichmentRunning(Boolean(statusRes.running))
-      if (statusRes.running) {
-        await pollLowStockEnrichment()
-      }
-    } catch (_) {
-      // Non-blocking on initial page load.
-    }
-  }, [pollLowStockEnrichment])
-
   useEffect(() => {
-    syncEnrichmentStatus()
-  }, [syncEnrichmentStatus])
+    api
+      .get('/api/purchase-planning/low-stock/enrichment-status', PP_REQUEST_OPTS)
+      .then((statusRes) => {
+        if (statusRes.running) runEnrichmentPoll()
+        else if (statusRes.lastSummary) setEnrichmentSummary(statusRes.lastSummary)
+        if (statusRes.lastError) setEnrichmentError(statusRes.lastError)
+      })
+      .catch(() => {})
+  }, [runEnrichmentPoll])
 
-  const handleLowStockUploaded = useCallback(async (res) => {
-    const uploaded = Number(res.summary?.uploaded ?? 0)
-    setError('')
-    setLowStock(res.items || [])
-    setLoadingLowStock(false)
-    if (res.enrichmentQueued) {
-      setNotice(`Saved ${uploaded} low-stock SKU${uploaded === 1 ? '' : 's'}. Enriching from Zoho…`)
-      await pollLowStockEnrichment()
-      return
-    }
-    const matched = Number(res.summary?.matched ?? 0)
-    const unmatched = Number(res.summary?.unmatched ?? 0)
-    setNotice(`Saved ${uploaded} low-stock SKU${uploaded === 1 ? '' : 's'} (${matched} matched in Zoho, ${unmatched} unmatched).`)
-  }, [pollLowStockEnrichment])
+  const handleLowStockUploaded = useCallback(
+    async (res) => {
+      setError('')
+      setLowStock(res.items || [])
+      setLoadingLowStock(false)
+      setActiveStep(3)
+      if (res.enrichmentQueued) {
+        setNotice('Saved low-stock SKUs. Enriching from Zoho…')
+        await runEnrichmentPoll()
+        return
+      }
+      const uploaded = Number(res.summary?.uploaded ?? 0)
+      setNotice(`Saved ${uploaded} low-stock SKU(s).`)
+    },
+    [runEnrichmentPoll]
+  )
 
   const refreshLowStockZoho = useCallback(async () => {
-    const ok = window.confirm(
-      'Refresh Zoho item cache / enrich uploaded SKUs? This may use Zoho API calls if the item cache is expired.'
-    )
+    const ok = window.confirm('Refresh Zoho data for all pending uploaded SKUs? This may call Zoho APIs.')
     if (!ok) return
     setBusy('enrich-low')
     setError('')
     setNotice('')
     try {
-      await api.post('/api/purchase-planning/low-stock/refresh-zoho', {})
+      await api.post('/api/purchase-planning/low-stock/refresh-zoho', {}, PP_REQUEST_OPTS)
       setNotice('Refreshing Zoho enrichment…')
-      await pollLowStockEnrichment()
+      await runEnrichmentPoll()
     } catch (err) {
       setEnrichmentRunning(false)
-      setError(err.message || 'Zoho enrichment refresh failed')
+      setError(err.message || 'Zoho refresh failed')
     } finally {
       setBusy('')
     }
-  }, [pollLowStockEnrichment])
-
-  const refreshPlanZohoData = useCallback(async () => {
-    if (!activePlan || activePlan.status !== 'draft') return
-    const ok = window.confirm(
-      `Refresh Zoho stock, sales, and bundle usage for draft plan ${activePlan.planNumber}? This may take up to a minute.`
-    )
-    if (!ok) return
-    setBusy('refresh-plan-zoho')
-    setError('')
-    setNotice('')
-    try {
-      const res = await api.post(
-        `/api/purchase-planning/plans/${activePlan.id}/refresh-zoho-data`,
-        {},
-        PP_REQUEST_OPTS
-      )
-      setActivePlan(res.plan)
-      const summary = res.summary || {}
-      setNotice(
-        `Refreshed Zoho data for ${summary.refreshed ?? 0} item${summary.refreshed === 1 ? '' : 's'} (${summary.matched ?? 0} matched, ${summary.unmatched ?? 0} unmatched).`
-      )
-    } catch (err) {
-      setError(err.message || 'Failed to refresh draft plan from Zoho')
-    } finally {
-      setBusy('')
-    }
-  }, [activePlan])
+  }, [runEnrichmentPoll])
 
   const generatePlan = useCallback(async () => {
     setBusy('generate')
@@ -1162,8 +223,9 @@ export function PurchasePlanningPage() {
     try {
       const res = await api.post('/api/purchase-planning/generate-plan', {}, PP_REQUEST_OPTS)
       setActivePlan(res.plan)
+      setActiveStep(5)
       await load()
-      setNotice(`Generated draft plan ${res.plan.planNumber}.`)
+      setNotice(`Generated draft plan ${res.plan.planNumber}. Pending SKUs are now marked as planned.`)
     } catch (err) {
       setError(err.message || 'Plan generation failed')
     } finally {
@@ -1171,72 +233,118 @@ export function PurchasePlanningPage() {
     }
   }, [load])
 
-  const deleteDraftPlan = useCallback(async (plan) => {
-    const label = plan.planNumber || plan.id
-    if (!window.confirm(`Delete draft plan ${label}? This cannot be undone.`)) return
-    setBusy(`delete-plan-${plan.id}`)
-    setError('')
-    try {
-      const res = await api.delete(`/api/purchase-planning/plans/${plan.id}`, PP_REQUEST_OPTS)
-      if (activePlan?.id === plan.id) {
-        setActivePlan(null)
-        setFilters(EMPTY_FILTERS)
-        setPurchaseOrderNumber('')
+  const deleteDraftPlan = useCallback(
+    async (plan) => {
+      const label = plan.planNumber || plan.id
+      const ok = window.confirm(
+        `Delete draft plan ${label}?\n\nThis cannot be undone. Deleting this draft will NOT return planned SKUs to pending — upload a new low-stock file to start another batch.`
+      )
+      if (!ok) return
+      setBusy(`delete-plan-${plan.id}`)
+      setError('')
+      try {
+        await api.delete(`/api/purchase-planning/plans/${plan.id}`, PP_REQUEST_OPTS)
+        if (activePlan?.id === plan.id) {
+          setActivePlan(null)
+          setFilters(EMPTY_FILTERS)
+          setPurchaseOrderNumber('')
+        }
+        setPlans((prev) => prev.filter((p) => p.id !== plan.id))
+        await load()
+        setNotice(`Deleted draft plan ${label}.`)
+        setActiveStep(4)
+      } catch (err) {
+        setError(err.message || 'Failed to delete draft plan')
+      } finally {
+        setBusy('')
       }
-      setPlans((prev) => prev.filter((p) => p.id !== plan.id))
-      await load()
-      setNotice(`Deleted draft plan ${label}${typeof res.restoredSkuCount === 'number' ? ` (${res.restoredSkuCount} SKU${res.restoredSkuCount === 1 ? '' : 's'} returned to pending)` : ''}.`)
-    } catch (err) {
-      setError(err.message || 'Failed to delete draft plan')
-    } finally {
-      setBusy('')
-    }
-  }, [activePlan, load])
+    },
+    [activePlan, load]
+  )
 
-  const openPlan = useCallback(async (id) => {
-    setBusy(`plan-${id}`)
+  const openPlan = useCallback(
+    async (id) => {
+      setBusy(`plan-${id}`)
+      setError('')
+      try {
+        const plan = await refreshActivePlan(id)
+        setActiveStep(plan.status === 'sent_to_zoho' ? 6 : 5)
+      } catch (err) {
+        setError(err.message || 'Failed to open plan')
+      } finally {
+        setBusy('')
+      }
+    },
+    [refreshActivePlan]
+  )
+
+  const updateItem = useCallback(
+    async (itemId, patch) => {
+      if (!activePlan || activePlan.status !== 'draft') return
+      const optimisticItems = activePlan.items.map((item) => (item.id === itemId ? { ...item, ...patch } : item))
+      setActivePlan({ ...activePlan, items: optimisticItems })
+      try {
+        await api.put(`/api/purchase-planning/plans/${activePlan.id}/items/${itemId}`, patch, PP_REQUEST_OPTS)
+        await refreshActivePlan(activePlan.id)
+      } catch (err) {
+        setError(err.message || 'Failed to update plan item')
+        await refreshActivePlan(activePlan.id)
+      }
+    },
+    [activePlan, refreshActivePlan]
+  )
+
+  const refreshPlanZohoData = useCallback(async () => {
+    if (!activePlan || activePlan.status !== 'draft') return
+    const ok = window.confirm(
+      'Refresh Zoho stock, sales, and bundle usage?\n\nThis may overwrite manual quantity edits. Refresh uses the latest Vigil upload, not necessarily the upload stored on this plan.'
+    )
+    if (!ok) return
+    setBusy('refresh-plan-zoho')
     setError('')
     try {
-      await refreshActivePlan(id)
+      const res = await api.post(
+        `/api/purchase-planning/plans/${activePlan.id}/refresh-zoho-data`,
+        {},
+        PP_REQUEST_OPTS
+      )
+      setActivePlan(res.plan)
+      const summary = res.summary || {}
+      setNotice(`Refreshed ${summary.refreshed ?? 0} line(s) from Zoho.`)
     } catch (err) {
-      setError(err.message || 'Failed to open plan')
+      setError(err.message || 'Failed to refresh plan from Zoho')
     } finally {
       setBusy('')
     }
-  }, [refreshActivePlan])
-
-  const updateItem = useCallback(async (itemId, patch) => {
-    if (!activePlan) return
-    const optimisticItems = activePlan.items.map((item) => item.id === itemId ? { ...item, ...patch } : item)
-    setActivePlan({ ...activePlan, items: optimisticItems })
-    try {
-      await api.put(`/api/purchase-planning/plans/${activePlan.id}/items/${itemId}`, patch, PP_REQUEST_OPTS)
-      await refreshActivePlan(activePlan.id)
-    } catch (err) {
-      setError(err.message || 'Failed to update plan item')
-      await refreshActivePlan(activePlan.id)
-    }
-  }, [activePlan, refreshActivePlan])
+  }, [activePlan])
 
   const createPo = useCallback(async () => {
-    if (!activePlanWithPrices) return
+    const pricedPlan = activePlanWithPrices
+    if (!pricedPlan || pricedPlan.status !== 'draft') return
     const poNumber = purchaseOrderNumber.trim()
     if (!poNumber) {
       setError('Enter a PO number before sending to Zoho')
       return
     }
-    const pricedPlan = activePlanWithPrices
-    const selectedItems = (pricedPlan.items || []).filter((item) =>
-      item.included &&
-      Number(item.finalQty || 0) > 0 &&
-      String(item.zohoItemId || '').trim()
+    const selectedItems = (pricedPlan.items || []).filter(
+      (item) => item.included && Number(item.finalQty || 0) > 0 && String(item.zohoItemId || '').trim()
     )
-    const missingPriceItems = selectedItems.filter((item) => !Number.isFinite(Number(item.purchasePrice)) || Number(item.purchasePrice) <= 0)
+    const missingPriceItems = selectedItems.filter(
+      (item) => !Number.isFinite(Number(item.purchasePrice)) || Number(item.purchasePrice) <= 0
+    )
     if (missingPriceItems.length > 0) {
-      setError(`Add purchase price in All Prices for ${missingPriceItems.slice(0, 5).map((item) => item.sku).join(', ')}${missingPriceItems.length > 5 ? '...' : ''}`)
+      setError(
+        `Add purchase prices in All Prices for: ${missingPriceItems
+          .slice(0, 5)
+          .map((item) => item.sku)
+          .join(', ')}${missingPriceItems.length > 5 ? '…' : ''}`
+      )
       return
     }
-    if (!window.confirm(`Create Zoho purchase order ${poNumber} from ${pricedPlan.planNumber}? This can create another Zoho PO if the plan was already sent.`)) return
+    const ok = window.confirm(
+      `Create Zoho purchase order ${poNumber} from ${pricedPlan.planNumber}?\n\n${selectedItems.length} line(s), total qty ${selectedItems.reduce((s, i) => s + Number(i.finalQty || 0), 0)}.`
+    )
+    if (!ok) return
     setBusy('po')
     setError('')
     setNotice('')
@@ -1253,117 +361,165 @@ export function PurchasePlanningPage() {
       )
       await refreshActivePlan(pricedPlan.id)
       await load()
-      setNotice(`Created Zoho purchase order ${res.zohoPurchaseOrderId || ''} with ${res.sentLines} lines.`)
+      setActiveStep(6)
+      setNotice(`Created Zoho purchase order ${res.zohoPurchaseOrderId || ''} (${res.sentLines} lines).`)
     } catch (err) {
-      setError(err.message || 'Zoho purchase order failed')
+      if (err.code === 'DUPLICATE_PO' || err.body?.code === 'DUPLICATE_PO') {
+        setError('This plan was already sent to Zoho. Duplicate PO creation is blocked.')
+      } else {
+        setError(err.message || 'Zoho purchase order failed')
+      }
       await refreshActivePlan(pricedPlan.id).catch(() => {})
     } finally {
       setBusy('')
     }
   }, [activePlanWithPrices, load, purchaseOrderNumber, refreshActivePlan])
 
-  if (loading) return <div className="page"><p className="page-loading">Loading Purchase Planning…</p></div>
+  const stepSummaries = useMemo(() => {
+    const latest = uploads[0]
+    const pending = workflow.pending?.length ?? 0
+    return {
+      1: latest ? `${latest.rowsCount} rows · ${latest.fileName}` : null,
+      2: pending > 0 ? `${pending} pending SKU(s)` : null,
+      3: enrichmentRunning
+        ? 'Enrichment running…'
+        : workflow.pendingWithoutZoho?.length
+          ? `${workflow.pendingWithoutZoho.length} unmatched`
+          : pending > 0
+            ? 'Enrichment complete'
+            : null,
+      4: activePlan?.planNumber || workflow.hasDraft ? 'Draft available' : null,
+      5: activePlanWithPrices ? `${activePlanWithPrices.items?.length ?? 0} lines` : null,
+      6: activePlan?.status === 'sent_to_zoho' ? activePlan.zohoPurchaseOrderId : null,
+    }
+  }, [uploads, workflow, enrichmentRunning, activePlan, activePlanWithPrices])
+
+  const renderStepContent = (stepId) => {
+    switch (stepId) {
+      case 1:
+        return <VigilUploadStep uploads={uploads} onUploaded={load} status={workflow.stepStatuses[1]} />
+      case 2:
+        return (
+          <LowStockUploadStep
+            lowStock={lowStock}
+            loading={loadingLowStock}
+            onUploaded={handleLowStockUploaded}
+            hasVigil={workflow.hasVigil}
+          />
+        )
+      case 3:
+        return (
+          <ZohoEnrichmentStep
+            lowStock={lowStock}
+            enrichmentRunning={enrichmentRunning}
+            enrichmentError={enrichmentError}
+            enrichmentSummary={enrichmentSummary}
+            onRefreshZoho={refreshLowStockZoho}
+            refreshBusy={busy === 'enrich-low'}
+            hasPending={workflow.hasPendingUpload}
+          />
+        )
+      case 4:
+        return (
+          <GeneratePlanStep
+            uploads={uploads}
+            workflow={workflow}
+            plans={plans}
+            activePlan={activePlan}
+            busy={busy === 'generate'}
+            onGenerate={generatePlan}
+            onOpenPlan={openPlan}
+            onDeletePlan={deleteDraftPlan}
+            onGoToStep={setActiveStep}
+          />
+        )
+      case 5:
+        return (
+          <ReviewPlanStep
+            plan={activePlanWithPrices}
+            filters={filters}
+            onFiltersChange={setFilters}
+            onItemChange={updateItem}
+            onRefreshZohoData={refreshPlanZohoData}
+            refreshBusy={busy === 'refresh-plan-zoho'}
+            readOnly={activePlanWithPrices?.status !== 'draft'}
+            plans={plans}
+            onOpenPlan={openPlan}
+            onDeletePlan={deleteDraftPlan}
+            deleteBusy={Boolean(busy?.startsWith('delete-plan'))}
+          />
+        )
+      case 6:
+        return (
+          <CreateZohoPoStep
+            plan={activePlanWithPrices}
+            purchaseOrderNumber={purchaseOrderNumber}
+            onPurchaseOrderNumberChange={setPurchaseOrderNumber}
+            onCreatePo={createPo}
+            busy={busy === 'po'}
+          />
+        )
+      default:
+        return null
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="page">
+        <p className="page-loading">Loading Purchase Planning…</p>
+      </div>
+    )
+  }
 
   return (
     <div className="page pp-page">
-      <div className="doc-page-hero pp-hero">
+      <header className="doc-page-hero pp-hero">
         <div>
           <h1 className="doc-page-title">Purchase Planning</h1>
           <p className="doc-page-subtitle">
-            Upload reported low-stock SKUs, enrich them from Zoho, match them to Vigil wholesale stock, calculate three-month usage,
-            and create a reviewed draft before sending any PO to Zoho.
+            Create Zoho draft purchase orders from low-stock SKUs, Vigil wholesale availability, Zoho stock, sales, and
+            bundle usage.
           </p>
         </div>
-        <div className="pp-hero__actions">
-          <button
-            className="btn btn--primary"
-            disabled={!canGeneratePlan || busy === 'generate'}
-            title={generatePlanBlockedReason || undefined}
-            onClick={generatePlan}
-          >
-            {enrichmentRunning ? 'Enriching from Zoho…' : 'Generate Purchase Plan'}
-          </button>
-          <input
-            className="pp-po-number-input"
-            value={purchaseOrderNumber}
-            onChange={(e) => setPurchaseOrderNumber(e.target.value)}
-            placeholder="PO number"
-            disabled={busy === 'po'}
-          />
-          <button className="btn btn--primary" disabled={!activePlanWithPrices || activePlanWithPrices.status !== 'draft' || busy === 'po' || !purchaseOrderNumber.trim()} onClick={createPo}>
-            Create PO in Zoho
-          </button>
-        </div>
-      </div>
+      </header>
+
+      <PurchasePlanningStatusCards
+        uploads={uploads}
+        lowStock={lowStock}
+        enrichmentRunning={enrichmentRunning}
+        enrichmentError={enrichmentError}
+        plans={plans}
+        activePlan={activePlan}
+      />
+
+      <PurchasePlanningStepper
+        activeStep={currentStep}
+        stepStatuses={workflow.stepStatuses}
+        onStepClick={setActiveStep}
+      />
 
       {error && <div className="page-error">{error}</div>}
       {notice && <div className="pp-notice">{notice}</div>}
-      {generatePlanBlockedReason && !activePlan && (
-        <div className="pp-notice pp-notice--muted">{generatePlanBlockedReason}</div>
-      )}
 
-      <LowStockUploadPanel
-        lowStock={lowStock}
-        loading={loadingLowStock}
-        onUploaded={handleLowStockUploaded}
-        onRefreshZoho={refreshLowStockZoho}
-        refreshBusy={busy === 'enrich-low'}
-        enrichmentRunning={enrichmentRunning}
-      />
-
-      <div className="pp-grid">
-        <UploadPanel uploads={uploads} onUploaded={load} />
-        <section className="pp-panel">
-          <div className="pp-panel__head">
-            <div>
-              <h2>Draft Plans</h2>
-              <p>Open a draft, review final quantities, then send it to Zoho.</p>
-            </div>
-          </div>
-          <div className="pp-plan-list">
-            {plans.length === 0 && <span>No purchase plans generated yet.</span>}
-            {plans.slice(0, 8).map((plan) => {
-              const isActive = activePlanWithPrices?.id === plan.id
-              const isDraft = plan.status === 'draft'
-              return (
-                <div key={plan.id} className={`pp-plan-card-row${isActive ? ' pp-plan-card-row--active' : ''}`}>
-                  <button
-                    type="button"
-                    className={`pp-plan-card${isActive ? ' pp-plan-card--active' : ''}`}
-                    onClick={() => openPlan(plan.id)}
-                  >
-                    <strong>{plan.planNumber}</strong>
-                    <span>{plan.itemsCount} items · final qty {plan.totalFinalQty}</span>
-                    <Badge tone={plan.status === 'sent_to_zoho' ? 'success' : plan.status === 'failed' ? 'danger' : 'warning'}>{plan.status}</Badge>
-                  </button>
-                  {isDraft && (
-                    <button
-                      type="button"
-                      className="pp-plan-card__delete"
-                      aria-label={`Delete draft plan ${plan.planNumber}`}
-                      title="Delete draft"
-                      disabled={busy === `delete-plan-${plan.id}`}
-                      onClick={() => deleteDraftPlan(plan)}
-                    >
-                      <Trash2 size={18} aria-hidden />
-                    </button>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </section>
+      <div className="pp-steps-stack">
+        {PP_STEPS.map((step) => {
+          const collapsed = currentStep !== step.id
+          return (
+            <StepPanel
+              key={step.id}
+              step={step}
+              status={workflow.stepStatuses[step.id]}
+              blocker={workflow.blockers[step.id]}
+              collapsed={collapsed}
+              onExpand={() => setActiveStep(step.id)}
+              summary={stepSummaries[step.id]}
+            >
+              {renderStepContent(step.id)}
+            </StepPanel>
+          )
+        })}
       </div>
-
-      <PlanTable
-        plan={activePlanWithPrices}
-        filters={filters}
-        onFiltersChange={setFilters}
-        onItemChange={updateItem}
-        onRefreshZohoData={refreshPlanZohoData}
-        refreshPlanBusy={busy === 'refresh-plan-zoho'}
-        readOnly={activePlanWithPrices?.status !== 'draft'}
-      />
     </div>
   )
 }

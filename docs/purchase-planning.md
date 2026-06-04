@@ -63,7 +63,9 @@ flowchart TB
 | Controller | `backend/src/controllers/purchasePlanningController.js` | Validation, HTTP codes, error mapping |
 | Service | `backend/src/services/purchasePlanningService.js` | All business logic (~1400 lines) |
 | SKU matcher | `backend/src/utils/purchasePlanningSkuMatcher.js` | Normalize SKUs, match Zoho SKU → Vigil item code |
-| UI | `src/pages/management/PurchasePlanningPage.jsx` | Single-page UI (~1300 lines): upload panels, plan table, PO actions |
+| UI | `src/pages/management/PurchasePlanningPage.jsx` | Wizard orchestrator + step components |
+| Step UI | `VigilUploadStep`, `LowStockUploadStep`, `ZohoEnrichmentStep`, `GeneratePlanStep`, `ReviewPlanStep`, `CreateZohoPoStep`, `PurchasePlanTable`, … | Six-step guided workflow |
+| Utils | `src/pages/management/purchasePlanningUtils.js` | Workflow state, pricing, polling |
 | Styles | `src/pages/management/PurchasePlanningPage.css` | |
 | Tests | `backend/tests/purchasePlanningController.test.js`, `backend/tests/purchasePlanningSkuMatcher.test.js` | Controller validation + matcher/unit helpers only |
 | DB bootstrap | `backend/src/db/index.js` | Calls `ensurePurchasePlanningTables()` at startup |
@@ -259,19 +261,20 @@ All routes under `/api/purchase-planning`, admin auth required, client timeout *
 
 ## Frontend Structure
 
-Single component tree in `src/pages/management/PurchasePlanningPage.jsx`:
+Six-step wizard at `/management/purchase-planning`:
 
-| Sub-component | Responsibility |
-|---------------|----------------|
-| `LowStockUploadPanel` | Low-stock file upload, matched/unmatched tables, Zoho refresh |
-| `UploadPanel` | Vigil stock file upload |
-| `PlanTable` | Active draft review, filters, qty edits, Refresh Zoho data button |
-| Hero actions | Generate Plan, PO number input, Create PO in Zoho |
-| Draft plan list | Open/delete draft cards |
+1. Upload Vigil Stock — `VigilUploadStep.jsx`
+2. Upload Low Stock SKUs — `LowStockUploadStep.jsx` (re-upload confirmation)
+3. Match & Enrich from Zoho — `ZohoEnrichmentStep.jsx` (polls enrichment status)
+4. Generate Draft Plan — `GeneratePlanStep.jsx` (readiness checklist)
+5. Review Quantities & Prices — `ReviewPlanStep.jsx` + `PurchasePlanTable.jsx` (qty saves on blur/Enter only)
+6. Create Zoho PO — `CreateZohoPoStep.jsx`
 
-**State:** `lowStock`, `uploads`, `plans`, `activePlan`, `enrichmentRunning`, filters, busy/error/notice
+Header status cards and stepper: `PurchasePlanningStatusCards.jsx`, `PurchasePlanningStepper.jsx`. Row badges: `PurchasePlanningBadges.jsx`.
 
-**Pricing:** `enrichPlanWithPurchasePrices()` merges All Prices rows by normalized SKU/vigilCode/itemName before display and PO submission.
+**State:** `lowStock`, `uploads`, `plans`, `activePlan`, `enrichmentRunning`, `activeStep`, filters, busy/error/notice
+
+**Pricing:** `enrichPlanWithPurchasePrices()` in `purchasePlanningUtils.js` merges All Prices rows by normalized SKU/vigilCode/itemName before display and PO submission.
 
 ---
 
@@ -320,7 +323,7 @@ These are architectural constraints worth knowing when using the module:
 - **Delete draft does not revert** `planned` SKUs back to `pending`
 - **Composite cap**: only first 80 composite products get bundle usage calculated
 - **CloudFront 30s timeout** vs heavy sync Zoho work on generate/refresh (client allows 120s)
-- **Final qty input** fires PUT on every keystroke
+- **Final qty input** saves on blur/Enter (local draft state; no per-keystroke PUT)
 - **Duplicate PO** not blocked server-side for `sent_to_zoho` plans
 - **Purchase prices** from client All Prices prefs, not server-side catalog
 
