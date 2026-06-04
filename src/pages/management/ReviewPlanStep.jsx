@@ -67,8 +67,10 @@ export function ReviewPlanStep({
         </p>
       )}
 
-      {isReadOnly && (
-        <p className="pp-hint pp-hint--warn">This plan was sent to Zoho and is read-only. Create a new batch to plan again.</p>
+      {isSent && (
+        <div className="pp-readonly-banner" role="status">
+          This purchase plan has already been sent to Zoho and is read-only.
+        </div>
       )}
 
       <div className="doc-summary-cards pp-review-summary">

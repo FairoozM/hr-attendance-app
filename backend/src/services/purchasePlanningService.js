@@ -139,8 +139,10 @@ function mapPlanRow(row, items = undefined) {
     planNumber: row.plan_number,
     createdBy: row.created_by,
     createdAt: row.created_at,
+    updatedAt: row.updated_at || row.created_at,
     status: row.status,
     zohoPurchaseOrderId: row.zoho_purchase_order_id,
+    purchaseOrderNumber: row.purchase_order_number || null,
     zohoError: row.zoho_error,
     sourceUploadId: row.source_upload_id,
     items,
@@ -242,6 +244,14 @@ async function ensurePurchasePlanningTables() {
   `)
   await query(`CREATE INDEX IF NOT EXISTS idx_purchase_plans_created_at ON purchase_plans(created_at DESC)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_purchase_plans_status ON purchase_plans(status)`)
+  await query(`
+    ALTER TABLE purchase_plans
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  `)
+  await query(`
+    ALTER TABLE purchase_plans
+    ADD COLUMN IF NOT EXISTS purchase_order_number VARCHAR(100)
+  `)
 
   await query(`
     CREATE TABLE IF NOT EXISTS purchase_plan_items (
@@ -1162,7 +1172,12 @@ async function listPlans() {
   const result = await query(`
     SELECT p.*,
       COUNT(i.id)::int AS items_count,
-      COALESCE(SUM(CASE WHEN i.included THEN i.final_qty ELSE 0 END), 0)::int AS total_final_qty
+      COUNT(i.id) FILTER (WHERE i.included)::int AS included_count,
+      COALESCE(SUM(CASE WHEN i.included THEN i.final_qty ELSE 0 END), 0)::int AS total_final_qty,
+      COALESCE(
+        SUM(CASE WHEN i.included THEN i.final_qty * COALESCE(i.purchase_price, 0) ELSE 0 END),
+        0
+      )::numeric AS estimated_total_value
     FROM purchase_plans p
     LEFT JOIN purchase_plan_items i ON i.purchase_plan_id = p.id
     GROUP BY p.id
@@ -1172,7 +1187,9 @@ async function listPlans() {
   return result.rows.map((row) => ({
     ...mapPlanRow(row),
     itemsCount: Number(row.items_count || 0),
+    includedCount: Number(row.included_count || 0),
     totalFinalQty: Number(row.total_final_qty || 0),
+    estimatedTotalValue: Number(row.estimated_total_value || 0),
   }))
 }
 
@@ -1426,10 +1443,14 @@ async function createZohoPurchaseOrder(planId, options = {}) {
     await client.query(
       `
         UPDATE purchase_plans
-        SET status = 'sent_to_zoho', zoho_purchase_order_id = $2, zoho_error = NULL
+        SET status = 'sent_to_zoho',
+            zoho_purchase_order_id = $2,
+            purchase_order_number = $3,
+            zoho_error = NULL,
+            updated_at = NOW()
         WHERE id = $1
       `,
-      [plan.id, zohoPurchaseOrderId || null]
+      [plan.id, zohoPurchaseOrderId || null, requestedPoNumber]
     )
     await client.query(
       `

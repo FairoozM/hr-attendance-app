@@ -183,8 +183,141 @@ export function getLatestDraftPlan(plans) {
   return (plans || []).find((p) => p.status === 'draft') || null
 }
 
-export function getLastSentPlan(plans) {
+export function getLatestSentPlan(plans) {
   return (plans || []).find((p) => p.status === 'sent_to_zoho') || null
+}
+
+/** @deprecated Use getLatestSentPlan */
+export function getLastSentPlan(plans) {
+  return getLatestSentPlan(plans)
+}
+
+export function enrichPlanListSummary(plan, priceRows) {
+  if (!plan) return plan
+  if (!priceRows?.length) return plan
+  const lookup = buildPurchasePriceLookup(priceRows)
+  const items = Array.isArray(plan.items) ? plan.items : []
+  let estimatedTotalValue = Number(plan.estimatedTotalValue || 0)
+  if (items.length > 0) {
+    estimatedTotalValue = items
+      .filter((item) => item.included)
+      .reduce((sum, item) => {
+        const price = findPurchasePriceForItem(item, lookup) ?? Number(item.purchasePrice || 0)
+        return sum + Number(item.finalQty || 0) * price
+      }, 0)
+  }
+  return { ...plan, estimatedTotalValue }
+}
+
+/**
+ * @typedef {'workflow'|'draft_review'|'sent_review'|'history'} PurchasePlanningViewMode
+ */
+
+/**
+ * @param {object} ctx
+ * @returns {{
+ *   activeStep: number,
+ *   mode: PurchasePlanningViewMode,
+ *   selectedPlanId: number|null,
+ *   showLatestSentPanel: boolean,
+ *   reason: string
+ * }}
+ */
+export function getDefaultPurchasePlanningView(ctx) {
+  const {
+    uploads = [],
+    lowStock = [],
+    enrichmentRunning = false,
+    enrichmentError = null,
+    plans = [],
+    selectedPlan = null,
+  } = ctx
+
+  const pending = getPendingLowStock(lowStock)
+  const pendingWithoutZoho = pending.filter((item) => !String(item.zohoItemId || '').trim())
+  const pendingAllUnmatched = pending.length > 0 && pendingWithoutZoho.length === pending.length
+  const enrichmentActive = enrichmentRunning && pendingAllUnmatched
+  const hasVigil = uploads.length > 0
+  const latestDraft = getLatestDraftPlan(plans)
+  const latestSent = getLatestSentPlan(plans)
+
+  if (selectedPlan?.id) {
+    if (selectedPlan.status === 'draft') {
+      return {
+        activeStep: 5,
+        mode: 'draft_review',
+        selectedPlanId: selectedPlan.id,
+        showLatestSentPanel: false,
+        reason: 'Restoring open draft plan',
+      }
+    }
+    if (selectedPlan.status === 'sent_to_zoho') {
+      return {
+        activeStep: 5,
+        mode: 'sent_review',
+        selectedPlanId: selectedPlan.id,
+        showLatestSentPanel: true,
+        reason: 'Restoring open sent plan',
+      }
+    }
+  }
+
+  if (latestDraft) {
+    return {
+      activeStep: 5,
+      mode: 'draft_review',
+      selectedPlanId: latestDraft.id,
+      showLatestSentPanel: false,
+      reason: 'Active draft plan exists',
+    }
+  }
+
+  if (!hasVigil) {
+    return {
+      activeStep: 1,
+      mode: 'workflow',
+      selectedPlanId: null,
+      showLatestSentPanel: Boolean(latestSent),
+      reason: 'Vigil upload required',
+    }
+  }
+
+  if (enrichmentActive || enrichmentError || pendingWithoutZoho.length > 0) {
+    return {
+      activeStep: 3,
+      mode: 'workflow',
+      selectedPlanId: null,
+      showLatestSentPanel: Boolean(latestSent),
+      reason: 'Zoho enrichment required or in progress',
+    }
+  }
+
+  if (!pending.length) {
+    if (latestSent) {
+      return {
+        activeStep: 5,
+        mode: 'sent_review',
+        selectedPlanId: latestSent.id,
+        showLatestSentPanel: true,
+        reason: 'Latest plan was sent to Zoho; no active draft',
+      }
+    }
+    return {
+      activeStep: 2,
+      mode: 'workflow',
+      selectedPlanId: null,
+      showLatestSentPanel: false,
+      reason: 'Upload low-stock SKUs to start a batch',
+    }
+  }
+
+  return {
+    activeStep: 4,
+    mode: 'workflow',
+    selectedPlanId: null,
+    showLatestSentPanel: Boolean(latestSent),
+    reason: 'Pending SKUs are enriched and ready to generate a draft plan',
+  }
 }
 
 /** @typedef {'not_started'|'ready'|'in_progress'|'completed'|'blocked'|'error'} StepStatus */
@@ -212,6 +345,8 @@ export function computeWorkflow(ctx) {
   const hasPendingUpload = pending.length > 0
   const draftPlans = (plans || []).filter((p) => p.status === 'draft')
   const hasDraft = draftPlans.length > 0 || activePlan?.status === 'draft'
+  const latestSent = getLatestSentPlan(plans)
+  const hasSentHistory = Boolean(latestSent)
   const planSent = activePlan?.status === 'sent_to_zoho'
   const poReadiness =
     activePlanWithPrices || activePlan ? computePoReadiness(activePlanWithPrices || activePlan) : null
@@ -247,8 +382,10 @@ export function computeWorkflow(ctx) {
   } else if (pendingWithoutZoho.length > 0) {
     step4 = 'blocked'
     blockers[4] = `${pendingWithoutZoho.length} SKU(s) still unmatched in Zoho (Step 3).`
-  } else if (hasDraft || planSent) {
+  } else if (hasDraft || planSent || (hasSentHistory && !hasPendingUpload)) {
     step4 = 'completed'
+  } else if (hasSentHistory && hasPendingUpload) {
+    step4 = 'ready'
   } else {
     step4 = 'ready'
   }
@@ -279,12 +416,16 @@ export function computeWorkflow(ctx) {
 
   let suggestedStep = 1
   if (!hasVigil) suggestedStep = 1
-  else if (!hasPendingUpload) suggestedStep = 2
-  else if (enrichmentActive || pendingWithoutZoho.length > 0 || enrichmentError) suggestedStep = 3
-  else if (!hasDraft && activePlan?.status !== 'draft' && !planSent) suggestedStep = 4
-  else if (activePlan?.status === 'draft' && poReady) suggestedStep = 6
-  else if (activePlan?.status === 'draft') suggestedStep = 5
-  else if (planSent) suggestedStep = 6
+  else if (!hasPendingUpload) {
+    if (hasDraft || activePlan?.status === 'draft') suggestedStep = 5
+    else if (planSent || latestSent) suggestedStep = 5
+    else suggestedStep = 2
+  } else if (enrichmentActive || pendingWithoutZoho.length > 0 || enrichmentError) suggestedStep = 3
+  else if (hasDraft || activePlan?.status === 'draft') {
+    if (activePlan?.status === 'draft' && poReady) suggestedStep = 6
+    else suggestedStep = 5
+  } else if (planSent || latestSent) suggestedStep = 5
+  else if (!hasDraft && hasPendingUpload) suggestedStep = 4
   else if (hasDraft) suggestedStep = 5
   else suggestedStep = 4
 

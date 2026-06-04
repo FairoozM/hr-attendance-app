@@ -3,9 +3,11 @@ import { useUserPreferences } from '../../contexts/UserPreferencesContext'
 import { api } from '../../api/client'
 import { CreateZohoPoStep } from './CreateZohoPoStep'
 import { GeneratePlanStep } from './GeneratePlanStep'
+import { LatestSentPurchaseOrderPanel } from './LatestSentPurchaseOrderPanel'
 import { LowStockUploadStep } from './LowStockUploadStep'
 import { PurchasePlanningStatusCards } from './PurchasePlanningStatusCards'
 import { PurchasePlanningStepper, StepPanel } from './PurchasePlanningStepper'
+import { RecentPurchasePlansSection } from './RecentPurchasePlansSection'
 import { ReviewPlanStep } from './ReviewPlanStep'
 import { VigilUploadStep } from './VigilUploadStep'
 import { ZohoEnrichmentStep } from './ZohoEnrichmentStep'
@@ -15,7 +17,13 @@ import {
   EMPTY_FILTERS,
   computeWorkflow,
   computePoReadiness,
+  computePlanReviewSummary,
   enrichPlanWithPurchasePrices,
+  getDefaultPurchasePlanningView,
+  getLatestDraftPlan,
+  getLatestSentPlan,
+  getLatestVigilUpload,
+  getPendingLowStock,
   ignoreCancelledPurchasePlanningRequest,
   pollLowStockEnrichment,
   resolveAllPriceRows,
@@ -40,8 +48,16 @@ export function PurchasePlanningPage() {
   const [enrichmentError, setEnrichmentError] = useState(null)
   const [enrichmentSummary, setEnrichmentSummary] = useState(null)
   const [activeStep, setActiveStep] = useState(null)
+  const [viewMode, setViewMode] = useState('workflow')
   const [removingLowStockId, setRemovingLowStockId] = useState(null)
   const loadAbortRef = useRef(null)
+  const initialViewAppliedRef = useRef(false)
+
+  const scrollToStep = useCallback((stepId) => {
+    requestAnimationFrame(() => {
+      document.getElementById(`pp-step-${stepId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }, [])
 
   const allPriceRows = useMemo(
     () => resolveAllPriceRows(getPref, prefsReady, prefsVersion),
@@ -74,6 +90,37 @@ export function PurchasePlanningPage() {
     () => computePoReadiness(activePlanWithPrices),
     [activePlanWithPrices]
   )
+
+  const latestSentPlan = useMemo(() => getLatestSentPlan(plans), [plans])
+  const latestDraftPlan = useMemo(() => getLatestDraftPlan(plans), [plans])
+
+  const showLatestSentPanel = useMemo(() => {
+    if (!latestSentPlan || latestDraftPlan) return false
+    const noPendingBatch = getPendingLowStock(lowStock).length === 0
+    return (
+      viewMode === 'sent_review' ||
+      viewMode === 'history' ||
+      activePlanWithPrices?.status === 'sent_to_zoho' ||
+      noPendingBatch
+    )
+  }, [latestSentPlan, latestDraftPlan, viewMode, activePlanWithPrices?.status, lowStock])
+
+  const latestSentPanelPlan = useMemo(() => {
+    if (activePlanWithPrices?.status === 'sent_to_zoho') return activePlanWithPrices
+    return latestSentPlan
+  }, [activePlanWithPrices, latestSentPlan])
+
+  const latestSentPanelSummary = useMemo(() => {
+    if (!latestSentPanelPlan) return null
+    if (latestSentPanelPlan.items?.length) {
+      return computePlanReviewSummary(latestSentPanelPlan)
+    }
+    return {
+      includedCount: latestSentPanelPlan.includedCount,
+      totalFinalQty: latestSentPanelPlan.totalFinalQty,
+      estimatedValue: latestSentPanelPlan.estimatedTotalValue,
+    }
+  }, [latestSentPanelPlan])
 
   const load = useCallback(async () => {
     loadAbortRef.current?.abort()
@@ -266,6 +313,7 @@ export function PurchasePlanningPage() {
         throw new Error('Server returned an empty plan. Check backend logs or try again.')
       }
       setActivePlan(res.plan)
+      setViewMode('draft_review')
       setPlans((prev) => {
         const without = prev.filter((p) => p.id !== res.plan.id)
         return [
@@ -323,14 +371,27 @@ export function PurchasePlanningPage() {
         setPlans((prev) => prev.filter((p) => p.id !== plan.id))
         await load()
         setNotice(`Deleted draft plan ${label}.`)
-        setActiveStep(4)
+        const remainingPlans = plans.filter((p) => p.id !== plan.id)
+        const view = getDefaultPurchasePlanningView({
+          uploads,
+          lowStock,
+          enrichmentRunning,
+          enrichmentError,
+          plans: remainingPlans,
+          selectedPlan: null,
+        })
+        setViewMode(view.mode)
+        setActiveStep(view.activeStep)
+        if (view.selectedPlanId) {
+          await refreshActivePlan(view.selectedPlanId)
+        }
       } catch (err) {
         setError(err.message || 'Failed to delete draft plan')
       } finally {
         setBusy('')
       }
     },
-    [activePlan, load]
+    [activePlan, load, plans, uploads, lowStock, enrichmentRunning, enrichmentError, refreshActivePlan]
   )
 
   const openPlan = useCallback(
@@ -339,15 +400,82 @@ export function PurchasePlanningPage() {
       setError('')
       try {
         const plan = await refreshActivePlan(id)
-        setActiveStep(plan.status === 'sent_to_zoho' ? 6 : 5)
+        if (plan.status === 'sent_to_zoho') {
+          setViewMode('sent_review')
+          setActiveStep(5)
+          scrollToStep(5)
+          setNotice(`Opened sent plan ${plan.planNumber} (read-only).`)
+        } else if (plan.status === 'draft') {
+          setViewMode('draft_review')
+          setActiveStep(5)
+          scrollToStep(5)
+        } else {
+          setViewMode('workflow')
+          setActiveStep(5)
+        }
       } catch (err) {
         setError(err.message || 'Failed to open plan')
       } finally {
         setBusy('')
       }
     },
-    [refreshActivePlan]
+    [refreshActivePlan, scrollToStep]
   )
+
+  const startNewPurchasePlan = useCallback(() => {
+    setActivePlan(null)
+    setFilters(EMPTY_FILTERS)
+    setPurchaseOrderNumber('')
+    setViewMode('workflow')
+    const hasVigil = Boolean(getLatestVigilUpload(uploads))
+    const nextStep = hasVigil ? 2 : 1
+    setActiveStep(nextStep)
+    setNotice(
+      hasVigil
+        ? 'Upload a new low-stock file in Step 2 to start a new batch. Previously sent plans remain in history.'
+        : 'Upload Vigil wholesale stock in Step 1 to begin a new purchase plan.'
+    )
+    scrollToStep(nextStep)
+  }, [uploads, scrollToStep])
+
+  useEffect(() => {
+    if (loading || loadingLowStock || initialViewAppliedRef.current) return
+    initialViewAppliedRef.current = true
+    const view = getDefaultPurchasePlanningView({
+      uploads,
+      lowStock,
+      enrichmentRunning,
+      enrichmentError,
+      plans,
+      selectedPlan: null,
+    })
+    setViewMode(view.mode)
+    setActiveStep(view.activeStep)
+    if (view.selectedPlanId) {
+      refreshActivePlan(view.selectedPlanId)
+        .then((plan) => {
+          if (plan?.status === 'sent_to_zoho') {
+            setViewMode('sent_review')
+            setActiveStep(5)
+          } else if (plan?.status === 'draft') {
+            setViewMode('draft_review')
+            setActiveStep(5)
+          }
+        })
+        .catch((err) => {
+          setError(err.message || 'Failed to load default plan')
+        })
+    }
+  }, [
+    loading,
+    loadingLowStock,
+    uploads,
+    lowStock,
+    enrichmentRunning,
+    enrichmentError,
+    plans,
+    refreshActivePlan,
+  ])
 
   const updateItem = useCallback(
     async (itemId, patch) => {
@@ -432,8 +560,11 @@ export function PurchasePlanningPage() {
       )
       await refreshActivePlan(pricedPlan.id)
       await load()
+      setViewMode('sent_review')
       setActiveStep(6)
-      setNotice(`Created Zoho purchase order ${res.zohoPurchaseOrderId || ''} (${res.sentLines} lines).`)
+      setNotice(
+        `Created Zoho purchase order ${res.zohoPurchaseOrderId || ''} (${res.sentLines} lines). Plan is now read-only.`
+      )
     } catch (err) {
       if (err.code === 'DUPLICATE_PO' || err.body?.code === 'DUPLICATE_PO') {
         setError('This plan was already sent to Zoho. Duplicate PO creation is blocked.')
@@ -525,9 +656,7 @@ export function PurchasePlanningPage() {
             onContinueToPo={() => {
               setActiveStep(6)
               setNotice('Enter your PO number in Step 6 and click Create Draft PO in Zoho.')
-              requestAnimationFrame(() => {
-                document.getElementById('pp-step-6')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-              })
+              scrollToStep(6)
             }}
             currentStep={currentStep}
           />
@@ -574,7 +703,18 @@ export function PurchasePlanningPage() {
         enrichmentError={enrichmentError}
         plans={plans}
         activePlan={activePlan}
+        onOpenLatestSent={openPlan}
+        onStartNewPlan={startNewPurchasePlan}
       />
+
+      {showLatestSentPanel && latestSentPanelPlan && (
+        <LatestSentPurchaseOrderPanel
+          plan={latestSentPanelPlan}
+          summary={latestSentPanelSummary}
+          onOpenSentPlan={openPlan}
+          onStartNew={startNewPurchasePlan}
+        />
+      )}
 
       <PurchasePlanningStepper
         activeStep={currentStep}
@@ -595,9 +735,7 @@ export function PurchasePlanningPage() {
             className="btn btn--primary"
             onClick={() => {
               setActiveStep(6)
-              requestAnimationFrame(() => {
-                document.getElementById('pp-step-6')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-              })
+              scrollToStep(6)
             }}
           >
             Continue to Step 6 — Create Zoho PO
@@ -611,7 +749,7 @@ export function PurchasePlanningPage() {
           return (
             <StepPanel
               key={step.id}
-              id={step.id === 6 ? 'pp-step-6' : undefined}
+              id={step.id === 5 || step.id === 6 ? `pp-step-${step.id}` : undefined}
               step={step}
               status={workflow.stepStatuses[step.id]}
               blocker={workflow.blockers[step.id]}
@@ -624,6 +762,14 @@ export function PurchasePlanningPage() {
           )
         })}
       </div>
+
+      <RecentPurchasePlansSection
+        plans={plans}
+        activePlanId={activePlan?.id}
+        onOpenPlan={openPlan}
+        onDeletePlan={deleteDraftPlan}
+        deleteBusy={Boolean(busy?.startsWith('delete-plan'))}
+      />
     </div>
   )
 }

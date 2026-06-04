@@ -1,5 +1,11 @@
 import { Badge } from './PurchasePlanningBadges'
-import { formatUploadDate, getLatestDraftPlan, getLatestVigilUpload, getLastSentPlan, getPendingLowStock } from './purchasePlanningUtils'
+import {
+  formatUploadDate,
+  getLatestDraftPlan,
+  getLatestSentPlan,
+  getLatestVigilUpload,
+  getPendingLowStock,
+} from './purchasePlanningUtils'
 
 export function PurchasePlanningStatusCards({
   uploads,
@@ -8,12 +14,14 @@ export function PurchasePlanningStatusCards({
   enrichmentError,
   plans,
   activePlan,
+  onOpenLatestSent,
+  onStartNewPlan,
 }) {
   const latestVigil = getLatestVigilUpload(uploads)
   const pending = getPendingLowStock(lowStock)
   const pendingMatched = pending.filter((item) => String(item.zohoItemId || '').trim()).length
   const latestDraft = getLatestDraftPlan(plans) || (activePlan?.status === 'draft' ? activePlan : null)
-  const lastSent = getLastSentPlan(plans) || (activePlan?.status === 'sent_to_zoho' ? activePlan : null)
+  const latestSent = getLatestSentPlan(plans) || (activePlan?.status === 'sent_to_zoho' ? activePlan : null)
 
   let enrichLabel = 'Idle'
   let enrichTone = 'muted'
@@ -30,6 +38,28 @@ export function PurchasePlanningStatusCards({
     enrichLabel = 'Needs attention'
     enrichTone = 'warning'
   }
+
+  let draftValue = '—'
+  let draftMeta = 'No active draft'
+  if (latestDraft) {
+    draftValue = latestDraft.planNumber
+    draftMeta = `${latestDraft.itemsCount ?? latestDraft.items?.length ?? '—'} lines · draft`
+  } else if (latestSent) {
+    draftMeta = `Latest sent: ${latestSent.planNumber}`
+  } else if (!latestVigil) {
+    draftMeta = 'Upload Vigil stock first'
+  } else if (pending.length === 0) {
+    draftMeta = 'Upload low-stock SKUs to start a batch'
+  } else if (pendingMatched < pending.length) {
+    draftMeta = 'Complete Zoho enrichment (Step 3)'
+  } else {
+    draftMeta = 'Ready to generate draft (Step 4)'
+  }
+
+  const sentValue = latestSent?.zohoPurchaseOrderId || latestSent?.purchaseOrderNumber || '—'
+  const sentMeta = latestSent
+    ? `${latestSent.planNumber}${latestSent.purchaseOrderNumber ? ` · PO ${latestSent.purchaseOrderNumber}` : ''}`
+    : 'No PO sent yet'
 
   return (
     <div className="pp-status-cards">
@@ -60,16 +90,36 @@ export function PurchasePlanningStatusCards({
       </div>
       <div className="pp-status-card">
         <span className="pp-status-card__label">Latest Draft Plan</span>
-        <strong className="pp-status-card__value">{latestDraft?.planNumber || '—'}</strong>
-        <span className="pp-status-card__meta">
-          {latestDraft ? `${latestDraft.itemsCount ?? '—'} lines` : 'Generate after enrichment'}
-        </span>
+        <strong className="pp-status-card__value">{draftValue}</strong>
+        <span className="pp-status-card__meta">{draftMeta}</span>
       </div>
-      <div className="pp-status-card">
+      <button
+        type="button"
+        className={`pp-status-card pp-status-card--action${latestSent ? '' : ' pp-status-card--disabled'}`}
+        disabled={!latestSent}
+        onClick={() => latestSent && onOpenLatestSent?.(latestSent.id)}
+      >
         <span className="pp-status-card__label">Last PO Sent to Zoho</span>
-        <strong className="pp-status-card__value">{lastSent?.zohoPurchaseOrderId || '—'}</strong>
-        <span className="pp-status-card__meta">{lastSent?.planNumber || 'No PO sent yet'}</span>
-      </div>
+        <strong className="pp-status-card__value">{sentValue}</strong>
+        <span className="pp-status-card__meta">
+          {latestSent ? (
+            <>
+              {sentMeta}
+              <span className="pp-status-card__open-hint">Open sent plan →</span>
+            </>
+          ) : (
+            sentMeta
+          )}
+        </span>
+      </button>
+      {latestSent && !latestDraft && onStartNewPlan && (
+        <div className="pp-status-card pp-status-card--cta">
+          <span className="pp-status-card__label">Next action</span>
+          <button type="button" className="btn btn--primary btn--sm" onClick={onStartNewPlan}>
+            Start New Purchase Plan
+          </button>
+        </div>
+      )}
     </div>
   )
 }
