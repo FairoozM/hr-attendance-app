@@ -87,12 +87,6 @@ function buildZohoStockEntry(item, warehouseName, warehouseId) {
     NaN
   )
   const availableQty = Number.isFinite(forSale) ? Math.max(forSale, onHand) : onHand
-  const committed = pickZohoQty(item, [
-    'warehouse_committed_stock',
-    'location_committed_stock',
-    'committed_stock',
-    'committed_quantity',
-  ])
   return {
     itemId: clean(item?.item_id || item?.id),
     sku,
@@ -101,8 +95,6 @@ function buildZohoStockEntry(item, warehouseName, warehouseId) {
     itemType: 'item',
     warehouseName,
     availableQty,
-    actualQty: onHand,
-    committedQty: committed,
     stockStatus: availableQty > 0 ? 'In Stock' : 'Out of Stock',
   }
 }

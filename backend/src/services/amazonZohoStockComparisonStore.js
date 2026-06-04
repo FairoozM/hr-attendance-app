@@ -154,9 +154,6 @@ function mapDbRow(r) {
     },
     amazon: {
       availableQty: r.amazon_available_qty == null ? null : Number(r.amazon_available_qty),
-      inboundQty: r.amazon_inbound_qty == null ? null : Number(r.amazon_inbound_qty),
-      reservedQty: r.amazon_reserved_qty == null ? null : Number(r.amazon_reserved_qty),
-      unfulfillableQty: r.amazon_unfulfillable_qty == null ? null : Number(r.amazon_unfulfillable_qty),
       totalQty: r.amazon_total_qty == null ? null : Number(r.amazon_total_qty),
       stockStatus: r.amazon_stock_status || 'Unknown',
     },
@@ -168,8 +165,6 @@ function mapDbRow(r) {
       itemType: r.zoho_item_type || '',
       warehouseName: r.zoho_warehouse_name || '',
       availableQty: r.zoho_available_qty == null ? null : Number(r.zoho_available_qty),
-      actualQty: r.zoho_actual_qty == null ? null : Number(r.zoho_actual_qty),
-      committedQty: r.zoho_committed_qty == null ? null : Number(r.zoho_committed_qty),
       stockStatus: r.zoho_stock_status || 'Unknown',
     },
     comparison: {

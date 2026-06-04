@@ -506,7 +506,7 @@ export function AmazonZohoStockPage() {
         </div>
 
         <div className="ainv-table-wrap" style={{ maxWidth: '100%' }}>
-          <table className="ainv-table" style={{ minWidth: '140rem' }}>
+          <table className="ainv-table" style={{ minWidth: '95rem' }}>
             <thead>
               <tr>
                 <th className="px-3 py-3">Image</th>
@@ -517,14 +517,9 @@ export function AmazonZohoStockPage() {
                 <th className="px-3 py-3">Title</th>
                 <th className="px-3 py-3">Marketplace</th>
                 <th className="px-3 py-3">Price</th>
-                <th className="px-3 py-3">FBA on-hand (total)</th>
-                <th className="px-3 py-3">FBA fulfillable</th>
-                <th className="px-3 py-3">Amazon Reserved</th>
-                <th className="px-3 py-3">Amazon Inbound</th>
-                <th className="px-3 py-3">Amazon Unfulfillable</th>
-                <th className="px-3 py-3">Zoho Life Smile Available</th>
-                <th className="px-3 py-3">Zoho Actual</th>
-                <th className="px-3 py-3">Zoho Committed</th>
+                <th className="px-3 py-3">Seller Flex on-hand</th>
+                <th className="px-3 py-3">Seller Flex fulfillable</th>
+                <th className="px-3 py-3">Zoho available for sale</th>
                 <th className="px-3 py-3">Difference</th>
                 <th className="px-3 py-3">Status / Recommended Action</th>
               </tr>
@@ -566,12 +561,7 @@ export function AmazonZohoStockPage() {
                     {formatNumber(row.amazon?.totalQty ?? row.amazon?.availableQty)}
                   </td>
                   <td className="px-3 py-3">{formatNumber(row.amazon?.availableQty)}</td>
-                  <td className="px-3 py-3">{formatNumber(row.amazon?.reservedQty)}</td>
-                  <td className="px-3 py-3">{formatNumber(row.amazon?.inboundQty)}</td>
-                  <td className="px-3 py-3">{formatNumber(row.amazon?.unfulfillableQty)}</td>
                   <td className="px-3 py-3 font-semibold">{formatNumber(row.zoho?.availableQty)}</td>
-                  <td className="px-3 py-3">{formatNumber(row.zoho?.actualQty)}</td>
-                  <td className="px-3 py-3">{formatNumber(row.zoho?.committedQty)}</td>
                   <td className="font-semibold" style={{ color: Number(row.comparison?.difference) < 0 ? '#be123c' : 'var(--text)' }}>
                     {formatNumber(row.comparison?.difference)}
                   </td>
@@ -589,14 +579,14 @@ export function AmazonZohoStockPage() {
               ))}
               {!loading && rows.length === 0 ? (
                 <tr>
-                  <td colSpan={18} className="py-12 text-center ainv-table__muted">
+                  <td colSpan={13} className="py-12 text-center ainv-table__muted">
                     No comparison rows found. Run refresh to generate cached data or adjust filters.
                   </td>
                 </tr>
               ) : null}
               {loading ? (
                 <tr>
-                  <td colSpan={18} className="py-12 text-center ainv-table__muted">Loading cached comparison data…</td>
+                  <td colSpan={13} className="py-12 text-center ainv-table__muted">Loading cached comparison data…</td>
                 </tr>
               ) : null}
             </tbody>

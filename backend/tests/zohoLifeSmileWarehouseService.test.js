@@ -16,8 +16,8 @@ describe('Zoho Life Smile warehouse stock for Amazon comparison', () => {
       'wh-life-smile'
     )
     assert.equal(entry.availableQty, 3)
-    assert.equal(entry.actualQty, 3)
     assert.equal(entry.stockStatus, 'In Stock')
+    assert.equal(entry.actualQty, undefined)
   })
 
   it('reads qty from warehouses[] when top-level fields are missing', () => {
