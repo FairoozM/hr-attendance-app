@@ -2,8 +2,9 @@ import { useCallback, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { PP_REQUEST_OPTS, getPendingLowStock } from './purchasePlanningUtils'
 import { Badge } from './PurchasePlanningBadges'
+import { UnmatchedLowStockTable } from './UnmatchedLowStockTable'
 
-export function LowStockUploadStep({ lowStock, loading, onUploaded, hasVigil }) {
+export function LowStockUploadStep({ lowStock, loading, onUploaded, hasVigil, onRemoveUnmatched, removingLowStockId }) {
   const fileInputRef = useRef(null)
   const [file, setFile] = useState(null)
   const [preview, setPreview] = useState(null)
@@ -172,40 +173,8 @@ export function LowStockUploadStep({ lowStock, loading, onUploaded, hasVigil }) 
         </div>
       )}
 
-      {unmatched.length > 0 && !loading && (
-        <div className="pp-enrichment-list pp-enrichment-list--unmatched">
-          <div className="pp-enrichment-list__head">
-            <div>
-              <strong>Unmatched SKUs — manual review</strong>
-              <span>
-                These SKUs could not be matched to a Zoho item. Fix SKU spelling in Zoho or remove from the upload before
-                generating a plan.
-              </span>
-            </div>
-          </div>
-          <div className="doc-table-wrap pp-enrichment-list__table-wrap">
-            <table className="doc-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>SKU</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {unmatched.map((item, index) => (
-                  <tr key={item.id || item.sku}>
-                    <td>{index + 1}</td>
-                    <td className="pp-mono">{item.sku}</td>
-                    <td>
-                      <Badge tone="danger">Not matched in Zoho</Badge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+      {unmatched.length > 0 && !loading && onRemoveUnmatched && (
+        <UnmatchedLowStockTable items={unmatched} onRemove={onRemoveUnmatched} removingId={removingLowStockId} />
       )}
     </div>
   )

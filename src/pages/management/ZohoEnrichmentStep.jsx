@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Badge } from './PurchasePlanningBadges'
+import { UnmatchedLowStockTable } from './UnmatchedLowStockTable'
 import { fmt, getPendingLowStock, getStockRemark } from './purchasePlanningUtils'
 
 export function ZohoEnrichmentStep({
@@ -8,6 +9,8 @@ export function ZohoEnrichmentStep({
   enrichmentError,
   enrichmentSummary,
   onRefreshZoho,
+  onRemoveUnmatched,
+  removingLowStockId,
   refreshBusy,
   hasPending,
 }) {
@@ -96,35 +99,12 @@ export function ZohoEnrichmentStep({
         )}
       </div>
 
-      {unmatched.length > 0 && (
-        <div className="pp-enrichment-list pp-enrichment-list--unmatched">
-          <div className="pp-enrichment-list__head">
-            <div>
-              <strong>Blocked: {unmatched.length} SKU(s) without Zoho item ID</strong>
-              <span>Plan generation is blocked until these are matched or removed.</span>
-            </div>
-          </div>
-          <div className="doc-table-wrap pp-enrichment-list__table-wrap">
-            <table className="doc-table pp-enrichment-list__table">
-              <thead>
-                <tr>
-                  <th>SKU</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {unmatched.map((item) => (
-                  <tr key={item.id || item.sku}>
-                    <td className="pp-mono">{item.sku}</td>
-                    <td>
-                      <Badge tone="danger">Missing Zoho item</Badge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+      {unmatched.length > 0 && onRemoveUnmatched && (
+        <UnmatchedLowStockTable items={unmatched} onRemove={onRemoveUnmatched} removingId={removingLowStockId} />
+      )}
+
+      {unmatched.length === 0 && hasPending && matched.length > 0 && !enrichmentRunning && (
+        <p className="pp-step-done-hint">All pending SKUs are matched in Zoho. You can proceed to Step 4.</p>
       )}
 
       {matched.length > 0 && (

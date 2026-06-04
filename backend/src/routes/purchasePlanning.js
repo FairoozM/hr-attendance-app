@@ -13,6 +13,7 @@ router.use(auth.requireAuth, auth.requireAdmin)
 
 router.get('/low-stock', ctrl.listLowStock)
 router.get('/low-stock/enrichment-status', ctrl.getLowStockEnrichmentStatus)
+router.delete('/low-stock/:id', ctrl.deleteLowStockItem)
 router.post('/low-stock-upload', upload.single('file'), ctrl.uploadLowStockSkus)
 router.post('/low-stock/refresh-zoho', ctrl.refreshLowStockZoho)
 

@@ -203,6 +203,16 @@ test('parses low-stock SKU upload without a header row', () => {
   assert.equal(parsed.rows[1].normalizedSku, 'ABC-BLUE')
 })
 
+test('parses low-stock upload rejects header-like label rows', () => {
+  const parsed = previewLowStockUpload(Buffer.from('Low Stock\nabc-black\n'), 'low-stock.csv')
+
+  assert.equal(parsed.summary.validRows, 1)
+  assert.equal(parsed.summary.invalidRows, 1)
+  assert.equal(parsed.rows[0].sku, 'Low Stock')
+  assert.equal(parsed.rows[0].valid, false)
+  assert.match(parsed.rows[0].errors.join(' '), /header/i)
+})
+
 test('purchase planning item index matches Zoho item names and prefers warehouse available stock', () => {
   const index = _internals.buildZohoItemIndex([
     {

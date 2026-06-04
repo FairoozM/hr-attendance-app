@@ -418,6 +418,12 @@
   background: transparent;
 }
 
+.pp-remove-sku-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .pp-hero__actions,
 .pp-upload-actions {
   display: flex;

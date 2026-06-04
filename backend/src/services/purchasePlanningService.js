@@ -526,6 +526,39 @@ async function listLowStock() {
   return applyVigilMatchesToLowStockRows(rows, coerceVigilRowsFromUpload(upload))
 }
 
+async function removePendingLowStockItem(id) {
+  const itemId = Number(id)
+  if (!Number.isInteger(itemId) || itemId <= 0) {
+    const err = new Error('Invalid low-stock item id')
+    err.code = 'INVALID_LOW_STOCK_ITEM_ID'
+    throw err
+  }
+
+  const updated = await query(
+    `
+      UPDATE purchase_low_stock_items
+      SET status = 'ignored', updated_at = NOW()
+      WHERE id = $1 AND status = 'pending'
+      RETURNING *
+    `,
+    [itemId]
+  )
+  if (updated.rows[0]) {
+    const items = await listLowStock()
+    return { removed: mapLowStockRow(updated.rows[0]), items }
+  }
+
+  const existing = await query(`SELECT id, status FROM purchase_low_stock_items WHERE id = $1`, [itemId])
+  if (!existing.rows[0]) {
+    const err = new Error('Low-stock item not found')
+    err.code = 'LOW_STOCK_ITEM_NOT_FOUND'
+    throw err
+  }
+  const err = new Error('Only pending low-stock SKUs can be removed from the current batch')
+  err.code = 'LOW_STOCK_ITEM_NOT_REMOVABLE'
+  throw err
+}
+
 function applyVigilMatchesToLowStockRows(rows, vigilRows) {
   const vigilIndexes = buildVigilIndexes(vigilRows)
   return (Array.isArray(rows) ? rows : []).map((item) => {
@@ -566,6 +599,17 @@ function parseTabularUpload(buffer, fileName = '') {
   return { headers: parsed.headers, rows: parsed.rows }
 }
 
+const LOW_STOCK_HEADER_LIKE_SKUS = new Set([
+  'SKU',
+  'LOW STOCK',
+  'LOW-STOCK',
+  'ITEM CODE',
+  'ITEM',
+  'CODE',
+  'PRODUCT',
+  'PRODUCT SKU',
+])
+
 function parseLowStockRows(headers, rawRows) {
   const headerIdx = indexHeaders(headers)
   const skuHeader = findHeader(headerIdx, [
@@ -583,6 +627,7 @@ function parseLowStockRows(headers, rawRows) {
     const sku = skuHeader ? cellOf(row, headerIdx, skuHeader) : clean(row[0])
     const errors = []
     if (!sku) errors.push('Missing SKU')
+    else if (LOW_STOCK_HEADER_LIKE_SKUS.has(normalizeSku(sku))) errors.push('Header or label row (not a SKU)')
     return {
       rowNumber,
       sku: clean(sku),
@@ -1383,6 +1428,7 @@ module.exports = {
   queueLowStockZohoEnrichment,
   getLowStockEnrichmentStatus,
   listLowStock,
+  removePendingLowStockItem,
   previewLowStockUpload,
   saveLowStockUpload,
   previewVigilUpload,

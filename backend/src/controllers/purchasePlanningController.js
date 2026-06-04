@@ -29,8 +29,10 @@ function logPurchasePlanningError(action, err, req, extra = {}) {
 
 function errorStatus(err) {
   if (!err) return 500
-  if (['PLAN_NOT_FOUND', 'PLAN_ITEM_NOT_FOUND'].includes(err.code)) return 404
-  if (['ENRICHMENT_RUNNING', 'PLAN_NOT_EDITABLE', 'DUPLICATE_PO'].includes(err.code)) return 409
+  if (['PLAN_NOT_FOUND', 'PLAN_ITEM_NOT_FOUND', 'LOW_STOCK_ITEM_NOT_FOUND'].includes(err.code)) return 404
+  if (['ENRICHMENT_RUNNING', 'PLAN_NOT_EDITABLE', 'DUPLICATE_PO', 'LOW_STOCK_ITEM_NOT_REMOVABLE'].includes(err.code)) {
+    return 409
+  }
   if (
     [
       'NO_VIGIL_UPLOAD',
@@ -43,6 +45,7 @@ function errorStatus(err) {
       'CSV_PARSE_ERROR',
       'EXCEL_PARSE_ERROR',
       'INVALID_PLAN_ID',
+      'INVALID_LOW_STOCK_ITEM_ID',
       'PLAN_NOT_DRAFT',
       'PLAN_HAS_NO_ITEMS',
       'INVALID_PLAN_ITEM_BODY',
@@ -258,6 +261,25 @@ async function getLowStockEnrichmentStatus(req, res) {
   }
 }
 
+async function deleteLowStockItem(req, res) {
+  try {
+    const itemId = parseId(req.params.id)
+    if (!itemId) {
+      return res.status(400).json({ error: 'Invalid low-stock item id', code: 'INVALID_LOW_STOCK_ITEM_ID' })
+    }
+    const result = await service.removePendingLowStockItem(itemId)
+    res.json({
+      ok: true,
+      removed: result.removed,
+      items: result.items,
+      pendingCount: result.items.length,
+    })
+  } catch (err) {
+    logPurchasePlanningError('deleteLowStockItem', err, req, { itemId: req.params.id })
+    sendError(res, err, 'Failed to remove low-stock SKU', 'LOW_STOCK_DELETE_FAILED')
+  }
+}
+
 async function uploadVigilCsv(req, res) {
   try {
     if (!req.file || !req.file.buffer) {
@@ -406,6 +428,7 @@ async function createZohoPo(req, res) {
 
 module.exports = {
   listLowStock,
+  deleteLowStockItem,
   uploadLowStockSkus,
   refreshLowStockZoho,
   getLowStockEnrichmentStatus,

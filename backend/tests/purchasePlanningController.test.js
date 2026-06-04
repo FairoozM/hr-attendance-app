@@ -253,6 +253,44 @@ test('controller: deletePlan returns 400 when plan is not draft', async () => {
   assert.equal(res.body.code, 'PLAN_NOT_DRAFT')
 })
 
+test('controller: deleteLowStockItem removes pending SKU and returns updated list', async () => {
+  const stub = makeServiceMock({
+    removePendingLowStockItem: async (id) => {
+      stub._calls.push(['removePendingLowStockItem', id])
+      if (id === 99) {
+        const err = new Error('Low-stock item not found')
+        err.code = 'LOW_STOCK_ITEM_NOT_FOUND'
+        throw err
+      }
+      return {
+        removed: { id, sku: 'LOW STOCK', status: 'ignored' },
+        items: [{ id: 2, sku: 'REAL-SKU', status: 'pending', zohoItemId: 'z1' }],
+      }
+    },
+  })
+  const ctrl = loadController(stub)
+  const { req, res } = makeReqRes({ params: { id: '5' }, user: ADMIN })
+  await ctrl.deleteLowStockItem(req, res)
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.ok, true)
+  assert.equal(res.body.pendingCount, 1)
+  assert.equal(res.body.removed.sku, 'LOW STOCK')
+})
+
+test('controller: deleteLowStockItem returns 404 when item missing', async () => {
+  const stub = makeServiceMock({
+    removePendingLowStockItem: async () => {
+      const err = new Error('Low-stock item not found')
+      err.code = 'LOW_STOCK_ITEM_NOT_FOUND'
+      throw err
+    },
+  })
+  const ctrl = loadController(stub)
+  const { req, res } = makeReqRes({ params: { id: '99' }, user: ADMIN })
+  await ctrl.deleteLowStockItem(req, res)
+  assert.equal(res.statusCode, 404)
+})
+
 test('controller: deletePlan succeeds for draft plan', async () => {
   const stub = makeServiceMock({
     deleteDraftPlan: async (id) => ({ deleted: true, id, restoredSkuCount: 3 }),

@@ -39,6 +39,7 @@ export function PurchasePlanningPage() {
   const [enrichmentError, setEnrichmentError] = useState(null)
   const [enrichmentSummary, setEnrichmentSummary] = useState(null)
   const [activeStep, setActiveStep] = useState(null)
+  const [removingLowStockId, setRemovingLowStockId] = useState(null)
   const loadAbortRef = useRef(null)
 
   const allPriceRows = useMemo(
@@ -197,6 +198,33 @@ export function PurchasePlanningPage() {
     },
     [runEnrichmentPoll]
   )
+
+  const removePendingLowStockSku = useCallback(async (item) => {
+    if (!item?.id) return
+    const ok = window.confirm(
+      `Remove "${item.sku}" from this low-stock batch?\n\nIt will no longer block plan generation.`
+    )
+    if (!ok) return
+    setRemovingLowStockId(item.id)
+    setError('')
+    try {
+      const res = await api.delete(`/api/purchase-planning/low-stock/${item.id}`, PP_REQUEST_OPTS)
+      const items = res.items || []
+      setLowStock(items)
+      const stillUnmatched = items.filter(
+        (row) => row.status === 'pending' && !String(row.zohoItemId || '').trim()
+      )
+      setNotice(`Removed ${item.sku} from pending low-stock.`)
+      if (stillUnmatched.length === 0 && items.some((row) => row.status === 'pending')) {
+        setActiveStep(4)
+        setNotice(`Removed ${item.sku}. Step 3 is clear — proceed to Generate Draft Plan (Step 4).`)
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to remove low-stock SKU')
+    } finally {
+      setRemovingLowStockId(null)
+    }
+  }, [])
 
   const refreshLowStockZoho = useCallback(async () => {
     const ok = window.confirm('Refresh Zoho data for all pending uploaded SKUs? This may call Zoho APIs.')
@@ -405,6 +433,8 @@ export function PurchasePlanningPage() {
             loading={loadingLowStock}
             onUploaded={handleLowStockUploaded}
             hasVigil={workflow.hasVigil}
+            onRemoveUnmatched={removePendingLowStockSku}
+            removingLowStockId={removingLowStockId}
           />
         )
       case 3:
@@ -415,6 +445,8 @@ export function PurchasePlanningPage() {
             enrichmentError={enrichmentError}
             enrichmentSummary={enrichmentSummary}
             onRefreshZoho={refreshLowStockZoho}
+            onRemoveUnmatched={removePendingLowStockSku}
+            removingLowStockId={removingLowStockId}
             refreshBusy={busy === 'enrich-low'}
             hasPending={workflow.hasPendingUpload}
           />
