@@ -14,6 +14,7 @@ import {
   PP_STEPS,
   EMPTY_FILTERS,
   computeWorkflow,
+  computePoReadiness,
   enrichPlanWithPurchasePrices,
   ignoreCancelledPurchasePlanningRequest,
   pollLowStockEnrichment,
@@ -47,6 +48,11 @@ export function PurchasePlanningPage() {
     [getPref, prefsReady, prefsVersion]
   )
 
+  const activePlanWithPrices = useMemo(
+    () => enrichPlanWithPurchasePrices(activePlan, allPriceRows),
+    [activePlan, allPriceRows]
+  )
+
   const workflow = useMemo(
     () =>
       computeWorkflow({
@@ -55,16 +61,18 @@ export function PurchasePlanningPage() {
         enrichmentRunning,
         enrichmentError,
         activePlan,
+        activePlanWithPrices,
         plans,
+        currentStep: activeStep,
       }),
-    [uploads, lowStock, enrichmentRunning, enrichmentError, activePlan, plans]
+    [uploads, lowStock, enrichmentRunning, enrichmentError, activePlan, activePlanWithPrices, plans, activeStep]
   )
 
   const currentStep = activeStep ?? workflow.suggestedStep
 
-  const activePlanWithPrices = useMemo(
-    () => enrichPlanWithPurchasePrices(activePlan, allPriceRows),
-    [activePlan, allPriceRows]
+  const poReadiness = useMemo(
+    () => computePoReadiness(activePlanWithPrices),
+    [activePlanWithPrices]
   )
 
   const load = useCallback(async () => {
@@ -276,7 +284,9 @@ export function PurchasePlanningPage() {
         ]
       })
       setActiveStep(5)
-      setNotice(`Generated draft plan ${res.plan.planNumber}. Pending SKUs are now marked as planned.`)
+      setNotice(
+        `Generated draft plan ${res.plan.planNumber}. Review lines below, then click Continue to Step 6 to create the Zoho PO.`
+      )
       load().catch(() => {})
     } catch (err) {
       const code = err.body?.code || err.code
@@ -512,6 +522,14 @@ export function PurchasePlanningPage() {
             onOpenPlan={openPlan}
             onDeletePlan={deleteDraftPlan}
             deleteBusy={Boolean(busy?.startsWith('delete-plan'))}
+            onContinueToPo={() => {
+              setActiveStep(6)
+              setNotice('Enter your PO number in Step 6 and click Create Draft PO in Zoho.')
+              requestAnimationFrame(() => {
+                document.getElementById('pp-step-6')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              })
+            }}
+            currentStep={currentStep}
           />
         )
       case 6:
@@ -567,12 +585,33 @@ export function PurchasePlanningPage() {
       {error && <div className="page-error">{error}</div>}
       {notice && <div className="pp-notice">{notice}</div>}
 
+      {activePlanWithPrices?.status === 'draft' && currentStep === 5 && poReadiness.ready && (
+        <div className="pp-workflow-footer">
+          <span className="pp-workflow-footer__hint">
+            Draft is ready — {poReadiness.includedLines.length} lines · {poReadiness.summary.totalFinalQty} qty
+          </span>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => {
+              setActiveStep(6)
+              requestAnimationFrame(() => {
+                document.getElementById('pp-step-6')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              })
+            }}
+          >
+            Continue to Step 6 — Create Zoho PO
+          </button>
+        </div>
+      )}
+
       <div className="pp-steps-stack">
         {PP_STEPS.map((step) => {
           const collapsed = currentStep !== step.id
           return (
             <StepPanel
               key={step.id}
+              id={step.id === 6 ? 'pp-step-6' : undefined}
               step={step}
               status={workflow.stepStatuses[step.id]}
               blocker={workflow.blockers[step.id]}

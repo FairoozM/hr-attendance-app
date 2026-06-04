@@ -35,10 +35,10 @@ export function PurchasePlanningStepper({ activeStep, stepStatuses, onStepClick 
   )
 }
 
-export function StepPanel({ step, status, blocker, children, collapsed, onExpand, summary }) {
+export function StepPanel({ step, status, blocker, children, collapsed, onExpand, summary, id }) {
   if (collapsed) {
     return (
-      <section className="pp-step-panel pp-step-panel--collapsed">
+      <section id={id} className="pp-step-panel pp-step-panel--collapsed">
         <div className="pp-step-panel__collapsed-head">
           <div>
             <h2>
@@ -56,7 +56,7 @@ export function StepPanel({ step, status, blocker, children, collapsed, onExpand
   }
 
   return (
-    <section className="pp-step-panel pp-step-panel--active">
+    <section id={id} className="pp-step-panel pp-step-panel--active">
       <header className="pp-step-panel__head">
         <div>
           <p className="pp-step-panel__eyebrow">Step {step.id} of 6</p>

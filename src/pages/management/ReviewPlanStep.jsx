@@ -1,6 +1,6 @@
 import { Badge } from './PurchasePlanningBadges'
 import { PurchasePlanTable } from './PurchasePlanTable'
-import { computePlanReviewSummary, fmtPrice } from './purchasePlanningUtils'
+import { computePlanReviewSummary, computePoReadiness, fmtPrice } from './purchasePlanningUtils'
 
 export function ReviewPlanStep({
   plan,
@@ -14,8 +14,11 @@ export function ReviewPlanStep({
   onOpenPlan,
   onDeletePlan,
   deleteBusy,
+  onContinueToPo,
+  currentStep,
 }) {
   const summary = computePlanReviewSummary(plan)
+  const poReadiness = computePoReadiness(plan)
   const draftPlans = (plans || []).filter((p) => p.status === 'draft')
 
   if (!plan) {
@@ -105,6 +108,13 @@ export function ReviewPlanStep({
         </p>
       )}
 
+      {plan.status === 'draft' && (
+        <p className="pp-hint">
+          Quantity and include/exclude changes save automatically when you edit a field (no separate Save button). When
+          ready, continue to Step 6 to enter a PO number and send to Zoho.
+        </p>
+      )}
+
       <PurchasePlanTable
         plan={plan}
         filters={filters}
@@ -112,6 +122,34 @@ export function ReviewPlanStep({
         onItemChange={onItemChange}
         readOnly={isReadOnly}
       />
+
+      {plan.status === 'draft' && onContinueToPo && (
+        <div className="pp-continue-po-card">
+          <div>
+            <strong>Ready for Zoho?</strong>
+            <p className="pp-hint">
+              {poReadiness.ready
+                ? `${poReadiness.includedLines.length} included line(s) · ${summary.totalFinalQty} total qty · ${fmtPrice(summary.estimatedValue)} est. value`
+                : 'Fix the issues below before creating a purchase order.'}
+            </p>
+            {!poReadiness.ready && poReadiness.reasons.length > 0 && (
+              <ul className="pp-blocker-list">
+                {poReadiness.reasons.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <button
+            type="button"
+            className="btn btn--primary"
+            disabled={!poReadiness.ready}
+            onClick={onContinueToPo}
+          >
+            {currentStep === 6 ? 'On Step 6 — create PO below' : 'Continue to Step 6 — Create Zoho PO'}
+          </button>
+        </div>
+      )}
 
       {plan.status === 'draft' && onDeletePlan && (
         <div className="pp-secondary-actions pp-secondary-actions--danger">

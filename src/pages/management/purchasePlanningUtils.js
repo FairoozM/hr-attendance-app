@@ -200,7 +200,9 @@ export function computeWorkflow(ctx) {
     enrichmentRunning = false,
     enrichmentError = null,
     activePlan = null,
+    activePlanWithPrices = null,
     plans = [],
+    currentStep = null,
   } = ctx
 
   const pending = getPendingLowStock(lowStock)
@@ -211,6 +213,10 @@ export function computeWorkflow(ctx) {
   const draftPlans = (plans || []).filter((p) => p.status === 'draft')
   const hasDraft = draftPlans.length > 0 || activePlan?.status === 'draft'
   const planSent = activePlan?.status === 'sent_to_zoho'
+  const poReadiness =
+    activePlanWithPrices || activePlan ? computePoReadiness(activePlanWithPrices || activePlan) : null
+  const poReady = Boolean(poReadiness?.ready)
+  const stepNum = Number(currentStep) > 0 ? Number(currentStep) : 0
 
   const blockers = {}
 
@@ -249,14 +255,20 @@ export function computeWorkflow(ctx) {
 
   let step5 = 'not_started'
   if (planSent) step5 = 'completed'
-  else if (activePlan?.status === 'draft') step5 = 'in_progress'
-  else if (hasDraft) step5 = 'ready'
+  else if (activePlan?.status === 'draft') {
+    step5 = stepNum === 5 ? 'in_progress' : stepNum === 6 ? 'completed' : 'completed'
+  } else if (hasDraft) step5 = 'ready'
   else step5 = 'blocked'
 
   let step6 = 'not_started'
   if (planSent) step6 = 'completed'
-  else if (activePlan?.status === 'draft') step6 = 'ready'
-  else step6 = 'blocked'
+  else if (poReady) step6 = stepNum === 6 ? 'in_progress' : 'ready'
+  else if (activePlan?.status === 'draft') {
+    step6 = 'blocked'
+    if (poReadiness?.reasons?.length) {
+      blockers[6] = poReadiness.reasons[0]
+    }
+  } else step6 = 'blocked'
 
   if (!hasVigil) blockers[2] = 'Complete Step 1 first.'
   if (!hasPendingUpload && hasVigil) blockers[3] = 'Upload low-stock SKUs in Step 2.'
@@ -270,6 +282,7 @@ export function computeWorkflow(ctx) {
   else if (!hasPendingUpload) suggestedStep = 2
   else if (enrichmentActive || pendingWithoutZoho.length > 0 || enrichmentError) suggestedStep = 3
   else if (!hasDraft && activePlan?.status !== 'draft' && !planSent) suggestedStep = 4
+  else if (activePlan?.status === 'draft' && poReady) suggestedStep = 6
   else if (activePlan?.status === 'draft') suggestedStep = 5
   else if (planSent) suggestedStep = 6
   else if (hasDraft) suggestedStep = 5
