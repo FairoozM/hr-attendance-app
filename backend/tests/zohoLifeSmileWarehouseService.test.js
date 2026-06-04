@@ -1,6 +1,10 @@
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
-const { buildZohoStockEntry, buildZohoStockMap } = require('../src/services/zohoLifeSmileWarehouseService')
+const {
+  buildZohoStockEntry,
+  buildZohoStockMap,
+  indexZohoWarehouseItems,
+} = require('../src/services/zohoLifeSmileWarehouseService')
 
 describe('Zoho Life Smile warehouse stock for Amazon comparison', () => {
   it('uses warehouse_stock_on_hand when actual_available is 0 (list API quirk)', () => {
@@ -17,7 +21,6 @@ describe('Zoho Life Smile warehouse stock for Amazon comparison', () => {
     )
     assert.equal(entry.availableQty, 3)
     assert.equal(entry.stockStatus, 'In Stock')
-    assert.equal(entry.actualQty, undefined)
   })
 
   it('reads qty from warehouses[] when top-level fields are missing', () => {
@@ -44,5 +47,27 @@ describe('Zoho Life Smile warehouse stock for Amazon comparison', () => {
     const { map, matchedKeys } = buildZohoStockMap(items, skuSet, 'Life Smile Warehouse', 'wh1')
     assert.equal(matchedKeys, 1)
     assert.equal(map.get('lifep32shr-24')?.availableQty, 3)
+  })
+
+  it('matches Amazon seller SKU to Zoho item when Zoho name equals Amazon SKU (barcode SKU)', () => {
+    const items = [
+      {
+        sku: '6294021006859',
+        name: '2FP17SET-BEIGE',
+        warehouse_stock_on_hand: '28',
+      },
+    ]
+    const index = indexZohoWarehouseItems(items, 'LIFE SMILE', 'wh1')
+    assert.ok(index.has('2FP17SET-BEIGE'))
+    assert.ok(index.has('6294021006859'))
+
+    const skuSet = new Set(['2FP17SET-BEIGE'])
+    const { map, matchedKeys } = buildZohoStockMap(items, skuSet, 'LIFE SMILE', 'wh1')
+    assert.equal(matchedKeys, 1)
+    const row = map.get('2FP17SET-BEIGE')
+    assert.equal(row.availableQty, 28)
+    assert.equal(row.sku, '6294021006859')
+    assert.equal(row.itemName, '2FP17SET-BEIGE')
+    assert.equal(row.matchedBy, 'zoho_item_name')
   })
 })

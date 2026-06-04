@@ -70,8 +70,8 @@ function pickZohoQty(item, keys, fallback = 0) {
  */
 function buildZohoStockEntry(item, warehouseName, warehouseId) {
   const sku = clean(item?.sku || item?.item_code || item?.code)
-  const normalized = normalizeSku(sku)
-  if (!normalized) return null
+  const itemName = clean(item?.name || item?.item_name)
+  if (!sku && !itemName) return null
 
   const onHand = parseWarehouseScopedStockOnHand(item, warehouseId)
   const forSale = pickZohoQty(
@@ -89,9 +89,9 @@ function buildZohoStockEntry(item, warehouseName, warehouseId) {
   const availableQty = Number.isFinite(forSale) ? Math.max(forSale, onHand) : onHand
   return {
     itemId: clean(item?.item_id || item?.id),
-    sku,
-    normalizedSku: normalized,
-    itemName: clean(item?.name || item?.item_name),
+    sku: sku || itemName,
+    normalizedSku: normalizeSku(sku) || normalizeSku(itemName),
+    itemName,
     itemType: 'item',
     warehouseName,
     availableQty,
@@ -99,22 +99,51 @@ function buildZohoStockEntry(item, warehouseName, warehouseId) {
   }
 }
 
+/** Keys used to link Amazon seller SKUs to Zoho rows (barcode SKU vs display name). */
+function zohoItemLookupKeys(item, entry) {
+  const keys = new Set()
+  const add = (raw) => {
+    const key = normalizeSku(raw)
+    if (key) keys.add(key)
+  }
+
+  add(entry.sku)
+  add(item?.item_code)
+  add(item?.code)
+  add(entry.itemName)
+  add(item?.name)
+  add(item?.item_name)
+  add(item?.part_number)
+
+  if (zohoExpandMatchEnabled()) {
+    for (const variant of expandExactMatchVariants(entry.sku)) add(variant)
+    for (const variant of expandExactMatchVariants(entry.itemName)) add(variant)
+  }
+
+  return keys
+}
+
 function indexZohoWarehouseItems(items, warehouseName, warehouseId) {
   const byKey = new Map()
-  const expand = zohoExpandMatchEnabled()
   for (const item of Array.isArray(items) ? items : []) {
     const entry = buildZohoStockEntry(item, warehouseName, warehouseId)
     if (!entry) continue
-    const keys = new Set([entry.normalizedSku, normalizeSku(entry.sku)])
-    if (expand) {
-      for (const variant of expandExactMatchVariants(entry.sku)) keys.add(variant)
-    }
-    for (const key of keys) {
-      if (!key) continue
+    for (const key of zohoItemLookupKeys(item, entry)) {
       if (!byKey.has(key)) byKey.set(key, entry)
     }
   }
   return byKey
+}
+
+function lookupZohoEntry(index, amazonKey) {
+  let hit = index.get(amazonKey)
+  if (hit) return hit
+  if (!zohoExpandMatchEnabled()) return null
+  for (const variant of expandExactMatchVariants(amazonKey)) {
+    hit = index.get(variant)
+    if (hit) return hit
+  }
+  return null
 }
 
 function buildZohoStockMap(items, skuSet, warehouseName, warehouseId) {
@@ -124,16 +153,20 @@ function buildZohoStockMap(items, skuSet, warehouseName, warehouseId) {
 
   for (const key of skuSet) {
     if (!key) continue
-    let hit = index.get(key)
-    if (!hit && zohoExpandMatchEnabled()) {
-      for (const variant of expandExactMatchVariants(key)) {
-        hit = index.get(variant)
-        if (hit) break
-      }
-    }
+    const hit = lookupZohoEntry(index, key)
     if (!hit) continue
     if (!map.has(key)) matchedKeys += 1
-    map.set(key, { ...hit, normalizedSku: key })
+    const matchedBy =
+      normalizeSku(hit.sku) === key
+        ? 'zoho_sku'
+        : normalizeSku(hit.itemName) === key
+          ? 'zoho_item_name'
+          : 'zoho_alias'
+    map.set(key, {
+      ...hit,
+      normalizedSku: key,
+      matchedBy,
+    })
   }
 
   return { map, matchedKeys }
@@ -182,6 +215,8 @@ async function fetchZohoStockForSkus({ skus, progress }) {
 module.exports = {
   resolveLifeSmileWarehouse,
   buildZohoStockEntry,
+  zohoItemLookupKeys,
+  indexZohoWarehouseItems,
   buildZohoStockMap,
   fetchZohoStockForSkus,
   zohoMapToRows,
