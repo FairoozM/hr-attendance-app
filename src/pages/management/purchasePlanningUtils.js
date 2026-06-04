@@ -216,10 +216,14 @@ export function computeWorkflow(ctx) {
 
   let step1 = hasVigil ? 'completed' : 'not_started'
   let step2 = !hasVigil ? 'blocked' : hasPendingUpload ? 'completed' : 'ready'
+  const pendingAllUnmatched =
+    hasPendingUpload && pending.length > 0 && pendingWithZoho.length === 0
+  const enrichmentActive = enrichmentRunning && pendingAllUnmatched
+
   let step3 = 'not_started'
   if (!hasVigil) step3 = 'blocked'
   else if (!hasPendingUpload) step3 = 'blocked'
-  else if (enrichmentRunning) step3 = 'in_progress'
+  else if (enrichmentActive) step3 = 'in_progress'
   else if (enrichmentError) step3 = 'error'
   else if (pendingWithoutZoho.length > 0) step3 = 'blocked'
   else step3 = 'completed'
@@ -231,7 +235,7 @@ export function computeWorkflow(ctx) {
   } else if (!hasPendingUpload) {
     step4 = 'blocked'
     blockers[4] = 'Upload low-stock SKUs first (Step 2).'
-  } else if (enrichmentRunning) {
+  } else if (enrichmentActive) {
     step4 = 'blocked'
     blockers[4] = 'Wait for Zoho enrichment to finish (Step 3).'
   } else if (pendingWithoutZoho.length > 0) {
@@ -256,7 +260,7 @@ export function computeWorkflow(ctx) {
 
   if (!hasVigil) blockers[2] = 'Complete Step 1 first.'
   if (!hasPendingUpload && hasVigil) blockers[3] = 'Upload low-stock SKUs in Step 2.'
-  if (enrichmentRunning) blockers[3] = 'Enrichment in progress…'
+  if (enrichmentActive) blockers[3] = 'Enrichment in progress…'
   if (pendingWithoutZoho.length > 0 && !enrichmentRunning) {
     blockers[3] = `${pendingWithoutZoho.length} SKU(s) need Zoho match or manual review.`
   }
@@ -264,7 +268,7 @@ export function computeWorkflow(ctx) {
   let suggestedStep = 1
   if (!hasVigil) suggestedStep = 1
   else if (!hasPendingUpload) suggestedStep = 2
-  else if (enrichmentRunning || pendingWithoutZoho.length > 0 || enrichmentError) suggestedStep = 3
+  else if (enrichmentActive || pendingWithoutZoho.length > 0 || enrichmentError) suggestedStep = 3
   else if (!hasDraft && activePlan?.status !== 'draft' && !planSent) suggestedStep = 4
   else if (activePlan?.status === 'draft') suggestedStep = 5
   else if (planSent) suggestedStep = 6

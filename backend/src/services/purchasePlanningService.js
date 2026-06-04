@@ -8,10 +8,13 @@ const {
 } = require('./vigilStockParseService')
 const {
   normalizeSku,
+  expandExactMatchVariants,
   buildVigilIndexes,
   matchZohoSkuToVigil,
   matchZohoSkuToVigilWithIndexes,
 } = require('../utils/purchasePlanningSkuMatcher')
+const { _internals: zohoWeeklyInternals } = require('./weeklyReportZohoData')
+const parseWarehouseScopedStockOnHand = zohoWeeklyInternals.parseWarehouseScopedStockOnHand
 const { fetchItemsRawForWarehouse } = require('../integrations/zoho/zohoAdapter')
 const { getSales } = require('../integrations/zoho/weeklyReportZohoTransactions')
 const { readZohoConfig, INVENTORY_V1 } = require('../integrations/zoho/zohoConfig')
@@ -271,29 +274,34 @@ async function ensurePurchasePlanningTables() {
   await query(`CREATE INDEX IF NOT EXISTS idx_purchase_plan_items_sku ON purchase_plan_items(sku)`)
 }
 
-function buildZohoItemIndex(items) {
+function buildZohoItemIndex(items, warehouseId = '') {
   const bySku = new Map()
+  const addKey = (raw, entry) => {
+    const key = normalizeSku(raw)
+    if (!key || bySku.has(key)) return
+    bySku.set(key, entry)
+  }
   for (const item of Array.isArray(items) ? items : []) {
     const primaryCode = clean(item.sku || item.item_code || item.code)
+    const itemName = clean(item.name || item.item_name)
+    const onHand = parseWarehouseScopedStockOnHand(item, warehouseId)
+    const forSale = resolveZohoStock(item)
     const entry = {
       sku: primaryCode,
-      itemName: clean(item.name || item.item_name),
+      itemName,
       zohoItemId: clean(item.item_id || item.id),
-      currentZohoStock: resolveZohoStock(item),
+      currentZohoStock: Number.isFinite(forSale) && forSale > onHand ? forSale : onHand,
     }
     const identifiers = [
       primaryCode,
       item.item_code,
       item.code,
-      item.name,
-      item.item_name,
+      itemName,
       item.part_number,
     ]
-    for (const rawIdentifier of identifiers) {
-      const key = normalizeSku(rawIdentifier)
-      if (!key || bySku.has(key)) continue
-      bySku.set(key, entry)
-    }
+    for (const rawIdentifier of identifiers) addKey(rawIdentifier, entry)
+    for (const variant of expandExactMatchVariants(primaryCode)) addKey(variant, entry)
+    for (const variant of expandExactMatchVariants(itemName)) addKey(variant, entry)
   }
   return bySku
 }
@@ -301,7 +309,7 @@ function buildZohoItemIndex(items) {
 async function enrichUploadedLowStockSkus(skus) {
   const warehouse = await resolvePurchasePlanningWarehouse()
   const items = await fetchItemsRawForWarehouse(warehouse.warehouseId)
-  const bySku = buildZohoItemIndex(items)
+  const bySku = buildZohoItemIndex(items, warehouse.warehouseId)
   return skus.map((rawSku) => {
     const uploadedSku = clean(rawSku)
     const match = bySku.get(normalizeSku(uploadedSku))
@@ -407,15 +415,32 @@ async function saveUploadedLowStockSkus(skus) {
   }
 }
 
+const ENRICHMENT_STALE_MS = 20 * 60 * 1000
+const emptySalesAggregate = () => ({ byItemId: new Map(), bySku: new Map() })
+
 const lowStockEnrichmentJob = {
   running: false,
   queuedAgain: false,
+  startedAt: null,
   lastError: null,
   lastCompletedAt: null,
   lastSummary: null,
 }
 
+function maybeResetStaleEnrichmentJob() {
+  if (!lowStockEnrichmentJob.running || !lowStockEnrichmentJob.startedAt) return
+  if (Date.now() - lowStockEnrichmentJob.startedAt > ENRICHMENT_STALE_MS) {
+    lowStockEnrichmentJob.running = false
+    lowStockEnrichmentJob.queuedAgain = false
+    if (!lowStockEnrichmentJob.lastError) {
+      lowStockEnrichmentJob.lastError =
+        'Enrichment timed out on the server (likely Zoho sales report). Click Refresh Zoho Data to retry.'
+    }
+  }
+}
+
 function getLowStockEnrichmentStatus() {
+  maybeResetStaleEnrichmentJob()
   return {
     running: lowStockEnrichmentJob.running,
     queuedAgain: lowStockEnrichmentJob.queuedAgain,
@@ -433,6 +458,7 @@ function getLowStockEnrichmentStatus() {
 
 async function runLowStockEnrichmentJobOnce() {
   lowStockEnrichmentJob.running = true
+  lowStockEnrichmentJob.startedAt = Date.now()
   lowStockEnrichmentJob.lastError = null
   try {
     const summary = await refreshLowStockZohoEnrichment()
@@ -443,6 +469,7 @@ async function runLowStockEnrichmentJobOnce() {
     console.error('[purchase-planning] background Zoho enrichment failed:', err)
   } finally {
     lowStockEnrichmentJob.running = false
+    lowStockEnrichmentJob.startedAt = null
     if (lowStockEnrichmentJob.queuedAgain) {
       lowStockEnrichmentJob.queuedAgain = false
       await runLowStockEnrichmentJobOnce()
@@ -462,6 +489,13 @@ function queueLowStockZohoEnrichment() {
   })
 }
 
+async function fetchEnrichmentSalesAggregate() {
+  const fromDate = isoDateDaysAgo(92)
+  const toDate = todayIso()
+  const sales = await getSales(fromDate, toDate)
+  return aggregateSalesLines(sales.lines)
+}
+
 async function refreshLowStockZohoEnrichment() {
   const current = await query(`
     SELECT id, sku
@@ -476,20 +510,15 @@ async function refreshLowStockZohoEnrichment() {
   }
 
   const enriched = await enrichUploadedLowStockSkus(current.rows.map((row) => row.sku))
-  const { salesAggregate, bundleUsageAggregate } = await fetchLast3MonthsSalesAggregate()
   let matched = 0
   let unmatched = 0
+
+  // Phase 1: persist Zoho item match + stock immediately (do not wait for sales report).
   for (let i = 0; i < current.rows.length; i += 1) {
     const row = current.rows[i]
     const item = enriched[i]
     if (item && item.matchedInZoho) matched += 1
     else unmatched += 1
-    const totalSalesLast3Months = item && item.matchedInZoho
-      ? salesQtyForItem(salesAggregate, { sku: item.sku, zoho_item_id: item.zohoItemId })
-      : 0
-    const totalBundleUsageLast3Months = item && item.matchedInZoho
-      ? bundleUsageQtyForItem(bundleUsageAggregate, { sku: item.sku, zoho_item_id: item.zohoItemId })
-      : 0
     await query(
       `
         UPDATE purchase_low_stock_items
@@ -497,8 +526,6 @@ async function refreshLowStockZohoEnrichment() {
           item_name = $2,
           zoho_item_id = $3,
           current_zoho_stock = $4,
-          total_sales_last_3_months = $5,
-          total_bundle_usage_last_3_months = $6,
           updated_at = NOW()
         WHERE id = $1
       `,
@@ -507,13 +534,42 @@ async function refreshLowStockZohoEnrichment() {
         item && item.matchedInZoho ? item.itemName : '',
         item && item.matchedInZoho ? item.zohoItemId : '',
         item && item.matchedInZoho ? item.currentZohoStock : 0,
-        totalSalesLast3Months,
-        totalBundleUsageLast3Months,
       ]
     )
   }
 
+  // Phase 2: direct sales only (skip composite detail lookups — they hung enrichment for 25+ SKUs).
+  let salesAggregate = emptySalesAggregate()
+  try {
+    salesAggregate = await fetchEnrichmentSalesAggregate()
+  } catch (err) {
+    console.error('[purchase-planning] enrichment sales fetch failed (Zoho matches saved):', err)
+  }
+
+  for (let i = 0; i < current.rows.length; i += 1) {
+    const row = current.rows[i]
+    const item = enriched[i]
+    if (!item || !item.matchedInZoho) continue
+    const totalSalesLast3Months = salesQtyForItem(salesAggregate, {
+      sku: item.sku,
+      zoho_item_id: item.zohoItemId,
+    })
+    await query(
+      `
+        UPDATE purchase_low_stock_items
+        SET
+          total_sales_last_3_months = $2,
+          total_bundle_usage_last_3_months = 0,
+          updated_at = NOW()
+        WHERE id = $1
+      `,
+      [row.id, totalSalesLast3Months]
+    )
+  }
+
   const items = await listLowStock()
+  matched = items.filter((item) => String(item.zohoItemId || '').trim()).length
+  unmatched = items.length - matched
   return {
     refreshed: current.rows.length,
     matched,

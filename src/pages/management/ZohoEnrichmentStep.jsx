@@ -27,10 +27,12 @@ export function ZohoEnrichmentStep({
 
   const processed = enrichmentSummary?.refreshed ?? matched.length + unmatched.length
   const total = pending.length
+  const showAsRunning =
+    enrichmentRunning && pending.length > 0 && matched.length === 0 && unmatched.length === pending.length
 
   let statusLabel = 'Idle'
   let statusTone = 'muted'
-  if (enrichmentRunning) {
+  if (showAsRunning) {
     statusLabel = 'Running'
     statusTone = 'warning'
   } else if (enrichmentError) {
@@ -61,7 +63,7 @@ export function ZohoEnrichmentStep({
           <div>
             <dt>Processed</dt>
             <dd>
-              {enrichmentRunning ? '…' : processed} / {total}
+              {showAsRunning ? '…' : processed} / {total}
             </dd>
           </div>
           <div>
@@ -74,7 +76,7 @@ export function ZohoEnrichmentStep({
           </div>
         </dl>
         {enrichmentError && <div className="page-error">{enrichmentError}</div>}
-        {enrichmentSummary && !enrichmentRunning && (
+        {enrichmentSummary && !showAsRunning && (
           <p className="pp-hint">
             Last run: {enrichmentSummary.matched ?? 0} matched, {enrichmentSummary.unmatched ?? 0} unmatched (
             {enrichmentSummary.refreshed ?? 0} refreshed).
@@ -88,13 +90,13 @@ export function ZohoEnrichmentStep({
           <button
             type="button"
             className="btn btn--primary"
-            disabled={refreshBusy || enrichmentRunning || pending.length === 0}
+            disabled={refreshBusy || showAsRunning || pending.length === 0}
             onClick={onRefreshZoho}
           >
-            {enrichmentRunning ? 'Enrichment running…' : refreshBusy ? 'Starting refresh…' : 'Refresh Zoho Data'}
+            {showAsRunning ? 'Enrichment running…' : refreshBusy ? 'Starting refresh…' : 'Refresh Zoho Data'}
           </button>
         </div>
-        {enrichmentRunning && (
+        {showAsRunning && (
           <p className="pp-hint pp-hint--warn">Plan generation and other heavy actions are disabled while enrichment runs.</p>
         )}
       </div>

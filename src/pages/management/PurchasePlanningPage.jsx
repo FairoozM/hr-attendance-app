@@ -147,8 +147,12 @@ export function PurchasePlanningPage() {
     try {
       const result = await pollLowStockEnrichment({
         onTick: async (tick) => {
-          setLowStock(tick.items)
+          setLowStock(tick.items || [])
           if (tick.lastSummary) setEnrichmentSummary(tick.lastSummary)
+          const hasZohoMatch = (tick.items || []).some((row) => String(row.zohoItemId || '').trim())
+          if (hasZohoMatch && tick.running) {
+            setEnrichmentRunning(false)
+          }
         },
       })
       setLowStock(result.items)
