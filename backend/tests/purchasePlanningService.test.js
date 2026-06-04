@@ -61,6 +61,21 @@ function loadServiceWithDb(responderOverrides = {}) {
   }
 }
 
+test('purchasePlanningService: planUsageFromEnrichedPendingItem uses stored 3M fields', () => {
+  const { svc, restoreAll } = loadServiceWithDb()
+  try {
+    const { planUsageFromEnrichedPendingItem } = svc._internals
+    const usage = planUsageFromEnrichedPendingItem({
+      totalSalesLast3Months: 12,
+      totalBundleUsageLast3Months: 3,
+    })
+    assert.equal(usage.totalSales, 12)
+    assert.equal(usage.totalBundle, 3)
+  } finally {
+    restoreAll()
+  }
+})
+
 test('purchasePlanningService: resolveRefreshUserFields preserves manual edits', () => {
   const { svc, restoreAll } = loadServiceWithDb()
   const { resolveRefreshUserFields, isSystemGeneratedNote } = svc._internals

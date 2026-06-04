@@ -247,15 +247,44 @@ export function PurchasePlanningPage() {
   const generatePlan = useCallback(async () => {
     setBusy('generate')
     setError('')
-    setNotice('')
+    setNotice('Generating draft plan from enriched SKUs and Vigil stock…')
     try {
       const res = await api.post('/api/purchase-planning/generate-plan', {}, PP_REQUEST_OPTS)
+      if (!res?.plan?.id) {
+        throw new Error('Server returned an empty plan. Check backend logs or try again.')
+      }
       setActivePlan(res.plan)
+      setPlans((prev) => {
+        const without = prev.filter((p) => p.id !== res.plan.id)
+        return [
+          {
+            id: res.plan.id,
+            planNumber: res.plan.planNumber,
+            status: res.plan.status,
+            itemsCount: res.plan.items?.length ?? 0,
+            totalFinalQty: (res.plan.items || []).reduce(
+              (sum, item) => sum + (item.included ? Number(item.finalQty || 0) : 0),
+              0
+            ),
+            createdAt: res.plan.createdAt,
+          },
+          ...without,
+        ]
+      })
       setActiveStep(5)
-      await load()
       setNotice(`Generated draft plan ${res.plan.planNumber}. Pending SKUs are now marked as planned.`)
+      load().catch(() => {})
     } catch (err) {
-      setError(err.message || 'Plan generation failed')
+      const code = err.body?.code || err.code
+      const detail =
+        err.body?.details?.unmatchedCount != null
+          ? ` (${err.body.details.unmatchedCount} unmatched)`
+          : ''
+      setError(
+        code
+          ? `${err.message || 'Plan generation failed'} (${code})${detail}`
+          : err.message || 'Plan generation failed'
+      )
     } finally {
       setBusy('')
     }

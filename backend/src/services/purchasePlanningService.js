@@ -167,6 +167,14 @@ function mapPlanItemRow(row) {
   }
 }
 
+/** Use Zoho sales/bundle totals already stored on pending low-stock rows during enrichment. */
+function planUsageFromEnrichedPendingItem(item) {
+  return {
+    totalSales: Number(item?.totalSalesLast3Months || 0),
+    totalBundle: Number(item?.totalBundleUsageLast3Months || 0),
+  }
+}
+
 function calculatePlanQuantities({ totalSales = 0, totalBundle = 0, vigilAvailable = 0 }) {
   const requiredQty = Math.max(0, Math.ceil(toNumber(totalSales) + toNumber(totalBundle)))
   const available = Math.max(0, Math.floor(toNumber(vigilAvailable)))
@@ -905,14 +913,7 @@ async function generatePlan({ createdBy }) {
   }
   assertPendingSkusZohoReady(lowStock)
   const vigilRows = coerceVigilRowsFromUpload(upload)
-  const fromDate = isoDateDaysAgo(92)
-  const toDate = todayIso()
   const warnings = []
-  const sales = await getSales(fromDate, toDate, {
-    onWarning: (message) => warnings.push(message),
-  })
-  const salesAggregate = aggregateSalesLines(sales.lines)
-  const bundleUsageAggregate = await buildCompositeUsageAggregate(sales.lines)
 
   const client = await pool.connect()
   try {
@@ -931,14 +932,7 @@ async function generatePlan({ createdBy }) {
     const vigilIndexes = buildVigilIndexes(vigilRows)
     for (const item of lowStock) {
       const match = matchZohoSkuToVigilWithIndexes(vigilIndexes, item.sku)
-      const totalSales = salesQtyForItem(salesAggregate, {
-        sku: item.sku,
-        zoho_item_id: item.zohoItemId,
-      })
-      const totalBundle = bundleUsageQtyForItem(bundleUsageAggregate, {
-        sku: item.sku,
-        zoho_item_id: item.zohoItemId,
-      })
+      const { totalSales, totalBundle } = planUsageFromEnrichedPendingItem(item)
       const totalUsage = totalSales + totalBundle
       const averageMonthlyUsage = totalUsage / 3
       const available = match.matched ? Math.max(0, Math.floor(match.wholesaleAvailableQty)) : 0
@@ -1447,6 +1441,7 @@ module.exports = {
     buildCompositeUsageAggregate,
     bundleUsageQtyForItem,
     calculatePlanQuantities,
+    planUsageFromEnrichedPendingItem,
     nextZohoPurchaseOrderReference,
     resolvePurchaseOrderVendor,
     resolveZohoStock,

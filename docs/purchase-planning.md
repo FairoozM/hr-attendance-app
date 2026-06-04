@@ -172,7 +172,7 @@ sequenceDiagram
 
 - Preconditions: latest Vigil upload + at least one `pending` low-stock SKU
 - If any pending SKU lacks `zoho_item_id`, runs synchronous `refreshLowStockZohoEnrichment()` first
-- Fetches 92-day Zoho sales + composite bundle usage
+- Uses sales and bundle usage already stored on pending rows from Step 3 enrichment (no second full Zoho sales/composite pull at generate time)
 - For each pending SKU: match Vigil, compute quantities, insert plan line, mark SKU `planned`
 - UI blocks Generate while enrichment runs or SKUs lack Zoho IDs
 
