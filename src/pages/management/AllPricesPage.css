@@ -839,6 +839,12 @@
   background: rgba(254, 243, 199, 0.35);
 }
 
+.ap-formula-panel__hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
 /* ── COGS tab ─────────────────────────────────────────────────────────────── */
 
 .ap-tabs {

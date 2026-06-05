@@ -5,6 +5,7 @@ import './AllPricesPage.css'
 import { getAllPricesMarket, PRICES_MARKET_UAE } from './allPricesMarket'
 import { setAllPricesMarketScope } from './allPricesMarketScope'
 import { AllPricesCogsPanel } from './AllPricesCogsPanel'
+import { AllPricesFormulaPanel } from './AllPricesFormulaPanel'
 import { useUserPreferences } from '../../contexts/UserPreferencesContext'
 import { AllPricesActionToast } from './AllPricesActionToast'
 import { AllPricesConfirmModal } from './AllPricesConfirmModal'
@@ -92,12 +93,13 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
     return () => setAllPricesMarketScope(PRICES_MARKET_UAE)
   }, [market])
 
-  useEffect(() => {
-    if (!cogsEnabled) setActiveTab('prices')
-  }, [cogsEnabled])
   const [rates, setRates] = useState({ ...DEFAULT_RATES })
   const [rows, setRows] = useState([])
   const [activeTab, setActiveTab] = useState('prices')
+
+  useEffect(() => {
+    if (!cogsEnabled && activeTab !== 'prices') setActiveTab('prices')
+  }, [activeTab, cogsEnabled])
   const [prefsLoaded, setPrefsLoaded] = useState(false)
   const [pasteText, setPasteText] = useState('')
   const [pasteFeedback, setPasteFeedback] = useState({ type: '', text: '' })
@@ -801,6 +803,15 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
           <button
             type="button"
             role="tab"
+            aria-selected={activeTab === 'formula'}
+            className={`ap-tab${activeTab === 'formula' ? ' ap-tab--active' : ''}`}
+            onClick={() => setActiveTab('formula')}
+          >
+            Price formula change
+          </button>
+          <button
+            type="button"
+            role="tab"
             aria-selected={activeTab === 'cogs'}
             className={`ap-tab${activeTab === 'cogs' ? ' ap-tab--active' : ''}`}
             onClick={() => setActiveTab('cogs')}
@@ -812,62 +823,16 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
 
       {activeTab === 'cogs' ? (
         <AllPricesCogsPanel rows={rows} currencyLabel="AED" />
+      ) : activeTab === 'formula' && cogsEnabled ? (
+        <AllPricesFormulaPanel
+          rates={rates}
+          sumTakePct={sumTakePct}
+          ratesInvalid={ratesInvalid}
+          onRatesChange={(patch) => setRates((r) => ({ ...r, ...patch }))}
+          onResetRates={resetRates}
+        />
       ) : (
       <section className="page-section ap-ec-wrap" aria-label="Ecommerce price list">
-        <div className="ap-ec-formula-note" role="note">
-          <strong>Sales price comes from the wholesales department</strong> — paste it as-is from their sheet.
-          VAT, commission, and advertising are calculated from that sales price. Profit % is shown for review only
-          (management may target 15%–35% or other margins).
-        </div>
-
-        <div className="ap-ec-rates">
-          <label>
-            VAT %
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step={0.1}
-              value={rates.vatPct}
-              onChange={(e) => setRates((r) => ({ ...r, vatPct: e.target.value }))}
-            />
-          </label>
-          <label>
-            Commission %
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step={0.1}
-              value={rates.commissionPct}
-              onChange={(e) => setRates((r) => ({ ...r, commissionPct: e.target.value }))}
-            />
-          </label>
-          <label>
-            Advertising %
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step={0.1}
-              value={rates.advertisingPct}
-              onChange={(e) => setRates((r) => ({ ...r, advertisingPct: e.target.value }))}
-            />
-          </label>
-          <div className="ap-ec-rates__meta">
-            Fee take from sales: <strong>{fmtMoney(sumTakePct, 2)}%</strong> (VAT + commission + advertising)
-            <button type="button" className="btn btn--ghost" style={{ marginLeft: '0.75rem' }} onClick={resetRates}>
-              Reset rates to 5 / 15 / 15
-            </button>
-          </div>
-        </div>
-
-        {ratesInvalid ? (
-          <p className="ap-ec-error" role="alert">
-            VAT, commission, and advertising add up to 100% or more. Lower them so fee amounts can be calculated.
-          </p>
-        ) : null}
-
         {duplicateScan.summary.duplicateItemCount > 0 ? (
           <div className="ap-ec-warning-banner" role="alert">
             <div>
