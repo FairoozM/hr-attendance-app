@@ -11,6 +11,7 @@ const {
   mapAmazonListingsToIndexEntries,
   mapNoonItemsToIndexEntries,
   buildMismatchNotes,
+  attachVigilToCoverageRows,
 } = require('../src/services/skuChannelCoverageMatching')
 
 describe('normalizeSkuKey', () => {
@@ -130,6 +131,29 @@ describe('buildMismatchNotes', () => {
     })
     assert.match(notes, /Not listed on Amazon UAE or KSA/)
     assert.match(notes, /Not listed on Noon/)
+  })
+})
+
+describe('attachVigilToCoverageRows', () => {
+  it('matches vigil item code to Zoho SKU exactly', () => {
+    const rows = attachVigilToCoverageRows(
+      [
+        {
+          zohoItemId: '1',
+          zohoItemName: 'Widget',
+          zohoSku: 'W-1',
+          normalizedZohoKey: 'W-1',
+          amazonUaeMatched: false,
+          amazonKsaMatched: false,
+          amazonMatchedAny: false,
+          noonMatched: false,
+        },
+      ],
+      [{ itemCode: 'w-1', availableStock: 15, itemName: 'Widget wholesale' }]
+    )
+    assert.equal(rows[0].vigilMatched, true)
+    assert.equal(rows[0].vigilStockQty, 15)
+    assert.equal(rows[0].vigilSku, 'w-1')
   })
 })
 

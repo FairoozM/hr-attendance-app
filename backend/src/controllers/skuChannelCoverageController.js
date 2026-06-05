@@ -1,5 +1,8 @@
 const coverageService = require('../services/skuChannelCoverageService')
-const { COVERAGE_FILTERS } = require('../services/skuChannelCoverageMatching')
+const {
+  COVERAGE_FILTERS,
+  attachVigilToCoverageRows,
+} = require('../services/skuChannelCoverageMatching')
 
 function parseFilter(value) {
   const v = String(value || 'all').trim()
@@ -43,10 +46,25 @@ async function getSkuChannelCoverageSummary(req, res) {
   }
 }
 
+function parseVigilRows(body) {
+  const raw = body && Array.isArray(body.vigilRows) ? body.vigilRows : []
+  return raw
+    .map((row) => ({
+      itemCode: String(row.itemCode || row.normalizedItemCode || '').trim(),
+      normalizedItemCode: String(row.normalizedItemCode || row.itemCode || '').trim(),
+      itemName: String(row.itemName || '').trim(),
+      availableStock: row.availableStock,
+    }))
+    .filter((row) => row.itemCode)
+}
+
 async function exportSkuChannelCoverage(req, res) {
   try {
+    const query = { ...(req.query || {}), ...(req.body && typeof req.body === 'object' ? req.body : {}) }
+    const vigilRows = parseVigilRows(req.body)
     const { buffer, filename } = await coverageService.exportSkuChannelCoverageXlsx(
-      parseOptions(req.query || {})
+      parseOptions(query),
+      { vigilRows }
     )
     res.setHeader(
       'Content-Type',

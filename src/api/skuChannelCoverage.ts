@@ -1,4 +1,5 @@
-import { api, fetchBinary, downloadBlob } from './client'
+import { api, postBinary, downloadBlob } from './client'
+import type { VigilStockRow } from '../utils/skuChannelCoverageVigil'
 
 export type CoverageStatus =
   | 'COMPLETE'
@@ -34,6 +35,10 @@ export interface SkuCoverageRow {
   noonStatus: string | null
   coverageStatus: CoverageStatus
   notes: string
+  vigilMatched?: boolean
+  vigilSku?: string | null
+  vigilStockQty?: number | null
+  vigilItemName?: string | null
 }
 
 export interface SkuCoverageSummary {
@@ -105,9 +110,13 @@ export async function refreshSkuChannelCoverage(): Promise<{
 }
 
 export async function exportSkuChannelCoverageXlsx(
-  params: SkuCoverageQuery = {}
+  params: SkuCoverageQuery = {},
+  vigilRows: VigilStockRow[] = []
 ): Promise<{ blob: Blob; filename: string }> {
-  const result = await fetchBinary(`/api/sku-coverage/export${buildQuery(params)}`)
+  const result = await postBinary('/api/sku-coverage/export', {
+    ...params,
+    vigilRows,
+  })
   return {
     blob: result.blob,
     filename: result.filename || 'sku-channel-coverage.xlsx',

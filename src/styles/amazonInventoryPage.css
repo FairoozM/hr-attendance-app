@@ -637,3 +637,27 @@
   background: color-mix(in srgb, #ef4444 18%, transparent);
   color: #991b1b;
 }
+
+.sku-cov-th-vigil {
+  background: color-mix(in srgb, #7c3aed 10%, var(--theme-glass-bg));
+  font-weight: 600;
+}
+
+.sku-cov-td-vigil {
+  background: color-mix(in srgb, #7c3aed 5%, transparent);
+}
+
+.sku-cov-channel--vigil .sku-cov-channel__market {
+  font-weight: 600;
+  color: #6d28d9;
+}
+
+.sku-cov-badge--vigil-ok {
+  background: color-mix(in srgb, #8b5cf6 22%, transparent);
+  color: #5b21b6;
+}
+
+.sku-cov-badge--vigil-miss {
+  background: color-mix(in srgb, var(--text-dim) 12%, transparent);
+  color: var(--text-muted);
+}

@@ -238,6 +238,61 @@ function mapAmazonListingsToIndexEntries(listings) {
  * @param {object[]} items
  * @returns {Array<{ normalizedKey: string, rawSku: string, status: string, qty?: number | null }>}
  */
+function toVigilStockQty(value) {
+  if (value == null || value === '') return null
+  const n = Number(String(value).replace(/,/g, '').trim())
+  return Number.isFinite(n) ? n : null
+}
+
+/**
+ * @param {Array<{ itemCode?: string, normalizedItemCode?: string, itemName?: string, availableStock?: number }>} vigilRows
+ * @returns {Map<string, { vigilSku: string, vigilStockQty: number | null, vigilItemName: string }>}
+ */
+function buildVigilIndex(vigilRows) {
+  const index = new Map()
+  for (const row of vigilRows || []) {
+    const rawSku = String(row.itemCode || row.normalizedItemCode || '').trim()
+    const key = normalizeSkuKey(rawSku)
+    if (!key || index.has(key)) continue
+    index.set(key, {
+      vigilSku: rawSku,
+      vigilStockQty: toVigilStockQty(row.availableStock),
+      vigilItemName: String(row.itemName || '').trim(),
+    })
+  }
+  return index
+}
+
+/**
+ * @param {object[]} rows
+ * @param {Array<{ itemCode?: string, normalizedItemCode?: string, itemName?: string, availableStock?: number }>} vigilRows
+ * @returns {object[]}
+ */
+function attachVigilToCoverageRows(rows, vigilRows) {
+  const list = Array.isArray(vigilRows) ? vigilRows : []
+  if (list.length === 0) {
+    return (rows || []).map((row) => ({
+      ...row,
+      vigilMatched: false,
+      vigilSku: null,
+      vigilStockQty: null,
+      vigilItemName: null,
+    }))
+  }
+  const index = buildVigilIndex(list)
+  return (rows || []).map((row) => {
+    const key = row.normalizedZohoKey || normalizeSkuKey(row.zohoSku) || normalizeSkuKey(row.zohoItemName)
+    const vigil = key ? index.get(key) : undefined
+    return {
+      ...row,
+      vigilMatched: Boolean(vigil),
+      vigilSku: vigil?.vigilSku ?? null,
+      vigilStockQty: vigil?.vigilStockQty ?? null,
+      vigilItemName: vigil?.vigilItemName ?? null,
+    }
+  })
+}
+
 function mapNoonItemsToIndexEntries(items) {
   const entries = []
   for (const item of items || []) {
@@ -270,4 +325,6 @@ module.exports = {
   mapAmazonListingsToIndexEntries,
   mapNoonItemsToIndexEntries,
   buildMismatchNotes,
+  buildVigilIndex,
+  attachVigilToCoverageRows,
 }

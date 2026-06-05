@@ -272,11 +272,14 @@ async function getSkuChannelCoverageSummary(options = {}) {
   }
 }
 
-async function exportSkuChannelCoverageXlsx(options = {}) {
+const { attachVigilToCoverageRows } = require('./skuChannelCoverageMatching')
+
+async function exportSkuChannelCoverageXlsx(options = {}, { vigilRows = [] } = {}) {
   const forceRefresh = options.refresh === true || String(options.refresh || '') === '1'
   const snapshot = await buildCoverageSnapshot({ forceRefresh })
+  const rows = attachVigilToCoverageRows(snapshot.rows, vigilRows)
   const buffer = await buildSkuChannelCoverageXlsxBuffer({
-    rows: snapshot.rows,
+    rows,
     summary: snapshot.summary,
     meta: snapshot.meta,
   })

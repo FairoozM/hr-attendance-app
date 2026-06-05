@@ -19,6 +19,12 @@ import {
   formatChannelCell,
   paginateRows,
 } from '../utils/skuChannelCoverageFilters'
+import { VigilUploadPanel } from '../components/amazon/outOfStockClearance/VigilUploadPanel'
+import type { VigilParsedRow } from '../api/amazonOutOfStockClearance'
+import {
+  attachVigilToCoverageRows,
+  countVigilMatched,
+} from '../utils/skuChannelCoverageVigil'
 
 function formatDateTime(value: string | null | undefined): string {
   if (!value) return '—'
@@ -100,7 +106,8 @@ export function SkuChannelCoveragePage() {
   const [search, setSearch] = useState(() => String(searchParams.get('search') || ''))
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(50)
-  const [rows, setRows] = useState<SkuCoverageRow[]>([])
+  const [baseRows, setBaseRows] = useState<SkuCoverageRow[]>([])
+  const [vigilRows, setVigilRows] = useState<VigilParsedRow[]>([])
   const [summary, setSummary] = useState<SkuCoverageSummary | null>(null)
   const [meta, setMeta] = useState<SkuCoverageMeta | null>(null)
   const [loading, setLoading] = useState(false)
@@ -127,7 +134,7 @@ export function SkuChannelCoveragePage() {
         setError(json?.error || 'Unexpected response')
         return
       }
-      setRows(json.rows || [])
+      setBaseRows(json.rows || [])
       setSummary(json.summary || null)
       setMeta(json.meta || null)
     } catch (e) {
@@ -172,14 +179,20 @@ export function SkuChannelCoveragePage() {
     setExporting(true)
     setError('')
     try {
-      const { blob, filename } = await exportSkuChannelCoverageXlsx({ filter, search })
+      const { blob, filename } = await exportSkuChannelCoverageXlsx({ filter, search }, vigilRows)
       downloadSkuChannelCoverageXlsx(blob, filename)
     } catch (e) {
       setError(safeErrorMessage(e))
     } finally {
       setExporting(false)
     }
-  }, [filter, search])
+  }, [filter, search, vigilRows])
+
+  const rows = useMemo(
+    () => attachVigilToCoverageRows(baseRows, vigilRows),
+    [baseRows, vigilRows]
+  )
+  const vigilMatchedCount = useMemo(() => countVigilMatched(rows), [rows])
 
   const pagedRows = useMemo(() => paginateRows(rows, page, limit), [rows, page, limit])
   const totalPages = Math.max(1, Math.ceil(rows.length / limit))
@@ -192,9 +205,12 @@ export function SkuChannelCoveragePage() {
         <p className="ainv-page__lead">
           Zoho is the source of truth. Every <strong>active Zoho item</strong> is checked against{' '}
           <strong>Amazon UAE</strong>, <strong>Amazon KSA</strong> (primary), and <strong>Noon</strong>{' '}
-          (secondary) using exact SKU / item-name keys only — no fuzzy product-name matching.
+          (secondary) using exact SKU / item-name keys only — no fuzzy product-name matching.{' '}
+          <strong>Vigil wholesale stock</strong> is added manually via file upload.
         </p>
       </header>
+
+      <VigilUploadPanel onConfirmed={setVigilRows} />
 
       {summary ? (
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
@@ -249,6 +265,13 @@ export function SkuChannelCoveragePage() {
             onClick={() => applyFilter('missingAllChannels')}
             active={filter === 'missingAllChannels'}
           />
+          {vigilRows.length > 0 ? (
+            <SummaryCard
+              label="Vigil matched"
+              value={vigilMatchedCount}
+              hint={`${vigilRows.length.toLocaleString()} uploaded rows`}
+            />
+          ) : null}
         </section>
       ) : null}
 
@@ -390,6 +413,7 @@ export function SkuChannelCoveragePage() {
                   <th className="sku-cov-th-amazon">Amazon UAE</th>
                   <th className="sku-cov-th-amazon">Amazon KSA</th>
                   <th className="sku-cov-th-noon">Noon</th>
+                  <th className="sku-cov-th-vigil">Vigil Stock</th>
                   <th>Coverage Status</th>
                   <th>Notes / mismatch reason</th>
                 </tr>
@@ -430,6 +454,24 @@ export function SkuChannelCoveragePage() {
                         channel="noon"
                         label="Noon"
                       />
+                    </td>
+                    <td className="sku-cov-td-vigil">
+                      {row.vigilMatched ? (
+                        <div className="sku-cov-channel sku-cov-channel--vigil">
+                          <span className="sku-cov-channel__market">Vigil</span>
+                          <span className="sku-cov-badge sku-cov-badge--vigil-ok">In stock file</span>
+                          <span className="sku-cov-channel__detail font-mono">
+                            {formatNumber(row.vigilStockQty)}
+                          </span>
+                          {row.vigilSku ? (
+                            <span className="sku-cov-channel__status">{row.vigilSku}</span>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span className="sku-cov-badge sku-cov-badge--vigil-miss">
+                          {vigilRows.length > 0 ? 'Not in file' : 'Upload file'}
+                        </span>
+                      )}
                     </td>
                     <td>
                       <span className={coverageStatusClass(row.coverageStatus)}>

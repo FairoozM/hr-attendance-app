@@ -8,6 +8,7 @@ router.use(requireAuth, requireAdmin)
 
 router.get('/summary', ctrl.getSkuChannelCoverageSummary)
 router.get('/export', ctrl.exportSkuChannelCoverage)
+router.post('/export', ctrl.exportSkuChannelCoverage)
 router.post('/refresh', ctrl.postSkuChannelCoverageRefresh)
 
 module.exports = router

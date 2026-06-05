@@ -16,6 +16,9 @@ const EXPORT_COLUMNS = [
   { header: 'Noon Matched', key: 'noonMatched', width: 12 },
   { header: 'Noon SKU', key: 'noonSku', width: 22 },
   { header: 'Noon Status', key: 'noonStatus', width: 14 },
+  { header: 'Vigil Matched', key: 'vigilMatched', width: 12 },
+  { header: 'Vigil SKU', key: 'vigilSku', width: 22 },
+  { header: 'Vigil Stock Qty', key: 'vigilStockQty', width: 14 },
   { header: 'Coverage Status', key: 'coverageStatus', width: 18 },
 ]
 
@@ -39,6 +42,9 @@ function rowToExportObject(row) {
     noonMatched: boolLabel(row.noonMatched),
     noonSku: row.noonSku || '',
     noonStatus: row.noonStatus || '',
+    vigilMatched: boolLabel(row.vigilMatched),
+    vigilSku: row.vigilSku || '',
+    vigilStockQty: row.vigilStockQty == null ? '' : String(row.vigilStockQty),
     coverageStatus: row.coverageStatus || '',
   }
 }

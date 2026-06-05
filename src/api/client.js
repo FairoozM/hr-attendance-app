@@ -267,9 +267,10 @@ export async function fetchBinary(path) {
 }
 
 /** POST JSON and receive a binary response (CSV, ZIP, XLSX, etc.) with auth. */
-export async function postBinary(path, body = null) {
+export async function postBinary(path, body = null, opts = {}) {
   const p = normalizeApiPath(path)
   const url = p.startsWith('http') ? p : resolveApiUrl(p)
+  const timeoutMs = timeoutMsForPath(p, opts.timeoutMs)
   const res = await fetchWithTimeout(url, {
     ...defaultFetchOpts,
     method: 'POST',
@@ -280,7 +281,7 @@ export async function postBinary(path, body = null) {
     },
     body: body == null ? undefined : JSON.stringify(body),
     cache: 'no-store',
-  })
+  }, timeoutMs)
   if (!res.ok) {
     const text = await res.text()
     let msg = res.statusText || 'Request failed'
