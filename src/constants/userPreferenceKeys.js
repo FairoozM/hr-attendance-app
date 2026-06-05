@@ -12,7 +12,10 @@ export const PREF_ALL_PRICES_RECOVERY_SNAPSHOTS = 'all_prices_recovery_snapshots
 export const PREF_ALL_PRICES_HISTORY = 'all_prices_history_v1'
 export const PREF_ALL_PRICES_CLEANUP_BATCHES = 'all_prices_cleanup_batches_v1'
 export const PREF_ALL_PRICES_IMPORT_BATCHES = 'all_prices_import_batches_v1'
-/** KSA All Prices — separate draft/saved lists from UAE (same calculator defaults for now). */
+/** KSA shipment-batch landed-cost pricing (separate from UAE ecommerce calculator). */
+export const PREF_KSA_PRICING_STORE = 'ksa_pricing_store_v1'
+export const PREF_KSA_PRICING_HISTORY = 'ksa_pricing_history_v1'
+/** @deprecated Legacy KSA ecommerce mirror of UAE — superseded by PREF_KSA_PRICING_STORE */
 export const PREF_ALL_PRICES_EC_KSA = 'all_prices_ecommerce_ksa_v1'
 export const PREF_ALL_PRICES_SAVED_LISTS_KSA = 'all_prices_saved_lists_ksa_v1'
 export const PREF_ALL_PRICES_RECOVERY_SNAPSHOTS_KSA = 'all_prices_recovery_snapshots_ksa_v1'

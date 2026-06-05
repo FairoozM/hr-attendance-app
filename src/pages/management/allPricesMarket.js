@@ -55,9 +55,10 @@ export const ALL_PRICES_MARKETS = {
     id: PRICES_MARKET_KSA,
     label: 'KSA',
     pageTitle: 'All Prices (KSA)',
-    currencyHint: 'KSA · SAR',
+    currencyHint: 'KSA · SAR · shipment batches',
     routeAllPrices: '/prices/all-prices-ksa',
     prefs: {
+      /** Legacy UAE-style ecommerce keys — KSA page uses ksa_pricing_store_v1 instead */
       ec: PREF_ALL_PRICES_EC_KSA,
       savedLists: PREF_ALL_PRICES_SAVED_LISTS_KSA,
       recovery: PREF_ALL_PRICES_RECOVERY_SNAPSHOTS_KSA,

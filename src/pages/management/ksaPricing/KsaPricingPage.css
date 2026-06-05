@@ -1,0 +1,149 @@
+.ksa-pricing-page .ksa-batch-panel {
+  margin-bottom: 1.25rem;
+  padding: 1rem 1.1rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--theme-border);
+  background: var(--theme-surface-soft);
+}
+
+.ksa-batch-panel__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.ksa-batch-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.ksa-batch-panel__grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.ksa-batch-panel__grid input,
+.ksa-batch-panel__grid select,
+.ksa-batch-panel__grid textarea {
+  font: inherit;
+  padding: 0.45rem 0.55rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--theme-border);
+  background: var(--theme-surface);
+}
+
+.ksa-batch-panel__notes {
+  grid-column: 1 / -1;
+}
+
+.ksa-pricing-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  margin: 1rem 0;
+}
+
+.ksa-pricing-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--theme-border);
+  border-radius: var(--radius-lg);
+}
+
+.ksa-pricing-table {
+  width: 100%;
+  min-width: 1400px;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.ksa-pricing-table th,
+.ksa-pricing-table td {
+  padding: 0.4rem 0.45rem;
+  border-bottom: 1px solid var(--theme-border);
+  vertical-align: middle;
+}
+
+.ksa-pricing-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--theme-surface-soft);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+
+.ksa-pricing-table input {
+  width: 100%;
+  min-width: 4.5rem;
+  font: inherit;
+  padding: 0.3rem 0.35rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--theme-border);
+  background: var(--theme-surface);
+}
+
+.ksa-pricing-table .ksa-readonly-cell {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ksa-zoho-badge {
+  display: inline-block;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.ksa-zoho-badge--found {
+  background: color-mix(in srgb, var(--success, #16a34a) 18%, transparent);
+  color: var(--success, #16a34a);
+}
+
+.ksa-zoho-badge--missing_dimensions,
+.ksa-zoho-badge--not_found,
+.ksa-zoho-badge--error {
+  background: color-mix(in srgb, var(--danger, #dc2626) 14%, transparent);
+  color: var(--danger, #dc2626);
+}
+
+.ksa-zoho-badge--loading {
+  background: color-mix(in srgb, var(--warning, #b45309) 14%, transparent);
+  color: var(--warning, #b45309);
+}
+
+.ksa-zoho-badge--manual,
+.ksa-zoho-badge--idle {
+  background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+  color: var(--text-muted);
+}
+
+.ksa-history-section {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--theme-border);
+}
+
+.ksa-formula-note {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--theme-border));
+  background: color-mix(in srgb, var(--primary) 6%, var(--theme-surface-soft));
+  font-size: 0.88rem;
+}
+
+.ksa-formula-note code {
+  font-size: 0.82rem;
+}

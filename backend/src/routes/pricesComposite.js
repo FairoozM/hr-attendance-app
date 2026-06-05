@@ -3,6 +3,7 @@ const auth = require('../middleware/auth')
 const ctrl = require('../controllers/compositeItemsPricingController')
 const reportCtrl = require('../controllers/compositeItemsPriceReportController')
 const cogsCtrl = require('../controllers/cogsController')
+const ksaPricingCtrl = require('../controllers/ksaPricingController')
 
 const router = express.Router()
 
@@ -25,6 +26,13 @@ router.get(
   auth.requireAuth,
   auth.requirePermission('prices', 'view'),
   cogsCtrl.getPurchaseCosts
+)
+
+router.post(
+  '/ksa/zoho-dimensions',
+  auth.requireAuth,
+  auth.requirePermission('prices', 'view'),
+  ksaPricingCtrl.postZohoDimensions
 )
 
 router.post(
