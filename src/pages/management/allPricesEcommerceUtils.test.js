@@ -6,6 +6,7 @@ import {
   hydrateAllPricesStateFromBundle,
   isBrkhTemplateSeedRows,
   parseExcelTsvPaste,
+  profitMarginDisplayClass,
   resolveAllPricesRowsFromBundle,
   saveAllPricesEcommerceBundle,
   seedEcommerceRowsForDevOnly,
@@ -90,6 +91,13 @@ describe('allPricesEcommerceUtils seed safety', () => {
   it('formatLastSavedAt renders dd/mm/yyyy hh:mm', () => {
     const formatted = formatLastSavedAt('2026-05-17T10:30:00.000Z')
     expect(formatted).toMatch(/^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/)
+  })
+
+  it('profitMarginDisplayClass colors low and high margins', () => {
+    expect(profitMarginDisplayClass(24.9)).toBe('ap-ec-profit--low')
+    expect(profitMarginDisplayClass(25)).toBe('')
+    expect(profitMarginDisplayClass(26)).toBe('')
+    expect(profitMarginDisplayClass(26.1)).toBe('ap-ec-profit--high')
   })
 
   it('keeps wholesales sales price exactly and derives margin from it', () => {

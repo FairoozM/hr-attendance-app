@@ -339,6 +339,15 @@ export function fmtPct(n, digits = 1) {
   return `${x.toFixed(digits)}%`
 }
 
+/** Profit % of sales — red below 25%, green above 26%. */
+export function profitMarginDisplayClass(profitPct) {
+  const n = Number(profitPct)
+  if (!Number.isFinite(n)) return ''
+  if (n < 25) return 'ap-ec-profit--low'
+  if (n > 26) return 'ap-ec-profit--high'
+  return ''
+}
+
 /** Split Excel clipboard row into cells (tab-separated). */
 export function splitTsvLine(line) {
   return String(line).split('\t').map((c) => c.trim())

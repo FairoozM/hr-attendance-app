@@ -1,7 +1,11 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { AllPricesPage } from './AllPricesPage'
-import { PREF_ALL_PRICES_EC, PREF_ALL_PRICES_SAVED_LISTS } from '../../constants/userPreferenceKeys'
+import {
+  PREF_ALL_PRICES_EC,
+  PREF_ALL_PRICES_SAVED_LISTS,
+  PREF_ALL_PRICES_UAE_WHOLESALE_RESET,
+} from '../../constants/userPreferenceKeys'
 import { requestUserPrefSave } from '../../lib/userPreferencesBridge'
 
 const setPrefMock = vi.fn()
@@ -52,7 +56,9 @@ function brkhSeedRows(count = 17) {
 describe('AllPricesPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    prefsStore = {}
+    prefsStore = {
+      [PREF_ALL_PRICES_UAE_WHOLESALE_RESET]: { completedAt: '2026-06-05T00:00:00.000Z' },
+    }
     prefsReady = false
     vi.stubEnv('PROD', true)
   })
@@ -71,7 +77,9 @@ describe('AllPricesPage', () => {
 
   it('shows empty state when preference key is missing after hydrate', async () => {
     prefsReady = true
-    prefsStore = {}
+    prefsStore = {
+      [PREF_ALL_PRICES_UAE_WHOLESALE_RESET]: { completedAt: '2026-06-05T00:00:00.000Z' },
+    }
     render(<AllPricesPage />)
     await waitFor(() => {
       expect(screen.queryAllByText(/No saved lists yet/i).length).toBeGreaterThan(0)

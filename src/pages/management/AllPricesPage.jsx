@@ -38,8 +38,10 @@ import {
   hydrateAllPricesStateFromBundle,
   makeRowId,
   parseExcelTsvPaste,
+  profitMarginDisplayClass,
   saveAllPricesEcommerceBundle,
 } from './allPricesEcommerceUtils'
+import { applyUaeWholesaleResetIfNeeded } from './allPricesUaeWholesaleReset'
 import {
   appendCleanupBatch,
   appendHistoricalPrices,
@@ -239,6 +241,13 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
   useEffect(() => {
     if (!prefsReady || prefsLoaded) return
 
+    applyUaeWholesaleResetIfNeeded({
+      market,
+      getPref,
+      setPref,
+      prefs: marketCfg.prefs,
+    })
+
     const legacy = readLegacySavedListsFromLocalStorage()
     let listsStore = legacy?.savedLists?.length
       ? legacy
@@ -267,7 +276,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
 
     skipNextAutosaveRef.current = true
     setPrefsLoaded(true)
-  }, [applyBundleToState, applyTableFromList, getPref, marketCfg.prefs.ec, marketCfg.prefs.savedLists, prefsLoaded, prefsReady, setLoadedBaseline, setPref])
+  }, [applyBundleToState, applyTableFromList, getPref, market, marketCfg.prefs, prefsLoaded, prefsReady, setLoadedBaseline, setPref])
 
   useEffect(() => {
     void prefsVersion
@@ -1244,7 +1253,13 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
                         </span>
                       </td>
                       <td className="col-accent">
-                        <span className="ap-ec-num">
+                        <span
+                          className={`ap-ec-num ${
+                            hasInputs && !computed.denominatorInvalid
+                              ? profitMarginDisplayClass(computed.profitPct)
+                              : ''
+                          }`}
+                        >
                           {hasInputs && !computed.denominatorInvalid ? fmtPct(computed.profitPct) : '—'}
                         </span>
                       </td>

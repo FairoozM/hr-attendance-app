@@ -730,6 +730,24 @@
   color: var(--text-muted);
 }
 
+.ap-ec-table .ap-ec-profit--low {
+  color: #dc2626;
+  font-weight: 700;
+}
+
+.ap-ec-table .ap-ec-profit--high {
+  color: #16a34a;
+  font-weight: 700;
+}
+
+:root[data-theme='dark'] .ap-ec-table .ap-ec-profit--low {
+  color: #fca5a5;
+}
+
+:root[data-theme='dark'] .ap-ec-table .ap-ec-profit--high {
+  color: #86efac;
+}
+
 .ap-ec-table thead th.ap-ec-actions-head {
   white-space: nowrap;
 }
