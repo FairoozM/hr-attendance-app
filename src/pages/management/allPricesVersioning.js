@@ -51,9 +51,11 @@ function normalizeNumberForCompare(value) {
 
 export function getAllPriceBusinessSignature(row, rates) {
   const computed = computeEcommercePriceRow(row || {}, rates)
+  const salesPriceValue =
+    row?.salesPrice !== '' && row?.salesPrice != null ? row.salesPrice : computed.salesPrice
   return JSON.stringify({
     itemNo: normalizeItemNo(row?.itemNo),
-    salesPrice: normalizeNumberForCompare(computed.salesPrice),
+    salesPrice: normalizeNumberForCompare(salesPriceValue),
     vatAmount: normalizeNumberForCompare(computed.vatAmount),
     commissionAmount: normalizeNumberForCompare(computed.commissionAmount),
     advertisingAmount: normalizeNumberForCompare(computed.advertisingAmount),

@@ -1,9 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import {
   buildAllPricesBundle,
+  computeEcommercePriceRow,
   formatLastSavedAt,
   hydrateAllPricesStateFromBundle,
   isBrkhTemplateSeedRows,
+  parseExcelTsvPaste,
   resolveAllPricesRowsFromBundle,
   saveAllPricesEcommerceBundle,
   seedEcommerceRowsForDevOnly,
@@ -88,5 +90,29 @@ describe('allPricesEcommerceUtils seed safety', () => {
   it('formatLastSavedAt renders dd/mm/yyyy hh:mm', () => {
     const formatted = formatLastSavedAt('2026-05-17T10:30:00.000Z')
     expect(formatted).toMatch(/^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/)
+  })
+
+  it('keeps wholesales sales price exactly and derives margin from it', () => {
+    const computed = computeEcommercePriceRow(
+      { salesPrice: '10', purchasePrice: '3.5', shipping: '0' },
+      { vatPct: 5, commissionPct: 15, advertisingPct: 15, requiredProfitPct: 25 },
+    )
+
+    expect(computed.salesPrice).toBe(10)
+    expect(computed.salesPriceFromWholesale).toBe(true)
+    expect(computed.profit).toBeCloseTo(3, 5)
+    expect(computed.profitPct).toBeCloseTo(30, 5)
+  })
+
+  it('imports sales price from full wholesales paste rows', () => {
+    const { rows } = parseExcelTsvPaste(
+      'IFE-DBGL-BLAC\t10\t0.50\t1.5\t1.5\t0\t3.50\t7.00\t3.00\t30.00%',
+    )
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0].itemNo).toBe('IFE-DBGL-BLAC')
+    expect(rows[0].salesPrice).toBe('10')
+    expect(rows[0].shipping).toBe('0')
+    expect(rows[0].purchasePrice).toBe('3.5')
   })
 })

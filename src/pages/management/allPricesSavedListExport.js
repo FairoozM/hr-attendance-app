@@ -35,9 +35,12 @@ export function buildExportRowsFromRatesAndRows(list) {
     const computed = computeEcommercePriceRow(row, rates)
     const purchaseNum = Number(row.purchasePrice)
     const shipNum = Number(row.shipping)
+    const salesNum = Number(row.salesPrice)
     const hasInputs =
+      row.salesPrice !== '' &&
       row.purchasePrice !== '' &&
       row.shipping !== '' &&
+      Number.isFinite(salesNum) &&
       Number.isFinite(purchaseNum) &&
       Number.isFinite(shipNum)
     const ok = hasInputs && !computed.denominatorInvalid

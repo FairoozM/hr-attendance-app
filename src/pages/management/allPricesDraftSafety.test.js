@@ -95,6 +95,7 @@ describe('allPricesDraftSafety', () => {
 
   it('formatRatesSummary and normalizeRows strip non-editable fields', () => {
     expect(formatRatesSummary(DEFAULT_RATES)).toContain('VAT 5%')
+    expect(formatRatesSummary(DEFAULT_RATES)).not.toContain('Profit')
     const norm = normalizeRowsForFingerprint([
       { itemNo: 'A', purchasePrice: '1', shipping: '2', id: 'ignore-me', extra: 99 },
     ])

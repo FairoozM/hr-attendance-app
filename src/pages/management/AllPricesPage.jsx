@@ -65,6 +65,7 @@ function applySavedListToTableState(list) {
     rows: (list.rows || []).map((r) => ({
       id: r.id || makeRowId(),
       itemNo: r.itemNo != null ? String(r.itemNo) : '',
+      salesPrice: r.salesPrice ?? '',
       purchasePrice: r.purchasePrice ?? '',
       shipping: r.shipping ?? '',
       dateOfPrices: r.dateOfPrices != null ? String(r.dateOfPrices) : '',
@@ -213,6 +214,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
         (snapshot.rows || []).map((r) => ({
           id: r.id || makeRowId(),
           itemNo: r.itemNo != null ? String(r.itemNo) : '',
+          salesPrice: r.salesPrice ?? '',
           purchasePrice: r.purchasePrice ?? '',
           shipping: r.shipping ?? '',
           dateOfPrices: r.dateOfPrices != null ? String(r.dateOfPrices) : '',
@@ -347,11 +349,9 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
     const v = Number(rates.vatPct) || 0
     const c = Number(rates.commissionPct) || 0
     const a = Number(rates.advertisingPct) || 0
-    const p = Number(rates.requiredProfitPct) || 0
-    return v + c + a + p
+    return v + c + a
   }, [rates])
 
-  const denominatorPct = useMemo(() => Math.max(0, 100 - sumTakePct), [sumTakePct])
   const ratesInvalid = sumTakePct >= 100
 
   const primaryButton = useMemo(() => {
@@ -379,7 +379,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
   const addRow = useCallback(() => {
     setRows((prev) => [
       ...prev,
-      { id: makeRowId(), itemNo: '', purchasePrice: '', shipping: '', dateOfPrices: '' },
+      { id: makeRowId(), itemNo: '', salesPrice: '', purchasePrice: '', shipping: '', dateOfPrices: '' },
     ])
   }, [])
 
@@ -654,6 +654,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
     const incoming = parsed.map((p) => ({
       id: makeRowId(),
       itemNo: p.itemNo || '',
+      salesPrice: p.salesPrice || '',
       purchasePrice: p.purchasePrice || '',
       shipping: p.shipping || '',
       dateOfPrices: p.dateOfPrices || '',
@@ -805,8 +806,9 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
       ) : (
       <section className="page-section ap-ec-wrap" aria-label="Ecommerce price list">
         <div className="ap-ec-formula-note" role="note">
-          <strong>Required sales price</strong> when purchase + shipping are known:{' '}
-          <code>(Purchase + Shipping) ÷ (1 − VAT − Commission − Advertising − Required profit)</code>
+          <strong>Sales price comes from the wholesales department</strong> — paste it as-is from their sheet.
+          VAT, commission, and advertising are calculated from that sales price. Profit % is shown for review only
+          (management may target 15%–35% or other margins).
         </div>
 
         <div className="ap-ec-rates">
@@ -843,29 +845,17 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
               onChange={(e) => setRates((r) => ({ ...r, advertisingPct: e.target.value }))}
             />
           </label>
-          <label>
-            Required profit %
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step={0.1}
-              value={rates.requiredProfitPct}
-              onChange={(e) => setRates((r) => ({ ...r, requiredProfitPct: e.target.value }))}
-            />
-          </label>
           <div className="ap-ec-rates__meta">
-            Combined take rate: <strong>{fmtMoney(sumTakePct, 2)}%</strong> · Effective divisor:{' '}
-            <strong>{fmtMoney(denominatorPct, 2)}%</strong>
+            Fee take from sales: <strong>{fmtMoney(sumTakePct, 2)}%</strong> (VAT + commission + advertising)
             <button type="button" className="btn btn--ghost" style={{ marginLeft: '0.75rem' }} onClick={resetRates}>
-              Reset rates to 5 / 15 / 15 / 25
+              Reset rates to 5 / 15 / 15
             </button>
           </div>
         </div>
 
         {ratesInvalid ? (
           <p className="ap-ec-error" role="alert">
-            The four percentages add up to 100% or more. Lower them so the divisor stays positive.
+            VAT, commission, and advertising add up to 100% or more. Lower them so fee amounts can be calculated.
           </p>
         ) : null}
 
@@ -1016,7 +1006,10 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
           <div className="ap-ec-paste__head">
             <div>
               <h3>Bulk paste from Excel</h3>
-              <p className="ap-ec-paste__hint">Paste tab-separated rows from Excel.</p>
+              <p className="ap-ec-paste__hint">
+                Paste tab-separated rows from the wholesales Excel export. Full rows must include sales price
+                (column 2), shipping, and purchase price — sales price is kept exactly as pasted.
+              </p>
             </div>
           </div>
           <textarea
@@ -1076,6 +1069,8 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
                   <tr>
                     <th>Status</th>
                     <th>Item No.</th>
+                    <th>Current Sales</th>
+                    <th>New Sales</th>
                     <th>Current Purchase</th>
                     <th>New Purchase</th>
                     <th>Current Shipping</th>
@@ -1090,6 +1085,8 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
                     <tr key={item.id}>
                       <td>{item.status}</td>
                       <td>{item.incoming.itemNo || '—'}</td>
+                      <td>{item.current?.salesPrice ?? '—'}</td>
+                      <td>{item.incoming.salesPrice || '—'}</td>
                       <td>{item.current?.purchasePrice ?? '—'}</td>
                       <td>{item.incoming.purchasePrice || '—'}</td>
                       <td>{item.current?.shipping ?? '—'}</td>
@@ -1149,11 +1146,14 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
               ) : (
                 rows.map((row) => {
                   const computed = computeEcommercePriceRow(row, rates)
+                  const salesNum = Number(row.salesPrice)
                   const purchaseNum = Number(row.purchasePrice)
                   const shipNum = Number(row.shipping)
                   const hasInputs =
+                    row.salesPrice !== '' &&
                     row.purchasePrice !== '' &&
                     row.shipping !== '' &&
+                    Number.isFinite(salesNum) &&
                     Number.isFinite(purchaseNum) &&
                     Number.isFinite(shipNum)
                   const editCosts = editingRowId === row.id
@@ -1171,10 +1171,19 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
                         />
                       </td>
                       <td className="col-accent">
-                        {!hasInputs || computed.denominatorInvalid ? (
+                        {editCosts ? (
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={row.salesPrice}
+                            onChange={(e) => updateRow(row.id, { salesPrice: e.target.value })}
+                            aria-label="Sales price from wholesales"
+                          />
+                        ) : !hasInputs || computed.denominatorInvalid ? (
                           <span className="ap-ec-num">—</span>
                         ) : (
-                          <span className="ap-ec-num">{computed.salesPrice}</span>
+                          <span className="ap-ec-num ap-ec-cell-readonly">{fmtMoney(computed.salesPrice, 0)}</span>
                         )}
                       </td>
                       <td>

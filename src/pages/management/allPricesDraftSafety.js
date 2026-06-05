@@ -28,6 +28,7 @@ export function normalizeRowsForFingerprint(rows) {
   return normalized
     .map((r) => ({
       itemNo: String(r.itemNo || '').trim(),
+      salesPrice: r.salesPrice === '' || r.salesPrice == null ? '' : String(r.salesPrice),
       purchasePrice: r.purchasePrice === '' || r.purchasePrice == null ? '' : String(r.purchasePrice),
       shipping: r.shipping === '' || r.shipping == null ? '' : String(r.shipping),
       dateOfPrices: r.dateOfPrices != null ? String(r.dateOfPrices) : '',
@@ -139,5 +140,5 @@ export function isSignificantRowCountChange(oldCount, newCount) {
  */
 export function formatRatesSummary(rates) {
   const r = normalizeRatesForFingerprint(rates)
-  return `VAT ${r.vatPct}% · Comm ${r.commissionPct}% · Adv ${r.advertisingPct}% · Profit ${r.requiredProfitPct}%`
+  return `VAT ${r.vatPct}% · Comm ${r.commissionPct}% · Adv ${r.advertisingPct}%`
 }

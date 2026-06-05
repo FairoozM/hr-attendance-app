@@ -25,9 +25,39 @@ function toDec(pct) {
   return Math.min(100, Math.max(0, n)) / 100
 }
 
+function hasWholesaleSalesPrice(row) {
+  if (row?.salesPrice === '' || row?.salesPrice == null) return false
+  const n = Number(row.salesPrice)
+  return Number.isFinite(n) && n > 0
+}
+
+function buildComputedPriceRow(salesPrice, safePurchase, safeShipping, vat, commission, advertising) {
+  const vatAmount = salesPrice * vat
+  const commissionAmount = salesPrice * commission
+  const advertisingAmount = salesPrice * advertising
+  const totalCost = safePurchase + vatAmount + commissionAmount + advertisingAmount + safeShipping
+  const profit = salesPrice - totalCost
+  const profitPct = salesPrice > 0 ? (profit / salesPrice) * 100 : 0
+
+  return {
+    denominatorInvalid: false,
+    salesPriceFromWholesale: true,
+    salesPriceRaw: salesPrice,
+    salesPrice,
+    vatAmount,
+    commissionAmount,
+    advertisingAmount,
+    totalCost,
+    profit,
+    profitPct,
+  }
+}
+
 /**
- * Required selling price from purchase + shipping.
- * Sales = (Purchase + Shipping) / (1 - VAT - Commission - Advertising - RequiredProfit)
+ * Wholesales sales price is the source of truth when provided on the row.
+ * VAT, commission, and advertising are derived from that sales price; profit % is informational.
+ *
+ * Legacy rows without salesPrice still use the old cost-based formula as a fallback.
  */
 export function computeEcommercePriceRow(row, rates = DEFAULT_RATES) {
   const purchase = Number(row.purchasePrice)
@@ -35,17 +65,21 @@ export function computeEcommercePriceRow(row, rates = DEFAULT_RATES) {
   const vat = toDec(rates.vatPct)
   const commission = toDec(rates.commissionPct)
   const advertising = toDec(rates.advertisingPct)
-  const reqProfit = toDec(rates.requiredProfitPct)
-
-  const sumTake = vat + commission + advertising + reqProfit
-  const denominator = 1 - sumTake
 
   const safePurchase = Number.isFinite(purchase) ? purchase : 0
   const safeShipping = Number.isFinite(shipping) ? shipping : 0
 
+  if (hasWholesaleSalesPrice(row)) {
+    return buildComputedPriceRow(Number(row.salesPrice), safePurchase, safeShipping, vat, commission, advertising)
+  }
+
+  const reqProfit = toDec(rates.requiredProfitPct)
+  const denominator = 1 - vat - commission - advertising - reqProfit
+
   if (denominator <= 0 || denominator >= 1) {
     return {
       denominatorInvalid: true,
+      salesPriceFromWholesale: false,
       salesPriceRaw: 0,
       salesPrice: 0,
       vatAmount: 0,
@@ -57,28 +91,12 @@ export function computeEcommercePriceRow(row, rates = DEFAULT_RATES) {
     }
   }
 
-  const numerator = safePurchase + safeShipping
-  const salesPriceRaw = numerator / denominator
+  const salesPriceRaw = (safePurchase + safeShipping) / denominator
   const salesPrice = Math.round(salesPriceRaw)
-
-  const vatAmount = salesPrice * vat
-  const commissionAmount = salesPrice * commission
-  const advertisingAmount = salesPrice * advertising
-
-  const totalCost = safePurchase + vatAmount + commissionAmount + advertisingAmount + safeShipping
-  const profit = salesPrice - totalCost
-  const profitPct = salesPrice > 0 ? (profit / salesPrice) * 100 : 0
-
   return {
-    denominatorInvalid: false,
+    ...buildComputedPriceRow(salesPrice, safePurchase, safeShipping, vat, commission, advertising),
+    salesPriceFromWholesale: false,
     salesPriceRaw,
-    salesPrice,
-    vatAmount,
-    commissionAmount,
-    advertisingAmount,
-    totalCost,
-    profit,
-    profitPct,
   }
 }
 
@@ -146,6 +164,7 @@ export function normalizeAllPricesRows(rawRows) {
   return rawRows.map((r) => ({
     id: r.id || makeRowId(),
     itemNo: r.itemNo != null ? String(r.itemNo) : '',
+    salesPrice: r.salesPrice ?? '',
     purchasePrice: r.purchasePrice ?? '',
     shipping: r.shipping ?? '',
     dateOfPrices: r.dateOfPrices != null ? String(r.dateOfPrices) : '',
@@ -368,7 +387,7 @@ function rowLooksLikeHeader(cells) {
  * - Full sheet row: Item | Sales | VAT | Comm | Adv | Shipping | Purchase | … optional date last col
  * - Three columns: Item | Purchase | Shipping
  * - Two columns: Purchase | Shipping
- * @returns {{ rows: Array<{ itemNo: string, purchasePrice: string, shipping: string, dateOfPrices: string }>, skippedHeader: boolean, hint: string }}
+ * @returns {{ rows: Array<{ itemNo: string, salesPrice: string, purchasePrice: string, shipping: string, dateOfPrices: string }>, skippedHeader: boolean, hint: string }}
  */
 export function parseExcelTsvPaste(text) {
   const raw = String(text ?? '').replace(/^\uFEFF/, '')
@@ -397,6 +416,7 @@ export function parseExcelTsvPaste(text) {
     if (cells.length === 0 || cells.every((c) => c === '')) continue
 
     let itemNo = ''
+    let salesPrice = ''
     let purchasePrice = ''
     let shipping = ''
     let dateOfPrices = ''
@@ -405,6 +425,7 @@ export function parseExcelTsvPaste(text) {
 
     if (n >= 7) {
       itemNo = cells[0] != null ? String(cells[0]) : ''
+      salesPrice = normalizePastedNumber(cells[1])
       shipping = normalizePastedNumber(cells[5])
       purchasePrice = normalizePastedNumber(cells[6])
       const last = cells[cells.length - 1]
@@ -429,7 +450,7 @@ export function parseExcelTsvPaste(text) {
       purchasePrice = normalizePastedNumber(cells[0])
     }
 
-    rows.push({ itemNo, purchasePrice, shipping, dateOfPrices })
+    rows.push({ itemNo, salesPrice, purchasePrice, shipping, dateOfPrices })
   }
 
   let hint = 'ok'

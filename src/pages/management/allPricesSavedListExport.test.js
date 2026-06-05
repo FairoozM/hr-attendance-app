@@ -28,7 +28,7 @@ describe('allPricesSavedListExport', () => {
   it('buildExportRowsFromRatesAndRows includes item and computed columns', () => {
     const rows = buildExportRowsFromRatesAndRows({
       rates: DEFAULT_RATES,
-      rows: [{ itemNo: 'SKU-1', purchasePrice: '10', shipping: '5', dateOfPrices: '2026-01-01' }],
+      rows: [{ itemNo: 'SKU-1', salesPrice: '40', purchasePrice: '10', shipping: '5', dateOfPrices: '2026-01-01' }],
     })
     expect(rows).toHaveLength(1)
     expect(rows[0]['Item no.']).toBe('SKU-1')
