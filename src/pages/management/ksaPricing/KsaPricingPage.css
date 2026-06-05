@@ -59,7 +59,7 @@
 
 .ksa-pricing-table {
   width: 100%;
-  min-width: 1400px;
+  min-width: 1720px;
   border-collapse: collapse;
   font-size: 0.82rem;
 }
@@ -84,12 +84,31 @@
 
 .ksa-pricing-table input {
   width: 100%;
-  min-width: 4.5rem;
   font: inherit;
   padding: 0.3rem 0.35rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--theme-border);
   background: var(--theme-surface);
+}
+
+.ksa-pricing-table th:nth-child(1),
+.ksa-pricing-table td:nth-child(1) {
+  min-width: 11rem;
+}
+
+.ksa-pricing-table th:nth-child(2),
+.ksa-pricing-table td:nth-child(2) {
+  min-width: 7.25rem;
+}
+
+.ksa-pricing-table th:nth-child(3),
+.ksa-pricing-table td:nth-child(3) {
+  min-width: 8rem;
+}
+
+.ksa-pricing-table th:nth-child(n + 4),
+.ksa-pricing-table td:nth-child(n + 4) {
+  min-width: 5.75rem;
 }
 
 .ksa-pricing-table .ksa-readonly-cell {
@@ -99,11 +118,13 @@
 
 .ksa-zoho-badge {
   display: inline-block;
-  padding: 0.1rem 0.4rem;
+  padding: 0.15rem 0.45rem;
   border-radius: 999px;
   font-size: 0.68rem;
   font-weight: 700;
+  line-height: 1.15;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .ksa-zoho-badge--found {

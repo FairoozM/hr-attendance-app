@@ -1,14 +1,66 @@
 const { readZohoConfig, INVENTORY_V1 } = require('../integrations/zoho/zohoConfig')
 const { fetchItemById } = require('../integrations/zoho/zohoInventoryClient')
 const { zohoInventoryJsonRequest } = require('./zohoApiClient')
-const { findItemsBySkus } = require('./zohoBulkInvoiceStore')
+const { findItemsBySkuOrName } = require('./zohoBulkInvoiceStore')
+const { expandExactMatchVariants, expandMatchCandidates, normalizeSku } = require('../utils/purchasePlanningSkuMatcher')
 
 function cleanSku(value) {
   return String(value == null ? '' : value).trim()
 }
 
 function normalizeSkuKey(value) {
-  return cleanSku(value).toLowerCase()
+  return normalizeSku(value)
+}
+
+function lookupKeys(raw) {
+  const out = new Set()
+  for (const candidate of expandMatchCandidates(raw)) {
+    if (candidate.key) out.add(candidate.key)
+  }
+  for (const variant of expandExactMatchVariants(raw)) {
+    if (variant) out.add(variant)
+  }
+  const clean = cleanSku(raw)
+  if (clean) out.add(clean)
+  return [...out]
+}
+
+function itemLookupKeys(item) {
+  const out = new Set()
+  const add = (raw) => {
+    for (const key of lookupKeys(raw)) {
+      if (key) out.add(normalizeSkuKey(key))
+    }
+  }
+  add(item?.sku)
+  add(item?.item_code)
+  add(item?.code)
+  add(item?.name)
+  add(item?.item_name)
+  add(item?.part_number)
+  return out
+}
+
+function pickBestItemMatch(items, needle) {
+  const wanted = lookupKeys(needle).map(normalizeSkuKey).filter(Boolean)
+  const wantedSet = new Set(wanted)
+  const rows = Array.isArray(items) ? items : []
+
+  for (const wantedKey of wanted) {
+    const exact = rows.find((row) => normalizeSkuKey(row?.sku) === wantedKey)
+    if (exact) return exact
+  }
+  for (const wantedKey of wanted) {
+    const exactName = rows.find((row) => normalizeSkuKey(row?.name || row?.item_name) === wantedKey)
+    if (exactName) return exactName
+  }
+  for (const row of rows) {
+    const keys = itemLookupKeys(row)
+    for (const key of keys) {
+      if (wantedSet.has(key)) return row
+    }
+  }
+  return rows.length === 1 ? rows[0] : null
 }
 
 function parseDimension(value) {
@@ -78,8 +130,7 @@ async function searchZohoItemBySku(sku) {
     skipCache: true,
   })
   const list = Array.isArray(json?.items) ? json.items : []
-  const exact = list.filter((row) => normalizeSkuKey(row?.sku) === normalizeSkuKey(needle))
-  const pick = exact.length === 1 ? exact[0] : exact.length > 1 ? exact[0] : list.length === 1 ? list[0] : null
+  const pick = pickBestItemMatch(list, needle)
   if (!pick?.item_id) return null
   return fetchItemDetailById(pick.item_id)
 }
@@ -97,8 +148,8 @@ async function lookupSkuDimensions(sku) {
   }
 
   try {
-    const cachedRows = await findItemsBySkus([needle])
-    const cached = cachedRows[0]
+    const cachedRows = await findItemsBySkuOrName(lookupKeys(needle))
+    const cached = pickBestItemMatch(cachedRows, needle) || cachedRows[0]
     if (cached?.item_id) {
       const detail = await fetchItemDetailById(cached.item_id)
       if (detail) {
@@ -156,4 +207,9 @@ module.exports = {
   lookupSkuDimensions,
   lookupSkuDimensionsBatch,
   extractPackageDetails,
+  _internals: {
+    lookupKeys,
+    itemLookupKeys,
+    pickBestItemMatch,
+  },
 }

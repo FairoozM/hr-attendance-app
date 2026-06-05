@@ -114,11 +114,31 @@ async function findItemsBySkus(skus) {
   if (!clean.length) return []
   const { rows } = await query(
     `
-    SELECT sku, item_id, name, rate::float AS rate, tax_id, unit, status, last_synced_at
+    SELECT sku, item_id, name, rate::float AS rate, tax_id, unit, status, last_synced_at, raw_json
     FROM zoho_item_cache
     WHERE LOWER(sku) = ANY($1::text[])
     `,
     [clean.map((s) => s.toLowerCase())]
+  )
+  return rows
+}
+
+async function findItemsBySkuOrName(keys) {
+  const clean = Array.from(new Set((Array.isArray(keys) ? keys : []).map(cleanSku).filter(Boolean)))
+  if (!clean.length) return []
+  const lowered = clean.map((s) => s.toLowerCase())
+  const { rows } = await query(
+    `
+    SELECT sku, item_id, name, rate::float AS rate, tax_id, unit, status, last_synced_at, raw_json
+    FROM zoho_item_cache
+    WHERE LOWER(sku) = ANY($1::text[])
+       OR LOWER(name) = ANY($1::text[])
+    ORDER BY
+      CASE WHEN LOWER(sku) = ANY($1::text[]) THEN 0 ELSE 1 END,
+      name ASC,
+      sku ASC
+    `,
+    [lowered]
   )
   return rows
 }
@@ -194,6 +214,7 @@ module.exports = {
   ensureZohoBulkInvoiceTables,
   upsertItems,
   findItemsBySkus,
+  findItemsBySkuOrName,
   findItemsByNames,
   getItemCacheStats,
   findInvoiceByReference,

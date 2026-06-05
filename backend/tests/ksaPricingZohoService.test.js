@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
-const { extractPackageDetails } = require('../src/services/ksaPricingZohoService')
+const { _internals, extractPackageDetails } = require('../src/services/ksaPricingZohoService')
 
 describe('ksaPricingZohoService', () => {
   it('extractPackageDetails reads Zoho package_details', () => {
@@ -21,5 +21,19 @@ describe('ksaPricingZohoService', () => {
       package_details: { length: 10, width: '', height: 3, dimension_unit: 'cm' },
     })
     assert.equal(dims.hasAll, false)
+  })
+
+  it('matches colorless item code against Zoho item name', () => {
+    const hit = _internals.pickBestItemMatch(
+      [
+        {
+          sku: '6281234567890',
+          name: '2FP17SET',
+          item_id: 'item-1',
+        },
+      ],
+      '2FP17SET-BEIGE'
+    )
+    assert.equal(hit.item_id, 'item-1')
   })
 })
