@@ -368,9 +368,15 @@ export function SkuChannelCoveragePage() {
 
         {!loading && rows.length === 0 ? (
           <div className="p-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
-            {error
-              ? 'Could not load coverage data.'
-              : 'No active Zoho items match the current filter.'}
+            {error ? (
+              <span>{error}</span>
+            ) : meta?.zohoItemCount === 0 ? (
+              <span>
+                No active Zoho items were returned. Check Zoho configuration, then click Refresh data.
+              </span>
+            ) : (
+              <span>No active Zoho items match the current filter.</span>
+            )}
           </div>
         ) : null}
 

@@ -84,10 +84,14 @@ function buildQuery(params: SkuCoverageQuery): string {
   return s ? `?${s}` : ''
 }
 
+const SKU_COVERAGE_TIMEOUT_MS = 120_000
+
 export async function getSkuChannelCoverageSummary(
   params: SkuCoverageQuery = {}
 ): Promise<SkuCoverageSummaryResponse> {
-  return api.get(`/api/sku-coverage/summary${buildQuery(params)}`)
+  return api.get(`/api/sku-coverage/summary${buildQuery(params)}`, {
+    timeoutMs: SKU_COVERAGE_TIMEOUT_MS,
+  })
 }
 
 export async function refreshSkuChannelCoverage(): Promise<{
@@ -97,7 +101,7 @@ export async function refreshSkuChannelCoverage(): Promise<{
   meta?: SkuCoverageMeta
   error?: string
 }> {
-  return api.post('/api/sku-coverage/refresh', {})
+  return api.post('/api/sku-coverage/refresh', {}, { timeoutMs: SKU_COVERAGE_TIMEOUT_MS })
 }
 
 export async function exportSkuChannelCoverageXlsx(

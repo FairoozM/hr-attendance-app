@@ -51,6 +51,7 @@ function timeoutMsForPath(path, explicitMs) {
   const normalized = normalizeApiPath(typeof path === 'string' ? path : '')
   if (normalized.includes('/purchase-planning')) return PURCHASE_PLANNING_TIMEOUT_MS
   if (normalized.includes('/out-of-stock-clearance')) return 480_000
+  if (normalized.includes('/sku-coverage')) return 120_000
   return API_REQUEST_TIMEOUT_MS
 }
 

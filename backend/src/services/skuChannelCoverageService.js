@@ -2,6 +2,7 @@ const { fetchAllItemsRaw, readZohoConfig } = require('../integrations/zoho/zohoA
 const { normalizeZohoInventoryItem } = require('../integrations/zoho/zohoItemFamily')
 const { stockOnHandField } = require('../controllers/debugZohoController')
 const { fetchActiveAmazonListings } = require('./amazonListingsInventoryReadService')
+const amazonZohoStockStore = require('./amazonZohoStockComparisonStore')
 const { getEligibleCatalogItems } = require('./noon/noonProductService')
 const { getNoonProductSnapshotsForAudit } = require('./noon/noonSnapshotStore')
 const {
@@ -27,8 +28,7 @@ let _fetchInFlight = null
 function isZohoItemActive(raw) {
   if (!raw || typeof raw !== 'object') return false
   const status = String(raw.status || raw.item_status || '').trim().toLowerCase()
-  if (status && ['inactive', 'deleted'].includes(status)) return false
-  if (raw.is_active === false || raw.is_item_active === false) return false
+  if (status === 'inactive' || status === 'deleted') return false
   return true
 }
 
@@ -55,13 +55,86 @@ function mapActiveZohoItems(rawItems) {
     })
 }
 
-async function fetchAmazonListingsForMarketplace(marketplaceKey) {
+function mapCachedAmazonRows(rows) {
+  return (rows || []).map((row) => ({
+    sellerSku: row.sellerSku,
+    listingStatus: row.listingStatus || 'ACTIVE',
+    asin: row.asin || '',
+  }))
+}
+
+async function fetchAmazonListingsFromCache(marketplaceKey) {
+  const mk = String(marketplaceKey || 'uae').toLowerCase() === 'ksa' ? 'ksa' : 'uae'
+  const rows = await amazonZohoStockStore.selectAllComparisonRows({
+    marketplace: mk,
+    stockFilter: 'all',
+  })
+  const fetchedAt = await amazonZohoStockStore.getLatestComparisonGeneratedAt(mk)
+  return {
+    marketplaceKey: mk,
+    listings: mapCachedAmazonRows(rows),
+    fetchedAt: fetchedAt ? new Date(fetchedAt).toISOString() : null,
+    source: 'cache',
+    warning:
+      rows.length === 0
+        ? `No cached Amazon ${mk.toUpperCase()} listings yet. Run Amazon + Zoho Stock refresh, then reload this page.`
+        : null,
+  }
+}
+
+async function fetchAmazonListingsLive(marketplaceKey) {
   const result = await fetchActiveAmazonListings({ marketplaceKey })
+  const warnings = []
+  if (result.suppressedWarning) warnings.push(result.suppressedWarning)
   return {
     marketplaceKey,
     listings: result.listings || [],
     fetchedAt: result.fetchedAt || new Date().toISOString(),
-    warning: result.suppressedWarning || null,
+    source: 'live',
+    warning: warnings.length ? warnings.join(' ') : null,
+  }
+}
+
+async function fetchAmazonListingsForMarketplace(marketplaceKey, { forceLive = false } = {}) {
+  if (!forceLive) {
+    const cached = await fetchAmazonListingsFromCache(marketplaceKey)
+    if (cached.listings.length > 0) return cached
+  }
+  try {
+    return await fetchAmazonListingsLive(marketplaceKey)
+  } catch (err) {
+    console.warn(
+      `[sku-coverage] Amazon ${marketplaceKey} live fetch failed:`,
+      err?.message || err
+    )
+    const cached = await fetchAmazonListingsFromCache(marketplaceKey)
+    const liveMsg = err?.message ? ` ${err.message}` : ''
+    cached.warning = cached.warning
+      ? `${cached.warning} Live Amazon fetch also failed.${liveMsg}`
+      : `Amazon ${String(marketplaceKey).toUpperCase()} live fetch failed; using cache if available.${liveMsg}`
+    return cached
+  }
+}
+
+async function fetchZohoActiveItems() {
+  const cfg = readZohoConfig()
+  if (cfg.code !== 'ok') {
+    const err = new Error('Zoho is not configured for this server.')
+    err.code = 'ZOHO_NOT_CONFIGURED'
+    throw err
+  }
+  const raw = await fetchAllItemsRaw()
+  const arr = Array.isArray(raw) ? raw : []
+  const items = mapActiveZohoItems(arr)
+  if (items.length === 0 && arr.length > 0) {
+    console.warn(
+      `[sku-coverage] Zoho returned ${arr.length} items but none passed active filter`
+    )
+  }
+  return {
+    items,
+    rawCount: arr.length,
+    fetchedAt: new Date().toISOString(),
   }
 }
 
@@ -97,7 +170,7 @@ async function fetchNoonCatalogItems() {
   }
 }
 
-async function buildCoverageSnapshot({ forceRefresh = false } = {}) {
+async function buildCoverageSnapshot({ forceRefresh = false, forceLiveAmazon = false } = {}) {
   if (!forceRefresh && _cache && Date.now() < _cache.expiresAt) {
     return _cache
   }
@@ -110,19 +183,23 @@ async function buildCoverageSnapshot({ forceRefresh = false } = {}) {
   _fetchInFlight = (async () => {
     const warnings = []
     const fetchedAt = new Date().toISOString()
-
-    const [zohoRaw, amazonUaeResult, amazonKsaResult, noonResult] = await Promise.all([
-      fetchAllItemsRaw(),
-      fetchAmazonListingsForMarketplace('uae'),
-      fetchAmazonListingsForMarketplace('ksa'),
+    const zohoResult = await fetchZohoActiveItems()
+    const [amazonUaeResult, amazonKsaResult, noonResult] = await Promise.all([
+      fetchAmazonListingsForMarketplace('uae', { forceLive: forceLiveAmazon }),
+      fetchAmazonListingsForMarketplace('ksa', { forceLive: forceLiveAmazon }),
       fetchNoonCatalogItems(),
     ])
 
+    if (zohoResult.rawCount > 0 && zohoResult.items.length === 0) {
+      warnings.push(
+        `Zoho returned ${zohoResult.rawCount} items but none were treated as active. Check Zoho item status fields.`
+      )
+    }
     if (amazonUaeResult.warning) warnings.push(amazonUaeResult.warning)
     if (amazonKsaResult.warning) warnings.push(amazonKsaResult.warning)
     if (noonResult.warning) warnings.push(noonResult.warning)
 
-    const zohoItems = mapActiveZohoItems(zohoRaw)
+    const zohoItems = zohoResult.items
     const indexes = {
       amazonUae: buildChannelIndex(mapAmazonListingsToIndexEntries(amazonUaeResult.listings)),
       amazonKsa: buildChannelIndex(mapAmazonListingsToIndexEntries(amazonKsaResult.listings)),
@@ -138,8 +215,14 @@ async function buildCoverageSnapshot({ forceRefresh = false } = {}) {
       meta: {
         generatedAt: fetchedAt,
         zohoItemCount: zohoItems.length,
+        zohoRawCount: zohoResult.rawCount,
+        zohoFetchedAt: zohoResult.fetchedAt,
         amazonUaeListingCount: amazonUaeResult.listings.length,
         amazonKsaListingCount: amazonKsaResult.listings.length,
+        amazonUaeSource: amazonUaeResult.source,
+        amazonKsaSource: amazonKsaResult.source,
+        amazonUaeFetchedAt: amazonUaeResult.fetchedAt,
+        amazonKsaFetchedAt: amazonKsaResult.fetchedAt,
         noonItemCount: noonResult.items.length,
         noonSource: noonResult.source,
         warnings,
