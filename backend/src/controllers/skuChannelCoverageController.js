@@ -1,4 +1,5 @@
 const coverageService = require('../services/skuChannelCoverageService')
+const vigilZohoService = require('../services/vigilZohoStockCompareService')
 const {
   COVERAGE_FILTERS,
   attachVigilToCoverageRows,
@@ -83,6 +84,51 @@ async function exportSkuChannelCoverage(req, res) {
   }
 }
 
+function parseVigilZohoOptions(body = {}, query = {}) {
+  const merged = { ...query, ...(body && typeof body === 'object' ? body : {}) }
+  const filterRaw = String(merged.filter || 'all').trim()
+  const filter = vigilZohoService.VIGIL_ZOHO_FILTERS.has(filterRaw) ? filterRaw : 'all'
+  return {
+    vigilRows: parseVigilRows(body),
+    filter,
+    search: String(merged.search || '').trim().slice(0, 200),
+    refresh: merged.refresh === '1' || merged.refresh === 'true' || merged.refresh === true,
+  }
+}
+
+async function postVigilZohoStockCompare(req, res) {
+  try {
+    const options = parseVigilZohoOptions(req.body, req.query)
+    const data = await vigilZohoService.buildVigilZohoCompare(options)
+    return res.json(data)
+  } catch (err) {
+    console.error('[sku-coverage] vigil-zoho compare failed:', err?.message || err)
+    const code = err?.code || ''
+    if (code === 'VIGIL_ROWS_REQUIRED') {
+      return res.status(400).json({ success: false, error: err.message, code })
+    }
+    if (code === 'ZOHO_LIFE_SMILE_WAREHOUSE_NOT_FOUND') {
+      return res.status(503).json({
+        success: false,
+        error: err.message,
+        code,
+      })
+    }
+    if (code === 'ZOHO_DAILY_BUDGET_EXCEEDED') {
+      return res.status(429).json({
+        success: false,
+        error: err.message || 'Zoho daily API budget exceeded.',
+        code,
+      })
+    }
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to compare Vigil stock with Zoho Life Smile warehouse',
+      detail: err?.message || String(err),
+    })
+  }
+}
+
 async function postSkuChannelCoverageRefresh(req, res) {
   try {
     coverageService.clearSkuChannelCoverageCache()
@@ -107,4 +153,5 @@ module.exports = {
   getSkuChannelCoverageSummary,
   exportSkuChannelCoverage,
   postSkuChannelCoverageRefresh,
+  postVigilZohoStockCompare,
 }

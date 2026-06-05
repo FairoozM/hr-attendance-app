@@ -657,6 +657,22 @@
   color: #5b21b6;
 }
 
+.sku-cov-summary-card--vigil {
+  border-color: color-mix(in srgb, #a855f7 28%, var(--theme-border));
+}
+
+.sku-cov-summary-card--danger {
+  border-color: color-mix(in srgb, #ef4444 35%, var(--theme-border));
+}
+
+.sku-cov-th-zoho {
+  background: color-mix(in srgb, #0ea5e9 8%, var(--theme-panel));
+}
+
+.sku-cov-td-zoho {
+  background: color-mix(in srgb, #0ea5e9 4%, transparent);
+}
+
 .sku-cov-badge--vigil-miss {
   background: color-mix(in srgb, var(--text-dim) 12%, transparent);
   color: var(--text-muted);

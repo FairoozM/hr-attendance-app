@@ -20,6 +20,7 @@ import {
   paginateRows,
 } from '../utils/skuChannelCoverageFilters'
 import { VigilUploadPanel } from '../components/amazon/outOfStockClearance/VigilUploadPanel'
+import { VigilZohoStockView } from '../components/skuChannelCoverage/VigilZohoStockView'
 import type { VigilParsedRow } from '../api/amazonOutOfStockClearance'
 import {
   attachVigilToCoverageRows,
@@ -98,8 +99,15 @@ function ChannelBadge({
   )
 }
 
+type PageView = 'coverage' | 'vigil-zoho'
+
+function parsePageView(raw: string | null): PageView {
+  return raw === 'vigil-zoho' ? 'vigil-zoho' : 'coverage'
+}
+
 export function SkuChannelCoveragePage() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const [activeView, setActiveView] = useState<PageView>(() => parsePageView(searchParams.get('view')))
   const [filter, setFilter] = useState<CoverageFilter>(() =>
     parseCoverageFilter(searchParams.get('filter'))
   )
@@ -116,13 +124,28 @@ export function SkuChannelCoveragePage() {
   const [error, setError] = useState('')
 
   const syncUrl = useCallback(
-    (next: { filter: CoverageFilter; search: string }) => {
+    (next: { filter: CoverageFilter; search: string; view?: PageView }) => {
       const params = new URLSearchParams()
+      const view = next.view ?? activeView
+      if (view !== 'coverage') params.set('view', view)
       if (next.filter !== 'all') params.set('filter', next.filter)
       if (next.search) params.set('search', next.search)
       setSearchParams(params, { replace: true })
     },
-    [setSearchParams]
+    [activeView, setSearchParams]
+  )
+
+  const switchView = useCallback(
+    (view: PageView) => {
+      setActiveView(view)
+      setPage(1)
+      const params = new URLSearchParams()
+      if (view !== 'coverage') params.set('view', view)
+      if (filter !== 'all') params.set('filter', filter)
+      if (search) params.set('search', search)
+      setSearchParams(params, { replace: true })
+    },
+    [filter, search, setSearchParams]
   )
 
   const loadData = useCallback(async () => {
@@ -211,9 +234,28 @@ export function SkuChannelCoveragePage() {
         </p>
       </header>
 
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className={`ainv-btn ${activeView === 'coverage' ? 'ainv-btn--primary-sky' : ''}`}
+          onClick={() => switchView('coverage')}
+        >
+          Channel coverage
+        </button>
+        <button
+          type="button"
+          className={`ainv-btn ${activeView === 'vigil-zoho' ? 'ainv-btn--primary-emerald' : ''}`}
+          onClick={() => switchView('vigil-zoho')}
+        >
+          Vigil vs Zoho stock
+        </button>
+      </div>
+
       <VigilUploadPanel onConfirmed={setVigilRows} />
 
-      {summary ? (
+      {activeView === 'vigil-zoho' ? <VigilZohoStockView vigilRows={vigilRows} /> : null}
+
+      {activeView === 'coverage' && summary ? (
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <SummaryCard
             label="Active Zoho items"
@@ -263,6 +305,7 @@ export function SkuChannelCoveragePage() {
         </section>
       ) : null}
 
+      {activeView === 'coverage' ? (
       <section className="ainv-panel">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="grid flex-1 gap-3 md:grid-cols-4">
@@ -369,7 +412,9 @@ export function SkuChannelCoveragePage() {
 
         {error ? <div className="ainv-banner ainv-banner--danger mt-4">{error}</div> : null}
       </section>
+      ) : null}
 
+      {activeView === 'coverage' ? (
       <section className="ainv-panel overflow-hidden p-0">
         {loading && rows.length === 0 ? (
           <div className="p-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
@@ -496,6 +541,7 @@ export function SkuChannelCoveragePage() {
           </div>
         ) : null}
       </section>
+      ) : null}
     </div>
   )
 }

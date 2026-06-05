@@ -176,6 +176,30 @@ function zohoMapToRows(zohoBySku) {
   return Array.from(zohoBySku.values())
 }
 
+async function fetchAllLifeSmileWarehouseStock() {
+  const warehouse = await resolveLifeSmileWarehouse()
+  const rawItems = await fetchItemsRawForWarehouse(warehouse.warehouseId)
+  const index = indexZohoWarehouseItems(rawItems, warehouse.warehouseName, warehouse.warehouseId)
+  const rows = []
+  const seenItemIds = new Set()
+  for (const item of Array.isArray(rawItems) ? rawItems : []) {
+    const entry = buildZohoStockEntry(item, warehouse.warehouseName, warehouse.warehouseId)
+    if (!entry) continue
+    const itemId = entry.itemId || entry.normalizedSku
+    if (!itemId || seenItemIds.has(itemId)) continue
+    seenItemIds.add(itemId)
+    rows.push(entry)
+  }
+  return {
+    warehouse,
+    rows,
+    index,
+    fetchedAt: new Date().toISOString(),
+    itemCount: rows.length,
+    rawItemCount: Array.isArray(rawItems) ? rawItems.length : 0,
+  }
+}
+
 async function fetchZohoStockForSkus({ skus, progress }) {
   const warehouse = await resolveLifeSmileWarehouse()
   progress?.({ step: 'Fetching Zoho Life Smile warehouse stock', current: 0, total: skus.length })
@@ -218,7 +242,9 @@ module.exports = {
   zohoItemLookupKeys,
   indexZohoWarehouseItems,
   buildZohoStockMap,
+  fetchAllLifeSmileWarehouseStock,
   fetchZohoStockForSkus,
+  lookupZohoEntry,
   zohoMapToRows,
   normalizeSku,
 }

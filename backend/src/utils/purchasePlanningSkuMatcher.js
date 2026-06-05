@@ -320,6 +320,7 @@ module.exports = {
   getParentSku,
   expandExactMatchVariants,
   expandMatchCandidates,
+  vigilRowCodeSources,
   buildVigilIndexes,
   matchZohoSkuToVigilWithIndexes,
   matchZohoSkuToVigil,
