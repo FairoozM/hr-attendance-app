@@ -15,7 +15,6 @@ export type CoverageFilter =
   | 'missingAllChannels'
   | 'complete'
   | 'amazonUaeMatched'
-  | 'amazonKsaMatched'
 
 export interface SkuCoverageRow {
   zohoItemId: string
@@ -24,14 +23,11 @@ export interface SkuCoverageRow {
   normalizedZohoKey: string | null
   matchKeySource?: 'sku' | 'item_name' | null
   amazonUaeMatched: boolean
-  amazonKsaMatched: boolean
   amazonMatchedAny: boolean
   noonMatched: boolean
   amazonUaeSku: string | null
-  amazonKsaSku: string | null
   noonSku: string | null
   amazonUaeStatus: string | null
-  amazonKsaStatus: string | null
   noonStatus: string | null
   coverageStatus: CoverageStatus
   notes: string
@@ -44,7 +40,6 @@ export interface SkuCoverageRow {
 export interface SkuCoverageSummary {
   totalActiveZohoItems: number
   matchedAmazonUae: number
-  matchedAmazonKsa: number
   matchedAmazonAny: number
   matchedNoon: number
   missingAmazon: number
@@ -56,7 +51,6 @@ export interface SkuCoverageMeta {
   generatedAt: string
   zohoItemCount: number
   amazonUaeListingCount: number
-  amazonKsaListingCount: number
   noonItemCount: number
   noonSource: string
   warnings: string[]

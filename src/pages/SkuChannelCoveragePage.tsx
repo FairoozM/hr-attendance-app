@@ -204,8 +204,8 @@ export function SkuChannelCoveragePage() {
         <h1 className="ainv-page__title">SKU Channel Coverage</h1>
         <p className="ainv-page__lead">
           Zoho is the source of truth. Every <strong>active Zoho item</strong> is checked against{' '}
-          <strong>Amazon UAE</strong>, <strong>Amazon KSA</strong> (primary), and <strong>Noon</strong>{' '}
-          (secondary, matched on <strong>Noon PSKU</strong>) using exact SKU / item-name keys only — no fuzzy
+          <strong>Amazon UAE</strong> (primary) and <strong>Noon</strong> (secondary, matched on{' '}
+          <strong>Noon PSKU</strong>) using exact SKU / item-name keys only — no fuzzy
           product-name matching.{' '}
           <strong>Vigil wholesale stock</strong> is added manually via file upload.
         </p>
@@ -214,7 +214,7 @@ export function SkuChannelCoveragePage() {
       <VigilUploadPanel onConfirmed={setVigilRows} />
 
       {summary ? (
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <SummaryCard
             label="Active Zoho items"
             value={summary.totalActiveZohoItems}
@@ -229,19 +229,6 @@ export function SkuChannelCoveragePage() {
             active={filter === 'amazonUaeMatched'}
           />
           <SummaryCard
-            label="Amazon KSA matched"
-            value={summary.matchedAmazonKsa}
-            emphasis="amazon"
-            onClick={() => applyFilter('amazonKsaMatched')}
-            active={filter === 'amazonKsaMatched'}
-          />
-          <SummaryCard
-            label="Amazon (any) matched"
-            value={summary.matchedAmazonAny}
-            emphasis="amazon"
-            hint="Primary channel"
-          />
-          <SummaryCard
             label="Noon matched"
             value={summary.matchedNoon}
             hint="Secondary channel"
@@ -252,7 +239,7 @@ export function SkuChannelCoveragePage() {
             emphasis="amazon"
             onClick={() => applyFilter('missingAmazon')}
             active={filter === 'missingAmazon'}
-            hint="Not on UAE or KSA"
+            hint="Not on Amazon UAE"
           />
           <SummaryCard
             label="Missing Noon"
@@ -361,9 +348,9 @@ export function SkuChannelCoveragePage() {
               </span>
             </div>
             <div>
-              Amazon listings (UAE / KSA):{' '}
+              Amazon UAE listings:{' '}
               <span className="font-mono" style={{ color: 'var(--text-soft)' }}>
-                {formatNumber(meta.amazonUaeListingCount)} / {formatNumber(meta.amazonKsaListingCount)}
+                {formatNumber(meta.amazonUaeListingCount)}
               </span>
             </div>
             <div>
@@ -412,7 +399,6 @@ export function SkuChannelCoveragePage() {
                   <th>Zoho Item Name</th>
                   <th>Zoho SKU</th>
                   <th className="sku-cov-th-amazon">Amazon UAE</th>
-                  <th className="sku-cov-th-amazon">Amazon KSA</th>
                   <th className="sku-cov-th-noon">Noon PSKU</th>
                   <th className="sku-cov-th-vigil">Vigil Stock</th>
                   <th>Coverage Status</th>
@@ -436,15 +422,6 @@ export function SkuChannelCoveragePage() {
                         status={row.amazonUaeStatus}
                         channel="amazon"
                         label="UAE"
-                      />
-                    </td>
-                    <td className="sku-cov-td-amazon">
-                      <ChannelBadge
-                        matched={row.amazonKsaMatched}
-                        sku={row.amazonKsaSku}
-                        status={row.amazonKsaStatus}
-                        channel="amazon"
-                        label="KSA"
                       />
                     </td>
                     <td className="sku-cov-td-noon">

@@ -11,6 +11,7 @@ describe('skuChannelCoverageFilters', () => {
   it('parseCoverageFilter falls back to all for unknown values', () => {
     expect(parseCoverageFilter('missingAmazon')).toBe('missingAmazon')
     expect(parseCoverageFilter('invalid')).toBe('all')
+    expect(parseCoverageFilter('amazonKsaMatched')).toBe('amazonUaeMatched')
   })
 
   it('coverageStatusLabel maps known statuses', () => {
@@ -37,14 +38,11 @@ describe('skuChannelCoverageFilters', () => {
         zohoSku: 'A',
         normalizedZohoKey: 'A',
         amazonUaeMatched: true,
-        amazonKsaMatched: false,
         amazonMatchedAny: true,
         noonMatched: false,
         amazonUaeSku: 'A',
-        amazonKsaSku: null,
         noonSku: null,
         amazonUaeStatus: 'ACTIVE',
-        amazonKsaStatus: null,
         noonStatus: null,
         coverageStatus: 'AMAZON_ONLY',
         notes: '',
@@ -55,14 +53,11 @@ describe('skuChannelCoverageFilters', () => {
         zohoSku: 'B',
         normalizedZohoKey: 'B',
         amazonUaeMatched: false,
-        amazonKsaMatched: false,
         amazonMatchedAny: false,
         noonMatched: true,
         amazonUaeSku: null,
-        amazonKsaSku: null,
         noonSku: 'B',
         amazonUaeStatus: null,
-        amazonKsaStatus: null,
         noonStatus: 'ACTIVE',
         coverageStatus: 'NOON_ONLY',
         notes: '',

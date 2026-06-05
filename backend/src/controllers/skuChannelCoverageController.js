@@ -6,6 +6,7 @@ const {
 
 function parseFilter(value) {
   const v = String(value || 'all').trim()
+  if (v === 'amazonKsaMatched') return 'amazonUaeMatched'
   return COVERAGE_FILTERS.has(v) ? v : 'all'
 }
 

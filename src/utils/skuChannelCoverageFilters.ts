@@ -7,13 +7,14 @@ export const COVERAGE_FILTER_OPTIONS: { value: CoverageFilter; label: string }[]
   { value: 'missingAllChannels', label: 'Missing All Channels' },
   { value: 'complete', label: 'Complete' },
   { value: 'amazonUaeMatched', label: 'Amazon UAE matched' },
-  { value: 'amazonKsaMatched', label: 'Amazon KSA matched' },
 ]
 
 const VALID_FILTERS = new Set(COVERAGE_FILTER_OPTIONS.map((o) => o.value))
 
 export function parseCoverageFilter(raw: string | null | undefined): CoverageFilter {
-  const v = String(raw || 'all').trim() as CoverageFilter
+  const rawValue = String(raw || 'all').trim()
+  if (rawValue === 'amazonKsaMatched') return 'amazonUaeMatched'
+  const v = rawValue as CoverageFilter
   return VALID_FILTERS.has(v) ? v : 'all'
 }
 

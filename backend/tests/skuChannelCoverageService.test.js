@@ -56,7 +56,6 @@ describe('skuChannelCoverageService', () => {
     assert.equal(data.meta.zohoItemCount, 2)
     assert.equal(data.summary.totalActiveZohoItems, 2)
     assert.equal(data.meta.amazonUaeSource, 'cache')
-    assert.equal(data.meta.amazonKsaSource, 'cache')
     assert.equal(data.rows.length, 2)
   })
 })

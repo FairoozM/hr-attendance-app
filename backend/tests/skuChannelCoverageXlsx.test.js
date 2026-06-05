@@ -14,19 +14,16 @@ describe('skuChannelCoverageXlsx', () => {
       zohoSku: 'W-1',
       normalizedZohoKey: 'W-1',
       amazonUaeMatched: true,
-      amazonKsaMatched: false,
       amazonMatchedAny: true,
       noonMatched: false,
       amazonUaeSku: 'W-1',
-      amazonKsaSku: null,
       noonSku: null,
       amazonUaeStatus: 'ACTIVE',
-      amazonKsaStatus: null,
       noonStatus: null,
       coverageStatus: 'AMAZON_ONLY',
     })
     assert.equal(row.amazonUaeMatched, 'Yes')
-    assert.equal(row.amazonKsaMatched, 'No')
+    assert.equal(row.amazonMatchedAny, 'Yes')
     assert.equal(row.noonMatched, 'No')
   })
 
@@ -38,14 +35,11 @@ describe('skuChannelCoverageXlsx', () => {
         zohoSku: 'A-1',
         normalizedZohoKey: 'A-1',
         amazonUaeMatched: true,
-        amazonKsaMatched: false,
         amazonMatchedAny: true,
         noonMatched: false,
         amazonUaeSku: 'A-1',
-        amazonKsaSku: null,
         noonSku: null,
         amazonUaeStatus: 'ACTIVE',
-        amazonKsaStatus: null,
         noonStatus: null,
         coverageStatus: 'AMAZON_ONLY',
       },
@@ -55,14 +49,11 @@ describe('skuChannelCoverageXlsx', () => {
         zohoSku: 'Z-9',
         normalizedZohoKey: 'Z-9',
         amazonUaeMatched: false,
-        amazonKsaMatched: false,
         amazonMatchedAny: false,
         noonMatched: false,
         amazonUaeSku: null,
-        amazonKsaSku: null,
         noonSku: null,
         amazonUaeStatus: null,
-        amazonKsaStatus: null,
         noonStatus: null,
         coverageStatus: 'MISSING_ALL_CHANNELS',
       },
@@ -70,7 +61,6 @@ describe('skuChannelCoverageXlsx', () => {
     const summary = {
       totalActiveZohoItems: 2,
       matchedAmazonUae: 1,
-      matchedAmazonKsa: 0,
       matchedAmazonAny: 1,
       matchedNoon: 0,
       missingAmazon: 1,

@@ -192,9 +192,8 @@ async function buildCoverageSnapshot({ forceRefresh = false, forceLiveAmazon = f
     const warnings = []
     const fetchedAt = new Date().toISOString()
     const zohoResult = await fetchZohoActiveItems()
-    const [amazonUaeResult, amazonKsaResult, noonResult] = await Promise.all([
+    const [amazonUaeResult, noonResult] = await Promise.all([
       fetchAmazonListingsForMarketplace('uae', { forceLive: forceLiveAmazon }),
-      fetchAmazonListingsForMarketplace('ksa', { forceLive: forceLiveAmazon }),
       fetchNoonCatalogItems(),
     ])
 
@@ -204,13 +203,11 @@ async function buildCoverageSnapshot({ forceRefresh = false, forceLiveAmazon = f
       )
     }
     if (amazonUaeResult.warning) warnings.push(amazonUaeResult.warning)
-    if (amazonKsaResult.warning) warnings.push(amazonKsaResult.warning)
     if (noonResult.warning) warnings.push(noonResult.warning)
 
     const zohoItems = zohoResult.items
     const indexes = {
       amazonUae: buildChannelIndex(mapAmazonListingsToIndexEntries(amazonUaeResult.listings)),
-      amazonKsa: buildChannelIndex(mapAmazonListingsToIndexEntries(amazonKsaResult.listings)),
       noon: buildChannelIndex(mapNoonItemsToIndexEntries(noonResult.items)),
     }
 
@@ -226,11 +223,8 @@ async function buildCoverageSnapshot({ forceRefresh = false, forceLiveAmazon = f
         zohoRawCount: zohoResult.rawCount,
         zohoFetchedAt: zohoResult.fetchedAt,
         amazonUaeListingCount: amazonUaeResult.listings.length,
-        amazonKsaListingCount: amazonKsaResult.listings.length,
         amazonUaeSource: amazonUaeResult.source,
-        amazonKsaSource: amazonKsaResult.source,
         amazonUaeFetchedAt: amazonUaeResult.fetchedAt,
-        amazonKsaFetchedAt: amazonKsaResult.fetchedAt,
         noonItemCount: noonResult.items.length,
         noonSource: noonResult.source,
         warnings,

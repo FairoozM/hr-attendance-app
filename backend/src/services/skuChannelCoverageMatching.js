@@ -128,12 +128,8 @@ function deriveCoverageStatus(amazonMatchedAny, noonMatched) {
  */
 function buildMismatchNotes(row) {
   const parts = []
-  if (!row.amazonUaeMatched && !row.amazonKsaMatched) {
-    parts.push('Not listed on Amazon UAE or KSA')
-  } else if (!row.amazonUaeMatched) {
-    parts.push('Missing from Amazon UAE')
-  } else if (!row.amazonKsaMatched) {
-    parts.push('Missing from Amazon KSA')
+  if (!row.amazonUaeMatched) {
+    parts.push('Not listed on Amazon UAE')
   }
   if (!row.noonMatched) {
     parts.push('Not listed on Noon')
@@ -157,7 +153,6 @@ function buildMismatchNotes(row) {
  * }>} zohoItems
  * @param {{
  *   amazonUae: Map<string, object>,
- *   amazonKsa: Map<string, object>,
  *   noon: Map<string, object>,
  * }} indexes
  * @returns {object[]}
@@ -168,19 +163,15 @@ function buildCoverageRows(zohoItems, indexes) {
     const zohoLookupKeys = resolveZohoLookupKeys(item)
     const { key: normalizedZohoKey, source: matchKeySource } = resolveZohoMatchKey(item)
     const uaeMatch = lookupChannelMatch(indexes.amazonUae, zohoLookupKeys)
-    const ksaMatch = lookupChannelMatch(indexes.amazonKsa, zohoLookupKeys)
     const noonMatch = lookupChannelMatch(indexes.noon, zohoLookupKeys)
     const uae = uaeMatch?.hit
-    const ksa = ksaMatch?.hit
     const noon = noonMatch?.hit
 
     const amazonUaeMatched = Boolean(uae)
-    const amazonKsaMatched = Boolean(ksa)
-    const amazonMatchedAny = amazonUaeMatched || amazonKsaMatched
+    const amazonMatchedAny = amazonUaeMatched
     const noonMatched = Boolean(noon)
 
     const uaeFields = channelMatchFields(amazonUaeMatched, uae)
-    const ksaFields = channelMatchFields(amazonKsaMatched, ksa)
     const noonFields = channelMatchFields(noonMatched, noon)
 
     let coverageStatus = deriveCoverageStatus(amazonMatchedAny, noonMatched)
@@ -198,14 +189,11 @@ function buildCoverageRows(zohoItems, indexes) {
       normalizedZohoKey,
       matchKeySource,
       amazonUaeMatched,
-      amazonKsaMatched,
       amazonMatchedAny,
       noonMatched,
       amazonUaeSku: uaeFields.sku,
-      amazonKsaSku: ksaFields.sku,
       noonSku: noonFields.sku,
       amazonUaeStatus: uaeFields.status,
-      amazonKsaStatus: ksaFields.status,
       noonStatus: noonFields.status,
       coverageStatus,
       notes: '',
@@ -225,7 +213,6 @@ function computeSummaryCards(rows) {
   return {
     totalActiveZohoItems: list.length,
     matchedAmazonUae: list.filter((r) => r.amazonUaeMatched).length,
-    matchedAmazonKsa: list.filter((r) => r.amazonKsaMatched).length,
     matchedAmazonAny: list.filter((r) => r.amazonMatchedAny).length,
     matchedNoon: list.filter((r) => r.noonMatched).length,
     missingAmazon: list.filter((r) => !r.amazonMatchedAny).length,
@@ -241,7 +228,6 @@ const COVERAGE_FILTERS = new Set([
   'missingAllChannels',
   'complete',
   'amazonUaeMatched',
-  'amazonKsaMatched',
 ])
 
 /**
@@ -266,8 +252,6 @@ function filterCoverageRows(rows, options = {}) {
     filtered = filtered.filter((r) => r.coverageStatus === 'COMPLETE')
   } else if (filter === 'amazonUaeMatched') {
     filtered = filtered.filter((r) => r.amazonUaeMatched)
-  } else if (filter === 'amazonKsaMatched') {
-    filtered = filtered.filter((r) => r.amazonKsaMatched)
   }
 
   if (search) {

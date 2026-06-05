@@ -56,21 +56,20 @@ describe('channel index + coverage rows', () => {
   ]
 
   const amazonUae = buildChannelIndex(
-    mapAmazonListingsToIndexEntries([{ sellerSku: 'W-A', listingStatus: 'ACTIVE' }])
-  )
-  const amazonKsa = buildChannelIndex(
-    mapAmazonListingsToIndexEntries([{ sellerSku: 'W-C', listingStatus: 'ACTIVE' }])
+    mapAmazonListingsToIndexEntries([
+      { sellerSku: 'W-A', listingStatus: 'ACTIVE' },
+      { sellerSku: 'W-C', listingStatus: 'ACTIVE' },
+    ])
   )
   const noon = buildChannelIndex(
     mapNoonItemsToIndexEntries([{ psku: 'WIDGET B', isActive: true }])
   )
 
-  const rows = buildCoverageRows(zohoItems, { amazonUae, amazonKsa, noon })
+  const rows = buildCoverageRows(zohoItems, { amazonUae, noon })
 
   it('matches Amazon UAE by seller SKU', () => {
     const rowA = rows.find((r) => r.zohoItemId === '1')
     assert.equal(rowA.amazonUaeMatched, true)
-    assert.equal(rowA.amazonKsaMatched, false)
     assert.equal(rowA.amazonUaeSku, 'W-A')
   })
 
@@ -81,7 +80,6 @@ describe('channel index + coverage rows', () => {
         amazonUae: buildChannelIndex(
           mapAmazonListingsToIndexEntries([{ sellerSku: 'LS-01', listingStatus: 'ACTIVE' }])
         ),
-        amazonKsa: new Map(),
         noon: new Map(),
       }
     )
@@ -97,7 +95,7 @@ describe('channel index + coverage rows', () => {
 
   it('marks missing-all when not on any channel', () => {
     const rowC = rows.find((r) => r.zohoItemId === '3')
-    assert.equal(rowC.amazonKsaMatched, true)
+    assert.equal(rowC.amazonUaeMatched, true)
     assert.equal(rowC.noonMatched, false)
     assert.equal(rowC.coverageStatus, 'AMAZON_ONLY')
   })
@@ -123,9 +121,9 @@ describe('deriveCoverageStatus', () => {
 
 describe('filterCoverageRows', () => {
   const rows = [
-    { zohoItemName: 'Alpha', zohoSku: 'A-1', zohoItemId: '1', amazonMatchedAny: true, noonMatched: true, coverageStatus: 'COMPLETE', amazonUaeMatched: true, amazonKsaMatched: false },
-    { zohoItemName: 'Beta', zohoSku: 'B-2', zohoItemId: '2', amazonMatchedAny: false, noonMatched: true, coverageStatus: 'NOON_ONLY', amazonUaeMatched: false, amazonKsaMatched: false },
-    { zohoItemName: 'Gamma', zohoSku: 'G-3', zohoItemId: '3', amazonMatchedAny: false, noonMatched: false, coverageStatus: 'MISSING_ALL_CHANNELS', amazonUaeMatched: false, amazonKsaMatched: false },
+    { zohoItemName: 'Alpha', zohoSku: 'A-1', zohoItemId: '1', amazonMatchedAny: true, noonMatched: true, coverageStatus: 'COMPLETE', amazonUaeMatched: true },
+    { zohoItemName: 'Beta', zohoSku: 'B-2', zohoItemId: '2', amazonMatchedAny: false, noonMatched: true, coverageStatus: 'NOON_ONLY', amazonUaeMatched: false },
+    { zohoItemName: 'Gamma', zohoSku: 'G-3', zohoItemId: '3', amazonMatchedAny: false, noonMatched: false, coverageStatus: 'MISSING_ALL_CHANNELS', amazonUaeMatched: false },
   ]
 
   it('filters missing Amazon', () => {
@@ -144,11 +142,10 @@ describe('buildMismatchNotes', () => {
   it('describes missing Amazon channels', () => {
     const notes = buildMismatchNotes({
       amazonUaeMatched: false,
-      amazonKsaMatched: false,
       noonMatched: false,
       matchKeySource: 'sku',
     })
-    assert.match(notes, /Not listed on Amazon UAE or KSA/)
+    assert.match(notes, /Not listed on Amazon UAE/)
     assert.match(notes, /Not listed on Noon/)
   })
 })
@@ -163,7 +160,6 @@ describe('attachVigilToCoverageRows', () => {
           zohoSku: 'W-1',
           normalizedZohoKey: 'W-1',
           amazonUaeMatched: false,
-          amazonKsaMatched: false,
           amazonMatchedAny: false,
           noonMatched: false,
         },
