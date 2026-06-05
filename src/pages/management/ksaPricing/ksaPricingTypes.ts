@@ -34,6 +34,10 @@ export interface KsaPricingRow {
   advertisingPercent: number
   vatKsaPercent: number
   profitPercent: number
+  commissionAmount: number
+  advertisingAmount: number
+  vatKsaAmount: number
+  profitAmount: number
   totalBaseCost: number
   newPriceSar: number
   newPriceAfterVat: number

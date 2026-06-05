@@ -69,7 +69,16 @@ export function computeKsaRowPricing(
   batch: Pick<KsaShipmentBatch, 'freightRatePerCbm'> | null | undefined
 ): Pick<
   KsaPricingRow,
-  'cbm' | 'cargoCost' | 'totalBaseCost' | 'newPriceSar' | 'newPriceAfterVat' | 'freightRatePerCbmSnapshot'
+  | 'cbm'
+  | 'cargoCost'
+  | 'commissionAmount'
+  | 'advertisingAmount'
+  | 'vatKsaAmount'
+  | 'profitAmount'
+  | 'totalBaseCost'
+  | 'newPriceSar'
+  | 'newPriceAfterVat'
+  | 'freightRatePerCbmSnapshot'
 > {
   const freightRatePerCbm = toPositiveNumber(batch?.freightRatePerCbm)
   const dimensionUnit = row.dimensionUnit === 'in' ? 'in' : 'cm'
@@ -94,12 +103,19 @@ export function computeKsaRowPricing(
     newPriceSar = totalBaseCost / divisor
   }
 
-  const vatAmount = newPriceSar * vat
-  const newPriceAfterVat = Math.max(0, newPriceSar - vatAmount)
+  const commissionAmount = newPriceSar * commission
+  const advertisingAmount = newPriceSar * advertising
+  const vatKsaAmount = newPriceSar * vat
+  const profitAmount = newPriceSar * profit
+  const newPriceAfterVat = Math.max(0, newPriceSar - vatKsaAmount)
 
   return {
     cbm,
     cargoCost,
+    commissionAmount,
+    advertisingAmount,
+    vatKsaAmount,
+    profitAmount,
     totalBaseCost,
     newPriceSar,
     newPriceAfterVat,

@@ -116,6 +116,33 @@
   white-space: nowrap;
 }
 
+.ksa-percent-cost-cell {
+  min-width: 7.25rem;
+}
+
+.ksa-percent-cost-cell strong {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ksa-percent-cost-cell label {
+  display: grid;
+  grid-template-columns: auto minmax(3.5rem, 1fr);
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.ksa-percent-cost-cell input {
+  min-width: 3.5rem;
+  padding: 0.2rem 0.3rem;
+}
+
 .ksa-zoho-badge {
   display: inline-block;
   padding: 0.15rem 0.45rem;

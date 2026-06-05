@@ -419,10 +419,10 @@ export function KsaPricingPage() {
               <th>Cargo</th>
               <th>Storage</th>
               <th>KSA ship</th>
-              <th>Comm%</th>
-              <th>Adv%</th>
-              <th>VAT%</th>
-              <th>Profit%</th>
+              <th>Comm cost</th>
+              <th>Ad cost</th>
+              <th>VAT cost</th>
+              <th>Profit</th>
               <th>Base</th>
               <th>Price SAR</th>
               <th>After VAT</th>
@@ -507,45 +507,61 @@ export function KsaPricingPage() {
                       onChange={(e) => updateRow(row.id, { ksaShippingCost: toOptionalNumber(e.target.value) })}
                     />
                   </td>
-                  <td>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step="0.1"
-                      value={row.commissionPercent}
-                      onChange={(e) => updateRow(row.id, { commissionPercent: Number(e.target.value) || 0 })}
-                    />
+                  <td className="ksa-percent-cost-cell">
+                    <strong>{fmtSar(row.commissionAmount)}</strong>
+                    <label>
+                      <span>Rate %</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.1"
+                        value={row.commissionPercent}
+                        onChange={(e) => updateRow(row.id, { commissionPercent: Number(e.target.value) || 0 })}
+                      />
+                    </label>
                   </td>
-                  <td>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step="0.1"
-                      value={row.advertisingPercent}
-                      onChange={(e) => updateRow(row.id, { advertisingPercent: Number(e.target.value) || 0 })}
-                    />
+                  <td className="ksa-percent-cost-cell">
+                    <strong>{fmtSar(row.advertisingAmount)}</strong>
+                    <label>
+                      <span>Rate %</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.1"
+                        value={row.advertisingPercent}
+                        onChange={(e) => updateRow(row.id, { advertisingPercent: Number(e.target.value) || 0 })}
+                      />
+                    </label>
                   </td>
-                  <td>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step="0.1"
-                      value={row.vatKsaPercent}
-                      onChange={(e) => updateRow(row.id, { vatKsaPercent: Number(e.target.value) || 0 })}
-                    />
+                  <td className="ksa-percent-cost-cell">
+                    <strong>{fmtSar(row.vatKsaAmount)}</strong>
+                    <label>
+                      <span>Rate %</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.1"
+                        value={row.vatKsaPercent}
+                        onChange={(e) => updateRow(row.id, { vatKsaPercent: Number(e.target.value) || 0 })}
+                      />
+                    </label>
                   </td>
-                  <td>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step="0.1"
-                      value={row.profitPercent}
-                      onChange={(e) => updateRow(row.id, { profitPercent: Number(e.target.value) || 0 })}
-                    />
+                  <td className="ksa-percent-cost-cell">
+                    <strong>{fmtSar(row.profitAmount)}</strong>
+                    <label>
+                      <span>Rate %</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.1"
+                        value={row.profitPercent}
+                        onChange={(e) => updateRow(row.id, { profitPercent: Number(e.target.value) || 0 })}
+                      />
+                    </label>
                   </td>
                   <td className="ksa-readonly-cell">{fmtSar(row.totalBaseCost)}</td>
                   <td className="ksa-readonly-cell">
