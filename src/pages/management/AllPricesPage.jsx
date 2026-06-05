@@ -5,7 +5,7 @@ import './AllPricesPage.css'
 import { getAllPricesMarket, PRICES_MARKET_UAE } from './allPricesMarket'
 import { setAllPricesMarketScope } from './allPricesMarketScope'
 import { AllPricesCogsPanel } from './AllPricesCogsPanel'
-import { AllPricesFormulaPanel } from './AllPricesFormulaPanel'
+import { AllPricesFormulaView } from './AllPricesFormulaView'
 import { useUserPreferences } from '../../contexts/UserPreferencesContext'
 import { AllPricesActionToast } from './AllPricesActionToast'
 import { AllPricesConfirmModal } from './AllPricesConfirmModal'
@@ -31,6 +31,7 @@ import {
 } from './allPricesSavedLists'
 import {
   buildAllPricesBundle,
+  cloneAllPricesRows,
   computeEcommercePriceRow,
   DEFAULT_RATES,
   fmtMoney,
@@ -93,7 +94,9 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
     return () => setAllPricesMarketScope(PRICES_MARKET_UAE)
   }, [market])
 
-  const [rates, setRates] = useState({ ...DEFAULT_RATES })
+  const [listRates, setListRates] = useState({ ...DEFAULT_RATES })
+  const [formulaRates, setFormulaRates] = useState({ ...DEFAULT_RATES })
+  const [formulaRows, setFormulaRows] = useState([])
   const [rows, setRows] = useState([])
   const [activeTab, setActiveTab] = useState('prices')
 
@@ -127,7 +130,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
 
   const applyBundleToState = useCallback((bundle) => {
     const hydrated = hydrateAllPricesStateFromBundle(bundle)
-    setRates(hydrated.rates)
+    setListRates(hydrated.rates)
     setRows(hydrated.rows)
     setLastSavedAt(hydrated.lastSavedAt)
     return hydrated
@@ -144,8 +147,8 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
   }, [])
 
   const currentFingerprint = useMemo(
-    () => computeDraftFingerprint({ activeSavedListId, rates, rows }),
-    [activeSavedListId, rates, rows],
+    () => computeDraftFingerprint({ activeSavedListId, rates: listRates, rows }),
+    [activeSavedListId, listRates, rows],
   )
 
   const activeList = useMemo(
@@ -153,7 +156,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
     [activeSavedListId, savedListsStore.savedLists],
   )
 
-  const duplicateScan = useMemo(() => scanDuplicatePrices(rows, rates), [rates, rows])
+  const duplicateScan = useMemo(() => scanDuplicatePrices(rows, listRates), [listRates, rows])
   const movedBy = ''
 
   const activeUnsaved = useMemo(
@@ -183,7 +186,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
 
   const syncDraftAfterSave = useCallback(
     (savedAt) => {
-      const bundle = buildAllPricesBundle(rates, rows, savedAt)
+      const bundle = buildAllPricesBundle(listRates, rows, savedAt)
       saveAllPricesEcommerceBundle(bundle, {
         source: 'AllPricesPage',
         action: 'sync-draft-after-saved-list',
@@ -194,13 +197,18 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
       skipNextAutosaveRef.current = true
       setDraftSaveStatus('saved')
     },
-    [rates, rows, setPref],
+    [listRates, rows, setPref],
   )
+
+  const captureFormulaSnapshot = useCallback(() => {
+    setFormulaRows(cloneAllPricesRows(rows))
+    setFormulaRates({ ...listRates })
+  }, [listRates, rows])
 
   const applyTableFromList = useCallback(
     (list) => {
       const applied = applySavedListToTableState(list)
-      setRates(applied.rates)
+      setListRates(applied.rates)
       setRows(applied.rows)
       setLastSavedAt(applied.lastSavedAt)
       setEditingRowId(null)
@@ -213,7 +221,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
   const restoreFromSnapshot = useCallback(
     (snapshot) => {
       if (!snapshot) return
-      setRates(snapshot.rates)
+      setListRates(snapshot.rates)
       setRows(
         (snapshot.rows || []).map((r) => ({
           id: r.id || makeRowId(),
@@ -304,14 +312,14 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
     draftAutosaveTimerRef.current = setTimeout(() => {
       try {
         const result = saveAllPricesEcommerceBundle(
-          buildAllPricesBundle(rates, rows, lastSavedAt || undefined),
+          buildAllPricesBundle(listRates, rows, lastSavedAt || undefined),
           { source: 'AllPricesPage', action: 'autosave', preserveLastSavedAt: true },
         )
         if (result.blocked) {
           setDraftSaveStatus('error')
           return
         }
-        setPref(marketCfg.prefs.ec, buildAllPricesBundle(rates, rows, lastSavedAt || undefined))
+        setPref(marketCfg.prefs.ec, buildAllPricesBundle(listRates, rows, lastSavedAt || undefined))
         setDraftSaveStatus('saved')
       } catch {
         setDraftSaveStatus('error')
@@ -321,7 +329,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
     return () => {
       if (draftAutosaveTimerRef.current) clearTimeout(draftAutosaveTimerRef.current)
     }
-  }, [lastSavedAt, marketCfg.prefs.ec, prefsLoaded, prefsReady, rates, rows, setPref])
+  }, [lastSavedAt, marketCfg.prefs.ec, prefsLoaded, prefsReady, listRates, rows, setPref])
 
   useEffect(
     () => () => {
@@ -334,19 +342,19 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
     setDraftSaveStatus('saving')
     try {
       const result = saveAllPricesEcommerceBundle(
-        buildAllPricesBundle(rates, rows, lastSavedAt || undefined),
+        buildAllPricesBundle(listRates, rows, lastSavedAt || undefined),
         { source: 'AllPricesPage', action: 'autosave-retry', preserveLastSavedAt: true },
       )
       if (result.blocked) {
         setDraftSaveStatus('error')
         return
       }
-      setPref(marketCfg.prefs.ec, buildAllPricesBundle(rates, rows, lastSavedAt || undefined))
+      setPref(marketCfg.prefs.ec, buildAllPricesBundle(listRates, rows, lastSavedAt || undefined))
       setDraftSaveStatus('saved')
     } catch {
       setDraftSaveStatus('error')
     }
-  }, [lastSavedAt, rates, rows, setPref])
+  }, [lastSavedAt, listRates, rows, setPref])
 
   const sortedSavedLists = useMemo(
     () =>
@@ -356,14 +364,14 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
     [savedListsStore.savedLists],
   )
 
-  const sumTakePct = useMemo(() => {
-    const v = Number(rates.vatPct) || 0
-    const c = Number(rates.commissionPct) || 0
-    const a = Number(rates.advertisingPct) || 0
+  const formulaSumTakePct = useMemo(() => {
+    const v = Number(formulaRates.vatPct) || 0
+    const c = Number(formulaRates.commissionPct) || 0
+    const a = Number(formulaRates.advertisingPct) || 0
     return v + c + a
-  }, [rates])
+  }, [formulaRates])
 
-  const ratesInvalid = sumTakePct >= 100
+  const formulaRatesInvalid = formulaSumTakePct >= 100
 
   const primaryButton = useMemo(() => {
     if (!activeSavedListId) {
@@ -427,7 +435,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
 
       const snapshots = pushRecoverySnapshot({
         reason: 'before-update-saved-list',
-        rates,
+        rates: listRates,
         rows,
         sourceSavedListId: activeSavedListId,
         sourceSavedListName: activeList?.name,
@@ -436,7 +444,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
       if (snap) lastUndoSnapshotIdRef.current = snap.id
 
       const expectedRevision = loadedBaseline.revision ?? target.revision
-      const result = updateSavedListInStore(freshStore, listId, rates, rows, { expectedRevision })
+      const result = updateSavedListInStore(freshStore, listId, listRates, rows, { expectedRevision })
 
       if (result.reason === 'revision_conflict') {
         setRevisionConflict({ listId, listName: target.name, serverEntry: result.entry })
@@ -451,21 +459,21 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
       const nextStore = { ...result.store, activeSavedListId: listId }
       persistStore(nextStore)
       syncDraftAfterSave(result.entry.updatedAt)
-      setLoadedBaseline(listId, rates, rows, result.entry.revision)
+      setLoadedBaseline(listId, listRates, rows, result.entry.revision)
       setRevisionConflict(null)
       showActionToast('Saved list updated.', {
         onAction: () => restoreFromSnapshot(snap),
       })
       return true
     },
-    [activeList?.name, activeSavedListId, loadedBaseline.revision, persistStore, rates, restoreFromSnapshot, rows, setLoadedBaseline, showActionToast, syncDraftAfterSave],
+    [activeList?.name, activeSavedListId, loadedBaseline.revision, listRates, persistStore, restoreFromSnapshot, rows, setLoadedBaseline, showActionToast, syncDraftAfterSave],
   )
 
   const handlePrimarySave = useCallback(() => {
     if (primaryButton.mode === 'noop') return
     setSaving(true)
     if (primaryButton.mode === 'create') {
-      const result = addSavedListToStore(savedListsStore, rates, rows)
+      const result = addSavedListToStore(savedListsStore, listRates, rows)
       if (result.blocked || !result.entry) {
         showActionToast('Save blocked: template sample rows cannot be saved in production.')
         setSaving(false)
@@ -473,7 +481,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
       }
       persistStore(result.store)
       syncDraftAfterSave(result.entry.updatedAt)
-      setLoadedBaseline(result.entry.id, rates, rows, result.entry.revision)
+      setLoadedBaseline(result.entry.id, listRates, rows, result.entry.revision)
       showActionToast(`Saved as price list: ${result.entry.name}`)
       setSaving(false)
       return
@@ -482,11 +490,11 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
       runUpdateList(activeSavedListId)
     }
     setSaving(false)
-  }, [activeSavedListId, persistStore, primaryButton.mode, rates, rows, runUpdateList, savedListsStore, setLoadedBaseline, showActionToast, syncDraftAfterSave])
+  }, [activeSavedListId, listRates, persistStore, primaryButton.mode, rows, runUpdateList, savedListsStore, setLoadedBaseline, showActionToast, syncDraftAfterSave])
 
   const handleSaveAsNewList = useCallback(() => {
     setSaving(true)
-    const result = addSavedListToStore(savedListsStore, rates, rows)
+    const result = addSavedListToStore(savedListsStore, listRates, rows)
     if (result.blocked || !result.entry) {
       showActionToast('Save blocked: template sample rows cannot be saved in production.')
       setSaving(false)
@@ -494,10 +502,10 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
     }
     persistStore(result.store)
     syncDraftAfterSave(result.entry.updatedAt)
-    setLoadedBaseline(result.entry.id, rates, rows, result.entry.revision)
+    setLoadedBaseline(result.entry.id, listRates, rows, result.entry.revision)
     showActionToast(`Saved as new list: ${result.entry.name}`)
     setSaving(false)
-  }, [persistStore, rates, rows, savedListsStore, setLoadedBaseline, showActionToast, syncDraftAfterSave])
+  }, [listRates, persistStore, rows, savedListsStore, setLoadedBaseline, showActionToast, syncDraftAfterSave])
 
   const performLoadList = useCallback(
     (listId) => {
@@ -545,7 +553,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
       const target = savedListsStore.savedLists.find((l) => l.id === listId)
       const snapshots = pushRecoverySnapshot({
         reason: 'before-delete-saved-list',
-        rates,
+        rates: listRates,
         rows,
         sourceSavedListId: target?.id,
         sourceSavedListName: target?.name,
@@ -558,7 +566,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
       persistStore(next)
       if (activeSavedListId === listId) {
         setActiveSavedListId(next.activeSavedListId)
-        setLoadedBaseline(next.activeSavedListId, rates, rows, null)
+        setLoadedBaseline(next.activeSavedListId, listRates, rows, null)
       }
       showActionToast(deletedEntry ? `Deleted ${deletedEntry.name}.` : 'Saved price list deleted.', {
         actionLabel: 'restore',
@@ -574,7 +582,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
         },
       })
     },
-    [activeSavedListId, persistStore, rates, restoreFromSnapshot, rows, savedListsStore, setLoadedBaseline, showActionToast],
+    [activeSavedListId, listRates, persistStore, restoreFromSnapshot, rows, savedListsStore, setLoadedBaseline, showActionToast],
   )
 
   const handleDeleteSavedList = useCallback(
@@ -623,8 +631,8 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
       window.alert('No rows in the working draft to export.')
       return
     }
-    exportCurrentDraftToExcel({ rates, rows })
-  }, [rates, rows])
+    exportCurrentDraftToExcel({ rates: listRates, rows })
+  }, [listRates, rows])
 
   const persistHistoricalRows = useCallback((historyRows) => {
     if (!historyRows.length) return
@@ -635,14 +643,14 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
   const handleAutoCleanDuplicates = useCallback(() => {
     const snapshots = pushRecoverySnapshot({
       reason: 'before-duplicate-auto-clean',
-      rates,
+      rates: listRates,
       rows,
       sourceSavedListId: activeSavedListId,
       sourceSavedListName: activeList?.name,
     })
     const snap = snapshots[0]
     if (snap) lastUndoSnapshotIdRef.current = snap.id
-    const result = applySafeDuplicateCleanup(rows, rates, { movedBy, scan: duplicateScan })
+    const result = applySafeDuplicateCleanup(rows, listRates, { movedBy, scan: duplicateScan })
     if (!result.historyRows.length) {
       showActionToast('No safe duplicate groups to auto-clean.')
       return
@@ -659,7 +667,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
     showActionToast(`Auto-cleaned ${result.historyRows.length} duplicate row(s).`, {
       onAction: () => restoreFromSnapshot(snap),
     })
-  }, [activeList?.name, activeSavedListId, duplicateScan, movedBy, persistHistoricalRows, rates, restoreFromSnapshot, rows, showActionToast])
+  }, [activeList?.name, activeSavedListId, duplicateScan, listRates, movedBy, persistHistoricalRows, restoreFromSnapshot, rows, showActionToast])
 
   const openImportReview = useCallback((parsed, skippedHeader, sourceMode) => {
     const incoming = parsed.map((p) => ({
@@ -673,23 +681,23 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
     setImportReview({
       sourceMode,
       skippedHeader,
-      model: buildImportReview(incoming, rows, rates),
+      model: buildImportReview(incoming, rows, listRates),
     })
     setPasteFeedback({ type: 'ok', text: `Import review ready for ${incoming.length} row(s).` })
-  }, [rates, rows])
+  }, [listRates, rows])
 
   const applyReviewedImport = useCallback(() => {
     if (!importReview?.model) return
     const snapshots = pushRecoverySnapshot({
       reason: 'before-import-review-apply',
-      rates,
+      rates: listRates,
       rows,
       sourceSavedListId: activeSavedListId,
       sourceSavedListName: activeList?.name,
     })
     const snap = snapshots[0]
     if (snap) lastUndoSnapshotIdRef.current = snap.id
-    const result = applyImportReview(rows, importReview.model, rates, { movedBy })
+    const result = applyImportReview(rows, importReview.model, listRates, { movedBy })
     persistHistoricalRows(result.historyRows)
     setRows(result.activeRows)
     appendImportBatch({
@@ -709,7 +717,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
       text: `${result.summary.appliedCount} import action(s) applied. ${result.summary.historyCount} row(s) moved to Historical Prices.`,
     })
     showActionToast('Import review applied.', { onAction: () => restoreFromSnapshot(snap) })
-  }, [activeList?.name, activeSavedListId, importReview, movedBy, persistHistoricalRows, rates, restoreFromSnapshot, rows, showActionToast])
+  }, [activeList?.name, activeSavedListId, importReview, listRates, movedBy, persistHistoricalRows, restoreFromSnapshot, rows, showActionToast])
 
   const applyPasteReplaceInternal = useCallback(() => {
     const { rows: parsed, skippedHeader, hint } = parseExcelTsvPaste(pasteText)
@@ -749,19 +757,9 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
     openImportReview(parsed, skippedHeader, 'merge')
   }, [openImportReview, pasteText])
 
-  const resetRates = useCallback(() => {
-    const snapshots = pushRecoverySnapshot({
-      reason: 'before-reset-rates',
-      rates,
-      rows,
-      sourceSavedListId: activeSavedListId,
-      sourceSavedListName: activeList?.name,
-    })
-    const snap = snapshots[0]
-    if (snap) lastUndoSnapshotIdRef.current = snap.id
-    setRates({ ...DEFAULT_RATES })
-    showActionToast('Rates reset.', { onAction: () => restoreFromSnapshot(snap) })
-  }, [activeList?.name, activeSavedListId, rates, restoreFromSnapshot, rows, showActionToast])
+  const resetFormulaRates = useCallback(() => {
+    setFormulaRates({ ...DEFAULT_RATES })
+  }, [])
 
   if (!prefsReady || !prefsLoaded) {
     return (
@@ -805,7 +803,10 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
             role="tab"
             aria-selected={activeTab === 'formula'}
             className={`ap-tab${activeTab === 'formula' ? ' ap-tab--active' : ''}`}
-            onClick={() => setActiveTab('formula')}
+            onClick={() => {
+              captureFormulaSnapshot()
+              setActiveTab('formula')
+            }}
           >
             Price formula change
           </button>
@@ -824,12 +825,16 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
       {activeTab === 'cogs' ? (
         <AllPricesCogsPanel rows={rows} currencyLabel="AED" />
       ) : activeTab === 'formula' && cogsEnabled ? (
-        <AllPricesFormulaPanel
-          rates={rates}
-          sumTakePct={sumTakePct}
-          ratesInvalid={ratesInvalid}
-          onRatesChange={(patch) => setRates((r) => ({ ...r, ...patch }))}
-          onResetRates={resetRates}
+        <AllPricesFormulaView
+          rates={formulaRates}
+          rows={formulaRows}
+          sourceListName={activeList?.name || null}
+          rowCount={rows.length}
+          sumTakePct={formulaSumTakePct}
+          ratesInvalid={formulaRatesInvalid}
+          onRatesChange={(patch) => setFormulaRates((r) => ({ ...r, ...patch }))}
+          onResetRates={resetFormulaRates}
+          onRefreshSnapshot={captureFormulaSnapshot}
         />
       ) : (
       <section className="page-section ap-ec-wrap" aria-label="Ecommerce price list">
@@ -1090,9 +1095,9 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
                 <th scope="col" className="col-accent">
                   Sales price (AED)
                 </th>
-                <th scope="col">{rates.vatPct}% VAT</th>
-                <th scope="col">{rates.commissionPct}% commission</th>
-                <th scope="col">{rates.advertisingPct}% advertising</th>
+                <th scope="col">{listRates.vatPct}% VAT</th>
+                <th scope="col">{listRates.commissionPct}% commission</th>
+                <th scope="col">{listRates.advertisingPct}% advertising</th>
                 <th scope="col">Shipping</th>
                 <th scope="col" className="col-purchase">
                   Purchase price
@@ -1119,7 +1124,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
                 </tr>
               ) : (
                 rows.map((row) => {
-                  const computed = computeEcommercePriceRow(row, rates)
+                  const computed = computeEcommercePriceRow(row, listRates)
                   const salesNum = Number(row.salesPrice)
                   const purchaseNum = Number(row.purchasePrice)
                   const shipNum = Number(row.shipping)
@@ -1296,7 +1301,7 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
           if (!targetId) return
           const snapshots = pushRecoverySnapshot({
             reason: 'before-load-other-list',
-            rates,
+            rates: listRates,
             rows,
             sourceSavedListId: activeSavedListId,
             sourceSavedListName: activeList?.name,

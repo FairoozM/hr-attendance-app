@@ -845,6 +845,10 @@
   color: var(--text-muted);
 }
 
+.ap-formula-panel__banner {
+  margin-bottom: 0.25rem;
+}
+
 /* ── COGS tab ─────────────────────────────────────────────────────────────── */
 
 .ap-tabs {

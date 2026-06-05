@@ -171,6 +171,12 @@ export function normalizeAllPricesRows(rawRows) {
   }))
 }
 
+/** Shallow clone rows for formula sandbox (does not mutate price list). */
+export function cloneAllPricesRows(rawRows) {
+  const normalized = normalizeAllPricesRows(rawRows) || []
+  return normalized.map((r) => ({ ...r }))
+}
+
 /**
  * Resolve rows from a preference bundle; strips BRKH template seed in production.
  * @param {unknown} bundle
