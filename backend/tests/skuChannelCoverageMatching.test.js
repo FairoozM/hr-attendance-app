@@ -25,6 +25,11 @@ describe('normalizeSkuKey', () => {
     assert.equal(normalizeSkuKey('  ab  cd  '), 'AB CD')
     assert.equal(normalizeSkuKey('sku-100'), 'SKU-100')
   })
+
+  it('normalizes Unicode dashes like Amazon/Zoho stock comparison', () => {
+    assert.equal(normalizeSkuKey('LS–01'), 'LS-01')
+    assert.equal(normalizeSkuKey('LS-01'), 'LS-01')
+  })
 })
 
 describe('resolveZohoMatchKey', () => {
@@ -67,6 +72,20 @@ describe('channel index + coverage rows', () => {
     assert.equal(rowA.amazonUaeMatched, true)
     assert.equal(rowA.amazonKsaMatched, false)
     assert.equal(rowA.amazonUaeSku, 'W-A')
+  })
+
+  it('matches Amazon when Zoho SKU uses Unicode dash and Amazon uses ASCII hyphen', () => {
+    const dashRows = buildCoverageRows(
+      [{ zohoItemId: '9', zohoItemName: 'Tray', zohoSku: 'LS–01', sku: 'LS–01', name: 'Tray' }],
+      {
+        amazonUae: buildChannelIndex(
+          mapAmazonListingsToIndexEntries([{ sellerSku: 'LS-01', listingStatus: 'ACTIVE' }])
+        ),
+        amazonKsa: new Map(),
+        noon: new Map(),
+      }
+    )
+    assert.equal(dashRows[0].amazonUaeMatched, true)
   })
 
   it('matches Noon by item name when Zoho SKU is empty', () => {

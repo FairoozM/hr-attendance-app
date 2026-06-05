@@ -1,17 +1,81 @@
 const { normalizeSkuKey } = require('../utils/normalizeSkuKey')
+const { expandExactMatchVariants } = require('../utils/purchasePlanningSkuMatcher')
+const { zohoItemLookupKeys } = require('./zohoLifeSmileWarehouseService')
 
 /** @typedef {'COMPLETE'|'AMAZON_ONLY'|'NOON_ONLY'|'MISSING_AMAZON'|'MISSING_ALL_CHANNELS'} CoverageStatus */
 
+function zohoExpandMatchEnabled() {
+  const raw = String(process.env.AMAZON_ZOHO_EXPAND_SKU_MATCH || '1').trim().toLowerCase()
+  return raw !== '0' && raw !== 'false' && raw !== 'no'
+}
+
 /**
- * @param {{ sku?: string, name?: string }} zohoItem
- * @returns {{ key: string | null, source: 'sku' | 'item_name' | null }}
+ * @param {{ sku?: string, zohoSku?: string, name?: string, zohoItemName?: string, item_code?: string, code?: string, part_number?: string }} zohoItem
+ * @returns {{ key: string | null, source: 'sku' | 'item_name' | 'alias' | null }}
  */
 function resolveZohoMatchKey(zohoItem) {
-  const skuKey = normalizeSkuKey(zohoItem?.sku)
+  const sku = String(zohoItem?.zohoSku || zohoItem?.sku || '').trim()
+  const name = String(zohoItem?.zohoItemName || zohoItem?.name || '').trim()
+  const skuKey = normalizeSkuKey(sku)
   if (skuKey) return { key: skuKey, source: 'sku' }
-  const nameKey = normalizeSkuKey(zohoItem?.name)
+  const nameKey = normalizeSkuKey(name)
   if (nameKey) return { key: nameKey, source: 'item_name' }
   return { key: null, source: null }
+}
+
+/**
+ * All Zoho keys used elsewhere for Amazon↔Zoho joins (sku, name, item_code, exact variants).
+ * @param {object} zohoItem
+ * @returns {Array<{ key: string, source: 'sku' | 'item_name' | 'alias' }>}
+ */
+function resolveZohoLookupKeys(zohoItem) {
+  const sku = String(zohoItem?.zohoSku || zohoItem?.sku || '').trim()
+  const name = String(zohoItem?.zohoItemName || zohoItem?.name || '').trim()
+  const entry = { sku, itemName: name }
+  const keys = zohoItemLookupKeys(zohoItem, entry)
+  const primarySku = normalizeSkuKey(sku)
+  const primaryName = normalizeSkuKey(name)
+  const ordered = []
+  const seen = new Set()
+
+  function push(key, source) {
+    if (!key || seen.has(key)) return
+    seen.add(key)
+    ordered.push({ key, source })
+  }
+
+  if (primarySku) push(primarySku, 'sku')
+  if (primaryName) push(primaryName, 'item_name')
+  for (const key of keys) {
+    if (primarySku && key === primarySku) continue
+    if (primaryName && key === primaryName) continue
+    push(key, 'alias')
+  }
+
+  return ordered
+}
+
+/**
+ * @param {Map<string, object>} index
+ * @param {Array<{ key: string, source: 'sku' | 'item_name' | 'alias' }>} zohoKeys
+ * @returns {{ hit: object, matchedKey: string, source: 'sku' | 'item_name' | 'alias' } | null}
+ */
+function lookupChannelMatch(index, zohoKeys) {
+  for (const candidate of zohoKeys || []) {
+    const tryKeys = [candidate.key]
+    if (zohoExpandMatchEnabled()) {
+      for (const variant of expandExactMatchVariants(candidate.key)) {
+        if (!tryKeys.includes(variant)) tryKeys.push(variant)
+      }
+    }
+    for (const key of tryKeys) {
+      const hit = index.get(key)
+      if (hit) {
+        return { hit, matchedKey: key, source: candidate.source }
+      }
+    }
+  }
+  return null
 }
 
 /**
@@ -101,10 +165,14 @@ function buildMismatchNotes(row) {
 function buildCoverageRows(zohoItems, indexes) {
   const rows = []
   for (const item of zohoItems || []) {
+    const zohoLookupKeys = resolveZohoLookupKeys(item)
     const { key: normalizedZohoKey, source: matchKeySource } = resolveZohoMatchKey(item)
-    const uae = normalizedZohoKey ? indexes.amazonUae.get(normalizedZohoKey) : undefined
-    const ksa = normalizedZohoKey ? indexes.amazonKsa.get(normalizedZohoKey) : undefined
-    const noon = normalizedZohoKey ? indexes.noon.get(normalizedZohoKey) : undefined
+    const uaeMatch = lookupChannelMatch(indexes.amazonUae, zohoLookupKeys)
+    const ksaMatch = lookupChannelMatch(indexes.amazonKsa, zohoLookupKeys)
+    const noonMatch = lookupChannelMatch(indexes.noon, zohoLookupKeys)
+    const uae = uaeMatch?.hit
+    const ksa = ksaMatch?.hit
+    const noon = noonMatch?.hit
 
     const amazonUaeMatched = Boolean(uae)
     const amazonKsaMatched = Boolean(ksa)
@@ -224,13 +292,33 @@ function filterCoverageRows(rows, options = {}) {
  * @returns {Array<{ normalizedKey: string, rawSku: string, status: string, qty?: number | null, asin?: string }>}
  */
 function mapAmazonListingsToIndexEntries(listings) {
-  return (listings || []).map((listing) => ({
-    normalizedKey: normalizeSkuKey(listing.sellerSku),
-    rawSku: listing.sellerSku || '',
-    status: listing.listingStatus || 'ACTIVE',
-    qty: listing.availableQty ?? null,
-    asin: listing.asin || '',
-  })).filter((e) => e.normalizedKey)
+  const entries = []
+  for (const listing of listings || []) {
+    const rawSku = listing.sellerSku || listing.normalizedSku || ''
+    const normalizedKey = normalizeSkuKey(listing.normalizedSku || listing.sellerSku)
+    if (!normalizedKey) continue
+    entries.push({
+      normalizedKey,
+      rawSku: String(rawSku).trim() || normalizedKey,
+      status: listing.listingStatus || 'ACTIVE',
+      qty: listing.availableQty ?? null,
+      asin: listing.asin || '',
+    })
+    if (zohoExpandMatchEnabled()) {
+      for (const variant of expandExactMatchVariants(rawSku)) {
+        const variantKey = normalizeSkuKey(variant)
+        if (!variantKey || variantKey === normalizedKey) continue
+        entries.push({
+          normalizedKey: variantKey,
+          rawSku: String(rawSku).trim() || variantKey,
+          status: listing.listingStatus || 'ACTIVE',
+          qty: listing.availableQty ?? null,
+          asin: listing.asin || '',
+        })
+      }
+    }
+  }
+  return entries
 }
 
 /**
@@ -354,6 +442,8 @@ function mapNoonItemsToIndexEntries(items) {
 module.exports = {
   COVERAGE_FILTERS,
   resolveZohoMatchKey,
+  resolveZohoLookupKeys,
+  lookupChannelMatch,
   buildChannelIndex,
   deriveCoverageStatus,
   buildCoverageRows,

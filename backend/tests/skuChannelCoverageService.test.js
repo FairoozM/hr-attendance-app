@@ -20,8 +20,8 @@ describe('skuChannelCoverageService', () => {
       mockModule('../src/services/amazonZohoStockComparisonStore', {
         selectAllComparisonRows: async ({ marketplace }) =>
           marketplace === 'uae'
-            ? [{ sellerSku: 'W-A', listingStatus: 'ACTIVE', asin: 'B001' }]
-            : [{ sellerSku: 'W-B', listingStatus: 'ACTIVE', asin: 'B002' }],
+            ? [{ sellerSku: 'W-A', normalizedSku: 'W-A', listingStatus: 'ACTIVE', asin: 'B001' }]
+            : [{ sellerSku: 'W-B', normalizedSku: 'W-B', listingStatus: 'ACTIVE', asin: 'B002' }],
         getLatestComparisonGeneratedAt: async () => new Date().toISOString(),
       })
     )
@@ -34,7 +34,7 @@ describe('skuChannelCoverageService', () => {
     )
     restores.push(
       mockModule('../src/services/noon/noonProductService', {
-        getEligibleCatalogItems: async () => ({ items: [] }),
+        fetchAllEligibleCatalogItems: async () => ({ items: [] }),
       })
     )
     restores.push(

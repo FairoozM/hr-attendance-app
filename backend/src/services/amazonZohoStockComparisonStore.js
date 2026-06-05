@@ -199,8 +199,11 @@ function buildWhere(filters = {}) {
     values.push(marketplace)
     clauses.push(`marketplace_key = $${values.length}`)
   }
+  const listingScope = String(filters.listingScope || '').trim().toLowerCase()
   const stockFilter = String(filters.stockFilter || 'all').trim()
-  appendListingStatusScope(clauses, stockFilter)
+  if (listingScope !== 'coverage') {
+    appendListingStatusScope(clauses, stockFilter)
+  }
   const search = String(filters.search || '').trim()
   if (search) {
     values.push(`%${search.toLowerCase()}%`)

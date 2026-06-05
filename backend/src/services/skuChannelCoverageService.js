@@ -51,6 +51,9 @@ function mapActiveZohoItems(rawItems) {
         isActive: true,
         sku: normalized.sku,
         name: normalized.name,
+        item_code: raw.item_code,
+        code: raw.code,
+        part_number: raw.part_number,
       }
     })
 }
@@ -58,6 +61,7 @@ function mapActiveZohoItems(rawItems) {
 function mapCachedAmazonRows(rows) {
   return (rows || []).map((row) => ({
     sellerSku: row.sellerSku,
+    normalizedSku: row.normalizedSku || row.sellerSku,
     listingStatus: row.listingStatus || 'ACTIVE',
     asin: row.asin || '',
   }))
@@ -67,6 +71,7 @@ async function fetchAmazonListingsFromCache(marketplaceKey) {
   const mk = String(marketplaceKey || 'uae').toLowerCase() === 'ksa' ? 'ksa' : 'uae'
   const rows = await amazonZohoStockStore.selectAllComparisonRows({
     marketplace: mk,
+    listingScope: 'coverage',
     stockFilter: 'all',
   })
   const fetchedAt = await amazonZohoStockStore.getLatestComparisonGeneratedAt(mk)
