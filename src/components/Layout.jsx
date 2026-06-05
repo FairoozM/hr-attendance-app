@@ -66,6 +66,12 @@ const AMAZON_NAV_ITEMS = [
     searchHint: 'amazon zoho stock comparison inventory fba life smile warehouse mismatch out of stock',
   },
   {
+    to: '/ai/sku-channel-coverage',
+    label: 'SKU Channel Coverage',
+    adminOnly: true,
+    searchHint: 'sku channel coverage zoho amazon uae ksa noon listing active missing',
+  },
+  {
     to: '/ai/amazon-out-of-stock-clearance',
     label: 'Amazon Out of Stock Clearance',
     adminOnly: true,

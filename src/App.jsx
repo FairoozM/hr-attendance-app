@@ -105,6 +105,7 @@ import { AmazonOrdersPage } from './pages/AmazonOrdersPage'
 import { AmazonOrdersDashboardPage } from './pages/AmazonOrdersDashboardPage'
 import { AmazonSyncHealthPage } from './pages/AmazonSyncHealthPage'
 import { AmazonZohoStockPage } from './pages/AmazonZohoStockPage'
+import { SkuChannelCoveragePage } from './pages/SkuChannelCoveragePage'
 import { AmazonOutOfStockClearancePage } from './pages/AmazonOutOfStockClearancePage'
 import { AmazonFlatFileBulkGenerator } from './pages/AmazonFlatFileBulkGenerator'
 import NoonIntegrationPage from './pages/NoonIntegrationPage'
@@ -354,6 +355,14 @@ function AppContent() {
           element={
             <AdminOnly>
               <AmazonZohoStockPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="ai/sku-channel-coverage"
+          element={
+            <AdminOnly>
+              <SkuChannelCoveragePage />
             </AdminOnly>
           }
         />

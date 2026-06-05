@@ -528,3 +528,112 @@
 :root[data-theme='dark'] .ainv-modal__warn {
   color: #fcd34d;
 }
+
+/* SKU Channel Coverage — Amazon primary, Noon secondary */
+.sku-cov-summary-card--amazon {
+  border-color: color-mix(in srgb, #047857 40%, var(--theme-border));
+  background: color-mix(in srgb, #10b981 8%, var(--theme-glass-bg));
+}
+
+.sku-cov-th-amazon {
+  background: color-mix(in srgb, #047857 12%, var(--theme-glass-bg));
+  font-weight: 700;
+}
+
+.sku-cov-th-noon {
+  background: color-mix(in srgb, #b45309 8%, var(--theme-glass-bg));
+}
+
+.sku-cov-td-amazon {
+  background: color-mix(in srgb, #10b981 5%, transparent);
+}
+
+.sku-cov-td-noon {
+  background: color-mix(in srgb, #f59e0b 4%, transparent);
+}
+
+.sku-cov-channel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.sku-cov-channel--amazon .sku-cov-channel__market {
+  font-weight: 700;
+  color: #047857;
+}
+
+.sku-cov-channel--noon .sku-cov-channel__market {
+  font-weight: 600;
+  color: #b45309;
+}
+
+.sku-cov-channel__detail {
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+  color: var(--text-soft);
+}
+
+.sku-cov-channel__status {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+.sku-cov-badge {
+  display: inline-flex;
+  width: fit-content;
+  border-radius: 9999px;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sku-cov-badge--amazon-ok {
+  background: color-mix(in srgb, #10b981 25%, transparent);
+  color: #065f46;
+}
+
+.sku-cov-badge--amazon-miss {
+  background: color-mix(in srgb, #ef4444 18%, transparent);
+  color: #991b1b;
+}
+
+.sku-cov-badge--noon-ok {
+  background: color-mix(in srgb, #f59e0b 20%, transparent);
+  color: #92400e;
+}
+
+.sku-cov-badge--noon-miss {
+  background: color-mix(in srgb, var(--text-dim) 15%, transparent);
+  color: var(--text-muted);
+}
+
+.sku-cov-status {
+  display: inline-flex;
+  border-radius: 0.5rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.sku-cov-status--complete {
+  background: color-mix(in srgb, #10b981 20%, transparent);
+  color: #065f46;
+}
+
+.sku-cov-status--amazon {
+  background: color-mix(in srgb, #0ea5e9 18%, transparent);
+  color: #075985;
+}
+
+.sku-cov-status--noon {
+  background: color-mix(in srgb, #f59e0b 18%, transparent);
+  color: #92400e;
+}
+
+.sku-cov-status--danger {
+  background: color-mix(in srgb, #ef4444 18%, transparent);
+  color: #991b1b;
+}
