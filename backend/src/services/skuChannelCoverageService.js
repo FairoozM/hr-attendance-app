@@ -3,7 +3,7 @@ const { normalizeZohoInventoryItem } = require('../integrations/zoho/zohoItemFam
 const { stockOnHandField } = require('../controllers/debugZohoController')
 const { fetchActiveAmazonListings } = require('./amazonListingsInventoryReadService')
 const amazonZohoStockStore = require('./amazonZohoStockComparisonStore')
-const { getEligibleCatalogItems } = require('./noon/noonProductService')
+const { fetchAllEligibleCatalogItems } = require('./noon/noonProductService')
 const { getNoonProductSnapshotsForAudit } = require('./noon/noonSnapshotStore')
 const {
   buildChannelIndex,
@@ -140,13 +140,15 @@ async function fetchZohoActiveItems() {
 
 async function fetchNoonCatalogItems() {
   try {
-    const live = await getEligibleCatalogItems()
+    const live = await fetchAllEligibleCatalogItems()
     if (live?.items?.length) {
       return {
         items: live.items,
         source: 'live',
         fetchedAt: new Date().toISOString(),
         warning: null,
+        pageCount: live.pageCount,
+        totalCount: live.totalCount,
       }
     }
   } catch (err) {

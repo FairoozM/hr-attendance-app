@@ -158,7 +158,7 @@ describe('attachVigilToCoverageRows', () => {
 })
 
 describe('mapNoonItemsToIndexEntries', () => {
-  it('indexes Noon PSKU only (not partner SKU or internal noon SKU)', () => {
+  it('indexes explicit psku when present', () => {
     const entries = mapNoonItemsToIndexEntries([
       {
         partnerSku: 'Z8932717828D3FB066370Z-1',
@@ -170,7 +170,21 @@ describe('mapNoonItemsToIndexEntries', () => {
     const index = buildChannelIndex(entries)
     assert.ok(index.has('R23G'))
     assert.equal(index.get('R23G').rawSku, 'R23G')
-    assert.equal(index.has('Z8932717828D3FB066370Z-1'), false)
     assert.equal(index.has('NOON-INTERNAL-1'), false)
+  })
+
+  it('indexes partner_sku when catalog API omits psku (R23G live case)', () => {
+    const entries = mapNoonItemsToIndexEntries([
+      {
+        partnerSku: 'R23G',
+        sku: 'R23G',
+        psku: '',
+        title: 'Luxury Gold 3-Tier Serving Trolley',
+        isActive: true,
+      },
+    ])
+    const index = buildChannelIndex(entries)
+    assert.ok(index.has('R23G'))
+    assert.equal(index.get('R23G').rawSku, 'R23G')
   })
 })

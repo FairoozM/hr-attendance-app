@@ -294,27 +294,59 @@ function attachVigilToCoverageRows(rows, vigilRows) {
 }
 
 /**
- * Noon listings are matched on PSKU (e.g. R23G), not partner SKU or Noon internal SKU.
+ * Noon seller PSKU (e.g. R23G) may appear as `psku` or `partner_sku` in catalog API.
+ * Avoid indexing Noon's long internal SKU when it differs from partner_sku.
+ * @param {object} item
+ * @returns {Array<{ key: string, rawSku: string }>}
+ */
+function resolveNoonMatchKeys(item) {
+  const psku = String(item.psku || item.p_sku || item.pSku || '').trim()
+  const partnerSku = String(item.partnerSku || item.partner_sku || '').trim()
+  const noonSku = String(item.sku || item.noon_sku || item.noonSku || '').trim()
+  const displaySku = psku || partnerSku || noonSku
+  const keys = []
+  const seen = new Set()
+
+  function add(raw) {
+    const key = normalizeSkuKey(raw)
+    if (!key || seen.has(key)) return
+    seen.add(key)
+    keys.push({ key, rawSku: String(raw).trim() || displaySku })
+  }
+
+  if (psku) add(psku)
+  if (partnerSku) add(partnerSku)
+  if (
+    noonSku &&
+    (!partnerSku || normalizeSkuKey(noonSku) === normalizeSkuKey(partnerSku))
+  ) {
+    add(noonSku)
+  }
+
+  return keys.map((entry) => ({ ...entry, rawSku: entry.rawSku || displaySku }))
+}
+
+/**
  * @param {object[]} items
  * @returns {Array<{ normalizedKey: string, rawSku: string, status: string, qty?: number | null }>}
  */
 function mapNoonItemsToIndexEntries(items) {
   const entries = []
   for (const item of items || []) {
-    const psku = item.psku || item.p_sku || item.pSku || ''
     const status =
       item.isActive === false
         ? 'INACTIVE'
         : item.status || item.pricingStatusCode || item.pricing_status_code || 'ACTIVE'
     const qty = item.stockQuantity ?? item.stock_quantity ?? null
-    const key = normalizeSkuKey(psku)
-    if (!key) continue
-    entries.push({
-      normalizedKey: key,
-      rawSku: String(psku).trim(),
-      status: String(status),
-      qty,
-    })
+    const matchKeys = resolveNoonMatchKeys(item)
+    for (const match of matchKeys) {
+      entries.push({
+        normalizedKey: match.key,
+        rawSku: match.rawSku,
+        status: String(status),
+        qty,
+      })
+    }
   }
   return entries
 }
@@ -329,6 +361,7 @@ module.exports = {
   filterCoverageRows,
   mapAmazonListingsToIndexEntries,
   mapNoonItemsToIndexEntries,
+  resolveNoonMatchKeys,
   buildMismatchNotes,
   buildVigilIndex,
   attachVigilToCoverageRows,

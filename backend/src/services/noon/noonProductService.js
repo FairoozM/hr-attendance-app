@@ -331,10 +331,20 @@ async function getProductOffers(partnerSku) {
   }
 }
 
-async function getEligibleCatalogItems(options = {}) {
+const CATALOG_ITEMS_PATH = '/fbn/inbound/v1/catalog/items'
+const CATALOG_MAX_PAGES = 100
+
+function catalogItemsPath(nextToken) {
+  if (!nextToken) return CATALOG_ITEMS_PATH
+  const params = new URLSearchParams()
+  params.set('next_token', String(nextToken))
+  return `${CATALOG_ITEMS_PATH}?${params.toString()}`
+}
+
+async function fetchCatalogItemsPage(nextToken = null) {
   let response
   try {
-    response = await noonGet('/fbn/inbound/v1/catalog/items')
+    response = await noonGet(catalogItemsPath(nextToken))
   } catch (error) {
     if (error instanceof NoonServiceError) {
       error.meta = {
@@ -344,20 +354,78 @@ async function getEligibleCatalogItems(options = {}) {
     }
     throw error
   }
-  const rawItems = pickCatalogItemsArray(response.data)
-  const normalizedItems = rawItems.map(normalizeCatalogItem)
+  const data = response.data || {}
+  const rawItems = pickCatalogItemsArray(data)
+  const next =
+    data.next_token != null && String(data.next_token).trim()
+      ? String(data.next_token).trim()
+      : data.nextToken != null && String(data.nextToken).trim()
+        ? String(data.nextToken).trim()
+        : null
+  return {
+    rawItems,
+    nextToken: next,
+    response,
+  }
+}
+
+/**
+ * Paginate through all eligible catalog items (Noon returns 100/page + next_token).
+ * @param {object} [options]
+ * @returns {Promise<{ ok: boolean, items: object[], totalCount: number, pageCount: number }>}
+ */
+async function fetchAllEligibleCatalogItems(options = {}) {
+  const normalizedItems = []
+  let nextToken = null
+  let pageCount = 0
+  let lastResponse = null
+
+  do {
+    pageCount += 1
+    if (pageCount > CATALOG_MAX_PAGES) break
+    // eslint-disable-next-line no-await-in-loop
+    const page = await fetchCatalogItemsPage(nextToken)
+    lastResponse = page.response
+    const pageItems = Array.isArray(page.rawItems) ? page.rawItems : []
+    normalizedItems.push(...pageItems.map(normalizeCatalogItem))
+    nextToken = page.nextToken
+  } while (nextToken)
+
+  const filteredItems = filterCatalogItems(normalizedItems, options)
+  return {
+    ok: true,
+    service: 'fbn-inbound',
+    path:
+      lastResponse && lastResponse.request && lastResponse.request.path
+        ? lastResponse.request.path
+        : CATALOG_ITEMS_PATH,
+    url: lastResponse && lastResponse.request ? lastResponse.request.url : undefined,
+    noonStatus: lastResponse ? lastResponse.status : null,
+    count: filteredItems.length,
+    totalCount: normalizedItems.length,
+    pageCount,
+    items: filteredItems,
+  }
+}
+
+async function getEligibleCatalogItems(options = {}) {
+  const page = await fetchCatalogItemsPage(null)
+  const normalizedItems = (Array.isArray(page.rawItems) ? page.rawItems : []).map(normalizeCatalogItem)
   const filteredItems = filterCatalogItems(normalizedItems, options)
 
   return {
     ok: true,
     service: 'fbn-inbound',
-    path: response.request && response.request.path ? response.request.path : '/fbn/inbound/v1/catalog/items',
-    url: response.request && response.request.url ? response.request.url : undefined,
-    noonStatus: response.status,
+    path:
+      page.response && page.response.request && page.response.request.path
+        ? page.response.request.path
+        : CATALOG_ITEMS_PATH,
+    url: page.response && page.response.request ? page.response.request.url : undefined,
+    noonStatus: page.response ? page.response.status : null,
     count: filteredItems.length,
     totalCount: normalizedItems.length,
     items: filteredItems,
-    raw: response.data,
+    raw: page.response ? page.response.data : null,
   }
 }
 
@@ -425,6 +493,7 @@ module.exports = {
   buildPricingGetBody,
   debugProductLookup,
   debugPricingRequestVariants,
+  fetchAllEligibleCatalogItems,
   getEligibleCatalogItems,
   getProductOffers,
   getWhoami,
