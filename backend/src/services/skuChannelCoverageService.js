@@ -158,6 +158,7 @@ async function fetchNoonCatalogItems() {
   return {
     items: activeSnapshots.map((row) => ({
       partnerSku: row.partner_sku,
+      psku: row.psku,
       sku: row.noon_sku,
       isActive: row.is_active,
       status: row.is_active === false ? 'INACTIVE' : 'ACTIVE',

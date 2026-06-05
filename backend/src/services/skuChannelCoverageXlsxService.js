@@ -14,7 +14,7 @@ const EXPORT_COLUMNS = [
   { header: 'Amazon KSA Status', key: 'amazonKsaStatus', width: 16 },
   { header: 'Amazon Matched Any', key: 'amazonMatchedAny', width: 14 },
   { header: 'Noon Matched', key: 'noonMatched', width: 12 },
-  { header: 'Noon SKU', key: 'noonSku', width: 22 },
+  { header: 'Noon PSKU', key: 'noonSku', width: 22 },
   { header: 'Noon Status', key: 'noonStatus', width: 14 },
   { header: 'Vigil Matched', key: 'vigilMatched', width: 12 },
   { header: 'Vigil SKU', key: 'vigilSku', width: 22 },

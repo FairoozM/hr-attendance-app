@@ -205,7 +205,8 @@ export function SkuChannelCoveragePage() {
         <p className="ainv-page__lead">
           Zoho is the source of truth. Every <strong>active Zoho item</strong> is checked against{' '}
           <strong>Amazon UAE</strong>, <strong>Amazon KSA</strong> (primary), and <strong>Noon</strong>{' '}
-          (secondary) using exact SKU / item-name keys only — no fuzzy product-name matching.{' '}
+          (secondary, matched on <strong>Noon PSKU</strong>) using exact SKU / item-name keys only — no fuzzy
+          product-name matching.{' '}
           <strong>Vigil wholesale stock</strong> is added manually via file upload.
         </p>
       </header>
@@ -412,7 +413,7 @@ export function SkuChannelCoveragePage() {
                   <th>Zoho SKU</th>
                   <th className="sku-cov-th-amazon">Amazon UAE</th>
                   <th className="sku-cov-th-amazon">Amazon KSA</th>
-                  <th className="sku-cov-th-noon">Noon</th>
+                  <th className="sku-cov-th-noon">Noon PSKU</th>
                   <th className="sku-cov-th-vigil">Vigil Stock</th>
                   <th>Coverage Status</th>
                   <th>Notes / mismatch reason</th>
@@ -452,7 +453,7 @@ export function SkuChannelCoveragePage() {
                         sku={row.noonSku}
                         status={row.noonStatus}
                         channel="noon"
-                        label="Noon"
+                        label="Noon PSKU"
                       />
                     </td>
                     <td className="sku-cov-td-vigil">

@@ -57,7 +57,7 @@ describe('channel index + coverage rows', () => {
     mapAmazonListingsToIndexEntries([{ sellerSku: 'W-C', listingStatus: 'ACTIVE' }])
   )
   const noon = buildChannelIndex(
-    mapNoonItemsToIndexEntries([{ partnerSku: 'WIDGET B', isActive: true }])
+    mapNoonItemsToIndexEntries([{ psku: 'WIDGET B', isActive: true }])
   )
 
   const rows = buildCoverageRows(zohoItems, { amazonUae, amazonKsa, noon })
@@ -158,12 +158,19 @@ describe('attachVigilToCoverageRows', () => {
 })
 
 describe('mapNoonItemsToIndexEntries', () => {
-  it('indexes partner SKU and noon SKU keys', () => {
+  it('indexes Noon PSKU only (not partner SKU or internal noon SKU)', () => {
     const entries = mapNoonItemsToIndexEntries([
-      { partnerSku: 'PN-1', sku: 'NOON-1', isActive: true },
+      {
+        partnerSku: 'Z8932717828D3FB066370Z-1',
+        psku: 'R23G',
+        sku: 'NOON-INTERNAL-1',
+        isActive: true,
+      },
     ])
     const index = buildChannelIndex(entries)
-    assert.ok(index.has('PN-1'))
-    assert.ok(index.has('NOON-1'))
+    assert.ok(index.has('R23G'))
+    assert.equal(index.get('R23G').rawSku, 'R23G')
+    assert.equal(index.has('Z8932717828D3FB066370Z-1'), false)
+    assert.equal(index.has('NOON-INTERNAL-1'), false)
   })
 })

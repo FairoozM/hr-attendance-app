@@ -293,23 +293,28 @@ function attachVigilToCoverageRows(rows, vigilRows) {
   })
 }
 
+/**
+ * Noon listings are matched on PSKU (e.g. R23G), not partner SKU or Noon internal SKU.
+ * @param {object[]} items
+ * @returns {Array<{ normalizedKey: string, rawSku: string, status: string, qty?: number | null }>}
+ */
 function mapNoonItemsToIndexEntries(items) {
   const entries = []
   for (const item of items || []) {
-    const partnerSku = item.partnerSku || item.partner_sku || ''
-    const noonSku = item.sku || item.noon_sku || item.noonSku || ''
-    const status = item.isActive === false ? 'INACTIVE' : item.status || item.pricingStatusCode || item.pricing_status_code || 'ACTIVE'
+    const psku = item.psku || item.p_sku || item.pSku || ''
+    const status =
+      item.isActive === false
+        ? 'INACTIVE'
+        : item.status || item.pricingStatusCode || item.pricing_status_code || 'ACTIVE'
     const qty = item.stockQuantity ?? item.stock_quantity ?? null
-    const keys = [normalizeSkuKey(partnerSku), normalizeSkuKey(noonSku)].filter(Boolean)
-    const uniqueKeys = [...new Set(keys)]
-    for (const key of uniqueKeys) {
-      entries.push({
-        normalizedKey: key,
-        rawSku: partnerSku || noonSku,
-        status: String(status),
-        qty,
-      })
-    }
+    const key = normalizeSkuKey(psku)
+    if (!key) continue
+    entries.push({
+      normalizedKey: key,
+      rawSku: String(psku).trim(),
+      status: String(status),
+      qty,
+    })
   }
   return entries
 }
