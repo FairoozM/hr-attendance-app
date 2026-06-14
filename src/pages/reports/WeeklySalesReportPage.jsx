@@ -92,30 +92,126 @@ function sourceStatusWarnings(reportMeta) {
   return [...new Set([...out, ...completenessWarnings].filter(Boolean))]
 }
 
-function WeeklyReportMetaBanner({ reportMeta }) {
-  if (!reportMeta || typeof reportMeta !== 'object') return null
-  const generated = formatReportMetaTime(reportMeta.generated_at)
-  const warnings = sourceStatusWarnings(reportMeta)
-  const severity = String(reportMeta.completeness?.severity || '').toLowerCase()
-  const showWarning = severity === 'warning' || severity === 'critical'
-  const missingSources = Array.isArray(reportMeta.missing_for_exact_historical_stock)
-    ? reportMeta.missing_for_exact_historical_stock.filter(Boolean)
+/** @returns {string} YYYY-MM-DD or '' */
+export function normalizeWeeklyReportIsoDate(value) {
+  if (value == null || String(value).trim() === '') return ''
+  const s = String(value).trim().slice(0, 10)
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : ''
+}
+
+/**
+ * Dates the visible table rows were built for (API report_meta, else saved snapshot).
+ * @returns {{ from: string, to: string, source: 'report_meta' | 'snapshot' | null }}
+ */
+export function resolveWeeklyReportLoadedDateRange(reportMeta, openedSnapshot = null) {
+  const fromMeta = normalizeWeeklyReportIsoDate(reportMeta?.from_date)
+  const toMeta = normalizeWeeklyReportIsoDate(reportMeta?.to_date)
+  if (fromMeta && toMeta) {
+    return { from: fromMeta, to: toMeta, source: 'report_meta' }
+  }
+  const fromSnap = normalizeWeeklyReportIsoDate(openedSnapshot?.fromDate)
+  const toSnap = normalizeWeeklyReportIsoDate(openedSnapshot?.toDate)
+  if (fromSnap && toSnap) {
+    return { from: fromSnap, to: toSnap, source: 'snapshot' }
+  }
+  return { from: '', to: '', source: null }
+}
+
+/** True when filter bar dates differ from the loaded report's from/to. */
+export function weeklyReportFilterDateMismatch(filterFrom, filterTo, loadedFrom, loadedTo) {
+  const ff = normalizeWeeklyReportIsoDate(filterFrom)
+  const ft = normalizeWeeklyReportIsoDate(filterTo)
+  const lf = normalizeWeeklyReportIsoDate(loadedFrom)
+  const lt = normalizeWeeklyReportIsoDate(loadedTo)
+  if (!ff || !ft || !lf || !lt) return false
+  return ff !== lf || ft !== lt
+}
+
+function WeeklyReportMetaBanner({
+  reportMeta,
+  filterFromDate,
+  filterToDate,
+  openedSnapshot = null,
+}) {
+  const meta = reportMeta && typeof reportMeta === 'object' ? reportMeta : null
+  const loaded = resolveWeeklyReportLoadedDateRange(meta, openedSnapshot)
+  const loadedLabel =
+    loaded.from && loaded.to ? formatDateLabel(loaded.from, loaded.to) : ''
+  const filterLabel = formatDateLabel(filterFromDate, filterToDate)
+  const dateMismatch = weeklyReportFilterDateMismatch(
+    filterFromDate,
+    filterToDate,
+    loaded.from,
+    loaded.to,
+  )
+  if (!meta && !loadedLabel) return null
+
+  const generated = meta ? formatReportMetaTime(meta.generated_at) : ''
+  const cacheExpires =
+    meta?.cache?.cached && meta.cache.expires_at
+      ? formatReportMetaTime(meta.cache.expires_at)
+      : ''
+  const warnings = meta ? sourceStatusWarnings(meta) : []
+  const severity = String(meta?.completeness?.severity || '').toLowerCase()
+  const stockSnapshotWarning = severity === 'warning' || severity === 'critical'
+  const missingSources = Array.isArray(meta?.missing_for_exact_historical_stock)
+    ? meta.missing_for_exact_historical_stock.filter(Boolean)
     : []
   const openingWarning =
-    reportMeta.stock_value_basis?.opening_stock_value?.warning
+    meta?.stock_value_basis?.opening_stock_value?.warning
     || 'Opening Stock Value is reconstructed from current live Zoho stock and available transactions.'
   const closingWarning =
-    reportMeta.stock_value_basis?.closing_stock_value?.warning
+    meta?.stock_value_basis?.closing_stock_value?.warning
     || 'Closing Stock Value uses current Zoho stock at report generation time, not selected to_date.'
+  const bannerWarn = stockSnapshotWarning || dateMismatch
+
   return (
-    <div className={`wsr-meta-trust ${showWarning ? 'wsr-meta-trust--warn' : ''}`} role={showWarning ? 'alert' : 'status'}>
+    <div
+      className={`wsr-meta-trust ${bannerWarn ? 'wsr-meta-trust--warn' : ''}${dateMismatch ? ' wsr-meta-trust--date-mismatch' : ''}`}
+      role={bannerWarn ? 'alert' : 'status'}
+    >
       <div className="wsr-meta-trust__badges">
-        <span>Calc: {reportMeta.calculation_version || 'unknown'}</span>
+        {loadedLabel ? <span>Loaded: {loadedLabel}</span> : null}
+        {meta?.calculation_version ? (
+          <span>Calc: {meta.calculation_version}</span>
+        ) : null}
         {generated ? <span>Generated: {generated}</span> : null}
-        {reportMeta.report_group ? <span>Group: {reportMeta.report_group}</span> : null}
-        {reportMeta.cache?.cached ? <span>Cached report</span> : <span>Live build</span>}
+        {meta?.report_group ? <span>Group: {meta.report_group}</span> : null}
+        {meta?.cache?.cached ? (
+          <span>
+            Cached report
+            {cacheExpires ? ` (until ${cacheExpires})` : ''}
+          </span>
+        ) : meta ? (
+          <span>Live build</span>
+        ) : null}
       </div>
-      {showWarning ? (
+      {loadedLabel && filterLabel && !dateMismatch ? (
+        <p className="wsr-meta-trust__loaded-note">
+          Table totals match the filter range <strong>{filterLabel}</strong>.
+        </p>
+      ) : null}
+      {dateMismatch && loadedLabel && filterLabel ? (
+        <div className="wsr-meta-trust__date-mismatch">
+          <strong>Date range mismatch — table may not match your filters.</strong>
+          <ul>
+            <li>
+              <strong>Filters (not loaded yet):</strong> {filterLabel}
+            </li>
+            <li>
+              <strong>Loaded in this table:</strong> {loadedLabel}
+              {openedSnapshot ? ' (saved snapshot)' : meta?.cache?.cached ? ' (cached build)' : ''}
+            </li>
+          </ul>
+          <p>
+            Click <strong>Load report</strong> in the filters bar to fetch{' '}
+            <strong>{filterLabel}</strong>, or <strong>Refresh</strong> this section if you
+            already loaded that range. Until then, sales and stock columns reflect{' '}
+            <strong>{loadedLabel}</strong>, not the picker dates.
+          </p>
+        </div>
+      ) : null}
+      {stockSnapshotWarning ? (
         <div className="wsr-meta-trust__warning">
           <strong>This report is not an exact historical stock snapshot.</strong>
           <ul>
@@ -1362,7 +1458,12 @@ export function WeeklySalesReportSection({
         </div>
       )}
 
-      <WeeklyReportMetaBanner reportMeta={activeReportMeta} />
+      <WeeklyReportMetaBanner
+        reportMeta={activeReportMeta}
+        filterFromDate={fromDate}
+        filterToDate={toDate}
+        openedSnapshot={openedSnapshot}
+      />
 
       {notConfigured && <NotConfiguredCallout message={error} />}
 

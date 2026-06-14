@@ -1,10 +1,13 @@
-import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, expect, it, vi, afterEach } from 'vitest'
+import { render, screen, cleanup } from '@testing-library/react'
 import * as XLSX from 'xlsx'
 import { useWeeklySalesReport } from '../../hooks/useWeeklySalesReport'
 import {
   buildWeeklySalesExportRows,
   exportWeeklySalesSnapshotToExcel,
+  normalizeWeeklyReportIsoDate,
+  resolveWeeklyReportLoadedDateRange,
+  weeklyReportFilterDateMismatch,
   WeeklySalesReportSection,
 } from './WeeklySalesReportPage'
 
@@ -49,6 +52,11 @@ vi.mock('../../utils/zohoWeeklyItemImageCache', () => ({
   getCachedZohoItemBlob: vi.fn(),
   setCachedZohoItemBlob: vi.fn(),
 }))
+
+afterEach(() => {
+  cleanup()
+  vi.clearAllMocks()
+})
 
 describe('WeeklySalesReportPage saved snapshot export', () => {
   it('builds export rows from saved snapshot items', () => {
@@ -116,6 +124,8 @@ describe('WeeklySalesReportPage report metadata', () => {
         calculation_version: 'stock-report-test',
         generated_at: '2026-05-18T10:00:00.000Z',
         report_group: 'slow_moving',
+        from_date: '2026-05-01',
+        to_date: '2026-05-07',
         stock_value_basis: {
           opening_stock_value: {
             warning: 'Opening Stock Value is reconstructed from current live Zoho stock and available transactions.',
@@ -144,11 +154,84 @@ describe('WeeklySalesReportPage report metadata', () => {
       />,
     )
 
+    expect(screen.getByText(/Loaded:/)).toBeTruthy()
     expect(screen.getByText(/Calc: stock-report-test/)).toBeTruthy()
     expect(screen.getByText(/Cached report/)).toBeTruthy()
+    expect(screen.getByText(/Table totals match the filter range/)).toBeTruthy()
     expect(screen.getByText(/This report is not an exact historical stock snapshot/)).toBeTruthy()
     expect(screen.getByText(/Opening Stock Value is reconstructed/)).toBeTruthy()
     expect(screen.getByText(/Closing Stock Value uses current Zoho stock/)).toBeTruthy()
     expect(screen.getByText(/Missing sources for exact historical stock/)).toBeTruthy()
+  })
+
+  it('warns when filter dates differ from loaded report_meta dates', () => {
+    useWeeklySalesReport.mockReturnValue({
+      items: [
+        { family: 'CUT', opening_stock: 3937, purchase_amount: 231, returned_to_wholesale: 0, closing_stock: 4168, sales_amount: 962.85 },
+      ],
+      loading: false,
+      error: null,
+      errorHint: '',
+      notConfigured: false,
+      validationErrors: [],
+      refetch: vi.fn(),
+      zoho: null,
+      reportMeta: {
+        calculation_version: 'stock-report-test',
+        generated_at: '2026-06-14T10:00:00.000Z',
+        report_group: 'slow_moving',
+        from_date: '2026-06-01',
+        to_date: '2026-06-10',
+        cache: { cached: true, expires_at: '2026-06-14T11:00:00.000Z' },
+        completeness: { severity: 'warning', warnings: [] },
+        stock_value_basis: {
+          opening_stock_value: { warning: 'Opening reconstructed.' },
+          closing_stock_value: { warning: 'Closing live stock.' },
+        },
+      },
+    })
+
+    render(
+      <WeeklySalesReportSection
+        reportGroup="slow_moving"
+        title="Slow Moving"
+        fromDate="2026-06-04"
+        toDate="2026-06-10"
+        datesValid
+        loadToken={1}
+      />,
+    )
+
+    expect(screen.getByText(/Loaded:/)).toBeTruthy()
+    expect(screen.getByText(/Date range mismatch/)).toBeTruthy()
+    expect(screen.getByText(/Filters \(not loaded yet\)/)).toBeTruthy()
+    expect(screen.getByText(/Loaded in this table/)).toBeTruthy()
+    expect(screen.queryByText(/Table totals match the filter range/)).toBeNull()
+  })
+})
+
+describe('WeeklySalesReportPage loaded date helpers', () => {
+  it('normalizes ISO date strings', () => {
+    expect(normalizeWeeklyReportIsoDate('2026-06-04')).toBe('2026-06-04')
+    expect(normalizeWeeklyReportIsoDate('2026-06-04T12:00:00.000Z')).toBe('2026-06-04')
+    expect(normalizeWeeklyReportIsoDate('')).toBe('')
+  })
+
+  it('prefers report_meta dates over snapshot fallback', () => {
+    expect(
+      resolveWeeklyReportLoadedDateRange(
+        { from_date: '2026-06-04', to_date: '2026-06-10' },
+        { fromDate: '2026-06-01', toDate: '2026-06-10' },
+      ),
+    ).toEqual({ from: '2026-06-04', to: '2026-06-10', source: 'report_meta' })
+  })
+
+  it('detects filter vs loaded mismatch', () => {
+    expect(
+      weeklyReportFilterDateMismatch('2026-06-04', '2026-06-10', '2026-06-01', '2026-06-10'),
+    ).toBe(true)
+    expect(
+      weeklyReportFilterDateMismatch('2026-06-04', '2026-06-10', '2026-06-04', '2026-06-10'),
+    ).toBe(false)
   })
 })
