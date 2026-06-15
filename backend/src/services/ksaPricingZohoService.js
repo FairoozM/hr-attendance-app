@@ -25,6 +25,13 @@ function lookupKeys(raw) {
   return [...out]
 }
 
+function rawJsonField(item, field) {
+  const raw = item?.raw_json
+  if (!raw || typeof raw !== 'object') return ''
+  const value = raw[field]
+  return value == null ? '' : String(value).trim()
+}
+
 function itemLookupKeys(item) {
   const out = new Set()
   const add = (raw) => {
@@ -38,6 +45,12 @@ function itemLookupKeys(item) {
   add(item?.name)
   add(item?.item_name)
   add(item?.part_number)
+  add(rawJsonField(item, 'sku'))
+  add(rawJsonField(item, 'item_code'))
+  add(rawJsonField(item, 'code'))
+  add(rawJsonField(item, 'name'))
+  add(rawJsonField(item, 'item_name'))
+  add(rawJsonField(item, 'part_number'))
   return out
 }
 
@@ -60,7 +73,7 @@ function pickBestItemMatch(items, needle) {
       if (wantedSet.has(key)) return row
     }
   }
-  return rows.length === 1 ? rows[0] : null
+  return null
 }
 
 function parseDimension(value) {
@@ -89,7 +102,7 @@ function mapLookupResult({ sku, item, source, status, message }) {
   return {
     sku,
     itemId: item?.item_id ? String(item.item_id) : '',
-    itemName: item?.name ? String(item.name) : '',
+    itemName: item?.name || item?.item_name ? String(item.name || item.item_name) : '',
     length: dims.length,
     width: dims.width,
     height: dims.height,
@@ -106,22 +119,22 @@ async function fetchItemDetailById(itemId) {
   return fetchItemById(id, { source: 'ksa_pricing_dimensions', skipCache: true })
 }
 
-async function searchZohoItemBySku(sku) {
+async function searchZohoItemsByText(searchText, { activeOnly = true } = {}) {
   const c = readZohoConfig()
   if (c.code !== 'ok') {
     const err = new Error('Zoho is not configured on the server.')
     err.code = 'ZOHO_NOT_CONFIGURED'
     throw err
   }
-  const needle = cleanSku(sku)
-  if (!needle) return null
+  const needle = cleanSku(searchText)
+  if (!needle) return []
 
   const p = new URLSearchParams()
   p.set('organization_id', c.organizationId)
   p.set('search_text', needle)
   p.set('page', '1')
   p.set('per_page', '25')
-  if (String(process.env.ZOHO_ITEMS_INCLUDE_INACTIVE || '').trim() !== '1') {
+  if (activeOnly && String(process.env.ZOHO_ITEMS_INCLUDE_INACTIVE || '').trim() !== '1') {
     p.set('filter_by', 'Status.Active')
   }
 
@@ -129,10 +142,36 @@ async function searchZohoItemBySku(sku) {
     source: 'ksa_pricing_item_search',
     skipCache: true,
   })
-  const list = Array.isArray(json?.items) ? json.items : []
-  const pick = pickBestItemMatch(list, needle)
-  if (!pick?.item_id) return null
-  return fetchItemDetailById(pick.item_id)
+  return Array.isArray(json?.items) ? json.items : []
+}
+
+async function searchZohoItemBySku(sku) {
+  const needle = cleanSku(sku)
+  if (!needle) return null
+
+  const terms = lookupKeys(needle)
+  const seenItemIds = new Set()
+
+  for (const activeOnly of [true, false]) {
+    for (const term of terms) {
+      const list = await searchZohoItemsByText(term, { activeOnly })
+      for (const row of list) {
+        const itemId = row?.item_id != null ? String(row.item_id) : ''
+        if (itemId) seenItemIds.add(itemId)
+      }
+      const pick = pickBestItemMatch(list, needle)
+      if (pick?.item_id) return fetchItemDetailById(pick.item_id)
+    }
+  }
+
+  // Last resort: if Zoho returned exactly one unique item across all searches, verify it matches.
+  if (seenItemIds.size === 1) {
+    const [onlyId] = [...seenItemIds]
+    const detail = await fetchItemDetailById(onlyId)
+    if (detail && pickBestItemMatch([detail], needle)) return detail
+  }
+
+  return null
 }
 
 async function lookupSkuDimensions(sku) {
