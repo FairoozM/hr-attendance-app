@@ -17,6 +17,7 @@ const { validateAmazonGenerateListing } = require('../middleware/validateAiReque
 const { checkAiBudget } = require('../middleware/checkAiBudget')
 const { getZohoItemImage } = require('../controllers/weeklyReportsController')
 const amazonOutOfStockClearanceRoutes = require('./amazonOutOfStockClearance.routes')
+const amazonPaymentClearingRoutes = require('./amazonPaymentClearing.routes')
 
 /**
  * Amazon SP-API (JWT: Authorization: Bearer <token>).
@@ -59,5 +60,6 @@ router.post(
 )
 
 router.use('/out-of-stock-clearance', amazonOutOfStockClearanceRoutes)
+router.use('/payment-clearing', amazonPaymentClearingRoutes)
 
 module.exports = router

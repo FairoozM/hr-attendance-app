@@ -57,6 +57,7 @@ import { SimCardsPage } from './pages/SimCardsPage'
 import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
 import { PaymentsPage as CompanyPaymentsPage } from './pages/management/PaymentsPage'
 import { PurchasePlanningPage } from './pages/management/PurchasePlanningPage'
+import { AmazonPaymentClearingPage } from './pages/management/amazonPaymentClearing/AmazonPaymentClearingPage'
 import { AllPricesPage } from './pages/management/AllPricesPage'
 import { KsaPricingPage } from './pages/management/ksaPricing/KsaPricingPage'
 import { DuplicatePriceCleanupPage } from './pages/management/DuplicatePriceCleanupPage'
@@ -215,6 +216,14 @@ function AppContent() {
           element={
             <AdminOnly>
               <PurchasePlanningPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="management/amazon-payment-clearing"
+          element={
+            <AdminOnly>
+              <AmazonPaymentClearingPage />
             </AdminOnly>
           }
         />

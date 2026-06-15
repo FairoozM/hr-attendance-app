@@ -71,6 +71,7 @@ async function fetchInvoices(fromDate, toDate, customerId = null) {
     if (customerId)  p.set('customer_id', String(customerId))
     p.set('filter_by', 'Status.All')
     p.set('page',      String(page))
+    p.set('per_page',  '200')
     return p
   }
 

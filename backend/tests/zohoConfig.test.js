@@ -3,7 +3,7 @@
  */
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { readZohoConfig, orgEnvHint } = require('../src/integrations/zoho/zohoConfig')
+const { inferZohoRedirectUri, readZohoConfig, orgEnvHint } = require('../src/integrations/zoho/zohoConfig')
 
 const base = {
   ZOHO_CLIENT_ID: 'id',
@@ -19,6 +19,12 @@ const keysToReset = new Set([
   'ZOHO_INVENTORY_ORGANIZATION_ID',
   'ZOHO_API_BASE_URL',
   'ZOHO_INVENTORY_API_BASE',
+  'ZOHO_REDIRECT_URI',
+  'ZOHO_OAUTH_BACKEND_BASE_URL',
+  'BACKEND_PUBLIC_URL',
+  'API_PUBLIC_BASE_URL',
+  'HR_PUBLIC_API_URL',
+  'PORT',
 ])
 
 function withEnv(overrides, fn) {
@@ -81,6 +87,27 @@ test('readZohoConfig: not configured when org missing', () => {
       assert.equal(c.code, 'ZOHO_NOT_CONFIGURED')
     }
   )
+})
+
+test('readZohoConfig: infers payment clearing OAuth callback from configured PORT', () => {
+  withEnv({ ZOHO_ORGANIZATION_ID: '1', PORT: '6123' }, () => {
+    const c = readZohoConfig()
+    assert.equal(c.code, 'ok')
+    assert.equal(c.redirectUri, 'http://localhost:6123/api/amazon/payment-clearing/zoho/oauth/callback')
+    assert.equal(c.redirectUriSource, 'inferred')
+    assert.equal(inferZohoRedirectUri(), c.redirectUri)
+  })
+})
+
+test('readZohoConfig: explicit ZOHO_REDIRECT_URI overrides inferred callback', () => {
+  withEnv({
+    ZOHO_ORGANIZATION_ID: '1',
+    ZOHO_REDIRECT_URI: 'https://api.example.com/api/amazon/payment-clearing/zoho/oauth/callback',
+  }, () => {
+    const c = readZohoConfig()
+    assert.equal(c.redirectUri, 'https://api.example.com/api/amazon/payment-clearing/zoho/oauth/callback')
+    assert.equal(c.redirectUriSource, 'ZOHO_REDIRECT_URI')
+  })
 })
 
 test('orgEnvHint mentions org env names', () => {

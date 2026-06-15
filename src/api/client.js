@@ -52,6 +52,7 @@ function timeoutMsForPath(path, explicitMs) {
   if (normalized.includes('/purchase-planning')) return PURCHASE_PLANNING_TIMEOUT_MS
   if (normalized.includes('/prices/ksa/zoho-dimensions')) return 120_000
   if (normalized.includes('/out-of-stock-clearance')) return 480_000
+  if (normalized.includes('/payment-clearing')) return 480_000
   if (normalized.includes('/sku-coverage')) return 120_000
   return API_REQUEST_TIMEOUT_MS
 }

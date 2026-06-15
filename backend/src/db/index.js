@@ -1091,6 +1091,12 @@ async function testConnection() {
     console.error('[db] ensureAmazonZohoStockRefreshJobTable skipped/failed (non-fatal):', e.message || e)
   }
   try {
+    const { ensureAmazonPaymentClearingTables } = require('../services/amazonPaymentClearingStore')
+    await ensureAmazonPaymentClearingTables()
+  } catch (e) {
+    console.error('[db] ensureAmazonPaymentClearingTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
     const { ensureCompositeItemsPriceReportTables } = require('../services/compositeItemsPriceReportService')
     await ensureCompositeItemsPriceReportTables()
   } catch (e) {

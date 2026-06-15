@@ -13,9 +13,29 @@ const DEFAULT_TIMEOUT_MS = 45000
 const DEFAULT_ACCOUNTS_BASE = 'https://accounts.zoho.com'
 const DEFAULT_API_BASE = 'https://www.zohoapis.com'
 const INVENTORY_V1 = '/inventory/v1'
+const PAYMENT_CLEARING_OAUTH_CALLBACK_PATH = '/api/amazon/payment-clearing/zoho/oauth/callback'
+
+function trimSlash(value) {
+  return String(value || '').replace(/\/$/, '')
+}
+
+function inferBackendBaseUrl() {
+  const explicit =
+    process.env.ZOHO_OAUTH_BACKEND_BASE_URL ||
+    process.env.BACKEND_PUBLIC_URL ||
+    process.env.API_PUBLIC_BASE_URL ||
+    process.env.HR_PUBLIC_API_URL
+  if (explicit) return trimSlash(explicit)
+  const port = process.env.PORT || '5001'
+  return `http://localhost:${port}`
+}
+
+function inferZohoRedirectUri() {
+  return `${inferBackendBaseUrl()}${PAYMENT_CLEARING_OAUTH_CALLBACK_PATH}`
+}
 
 /**
- * @returns {{ code: 'ok', clientId: string, clientSecret: string, refreshToken: string, organizationId: string, accountsBase: string, apiBase: string, redirectUri: string | null, familyCustomFieldId: string | null, timeoutMs: number } | { code: 'ZOHO_NOT_CONFIGURED', missing: string[] }}
+ * @returns {{ code: 'ok', clientId: string, clientSecret: string, refreshToken: string, organizationId: string, accountsBase: string, apiBase: string, redirectUri: string, redirectUriSource: string, inferredRedirectUri: string, familyCustomFieldId: string | null, timeoutMs: number } | { code: 'ZOHO_NOT_CONFIGURED', missing: string[] }}
  */
 function readZohoConfig() {
   const clientId = process.env.ZOHO_CLIENT_ID
@@ -36,17 +56,21 @@ function readZohoConfig() {
     process.env.ZOHO_BASE_URL ||
     process.env.ZOHO_INVENTORY_API_BASE ||
     DEFAULT_API_BASE
+  const inferredRedirectUri = inferZohoRedirectUri()
+  const redirectUri = process.env.ZOHO_REDIRECT_URI
+    ? String(process.env.ZOHO_REDIRECT_URI).trim()
+    : inferredRedirectUri
   return {
     code: 'ok',
     clientId: String(clientId).trim(),
     clientSecret: String(clientSecret).trim(),
     refreshToken: String(refreshToken).trim(),
     organizationId: String(organizationId).trim(),
-    accountsBase: (process.env.ZOHO_ACCOUNTS_BASE || DEFAULT_ACCOUNTS_BASE).replace(/\/$/, ''),
-    apiBase: String(apiBaseRaw).replace(/\/$/, ''),
-    redirectUri: process.env.ZOHO_REDIRECT_URI
-      ? String(process.env.ZOHO_REDIRECT_URI).trim()
-      : null,
+    accountsBase: trimSlash(process.env.ZOHO_ACCOUNTS_BASE || DEFAULT_ACCOUNTS_BASE),
+    apiBase: trimSlash(apiBaseRaw),
+    redirectUri,
+    redirectUriSource: process.env.ZOHO_REDIRECT_URI ? 'ZOHO_REDIRECT_URI' : 'inferred',
+    inferredRedirectUri,
     familyCustomFieldId: process.env.ZOHO_FAMILY_CUSTOMFIELD_ID
       ? String(process.env.ZOHO_FAMILY_CUSTOMFIELD_ID).trim()
       : null,
@@ -68,8 +92,11 @@ function orgEnvHint() {
 module.exports = {
   readZohoConfig,
   readZohoInventoryConfig,
+  inferBackendBaseUrl,
+  inferZohoRedirectUri,
   isConfigured,
   orgEnvHint,
   INVENTORY_V1,
+  PAYMENT_CLEARING_OAUTH_CALLBACK_PATH,
   DEFAULT_TIMEOUT_MS,
 }

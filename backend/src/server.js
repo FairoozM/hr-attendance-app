@@ -12,6 +12,14 @@ const { readZohoConfig } = require('./integrations/zoho/zohoConfig')
     const id = zc.clientId
     console.log('[zoho-config] clientId suffix:', id.length >= 4 ? id.slice(-4) : id)
     console.log('[zoho-config] clientSecret length:', zc.clientSecret.length)
+    if (!process.env.ZOHO_REDIRECT_URI) {
+      console.warn(
+        `[zoho-config] ZOHO_REDIRECT_URI is not set; OAuth helper will use inferred callback ${zc.redirectUri}. ` +
+          'Register this exact URI in Zoho API Console or set ZOHO_REDIRECT_URI explicitly.'
+      )
+    } else {
+      console.log('[zoho-config] redirectUri configured:', zc.redirectUri)
+    }
   } else {
     console.warn('[zoho-config] not configured — missing:', zc.missing.join(', '))
   }

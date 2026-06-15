@@ -670,6 +670,7 @@ export function Layout() {
     if (location.pathname.startsWith('/influencers/performance')) return 'Influencer Performance'
     if (location.pathname.startsWith('/influencers')) return 'Influencers'
     if (location.pathname.startsWith('/account')) return 'My Account'
+    if (location.pathname.startsWith('/management/amazon-payment-clearing')) return 'Amazon KSA Payment Clearing'
     if (location.pathname.startsWith('/management/purchase-planning')) return 'Purchase Planning'
     if (location.pathname.startsWith('/management/payments')) return 'Company payments'
     if (location.pathname.startsWith('/prices/all-prices-ksa')) return 'All Prices (KSA)'
@@ -797,6 +798,7 @@ export function Layout() {
     can('document_expiry', 'view') && { label: 'Document Expiry Tracker', to: '/management/document-expiry' },
     can('company_payments', 'view') && { label: 'Payments', to: '/management/payments' },
     isAdmin && { label: 'Purchase Planning', to: '/management/purchase-planning' },
+    isAdmin && { label: 'Amazon KSA Payment Clearing', to: '/management/amazon-payment-clearing' },
   ].filter(Boolean)
 
   const isTaxationActive = location.pathname.startsWith('/taxation')
@@ -907,6 +909,8 @@ export function Layout() {
       searchHint:
         i.to === '/management/purchase-planning'
           ? 'purchase planning low stock vigil csv wholesale replenishment zoho purchase order po'
+          : i.to === '/management/amazon-payment-clearing'
+            ? 'amazon ksa payment clearing settlement report zoho invoice match payout fees preview sar'
           : i.to === '/management/payments'
           ? 'company payments asad main shop expense salary vat bill subscription supplier'
           : i.to === '/management/document-expiry'

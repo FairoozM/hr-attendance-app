@@ -1,0 +1,292 @@
+const { buildPaymentPreviewFromBatch, PAYMENT_PREVIEW_TOLERANCE } = require('./amazonPaymentClearingPaymentPreviewService')
+const { round2 } = require('./amazonPaymentClearingOrderBreakdownService')
+const zohoPaymentService = require('./amazonPaymentClearingZohoPaymentService')
+
+const PAYMENT_TYPES = Object.freeze({
+  NET_BALANCE: 'net_balance',
+  COMMISSION: 'commission',
+  SHIPPING_FBA: 'shipping_fba',
+})
+
+function ensureCanPostBatch(batch, paymentPreviewExists) {
+  if (!batch) {
+    const err = new Error('Payment clearing batch not found.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  if (batch.status === 'posted') {
+    const err = new Error('Settlement has already been posted.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_ALREADY_POSTED'
+    err.status = 409
+    throw err
+  }
+  if (batch.status !== 'approved') {
+    const err = new Error('Posting requires an approved settlement batch.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_APPROVED'
+    err.status = 422
+    throw err
+  }
+  const diff = Number(batch.reconciliationSummary?.reconciliationDifference) || 0
+  if (batch.reconciliationSummary?.reconciliationStatus === 'mismatch' || Math.abs(diff) > PAYMENT_PREVIEW_TOLERANCE) {
+    const err = new Error('Posting requires a reconciled settlement batch.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_RECONCILED'
+    err.status = 422
+    throw err
+  }
+  if (Array.isArray(batch.unmatchedOrders) && batch.unmatchedOrders.length > 0) {
+    const err = new Error('Posting requires zero unmatched orders.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_UNMATCHED_ORDERS'
+    err.status = 422
+    throw err
+  }
+  if (!paymentPreviewExists) {
+    const err = new Error('Posting requires a generated payment preview.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_PAYMENT_PREVIEW_REQUIRED'
+    err.status = 422
+    throw err
+  }
+}
+
+function flattenPaymentPreview(paymentPreview) {
+  const rows = []
+  for (const payment of Array.isArray(paymentPreview?.payments) ? paymentPreview.payments : []) {
+    rows.push({
+      paymentType: PAYMENT_TYPES.NET_BALANCE,
+      paymentLabel: 'Net Balance Payment',
+      orderId: payment.orderId,
+      invoiceId: payment.zohoInvoiceId,
+      invoiceNumber: payment.zohoInvoiceNumber,
+      amount: payment.netBalancePayment.amount,
+      accountCode: payment.netBalancePayment.depositToAccountCode,
+      accountName: payment.netBalancePayment.depositToAccountName,
+      source: payment,
+    })
+    rows.push({
+      paymentType: PAYMENT_TYPES.COMMISSION,
+      paymentLabel: 'Commission Payment',
+      orderId: payment.orderId,
+      invoiceId: payment.zohoInvoiceId,
+      invoiceNumber: payment.zohoInvoiceNumber,
+      amount: payment.commissionPayment.amount,
+      accountCode: payment.commissionPayment.depositToAccountCode,
+      accountName: payment.commissionPayment.depositToAccountName,
+      source: payment,
+    })
+    rows.push({
+      paymentType: PAYMENT_TYPES.SHIPPING_FBA,
+      paymentLabel: 'Shipping/FBA Payment',
+      orderId: payment.orderId,
+      invoiceId: payment.zohoInvoiceId,
+      invoiceNumber: payment.zohoInvoiceNumber,
+      amount: payment.shippingFbaPayment.amount,
+      accountCode: payment.shippingFbaPayment.depositToAccountCode,
+      accountName: payment.shippingFbaPayment.depositToAccountName,
+      source: payment,
+    })
+  }
+  return rows.filter((row) => row.invoiceId && Number(row.amount) > 0)
+}
+
+function customerByInvoiceId(batch) {
+  const out = new Map()
+  for (const order of Array.isArray(batch?.matchedOrders) ? batch.matchedOrders : []) {
+    if (order.zohoInvoiceId) {
+      out.set(order.zohoInvoiceId, order.zohoCustomerId || order.customerId || '')
+    }
+  }
+  return out
+}
+
+function requireSingleCustomer(paymentRows, customerIdsByInvoice) {
+  const customerIds = new Set()
+  for (const row of paymentRows) {
+    const customerId = row.source.customerId || customerIdsByInvoice.get(row.invoiceId) || ''
+    if (customerId) customerIds.add(customerId)
+  }
+  if (customerIds.size > 1) {
+    const err = new Error('Grouped Zoho posting requires all invoices to belong to the same customer.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_MULTIPLE_CUSTOMERS'
+    err.status = 422
+    err.customerIds = Array.from(customerIds)
+    throw err
+  }
+  if (customerIds.size === 0) {
+    const err = new Error('Grouped Zoho posting requires a Zoho customer ID for the matched invoices.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_CUSTOMER_ID_MISSING'
+    err.status = 422
+    throw err
+  }
+  return Array.from(customerIds)[0] || ''
+}
+
+function groupedPaymentRows(paymentRows, customerId, paymentDate, batchId) {
+  const groups = new Map()
+  for (const row of paymentRows) {
+    const key = row.paymentType
+    if (!groups.has(key)) {
+      groups.set(key, {
+        paymentType: row.paymentType,
+        paymentLabel: row.paymentLabel,
+        orderId: '',
+        invoiceId: '',
+        invoiceNumber: '',
+        amount: 0,
+        accountCode: row.accountCode,
+        accountName: row.accountName,
+        invoiceAllocations: [],
+      })
+    }
+    const group = groups.get(key)
+    group.amount = round2(group.amount + row.amount)
+    group.invoiceAllocations.push({
+      invoiceId: row.invoiceId,
+      invoiceNumber: row.invoiceNumber,
+      orderId: row.orderId,
+      amountApplied: row.amount,
+    })
+  }
+  return Array.from(groups.values()).map((group) => {
+    const amount = round2(group.amount)
+    return {
+      ...group,
+      invoiceNumber: `${group.invoiceAllocations.length} invoices`,
+      amount,
+      source: {
+        customerId,
+        invoices: group.invoiceAllocations,
+      },
+      zohoPaymentRequest: {
+        customerId,
+        amount,
+        invoices: group.invoiceAllocations,
+        depositToAccountCode: group.accountCode,
+        depositToAccountName: group.accountName,
+        paymentDate,
+        referenceNumber: `APC-${batchId}-${group.paymentType}`,
+        description: `Amazon Settlement Clearing - ${group.paymentLabel.replace(/\s+Payment$/i, '')}`,
+      },
+    }
+  })
+}
+
+async function postApprovedBatch({
+  batch,
+  store,
+  dryRun = true,
+  postedBy,
+  createPayment = zohoPaymentService.createZohoCustomerPayment,
+  buildPayloadPreview = zohoPaymentService.buildCustomerPaymentPayloadPreview,
+}) {
+  const latestPreview = await store.getLatestPaymentPreviewForBatch(batch.batchId)
+  ensureCanPostBatch(batch, Boolean(latestPreview))
+  const paymentPreview = {
+    batchId: batch.batchId,
+    ...(latestPreview || buildPaymentPreviewFromBatch(batch)),
+    paymentPlanSummary: latestPreview?.paymentPlanSummary || latestPreview?.summary || latestPreview?.summaryJson,
+    payments: latestPreview?.payments || latestPreview?.paymentsJson,
+  }
+  const paymentRows = flattenPaymentPreview(paymentPreview)
+  const customerIdsByInvoice = customerByInvoiceId(batch)
+  const paymentDate = zohoPaymentService.todayLocalDate()
+  const customerId = requireSingleCustomer(paymentRows, customerIdsByInvoice)
+  const postingRows = groupedPaymentRows(paymentRows, customerId, paymentDate, batch.batchId)
+  const result = {
+    success: true,
+    dryRun: Boolean(dryRun),
+    batchId: batch.batchId,
+    status: dryRun ? 'dry_run' : 'posted',
+    summary: {
+      invoicesPosted: new Set(paymentRows.map((row) => row.invoiceId)).size,
+      paymentsCreated: 0,
+      paymentsSkipped: 0,
+      errors: 0,
+    },
+    payments: [],
+    errors: [],
+  }
+
+  for (const row of postingRows) {
+    const existing = await store.findGroupedPosting(batch.batchId, row.paymentType)
+    if (existing) {
+      result.summary.paymentsSkipped += 1
+      result.payments.push({
+        ...row,
+        status: 'skipped',
+        zohoPaymentId: existing.zohoPaymentId,
+        reason: 'Already posted for batch/payment type.',
+      })
+      continue
+    }
+
+    const zohoPaymentRequest = row.zohoPaymentRequest
+
+    let zohoPayloadPreview = null
+    try {
+      zohoPayloadPreview = await buildPayloadPreview(zohoPaymentRequest)
+    } catch (err) {
+      if (dryRun) {
+        result.summary.errors += 1
+        const error = {
+          ...row,
+          status: 'error',
+          zohoPaymentId: '',
+          error: err?.message || 'Failed to build Zoho payment payload preview',
+          code: err?.code || 'ZOHO_PAYMENT_PAYLOAD_PREVIEW_FAILED',
+        }
+        result.errors.push(error)
+        result.payments.push(error)
+        continue
+      }
+    }
+
+    if (dryRun) {
+      result.payments.push({ ...row, status: 'dry_run', zohoPaymentId: '', zohoPayloadPreview })
+      continue
+    }
+
+    try {
+      const created = await createPayment(zohoPaymentRequest)
+      const posting = await store.insertPosting({
+        batchId: batch.batchId,
+        invoiceId: null,
+        orderId: null,
+        paymentType: row.paymentType,
+        postingGroupKey: `APC-${batch.batchId}-${row.paymentType}`,
+        zohoPaymentId: created.zohoPaymentId,
+        amount: row.amount,
+        accountCode: row.accountCode,
+        invoiceAllocations: row.invoiceAllocations,
+        status: 'posted',
+      })
+      result.summary.paymentsCreated += 1
+      result.payments.push({ ...row, status: 'created', zohoPaymentId: posting.zohoPaymentId, zohoPayloadPreview })
+    } catch (err) {
+      result.summary.errors += 1
+      const error = {
+        ...row,
+        status: 'error',
+        error: err?.message || 'Failed to create Zoho payment',
+        code: err?.code || 'ZOHO_PAYMENT_CREATE_FAILED',
+        zohoPayloadPreview,
+      }
+      result.errors.push(error)
+      result.payments.push(error)
+    }
+  }
+
+  if (!dryRun && result.summary.errors === 0) {
+    await store.markBatchPosted(batch.batchId, postedBy)
+  }
+
+  return result
+}
+
+module.exports = {
+  PAYMENT_TYPES,
+  ensureCanPostBatch,
+  flattenPaymentPreview,
+  groupedPaymentRows,
+  requireSingleCustomer,
+  postApprovedBatch,
+}
