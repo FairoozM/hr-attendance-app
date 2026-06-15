@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Save, Trash2 } from 'lucide-react'
 import { api } from '../../../api/client'
 import { PREF_ALL_PRICES_EC_KSA } from '../../../constants/userPreferenceKeys'
 import { useUserPreferences } from '../../../contexts/UserPreferencesContext'
@@ -275,6 +276,17 @@ export function KsaPricingPage() {
     }
     persistHistory(nextHistory)
     setNotice(`Recorded ${count} row(s) in KSA pricing history.`)
+  }
+
+  const recordHistoryForRow = (rowId: string) => {
+    const row = store.rows.find((r) => r.id === rowId)
+    if (!row?.itemCode.trim() || !row.newPriceSar) {
+      setError('Enter item code and complete pricing before saving this row to history.')
+      return
+    }
+    persistHistory(appendKsaPricingHistory(history, row, 'Manual snapshot'))
+    setError('')
+    setNotice(`Saved ${row.itemCode} to KSA pricing history.`)
   }
 
   if (!prefsReady || !prefsLoaded) {
@@ -577,9 +589,24 @@ export function KsaPricingPage() {
                     <strong>{fmtSar(row.newPriceSar)}</strong>
                   </td>
                   <td className="ksa-readonly-cell">{fmtSar(row.newPriceAfterVat)}</td>
-                  <td>
-                    <button type="button" className="btn btn--ghost" onClick={() => removeRow(row.id)}>
-                      Remove
+                  <td className="ksa-row-actions">
+                    <button
+                      type="button"
+                      className="ksa-row-action-btn"
+                      onClick={() => recordHistoryForRow(row.id)}
+                      aria-label={`Save ${row.itemCode || 'row'} to history`}
+                      title="Save to history"
+                    >
+                      <Save size={16} aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      className="ksa-row-action-btn ksa-row-action-btn--danger"
+                      onClick={() => removeRow(row.id)}
+                      aria-label={`Remove ${row.itemCode || 'row'}`}
+                      title="Remove row"
+                    >
+                      <Trash2 size={16} aria-hidden />
                     </button>
                   </td>
                 </tr>

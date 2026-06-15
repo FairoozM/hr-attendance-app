@@ -177,6 +177,37 @@
   color: var(--text-muted);
 }
 
+.ksa-row-actions {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.ksa-row-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 1px solid var(--theme-border);
+  border-radius: var(--radius-sm);
+  background: var(--theme-surface);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.ksa-row-action-btn:hover {
+  color: var(--text-primary);
+  background: var(--theme-surface-soft);
+}
+
+.ksa-row-action-btn--danger:hover {
+  color: var(--danger, #dc2626);
+  border-color: color-mix(in srgb, var(--danger, #dc2626) 40%, var(--theme-border));
+}
+
 .ksa-history-section {
   margin-top: 2rem;
   padding-top: 1.5rem;
