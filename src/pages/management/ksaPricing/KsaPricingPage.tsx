@@ -48,6 +48,19 @@ function zohoBadgeLabel(status: ZohoDimensionStatus): string {
   return '—'
 }
 
+const KSA_ZOHO_FETCH_TIMEOUT_MS = 120_000
+
+function rowsAfterZohoFetchFailure(
+  sourceStore: KsaPricingStore,
+  rowIds: string[],
+  status: ZohoDimensionStatus = 'error'
+): KsaPricingRow[] {
+  const targetIds = new Set(rowIds)
+  return sourceStore.rows.map((row) => {
+    if (!targetIds.has(row.id) || row.zohoDimensionStatus !== 'loading') return row
+    return { ...row, zohoDimensionStatus: status, updatedAt: new Date().toISOString() }
+  })
+}
 function indexZohoDimensionResults(results: ZohoDimensionLookupResult[]): Map<string, ZohoDimensionLookupResult> {
   const map = new Map<string, ZohoDimensionLookupResult>()
   for (const result of results) {
@@ -189,7 +202,8 @@ export function KsaPricingPage() {
       try {
         const res = await api.post<{ results: ZohoDimensionLookupResult[] }>(
           '/api/prices/ksa/zoho-dimensions',
-          { skus: targets.map((r) => r.itemCode.trim()) }
+          { skus: targets.map((r) => r.itemCode.trim()) },
+          { timeoutMs: KSA_ZOHO_FETCH_TIMEOUT_MS }
         )
         const bySku = indexZohoDimensionResults(res.results || [])
         const batchById = new Map(sourceStore.batches.map((b) => [b.id, b]))
@@ -220,6 +234,10 @@ export function KsaPricingPage() {
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Zoho dimension lookup failed'
         setError(message)
+        persistStore({
+          ...sourceStore,
+          rows: rowsAfterZohoFetchFailure(sourceStore, rowIds),
+        })
       } finally {
         setDimensionBusy(false)
       }

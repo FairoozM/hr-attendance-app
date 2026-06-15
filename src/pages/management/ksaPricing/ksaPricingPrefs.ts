@@ -61,6 +61,30 @@ function normalizeBatch(entry: unknown): KsaShipmentBatch | null {
   }
 }
 
+function normalizeZohoDimensionStatus(
+  raw: unknown,
+  row: Partial<KsaPricingRow>
+): KsaPricingRow['zohoDimensionStatus'] {
+  const status = raw as KsaPricingRow['zohoDimensionStatus']
+  if (status === 'loading') {
+    if (row.zohoItemId) return 'found'
+    const hasDims =
+      Number(row.length) > 0 && Number(row.width) > 0 && Number(row.height) > 0
+    return hasDims ? 'manual' : 'idle'
+  }
+  if (
+    status === 'found' ||
+    status === 'missing_dimensions' ||
+    status === 'not_found' ||
+    status === 'manual' ||
+    status === 'error' ||
+    status === 'idle'
+  ) {
+    return status
+  }
+  return 'idle'
+}
+
 function normalizeRow(entry: unknown): KsaPricingRow | null {
   if (!entry || typeof entry !== 'object') return null
   const r = entry as Partial<KsaPricingRow>
@@ -92,7 +116,7 @@ function normalizeRow(entry: unknown): KsaPricingRow | null {
     shipmentBatchName: r.shipmentBatchName != null ? String(r.shipmentBatchName) : '',
     freightRatePerCbmSnapshot: Number(r.freightRatePerCbmSnapshot) || 0,
     effectiveDate: r.effectiveDate != null ? String(r.effectiveDate) : '',
-    zohoDimensionStatus: (r.zohoDimensionStatus as KsaPricingRow['zohoDimensionStatus']) || 'idle',
+    zohoDimensionStatus: normalizeZohoDimensionStatus(r.zohoDimensionStatus, r),
     zohoItemId: r.zohoItemId != null ? String(r.zohoItemId) : undefined,
     zohoItemName: r.zohoItemName != null ? String(r.zohoItemName) : undefined,
     updatedAt: r.updatedAt != null ? String(r.updatedAt) : new Date().toISOString(),

@@ -238,21 +238,6 @@ async function lookupSkuDimensions(sku) {
   }
 
   try {
-    const fromMap = await findItemInInventorySkuMap(needle)
-    if (fromMap?.item_id) {
-      const detail = await fetchItemDetailById(fromMap.item_id)
-      if (detail) {
-        const dims = extractPackageDetails(detail)
-        return mapLookupResult({
-          requestedSku: needle,
-          item: detail,
-          source: 'zoho_sku_map',
-          status: dims.hasAll ? 'found' : 'missing_dimensions',
-          message: dims.hasAll ? 'Dimensions loaded from Zoho' : 'Zoho item found but package dimensions are incomplete',
-        })
-      }
-    }
-
     const cachedRows = await findItemsBySkuOrName(lookupKeys(needle))
     const cached = pickBestItemMatch(cachedRows, needle)
     if (cached?.item_id) {
@@ -270,23 +255,38 @@ async function lookupSkuDimensions(sku) {
     }
 
     const searched = await searchZohoItemBySku(needle)
-    if (!searched) {
+    if (searched) {
+      const dims = extractPackageDetails(searched)
       return mapLookupResult({
         requestedSku: needle,
-        item: null,
+        item: searched,
         source: 'zoho_search',
-        status: 'not_found',
-        message: 'SKU not found in Zoho Inventory',
+        status: dims.hasAll ? 'found' : 'missing_dimensions',
+        message: dims.hasAll ? 'Dimensions loaded from Zoho' : 'Zoho item found but package dimensions are incomplete',
       })
     }
 
-    const dims = extractPackageDetails(searched)
+    const fromMap = await findItemInInventorySkuMap(needle)
+    if (fromMap?.item_id) {
+      const detail = await fetchItemDetailById(fromMap.item_id)
+      if (detail) {
+        const dims = extractPackageDetails(detail)
+        return mapLookupResult({
+          requestedSku: needle,
+          item: detail,
+          source: 'zoho_sku_map',
+          status: dims.hasAll ? 'found' : 'missing_dimensions',
+          message: dims.hasAll ? 'Dimensions loaded from Zoho' : 'Zoho item found but package dimensions are incomplete',
+        })
+      }
+    }
+
     return mapLookupResult({
       requestedSku: needle,
-      item: searched,
+      item: null,
       source: 'zoho_search',
-      status: dims.hasAll ? 'found' : 'missing_dimensions',
-      message: dims.hasAll ? 'Dimensions loaded from Zoho' : 'Zoho item found but package dimensions are incomplete',
+      status: 'not_found',
+      message: 'SKU not found in Zoho Inventory',
     })
   } catch (err) {
     return mapLookupResult({
