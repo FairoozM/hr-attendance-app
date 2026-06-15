@@ -1,5 +1,34 @@
-import { fmtDMY } from '../../utils/dateFormat'
+import { fmtDMY, fmtISO } from '../../utils/dateFormat'
 import { alDaysBetween } from '../../utils/annualLeaveUtils'
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+/** Approved leave where HR should record (or extend) return. */
+export function isReturnRecordingDue(row, es = row.effective_status || row.status) {
+  if (row.actual_return_date || row.status !== 'Approved') return false
+  if (es === 'ReturnPending' || es === 'Overstayed' || es === 'Ongoing') return true
+  const today = todayISO()
+  const expected = fmtISO(row.expected_return_date)
+  if (expected && expected <= today) return true
+  const toDate = fmtISO(row.to_date)
+  return Boolean(toDate && toDate < today)
+}
+
+function buildReturnAction(row, { isAdmin, st, es }) {
+  if (!isAdmin || !isReturnRecordingDue(row, es)) return null
+  const secondary = []
+  if (st === 'Approved' || st === 'Ongoing') {
+    secondary.push({ id: NA.EXTEND, label: 'Change end date' })
+  }
+  return {
+    message: 'The employee is away or was due back — record the return when you have it.',
+    primaryId: NA.RETURN,
+    primaryLabel: 'Confirm return',
+    secondary,
+  }
+}
 
 export const NA = {
   APPROVE: 'approve',
@@ -106,6 +135,8 @@ export function getNextAction(row, { isAdmin, isEmployee }) {
     }
 
     if (sv === 'Completed') {
+      const returnAction = buildReturnAction(row, { isAdmin, st, es })
+      if (returnAction) return returnAction
       if (isAdmin) {
         return { message: 'The main shop handover is done. You will act again when a return is due.', primaryId: null, secondary: [] }
       }
@@ -113,18 +144,8 @@ export function getNextAction(row, { isAdmin, isEmployee }) {
     }
   }
 
-  if (isAdmin && (es === 'Ongoing' || es === 'ReturnPending' || es === 'Overstayed') && !row.actual_return_date) {
-    const secondary = []
-    if (st === 'Approved' || st === 'Ongoing') {
-      secondary.push({ id: NA.EXTEND, label: 'Change end date' })
-    }
-    return {
-      message: 'The employee is away or was due back — record the return when you have it.',
-      primaryId: NA.RETURN,
-      primaryLabel: 'Confirm return',
-      secondary,
-    }
-  }
+  const returnAction = buildReturnAction(row, { isAdmin, st, es })
+  if (returnAction) return returnAction
 
   return { message: 'No action is needed right now.', primaryId: null, secondary: [] }
 }

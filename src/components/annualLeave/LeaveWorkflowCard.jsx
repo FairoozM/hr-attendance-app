@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { fmtDMY } from '../../utils/dateFormat'
 import { leaveStatusDisplay } from './annualLeaveLabels'
 import { alPeriodDate } from '../../utils/annualLeaveUtils'
-import { getNextAction, getLeaveKeyInfo, NA } from './leaveNextAction'
+import { getNextAction, getLeaveKeyInfo, isReturnRecordingDue, NA } from './leaveNextAction'
 import { LeaveTimeline } from './LeaveTimeline'
 import { IconChevron } from './annualLeaveRowIcons'
 import { LeaveLetterActions } from './LeaveLetterActions'
@@ -35,7 +35,15 @@ export function LeaveWorkflowCard({
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false)
   const es = row.effective_status || row.status
-  const na = getNextAction(row, { isAdmin, isEmployee })
+  let na = getNextAction(row, { isAdmin, isEmployee })
+  if (isAdmin && !na.primaryId && isReturnRecordingDue(row, es)) {
+    na = {
+      message: 'The employee is away or was due back — record the return when you have it.',
+      primaryId: NA.RETURN,
+      primaryLabel: 'Confirm return',
+      secondary: [{ id: NA.EXTEND, label: 'Change end date' }],
+    }
+  }
   const secondary = na.secondary || []
   const key = getLeaveKeyInfo(row)
   const letterBusy = letterBusyId === row.id
