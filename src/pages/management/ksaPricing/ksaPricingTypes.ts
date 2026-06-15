@@ -85,6 +85,9 @@ export interface KsaPricingHistoryStore {
 }
 
 export interface ZohoDimensionLookupResult {
+  /** Item code the client asked to resolve (catalogue code). */
+  requestedSku: string
+  /** Zoho Inventory SKU field (often a barcode). */
   sku: string
   itemId: string
   itemName: string

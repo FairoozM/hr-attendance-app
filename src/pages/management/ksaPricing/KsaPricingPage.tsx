@@ -47,6 +47,17 @@ function zohoBadgeLabel(status: ZohoDimensionStatus): string {
   return '—'
 }
 
+function indexZohoDimensionResults(results: ZohoDimensionLookupResult[]): Map<string, ZohoDimensionLookupResult> {
+  const map = new Map<string, ZohoDimensionLookupResult>()
+  for (const result of results) {
+    for (const key of [result.requestedSku, result.itemName, result.sku]) {
+      const normalized = key?.trim().toLowerCase()
+      if (normalized) map.set(normalized, result)
+    }
+  }
+  return map
+}
+
 export function KsaPricingPage() {
   const { ready: prefsReady, getPref, setPref, prefsVersion } = useUserPreferences()
   const [store, setStore] = useState<KsaPricingStore>(() => emptyKsaPricingStore())
@@ -179,9 +190,7 @@ export function KsaPricingPage() {
           '/api/prices/ksa/zoho-dimensions',
           { skus: targets.map((r) => r.itemCode.trim()) }
         )
-        const bySku = new Map(
-          (res.results || []).map((r) => [r.sku.trim().toLowerCase(), r])
-        )
+        const bySku = indexZohoDimensionResults(res.results || [])
         const batchById = new Map(sourceStore.batches.map((b) => [b.id, b]))
         const targetIds = new Set(rowIds)
         const rows = sourceStore.rows.map((row) => {
@@ -192,7 +201,7 @@ export function KsaPricingPage() {
           }
           const merged: KsaPricingRow = {
             ...row,
-            itemCode: hit.sku || row.itemCode,
+            itemCode: row.itemCode.trim(),
             length: hit.length ?? '',
             width: hit.width ?? '',
             height: hit.height ?? '',

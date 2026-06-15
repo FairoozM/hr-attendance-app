@@ -95,18 +95,22 @@ describe('ksaPricingZohoService', () => {
     assert.equal(hit.item_id, 'item-flhm')
   })
 
-  it('resolves catalogue code when only item_name is populated on the Zoho row', () => {
-    const map = new Map([
-      [
-        'flhm-s-gl-10blue',
-        {
-          item_id: 'item-flhm',
-          sku: '6294021002721',
-          item_name: 'FLHM-S-GL-10BLUE',
-        },
-      ],
-    ])
-    const hit = _internals.resolveItemFromSkuMap(map, 'FLHM-S-GL-10BLUE')
-    assert.equal(hit.item_id, 'item-flhm')
+  it('returns requestedSku separately from Zoho barcode sku', () => {
+    const result = _internals.mapLookupResult({
+      requestedSku: 'FLHM-S-GL-10BLUE',
+      item: {
+        item_id: '4265011000031882273',
+        sku: '6294021007719',
+        name: 'FLHM-S-GL-10BLUE',
+        package_details: { length: 38, width: 54, height: 37, dimension_unit: 'cm' },
+      },
+      source: 'zoho_sku_map',
+      status: 'found',
+      message: 'Dimensions loaded from Zoho',
+    })
+    assert.equal(result.requestedSku, 'FLHM-S-GL-10BLUE')
+    assert.equal(result.sku, '6294021007719')
+    assert.equal(result.itemName, 'FLHM-S-GL-10BLUE')
+    assert.equal(result.zohoDimensionStatus, 'found')
   })
 })

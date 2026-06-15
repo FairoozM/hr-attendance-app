@@ -145,12 +145,15 @@ function extractPackageDetails(item) {
   }
 }
 
-function mapLookupResult({ sku, item, source, status, message }) {
+function mapLookupResult({ requestedSku, item, source, status, message }) {
+  const needle = cleanSku(requestedSku)
   const dims = item ? extractPackageDetails(item) : { length: null, width: null, height: null, dimensionUnit: 'cm', hasAll: false }
+  const zohoSku = item ? cleanSku(pickItemSku(item)) : ''
   return {
-    sku,
+    requestedSku: needle,
+    sku: zohoSku || needle,
     itemId: item?.item_id ? String(item.item_id) : '',
-    itemName: item?.name || item?.item_name ? String(item.name || item.item_name) : '',
+    itemName: pickItemDisplayName(item),
     length: dims.length,
     width: dims.width,
     height: dims.height,
@@ -226,7 +229,7 @@ async function lookupSkuDimensions(sku) {
   const needle = cleanSku(sku)
   if (!needle) {
     return mapLookupResult({
-      sku: needle,
+      requestedSku: needle,
       item: null,
       source: 'client',
       status: 'invalid',
@@ -241,7 +244,7 @@ async function lookupSkuDimensions(sku) {
       if (detail) {
         const dims = extractPackageDetails(detail)
         return mapLookupResult({
-          sku: cleanSku(pickItemSku(detail)) || cleanSku(pickItemDisplayName(detail)) || needle,
+          requestedSku: needle,
           item: detail,
           source: 'zoho_sku_map',
           status: dims.hasAll ? 'found' : 'missing_dimensions',
@@ -257,7 +260,7 @@ async function lookupSkuDimensions(sku) {
       if (detail) {
         const dims = extractPackageDetails(detail)
         return mapLookupResult({
-          sku: cleanSku(pickItemSku(detail)) || cleanSku(pickItemDisplayName(detail)) || needle,
+          requestedSku: needle,
           item: detail,
           source: 'zoho_detail',
           status: dims.hasAll ? 'found' : 'missing_dimensions',
@@ -269,7 +272,7 @@ async function lookupSkuDimensions(sku) {
     const searched = await searchZohoItemBySku(needle)
     if (!searched) {
       return mapLookupResult({
-        sku: needle,
+        requestedSku: needle,
         item: null,
         source: 'zoho_search',
         status: 'not_found',
@@ -279,7 +282,7 @@ async function lookupSkuDimensions(sku) {
 
     const dims = extractPackageDetails(searched)
     return mapLookupResult({
-      sku: cleanSku(pickItemSku(searched)) || cleanSku(pickItemDisplayName(searched)) || needle,
+      requestedSku: needle,
       item: searched,
       source: 'zoho_search',
       status: dims.hasAll ? 'found' : 'missing_dimensions',
@@ -287,7 +290,7 @@ async function lookupSkuDimensions(sku) {
     })
   } catch (err) {
     return mapLookupResult({
-      sku: needle,
+      requestedSku: needle,
       item: null,
       source: 'zoho_error',
       status: 'error',
@@ -316,5 +319,6 @@ module.exports = {
     resolveItemFromSkuMap,
     pickItemDisplayName,
     pickItemSku,
+    mapLookupResult,
   },
 }
