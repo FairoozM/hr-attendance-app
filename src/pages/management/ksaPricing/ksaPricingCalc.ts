@@ -58,7 +58,6 @@ export function computeKsaRowPricing(
     | 'width'
     | 'height'
     | 'dimensionUnit'
-    | 'cbm'
     | 'storageCost'
     | 'ksaShippingCost'
     | 'commissionPercent'
@@ -82,10 +81,8 @@ export function computeKsaRowPricing(
 > {
   const freightRatePerCbm = toPositiveNumber(batch?.freightRatePerCbm)
   const dimensionUnit = row.dimensionUnit === 'in' ? 'in' : 'cm'
-  const cbm =
-    toPositiveNumber(row.cbm) > 0
-      ? toPositiveNumber(row.cbm)
-      : computeCbm(row.length, row.width, row.height, dimensionUnit)
+  // cbm on KsaPricingRow is output-only (persistence/history); always derive from dimensions.
+  const cbm = computeCbm(row.length, row.width, row.height, dimensionUnit)
   const cargoCost = cbm * freightRatePerCbm
   const purchasePriceEcommerce = toPositiveNumber(row.purchasePriceEcommerce)
   const storageCost = toPositiveNumber(row.storageCost)

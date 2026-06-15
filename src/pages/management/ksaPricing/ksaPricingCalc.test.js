@@ -14,7 +14,6 @@ describe('ksaPricingCalc', () => {
         width: 50,
         height: 40,
         dimensionUnit: 'cm',
-        cbm: 0,
         storageCost: 10,
         ksaShippingCost: 5,
         commissionPercent: 15,
@@ -33,5 +32,27 @@ describe('ksaPricingCalc', () => {
     expect(result.vatKsaAmount).toBeCloseTo((155 / 0.4) * 0.15, 4)
     expect(result.profitAmount).toBeCloseTo((155 / 0.4) * 0.15, 4)
     expect(result.newPriceAfterVat).toBeCloseTo((155 / 0.4) * 0.85, 4)
+  })
+
+  it('ignores stale stored cbm and derives from dimensions', () => {
+    const result = computeKsaRowPricing(
+      {
+        purchasePriceEcommerce: 67.07,
+        length: 55,
+        width: 31,
+        height: 14,
+        dimensionUnit: 'cm',
+        storageCost: 15,
+        ksaShippingCost: 25,
+        commissionPercent: 15,
+        advertisingPercent: 15,
+        vatKsaPercent: 15,
+        profitPercent: 15,
+      },
+      { freightRatePerCbm: 1353 }
+    )
+    expect(result.cbm).toBeCloseTo(0.02387, 4)
+    expect(result.cargoCost).toBeCloseTo(32.29, 1)
+    expect(result.cargoCost).not.toBeCloseTo(2.3, 1)
   })
 })
