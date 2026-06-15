@@ -1,5 +1,6 @@
 const { readZohoConfig, INVENTORY_V1 } = require('../integrations/zoho/zohoConfig')
 const { fetchItemById } = require('../integrations/zoho/zohoInventoryClient')
+const { getZohoInventorySkuMap } = require('../controllers/zohoItemImagesController')
 const { zohoInventoryJsonRequest } = require('./zohoApiClient')
 const { findItemsBySkuOrName } = require('./zohoBulkInvoiceStore')
 const { expandExactMatchVariants, expandMatchCandidates, normalizeSku } = require('../utils/purchasePlanningSkuMatcher')
@@ -10,6 +11,50 @@ function cleanSku(value) {
 
 function normalizeSkuKey(value) {
   return normalizeSku(value)
+}
+
+function mapLookupKey(value) {
+  return cleanSku(value).toLowerCase()
+}
+
+function pickItemDisplayName(item) {
+  return cleanSku(item?.name || item?.item_name || item?.description)
+}
+
+function pickItemSku(item) {
+  return cleanSku(item?.sku || item?.item_code || item?.code)
+}
+
+function resolveItemFromSkuMap(map, needle) {
+  if (!map || !(map instanceof Map) || !needle) return null
+
+  const tryKey = (rawKey) => {
+    const key = mapLookupKey(rawKey)
+    if (!key) return null
+    const hit = map.get(key)
+    return hit?.item_id ? hit : null
+  }
+
+  for (const key of lookupKeys(needle)) {
+    const hit = tryKey(key)
+    if (hit) return hit
+  }
+  for (const key of lookupKeys(needle)) {
+    for (const variant of expandExactMatchVariants(key)) {
+      const hit = tryKey(variant)
+      if (hit) return hit
+    }
+  }
+  return null
+}
+
+async function findItemInInventorySkuMap(needle) {
+  try {
+    const map = await getZohoInventorySkuMap()
+    return resolveItemFromSkuMap(map, needle)
+  } catch {
+    return null
+  }
 }
 
 function lookupKeys(raw) {
@@ -44,6 +89,9 @@ function itemLookupKeys(item) {
   add(item?.code)
   add(item?.name)
   add(item?.item_name)
+  add(item?.description)
+  add(pickItemDisplayName(item))
+  add(pickItemSku(item))
   add(item?.part_number)
   add(rawJsonField(item, 'sku'))
   add(rawJsonField(item, 'item_code'))
@@ -64,7 +112,7 @@ function pickBestItemMatch(items, needle) {
     if (exact) return exact
   }
   for (const wantedKey of wanted) {
-    const exactName = rows.find((row) => normalizeSkuKey(row?.name || row?.item_name) === wantedKey)
+    const exactName = rows.find((row) => normalizeSkuKey(pickItemDisplayName(row)) === wantedKey)
     if (exactName) return exactName
   }
   for (const row of rows) {
@@ -187,14 +235,29 @@ async function lookupSkuDimensions(sku) {
   }
 
   try {
+    const fromMap = await findItemInInventorySkuMap(needle)
+    if (fromMap?.item_id) {
+      const detail = await fetchItemDetailById(fromMap.item_id)
+      if (detail) {
+        const dims = extractPackageDetails(detail)
+        return mapLookupResult({
+          sku: cleanSku(pickItemSku(detail)) || cleanSku(pickItemDisplayName(detail)) || needle,
+          item: detail,
+          source: 'zoho_sku_map',
+          status: dims.hasAll ? 'found' : 'missing_dimensions',
+          message: dims.hasAll ? 'Dimensions loaded from Zoho' : 'Zoho item found but package dimensions are incomplete',
+        })
+      }
+    }
+
     const cachedRows = await findItemsBySkuOrName(lookupKeys(needle))
-    const cached = pickBestItemMatch(cachedRows, needle) || cachedRows[0]
+    const cached = pickBestItemMatch(cachedRows, needle)
     if (cached?.item_id) {
       const detail = await fetchItemDetailById(cached.item_id)
       if (detail) {
         const dims = extractPackageDetails(detail)
         return mapLookupResult({
-          sku: cleanSku(detail.sku) || needle,
+          sku: cleanSku(pickItemSku(detail)) || cleanSku(pickItemDisplayName(detail)) || needle,
           item: detail,
           source: 'zoho_detail',
           status: dims.hasAll ? 'found' : 'missing_dimensions',
@@ -216,7 +279,7 @@ async function lookupSkuDimensions(sku) {
 
     const dims = extractPackageDetails(searched)
     return mapLookupResult({
-      sku: cleanSku(searched.sku) || needle,
+      sku: cleanSku(pickItemSku(searched)) || cleanSku(pickItemDisplayName(searched)) || needle,
       item: searched,
       source: 'zoho_search',
       status: dims.hasAll ? 'found' : 'missing_dimensions',
@@ -250,5 +313,8 @@ module.exports = {
     lookupKeys,
     itemLookupKeys,
     pickBestItemMatch,
+    resolveItemFromSkuMap,
+    pickItemDisplayName,
+    pickItemSku,
   },
 }

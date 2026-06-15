@@ -377,6 +377,10 @@ function buildZohoLookupMaps(rawZoho, familyFieldId) {
     if (it.name != null && String(it.name).trim() !== '') {
       byName.set(String(it.name).trim().toLowerCase(), it)
     }
+    if (it.item_name != null && String(it.item_name).trim() !== '') {
+      const itemNameKey = String(it.item_name).trim().toLowerCase()
+      if (!byName.has(itemNameKey)) byName.set(itemNameKey, it)
+    }
     if (it.item_id != null && it.item_id !== '') {
       byItemId.set(String(it.item_id).trim(), it)
     }

@@ -79,4 +79,34 @@ describe('ksaPricingZohoService', () => {
     )
     assert.equal(hit.item_id, 'item-flhm-base')
   })
+
+  it('resolves catalogue code from shared inventory sku map keyed by item name', () => {
+    const map = new Map([
+      [
+        'flhm-s-gl-10blue',
+        {
+          item_id: 'item-flhm',
+          sku: '6294021002721',
+          name: 'FLHM-S-GL-10BLUE',
+        },
+      ],
+    ])
+    const hit = _internals.resolveItemFromSkuMap(map, 'FLHM-S-GL-10BLUE')
+    assert.equal(hit.item_id, 'item-flhm')
+  })
+
+  it('resolves catalogue code when only item_name is populated on the Zoho row', () => {
+    const map = new Map([
+      [
+        'flhm-s-gl-10blue',
+        {
+          item_id: 'item-flhm',
+          sku: '6294021002721',
+          item_name: 'FLHM-S-GL-10BLUE',
+        },
+      ],
+    ])
+    const hit = _internals.resolveItemFromSkuMap(map, 'FLHM-S-GL-10BLUE')
+    assert.equal(hit.item_id, 'item-flhm')
+  })
 })
