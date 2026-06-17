@@ -18,6 +18,28 @@
 
 const ExcelJS = require('exceljs')
 
+/**
+ * Run `tasks` (array of zero-arg async functions) with at most `limit` running at once.
+ * Returns results in the same order as `tasks`.
+ * @param {Array<() => Promise<any>>} tasks
+ * @param {number} limit
+ * @returns {Promise<any[]>}
+ */
+async function promiseConcurrent(tasks, limit) {
+  if (!tasks.length) return []
+  const results = new Array(tasks.length)
+  let next = 0
+  async function worker() {
+    while (next < tasks.length) {
+      const i = next++
+      // eslint-disable-next-line no-await-in-loop
+      results[i] = await tasks[i]()
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker))
+  return results
+}
+
 const THIN = { style: 'thin', color: { argb: 'FF7F7F7F' } }
 const MEDIUM = { style: 'medium', color: { argb: 'FF4A5568' } }
 
@@ -81,11 +103,11 @@ function applyGrandTotalTopBorder(sheet, grandTotalRow, fromCol, toCol) {
  * @typedef {object} BusinessTableColumn
  * @property {string} header
  * @property {number} width
- * @property {'index'|'rowText'|'sum'} type
+ * @property {'index'|'rowText'|'sum'|'image'} type
  * @property {string} [key]  — for `sum`, field on each item and on `totals`
  * @property {string} [numFmt] — for `sum`, default numeric pattern
  * @property {(row: object, index: number) => unknown} [getValue] — for `rowText` data cell
- * @property {string} [grandTotalText] — for `rowText`, label in the total row
+ * @property {string} [grandTotalText] — for `rowText` / `image`, label in the total row
  */
 
 /**
@@ -99,6 +121,7 @@ function applyGrandTotalTopBorder(sheet, grandTotalRow, fromCol, toCol) {
  * @param {object[]} p.items
  * @param {object} p.totals — one numeric field per `sum` column
  * @param {BusinessTableColumn[]} p.columns
+ * @param {(item: object, i: number) => Promise<null|{ buffer: Buffer, extension: 'png'|'jpeg'|'gif' }>} [p.fetchImageForItem] — for `type: 'image'`; omit to leave "—" only
  * @returns {Promise<Buffer>}
  */
 async function buildBusinessTableXlsxBuffer(p) {
@@ -112,6 +135,7 @@ async function buildBusinessTableXlsxBuffer(p) {
     columns: rawColumns,
     worksheetName = 'Report',
     workbookCreator = 'HR Attendance',
+    fetchImageForItem,
   } = p
   if (!rawColumns || rawColumns.length === 0) {
     throw new Error('buildBusinessTableXlsxBuffer: at least one column is required')
@@ -128,8 +152,35 @@ async function buildBusinessTableXlsxBuffer(p) {
     if (c.type === 'rowText' && (c.grandTotalText == null || c.grandTotalText === '')) {
       throw new Error('buildBusinessTableXlsxBuffer: rowText columns need grandTotalText for the total row')
     }
+    if (c.type === 'image' && (c.grandTotalText == null || c.grandTotalText === '')) {
+      throw new Error('buildBusinessTableXlsxBuffer: image columns need grandTotalText for the total row')
+    }
     return c
   })
+
+  const hasImageCol = columns.some((c) => c.type === 'image')
+  let imagePayloads = null
+  if (hasImageCol) {
+    if (typeof fetchImageForItem === 'function' && items.length) {
+      // Limit concurrency to avoid overwhelming the upstream API (Zoho) with dozens of
+      // simultaneous requests, which causes timeouts and missing images.
+      const IMAGE_FETCH_CONCURRENCY = 5
+      imagePayloads = await promiseConcurrent(
+        items.map((item, i) => () =>
+          fetchImageForItem(item, i).catch(() => {
+            // eslint-disable-next-line no-console
+            console.warn('[businessTableXlsx] fetchImageForItem failed for row', i)
+            return null
+          })
+        ),
+        IMAGE_FETCH_CONCURRENCY
+      )
+    } else {
+      imagePayloads = items.map(() => null)
+    }
+  } else {
+    imagePayloads = null
+  }
 
   const lastC = columns.length
   const range1 = `A1:${colLetter1Based(lastC)}1`
@@ -137,6 +188,12 @@ async function buildBusinessTableXlsxBuffer(p) {
   const fFrom = formatDateLabel(fromDate)
   const fTo = formatDateLabel(toDate)
   const period = periodLabel ?? `Period: ${fFrom}   to   ${fTo}`
+
+  const imageCol0 = columns.findIndex((c) => c.type === 'image')
+  const hasImageRowHeight = imageCol0 >= 0
+  const IMAGE_W = 56
+  const IMAGE_H = 56
+  const imageRowPointHeight = 52
 
   const wb = new ExcelJS.Workbook()
   wb.creator = workbookCreator
@@ -186,7 +243,7 @@ async function buildBusinessTableXlsxBuffer(p) {
     const item = items[i]
     const r = dataRowStart + i
     const row = ws.getRow(r)
-    row.height = 20
+    row.height = hasImageRowHeight ? imageRowPointHeight : 20
     const zebra = i % 2 === 1
     for (let col = 1; col <= lastC; col += 1) {
       if (zebra) row.getCell(col).fill = FILL_ZEBRA
@@ -203,6 +260,15 @@ async function buildBusinessTableXlsxBuffer(p) {
         cell.value = def.getValue(item, i)
         cell.font = { ...dataFont }
         cell.alignment = { horizontal: 'left', vertical: 'middle' }
+      } else if (def.type === 'image') {
+        const pl = imagePayloads && imagePayloads[i]
+        if (pl && pl.buffer) {
+          cell.value = null
+        } else {
+          cell.value = '—'
+        }
+        cell.font = { ...dataFont }
+        cell.alignment = { horizontal: 'center', vertical: 'middle' }
       } else if (def.type === 'sum') {
         const nfmt = def.numFmt ?? DEFAULT_NUM_FMT
         const v = item[def.key]
@@ -236,6 +302,10 @@ async function buildBusinessTableXlsxBuffer(p) {
       cell.value = def.grandTotalText
       cell.font = dataFontLabel
       cell.alignment = { horizontal: 'left', vertical: 'middle' }
+    } else if (def.type === 'image') {
+      cell.value = def.grandTotalText
+      cell.font = dataFontLabel
+      cell.alignment = { horizontal: 'center', vertical: 'middle' }
     } else if (def.type === 'sum') {
       const nfmt = def.numFmt ?? DEFAULT_NUM_FMT
       const tv = totals[def.key]
@@ -253,6 +323,28 @@ async function buildBusinessTableXlsxBuffer(p) {
 
   applyTableBorders(ws, HEADER_ROW, gtRowIdx, 1, lastC)
   applyGrandTotalTopBorder(ws, gtRowIdx, 1, lastC)
+
+  if (imageCol0 >= 0 && imagePayloads) {
+    for (let i = 0; i < items.length; i += 1) {
+      const payload = imagePayloads[i]
+      if (!payload || !payload.buffer) continue
+      const extRaw = payload.extension != null ? String(payload.extension).toLowerCase() : 'jpeg'
+      const ext = extRaw === 'png' || extRaw === 'gif' || extRaw === 'jpeg' ? extRaw : 'jpeg'
+      const r = dataRowStart + i
+      let imageId
+      try {
+        imageId = wb.addImage({ buffer: payload.buffer, extension: ext })
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn('[businessTableXlsx] addImage', err && err.message)
+        continue
+      }
+      ws.addImage(imageId, {
+        tl: { col: imageCol0, row: r - 1 },
+        ext: { width: IMAGE_W, height: IMAGE_H },
+      })
+    }
+  }
 
   for (let c = 1; c <= lastC; c += 1) {
     const isL = c === 1

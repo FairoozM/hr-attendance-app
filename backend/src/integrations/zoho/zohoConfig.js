@@ -3,6 +3,7 @@
  *
  * Primary variable names (use these in new deployments):
  *   ZOHO_ORGANIZATION_ID, ZOHO_API_BASE_URL
+ *   ZOHO_BASE_URL is also accepted for item-image fetcher deployments.
  * Legacy aliases remain supported: ZOHO_INVENTORY_ORGANIZATION_ID, ZOHO_INVENTORY_API_BASE
  *
  * See docs/integrations-zoho.md and docs/zoho-inventory-api-coverage.md.
@@ -31,7 +32,10 @@ function readZohoConfig() {
     return { code: 'ZOHO_NOT_CONFIGURED', missing }
   }
   const apiBaseRaw =
-    process.env.ZOHO_API_BASE_URL || process.env.ZOHO_INVENTORY_API_BASE || DEFAULT_API_BASE
+    process.env.ZOHO_API_BASE_URL ||
+    process.env.ZOHO_BASE_URL ||
+    process.env.ZOHO_INVENTORY_API_BASE ||
+    DEFAULT_API_BASE
   return {
     code: 'ok',
     clientId: String(clientId).trim(),

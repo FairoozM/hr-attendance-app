@@ -1,0 +1,45 @@
+.pay-page {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.pay-hero__sub strong,
+.pay-hero__sub em {
+  color: var(--text-primary);
+}
+
+.pay-dev-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  padding: 0.65rem 0.9rem;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--glass-border, rgba(255, 255, 255, 0.12));
+  background: rgba(255, 255, 255, 0.02);
+  margin-top: 0.25rem;
+}
+
+.pay-dev-hint__label {
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  background: rgba(139, 92, 246, 0.2);
+  color: #c4b5fd;
+}
+
+.pay-dev-hint code {
+  font-size: 0.75rem;
+  padding: 0.1rem 0.25rem;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.pay-drawer-backdrop {
+  z-index: 280;
+}

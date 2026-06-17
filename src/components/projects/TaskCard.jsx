@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Check, Clock, AlertTriangle, ChevronRight, MoreHorizontal, Trash2, Edit2 } from 'lucide-react'
 import { CategoryBadge } from './CategoryBadge'
 import { PriorityIndicator, EnergyBadge } from './PriorityIndicator'
+import { fmtDMY } from '../../utils/dateFormat'
 
 function DueBadge({ daysUntilDue, dueDate }) {
   if (daysUntilDue === null || dueDate === null) return null
@@ -11,7 +12,7 @@ function DueBadge({ daysUntilDue, dueDate }) {
   else if (daysUntilDue === 1) { label = 'Tomorrow';                            cls = 'soon' }
   else if (daysUntilDue <= 7)  { label = `${daysUntilDue}d`;                    cls = 'week' }
   else {
-    label = new Date(dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+    label = fmtDMY(dueDate)
     cls = 'future'
   }
   return (

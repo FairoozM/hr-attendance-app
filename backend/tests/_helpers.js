@@ -102,11 +102,23 @@ async function captureConsole(fn) {
   return captured
 }
 
+/**
+ * Temporarily replace `global.fetch` for tests. Returns a `restore()` function.
+ */
+function mockFetch(impl) {
+  const prev = global.fetch
+  global.fetch = impl
+  return function restore() {
+    global.fetch = prev
+  }
+}
+
 module.exports = {
   resolveFromHere,
   mockModule,
   freshRequire,
   makeReqRes,
   captureConsole,
+  mockFetch,
   Module,
 }

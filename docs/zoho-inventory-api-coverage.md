@@ -27,7 +27,8 @@ Zoho’s UI **Inventory Summary**-style report (and your former Deluge function)
 **Current behaviour in HR:**
 
 - `closing_stock` is filled from **current** location stock as returned by the Items API at request time. It is **not** a historical end-of-`to_date` snapshot unless your operational clock aligns with that instant.
-- `opening_stock`, `purchases`, `returned_to_wholesale`, and `sold` are returned as JSON **`null`**. The UI and Excel show **"—"**; Grand Total for a column is **"—"** if any row has `null` in that field.
+- `sold`, `purchases` (qty / amounts where applicable), and `returned_to_wholesale` for the **period** `[from_date, to_date]` come from invoices, bills, and vendor credits as documented in `docs/weekly-report-zoho-transactions.md` (vendor rules apply to period purchases/credits).
+- **`opening_stock`** (qty → valued like closing) is **reconciled** from that same current Items snapshot and documented invoice/bill/vendor-credit lines from **`from_date` through today**, using **all vendors** for bills/credits in that recon window (see `getStockReconstruction` in `weeklyReportZohoTransactions.js`). It approximates stock at **`from_date`**; it will **not** match Zoho’s UI Inventory Summary if adjustments, transfers, or other uncaptured movements occurred. Rows with no unit price still yield `null` opening/closing amounts as before.
 
 ## Environment variables (backend)
 

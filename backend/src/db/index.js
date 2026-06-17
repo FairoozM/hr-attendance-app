@@ -392,6 +392,51 @@ async function ensureInfluencersSnapshotTable() {
   `)
 }
 
+/** Daily influencer performance checks (synced from app; influencer ids match influencers_snapshot). */
+async function ensureInfluencerPerformanceRecordsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS influencer_performance_contracts (
+      id TEXT PRIMARY KEY,
+      influencer_id TEXT NOT NULL,
+      platform TEXT NOT NULL DEFAULT '',
+      campaign_name TEXT NOT NULL DEFAULT '',
+      video_title TEXT NOT NULL DEFAULT '',
+      post_url TEXT NOT NULL DEFAULT '',
+      contract_start_date DATE,
+      monitoring_days INTEGER NOT NULL DEFAULT 5,
+      body JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_ipc_influencer ON influencer_performance_contracts(influencer_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_ipc_start_date ON influencer_performance_contracts(contract_start_date)`)
+  await query(`
+    CREATE TABLE IF NOT EXISTS influencer_performance_records (
+      id TEXT PRIMARY KEY,
+      contract_id TEXT,
+      influencer_id TEXT NOT NULL,
+      check_date DATE NOT NULL,
+      body JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+    )
+  `)
+  await query(`ALTER TABLE influencer_performance_records ADD COLUMN IF NOT EXISTS contract_id TEXT`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_ipr_influencer ON influencer_performance_records(influencer_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_ipr_contract ON influencer_performance_records(contract_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_ipr_check_date ON influencer_performance_records(check_date)`)
+  await query(`
+    CREATE TABLE IF NOT EXISTS influencer_performance_record_tombstones (
+      id TEXT PRIMARY KEY,
+      deleted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+    )
+  `)
+}
+
 async function ensureDocumentExpiryTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS document_expiry (
@@ -701,6 +746,133 @@ async function normalizeEmployeePhotoUrls() {
   `)
 }
 
+/**
+ * One-time: derive prices, company_payments, and taxation keys from legacy modules
+ * so existing users keep access after splitting permissions (plan migration A).
+ */
+async function migratePermissionsNewModulesOnce() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS schema_patches (
+      id TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  const patchId = 'permissions_modules_v2_20260504'
+  const exists = await query(`SELECT 1 FROM schema_patches WHERE id = $1`, [patchId])
+  if (exists.rows.length > 0) return
+
+  const { rows } = await query(`SELECT id, permissions FROM users WHERE role <> 'admin'`)
+  for (const row of rows) {
+    let p = row.permissions
+    if (p == null) p = {}
+    if (typeof p === 'string') {
+      try {
+        p = JSON.parse(p)
+      } catch {
+        p = {}
+      }
+    }
+    const next = { ...p }
+    let changed = false
+
+    const de = p.document_expiry || {}
+    if (de.view && !next.prices?.view) {
+      next.prices = { ...(next.prices || {}), view: true }
+      changed = true
+    }
+
+    if (de.view || de.add || de.edit || de.delete) {
+      const cp = { ...(next.company_payments || {}) }
+      let cpChanged = false
+      const needView = !!(de.view || de.add || de.edit || de.delete)
+      if (needView && !cp.view) {
+        cp.view = true
+        cpChanged = true
+      }
+      if (de.add && !cp.add) {
+        cp.add = true
+        cpChanged = true
+      }
+      if (de.edit && !cp.edit) {
+        cp.edit = true
+        cpChanged = true
+      }
+      if (de.delete && !cp.delete) {
+        cp.delete = true
+        cpChanged = true
+      }
+      if (cpChanged) {
+        next.company_payments = cp
+        changed = true
+      }
+    }
+
+    const wr = p.weekly_reports || {}
+    if (wr.view && !next.taxation?.view) {
+      next.taxation = { ...(next.taxation || {}), view: true }
+      changed = true
+    }
+
+    if (changed) {
+      await query(`UPDATE users SET permissions = $1::jsonb, updated_at = NOW() WHERE id = $2`, [
+        JSON.stringify(next),
+        row.id,
+      ])
+    }
+  }
+
+  await query(`INSERT INTO schema_patches (id) VALUES ($1)`, [patchId])
+  console.log('[db] migratePermissionsNewModulesOnce applied:', patchId)
+}
+
+/**
+ * Grant influencers.performance to portal users matching Ali Hassan (employee name or username).
+ */
+async function grantAliHassanInfluencerPerformancePermissionOnce() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS schema_patches (
+      id TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  const patchId = 'grant_ali_hassan_influencer_performance_202605'
+  const exists = await query(`SELECT 1 FROM schema_patches WHERE id = $1`, [patchId])
+  if (exists.rows.length > 0) return
+
+  const upd = await query(
+    `UPDATE users u
+     SET permissions = jsonb_set(
+       COALESCE(u.permissions, '{}'::jsonb),
+       '{influencers}',
+       COALESCE(u.permissions->'influencers', '{}'::jsonb) || '{"performance": true}'::jsonb,
+       true
+     ),
+     updated_at = NOW()
+     FROM employees e
+     WHERE u.employee_id = e.id
+       AND u.role NOT IN ('admin')
+       AND (
+         (
+           LOWER(TRIM(COALESCE(e.full_name, ''))) LIKE '%ali%'
+           AND LOWER(TRIM(COALESCE(e.full_name, ''))) LIKE '%hassan%'
+         )
+         OR LOWER(TRIM(COALESCE(u.username, ''))) LIKE '%alihassan%'
+         OR LOWER(TRIM(COALESCE(u.username, ''))) LIKE '%ali.hassan%'
+         OR LOWER(TRIM(COALESCE(u.username, ''))) LIKE '%ali_hassan%'
+       )
+     RETURNING u.id, u.username, e.full_name`
+  )
+  if (upd.rows.length > 0) {
+    console.log('[db] grantAliHassanInfluencerPerformancePermissionOnce updated:', upd.rows)
+  } else {
+    console.log(
+      '[db] grantAliHassanInfluencerPerformancePermissionOnce: no matching user (skip or add manually in Roles & Permissions)'
+    )
+  }
+
+  await query(`INSERT INTO schema_patches (id) VALUES ($1)`, [patchId])
+}
+
 async function testConnection() {
   const result = await query('SELECT NOW()')
   const now = result.rows[0]?.now
@@ -719,6 +891,21 @@ async function testConnection() {
   await ensureDefaultAdminUser()
   await resyncAdminPasswordFromEnvIfRequested()
   await ensureWarehouseUser()
+  try {
+    await migratePermissionsNewModulesOnce()
+  } catch (e) {
+    console.error('[db] migratePermissionsNewModulesOnce skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    await grantAliHassanInfluencerPerformancePermissionOnce()
+  } catch (e) {
+    console.error('[db] grantAliHassanInfluencerPerformancePermissionOnce skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    await ensureInfluencerPerformanceRecordsTable()
+  } catch (e) {
+    console.error('[db] ensureInfluencerPerformanceRecordsTable skipped/failed (non-fatal):', e.message || e)
+  }
   // Must run before username migration: migrateUsernamesToEmail() can throw on edge
   // duplicate data; if it aborts testConnection(), annual_leave columns would never apply.
   await ensureAnnualLeaveExtendedColumns()
@@ -792,6 +979,70 @@ async function testConnection() {
     await ensureItemReportGroupsImportLogTable()
   } catch (e) {
     console.error('[db] ensureItemReportGroupsImportLogTable skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    const { ensureWeeklyAdsReportHistoryTable } = require('../services/weeklyAdsReportHistoryStore')
+    await ensureWeeklyAdsReportHistoryTable()
+  } catch (e) {
+    console.error('[db] ensureWeeklyAdsReportHistoryTable skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    const { ensureUserPreferencesTable } = require('../services/userPreferencesStore')
+    await ensureUserPreferencesTable()
+  } catch (e) {
+    console.error('[db] ensureUserPreferencesTable skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    const { ensureZohoApiTables } = require('../services/zohoApiStore')
+    await ensureZohoApiTables()
+  } catch (e) {
+    console.error('[db] ensureZohoApiTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    const { ensureZohoBulkInvoiceTables } = require('../services/zohoBulkInvoiceStore')
+    await ensureZohoBulkInvoiceTables()
+  } catch (e) {
+    console.error('[db] ensureZohoBulkInvoiceTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    const { ensurePurchasePlanningTables } = require('../services/purchasePlanningService')
+    await ensurePurchasePlanningTables()
+  } catch (e) {
+    console.error('[db] ensurePurchasePlanningTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    await ensureAiBudgetAndUsageTables()
+  } catch (e) {
+    console.error('[db] ensureAiBudgetAndUsageTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    await ensureAmazonBulkListingTables()
+  } catch (e) {
+    console.error('[db] ensureAmazonBulkListingTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    const { ensureAmazonOrdersCacheTables } = require('../services/amazonOrdersCacheStore')
+    await ensureAmazonOrdersCacheTables()
+  } catch (e) {
+    console.error('[db] ensureAmazonOrdersCacheTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    const { ensureAmazonCatalogItemCacheTables } = require('../services/amazonCatalogItemCacheStore')
+    await ensureAmazonCatalogItemCacheTables()
+  } catch (e) {
+    console.error('[db] ensureAmazonCatalogItemCacheTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    const { ensureAmazonSkuImageOverrideTables } = require('../services/amazonSkuImageOverrideStore')
+    await ensureAmazonSkuImageOverrideTables()
+  } catch (e) {
+    console.error('[db] ensureAmazonSkuImageOverrideTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    const { ensureAmazonZohoStockComparisonTables } = require('../services/amazonZohoStockComparisonStore')
+    await ensureAmazonZohoStockComparisonTables()
+  } catch (e) {
+    console.error('[db] ensureAmazonZohoStockComparisonTables skipped/failed (non-fatal):', e.message || e)
   }
 }
 
@@ -892,6 +1143,228 @@ async function ensureTaskAttachmentsTable() {
   await query(`CREATE INDEX IF NOT EXISTS idx_task_attachments_task_id ON task_attachments(task_id)`)
 }
 
+/** AI usage tracking + Amazon listing generations (OpenAI proxy — key stays server-side only). */
+async function ensureAiBudgetAndUsageTables() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS ai_budget_settings (
+      id SMALLINT PRIMARY KEY DEFAULT 1,
+      daily_budget_usd NUMERIC(14,4) NOT NULL DEFAULT 50,
+      monthly_budget_usd NUMERIC(14,4) NOT NULL DEFAULT 500,
+      alert_threshold_percent NUMERIC(6,2) NOT NULL DEFAULT 80,
+      default_model VARCHAR(128) NOT NULL DEFAULT 'gpt-4.1-mini',
+      max_batch_size INTEGER NOT NULL DEFAULT 10,
+      allow_ai_generation BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT ai_budget_settings_singleton CHECK (id = 1),
+      CONSTRAINT ai_budget_settings_batch_chk CHECK (max_batch_size >= 1 AND max_batch_size <= 500)
+    )
+  `)
+  await query(`ALTER TABLE ai_budget_settings ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`)
+  await query(`
+    INSERT INTO ai_budget_settings (id) VALUES (1)
+    ON CONFLICT (id) DO NOTHING
+  `)
+  await query(`
+    CREATE TABLE IF NOT EXISTS ai_usage_logs (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      module_name VARCHAR(128) NOT NULL,
+      action_name VARCHAR(128) NOT NULL,
+      model VARCHAR(128) NOT NULL,
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      total_tokens INTEGER NOT NULL DEFAULT 0,
+      estimated_cost_usd NUMERIC(16,8) NOT NULL DEFAULT 0,
+      request_status VARCHAR(32) NOT NULL,
+      error_message TEXT,
+      request_duration_ms INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(`ALTER TABLE ai_usage_logs ADD COLUMN IF NOT EXISTS request_duration_ms INTEGER`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_created_at ON ai_usage_logs(created_at)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_module ON ai_usage_logs(module_name)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_user ON ai_usage_logs(user_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_status ON ai_usage_logs(request_status)`)
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS amazon_listing_generations (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      product_input JSONB NOT NULL DEFAULT '{}',
+      listing_result JSONB NOT NULL DEFAULT '{}',
+      ai_usage_log_id INTEGER REFERENCES ai_usage_logs(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_amazon_listing_generations_user ON amazon_listing_generations(user_id)`
+  )
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS amazon_generated_listings (
+      id SERIAL PRIMARY KEY,
+      sku VARCHAR(255) NOT NULL,
+      product_name TEXT NOT NULL,
+      generated_title TEXT NOT NULL DEFAULT '',
+      generated_bullets JSONB NOT NULL DEFAULT '[]',
+      generated_description TEXT NOT NULL DEFAULT '',
+      generated_search_terms JSONB NOT NULL DEFAULT '[]',
+      marketplace VARCHAR(16) NOT NULL,
+      language VARCHAR(8) NOT NULL,
+      ai_model VARCHAR(128) NOT NULL,
+      estimated_cost NUMERIC(16,8) NOT NULL DEFAULT 0,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      ai_usage_log_id INTEGER REFERENCES ai_usage_logs(id) ON DELETE SET NULL,
+      arabic_title TEXT NOT NULL DEFAULT '',
+      arabic_bullets JSONB NOT NULL DEFAULT '[]',
+      suggested_attributes JSONB NOT NULL DEFAULT '{}',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_amazon_generated_listings_sku ON amazon_generated_listings(sku)`
+  )
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_amazon_generated_listings_created ON amazon_generated_listings(created_at)`
+  )
+}
+
+async function ensureAmazonBulkListingTables() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS listing_batches (
+      id SERIAL PRIMARY KEY,
+      batch_name TEXT NOT NULL,
+      uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      original_filename TEXT NOT NULL,
+      original_mime_type TEXT DEFAULT '',
+      original_file_ext TEXT DEFAULT '',
+      workbook_data BYTEA NOT NULL,
+      template_sheet_name TEXT NOT NULL DEFAULT 'Template',
+      header_row_number INTEGER NOT NULL DEFAULT 1,
+      sku_count INTEGER NOT NULL DEFAULT 0,
+      imported_count INTEGER NOT NULL DEFAULT 0,
+      overflow_count INTEGER NOT NULL DEFAULT 0,
+      detected_columns JSONB NOT NULL DEFAULT '[]',
+      active_columns JSONB NOT NULL DEFAULT '[]',
+      valid_values JSONB NOT NULL DEFAULT '{}',
+      status VARCHAR(32) NOT NULL DEFAULT 'Imported',
+      summary_counts JSONB NOT NULL DEFAULT '{}',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      exported_at TIMESTAMPTZ
+    )
+  `)
+  await query(`
+    CREATE TABLE IF NOT EXISTS listing_batch_rows (
+      id SERIAL PRIMARY KEY,
+      batch_id INTEGER NOT NULL REFERENCES listing_batches(id) ON DELETE CASCADE,
+      row_index INTEGER NOT NULL,
+      sheet_row_number INTEGER NOT NULL,
+      sku TEXT NOT NULL,
+      item_name TEXT DEFAULT '',
+      marketplace TEXT DEFAULT '',
+      status VARCHAR(32) NOT NULL DEFAULT 'Imported',
+      raw_values JSONB NOT NULL DEFAULT '{}',
+      current_values JSONB NOT NULL DEFAULT '{}',
+      generated_values JSONB NOT NULL DEFAULT '{}',
+      source_map JSONB NOT NULL DEFAULT '{}',
+      validation JSONB NOT NULL DEFAULT '{"errors":[],"warnings":[]}',
+      quality JSONB NOT NULL DEFAULT '{}',
+      ai_usage_log_id INTEGER REFERENCES ai_usage_logs(id) ON DELETE SET NULL,
+      ai_model VARCHAR(128),
+      estimated_cost_usd NUMERIC(16,8) NOT NULL DEFAULT 0,
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      approved_at TIMESTAMPTZ,
+      generated_at TIMESTAMPTZ,
+      exported_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(batch_id, sheet_row_number),
+      UNIQUE(batch_id, sku)
+    )
+  `)
+  await query(`
+    CREATE TABLE IF NOT EXISTS default_profiles (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      marketplace VARCHAR(32) DEFAULT '',
+      description TEXT DEFAULT '',
+      is_builtin BOOLEAN NOT NULL DEFAULT false,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(`
+    CREATE TABLE IF NOT EXISTS default_profile_fields (
+      id SERIAL PRIMARY KEY,
+      profile_id INTEGER NOT NULL REFERENCES default_profiles(id) ON DELETE CASCADE,
+      column_key TEXT NOT NULL,
+      column_label TEXT NOT NULL,
+      default_value TEXT NOT NULL DEFAULT '',
+      apply_mode VARCHAR(32) NOT NULL DEFAULT 'fill_empty',
+      enabled BOOLEAN NOT NULL DEFAULT true,
+      source VARCHAR(32) NOT NULL DEFAULT 'Fixed Default',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(`
+    CREATE TABLE IF NOT EXISTS listing_batch_events (
+      id SERIAL PRIMARY KEY,
+      batch_id INTEGER NOT NULL REFERENCES listing_batches(id) ON DELETE CASCADE,
+      row_id INTEGER REFERENCES listing_batch_rows(id) ON DELETE CASCADE,
+      event_type VARCHAR(64) NOT NULL,
+      actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      details JSONB NOT NULL DEFAULT '{}',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_listing_batches_created ON listing_batches(created_at DESC)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_listing_batches_user ON listing_batches(uploaded_by)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_listing_batch_rows_batch ON listing_batch_rows(batch_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_listing_batch_rows_status ON listing_batch_rows(batch_id, status)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_listing_batch_rows_sku ON listing_batch_rows(sku)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_default_profile_fields_profile ON default_profile_fields(profile_id)`)
+
+  const profiles = [
+    ['Life Smile Amazon UAE', 'UAE', 'Default Life Smile profile for Amazon.ae'],
+    ['Life Smile Amazon KSA', 'KSA', 'Default Life Smile profile for Amazon.sa'],
+    ['Cookware UAE', 'UAE', 'Cookware profile for Amazon.ae'],
+    ['Cookware KSA', 'KSA', 'Cookware profile for Amazon.sa'],
+    ['Custom', '', 'Editable custom defaults'],
+  ]
+  for (const [name, marketplace, description] of profiles) {
+    await query(
+      `INSERT INTO default_profiles (name, marketplace, description, is_builtin)
+       VALUES ($1, $2, $3, true)
+       ON CONFLICT (name) DO NOTHING`,
+      [name, marketplace, description]
+    )
+  }
+
+  const r = await query(`SELECT id, name FROM default_profiles WHERE name IN ('Life Smile Amazon UAE','Life Smile Amazon KSA','Cookware UAE','Cookware KSA')`)
+  for (const row of r.rows) {
+    const defaults = [
+      ['brand_name', 'Brand Name', 'Life Smile'],
+      ['manufacturer', 'Manufacturer', 'Basmat Al Hayat General Trading LLC'],
+    ]
+    for (const [columnKey, columnLabel, defaultValue] of defaults) {
+      await query(
+        `INSERT INTO default_profile_fields (profile_id, column_key, column_label, default_value, apply_mode, enabled)
+         SELECT $1, $2, $3, $4, 'fill_empty', true
+         WHERE NOT EXISTS (
+           SELECT 1 FROM default_profile_fields WHERE profile_id = $1 AND column_key = $2
+         )`,
+        [row.id, columnKey, columnLabel, defaultValue]
+      )
+    }
+  }
+}
+
 module.exports = {
   query,
   pool,
@@ -906,7 +1379,10 @@ module.exports = {
   ensureDefaultAdminUser,
   resyncAdminPasswordFromEnvIfRequested,
   ensureInfluencersSnapshotTable,
+  ensureInfluencerPerformanceRecordsTable,
   ensureDocumentExpiryTable,
   ensureItemReportGroupsTable,
   ensureItemReportGroupsImportLogTable,
+  ensureAiBudgetAndUsageTables,
+  ensureAmazonBulkListingTables,
 }

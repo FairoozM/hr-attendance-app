@@ -2,11 +2,23 @@ import { useState, useCallback, useEffect } from 'react'
 import { DEFAULT_DEPARTMENTS } from '../constants/employees'
 
 const STORAGE_KEY = 'hr-attendance-settings'
+const DEFAULT_APP_TITLE = 'Business Intelligence (BI) - Life Smile'
+const LEGACY_APP_TITLES = new Set([
+  'HR Attendance',
+  'HR Attendance Dashboard',
+  'HR & Business Intelligence',
+])
 
 const defaultSettings = {
   companyName: '',
-  appTitle: 'HR Attendance',
+  appTitle: DEFAULT_APP_TITLE,
   departments: [...DEFAULT_DEPARTMENTS],
+}
+
+function normalizeAppTitle(value) {
+  const title = String(value ?? '').trim()
+  if (!title || LEGACY_APP_TITLES.has(title)) return DEFAULT_APP_TITLE
+  return title
 }
 
 function load() {
@@ -17,7 +29,7 @@ function load() {
       if (parsed && typeof parsed === 'object') {
         return {
           companyName: parsed.companyName ?? defaultSettings.companyName,
-          appTitle: parsed.appTitle ?? defaultSettings.appTitle,
+          appTitle: normalizeAppTitle(parsed.appTitle),
           departments:
           Array.isArray(parsed.departments) && parsed.departments.length > 0
             ? parsed.departments
@@ -37,6 +49,10 @@ function save(settings) {
 
 export function useAppSettings() {
   const [settings, setSettingsState] = useState(load)
+
+  useEffect(() => {
+    save(settings)
+  }, [settings])
 
   const persist = useCallback((next) => {
     setSettingsState((prev) => {

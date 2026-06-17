@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Zap, X } from 'lucide-react'
 import { parseCapture, CATEGORY_META } from '../../lib/aiEngine'
+import { fmtDMY } from '../../utils/dateFormat'
 
 export function QuickCapture({ onSubmit, projects = [], defaultProjectId = null, loading = false }) {
   const [text, setText]           = useState('')
@@ -87,7 +88,7 @@ export function QuickCapture({ onSubmit, projects = [], defaultProjectId = null,
             )}
             {preview.suggestedDate && (
               <span className="ai-capture__preview-tag ai-capture__preview-tag--date">
-                📅 {new Date(preview.suggestedDate + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+                📅 {fmtDMY(preview.suggestedDate)}
               </span>
             )}
             {preview.suggestedTime && (

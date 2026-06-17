@@ -35,12 +35,36 @@ async function startServer() {
   try {
     await testConnection()
     console.log('[boot] Database ready.')
+
+    if (/^(1|true|yes)$/i.test(String(process.env.ZOHO_AUTO_SYNC_ON_START || ''))) {
+      console.log('[zoho] ZOHO_AUTO_SYNC_ON_START=1 — background items refresh scheduled')
+      setImmediate(() => {
+        const { fetchAllItemsRaw } = require('./integrations/zoho/zohoAdapter')
+        fetchAllItemsRaw().catch((err) => {
+          console.error('[zoho] ZOHO_AUTO_SYNC_ON_START fetch failed:', err.message || err)
+        })
+      })
+    }
   } catch (err) {
     console.error('Database startup failed:', err.message)
     if (err.stack) console.error(err.stack)
     // Do not accept traffic with a half-migrated schema (e.g. annual_leave SELECTs would 500).
     process.exit(1)
   }
+
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(
+        `[server] Port ${PORT} is already in use — stop the other process or pick a different PORT.\n` +
+          `  See what holds it:  lsof -nP -iTCP:${PORT} -sTCP:LISTEN\n` +
+          `  Then stop it:        kill <PID>   (or kill -9 <PID> if it ignores SIGTERM)`
+      )
+      process.exit(1)
+      return
+    }
+    console.error('[server] HTTP server error:', err)
+    process.exit(1)
+  })
 
   server.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`)

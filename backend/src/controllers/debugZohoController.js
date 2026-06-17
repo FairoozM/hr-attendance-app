@@ -2,14 +2,13 @@
  * TEMPORARY — remove when Zoho integration is stable.
  * GET /api/debug/zoho/items
  *
- * Calls `zohoAdapter.getItems()` and `fetchAllItemsRaw()` (parallel). Rows are
- * merged by index: name/sku/family from getItems, stock and custom_fields from
- * the raw Zoho object (getItems does not return those). Large orgs: two full
- * list scans — remove this endpoint in production once stable.
+ * Uses one `fetchAllItemsRaw()` pass only (merged with normalized fields) so we
+ * never double-scan the catalog. Large orgs still hit many paginated list calls;
+ * avoid hammering this endpoint.
  */
 
-const { getItems, fetchAllItemsRaw, readZohoConfig, orgEnvHint } = require('../integrations/zoho/zohoAdapter')
-const { parseFamilyFromZohoItem } = require('../integrations/zoho/zohoItemFamily')
+const { fetchAllItemsRaw, readZohoConfig, orgEnvHint } = require('../integrations/zoho/zohoAdapter')
+const { normalizeZohoInventoryItem, parseFamilyFromZohoItem } = require('../integrations/zoho/zohoItemFamily')
 
 const PREVIEW = 20
 
@@ -49,27 +48,27 @@ async function getZohoDebugItems(_req, res) {
   }
   const familyFieldId = cfg.familyCustomFieldId
   try {
-    const [normalized, raw] = await Promise.all([getItems(), fetchAllItemsRaw()])
-    const n = Math.min(PREVIEW, normalized.length, Array.isArray(raw) ? raw.length : 0)
+    const raw = await fetchAllItemsRaw()
+    const arr = Array.isArray(raw) ? raw : []
+    const n = Math.min(PREVIEW, arr.length)
     if (n === 0) {
       return res.json({
         items: [],
         count: 0,
-        total_in_zoho: Array.isArray(raw) ? raw.length : 0,
+        total_in_zoho: arr.length,
         limited_to: PREVIEW,
-        note: 'Zoho returned no items (or getItems/ raw lists were empty).',
+        note: 'Zoho returned no items.',
       })
     }
     const items = []
     for (let i = 0; i < n; i += 1) {
-      const m = normalized[i]
-      const r = raw[i]
+      const r = arr[i]
+      const m = normalizeZohoInventoryItem(r, familyFieldId)
       items.push({
         name: m && typeof m.name === 'string' ? m.name : '',
         sku: m && typeof m.sku === 'string' ? m.sku : '',
         stock_on_hand: stockOnHandField(r),
         custom_fields: r && Array.isArray(r.custom_fields) ? r.custom_fields : [],
-        // Prefer adapter getItems() family; fallback parse from raw (should match)
         family:
           m && typeof m.family === 'string' ? m.family : parseFamilyFromZohoItem(r, familyFieldId),
       })
@@ -77,7 +76,7 @@ async function getZohoDebugItems(_req, res) {
     return res.json({
       items,
       count: items.length,
-      total_in_zoho: raw.length,
+      total_in_zoho: arr.length,
       limited_to: PREVIEW,
     })
   } catch (err) {
@@ -131,6 +130,12 @@ function sendZohoDebugError(res, err) {
         response: err.zohoResponse != null ? err.zohoResponse : null,
         cause: err.cause && err.cause.message ? err.cause.message : null,
       },
+    })
+  }
+  if (code === 'ZOHO_DAILY_BUDGET_EXCEEDED') {
+    return res.status(429).json({
+      error: err.message || 'Zoho daily API budget exceeded.',
+      code: 'ZOHO_DAILY_BUDGET_EXCEEDED',
     })
   }
   console.error('[debugZoho] unexpected error:', err)

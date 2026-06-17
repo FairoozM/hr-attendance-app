@@ -14,32 +14,57 @@ import {
 import { useInfluencers } from '../../contexts/InfluencersContext'
 import { useAuth, hasPermission } from '../../contexts/AuthContext'
 import { AddInfluencerPage } from './AddInfluencerPage'
-import { resolveApiUrl } from '../../api/client'
+import { batchRefreshInstagramProfilePictures } from '../../lib/influencers'
 import './influencers.css'
 
-function InstagramCell({ handle, url, storedPicUrl }) {
+function initials(name) {
+  return String(name || 'IN')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'IN'
+}
+
+function InfluencerListAvatar({ name, imageUrl }) {
   const [imgError, setImgError] = useState(false)
+
+  useEffect(() => {
+    setImgError(false)
+  }, [imageUrl])
+
+  return (
+    <div className="inf-list-avatar" aria-hidden="true">
+      {imageUrl && !imgError ? (
+        <img src={imageUrl} alt="" onError={() => setImgError(true)} />
+      ) : (
+        <span>{initials(name)}</span>
+      )}
+    </div>
+  )
+}
+
+function InstagramCell({ handle, url }) {
   const raw = handle ? handle.replace(/^@/, '').trim() : ''
   if (!raw) return <span className="inf-table__muted">—</span>
   const profileUrl = url || `https://www.instagram.com/${raw}/`
-  const avatarSrc = storedPicUrl || resolveApiUrl(`/api/instagram-proxy/avatar/${encodeURIComponent(raw)}`)
   return (
     <a
       href={profileUrl}
       target="_blank"
       rel="noopener noreferrer"
       className="inf-ig-cell"
+      title={`Open @${raw} on Instagram`}
+      aria-label={`Open @${raw} on Instagram`}
       onClick={e => e.stopPropagation()}
     >
-      <div className="inf-ig-cell__avatar-wrap">
-        {!imgError ? (
-          <img src={avatarSrc} alt={raw} className="inf-ig-cell__avatar" onError={() => setImgError(true)} />
-        ) : (
-          <div className="inf-ig-cell__avatar-fallback">{raw.slice(0, 2).toUpperCase()}</div>
-        )}
-        <div className="inf-ig-cell__ring" />
-      </div>
-      <span className="inf-ig-cell__handle">@{raw}</span>
+      <span className="inf-ig-cell__logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none">
+          <rect x="5" y="5" width="14" height="14" rx="4" stroke="currentColor" strokeWidth="2" />
+          <circle cx="12" cy="12" r="3.2" stroke="currentColor" strokeWidth="2" />
+          <circle cx="16.5" cy="7.5" r="1.1" fill="currentColor" />
+        </svg>
+      </span>
     </a>
   )
 }
@@ -315,6 +340,7 @@ export function InfluencerListPage() {
     loadError,
     listMeta,
     retryLoad,
+    reloadFromServer,
     refetchInfluencerPage,
     updateInfluencer,
     deleteInfluencer,
@@ -322,6 +348,8 @@ export function InfluencerListPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const can = (action) => hasPermission(user, 'influencers', action)
+  /** Matches backend `requireInfluencersWrite` — any of these can run batch profile sync. */
+  const canWriteInfluencers = can('manage') || can('approve') || can('payments') || can('agreements')
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const [showAddModal, setShowAddModal] = useState(false)
   const [colWidths, setColWidths] = useState(loadListColWidths)
@@ -337,6 +365,9 @@ export function InfluencerListPage() {
   const [filterFollowers, setFilterFollowers] = useState('All')
   const [quickChip, setQuickChip] = useState(QUICK_CHIP.ALL)
   const [sortBy, setSortBy] = useState('newest')
+  const [igSyncBusy, setIgSyncBusy] = useState(false)
+  const [igSyncHint, setIgSyncHint] = useState(null)
+  const igAutoRanRef = useRef(false)
   const [searchParams, setSearchParams] = useSearchParams()
   const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10))
   const setPage = useCallback((p) => {
@@ -408,6 +439,61 @@ export function InfluencerListPage() {
     pending: influencers.filter(i => i.paymentStatus === 'Ready for Payment').length,
     rejected: influencers.filter(i => i.approvalStatus === 'Rejected').length,
   }), [influencers, listMeta, useServerPaging])
+
+  const runBatchInstagramPics = useCallback(
+    async (isManual) => {
+      if (igSyncBusy) return
+      igAutoRanRef.current = true
+      setIgSyncBusy(true)
+      if (isManual) setIgSyncHint(null)
+      try {
+        const r = await batchRefreshInstagramProfilePictures({ onlyMissing: true, max: 200, delayMs: 400 })
+        if (r.graphConfigured && r.updated > 0) {
+          await reloadFromServer()
+          setIgSyncHint(
+            isManual
+              ? `Refreshed ${r.updated} profile photo(s).`
+              : `Loaded ${r.updated} profile photo(s) from Instagram.`,
+          )
+        } else if (!r.graphConfigured) {
+          setIgSyncHint(
+            'Server is missing Instagram Graph API settings (META_ACCESS_TOKEN, INSTAGRAM_BUSINESS_ACCOUNT_ID in backend .env).',
+          )
+        } else if (r.graphConfigured && r.results?.length) {
+          const anyPic = r.results.some((x) => x.success && x.profilePictureUrl)
+          if (!anyPic) {
+            setIgSyncHint('Instagram did not return profile images for these accounts (private, limits, or not discoverable).')
+          } else {
+            setIgSyncHint('Sync finished; all rows with handles already had photos, or some could not be updated.')
+          }
+        } else {
+          setIgSyncHint(null)
+        }
+      } catch (e) {
+        setIgSyncHint(e?.message || 'Profile photo sync failed.')
+      } finally {
+        if (!isManual) sessionStorage.setItem('hr-ig-avatar-autosync', '1')
+        setIgSyncBusy(false)
+      }
+    },
+    [igSyncBusy, reloadFromServer],
+  )
+
+  /** One automatic sync per browser tab: fills `instagram.picUrl` from the official API when the server is configured. */
+  useEffect(() => {
+    if (loading || loadError) return
+    if (!canWriteInfluencers) return
+    if (igAutoRanRef.current) return
+    if (sessionStorage.getItem('hr-ig-avatar-autosync') === '1') return
+    const need = influencers.some(
+      (i) => i.instagram?.handle && String(i.instagram.handle).trim() && !i.instagram?.picUrl,
+    )
+    if (!need) {
+      sessionStorage.setItem('hr-ig-avatar-autosync', '1')
+      return
+    }
+    runBatchInstagramPics(false)
+  }, [loading, loadError, canWriteInfluencers, influencers, runBatchInstagramPics])
 
   useEffect(() => {
     setPage(1)
@@ -552,6 +638,18 @@ export function InfluencerListPage() {
           </p>
         </div>
         <div className="inf-page-actions">
+          {canWriteInfluencers && (
+            <button
+              type="button"
+              className="inf-btn inf-btn--ghost"
+              style={{ fontSize: '0.85rem' }}
+              disabled={igSyncBusy}
+              onClick={() => runBatchInstagramPics(true)}
+              title="Load profile photos from Instagram (official API)"
+            >
+              {igSyncBusy ? 'Loading photos…' : '↻ Load Instagram photos'}
+            </button>
+          )}
           {can('manage') && (
             <button className="inf-btn inf-btn--primary" onClick={() => setShowAddModal(true)}>
               + Add Influencer
@@ -559,6 +657,11 @@ export function InfluencerListPage() {
           )}
         </div>
       </div>
+      {igSyncHint && (
+        <p className="inf-page-subtitle" style={{ color: 'var(--muted, #6b6b6b)', marginTop: '0.35rem' }}>
+          {igSyncHint}
+        </p>
+      )}
 
       {/* Stats */}
       <div className="inf-stats-row">
@@ -711,11 +814,16 @@ export function InfluencerListPage() {
                 <tr key={inf.id} onClick={() => navigate(`/influencers/${inf.id}/edit`)}>
                   <td className="inf-table__sr">{serialOffset + index + 1}</td>
                   <td className="inf-table__col inf-table__col--name">
-                    <div className="inf-table__name">{inf.name}</div>
-                    {inf.niche ? <div className="inf-table__sub">{inf.niche}</div> : null}
+                    <div className="inf-list-name-cell">
+                      <InfluencerListAvatar name={inf.name} imageUrl={inf.profileImageUrl} />
+                      <div className="inf-list-name-cell__copy">
+                        <div className="inf-table__name">{inf.name}</div>
+                        {inf.niche ? <div className="inf-table__sub">{inf.niche}</div> : null}
+                      </div>
+                    </div>
                   </td>
                   <td className="inf-table__col inf-table__col--hide-lg inf-table__col--nationality"><span className="inf-table__muted">{inf.nationality || '—'}</span></td>
-                  <td className="inf-table__col inf-table__col--ig"><InstagramCell handle={inf.instagram?.handle} url={inf.instagram?.url} storedPicUrl={inf.instagram?.picUrl} /></td>
+                  <td className="inf-table__col inf-table__col--ig"><InstagramCell handle={inf.instagram?.handle} url={inf.instagram?.url} /></td>
                   <td className="inf-table__col inf-table__col--mobile">
                     <span className="inf-table__cell-icon-row">
                       <Smartphone size={13} className="inf-table__cell-icon" aria-hidden />

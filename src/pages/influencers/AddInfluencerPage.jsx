@@ -15,6 +15,11 @@ import {
 } from '../../contexts/InfluencersContext'
 import { useAuth, hasPermission } from '../../contexts/AuthContext'
 import { InsightsImagesSection } from './InsightsImagesSection'
+import {
+  getProfileImageUploadUrl,
+  guessImageContentType,
+  uploadInsightsImageToS3,
+} from '../../lib/influencers'
 import './influencers.css'
 
 /* ─── Static data ──────────────────────────────────────────── */
@@ -32,6 +37,8 @@ const EMPTY_FORM = {
   workflowStatus: 'New Lead', approvalStatus: 'Pending', paymentStatus: 'Not Requested', assignedTo: '',
   shootDate: '', shootTime: '', shootLocation: '', campaign: '',
   agreementStatus: 'Not Generated',
+  profileImageKey: '',
+  profileImageUrl: '',
   insightsImageKeys: [],
   insightsImageRotations: {},
 }
@@ -192,6 +199,159 @@ function STitle({ children }) {
   return <h3 className="aif-section-title">{children}</h3>
 }
 
+function isLikelyImageFile(file) {
+  const name = file?.name || ''
+  if (file?.type?.startsWith?.('image/')) return true
+  return /\.(jpe?g|png|webp|gif|heic|heif|avif|bmp|tiff?)$/i.test(name)
+}
+
+function ProfileImageUploader({ influencerId, name, imageKey, imageUrl, canEdit, updateInfluencer }) {
+  const fileRef = useRef(null)
+  const [localPreview, setLocalPreview] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [status, setStatus] = useState('')
+  const [imageError, setImageError] = useState(false)
+  const displayUrl = localPreview || imageUrl || ''
+  const initials = String(name || 'IN')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'IN'
+
+  useEffect(() => {
+    setImageError(false)
+  }, [displayUrl])
+
+  useEffect(() => {
+    if (!imageUrl || !localPreview) return undefined
+    const old = localPreview
+    const t = setTimeout(() => setLocalPreview(''), 300)
+    return () => {
+      clearTimeout(t)
+      try {
+        URL.revokeObjectURL(old)
+      } catch (_) {}
+    }
+  }, [imageUrl, localPreview])
+
+  useEffect(() => () => {
+    if (localPreview) {
+      try {
+        URL.revokeObjectURL(localPreview)
+      } catch (_) {}
+    }
+  }, [localPreview])
+
+  const pickFile = () => {
+    if (!canEdit || busy) return
+    if (!influencerId) {
+      setStatus('Save the influencer first, then upload a DP.')
+      return
+    }
+    fileRef.current?.click()
+  }
+
+  const onFileChange = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (!isLikelyImageFile(file)) {
+      setStatus('Choose an image file: JPG, PNG, WebP, GIF, HEIC, or AVIF.')
+      return
+    }
+    setBusy(true)
+    setStatus('Uploading DP…')
+    let preview = ''
+    try {
+      preview = URL.createObjectURL(file)
+      setLocalPreview((old) => {
+        if (old) {
+          try {
+            URL.revokeObjectURL(old)
+          } catch (_) {}
+        }
+        return preview
+      })
+      const contentType = guessImageContentType(file)
+      const presigned = await getProfileImageUploadUrl(influencerId, {
+        fileName: file.name || 'profile-image.jpg',
+        contentType,
+      })
+      await uploadInsightsImageToS3(presigned.uploadUrl, file, presigned.contentType || contentType)
+      await updateInfluencer(influencerId, { profileImageKey: presigned.key })
+      setStatus('DP uploaded.')
+      setTimeout(() => setStatus(''), 2500)
+    } catch (err) {
+      if (preview) {
+        try {
+          URL.revokeObjectURL(preview)
+        } catch (_) {}
+      }
+      setLocalPreview('')
+      setStatus(err?.message || 'DP upload failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeImage = async () => {
+    if (!canEdit || busy || !imageKey) return
+    if (!window.confirm('Remove this influencer DP?')) return
+    setBusy(true)
+    setStatus('Removing DP…')
+    try {
+      await updateInfluencer(influencerId, { profileImageKey: '' })
+      setLocalPreview('')
+      setStatus('DP removed.')
+      setTimeout(() => setStatus(''), 2500)
+    } catch (err) {
+      setStatus(err?.message || 'Could not remove DP.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="aif-dp-uploader">
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*,image/heic,image/heif"
+        className="inf-prod-images__hidden-file"
+        onChange={onFileChange}
+        disabled={busy || !canEdit}
+      />
+      <div className="aif-dp-uploader__avatar" aria-hidden>
+        {displayUrl && !imageError ? (
+          <img src={displayUrl} alt="" onError={() => setImageError(true)} />
+        ) : (
+          <span>{initials}</span>
+        )}
+      </div>
+      <div className="aif-dp-uploader__body">
+        <div>
+          <p className="aif-dp-uploader__label">Influencer DP</p>
+          <p className="aif-dp-uploader__hint">
+            Upload a manual display picture. This same image appears in the influencer list and performance section.
+          </p>
+        </div>
+        <div className="aif-dp-uploader__actions">
+          <button type="button" className="inf-btn inf-btn--ghost inf-btn--xs" onClick={pickFile} disabled={!canEdit || busy}>
+            {busy ? 'Working…' : imageKey ? 'Replace DP' : 'Upload DP'}
+          </button>
+          {imageKey ? (
+            <button type="button" className="inf-btn inf-btn--ghost inf-btn--xs" onClick={removeImage} disabled={!canEdit || busy}>
+              Remove
+            </button>
+          ) : null}
+        </div>
+        {status ? <p className="aif-dp-uploader__status" role="status">{status}</p> : null}
+      </div>
+    </div>
+  )
+}
+
 /* ─── Main component ──────────────────────────────────────── */
 export function AddInfluencerPage({ asModal = false, onClose }) {
   const { influencers, addInfluencer, updateInfluencer } = useInfluencers()
@@ -277,7 +437,9 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
           return
         }
         const payload = { ...form, id }
-        /** Image fields are managed exclusively by the insights uploader; never overwrite from the form. */
+        /** Image fields are managed exclusively by uploaders; never overwrite from the form. */
+        delete payload.profileImageKey
+        delete payload.profileImageUrl
         delete payload.insightsImageKeys
         delete payload.insightsImageRotations
         await updateInfluencer(id, payload)
@@ -309,6 +471,20 @@ export function AddInfluencerPage({ asModal = false, onClose }) {
           <FInput readOnly={ro} icon={Globe2}     label="Nationality"       value={form.nationality} onChange={v => set('nationality', v)} placeholder="e.g. Emirati, Lebanese" />
           <FInput readOnly={ro} icon={MapPin}     label="Based In"          value={form.basedIn}     onChange={v => set('basedIn', v)}     placeholder="e.g. Dubai, Abu Dhabi" />
         </div>
+        {isEdit && id ? (
+          <ProfileImageUploader
+            influencerId={id}
+            name={liveRow?.name ?? form.name}
+            imageKey={liveRow?.profileImageKey ?? form.profileImageKey}
+            imageUrl={liveRow?.profileImageUrl ?? form.profileImageUrl}
+            canEdit={canWrite}
+            updateInfluencer={updateInfluencer}
+          />
+        ) : (
+          <p className="aif-dp-uploader__create-hint">
+            Save the influencer once, then upload a manual DP.
+          </p>
+        )}
         <FTextarea readOnly={ro} label="Notes / Intelligence" value={form.notes} onChange={v => set('notes', v)}
           placeholder="Strategic notes, communication preferences, past campaign performance…" rows={6} />
       </div>

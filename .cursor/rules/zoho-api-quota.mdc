@@ -1,0 +1,11 @@
+---
+description: Zoho Inventory/Books REST daily quota — never burn 10k calls/day again
+globs: backend/src/integrations/zoho/**/*.js,backend/src/controllers/**/*Zoho*.js,backend/src/controllers/weeklyReportsController.js
+---
+
+# Zoho API daily limit (~10k/day per org)
+
+- **Always** route new Zoho HTTP traffic through `services/zohoApiClient.js` via `zohoInventoryClient.js` (`zohoApiRequest` / `fetchZohoItemImageBuffer`) so limits, cache, and usage logs apply.
+- Prefer **TTL caches** and **in-flight dedup** for lists and per-document GETs; repeat UI loads must not refetch hundreds of invoices/bills/vendor credits.
+- Avoid parallel **debug** or **scan-everything** endpoints in loops; keep Books VAT pagination batch size modest (`zohoBooksClient.js`).
+- Do not raise `ZOHO_DAILY_API_BUDGET` casually — align with Zoho plan limits; default stays below 10k with UTC reset.

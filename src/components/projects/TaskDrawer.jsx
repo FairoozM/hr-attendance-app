@@ -3,6 +3,7 @@ import { X, Trash2, Archive, AlertCircle, GitBranch, Save, CheckSquare, Papercli
 import { usePlanner } from '../../contexts/PlannerContext'
 import { CategoryBadge } from './CategoryBadge'
 import { PriorityIndicator, EnergyBadge } from './PriorityIndicator'
+import { fmtDMY } from '../../utils/dateFormat'
 
 const TASK_STATUSES   = ['Not Started', 'In Progress', 'Blocked', 'Done']
 const TASK_PRIORITIES = ['Low', 'Medium', 'High', 'Urgent']
@@ -219,8 +220,8 @@ export function TaskDrawer({ task, project, sections = [], tasks = [], onClose, 
 
           {/* Metadata */}
           <div style={{ fontSize: '0.72rem', color: 'var(--theme-text-dim)', paddingTop: '0.5rem', borderTop: '1px solid var(--theme-border-subtle)' }}>
-            Created {new Date(task.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-            {task.completed_at && ` · Completed ${new Date(task.completed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+            Created {fmtDMY(task.created_at)}
+            {task.completed_at && ` · Completed ${fmtDMY(task.completed_at)}`}
           </div>
         </div>
 

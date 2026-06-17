@@ -25,6 +25,7 @@ export function useAttendanceTrends(
         present: c.P,
         absent: c.A,
         sickLeave: c.SL,
+        annualLeave: c.AL,
       })
     }
     return points

@@ -1,6 +1,7 @@
 const express = require('express')
 const router = express.Router()
 const adminController = require('../controllers/adminController')
+const aiBudgetAdminController = require('../controllers/aiBudgetAdminController')
 const { requireAuth, requireAdmin } = require('../middleware/auth')
 
 // GET /api/admin/users — list all users (no password hashes)
@@ -20,5 +21,9 @@ router.get('/users/:userId/attendance-assignments', requireAuth, requireAdmin, a
 
 // PUT /api/admin/users/:userId/attendance-assignments — set/replace assigned employees
 router.put('/users/:userId/attendance-assignments', requireAuth, requireAdmin, adminController.setAttendanceAssignments)
+
+// AI budget & safety controls (admin only — OpenAI key stays server-side only)
+router.get('/ai/budget-settings', requireAuth, requireAdmin, aiBudgetAdminController.getBudgetSettingsHandler)
+router.put('/ai/budget-settings', requireAuth, requireAdmin, aiBudgetAdminController.putBudgetSettingsHandler)
 
 module.exports = router

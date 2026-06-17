@@ -7,7 +7,7 @@ const clientId = process.env.ZOHO_CLIENT_ID;
 const clientSecret = process.env.ZOHO_CLIENT_SECRET;
 const accountsBase = (process.env.ZOHO_ACCOUNTS_BASE || 'https://accounts.zoho.com').replace(/\/+$/, '');
 const redirectUri = 'http://localhost:7777/callback';
-const scope = 'ZohoInventory.FullAccess.all';
+const scope = 'ZohoInventory.FullAccess.all,ZohoBooks.invoices.READ,ZohoBooks.creditnotes.READ,ZohoBooks.contacts.READ,ZohoBooks.reports.READ';
 
 if (!clientId || !clientSecret) {
   console.error('Missing ZOHO_CLIENT_ID or ZOHO_CLIENT_SECRET in backend/.env');

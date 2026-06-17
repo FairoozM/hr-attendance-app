@@ -21,6 +21,43 @@ const PLANNER_NAV_ITEMS = [
   { to: '/projects/trash', label: 'Deleted' },
 ]
 
+const AI_NAV_ITEMS = [
+  { to: '/ai/usage', label: 'AI Usage' },
+]
+
+const AMAZON_NAV_ITEMS = [
+  {
+    to: '/ai/amazon-spapi-test',
+    label: 'Amazon SP-API Test',
+    searchHint: 'selling partner api marketplaces sandbox lwa',
+  },
+  {
+    to: '/ai/amazon-orders',
+    label: 'Amazon Orders',
+    searchHint: 'amazon.ae amazon.sa orders uae ksa marketplace selling partner',
+  },
+  {
+    to: '/ai/amazon-dashboard',
+    label: 'Amazon BI Dashboard',
+    searchHint: 'amazon bi cache sales sku dashboard uae ksa',
+  },
+  {
+    to: '/ai/amazon-sync-health',
+    label: 'Amazon Sync Health',
+    adminOnly: true,
+    searchHint: 'amazon sync health rate limit 429 cooldown request id admin',
+  },
+  {
+    to: '/ai/amazon-zoho-stock',
+    label: 'Amazon + Zoho Stock',
+    adminOnly: true,
+    searchHint: 'amazon zoho stock comparison inventory fba life smile warehouse mismatch out of stock',
+  },
+  { to: '/ai/amazon-listing', label: 'Amazon Listing' },
+  { to: '/ai/amazon-bulk-listing', label: 'Amazon Bulk Generator' },
+  { to: '/ai/listing-batches', label: 'Listing Batches' },
+]
+
 /**
  * Match nav search: full substring, or every whitespace-separated word must appear
  * somewhere in label + group + optional searchHint (e.g. "weekly report" finds "Weekly Ads Report").
@@ -213,6 +250,7 @@ function itemIconToken(label) {
 
 const DOC_URGENCY_LABEL = { expired: 'Expired', urgent: 'Urgent', 'due-soon': 'Due Soon' }
 const DOC_URGENCY_CLS   = { expired: 'notif-doc-badge--expired', urgent: 'notif-doc-badge--urgent', 'due-soon': 'notif-doc-badge--due-soon' }
+const BRAND_TITLE = 'Business Intelligence (BI) - Life Smile'
 
 function NotificationsBell({ docReminders = [] }) {
   const { items, unread, loading, refresh, markRead, markAllRead, dismiss } = useNotifications(true)
@@ -361,6 +399,7 @@ export function Layout() {
   const [focusedSection, setFocusedSection] = useState(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const { appTitle } = useSettings()
+  const displayAppTitle = appTitle || BRAND_TITLE
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -379,6 +418,14 @@ export function Layout() {
   }, [])
 
   const isAdmin = user?.role === 'admin'
+  const aiHubNavItems = useMemo(
+    () => AI_NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin),
+    [isAdmin]
+  )
+  const amazonNavItems = useMemo(
+    () => AMAZON_NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin),
+    [isAdmin]
+  )
   const isEmployee = user?.role === 'employee'
   const can = (module, action) => hasPermission(user, module, action)
 
@@ -418,18 +465,34 @@ export function Layout() {
     isEmployee ? '/account' : can('attendance', 'view') ? '/attendance' : '/account'
 
   const HR_ROUTES = ['/employees', '/attendance', '/annual-leave']
-  const ADMIN_NAV_ROUTES = ['/settings', '/roles-permissions', '/admin']
+  const ADMIN_NAV_ROUTES = ['/settings', '/roles-permissions', '/admin/item-report-groups', '/admin/ai-budget']
   const LISTS_ROUTES = ['/lists/sim-cards']
   const isHrActive = HR_ROUTES.some(r => location.pathname.startsWith(r))
   const isAdminNavActive = isAdmin && ADMIN_NAV_ROUTES.some(r => location.pathname.startsWith(r))
   const isListsActive = LISTS_ROUTES.some(r => location.pathname.startsWith(r))
   const isInfluencersActive = location.pathname.startsWith('/influencers')
   const isManagementActive = location.pathname.startsWith('/management')
+  const isPricesActive = location.pathname.startsWith('/prices')
   const isReportsActive = location.pathname.startsWith('/reports')
+  const isZohoActive = location.pathname.startsWith('/admin/zoho')
+  const isAmazonActive =
+    location.pathname.startsWith('/ai/amazon') ||
+    location.pathname.startsWith('/ai/listing-batches')
+  const isAiHubActive = location.pathname.startsWith('/ai') && !isAmazonActive
   const hasAnyInfluencerAccess = hasAnyModulePermission(user, 'influencers')
   const hasAnyListsAccess = hasAnyModulePermission(user, 'sim_cards')
-  const hasAnyManagementAccess = hasAnyModulePermission(user, 'document_expiry')
+  const hasAnyManagementAccess =
+    hasAnyModulePermission(user, 'document_expiry') ||
+    hasAnyModulePermission(user, 'company_payments') ||
+    isAdmin
   const hasWeeklyReportsAccess = can('weekly_reports', 'view')
+  const hasPlannerAccess = isAdmin || can('planner', 'view')
+  const hasAiHubAccess =
+    isAdmin ||
+    user?.role === 'warehouse' ||
+    hasPlannerAccess ||
+    can('prices', 'view')
+  const hasAmazonAccess = hasAiHubAccess && amazonNavItems.length > 0
   const currentSectionLabel = useMemo(() => {
     if (location.pathname.startsWith('/employees')) return 'Employees'
     if (location.pathname.startsWith('/attendance')) return 'Attendance'
@@ -437,15 +500,36 @@ export function Layout() {
     if (location.pathname.startsWith('/settings')) return 'Settings'
     if (location.pathname.startsWith('/roles-permissions')) return 'Roles & Permissions'
     if (location.pathname.startsWith('/lists/sim-cards')) return 'Sim Cards List'
+    if (location.pathname.startsWith('/influencers/performance/iphone')) return 'Influencer Performance (phone)'
+    if (location.pathname.startsWith('/influencers/performance')) return 'Influencer Performance'
     if (location.pathname.startsWith('/influencers')) return 'Influencers'
     if (location.pathname.startsWith('/account')) return 'My Account'
+    if (location.pathname.startsWith('/management/purchase-planning')) return 'Purchase Planning'
+    if (location.pathname.startsWith('/management/payments')) return 'Company payments'
+    if (location.pathname.startsWith('/prices/all-prices')) return 'All Prices (UAE & KSA)'
+    if (location.pathname.startsWith('/prices/composite-items')) return 'Composite Items Prices'
+    if (location.pathname.startsWith('/prices/saved-composite-items')) return 'Saved Composite Items'
     if (location.pathname.startsWith('/management/document-expiry')) return 'Document Expiry Tracker'
     if (location.pathname.startsWith('/reports/weekly-report/weekly-ads'))   return 'Weekly Ads Report'
     if (location.pathname.startsWith('/reports/weekly-report/sales'))        return 'Weekly Sales Reports'
     if (location.pathname.startsWith('/reports/weekly-report/slow-moving'))  return 'Weekly Slow Moving Sales Report'
     if (location.pathname.startsWith('/reports/weekly-report/other-family')) return 'Weekly Other Family Sales Report'
+    if (location.pathname.startsWith('/reports/zoho-item-images')) return 'Zoho Item Image Fetcher'
+    if (location.pathname.startsWith('/reports/sales-vs-expenses')) return 'Sales vs Expenses'
     if (location.pathname.startsWith('/reports')) return 'Reports'
+    if (location.pathname.startsWith('/taxation/ksa-vat')) return 'KSA VAT Tax'
+    if (location.pathname.startsWith('/admin/zoho/bulk-invoice')) return 'Bulk Zoho Invoice'
+    if (location.pathname.startsWith('/ai/amazon-zoho-stock')) return 'Amazon + Zoho Stock'
+    if (location.pathname.startsWith('/admin/ai-budget')) return 'AI Budget Settings'
     if (location.pathname.startsWith('/admin/item-report-groups')) return 'Item Report Groups'
+    if (location.pathname.startsWith('/ai/usage')) return 'AI Usage'
+    if (location.pathname.startsWith('/ai/amazon-sync-health')) return 'Amazon Sync Health'
+    if (location.pathname.startsWith('/ai/amazon-dashboard')) return 'Amazon BI Dashboard'
+    if (location.pathname.startsWith('/ai/amazon-orders')) return 'Amazon Orders'
+    if (location.pathname.startsWith('/ai/amazon-spapi-test')) return 'Amazon SP-API Test'
+    if (location.pathname.startsWith('/ai/amazon-bulk-listing')) return 'Amazon Bulk Generator'
+    if (location.pathname.startsWith('/ai/listing-batches')) return 'Listing Batches'
+    if (location.pathname.startsWith('/ai/amazon-listing')) return 'Amazon Listing'
     if (location.pathname === '/projects/dashboard') return 'AI Dashboard'
     if (location.pathname.startsWith('/projects/')) return 'Today\'s Plan'
     if (location.pathname === '/projects') return 'AI Task Planner'
@@ -458,6 +542,8 @@ export function Layout() {
     can('influencers', 'view') && { label: 'Shoot Schedule', to: '/influencers/schedule' },
     can('influencers', 'agreements') && { label: 'Agreements', to: '/influencers/agreements' },
     can('influencers', 'payments') && { label: 'Payments', to: '/influencers/payments' },
+    can('influencers', 'performance') && { label: 'Performance', to: '/influencers/performance' },
+    can('influencers', 'performance') && { label: 'Performance (phone)', to: '/influencers/performance/iphone' },
     can('influencers', 'view') && { label: 'Reports', to: '/influencers/reports' },
   ].filter(Boolean)
 
@@ -470,19 +556,62 @@ export function Layout() {
   const adminNavItems = [
     isAdmin && { label: 'Settings', to: '/settings' },
     isAdmin && { label: 'Roles & Permissions', to: '/roles-permissions' },
+    isAdmin && { label: 'AI Budget', to: '/admin/ai-budget' },
     isAdmin && { label: 'Item Report Groups', to: '/admin/item-report-groups' },
+  ].filter(Boolean)
+  const zohoItems = [
+    isAdmin && { label: 'Bulk Zoho Invoice', to: '/admin/zoho/bulk-invoice' },
   ].filter(Boolean)
   const listsItems = [
     can('sim_cards', 'view') && { label: 'Sim Cards List', to: '/lists/sim-cards' },
   ].filter(Boolean)
 
+  const pricesItems = [
+    can('prices', 'view') && { label: 'All Prices (UAE & KSA)', to: '/prices/all-prices' },
+    can('prices', 'view') && { label: 'Composite Items Prices', to: '/prices/composite-items' },
+    can('prices', 'view') && { label: 'Saved Composite Items', to: '/prices/saved-composite-items' },
+  ].filter(Boolean)
+
+  const hasAnyPricesAccess = pricesItems.length > 0
+
+  useEffect(() => {
+    if (!hasAnyPricesAccess || !location.pathname.startsWith('/prices')) return
+    setNavMode('rail')
+    setFocusedSection('prices')
+    setIsSidebarOpen(true)
+  }, [hasAnyPricesAccess, location.pathname])
+
+  useEffect(() => {
+    if (!hasAiHubAccess || !location.pathname.startsWith('/ai') || isAmazonActive) return
+    setNavMode('rail')
+    setFocusedSection('ai')
+    setIsSidebarOpen(true)
+  }, [hasAiHubAccess, isAmazonActive, location.pathname])
+
+  useEffect(() => {
+    if (!hasAmazonAccess || !isAmazonActive) return
+    setNavMode('rail')
+    setFocusedSection('amazon')
+    setIsSidebarOpen(true)
+  }, [hasAmazonAccess, isAmazonActive])
+
   const managementItems = [
     can('document_expiry', 'view') && { label: 'Document Expiry Tracker', to: '/management/document-expiry' },
+    can('company_payments', 'view') && { label: 'Payments', to: '/management/payments' },
+    isAdmin && { label: 'Purchase Planning', to: '/management/purchase-planning' },
+  ].filter(Boolean)
+
+  const isTaxationActive = location.pathname.startsWith('/taxation')
+
+  const TAXATION_ITEMS = [
+    can('taxation', 'view') && { label: 'KSA VAT Tax', to: '/taxation/ksa-vat' },
   ].filter(Boolean)
 
   const REPORTS_ITEMS = [
     hasWeeklyReportsAccess && { label: 'Weekly Ads Report',    to: '/reports/weekly-report/weekly-ads' },
     hasWeeklyReportsAccess && { label: 'Weekly Sales Reports', to: '/reports/weekly-report/sales'      },
+    hasWeeklyReportsAccess && { label: 'Sales vs Expenses',    to: '/reports/sales-vs-expenses'        },
+    hasWeeklyReportsAccess && { label: 'Zoho Item Images',     to: '/reports/zoho-item-images'         },
   ].filter(Boolean)
 
   const focusedSectionConfig = useMemo(() => {
@@ -491,13 +620,23 @@ export function Layout() {
       hr: { title: 'HR', items: withIcons(hrItems) },
       admin: { title: 'Admin', items: withIcons(adminNavItems) },
       lists: { title: 'Lists', items: withIcons(listsItems) },
-      influencers: { title: 'Influencers', items: withIcons(INFLUENCER_ITEMS) },
+      influencers: { title: 'Marketing / Social Media', items: withIcons(INFLUENCER_ITEMS) },
       planner: {
         title: 'Planner',
-        items: withIcons(isAdmin ? PLANNER_NAV_ITEMS : []),
+        items: withIcons(hasPlannerAccess ? PLANNER_NAV_ITEMS : []),
+      },
+      ai: {
+        title: 'AI & Automation',
+        items: withIcons(hasAiHubAccess ? aiHubNavItems : []),
+      },
+      amazon: {
+        title: 'Amazon',
+        items: withIcons(hasAmazonAccess ? amazonNavItems : []),
       },
       management: { title: 'Management', items: withIcons(managementItems) },
+      prices: { title: 'Prices', items: withIcons(pricesItems) },
       reports: { title: 'Reports', items: withIcons(REPORTS_ITEMS) },
+      zoho: { title: 'Zoho', items: withIcons(zohoItems) },
     }
     return sections[focusedSection] || null
   }, [
@@ -507,21 +646,81 @@ export function Layout() {
     listsItems,
     INFLUENCER_ITEMS,
     isAdmin,
+    hasPlannerAccess,
+    hasAiHubAccess,
+    aiHubNavItems,
+    hasAmazonAccess,
+    amazonNavItems,
     managementItems,
+    pricesItems,
     REPORTS_ITEMS,
+    zohoItems,
   ])
 
   // Flat list of every link shown in the sidebar (sidebar + topbar search). Keep in sync with nav groups above.
   const allNavItems = useMemo(() => [
     ...hrItems.map(i => ({ ...i, group: 'HR' })),
     ...listsItems.map(i => ({ ...i, group: 'Lists' })),
-    ...INFLUENCER_ITEMS.map(i => ({ ...i, group: 'Influencers' })),
-    ...(isAdmin ? PLANNER_NAV_ITEMS.map(i => ({ ...i, group: 'AI Planner', searchHint: 'planner projects tasks ai' })) : []),
-    ...managementItems.map(i => ({ ...i, group: 'Management' })),
+    ...INFLUENCER_ITEMS.map(i => ({ ...i, group: 'Marketing / Social Media' })),
+    ...(hasPlannerAccess
+      ? PLANNER_NAV_ITEMS.map((i) => ({
+          ...i,
+          group: 'AI Planner',
+          searchHint: 'planner projects tasks ai',
+        }))
+      : []),
+    ...(hasAiHubAccess
+      ? aiHubNavItems.map((i) => ({
+          ...i,
+          group: 'AI & Automation',
+          searchHint: i.searchHint || 'openai usage budget amazon listing tokens cost',
+        }))
+      : []),
+    ...(hasAmazonAccess
+      ? amazonNavItems.map((i) => ({
+          ...i,
+          group: 'Amazon',
+          searchHint: i.searchHint || 'amazon selling partner orders listings dashboard inventory fba',
+        }))
+      : []),
+    ...pricesItems.map((i) => ({
+      ...i,
+      group: 'Prices',
+      searchHint:
+        i.to === '/prices/all-prices'
+          ? 'all prices uae ksa aed sar catalog sku zoho inventory pricing ecommerce'
+          : i.to === '/prices/composite-items'
+            ? 'composite items prices bom bundle kit assembly components rolled up'
+            : i.to === '/prices/saved-composite-items'
+              ? 'saved composite items skus bundle totals saved prices expandable'
+              : '',
+    })),
+    ...managementItems.map(i => ({
+      ...i,
+      group: 'Management',
+      searchHint:
+        i.to === '/management/purchase-planning'
+          ? 'purchase planning low stock vigil csv wholesale replenishment zoho purchase order po'
+          : i.to === '/management/payments'
+          ? 'company payments asad main shop expense salary vat bill subscription supplier'
+          : i.to === '/management/document-expiry'
+            ? 'document licence trade license vat compliance expiry'
+            : '',
+    })),
     ...REPORTS_ITEMS.map(i => ({
       ...i,
       group: 'Weekly Report',
-      searchHint: 'weekly ads slow moving other family sales inventory performance reports zoho',
+      searchHint: 'weekly ads slow moving other family sales inventory performance reports zoho sku item images',
+    })),
+    ...TAXATION_ITEMS.map(i => ({
+      ...i,
+      group: 'Taxation',
+      searchHint: 'ksa vat tax quarterly filing invoices credit notes zoho books',
+    })),
+    ...zohoItems.map(i => ({
+      ...i,
+      group: 'Zoho',
+      searchHint: 'bulk zoho invoice sku customer warehouse line items inventory',
     })),
     ...adminNavItems.map(i => ({
       ...i,
@@ -529,10 +728,12 @@ export function Layout() {
       searchHint:
         i.to === '/admin/item-report-groups'
           ? 'item report groups slow moving other family weekly mapping zoho sku'
-          : '',
+          : i.to === '/admin/ai-budget'
+            ? 'ai budget openai daily monthly limit tokens generation'
+            : '',
     })),
     { label: 'My Account', to: '/account', group: 'Account' },
-  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, managementItems, REPORTS_ITEMS])
+  ], [hrItems, adminNavItems, listsItems, INFLUENCER_ITEMS, isAdmin, hasPlannerAccess, hasAiHubAccess, aiHubNavItems, hasAmazonAccess, amazonNavItems, managementItems, pricesItems, REPORTS_ITEMS, TAXATION_ITEMS, zohoItems])
 
   const showSidebarBackdrop = isSidebarOpen && navMode === 'full'
 
@@ -565,9 +766,14 @@ export function Layout() {
         <div className="app-sidebar__inner">
           <div className="app-sidebar__head">
             <div className="app-sidebar__brand-wrap">
-              <span className="app-sidebar__brand-badge">Creator-grade HR</span>
+              <img
+                src="/lifesmile-logo.png"
+                alt="Life Smile"
+                className="app-sidebar__brand-logo"
+              />
+              <span className="app-sidebar__brand-badge">Business Intelligence</span>
               <NavLink to={homePath} className="app-sidebar__brand" onClick={closeSidebar}>
-                {appTitle || 'HR Attendance'}
+                {displayAppTitle}
               </NavLink>
               <span className="app-sidebar__brand-subtitle">Premium operations workspace</span>
             </div>
@@ -632,7 +838,7 @@ export function Layout() {
                 )}
 
                 {hasAnyInfluencerAccess && (
-                  <NavGroup label="Influencers" hint="Creator ops" isActive={isInfluencersActive}>
+                  <NavGroup label="Marketing / Social Media" hint="Creator ops" isActive={isInfluencersActive}>
                     {INFLUENCER_ITEMS.map(item => (
                       <NavLink
                         key={item.to}
@@ -647,9 +853,43 @@ export function Layout() {
                   </NavGroup>
                 )}
 
-                <NavGroup label="Amazon" hint="Reserved" isActive={false} />
+                {TAXATION_ITEMS.length > 0 && (
+                  <NavGroup label="Taxation" hint="KSA VAT" isActive={isTaxationActive}>
+                    {TAXATION_ITEMS.map((item) => (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        className={subLinkClass}
+                      >
+                        <span className="nav-group__link-dot" aria-hidden />
+                        {item.label}
+                      </NavLink>
+                    ))}
+                  </NavGroup>
+                )}
 
-                {isAdmin && (
+                {hasAnyPricesAccess && pricesItems.length > 0 && (
+                  <>
+                    <div className="app-sidebar__section-label" role="presentation">
+                      Prices
+                    </div>
+                    <NavGroup label="Prices" hint="UAE & KSA" isActive={isPricesActive}>
+                      {pricesItems.map((item) => (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          className={subLinkClass}
+                          onClick={() => openFocusedSection('prices')}
+                        >
+                          <span className="nav-group__link-dot" aria-hidden />
+                          {item.label}
+                        </NavLink>
+                      ))}
+                    </NavGroup>
+                  </>
+                )}
+
+                {hasPlannerAccess && (
                   <>
                     <div className="app-sidebar__section-label" role="presentation">
                       AI Planner
@@ -667,6 +907,48 @@ export function Layout() {
                           {item.to === '/projects/trash' && trashedTasks.length > 0 && (
                             <span className="nav-trash-badge">{trashedTasks.length}</span>
                           )}
+                        </NavLink>
+                      ))}
+                    </NavGroup>
+                  </>
+                )}
+
+                {hasAiHubAccess && aiHubNavItems.length > 0 && (
+                  <>
+                    <div className="app-sidebar__section-label" role="presentation">
+                      AI &amp; Automation
+                    </div>
+                    <NavGroup label="AI Hub" hint="Usage" isActive={isAiHubActive}>
+                      {aiHubNavItems.map((item) => (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          className={subLinkClass}
+                          onClick={() => openFocusedSection('ai')}
+                        >
+                          <span className="nav-group__link-dot" aria-hidden />
+                          {item.label}
+                        </NavLink>
+                      ))}
+                    </NavGroup>
+                  </>
+                )}
+
+                {hasAmazonAccess && (
+                  <>
+                    <div className="app-sidebar__section-label" role="presentation">
+                      Amazon
+                    </div>
+                    <NavGroup label="Amazon" hint="SP-API & listings" isActive={isAmazonActive}>
+                      {amazonNavItems.map((item) => (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          className={subLinkClass}
+                          onClick={() => openFocusedSection('amazon')}
+                        >
+                          <span className="nav-group__link-dot" aria-hidden />
+                          {item.label}
                         </NavLink>
                       ))}
                     </NavGroup>
@@ -706,6 +988,27 @@ export function Layout() {
                           to={item.to}
                           className={subLinkClass}
                           onClick={() => openFocusedSection('reports')}
+                        >
+                          <span className="nav-group__link-dot" aria-hidden />
+                          {item.label}
+                        </NavLink>
+                      ))}
+                    </NavGroup>
+                  </>
+                )}
+
+                {zohoItems.length > 0 && (
+                  <>
+                    <div className="app-sidebar__section-label" role="presentation">
+                      Zoho
+                    </div>
+                    <NavGroup label="Zoho" hint="Inventory & invoices" isActive={isZohoActive}>
+                      {zohoItems.map(item => (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          className={subLinkClass}
+                          onClick={() => openFocusedSection('zoho')}
                         >
                           <span className="nav-group__link-dot" aria-hidden />
                           {item.label}
@@ -815,9 +1118,9 @@ export function Layout() {
 
           <div className="app-topbar__meta">
             <div className="app-topbar__chip">
-              <span className="app-topbar__chip-dot" aria-hidden />
-              <span className="app-topbar__chip-text" title={appTitle || 'HR Attendance'}>
-                {appTitle || 'HR Attendance'}
+              <img src="/lifesmile-logo.png" alt="" className="app-topbar__chip-logo" aria-hidden />
+              <span className="app-topbar__chip-text" title={displayAppTitle}>
+                {displayAppTitle}
               </span>
             </div>
             <div className="app-topbar__user-pill">

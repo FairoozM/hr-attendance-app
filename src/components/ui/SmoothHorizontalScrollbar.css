@@ -1,0 +1,124 @@
+.smooth-hscroll {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0.85rem 1rem 0.9rem;
+  background: #f8fafc;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.1);
+}
+
+.smooth-hscroll--hidden {
+  display: none;
+}
+
+.smooth-hscroll__inner {
+  width: 100%;
+  max-width: min(100%, 52rem);
+  display: flex;
+  justify-content: center;
+}
+
+.smooth-hscroll__track {
+  position: relative;
+  width: 100%;
+  height: 3.75rem;
+  display: flex;
+  align-items: center;
+  touch-action: none;
+  cursor: pointer;
+  border-radius: 999px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.smooth-hscroll__track-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.1);
+  pointer-events: none;
+}
+
+.smooth-hscroll__fill {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    rgb(34 211 238),
+    rgb(168 85 247),
+    rgb(244 114 182)
+  );
+  pointer-events: none;
+  will-change: width;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.smooth-hscroll__mouse {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.25));
+}
+
+.smooth-hscroll__mouse-svg {
+  display: block;
+}
+
+.smooth-hscroll__thumb {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  will-change: transform;
+  transform-origin: 50% 50%;
+  pointer-events: auto;
+}
+
+.smooth-hscroll__thumb:active {
+  cursor: grabbing;
+}
+
+.smooth-hscroll__lottie-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(-14px);
+  pointer-events: none;
+}
+
+.smooth-hscroll__lottie-scale {
+  width: 76px;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.smooth-hscroll__lottie {
+  width: 76px !important;
+  height: 54px !important;
+}
+
+.smooth-hscroll__lottie svg {
+  transform: translateZ(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .smooth-hscroll__lottie-wrap {
+    transform: translateY(-14px);
+  }
+}

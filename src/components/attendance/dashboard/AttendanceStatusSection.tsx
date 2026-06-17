@@ -26,14 +26,16 @@ export function AttendanceStatusSection({ title, items, emptyText = 'No one' }: 
             return (
               <div key={row.employee.id + row.status} className="adash-status-row">
                 <EmployeeAvatar name={row.employee.name} photoUrl={row.employee.photoUrl} size="sm" />
-                <span style={{ flex: 1, minWidth: 0 }} title={row.employee.name}>
-                  {row.employee.name}
-                </span>
-                <span className="employees-table__td--truncate" style={{ maxWidth: '100px', fontSize: '0.75rem', color: '#6b7280' }}>
-                  {row.employee.department || '—'}
-                </span>
+                <div className="adash-status-row__meta">
+                  <span className="adash-status-row__name" title={row.employee.name}>
+                    {row.employee.name}
+                  </span>
+                  <span className="adash-status-row__dept" title={row.employee.department || undefined}>
+                    {row.employee.department || '—'}
+                  </span>
+                </div>
                 <span
-                  className="adash-badge"
+                  className="adash-badge adash-status-row__badge"
                   style={{
                     background: col.bg,
                     color: col.text,

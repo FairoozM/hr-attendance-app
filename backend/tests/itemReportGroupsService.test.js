@@ -136,6 +136,23 @@ test('itemReportGroupsService: listGroupKeys returns distinct active groups only
   restore()
 })
 
+test('itemReportGroupsService: listAllActiveMemberRows returns all active rows across groups', async () => {
+  const { calls, responder, restore } = setupDbMock()
+  responder.rows = [
+    { id: 1, sku: 'X', item_id: null, item_name: null, report_group: 'slow_moving', active: true, notes: '' },
+  ]
+  const svc = freshRequire('../src/services/itemReportGroupsService')
+
+  const rows = await svc.listAllActiveMemberRows()
+
+  assert.match(calls[0].text, /FROM item_report_groups/)
+  assert.match(calls[0].text, /WHERE active = true/)
+  assert.doesNotMatch(calls[0].text, /report_group =/)
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].report_group, 'slow_moving')
+  restore()
+})
+
 // ---------------------------------------------------------------------------
 // Bulk-import audit log (recordImport + listRecentImports)
 // ---------------------------------------------------------------------------

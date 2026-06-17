@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useAIPlanner } from '../../contexts/AIPlannerContext'
 import { calcPriorityScore, priorityLabel, priorityFlame, formatTime, estimateDuration } from '../../lib/aiEngine'
+import { Repeat } from 'lucide-react'
 import { SubtaskList } from './SubtaskList'
 import { AttachmentPanel } from './AttachmentPanel'
 import { DependencyPanel } from './DependencyPanel'
+import { effectiveRecurrence } from '../../lib/plannerRecurrence'
 
 const STATUS_OPTIONS   = ['todo', 'blocked', 'done']
 const PRIORITY_OPTIONS = ['low', 'medium', 'high', 'urgent']
@@ -58,6 +60,16 @@ export function TaskDrawer() {
     // resolved if not in _unresolvedBlockerIds (populated by enrichTasks)
     return (activeTask._unresolvedBlockerIds || []).includes(id)
   }).length
+
+  const recurrenceKind = effectiveRecurrence(form)
+  const recurrenceLabel =
+    recurrenceKind === 'daily'
+      ? 'Daily'
+      : recurrenceKind === 'weekly'
+        ? 'Weekly'
+        : recurrenceKind === 'monthly'
+          ? 'Monthly'
+          : ''
 
   return (
     <>
@@ -130,6 +142,12 @@ export function TaskDrawer() {
                 )}
                 {isOverdue && <span className="aip-badge aip-badge-due overdue">⚠️ Overdue</span>}
                 {isDueToday && !isOverdue && <span className="aip-badge aip-badge-due today">📅 Due today</span>}
+                {recurrenceKind !== 'none' && (
+                  <span className="aip-badge aip-badge-time" title="Recurring task">
+                    <Repeat size={12} strokeWidth={2.25} style={{ verticalAlign: 'middle', marginRight: 3 }} aria-hidden />
+                    Repeats {recurrenceLabel}
+                  </span>
+                )}
               </div>
 
               {/* Title */}

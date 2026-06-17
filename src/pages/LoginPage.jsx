@@ -190,7 +190,7 @@ export function LoginPage() {
           </div>
 
           <div className="login-stage__brand">
-            <div className="login-stage__eyebrow">HR &amp; Business Intelligence</div>
+            <div className="login-stage__eyebrow">Business Intelligence (BI)</div>
             <h1 className="login-stage__title">Life Smile</h1>
             <p className="login-stage__tagline">Life Towards Health</p>
           </div>

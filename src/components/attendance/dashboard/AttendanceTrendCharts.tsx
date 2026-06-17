@@ -63,6 +63,15 @@ export function AttendanceTrendCharts({ data }: Props) {
               name="Sick leave"
               stroke={STATUS_COLORS.SL.text}
               strokeWidth={2}
+              strokeDasharray="6 4"
+              dot={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="annualLeave"
+              name="Annual leave"
+              stroke={STATUS_COLORS.AL.text}
+              strokeWidth={2}
               dot={false}
             />
           </LineChart>

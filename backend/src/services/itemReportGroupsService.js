@@ -54,6 +54,23 @@ async function listMembersOfGroup(group) {
   return rows
 }
 
+/**
+ * All active rows across every `report_group`. Used by the other_family Zoho
+ * pipeline so a Zoho Family is not labeled "(not found in groups)" if it is
+ * already covered by a mapping in any report (e.g. slow_moving only).
+ */
+async function listAllActiveMemberRows() {
+  const { rows } = await query(
+    `
+    SELECT id, sku, item_id, item_name, report_group, notes
+    FROM item_report_groups
+    WHERE active = true
+    ORDER BY report_group ASC, COALESCE(item_name, sku, item_id) ASC
+    `
+  )
+  return rows
+}
+
 // ---------------------------------------------------------------------------
 // Admin CRUD APIs
 // ---------------------------------------------------------------------------
@@ -508,6 +525,7 @@ module.exports = {
   // Used by the Weekly Reports pipeline (zohoService, controller)
   listGroupKeys,
   listMembersOfGroup,
+  listAllActiveMemberRows,
   // Admin CRUD
   adminList,
   adminListAllGroupKeys,

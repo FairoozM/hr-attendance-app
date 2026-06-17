@@ -5,10 +5,25 @@
  */
 export function fmtDMY(v) {
   if (v == null || v === '') return '—'
+  if (v instanceof Date) {
+    if (Number.isNaN(v.getTime())) return '—'
+    const d = String(v.getDate()).padStart(2, '0')
+    const m = String(v.getMonth() + 1).padStart(2, '0')
+    const y = v.getFullYear()
+    return `${d}/${m}/${y}`
+  }
   const iso = String(v).slice(0, 10)
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '—'
   const [y, m, d] = iso.split('-')
   return `${d}/${m}/${y}`
+}
+
+export function fmtDMYRange(start, end, separator = ' → ') {
+  const a = fmtDMY(start)
+  const b = fmtDMY(end)
+  if (a === '—') return b
+  if (b === '—' || a === b) return a
+  return `${a}${separator}${b}`
 }
 
 /**

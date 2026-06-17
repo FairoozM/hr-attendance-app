@@ -1,13 +1,14 @@
 import { useState, useMemo, useCallback } from 'react'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
+import { useAuth, hasPermission } from './contexts/AuthContext'
 import { SettingsContext } from './contexts/SettingsContext'
 import { InfluencersProvider } from './contexts/InfluencersContext'
 import { useAppSettings } from './hooks/useAppSettings'
 import { Layout } from './components/Layout'
 import { HomeRoute } from './components/HomeRoute'
 import { RequireAuth } from './components/RequireAuth'
-import { PermissionGuard } from './components/PermissionGuard'
+import { PermissionGuard, LeaveSelfServiceGuard } from './components/PermissionGuard'
 import { LoginPage } from './pages/LoginPage'
 import { EmployeeAccountPage } from './pages/EmployeeAccountPage'
 import { AttendancePage } from './pages/AttendancePage'
@@ -17,6 +18,7 @@ import { AnnualLeavePage } from './pages/AnnualLeavePage'
 import { EmployeeProfileAdminPage } from './pages/EmployeeProfileAdminPage'
 import { RolesPermissionsPage } from './pages/RolesPermissionsPage'
 import { ItemReportGroupsAdminPage } from './pages/admin/ItemReportGroupsAdminPage'
+import BulkZohoInvoicePage from './pages/admin/BulkZohoInvoicePage'
 import { InfluencerListPage } from './pages/influencers/InfluencerListPage'
 import { AddInfluencerPage } from './pages/influencers/AddInfluencerPage'
 import { PipelinePage } from './pages/influencers/PipelinePage'
@@ -25,19 +27,61 @@ function InfluencerIdToEditRedirect() {
   const { id } = useParams()
   return <Navigate to={`/influencers/${encodeURIComponent(id)}/edit`} replace />
 }
+
+function AdminOnly({ children }) {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  if (user.role !== 'admin') return <Navigate to="/account" replace />
+  return children
+}
+
+/** AI usage dashboard & Amazon listing — operators with planner, prices, warehouse, or admin. */
+function AiHubGuard({ children }) {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  const can = (module, action) => hasPermission(user, module, action)
+  const hasPlannerAccess = user.role === 'admin' || can('planner', 'view')
+  const allowed =
+    user.role === 'admin' ||
+    user.role === 'warehouse' ||
+    hasPlannerAccess ||
+    can('prices', 'view')
+  if (!allowed) return <Navigate to="/account" replace />
+  return children
+}
 import { ShootSchedulePage } from './pages/influencers/ShootSchedulePage'
 import { PaymentsPage } from './pages/influencers/PaymentsPage'
 import { AgreementsPage } from './pages/influencers/AgreementsPage'
 import { ReportsPage } from './pages/influencers/ReportsPage'
+import { InfluencerPerformancePage } from './pages/influencers/InfluencerPerformancePage'
+import { InfluencerPerformanceIphonePage } from './pages/influencers/InfluencerPerformanceIphonePage'
 import { SimCardsPage } from './pages/SimCardsPage'
 import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
+import { PaymentsPage as CompanyPaymentsPage } from './pages/management/PaymentsPage'
+import { PurchasePlanningPage } from './pages/management/PurchasePlanningPage'
+import { AllPricesPage } from './pages/management/AllPricesPage'
+import { CompositeItemsPricesPage } from './pages/prices/CompositeItemsPricesPage'
+import { SavedCompositeItemsPage } from './pages/prices/SavedCompositeItemsPage'
 import { WeeklyAdsReportPage } from './pages/reports/WeeklyAdsReportPage'
 import { WeeklySalesReportPage } from './pages/reports/WeeklySalesReportPage'
 import { WeeklyCombinedSalesReportPage } from './pages/reports/WeeklyCombinedSalesReportPage'
+import { KsaVatReportPage } from './pages/reports/KsaVatReportPage'
+import SalesVsExpensesReportPage from './pages/reports/SalesVsExpensesReportPage'
+import { ZohoItemImageFetcherPage } from './pages/reports/ZohoItemImageFetcherPage'
 import ProjectsIndexPage from './pages/projects/ProjectsIndexPage'
 import ProjectDetailPage from './pages/projects/ProjectDetailPage'
 import ProjectDashboardPage from './pages/projects/ProjectDashboardPage'
 import TrashPage from './pages/projects/TrashPage'
+import { AiUsageDashboard } from './pages/AiUsageDashboard'
+import { AmazonListingGenerator } from './pages/AmazonListingGenerator'
+import { AmazonSpApiTestPage } from './pages/AmazonSpApiTestPage'
+import { AmazonOrdersPage } from './pages/AmazonOrdersPage'
+import { AmazonOrdersDashboardPage } from './pages/AmazonOrdersDashboardPage'
+import { AmazonSyncHealthPage } from './pages/AmazonSyncHealthPage'
+import { AmazonZohoStockPage } from './pages/AmazonZohoStockPage'
+import { AmazonFlatFileBulkGenerator } from './pages/AmazonFlatFileBulkGenerator'
+import { ListingBatchesPage } from './pages/ListingBatchesPage'
+import { AiBudgetSettingsPage } from './pages/admin/AiBudgetSettingsPage'
 import { AIPlannerProvider } from './contexts/AIPlannerContext'
 import { useEmployees } from './hooks/useEmployees'
 import { useAttendanceManagedEmployees } from './hooks/useAttendanceManagedEmployees'
@@ -113,7 +157,14 @@ function AppContent() {
       >
         <Route index element={<HomeRoute />} />
         <Route path="account" element={<EmployeeAccountPage />} />
-        <Route path="annual-leave" element={<AnnualLeavePage />} />
+        <Route
+          path="annual-leave"
+          element={
+            <LeaveSelfServiceGuard>
+              <AnnualLeavePage />
+            </LeaveSelfServiceGuard>
+          }
+        />
         <Route
           path="attendance"
           element={
@@ -175,6 +226,47 @@ function AppContent() {
           }
         />
         <Route
+          path="management/payments"
+          element={
+            <PermissionGuard module="company_payments" action="view">
+              <CompanyPaymentsPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="management/purchase-planning"
+          element={
+            <AdminOnly>
+              <PurchasePlanningPage />
+            </AdminOnly>
+          }
+        />
+        <Route path="management/all-prices" element={<Navigate to="/prices/all-prices" replace />} />
+        <Route
+          path="prices/all-prices"
+          element={
+            <PermissionGuard module="prices" action="view">
+              <AllPricesPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="prices/composite-items"
+          element={
+            <PermissionGuard module="prices" action="view">
+              <CompositeItemsPricesPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="prices/saved-composite-items"
+          element={
+            <PermissionGuard module="prices" action="view">
+              <SavedCompositeItemsPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
           path="employees/:id/profile"
           element={
             <PermissionGuard module="employees" action="view">
@@ -183,16 +275,149 @@ function AppContent() {
           }
         />
         <Route path="roles-permissions" element={<RolesPermissionsPage />} />
+        <Route
+          path="admin/ai-budget"
+          element={
+            <AdminOnly>
+              <AiBudgetSettingsPage />
+            </AdminOnly>
+          }
+        />
         <Route path="admin/item-report-groups" element={<ItemReportGroupsAdminPage />} />
+        <Route
+          path="admin/zoho/bulk-invoice"
+          element={
+            <PermissionGuard module="weekly_reports" action="view">
+              <BulkZohoInvoicePage />
+            </PermissionGuard>
+          }
+        />
+
+        <Route
+          path="ai/usage"
+          element={
+            <AiHubGuard>
+              <AiUsageDashboard />
+            </AiHubGuard>
+          }
+        />
+        <Route
+          path="ai/amazon-spapi-test"
+          element={
+            <AiHubGuard>
+              <AmazonSpApiTestPage />
+            </AiHubGuard>
+          }
+        />
+        <Route
+          path="ai/amazon-orders"
+          element={
+            <AiHubGuard>
+              <AmazonOrdersPage />
+            </AiHubGuard>
+          }
+        />
+        <Route
+          path="ai/amazon-dashboard"
+          element={
+            <AiHubGuard>
+              <AmazonOrdersDashboardPage />
+            </AiHubGuard>
+          }
+        />
+        <Route
+          path="ai/amazon-sync-health"
+          element={
+            <AdminOnly>
+              <AmazonSyncHealthPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="ai/amazon-zoho-stock"
+          element={
+            <AdminOnly>
+              <AmazonZohoStockPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="ai/amazon-listing"
+          element={
+            <AiHubGuard>
+              <AmazonListingGenerator />
+            </AiHubGuard>
+          }
+        />
+        <Route
+          path="ai/amazon-bulk-listing"
+          element={
+            <AiHubGuard>
+              <AmazonFlatFileBulkGenerator />
+            </AiHubGuard>
+          }
+        />
+        <Route
+          path="ai/listing-batches"
+          element={
+            <AiHubGuard>
+              <ListingBatchesPage />
+            </AiHubGuard>
+          }
+        />
 
         {/* AI Planner Module */}
-        <Route path="projects" element={<ProjectsIndexPage />} />
-        <Route path="projects/dashboard" element={<ProjectDashboardPage />} />
-        <Route path="projects/today" element={<ProjectDetailPage />} />
-        <Route path="projects/trash" element={<TrashPage />} />
+        <Route
+          path="projects"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <ProjectsIndexPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="projects/dashboard"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <ProjectDashboardPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="projects/today"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <ProjectDetailPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="projects/trash"
+          element={
+            <PermissionGuard module="planner" action="view">
+              <TrashPage />
+            </PermissionGuard>
+          }
+        />
 
         {/* Reports Module */}
         <Route path="reports">
+          <Route
+            path="sales-vs-expenses"
+            element={
+              <PermissionGuard module="weekly_reports" action="view">
+                <SalesVsExpensesReportPage />
+              </PermissionGuard>
+            }
+          />
+          <Route
+            path="zoho-item-images"
+            element={
+              <PermissionGuard module="weekly_reports" action="view">
+                <ZohoItemImageFetcherPage />
+              </PermissionGuard>
+            }
+          />
           <Route path="weekly-report">
             <Route
               path="weekly-ads"
@@ -239,6 +464,18 @@ function AppContent() {
           </Route>
         </Route>
 
+        {/* Taxation Module */}
+        <Route path="taxation">
+          <Route
+            path="ksa-vat"
+            element={
+              <PermissionGuard module="taxation" action="view">
+                <KsaVatReportPage />
+              </PermissionGuard>
+            }
+          />
+        </Route>
+
         {/* Influencers Module */}
         <Route path="influencers">
           <Route path="list" element={
@@ -274,6 +511,16 @@ function AppContent() {
           <Route path="reports" element={
             <PermissionGuard module="influencers" action="view">
               <ReportsPage />
+            </PermissionGuard>
+          } />
+          <Route path="performance/iphone" element={
+            <PermissionGuard module="influencers" action="performance">
+              <InfluencerPerformanceIphonePage />
+            </PermissionGuard>
+          } />
+          <Route path="performance" element={
+            <PermissionGuard module="influencers" action="performance">
+              <InfluencerPerformancePage />
             </PermissionGuard>
           } />
           <Route path=":id" element={

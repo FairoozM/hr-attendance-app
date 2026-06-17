@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAIPlanner } from '../../contexts/AIPlannerContext'
 import { Trash2, RotateCcw, X, AlertTriangle } from 'lucide-react'
+import { fmtDMY } from '../../utils/dateFormat'
 import './planner.css'
 
 function formatDeleted(iso) {
@@ -12,7 +13,7 @@ function formatDeleted(iso) {
   if (days === 0) return 'Deleted today'
   if (days === 1) return 'Deleted yesterday'
   if (days < 7) return `Deleted ${days} days ago`
-  return `Deleted ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+  return `Deleted ${fmtDMY(d)}`
 }
 
 export default function TrashPage() {

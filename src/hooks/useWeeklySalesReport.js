@@ -12,11 +12,20 @@ import { useAuth } from '../contexts/AuthContext'
  *   present in API responses, may be `""`). Not the same as app `report_group` —
  *   use `item_report_groups` for membership; keep `family` for display / future
  *   Excel export columns.
- * @property {number|null} opening_stock
- * @property {number|null} purchases
- * @property {number|null} returned_to_wholesale
- * @property {number|null} closing_stock
- * @property {number|null} sold
+ * @property {string|null} [zoho_representative_item_id]  Chosen Zoho `item_id` for the
+ *   family thumbnail (`/api/weekly-reports/zoho-item-images/:id`). Picked by
+ *   soup/stock/casserole/saucepan-style scoring; see backend `zohoRepresentativeItem`.
+ * @property {string|null} [zoho_representative_sku]  SKU of that representative (optional, display/debug).
+ * @property {string|null} [zoho_representative_name]  Zoho item `name` for that pick (optional).
+ * @property {number} [zoho_representative_image_selection_version]  Bumps when scoring rules
+ *   change; clients can key image caches on this + `item_id`.
+ * @property {string} [zoho_representative_reason]  When the backend enables it (e.g. debug), why this item won.
+ * @property {number} [zoho_representative_score]  Computed total score (category + size + bonuses) for the pick.
+ * @property {number|null} opening_stock  — value (stock qty × Zoho sales `rate`), not units
+ * @property {number|null} closing_stock  — value
+ * @property {number|null} purchase_amount  — period purchase qty × Zoho item `rate`
+ * @property {number|null} returned_to_wholesale  — value (credits) when available, else × cost
+ * @property {number|null} sales_amount  — from Zoho Sales by Item, gross of VAT
  */
 
 /**
@@ -26,8 +35,9 @@ import { useAuth } from '../contexts/AuthContext'
  *   {
  *     report_group, from_date, to_date,
  *     items:  (ZohoReportRow[]) ,
- *     totals: { opening_stock, purchases, returned_to_wholesale,
- *               closing_stock, sold }
+ *     totals: { opening_stock, closing_stock, purchase_amount,
+ *               returned_to_wholesale, sales_amount },
+ *     zoho: { ..., api_usage_today?: { successful_calls, utc_day, daily_limit } }
  *   }
  *
  * The hook returns:
@@ -36,9 +46,21 @@ import { useAuth } from '../contexts/AuthContext'
  *   - refetch() for manual reloads
  *   - notConfigured: true when the backend returns 503 ZOHO_NOT_CONFIGURED so
  *     the page can render a clear setup message instead of a generic error.
+ * @param {number} [loadToken=0] Incremented by the parent "Load report" action.
+ *   Fetches only run when `loadToken` is greater than 0 (or when `refetch` is used after a load).
  */
-export function useWeeklySalesReport({ reportGroup, fromDate, toDate }) {
+export function useWeeklySalesReport({
+  reportGroup,
+  fromDate,
+  toDate,
+  warehouseId = null,
+  excludeWarehouseId = null,
+  loadToken = 0,
+  onFetchSettled = undefined,
+}) {
   const { user } = useAuth()
+  const onFetchSettledRef = useRef(onFetchSettled)
+  onFetchSettledRef.current = onFetchSettled
   const [items, setItems] = useState([])
   const [totals, setTotals] = useState(null)
   const [zoho, setZoho] = useState(null)
@@ -46,6 +68,7 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate }) {
   const [error, setError] = useState(null)
   const [notConfigured, setNotConfigured] = useState(false)
   const [validationErrors, setValidationErrors] = useState([])
+  const [errorHint, setErrorHint] = useState('')
 
   // Tracks the AbortController for the current in-flight request so that a
   // second call (e.g. from React StrictMode double-invoke in development) can
@@ -53,7 +76,8 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate }) {
   const abortRef = useRef(null)
 
   const fetchReport = useCallback(async () => {
-    if (!user || !reportGroup || !fromDate || !toDate) {
+    if (!loadToken) return
+    if (!user || !reportGroup || !fromDate || !toDate) {  // warehouseId is optional
       setItems([])
       setTotals(null)
       setZoho(null)
@@ -70,10 +94,19 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate }) {
 
     setLoading(true)
     setError(null)
+    setErrorHint('')
     setNotConfigured(false)
     setValidationErrors([])
+    let fetchSettled = false
     try {
-      const qs = new URLSearchParams({ from_date: fromDate, to_date: toDate }).toString()
+      const qsParams = { from_date: fromDate, to_date: toDate }
+      if (warehouseId && String(warehouseId).trim() !== '') {
+        qsParams.warehouse_id = String(warehouseId).trim()
+      }
+      if (excludeWarehouseId && String(excludeWarehouseId).trim() !== '') {
+        qsParams.exclude_warehouse_id = String(excludeWarehouseId).trim()
+      }
+      const qs = new URLSearchParams(qsParams).toString()
       const data = await api.get(
         `/api/weekly-reports/by-group/${encodeURIComponent(reportGroup)}?${qs}`,
         { signal: controller.signal }
@@ -81,25 +114,34 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate }) {
       setItems(Array.isArray(data?.items) ? data.items : [])
       setTotals(data?.totals || null)
       setZoho(data?.zoho && typeof data.zoho === 'object' ? data.zoho : null)
+      fetchSettled = true
     } catch (err) {
       // Aborted by a subsequent fetchReport call — let that new call own the
       // loading state; don't touch state here.
       if (err?.name === 'AbortError') return
-      const code = err?.body?.code
-      if (code === 'ZOHO_NOT_CONFIGURED' || err?.status === 503) {
+      const body = err?.body && typeof err.body === 'object' ? err.body : null
+      const code = body?.code
+      const zohoFromErr = body?.zoho && typeof body.zoho === 'object' ? body.zoho : null
+      fetchSettled = true
+      if (code === 'ZOHO_NOT_CONFIGURED') {
         setNotConfigured(true)
         setError(err.message || 'Zoho source not configured')
+        setErrorHint('')
+        setZoho(null)
+        setValidationErrors([])
       } else if (code === 'WEBHOOK_INVALID_RESPONSE') {
         setError(err.message || 'Zoho webhook returned an invalid response')
-        setValidationErrors(
-          Array.isArray(err?.body?.validation_errors) ? err.body.validation_errors : []
-        )
+        setErrorHint('')
+        setValidationErrors(Array.isArray(body?.validation_errors) ? body.validation_errors : [])
+        setZoho(null)
       } else {
         setError(err.message || 'Failed to load report')
+        setErrorHint(typeof body?.user_action === 'string' ? body.user_action : '')
+        setZoho(zohoFromErr)
+        setValidationErrors([])
       }
       setItems([])
       setTotals(null)
-      setZoho(null)
     } finally {
       // Only clear the spinner if this invocation still owns the controller.
       // If another fetchReport() started in the meantime it already set
@@ -107,6 +149,16 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate }) {
       // so we must not override that with setLoading(false).
       if (abortRef.current === controller) {
         setLoading(false)
+        if (
+          fetchSettled &&
+          typeof onFetchSettledRef.current === 'function'
+        ) {
+          try {
+            onFetchSettledRef.current()
+          } catch {
+            /* ignore */
+          }
+        }
       }
     }
   // Depend on user.id rather than the full user object so that an identity-
@@ -115,18 +167,49 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate }) {
   // which would abort a running Zoho fetch and trigger a redundant re-request.
   // The API token is read from localStorage by api.get(), not from user itself.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id ?? null, reportGroup, fromDate, toDate])
+  }, [user?.id ?? null, reportGroup, fromDate, toDate, warehouseId ?? null, excludeWarehouseId ?? null, loadToken])
 
-  // Debounce: wait 400 ms after the last date/group change before firing.
-  // React StrictMode double-invoke is absorbed: the first timeout is cleared
-  // by the cleanup before it fires, so only one real request starts.
-  // We do NOT abort abortRef here — the backend cache deduplicates concurrent
-  // requests, so it is harmless for two fetches to race, and aborting here
-  // was causing a second setLoading(true) after the first response arrived.
+  // When the user resets the parent "load" (e.g. filters changed), clear UI and
+  // cancel in-flight fetches so a slow response cannot repopulate stale data.
   useEffect(() => {
-    const id = setTimeout(() => fetchReport(), 400)
+    if (loadToken !== 0) return
+    if (abortRef.current) {
+      try {
+        abortRef.current.abort()
+      } catch {
+        /* ignore */
+      }
+    }
+    setItems([])
+    setTotals(null)
+    setZoho(null)
+    setError(null)
+    setErrorHint('')
+    setNotConfigured(false)
+    setValidationErrors([])
+    setLoading(false)
+  }, [loadToken])
+
+  // Fetch after the user clicks "Load report", and also when active filter inputs
+  // change while a report is already loaded (e.g. warehouse list resolves later and
+  // excludeWarehouseId becomes available). This fixes first-load stale splits where
+  // the initial request runs without the final warehouse/exclusion params.
+  const fetchRef = useRef(fetchReport)
+  fetchRef.current = fetchReport
+  useEffect(() => {
+    if (loadToken <= 0) return
+    setLoading(true)
+    const id = setTimeout(() => fetchRef.current(), 400)
     return () => clearTimeout(id)
-  }, [fetchReport])
+  }, [
+    loadToken,
+    reportGroup,
+    fromDate,
+    toDate,
+    warehouseId ?? null,
+    excludeWarehouseId ?? null,
+    user?.id ?? null,
+  ])
 
   return {
     items,
@@ -134,6 +217,7 @@ export function useWeeklySalesReport({ reportGroup, fromDate, toDate }) {
     zoho,
     loading,
     error,
+    errorHint,
     notConfigured,
     validationErrors,
     refetch: fetchReport,

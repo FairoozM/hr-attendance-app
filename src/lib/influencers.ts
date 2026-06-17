@@ -3,6 +3,7 @@ import { apiFetch } from "./api"
 export type InfluencerSocial = {
   handle?: string
   url?: string
+  /** When set, prefer this over the `/api/instagram-proxy` avatar. Populated from Graph API Business Discovery `profile_picture_url` when the API returns it. */
   picUrl?: string
 }
 
@@ -65,6 +66,10 @@ export interface Influencer {
   workflowStatus: string
   approvalStatus: string
   paymentStatus: string
+  /** S3 object key for the manually uploaded influencer display picture. */
+  profileImageKey?: string
+  /** Signed URL returned by the API for display only; do not persist this value. */
+  profileImageUrl?: string
   assignedTo?: string
   shootDate?: string
   shootTime?: string
@@ -116,11 +121,48 @@ export const deleteInfluencer = (id: string) =>
     method: "DELETE",
   })
 
+/** Batch-load profile picture URLs from Instagram Graph API (server must have Meta env). */
+export async function batchRefreshInstagramProfilePictures(params?: {
+  onlyMissing?: boolean
+  max?: number
+  delayMs?: number
+}): Promise<{
+  success: boolean
+  graphConfigured: boolean
+  updated: number
+  skipped?: number
+  failed: number
+  message?: string
+  results: Array<{
+    id: string
+    handle: string
+    success: boolean
+    profilePictureUrl?: string | null
+    errorCode?: string
+    errorMessage?: string
+  }>
+}> {
+  return apiFetch("/api/influencers/instagram/batch-refresh", {
+    method: "POST",
+    body: JSON.stringify({
+      onlyMissing: params?.onlyMissing !== false,
+      max: params?.max ?? 100,
+      delayMs: params?.delayMs ?? 400,
+    }),
+  })
+}
+
 export async function fetchInsightsImageUrls(
   influencerId: string,
 ): Promise<{ key: string; url: string }[]> {
   const data = await apiFetch(`/api/influencers/${encodeURIComponent(influencerId)}/insights-images/urls`)
   return Array.isArray(data?.items) ? data.items : []
+}
+
+export async function fetchProfileImageUrl(
+  influencerId: string,
+): Promise<{ key: string; url: string }> {
+  return apiFetch(`/api/influencers/${encodeURIComponent(influencerId)}/profile-image/url`)
 }
 
 /** iOS/ Safari often send empty or application/octet-stream; must match presigned Content-Type. */
@@ -147,6 +189,19 @@ export async function getInsightsImageUploadUrl(
     method: "POST",
     body: JSON.stringify({
       fileName: payload.fileName || "image.jpg",
+      contentType: payload.contentType,
+    }),
+  })
+}
+
+export async function getProfileImageUploadUrl(
+  influencerId: string,
+  payload: { fileName: string; contentType: string },
+): Promise<{ uploadUrl: string; key: string; contentType: string }> {
+  return apiFetch(`/api/influencers/${encodeURIComponent(influencerId)}/profile-image/upload-url`, {
+    method: "POST",
+    body: JSON.stringify({
+      fileName: payload.fileName || "profile-image.jpg",
       contentType: payload.contentType,
     }),
   })

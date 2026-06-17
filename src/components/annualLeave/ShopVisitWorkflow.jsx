@@ -1,39 +1,19 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { fmtDMY, fmtISO, shopVisitAllowedWindowISO, shopVisitDateValidationError } from '../../utils/dateFormat'
+import { shopWorkflowLabel } from './annualLeaveLabels'
 import './ShopVisitWorkflow.css'
 
-/** Human-readable combined workflow label (leave + main shop). */
-export function shopWorkflowLabel(row) {
-  if (row.status === 'Pending') return 'Pending Leave Approval'
-  if (row.status === 'Rejected') return 'Rejected'
-  if (row.status !== 'Approved') return row.status || '—'
-  const sv = row.shop_visit_status
-  if (!sv || sv === 'PendingSubmission') return 'Shop Visit Pending Submission'
-  switch (sv) {
-    case 'Submitted':
-      return 'Shop Visit Submitted'
-    case 'Confirmed':
-      return 'Shop Visit Confirmed'
-    case 'MoneyCalculated':
-      return 'Money Calculated'
-    case 'Completed':
-      return 'Completed'
-    case 'Cancelled':
-      return 'Cancelled'
-    default:
-      return sv || '—'
-  }
-}
+export { shopWorkflowLabel } from './annualLeaveLabels'
 
 const SHOP_BADGE_STYLES = {
-  'Pending Leave Approval': { color: '#b45309', bg: '#fef3c7' },
+  'Pending leave approval': { color: '#b45309', bg: '#fef3c7' },
   Rejected: { color: '#4b5563', bg: '#f3f4f6' },
-  'Shop Visit Pending Submission': { color: '#0369a1', bg: '#e0f2fe' },
-  'Shop Visit Submitted': { color: '#7c3aed', bg: '#ede9fe' },
-  'Shop Visit Confirmed': { color: '#047857', bg: '#d1fae5' },
-  'Money Calculated': { color: '#1d4ed8', bg: '#dbeafe' },
-  Completed: { color: '#15803d', bg: '#dcfce7' },
-  Cancelled: { color: '#991b1b', bg: '#fee2e2' },
+  'Shop visit: waiting for employee': { color: '#0369a1', bg: '#e0f2fe' },
+  'Shop visit: submitted': { color: '#7c3aed', bg: '#ede9fe' },
+  'Shop visit confirmed': { color: '#047857', bg: '#d1fae5' },
+  'Calculator applied to visit': { color: '#1d4ed8', bg: '#dbeafe' },
+  'Shop visit completed': { color: '#15803d', bg: '#dcfce7' },
+  'Shop visit cancelled': { color: '#991b1b', bg: '#fee2e2' },
 }
 
 export function ShopWorkflowBadge({ row }) {
@@ -47,7 +27,7 @@ export function ShopWorkflowBadge({ row }) {
 }
 
 /** Employee: submit or update proposed main shop visit (API allows PendingSubmission + Submitted). */
-export function EmployeeShopVisitForm({ row, onSubmit }) {
+export function EmployeeShopVisitForm({ row, onSubmit, embedInModal = false }) {
   const visitWindow = useMemo(() => shopVisitAllowedWindowISO(row.from_date), [row.from_date])
   const [date, setDate] = useState(() => fmtISO(row.shop_visit_date) || '')
   const [time, setTime] = useState(() => (row.shop_visit_time ? String(row.shop_visit_time) : ''))
@@ -91,18 +71,32 @@ export function EmployeeShopVisitForm({ row, onSubmit }) {
 
   if (!canEdit) return null
 
-  return (
-    <div className="sv-card">
-      <div className="sv-card__head">
-        <span className="sv-card__title">Main shop visit (passport &amp; money)</span>
-        <span className="sv-card__hint">Leave period: {fmtDMY(row.from_date)} – {fmtDMY(row.to_date)}</span>
-        {visitWindow && (
-          <span className="sv-card__hint sv-card__hint--block">
-            Visit must be between {fmtDMY(visitWindow.min)} and {fmtDMY(visitWindow.max)} (before leave starts on{' '}
-            {fmtDMY(row.from_date)}).
-          </span>
-        )}
-      </div>
+  const formInner = (
+    <>
+      {!embedInModal && (
+        <div className="sv-card__head">
+          <span className="sv-card__title">Main shop visit (passport &amp; money)</span>
+          <span className="sv-card__hint">Leave period: {fmtDMY(row.from_date)} – {fmtDMY(row.to_date)}</span>
+          {visitWindow && (
+            <span className="sv-card__hint sv-card__hint--block">
+              Visit must be between {fmtDMY(visitWindow.min)} and {fmtDMY(visitWindow.max)} (before leave starts on{' '}
+              {fmtDMY(row.from_date)}).
+            </span>
+          )}
+        </div>
+      )}
+      {embedInModal && (
+        <div className="sv-modal-intro">
+          <p>
+            Leave period: <strong>{fmtDMY(row.from_date)}</strong> – <strong>{fmtDMY(row.to_date)}</strong>
+          </p>
+          {visitWindow && (
+            <p className="sv-modal-intro__hint">
+              Visit must be between {fmtDMY(visitWindow.min)} and {fmtDMY(visitWindow.max)} (before leave starts).
+            </p>
+          )}
+        </div>
+      )}
       <form className="sv-form" onSubmit={submit}>
         <div className="sv-form__row">
           <label>
@@ -135,118 +129,64 @@ export function EmployeeShopVisitForm({ row, onSubmit }) {
           {saving ? 'Submitting…' : row.shop_visit_status === 'Submitted' ? 'Update submission' : 'Submit shop visit'}
         </button>
       </form>
-    </div>
+    </>
   )
-}
 
-export function AdminShopVisitPanel({
-  row,
-  onConfirm,
-  onReschedule,
-  onComplete,
-  onApplyCalculator,
-  onSaveAdminNote,
-}) {
-  if (row.status !== 'Approved') return null
-  const sv = row.shop_visit_status || 'PendingSubmission'
-  if (['Cancelled'].includes(sv)) {
-    return (
-      <div className="sv-admin">
-        <p className="sv-admin__muted">Shop visit workflow cancelled for this leave.</p>
-      </div>
-    )
+  if (embedInModal) {
+    return <div className="sv-embed-modal">{formInner}</div>
   }
-
-  const [adminNote, setAdminNote] = useState(row.shop_visit_admin_note || '')
-  const [noteSaving, setNoteSaving] = useState(false)
-  const [noteErr, setNoteErr] = useState('')
-
-  useEffect(() => {
-    setAdminNote(row.shop_visit_admin_note || '')
-  }, [row.id, row.shop_visit_admin_note])
-
-  const saveNote = async () => {
-    setNoteErr('')
-    setNoteSaving(true)
-    try {
-      await onSaveAdminNote(row.id, { shop_visit_admin_note: adminNote })
-    } catch (e) {
-      setNoteErr(e.message || 'Failed')
-    } finally {
-      setNoteSaving(false)
-    }
-  }
-
-  const snap = row.calculator_snapshot
-  const amount = row.calculated_leave_amount
 
   return (
-    <div className="sv-admin">
-      <div className="sv-admin__head">Main shop visit — HR</div>
-      <div className="sv-admin__grid">
-        <div>
-          <span className="sv-admin__label">Shop status</span>
-          <strong>{shopWorkflowLabel(row)}</strong>
-        </div>
-        <div>
-          <span className="sv-admin__label">Proposed / scheduled</span>
-          <strong>
-            {row.shop_visit_date ? fmtDMY(row.shop_visit_date) : '—'} {row.shop_visit_time ? `· ${row.shop_visit_time}` : ''}
-          </strong>
-        </div>
-        {row.shop_visit_note && (
-          <div className="sv-admin__full">
-            <span className="sv-admin__label">Employee note</span>
-            <span>{row.shop_visit_note}</span>
-          </div>
-        )}
-        {(amount != null || snap) && (
-          <div className="sv-admin__full sv-admin__calc">
-            <span className="sv-admin__label">Settlement (from Leave Salary Calculator)</span>
-            {amount != null && <div className="sv-admin__amount">AED {Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>}
-            {snap?.annual_leave_salary_id != null && (
-              <span className="sv-admin__muted">Record #{snap.annual_leave_salary_id} · {snap.calculation_date ? fmtDMY(snap.calculation_date) : ''}</span>
-            )}
-          </div>
-        )}
-      </div>
+    <div className="sv-card">
+      {formInner}
+    </div>
+  )
+}
 
-      <div className="sv-admin__note">
-        <label>
-          Internal admin note
-          <textarea rows={2} value={adminNote} onChange={(e) => setAdminNote(e.target.value)} />
-        </label>
-        {noteErr && <p className="sv-form__err">{noteErr}</p>}
-        <button type="button" className="al-btn al-btn--ghost al-btn--sm" onClick={saveNote} disabled={noteSaving}>
-          {noteSaving ? 'Saving…' : 'Save note'}
-        </button>
-      </div>
+/**
+ * Full-screen modal for employee shop visit (used from leave row; replaces bottom-of-page stack).
+ */
+export function EmployeeShopVisitModal({ row, open, onClose, onSubmit }) {
+  if (!open || !row) return null
+  const can =
+    row.status === 'Approved' &&
+    ['PendingSubmission', 'Submitted'].includes(row.shop_visit_status || 'PendingSubmission') &&
+    !['Completed', 'Cancelled'].includes(row.shop_visit_status || '')
 
-      <div className="sv-admin__actions">
-        {sv === 'Submitted' && (
-          <button type="button" className="al-btn al-btn--success al-btn--sm" onClick={() => onConfirm(row)}>
-            Confirm visit
+  return (
+    <div className="al-modal-overlay" onClick={onClose}>
+      <div className="al-modal al-modal--contextual al-modal--scroll" onClick={(e) => e.stopPropagation()}>
+        <div className="al-modal__head al-modal__head--split">
+          <div>
+            <h3>Submit main shop visit</h3>
+            <p className="al-modal__kicker">
+              {row.full_name} · {fmtDMY(row.from_date)} – {fmtDMY(row.to_date)} · {shopWorkflowLabel(row)}
+            </p>
+          </div>
+          <button type="button" className="al-modal__close" onClick={onClose} aria-label="Close">
+            ✕
           </button>
-        )}
-        {['Submitted', 'Confirmed', 'MoneyCalculated'].includes(sv) && sv !== 'Completed' && (
-          <button type="button" className="al-btn al-btn--extend al-btn--sm" onClick={() => onReschedule(row)}>
-            Reschedule
-          </button>
-        )}
-        {['Confirmed', 'MoneyCalculated'].includes(sv) && (
-          <button type="button" className="al-btn al-btn--ghost al-btn--sm" onClick={() => onApplyCalculator(row.id)}>
-            Sync calculator
-          </button>
-        )}
-        {['Confirmed', 'MoneyCalculated'].includes(sv) && (
-          <button type="button" className="al-btn al-btn--primary al-btn--sm" onClick={() => onComplete(row.id)}>
-            Mark collection completed
-          </button>
-        )}
+        </div>
+        <div className="al-modal__body-scroll">
+          {!can ? (
+            <p className="al-modal__hint">You cannot edit the shop visit in the current state.</p>
+          ) : (
+            <EmployeeShopVisitForm
+              row={row}
+              embedInModal
+              onSubmit={async (id, payload) => {
+                await onSubmit(id, payload)
+                onClose()
+              }}
+            />
+          )}
+        </div>
       </div>
     </div>
   )
 }
+
+export { ShopVisitCard as AdminShopVisitPanel } from './ShopVisitCard'
 
 export function ShopVisitRescheduleModal({ row, onSave, onClose }) {
   const visitWindow = useMemo(() => shopVisitAllowedWindowISO(row.from_date), [row.from_date])
@@ -282,10 +222,15 @@ export function ShopVisitRescheduleModal({ row, onSave, onClose }) {
 
   return (
     <div className="al-modal-overlay" onClick={onClose}>
-      <div className="al-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="al-modal al-modal--contextual" onClick={(e) => e.stopPropagation()}>
         <div className="al-modal__head">
           <h3>Reschedule main shop visit</h3>
-          <button type="button" className="al-modal__close" onClick={onClose}>
+          {row.full_name && (
+            <p className="al-modal__kicker">
+              {row.full_name} · {fmtDMY(row.from_date)} – {fmtDMY(row.to_date)} · {shopWorkflowLabel(row)}
+            </p>
+          )}
+          <button type="button" className="al-modal__close" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>
@@ -315,7 +260,7 @@ export function ShopVisitRescheduleModal({ row, onSave, onClose }) {
             <textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={2} />
           </div>
           {err && <p className="al-modal__err">{err}</p>}
-          <div className="al-modal__actions">
+          <div className="al-modal__actions al-modal__actions--sticky">
             <button type="button" className="al-btn al-btn--ghost" onClick={onClose}>
               Cancel
             </button>
@@ -348,10 +293,15 @@ export function ShopVisitConfirmModal({ row, onSave, onClose }) {
 
   return (
     <div className="al-modal-overlay" onClick={onClose}>
-      <div className="al-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="al-modal al-modal--contextual" onClick={(e) => e.stopPropagation()}>
         <div className="al-modal__head">
           <h3>Confirm main shop visit</h3>
-          <button type="button" className="al-modal__close" onClick={onClose}>
+          {row.full_name && (
+            <p className="al-modal__kicker">
+              {row.full_name} · {fmtDMY(row.from_date)} – {fmtDMY(row.to_date)} · {shopWorkflowLabel(row)}
+            </p>
+          )}
+          <button type="button" className="al-modal__close" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>
@@ -364,7 +314,7 @@ export function ShopVisitConfirmModal({ row, onSave, onClose }) {
             <textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={2} />
           </div>
           {err && <p className="al-modal__err">{err}</p>}
-          <div className="al-modal__actions">
+          <div className="al-modal__actions al-modal__actions--sticky">
             <button type="button" className="al-btn al-btn--ghost" onClick={onClose}>
               Cancel
             </button>
@@ -373,6 +323,80 @@ export function ShopVisitConfirmModal({ row, onSave, onClose }) {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  )
+}
+
+/** Apply latest salary calculator snapshot to this leave (API may return 409 if none saved). */
+export function ShopApplyCalculatorModal({ row, onApply, onClose, applying, applyError }) {
+  if (!row) return null
+  return (
+    <div className="al-modal-overlay" onClick={onClose}>
+      <div className="al-modal al-modal--contextual al-modal--scroll" onClick={(e) => e.stopPropagation()}>
+        <div className="al-modal__head al-modal__head--split">
+          <div>
+            <h3>Apply salary calculator</h3>
+            {row.full_name && (
+              <p className="al-modal__kicker">
+                {row.full_name} · {fmtDMY(row.from_date)} – {fmtDMY(row.to_date)} · {shopWorkflowLabel(row)}
+              </p>
+            )}
+          </div>
+          <button type="button" className="al-modal__close" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </div>
+        <div className="al-modal__body-scroll">
+          <p className="al-modal__hint">
+            This copies the <strong>latest saved calculation</strong> from the Leave Salary Calculator for this employee onto
+            this request. If nothing was saved in the calculator yet, the request will be rejected.
+          </p>
+          {applyError && <p className="al-modal__err al-modal__err--block">{applyError}</p>}
+        </div>
+        <div className="al-modal__actions al-modal__actions--sticky">
+          <button type="button" className="al-btn al-btn--ghost" onClick={onClose} disabled={applying}>
+            Cancel
+          </button>
+          <button type="button" className="al-btn al-btn--primary" onClick={() => onApply(row.id)} disabled={applying}>
+            {applying ? 'Applying…' : 'Apply calculator'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function ShopMarkCompleteModal({ row, onComplete, onClose, completing, err }) {
+  if (!row) return null
+  return (
+    <div className="al-modal-overlay" onClick={onClose}>
+      <div className="al-modal al-modal--contextual al-modal--scroll" onClick={(e) => e.stopPropagation()}>
+        <div className="al-modal__head al-modal__head--split">
+          <div>
+            <h3>Mark shop visit completed</h3>
+            {row.full_name && (
+              <p className="al-modal__kicker">
+                {row.full_name} · {fmtDMY(row.from_date)} – {fmtDMY(row.to_date)} · {shopWorkflowLabel(row)}
+              </p>
+            )}
+          </div>
+          <button type="button" className="al-modal__close" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </div>
+        <div className="al-modal__body-scroll">
+          <p className="al-modal__hint">Confirm that passport and money have been collected at the main shop for this visit.</p>
+          {err && <p className="al-modal__err">{err}</p>}
+        </div>
+        <div className="al-modal__actions al-modal__actions--sticky">
+          <button type="button" className="al-btn al-btn--ghost" onClick={onClose} disabled={completing}>
+            Cancel
+          </button>
+          <button type="button" className="al-btn al-btn--primary" onClick={() => onComplete(row.id)} disabled={completing}>
+            {completing ? 'Saving…' : 'Mark completed'}
+          </button>
+        </div>
       </div>
     </div>
   )

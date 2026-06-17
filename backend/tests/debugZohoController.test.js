@@ -7,7 +7,6 @@ const { mockModule, freshRequire, makeReqRes } = require('./_helpers')
 
 test('getZohoDebugItems: 503 when Zoho not configured', async () => {
   mockModule('../src/integrations/zoho/zohoAdapter', {
-    getItems: async () => [],
     fetchAllItemsRaw: async () => [],
     readZohoConfig: () => ({ code: 'ZOHO_NOT_CONFIGURED' }),
     orgEnvHint: () => 'ZOHO_ORGANIZATION_ID',
@@ -21,7 +20,6 @@ test('getZohoDebugItems: 503 when Zoho not configured', async () => {
 
 test('getZohoDebugItems: empty arrays → empty items', async () => {
   mockModule('../src/integrations/zoho/zohoAdapter', {
-    getItems: async () => [],
     fetchAllItemsRaw: async () => [],
     readZohoConfig: () => ({
       code: 'ok',
@@ -35,15 +33,11 @@ test('getZohoDebugItems: empty arrays → empty items', async () => {
   assert.deepEqual(res.body.items, [])
 })
 
-test('getZohoDebugItems: merges getItems with raw (first 20 cap)', async () => {
-  const norm = [
-    { name: 'N1', sku: 'S1', item_id: '1', family: 'F' },
-  ]
+test('getZohoDebugItems: normalizes raw items (first 20 cap)', async () => {
   const raw = [
     { name: 'N1', sku: 'S1', custom_fields: [{ customfield_id: 'cf1', value: 'F' }], stock_on_hand: 3 },
   ]
   mockModule('../src/integrations/zoho/zohoAdapter', {
-    getItems: async () => norm,
     fetchAllItemsRaw: async () => raw,
     readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: 'cf1' }),
   })
@@ -63,8 +57,7 @@ test('getZohoDebugItems: ZOHO_OAUTH_ERROR message', async () => {
   err.code = 'ZOHO_OAUTH_ERROR'
   err.oauth = { error: 'invalid_client' }
   mockModule('../src/integrations/zoho/zohoAdapter', {
-    getItems: async () => { throw err },
-    fetchAllItemsRaw: async () => [],
+    fetchAllItemsRaw: async () => { throw err },
     readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: null }),
   })
   const { getZohoDebugItems } = freshRequire('../src/controllers/debugZohoController')
@@ -82,8 +75,7 @@ test('getZohoDebugItems: ZOHO_API_ERROR includes zoho block', async () => {
   err.zohoPath = '/inventory/v1/items'
   err.zohoResponse = { code: 2, message: 'oops' }
   mockModule('../src/integrations/zoho/zohoAdapter', {
-    getItems: async () => { throw err },
-    fetchAllItemsRaw: async () => [],
+    fetchAllItemsRaw: async () => { throw err },
     readZohoConfig: () => ({ code: 'ok' }),
   })
   const { getZohoDebugItems } = freshRequire('../src/controllers/debugZohoController')

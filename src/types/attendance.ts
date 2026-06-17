@@ -29,8 +29,16 @@ export interface AttendanceDashboardMetrics {
   sickLeave: number
   annualLeave: number
   weeklyHoliday: number
+  /** No effective status for snapshot day (empty / unset). */
+  unmarked: number
+  /** Present count ÷ total employees × 100 (0–100, one decimal). */
+  presentPctOfWorkforce: number
   /** 0–100 */
   attendanceRate: number
+  /** Present count minus prior calendar day (same month); null when snapshot is day 1. */
+  presentDeltaVsPriorDay: number | null
+  /** Unmarked count minus prior day; null when snapshot is day 1. */
+  unmarkedDeltaVsPriorDay: number | null
 }
 
 export interface AttendanceStatusItem {
@@ -45,6 +53,7 @@ export interface AttendanceTrendPoint {
   present: number
   absent: number
   sickLeave: number
+  annualLeave: number
 }
 
 export interface AttendanceAlertItem {

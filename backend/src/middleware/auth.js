@@ -72,6 +72,15 @@ function requireEmployee(req, res, next) {
  * - warehouse: always passes (backward compatibility)
  * - employee: must have the specific permission (manage implies view)
  */
+/** Persist influencer performance rows (not the influencer snapshot). */
+function requireInfluencersPerformanceWrite(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' })
+  if (req.user.role === 'admin' || req.user.role === 'warehouse') return next()
+  const mod = req.user.permissions?.influencers || {}
+  if (mod.manage || mod.performance) return next()
+  return res.status(403).json({ error: 'Access denied: cannot edit influencer performance records' })
+}
+
 /** Any write-capable influencers permission may replace the shared snapshot. */
 function requireInfluencersWrite(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' })
@@ -94,13 +103,20 @@ function requirePermission(module, action) {
     if (action === 'view' && mod.manage) return next()
     // approve permission implicitly grants view for leave
     if (action === 'view' && module === 'leave' && mod.approve) return next()
-    // influencers: elevated roles imply view (matches frontend PermissionGuard)
+    // influencers: elevated roles + performance tracking imply list/read API (matches frontend)
     if (
       action === 'view' &&
       module === 'influencers' &&
-      (mod.manage || mod.approve || mod.payments || mod.agreements)
+      (mod.manage || mod.approve || mod.payments || mod.agreements || mod.performance)
     ) {
       return next()
+    }
+    // influencers: performance page — performance-only flag, or view/manage (list access)
+    if (action === 'performance' && module === 'influencers') {
+      if (mod.manage || mod.performance || mod.view) return next()
+      return res.status(403).json({
+        error: 'Access denied: requires influencers performance permission',
+      })
     }
     // sim cards: write permissions imply view
     if (
@@ -114,6 +130,16 @@ function requirePermission(module, action) {
     if (
       action === 'view' &&
       module === 'document_expiry' &&
+      (mod.add || mod.edit || mod.delete)
+    ) {
+      return next()
+    }
+    // planner: manage implies view
+    if (action === 'view' && module === 'planner' && mod.manage) return next()
+    // company_payments: write permissions imply view
+    if (
+      action === 'view' &&
+      module === 'company_payments' &&
       (mod.add || mod.edit || mod.delete)
     ) {
       return next()
@@ -136,4 +162,5 @@ module.exports = {
   requireEmployee,
   requirePermission,
   requireInfluencersWrite,
+  requireInfluencersPerformanceWrite,
 }

@@ -1,7 +1,11 @@
 import { getEffectiveStatus, getEmployeeMonthSummary } from '../attendanceHelpers.js'
 import type { AttendanceMap } from './attendanceSelectors.js'
 import type { AttendanceEmployee, AttendanceStatusItem } from '../../types/attendance'
-import { filterEmployeesByDepartment, statusForEmployeeDay } from './attendanceSelectors.js'
+import {
+  filterEmployeesByDepartment,
+  statusForEmployeeDay,
+  countStatusesForDay,
+} from './attendanceSelectors.js'
 import { STATUSES } from '../../constants/attendance.js'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -82,6 +86,77 @@ export function employeesMissingAttendanceForDay(
     if (s == null || s === '') out.push(emp)
   }
   return out
+}
+
+/** One calendar day for the monthly attendance heatmap (% present vs workable headcount). */
+export interface HeatmapDayCell {
+  day: number
+  /** Present ÷ (total − WH − AL); null when workable is 0. */
+  ratePercent: number | null
+  present: number
+  workable: number
+  unmarked: number
+  /** Sat/Sun — visual hint only; attendance still counts normally. */
+  isWeekend: boolean
+}
+
+export function buildMonthHeatmapCells(
+  employees: AttendanceEmployee[],
+  attendance: AttendanceMap,
+  daysInMonth: number,
+  year: number,
+  monthIndex0: number,
+  weeklyHolidayDay: number
+): HeatmapDayCell[] {
+  const cells: HeatmapDayCell[] = []
+  for (let d = 1; d <= daysInMonth; d++) {
+    const c = countStatusesForDay(employees, attendance, d, year, monthIndex0, weeklyHolidayDay)
+    const workable = employees.length - c.WH - c.AL
+    const jsDay = new Date(year, monthIndex0, d).getDay()
+    const isWeekend = jsDay === 0 || jsDay === 6
+    let ratePercent: number | null = null
+    if (workable > 0) {
+      ratePercent = Math.round((c.P / workable) * 1000) / 10
+    }
+    cells.push({
+      day: d,
+      ratePercent,
+      present: c.P,
+      workable,
+      unmarked: c.empty,
+      isWeekend,
+    })
+  }
+  return cells
+}
+
+export interface DepartmentPresenceRow {
+  department: string
+  total: number
+  present: number
+}
+
+/** Present count per department for one day (scoped employee list). */
+export function departmentPresenceForDay(
+  employees: AttendanceEmployee[],
+  attendance: AttendanceMap,
+  day: number,
+  year: number,
+  monthIndex0: number,
+  weeklyHolidayDay: number
+): DepartmentPresenceRow[] {
+  const map = new Map<string, { total: number; present: number }>()
+  for (const emp of employees) {
+    const dept = (emp.department || '').trim() || 'Unassigned'
+    const s = getEffectiveStatus(attendance, emp.id, day, year, monthIndex0, weeklyHolidayDay)
+    if (!map.has(dept)) map.set(dept, { total: 0, present: 0 })
+    const row = map.get(dept)!
+    row.total++
+    if (s === 'P') row.present++
+  }
+  return [...map.entries()]
+    .map(([department, v]) => ({ department, ...v }))
+    .sort((a, b) => a.department.localeCompare(b.department))
 }
 
 export function monthSummaryForEmployee(

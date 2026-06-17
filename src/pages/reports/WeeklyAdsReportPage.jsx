@@ -1,7 +1,12 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
+import { api } from '../../api/client'
+import { useAuth } from '../../contexts/AuthContext'
 import './WeeklyAdsReportPage.css'
 
 const MARKETPLACES = ['Amazon (UAE)', 'Amazon (KSA)', 'Noon', 'Website']
+
+/** Rows that receive Amazon Advertising spend/clicks from Apply from Amazon */
+const AMAZON_ADS_MARKETPLACE_KEYS = ['Amazon (UAE)', 'Amazon (KSA)']
 
 const ACOS_THRESHOLD = 15 // percent — above this is flagged
 
@@ -34,10 +39,45 @@ function addDays(dateStr, n) {
   return d.toISOString().slice(0, 10)
 }
 
-const DEFAULT_ROW = () => ({ spend: '', clicks: '', sales: '' })
+/** String for Net Sales cell from Zoho numeric total */
+function formatZohoSalesInput(n) {
+  if (n == null || !Number.isFinite(Number(n))) return ''
+  const x = Math.round(Number(n) * 100) / 100
+  if (Number.isInteger(x)) return String(x)
+  return String(x)
+}
+
+const DEFAULT_ROW = (overrides = {}) => ({ spend: '', clicks: '', sales: '', ...overrides })
 
 const DEFAULT_ROWS = () =>
   Object.fromEntries(MARKETPLACES.map((m) => [m, DEFAULT_ROW()]))
+
+function getMarketplaceNames(rows = {}) {
+  return Object.keys(rows).filter(Boolean)
+}
+
+function isSalesOnlyRow(row = {}) {
+  return row.salesOnly === true
+}
+
+function splitMarketplaceNames(rows = {}) {
+  const names = getMarketplaceNames(rows)
+  return {
+    adMarketplaces: names.filter((name) => !isSalesOnlyRow(rows[name])),
+    salesOnlyMarketplaces: names.filter((name) => isSalesOnlyRow(rows[name])),
+  }
+}
+
+function calculateTotals(rows = {}, names = []) {
+  return names.reduce((totals, name) => {
+    const row = rows[name] || DEFAULT_ROW()
+    return {
+      spend: totals.spend + (parseFloat(row.spend) || 0),
+      clicks: totals.clicks + (parseFloat(row.clicks) || 0),
+      sales: totals.sales + (parseFloat(row.sales) || 0),
+    }
+  }, { spend: 0, clicks: 0, sales: 0 })
+}
 
 function EmptyState() {
   return (
@@ -47,23 +87,28 @@ function EmptyState() {
         <path d="M3 9h18M9 21V9" />
       </svg>
       <p>No weekly reports yet.</p>
-      <p className="war-empty__sub">Fill in the form above and save to build history.</p>
+      <p className="war-empty__sub">Save a report above — history is stored on your account (synced across devices).</p>
     </div>
   )
 }
 
-function ReportTable({ rows, title, dateLabel }) {
-  const totals = useMemo(() => {
-    let spend = 0, clicks = 0, sales = 0
-    MARKETPLACES.forEach((m) => {
-      spend += parseFloat(rows[m]?.spend) || 0
-      clicks += parseFloat(rows[m]?.clicks) || 0
-      sales += parseFloat(rows[m]?.sales) || 0
-    })
-    return { spend, clicks, sales }
-  }, [rows])
+function EmptyDash() {
+  return <span className="war-empty-dash">—</span>
+}
 
-  const totalAcos = calcAcos(totals.spend, totals.sales)
+function ReportTable({ rows, title, dateLabel }) {
+  const { adMarketplaces, salesOnlyMarketplaces } = useMemo(() => splitMarketplaceNames(rows), [rows])
+  const adTotals = useMemo(() => calculateTotals(rows, adMarketplaces), [adMarketplaces, rows])
+  const salesOnlyTotals = useMemo(() => calculateTotals(rows, salesOnlyMarketplaces), [rows, salesOnlyMarketplaces])
+  const grandTotals = useMemo(() => ({
+    spend: adTotals.spend,
+    clicks: adTotals.clicks,
+    sales: adTotals.sales + salesOnlyTotals.sales,
+  }), [adTotals, salesOnlyTotals])
+
+  const adAcos = calcAcos(adTotals.spend, adTotals.sales)
+  const totalAcos = calcAcos(grandTotals.spend, grandTotals.sales)
+  const hasSalesOnlyRows = salesOnlyMarketplaces.length > 0
 
   return (
     <div className="war-preview">
@@ -84,31 +129,54 @@ function ReportTable({ rows, title, dateLabel }) {
             </tr>
           </thead>
           <tbody>
-            {MARKETPLACES.map((m) => {
+            {adMarketplaces.map((m) => {
               const r = rows[m] || DEFAULT_ROW()
               const acos = calcAcos(r.spend, r.sales)
               const isDanger = acos !== null && parseFloat(acos) > ACOS_THRESHOLD
               return (
                 <tr key={m} className="war-tr">
                   <td className="war-td war-td--name">{m}</td>
-                  <td className="war-td">{r.spend ? formatNum(r.spend) : '—'}</td>
-                  <td className="war-td war-td--center">{r.clicks ? formatNum(r.clicks) : '—'}</td>
-                  <td className="war-td">{r.sales ? formatNum(r.sales) : '—'}</td>
+                  <td className="war-td">{r.spend ? formatNum(r.spend) : <EmptyDash />}</td>
+                  <td className="war-td war-td--center">{r.clicks ? formatNum(r.clicks) : <EmptyDash />}</td>
+                  <td className="war-td">{r.sales ? formatNum(r.sales) : <EmptyDash />}</td>
                   <td className={`war-td war-td--center${isDanger ? ' war-td--danger' : ''}`}>
-                    {acos !== null ? `${acos}%` : '—'}
+                    {acos !== null ? `${acos}%` : <EmptyDash />}
                   </td>
+                </tr>
+              )
+            })}
+            {hasSalesOnlyRows ? (
+              <tr className="war-tr war-tr--subtotal">
+                <td className="war-td war-td--name">SUBTOTAL</td>
+                <td className="war-td">{formatNum(adTotals.spend.toFixed(0))}</td>
+                <td className="war-td war-td--center">{formatNum(adTotals.clicks.toFixed(0))}</td>
+                <td className="war-td">{formatNum(adTotals.sales.toFixed(0))}</td>
+                <td className={`war-td war-td--center${adAcos !== null && parseFloat(adAcos) > ACOS_THRESHOLD ? ' war-td--danger' : ''}`}>
+                  {adAcos !== null ? `${adAcos}%` : <EmptyDash />}
+                </td>
+              </tr>
+            ) : null}
+            {salesOnlyMarketplaces.map((m) => {
+              const r = rows[m] || DEFAULT_ROW({ salesOnly: true })
+              return (
+                <tr key={m} className="war-tr war-tr--sales-only">
+                  <td className="war-td war-td--name">{m}</td>
+                  <td className="war-td"><EmptyDash /></td>
+                  <td className="war-td war-td--center"><EmptyDash /></td>
+                  <td className="war-td">{r.sales ? formatNum(r.sales) : <EmptyDash />}</td>
+                  <td className="war-td war-td--center"><EmptyDash /></td>
                 </tr>
               )
             })}
           </tbody>
           <tfoot>
             <tr className="war-tr war-tr--total">
-              <td className="war-td war-td--name">TOTAL</td>
-              <td className="war-td">{formatNum(totals.spend.toFixed(0))}</td>
-              <td className="war-td war-td--center">{formatNum(totals.clicks.toFixed(0))}</td>
-              <td className="war-td">{formatNum(totals.sales.toFixed(0))}</td>
+              <td className="war-td war-td--name">{hasSalesOnlyRows ? 'GRAND TOTAL' : 'TOTAL'}</td>
+              <td className="war-td">{hasSalesOnlyRows ? <EmptyDash /> : formatNum(grandTotals.spend.toFixed(0))}</td>
+              <td className="war-td war-td--center">{hasSalesOnlyRows ? <EmptyDash /> : formatNum(grandTotals.clicks.toFixed(0))}</td>
+              <td className="war-td">{formatNum(grandTotals.sales.toFixed(0))}</td>
               <td className={`war-td war-td--center${totalAcos !== null && parseFloat(totalAcos) > ACOS_THRESHOLD ? ' war-td--danger' : ''}`}>
-                {totalAcos !== null ? `${totalAcos}%` : '—'}
+                {hasSalesOnlyRows ? <EmptyDash /> : totalAcos !== null ? `${totalAcos}%` : <EmptyDash />}
               </td>
             </tr>
           </tfoot>
@@ -120,16 +188,15 @@ function ReportTable({ rows, title, dateLabel }) {
 
 function HistoryCard({ entry, onDelete, onEdit }) {
   const [expanded, setExpanded] = useState(false)
+  const { adMarketplaces, salesOnlyMarketplaces } = useMemo(() => splitMarketplaceNames(entry.rows), [entry.rows])
 
-  const totals = useMemo(() => {
-    let spend = 0, clicks = 0, sales = 0
-    MARKETPLACES.forEach((m) => {
-      spend += parseFloat(entry.rows[m]?.spend) || 0
-      clicks += parseFloat(entry.rows[m]?.clicks) || 0
-      sales += parseFloat(entry.rows[m]?.sales) || 0
-    })
-    return { spend, clicks, sales }
-  }, [entry.rows])
+  const adTotals = useMemo(() => calculateTotals(entry.rows, adMarketplaces), [adMarketplaces, entry.rows])
+  const salesOnlyTotals = useMemo(() => calculateTotals(entry.rows, salesOnlyMarketplaces), [entry.rows, salesOnlyMarketplaces])
+  const totals = useMemo(() => ({
+    spend: adTotals.spend,
+    clicks: adTotals.clicks,
+    sales: adTotals.sales + salesOnlyTotals.sales,
+  }), [adTotals, salesOnlyTotals])
 
   const totalAcos = calcAcos(totals.spend, totals.sales)
   const acosNum = totalAcos !== null ? parseFloat(totalAcos) : null
@@ -204,27 +271,15 @@ function HistoryCard({ entry, onDelete, onEdit }) {
   )
 }
 
-const STORAGE_KEY = 'war_history_v1'
-
-function loadHistory() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
-}
-
-function saveHistory(list) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list))
-  } catch {
-    // ignore quota errors
-  }
-}
+const LEGACY_WAR_STORAGE_KEY = 'war_history_v1'
 
 export function WeeklyAdsReportPage() {
-  const [history, setHistory] = useState(loadHistory)
+  const { user } = useAuth()
+  const [history, setHistory] = useState([])
+  const [historyLoading, setHistoryLoading] = useState(true)
+  const [historyError, setHistoryError] = useState('')
+  const [historySaveError, setHistorySaveError] = useState('')
+  const [historySaving, setHistorySaving] = useState(false)
   const [editingId, setEditingId] = useState(null)
 
   // Form state
@@ -246,25 +301,223 @@ export function WeeklyAdsReportPage() {
   const [rows, setRows] = useState(DEFAULT_ROWS)
   const [notes, setNotes] = useState('')
   const [saved, setSaved] = useState(false)
+  const [newMarketplace, setNewMarketplace] = useState('')
+  const [marketplaceError, setMarketplaceError] = useState('')
+  const [newSalesOnlyMarketplace, setNewSalesOnlyMarketplace] = useState('')
+  const [salesOnlyMarketplaceError, setSalesOnlyMarketplaceError] = useState('')
+  const [zohoApplyLoading, setZohoApplyLoading] = useState(false)
+  const [zohoApplyError, setZohoApplyError] = useState('')
+  const [zohoApplyInfo, setZohoApplyInfo] = useState('')
+  const [amazonApplyLoading, setAmazonApplyLoading] = useState(false)
+  const [amazonApplyError, setAmazonApplyError] = useState('')
+  const [amazonApplyInfo, setAmazonApplyInfo] = useState('')
+
+  useEffect(() => {
+    if (!user) {
+      setHistory([])
+      setHistoryLoading(false)
+      setHistoryError('')
+      return
+    }
+    let cancelled = false
+    async function load() {
+      setHistoryLoading(true)
+      setHistoryError('')
+      try {
+        let data = await api.get('/api/weekly-reports/weekly-ads/history')
+        if (cancelled) return
+        let list = Array.isArray(data.history) ? data.history : []
+        // Legacy browser-only snapshots: upsert every entry (server merges by id), then remove the key.
+        // Do not skip when the server already has rows — that used to drop local-only history.
+        try {
+          const raw = localStorage.getItem(LEGACY_WAR_STORAGE_KEY)
+          const legacy = raw ? JSON.parse(raw) : []
+          if (Array.isArray(legacy) && legacy.length > 0) {
+            for (const entry of legacy) {
+              if (!entry || typeof entry !== 'object') continue
+              const id = entry.id != null ? String(entry.id) : ''
+              if (!id) continue
+              await api.post('/api/weekly-reports/weekly-ads/history', {
+                id,
+                title: entry.title != null ? String(entry.title) : '',
+                startDate: entry.startDate,
+                endDate: entry.endDate,
+                rows: entry.rows && typeof entry.rows === 'object' ? entry.rows : {},
+                notes: entry.notes != null ? String(entry.notes) : '',
+              })
+            }
+            localStorage.removeItem(LEGACY_WAR_STORAGE_KEY)
+            data = await api.get('/api/weekly-reports/weekly-ads/history')
+            if (cancelled) return
+            list = Array.isArray(data.history) ? data.history : []
+          }
+        } catch {
+          /* leave localStorage for retry */
+        }
+        setHistory(list)
+      } catch (e) {
+        if (!cancelled) setHistoryError(e?.message || 'Failed to load report history.')
+      } finally {
+        if (!cancelled) setHistoryLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [user])
 
   const updateRow = useCallback((marketplace, field, value) => {
-    setRows((prev) => ({
-      ...prev,
-      [marketplace]: { ...prev[marketplace], [field]: value },
-    }))
+    setRows((prev) => {
+      const existingRow = prev[marketplace] || DEFAULT_ROW()
+      return {
+        ...prev,
+        [marketplace]: { ...existingRow, [field]: value },
+      }
+    })
     setSaved(false)
   }, [])
 
-  const totals = useMemo(() => {
-    let spend = 0, clicks = 0, sales = 0
-    MARKETPLACES.forEach((m) => {
-      spend += parseFloat(rows[m]?.spend) || 0
-      clicks += parseFloat(rows[m]?.clicks) || 0
-      sales += parseFloat(rows[m]?.sales) || 0
+  const removeMarketplace = useCallback((marketplace) => {
+    setRows((prev) => {
+      const next = { ...prev }
+      delete next[marketplace]
+      return next
     })
-    return { spend, clicks, sales }
-  }, [rows])
+    setSaved(false)
+  }, [])
 
+  const { adMarketplaces, salesOnlyMarketplaces } = useMemo(() => splitMarketplaceNames(rows), [rows])
+  const marketplaceNames = useMemo(() => [...adMarketplaces, ...salesOnlyMarketplaces], [adMarketplaces, salesOnlyMarketplaces])
+
+  const handleApplyZohoSales = useCallback(async () => {
+    setZohoApplyError('')
+    setZohoApplyInfo('')
+    if (!startDate || !endDate) {
+      setZohoApplyError('Choose week start and week end first.')
+      return
+    }
+    if (!marketplaceNames.length) {
+      setZohoApplyError('No marketplace rows to fill.')
+      return
+    }
+    setZohoApplyLoading(true)
+    try {
+      const data = await api.post('/api/weekly-reports/weekly-ads/zoho-sales', {
+        from_date: startDate,
+        to_date: endDate,
+        marketplaces: marketplaceNames,
+      })
+      const sales = data?.sales || {}
+      setRows((prev) => {
+        const next = { ...prev }
+        for (const [name, val] of Object.entries(sales)) {
+          if (!Object.prototype.hasOwnProperty.call(next, name)) continue
+          if (val == null) continue
+          next[name] = {
+            ...next[name],
+            sales: formatZohoSalesInput(val),
+          }
+        }
+        return next
+      })
+      setSaved(false)
+      const warns = Array.isArray(data?.warnings) ? data.warnings.filter(Boolean) : []
+      setZohoApplyInfo(
+        warns.length > 0
+          ? `Net sales updated. ${warns.join(' ')}`
+          : 'Net sales updated from Zoho Books (Sales by Customer — Sales with tax).',
+      )
+    } catch (err) {
+      setZohoApplyError(err?.message || 'Could not load sales from Zoho.')
+    } finally {
+      setZohoApplyLoading(false)
+    }
+  }, [startDate, endDate, marketplaceNames])
+
+  const handleApplyAmazonAds = useCallback(async () => {
+    setAmazonApplyError('')
+    setAmazonApplyInfo('')
+    if (!startDate || !endDate) {
+      setAmazonApplyError('Choose week start and week end first.')
+      return
+    }
+    setAmazonApplyLoading(true)
+    try {
+      const data = await api.post('/api/weekly-reports/weekly-ads/amazon-ads', {
+        from_date: startDate,
+        to_date: endDate,
+      })
+      const spend = data?.spend || {}
+      const clicks = data?.clicks || {}
+      setRows((prev) => {
+        const next = { ...prev }
+        for (const name of AMAZON_ADS_MARKETPLACE_KEYS) {
+          if (!Object.prototype.hasOwnProperty.call(next, name)) continue
+          const sp = spend[name]
+          const cl = clicks[name]
+          if (sp == null && cl == null) continue
+          next[name] = {
+            ...next[name],
+            ...(sp != null ? { spend: formatZohoSalesInput(sp) } : {}),
+            ...(cl != null ? { clicks: String(Math.round(Number(cl))) } : {}),
+          }
+        }
+        return next
+      })
+      setSaved(false)
+      const warns = Array.isArray(data?.warnings) ? data.warnings.filter(Boolean) : []
+      setAmazonApplyInfo(
+        warns.length > 0 ? warns.join(' ') : 'Amazon ads spend and clicks updated for UAE and KSA.',
+      )
+    } catch (err) {
+      setAmazonApplyError(err?.message || 'Could not load ads from Amazon.')
+    } finally {
+      setAmazonApplyLoading(false)
+    }
+  }, [startDate, endDate])
+
+  const handleAddMarketplace = useCallback(() => {
+    const name = newMarketplace.trim().replace(/\s+/g, ' ')
+    if (!name) {
+      setMarketplaceError('Enter marketplace name')
+      return
+    }
+    if (marketplaceNames.some((item) => item.toLowerCase() === name.toLowerCase())) {
+      setMarketplaceError('Marketplace already exists')
+      return
+    }
+    setRows((prev) => ({ ...prev, [name]: DEFAULT_ROW() }))
+    setNewMarketplace('')
+    setMarketplaceError('')
+    setSaved(false)
+  }, [marketplaceNames, newMarketplace])
+
+  const handleAddSalesOnlyMarketplace = useCallback(() => {
+    const name = newSalesOnlyMarketplace.trim().replace(/\s+/g, ' ')
+    if (!name) {
+      setSalesOnlyMarketplaceError('Enter marketplace name')
+      return
+    }
+    if (marketplaceNames.some((item) => item.toLowerCase() === name.toLowerCase())) {
+      setSalesOnlyMarketplaceError('Marketplace already exists')
+      return
+    }
+    setRows((prev) => ({ ...prev, [name]: DEFAULT_ROW({ salesOnly: true }) }))
+    setNewSalesOnlyMarketplace('')
+    setSalesOnlyMarketplaceError('')
+    setSaved(false)
+  }, [marketplaceNames, newSalesOnlyMarketplace])
+
+  const adTotals = useMemo(() => calculateTotals(rows, adMarketplaces), [adMarketplaces, rows])
+  const salesOnlyTotals = useMemo(() => calculateTotals(rows, salesOnlyMarketplaces), [rows, salesOnlyMarketplaces])
+  const totals = useMemo(() => ({
+    spend: adTotals.spend,
+    clicks: adTotals.clicks,
+    sales: adTotals.sales + salesOnlyTotals.sales,
+  }), [adTotals, salesOnlyTotals])
+
+  const adAcos = calcAcos(adTotals.spend, adTotals.sales)
   const totalAcos = calcAcos(totals.spend, totals.sales)
 
   const beginCreateNew = useCallback(() => {
@@ -284,6 +537,10 @@ export function WeeklyAdsReportPage() {
     setRows(DEFAULT_ROWS())
     setNotes('')
     setSaved(false)
+    setNewMarketplace('')
+    setMarketplaceError('')
+    setNewSalesOnlyMarketplace('')
+    setSalesOnlyMarketplaceError('')
   }, [])
 
   const handleEdit = useCallback((entry) => {
@@ -294,11 +551,16 @@ export function WeeklyAdsReportPage() {
     setRows(JSON.parse(JSON.stringify(entry.rows || DEFAULT_ROWS())))
     setNotes(entry.notes || '')
     setSaved(false)
+    setNewMarketplace('')
+    setMarketplaceError('')
+    setNewSalesOnlyMarketplace('')
+    setSalesOnlyMarketplaceError('')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [])
 
-  const handleSave = () => {
-    const entryId = editingId || Date.now().toString()
+  const handleSave = async () => {
+    setHistorySaveError('')
+    const entryId = editingId || String(Date.now())
     const entry = {
       id: entryId,
       title,
@@ -308,41 +570,68 @@ export function WeeklyAdsReportPage() {
       notes,
       savedAt: new Date().toISOString(),
     }
-    const updated = editingId
-      ? history.map((h) => (h.id === editingId ? entry : h))
-      : [entry, ...history]
-    setHistory(updated)
-    saveHistory(updated)
-    setEditingId(null)
-    setSaved(true)
-    // Reset form to next week only for new entries
-    if (!editingId) {
-      const nextStart = addDays(endDate, 1)
-      const nextEnd = addDays(endDate, 7)
-      setStartDate(nextStart)
-      setEndDate(nextEnd)
-      setRows(DEFAULT_ROWS())
-      setNotes('')
+    setHistorySaving(true)
+    const wasEditing = Boolean(editingId)
+    try {
+      const data = await api.post('/api/weekly-reports/weekly-ads/history', {
+        id: entry.id,
+        title: entry.title,
+        startDate: entry.startDate,
+        endDate: entry.endDate,
+        rows: entry.rows,
+        notes: entry.notes,
+      })
+      setHistory(Array.isArray(data.history) ? data.history : [])
+      setEditingId(null)
+      setSaved(true)
+      if (!wasEditing) {
+        const nextStart = addDays(endDate, 1)
+        const nextEnd = addDays(endDate, 7)
+        setStartDate(nextStart)
+        setEndDate(nextEnd)
+        setRows(DEFAULT_ROWS())
+        setNotes('')
+        setNewMarketplace('')
+        setMarketplaceError('')
+        setNewSalesOnlyMarketplace('')
+        setSalesOnlyMarketplaceError('')
+      }
+      setTimeout(() => setSaved(false), 3000)
+    } catch (e) {
+      setHistorySaveError(e?.message || 'Could not save report.')
+    } finally {
+      setHistorySaving(false)
     }
-    setTimeout(() => setSaved(false), 3000)
   }
 
-  const handleDelete = useCallback((id) => {
-    setHistory((prev) => {
-      const updated = prev.filter((e) => e.id !== id)
-      saveHistory(updated)
-      return updated
-    })
-    if (editingId === id) {
-      beginCreateNew()
-    }
-  }, [editingId, beginCreateNew])
+  const handleDelete = useCallback(
+    async (id) => {
+      setHistorySaveError('')
+      try {
+        const data = await api.delete(
+          `/api/weekly-reports/weekly-ads/history/${encodeURIComponent(id)}`,
+        )
+        setHistory(Array.isArray(data.history) ? data.history : [])
+      } catch (e) {
+        setHistorySaveError(e?.message || 'Could not delete report.')
+        return
+      }
+      if (editingId === id) {
+        beginCreateNew()
+      }
+    },
+    [editingId, beginCreateNew],
+  )
 
   const handleClearForm = () => {
     setRows(DEFAULT_ROWS())
     setNotes('')
     setEditingId(null)
     setSaved(false)
+    setNewMarketplace('')
+    setMarketplaceError('')
+    setNewSalesOnlyMarketplace('')
+    setSalesOnlyMarketplaceError('')
   }
 
   const dateLabel = startDate && endDate ? getWeekLabel(startDate, endDate) : ''
@@ -387,7 +676,13 @@ export function WeeklyAdsReportPage() {
               type="date"
               className="war-input"
               value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              onChange={(e) => {
+                setStartDate(e.target.value)
+                setZohoApplyError('')
+                setZohoApplyInfo('')
+                setAmazonApplyError('')
+                setAmazonApplyInfo('')
+              }}
             />
           </div>
           <div className="war-form-field">
@@ -397,10 +692,52 @@ export function WeeklyAdsReportPage() {
               type="date"
               className="war-input"
               value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
+              onChange={(e) => {
+                setEndDate(e.target.value)
+                setZohoApplyError('')
+                setZohoApplyInfo('')
+                setAmazonApplyError('')
+                setAmazonApplyInfo('')
+              }}
             />
           </div>
         </div>
+
+        <div className="war-zoho-row">
+          <button
+            type="button"
+            className="war-btn war-btn--primary"
+            disabled={zohoApplyLoading || !startDate || !endDate}
+            onClick={handleApplyZohoSales}
+          >
+            {zohoApplyLoading ? 'Loading…' : 'Apply from Zoho'}
+          </button>
+          <span className="war-zoho-row__hint">
+            Fills <strong>Net sales (AED)</strong> from Zoho Books <strong>Sales by Customer</strong> (column <strong>Sales with tax</strong>) for the week above. Rows map to Zoho customers{' '}
+            <strong>Amazon</strong>, <strong>KSA-Amazon</strong>, <strong>Noon</strong>, and <strong>Website</strong> exactly; other Zoho customers are ignored.
+          </span>
+        </div>
+        {zohoApplyError ? <p className="war-zoho-feedback war-zoho-feedback--error">{zohoApplyError}</p> : null}
+        {zohoApplyInfo ? <p className="war-zoho-feedback war-zoho-feedback--ok">{zohoApplyInfo}</p> : null}
+
+        <div className="war-zoho-row war-amazon-ads-row">
+          <button
+            type="button"
+            className="war-btn war-btn--primary"
+            disabled={amazonApplyLoading || !startDate || !endDate}
+            onClick={handleApplyAmazonAds}
+          >
+            {amazonApplyLoading ? 'Loading…' : 'Apply from Amazon'}
+          </button>
+          <span className="war-zoho-row__hint">
+            Fills <strong>Ads spend</strong> and <strong>clicks</strong> for <strong>Amazon (UAE)</strong> and{' '}
+            <strong>Amazon (KSA)</strong> from Amazon Advertising (Sponsored Products). Set{' '}
+            <code className="war-zoho-row__code">AMAZON_UAE_ADS_PROFILE_ID</code> and{' '}
+            <code className="war-zoho-row__code">AMAZON_KSA_ADS_PROFILE_ID</code> on the server.
+          </span>
+        </div>
+        {amazonApplyError ? <p className="war-zoho-feedback war-zoho-feedback--error">{amazonApplyError}</p> : null}
+        {amazonApplyInfo ? <p className="war-zoho-feedback war-zoho-feedback--ok">{amazonApplyInfo}</p> : null}
 
         <div className="war-table-wrap war-input-table-wrap">
           <table className="war-table">
@@ -414,20 +751,31 @@ export function WeeklyAdsReportPage() {
               </tr>
             </thead>
             <tbody>
-              {MARKETPLACES.map((m) => {
-                const r = rows[m]
+              {adMarketplaces.map((m) => {
+                const r = rows[m] || DEFAULT_ROW()
                 const acos = calcAcos(r.spend, r.sales)
                 const isDanger = acos !== null && parseFloat(acos) > ACOS_THRESHOLD
                 return (
                   <tr key={m} className="war-tr war-tr--input">
-                    <td className="war-td war-td--name">{m}</td>
+                    <td className="war-td war-td--name">
+                      <span className="war-marketplace-name">
+                        <span>{m}</span>
+                        <button
+                          type="button"
+                          className="war-marketplace-remove"
+                          onClick={() => removeMarketplace(m)}
+                          aria-label={`Remove ${m}`}
+                        >
+                          Remove
+                        </button>
+                      </span>
+                    </td>
                     <td className="war-td">
                       <input
-                        type="number"
-                        min="0"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
                         className="war-cell-input"
-                        value={r.spend}
+                        value={r.spend ?? ''}
                         onChange={(e) => updateRow(m, 'spend', e.target.value)}
                         placeholder="0"
                         aria-label={`${m} ads spend`}
@@ -435,11 +783,10 @@ export function WeeklyAdsReportPage() {
                     </td>
                     <td className="war-td war-td--center">
                       <input
-                        type="number"
-                        min="0"
-                        step="1"
+                        type="text"
+                        inputMode="numeric"
                         className="war-cell-input war-cell-input--center"
-                        value={r.clicks}
+                        value={r.clicks ?? ''}
                         onChange={(e) => updateRow(m, 'clicks', e.target.value)}
                         placeholder="0"
                         aria-label={`${m} clicks`}
@@ -447,35 +794,133 @@ export function WeeklyAdsReportPage() {
                     </td>
                     <td className="war-td">
                       <input
-                        type="number"
-                        min="0"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
                         className="war-cell-input"
-                        value={r.sales}
+                        value={r.sales ?? ''}
                         onChange={(e) => updateRow(m, 'sales', e.target.value)}
                         placeholder="0"
                         aria-label={`${m} net sales`}
                       />
                     </td>
                     <td className={`war-td war-td--center war-td--acos-calc${isDanger ? ' war-td--danger' : ''}`}>
-                      {acos !== null ? `${acos}%` : '—'}
+                      {acos !== null ? `${acos}%` : <EmptyDash />}
                     </td>
+                  </tr>
+                )
+              })}
+              {salesOnlyMarketplaces.length > 0 ? (
+                <tr className="war-tr war-tr--subtotal">
+                  <td className="war-td war-td--name">SUBTOTAL</td>
+                  <td className="war-td">{adTotals.spend > 0 ? formatNum(adTotals.spend.toFixed(0)) : <EmptyDash />}</td>
+                  <td className="war-td war-td--center">{adTotals.clicks > 0 ? formatNum(adTotals.clicks.toFixed(0)) : <EmptyDash />}</td>
+                  <td className="war-td">{adTotals.sales > 0 ? formatNum(adTotals.sales.toFixed(0)) : <EmptyDash />}</td>
+                  <td className={`war-td war-td--center${adAcos !== null && parseFloat(adAcos) > ACOS_THRESHOLD ? ' war-td--danger' : ''}`}>
+                    {adAcos !== null ? `${adAcos}%` : <EmptyDash />}
+                  </td>
+                </tr>
+              ) : null}
+              {salesOnlyMarketplaces.map((m) => {
+                const r = rows[m] || DEFAULT_ROW({ salesOnly: true })
+                return (
+                  <tr key={m} className="war-tr war-tr--input war-tr--sales-only">
+                    <td className="war-td war-td--name">
+                      <span className="war-marketplace-name">
+                        <span>{m}</span>
+                        <button
+                          type="button"
+                          className="war-marketplace-remove"
+                          onClick={() => removeMarketplace(m)}
+                          aria-label={`Remove ${m}`}
+                        >
+                          Remove
+                        </button>
+                      </span>
+                    </td>
+                    <td className="war-td"><EmptyDash /></td>
+                    <td className="war-td war-td--center"><EmptyDash /></td>
+                    <td className="war-td">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        className="war-cell-input"
+                        value={r.sales ?? ''}
+                        onChange={(e) => updateRow(m, 'sales', e.target.value)}
+                        placeholder="0"
+                        aria-label={`${m} net sales`}
+                      />
+                    </td>
+                    <td className="war-td war-td--center war-td--acos-calc"><EmptyDash /></td>
                   </tr>
                 )
               })}
             </tbody>
             <tfoot>
               <tr className="war-tr war-tr--total">
-                <td className="war-td war-td--name">TOTAL</td>
-                <td className="war-td">{totals.spend > 0 ? formatNum(totals.spend.toFixed(0)) : '—'}</td>
-                <td className="war-td war-td--center">{totals.clicks > 0 ? formatNum(totals.clicks.toFixed(0)) : '—'}</td>
-                <td className="war-td">{totals.sales > 0 ? formatNum(totals.sales.toFixed(0)) : '—'}</td>
+                <td className="war-td war-td--name">{salesOnlyMarketplaces.length > 0 ? 'GRAND TOTAL' : 'TOTAL'}</td>
+                <td className="war-td">{salesOnlyMarketplaces.length > 0 ? <EmptyDash /> : totals.spend > 0 ? formatNum(totals.spend.toFixed(0)) : <EmptyDash />}</td>
+                <td className="war-td war-td--center">{salesOnlyMarketplaces.length > 0 ? <EmptyDash /> : totals.clicks > 0 ? formatNum(totals.clicks.toFixed(0)) : <EmptyDash />}</td>
+                <td className="war-td">{totals.sales > 0 ? formatNum(totals.sales.toFixed(0)) : <EmptyDash />}</td>
                 <td className={`war-td war-td--center${totalAcos !== null && parseFloat(totalAcos) > ACOS_THRESHOLD ? ' war-td--danger' : ''}`}>
-                  {totalAcos !== null ? `${totalAcos}%` : '—'}
+                  {salesOnlyMarketplaces.length > 0 ? <EmptyDash /> : totalAcos !== null ? `${totalAcos}%` : <EmptyDash />}
                 </td>
               </tr>
             </tfoot>
           </table>
+        </div>
+
+        <div className="war-marketplace-add">
+          <div className="war-form-field">
+            <label className="war-label" htmlFor="war-new-marketplace">Add marketplace</label>
+            <input
+              id="war-new-marketplace"
+              type="text"
+              className="war-input"
+              value={newMarketplace}
+              onChange={(e) => {
+                setNewMarketplace(e.target.value)
+                if (marketplaceError) setMarketplaceError('')
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  handleAddMarketplace()
+                }
+              }}
+              placeholder="e.g. Meta Ads, Google Ads, Carrefour"
+            />
+            {marketplaceError && <span className="war-marketplace-add__error">{marketplaceError}</span>}
+          </div>
+          <button type="button" className="war-btn war-btn--ghost" onClick={handleAddMarketplace}>
+            Add marketplace
+          </button>
+        </div>
+
+        <div className="war-marketplace-add war-marketplace-add--sales-only">
+          <div className="war-form-field">
+            <label className="war-label" htmlFor="war-new-sales-only-marketplace">Add marketplace without ad spend</label>
+            <input
+              id="war-new-sales-only-marketplace"
+              type="text"
+              className="war-input"
+              value={newSalesOnlyMarketplace}
+              onChange={(e) => {
+                setNewSalesOnlyMarketplace(e.target.value)
+                if (salesOnlyMarketplaceError) setSalesOnlyMarketplaceError('')
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  handleAddSalesOnlyMarketplace()
+                }
+              }}
+              placeholder="e.g. Website organic, Retail sales, POS"
+            />
+            {salesOnlyMarketplaceError && <span className="war-marketplace-add__error">{salesOnlyMarketplaceError}</span>}
+          </div>
+          <button type="button" className="war-btn war-btn--ghost" onClick={handleAddSalesOnlyMarketplace}>
+            Add after subtotal
+          </button>
         </div>
 
         <div className="war-form-notes">
@@ -503,20 +948,20 @@ export function WeeklyAdsReportPage() {
             type="button"
             className="war-btn war-btn--primary"
             onClick={handleSave}
-            disabled={!startDate || !endDate}
+            disabled={historySaving || !startDate || !endDate}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
               <polyline points="17 21 17 13 7 13 7 21" />
               <polyline points="7 3 7 8 15 8" />
             </svg>
-            {editingId ? 'Update Report' : 'Save Report'}
+            {historySaving ? 'Saving…' : editingId ? 'Update Report' : 'Save Report'}
           </button>
         </div>
       </section>
 
       {/* ─── Live Preview ─── */}
-      {totals.spend > 0 && (
+      {(totals.spend > 0 || totals.sales > 0) && (
         <section className="war-section">
           <h2 className="war-section__title">Live Preview</h2>
           <ReportTable rows={rows} title={title} dateLabel={dateLabel} />
@@ -527,9 +972,15 @@ export function WeeklyAdsReportPage() {
       <section className="war-section">
         <div className="war-section__row">
           <h2 className="war-section__title">Report History</h2>
-          <span className="war-history-count">{history.length} {history.length === 1 ? 'report' : 'reports'}</span>
+          <span className="war-history-count">
+            {historyLoading ? '…' : `${history.length} ${history.length === 1 ? 'report' : 'reports'}`}
+          </span>
         </div>
-        {history.length === 0 ? (
+        {historyError ? <p className="war-zoho-feedback war-zoho-feedback--error">{historyError}</p> : null}
+        {historySaveError ? <p className="war-zoho-feedback war-zoho-feedback--error">{historySaveError}</p> : null}
+        {historyLoading ? (
+          <p className="war-empty__sub">Loading history…</p>
+        ) : history.length === 0 ? (
           <EmptyState />
         ) : (
           <div className="war-history-list">

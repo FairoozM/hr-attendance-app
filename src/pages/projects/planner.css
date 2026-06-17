@@ -372,6 +372,12 @@
 .aip-assist {
   width: 260px;
   flex-shrink: 0;
+  align-self: flex-start;
+  position: sticky;
+  top: calc(var(--app-topbar-stack, 5.35rem) + 0.75rem);
+  max-height: calc(100dvh - var(--app-topbar-stack, 5.35rem) - 1.5rem);
+  overflow-x: hidden;
+  overflow-y: auto;
   border-left: 1px solid var(--theme-border-subtle);
   padding: 1.75rem 1.25rem;
   display: flex;
@@ -2199,6 +2205,13 @@
   background: rgba(249,115,22,0.03);
 }
 
+/* Row + expanded subtasks share one drop target (subtask area sits outside .tbl-row) */
+.tbl-task-block {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
 /* ── Shared column base (vertical rules like Asana) ───────────────── */
 .tbl-row .tbl-col {
   border-right: 1px solid var(--tbl-grid);
@@ -2219,6 +2232,16 @@
   justify-content: center;
   padding: 0.25rem 0.1rem;
   align-self: stretch;
+}
+
+.tbl-grip-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  align-self: stretch;
+  min-height: 100%;
 }
 
 .tbl-drag-handle {
@@ -2250,17 +2273,57 @@
 }
 
 .tbl-row--dragging {
-  opacity: 0.45;
+  opacity: 0.65;
+  background: var(--tbl-grid-hover);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--theme-primary) 45%, transparent);
 }
 
+/* Insertion line — shows exactly where the row will land (top edge of target slot) */
+.tbl-row--drop-before::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -1px;
+  height: 4px;
+  background: var(--theme-primary);
+  border-radius: 2px;
+  z-index: 4;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--theme-surface-raised, #fff) 70%, transparent),
+    0 2px 8px color-mix(in srgb, var(--theme-primary) 35%, transparent);
+}
+
+/* End-of-list drop slot — only expanded while dragging so we don’t show a blank “row” above + Add task */
 .tbl-drop-tail {
-  min-height: 10px;
+  transition: background 0.12s, box-shadow 0.12s, min-height 0.12s;
+}
+
+.tbl-drop-tail--collapsed {
+  min-height: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.tbl-drop-tail--live {
+  min-height: 36px;
   border-bottom: 1px solid var(--tbl-grid);
   background: transparent;
 }
 
-.tbl-drop-tail:hover {
+.tbl-drop-tail--live:hover {
   background: rgba(99, 102, 241, 0.06);
+}
+
+.tbl-drop-tail--live.tbl-drop-tail--indicator {
+  min-height: 40px;
+  background: color-mix(in srgb, var(--theme-primary) 12%, transparent);
+  box-shadow: inset 0 3px 0 0 var(--theme-primary);
 }
 
 .tbl-col--check {
@@ -2686,6 +2749,17 @@
   text-overflow: ellipsis;
 }
 
+.tbl-due-btn__inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.tbl-due-repeat-icon {
+  flex-shrink: 0;
+}
+
 .tbl-due-btn:hover {
   background: rgba(255, 255, 255, 0.06);
 }
@@ -2797,6 +2871,18 @@
 .tbl-add-input::placeholder {
   color: var(--theme-text-dim);
   font-weight: 400;
+}
+
+.tbl-add-row-hint {
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--theme-text-dim);
+  opacity: 0.42;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+  pointer-events: none;
 }
 
 /* ── "+ Add task" button at bottom of section ────────────────────── */
@@ -4030,6 +4116,8 @@
     0 10px 28px -4px rgba(0, 0, 0, 0.14);
   outline: none;
   user-select: none;
+  pointer-events: auto;
+  isolation: isolate;
   animation: ctx-menu-in 0.11s ease;
 }
 
@@ -4117,4 +4205,323 @@
 
 :root[data-theme='dark'] .task-ctx-menu__divider {
   background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Asana-inspired task list shell (Projects index / .aip-layout--asana) ── */
+
+/* Pin Views / More sidebar while the center task sheet scrolls (wide screens only). */
+@media (min-width: 1024px) {
+  .planner-views-sidebar {
+    position: sticky;
+    top: calc(var(--app-topbar-stack, 5.35rem) + 0.75rem);
+    align-self: flex-start;
+    max-height: calc(100dvh - var(--app-topbar-stack, 5.35rem) - 1.5rem);
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+}
+
+.aip-layout--asana {
+  gap: 1rem !important;
+  align-items: flex-start !important;
+  background: #f5f6f4;
+}
+
+@media (max-width: 1023px) {
+  .aip-layout--asana {
+    flex-direction: column !important;
+  }
+}
+
+.aip-layout--asana .aip-main--asana-shell .aip-page-title {
+  background: none !important;
+  -webkit-background-clip: unset !important;
+  background-clip: unset !important;
+  -webkit-text-fill-color: unset !important;
+  color: #0f172a !important;
+}
+
+.aip-layout--asana .aip-main--asana-shell .aip-capture {
+  background: rgba(255, 255, 255, 0.95) !important;
+  border-color: rgba(148, 163, 184, 0.45) !important;
+  backdrop-filter: blur(8px);
+}
+
+.aip-layout--asana .aip-main--asana-shell .aip-capture:focus-within {
+  border-color: rgba(16, 185, 129, 0.55) !important;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15) !important;
+}
+
+.aip-layout--asana .aip-main--asana-shell .aip-capture__input {
+  color: #0f172a !important;
+}
+
+.aip-layout--asana .aip-main--asana-shell .aip-capture__input::placeholder {
+  color: #94a3b8 !important;
+}
+
+.aip-layout--asana .aip-main--asana-shell .aip-capture__hint {
+  color: #64748b !important;
+}
+
+.aip-layout--asana .aip-main--asana-shell .aip-capture__preview {
+  background: rgba(248, 250, 252, 0.95) !important;
+  border-color: rgba(148, 163, 184, 0.35) !important;
+  color: #475569 !important;
+}
+
+.aip-layout--asana .aip-main--asana-shell .tbl-section {
+  border-color: rgba(148, 163, 184, 0.35) !important;
+  border-radius: 16px !important;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+
+.aip-layout--asana .aip-main--asana-shell .tbl-sec-header {
+  background: rgba(248, 250, 252, 0.95) !important;
+  border-bottom-color: rgba(148, 163, 184, 0.25) !important;
+}
+
+.aip-layout--asana .aip-main--asana-shell .tbl-section__body {
+  --tbl-grid: rgba(148, 163, 184, 0.28) !important;
+  --tbl-grid-hover: rgba(16, 185, 129, 0.06) !important;
+  --tbl-sheet-bg: #ffffff !important;
+  --tbl-header-bg: #f8fafc !important;
+}
+
+.aip-layout--asana .aip-main--asana-shell .tbl-col-header .tbl-col {
+  color: #64748b !important;
+}
+
+.aip-layout--asana .aip-main--asana-shell .tbl-inline-title {
+  color: #0f172a !important;
+  background: rgba(248, 250, 252, 0.6) !important;
+}
+
+.aip-layout--asana .aip-main--asana-shell .tbl-row.done .tbl-inline-title {
+  color: #94a3b8 !important;
+}
+
+.aip-layout--asana .aip-main--asana-shell .tbl-inline-select {
+  color: #0f172a !important;
+  border-color: rgba(148, 163, 184, 0.45) !important;
+  background: #fff !important;
+}
+
+.aip-layout--asana .aip-main--asana-shell .tbl-check,
+.aip-layout--asana .aip-main--asana-shell .tbl-check-placeholder {
+  border-color: #cbd5e1 !important;
+}
+
+.aip-layout--asana .aip-main--asana-shell .tbl-check:hover {
+  border-color: #10b981 !important;
+  background: transparent !important;
+}
+
+.aip-layout--asana .aip-main--asana-shell .tbl-check.checked {
+  background: #059669 !important;
+  border-color: #059669 !important;
+}
+
+.aip-layout--asana .aip-main--asana-shell .tbl-check__hover-mark {
+  color: #94a3b8 !important;
+}
+
+.aip-layout--asana .aip-main--asana-shell .tbl-check:hover .tbl-check__hover-mark {
+  color: #10b981 !important;
+}
+
+.aip-layout--asana .aip-main--asana-shell .tbl-subtask-row__check.checked {
+  background: #059669 !important;
+  border-color: #059669 !important;
+}
+
+.aip-layout--asana .aip-main--asana-shell .tbl-due.today {
+  color: #d97706 !important;
+}
+
+.aip-layout--asana .aip-main--asana-shell .tbl-due.overdue {
+  color: #dc2626 !important;
+}
+
+.aip-layout--asana .aip-main--asana-shell .tbl-add-section-btn {
+  border-color: rgba(148, 163, 184, 0.45) !important;
+  color: #64748b !important;
+  border-radius: 14px !important;
+}
+
+.aip-layout--asana .aip-main--asana-shell .tbl-add-section-btn:hover {
+  background: rgba(255, 255, 255, 0.85) !important;
+  color: #059669 !important;
+  border-color: rgba(16, 185, 129, 0.45) !important;
+}
+
+/* AI Assist — light card beside list */
+.aip-layout--asana .aip-assist {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border-left-color: rgba(148, 163, 184, 0.22) !important;
+}
+
+.aip-layout--asana .aip-assist,
+.aip-layout--asana .aip-assist * {
+  color: #334155 !important;
+  -webkit-text-fill-color: unset !important;
+}
+
+.aip-layout--asana .aip-assist .aip-assist__head {
+  color: #64748b !important;
+}
+
+.aip-layout--asana .aip-assist [style*='linear-gradient'] {
+  background: linear-gradient(90deg, #059669, #10b981) !important;
+}
+
+.aip-layout--asana .aip-assist .aip-suggestion {
+  border: 1px solid rgba(148, 163, 184, 0.35) !important;
+  border-left-width: 3px !important;
+  border-left-color: #10b981 !important;
+}
+
+.aip-layout--asana .aip-assist > div[style*='border'] {
+  border-color: rgba(148, 163, 184, 0.35) !important;
+}
+
+.aip-layout--asana .aip-assist div[style*='theme-surface-dark'] {
+  background: #f8fafc !important;
+  border: 1px solid rgba(148, 163, 184, 0.28) !important;
+}
+
+/* Task drawer — opened from planner */
+.aip-layout--asana .aip-drawer {
+  background: #ffffff !important;
+}
+
+.aip-layout--asana .aip-drawer,
+.aip-layout--asana .aip-drawer * {
+  color: #0f172a !important;
+  -webkit-text-fill-color: unset !important;
+}
+
+.aip-layout--asana .aip-drawer__head,
+.aip-layout--asana .aip-drawer__block,
+.aip-layout--asana .aip-drawer__footer {
+  border-color: rgba(148, 163, 184, 0.35) !important;
+}
+
+.aip-layout--asana .aip-drawer__input,
+.aip-layout--asana .aip-drawer__textarea,
+.aip-layout--asana .aip-drawer__select {
+  border-color: rgba(148, 163, 184, 0.45) !important;
+  color: #0f172a !important;
+  background: #f8fafc !important;
+}
+
+.aip-layout--asana .aip-drawer__input:focus,
+.aip-layout--asana .aip-drawer__textarea:focus,
+.aip-layout--asana .aip-drawer__select:focus {
+  border-color: rgba(16, 185, 129, 0.55) !important;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.12) !important;
+}
+
+.aip-layout--asana .aip-drawer__close {
+  border-color: rgba(148, 163, 184, 0.35) !important;
+  color: #475569 !important;
+}
+
+.aip-layout--asana .aip-drawer .pm-btn-primary {
+  background: #059669 !important;
+  color: #fff !important;
+}
+
+.aip-layout--asana .aip-drawer .pm-btn-primary:hover {
+  opacity: 0.92 !important;
+}
+
+.aip-layout--asana .aip-drawer .pm-btn-ghost {
+  background: #fff !important;
+  color: #0f172a !important;
+  border: 1px solid rgba(148, 163, 184, 0.45) !important;
+}
+
+.aip-layout--asana .aip-drawer .pm-btn-danger {
+  background: #fff1f2 !important;
+  color: #b91c1c !important;
+  border: 1px solid #fecaca !important;
+}
+
+/* Context menu */
+.aip-layout--asana .task-ctx-menu {
+  background: #fff !important;
+  border-color: rgba(148, 163, 184, 0.35) !important;
+}
+
+.aip-layout--asana .task-ctx-menu__item:hover {
+  background: rgba(16, 185, 129, 0.08) !important;
+  color: #0f172a !important;
+}
+
+.aip-layout--asana .task-ctx-menu__item--danger,
+.aip-layout--asana .task-ctx-menu__item--danger:hover {
+  color: #b91c1c !important;
+  background: #fff1f2 !important;
+}
+
+/* Due-date popover — emerald accents */
+.aip-date-popover {
+  background: #fff !important;
+  color: #0f172a !important;
+  border: 1px solid rgba(148, 163, 184, 0.35) !important;
+  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.15) !important;
+}
+
+.aip-date-popover,
+.aip-date-popover * {
+  color: #0f172a !important;
+  -webkit-text-fill-color: unset !important;
+}
+
+.aip-date-popover svg {
+  color: inherit !important;
+}
+
+.aip-date-popover__head-label,
+.aip-date-popover__bookmark {
+  color: #059669 !important;
+}
+
+.aip-date-popover__input {
+  border-color: rgba(148, 163, 184, 0.45) !important;
+}
+
+.aip-date-popover__input:focus {
+  border-color: rgba(16, 185, 129, 0.65) !important;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.15) !important;
+}
+
+.aip-date-popover__cell--in-range {
+  background: rgba(16, 185, 129, 0.12) !important;
+}
+
+.aip-date-popover__cell--range-start .aip-date-popover__cell-num,
+.aip-date-popover__cell--range-end .aip-date-popover__cell-num,
+.aip-date-popover__cell--single .aip-date-popover__cell-num {
+  background: #059669 !important;
+  color: #fff !important;
+}
+
+.aip-date-popover__sync-btn,
+.aip-date-popover__done {
+  background: #059669 !important;
+  color: #fff !important;
+}
+
+.aip-date-popover__sync-btn:hover,
+.aip-date-popover__done:hover {
+  background: #047857 !important;
+  opacity: 1 !important;
+}
+
+.aip-date-popover__sync-btn svg,
+.aip-date-popover__done svg {
+  color: #fff !important;
 }
