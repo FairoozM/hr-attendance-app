@@ -37,6 +37,29 @@ function publicUrl(itemId, ext) {
   return `${PUBLIC_PREFIX}/${sanitizeItemId(itemId)}.${ext}`
 }
 
+/** Browser-safe URL — CloudFront only routes /api/* to Node, not /uploads/*. */
+function apiImageUrlForItem(itemId) {
+  const id = sanitizeItemId(itemId)
+  if (!id) return null
+  return `/api/zoho/inventory-health/images/file/${encodeURIComponent(id)}`
+}
+
+function findLocalImageFile(itemId) {
+  const id = sanitizeItemId(itemId)
+  if (!id) return null
+  for (const ext of ['jpg', 'jpeg', 'png', 'webp', 'gif']) {
+    const fp = localFilePath(id, ext === 'jpeg' ? 'jpg' : ext)
+    try {
+      if (fs.existsSync(fp) && fs.statSync(fp).isFile()) {
+        return { filePath: fp, ext: ext === 'jpeg' ? 'jpg' : ext }
+      }
+    } catch {
+      // try next ext
+    }
+  }
+  return null
+}
+
 function isPermanentCachedImageUrl(url) {
   if (!url || typeof url !== 'string') return false
   const u = url.trim()
@@ -110,6 +133,8 @@ module.exports = {
   extensionFromContentType,
   sanitizeItemId,
   publicUrl,
+  apiImageUrlForItem,
+  findLocalImageFile,
   _internals: {
     localFilePath,
   },

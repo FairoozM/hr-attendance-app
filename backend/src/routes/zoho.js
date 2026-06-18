@@ -55,6 +55,12 @@ router.post(
 router.get('/inventory-health', requireAuth, requireAdmin, inventoryHealthController.getInventoryHealth)
 router.get('/inventory-health/export.csv', requireAuth, requireAdmin, inventoryHealthController.exportInventoryHealthCsv)
 router.post('/inventory-health/refresh', requireAuth, requireAdmin, inventoryHealthController.postInventoryHealthRefresh)
+router.get(
+  '/inventory-health/images/file/:itemId',
+  requireAuth,
+  requireAdmin,
+  inventoryHealthImageController.getCachedImageFile,
+)
 router.get('/inventory-health/images/debug-one', requireAuth, requireAdmin, inventoryHealthImageController.getImageDebugOne)
 router.get('/inventory-health/images/sync/active', requireAuth, requireAdmin, inventoryHealthImageController.getActiveImageSyncJob)
 router.get('/inventory-health/images/sync/job/:jobId', requireAuth, requireAdmin, inventoryHealthImageController.getImageSyncJob)

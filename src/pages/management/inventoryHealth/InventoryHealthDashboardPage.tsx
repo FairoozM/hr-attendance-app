@@ -367,6 +367,7 @@ export function InventoryHealthDashboardPage() {
           if (p.saved > lastSyncedSavedRef.current) {
             lastSyncedSavedRef.current = p.saved
             void loadImageStatus()
+            void load()
           }
           if (job.status === 'completed' || job.status === 'failed') {
             stopImageSyncPoll()

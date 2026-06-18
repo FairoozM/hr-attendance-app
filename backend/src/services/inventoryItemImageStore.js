@@ -248,14 +248,19 @@ async function getImageCacheDebugInfo() {
 }
 
 async function attachImageFieldsToRows(rows) {
+  const { fileExistsForPublicUrl, apiImageUrlForItem } = require('./inventoryItemImageStorage')
   const itemIds = (rows || []).map((r) => r.itemId).filter(Boolean)
   const cacheMap = await getCachedImagesByItemIds(itemIds)
   return (rows || []).map((row) => {
     const cached = row.itemId ? cacheMap.get(String(row.itemId).trim()) : null
-    if (cached && cached.imageUrl) {
+    const hasFile =
+      cached?.imageUrl &&
+      isPermanentCachedImageUrl(cached.imageUrl) &&
+      fileExistsForPublicUrl(cached.imageUrl)
+    if (hasFile) {
       return {
         ...row,
-        imageUrl: cached.imageUrl,
+        imageUrl: apiImageUrlForItem(row.itemId),
         imageSource: cached.imageSource,
         imageCachedAt: cached.imageCachedAt,
         imageMissing: false,

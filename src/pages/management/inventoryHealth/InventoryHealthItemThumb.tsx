@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ImageOff } from 'lucide-react'
+import { resolveApiUrl } from '../../../api/client'
 
 type InventoryHealthItemThumbProps = {
   imageUrl?: string | null
@@ -20,12 +21,13 @@ function initials(itemName?: string, sku?: string) {
 export function InventoryHealthItemThumb({ imageUrl, imageMissing, itemId, itemName, sku }: InventoryHealthItemThumbProps) {
   const [failed, setFailed] = useState(false)
   const path = imageUrl && imageUrl.trim() ? imageUrl.trim() : null
+  const src = path ? resolveApiUrl(path) : null
 
-  if (path && !failed) {
+  if (src && !failed) {
     return (
       <div className="ih-thumb-wrap">
         <img
-          src={path}
+          src={src}
           alt=""
           title={itemName || sku || itemId || undefined}
           loading="lazy"

@@ -1,5 +1,7 @@
+const path = require('path')
 const inventoryHealthImageService = require('../services/inventoryHealthImageService')
 const imageSyncJobService = require('../services/inventoryHealthImageSyncJobService')
+const inventoryItemImageStorage = require('../services/inventoryItemImageStorage')
 const { isSyncPaused } = require('../services/zohoApiClient')
 
 function parseBool(value, defaultValue = false) {
@@ -164,6 +166,30 @@ function cleanStr(v) {
   return String(v == null ? '' : v).trim()
 }
 
+async function getCachedImageFile(req, res) {
+  try {
+    const itemId = cleanStr(req.params.itemId)
+    const found = inventoryItemImageStorage.findLocalImageFile(itemId)
+    if (!found) {
+      return res.status(404).json({ error: 'Cached image not found', code: 'CACHED_IMAGE_NOT_FOUND' })
+    }
+    const mime =
+      found.ext === 'png'
+        ? 'image/png'
+        : found.ext === 'webp'
+          ? 'image/webp'
+          : found.ext === 'gif'
+            ? 'image/gif'
+            : 'image/jpeg'
+    res.setHeader('Content-Type', mime)
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+    return res.sendFile(path.resolve(found.filePath))
+  } catch (err) {
+    console.error('[inventory-health-images] file serve failed:', err?.message || err)
+    return res.status(500).json({ error: 'Failed to serve cached image', code: 'CACHED_IMAGE_SERVE_ERROR' })
+  }
+}
+
 module.exports = {
   postImageSync,
   getImageStatus,
@@ -171,4 +197,5 @@ module.exports = {
   getImageDebugOne,
   getImageSyncJob,
   getActiveImageSyncJob,
+  getCachedImageFile,
 }

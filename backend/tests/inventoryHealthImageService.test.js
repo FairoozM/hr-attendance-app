@@ -55,7 +55,8 @@ test('attachImageFieldsToRows reads permanent imageUrl from cache only', async (
     attachImageFieldsToRows: async (rows) =>
       rows.map((row) => ({
         ...row,
-        imageUrl: row.itemId === '1001' ? '/uploads/inventory-item-images/1001.jpg' : null,
+        imageUrl:
+          row.itemId === '1001' ? '/api/zoho/inventory-health/images/file/1001' : null,
         imageSource: row.itemId === '1001' ? 'zoho_downloaded_cached' : null,
         imageCachedAt: row.itemId === '1001' ? '2026-06-16T10:00:00.000Z' : null,
         imageMissing: row.itemId !== '1001',
@@ -91,7 +92,7 @@ test('attachImageFieldsToRows reads permanent imageUrl from cache only', async (
   const data = await svc.getInventoryHealthDashboard({ includeZeroStock: '1' })
 
   assert.equal(data.rows.length, 1)
-  assert.equal(data.rows[0].imageUrl, '/uploads/inventory-item-images/1001.jpg')
+  assert.equal(data.rows[0].imageUrl, '/api/zoho/inventory-health/images/file/1001')
   assert.equal(data.rows[0].imageMissing, false)
 
   restoreStore()
