@@ -151,7 +151,27 @@ function isPermanentNoImageReason(reason) {
   const r = cleanStr(reason)
   if (!r) return false
   if (PERMANENT_NO_IMAGE_REASONS.has(r)) return true
-  return /zoho image download returned 404/i.test(r)
+  return /404|no image on zoho|zoho image download returned 404|not found on zoho/i.test(r)
+}
+
+function isRetryableMissingReason(reason) {
+  const r = cleanStr(reason).toLowerCase()
+  if (!r) return true
+  return /429|rate.?limit|timeout|network|502|503|504|500|403|sync.paused|zo_sync|econnreset|etimedout|fetch failed|temporarily|throttle/i.test(
+    r,
+  )
+}
+
+function isNoImageOutcome(outcome) {
+  if (!outcome || outcome.ok) return false
+  const status = outcome.resolved?.status ?? outcome.errRow?.status ?? null
+  if (status === 404) return true
+  const raw = cleanStr(outcome.resolved?.missingReason)
+  if (isPermanentNoImageReason(raw)) return true
+  const formatted = cleanStr(outcome.errRow?.reason)
+  if (isPermanentNoImageReason(formatted)) return true
+  if (raw && !isRetryableMissingReason(raw)) return true
+  return false
 }
 
 function isEffectivelyCached(cached) {
@@ -163,7 +183,12 @@ function isEffectivelyCached(cached) {
 /** Cached file OR already checked — Zoho has no image (do not retry every batch). */
 function isSyncResolved(cached) {
   if (isEffectivelyCached(cached)) return true
-  return Boolean(cached && isPermanentNoImageReason(cached.missingReason))
+  if (!cached) return false
+  const raw = cleanStr(cached.missingReason)
+  if (!raw) return false
+  if (isPermanentNoImageReason(raw)) return true
+  if (!cached.imageUrl && !isRetryableMissingReason(raw)) return true
+  return false
 }
 
 /**
@@ -217,11 +242,15 @@ async function resolveImageForItem(item, { forceReplace = false } = {}) {
     }
   } catch (err) {
     const status = err?.httpStatus || null
+    const missingReason =
+      status === 404
+        ? 'no_image_on_zoho_endpoint'
+        : `image_fetch_error:${err?.message || 'unknown'}`
     return {
       ...base,
       imageUrl: null,
       imageSource,
-      missingReason: `image_fetch_error:${err?.message || 'unknown'}`,
+      missingReason,
       stage: 'zoho_download',
       status,
       contentType: null,
@@ -519,7 +548,7 @@ async function syncMissingInventoryImagesBatch(options = {}) {
       } else {
         stillMissing += 1
         if (outcome.errRow) {
-          if (isPermanentNoImageReason(outcome.resolved?.missingReason)) {
+          if (isNoImageOutcome(outcome)) {
             noImageInZoho += 1
             batchNoImage += 1
           } else {

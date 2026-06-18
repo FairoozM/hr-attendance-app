@@ -2,3 +2,4 @@ node_modules/
 .env
 uploads/
 backend/data/
+backend/src/data/

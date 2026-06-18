@@ -88,8 +88,9 @@ function startImageSyncJob(options = {}) {
       })
       job.result = result
       job.progress = {
-        step: `Done — saved ${result.saved}, failed ${result.failed}`,
+        step: `Done — saved ${result.saved}, no image ${result.noImageInZoho || 0}, errors ${result.failed}`,
         saved: result.saved,
+        noImageInZoho: result.noImageInZoho || 0,
         failed: result.failed,
         attempted: result.attempted,
         remaining: result.skippedDueToLimit,

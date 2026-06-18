@@ -218,6 +218,86 @@ test('syncMissingInventoryImages downloads via /image endpoint without list meta
   restoreClient()
 })
 
+test('syncMissingInventoryImages skips rows with non-retryable fetch errors on next batch', async () => {
+  let fetchImageCalls = 0
+
+  const restoreStorage = mockStorage()
+  const restoreStore = mockModule('../src/services/inventoryItemImageStore', {
+    getAllCachedByItemId: async () =>
+      new Map([
+        [
+          '1002',
+          {
+            itemId: '1002',
+            imageUrl: null,
+            missingReason: 'image_fetch_error:Zoho Inventory item image HTTP 400: bad request',
+          },
+        ],
+      ]),
+    upsertInventoryItemImage: async () => {},
+  })
+  const restoreHealth = mockHealthCacheFallback()
+  const restoreAdapter = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchAllItemsRaw: async () => [baseItem({ item_id: '1002' })],
+  })
+  const restoreClient = mockModule('../src/integrations/zoho/zohoInventoryClient', {
+    fetchZohoItemImageBuffer: async () => {
+      fetchImageCalls += 1
+      return { buffer: Buffer.from('x'), contentType: 'image/jpeg' }
+    },
+    fetchItemById: async () => ({}),
+  })
+
+  const svc = freshRequire('../src/services/inventoryHealthImageService')
+  const result = await svc.syncMissingInventoryImages({ force: false, limit: 20 })
+
+  assert.equal(result.alreadyNoImage, 1)
+  assert.equal(result.attempted, 0)
+  assert.equal(fetchImageCalls, 0)
+
+  restoreStorage()
+  restoreStore()
+  restoreHealth()
+  restoreAdapter()
+  restoreClient()
+})
+
+test('syncMissingInventoryImages counts empty Zoho image as noImageInZoho not failed', async () => {
+  const upserts = []
+  const restoreStorage = mockStorage()
+  const restoreStore = mockModule('../src/services/inventoryItemImageStore', {
+    getAllCachedByItemId: async () => new Map(),
+    upsertInventoryItemImage: async (row) => {
+      upserts.push(row)
+    },
+  })
+  const restoreHealth = mockHealthCacheFallback()
+  const restoreAdapter = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchAllItemsRaw: async () => [baseItem({ item_id: '1002', sku: 'NO-IMG' })],
+  })
+  const restoreClient = mockModule('../src/integrations/zoho/zohoInventoryClient', {
+    fetchZohoItemImageBuffer: async () => null,
+    fetchItemById: async () => ({}),
+  })
+
+  const svc = freshRequire('../src/services/inventoryHealthImageService')
+  const result = await svc.syncMissingInventoryImages({ force: false, limit: 10 })
+
+  assert.equal(result.saved, 0)
+  assert.equal(result.noImageInZoho, 1)
+  assert.equal(result.failed, 0)
+  assert.ok(
+    upserts[0].missingReason === 'no_image_on_zoho_endpoint' ||
+      upserts[0].missingReason === 'zoho_image_not_found',
+  )
+
+  restoreStorage()
+  restoreStore()
+  restoreHealth()
+  restoreAdapter()
+  restoreClient()
+})
+
 test('syncMissingInventoryImages skips rows already marked as no image in Zoho', async () => {
   fs.mkdirSync(UPLOAD_ROOT, { recursive: true })
   fs.writeFileSync(path.join(UPLOAD_ROOT, '1001.jpg'), Buffer.from('cached'))

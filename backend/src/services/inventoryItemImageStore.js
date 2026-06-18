@@ -188,21 +188,40 @@ async function getImageCacheStatus({ sampleMissingLimit = 10 } = {}) {
       ) AS cached_images,
       COUNT(*) FILTER (
         WHERE (image_url IS NULL OR image_url = '' OR image_url NOT LIKE '/uploads/inventory-item-images/%')
-          AND missing_reason IN (
-            'no_image_on_zoho_endpoint',
-            'zoho_image_not_found',
-            'no_image_metadata',
-            'no_list_image_metadata'
+          AND (
+            missing_reason IN (
+              'no_image_on_zoho_endpoint',
+              'zoho_image_not_found',
+              'no_image_metadata',
+              'no_list_image_metadata'
+            )
+            OR missing_reason ILIKE '%404%'
+            OR (
+              missing_reason IS NOT NULL
+              AND missing_reason <> ''
+              AND missing_reason NOT ILIKE '%429%'
+              AND missing_reason NOT ILIKE '%timeout%'
+              AND missing_reason NOT ILIKE '%503%'
+              AND missing_reason NOT ILIKE '%502%'
+              AND missing_reason NOT ILIKE '%500%'
+              AND missing_reason NOT ILIKE '%403%'
+              AND missing_reason NOT ILIKE '%rate limit%'
+            )
           )
       ) AS no_image_in_zoho,
       COUNT(*) FILTER (
         WHERE (image_url IS NULL OR image_url = '' OR image_url NOT LIKE '/uploads/inventory-item-images/%')
-          AND (missing_reason IS NULL OR missing_reason NOT IN (
-            'no_image_on_zoho_endpoint',
-            'zoho_image_not_found',
-            'no_image_metadata',
-            'no_list_image_metadata'
-          ))
+          AND (
+            missing_reason IS NULL
+            OR missing_reason = ''
+            OR missing_reason ILIKE '%429%'
+            OR missing_reason ILIKE '%timeout%'
+            OR missing_reason ILIKE '%503%'
+            OR missing_reason ILIKE '%502%'
+            OR missing_reason ILIKE '%500%'
+            OR missing_reason ILIKE '%403%'
+            OR missing_reason ILIKE '%rate limit%'
+          )
       ) AS missing_images,
       MAX(last_checked_at) AS last_sync_at
     FROM inventory_item_images

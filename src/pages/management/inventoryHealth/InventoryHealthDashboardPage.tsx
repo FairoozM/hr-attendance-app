@@ -205,6 +205,7 @@ export function InventoryHealthDashboardPage() {
   const [lastImageSyncStats, setLastImageSyncStats] = useState<{
     downloaded: number
     saved: number
+    noImageInZoho: number
     failed: number
     at: string
   } | null>(null)
@@ -403,6 +404,7 @@ export function InventoryHealthDashboardPage() {
           setLastImageSyncStats({
             downloaded: p.saved,
             saved: p.saved,
+            noImageInZoho: p.noImageInZoho ?? 0,
             failed: p.failed,
             at: new Date().toISOString(),
           })
@@ -427,11 +429,16 @@ export function InventoryHealthDashboardPage() {
                   `${job.result.failed > 0 ? `, ${job.result.failed} errors` : ''}). Click Sync again.`,
               )
             } else if (job.result) {
+              const sampleErrors = (job.result.errors || [])
+                .slice(0, 2)
+                .map((e) => e.reason || e.message || 'unknown')
+                .join('; ')
               setImageSyncMessage(
                 `Done — ${job.result.saved} saved` +
-                  `${(job.result.noImageInZoho ?? 0) > 0 ? `, ${job.result.noImageInZoho} no image in Zoho (skipped next time)` : ''}` +
+                  `${(job.result.noImageInZoho ?? 0) > 0 ? `, ${job.result.noImageInZoho} no image in Zoho (won't retry)` : ''}` +
                   `${job.result.failed > 0 ? `, ${job.result.failed} errors` : ''}` +
-                  `${job.result.skippedDueToLimit > 0 ? `, ${job.result.skippedDueToLimit.toLocaleString()} still queued` : ''}.`,
+                  `${job.result.skippedDueToLimit > 0 ? `, ${job.result.skippedDueToLimit.toLocaleString()} still queued` : ''}` +
+                  `${sampleErrors ? ` — ${sampleErrors}` : ''}.`,
               )
             }
             if (job.status === 'completed') {
@@ -571,8 +578,12 @@ export function InventoryHealthDashboardPage() {
             <span>Last sync: {formatDateTime(imageStatus.lastSyncAt)}</span>
             {lastImageSyncStats ? (
               <span>
-                Last batch: {lastImageSyncStats.downloaded} downloaded, {lastImageSyncStats.saved} saved,{' '}
-                {lastImageSyncStats.failed} failed ({formatDateTime(lastImageSyncStats.at)})
+                Last batch: {lastImageSyncStats.saved} saved
+                {lastImageSyncStats.noImageInZoho > 0
+                  ? `, ${lastImageSyncStats.noImageInZoho} no image in Zoho`
+                  : ''}
+                {lastImageSyncStats.failed > 0 ? `, ${lastImageSyncStats.failed} errors` : ''} (
+                {formatDateTime(lastImageSyncStats.at)})
               </span>
             ) : null}
           </div>
