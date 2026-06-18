@@ -92,6 +92,30 @@ async function startServer() {
     console.log('[routes]   GET  /api/auth/me         → { user } (Bearer token)')
     console.log('[routes] … /api/employees, /api/attendance, /api/annual-leave (auth as required)')
 
+    if (!/^(0|false|no)$/i.test(String(process.env.INVENTORY_HEALTH_WARM_ON_START || '1'))) {
+      setImmediate(() => {
+        try {
+          const { readDiskCacheEntry } = require('./services/inventoryHealthDiskCache')
+          const { loadInventoryHealthBase } = require('./services/inventoryHealthService')
+          if (readDiskCacheEntry('wh:all')) {
+            console.log('[inventory-health] disk cache present — skip startup warm')
+            return
+          }
+          console.log('[inventory-health] warming Zoho dashboard cache in background…')
+          loadInventoryHealthBase({ refresh: false })
+            .then((payload) => {
+              const n = payload?.debug?.activeItemsFetched ?? payload?.rows?.length ?? '?'
+              console.log(`[inventory-health] startup warm complete (${n} active items)`)
+            })
+            .catch((err) => {
+              console.warn('[inventory-health] startup warm failed:', err?.message || err)
+            })
+        } catch (err) {
+          console.warn('[inventory-health] startup warm setup failed:', err?.message || err)
+        }
+      })
+    }
+
     const opt = getOptionalFlagDecision()
     if (opt.effective) {
       console.warn(

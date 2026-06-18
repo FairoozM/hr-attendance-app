@@ -558,31 +558,27 @@ async function loadInventoryHealthBase({ warehouseId = null, refresh = false } =
     const debug = emptyDebug()
 
     const tItems = Date.now()
-    const rawItems = warehouseId
-      ? await fetchItemsRawForWarehouse(String(warehouseId))
-      : await fetchAllItemsRaw()
+    const tSalesParallel = Date.now()
+    const [rawItems, sales90R, sales180R, sales365R, slowMembers] = await Promise.all([
+      warehouseId
+        ? fetchItemsRawForWarehouse(String(warehouseId))
+        : fetchAllItemsRaw(),
+      getSales(from90, asOfDate, whOpts),
+      getSales(from180, asOfDate, whOpts),
+      getSales(from365, asOfDate, whOpts),
+      listMembersOfGroup(SLOW_MOVING_GROUP).catch(() => []),
+    ])
     debug.timingsMs.items = Date.now() - tItems
+    debug.timingsMs.sales90 = Date.now() - tSalesParallel
+    debug.timingsMs.sales180 = debug.timingsMs.sales90
+    debug.timingsMs.sales365 = debug.timingsMs.sales90
     debug.itemsFetched = Array.isArray(rawItems) ? rawItems.length : 0
 
     const activeItems = (rawItems || []).filter(isActiveZohoItem)
     debug.activeItemsFetched = activeItems.length
-
-    const tSales90 = Date.now()
-    const sales90R = await getSales(from90, asOfDate, whOpts)
-    debug.timingsMs.sales90 = Date.now() - tSales90
     debug.sales90RowsFetched = Array.isArray(sales90R.lines) ? sales90R.lines.length : 0
-
-    const tSales180 = Date.now()
-    const sales180R = await getSales(from180, asOfDate, whOpts)
-    debug.timingsMs.sales180 = Date.now() - tSales180
     debug.sales180RowsFetched = Array.isArray(sales180R.lines) ? sales180R.lines.length : 0
-
-    const tSales365 = Date.now()
-    const sales365R = await getSales(from365, asOfDate, whOpts)
-    debug.timingsMs.sales365 = Date.now() - tSales365
     debug.sales365RowsFetched = Array.isArray(sales365R.lines) ? sales365R.lines.length : 0
-
-    const slowMembers = await listMembersOfGroup(SLOW_MOVING_GROUP).catch(() => [])
 
     if (sales90R.list_truncated) {
       warnings.push('Sales (90d) list may be incomplete due to pagination cap.')

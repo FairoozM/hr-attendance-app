@@ -125,7 +125,7 @@ function buildQuery(params: InventoryHealthQuery = {}) {
   return qs.toString()
 }
 
-const INVENTORY_HEALTH_TIMEOUT_MS = 180_000
+const INVENTORY_HEALTH_TIMEOUT_MS = 300_000
 
 export async function fetchInventoryHealth(params: InventoryHealthQuery = {}) {
   const q = buildQuery(params)

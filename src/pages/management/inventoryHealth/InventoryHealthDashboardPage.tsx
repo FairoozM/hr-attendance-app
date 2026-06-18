@@ -311,6 +311,21 @@ export function InventoryHealthDashboardPage() {
   const canExport = !showInitialSkeleton && exportRows.length > 0
   const exportBusy = exporting != null
 
+  const [loadSeconds, setLoadSeconds] = useState(0)
+
+  useEffect(() => {
+    if (!showInitialSkeleton && !refreshing) {
+      setLoadSeconds(0)
+      return
+    }
+    const started = Date.now()
+    setLoadSeconds(0)
+    const timer = window.setInterval(() => {
+      setLoadSeconds(Math.floor((Date.now() - started) / 1000))
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [showInitialSkeleton, refreshing])
+
   const handleExportCsv = useCallback(async () => {
     if (!canExport) return
     setExporting('csv')
@@ -582,7 +597,13 @@ export function InventoryHealthDashboardPage() {
             ))}
           </div>
           <div className="ih-skeleton ih-skeleton-table" />
-          <div className="ih-loading">Loading inventory health… (first load may take 1–3 min from Zoho)</div>
+          <div className="ih-loading">
+            Loading inventory health… {loadSeconds > 0 ? `${loadSeconds}s` : ''}
+            <br />
+            <span className="ih-card-sub">
+              First fetch from Zoho after cache clear can take 2–5 min. Do not refresh the browser — wait for this to finish.
+            </span>
+          </div>
         </>
       ) : null}
 

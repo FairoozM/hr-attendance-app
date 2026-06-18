@@ -23,7 +23,6 @@ cat >"$TMPJSON" <<EOF
     "cd /home/ubuntu/hr-attendance-app",
     "sudo -u ubuntu aws s3 cp s3://${BUCKET}/${KEY} /tmp/${KEY}",
     "sudo -u ubuntu tar xzf /tmp/${KEY} -C /home/ubuntu/hr-attendance-app",
-    "sudo -u ubuntu rm -f /home/ubuntu/hr-attendance-app/backend/data/inventory-health-base-cache.json",
     "cd /home/ubuntu/hr-attendance-app/backend",
     "sudo -u ubuntu npm ci --omit=dev",
     "systemctl restart hr-attendance-backend.service",
