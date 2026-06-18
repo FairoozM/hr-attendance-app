@@ -140,10 +140,30 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+const PERMANENT_NO_IMAGE_REASONS = new Set([
+  'no_image_on_zoho_endpoint',
+  'zoho_image_not_found',
+  'no_image_metadata',
+  'no_list_image_metadata',
+])
+
+function isPermanentNoImageReason(reason) {
+  const r = cleanStr(reason)
+  if (!r) return false
+  if (PERMANENT_NO_IMAGE_REASONS.has(r)) return true
+  return /zoho image download returned 404/i.test(r)
+}
+
 function isEffectivelyCached(cached) {
   if (!cached?.imageUrl) return false
   if (!inventoryItemImageStorage.isPermanentCachedImageUrl(cached.imageUrl)) return false
   return inventoryItemImageStorage.fileExistsForPublicUrl(cached.imageUrl)
+}
+
+/** Cached file OR already checked — Zoho has no image (do not retry every batch). */
+function isSyncResolved(cached) {
+  if (isEffectivelyCached(cached)) return true
+  return Boolean(cached && isPermanentNoImageReason(cached.missingReason))
 }
 
 /**
@@ -262,11 +282,13 @@ function emptySyncAggregate() {
     dryRun: false,
     scannedItems: 0,
     alreadyCached: 0,
+    alreadyNoImage: 0,
     missingBeforeSync: 0,
     attempted: 0,
     downloaded: 0,
     saved: 0,
     failed: 0,
+    noImageInZoho: 0,
     stillMissing: 0,
     skippedDueToLimit: 0,
     batchesRun: 0,
@@ -285,6 +307,8 @@ function mergeSyncBatch(into, batch) {
   into.downloaded += batch.downloaded
   into.saved += batch.saved
   into.failed += batch.failed
+  into.noImageInZoho += batch.noImageInZoho || 0
+  into.alreadyNoImage = batch.alreadyNoImage ?? into.alreadyNoImage
   into.stillMissing += batch.stillMissing
   into.skippedDueToLimit = batch.skippedDueToLimit
   into.timingsMs.items += batch.timingsMs.items
@@ -339,7 +363,7 @@ async function processSyncItem(item, { force, dryRun }) {
     if (!dryRun && !errRow.rateLimited) {
       await inventoryItemImageStore.upsertInventoryItemImage(resolved, { forceReplaceImage: force })
     }
-    return { ok: false, itemId, sku, errRow, rateLimited: errRow.rateLimited }
+    return { ok: false, itemId, sku, errRow, rateLimited: errRow.rateLimited, resolved }
   } catch (err) {
     const rateLimited = isRateLimitFailure(null, err)
     return {
@@ -367,7 +391,7 @@ async function syncMissingInventoryImagesBatch(options = {}) {
   const concurrency = Math.max(1, Math.min(parseInt(String(options.concurrency || '1'), 10) || 1, 2))
   const staggerMs = Math.max(0, parseInt(String(options.staggerMs || '800'), 10) || 800)
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null
-  const progressOffset = options.progressOffset || { saved: 0, failed: 0, attempted: 0 }
+  const progressOffset = options.progressOffset || { saved: 0, failed: 0, noImageInZoho: 0, attempted: 0 }
 
   const timingsMs = { items: 0, cacheLookup: 0, imageFetch: 0, save: 0, total: 0 }
   const errors = []
@@ -382,6 +406,8 @@ async function syncMissingInventoryImagesBatch(options = {}) {
   let downloaded = 0
   let saved = 0
   let failed = 0
+  let noImageInZoho = 0
+  let alreadyNoImage = 0
   let stillMissing = 0
   let skippedDueToLimit = 0
 
@@ -447,8 +473,9 @@ async function syncMissingInventoryImagesBatch(options = {}) {
       const itemId = pickItemId(item)
       if (!itemId) continue
       const cached = cacheByItemId.get(itemId)
-      if (!force && isEffectivelyCached(cached)) {
-        alreadyCached += 1
+      if (!force && isSyncResolved(cached)) {
+        if (isEffectivelyCached(cached)) alreadyCached += 1
+        else alreadyNoImage += 1
         continue
       }
       candidates.push(item)
@@ -461,6 +488,7 @@ async function syncMissingInventoryImagesBatch(options = {}) {
     const tFetch = Date.now()
     let batchSaved = 0
     let batchFailed = 0
+    let batchNoImage = 0
     let batchDone = 0
     let haltBatch = false
     const outcomes = await mapPool(
@@ -491,11 +519,16 @@ async function syncMissingInventoryImagesBatch(options = {}) {
       } else {
         stillMissing += 1
         if (outcome.errRow) {
-          failed += 1
-          batchFailed += 1
-          errors.push(outcome.errRow)
-          if (sampleFailures.length < 10) {
-            sampleFailures.push(outcome.errRow)
+          if (isPermanentNoImageReason(outcome.resolved?.missingReason)) {
+            noImageInZoho += 1
+            batchNoImage += 1
+          } else {
+            failed += 1
+            batchFailed += 1
+            errors.push(outcome.errRow)
+            if (sampleFailures.length < 10) {
+              sampleFailures.push(outcome.errRow)
+            }
           }
         }
       }
@@ -506,6 +539,7 @@ async function syncMissingInventoryImagesBatch(options = {}) {
             ? 'Zoho rate limited — pausing sync (wait ~15 min, then retry)'
             : 'Downloading images from Zoho…',
           saved: progressOffset.saved + batchSaved,
+          noImageInZoho: (progressOffset.noImageInZoho || 0) + batchNoImage,
           failed: progressOffset.failed + batchFailed,
           attempted: progressOffset.attempted + batchDone,
           remaining: skippedDueToLimit + (batch.length - batchDone),
@@ -534,6 +568,8 @@ async function syncMissingInventoryImagesBatch(options = {}) {
       downloaded,
       saved,
       failed,
+      noImageInZoho,
+      alreadyNoImage,
       stillMissing,
       skippedDueToLimit,
       rateLimitPaused: haltBatch,
@@ -565,7 +601,7 @@ async function syncMissingInventoryImages(options = {}) {
   aggregate.mode = options.force ? 'force_refetch_all' : 'missing_all'
   aggregate.dryRun = options.dryRun === true || options.dryRun === 'true' || options.dryRun === '1'
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null
-  const progressOffset = { saved: 0, failed: 0, attempted: 0 }
+  const progressOffset = { saved: 0, failed: 0, noImageInZoho: 0, attempted: 0 }
 
   for (let batchNo = 0; batchNo < maxBatches; batchNo += 1) {
     if (Date.now() - started > maxDurationMs) {
@@ -582,11 +618,13 @@ async function syncMissingInventoryImages(options = {}) {
     mergeSyncBatch(aggregate, batch)
     progressOffset.saved = aggregate.saved
     progressOffset.failed = aggregate.failed
+    progressOffset.noImageInZoho = aggregate.noImageInZoho
     progressOffset.attempted = aggregate.attempted
     if (onProgress) {
       onProgress({
         step: `Batch ${batchNo + 1} complete`,
         saved: aggregate.saved,
+        noImageInZoho: aggregate.noImageInZoho,
         failed: aggregate.failed,
         attempted: aggregate.attempted,
         remaining: batch.skippedDueToLimit,
@@ -688,13 +726,14 @@ async function getInventoryImageCacheStatus(activeItemCount = null) {
   if (totalActive < dbTracked) {
     totalActive = dbTracked
   }
-  const missingImages = Math.max(0, totalActive - status.cachedImages)
+  const missingImages = Math.max(0, totalActive - status.cachedImages - (status.noImageInZoho || 0))
   const rawCoverage = totalActive > 0 ? (status.cachedImages / totalActive) * 100 : 0
   return {
     ...status,
     totalActiveItems: totalActive,
     missingImages,
     failedCacheRows: status.missingImages,
+    noImageInZoho: status.noImageInZoho || 0,
     cacheCoveragePercent:
       totalActive > 0 ? Math.round(Math.min(100, rawCoverage) * 10) / 10 : status.cacheCoveragePercent,
   }

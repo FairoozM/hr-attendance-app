@@ -77,6 +77,7 @@ function startImageSyncJob(options = {}) {
           job.progress = {
             step: p.step || job.progress.step,
             saved: p.saved ?? job.progress.saved,
+            noImageInZoho: p.noImageInZoho ?? job.progress.noImageInZoho ?? 0,
             failed: p.failed ?? job.progress.failed,
             attempted: p.attempted ?? job.progress.attempted,
             remaining: p.remaining ?? job.progress.remaining,

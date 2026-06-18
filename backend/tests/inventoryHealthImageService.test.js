@@ -218,7 +218,7 @@ test('syncMissingInventoryImages downloads via /image endpoint without list meta
   restoreClient()
 })
 
-test('syncMissingInventoryImages retries rows marked missing but skips permanent cache', async () => {
+test('syncMissingInventoryImages skips rows already marked as no image in Zoho', async () => {
   fs.mkdirSync(UPLOAD_ROOT, { recursive: true })
   fs.writeFileSync(path.join(UPLOAD_ROOT, '1001.jpg'), Buffer.from('cached'))
 
@@ -230,7 +230,7 @@ test('syncMissingInventoryImages retries rows marked missing but skips permanent
     getAllCachedByItemId: async () =>
       new Map([
         ['1001', { itemId: '1001', imageUrl: '/uploads/inventory-item-images/1001.jpg', missingReason: null }],
-        ['1002', { itemId: '1002', imageUrl: null, missingReason: 'no_image_metadata' }],
+        ['1002', { itemId: '1002', imageUrl: null, missingReason: 'no_image_on_zoho_endpoint' }],
       ]),
     upsertInventoryItemImage: async () => {},
   })
@@ -256,8 +256,9 @@ test('syncMissingInventoryImages retries rows marked missing but skips permanent
   const result = await svc.syncMissingInventoryImages({ force: false, limit: 100 })
 
   assert.equal(result.alreadyCached, 1)
-  assert.equal(result.attempted, 1)
-  assert.equal(fetchImageCalls, 1)
+  assert.equal(result.alreadyNoImage, 1)
+  assert.equal(result.attempted, 0)
+  assert.equal(fetchImageCalls, 0)
 
   restoreStorage()
   restoreStore()

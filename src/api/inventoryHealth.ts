@@ -159,6 +159,7 @@ export interface InventoryHealthImageCacheStatus {
   totalActiveItems: number | null
   cachedImages: number
   missingImages: number
+  noImageInZoho?: number
   cacheCoveragePercent: number
   lastSyncAt: string | null
   sampleMissing: Array<{
@@ -180,6 +181,7 @@ export interface InventoryHealthImageSyncResult {
   downloaded: number
   saved: number
   failed: number
+  noImageInZoho?: number
   stillMissing: number
   skippedDueToLimit: number
   batchesRun?: number
@@ -222,6 +224,7 @@ export interface InventoryHealthImageSyncJob {
     step: string
     saved: number
     failed: number
+    noImageInZoho?: number
     attempted: number
     remaining: number
     alreadyCached: number

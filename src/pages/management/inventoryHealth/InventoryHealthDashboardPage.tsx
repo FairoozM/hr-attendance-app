@@ -396,8 +396,9 @@ export function InventoryHealthDashboardPage() {
               ? 'Zoho rate limited — wait ~15 min, then click Sync again. '
               : '') +
               `${p.step} — ${p.saved} saved` +
-              `${p.failed > 0 && !p.rateLimitPaused ? `, ${p.failed} failed` : ''}` +
-              `${p.remaining > 0 ? `, ~${p.remaining} left` : ''}`,
+              `${(p.noImageInZoho ?? 0) > 0 ? `, ${p.noImageInZoho} no image in Zoho` : ''}` +
+              `${p.failed > 0 && !p.rateLimitPaused ? `, ${p.failed} errors` : ''}` +
+              `${p.remaining > 0 ? `, ~${p.remaining} left this batch` : ''}`,
           )
           setLastImageSyncStats({
             downloaded: p.saved,
@@ -413,9 +414,6 @@ export function InventoryHealthDashboardPage() {
           if (job.status === 'completed' || job.status === 'failed') {
             stopImageSyncPoll()
             setImageSyncing(false)
-            if (job.status === 'completed') {
-              void playSyncCompleteBeep()
-            }
             if (job.status === 'failed') {
               setImageSyncMessage(job.error || 'Image sync failed')
             } else if (job.result?.rateLimitPaused) {
@@ -425,13 +423,19 @@ export function InventoryHealthDashboardPage() {
             } else if (job.result && job.result.saved === 0 && (job.result.skippedDueToLimit ?? 0) > 0) {
               setImageSyncMessage(
                 `No new images saved this run (~${job.result.skippedDueToLimit.toLocaleString()} still need sync` +
-                  `${job.result.failed > 0 ? `, ${job.result.failed} failed` : ''}). Click Sync again.`,
+                  `${(job.result.noImageInZoho ?? 0) > 0 ? `, ${job.result.noImageInZoho} confirmed no image in Zoho` : ''}` +
+                  `${job.result.failed > 0 ? `, ${job.result.failed} errors` : ''}). Click Sync again.`,
               )
             } else if (job.result) {
               setImageSyncMessage(
-                `Done — ${job.result.saved} saved, ${job.result.failed} failed` +
+                `Done — ${job.result.saved} saved` +
+                  `${(job.result.noImageInZoho ?? 0) > 0 ? `, ${job.result.noImageInZoho} no image in Zoho (skipped next time)` : ''}` +
+                  `${job.result.failed > 0 ? `, ${job.result.failed} errors` : ''}` +
                   `${job.result.skippedDueToLimit > 0 ? `, ${job.result.skippedDueToLimit.toLocaleString()} still queued` : ''}.`,
               )
+            }
+            if (job.status === 'completed') {
+              playSyncCompleteBeep()
             }
             await loadImageStatus()
             void loadVisibleRowImages(visibleItemIdsRef.current)
@@ -560,6 +564,9 @@ export function InventoryHealthDashboardPage() {
               {(imageStatus.totalActiveItems ?? 0).toLocaleString()} active items
             </span>
             <span>Still need sync: {imageStatus.missingImages.toLocaleString()}</span>
+            {(imageStatus.noImageInZoho ?? 0) > 0 ? (
+              <span>No image in Zoho: {(imageStatus.noImageInZoho ?? 0).toLocaleString()}</span>
+            ) : null}
             <span>Coverage: {imageStatus.cacheCoveragePercent}%</span>
             <span>Last sync: {formatDateTime(imageStatus.lastSyncAt)}</span>
             {lastImageSyncStats ? (

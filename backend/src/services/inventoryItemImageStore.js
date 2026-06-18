@@ -187,17 +187,31 @@ async function getImageCacheStatus({ sampleMissingLimit = 10 } = {}) {
           AND image_url LIKE '/uploads/inventory-item-images/%'
       ) AS cached_images,
       COUNT(*) FILTER (
-        WHERE image_url IS NULL
-          OR image_url = ''
-          OR image_url NOT LIKE '/uploads/inventory-item-images/%'
+        WHERE (image_url IS NULL OR image_url = '' OR image_url NOT LIKE '/uploads/inventory-item-images/%')
+          AND missing_reason IN (
+            'no_image_on_zoho_endpoint',
+            'zoho_image_not_found',
+            'no_image_metadata',
+            'no_list_image_metadata'
+          )
+      ) AS no_image_in_zoho,
+      COUNT(*) FILTER (
+        WHERE (image_url IS NULL OR image_url = '' OR image_url NOT LIKE '/uploads/inventory-item-images/%')
+          AND (missing_reason IS NULL OR missing_reason NOT IN (
+            'no_image_on_zoho_endpoint',
+            'zoho_image_not_found',
+            'no_image_metadata',
+            'no_list_image_metadata'
+          ))
       ) AS missing_images,
       MAX(last_checked_at) AS last_sync_at
     FROM inventory_item_images
   `)
   const row = stats.rows[0] || {}
   const cachedImages = Number(row.cached_images) || 0
+  const noImageInZoho = Number(row.no_image_in_zoho) || 0
   const missingImages = Number(row.missing_images) || 0
-  const totalCachedRows = cachedImages + missingImages
+  const totalCachedRows = cachedImages + noImageInZoho + missingImages
 
   const sampleRes = await query(
     `SELECT item_id, sku, item_name, missing_reason
@@ -211,6 +225,7 @@ async function getImageCacheStatus({ sampleMissingLimit = 10 } = {}) {
   return {
     totalActiveItems: null,
     cachedImages,
+    noImageInZoho,
     missingImages,
     cacheCoveragePercent: totalCachedRows > 0 ? Math.round((cachedImages / totalCachedRows) * 1000) / 10 : 0,
     lastSyncAt: row.last_sync_at ? new Date(row.last_sync_at).toISOString() : null,
