@@ -67,6 +67,8 @@ test('attachImageFieldsToRows reads permanent imageUrl from cache only', async (
     }),
   })
 
+  const restoreHealth = mockHealthCacheFallback()
+
   const restoreAdapter = mockModule('../src/integrations/zoho/zohoAdapter', {
     fetchAllItemsRaw: async () => [baseItem()],
     fetchItemsRawForWarehouse: async () => [],
@@ -99,6 +101,16 @@ test('attachImageFieldsToRows reads permanent imageUrl from cache only', async (
   restoreConfig()
 })
 
+function mockHealthCacheFallback() {
+  return mockModule('../src/services/inventoryHealthService', {
+    loadInventoryHealthBase: async () => {
+      const err = new Error('cache miss in test')
+      err.code = 'TEST_CACHE_MISS'
+      throw err
+    },
+  })
+}
+
 test('syncMissingInventoryImages fetches only missing when force=false', async () => {
   fs.mkdirSync(UPLOAD_ROOT, { recursive: true })
   fs.writeFileSync(path.join(UPLOAD_ROOT, '1001.jpg'), Buffer.from('cached'))
@@ -124,6 +136,8 @@ test('syncMissingInventoryImages fetches only missing when force=false', async (
       upserts.push(row)
     },
   })
+
+  const restoreHealth = mockHealthCacheFallback()
 
   const restoreAdapter = mockModule('../src/integrations/zoho/zohoAdapter', {
     fetchAllItemsRaw: async () => [
@@ -157,6 +171,48 @@ test('syncMissingInventoryImages fetches only missing when force=false', async (
 
   restoreStorage()
   restoreStore()
+  restoreHealth()
+  restoreAdapter()
+  restoreClient()
+})
+
+test('syncMissingInventoryImages downloads via /image endpoint without list metadata', async () => {
+  const upserts = []
+
+  const restoreStorage = mockStorage()
+  const restoreStore = mockModule('../src/services/inventoryItemImageStore', {
+    getAllCachedByItemId: async () => new Map(),
+    upsertInventoryItemImage: async (row) => {
+      upserts.push(row)
+    },
+  })
+  const restoreHealth = mockHealthCacheFallback()
+  const restoreAdapter = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchAllItemsRaw: async () => [
+      baseItem({ item_id: '1002', sku: 'NO-META', image_document_id: '', image_name: '' }),
+    ],
+  })
+  const restoreClient = mockModule('../src/integrations/zoho/zohoInventoryClient', {
+    fetchZohoItemImageBuffer: async (itemId) => {
+      assert.equal(itemId, '1002')
+      return { buffer: Buffer.from('jpeg-bytes'), contentType: 'image/jpeg' }
+    },
+    fetchItemById: async () => {
+      throw new Error('fetchItemById should not be called')
+    },
+  })
+
+  const svc = freshRequire('../src/services/inventoryHealthImageService')
+  const result = await svc.syncMissingInventoryImages({ force: false, limit: 10 })
+
+  assert.equal(result.saved, 1)
+  assert.equal(upserts.length, 1)
+  assert.equal(upserts[0].itemId, '1002')
+  assert.equal(upserts[0].imageSource, 'zoho_downloaded_cached')
+
+  restoreStorage()
+  restoreStore()
+  restoreHealth()
   restoreAdapter()
   restoreClient()
 })
@@ -177,6 +233,8 @@ test('syncMissingInventoryImages retries rows marked missing but skips permanent
       ]),
     upsertInventoryItemImage: async () => {},
   })
+
+  const restoreHealth = mockHealthCacheFallback()
 
   const restoreAdapter = mockModule('../src/integrations/zoho/zohoAdapter', {
     fetchAllItemsRaw: async () => [
@@ -202,6 +260,7 @@ test('syncMissingInventoryImages retries rows marked missing but skips permanent
 
   restoreStorage()
   restoreStore()
+  restoreHealth()
   restoreAdapter()
   restoreClient()
 })
@@ -229,6 +288,8 @@ test('syncMissingInventoryImages re-downloads legacy proxy cache rows', async ()
     },
   })
 
+  const restoreHealth = mockHealthCacheFallback()
+
   const restoreAdapter = mockModule('../src/integrations/zoho/zohoAdapter', {
     fetchAllItemsRaw: async () => [baseItem({ item_id: '1001' })],
   })
@@ -248,6 +309,7 @@ test('syncMissingInventoryImages re-downloads legacy proxy cache rows', async ()
 
   restoreStorage()
   restoreStore()
+  restoreHealth()
   restoreAdapter()
   restoreClient()
 })
@@ -263,6 +325,8 @@ test('syncMissingInventoryImages respects limit', async () => {
       attemptedIds.push(row.itemId)
     },
   })
+
+  const restoreHealth = mockHealthCacheFallback()
 
   const restoreAdapter = mockModule('../src/integrations/zoho/zohoAdapter', {
     fetchAllItemsRaw: async () => [
@@ -286,6 +350,7 @@ test('syncMissingInventoryImages respects limit', async () => {
 
   restoreStorage()
   restoreStore()
+  restoreHealth()
   restoreAdapter()
   restoreClient()
 })
@@ -312,6 +377,8 @@ test('syncMissingInventoryImages allows refetch when force=true', async () => {
     fetchItemById: async () => ({}),
   })
 
+  const restoreHealth = mockHealthCacheFallback()
+
   const restoreAdapter = mockModule('../src/integrations/zoho/zohoAdapter', {
     fetchAllItemsRaw: async () => [baseItem({ item_id: '1001' })],
   })
@@ -325,6 +392,7 @@ test('syncMissingInventoryImages allows refetch when force=true', async () => {
 
   restoreStorage()
   restoreStore()
+  restoreHealth()
   restoreAdapter()
   restoreClient()
 })

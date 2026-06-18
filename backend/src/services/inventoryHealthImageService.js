@@ -4,6 +4,7 @@
  */
 
 const { fetchAllItemsRaw } = require('../integrations/zoho/zohoAdapter')
+const inventoryHealthService = require('./inventoryHealthService')
 const {
   fetchZohoItemImageBuffer,
   fetchItemById,
@@ -145,11 +146,16 @@ function isEffectivelyCached(cached) {
   return inventoryItemImageStorage.fileExistsForPublicUrl(cached.imageUrl)
 }
 
-async function resolveImageForItem(item, { allowDetail = false, forceReplace = false } = {}) {
+/**
+ * Download via GET /items/{id}/image — does not require image_* fields in list/detail JSON.
+ */
+async function resolveImageForItem(item, { forceReplace = false } = {}) {
   const itemId = pickItemId(item)
   const sku = pickSku(item)
   const itemName = pickItemName(item)
   const base = { itemId, sku, itemName }
+  const listRef = extractImageReference(item)
+  const imageSource = listRef ? 'zoho_list_metadata' : 'zoho_direct_image_endpoint'
 
   if (!itemId) {
     return {
@@ -161,52 +167,21 @@ async function resolveImageForItem(item, { allowDetail = false, forceReplace = f
     }
   }
 
-  let sourceItem = item
-  let imageSource = 'zoho_list_metadata'
-  let ref = extractImageReference(sourceItem)
-
-  if (!ref && allowDetail) {
-    try {
-      sourceItem = await fetchItemById(itemId, { source: 'inventory_health_image_sync' })
-      ref = extractImageReference(sourceItem)
-      if (ref) imageSource = 'zoho_item_detail'
-    } catch (err) {
-      return {
-        ...base,
-        imageUrl: null,
-        imageSource: 'zoho_item_detail',
-        missingReason: `item_detail_error:${err?.message || 'unknown'}`,
-        stage: 'detail_fetch',
-        status: err?.httpStatus || null,
-      }
-    }
-  }
-
-  if (!ref) {
-    return {
-      ...base,
-      imageUrl: null,
-      imageSource: imageSource === 'zoho_item_detail' ? 'zoho_item_detail' : 'none',
-      missingReason: allowDetail ? 'no_image_metadata' : 'no_list_image_metadata',
-      stage: allowDetail ? 'no_image_metadata' : 'no_list_metadata',
-    }
-  }
-
   try {
+    if (forceReplace) {
+      await inventoryItemImageStorage.deleteInventoryItemImageFiles(itemId)
+    }
+
     const image = await fetchZohoItemImageBuffer(itemId)
-    if (!image || !image.buffer) {
+    if (!image || !image.buffer || image.buffer.length === 0) {
       return {
         ...base,
         imageUrl: null,
         imageSource,
-        missingReason: 'zoho_image_not_found',
+        missingReason: listRef ? 'zoho_image_not_found' : 'no_image_on_zoho_endpoint',
         stage: 'zoho_download',
         status: 404,
       }
-    }
-
-    if (forceReplace) {
-      await inventoryItemImageStorage.deleteInventoryItemImageFiles(itemId)
     }
 
     const stored = await inventoryItemImageStorage.saveInventoryItemImage(itemId, image.buffer, image.contentType)
@@ -231,6 +206,32 @@ async function resolveImageForItem(item, { allowDetail = false, forceReplace = f
       status,
       contentType: null,
     }
+  }
+}
+
+/** Reuse inventory-health Zoho cache when warm — avoid a second full items fetch per sync batch. */
+async function loadActiveItemsForSync() {
+  try {
+    const base = await inventoryHealthService.loadInventoryHealthBase({ refresh: false })
+    const fromRows = (base?.rows || [])
+      .filter((r) => r && r.itemId)
+      .map((r) => ({
+        item_id: String(r.itemId).trim(),
+        sku: r.sku,
+        name: r.itemName,
+        status: 'active',
+      }))
+    if (fromRows.length > 0) {
+      return { items: fromRows, source: 'inventory_health_cache' }
+    }
+  } catch (err) {
+    console.warn('[inventory-health-images] inventory health cache unavailable:', err?.message || err)
+  }
+
+  const rawItems = await fetchAllItemsRaw()
+  return {
+    items: (rawItems || []).filter(isActiveZohoItem),
+    source: 'zoho_fetch_all_items',
   }
 }
 
@@ -306,8 +307,7 @@ async function processSyncItem(item, { force, dryRun }) {
   const itemId = pickItemId(item)
   const sku = pickSku(item)
   try {
-    const listRef = extractImageReference(item)
-    const resolved = await resolveImageForItem(item, { allowDetail: !listRef, forceReplace: force })
+    const resolved = await resolveImageForItem(item, { forceReplace: force })
     if (resolved.imageUrl) {
       if (!dryRun) {
         await inventoryItemImageStore.upsertInventoryItemImage(resolved, { forceReplaceImage: force })
@@ -417,11 +417,26 @@ async function syncMissingInventoryImagesBatch(options = {}) {
     }
 
     const tItems = Date.now()
-    const rawItems = await fetchAllItemsRaw()
-    const activeItems = (rawItems || []).filter(isActiveZohoItem)
+    const loaded = await loadActiveItemsForSync()
+    const activeItems = loaded.items || []
     scannedItems = activeItems.length
     timingsMs.items = Date.now() - tItems
     logListItemImageSample(activeItems, 5)
+
+    if (onProgress) {
+      onProgress({
+        step:
+          loaded.source === 'inventory_health_cache'
+            ? 'Using cached item list — downloading images…'
+            : 'Loaded Zoho item list — downloading images…',
+        saved: progressOffset.saved,
+        failed: progressOffset.failed,
+        attempted: progressOffset.attempted,
+        remaining: 0,
+        alreadyCached: 0,
+        scannedItems,
+      })
+    }
 
     const tCache = Date.now()
     const cacheByItemId = await inventoryItemImageStore.getAllCachedByItemId()
@@ -485,7 +500,7 @@ async function syncMissingInventoryImagesBatch(options = {}) {
         }
       }
       batchDone += 1
-      if (onProgress && (batchDone % 4 === 0 || batchDone === batch.length)) {
+      if (onProgress && (batchDone % 1 === 0 || batchDone === batch.length)) {
         onProgress({
           step: haltBatch
             ? 'Zoho rate limited — pausing sync (wait ~15 min, then retry)'
@@ -639,8 +654,7 @@ async function syncOneInventoryImage({ itemId, sku, force = false } = {}) {
     }
   }
 
-  const listRef = extractImageReference(item)
-  const resolved = await resolveImageForItem(item, { allowDetail: !listRef, forceReplace: force })
+  const resolved = await resolveImageForItem(item, { forceReplace: force })
   await inventoryItemImageStore.upsertInventoryItemImage(resolved, { forceReplaceImage: force })
 
   return {
@@ -655,11 +669,17 @@ async function getInventoryImageCacheStatus(activeItemCount = null) {
   let totalActive = activeItemCount != null && activeItemCount > 0 ? activeItemCount : null
   if (totalActive == null) {
     try {
-      const raw = await fetchAllItemsRaw()
-      totalActive = (raw || []).filter(isActiveZohoItem).length
+      const base = await inventoryHealthService.loadInventoryHealthBase({ refresh: false })
+      totalActive =
+        base?.debug?.activeItemsFetched ||
+        (Array.isArray(base?.rows) ? base.rows.length : 0) ||
+        null
     } catch {
-      totalActive = status.cachedImages + status.missingImages
+      totalActive = null
     }
+  }
+  if (totalActive == null) {
+    totalActive = Math.max(status.cachedImages + status.missingImages, 0)
   }
   const missingImages = Math.max(0, totalActive - status.cachedImages)
   return {

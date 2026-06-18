@@ -532,7 +532,7 @@ export function InventoryHealthDashboardPage() {
           ) : imageStatus.missingImages > 0 ? (
             <div className="ih-image-status-hint">
               {imageStatus.missingImages.toLocaleString()} images still need sync. Click{' '}
-              <strong>Sync next 20 images</strong> — one batch at a time to avoid Zoho rate limits (~15 min lockout).
+              <strong>Sync next 20 images</strong> — downloads directly from Zoho (one batch; repeat to continue).
             </div>
           ) : null}
         </div>
