@@ -29,6 +29,7 @@ import {
   sortInventoryHealthRows,
 } from './inventoryHealthClientFilters'
 import { InventoryHealthItemThumb } from './InventoryHealthItemThumb'
+import { playSyncCompleteBeep, primeSyncCompleteBeep } from '../../../lib/playCompletionBeep'
 import '../../Page.css'
 import './InventoryHealthDashboardPage.css'
 
@@ -412,6 +413,9 @@ export function InventoryHealthDashboardPage() {
           if (job.status === 'completed' || job.status === 'failed') {
             stopImageSyncPoll()
             setImageSyncing(false)
+            if (job.status === 'completed') {
+              void playSyncCompleteBeep()
+            }
             if (job.status === 'failed') {
               setImageSyncMessage(job.error || 'Image sync failed')
             } else if (job.result?.rateLimitPaused) {
@@ -461,6 +465,7 @@ export function InventoryHealthDashboardPage() {
   }, [pollImageSyncJob, stopImageSyncPoll])
 
   const handleSyncMissingImages = useCallback(async () => {
+    primeSyncCompleteBeep()
     setImageSyncing(true)
     setImageSyncMessage('Starting safe batch (20 images, 1 at a time)…')
     try {
