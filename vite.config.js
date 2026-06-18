@@ -61,11 +61,13 @@ export default defineConfig({
   server: {
     proxy: {
       '^/api(?:/|$)': attendanceApiProxy(),
+      '^/uploads(?:/|$)': attendanceApiProxy(),
     },
   },
   preview: {
     proxy: {
       '^/api(?:/|$)': attendanceApiProxy(),
+      '^/uploads(?:/|$)': attendanceApiProxy(),
     },
   },
 })

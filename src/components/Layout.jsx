@@ -671,7 +671,9 @@ export function Layout() {
     if (location.pathname.startsWith('/influencers')) return 'Influencers'
     if (location.pathname.startsWith('/account')) return 'My Account'
     if (location.pathname.startsWith('/management/amazon-payment-clearing')) return 'Amazon KSA Payment Clearing'
+    if (location.pathname.startsWith('/management/amazon-return-reconciliation')) return 'Amazon Return Reconciliation'
     if (location.pathname.startsWith('/management/purchase-planning')) return 'Purchase Planning'
+    if (location.pathname.startsWith('/management/inventory-health')) return 'Inventory Health'
     if (location.pathname.startsWith('/management/payments')) return 'Company payments'
     if (location.pathname.startsWith('/prices/all-prices-ksa')) return 'All Prices (KSA)'
     if (location.pathname.startsWith('/prices/all-prices')) return 'All Prices (UAE)'
@@ -798,7 +800,9 @@ export function Layout() {
     can('document_expiry', 'view') && { label: 'Document Expiry Tracker', to: '/management/document-expiry' },
     can('company_payments', 'view') && { label: 'Payments', to: '/management/payments' },
     isAdmin && { label: 'Purchase Planning', to: '/management/purchase-planning' },
+    isAdmin && { label: 'Inventory Health', to: '/management/inventory-health' },
     isAdmin && { label: 'Amazon KSA Payment Clearing', to: '/management/amazon-payment-clearing' },
+    isAdmin && { label: 'Amazon Return Reconciliation', to: '/management/amazon-return-reconciliation' },
   ].filter(Boolean)
 
   const isTaxationActive = location.pathname.startsWith('/taxation')
@@ -911,6 +915,8 @@ export function Layout() {
           ? 'purchase planning low stock vigil csv wholesale replenishment zoho purchase order po'
           : i.to === '/management/amazon-payment-clearing'
             ? 'amazon ksa payment clearing settlement report zoho invoice match payout fees preview sar'
+          : i.to === '/management/amazon-return-reconciliation'
+            ? 'amazon return reconciliation removal order fnsku labels cartons qty agent report ksa'
           : i.to === '/management/payments'
           ? 'company payments asad main shop expense salary vat bill subscription supplier'
           : i.to === '/management/document-expiry'

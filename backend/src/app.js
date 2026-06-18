@@ -30,6 +30,7 @@ const listingBatchesRoutes = require('./routes/listingBatches.routes')
 const inventoryRoutes = require('./routes/inventory.routes')
 const noonRoutes = require('./routes/noonRoutes')
 const skuChannelCoverageRoutes = require('./routes/skuChannelCoverage.routes')
+const amazonReturnReconciliationRoutes = require('./routes/amazonReturnReconciliation.routes')
 
 const app = express()
 
@@ -53,6 +54,16 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' })
 })
 
+const inventoryItemImageStorage = require('./services/inventoryItemImageStorage')
+inventoryItemImageStorage.ensureUploadDir()
+app.use(
+  '/uploads/inventory-item-images',
+  express.static(inventoryItemImageStorage.UPLOAD_ROOT, {
+    maxAge: '365d',
+    immutable: true,
+  }),
+)
+
 // ── Integration webhooks — mounted BEFORE express.json() so the GitHub route
 //    can capture the raw body Buffer needed for HMAC SHA-256 verification.
 //    The route itself applies express.raw({ type: 'application/json' }) locally.
@@ -63,6 +74,8 @@ app.use(express.json({ limit: '10mb' }))
 
 // Auth router — POST /api/auth/login, POST /api/auth/logout, GET /api/auth/me, …
 app.use('/api/auth', authRouter)
+
+app.use('/api/public/amazon-return-reconciliation', amazonReturnReconciliationRoutes.publicRouter)
 
 app.use('/api/user-preferences', authMiddleware.attachAuth, userPreferencesRoutes)
 
@@ -95,6 +108,7 @@ app.use('/api/noon', authMiddleware.attachAuth, noonRoutes)
 app.use('/api/inventory', authMiddleware.attachAuth, inventoryRoutes)
 app.use('/api/sku-coverage', authMiddleware.attachAuth, skuChannelCoverageRoutes)
 app.use('/api/listings', authMiddleware.attachAuth, listingBatchesRoutes)
+app.use('/api/amazon-return-reconciliation', authMiddleware.attachAuth, amazonReturnReconciliationRoutes.adminRouter)
 // TEMPORARY — Zoho debug (remove when stable)
 app.use('/api/debug', authMiddleware.attachAuth, debugRoutes)
 

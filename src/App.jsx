@@ -58,6 +58,8 @@ import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
 import { PaymentsPage as CompanyPaymentsPage } from './pages/management/PaymentsPage'
 import { PurchasePlanningPage } from './pages/management/PurchasePlanningPage'
 import { AmazonPaymentClearingPage } from './pages/management/amazonPaymentClearing/AmazonPaymentClearingPage'
+import { AmazonReturnReconciliationPage } from './pages/management/amazonReturnReconciliation/AmazonReturnReconciliationPage'
+import { InventoryHealthDashboardPage } from './pages/management/inventoryHealth/InventoryHealthDashboardPage'
 import { AllPricesPage } from './pages/management/AllPricesPage'
 import { KsaPricingPage } from './pages/management/ksaPricing/KsaPricingPage'
 import { DuplicatePriceCleanupPage } from './pages/management/DuplicatePriceCleanupPage'
@@ -109,6 +111,7 @@ import { AmazonZohoStockPage } from './pages/AmazonZohoStockPage'
 import { SkuChannelCoveragePage } from './pages/SkuChannelCoveragePage'
 import { AmazonOutOfStockClearancePage } from './pages/AmazonOutOfStockClearancePage'
 import { AmazonFlatFileBulkGenerator } from './pages/AmazonFlatFileBulkGenerator'
+import { AmazonReturnReportPage } from './pages/agent/AmazonReturnReportPage'
 import NoonIntegrationPage from './pages/NoonIntegrationPage'
 import { ListingBatchesPage } from './pages/ListingBatchesPage'
 import { AiBudgetSettingsPage } from './pages/admin/AiBudgetSettingsPage'
@@ -138,6 +141,7 @@ function AppContent() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/agent/amazon-return-report/:publicToken" element={<AmazonReturnReportPage />} />
       <Route
         path="/"
         element={
@@ -224,6 +228,22 @@ function AppContent() {
           element={
             <AdminOnly>
               <AmazonPaymentClearingPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="management/amazon-return-reconciliation"
+          element={
+            <AdminOnly>
+              <AmazonReturnReconciliationPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="management/inventory-health"
+          element={
+            <AdminOnly>
+              <InventoryHealthDashboardPage />
             </AdminOnly>
           }
         />

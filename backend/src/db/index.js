@@ -1097,6 +1097,18 @@ async function testConnection() {
     console.error('[db] ensureAmazonPaymentClearingTables skipped/failed (non-fatal):', e.message || e)
   }
   try {
+    const { ensureAmazonReturnReconciliationTables } = require('../services/amazonReturnReconciliationService')
+    await ensureAmazonReturnReconciliationTables()
+  } catch (e) {
+    console.error('[db] ensureAmazonReturnReconciliationTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    const { ensureInventoryItemImageTables } = require('../services/inventoryItemImageStore')
+    await ensureInventoryItemImageTables()
+  } catch (e) {
+    console.error('[db] ensureInventoryItemImageTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
     const { ensureCompositeItemsPriceReportTables } = require('../services/compositeItemsPriceReportService')
     await ensureCompositeItemsPriceReportTables()
   } catch (e) {
