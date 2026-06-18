@@ -18,6 +18,14 @@ import {
   exportInventoryHealthPdf,
   exportInventoryHealthXlsx,
 } from './inventoryHealthExport'
+import {
+  applyInventoryHealthFilters,
+  buildFamilyMoneyFrozen,
+  buildInventoryHealthSummary,
+  INVENTORY_HEALTH_IMAGE_SYNC_BATCH,
+  INVENTORY_HEALTH_LOAD_QUERY,
+  sortInventoryHealthRows,
+} from './inventoryHealthClientFilters'
 import { InventoryHealthItemThumb } from './InventoryHealthItemThumb'
 import '../../Page.css'
 import './InventoryHealthDashboardPage.css'
@@ -202,19 +210,35 @@ export function InventoryHealthDashboardPage() {
 
   const queryParams = useMemo(() => ({ ...filters }), [filters])
 
+  const allRows = data?.rows || []
+
+  const displayRows = useMemo(() => {
+    const filtered = applyInventoryHealthFilters(allRows, filters)
+    return sortInventoryHealthRows(filtered, filters.sortBy, filters.sortDirection)
+  }, [allRows, filters])
+
+  const summary = useMemo(() => {
+    if (!data?.summary) return null
+    return buildInventoryHealthSummary(displayRows, {
+      generatedAt: data.summary.generatedAt,
+      cacheStatus: data.summary.cacheStatus,
+      warnings: data.summary.warnings,
+    })
+  }, [data?.summary, displayRows])
+
   const selected = useMemo(() => {
-    if (!selectedSku || !data?.rows?.length) return null
-    return data.rows.find((r) => r.sku === selectedSku) || null
-  }, [data?.rows, selectedSku])
+    if (!selectedSku || !displayRows.length) return null
+    return displayRows.find((r) => r.sku === selectedSku) || null
+  }, [displayRows, selectedSku])
 
   const sortedFamilies = useMemo(() => {
-    const families = data?.familyMoneyFrozen || []
+    const families = buildFamilyMoneyFrozen(displayRows)
     return [...families].sort((a, b) => (b.deadStockValue || 0) - (a.deadStockValue || 0))
-  }, [data?.familyMoneyFrozen])
+  }, [displayRows])
 
   const skuPagination = useMemo(
-    () => paginate(data?.rows || [], skuPage, SKU_PAGE_SIZE),
-    [data?.rows, skuPage],
+    () => paginate(displayRows, skuPage, SKU_PAGE_SIZE),
+    [displayRows, skuPage],
   )
 
   const familyPagination = useMemo(
@@ -229,8 +253,8 @@ export function InventoryHealthDashboardPage() {
     else setLoading(true)
     try {
       const result = opts?.refresh
-        ? await refreshInventoryHealth(queryParams)
-        : await fetchInventoryHealth(queryParams)
+        ? await refreshInventoryHealth(INVENTORY_HEALTH_LOAD_QUERY)
+        : await fetchInventoryHealth(INVENTORY_HEALTH_LOAD_QUERY)
       setData(result)
     } catch (err) {
       const body = err as { message?: string; debug?: InventoryHealthDebug }
@@ -242,7 +266,7 @@ export function InventoryHealthDashboardPage() {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [queryParams])
+  }, [])
 
   useEffect(() => {
     void load()
@@ -253,13 +277,12 @@ export function InventoryHealthDashboardPage() {
     setFamilyPage(1)
   }, [filters])
 
-  const summary = data?.summary
 
   const updateFilters = useCallback((updater: (prev: InventoryHealthQuery) => InventoryHealthQuery) => {
     setFilters(updater)
   }, [])
 
-  const exportRows = data?.rows || []
+  const exportRows = displayRows
   const canExport = !loading && exportRows.length > 0
   const exportBusy = exporting != null
 
@@ -343,7 +366,6 @@ export function InventoryHealthDashboardPage() {
           })
           if (p.saved > lastSyncedSavedRef.current) {
             lastSyncedSavedRef.current = p.saved
-            void load()
             void loadImageStatus()
           }
           if (job.status === 'completed' || job.status === 'failed') {
@@ -353,7 +375,7 @@ export function InventoryHealthDashboardPage() {
               setImageSyncMessage(job.error || 'Image sync failed')
             } else if (job.result?.rateLimitPaused) {
               setImageSyncMessage(
-                'Zoho rate limited — wait ~15 minutes, then click Sync all missing images again.',
+                'Zoho rate limited — wait ~15 minutes, then click Sync next 20 images again.',
               )
             } else if (job.result && job.result.saved === 0 && (job.result.skippedDueToLimit ?? 0) > 0) {
               setImageSyncMessage(
@@ -367,7 +389,9 @@ export function InventoryHealthDashboardPage() {
               )
             }
             await loadImageStatus()
-            await load()
+            if (job.status === 'completed') {
+              await load()
+            }
           }
         } catch (err) {
           stopImageSyncPoll()
@@ -399,9 +423,9 @@ export function InventoryHealthDashboardPage() {
 
   const handleSyncMissingImages = useCallback(async () => {
     setImageSyncing(true)
-    setImageSyncMessage('Starting background sync…')
+    setImageSyncMessage('Starting safe batch (20 images, 1 at a time)…')
     try {
-      const job = await startInventoryHealthImageSync({ limit: 50, concurrency: 2 })
+      const job = await startInventoryHealthImageSync(INVENTORY_HEALTH_IMAGE_SYNC_BATCH)
       pollImageSyncJob(job.jobId)
     } catch (err) {
       setImageSyncMessage(safeError(err))
@@ -416,7 +440,8 @@ export function InventoryHealthDashboardPage() {
           <h1>Inventory Health &amp; Dead Stock</h1>
           <p>
             Fast V1 view using Zoho stock and sales-by-item velocity only (no last-sold scan on load).
-            Highlights hidden slow movers inside otherwise normal families.
+            Highlights hidden slow movers inside otherwise normal families.{' '}
+            <strong>Zoho API:</strong> first load can take up to 3 min; image sync is 20 items per click only.
           </p>
         </div>
         <div className="ih-actions">
@@ -434,7 +459,7 @@ export function InventoryHealthDashboardPage() {
             disabled={imageSyncing || loading}
             onClick={() => void handleSyncMissingImages()}
           >
-            {imageSyncing ? 'Syncing all missing images…' : 'Sync all missing images'}
+            {imageSyncing ? 'Syncing batch…' : 'Sync next 20 images'}
           </button>
           <button
             type="button"
@@ -502,12 +527,12 @@ export function InventoryHealthDashboardPage() {
           </div>
           {imageStatus.cachedImages === 0 && imageStatus.missingImages === 0 ? (
             <div className="ih-image-status-hint">
-              No product images cached yet. Click <strong>Sync all missing images</strong> to download thumbnails from Zoho into permanent storage.
+              No product images cached yet. Click <strong>Sync next 20 images</strong> for one safe batch from Zoho (repeat after each batch completes).
             </div>
           ) : imageStatus.missingImages > 0 ? (
             <div className="ih-image-status-hint">
               {imageStatus.missingImages.toLocaleString()} images still need sync. Click{' '}
-              <strong>Sync all missing images</strong> (runs in background; may take several minutes).
+              <strong>Sync next 20 images</strong> — one batch at a time to avoid Zoho rate limits (~15 min lockout).
             </div>
           ) : null}
         </div>

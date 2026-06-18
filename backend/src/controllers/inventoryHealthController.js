@@ -1,4 +1,5 @@
 const inventoryHealthService = require('../services/inventoryHealthService')
+const { isSyncPaused } = require('../services/zohoApiClient')
 
 async function getInventoryHealth(req, res) {
   try {
@@ -44,6 +45,12 @@ async function exportInventoryHealthCsv(req, res) {
 
 async function postInventoryHealthRefresh(req, res) {
   try {
+    if (isSyncPaused()) {
+      return res.status(429).json({
+        error: 'Zoho API is paused after rate limiting (~15 min). Use cached data or wait before refreshing.',
+        code: 'ZOHO_SYNC_PAUSED',
+      })
+    }
     inventoryHealthService.clearInventoryHealthCache()
     const data = await inventoryHealthService.getInventoryHealthDashboard({
       ...(req.query || {}),

@@ -68,11 +68,11 @@ function startImageSyncJob(options = {}) {
     try {
       const result = await syncMissingInventoryImages({
         ...options,
-        all: options.all !== false,
-        limit: options.limit ?? 50,
-        concurrency: options.concurrency ?? 2,
-        staggerMs: options.staggerMs ?? 400,
-        maxBatches: options.maxBatches ?? 50,
+        all: options.all === true || options.all === 'true' || options.all === '1',
+        limit: options.limit ?? 20,
+        concurrency: options.concurrency ?? 1,
+        staggerMs: options.staggerMs ?? 800,
+        maxBatches: options.maxBatches ?? 1,
         onProgress: (p) => {
           job.progress = {
             step: p.step || job.progress.step,

@@ -122,16 +122,18 @@ function buildQuery(params: InventoryHealthQuery = {}) {
   return qs.toString()
 }
 
+const INVENTORY_HEALTH_TIMEOUT_MS = 180_000
+
 export async function fetchInventoryHealth(params: InventoryHealthQuery = {}) {
   const q = buildQuery(params)
   const path = q ? `/api/zoho/inventory-health?${q}` : '/api/zoho/inventory-health'
-  return api.get(path) as Promise<InventoryHealthDashboard>
+  return api.get(path, { timeoutMs: INVENTORY_HEALTH_TIMEOUT_MS }) as Promise<InventoryHealthDashboard>
 }
 
 export async function refreshInventoryHealth(params: InventoryHealthQuery = {}) {
   const q = buildQuery({ ...params, refresh: true })
   const path = q ? `/api/zoho/inventory-health/refresh?${q}` : '/api/zoho/inventory-health/refresh'
-  return api.post(path, {}) as Promise<InventoryHealthDashboard>
+  return api.post(path, {}, { timeoutMs: INVENTORY_HEALTH_TIMEOUT_MS }) as Promise<InventoryHealthDashboard>
 }
 
 export async function downloadInventoryHealthCsv(params: InventoryHealthQuery = {}) {
@@ -224,9 +226,9 @@ export async function startInventoryHealthImageSync(opts?: {
     {
       async: true,
       force: false,
-      all: opts?.all ?? true,
-      limit: opts?.limit ?? 50,
-      concurrency: opts?.concurrency ?? 2,
+      all: opts?.all ?? false,
+      limit: opts?.limit ?? 20,
+      concurrency: opts?.concurrency ?? 1,
       dryRun: false,
     },
     { timeoutMs: 15_000 },

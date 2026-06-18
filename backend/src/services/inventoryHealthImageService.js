@@ -363,9 +363,9 @@ async function processSyncItem(item, { force, dryRun }) {
 async function syncMissingInventoryImagesBatch(options = {}) {
   const force = options.force === true || options.force === 'true' || options.force === '1'
   const dryRun = options.dryRun === true || options.dryRun === 'true' || options.dryRun === '1'
-  const limit = Math.max(1, Math.min(parseInt(String(options.limit || '50'), 10) || 50, 100))
-  const concurrency = Math.max(1, Math.min(parseInt(String(options.concurrency || '2'), 10) || 2, 4))
-  const staggerMs = Math.max(0, parseInt(String(options.staggerMs || '400'), 10) || 400)
+  const limit = Math.max(1, Math.min(parseInt(String(options.limit || '20'), 10) || 20, 50))
+  const concurrency = Math.max(1, Math.min(parseInt(String(options.concurrency || '1'), 10) || 1, 2))
+  const staggerMs = Math.max(0, parseInt(String(options.staggerMs || '800'), 10) || 800)
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null
   const progressOffset = options.progressOffset || { saved: 0, failed: 0, attempted: 0 }
 

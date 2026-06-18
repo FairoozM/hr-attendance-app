@@ -1,5 +1,6 @@
 const inventoryHealthImageService = require('../services/inventoryHealthImageService')
 const imageSyncJobService = require('../services/inventoryHealthImageSyncJobService')
+const { isSyncPaused } = require('../services/zohoApiClient')
 
 function parseBool(value, defaultValue = false) {
   if (value == null || value === '') return defaultValue
@@ -50,10 +51,17 @@ async function postImageSync(req, res) {
     const q = req.query || {}
     const force = parseBool(body.force ?? q.force, false)
     const dryRun = parseBool(body.dryRun ?? q.dryRun, false)
-    const all = parseBool(body.all ?? q.all, true)
+    const all = parseBool(body.all ?? q.all, false)
     const asyncMode = parseBool(body.async ?? q.async, true)
-    const limit = parseLimit(body.limit ?? q.limit, 50)
-    const concurrency = Math.max(1, Math.min(parseInt(String(body.concurrency ?? q.concurrency ?? '2'), 10) || 2, 4))
+    const limit = parseLimit(body.limit ?? q.limit, 20)
+    const concurrency = Math.max(1, Math.min(parseInt(String(body.concurrency ?? q.concurrency ?? '1'), 10) || 1, 2))
+
+    if (isSyncPaused()) {
+      return res.status(429).json({
+        error: 'Zoho API is paused after rate limiting (~15 min). Wait before syncing images.',
+        code: 'ZOHO_SYNC_PAUSED',
+      })
+    }
 
     if (asyncMode) {
       const job = imageSyncJobService.startImageSyncJob({
