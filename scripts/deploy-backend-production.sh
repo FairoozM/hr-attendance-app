@@ -11,7 +11,7 @@ KEY="hr-backend-latest.tar.gz"
 TMPJSON="$(mktemp)"
 
 echo "==> Packaging backend..."
-tar czf "/tmp/$KEY" --exclude=node_modules --exclude=.env -C "$ROOT" backend shared
+tar czf "/tmp/$KEY" --exclude=node_modules --exclude=.env --exclude=backend/data -C "$ROOT" backend shared
 
 echo "==> Uploading s3://${BUCKET}/${KEY}..."
 aws s3 cp "/tmp/$KEY" "s3://${BUCKET}/${KEY}" --region "$REGION"
@@ -23,6 +23,7 @@ cat >"$TMPJSON" <<EOF
     "cd /home/ubuntu/hr-attendance-app",
     "sudo -u ubuntu aws s3 cp s3://${BUCKET}/${KEY} /tmp/${KEY}",
     "sudo -u ubuntu tar xzf /tmp/${KEY} -C /home/ubuntu/hr-attendance-app",
+    "sudo -u ubuntu rm -f /home/ubuntu/hr-attendance-app/backend/data/inventory-health-base-cache.json",
     "cd /home/ubuntu/hr-attendance-app/backend",
     "sudo -u ubuntu npm ci --omit=dev",
     "systemctl restart hr-attendance-backend.service",

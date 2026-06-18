@@ -670,10 +670,13 @@ async function getInventoryImageCacheStatus(activeItemCount = null) {
   if (totalActive == null) {
     try {
       const base = await inventoryHealthService.loadInventoryHealthBase({ refresh: false })
-      totalActive =
+      const fromBase =
         base?.debug?.activeItemsFetched ||
         (Array.isArray(base?.rows) ? base.rows.length : 0) ||
         null
+      if (fromBase != null && fromBase >= 100) {
+        totalActive = fromBase
+      }
     } catch {
       totalActive = null
     }
@@ -681,14 +684,19 @@ async function getInventoryImageCacheStatus(activeItemCount = null) {
   if (totalActive == null) {
     totalActive = Math.max(status.cachedImages + status.missingImages, 0)
   }
+  const dbTracked = status.cachedImages + status.missingImages
+  if (totalActive < dbTracked) {
+    totalActive = dbTracked
+  }
   const missingImages = Math.max(0, totalActive - status.cachedImages)
+  const rawCoverage = totalActive > 0 ? (status.cachedImages / totalActive) * 100 : 0
   return {
     ...status,
     totalActiveItems: totalActive,
     missingImages,
     failedCacheRows: status.missingImages,
     cacheCoveragePercent:
-      totalActive > 0 ? Math.round((status.cachedImages / totalActive) * 1000) / 10 : status.cacheCoveragePercent,
+      totalActive > 0 ? Math.round(Math.min(100, rawCoverage) * 10) / 10 : status.cacheCoveragePercent,
   }
 }
 

@@ -18,6 +18,10 @@ const CACHE_TTL_MS = Math.max(
   60_000,
   parseInt(process.env.INVENTORY_HEALTH_CACHE_TTL_MS || String(6 * 60 * 60 * 1000), 10) || 6 * 60 * 60 * 1000,
 )
+const MIN_CACHE_ACTIVE_ITEMS = Math.max(
+  10,
+  parseInt(process.env.INVENTORY_HEALTH_MIN_CACHE_ITEMS || '100', 10) || 100,
+)
 
 const parseWarehouseScopedStockOnHand = zohoWeeklyInternals.parseWarehouseScopedStockOnHand
 const parseZohoUnitPurchasePrice = zohoWeeklyInternals.parseZohoUnitPurchasePrice
@@ -399,6 +403,24 @@ function cacheKeyForBase(warehouseId) {
   return `wh:${warehouseId || 'all'}`
 }
 
+/** Reject test/tiny payloads that must never serve production (e.g. single "Widget" row). */
+function isPlausibleCachePayload(value) {
+  if (!value || !Array.isArray(value.rows) || value.rows.length === 0) return false
+  const active = Number(value.debug?.activeItemsFetched) || value.rows.length
+  if (active < MIN_CACHE_ACTIVE_ITEMS) {
+    console.warn(
+      `[inventory-health] rejecting cache with ${active} active items (min ${MIN_CACHE_ACTIVE_ITEMS})`,
+    )
+    return false
+  }
+  return true
+}
+
+function invalidateBadCacheEntry(key) {
+  _dashboardCache.delete(key)
+  clearDiskCache()
+}
+
 function applyRowFilters(rows, filters) {
   let out = rows
 
@@ -499,7 +521,10 @@ async function loadInventoryHealthBase({ warehouseId = null, refresh = false } =
   if (!refresh) {
     const hit = _dashboardCache.get(key)
     if (hit && Date.now() < hit.expiresAt && !hit.error) {
-      return { ...hit.value, cacheStatus: 'hit' }
+      if (isPlausibleCachePayload(hit.value)) {
+        return { ...hit.value, cacheStatus: 'hit' }
+      }
+      invalidateBadCacheEntry(key)
     }
     if (hit && hit.error && Date.now() < hit.expiresAt) {
       const err = new Error(hit.error)
@@ -508,8 +533,12 @@ async function loadInventoryHealthBase({ warehouseId = null, refresh = false } =
     }
     const diskHit = readDiskCacheEntry(key)
     if (diskHit) {
-      _dashboardCache.set(key, diskHit)
-      return { ...diskHit.value, cacheStatus: 'disk' }
+      if (isPlausibleCachePayload(diskHit.value)) {
+        _dashboardCache.set(key, diskHit)
+        return { ...diskHit.value, cacheStatus: 'disk' }
+      }
+      console.warn('[inventory-health] ignoring invalid disk cache — will refetch from Zoho')
+      invalidateBadCacheEntry(key)
     }
   }
 
