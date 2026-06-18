@@ -10,6 +10,7 @@ const { getSales } = require('../integrations/zoho/weeklyReportZohoTransactions'
 const { _internals: zohoWeeklyInternals } = require('./weeklyReportZohoData')
 const { listMembersOfGroup } = require('./itemReportGroupsService')
 const { attachImageFieldsToRows, getImageCacheDebugInfo } = require('./inventoryItemImageStore')
+const { readDiskCacheEntry, writeDiskCacheEntry, clearDiskCache } = require('./inventoryHealthDiskCache')
 
 const SLOW_MOVING_GROUP = 'slow_moving'
 const ZERO_SALES_MONTHS_OF_COVER = 999
@@ -505,6 +506,11 @@ async function loadInventoryHealthBase({ warehouseId = null, refresh = false } =
       err.code = 'INVENTORY_HEALTH_CACHE_ERROR'
       throw err
     }
+    const diskHit = readDiskCacheEntry(key)
+    if (diskHit) {
+      _dashboardCache.set(key, diskHit)
+      return { ...diskHit.value, cacheStatus: 'disk' }
+    }
   }
 
   if (_dashboardInFlight.has(key)) {
@@ -621,6 +627,7 @@ async function loadInventoryHealthBase({ warehouseId = null, refresh = false } =
       value: payload,
       error: null,
     })
+    writeDiskCacheEntry(key, Date.now() + CACHE_TTL_MS, payload)
 
     return payload
   })()
@@ -663,6 +670,10 @@ function parseFilters(query = {}) {
     sortDirection: String(query.sortDirection || 'desc').trim(),
     search: String(query.search || '').trim(),
     refresh: query.refresh === true || query.refresh === 'true' || query.refresh === '1',
+    includeImages:
+      query.includeImages === true ||
+      query.includeImages === 'true' ||
+      query.includeImages === '1',
   }
 }
 
@@ -675,20 +686,29 @@ async function getInventoryHealthDashboard(query = {}) {
 
   const filtered = applyRowFilters(base.rows, filters)
   const sorted = sortRows(filtered, filters.sortBy, filters.sortDirection)
-  const rowsWithImages = await attachImageFieldsToRows(sorted)
-  const imageCache = await getImageCacheDebugInfo()
+  const rowsWithImages = filters.includeImages
+    ? await attachImageFieldsToRows(sorted)
+    : sorted.map((row) => ({
+        ...row,
+        imageUrl: null,
+        imageSource: null,
+        imageCachedAt: null,
+        imageMissing: true,
+      }))
   const summary = buildSummary(rowsWithImages, {
     generatedAt: base.generatedAt,
     cacheStatus: base.cacheStatus,
     warnings: base.warnings,
   })
 
+  const debug = { ...(base.debug || emptyDebug()) }
+  if (filters.includeImages) {
+    debug.imageCache = await getImageCacheDebugInfo()
+  }
+
   return {
     summary,
-    debug: {
-      ...(base.debug || emptyDebug()),
-      imageCache,
-    },
+    debug,
     rows: rowsWithImages,
     familyMoneyFrozen: buildFamilyMoneyFrozen(rowsWithImages),
     filters,
@@ -750,6 +770,7 @@ function rowsToCsv(rows) {
 function clearInventoryHealthCache() {
   _dashboardCache.clear()
   _dashboardInFlight.clear()
+  clearDiskCache()
 }
 
 module.exports = {

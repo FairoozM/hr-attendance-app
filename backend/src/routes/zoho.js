@@ -67,6 +67,7 @@ router.get('/inventory-health/images/sync/job/:jobId', requireAuth, requireAdmin
 router.post('/inventory-health/images/sync', requireAuth, requireAdmin, inventoryHealthImageController.postImageSync)
 router.get('/inventory-health/images/status', requireAuth, requireAdmin, inventoryHealthImageController.getImageStatus)
 router.post('/inventory-health/images/sync-one', requireAuth, requireAdmin, inventoryHealthImageController.postImageSyncOne)
+router.post('/inventory-health/images/batch', requireAuth, requireAdmin, inventoryHealthImageController.postImagesBatch)
 
 router.get('/usage/today', requireAuth, requireAdmin, zohoAdminController.getUsageToday)
 router.get('/usage/summary', requireAuth, requireAdmin, zohoAdminController.getUsageSummary)

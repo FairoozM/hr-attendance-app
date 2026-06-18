@@ -103,6 +103,8 @@ export interface InventoryHealthQuery {
   sortDirection?: 'asc' | 'desc'
   search?: string
   refresh?: boolean
+  /** When true, attaches cached images for all rows (slow). Default: omit / false. */
+  includeImages?: boolean
 }
 
 function buildQuery(params: InventoryHealthQuery = {}) {
@@ -119,6 +121,7 @@ function buildQuery(params: InventoryHealthQuery = {}) {
   if (params.sortDirection) qs.set('sortDirection', params.sortDirection)
   if (params.search) qs.set('search', params.search)
   if (params.refresh) qs.set('refresh', '1')
+  if (params.includeImages) qs.set('includeImages', '1')
   return qs.toString()
 }
 
@@ -195,6 +198,20 @@ export interface InventoryHealthImageSyncResult {
 
 export async function fetchInventoryHealthImageStatus() {
   return api.get('/api/zoho/inventory-health/images/status') as Promise<InventoryHealthImageCacheStatus>
+}
+
+export type InventoryHealthRowImageFields = Pick<
+  InventoryHealthRow,
+  'imageUrl' | 'imageMissing' | 'imageSource' | 'imageCachedAt'
+>
+
+export async function fetchInventoryHealthRowImages(itemIds: string[]) {
+  const ids = [...new Set(itemIds.map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 120)
+  if (!ids.length) return {} as Record<string, InventoryHealthRowImageFields>
+  const res = (await api.post('/api/zoho/inventory-health/images/batch', { itemIds: ids }, {
+    timeoutMs: 30_000,
+  })) as { images?: Record<string, InventoryHealthRowImageFields> }
+  return res.images || {}
 }
 
 export interface InventoryHealthImageSyncJob {

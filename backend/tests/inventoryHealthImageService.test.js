@@ -89,7 +89,7 @@ test('attachImageFieldsToRows reads permanent imageUrl from cache only', async (
 
   clearInventoryHealthCache()
   const svc = freshRequire('../src/services/inventoryHealthService')
-  const data = await svc.getInventoryHealthDashboard({ includeZeroStock: '1' })
+  const data = await svc.getInventoryHealthDashboard({ includeZeroStock: '1', includeImages: '1' })
 
   assert.equal(data.rows.length, 1)
   assert.equal(data.rows[0].imageUrl, '/api/zoho/inventory-health/images/file/1001')
@@ -456,7 +456,7 @@ test('missing images do not break inventory health rows', async () => {
 
   clearInventoryHealthCache()
   const svc = freshRequire('../src/services/inventoryHealthService')
-  const data = await svc.getInventoryHealthDashboard({ includeZeroStock: '1' })
+  const data = await svc.getInventoryHealthDashboard({ includeZeroStock: '1', includeImages: '1' })
 
   assert.equal(data.rows.length, 1)
   assert.equal(data.rows[0].imageMissing, true)

@@ -1,6 +1,7 @@
 const path = require('path')
 const inventoryHealthImageService = require('../services/inventoryHealthImageService')
 const imageSyncJobService = require('../services/inventoryHealthImageSyncJobService')
+const inventoryItemImageStore = require('../services/inventoryItemImageStore')
 const inventoryItemImageStorage = require('../services/inventoryItemImageStorage')
 const { isSyncPaused } = require('../services/zohoApiClient')
 
@@ -13,6 +14,10 @@ function parseLimit(value, defaultValue = 50) {
   const n = parseInt(String(value ?? defaultValue), 10)
   if (!Number.isFinite(n)) return defaultValue
   return Math.max(1, Math.min(n, 500))
+}
+
+function cleanStr(v) {
+  return String(v == null ? '' : v).trim()
 }
 
 async function getImageSyncJob(req, res) {
@@ -162,8 +167,43 @@ async function getImageDebugOne(req, res) {
   }
 }
 
-function cleanStr(v) {
-  return String(v == null ? '' : v).trim()
+async function postImagesBatch(req, res) {
+  try {
+    const body = req.body && typeof req.body === 'object' ? req.body : {}
+    const rawIds = Array.isArray(body.itemIds) ? body.itemIds : []
+    const itemIds = []
+    const seen = new Set()
+    for (const raw of rawIds) {
+      const id = cleanStr(raw)
+      if (!id || seen.has(id)) continue
+      seen.add(id)
+      itemIds.push(id)
+      if (itemIds.length >= 120) break
+    }
+    if (!itemIds.length) {
+      return res.json({ images: {} })
+    }
+    const rows = await inventoryItemImageStore.attachImageFieldsToRows(
+      itemIds.map((itemId) => ({ itemId })),
+    )
+    const images = {}
+    for (const row of rows) {
+      if (!row.itemId) continue
+      images[row.itemId] = {
+        imageUrl: row.imageUrl ?? null,
+        imageMissing: row.imageMissing !== false,
+        imageSource: row.imageSource ?? null,
+        imageCachedAt: row.imageCachedAt ?? null,
+      }
+    }
+    return res.json({ images })
+  } catch (err) {
+    console.error('[inventory-health-images] batch lookup failed:', err?.message || err)
+    return res.status(500).json({
+      error: 'Failed to load row images',
+      code: 'INVENTORY_HEALTH_IMAGE_BATCH_ERROR',
+    })
+  }
 }
 
 async function getCachedImageFile(req, res) {
@@ -197,5 +237,6 @@ module.exports = {
   getImageDebugOne,
   getImageSyncJob,
   getActiveImageSyncJob,
+  postImagesBatch,
   getCachedImageFile,
 }

@@ -5,6 +5,7 @@ import {
   fetchInventoryHealthImageStatus,
   fetchInventoryHealthImageSyncJob,
   fetchActiveInventoryHealthImageSyncJob,
+  fetchInventoryHealthRowImages,
   formatMonthsOfCover,
   refreshInventoryHealth,
   startInventoryHealthImageSync,
@@ -13,6 +14,7 @@ import {
   type InventoryHealthImageCacheStatus,
   type FamilyMoneyFrozenRow,
   type InventoryHealthQuery,
+  type InventoryHealthRowImageFields,
 } from '../../../api/inventoryHealth'
 import {
   exportInventoryHealthPdf,
@@ -205,8 +207,11 @@ export function InventoryHealthDashboardPage() {
     failed: number
     at: string
   } | null>(null)
+  const [rowImageByItemId, setRowImageByItemId] = useState<Record<string, InventoryHealthRowImageFields>>({})
   const imageSyncPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastSyncedSavedRef = useRef(0)
+  const rowImagesRequestRef = useRef(0)
+  const visibleItemIdsRef = useRef<string[]>([])
 
   const queryParams = useMemo(() => ({ ...filters }), [filters])
 
@@ -246,6 +251,25 @@ export function InventoryHealthDashboardPage() {
     [sortedFamilies, familyPage],
   )
 
+  const loadVisibleRowImages = useCallback(async (itemIds: string[]) => {
+    const ids = [...new Set(itemIds.map((id) => String(id || '').trim()).filter(Boolean))]
+    if (!ids.length) return
+    const reqId = ++rowImagesRequestRef.current
+    try {
+      const images = await fetchInventoryHealthRowImages(ids)
+      if (reqId !== rowImagesRequestRef.current) return
+      setRowImageByItemId((prev) => ({ ...prev, ...images }))
+    } catch {
+      // non-fatal — placeholders remain
+    }
+  }, [])
+
+  useEffect(() => {
+    visibleItemIdsRef.current = skuPagination.items.map((r) => r.itemId).filter(Boolean)
+    if (!data?.rows?.length || viewMode !== 'skus') return
+    void loadVisibleRowImages(visibleItemIdsRef.current)
+  }, [data?.rows, viewMode, skuPagination.items, skuPage, loadVisibleRowImages])
+
   const load = useCallback(async (opts?: { refresh?: boolean }) => {
     setError('')
     setErrorDebug('')
@@ -283,7 +307,8 @@ export function InventoryHealthDashboardPage() {
   }, [])
 
   const exportRows = displayRows
-  const canExport = !loading && exportRows.length > 0
+  const showInitialSkeleton = loading && !data
+  const canExport = !showInitialSkeleton && exportRows.length > 0
   const exportBusy = exporting != null
 
   const handleExportCsv = useCallback(async () => {
@@ -367,7 +392,7 @@ export function InventoryHealthDashboardPage() {
           if (p.saved > lastSyncedSavedRef.current) {
             lastSyncedSavedRef.current = p.saved
             void loadImageStatus()
-            void load()
+            void loadVisibleRowImages(visibleItemIdsRef.current)
           }
           if (job.status === 'completed' || job.status === 'failed') {
             stopImageSyncPoll()
@@ -390,9 +415,7 @@ export function InventoryHealthDashboardPage() {
               )
             }
             await loadImageStatus()
-            if (job.status === 'completed') {
-              await load()
-            }
+            void loadVisibleRowImages(visibleItemIdsRef.current)
           }
         } catch (err) {
           stopImageSyncPoll()
@@ -404,7 +427,7 @@ export function InventoryHealthDashboardPage() {
       void tick()
       imageSyncPollRef.current = setInterval(() => void tick(), 2500)
     },
-    [load, loadImageStatus, stopImageSyncPoll],
+    [loadImageStatus, loadVisibleRowImages, stopImageSyncPoll],
   )
 
   useEffect(() => {
@@ -442,7 +465,7 @@ export function InventoryHealthDashboardPage() {
           <p>
             Fast V1 view using Zoho stock and sales-by-item velocity only (no last-sold scan on load).
             Highlights hidden slow movers inside otherwise normal families.{' '}
-            <strong>Zoho API:</strong> first load can take up to 3 min; image sync is 20 items per click only.
+            <strong>First Zoho load can take 1–3 min once;</strong> after that it uses server cache (fast).
           </p>
         </div>
         <div className="ih-actions">
@@ -547,7 +570,11 @@ export function InventoryHealthDashboardPage() {
         </div>
       ) : null}
 
-      {loading ? (
+      {refreshing ? (
+        <div className="ih-image-sync-msg">Refreshing inventory data from Zoho…</div>
+      ) : null}
+
+      {showInitialSkeleton ? (
         <>
           <div className="ih-skeleton-grid">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -555,11 +582,11 @@ export function InventoryHealthDashboardPage() {
             ))}
           </div>
           <div className="ih-skeleton ih-skeleton-table" />
-          <div className="ih-loading">Loading inventory health from Zoho…</div>
+          <div className="ih-loading">Loading inventory health… (first load may take 1–3 min from Zoho)</div>
         </>
       ) : null}
 
-      {!loading && summary ? (
+      {!showInitialSkeleton && summary ? (
         <>
           <div className="ih-cards">
             <div className="ih-card">
@@ -704,7 +731,7 @@ export function InventoryHealthDashboardPage() {
         </label>
       </div>
 
-      {!loading && viewMode === 'skus' ? (
+      {!showInitialSkeleton && viewMode === 'skus' ? (
         <div className="ih-table-panel">
           {skuPagination.totalItems > 0 ? (
             <>
@@ -725,7 +752,9 @@ export function InventoryHealthDashboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {skuPagination.items.map((row) => (
+                    {skuPagination.items.map((row) => {
+                      const img = rowImageByItemId[row.itemId]
+                      return (
                       <tr
                         key={`${row.itemId}-${row.sku}`}
                         className={rowClass(row.riskClass, selected?.sku === row.sku)}
@@ -733,8 +762,8 @@ export function InventoryHealthDashboardPage() {
                       >
                         <td className="ih-col-image-cell" onClick={(e) => e.stopPropagation()}>
                           <InventoryHealthItemThumb
-                            imageUrl={row.imageUrl}
-                            imageMissing={row.imageMissing}
+                            imageUrl={img?.imageUrl ?? row.imageUrl}
+                            imageMissing={img?.imageMissing ?? row.imageMissing}
                             itemId={row.itemId}
                             itemName={row.itemName}
                             sku={row.sku}
@@ -770,7 +799,8 @@ export function InventoryHealthDashboardPage() {
                           <div className="ih-action-text" title={row.recommendedAction}>{row.recommendedAction}</div>
                         </td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -792,7 +822,7 @@ export function InventoryHealthDashboardPage() {
         </div>
       ) : null}
 
-      {!loading && viewMode === 'moneyFrozen' ? (
+      {!showInitialSkeleton && viewMode === 'moneyFrozen' ? (
         <div className="ih-table-panel">
           {familyPagination.totalItems > 0 ? (
             <>
