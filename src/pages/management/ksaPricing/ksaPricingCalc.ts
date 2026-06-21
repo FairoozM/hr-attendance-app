@@ -76,7 +76,6 @@ export function computeKsaRowPricing(
   | 'profitAmount'
   | 'totalBaseCost'
   | 'newPriceSar'
-  | 'newPriceAfterVat'
   | 'freightRatePerCbmSnapshot'
 > {
   const freightRatePerCbm = toPositiveNumber(batch?.freightRatePerCbm)
@@ -104,7 +103,6 @@ export function computeKsaRowPricing(
   const advertisingAmount = newPriceSar * advertising
   const vatKsaAmount = newPriceSar * vat
   const profitAmount = newPriceSar * profit
-  const newPriceAfterVat = Math.max(0, newPriceSar - vatKsaAmount)
 
   return {
     cbm,
@@ -115,7 +113,6 @@ export function computeKsaRowPricing(
     profitAmount,
     totalBaseCost,
     newPriceSar,
-    newPriceAfterVat,
     freightRatePerCbmSnapshot: freightRatePerCbm,
   }
 }

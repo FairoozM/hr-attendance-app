@@ -40,7 +40,6 @@ export interface KsaPricingRow {
   profitAmount: number
   totalBaseCost: number
   newPriceSar: number
-  newPriceAfterVat: number
   shipmentBatchId: string
   shipmentBatchName: string
   freightRatePerCbmSnapshot: number
@@ -74,7 +73,6 @@ export interface KsaPricingHistoryEntry {
   cargoCost: number
   totalBaseCost: number
   newPriceSar: number
-  newPriceAfterVat: number
   recordedAt: string
   reason: string
 }

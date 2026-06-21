@@ -111,7 +111,6 @@ function normalizeRow(entry: unknown): KsaPricingRow | null {
     profitAmount: Number(r.profitAmount) || 0,
     totalBaseCost: Number(r.totalBaseCost) || 0,
     newPriceSar: Number(r.newPriceSar) || 0,
-    newPriceAfterVat: Number(r.newPriceAfterVat) || 0,
     shipmentBatchId: r.shipmentBatchId != null ? String(r.shipmentBatchId) : '',
     shipmentBatchName: r.shipmentBatchName != null ? String(r.shipmentBatchName) : '',
     freightRatePerCbmSnapshot: Number(r.freightRatePerCbmSnapshot) || 0,
@@ -147,7 +146,6 @@ export function normalizeKsaPricingHistory(raw: unknown): KsaPricingHistoryStore
             cargoCost: Number(e.cargoCost) || 0,
             totalBaseCost: Number(e.totalBaseCost) || 0,
             newPriceSar: Number(e.newPriceSar) || 0,
-            newPriceAfterVat: Number(e.newPriceAfterVat) || 0,
             recordedAt: String(e.recordedAt || new Date().toISOString()),
             reason: String(e.reason || ''),
           } satisfies KsaPricingHistoryEntry
@@ -193,7 +191,6 @@ export function createEmptyKsaRow(batch: KsaShipmentBatch | null): KsaPricingRow
     profitAmount: 0,
     totalBaseCost: 0,
     newPriceSar: 0,
-    newPriceAfterVat: 0,
     shipmentBatchId: batch?.id || '',
     shipmentBatchName: batch?.name || '',
     freightRatePerCbmSnapshot: batch?.freightRatePerCbm || 0,
@@ -237,7 +234,6 @@ export function appendKsaPricingHistory(
     cargoCost: row.cargoCost,
     totalBaseCost: row.totalBaseCost,
     newPriceSar: row.newPriceSar,
-    newPriceAfterVat: row.newPriceAfterVat,
     recordedAt: new Date().toISOString(),
     reason,
   }

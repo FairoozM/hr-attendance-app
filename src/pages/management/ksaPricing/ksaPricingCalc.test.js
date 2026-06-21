@@ -31,7 +31,6 @@ describe('ksaPricingCalc', () => {
     expect(result.advertisingAmount).toBeCloseTo((155 / 0.4) * 0.15, 4)
     expect(result.vatKsaAmount).toBeCloseTo((155 / 0.4) * 0.15, 4)
     expect(result.profitAmount).toBeCloseTo((155 / 0.4) * 0.15, 4)
-    expect(result.newPriceAfterVat).toBeCloseTo((155 / 0.4) * 0.85, 4)
   })
 
   it('ignores stale stored cbm and derives from dimensions', () => {

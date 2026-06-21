@@ -339,7 +339,7 @@ export function KsaPricingPage() {
           meters before cargo cost. Cargo = CBM × freight/CBM · Base = purchase + cargo + storage + KSA shipping
         </div>
         <code>
-          New price SAR = base ÷ (1 − commission − advertising − VAT − profit) · After VAT = new price − VAT amount
+          New price SAR = base ÷ (1 − commission − advertising − VAT − profit)
         </code>
       </div>
 
@@ -463,14 +463,13 @@ export function KsaPricingPage() {
               <th>Profit</th>
               <th>Base</th>
               <th>Price SAR</th>
-              <th>After VAT</th>
               <th />
             </tr>
           </thead>
           <tbody>
             {store.rows.length === 0 ? (
               <tr>
-                <td colSpan={18} className="pp-hint">
+                <td colSpan={17} className="pp-hint">
                   No rows yet. Add or paste item codes for the active shipment batch.
                 </td>
               </tr>
@@ -607,7 +606,6 @@ export function KsaPricingPage() {
                   <td className="ksa-readonly-cell">
                     <strong>{fmtSar(row.newPriceSar)}</strong>
                   </td>
-                  <td className="ksa-readonly-cell">{fmtSar(row.newPriceAfterVat)}</td>
                   <td className="ksa-row-actions">
                     <button
                       type="button"
@@ -658,7 +656,6 @@ export function KsaPricingPage() {
                   <th>CBM</th>
                   <th>Base</th>
                   <th>Price SAR</th>
-                  <th>After VAT</th>
                   <th>Reason</th>
                 </tr>
               </thead>
@@ -672,7 +669,6 @@ export function KsaPricingPage() {
                     <td>{fmtSar(entry.cbm, 4)}</td>
                     <td>{fmtSar(entry.totalBaseCost)}</td>
                     <td>{fmtSar(entry.newPriceSar)}</td>
-                    <td>{fmtSar(entry.newPriceAfterVat)}</td>
                     <td>{entry.reason}</td>
                   </tr>
                 ))}
