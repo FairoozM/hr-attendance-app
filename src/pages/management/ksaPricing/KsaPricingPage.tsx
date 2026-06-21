@@ -3,8 +3,6 @@ import { Save, Trash2 } from 'lucide-react'
 import { api } from '../../../api/client'
 import { PREF_ALL_PRICES_EC_KSA } from '../../../constants/userPreferenceKeys'
 import { useUserPreferences } from '../../../contexts/UserPreferencesContext'
-import '../DocumentExpiryPage.css'
-import '../AllPricesPage.css'
 import './KsaPricingPage.css'
 import { fmtSar, KSA_DEFAULT_PERCENTS, recalcKsaRow, toOptionalNumber } from './ksaPricingCalc'
 import {
@@ -46,9 +44,9 @@ function PctHeader({
   onChange: (value: number) => void
 }) {
   return (
-    <div className="ksa-pct-header">
+    <div className="ksa-sc-pct-head">
       <span>{label}</span>
-      <div className="ksa-pct-header__input">
+      <label className="ksa-sc-rate">
         <input
           type="number"
           min={0}
@@ -58,19 +56,19 @@ function PctHeader({
           onChange={(e) => onChange(Number(e.target.value) || 0)}
           aria-label={`${label} percent for all rows`}
         />
-        <span className="ksa-pct-header__suffix" aria-hidden>
+        <span className="ksa-sc-rate-suffix" aria-hidden>
           %
         </span>
-      </div>
+      </label>
     </div>
   )
 }
 
 function zohoBadgeClass(status: ZohoDimensionStatus): string {
-  if (status === 'found') return 'ksa-zoho-badge ksa-zoho-badge--found'
-  if (status === 'loading') return 'ksa-zoho-badge ksa-zoho-badge--loading'
-  if (status === 'manual' || status === 'idle') return 'ksa-zoho-badge ksa-zoho-badge--manual'
-  return 'ksa-zoho-badge ksa-zoho-badge--missing_dimensions'
+  if (status === 'found') return 'ksa-sc-badge'
+  if (status === 'loading') return 'ksa-sc-badge ksa-sc-badge--loading'
+  if (status === 'manual' || status === 'idle') return 'ksa-sc-badge ksa-sc-badge--manual'
+  return 'ksa-sc-badge ksa-sc-badge--missing_dimensions'
 }
 
 function zohoBadgeLabel(status: ZohoDimensionStatus): string {
@@ -145,6 +143,18 @@ export function KsaPricingPage() {
   )
   const profitPercentHeader = useMemo(
     () => tablePercentValue(store.rows, 'profitPercent', KSA_DEFAULT_PERCENTS.profitPercent),
+    [store.rows]
+  )
+
+  const tableTotals = useMemo(
+    () =>
+      store.rows.reduce(
+        (acc, row) => ({
+          base: acc.base + (Number(row.totalBaseCost) || 0),
+          price: acc.price + (Number(row.newPriceSar) || 0),
+        }),
+        { base: 0, price: 0 }
+      ),
     [store.rows]
   )
 
@@ -376,59 +386,61 @@ export function KsaPricingPage() {
 
   if (!prefsReady || !prefsLoaded) {
     return (
-      <div className="page ksa-pricing-page">
-        <div className="doc-page-hero">
-          <h1 className="doc-page-title">All Prices (KSA)</h1>
-          <p className="doc-page-subtitle">Loading shipment-batch pricing…</p>
-        </div>
+      <div className="ksa-pricing-page ksa-sc">
+        <header className="ksa-sc-page-head">
+          <div>
+            <h1 className="ksa-sc-page-head__title">All Prices (KSA)</h1>
+            <p className="ksa-sc-page-head__sub">Loading shipment-batch pricing…</p>
+          </div>
+        </header>
       </div>
     )
   }
 
   return (
-    <div className="page ksa-pricing-page">
-      <div className="doc-page-hero">
+    <div className="ksa-pricing-page ksa-sc">
+      <header className="ksa-sc-page-head">
         <div>
-          <h1 className="doc-page-title">All Prices (KSA)</h1>
-          <p className="doc-page-subtitle">
-            Shipment-batch landed-cost calculator (SAR). Cargo cost uses Zoho package dimensions × batch freight
-            rate/CBM. Storage and KSA shipping are manual for now.
+          <h1 className="ksa-sc-page-head__title">All Prices (KSA)</h1>
+          <p className="ksa-sc-page-head__sub">
+            Shipment-batch landed-cost calculator (SAR). Cargo = Zoho dimensions × freight/CBM. Storage and KSA
+            shipping are entered manually.
           </p>
         </div>
+        <button type="button" className="ksa-sc-btn ksa-sc-btn--primary" onClick={recordHistoryForReadyRows}>
+          Save all changes
+        </button>
+      </header>
+
+      {error && <div className="ksa-sc-alert ksa-sc-alert--error">{error}</div>}
+      {notice && <div className="ksa-sc-alert ksa-sc-alert--notice">{notice}</div>}
+
+      <div className="ksa-sc-note" role="note">
+        <strong>Formula:</strong> CBM = L × W × H ÷ 1,000,000 (cm) · Cargo = CBM × freight/CBM · Base = purchase +
+        cargo + storage + ship ·{' '}
+        <code>Price = base ÷ (1 − commission − ad − VAT − profit)</code>
       </div>
 
-      {error && <div className="page-error">{error}</div>}
-      {notice && <div className="pp-notice">{notice}</div>}
-
-      <div className="ksa-formula-note" role="note">
-        <strong>Formula</strong>
-        <div>
-          CBM = L × W × H ÷ 1,000,000 when Zoho dimensions are in centimeters. Inch dimensions are converted to cubic
-          meters before cargo cost. Cargo = CBM × freight/CBM · Base = purchase + cargo + storage + KSA shipping
+      {legacyKsaRowsCount > 0 && (
+        <div className="ksa-sc-note">
+          Legacy UAE-style KSA data in <code>all_prices_ecommerce_ksa_v1</code> ({legacyKsaRowsCount} row(s)) is
+          preserved but not shown here.
         </div>
-        <code>
-          New price SAR = base ÷ (1 − commission − advertising − VAT − profit)
-        </code>
-      </div>
+      )}
 
-      <div className="ksa-system-note" role="note">
-        <strong>New KSA pricing system:</strong> this page uses shipment batches and landed-cost rows only. Legacy
-        UAE-style KSA ecommerce calculator data from <code>all_prices_ecommerce_ksa_v1</code>
-        {legacyKsaRowsCount > 0 ? ` (${legacyKsaRowsCount} row(s))` : ''} is preserved but not displayed here.
-      </div>
-
-      <section className="ksa-batch-panel" aria-label="Shipment batches">
-        <div className="ksa-batch-panel__head">
+      <section className="ksa-sc-panel" aria-label="Shipment batch">
+        <div className="ksa-sc-panel__head">
           <div>
-            <h2 className="doc-section-title">Shipment batch</h2>
-            <p className="pp-hint">Each batch snapshots freight rate/CBM on every row.</p>
+            <h2 className="ksa-sc-panel__title">Shipment batch</h2>
+            <p className="ksa-sc-panel__hint">Freight rate/CBM is snapshotted on every row in this batch.</p>
           </div>
-          <div className="ksa-pricing-toolbar">
-            <button type="button" className="btn btn--primary" onClick={createBatch}>
+          <div className="ksa-sc-toolbar">
+            <button type="button" className="ksa-sc-btn ksa-sc-btn--primary" onClick={createBatch}>
               New batch
             </button>
             {store.batches.length > 1 && (
               <select
+                className="ksa-sc-select"
                 value={store.activeBatchId || ''}
                 onChange={(e) => selectBatch(e.target.value)}
                 aria-label="Active shipment batch"
@@ -444,268 +456,294 @@ export function KsaPricingPage() {
         </div>
 
         {activeBatch ? (
-          <div className="ksa-batch-panel__grid">
-            <label>
-              Batch name
-              <input value={activeBatch.name} onChange={(e) => updateBatchField('name', e.target.value)} />
-            </label>
-            <label>
-              Shipment date
-              <input
-                type="date"
-                value={activeBatch.shipmentDate || ''}
-                onChange={(e) => updateBatchField('shipmentDate', e.target.value)}
-              />
-            </label>
-            <label>
-              Freight rate / CBM (SAR)
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={activeBatch.freightRatePerCbm}
-                onChange={(e) => updateBatchField('freightRatePerCbm', Number(e.target.value) || 0)}
-              />
-            </label>
-            <label className="ksa-batch-panel__notes">
-              Notes
-              <textarea
-                rows={2}
-                value={activeBatch.notes}
-                onChange={(e) => updateBatchField('notes', e.target.value)}
-              />
-            </label>
+          <div className="ksa-sc-panel__body">
+            <div className="ksa-sc-batch-grid">
+              <label className="ksa-sc-field">
+                Batch name
+                <input
+                  className="ksa-sc-input"
+                  value={activeBatch.name}
+                  onChange={(e) => updateBatchField('name', e.target.value)}
+                />
+              </label>
+              <label className="ksa-sc-field">
+                Shipment date
+                <input
+                  className="ksa-sc-input"
+                  type="date"
+                  value={activeBatch.shipmentDate || ''}
+                  onChange={(e) => updateBatchField('shipmentDate', e.target.value)}
+                />
+              </label>
+              <label className="ksa-sc-field">
+                Freight / CBM (SAR)
+                <input
+                  className="ksa-sc-input"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={activeBatch.freightRatePerCbm}
+                  onChange={(e) => updateBatchField('freightRatePerCbm', Number(e.target.value) || 0)}
+                />
+              </label>
+              <label className="ksa-sc-field ksa-sc-field--wide">
+                Notes
+                <textarea
+                  className="ksa-sc-textarea"
+                  rows={2}
+                  value={activeBatch.notes}
+                  onChange={(e) => updateBatchField('notes', e.target.value)}
+                />
+              </label>
+            </div>
           </div>
         ) : (
-          <p className="pp-hint">No shipment batch yet. Create one to start pricing rows.</p>
+          <div className="ksa-sc-panel__body ksa-sc-empty">Create a shipment batch to start pricing rows.</div>
         )}
       </section>
 
-      <div className="ksa-pricing-toolbar">
-        <button type="button" className="btn" onClick={addRow} disabled={!activeBatch}>
+      <div className="ksa-sc-toolbar">
+        <button type="button" className="ksa-sc-btn" onClick={addRow} disabled={!activeBatch}>
           Add row
         </button>
         <button
           type="button"
-          className="btn"
+          className="ksa-sc-btn"
           disabled={dimensionBusy || !store.rows.length}
           onClick={() => fetchDimensionsForRows(store.rows.map((r) => r.id))}
         >
           {dimensionBusy ? 'Fetching Zoho…' : 'Refresh Zoho dimensions'}
         </button>
-        <button type="button" className="btn" onClick={recordHistoryForReadyRows}>
+        <button type="button" className="ksa-sc-btn" onClick={recordHistoryForReadyRows}>
           Record history snapshot
         </button>
         {store.lastSavedAt && (
-          <span className="pp-hint">Last saved {new Date(store.lastSavedAt).toLocaleString()}</span>
+          <span className="ksa-sc-toolbar__meta">Last saved {new Date(store.lastSavedAt).toLocaleString()}</span>
         )}
       </div>
 
-      <div className="ap-ec-paste">
-        <label>
+      <div className="ksa-sc-paste">
+        <label className="ksa-sc-field">
           Paste item codes (one per line)
-          <textarea rows={3} value={pasteText} onChange={(e) => setPasteText(e.target.value)} />
+          <textarea
+            className="ksa-sc-textarea"
+            rows={3}
+            value={pasteText}
+            onChange={(e) => setPasteText(e.target.value)}
+          />
         </label>
-        <button type="button" className="btn" onClick={handlePaste} disabled={!activeBatch || dimensionBusy}>
+        <button type="button" className="ksa-sc-btn ksa-sc-btn--primary" onClick={handlePaste} disabled={!activeBatch || dimensionBusy}>
           Paste &amp; fetch Zoho
         </button>
       </div>
 
-      <div className="ksa-pricing-table-wrap">
-        <table className="ksa-pricing-table">
-          <thead>
-            <tr>
-              <th className="ksa-col-item">Item</th>
-              <th className="ksa-col-zoho">Zoho</th>
-              <th className="ksa-col-purchase">Purchase</th>
-              <th className="ksa-col-dims">L × W × H</th>
-              <th className="ksa-col-volume">CBM / Cargo</th>
-              <th className="ksa-col-landed">Storage / Ship</th>
-              <th className="ksa-col-pct">
-                <PctHeader
-                  label="Comm"
-                  value={commissionPercentHeader}
-                  onChange={(value) => updateAllRowsPercent('commissionPercent', value)}
-                />
-              </th>
-              <th className="ksa-col-pct">
-                <PctHeader
-                  label="Ad"
-                  value={advertisingPercentHeader}
-                  onChange={(value) => updateAllRowsPercent('advertisingPercent', value)}
-                />
-              </th>
-              <th className="ksa-col-pct">
-                <PctHeader
-                  label="VAT"
-                  value={vatPercentHeader}
-                  onChange={(value) => updateAllRowsPercent('vatKsaPercent', value)}
-                />
-              </th>
-              <th className="ksa-col-pct">
-                <PctHeader
-                  label="Profit"
-                  value={profitPercentHeader}
-                  onChange={(value) => updateAllRowsPercent('profitPercent', value)}
-                />
-              </th>
-              <th className="ksa-col-result">Base</th>
-              <th className="ksa-col-result">Price</th>
-              <th className="ksa-col-actions" />
-            </tr>
-          </thead>
-          <tbody>
-            {store.rows.length === 0 ? (
+      <section className="ksa-sc-panel" aria-label="Pricing grid">
+        <div className="ksa-sc-table-scroll">
+          <table className="ksa-sc-table">
+            <thead>
               <tr>
-                <td colSpan={14} className="pp-hint">
-                  No rows yet. Add or paste item codes for the active shipment batch.
-                </td>
+                <th className="ksa-sc-col-item">Item</th>
+                <th className="ksa-sc-col-zoho">Zoho</th>
+                <th className="ksa-sc-col-purchase">Purchase</th>
+                <th className="ksa-sc-col-dims">L × W × H</th>
+                <th className="ksa-sc-col-volume">CBM / Cargo</th>
+                <th className="ksa-sc-col-landed">Storage / Ship</th>
+                <th className="ksa-sc-col-pct">
+                  <PctHeader
+                    label="Comm"
+                    value={commissionPercentHeader}
+                    onChange={(value) => updateAllRowsPercent('commissionPercent', value)}
+                  />
+                </th>
+                <th className="ksa-sc-col-pct">
+                  <PctHeader
+                    label="Ad"
+                    value={advertisingPercentHeader}
+                    onChange={(value) => updateAllRowsPercent('advertisingPercent', value)}
+                  />
+                </th>
+                <th className="ksa-sc-col-pct">
+                  <PctHeader
+                    label="VAT"
+                    value={vatPercentHeader}
+                    onChange={(value) => updateAllRowsPercent('vatKsaPercent', value)}
+                  />
+                </th>
+                <th className="ksa-sc-col-pct">
+                  <PctHeader
+                    label="Profit"
+                    value={profitPercentHeader}
+                    onChange={(value) => updateAllRowsPercent('profitPercent', value)}
+                  />
+                </th>
+                <th className="ksa-sc-col-base">Base</th>
+                <th className="ksa-sc-col-price">Price</th>
+                <th className="ksa-sc-col-actions">Actions</th>
               </tr>
-            ) : (
-              store.rows.map((row) => {
-                const zohoStatus = rowZohoDisplayStatus(row, loadingRowIds)
-                return (
-                <tr key={row.id}>
-                  <td className="ksa-col-item">
-                    <input
-                      value={row.itemCode}
-                      onChange={(e) => updateRow(row.id, { itemCode: e.target.value })}
-                      onBlur={(e) => onItemCodeBlur(row.id, e.target.value)}
-                    />
-                  </td>
-                  <td className="ksa-col-zoho">
-                    <span className={zohoBadgeClass(zohoStatus)}>{zohoBadgeLabel(zohoStatus)}</span>
-                  </td>
-                  <td className="ksa-col-purchase">
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={row.purchasePriceEcommerce}
-                      onChange={(e) =>
-                        updateRow(row.id, { purchasePriceEcommerce: toOptionalNumber(e.target.value) })
-                      }
-                    />
-                  </td>
-                  <td className="ksa-col-dims">
-                    <div className="ksa-dims-inputs" role="group" aria-label="Package dimensions in centimeters">
-                      <label className="ksa-dims-input">
-                        <span>L</span>
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={row.length}
-                          onChange={(e) => updateRow(row.id, { length: toOptionalNumber(e.target.value) })}
-                        />
-                      </label>
-                      <span className="ksa-dims-sep" aria-hidden>
-                        ×
-                      </span>
-                      <label className="ksa-dims-input">
-                        <span>W</span>
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={row.width}
-                          onChange={(e) => updateRow(row.id, { width: toOptionalNumber(e.target.value) })}
-                        />
-                      </label>
-                      <span className="ksa-dims-sep" aria-hidden>
-                        ×
-                      </span>
-                      <label className="ksa-dims-input">
-                        <span>H</span>
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={row.height}
-                          onChange={(e) => updateRow(row.id, { height: toOptionalNumber(e.target.value) })}
-                        />
-                      </label>
-                    </div>
-                  </td>
-                  <td className="ksa-col-volume ksa-stacked-readonly">
-                    <span title="CBM">{fmtSar(row.cbm, 4)}</span>
-                    <span className="ksa-stacked-readonly__sub" title="Cargo cost">
-                      {fmtSar(row.cargoCost)}
-                    </span>
-                  </td>
-                  <td className="ksa-col-landed">
-                    <div className="ksa-pair-inputs" role="group" aria-label="Storage and KSA shipping">
-                      <label className="ksa-pair-input">
-                        <span>Stor</span>
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={row.storageCost}
-                          onChange={(e) => updateRow(row.id, { storageCost: toOptionalNumber(e.target.value) })}
-                        />
-                      </label>
-                      <label className="ksa-pair-input">
-                        <span>Ship</span>
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={row.ksaShippingCost}
-                          onChange={(e) => updateRow(row.id, { ksaShippingCost: toOptionalNumber(e.target.value) })}
-                        />
-                      </label>
-                    </div>
-                  </td>
-                  <td className="ksa-col-pct ksa-readonly-cell">{fmtSar(row.commissionAmount)}</td>
-                  <td className="ksa-col-pct ksa-readonly-cell">{fmtSar(row.advertisingAmount)}</td>
-                  <td className="ksa-col-pct ksa-readonly-cell">{fmtSar(row.vatKsaAmount)}</td>
-                  <td className="ksa-col-pct ksa-readonly-cell">{fmtSar(row.profitAmount)}</td>
-                  <td className="ksa-col-result ksa-readonly-cell">{fmtSar(row.totalBaseCost)}</td>
-                  <td className="ksa-col-result ksa-readonly-cell">
-                    <strong>{fmtSar(row.newPriceSar)}</strong>
-                  </td>
-                  <td className="ksa-col-actions ksa-row-actions">
-                    <button
-                      type="button"
-                      className="ksa-row-action-btn"
-                      onClick={() => recordHistoryForRow(row.id)}
-                      aria-label={`Save ${row.itemCode || 'row'} to history`}
-                      title="Save to history"
-                    >
-                      <Save size={16} aria-hidden />
-                    </button>
-                    <button
-                      type="button"
-                      className="ksa-row-action-btn ksa-row-action-btn--danger"
-                      onClick={() => removeRow(row.id)}
-                      aria-label={`Remove ${row.itemCode || 'row'}`}
-                      title="Remove row"
-                    >
-                      <Trash2 size={16} aria-hidden />
-                    </button>
+            </thead>
+            <tbody>
+              {store.rows.length === 0 ? (
+                <tr>
+                  <td colSpan={14} className="ksa-sc-empty">
+                    No rows yet. Add or paste item codes for the active shipment batch.
                   </td>
                 </tr>
-                )
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+              ) : (
+                store.rows.map((row) => {
+                  const zohoStatus = rowZohoDisplayStatus(row, loadingRowIds)
+                  return (
+                    <tr key={row.id}>
+                      <td>
+                        <input
+                          className="ksa-sc-input ksa-sc-item-input"
+                          value={row.itemCode}
+                          onChange={(e) => updateRow(row.id, { itemCode: e.target.value })}
+                          onBlur={(e) => onItemCodeBlur(row.id, e.target.value)}
+                        />
+                      </td>
+                      <td>
+                        <span className={zohoBadgeClass(zohoStatus)}>{zohoBadgeLabel(zohoStatus)}</span>
+                      </td>
+                      <td>
+                        <input
+                          className="ksa-sc-input ksa-sc-purchase-input"
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={row.purchasePriceEcommerce}
+                          onChange={(e) =>
+                            updateRow(row.id, { purchasePriceEcommerce: toOptionalNumber(e.target.value) })
+                          }
+                        />
+                      </td>
+                      <td>
+                        <div className="ksa-sc-dims" role="group" aria-label="Package dimensions in centimeters">
+                          <input
+                            className="ksa-sc-input"
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={row.length}
+                            aria-label="Length"
+                            onChange={(e) => updateRow(row.id, { length: toOptionalNumber(e.target.value) })}
+                          />
+                          <span className="ksa-sc-dims-sep" aria-hidden>
+                            ×
+                          </span>
+                          <input
+                            className="ksa-sc-input"
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={row.width}
+                            aria-label="Width"
+                            onChange={(e) => updateRow(row.id, { width: toOptionalNumber(e.target.value) })}
+                          />
+                          <span className="ksa-sc-dims-sep" aria-hidden>
+                            ×
+                          </span>
+                          <input
+                            className="ksa-sc-input"
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={row.height}
+                            aria-label="Height"
+                            onChange={(e) => updateRow(row.id, { height: toOptionalNumber(e.target.value) })}
+                          />
+                        </div>
+                      </td>
+                      <td>
+                        <div className="ksa-sc-volume">
+                          <b title="CBM">{fmtSar(row.cbm, 4)}</b>
+                          <span title="Cargo cost">{fmtSar(row.cargoCost)}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="ksa-sc-ship" role="group" aria-label="Storage and KSA shipping">
+                          <label>
+                            STOR
+                            <input
+                              className="ksa-sc-input"
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={row.storageCost}
+                              onChange={(e) => updateRow(row.id, { storageCost: toOptionalNumber(e.target.value) })}
+                            />
+                          </label>
+                          <label>
+                            SHIP
+                            <input
+                              className="ksa-sc-input"
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={row.ksaShippingCost}
+                              onChange={(e) => updateRow(row.id, { ksaShippingCost: toOptionalNumber(e.target.value) })}
+                            />
+                          </label>
+                        </div>
+                      </td>
+                      <td className="ksa-sc-val">{fmtSar(row.commissionAmount)}</td>
+                      <td className="ksa-sc-val">{fmtSar(row.advertisingAmount)}</td>
+                      <td className="ksa-sc-val">{fmtSar(row.vatKsaAmount)}</td>
+                      <td className="ksa-sc-val">{fmtSar(row.profitAmount)}</td>
+                      <td className="ksa-sc-base">{fmtSar(row.totalBaseCost)}</td>
+                      <td className="ksa-sc-price">{fmtSar(row.newPriceSar)}</td>
+                      <td>
+                        <div className="ksa-sc-actions">
+                          <button
+                            type="button"
+                            className="ksa-sc-icon-btn"
+                            onClick={() => recordHistoryForRow(row.id)}
+                            aria-label={`Save ${row.itemCode || 'row'} to history`}
+                            title="Save to history"
+                          >
+                            <Save size={15} aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            className="ksa-sc-icon-btn ksa-sc-icon-btn--danger"
+                            onClick={() => removeRow(row.id)}
+                            aria-label={`Remove ${row.itemCode || 'row'}`}
+                            title="Remove row"
+                          >
+                            <Trash2 size={15} aria-hidden />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+        {store.rows.length > 0 && (
+          <footer className="ksa-sc-table-footer">
+            <div>Total Base: {tableTotals.base.toFixed(2)}</div>
+            <div>
+              Total Price: <span>{tableTotals.price.toFixed(2)}</span>
+            </div>
+          </footer>
+        )}
+      </section>
 
-      <section className="ksa-history-section" aria-labelledby="ksa-history-title">
-        <h2 id="ksa-history-title" className="doc-section-title">
-          KSA Shipment History
-        </h2>
-        <p className="pp-hint">
-          Separate from UAE historical prices and old KSA ecommerce data. Use “Record history snapshot” after batch
-          pricing is final.
-        </p>
+      <section className="ksa-sc-panel ksa-sc-history" aria-labelledby="ksa-history-title">
+        <div className="ksa-sc-panel__head">
+          <div>
+            <h2 id="ksa-history-title" className="ksa-sc-panel__title">
+              KSA Shipment History
+            </h2>
+            <p className="ksa-sc-panel__hint">Recorded snapshots after batch pricing is final.</p>
+          </div>
+        </div>
         {history.entries.length === 0 ? (
-          <p className="pp-hint">No history recorded yet.</p>
+          <div className="ksa-sc-panel__body ksa-sc-empty">No history recorded yet.</div>
         ) : (
-          <div className="ksa-pricing-table-wrap">
-            <table className="ksa-pricing-table">
+          <div className="ksa-sc-table-scroll">
+            <table className="ksa-sc-table">
               <thead>
                 <tr>
                   <th>Recorded</th>
@@ -714,7 +752,7 @@ export function KsaPricingPage() {
                   <th>Freight/CBM</th>
                   <th>CBM</th>
                   <th>Base</th>
-                  <th>Price SAR</th>
+                  <th>Price</th>
                   <th>Reason</th>
                 </tr>
               </thead>
@@ -727,7 +765,7 @@ export function KsaPricingPage() {
                     <td>{fmtSar(entry.freightRatePerCbmSnapshot)}</td>
                     <td>{fmtSar(entry.cbm, 4)}</td>
                     <td>{fmtSar(entry.totalBaseCost)}</td>
-                    <td>{fmtSar(entry.newPriceSar)}</td>
+                    <td className="ksa-sc-price">{fmtSar(entry.newPriceSar)}</td>
                     <td>{entry.reason}</td>
                   </tr>
                 ))}
