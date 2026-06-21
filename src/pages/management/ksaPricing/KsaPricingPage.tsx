@@ -48,15 +48,20 @@ function PctHeader({
   return (
     <div className="ksa-pct-header">
       <span>{label}</span>
-      <input
-        type="number"
-        min={0}
-        max={100}
-        step={0.1}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value) || 0)}
-        aria-label={`${label} percent for all rows`}
-      />
+      <div className="ksa-pct-header__input">
+        <input
+          type="number"
+          min={0}
+          max={100}
+          step={0.1}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value) || 0)}
+          aria-label={`${label} percent for all rows`}
+        />
+        <span className="ksa-pct-header__suffix" aria-hidden>
+          %
+        </span>
+      </div>
     </div>
   )
 }

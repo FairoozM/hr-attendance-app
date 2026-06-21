@@ -107,6 +107,7 @@
 
 .ksa-col-dims {
   width: 9.5rem;
+  text-align: center;
 }
 
 .ksa-col-volume {
@@ -136,8 +137,21 @@
   color: var(--text-muted);
 }
 
+.ksa-pct-header__input {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.12rem;
+}
+
+.ksa-pct-header__suffix {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
 .ksa-pct-header input {
-  width: 2.85rem;
+  width: 2.35rem;
   padding: 0.15rem 0.2rem;
   text-align: center;
   font: inherit;
@@ -160,17 +174,20 @@
 }
 
 .ksa-dims-inputs {
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.15rem;
+  margin-inline: auto;
 }
 
 .ksa-dims-input {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 0.1rem;
-  min-width: 0;
-  flex: 1 1 0;
+  width: 2.35rem;
+  flex: 0 0 auto;
 }
 
 .ksa-dims-input span {
