@@ -447,29 +447,25 @@ export function KsaPricingPage() {
         <table className="ksa-pricing-table">
           <thead>
             <tr>
-              <th>Item code</th>
-              <th>Zoho</th>
-              <th>Purchase</th>
-              <th>L</th>
-              <th>W</th>
-              <th>H</th>
-              <th>CBM</th>
-              <th>Cargo</th>
-              <th>Storage</th>
-              <th>KSA ship</th>
-              <th>Comm cost</th>
-              <th>Ad cost</th>
-              <th>VAT cost</th>
-              <th>Profit</th>
-              <th>Base</th>
-              <th>Price SAR</th>
-              <th />
+              <th className="ksa-col-item">Item</th>
+              <th className="ksa-col-zoho">Zoho</th>
+              <th className="ksa-col-purchase">Purchase</th>
+              <th className="ksa-col-dims">L × W × H</th>
+              <th className="ksa-col-volume">CBM / Cargo</th>
+              <th className="ksa-col-landed">Storage / Ship</th>
+              <th className="ksa-col-pct">Comm</th>
+              <th className="ksa-col-pct">Ad</th>
+              <th className="ksa-col-pct">VAT</th>
+              <th className="ksa-col-pct">Profit</th>
+              <th className="ksa-col-result">Base</th>
+              <th className="ksa-col-result">Price</th>
+              <th className="ksa-col-actions" />
             </tr>
           </thead>
           <tbody>
             {store.rows.length === 0 ? (
               <tr>
-                <td colSpan={17} className="pp-hint">
+                <td colSpan={14} className="pp-hint">
                   No rows yet. Add or paste item codes for the active shipment batch.
                 </td>
               </tr>
@@ -478,17 +474,17 @@ export function KsaPricingPage() {
                 const zohoStatus = rowZohoDisplayStatus(row, loadingRowIds)
                 return (
                 <tr key={row.id}>
-                  <td>
+                  <td className="ksa-col-item">
                     <input
                       value={row.itemCode}
                       onChange={(e) => updateRow(row.id, { itemCode: e.target.value })}
                       onBlur={(e) => onItemCodeBlur(row.id, e.target.value)}
                     />
                   </td>
-                  <td>
+                  <td className="ksa-col-zoho">
                     <span className={zohoBadgeClass(zohoStatus)}>{zohoBadgeLabel(zohoStatus)}</span>
                   </td>
-                  <td>
+                  <td className="ksa-col-purchase">
                     <input
                       type="number"
                       min={0}
@@ -499,57 +495,80 @@ export function KsaPricingPage() {
                       }
                     />
                   </td>
-                  <td>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={row.length}
-                      onChange={(e) => updateRow(row.id, { length: toOptionalNumber(e.target.value) })}
-                    />
+                  <td className="ksa-col-dims">
+                    <div className="ksa-dims-inputs" role="group" aria-label="Package dimensions in centimeters">
+                      <label className="ksa-dims-input">
+                        <span>L</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={row.length}
+                          onChange={(e) => updateRow(row.id, { length: toOptionalNumber(e.target.value) })}
+                        />
+                      </label>
+                      <span className="ksa-dims-sep" aria-hidden>
+                        ×
+                      </span>
+                      <label className="ksa-dims-input">
+                        <span>W</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={row.width}
+                          onChange={(e) => updateRow(row.id, { width: toOptionalNumber(e.target.value) })}
+                        />
+                      </label>
+                      <span className="ksa-dims-sep" aria-hidden>
+                        ×
+                      </span>
+                      <label className="ksa-dims-input">
+                        <span>H</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={row.height}
+                          onChange={(e) => updateRow(row.id, { height: toOptionalNumber(e.target.value) })}
+                        />
+                      </label>
+                    </div>
                   </td>
-                  <td>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={row.width}
-                      onChange={(e) => updateRow(row.id, { width: toOptionalNumber(e.target.value) })}
-                    />
+                  <td className="ksa-col-volume ksa-stacked-readonly">
+                    <span title="CBM">{fmtSar(row.cbm, 4)}</span>
+                    <span className="ksa-stacked-readonly__sub" title="Cargo cost">
+                      {fmtSar(row.cargoCost)}
+                    </span>
                   </td>
-                  <td>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={row.height}
-                      onChange={(e) => updateRow(row.id, { height: toOptionalNumber(e.target.value) })}
-                    />
+                  <td className="ksa-col-landed">
+                    <div className="ksa-pair-inputs" role="group" aria-label="Storage and KSA shipping">
+                      <label className="ksa-pair-input">
+                        <span>Stor</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={row.storageCost}
+                          onChange={(e) => updateRow(row.id, { storageCost: toOptionalNumber(e.target.value) })}
+                        />
+                      </label>
+                      <label className="ksa-pair-input">
+                        <span>Ship</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={row.ksaShippingCost}
+                          onChange={(e) => updateRow(row.id, { ksaShippingCost: toOptionalNumber(e.target.value) })}
+                        />
+                      </label>
+                    </div>
                   </td>
-                  <td className="ksa-readonly-cell">{fmtSar(row.cbm, 4)}</td>
-                  <td className="ksa-readonly-cell">{fmtSar(row.cargoCost)}</td>
-                  <td>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={row.storageCost}
-                      onChange={(e) => updateRow(row.id, { storageCost: toOptionalNumber(e.target.value) })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={row.ksaShippingCost}
-                      onChange={(e) => updateRow(row.id, { ksaShippingCost: toOptionalNumber(e.target.value) })}
-                    />
-                  </td>
-                  <td className="ksa-percent-cost-cell">
+                  <td className="ksa-col-pct ksa-percent-cost-cell">
                     <strong>{fmtSar(row.commissionAmount)}</strong>
                     <label>
-                      <span>Rate %</span>
+                      <span>%</span>
                       <input
                         type="number"
                         min={0}
@@ -560,10 +579,10 @@ export function KsaPricingPage() {
                       />
                     </label>
                   </td>
-                  <td className="ksa-percent-cost-cell">
+                  <td className="ksa-col-pct ksa-percent-cost-cell">
                     <strong>{fmtSar(row.advertisingAmount)}</strong>
                     <label>
-                      <span>Rate %</span>
+                      <span>%</span>
                       <input
                         type="number"
                         min={0}
@@ -574,10 +593,10 @@ export function KsaPricingPage() {
                       />
                     </label>
                   </td>
-                  <td className="ksa-percent-cost-cell">
+                  <td className="ksa-col-pct ksa-percent-cost-cell">
                     <strong>{fmtSar(row.vatKsaAmount)}</strong>
                     <label>
-                      <span>Rate %</span>
+                      <span>%</span>
                       <input
                         type="number"
                         min={0}
@@ -588,10 +607,10 @@ export function KsaPricingPage() {
                       />
                     </label>
                   </td>
-                  <td className="ksa-percent-cost-cell">
+                  <td className="ksa-col-pct ksa-percent-cost-cell">
                     <strong>{fmtSar(row.profitAmount)}</strong>
                     <label>
-                      <span>Rate %</span>
+                      <span>%</span>
                       <input
                         type="number"
                         min={0}
@@ -602,11 +621,11 @@ export function KsaPricingPage() {
                       />
                     </label>
                   </td>
-                  <td className="ksa-readonly-cell">{fmtSar(row.totalBaseCost)}</td>
-                  <td className="ksa-readonly-cell">
+                  <td className="ksa-col-result ksa-readonly-cell">{fmtSar(row.totalBaseCost)}</td>
+                  <td className="ksa-col-result ksa-readonly-cell">
                     <strong>{fmtSar(row.newPriceSar)}</strong>
                   </td>
-                  <td className="ksa-row-actions">
+                  <td className="ksa-col-actions ksa-row-actions">
                     <button
                       type="button"
                       className="ksa-row-action-btn"
