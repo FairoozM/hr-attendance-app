@@ -196,6 +196,28 @@ async function searchZohoItemsByText(searchText, { activeOnly = true } = {}) {
   return Array.isArray(json?.items) ? json.items : []
 }
 
+async function resolveItemFromSearchResults(list, needle, { maxDetailFetches = 25 } = {}) {
+  const rows = Array.isArray(list) ? list : []
+  const direct = pickBestItemMatch(rows, needle)
+  if (direct?.item_id) {
+    const detail = await fetchItemDetailById(direct.item_id)
+    if (detail && pickBestItemMatch([detail], needle)) return detail
+  }
+
+  const tried = new Set()
+  if (direct?.item_id) tried.add(String(direct.item_id))
+
+  for (const row of rows) {
+    const itemId = row?.item_id != null ? String(row.item_id) : ''
+    if (!itemId || tried.has(itemId)) continue
+    tried.add(itemId)
+    if (tried.size > maxDetailFetches) break
+    const detail = await fetchItemDetailById(itemId)
+    if (detail && pickBestItemMatch([detail], needle)) return detail
+  }
+  return null
+}
+
 async function searchZohoItemBySku(sku) {
   const needle = cleanSku(sku)
   if (!needle) return null
@@ -210,16 +232,17 @@ async function searchZohoItemBySku(sku) {
         const itemId = row?.item_id != null ? String(row.item_id) : ''
         if (itemId) seenItemIds.add(itemId)
       }
-      const pick = pickBestItemMatch(list, needle)
-      if (pick?.item_id) return fetchItemDetailById(pick.item_id)
+      const resolved = await resolveItemFromSearchResults(list, needle)
+      if (resolved) return resolved
     }
   }
 
-  // Last resort: if Zoho returned exactly one unique item across all searches, verify it matches.
-  if (seenItemIds.size === 1) {
-    const [onlyId] = [...seenItemIds]
-    const detail = await fetchItemDetailById(onlyId)
-    if (detail && pickBestItemMatch([detail], needle)) return detail
+  // Last resort: Zoho search often returns barcode-only list rows — verify via item detail.
+  if (seenItemIds.size > 0 && seenItemIds.size <= 25) {
+    for (const itemId of seenItemIds) {
+      const detail = await fetchItemDetailById(itemId)
+      if (detail && pickBestItemMatch([detail], needle)) return detail
+    }
   }
 
   return null
@@ -316,6 +339,7 @@ module.exports = {
     lookupKeys,
     itemLookupKeys,
     pickBestItemMatch,
+    resolveItemFromSearchResults,
     resolveItemFromSkuMap,
     pickItemDisplayName,
     pickItemSku,

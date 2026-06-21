@@ -133,6 +133,7 @@ async function findItemsBySkuOrName(keys) {
     FROM zoho_item_cache
     WHERE LOWER(sku) = ANY($1::text[])
        OR LOWER(name) = ANY($1::text[])
+       OR LOWER(COALESCE(raw_json->>'name', '')) = ANY($1::text[])
        OR LOWER(COALESCE(raw_json->>'item_name', '')) = ANY($1::text[])
        OR LOWER(COALESCE(raw_json->>'part_number', '')) = ANY($1::text[])
        OR LOWER(COALESCE(raw_json->>'item_code', '')) = ANY($1::text[])

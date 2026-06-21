@@ -179,7 +179,8 @@ export function KsaPricingPage() {
         ...patch,
         updatedAt: new Date().toISOString(),
         zohoDimensionStatus:
-          patch.length !== undefined || patch.width !== undefined || patch.height !== undefined
+          (patch.length !== undefined || patch.width !== undefined || patch.height !== undefined) &&
+          !row.zohoItemId
             ? ('manual' as const)
             : row.zohoDimensionStatus,
       }

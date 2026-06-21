@@ -52,6 +52,33 @@ describe('ksaPricingZohoService', () => {
     assert.equal(hit.item_id, 'item-flhm')
   })
 
+  it('does not match catalogue code from Zoho list row when only barcode sku is present', () => {
+    const hit = _internals.pickBestItemMatch(
+      [
+        {
+          sku: '6294011000059',
+          item_id: 'item-2fp17-beige',
+        },
+      ],
+      '2FP17SET-BEIGE'
+    )
+    assert.equal(hit, null)
+  })
+
+  it('matches catalogue code once Zoho item detail includes the item name', () => {
+    const hit = _internals.pickBestItemMatch(
+      [
+        {
+          sku: '6294011000059',
+          name: '2FP17SET-BEIGE',
+          item_id: 'item-2fp17-beige',
+        },
+      ],
+      '2FP17SET-BEIGE'
+    )
+    assert.equal(hit.item_id, 'item-2fp17-beige')
+  })
+
   it('does not treat a single unrelated search hit as a match', () => {
     const hit = _internals.pickBestItemMatch(
       [
