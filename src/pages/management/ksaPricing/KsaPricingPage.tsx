@@ -29,8 +29,6 @@ import type {
   ZohoDimensionStatus,
 } from './ksaPricingTypes'
 
-const AUTOSAVE_MS = 500
-
 function zohoBadgeClass(status: ZohoDimensionStatus): string {
   if (status === 'found') return 'ksa-zoho-badge ksa-zoho-badge--found'
   if (status === 'loading') return 'ksa-zoho-badge ksa-zoho-badge--loading'
@@ -57,9 +55,16 @@ function rowsAfterZohoFetchFailure(
 ): KsaPricingRow[] {
   const targetIds = new Set(rowIds)
   return sourceStore.rows.map((row) => {
-    if (!targetIds.has(row.id) || row.zohoDimensionStatus !== 'loading') return row
+    if (!targetIds.has(row.id)) return row
     return { ...row, zohoDimensionStatus: status, updatedAt: new Date().toISOString() }
   })
+}
+
+function rowZohoDisplayStatus(
+  row: KsaPricingRow,
+  loadingRowIds: ReadonlySet<string>
+): ZohoDimensionStatus {
+  return loadingRowIds.has(row.id) ? 'loading' : row.zohoDimensionStatus
 }
 function indexZohoDimensionResults(results: ZohoDimensionLookupResult[]): Map<string, ZohoDimensionLookupResult> {
   const map = new Map<string, ZohoDimensionLookupResult>()
@@ -81,8 +86,8 @@ export function KsaPricingPage() {
   const [error, setError] = useState('')
   const [pasteText, setPasteText] = useState('')
   const [dimensionBusy, setDimensionBusy] = useState(false)
-  const autosaveRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const skipAutosaveRef = useRef(true)
+  const [loadingRowIds, setLoadingRowIds] = useState<ReadonlySet<string>>(() => new Set())
+  const prefsHydratedRef = useRef(false)
 
   const activeBatch = useMemo(
     () => store.batches.find((b) => b.id === store.activeBatchId) || store.batches[0] || null,
@@ -113,29 +118,14 @@ export function KsaPricingPage() {
   )
 
   useEffect(() => {
-    if (!prefsReady) return
-    void prefsVersion
+    if (!prefsReady || prefsHydratedRef.current) return
+    prefsHydratedRef.current = true
     const loadedStore = normalizeKsaPricingStore(getPref(KSA_PRICING_STORE_PREF, null))
     const loadedHistory = normalizeKsaPricingHistory(getPref(KSA_PRICING_HISTORY_PREF, null))
     setStore(recalcAllRows(loadedStore))
     setHistory(loadedHistory)
     setPrefsLoaded(true)
-    skipAutosaveRef.current = true
-  }, [getPref, prefsReady, prefsVersion])
-
-  useEffect(() => {
-    if (!prefsLoaded || !prefsReady || skipAutosaveRef.current) {
-      skipAutosaveRef.current = false
-      return
-    }
-    if (autosaveRef.current) clearTimeout(autosaveRef.current)
-    autosaveRef.current = setTimeout(() => {
-      setPref(KSA_PRICING_STORE_PREF, { ...store, lastSavedAt: new Date().toISOString() })
-    }, AUTOSAVE_MS)
-    return () => {
-      if (autosaveRef.current) clearTimeout(autosaveRef.current)
-    }
-  }, [prefsLoaded, prefsReady, setPref, store])
+  }, [getPref, prefsReady])
 
   const updateBatchField = (field: keyof KsaShipmentBatch, value: string | number) => {
     if (!activeBatch) return
@@ -198,6 +188,12 @@ export function KsaPricingPage() {
     async (rowIds: string[], sourceStore = store) => {
       const targets = sourceStore.rows.filter((r) => rowIds.includes(r.id) && r.itemCode.trim())
       if (!targets.length) return
+      const targetIds = rowIds.filter((id) => targets.some((r) => r.id === id))
+      setLoadingRowIds((prev) => {
+        const next = new Set(prev)
+        for (const id of targetIds) next.add(id)
+        return next
+      })
       setDimensionBusy(true)
       setError('')
       try {
@@ -208,9 +204,9 @@ export function KsaPricingPage() {
         )
         const bySku = indexZohoDimensionResults(res.results || [])
         const batchById = new Map(sourceStore.batches.map((b) => [b.id, b]))
-        const targetIds = new Set(rowIds)
+        const targetIdSet = new Set(targetIds)
         const rows = sourceStore.rows.map((row) => {
-          if (!targetIds.has(row.id) || !row.itemCode.trim()) return row
+          if (!targetIdSet.has(row.id) || !row.itemCode.trim()) return row
           const hit = bySku.get(row.itemCode.trim().toLowerCase())
           if (!hit) {
             return { ...row, zohoDimensionStatus: 'not_found' as const, updatedAt: new Date().toISOString() }
@@ -237,9 +233,14 @@ export function KsaPricingPage() {
         setError(message)
         persistStore({
           ...sourceStore,
-          rows: rowsAfterZohoFetchFailure(sourceStore, rowIds),
+          rows: rowsAfterZohoFetchFailure(sourceStore, targetIds),
         })
       } finally {
+        setLoadingRowIds((prev) => {
+          const next = new Set(prev)
+          for (const id of targetIds) next.delete(id)
+          return next
+        })
         setDimensionBusy(false)
       }
     },
@@ -248,13 +249,10 @@ export function KsaPricingPage() {
 
   const onItemCodeBlur = async (rowId: string, itemCode: string) => {
     if (!itemCode.trim()) return
+    const trimmed = itemCode.trim()
     const nextStore = {
       ...store,
-      rows: store.rows.map((row) =>
-        row.id === rowId
-          ? { ...row, itemCode: itemCode.trim(), zohoDimensionStatus: 'loading' as const }
-          : row
-      ),
+      rows: store.rows.map((row) => (row.id === rowId ? { ...row, itemCode: trimmed } : row)),
     }
     persistStore(nextStore)
     await fetchDimensionsForRows([rowId], nextStore)
@@ -272,7 +270,7 @@ export function KsaPricingPage() {
     }
     const newRows = codes.map((code) => {
       const row = createEmptyKsaRow(activeBatch)
-      return { ...row, itemCode: code, zohoDimensionStatus: 'loading' as const }
+      return { ...row, itemCode: code }
     })
     const nextStore = { ...store, rows: [...store.rows, ...newRows] }
     persistStore(nextStore)
@@ -477,7 +475,9 @@ export function KsaPricingPage() {
                 </td>
               </tr>
             ) : (
-              store.rows.map((row) => (
+              store.rows.map((row) => {
+                const zohoStatus = rowZohoDisplayStatus(row, loadingRowIds)
+                return (
                 <tr key={row.id}>
                   <td>
                     <input
@@ -487,7 +487,7 @@ export function KsaPricingPage() {
                     />
                   </td>
                   <td>
-                    <span className={zohoBadgeClass(row.zohoDimensionStatus)}>{zohoBadgeLabel(row.zohoDimensionStatus)}</span>
+                    <span className={zohoBadgeClass(zohoStatus)}>{zohoBadgeLabel(zohoStatus)}</span>
                   </td>
                   <td>
                     <input
@@ -629,7 +629,8 @@ export function KsaPricingPage() {
                     </button>
                   </td>
                 </tr>
-              ))
+                )
+              })
             )}
           </tbody>
         </table>
