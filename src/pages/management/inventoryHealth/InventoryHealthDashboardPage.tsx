@@ -222,20 +222,19 @@ export function InventoryHealthDashboardPage() {
     at: string
   } | null>(null)
   const [rowImageByItemId, setRowImageByItemId] = useState<Record<string, InventoryHealthRowImageFields>>({})
+  const [appliedWarehouseId, setAppliedWarehouseId] = useState<string | undefined>(undefined)
+  const [fetchTargetWarehouseId, setFetchTargetWarehouseId] = useState<string | undefined>(undefined)
   const imageSyncPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastSyncedSavedRef = useRef(0)
   const rowImagesRequestRef = useRef(0)
   const visibleItemIdsRef = useRef<string[]>([])
 
-  const loadQuery = useMemo(
-    () => ({
-      ...INVENTORY_HEALTH_LOAD_QUERY,
-      warehouseId: filters.warehouseId || undefined,
-    }),
-    [filters.warehouseId],
-  )
+  const warehousePending = (filters.warehouseId || '') !== (appliedWarehouseId || '')
 
-  const queryParams = useMemo(() => ({ ...filters }), [filters])
+  const queryParams = useMemo(
+    () => ({ ...filters, warehouseId: appliedWarehouseId }),
+    [filters, appliedWarehouseId],
+  )
 
   const allRows = data?.rows || []
 
@@ -292,16 +291,23 @@ export function InventoryHealthDashboardPage() {
     void loadVisibleRowImages(visibleItemIdsRef.current)
   }, [data?.rows, viewMode, skuPagination.items, skuPage, loadVisibleRowImages])
 
-  const load = useCallback(async (opts?: { refresh?: boolean }) => {
+  const load = useCallback(async (opts?: { refresh?: boolean; warehouseId?: string | undefined }) => {
+    const warehouseId = opts?.warehouseId !== undefined ? opts.warehouseId : appliedWarehouseId
+    const query = {
+      ...INVENTORY_HEALTH_LOAD_QUERY,
+      warehouseId: warehouseId || undefined,
+    }
+    setFetchTargetWarehouseId(warehouseId)
     setError('')
     setErrorDebug('')
     if (opts?.refresh) setRefreshing(true)
     else setLoading(true)
     try {
       const result = opts?.refresh
-        ? await refreshInventoryHealth(loadQuery)
-        : await fetchInventoryHealth(loadQuery)
+        ? await refreshInventoryHealth(query)
+        : await fetchInventoryHealth(query)
       setData(result)
+      setAppliedWarehouseId(warehouseId)
     } catch (err) {
       const body = err as { message?: string; debug?: InventoryHealthDebug }
       setError(safeError(err))
@@ -311,12 +317,19 @@ export function InventoryHealthDashboardPage() {
     } finally {
       setLoading(false)
       setRefreshing(false)
+      setFetchTargetWarehouseId(undefined)
     }
-  }, [loadQuery])
+  }, [appliedWarehouseId])
 
   useEffect(() => {
-    void load()
-  }, [load])
+    void load({ warehouseId: undefined })
+    // Initial load only — warehouse changes require Apply.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const handleApplyWarehouse = useCallback(() => {
+    void load({ warehouseId: filters.warehouseId })
+  }, [filters.warehouseId, load])
 
   useEffect(() => {
     setSkuPage(1)
@@ -330,13 +343,14 @@ export function InventoryHealthDashboardPage() {
 
   const exportRows = displayRows
   const showInitialSkeleton = loading && !data
-  const canExport = !showInitialSkeleton && exportRows.length > 0
+  const inventoryFetching = loading || refreshing
+  const canExport = !showInitialSkeleton && exportRows.length > 0 && !inventoryFetching
   const exportBusy = exporting != null
 
   const [loadSeconds, setLoadSeconds] = useState(0)
 
   useEffect(() => {
-    if (!showInitialSkeleton && !refreshing) {
+    if (!inventoryFetching) {
       setLoadSeconds(0)
       return
     }
@@ -346,7 +360,7 @@ export function InventoryHealthDashboardPage() {
       setLoadSeconds(Math.floor((Date.now() - started) / 1000))
     }, 1000)
     return () => window.clearInterval(timer)
-  }, [showInitialSkeleton, refreshing])
+  }, [inventoryFetching])
 
   const handleExportCsv = useCallback(async () => {
     if (!canExport) return
@@ -523,8 +537,8 @@ export function InventoryHealthDashboardPage() {
           <button
             type="button"
             className="ih-btn ih-btn--primary"
-            disabled={loading || refreshing}
-            onClick={() => void load({ refresh: true })}
+            disabled={inventoryFetching}
+            onClick={() => void load({ refresh: true, warehouseId: appliedWarehouseId })}
           >
             {refreshing ? 'Refreshing…' : 'Refresh from Zoho'}
           </button>
@@ -628,8 +642,22 @@ export function InventoryHealthDashboardPage() {
         </div>
       ) : null}
 
-      {refreshing ? (
-        <div className="ih-image-sync-msg">Refreshing inventory data from Zoho…</div>
+
+      {inventoryFetching ? (
+        <div className="ih-fetch-banner" role="status" aria-live="polite">
+          <div className="ih-fetch-banner__spinner" aria-hidden />
+          <div>
+            <strong>
+              {refreshing ? 'Refreshing from Zoho' : 'Loading inventory'} —{' '}
+              {warehouseLabel(warehouses, fetchTargetWarehouseId ?? appliedWarehouseId)}
+            </strong>
+            <p>
+              Fetching stock and sales from Zoho
+              {loadSeconds > 0 ? ` · ${loadSeconds}s elapsed` : ''}
+              {loadSeconds >= 45 ? ' · still working, please wait.' : ' · may take 1–3 minutes for a new warehouse.'}
+            </p>
+          </div>
+        </div>
       ) : null}
 
       {showInitialSkeleton ? (
@@ -651,7 +679,7 @@ export function InventoryHealthDashboardPage() {
       ) : null}
 
       {!showInitialSkeleton && summary ? (
-        <>
+        <div className={`ih-cards-wrap${inventoryFetching && data ? ' ih-cards-wrap--fetching' : ''}`}>
           <div className="ih-cards">
             <div className="ih-card">
               <div className="ih-card-label">Total Inventory Value</div>
@@ -680,13 +708,16 @@ export function InventoryHealthDashboardPage() {
 
           <div className="ih-meta">
             Generated {formatDateTime(summary.generatedAt)} · Cache: {summary.cacheStatus}
-            · Warehouse: {warehouseLabel(warehouses, filters.warehouseId || data?.warehouseId || undefined)}
+            · Warehouse: {warehouseLabel(warehouses, appliedWarehouseId ?? data?.warehouseId ?? undefined)}
+            {warehousePending ? (
+              <> · <span className="ih-meta-pending">Pending: {warehouseLabel(warehouses, filters.warehouseId)}</span></>
+            ) : null}
             {summary.topRiskFamily ? (
               <> · Top risk family: {summary.topRiskFamily.familyName} ({formatMoney(summary.topRiskFamily.riskValue)})</>
             ) : null}
             {data?.debug ? <> · {formatDebugSnippet(data.debug)}</> : null}
           </div>
-        </>
+        </div>
       ) : null}
 
       <div className="ih-tabs">
@@ -707,7 +738,7 @@ export function InventoryHealthDashboardPage() {
           Warehouse
           <select
             value={filters.warehouseId || ''}
-            disabled={warehousesLoading || loading || refreshing}
+            disabled={warehousesLoading}
             onChange={(e) =>
               updateFilters((f) => ({
                 ...f,
@@ -729,6 +760,22 @@ export function InventoryHealthDashboardPage() {
             })}
           </select>
         </label>
+        <div className="ih-warehouse-apply">
+          <button
+            type="button"
+            className="ih-btn ih-btn--primary"
+            disabled={!warehousePending || inventoryFetching}
+            onClick={() => void handleApplyWarehouse()}
+          >
+            {inventoryFetching ? 'Loading…' : 'Apply warehouse'}
+          </button>
+        </div>
+        {warehousePending ? (
+          <div className="ih-filter-hint ih-filter-hint--pending">
+            Warehouse changed to <strong>{warehouseLabel(warehouses, filters.warehouseId)}</strong>. Click{' '}
+            <strong>Apply warehouse</strong> to fetch from Zoho (may take 1–3 minutes).
+          </div>
+        ) : null}
         {warehousesError ? <div className="ih-filter-hint ih-filter-hint--warn">{warehousesError}</div> : null}
         <label>
           Search SKU / name / family
@@ -824,7 +871,8 @@ export function InventoryHealthDashboardPage() {
       </div>
 
       {!showInitialSkeleton && viewMode === 'skus' ? (
-        <div className="ih-table-panel">
+        <div className={`ih-table-panel${inventoryFetching && data ? ' ih-table-panel--fetching' : ''}`}>
+          {inventoryFetching && data ? <div className="ih-fetch-overlay" aria-hidden /> : null}
           {skuPagination.totalItems > 0 ? (
             <>
               <div className="ih-table-wrap">
@@ -915,7 +963,8 @@ export function InventoryHealthDashboardPage() {
       ) : null}
 
       {!showInitialSkeleton && viewMode === 'moneyFrozen' ? (
-        <div className="ih-table-panel">
+        <div className={`ih-table-panel${inventoryFetching && data ? ' ih-table-panel--fetching' : ''}`}>
+          {inventoryFetching && data ? <div className="ih-fetch-overlay" aria-hidden /> : null}
           {familyPagination.totalItems > 0 ? (
             <>
               <div className="ih-table-wrap">
