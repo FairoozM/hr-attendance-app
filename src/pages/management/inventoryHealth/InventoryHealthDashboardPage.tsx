@@ -917,7 +917,16 @@ export function InventoryHealthDashboardPage() {
                           <div className="ih-cell-muted">{row.familyType}</div>
                         </td>
                         <td>{formatNum(row.currentStockQty, 0)}</td>
-                        <td>{formatMoney(row.inventoryValue)}</td>
+                        <td>
+                          <div>{formatMoney(row.inventoryValue)}</div>
+                          {row.salesPrice > 0 ? (
+                            <div className="ih-cell-muted">
+                              {formatMoney(row.salesPrice)} × {formatNum(row.currentStockQty, 0)}
+                            </div>
+                          ) : (
+                            <div className="ih-cell-muted">No sales price</div>
+                          )}
+                        </td>
                         <td>
                           {formatNum(row.salesQty90, 0)} / {formatNum(row.salesQty180, 0)} / {formatNum(row.salesQty365, 0)}
                         </td>
@@ -1017,7 +1026,14 @@ export function InventoryHealthDashboardPage() {
             </div>
             <div className="ih-detail-item">
               <dt>Inventory value</dt>
-              <dd>{formatMoney(selected.inventoryValue)} @ {formatMoney(selected.purchaseRate)}</dd>
+              <dd>
+                {formatMoney(selected.inventoryValue)} ({formatMoney(selected.salesPrice)} ×{' '}
+                {formatNum(selected.currentStockQty, 0)})
+              </dd>
+            </div>
+            <div className="ih-detail-item">
+              <dt>Purchase rate (cost)</dt>
+              <dd>{formatMoney(selected.purchaseRate)}</dd>
             </div>
             <div className="ih-detail-item">
               <dt>Last sold</dt>

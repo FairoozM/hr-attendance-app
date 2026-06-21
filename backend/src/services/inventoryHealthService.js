@@ -25,6 +25,7 @@ const MIN_CACHE_ACTIVE_ITEMS = Math.max(
 
 const parseWarehouseScopedStockOnHand = zohoWeeklyInternals.parseWarehouseScopedStockOnHand
 const parseZohoUnitPurchasePrice = zohoWeeklyInternals.parseZohoUnitPurchasePrice
+const parseZohoUnitSalesPrice = zohoWeeklyInternals.parseZohoUnitSalesPrice
 const parseQty = zohoWeeklyInternals.parseQty
 
 /** @type {Map<string, { expiresAt: number, value: object, error?: string }>} */
@@ -75,15 +76,24 @@ function parseAvailableStockQty(item, warehouseId = null) {
 function aggregateSalesLines(lines) {
   const byItemId = new Map()
   const bySku = new Map()
+  const byItemIdAmount = new Map()
+  const bySkuAmount = new Map()
   for (const line of lines || []) {
     const qty = Math.max(0, parseQty(line.quantity))
-    if (qty <= 0) continue
+    const amount = Math.max(0, parseQty(line.item_total))
+    if (qty <= 0 && amount <= 0) continue
     const itemId = line.item_id != null ? String(line.item_id).trim() : ''
     const sku = normalizeSkuKey(line.sku)
-    if (itemId) byItemId.set(itemId, (byItemId.get(itemId) || 0) + qty)
-    if (sku) bySku.set(sku, (bySku.get(sku) || 0) + qty)
+    if (itemId) {
+      byItemId.set(itemId, (byItemId.get(itemId) || 0) + qty)
+      byItemIdAmount.set(itemId, (byItemIdAmount.get(itemId) || 0) + amount)
+    }
+    if (sku) {
+      bySku.set(sku, (bySku.get(sku) || 0) + qty)
+      bySkuAmount.set(sku, (bySkuAmount.get(sku) || 0) + amount)
+    }
   }
-  return { byItemId, bySku }
+  return { byItemId, bySku, byItemIdAmount, bySkuAmount }
 }
 
 function lookupSalesQty(maps, itemId, sku) {
@@ -91,6 +101,26 @@ function lookupSalesQty(maps, itemId, sku) {
   if (id && maps.byItemId.has(id)) return maps.byItemId.get(id)
   const sk = normalizeSkuKey(sku)
   if (sk && maps.bySku.has(sk)) return maps.bySku.get(sk)
+  return 0
+}
+
+function lookupSalesAmount(maps, itemId, sku) {
+  const id = itemId != null ? String(itemId).trim() : ''
+  if (id && maps.byItemIdAmount.has(id)) return maps.byItemIdAmount.get(id)
+  const sk = normalizeSkuKey(sku)
+  if (sk && maps.bySkuAmount.has(sk)) return maps.bySkuAmount.get(sk)
+  return 0
+}
+
+function resolveUnitSalesPrice(item, salesQty365, salesAmount365) {
+  const fromZoho = parseZohoUnitSalesPrice(item)
+  if (fromZoho != null) return fromZoho
+  const sold = Math.max(0, Number(salesQty365) || 0)
+  const amount = Math.max(0, Number(salesAmount365) || 0)
+  if (sold > 0 && amount > 0) {
+    const unit = amount / sold
+    if (unit > 0 && Number.isFinite(unit)) return round2(unit)
+  }
   return 0
 }
 
@@ -175,8 +205,9 @@ function computeInventoryHealthMetrics(input) {
   const salesQty90 = Math.max(0, Number(input.salesQty90) || 0)
   const salesQty180 = Math.max(0, Number(input.salesQty180) || 0)
   const salesQty365 = Math.max(0, Number(input.salesQty365) || 0)
+  const salesPrice = Math.max(0, Number(input.salesPrice) || 0)
   const purchaseRate = Math.max(0, Number(input.purchaseRate) || 0)
-  const inventoryValue = round2(currentStockQty * purchaseRate)
+  const inventoryValue = round2(currentStockQty * salesPrice)
   const familyType = input.familyType === 'Slow Moving' ? 'Slow Moving' : 'Other'
 
   const avgMonthlySales180 = round2(salesQty180 / 6)
@@ -227,6 +258,7 @@ function computeInventoryHealthMetrics(input) {
     familyType,
     currentStockQty,
     availableStockQty: Math.max(0, Number(input.availableStockQty) || 0),
+    salesPrice,
     purchaseRate,
     inventoryValue,
     salesQty90,
@@ -400,7 +432,7 @@ function buildFamilyMoneyFrozen(rows) {
 }
 
 function cacheKeyForBase(warehouseId) {
-  return `wh:${warehouseId || 'all'}`
+  return `wh:${warehouseId || 'all'}:sales-val-v2`
 }
 
 /** Reject test/tiny payloads that must never serve production (e.g. single "Widget" row). */
@@ -606,7 +638,10 @@ async function loadInventoryHealthBase({ warehouseId = null, refresh = false } =
       const familyType = isSlowMovingFamilyMember(slowSet, itemId, sku) ? 'Slow Moving' : 'Other'
       const currentStockQty = parseWarehouseScopedStockOnHand(item, warehouseId)
       const availableStockQty = parseAvailableStockQty(item, warehouseId)
-      const purchaseRate = parseZohoUnitPurchasePrice(item) || parseQty(item.rate) || 0
+      const purchaseRate = parseZohoUnitPurchasePrice(item) || 0
+      const salesQty365 = lookupSalesQty(sales365, itemId, sku)
+      const salesAmount365 = lookupSalesAmount(sales365, itemId, sku)
+      const salesPrice = resolveUnitSalesPrice(item, salesQty365, salesAmount365)
 
       rows.push(
         computeInventoryHealthMetrics({
@@ -617,10 +652,11 @@ async function loadInventoryHealthBase({ warehouseId = null, refresh = false } =
           familyType,
           currentStockQty,
           availableStockQty,
+          salesPrice,
           purchaseRate,
           salesQty90: lookupSalesQty(sales90, itemId, sku),
           salesQty180: lookupSalesQty(sales180, itemId, sku),
-          salesQty365: lookupSalesQty(sales365, itemId, sku),
+          salesQty365,
         }),
       )
     }
@@ -751,6 +787,7 @@ function rowsToCsv(rows) {
     'familyType',
     'currentStockQty',
     'availableStockQty',
+    'salesPrice',
     'purchaseRate',
     'inventoryValue',
     'salesQty90',
@@ -811,6 +848,8 @@ module.exports = {
   applyRowFilters,
   classifyRiskClassV1,
   computeRiskScoreV1,
+  lookupSalesAmount,
+  resolveUnitSalesPrice,
   ZERO_SALES_MONTHS_OF_COVER,
   _internals: {
     buildFamilyMoneyFrozen,

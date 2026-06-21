@@ -11,6 +11,7 @@ export interface InventoryHealthRow {
   familyType: InventoryHealthFamilyType
   currentStockQty: number
   availableStockQty: number
+  salesPrice: number
   purchaseRate: number
   inventoryValue: number
   salesQty90: number

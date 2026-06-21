@@ -26,6 +26,7 @@ function baseInput(overrides = {}) {
     familyType: 'Other',
     currentStockQty: 10,
     availableStockQty: 10,
+    salesPrice: 100,
     purchaseRate: 100,
     salesQty90: 0,
     salesQty180: 0,
@@ -127,6 +128,18 @@ test('slow moving family + stock > 0 + salesQty180 = 0 => hiddenSlowMoving false
   assert.ok(row.tags.includes('Slow Family'))
 })
 
+test('inventory value uses unit sales price × stock qty', () => {
+  const row = computeInventoryHealthMetrics(
+    baseInput({
+      currentStockQty: 5,
+      salesPrice: 71,
+      purchaseRate: 10,
+    }),
+  )
+  assert.equal(row.inventoryValue, 355)
+  assert.equal(row.salesPrice, 71)
+})
+
 test('healthy sales velocity => Healthy risk class', () => {
   const row = computeInventoryHealthMetrics(
     baseInput({
@@ -135,6 +148,7 @@ test('healthy sales velocity => Healthy risk class', () => {
       salesQty180: 30,
       salesQty365: 60,
       purchaseRate: 50,
+      salesPrice: 50,
     }),
   )
   assert.equal(row.riskClass, 'Healthy')
@@ -206,6 +220,7 @@ test('riskScore is explainable and within 0–100', () => {
       currentStockQty: 100,
       salesQty180: 0,
       purchaseRate: 200,
+      salesPrice: 200,
     }),
   )
   assert.ok(row.riskScore >= 0 && row.riskScore <= 100)
@@ -221,6 +236,7 @@ test('deadStockValue and hiddenSlowMovingValue summary totals are correct', () =
         familyType: 'Other',
         currentStockQty: 10,
         purchaseRate: 100,
+        salesPrice: 100,
         salesQty180: 0,
       }),
     ),
@@ -230,6 +246,7 @@ test('deadStockValue and hiddenSlowMovingValue summary totals are correct', () =
         familyType: 'Slow Moving',
         currentStockQty: 5,
         purchaseRate: 200,
+      salesPrice: 200,
         salesQty180: 0,
       }),
     ),
@@ -239,6 +256,7 @@ test('deadStockValue and hiddenSlowMovingValue summary totals are correct', () =
         familyType: 'Other',
         currentStockQty: 4,
         purchaseRate: 50,
+      salesPrice: 50,
         salesQty90: 12,
         salesQty180: 20,
         salesQty365: 40,

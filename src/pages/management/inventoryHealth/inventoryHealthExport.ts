@@ -41,6 +41,7 @@ function buildXlsxRows(rows: InventoryHealthRow[]) {
     Family: row.familyName || '',
     'Family Type': row.familyType || '',
     'Stock Qty': row.currentStockQty ?? 0,
+    'Unit Sales Price (AED)': formatMoneyPlain(row.salesPrice),
     'Inventory Value (AED)': formatMoneyPlain(row.inventoryValue),
     'Sales 90d': row.salesQty90 ?? 0,
     'Sales 180d': row.salesQty180 ?? 0,
@@ -88,6 +89,7 @@ export function exportInventoryHealthXlsx(rows: InventoryHealthRow[]) {
 
   const exportRows = buildXlsxRows(rows)
   const worksheet = XLSX.utils.json_to_sheet(exportRows)
+  applyAedColumnFormat(worksheet, 'Unit Sales Price (AED)')
   applyAedColumnFormat(worksheet, 'Inventory Value (AED)')
 
   const workbook = XLSX.utils.book_new()
