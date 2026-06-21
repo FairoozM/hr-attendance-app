@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import '../Page.css'
-import './DocumentExpiryPage.css'
 import './AllPricesPage.css'
 import { getAllPricesMarket, PRICES_MARKET_UAE } from './allPricesMarket'
 import { setAllPricesMarketScope } from './allPricesMarketScope'
@@ -763,29 +761,28 @@ export function AllPricesPage({ market = PRICES_MARKET_UAE }) {
 
   if (!prefsReady || !prefsLoaded) {
     return (
-      <div className="page ap-ec-page">
-        <div className="doc-page-hero">
+      <div className="page ap-ec-page ap-sc">
+        <header className="ap-sc-page-head">
           <div>
-            <h1 className="doc-page-title">{marketCfg.pageTitle}</h1>
-            <p className="doc-page-subtitle">Loading your saved price list…</p>
+            <h1 className="ap-sc-page-head__title">{marketCfg.pageTitle}</h1>
+            <p className="ap-sc-page-head__sub">Loading your saved price list…</p>
           </div>
-        </div>
+        </header>
       </div>
     )
   }
 
   return (
-    <div className="page ap-ec-page">
-      <div className="doc-page-hero">
+    <div className="page ap-ec-page ap-sc">
+      <header className="ap-sc-page-head">
         <div>
-          <h1 className="doc-page-title">{marketCfg.pageTitle}</h1>
-          <p className="doc-page-subtitle">
-            Ecommerce selling price calculator ({marketCfg.currencyHint}). Enter <strong>purchase price</strong> and{' '}
-            <strong>shipping</strong>; sales price is derived so marketplace VAT, commission, advertising, and target
-            profit are covered.
+          <h1 className="ap-sc-page-head__title">{marketCfg.pageTitle}</h1>
+          <p className="ap-sc-page-head__sub">
+            Ecommerce selling price calculator ({marketCfg.currencyHint}). Enter purchase price and shipping; sales
+            price is derived so marketplace VAT, commission, advertising, and target profit are covered.
           </p>
         </div>
-      </div>
+      </header>
 
       {cogsEnabled ? (
         <div className="ap-tabs" role="tablist" aria-label="All Prices views">
