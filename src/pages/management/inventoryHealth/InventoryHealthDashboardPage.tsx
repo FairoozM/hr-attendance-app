@@ -30,6 +30,7 @@ import {
 } from './inventoryHealthClientFilters'
 import { InventoryHealthItemThumb } from './InventoryHealthItemThumb'
 import { playSyncCompleteBeep, primeSyncCompleteBeep } from '../../../lib/playCompletionBeep'
+import { useWarehouses } from '../../../hooks/useWarehouses'
 import '../../Page.css'
 import './InventoryHealthDashboardPage.css'
 
@@ -112,6 +113,7 @@ function rowClass(riskClass: string, selected: boolean) {
 
 function defaultFilters(): InventoryHealthQuery {
   return {
+    warehouseId: undefined,
     familyType: 'all',
     riskClass: 'all',
     hiddenOnly: false,
@@ -121,6 +123,15 @@ function defaultFilters(): InventoryHealthQuery {
     sortDirection: 'desc',
     search: '',
   }
+}
+
+function warehouseLabel(
+  warehouses: Array<{ warehouse_id?: string; warehouse_name?: string }>,
+  warehouseId: string | undefined,
+) {
+  if (!warehouseId) return 'All warehouses'
+  const match = warehouses.find((w) => String(w.warehouse_id || '') === warehouseId)
+  return match?.warehouse_name || warehouseId
 }
 
 function formatDebugSnippet(debug: InventoryHealthDebug | undefined) {
@@ -188,6 +199,7 @@ type ExportKind = 'csv' | 'xlsx' | 'pdf'
 
 export function InventoryHealthDashboardPage() {
   const [filters, setFilters] = useState<InventoryHealthQuery>(defaultFilters)
+  const { warehouses, loading: warehousesLoading, error: warehousesError } = useWarehouses()
   const [data, setData] = useState<InventoryHealthDashboard | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -214,6 +226,14 @@ export function InventoryHealthDashboardPage() {
   const lastSyncedSavedRef = useRef(0)
   const rowImagesRequestRef = useRef(0)
   const visibleItemIdsRef = useRef<string[]>([])
+
+  const loadQuery = useMemo(
+    () => ({
+      ...INVENTORY_HEALTH_LOAD_QUERY,
+      warehouseId: filters.warehouseId || undefined,
+    }),
+    [filters.warehouseId],
+  )
 
   const queryParams = useMemo(() => ({ ...filters }), [filters])
 
@@ -279,8 +299,8 @@ export function InventoryHealthDashboardPage() {
     else setLoading(true)
     try {
       const result = opts?.refresh
-        ? await refreshInventoryHealth(INVENTORY_HEALTH_LOAD_QUERY)
-        : await fetchInventoryHealth(INVENTORY_HEALTH_LOAD_QUERY)
+        ? await refreshInventoryHealth(loadQuery)
+        : await fetchInventoryHealth(loadQuery)
       setData(result)
     } catch (err) {
       const body = err as { message?: string; debug?: InventoryHealthDebug }
@@ -292,7 +312,7 @@ export function InventoryHealthDashboardPage() {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [])
+  }, [loadQuery])
 
   useEffect(() => {
     void load()
@@ -660,6 +680,7 @@ export function InventoryHealthDashboardPage() {
 
           <div className="ih-meta">
             Generated {formatDateTime(summary.generatedAt)} · Cache: {summary.cacheStatus}
+            · Warehouse: {warehouseLabel(warehouses, filters.warehouseId || data?.warehouseId || undefined)}
             {summary.topRiskFamily ? (
               <> · Top risk family: {summary.topRiskFamily.familyName} ({formatMoney(summary.topRiskFamily.riskValue)})</>
             ) : null}
@@ -682,6 +703,33 @@ export function InventoryHealthDashboardPage() {
       </div>
 
       <div className="ih-filters">
+        <label>
+          Warehouse
+          <select
+            value={filters.warehouseId || ''}
+            disabled={warehousesLoading || loading || refreshing}
+            onChange={(e) =>
+              updateFilters((f) => ({
+                ...f,
+                warehouseId: e.target.value ? e.target.value : undefined,
+              }))
+            }
+          >
+            <option value="">All warehouses</option>
+            {warehouses.map((w) => {
+              const id = String(w.warehouse_id || '').trim()
+              if (!id) return null
+              const name = String(w.warehouse_name || id).trim()
+              return (
+                <option key={id} value={id}>
+                  {name}
+                  {w.is_primary ? ' (primary)' : ''}
+                </option>
+              )
+            })}
+          </select>
+        </label>
+        {warehousesError ? <div className="ih-filter-hint ih-filter-hint--warn">{warehousesError}</div> : null}
         <label>
           Search SKU / name / family
           <input
