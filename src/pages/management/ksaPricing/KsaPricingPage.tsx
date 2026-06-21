@@ -6,7 +6,7 @@ import { useUserPreferences } from '../../../contexts/UserPreferencesContext'
 import '../DocumentExpiryPage.css'
 import '../AllPricesPage.css'
 import './KsaPricingPage.css'
-import { fmtSar, recalcKsaRow, toOptionalNumber } from './ksaPricingCalc'
+import { fmtSar, KSA_DEFAULT_PERCENTS, recalcKsaRow, toOptionalNumber } from './ksaPricingCalc'
 import {
   appendKsaPricingHistory,
   createEmptyKsaRow,
@@ -28,6 +28,38 @@ import type {
   ZohoDimensionLookupResult,
   ZohoDimensionStatus,
 } from './ksaPricingTypes'
+
+type KsaPercentField = 'commissionPercent' | 'advertisingPercent' | 'vatKsaPercent' | 'profitPercent'
+
+function tablePercentValue(rows: KsaPricingRow[], field: KsaPercentField, fallback: number): number {
+  if (!rows.length) return fallback
+  return rows[0][field]
+}
+
+function PctHeader({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: number
+  onChange: (value: number) => void
+}) {
+  return (
+    <div className="ksa-pct-header">
+      <span>{label}</span>
+      <input
+        type="number"
+        min={0}
+        max={100}
+        step={0.1}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value) || 0)}
+        aria-label={`${label} percent for all rows`}
+      />
+    </div>
+  )
+}
 
 function zohoBadgeClass(status: ZohoDimensionStatus): string {
   if (status === 'found') return 'ksa-zoho-badge ksa-zoho-badge--found'
@@ -92,6 +124,23 @@ export function KsaPricingPage() {
   const activeBatch = useMemo(
     () => store.batches.find((b) => b.id === store.activeBatchId) || store.batches[0] || null,
     [store.activeBatchId, store.batches]
+  )
+
+  const commissionPercentHeader = useMemo(
+    () => tablePercentValue(store.rows, 'commissionPercent', KSA_DEFAULT_PERCENTS.commissionPercent),
+    [store.rows]
+  )
+  const advertisingPercentHeader = useMemo(
+    () => tablePercentValue(store.rows, 'advertisingPercent', KSA_DEFAULT_PERCENTS.advertisingPercent),
+    [store.rows]
+  )
+  const vatPercentHeader = useMemo(
+    () => tablePercentValue(store.rows, 'vatKsaPercent', KSA_DEFAULT_PERCENTS.vatKsaPercent),
+    [store.rows]
+  )
+  const profitPercentHeader = useMemo(
+    () => tablePercentValue(store.rows, 'profitPercent', KSA_DEFAULT_PERCENTS.profitPercent),
+    [store.rows]
   )
 
   const legacyKsaRowsCount = useMemo(() => {
@@ -183,6 +232,20 @@ export function KsaPricingPage() {
   const removeRow = (rowId: string) => {
     persistStore({ ...store, rows: store.rows.filter((r) => r.id !== rowId) })
   }
+
+  const updateAllRowsPercent = useCallback(
+    (field: KsaPercentField, value: number) => {
+      const batchById = new Map(store.batches.map((b) => [b.id, b]))
+      persistStore({
+        ...store,
+        rows: store.rows.map((row) => {
+          const batch = batchById.get(row.shipmentBatchId) || activeBatch
+          return recalcKsaRow({ ...row, [field]: value }, batch || null)
+        }),
+      })
+    },
+    [activeBatch, persistStore, store]
+  )
 
   const fetchDimensionsForRows = useCallback(
     async (rowIds: string[], sourceStore = store) => {
@@ -453,10 +516,34 @@ export function KsaPricingPage() {
               <th className="ksa-col-dims">L × W × H</th>
               <th className="ksa-col-volume">CBM / Cargo</th>
               <th className="ksa-col-landed">Storage / Ship</th>
-              <th className="ksa-col-pct">Comm</th>
-              <th className="ksa-col-pct">Ad</th>
-              <th className="ksa-col-pct">VAT</th>
-              <th className="ksa-col-pct">Profit</th>
+              <th className="ksa-col-pct">
+                <PctHeader
+                  label="Comm"
+                  value={commissionPercentHeader}
+                  onChange={(value) => updateAllRowsPercent('commissionPercent', value)}
+                />
+              </th>
+              <th className="ksa-col-pct">
+                <PctHeader
+                  label="Ad"
+                  value={advertisingPercentHeader}
+                  onChange={(value) => updateAllRowsPercent('advertisingPercent', value)}
+                />
+              </th>
+              <th className="ksa-col-pct">
+                <PctHeader
+                  label="VAT"
+                  value={vatPercentHeader}
+                  onChange={(value) => updateAllRowsPercent('vatKsaPercent', value)}
+                />
+              </th>
+              <th className="ksa-col-pct">
+                <PctHeader
+                  label="Profit"
+                  value={profitPercentHeader}
+                  onChange={(value) => updateAllRowsPercent('profitPercent', value)}
+                />
+              </th>
               <th className="ksa-col-result">Base</th>
               <th className="ksa-col-result">Price</th>
               <th className="ksa-col-actions" />
@@ -565,62 +652,10 @@ export function KsaPricingPage() {
                       </label>
                     </div>
                   </td>
-                  <td className="ksa-col-pct ksa-percent-cost-cell">
-                    <strong>{fmtSar(row.commissionAmount)}</strong>
-                    <label>
-                      <span>%</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step="0.1"
-                        value={row.commissionPercent}
-                        onChange={(e) => updateRow(row.id, { commissionPercent: Number(e.target.value) || 0 })}
-                      />
-                    </label>
-                  </td>
-                  <td className="ksa-col-pct ksa-percent-cost-cell">
-                    <strong>{fmtSar(row.advertisingAmount)}</strong>
-                    <label>
-                      <span>%</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step="0.1"
-                        value={row.advertisingPercent}
-                        onChange={(e) => updateRow(row.id, { advertisingPercent: Number(e.target.value) || 0 })}
-                      />
-                    </label>
-                  </td>
-                  <td className="ksa-col-pct ksa-percent-cost-cell">
-                    <strong>{fmtSar(row.vatKsaAmount)}</strong>
-                    <label>
-                      <span>%</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step="0.1"
-                        value={row.vatKsaPercent}
-                        onChange={(e) => updateRow(row.id, { vatKsaPercent: Number(e.target.value) || 0 })}
-                      />
-                    </label>
-                  </td>
-                  <td className="ksa-col-pct ksa-percent-cost-cell">
-                    <strong>{fmtSar(row.profitAmount)}</strong>
-                    <label>
-                      <span>%</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step="0.1"
-                        value={row.profitPercent}
-                        onChange={(e) => updateRow(row.id, { profitPercent: Number(e.target.value) || 0 })}
-                      />
-                    </label>
-                  </td>
+                  <td className="ksa-col-pct ksa-readonly-cell">{fmtSar(row.commissionAmount)}</td>
+                  <td className="ksa-col-pct ksa-readonly-cell">{fmtSar(row.advertisingAmount)}</td>
+                  <td className="ksa-col-pct ksa-readonly-cell">{fmtSar(row.vatKsaAmount)}</td>
+                  <td className="ksa-col-pct ksa-readonly-cell">{fmtSar(row.profitAmount)}</td>
                   <td className="ksa-col-result ksa-readonly-cell">{fmtSar(row.totalBaseCost)}</td>
                   <td className="ksa-col-result ksa-readonly-cell">
                     <strong>{fmtSar(row.newPriceSar)}</strong>
