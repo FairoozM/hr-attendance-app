@@ -45,6 +45,15 @@ const MODULES = [
     ],
   },
   {
+    section: 'HR',
+    key: 'nutrition_fitness',
+    label: 'Nutrition & Fitness Coach',
+    permissions: [
+      { key: 'view', label: 'View nutrition & fitness coach (personal wellness tracking)' },
+      { key: 'manage', label: 'Edit nutrient targets and admin wellness settings (includes view)' },
+    ],
+  },
+  {
     section: 'Marketing / Social Media',
     key: 'influencers',
     label: 'Influencers',

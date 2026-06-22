@@ -115,6 +115,17 @@ import { AmazonReturnReportPage } from './pages/agent/AmazonReturnReportPage'
 import NoonIntegrationPage from './pages/NoonIntegrationPage'
 import { ListingBatchesPage } from './pages/ListingBatchesPage'
 import { AiBudgetSettingsPage } from './pages/admin/AiBudgetSettingsPage'
+import { NutritionCoachShell } from './pages/nutrition/NutritionCoachShell'
+import { NutritionDashboardPage } from './pages/nutrition/NutritionDashboardPage'
+import { FoodLogPage } from './pages/nutrition/FoodLogPage'
+import { NutrientGapPage } from './pages/nutrition/NutrientGapPage'
+import { MealPlanPage } from './pages/nutrition/MealPlanPage'
+import { FitnessPlanPage } from './pages/nutrition/FitnessPlanPage'
+import { ProgressTrackerPage } from './pages/nutrition/ProgressTrackerPage'
+import { FoodLibraryPage } from './pages/nutrition/FoodLibraryPage'
+import { NutritionSettingsPage } from './pages/nutrition/NutritionSettingsPage'
+import { NutritionOnboardingWizard } from './pages/nutrition/NutritionOnboardingWizard'
+import { HealthCalculatorsPage } from './pages/nutrition/HealthCalculatorsPage'
 import { AIPlannerProvider } from './contexts/AIPlannerContext'
 import { TeamProjectsProvider } from './contexts/TeamProjectsContext'
 import { useEmployees } from './hooks/useEmployees'
@@ -797,6 +808,19 @@ function AppContent() {
               <AddInfluencerPage />
             </PermissionGuard>
           } />
+        </Route>
+        <Route path="health-fitness" element={<NutritionCoachShell />}>
+          <Route path="onboarding" element={<NutritionOnboardingWizard />} />
+          <Route path="dashboard" element={<NutritionDashboardPage />} />
+          <Route path="food-log" element={<FoodLogPage />} />
+          <Route path="nutrient-gaps" element={<NutrientGapPage />} />
+          <Route path="meal-plan" element={<MealPlanPage />} />
+          <Route path="fitness-plan" element={<FitnessPlanPage />} />
+          <Route path="progress" element={<ProgressTrackerPage />} />
+          <Route path="food-library" element={<FoodLibraryPage />} />
+          <Route path="calculators" element={<HealthCalculatorsPage />} />
+          <Route path="settings" element={<NutritionSettingsPage />} />
+          <Route index element={<Navigate to="dashboard" replace />} />
         </Route>
       </Route>
     </Routes>

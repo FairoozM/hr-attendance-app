@@ -638,6 +638,7 @@ export function Layout() {
   const isAdminNavActive = isAdmin && ADMIN_NAV_ROUTES.some(r => location.pathname.startsWith(r))
   const isListsActive = LISTS_ROUTES.some(r => location.pathname.startsWith(r))
   const isInfluencersActive = location.pathname.startsWith('/influencers')
+  const isHealthFitnessActive = location.pathname.startsWith('/health-fitness')
   const isManagementActive = location.pathname.startsWith('/management')
   const isPricesActive = location.pathname.startsWith('/prices')
   const isReportsActive = location.pathname.startsWith('/reports')
@@ -664,6 +665,16 @@ export function Layout() {
     if (location.pathname.startsWith('/employees')) return 'Employees'
     if (location.pathname.startsWith('/attendance')) return 'Attendance'
     if (location.pathname.startsWith('/annual-leave')) return 'Annual Leave'
+    if (location.pathname.startsWith('/health-fitness/dashboard')) return 'Nutrition Dashboard'
+    if (location.pathname.startsWith('/health-fitness/food-log')) return 'Food Log'
+    if (location.pathname.startsWith('/health-fitness/nutrient-gaps')) return 'Nutrient Gap Analysis'
+    if (location.pathname.startsWith('/health-fitness/meal-plan')) return 'Meal Plan Builder'
+    if (location.pathname.startsWith('/health-fitness/fitness-plan')) return 'Fitness Plan'
+    if (location.pathname.startsWith('/health-fitness/progress')) return 'Progress Tracker'
+    if (location.pathname.startsWith('/health-fitness/food-library')) return 'Food Library'
+    if (location.pathname.startsWith('/health-fitness/calculators')) return 'Health Calculators'
+    if (location.pathname.startsWith('/health-fitness/settings')) return 'Nutrition Settings'
+    if (location.pathname.startsWith('/health-fitness')) return 'Health & Fitness'
     if (location.pathname.startsWith('/settings')) return 'Settings'
     if (location.pathname.startsWith('/roles-permissions')) return 'Roles & Permissions'
     if (location.pathname.startsWith('/lists/sim-cards')) return 'Sim Cards List'
@@ -725,6 +736,18 @@ export function Layout() {
     can('attendance', 'view') && { label: 'Attendance', to: '/attendance', end: true },
     (isEmployee || can('leave', 'view')) && { label: 'Annual Leave', to: '/annual-leave' },
   ].filter(Boolean)
+
+  const HEALTH_FITNESS_ITEMS = [
+    { label: 'Nutrition Dashboard', to: '/health-fitness/dashboard' },
+    { label: 'Food Log', to: '/health-fitness/food-log' },
+    { label: 'Nutrient Gap Analysis', to: '/health-fitness/nutrient-gaps' },
+    { label: 'Meal Plan Builder', to: '/health-fitness/meal-plan' },
+    { label: 'Fitness Plan', to: '/health-fitness/fitness-plan' },
+    { label: 'Progress Tracker', to: '/health-fitness/progress' },
+    { label: 'Food Library', to: '/health-fitness/food-library' },
+    { label: 'Health Calculators', to: '/health-fitness/calculators' },
+    { label: 'Settings', to: '/health-fitness/settings' },
+  ]
 
   const adminNavItems = [
     isAdmin && { label: 'Settings', to: '/settings' },
@@ -864,6 +887,7 @@ export function Layout() {
   // Flat list of every link shown in the sidebar (sidebar + topbar search). Keep in sync with nav groups above.
   const allNavItems = useMemo(() => [
     ...hrItems.map(i => ({ ...i, group: 'HR' })),
+    ...HEALTH_FITNESS_ITEMS.map(i => ({ ...i, group: 'Health & Fitness', searchHint: 'nutrition fitness food workout meal plan wellness coach' })),
     ...listsItems.map(i => ({ ...i, group: 'Lists' })),
     ...INFLUENCER_ITEMS.map(i => ({ ...i, group: 'Marketing / Social Media' })),
     ...(hasPlannerAccess
@@ -1030,6 +1054,19 @@ export function Layout() {
                       end={item.end}
                         className={subLinkClass(item, hrItems)}
                       onClick={() => openFocusedSection('hr')}
+                    >
+                      <span className="nav-group__link-dot" aria-hidden />
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </NavGroup>
+
+                <NavGroup label="Health & Fitness" hint="Wellness" isActive={isHealthFitnessActive} defaultOpen={isHealthFitnessActive}>
+                  {HEALTH_FITNESS_ITEMS.map(item => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      className={subLinkClass(item, HEALTH_FITNESS_ITEMS)}
                     >
                       <span className="nav-group__link-dot" aria-hidden />
                       {item.label}

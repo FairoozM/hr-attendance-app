@@ -31,6 +31,7 @@ const inventoryRoutes = require('./routes/inventory.routes')
 const noonRoutes = require('./routes/noonRoutes')
 const skuChannelCoverageRoutes = require('./routes/skuChannelCoverage.routes')
 const amazonReturnReconciliationRoutes = require('./routes/amazonReturnReconciliation.routes')
+const nutritionCoachRoutes = require('./routes/nutritionCoach')
 
 const app = express()
 
@@ -109,6 +110,7 @@ app.use('/api/inventory', authMiddleware.attachAuth, inventoryRoutes)
 app.use('/api/sku-coverage', authMiddleware.attachAuth, skuChannelCoverageRoutes)
 app.use('/api/listings', authMiddleware.attachAuth, listingBatchesRoutes)
 app.use('/api/amazon-return-reconciliation', authMiddleware.attachAuth, amazonReturnReconciliationRoutes.adminRouter)
+app.use('/api/nutrition-coach', nutritionCoachRoutes)
 // TEMPORARY — Zoho debug (remove when stable)
 app.use('/api/debug', authMiddleware.attachAuth, debugRoutes)
 

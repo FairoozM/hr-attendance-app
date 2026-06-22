@@ -1109,6 +1109,12 @@ async function testConnection() {
     console.error('[db] ensureInventoryItemImageTables skipped/failed (non-fatal):', e.message || e)
   }
   try {
+    const { ensureNutritionCoachTables } = require('../services/nutritionCoachService')
+    await ensureNutritionCoachTables()
+  } catch (e) {
+    console.error('[db] ensureNutritionCoachTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
     const { ensureCompositeItemsPriceReportTables } = require('../services/compositeItemsPriceReportService')
     await ensureCompositeItemsPriceReportTables()
   } catch (e) {
