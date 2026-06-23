@@ -1,4 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import {
   approveKsaPaymentClearingBatch,
   fetchKsaPaymentClearingBatch,
@@ -30,7 +31,21 @@ import { Step7Preview } from './steps/Step7Preview'
 import { Step8Post } from './steps/Step8Post'
 import './AmazonPaymentClearingPage.css'
 
+const BASE_PATH = '/management/amazon-payment-clearing'
+const STEP_KEY_TO_ID = new Map(CLEARING_STEPS.map((step) => [step.key, step.id]))
+const STEP_ID_TO_KEY = new Map(CLEARING_STEPS.map((step) => [step.id, step.key]))
+
+function clearingPath(stepId: number, batchId?: string | number | null) {
+  const key = STEP_ID_TO_KEY.get(stepId) || 'select'
+  const bid = batchId == null ? '' : String(batchId).trim()
+  return bid ? `${BASE_PATH}/batch/${bid}/${key}` : `${BASE_PATH}/${key}`
+}
+
 export function AmazonPaymentClearingPage() {
+  const navigate = useNavigate()
+  const params = useParams()
+  const routeBatchId = params.batchId ? String(params.batchId) : ''
+  const routeStepKey = params.stepKey || ''
   const [reportId, setReportId] = useState('')
   const [reportDocumentId, setReportDocumentId] = useState('')
   const [batchIdToOpen, setBatchIdToOpen] = useState('')
@@ -48,12 +63,26 @@ export function AmazonPaymentClearingPage() {
   const [generatingPaymentPreview, setGeneratingPaymentPreview] = useState(false)
   const [posting, setPosting] = useState(false)
 
-  const [activeStep, setActiveStep] = useState(1)
   const [forceRepostOpen, setForceRepostOpen] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
 
   const search = useClearingSearch(preview?.allRows || [])
+
+  const loadedBatchId = preview?.batch?.batchId != null ? String(preview.batch.batchId) : ''
+
+  // Active step comes from the URL. Until a settlement is loaded only the
+  // "Select" step is meaningful, so fall back to it; once a batch is loaded
+  // an URL without an explicit step lands on the parsed rows.
+  const stepFromKey = STEP_KEY_TO_ID.get(routeStepKey)
+  const activeStep = preview ? (stepFromKey ?? 2) : 1
+
+  const goToStep = useCallback(
+    (stepId: number) => {
+      navigate(clearingPath(stepId, loadedBatchId || routeBatchId || null))
+    },
+    [navigate, loadedBatchId, routeBatchId]
+  )
 
   const isPosted = preview?.status === 'posted' || preview?.batch?.status === 'posted' || preview?.postedToZoho === true
   const isApproved = !isPosted && (preview?.status === 'approved' || preview?.batch?.status === 'approved')
@@ -113,7 +142,6 @@ export function AmazonPaymentClearingPage() {
     setPaymentPreview(null)
     setPostingResult(null)
     search.reset()
-    setActiveStep(2)
   }, [search])
 
   const runPreview = useCallback(
@@ -129,6 +157,7 @@ export function AmazonPaymentClearingPage() {
           forceRefresh,
         })
         applyPreview(json)
+        navigate(clearingPath(2, json.batch?.batchId))
         setNotice(
           json.refreshedFromAmazon
             ? 'Re-fetched from Amazon. Parsed rows and reconciliation were replaced.'
@@ -143,7 +172,7 @@ export function AmazonPaymentClearingPage() {
         setPreviewing(false)
       }
     },
-    [applyPreview, loadSavedBatches, reportDocumentId, reportId]
+    [applyPreview, loadSavedBatches, navigate, reportDocumentId, reportId]
   )
 
   const onRefreshFromAmazon = useCallback(() => {
@@ -154,7 +183,7 @@ export function AmazonPaymentClearingPage() {
   }, [runPreview])
 
   const openBatch = useCallback(
-    async (id: string | number) => {
+    async (id: string | number, opts: { navigate?: boolean } = {}) => {
       const value = String(id).trim()
       if (!value) return
       setReopening(true)
@@ -164,6 +193,9 @@ export function AmazonPaymentClearingPage() {
         const json = await fetchKsaPaymentClearingBatch(value)
         applyPreview(json)
         setBatchIdToOpen(value)
+        if (opts.navigate !== false) {
+          navigate(clearingPath(2, json.batch?.batchId || value))
+        }
         setNotice(`Loaded saved settlement batch ${value} from the database.`)
       } catch (e) {
         setError(safeError(e))
@@ -171,8 +203,15 @@ export function AmazonPaymentClearingPage() {
         setReopening(false)
       }
     },
-    [applyPreview]
+    [applyPreview, navigate]
   )
+
+  // Deep link: load the batch named in the URL when it is not already loaded.
+  useEffect(() => {
+    if (!routeBatchId || reopening) return
+    if (loadedBatchId === routeBatchId) return
+    void openBatch(routeBatchId, { navigate: false })
+  }, [routeBatchId, loadedBatchId, reopening, openBatch])
 
   const onApprove = useCallback(async () => {
     const batchId = preview?.batch?.batchId
@@ -186,14 +225,14 @@ export function AmazonPaymentClearingPage() {
       setPaymentPreview(null)
       setPostingResult(null)
       setNotice(json.message || 'Settlement approved and saved.')
-      setActiveStep(7)
+      navigate(clearingPath(7, json.batch?.batchId || batchId))
       await loadSavedBatches()
     } catch (e) {
       setError(safeError(e))
     } finally {
       setApproving(false)
     }
-  }, [isApproved, isPosted, loadSavedBatches, preview?.batch?.batchId])
+  }, [isApproved, isPosted, loadSavedBatches, navigate, preview?.batch?.batchId])
 
   const onGeneratePaymentPreview = useCallback(async () => {
     const batchId = preview?.batch?.batchId
@@ -206,13 +245,13 @@ export function AmazonPaymentClearingPage() {
       setPaymentPreview(json)
       setPostingResult(null)
       setNotice('Payment clearing preview generated. No Zoho payments have been created.')
-      setActiveStep(8)
+      navigate(clearingPath(8, batchId))
     } catch (e) {
       setError(safeError(e))
     } finally {
       setGeneratingPaymentPreview(false)
     }
-  }, [canGeneratePaymentPreview, preview?.batch?.batchId])
+  }, [canGeneratePaymentPreview, navigate, preview?.batch?.batchId])
 
   const onRunPosting = useCallback(
     async (dryRun: boolean) => {
@@ -368,7 +407,7 @@ export function AmazonPaymentClearingPage() {
         </div>
       </section>
 
-      <ClearingStepper activeStep={activeStep} stepStatuses={stepStatuses} onStepClick={setActiveStep} />
+      <ClearingStepper activeStep={activeStep} stepStatuses={stepStatuses} onStepClick={goToStep} />
 
       {error ? <div className="apc-alert apc-alert--error" role="alert">{error}</div> : null}
       {notice ? <div className="apc-alert" role="status">{notice}</div> : null}
@@ -384,7 +423,7 @@ export function AmazonPaymentClearingPage() {
             step={step}
             status={status}
             collapsed={activeStep !== step.id}
-            onExpand={() => setActiveStep(step.id)}
+            onExpand={() => goToStep(step.id)}
             summary={stepSummaries[step.id]}
             blocker={status === 'blocked' ? 'Resolve the blocking items before posting.' : undefined}
           >

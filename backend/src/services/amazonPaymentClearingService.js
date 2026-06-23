@@ -179,16 +179,33 @@ async function buildPreviewFromReport(options = {}) {
     parserWarnings: [...(parsed.warnings || []), ...(zohoMatch.zohoFetchWarnings || [])],
     rawRowCount: parsed.rawRowCount,
   })
+  // One statement per settlement period: Amazon hands out a fresh report id /
+  // document id every time you request the same settlement, so reuse the
+  // existing batch keyed on the stable settlement id instead of inserting a
+  // duplicate. Already-posted settlements are reopened, never overwritten.
+  let reuseBatchId = existing ? existing.batchId : null
+  let reusedExisting = Boolean(existing)
+  if (!reuseBatchId && metadata.settlementId) {
+    const bySettlement = await store.findBatchBySettlement(metadata.settlementId, MARKETPLACE)
+    if (bySettlement) {
+      if (!forceRefresh && (bySettlement.status === 'posted' || bySettlement.postedToZoho)) {
+        return { ...(await hydrateSavedBatch(bySettlement)), fromCache: true }
+      }
+      reuseBatchId = bySettlement.batchId
+      reusedExisting = true
+    }
+  }
+
   const savedBatch = await store.savePreviewBatch({
     preview,
     rows: parsed.rows,
     createdBy: options.createdBy,
-    existingBatchId: existing ? existing.batchId : null,
+    existingBatchId: reuseBatchId,
   })
   return {
     success: true,
     batch: savedBatch,
-    refreshedFromAmazon: Boolean(existing && forceRefresh),
+    refreshedFromAmazon: Boolean(reusedExisting && forceRefresh),
     ...preview,
   }
 }
@@ -335,8 +352,40 @@ async function getSavedBatch(id) {
   return hydrateSavedBatch(batch)
 }
 
+function settlementPeriodKey(batch) {
+  const marketplace = batch.marketplace || MARKETPLACE
+  const settlementId = batch.settlementId || batch.report?.settlementId || ''
+  if (settlementId) return `${marketplace}::sid:${settlementId}`
+  const start = batch.report?.settlementStartDate || ''
+  const end = batch.report?.settlementEndDate || ''
+  if (start || end) return `${marketplace}::range:${start}|${end}`
+  const docId = batch.reportDocumentId || batch.report?.reportDocumentId || ''
+  if (docId) return `${marketplace}::doc:${docId}`
+  return `${marketplace}::batch:${batch.batchId}`
+}
+
+function batchLifecycleRank(batch) {
+  if (batch.status === 'posted' || batch.postedToZoho) return 3
+  if (batch.status === 'approved') return 2
+  return 1
+}
+
+function dedupeBatchesByPeriod(batches) {
+  const best = new Map()
+  for (const batch of Array.isArray(batches) ? batches : []) {
+    const key = settlementPeriodKey(batch)
+    const prev = best.get(key)
+    if (!prev || batchLifecycleRank(batch) > batchLifecycleRank(prev)) {
+      best.set(key, batch)
+    }
+  }
+  return Array.from(best.values()).sort((a, b) =>
+    String(b.createdAt || '').localeCompare(String(a.createdAt || ''))
+  )
+}
+
 async function listSavedBatches(limit = 50) {
-  const batches = await store.listRecentBatches(limit)
+  const batches = dedupeBatchesByPeriod(await store.listRecentBatches(limit))
   return {
     success: true,
     marketplace: MARKETPLACE,

@@ -178,6 +178,45 @@ async function ensureAmazonPaymentClearingTables() {
      ON amazon_payment_clearing_postings (batch_id, payment_type)
      WHERE posting_group_key IS NOT NULL`
   )
+  // Collapse any historical duplicate statements down to one per settlement
+  // period before any further reads/writes happen.
+  await dedupeBatches().catch(() => {})
+}
+
+/**
+ * Stable key identifying a single settlement period: the Amazon settlement id
+ * when present, otherwise the settlement date range, otherwise the row id so
+ * unrelated rows are never merged.
+ */
+const SETTLEMENT_KEY_SQL = `COALESCE(
+  NULLIF(settlement_id, ''),
+  NULLIF(NULLIF(report_snapshot->>'settlementStartDate', '') || '|' || COALESCE(report_snapshot->>'settlementEndDate', ''), '|'),
+  NULLIF(report_document_id, ''),
+  'id:' || id::text
+)`
+
+/**
+ * Keep a single batch per settlement period (per marketplace) and delete the
+ * rest. Prefers posted, then approved, then the most recently updated batch.
+ * Child rows/previews/postings/audit cascade via ON DELETE CASCADE.
+ */
+async function dedupeBatches() {
+  const result = await query(`
+    WITH ranked AS (
+      SELECT id,
+        ROW_NUMBER() OVER (
+          PARTITION BY marketplace, ${SETTLEMENT_KEY_SQL}
+          ORDER BY (status = 'posted' OR posted_to_zoho = true) DESC,
+                   (status = 'approved') DESC,
+                   updated_at DESC, created_at DESC, id DESC
+        ) AS rn
+      FROM amazon_payment_clearing_batches
+    )
+    DELETE FROM amazon_payment_clearing_batches b
+    USING ranked r
+    WHERE b.id = r.id AND r.rn > 1
+  `)
+  return result.rowCount || 0
 }
 
 function num(value) {
@@ -442,6 +481,26 @@ async function findBatchByReport({ reportId, reportDocumentId, settlementId, mar
     if (result.rows[0]) return mapBatch(result.rows[0])
   }
   return null
+}
+
+/**
+ * Find the single saved batch for an Amazon settlement id, preferring posted,
+ * then approved, then the most recently updated. Used to reuse one statement
+ * per settlement period even when Amazon issues a fresh report id/document id.
+ */
+async function findBatchBySettlement(settlementId, marketplace = 'KSA') {
+  const sid = settlementId == null ? '' : String(settlementId).trim()
+  if (!sid) return null
+  const result = await query(
+    `SELECT * FROM amazon_payment_clearing_batches
+     WHERE marketplace = $1 AND settlement_id = $2
+     ORDER BY (status = 'posted' OR posted_to_zoho = true) DESC,
+              (status = 'approved') DESC,
+              updated_at DESC, id DESC
+     LIMIT 1`,
+    [marketplace, sid]
+  )
+  return mapBatch(result.rows[0])
 }
 
 async function insertClearingAudit({ batchId, action, reason, actorUserId, previousZohoPaymentIds = [], details = {} }) {
@@ -735,6 +794,8 @@ module.exports = {
   getBatchById,
   listRowsForBatch,
   findBatchByReport,
+  findBatchBySettlement,
+  dedupeBatches,
   insertClearingAudit,
   listClearingAudit,
   clearPostingsForBatch,
