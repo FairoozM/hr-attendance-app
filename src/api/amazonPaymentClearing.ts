@@ -118,22 +118,132 @@ export interface AdjustmentClearingRow {
   rowClass?: string
 }
 
+export type ParsedRowStatus =
+  | 'ok'
+  | 'matched'
+  | 'unmatched'
+  | 'missing_order_id'
+  | 'blocked'
+  | 'review'
+  | 'unknown'
+
+export interface ParsedSettlementRow {
+  rowNumber: number
+  category: string
+  rowClass: string
+  orderId: string
+  amount: number
+  currency: string
+  settlementDate: string
+  transactionType: string
+  amountType: string
+  amountDescription: string
+  status: ParsedRowStatus
+  blockingReason: string
+}
+
+export type BlockingIssueCode =
+  | 'MISSING_ORDER_ID'
+  | 'UNMATCHED_SALES'
+  | 'MISSING_CREDIT_NOTE'
+  | 'CREDIT_NOTE_DIFF'
+  | 'SETTLEMENT_MISMATCH'
+  | 'UNKNOWN_ROWS'
+
+export interface BlockingIssue {
+  code: BlockingIssueCode
+  label: string
+  count: number
+  rowNumbers: number[]
+  orderIds: string[]
+}
+
+export interface AmountDifferenceRow {
+  orderId: string
+  zohoInvoiceNumber: string
+  zohoInvoiceId: string
+  amazonOrderTotal: number
+  zohoInvoiceTotal: number
+  difference: number
+}
+
+export interface PostingSummary {
+  invoicesPosted?: number
+  paymentsCreated?: number
+  paymentsSkipped?: number
+  errors?: number
+  forceRepost?: boolean
+  postedAt?: string
+  zohoPaymentIds?: Array<{ paymentType: string; zohoPaymentId: string }>
+}
+
+export interface ClearingAuditEntry {
+  id: number
+  batchId: number
+  action: string
+  reason: string
+  actorUserId: number | null
+  previousZohoPaymentIds: string[]
+  details: Record<string, unknown>
+  createdAt: string | null
+}
+
+export type LifecycleStatus =
+  | 'draft'
+  | 'ready_for_review'
+  | 'ready_to_post'
+  | 'approved'
+  | 'posted'
+
+export interface SavedBatchSummary {
+  batchId: number
+  marketplace: string
+  reportId: string
+  reportDocumentId: string
+  settlementId: string
+  settlementStartDate: string
+  settlementEndDate: string
+  depositDate: string
+  currency: string
+  status: string
+  lifecycleStatus: LifecycleStatus
+  postedToZoho: boolean
+  amazonSettlementTotal: number
+  matchedOrderCount: number
+  unmatchedOrderCount: number
+  creditNoteBlockerCount: number
+  reconciliationStatus: string
+  createdAt: string | null
+  approvedAt: string | null
+  postedAt: string | null
+}
+
 export interface PaymentClearingPreview {
   success: boolean
   batch?: {
     batchId: number
     status: string
+    lifecycleStatus?: LifecycleStatus
     createdAt: string
     approvedBy?: number | null
     approvedAt?: string | null
     postedBy?: number | null
     postedAt?: string | null
+    postedToZoho?: boolean
+    postingSummary?: PostingSummary
   }
   status?: string
+  lifecycleStatus?: LifecycleStatus
   approvedBy?: number | null
   approvedAt?: string | null
   postedBy?: number | null
   postedAt?: string | null
+  postedToZoho?: boolean
+  postingSummary?: PostingSummary
+  fromCache?: boolean
+  refreshedFromAmazon?: boolean
+  auditLog?: ClearingAuditEntry[]
+  storedRowCount?: number
   message?: string
   marketplace: 'KSA'
   report: {
@@ -156,11 +266,15 @@ export interface PaymentClearingPreview {
   reconciliationSummary: ReconciliationSummary
   matchedOrders: MatchedOrder[]
   unmatchedOrders: UnmatchedOrder[]
+  allRows?: ParsedSettlementRow[]
+  blockingIssues?: BlockingIssue[]
+  amountDifferences?: AmountDifferenceRow[]
   warnings: string[]
   rawRowCount: number
   duplicateZohoInvoiceNumbers?: string[]
   duplicateZohoPoNumbers?: string[]
   unmatchedOrderIds?: string[]
+  missingOrderIdRows?: AdjustmentClearingRow[]
 }
 
 export interface PaymentPreviewAccount {
@@ -300,8 +414,18 @@ export async function previewKsaSettlementReport(body: {
   reportId?: string
   reportDocumentId?: string
   daysBack?: number
+  forceRefresh?: boolean
 }) {
   return api.post('/api/amazon/payment-clearing/ksa/preview', body, longOpts) as Promise<PaymentClearingPreview>
+}
+
+export async function fetchKsaSavedBatches(limit = 50) {
+  const qs = new URLSearchParams({ limit: String(limit) })
+  return api.get(`/api/amazon/payment-clearing/ksa/batches?${qs.toString()}`, longOpts) as Promise<{
+    success: boolean
+    marketplace: 'KSA'
+    batches: SavedBatchSummary[]
+  }>
 }
 
 export async function fetchKsaPaymentClearingBatch(batchId: number | string) {
@@ -318,4 +442,15 @@ export async function generateKsaPaymentClearingPaymentPreview(batchId: number |
 
 export async function postKsaPaymentClearingToZoho(batchId: number | string, dryRun = true) {
   return api.post(`/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/post-to-zoho`, { dryRun }, longOpts) as Promise<PaymentPostingResult>
+}
+
+export async function forceRepostKsaPaymentClearing(
+  batchId: number | string,
+  body: { reason: string; dryRun?: boolean }
+) {
+  return api.post(
+    `/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/force-repost`,
+    { dryRun: body.dryRun !== false, reason: body.reason },
+    longOpts
+  ) as Promise<PaymentPostingResult>
 }

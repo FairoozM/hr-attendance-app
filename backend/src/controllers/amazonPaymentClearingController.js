@@ -11,6 +11,8 @@ function safeMessage(err) {
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_CREDIT_NOTE_BLOCKED') return err.message
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_BATCH_POSTED') return err.message
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_BATCH_ALREADY_POSTED') return err.message
+  if (err?.code === 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_POSTED') return err.message
+  if (err?.code === 'AMAZON_PAYMENT_CLEARING_REASON_REQUIRED') return err.message
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_PAYMENT_PREVIEW_REQUIRED') return err.message
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_ACCOUNT_ID_MISSING') return err.message
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_MULTIPLE_CUSTOMERS') return err.message
@@ -66,8 +68,18 @@ async function postKsaPreview(req, res) {
       fromDate: req.body?.fromDate,
       toDate: req.body?.toDate,
       zohoCustomerId: req.body?.zohoCustomerId,
+      forceRefresh: req.body?.forceRefresh === true,
       createdBy: req.user?.userId,
     })
+    res.json(json)
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
+async function getKsaSavedBatches(req, res) {
+  try {
+    const json = await service.listSavedBatches(req.query?.limit)
     res.json(json)
   } catch (err) {
     sendError(res, err)
@@ -162,9 +174,23 @@ async function postKsaPostToZoho(req, res) {
   }
 }
 
+async function postKsaForceRepost(req, res) {
+  try {
+    const json = await service.forceRepostBatch(req.params.id, {
+      dryRun: req.body?.dryRun !== false,
+      reason: req.body?.reason,
+      postedBy: req.user?.userId,
+    })
+    res.json(json)
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
 module.exports = {
   getKsaSettlementReports,
   postKsaPreview,
+  getKsaSavedBatches,
   postKsaZohoInvoiceMatch,
   getKsaBatch,
   getZohoAccountDiagnostics,
@@ -174,4 +200,5 @@ module.exports = {
   postKsaApproveBatch,
   postKsaPaymentPreview,
   postKsaPostToZoho,
+  postKsaForceRepost,
 }

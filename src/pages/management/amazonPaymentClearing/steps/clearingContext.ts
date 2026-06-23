@@ -1,0 +1,50 @@
+import type {
+  PaymentClearingPaymentPreview,
+  PaymentClearingPreview,
+  PaymentPostingResult,
+  SavedBatchSummary,
+  SettlementReport,
+} from '../../../../api/amazonPaymentClearing'
+import type { useClearingSearch } from '../hooks/useClearingSearch'
+
+export interface ClearingContext {
+  preview: PaymentClearingPreview | null
+  paymentPreview: PaymentClearingPaymentPreview | null
+  postingResult: PaymentPostingResult | null
+
+  reports: SettlementReport[]
+  savedBatches: SavedBatchSummary[]
+  reportId: string
+  reportDocumentId: string
+  batchIdToOpen: string
+
+  loadingReports: boolean
+  loadingBatches: boolean
+  previewing: boolean
+  reopening: boolean
+  approving: boolean
+  generatingPaymentPreview: boolean
+  posting: boolean
+
+  search: ReturnType<typeof useClearingSearch>
+
+  isPosted: boolean
+  isApproved: boolean
+  isCleanForApproval: boolean
+  canGeneratePaymentPreview: boolean
+  canPostToZoho: boolean
+
+  setReportId: (value: string) => void
+  setReportDocumentId: (value: string) => void
+  setBatchIdToOpen: (value: string) => void
+
+  onFetchReports: () => void
+  onPreview: () => void
+  onRefreshFromAmazon: () => void
+  onOpenBatchId: () => void
+  onOpenSavedBatch: (batchId: number) => void
+  onApprove: () => void
+  onGeneratePaymentPreview: () => void
+  onRunPosting: (dryRun: boolean) => void
+  onOpenForceRepost: () => void
+}

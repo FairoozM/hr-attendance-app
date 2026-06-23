@@ -45,6 +45,11 @@ async function ensureAmazonPaymentClearingTables() {
   await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ NULL`)
   await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS posted_by INTEGER NULL`)
   await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS posted_at TIMESTAMPTZ NULL`)
+  await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS all_rows JSONB NOT NULL DEFAULT '[]'::jsonb`)
+  await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS blocking_issues JSONB NOT NULL DEFAULT '[]'::jsonb`)
+  await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS amount_differences JSONB NOT NULL DEFAULT '[]'::jsonb`)
+  await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS posted_to_zoho BOOLEAN NOT NULL DEFAULT false`)
+  await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS posting_summary JSONB NOT NULL DEFAULT '{}'::jsonb`)
   await query(`
     CREATE TABLE IF NOT EXISTS amazon_payment_clearing_rows (
       id BIGSERIAL PRIMARY KEY,
@@ -77,6 +82,19 @@ async function ensureAmazonPaymentClearingTables() {
   await query(`ALTER TABLE amazon_payment_clearing_rows ADD COLUMN IF NOT EXISTS credit_note_status VARCHAR(64)`)
   await query(`ALTER TABLE amazon_payment_clearing_rows ADD COLUMN IF NOT EXISTS credit_note_difference NUMERIC(16, 4)`)
   await query(`ALTER TABLE amazon_payment_clearing_rows ADD COLUMN IF NOT EXISTS blocking_reason TEXT`)
+  await query(`ALTER TABLE amazon_payment_clearing_rows ADD COLUMN IF NOT EXISTS row_number INTEGER`)
+  await query(`
+    CREATE TABLE IF NOT EXISTS amazon_payment_clearing_audit (
+      id BIGSERIAL PRIMARY KEY,
+      batch_id BIGINT NOT NULL REFERENCES amazon_payment_clearing_batches(id) ON DELETE CASCADE,
+      action VARCHAR(64) NOT NULL,
+      reason TEXT,
+      actor_user_id INTEGER NULL,
+      previous_zoho_payment_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+      details JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
   await query(`
     CREATE TABLE IF NOT EXISTS amazon_payment_clearing_payment_previews (
       id BIGSERIAL PRIMARY KEY,
@@ -125,6 +143,19 @@ async function ensureAmazonPaymentClearingTables() {
   await query(
     `CREATE INDEX IF NOT EXISTS idx_amz_payment_clearing_batches_created
      ON amazon_payment_clearing_batches (created_at DESC)`
+  )
+  await query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_amz_payment_clearing_batches_report_document
+     ON amazon_payment_clearing_batches (marketplace, report_document_id)
+     WHERE report_document_id IS NOT NULL AND report_document_id <> ''`
+  )
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_amz_payment_clearing_batches_settlement
+     ON amazon_payment_clearing_batches (marketplace, settlement_id)`
+  )
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_amz_payment_clearing_audit_batch
+     ON amazon_payment_clearing_audit (batch_id, created_at DESC)`
   )
   await query(
     `CREATE INDEX IF NOT EXISTS idx_amz_payment_clearing_rows_batch
@@ -184,8 +215,13 @@ function mapBatch(row) {
     reconciliationSummary: safeJson(row.reconciliation_summary, {}),
     matchedOrders: safeJson(row.matched_orders, []),
     unmatchedOrders: safeJson(row.unmatched_orders, []),
+    allRows: safeJson(row.all_rows, []),
+    blockingIssues: safeJson(row.blocking_issues, []),
+    amountDifferences: safeJson(row.amount_differences, []),
     report: safeJson(row.report_snapshot, {}),
     warnings: safeJson(row.warnings, []),
+    postedToZoho: row.posted_to_zoho === true || row.posted_to_zoho === 't',
+    postingSummary: safeJson(row.posting_summary, {}),
     createdBy: row.created_by == null ? null : Number(row.created_by),
     approvedBy: row.approved_by == null ? null : Number(row.approved_by),
     approvedAt: row.approved_at ? new Date(row.approved_at).toISOString() : null,
@@ -215,85 +251,121 @@ function mapPosting(row) {
   }
 }
 
-async function savePreviewBatch({ preview, rows, createdBy }) {
+async function insertClearingRows(client, batchId, preview, rows, report) {
+  const invoiceByOrder = new Map()
+  for (const order of preview.matchedOrders || []) {
+    invoiceByOrder.set(order.orderId, order)
+  }
+  let rowNumber = 0
+  for (const row of Array.isArray(rows) ? rows : []) {
+    rowNumber += 1
+    const order = row.orderId ? invoiceByOrder.get(row.orderId) : null
+    const creditNoteRow = (preview.matchedReturns || preview.missingCreditNotes || []).find(
+      (candidate) =>
+        candidate.orderId === row.orderId &&
+        candidate.amountType === row.amountType &&
+        candidate.amountDescription === row.amountDescription &&
+        num(candidate.amazonRefundAmount) === Math.abs(num(row.amount))
+    )
+    await client.query(
+      `INSERT INTO amazon_payment_clearing_rows (
+        batch_id, row_number, order_id, transaction_type, amount_type, amount_description,
+        category, row_class, amount, currency, zoho_invoice_id, zoho_invoice_number,
+        zoho_credit_note_id, zoho_credit_note_number, credit_note_amount,
+        credit_note_status, credit_note_difference, blocking_reason,
+        match_status, raw_row, created_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20::jsonb,NOW())`,
+      [
+        batchId,
+        rowNumber,
+        row.orderId || null,
+        row.transactionType || null,
+        row.amountType || null,
+        row.amountDescription || null,
+        row.category || null,
+        row.rowClass || null,
+        num(row.amount),
+        row.currency || report.currency || 'SAR',
+        creditNoteRow?.zohoInvoiceId || order?.zohoInvoiceId || null,
+        creditNoteRow?.zohoInvoiceNumber || order?.zohoInvoiceNumber || null,
+        creditNoteRow?.zohoCreditNoteId || null,
+        creditNoteRow?.zohoCreditNoteNumber || null,
+        creditNoteRow?.creditNoteAmount == null ? null : num(creditNoteRow.creditNoteAmount),
+        creditNoteRow?.creditNoteStatus || null,
+        creditNoteRow?.creditNoteDifference == null ? null : num(creditNoteRow.creditNoteDifference),
+        creditNoteRow?.blockingReason || null,
+        creditNoteRow ? creditNoteRow.status : order ? order.matchType || 'matched' : row.orderId ? 'unmatched' : 'missing_order_id',
+        JSON.stringify(row.originalRawRow || row),
+      ]
+    )
+  }
+}
+
+function batchColumnValues(preview, createdBy) {
+  const report = preview.report || {}
+  return [
+    preview.marketplace || 'KSA',
+    report.reportId || null,
+    report.reportDocumentId || null,
+    report.settlementId || null,
+    JSON.stringify(preview.totals || {}),
+    JSON.stringify(preview.pivot || []),
+    JSON.stringify(preview.settlementLevelFees || []),
+    JSON.stringify(preview.refundReturnRows || []),
+    JSON.stringify(preview.matchedReturns || []),
+    JSON.stringify(preview.missingCreditNotes || []),
+    JSON.stringify(preview.creditNoteBlockingRows || []),
+    JSON.stringify(preview.adjustmentRows || []),
+    JSON.stringify(preview.reconciliationSummary || {}),
+    JSON.stringify(preview.matchedOrders || []),
+    JSON.stringify(preview.unmatchedOrders || []),
+    JSON.stringify(preview.allRows || []),
+    JSON.stringify(preview.blockingIssues || []),
+    JSON.stringify(preview.amountDifferences || []),
+    JSON.stringify(preview.report || {}),
+    JSON.stringify(preview.warnings || []),
+    createdBy == null ? null : Number(createdBy),
+  ]
+}
+
+async function savePreviewBatch({ preview, rows, createdBy, existingBatchId = null }) {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
     const report = preview.report || {}
-    const batchResult = await client.query(
-      `INSERT INTO amazon_payment_clearing_batches (
-        marketplace, report_id, report_document_id, settlement_id, status,
-        totals, pivot, settlement_level_fees, refund_return_rows, matched_returns,
-        missing_credit_notes, credit_note_blocking_rows, adjustment_rows, reconciliation_summary,
-        matched_orders, unmatched_orders, report_snapshot, warnings, created_by, created_at, updated_at
-      ) VALUES ($1,$2,$3,$4,'previewed',$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12::jsonb,$13::jsonb,$14::jsonb,$15::jsonb,$16::jsonb,$17::jsonb,$18,NOW(),NOW())
-      RETURNING *`,
-      [
-        preview.marketplace || 'KSA',
-        report.reportId || null,
-        report.reportDocumentId || null,
-        report.settlementId || null,
-        JSON.stringify(preview.totals || {}),
-        JSON.stringify(preview.pivot || []),
-        JSON.stringify(preview.settlementLevelFees || []),
-        JSON.stringify(preview.refundReturnRows || []),
-        JSON.stringify(preview.matchedReturns || []),
-        JSON.stringify(preview.missingCreditNotes || []),
-        JSON.stringify(preview.creditNoteBlockingRows || []),
-        JSON.stringify(preview.adjustmentRows || []),
-        JSON.stringify(preview.reconciliationSummary || {}),
-        JSON.stringify(preview.matchedOrders || []),
-        JSON.stringify(preview.unmatchedOrders || []),
-        JSON.stringify(preview.report || {}),
-        JSON.stringify(preview.warnings || []),
-        createdBy == null ? null : Number(createdBy),
-      ]
-    )
+    let batchResult
+    if (existingBatchId != null) {
+      batchResult = await client.query(
+        `UPDATE amazon_payment_clearing_batches SET
+          marketplace = $1, report_id = $2, report_document_id = $3, settlement_id = $4,
+          status = 'previewed', totals = $5::jsonb, pivot = $6::jsonb, settlement_level_fees = $7::jsonb,
+          refund_return_rows = $8::jsonb, matched_returns = $9::jsonb, missing_credit_notes = $10::jsonb,
+          credit_note_blocking_rows = $11::jsonb, adjustment_rows = $12::jsonb, reconciliation_summary = $13::jsonb,
+          matched_orders = $14::jsonb, unmatched_orders = $15::jsonb, all_rows = $16::jsonb,
+          blocking_issues = $17::jsonb, amount_differences = $18::jsonb, report_snapshot = $19::jsonb,
+          warnings = $20::jsonb, created_by = COALESCE($21, created_by),
+          approved_by = NULL, approved_at = NULL, posted_by = NULL, posted_at = NULL,
+          posted_to_zoho = false, posting_summary = '{}'::jsonb, updated_at = NOW()
+        WHERE id = $22
+        RETURNING *`,
+        [...batchColumnValues(preview, createdBy), Number(existingBatchId)]
+      )
+      await client.query(`DELETE FROM amazon_payment_clearing_rows WHERE batch_id = $1`, [Number(existingBatchId)])
+    } else {
+      batchResult = await client.query(
+        `INSERT INTO amazon_payment_clearing_batches (
+          marketplace, report_id, report_document_id, settlement_id, status,
+          totals, pivot, settlement_level_fees, refund_return_rows, matched_returns,
+          missing_credit_notes, credit_note_blocking_rows, adjustment_rows, reconciliation_summary,
+          matched_orders, unmatched_orders, all_rows, blocking_issues, amount_differences,
+          report_snapshot, warnings, created_by, created_at, updated_at
+        ) VALUES ($1,$2,$3,$4,'previewed',$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12::jsonb,$13::jsonb,$14::jsonb,$15::jsonb,$16::jsonb,$17::jsonb,$18::jsonb,$19::jsonb,$20::jsonb,$21,NOW(),NOW())
+        RETURNING *`,
+        batchColumnValues(preview, createdBy)
+      )
+    }
     const batchId = Number(batchResult.rows[0].id)
-    const invoiceByOrder = new Map()
-    for (const order of preview.matchedOrders || []) {
-      invoiceByOrder.set(order.orderId, order)
-    }
-    for (const row of Array.isArray(rows) ? rows : []) {
-      const order = row.orderId ? invoiceByOrder.get(row.orderId) : null
-      const creditNoteRow = (preview.matchedReturns || preview.missingCreditNotes || []).find(
-        (candidate) =>
-          candidate.orderId === row.orderId &&
-          candidate.amountType === row.amountType &&
-          candidate.amountDescription === row.amountDescription &&
-          num(candidate.amazonRefundAmount) === Math.abs(num(row.amount))
-      )
-      await client.query(
-        `INSERT INTO amazon_payment_clearing_rows (
-          batch_id, order_id, transaction_type, amount_type, amount_description,
-          category, row_class, amount, currency, zoho_invoice_id, zoho_invoice_number,
-          zoho_credit_note_id, zoho_credit_note_number, credit_note_amount,
-          credit_note_status, credit_note_difference, blocking_reason,
-          match_status, raw_row, created_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb,NOW())`,
-        [
-          batchId,
-          row.orderId || null,
-          row.transactionType || null,
-          row.amountType || null,
-          row.amountDescription || null,
-          row.category || null,
-          row.rowClass || null,
-          num(row.amount),
-          row.currency || report.currency || 'SAR',
-          creditNoteRow?.zohoInvoiceId || order?.zohoInvoiceId || null,
-          creditNoteRow?.zohoInvoiceNumber || order?.zohoInvoiceNumber || null,
-          creditNoteRow?.zohoCreditNoteId || null,
-          creditNoteRow?.zohoCreditNoteNumber || null,
-          creditNoteRow?.creditNoteAmount == null ? null : num(creditNoteRow.creditNoteAmount),
-          creditNoteRow?.creditNoteStatus || null,
-          creditNoteRow?.creditNoteDifference == null ? null : num(creditNoteRow.creditNoteDifference),
-          creditNoteRow?.blockingReason || null,
-          creditNoteRow ? creditNoteRow.status : order ? order.matchType || 'matched' : row.orderId ? 'unmatched' : 'missing_order_id',
-          JSON.stringify(row.originalRawRow || row),
-        ]
-      )
-    }
+    await insertClearingRows(client, batchId, preview, rows, report)
     await client.query('COMMIT')
     return mapBatch(batchResult.rows[0])
   } catch (e) {
@@ -302,6 +374,116 @@ async function savePreviewBatch({ preview, rows, createdBy }) {
   } finally {
     client.release()
   }
+}
+
+function mapStoredRow(row) {
+  return {
+    rowNumber: row.row_number == null ? null : Number(row.row_number),
+    orderId: row.order_id || '',
+    transactionType: row.transaction_type || '',
+    amountType: row.amount_type || '',
+    amountDescription: row.amount_description || '',
+    category: row.category || '',
+    rowClass: row.row_class || '',
+    amount: num(row.amount),
+    currency: row.currency || '',
+    zohoInvoiceId: row.zoho_invoice_id || '',
+    zohoInvoiceNumber: row.zoho_invoice_number || '',
+    zohoCreditNoteId: row.zoho_credit_note_id || '',
+    zohoCreditNoteNumber: row.zoho_credit_note_number || '',
+    creditNoteAmount: row.credit_note_amount == null ? null : num(row.credit_note_amount),
+    creditNoteStatus: row.credit_note_status || '',
+    creditNoteDifference: row.credit_note_difference == null ? null : num(row.credit_note_difference),
+    blockingReason: row.blocking_reason || '',
+    matchStatus: row.match_status || '',
+    rawRow: safeJson(row.raw_row, {}),
+  }
+}
+
+async function listRowsForBatch(batchId) {
+  const result = await query(
+    `SELECT * FROM amazon_payment_clearing_rows
+     WHERE batch_id = $1
+     ORDER BY row_number ASC NULLS LAST, id ASC`,
+    [Number(batchId)]
+  )
+  return result.rows.map(mapStoredRow)
+}
+
+async function findBatchByReport({ reportId, reportDocumentId, settlementId, marketplace = 'KSA' } = {}) {
+  const docId = reportDocumentId == null ? '' : String(reportDocumentId).trim()
+  if (docId) {
+    const result = await query(
+      `SELECT * FROM amazon_payment_clearing_batches
+       WHERE marketplace = $1 AND report_document_id = $2
+       ORDER BY created_at DESC LIMIT 1`,
+      [marketplace, docId]
+    )
+    if (result.rows[0]) return mapBatch(result.rows[0])
+  }
+  const rid = reportId == null ? '' : String(reportId).trim()
+  if (rid) {
+    const result = await query(
+      `SELECT * FROM amazon_payment_clearing_batches
+       WHERE marketplace = $1 AND report_id = $2
+       ORDER BY created_at DESC LIMIT 1`,
+      [marketplace, rid]
+    )
+    if (result.rows[0]) return mapBatch(result.rows[0])
+  }
+  const sid = settlementId == null ? '' : String(settlementId).trim()
+  if (sid) {
+    const result = await query(
+      `SELECT * FROM amazon_payment_clearing_batches
+       WHERE marketplace = $1 AND settlement_id = $2
+       ORDER BY created_at DESC LIMIT 1`,
+      [marketplace, sid]
+    )
+    if (result.rows[0]) return mapBatch(result.rows[0])
+  }
+  return null
+}
+
+async function insertClearingAudit({ batchId, action, reason, actorUserId, previousZohoPaymentIds = [], details = {} }) {
+  const result = await query(
+    `INSERT INTO amazon_payment_clearing_audit (
+      batch_id, action, reason, actor_user_id, previous_zoho_payment_ids, details, created_at
+    ) VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,NOW())
+    RETURNING id, created_at`,
+    [
+      Number(batchId),
+      String(action),
+      reason || null,
+      actorUserId == null ? null : Number(actorUserId),
+      JSON.stringify(Array.isArray(previousZohoPaymentIds) ? previousZohoPaymentIds : []),
+      JSON.stringify(details || {}),
+    ]
+  )
+  return {
+    auditId: Number(result.rows[0].id),
+    createdAt: result.rows[0].created_at ? new Date(result.rows[0].created_at).toISOString() : null,
+  }
+}
+
+async function listClearingAudit(batchId) {
+  const result = await query(
+    `SELECT * FROM amazon_payment_clearing_audit WHERE batch_id = $1 ORDER BY created_at DESC, id DESC`,
+    [Number(batchId)]
+  )
+  return result.rows.map((row) => ({
+    id: Number(row.id),
+    batchId: Number(row.batch_id),
+    action: row.action || '',
+    reason: row.reason || '',
+    actorUserId: row.actor_user_id == null ? null : Number(row.actor_user_id),
+    previousZohoPaymentIds: safeJson(row.previous_zoho_payment_ids, []),
+    details: safeJson(row.details, {}),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+  }))
+}
+
+async function clearPostingsForBatch(batchId) {
+  await query(`DELETE FROM amazon_payment_clearing_postings WHERE batch_id = $1`, [Number(batchId)])
 }
 
 async function listRecentBatches(limit = 10) {
@@ -510,16 +692,22 @@ async function insertPosting(row) {
   return findPosting(row.batchId, row.invoiceId, row.paymentType)
 }
 
-async function markBatchPosted(batchId, postedBy) {
+async function markBatchPosted(batchId, postedBy, postingSummary = null) {
   const result = await query(
     `UPDATE amazon_payment_clearing_batches
      SET status = 'posted',
+         posted_to_zoho = true,
          posted_by = $2,
          posted_at = NOW(),
+         posting_summary = COALESCE($3::jsonb, posting_summary),
          updated_at = NOW()
      WHERE id = $1
      RETURNING *`,
-    [Number(batchId), postedBy == null ? null : Number(postedBy)]
+    [
+      Number(batchId),
+      postedBy == null ? null : Number(postedBy),
+      postingSummary == null ? null : JSON.stringify(postingSummary),
+    ]
   )
   return mapBatch(result.rows[0])
 }
@@ -545,6 +733,11 @@ module.exports = {
   savePreviewBatch,
   listRecentBatches,
   getBatchById,
+  listRowsForBatch,
+  findBatchByReport,
+  insertClearingAudit,
+  listClearingAudit,
+  clearPostingsForBatch,
   approveBatch,
   savePaymentPreview,
   getLatestPaymentPreviewForBatch,

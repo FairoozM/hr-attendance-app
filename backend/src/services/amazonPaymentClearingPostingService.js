@@ -8,20 +8,26 @@ const PAYMENT_TYPES = Object.freeze({
   SHIPPING_FBA: 'shipping_fba',
 })
 
-function ensureCanPostBatch(batch, paymentPreviewExists) {
+function ensureCanPostBatch(batch, paymentPreviewExists, options = {}) {
+  const dryRun = options.dryRun !== false
+  const allowPosted = options.allowPosted === true
   if (!batch) {
     const err = new Error('Payment clearing batch not found.')
     err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
     err.status = 404
     throw err
   }
-  if (batch.status === 'posted') {
+  // A real (non-dry-run) post to an already-posted batch is blocked unless the
+  // admin explicitly entered force-repost mode. Dry runs stay allowed so a
+  // posted batch can still be inspected safely.
+  if (batch.status === 'posted' && !dryRun && !allowPosted) {
     const err = new Error('Settlement has already been posted.')
     err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_ALREADY_POSTED'
     err.status = 409
     throw err
   }
-  if (batch.status !== 'approved') {
+  const postedButAllowed = batch.status === 'posted' && (dryRun || allowPosted)
+  if (batch.status !== 'approved' && !postedButAllowed) {
     const err = new Error('Posting requires an approved settlement batch.')
     err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_APPROVED'
     err.status = 422
@@ -180,12 +186,13 @@ async function postApprovedBatch({
   batch,
   store,
   dryRun = true,
+  allowPosted = false,
   postedBy,
   createPayment = zohoPaymentService.createZohoCustomerPayment,
   buildPayloadPreview = zohoPaymentService.buildCustomerPaymentPayloadPreview,
 }) {
   const latestPreview = await store.getLatestPaymentPreviewForBatch(batch.batchId)
-  ensureCanPostBatch(batch, Boolean(latestPreview))
+  ensureCanPostBatch(batch, Boolean(latestPreview), { dryRun, allowPosted })
   const paymentPreview = {
     batchId: batch.batchId,
     ...(latestPreview || buildPaymentPreviewFromBatch(batch)),
@@ -284,7 +291,15 @@ async function postApprovedBatch({
   }
 
   if (!dryRun && result.summary.errors === 0) {
-    await store.markBatchPosted(batch.batchId, postedBy)
+    const zohoPaymentIds = result.payments
+      .filter((row) => row.zohoPaymentId)
+      .map((row) => ({ paymentType: row.paymentType, zohoPaymentId: row.zohoPaymentId }))
+    await store.markBatchPosted(batch.batchId, postedBy, {
+      ...result.summary,
+      forceRepost: Boolean(allowPosted),
+      zohoPaymentIds,
+      postedAt: new Date().toISOString(),
+    })
   }
 
   return result

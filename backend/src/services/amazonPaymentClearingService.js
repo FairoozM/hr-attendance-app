@@ -117,6 +117,20 @@ async function downloadSettlementReportDocument(reportDocumentId) {
 }
 
 async function buildPreviewFromReport(options = {}) {
+  const forceRefresh = options.forceRefresh === true
+
+  // Fetch-once: when the report is already saved locally, reopen it from the
+  // database instead of calling Amazon SP-API again.
+  if (!forceRefresh && (options.reportDocumentId || options.reportId)) {
+    const cached = await store.findBatchByReport({
+      reportId: options.reportId,
+      reportDocumentId: options.reportDocumentId,
+    })
+    if (cached) {
+      return { ...(await hydrateSavedBatch(cached)), fromCache: true }
+    }
+  }
+
   const report = await resolveReport(options)
   if (!report.reportDocumentId) {
     const err = new Error('Selected Amazon settlement report is missing reportDocumentId.')
@@ -124,6 +138,21 @@ async function buildPreviewFromReport(options = {}) {
     err.status = 422
     throw err
   }
+
+  const existing = await store.findBatchByReport({
+    reportId: report.reportId,
+    reportDocumentId: report.reportDocumentId,
+  })
+  if (existing && !forceRefresh) {
+    return { ...(await hydrateSavedBatch(existing)), fromCache: true }
+  }
+  if (existing && forceRefresh && (existing.status === 'posted' || existing.postedToZoho)) {
+    const err = new Error('This settlement has already been posted to Zoho and cannot be refreshed from Amazon. Use Force Repost if you must re-post.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_ALREADY_POSTED'
+    err.status = 409
+    throw err
+  }
+
   const text = await downloadSettlementReportDocument(report.reportDocumentId)
   const parsed = parseAmazonSettlementReport(text)
   const zohoMatch = await matchZohoInvoicesForRows(parsed.rows, {
@@ -154,10 +183,12 @@ async function buildPreviewFromReport(options = {}) {
     preview,
     rows: parsed.rows,
     createdBy: options.createdBy,
+    existingBatchId: existing ? existing.batchId : null,
   })
   return {
     success: true,
     batch: savedBatch,
+    refreshedFromAmazon: Boolean(existing && forceRefresh),
     ...preview,
   }
 }
@@ -176,6 +207,44 @@ async function matchZohoInvoicesPreview(rows, options = {}) {
   }
 }
 
+function deriveLifecycleStatus(batch) {
+  if (!batch) return 'draft'
+  if (batch.status === 'posted' || batch.postedToZoho) return 'posted'
+  const reconciledClean =
+    batch.reconciliationSummary?.reconciliationStatus !== 'mismatch' &&
+    (!Array.isArray(batch.unmatchedOrders) || batch.unmatchedOrders.length === 0) &&
+    (!Array.isArray(batch.creditNoteBlockingRows) || batch.creditNoteBlockingRows.length === 0)
+  if (batch.status === 'approved') return 'ready_to_post'
+  return reconciledClean ? 'ready_for_review' : 'draft'
+}
+
+function reconstructAllRowsFromStored(storedRows) {
+  return (Array.isArray(storedRows) ? storedRows : []).map((row, idx) => {
+    let status = 'ok'
+    let blockingReason = row.blockingReason || ''
+    const ms = String(row.matchStatus || '').toLowerCase()
+    if (row.blockingReason) status = 'blocked'
+    else if (ms === 'missing_order_id' || !row.orderId) status = row.orderId ? 'ok' : 'missing_order_id'
+    else if (ms === 'unmatched') status = 'unmatched'
+    else if (ms === 'matched' || ms === 'po_number' || ms === 'invoice_number_fallback') status = 'matched'
+    if (status === 'missing_order_id' && !blockingReason) blockingReason = 'Settlement row is missing Amazon order ID.'
+    return {
+      rowNumber: row.rowNumber == null ? idx + 1 : row.rowNumber,
+      category: row.category || '',
+      rowClass: row.rowClass || '',
+      orderId: row.orderId || '',
+      amount: Number(row.amount) || 0,
+      currency: row.currency || '',
+      settlementDate: '',
+      transactionType: row.transactionType || '',
+      amountType: row.amountType || '',
+      amountDescription: row.amountDescription || '',
+      status,
+      blockingReason,
+    }
+  })
+}
+
 function savedBatchToPreview(batch) {
   if (!batch) return null
   return {
@@ -183,11 +252,14 @@ function savedBatchToPreview(batch) {
     batch: {
       batchId: batch.batchId,
       status: batch.status,
+      lifecycleStatus: deriveLifecycleStatus(batch),
       createdAt: batch.createdAt,
       approvedBy: batch.approvedBy,
       approvedAt: batch.approvedAt,
       postedBy: batch.postedBy,
       postedAt: batch.postedAt,
+      postedToZoho: Boolean(batch.postedToZoho),
+      postingSummary: batch.postingSummary || {},
     },
     marketplace: batch.marketplace || MARKETPLACE,
     report: {
@@ -210,14 +282,46 @@ function savedBatchToPreview(batch) {
     reconciliationSummary: batch.reconciliationSummary || {},
     matchedOrders: batch.matchedOrders || [],
     unmatchedOrders: batch.unmatchedOrders || [],
+    allRows: Array.isArray(batch.allRows) ? batch.allRows : [],
+    blockingIssues: Array.isArray(batch.blockingIssues) ? batch.blockingIssues : [],
+    amountDifferences: Array.isArray(batch.amountDifferences) ? batch.amountDifferences : [],
     warnings: batch.warnings || [],
-    rawRowCount: 0,
+    rawRowCount: Array.isArray(batch.allRows) ? batch.allRows.length : 0,
     status: batch.status,
+    lifecycleStatus: deriveLifecycleStatus(batch),
     approvedBy: batch.approvedBy,
     approvedAt: batch.approvedAt,
     postedBy: batch.postedBy,
     postedAt: batch.postedAt,
+    postedToZoho: Boolean(batch.postedToZoho),
+    postingSummary: batch.postingSummary || {},
   }
+}
+
+/**
+ * Reopen a saved batch with full row-level transparency reconstructed from the
+ * persisted rows table, without ever calling Amazon SP-API.
+ */
+async function hydrateSavedBatch(batch) {
+  const preview = savedBatchToPreview(batch)
+  if (!preview) return null
+  let storedRows = []
+  try {
+    storedRows = await store.listRowsForBatch(batch.batchId)
+  } catch {
+    storedRows = []
+  }
+  if ((!preview.allRows || preview.allRows.length === 0) && storedRows.length > 0) {
+    preview.allRows = reconstructAllRowsFromStored(storedRows)
+  }
+  preview.rawRowCount = preview.allRows.length || storedRows.length || 0
+  preview.storedRowCount = storedRows.length
+  try {
+    preview.auditLog = await store.listClearingAudit(batch.batchId)
+  } catch {
+    preview.auditLog = []
+  }
+  return preview
 }
 
 async function getSavedBatch(id) {
@@ -228,7 +332,37 @@ async function getSavedBatch(id) {
     err.status = 404
     throw err
   }
-  return savedBatchToPreview(batch)
+  return hydrateSavedBatch(batch)
+}
+
+async function listSavedBatches(limit = 50) {
+  const batches = await store.listRecentBatches(limit)
+  return {
+    success: true,
+    marketplace: MARKETPLACE,
+    batches: (Array.isArray(batches) ? batches : []).map((batch) => ({
+      batchId: batch.batchId,
+      marketplace: batch.marketplace || MARKETPLACE,
+      reportId: batch.reportId || batch.report?.reportId || '',
+      reportDocumentId: batch.reportDocumentId || batch.report?.reportDocumentId || '',
+      settlementId: batch.settlementId || batch.report?.settlementId || '',
+      settlementStartDate: batch.report?.settlementStartDate || '',
+      settlementEndDate: batch.report?.settlementEndDate || '',
+      depositDate: batch.report?.depositDate || '',
+      currency: batch.report?.currency || 'SAR',
+      status: batch.status,
+      lifecycleStatus: deriveLifecycleStatus(batch),
+      postedToZoho: Boolean(batch.postedToZoho),
+      amazonSettlementTotal: Number(batch.totals?.amazonSettlementTotal) || 0,
+      matchedOrderCount: Array.isArray(batch.matchedOrders) ? batch.matchedOrders.length : 0,
+      unmatchedOrderCount: Array.isArray(batch.unmatchedOrders) ? batch.unmatchedOrders.length : 0,
+      creditNoteBlockerCount: Array.isArray(batch.creditNoteBlockingRows) ? batch.creditNoteBlockingRows.length : 0,
+      reconciliationStatus: batch.reconciliationSummary?.reconciliationStatus || '',
+      createdAt: batch.createdAt,
+      approvedAt: batch.approvedAt,
+      postedAt: batch.postedAt,
+    })),
+  }
 }
 
 async function approveSavedBatch(id, approvedBy) {
@@ -302,6 +436,66 @@ async function postBatchToZoho(id, options = {}) {
       batch,
       store,
       dryRun: options.dryRun !== false,
+      allowPosted: options.allowPosted === true,
+      postedBy: options.postedBy,
+      createPayment: options.createPayment,
+    })
+  })
+}
+
+/**
+ * Admin-only force repost of an already-posted batch. Requires an explicit
+ * reason, records an audit entry with the previous Zoho payment IDs, and (for a
+ * real post) clears prior posting rows so new payments can be created. Only the
+ * already-posted guard is bypassed; reconciliation/credit-note guards still apply.
+ */
+async function forceRepostBatch(id, options = {}) {
+  const dryRun = options.dryRun !== false
+  const reason = String(options.reason || '').trim()
+  const batch = await store.getBatchById(id)
+  if (!batch) {
+    const err = new Error('Payment clearing batch not found.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  if (batch.status !== 'posted' && !batch.postedToZoho) {
+    const err = new Error('Force repost is only for batches already posted to Zoho. Use the normal posting flow.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_POSTED'
+    err.status = 422
+    throw err
+  }
+  if (!reason) {
+    const err = new Error('A reason is required to force repost a settlement to Zoho.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_REASON_REQUIRED'
+    err.status = 422
+    throw err
+  }
+  const previousPostings = await store.listPostingsForBatch(id)
+  const previousZohoPaymentIds = previousPostings
+    .map((row) => row.zohoPaymentId)
+    .filter(Boolean)
+  await store.insertClearingAudit({
+    batchId: batch.batchId,
+    action: dryRun ? 'force_repost_dry_run' : 'force_repost',
+    reason,
+    actorUserId: options.postedBy,
+    previousZohoPaymentIds,
+    details: { dryRun },
+  })
+  if (dryRun) {
+    return store.withBatchPostingLock(id, async () =>
+      postApprovedBatch({ batch, store, dryRun: true, allowPosted: true })
+    )
+  }
+  return store.withBatchPostingLock(id, async () => {
+    await store.clearPostingsForBatch(id)
+    const current = await store.getBatchById(id)
+    return postApprovedBatch({
+      batch: current,
+      store,
+      dryRun: false,
+      allowPosted: true,
       postedBy: options.postedBy,
       createPayment: options.createPayment,
     })
@@ -335,9 +529,11 @@ module.exports = {
   buildPreviewFromReport,
   matchZohoInvoicesPreview,
   getSavedBatch,
+  listSavedBatches,
   approveSavedBatch,
   buildPaymentPreviewForBatch,
   postBatchToZoho,
+  forceRepostBatch,
   getZohoAccountDiagnostics,
   getZohoOAuthAuthorizeUrl,
   exchangeZohoOAuthCode,

@@ -127,6 +127,58 @@ test('preview separates sales from refunds and blocks missing credit notes', () 
   assert.ok(preview.warnings.some((warning) => warning.includes('refund/return row')))
 })
 
+test('preview builds row-level allRows, blockingIssues, and amount differences', () => {
+  const rows = [
+    { orderId: '701-sale', amount: 100, category: CATEGORY.PRINCIPAL, rowClass: ROW_CLASS.SALE, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Order' },
+    { orderId: '701-unmatched', amount: 40, category: CATEGORY.PRINCIPAL, rowClass: ROW_CLASS.SALE, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Order' },
+    { orderId: '', amount: -5, category: CATEGORY.ADVERTISING_FEE, rowClass: ROW_CLASS.FEE, amountType: 'Cost of Advertising', amountDescription: 'TransactionTotalAmount', transactionType: 'ServiceFee' },
+    { orderId: '701-return', amount: -50, category: CATEGORY.REFUND, rowClass: ROW_CLASS.REFUND, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Refund' },
+  ]
+  const invoices = [
+    { invoice_id: 'zsale', invoice_number: 'INV-SALE', reference_number: '701-sale', customer_name: 'KSA-Amazon', total: 120 },
+    { invoice_id: 'zreturn', invoice_number: 'INV-RETURN', reference_number: '701-return', customer_name: 'KSA-Amazon', total: 50 },
+  ]
+  const creditNoteMatch = matchRefundReturnRowsToCreditNotes([rows[3]], invoices, [])
+  const preview = buildPreview({
+    rows,
+    invoices,
+    matchedReturns: creditNoteMatch.matchedReturns,
+    missingCreditNotes: creditNoteMatch.missingCreditNotes,
+    creditNoteBlockingRows: creditNoteMatch.creditNoteBlockingRows,
+    report: { reportDocumentId: 'doc1', currency: 'SAR' },
+  })
+
+  assert.equal(preview.allRows.length, 4)
+  assert.deepEqual(preview.allRows.map((row) => row.rowNumber), [1, 2, 3, 4])
+  const unmatchedRow = preview.allRows.find((row) => row.orderId === '701-unmatched')
+  assert.equal(unmatchedRow.status, 'unmatched')
+  const returnRow = preview.allRows.find((row) => row.orderId === '701-return')
+  assert.equal(returnRow.status, 'blocked')
+
+  const codes = preview.blockingIssues.map((issue) => issue.code)
+  assert.ok(codes.includes('UNMATCHED_SALES'))
+  assert.ok(codes.includes('MISSING_CREDIT_NOTE'))
+
+  const amountDiff = preview.amountDifferences.find((row) => row.orderId === '701-sale')
+  assert.ok(amountDiff)
+  assert.equal(amountDiff.difference, -20)
+})
+
+test('preview flags missing order ID rows and settlement mismatch blocking issues', () => {
+  const rows = [
+    { orderId: '701-1', amount: 100, category: CATEGORY.PRINCIPAL, rowClass: ROW_CLASS.SALE, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Order' },
+    { orderId: '701-1', amount: -10, category: CATEGORY.COMMISSION, rowClass: ROW_CLASS.FEE, amountType: 'ItemFees', amountDescription: 'Commission', transactionType: 'Order' },
+    { orderId: '', amount: 5, category: CATEGORY.PRINCIPAL, rowClass: ROW_CLASS.SALE, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Order' },
+  ]
+  const invoices = [{ invoice_id: 'z1', invoice_number: 'INV-1', reference_number: '701-1', customer_name: 'KSA-Amazon', total: 100 }]
+  const preview = buildPreview({ rows, invoices, report: { reportDocumentId: 'doc1', currency: 'SAR' } })
+
+  const missingOrderRow = preview.allRows.find((row) => row.rowNumber === 3)
+  assert.equal(missingOrderRow.status, 'missing_order_id')
+  const codes = preview.blockingIssues.map((issue) => issue.code)
+  assert.ok(codes.includes('MISSING_ORDER_ID'))
+})
+
 test('category mapping classifies settlement-level Amazon fee rows', () => {
   assert.equal(
     categorizeSettlementRow({
@@ -406,6 +458,7 @@ test('reconciliation summary reports mismatch status and warning when settlement
   assert.equal(preview.reconciliationSummary.reconciliationDifference, 1)
   assert.equal(preview.reconciliationSummary.reconciliationStatus, 'mismatch')
   assert.ok(preview.warnings.includes('Settlement total does not match calculated expected deposit.'))
+  assert.ok(preview.blockingIssues.some((issue) => issue.code === 'SETTLEMENT_MISMATCH'))
 })
 
 test('normalizeSettlementDate parses Amazon DD.MM.YYYY timestamps to ISO', () => {
@@ -1051,16 +1104,48 @@ test('payment posting supports partial rerun recovery', async () => {
   assert.equal(store.postings.length, 3)
 })
 
-test('payment posting rejects already posted settlement', async () => {
+test('payment posting rejects a real post to an already posted settlement', async () => {
   await assert.rejects(
     () => postApprovedBatch({
       batch: postingBatch({ status: 'posted' }),
       store: fakePostingStore(),
-      dryRun: true,
+      dryRun: false,
       buildPayloadPreview: fakePayloadPreview,
     }),
     /already been posted/
   )
+})
+
+test('payment posting allows a dry run on an already posted settlement', async () => {
+  const store = fakePostingStore()
+  const result = await postApprovedBatch({
+    batch: postingBatch({ status: 'posted' }),
+    store,
+    dryRun: true,
+    buildPayloadPreview: fakePayloadPreview,
+  })
+  assert.equal(result.dryRun, true)
+  assert.equal(result.summary.paymentsCreated, 0)
+  assert.equal(store.postings.length, 0)
+})
+
+test('force repost mode allows a real post to an already posted settlement', async () => {
+  const store = fakePostingStore()
+  const created = []
+  const result = await postApprovedBatch({
+    batch: postingBatch({ status: 'posted' }),
+    store,
+    dryRun: false,
+    allowPosted: true,
+    postedBy: 9,
+    createPayment: async (payment) => {
+      created.push(payment)
+      return { zohoPaymentId: `pay-${created.length}` }
+    },
+    buildPayloadPreview: fakePayloadPreview,
+  })
+  assert.equal(result.summary.paymentsCreated, 3)
+  assert.equal(store.postedBy, 9)
 })
 
 test('payment posting rejects missing or mismatched credit notes', async () => {
@@ -1117,6 +1202,8 @@ test('payment clearing route exposes saved batch and approve endpoints', () => {
     }))
 
   assert.ok(routes.some((route) => route.path === '/ksa/batches/:id' && route.methods.includes('get')))
+  assert.ok(routes.some((route) => route.path === '/ksa/batches' && route.methods.includes('get')))
+  assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/force-repost' && route.methods.includes('post')))
   assert.ok(routes.some((route) => route.path === '/zoho/account-diagnostics' && route.methods.includes('get')))
   assert.ok(routes.some((route) => route.path === '/zoho/oauth/authorize-url' && route.methods.includes('get')))
   assert.ok(routes.some((route) => route.path === '/zoho/oauth/callback' && route.methods.includes('get')))
