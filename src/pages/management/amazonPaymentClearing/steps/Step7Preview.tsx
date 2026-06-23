@@ -1,4 +1,4 @@
-import { money, PaymentClearingPreviewTable, SummaryCard } from '../clearingShared'
+import { money, PaymentClearingPreviewTable, SettlementReferenceCard, SummaryCard } from '../clearingShared'
 import type { ClearingContext } from './clearingContext'
 
 export function Step7Preview({ ctx }: { ctx: ClearingContext }) {
@@ -39,6 +39,10 @@ export function Step7Preview({ ctx }: { ctx: ClearingContext }) {
             <SummaryCard label="Total Clearing" value={money(paymentPreview.paymentPlanSummary.totalPaymentAmount)} />
             <SummaryCard label="Difference" value={money(paymentPreview.paymentPlanSummary.difference)} />
           </section>
+          <SettlementReferenceCard
+            reference={paymentPreview.settlementReference}
+            postingReferences={paymentPreview.postingReferences}
+          />
           <PaymentClearingPreviewTable paymentPreview={paymentPreview} />
           {paymentPreview.warnings.length ? (
             <div className="apc-alert apc-alert--error">

@@ -1,6 +1,7 @@
 const { buildPaymentPreviewFromBatch, PAYMENT_PREVIEW_TOLERANCE } = require('./amazonPaymentClearingPaymentPreviewService')
 const { round2 } = require('./amazonPaymentClearingOrderBreakdownService')
 const zohoPaymentService = require('./amazonPaymentClearingZohoPaymentService')
+const { buildSettlementReference, buildEntryReference } = require('./amazonPaymentClearingReferenceService')
 
 const PAYMENT_TYPES = Object.freeze({
   NET_BALANCE: 'net_balance',
@@ -132,7 +133,9 @@ function requireSingleCustomer(paymentRows, customerIdsByInvoice) {
   return Array.from(customerIds)[0] || ''
 }
 
-function groupedPaymentRows(paymentRows, customerId, paymentDate, batchId) {
+function groupedPaymentRows(paymentRows, customerId, paymentDate, batch) {
+  const batchId = batch?.batchId ?? batch
+  const reference = buildSettlementReference(typeof batch === 'object' ? batch : { batchId })
   const groups = new Map()
   for (const row of paymentRows) {
     const key = row.paymentType
@@ -160,10 +163,15 @@ function groupedPaymentRows(paymentRows, customerId, paymentDate, batchId) {
   }
   return Array.from(groups.values()).map((group) => {
     const amount = round2(group.amount)
+    const entry = buildEntryReference(reference, group.paymentType)
     return {
       ...group,
       invoiceNumber: `${group.invoiceAllocations.length} invoices`,
       amount,
+      entryLabel: entry.entryLabel,
+      referenceNumber: entry.referenceNumber,
+      description: entry.description,
+      settlementReference: reference,
       source: {
         customerId,
         invoices: group.invoiceAllocations,
@@ -175,8 +183,8 @@ function groupedPaymentRows(paymentRows, customerId, paymentDate, batchId) {
         depositToAccountCode: group.accountCode,
         depositToAccountName: group.accountName,
         paymentDate,
-        referenceNumber: `APC-${batchId}-${group.paymentType}`,
-        description: `Amazon Settlement Clearing - ${group.paymentLabel.replace(/\s+Payment$/i, '')}`,
+        referenceNumber: entry.referenceNumber,
+        description: entry.description,
       },
     }
   })
@@ -205,12 +213,14 @@ async function postApprovedBatch({
   const customerIdsByInvoice = customerByInvoiceId(batch)
   const paymentDate = zohoPaymentService.todayLocalDate()
   const customerId = requireSingleCustomer(paymentRows, customerIdsByInvoice)
-  const postingRows = groupedPaymentRows(paymentRows, customerId, paymentDate, batch.batchId)
+  const settlementReference = buildSettlementReference(batch)
+  const postingRows = groupedPaymentRows(paymentRows, customerId, paymentDate, batch)
   const result = {
     success: true,
     dryRun: Boolean(dryRun),
     batchId: batch.batchId,
     status: dryRun ? 'dry_run' : 'posted',
+    settlementReference,
     summary: {
       invoicesPosted: new Set(paymentRows.map((row) => row.invoiceId)).size,
       paymentsCreated: 0,
@@ -272,6 +282,8 @@ async function postApprovedBatch({
         amount: row.amount,
         accountCode: row.accountCode,
         invoiceAllocations: row.invoiceAllocations,
+        referenceNumber: row.referenceNumber,
+        description: row.description,
         status: 'posted',
       })
       result.summary.paymentsCreated += 1
@@ -293,11 +305,17 @@ async function postApprovedBatch({
   if (!dryRun && result.summary.errors === 0) {
     const zohoPaymentIds = result.payments
       .filter((row) => row.zohoPaymentId)
-      .map((row) => ({ paymentType: row.paymentType, zohoPaymentId: row.zohoPaymentId }))
+      .map((row) => ({
+        paymentType: row.paymentType,
+        zohoPaymentId: row.zohoPaymentId,
+        referenceNumber: row.referenceNumber || '',
+      }))
     await store.markBatchPosted(batch.batchId, postedBy, {
       ...result.summary,
       forceRepost: Boolean(allowPosted),
       zohoPaymentIds,
+      reference: settlementReference.referenceBase,
+      settlementReference,
       postedAt: new Date().toISOString(),
     })
   }

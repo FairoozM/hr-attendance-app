@@ -1,4 +1,4 @@
-import { dateText, PostingResultTable, SummaryCard } from '../clearingShared'
+import { dateText, money, PostingResultTable, SummaryCard } from '../clearingShared'
 import type { ClearingContext } from './clearingContext'
 
 export function Step8Post({ ctx }: { ctx: ClearingContext }) {
@@ -8,14 +8,27 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
   const postedAt = preview.postedAt ?? preview.batch?.postedAt ?? null
   const postingSummary = preview.postingSummary || preview.batch?.postingSummary
   const priorIds = postingSummary?.zohoPaymentIds || []
+  const postingReference =
+    preview.postingReference || preview.batch?.postingReference || postingSummary?.reference || ''
+  const storedPostings = Array.isArray(preview.postings) ? preview.postings : []
 
   return (
     <div className="apc-step-stack">
       {ctx.isPosted ? (
         <div className="apc-alert apc-approved-panel" role="status">
-          <strong>Already posted to Zoho.</strong> Posted by {postedBy ?? '-'} at {dateText(postedAt)}.
+          <strong>Posted to Zoho.</strong>
+          {postingReference ? (
+            <span> Reference: <code className="apc-ref">{postingReference}</code>.</span>
+          ) : null}
+          <div>Posted by {postedBy ?? '-'} at {dateText(postedAt)}.</div>
           {priorIds.length ? (
-            <span> Zoho payment IDs: {priorIds.map((entry) => entry.zohoPaymentId).join(', ')}.</span>
+            <span>
+              Zoho payment IDs:{' '}
+              {priorIds
+                .map((entry) => (entry.referenceNumber ? `${entry.zohoPaymentId} (${entry.referenceNumber})` : entry.zohoPaymentId))
+                .join(', ')}
+              .
+            </span>
           ) : null}
           <p className="apc-muted">
             This batch is view-only. Dry run is still available. To repost, an admin must use Force Repost and provide a
@@ -64,6 +77,36 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
           </section>
           <PostingResultTable result={postingResult} />
         </>
+      ) : null}
+
+      {!postingResult && ctx.isPosted && storedPostings.length ? (
+        <section>
+          <p className="apc-muted apc-table-caption">Posted Zoho entries for this settlement (from the audit record).</p>
+          <div className="apc-table-wrap apc-table-wrap--wide">
+            <table className="apc-table">
+              <thead>
+                <tr>
+                  <th>Entry</th>
+                  <th className="apc-money">Amount</th>
+                  <th>Reference (sent to Zoho)</th>
+                  <th>Description (sent to Zoho)</th>
+                  <th>Zoho Payment ID</th>
+                </tr>
+              </thead>
+              <tbody>
+                {storedPostings.map((row) => (
+                  <tr key={row.id}>
+                    <td>{row.paymentType}</td>
+                    <td className="apc-money">{money(row.amount)}</td>
+                    <td><code className="apc-ref">{row.referenceNumber || '-'}</code></td>
+                    <td>{row.description ? <pre className="apc-description">{row.description}</pre> : '-'}</td>
+                    <td>{row.zohoPaymentId || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       ) : null}
 
       {preview.auditLog && preview.auditLog.length ? (

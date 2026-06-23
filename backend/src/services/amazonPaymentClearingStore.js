@@ -130,6 +130,8 @@ async function ensureAmazonPaymentClearingTables() {
   await query(`ALTER TABLE amazon_payment_clearing_postings ALTER COLUMN invoice_id DROP NOT NULL`)
   await query(`ALTER TABLE amazon_payment_clearing_postings ADD COLUMN IF NOT EXISTS posting_group_key VARCHAR(128)`)
   await query(`ALTER TABLE amazon_payment_clearing_postings ADD COLUMN IF NOT EXISTS invoice_allocations JSONB NOT NULL DEFAULT '[]'::jsonb`)
+  await query(`ALTER TABLE amazon_payment_clearing_postings ADD COLUMN IF NOT EXISTS reference_number VARCHAR(128)`)
+  await query(`ALTER TABLE amazon_payment_clearing_postings ADD COLUMN IF NOT EXISTS description TEXT`)
   await query(`
     CREATE TABLE IF NOT EXISTS amazon_payment_clearing_account_mappings (
       account_code VARCHAR(32) PRIMARY KEY,
@@ -284,6 +286,8 @@ function mapPosting(row) {
     amount: num(row.amount),
     accountCode: row.account_code || '',
     invoiceAllocations: safeJson(row.invoice_allocations, []),
+    referenceNumber: row.reference_number || '',
+    description: row.description || '',
     status: row.status || '',
     errorMessage: row.error_message || '',
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
@@ -728,8 +732,8 @@ async function insertPosting(row) {
   const result = await query(
     `INSERT INTO amazon_payment_clearing_postings (
       batch_id, invoice_id, order_id, payment_type, posting_group_key, zoho_payment_id,
-      amount, account_code, invoice_allocations, status, error_message, created_at
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,NOW())
+      amount, account_code, invoice_allocations, reference_number, description, status, error_message, created_at
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,NOW())
     ON CONFLICT (batch_id, invoice_id, payment_type) DO NOTHING
     RETURNING *`,
     [
@@ -742,6 +746,8 @@ async function insertPosting(row) {
       num(row.amount),
       row.accountCode || null,
       JSON.stringify(row.invoiceAllocations || []),
+      row.referenceNumber || null,
+      row.description || null,
       row.status || 'posted',
       row.errorMessage || null,
     ]

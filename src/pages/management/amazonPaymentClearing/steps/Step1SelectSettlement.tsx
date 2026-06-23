@@ -31,6 +31,7 @@ export function Step1SelectSettlement({ ctx }: { ctx: ClearingContext }) {
                   <th>Matched</th>
                   <th>Blockers</th>
                   <th>Lifecycle</th>
+                  <th>Zoho Reference</th>
                   <th>Created</th>
                   <th></th>
                 </tr>
@@ -45,6 +46,13 @@ export function Step1SelectSettlement({ ctx }: { ctx: ClearingContext }) {
                     <td>{batch.matchedOrderCount}</td>
                     <td>{batch.creditNoteBlockerCount + batch.unmatchedOrderCount}</td>
                     <td><LifecycleBadge status={batch.lifecycleStatus} /></td>
+                    <td>
+                      {batch.postedToZoho && batch.postingReference ? (
+                        <code className="apc-ref">{batch.postingReference}</code>
+                      ) : (
+                        <span className="apc-muted">-</span>
+                      )}
+                    </td>
                     <td>{dateText(batch.createdAt)}</td>
                     <td>
                       <button

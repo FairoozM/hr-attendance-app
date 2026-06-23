@@ -11,6 +11,7 @@ const { matchZohoInvoicesForRows } = require('./amazonPaymentClearingZohoMatcher
 const { buildPreview } = require('./amazonPaymentClearingPreviewService')
 const { buildPaymentPreviewFromBatch } = require('./amazonPaymentClearingPaymentPreviewService')
 const { postApprovedBatch } = require('./amazonPaymentClearingPostingService')
+const { buildSettlementReference } = require('./amazonPaymentClearingReferenceService')
 const { getAccountDiagnostics } = require('./amazonPaymentClearingZohoPaymentService')
 const { buildZohoOAuthAuthorizeUrl, exchangeZohoAuthorizationCode } = require('../integrations/zoho/zohoOAuth')
 const store = require('./amazonPaymentClearingStore')
@@ -264,6 +265,8 @@ function reconstructAllRowsFromStored(storedRows) {
 
 function savedBatchToPreview(batch) {
   if (!batch) return null
+  const settlementReference = buildSettlementReference(batch)
+  const postingReference = batch.postingSummary?.reference || settlementReference.referenceBase
   return {
     success: true,
     batch: {
@@ -277,7 +280,11 @@ function savedBatchToPreview(batch) {
       postedAt: batch.postedAt,
       postedToZoho: Boolean(batch.postedToZoho),
       postingSummary: batch.postingSummary || {},
+      settlementReference,
+      postingReference,
     },
+    settlementReference,
+    postingReference,
     marketplace: batch.marketplace || MARKETPLACE,
     report: {
       reportId: batch.report?.reportId || batch.reportId || '',
@@ -337,6 +344,11 @@ async function hydrateSavedBatch(batch) {
     preview.auditLog = await store.listClearingAudit(batch.batchId)
   } catch {
     preview.auditLog = []
+  }
+  try {
+    preview.postings = await store.listPostingsForBatch(batch.batchId)
+  } catch {
+    preview.postings = []
   }
   return preview
 }
@@ -402,6 +414,7 @@ async function listSavedBatches(limit = 50) {
       status: batch.status,
       lifecycleStatus: deriveLifecycleStatus(batch),
       postedToZoho: Boolean(batch.postedToZoho),
+      postingReference: batch.postingSummary?.reference || buildSettlementReference(batch).referenceBase,
       amazonSettlementTotal: Number(batch.totals?.amazonSettlementTotal) || 0,
       matchedOrderCount: Array.isArray(batch.matchedOrders) ? batch.matchedOrders.length : 0,
       unmatchedOrderCount: Array.isArray(batch.unmatchedOrders) ? batch.unmatchedOrders.length : 0,

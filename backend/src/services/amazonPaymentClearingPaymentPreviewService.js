@@ -1,4 +1,5 @@
 const { round2 } = require('./amazonPaymentClearingOrderBreakdownService')
+const { buildSettlementReference, buildEntryReference } = require('./amazonPaymentClearingReferenceService')
 
 const PAYMENT_ACCOUNTS = Object.freeze({
   NET_BALANCE: {
@@ -196,6 +197,30 @@ function buildPaymentPreviewFromBatch(batch) {
     warnings.push(`${mismatches.length} invoice payment plan(s) do not clear to zero.`)
   }
 
+  // What Zoho will actually receive: one grouped Record Payment per entry type,
+  // each carrying the settlement-period reference and description.
+  const settlementReference = buildSettlementReference(batch)
+  const postingReferences = [
+    {
+      paymentType: 'net_balance',
+      amount: paymentPlanSummary.netBalanceTotal,
+      ...PAYMENT_ACCOUNTS.NET_BALANCE,
+      ...buildEntryReference(settlementReference, 'net_balance'),
+    },
+    {
+      paymentType: 'commission',
+      amount: paymentPlanSummary.commissionClearingTotal,
+      ...PAYMENT_ACCOUNTS.COMMISSION,
+      ...buildEntryReference(settlementReference, 'commission'),
+    },
+    {
+      paymentType: 'shipping_fba',
+      amount: paymentPlanSummary.shippingFbaClearingTotal,
+      ...PAYMENT_ACCOUNTS.SHIPPING_FBA,
+      ...buildEntryReference(settlementReference, 'shipping_fba'),
+    },
+  ].filter((row) => Number(row.amount) > 0)
+
   return {
     batchId: batch.batchId,
     status: 'previewed',
@@ -203,6 +228,8 @@ function buildPaymentPreviewFromBatch(batch) {
     payments,
     refundReturnCreditNoteApplications,
     adjustmentClearings,
+    settlementReference,
+    postingReferences,
     warnings,
   }
 }

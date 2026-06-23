@@ -13,6 +13,12 @@ const { buildOrderFeeBreakdown } = require('../src/services/amazonPaymentClearin
 const { buildPaymentPreviewFromBatch } = require('../src/services/amazonPaymentClearingPaymentPreviewService')
 const { postApprovedBatch } = require('../src/services/amazonPaymentClearingPostingService')
 const {
+  buildSettlementReference,
+  buildEntryReference,
+  referenceNumberFor,
+  descriptionFor,
+} = require('../src/services/amazonPaymentClearingReferenceService')
+const {
   buildCustomerPaymentPayload,
   buildCustomerPaymentPayloadPreview,
   CHART_OF_ACCOUNTS_REQUIRED_SCOPE,
@@ -902,6 +908,7 @@ function fakePayloadPreview(payment) {
     account_id: `acct-${payment.depositToAccountCode}`,
     account_name: payment.depositToAccountName,
     reference_number: payment.referenceNumber,
+    description: payment.description,
   }
 }
 
@@ -1000,9 +1007,106 @@ test('grouped posting creates three payments with eleven invoice allocations eac
     const total = payment.invoices.reduce((sum, row) => sum + row.amountApplied, 0)
     assert.equal(payment.amount, total)
   }
-  assert.equal(created.find((p) => p.referenceNumber.endsWith('net_balance')).amount, 935)
-  assert.equal(created.find((p) => p.referenceNumber.endsWith('commission')).amount, 110)
-  assert.equal(created.find((p) => p.referenceNumber.endsWith('shipping_fba')).amount, 55)
+  assert.equal(created.find((p) => p.referenceNumber.endsWith('-NET')).amount, 935)
+  assert.equal(created.find((p) => p.referenceNumber.endsWith('-COMM')).amount, 110)
+  assert.equal(created.find((p) => p.referenceNumber.endsWith('-SHIP')).amount, 55)
+})
+
+test('settlement reference builds period-based reference number and traceable description', () => {
+  const reference = buildSettlementReference({
+    batchId: 90,
+    marketplace: 'KSA',
+    report: {
+      settlementId: '12345678901',
+      reportId: 'RPT-XYZ',
+      settlementStartDate: '2026-06-01',
+      settlementEndDate: '2026-06-15',
+    },
+  })
+  assert.equal(reference.referenceBase, 'AMZ-KSA-20260601-20260615')
+  assert.equal(reference.periodText, '01 Jun 2026 - 15 Jun 2026')
+
+  const net = buildEntryReference(reference, 'net_balance')
+  assert.equal(net.referenceNumber, 'AMZ-KSA-20260601-20260615-NET')
+  assert.equal(referenceNumberFor(reference, 'commission'), 'AMZ-KSA-20260601-20260615-COMM')
+
+  const description = descriptionFor(reference, net.entryLabel)
+  assert.ok(description.includes('Amazon KSA Settlement'))
+  assert.ok(description.includes('Period: 01 Jun 2026 - 15 Jun 2026'))
+  assert.ok(description.includes('Settlement ID: 12345678901'))
+  assert.ok(description.includes('Report ID: RPT-XYZ'))
+  assert.ok(description.includes('Batch: #90'))
+})
+
+test('settlement reference falls back to settlement id, then batch id, when dates missing', () => {
+  assert.equal(
+    buildSettlementReference({ batchId: 5, marketplace: 'KSA', report: { settlementId: 'S-1' } }).referenceBase,
+    'AMZ-KSA-SETTLEMENT-S-1'
+  )
+  assert.equal(
+    buildSettlementReference({ batchId: 5, marketplace: 'KSA', report: {} }).referenceBase,
+    'AMZ-KSA-BATCH-5'
+  )
+})
+
+test('payment preview exposes settlement reference and posting references for the admin', () => {
+  const preview = buildPaymentPreviewFromBatch({
+    ...postingBatch(),
+    marketplace: 'KSA',
+    report: {
+      settlementId: 'S-7',
+      reportId: 'RPT-7',
+      settlementStartDate: '2026-06-01',
+      settlementEndDate: '2026-06-15',
+    },
+  })
+  assert.equal(preview.settlementReference.referenceBase, 'AMZ-KSA-20260601-20260615')
+  assert.ok(Array.isArray(preview.postingReferences))
+  const net = preview.postingReferences.find((row) => row.paymentType === 'net_balance')
+  assert.equal(net.referenceNumber, 'AMZ-KSA-20260601-20260615-NET')
+  assert.ok(net.amount > 0)
+  assert.ok(net.description.includes('Period: 01 Jun 2026 - 15 Jun 2026'))
+})
+
+test('posting carries settlement-period reference and description to Zoho payload', async () => {
+  const batch = {
+    ...postingBatch(),
+    marketplace: 'KSA',
+    report: {
+      settlementId: 'S-9',
+      reportId: 'RPT-9',
+      settlementStartDate: '2026-06-01',
+      settlementEndDate: '2026-06-15',
+    },
+  }
+  const store = fakePostingStore([], batch)
+  const created = []
+  const result = await postApprovedBatch({
+    batch,
+    store,
+    dryRun: false,
+    postedBy: 3,
+    createPayment: async (payment) => {
+      created.push(payment)
+      return { zohoPaymentId: `pay-${payment.depositToAccountCode}` }
+    },
+    buildPayloadPreview: fakePayloadPreview,
+  })
+
+  assert.equal(result.settlementReference.referenceBase, 'AMZ-KSA-20260601-20260615')
+  for (const payment of created) {
+    assert.ok(payment.referenceNumber.startsWith('AMZ-KSA-20260601-20260615-'))
+    assert.ok(payment.description.includes('Settlement ID: S-9'))
+    assert.ok(payment.description.includes('Report ID: RPT-9'))
+  }
+  for (const posting of store.postings) {
+    assert.ok(posting.referenceNumber.startsWith('AMZ-KSA-20260601-20260615-'))
+    assert.ok(posting.description.includes('Period: 01 Jun 2026 - 15 Jun 2026'))
+  }
+  for (const row of result.payments) {
+    assert.ok(row.zohoPayloadPreview.reference_number.startsWith('AMZ-KSA-20260601-20260615-'))
+    assert.ok(row.zohoPayloadPreview.description.includes('Amazon KSA Settlement'))
+  }
 })
 
 test('grouped posting rejects multiple customer ids', async () => {

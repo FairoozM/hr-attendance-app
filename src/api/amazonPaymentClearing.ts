@@ -167,6 +167,47 @@ export interface AmountDifferenceRow {
   difference: number
 }
 
+export interface SettlementReference {
+  marketplace: string
+  settlementId: string
+  reportId: string
+  startDate: string
+  endDate: string
+  startDisplay: string
+  endDisplay: string
+  periodText: string
+  referenceBase: string
+  batchId: number | null
+}
+
+export interface PostingReference {
+  paymentType: string
+  entryLabel: string
+  amount: number
+  depositToAccountCode: string
+  depositToAccountName: string
+  referenceNumber: string
+  description: string
+}
+
+export interface ClearingPosting {
+  id: number
+  batchId: number
+  invoiceId: string
+  orderId: string
+  paymentType: string
+  postingGroupKey: string
+  zohoPaymentId: string
+  amount: number
+  accountCode: string
+  invoiceAllocations: Array<{ invoiceId: string; invoiceNumber: string; orderId: string; amountApplied: number }>
+  referenceNumber: string
+  description: string
+  status: string
+  errorMessage: string
+  createdAt: string | null
+}
+
 export interface PostingSummary {
   invoicesPosted?: number
   paymentsCreated?: number
@@ -174,7 +215,9 @@ export interface PostingSummary {
   errors?: number
   forceRepost?: boolean
   postedAt?: string
-  zohoPaymentIds?: Array<{ paymentType: string; zohoPaymentId: string }>
+  reference?: string
+  settlementReference?: SettlementReference
+  zohoPaymentIds?: Array<{ paymentType: string; zohoPaymentId: string; referenceNumber?: string }>
 }
 
 export interface ClearingAuditEntry {
@@ -213,6 +256,7 @@ export interface SavedBatchSummary {
   unmatchedOrderCount: number
   creditNoteBlockerCount: number
   reconciliationStatus: string
+  postingReference?: string
   createdAt: string | null
   approvedAt: string | null
   postedAt: string | null
@@ -231,6 +275,8 @@ export interface PaymentClearingPreview {
     postedAt?: string | null
     postedToZoho?: boolean
     postingSummary?: PostingSummary
+    settlementReference?: SettlementReference
+    postingReference?: string
   }
   status?: string
   lifecycleStatus?: LifecycleStatus
@@ -240,6 +286,9 @@ export interface PaymentClearingPreview {
   postedAt?: string | null
   postedToZoho?: boolean
   postingSummary?: PostingSummary
+  settlementReference?: SettlementReference
+  postingReference?: string
+  postings?: ClearingPosting[]
   fromCache?: boolean
   refreshedFromAmazon?: boolean
   auditLog?: ClearingAuditEntry[]
@@ -347,6 +396,8 @@ export interface PaymentClearingPaymentPreview {
   payments: PaymentPreviewRow[]
   refundReturnCreditNoteApplications?: RefundReturnCreditNoteApplication[]
   adjustmentClearings?: PaymentPreviewAdjustmentClearing[]
+  settlementReference?: SettlementReference
+  postingReferences?: PostingReference[]
   warnings: string[]
 }
 
@@ -355,6 +406,7 @@ export interface PaymentPostingResult {
   dryRun: boolean
   batchId: number
   status: string
+  settlementReference?: SettlementReference
   summary: {
     invoicesPosted: number
     paymentsCreated: number
@@ -370,6 +422,9 @@ export interface PaymentPostingResult {
     amount: number
     accountCode: string
     accountName: string
+    entryLabel?: string
+    referenceNumber?: string
+    description?: string
     status: string
     zohoPaymentId?: string
     zohoPayloadPreview?: {
@@ -384,6 +439,7 @@ export interface PaymentPostingResult {
       account_id: string
       account_name: string
       reference_number: string
+      description?: string
     } | null
     reason?: string
     error?: string

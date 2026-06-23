@@ -243,6 +243,7 @@ async function buildCustomerPaymentPayloadPreview(payment, opts = {}) {
     account_id: payload.account_id || '',
     account_name: account.accountName,
     reference_number: payload.reference_number || '',
+    description: payload.description || '',
   }
 }
 

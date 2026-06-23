@@ -3,7 +3,9 @@ import type {
   PaymentClearingPaymentPreview,
   PaymentClearingPreview,
   PaymentPostingResult,
+  PostingReference,
   RefundReturnCreditNoteRow,
+  SettlementReference,
 } from '../../../api/amazonPaymentClearing'
 import { LIFECYCLE_LABEL } from './clearingSteps'
 
@@ -555,52 +557,111 @@ export function PaymentClearingPreviewTable({ paymentPreview }: { paymentPreview
 export function PostingResultTable({ result }: { result: PaymentPostingResult }) {
   return (
     <div className="apc-table-wrap apc-table-wrap--wide">
+      <p className="apc-muted apc-table-caption">Exactly what Zoho will receive for each grouped Record Payment.</p>
       <table className="apc-table">
         <thead>
           <tr>
-            <th>Invoice</th>
-            <th>Payment Type</th>
+            <th>Entry</th>
+            <th>Zoho account</th>
             <th className="apc-money">Amount</th>
-            <th>Payload customer_id</th>
-            <th>Payload invoice_id</th>
-            <th>Payload payment_date</th>
-            <th>Payload account_id</th>
-            <th>Payload account_name</th>
-            <th>Payload reference_number</th>
+            <th>Reference (sent to Zoho)</th>
+            <th>Description (sent to Zoho)</th>
             <th>Invoice allocations</th>
             <th>Status</th>
             <th>Zoho Payment ID</th>
           </tr>
         </thead>
         <tbody>
-          {result.payments.map((row) => (
-            <tr key={`${row.invoiceId}-${row.paymentType}`}>
-              <td>{row.invoiceNumber || row.invoiceId}</td>
-              <td>{row.paymentLabel || row.paymentType}</td>
-              <td className="apc-money">{money(row.zohoPayloadPreview?.amount ?? row.amount)}</td>
-              <td>{row.zohoPayloadPreview?.customer_id || '-'}</td>
-              <td>{row.zohoPayloadPreview?.invoice_id || row.invoiceId}</td>
-              <td>{row.zohoPayloadPreview?.payment_date || '-'}</td>
-              <td>{row.zohoPayloadPreview?.account_id || '-'}</td>
-              <td>{row.zohoPayloadPreview?.account_name || row.accountName}</td>
-              <td>{row.zohoPayloadPreview?.reference_number || '-'}</td>
-              <td>
-                {row.zohoPayloadPreview?.invoices?.length ? (
-                  <div className="apc-allocation-list">
-                    {row.zohoPayloadPreview.invoices.map((invoice) => (
-                      <div key={`${row.paymentType}-${invoice.invoice_id}`}>
-                        {invoice.invoice_id}: {money(invoice.amount_applied)}
-                      </div>
-                    ))}
-                  </div>
-                ) : '-'}
-              </td>
-              <td>{row.status}</td>
-              <td>{row.zohoPaymentId || row.reason || row.error || '-'}</td>
-            </tr>
-          ))}
+          {result.payments.map((row) => {
+            const reference = row.zohoPayloadPreview?.reference_number || row.referenceNumber || '-'
+            const description = row.zohoPayloadPreview?.description || row.description || ''
+            const accountName = row.zohoPayloadPreview?.account_name || row.accountName || ''
+            const accountId = row.zohoPayloadPreview?.account_id || ''
+            return (
+              <tr key={`${row.invoiceId}-${row.paymentType}`}>
+                <td>{row.entryLabel || row.paymentLabel || row.paymentType}</td>
+                <td>
+                  {accountName || '-'}
+                  {accountId ? <div className="apc-muted apc-cell-sub">id: {accountId}</div> : null}
+                </td>
+                <td className="apc-money">{money(row.zohoPayloadPreview?.amount ?? row.amount)}</td>
+                <td><code className="apc-ref">{reference}</code></td>
+                <td>{description ? <pre className="apc-description">{description}</pre> : '-'}</td>
+                <td>
+                  {row.zohoPayloadPreview?.invoices?.length ? (
+                    <div className="apc-allocation-list">
+                      {row.zohoPayloadPreview.invoices.map((invoice) => (
+                        <div key={`${row.paymentType}-${invoice.invoice_id}`}>
+                          {invoice.invoice_id}: {money(invoice.amount_applied)}
+                        </div>
+                      ))}
+                    </div>
+                  ) : '-'}
+                </td>
+                <td>{row.status}</td>
+                <td>{row.zohoPaymentId || row.reason || row.error || '-'}</td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
+  )
+}
+
+export function SettlementReferenceCard({
+  reference,
+  postingReferences,
+}: {
+  reference?: SettlementReference
+  postingReferences?: PostingReference[]
+}) {
+  if (!reference) return null
+  return (
+    <section className="apc-ref-card">
+      <div className="apc-ref-card__head">
+        <div>
+          <div className="apc-ref-card__eyebrow">Zoho reference for this settlement</div>
+          <div className="apc-ref-card__base"><code className="apc-ref">{reference.referenceBase}</code></div>
+        </div>
+        <dl className="apc-ref-card__meta">
+          {reference.periodText ? (
+            <div><dt>Period</dt><dd>{reference.periodText}</dd></div>
+          ) : null}
+          {reference.settlementId ? (
+            <div><dt>Settlement ID</dt><dd>{reference.settlementId}</dd></div>
+          ) : null}
+          {reference.reportId ? (
+            <div><dt>Report ID</dt><dd>{reference.reportId}</dd></div>
+          ) : null}
+        </dl>
+      </div>
+      {Array.isArray(postingReferences) && postingReferences.length ? (
+        <div className="apc-table-wrap apc-table-wrap--wide">
+          <table className="apc-table">
+            <thead>
+              <tr>
+                <th>Entry</th>
+                <th>Zoho account</th>
+                <th className="apc-money">Amount</th>
+                <th>Reference (sent to Zoho)</th>
+                <th>Description (sent to Zoho)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {postingReferences.map((row) => (
+                <tr key={row.paymentType}>
+                  <td>{row.entryLabel}</td>
+                  <td>{row.depositToAccountName} <span className="apc-muted">({row.depositToAccountCode})</span></td>
+                  <td className="apc-money">{money(row.amount)}</td>
+                  <td><code className="apc-ref">{row.referenceNumber}</code></td>
+                  <td><pre className="apc-description">{row.description}</pre></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </section>
   )
 }
