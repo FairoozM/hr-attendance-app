@@ -317,7 +317,6 @@ function MatchedOrdersTable({ preview }: { preview: PaymentClearingPreview }) {
           <tr>
             <th>Amazon Order ID</th>
             <th>Zoho Invoice Number</th>
-            <th>Zoho P.O.#</th>
             <th>Customer</th>
             <th className="apc-money">Zoho Invoice Total</th>
             <th className="apc-money">Principal</th>
@@ -337,9 +336,11 @@ function MatchedOrdersTable({ preview }: { preview: PaymentClearingPreview }) {
         <tbody>
           {preview.matchedOrders.map((row) => (
             <tr key={row.orderId}>
-              <td>{row.orderId}</td>
+              <td>
+                <span className="apc-match-check" aria-label="Matched" title="Matched">✓</span>
+                {row.orderId}
+              </td>
               <td>{row.zohoInvoiceNumber || '-'}</td>
-              <td>{row.zohoPoNumber || '-'}</td>
               <td>{row.zohoCustomerName || '-'}</td>
               <td className="apc-money">{money(row.zohoInvoiceTotal)}</td>
               <td className="apc-money">{money(row.principalTotal)}</td>
@@ -361,7 +362,6 @@ function MatchedOrdersTable({ preview }: { preview: PaymentClearingPreview }) {
           <tr className="apc-total-row">
             <td>Total matched orders</td>
             <td>{preview.matchedOrders.length}</td>
-            <td>-</td>
             <td>-</td>
             <td className="apc-money">{money(totals.zohoInvoiceTotal)}</td>
             <td className="apc-money">{money(totals.principalTotal)}</td>
