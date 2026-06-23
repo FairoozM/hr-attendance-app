@@ -40,6 +40,12 @@ function ensureCanPostBatch(batch, paymentPreviewExists) {
     err.status = 422
     throw err
   }
+  if (Array.isArray(batch.creditNoteBlockingRows) && batch.creditNoteBlockingRows.length > 0) {
+    const err = new Error('Posting requires all refund/return rows to have matched Zoho credit notes with clean amounts.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_CREDIT_NOTE_BLOCKED'
+    err.status = 422
+    throw err
+  }
   if (!paymentPreviewExists) {
     const err = new Error('Posting requires a generated payment preview.')
     err.code = 'AMAZON_PAYMENT_CLEARING_PAYMENT_PREVIEW_REQUIRED'
@@ -185,6 +191,8 @@ async function postApprovedBatch({
     ...(latestPreview || buildPaymentPreviewFromBatch(batch)),
     paymentPlanSummary: latestPreview?.paymentPlanSummary || latestPreview?.summary || latestPreview?.summaryJson,
     payments: latestPreview?.payments || latestPreview?.paymentsJson,
+    refundReturnCreditNoteApplications: latestPreview?.refundReturnCreditNoteApplications || [],
+    adjustmentClearings: latestPreview?.adjustmentClearings || [],
   }
   const paymentRows = flattenPaymentPreview(paymentPreview)
   const customerIdsByInvoice = customerByInvoiceId(batch)

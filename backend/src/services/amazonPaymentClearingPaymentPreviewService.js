@@ -13,6 +13,14 @@ const PAYMENT_ACCOUNTS = Object.freeze({
     depositToAccountCode: '1028',
     depositToAccountName: 'KSA-Amazon Uncleared Shipping Exp',
   },
+  REFUND_RETURN: {
+    depositToAccountCode: 'credit_note_application',
+    depositToAccountName: 'Zoho Credit Note Application',
+  },
+  ADJUSTMENT: {
+    depositToAccountCode: 'adjustment_clearing',
+    depositToAccountName: 'Amazon Adjustment Clearing',
+  },
 })
 
 const PAYMENT_PREVIEW_TOLERANCE = 0.01
@@ -58,6 +66,12 @@ function requireBatchForPaymentPreview(batch) {
   if (Array.isArray(batch.unmatchedOrders) && batch.unmatchedOrders.length > 0) {
     const err = new Error('Payment preview requires zero unmatched orders.')
     err.code = 'AMAZON_PAYMENT_CLEARING_UNMATCHED_ORDERS'
+    err.status = 422
+    throw err
+  }
+  if (Array.isArray(batch.creditNoteBlockingRows) && batch.creditNoteBlockingRows.length > 0) {
+    const err = new Error('Payment preview requires all refund/return rows to have matched Zoho credit notes with clean amounts.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_CREDIT_NOTE_BLOCKED'
     err.status = 422
     throw err
   }
@@ -112,6 +126,35 @@ function buildInvoicePaymentPlan(order) {
 function buildPaymentPreviewFromBatch(batch) {
   requireBatchForPaymentPreview(batch)
   const payments = (Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []).map(buildInvoicePaymentPlan)
+  const refundReturnCreditNoteApplications = (Array.isArray(batch.matchedReturns) ? batch.matchedReturns : []).map((row) => ({
+    orderId: row.orderId || '',
+    zohoInvoiceId: row.zohoInvoiceId || '',
+    zohoInvoiceNumber: row.zohoInvoiceNumber || '',
+    zohoCreditNoteId: row.zohoCreditNoteId || '',
+    zohoCreditNoteNumber: row.zohoCreditNoteNumber || '',
+    amazonRefundAmount: positiveAmount(row.amazonRefundAmount),
+    creditNoteAmount: positiveAmount(row.creditNoteAmount),
+    difference: round2(Number(row.creditNoteDifference) || 0),
+    status: row.status || 'matched',
+    blockingReason: row.blockingReason || '',
+    application: {
+      amount: positiveAmount(row.creditNoteAmount),
+      ...PAYMENT_ACCOUNTS.REFUND_RETURN,
+    },
+  }))
+  const adjustmentClearings = (Array.isArray(batch.adjustmentRows) ? batch.adjustmentRows : []).map((row, idx) => ({
+    key: `${row.orderId || 'settlement'}-${row.amountType || row.category || 'adjustment'}-${idx}`,
+    orderId: row.orderId || '',
+    amountType: row.amountType || '',
+    amountDescription: row.amountDescription || '',
+    amount: positiveAmount(row.amount),
+    originalAmount: round2(row.amount),
+    status: 'review',
+    clearing: {
+      amount: positiveAmount(row.amount),
+      ...PAYMENT_ACCOUNTS.ADJUSTMENT,
+    },
+  }))
   const paymentPlanSummary = payments.reduce(
     (acc, row) => {
       acc.invoiceCount += 1
@@ -131,9 +174,21 @@ function buildPaymentPreviewFromBatch(batch) {
       shippingFbaClearingTotal: 0,
       totalPaymentAmount: 0,
       zohoInvoiceTotal: 0,
+      refundReturnCreditNoteApplicationTotal: 0,
+      adjustmentClearingTotal: 0,
       difference: 0,
     }
   )
+  for (const row of refundReturnCreditNoteApplications) {
+    paymentPlanSummary.refundReturnCreditNoteApplicationTotal = round2(
+      paymentPlanSummary.refundReturnCreditNoteApplicationTotal + row.application.amount
+    )
+  }
+  for (const row of adjustmentClearings) {
+    paymentPlanSummary.adjustmentClearingTotal = round2(
+      paymentPlanSummary.adjustmentClearingTotal + row.clearing.amount
+    )
+  }
   paymentPlanSummary.difference = round2(paymentPlanSummary.zohoInvoiceTotal - paymentPlanSummary.totalPaymentAmount)
   const warnings = []
   const mismatches = payments.filter((row) => row.status === 'mismatch')
@@ -146,6 +201,8 @@ function buildPaymentPreviewFromBatch(batch) {
     status: 'previewed',
     paymentPlanSummary,
     payments,
+    refundReturnCreditNoteApplications,
+    adjustmentClearings,
     warnings,
   }
 }

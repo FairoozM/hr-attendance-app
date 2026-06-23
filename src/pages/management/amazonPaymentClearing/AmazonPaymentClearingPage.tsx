@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
+import * as XLSX from 'xlsx'
 import {
   approveKsaPaymentClearingBatch,
   fetchKsaPaymentClearingBatch,
@@ -9,6 +10,7 @@ import {
   previewKsaSettlementReport,
   postKsaPaymentClearingToZoho,
   type PaymentClearingPreview,
+  type RefundReturnCreditNoteRow,
   type SettlementReport,
 } from '../../../api/amazonPaymentClearing'
 import './AmazonPaymentClearingPage.css'
@@ -45,6 +47,24 @@ function SummaryCard({ label, value }: { label: string; value: string | number }
       <div className="ainv-summary-card__value">{value}</div>
     </div>
   )
+}
+
+function exportCreditNoteRows(rows: RefundReturnCreditNoteRow[], filename = 'amazon-ksa-missing-credit-notes.xlsx') {
+  const sheetRows = rows.map((row) => ({
+    'Amazon Order ID': row.orderId,
+    'Row Type': row.rowClass,
+    'Amazon Refund Amount': row.amazonRefundAmount,
+    'Zoho Invoice': row.zohoInvoiceNumber || row.zohoInvoiceId || '',
+    'Zoho Credit Note': row.zohoCreditNoteNumber || row.zohoCreditNoteId || '',
+    'Credit Note Amount': row.creditNoteAmount ?? '',
+    Difference: row.creditNoteDifference ?? '',
+    Status: row.status,
+    'Blocking Reason': row.blockingReason || '',
+  }))
+  const workbook = XLSX.utils.book_new()
+  const worksheet = XLSX.utils.json_to_sheet(sheetRows)
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Missing Credit Notes')
+  XLSX.writeFile(workbook, filename)
 }
 
 
@@ -115,6 +135,7 @@ function SettlementReconciliation({ preview }: { preview: PaymentClearingPreview
   const summary = preview.reconciliationSummary
   const lines = [
     ['Order-Level Net Balance', summary.orderLevelNetBalance],
+    ['Refund/Return Impact', summary.refundReturnImpact || 0],
     ['Less Advertising Fees', summary.advertisingFeeTotal],
     ['Less Premium Service Fees', summary.premiumServiceFeeTotal],
     ['Less Premium Service Fee Tax', summary.premiumServiceFeeTaxTotal],
@@ -161,6 +182,88 @@ function SettlementReconciliation({ preview }: { preview: PaymentClearingPreview
           Settlement total does not match calculated expected deposit.
         </div>
       ) : null}
+    </div>
+  )
+}
+
+function ReturnCreditNotesTable({ rows, emptyText }: { rows: RefundReturnCreditNoteRow[]; emptyText: string }) {
+  if (!rows.length) return <div className="apc-empty">{emptyText}</div>
+  return (
+    <div className="apc-table-wrap apc-table-wrap--wide">
+      <table className="apc-table">
+        <thead>
+          <tr>
+            <th>Amazon Order ID</th>
+            <th>Type</th>
+            <th className="apc-money">Amazon Refund</th>
+            <th>Zoho Invoice</th>
+            <th>Zoho Credit Note</th>
+            <th className="apc-money">Credit Note Amount</th>
+            <th className="apc-money">Difference</th>
+            <th>Status</th>
+            <th>Blocking Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, idx) => (
+            <tr key={`${row.orderId}-${row.zohoCreditNoteId || row.blockingReason || idx}`}>
+              <td>{row.orderId || '-'}</td>
+              <td>{row.rowClass}</td>
+              <td className="apc-money">{money(row.amazonRefundAmount)}</td>
+              <td>{row.zohoInvoiceNumber || row.zohoInvoiceId || '-'}</td>
+              <td>{row.zohoCreditNoteNumber || row.zohoCreditNoteId || '-'}</td>
+              <td className="apc-money">{money(row.creditNoteAmount)}</td>
+              <td className="apc-money">{money(row.creditNoteDifference)}</td>
+              <td>{row.status}</td>
+              <td>{row.blockingReason || '-'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function DifferencesTable({ preview }: { preview: PaymentClearingPreview }) {
+  const creditNoteDiffs = preview.matchedReturns?.filter((row) => Math.abs(Number(row.creditNoteDifference) || 0) > 0.01) || []
+  const rows = [
+    {
+      label: 'Settlement reconciliation',
+      difference: preview.reconciliationSummary.reconciliationDifference,
+      status: preview.reconciliationSummary.reconciliationStatus,
+      reason: preview.reconciliationSummary.reconciliationStatus === 'mismatch' ? 'Settlement total does not match expected deposit.' : '',
+    },
+    ...creditNoteDiffs.map((row) => ({
+      label: `Credit note ${row.zohoCreditNoteNumber || row.orderId}`,
+      difference: row.creditNoteDifference || 0,
+      status: row.status,
+      reason: row.blockingReason || '',
+    })),
+  ].filter((row) => Math.abs(Number(row.difference) || 0) > 0.01)
+
+  if (!rows.length) return <div className="apc-empty">No blocking differences above 0.01.</div>
+  return (
+    <div className="apc-table-wrap">
+      <table className="apc-table">
+        <thead>
+          <tr>
+            <th>Check</th>
+            <th className="apc-money">Difference</th>
+            <th>Status</th>
+            <th>Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.label}>
+              <td>{row.label}</td>
+              <td className="apc-money">{money(row.difference)}</td>
+              <td>{row.status}</td>
+              <td>{row.reason || '-'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
@@ -349,6 +452,60 @@ function PaymentClearingPreviewTable({ paymentPreview }: { paymentPreview: Payme
           ))}
         </tbody>
       </table>
+      {paymentPreview.refundReturnCreditNoteApplications?.length ? (
+        <>
+          <h3 className="ainv-page__title" style={{ fontSize: '1rem' }}>Refund/Return Credit Note Applications</h3>
+          <ReturnCreditNotesTable
+            rows={paymentPreview.refundReturnCreditNoteApplications.map((row) => ({
+              rowClass: 'refund',
+              category: 'Refund / Return',
+              orderId: row.orderId,
+              amazonRefundAmount: row.amazonRefundAmount,
+              transactionType: '',
+              amountType: '',
+              amountDescription: '',
+              zohoInvoiceId: row.zohoInvoiceId,
+              zohoInvoiceNumber: row.zohoInvoiceNumber,
+              zohoCreditNoteId: row.zohoCreditNoteId,
+              zohoCreditNoteNumber: row.zohoCreditNoteNumber,
+              creditNoteAmount: row.creditNoteAmount,
+              creditNoteDifference: row.difference,
+              status: row.status === 'matched' ? 'matched' : 'blocked',
+              blockingReason: row.blockingReason,
+            }))}
+            emptyText="No refund/return credit-note applications."
+          />
+        </>
+      ) : null}
+      {paymentPreview.adjustmentClearings?.length ? (
+        <>
+          <h3 className="ainv-page__title" style={{ fontSize: '1rem' }}>Adjustment Clearing</h3>
+          <div className="apc-table-wrap">
+            <table className="apc-table">
+              <thead>
+                <tr>
+                  <th>Amazon Order ID</th>
+                  <th>Amount Type</th>
+                  <th>Description</th>
+                  <th className="apc-money">Amount</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paymentPreview.adjustmentClearings.map((row) => (
+                  <tr key={row.key}>
+                    <td>{row.orderId || '-'}</td>
+                    <td>{row.amountType || '-'}</td>
+                    <td>{row.amountDescription || '-'}</td>
+                    <td className="apc-money">{money(row.originalAmount)}</td>
+                    <td>{row.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : null}
     </div>
   )
 }
@@ -506,6 +663,13 @@ export function AmazonPaymentClearingPage() {
 
   const isPosted = preview?.status === 'posted' || preview?.batch?.status === 'posted'
   const isApproved = !isPosted && (preview?.status === 'approved' || preview?.batch?.status === 'approved')
+  const creditNoteBlockingRows = preview?.creditNoteBlockingRows || []
+  const isCleanForApproval = Boolean(
+    preview &&
+      preview.reconciliationSummary?.reconciliationStatus === 'reconciled' &&
+      preview.unmatchedOrders.length === 0 &&
+      creditNoteBlockingRows.length === 0
+  )
   const approvedBy = preview?.approvedBy ?? preview?.batch?.approvedBy ?? null
   const approvedAt = preview?.approvedAt ?? preview?.batch?.approvedAt ?? null
   const postedBy = preview?.postedBy ?? preview?.batch?.postedBy ?? null
@@ -514,7 +678,8 @@ export function AmazonPaymentClearingPage() {
     preview?.batch?.batchId &&
       isApproved &&
       Math.abs(Number(preview.reconciliationSummary?.reconciliationDifference) || 0) <= 0.01 &&
-      preview.unmatchedOrders.length === 0
+      preview.unmatchedOrders.length === 0 &&
+      creditNoteBlockingRows.length === 0
   )
   const canPostToZoho = Boolean(canGeneratePaymentPreview && paymentPreview)
 
@@ -723,6 +888,8 @@ export function AmazonPaymentClearingPage() {
                     <SummaryCard label="Net Balance Payments" value={money(paymentPreview.paymentPlanSummary.netBalanceTotal)} />
                     <SummaryCard label="Commission Clearing" value={money(paymentPreview.paymentPlanSummary.commissionClearingTotal)} />
                     <SummaryCard label="Shipping/FBA Clearing" value={money(paymentPreview.paymentPlanSummary.shippingFbaClearingTotal)} />
+              <SummaryCard label="Refund/Credit Notes" value={money(paymentPreview.paymentPlanSummary.refundReturnCreditNoteApplicationTotal || 0)} />
+              <SummaryCard label="Adjustment Clearing" value={money(paymentPreview.paymentPlanSummary.adjustmentClearingTotal || 0)} />
                     <SummaryCard label="Total Clearing" value={money(paymentPreview.paymentPlanSummary.totalPaymentAmount)} />
                     <SummaryCard label="Difference" value={money(paymentPreview.paymentPlanSummary.difference)} />
                   </section>
@@ -773,11 +940,15 @@ export function AmazonPaymentClearingPage() {
             <SummaryCard label="Product Sales" value={money(preview.totals.productSalesTotal)} />
             <SummaryCard label="Amazon Fees" value={money(preview.totals.feesTotal)} />
             <SummaryCard label="Refunds" value={money(preview.totals.refundsTotal)} />
+            <SummaryCard label="Returns" value={money(preview.totals.returnsTotal || 0)} />
+            <SummaryCard label="Refund/Return Total" value={money(preview.totals.refundReturnTotal || 0)} />
             <SummaryCard label="Order Net Balance" value={money(preview.reconciliationSummary.orderLevelNetBalance)} />
             <SummaryCard label="Settlement Deductions" value={money(preview.reconciliationSummary.settlementLevelDeductions)} />
             <SummaryCard label="Expected Deposit" value={money(preview.reconciliationSummary.expectedAmazonDeposit)} />
             <SummaryCard label="Matched Orders" value={preview.matchedOrders.length} />
             <SummaryCard label="Unmatched Orders" value={preview.unmatchedOrders.length} />
+            <SummaryCard label="Matched Returns" value={preview.matchedReturns?.length || 0} />
+            <SummaryCard label="Credit Note Blockers" value={creditNoteBlockingRows.length} />
             <SummaryCard label="Difference" value={money(preview.totals.difference)} />
           </section>
 
@@ -791,11 +962,18 @@ export function AmazonPaymentClearingPage() {
                 className="ainv-btn ainv-btn--primary-sky"
                 type="button"
                 onClick={approveCurrentBatch}
-                disabled={approving || isApproved || isPosted || !preview.batch?.batchId}
+                disabled={approving || isApproved || isPosted || !preview.batch?.batchId || !isCleanForApproval}
               >
                 {isPosted ? 'Posted to Zoho' : isApproved ? 'Approved and Saved' : approving ? 'Approving...' : 'Approve Settlement'}
               </button>
             </div>
+            {!isCleanForApproval ? (
+              <div className="apc-alert apc-alert--error" role="alert">
+                Approval is blocked until settlement reconciliation is clean, sales have zero unmatched orders, and all refund/return rows have matched Zoho credit notes with no amount differences.
+              </div>
+            ) : (
+              <div className="apc-alert" role="status">Ready to Post checks are clean for approval.</div>
+            )}
           </section>
 
           <section className="ainv-panel">
@@ -817,8 +995,50 @@ export function AmazonPaymentClearingPage() {
           </section>
 
           <section className="ainv-panel">
-            <h2 className="ainv-page__title" style={{ fontSize: '1.25rem' }}>Matched Orders</h2>
+            <h2 className="ainv-page__title" style={{ fontSize: '1.25rem' }}>Matched Sales</h2>
             <MatchedOrdersTable preview={preview} />
+          </section>
+
+          <section className="ainv-panel">
+            <h2 className="ainv-page__title" style={{ fontSize: '1.25rem' }}>Matched Returns / Credit Notes</h2>
+            <ReturnCreditNotesTable
+              rows={(preview.matchedReturns || []).filter((row) => row.status === 'matched')}
+              emptyText="No matched refund/return credit notes."
+            />
+          </section>
+
+          <section className="ainv-panel">
+            <div className="apc-stage-panel__header">
+              <div>
+                <h2 className="ainv-page__title" style={{ fontSize: '1.25rem' }}>Missing Credit Notes</h2>
+                <p className="apc-muted">These rows block approval and posting until the Zoho credit note relationship is fixed.</p>
+              </div>
+              {creditNoteBlockingRows.length ? (
+                <button className="ainv-btn" type="button" onClick={() => exportCreditNoteRows(creditNoteBlockingRows)}>
+                  Export Excel
+                </button>
+              ) : null}
+            </div>
+            <ReturnCreditNotesTable
+              rows={creditNoteBlockingRows}
+              emptyText="No missing or blocked credit-note rows."
+            />
+          </section>
+
+          <section className="ainv-panel">
+            <h2 className="ainv-page__title" style={{ fontSize: '1.25rem' }}>Differences</h2>
+            <DifferencesTable preview={preview} />
+          </section>
+
+          <section className="ainv-panel">
+            <h2 className="ainv-page__title" style={{ fontSize: '1.25rem' }}>Ready to Post</h2>
+            {isCleanForApproval ? (
+              <div className="apc-alert" role="status">Sales, returns, credit notes, and settlement reconciliation are clean.</div>
+            ) : (
+              <div className="apc-alert apc-alert--error" role="alert">
+                Not ready: resolve unmatched sales, missing/unclear credit notes, credit-note amount differences, or settlement reconciliation differences.
+              </div>
+            )}
           </section>
 
           <section className="ainv-panel">

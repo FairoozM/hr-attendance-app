@@ -8,6 +8,7 @@ function safeMessage(err) {
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_APPROVED') return err.message
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_RECONCILED') return err.message
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_UNMATCHED_ORDERS') return err.message
+  if (err?.code === 'AMAZON_PAYMENT_CLEARING_CREDIT_NOTE_BLOCKED') return err.message
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_BATCH_POSTED') return err.message
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_BATCH_ALREADY_POSTED') return err.message
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_PAYMENT_PREVIEW_REQUIRED') return err.message

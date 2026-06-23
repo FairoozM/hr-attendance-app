@@ -1,5 +1,7 @@
-const { fetchCustomers, fetchInvoices } = require('../integrations/zoho/zohoBooksClient')
+const { fetchCustomers, fetchInvoices, fetchCreditNotes } = require('../integrations/zoho/zohoBooksClient')
 const { normalizeSettlementDate } = require('./amazonSettlementParserService')
+const { ROW_CLASS } = require('./amazonPaymentClearingCategoryService')
+const { round2 } = require('./amazonPaymentClearingOrderBreakdownService')
 
 const KSA_ZOHO_CUSTOMER_NAME = 'KSA-Amazon'
 /** Zoho invoice date is often weeks before Amazon settlement payout. */
@@ -93,6 +95,45 @@ function mapInvoice(invoice) {
   }
 }
 
+function creditNoteNumber(creditNote) {
+  return clean(creditNote?.creditnote_number || creditNote?.credit_note_number || creditNote?.number)
+}
+
+function creditNoteReference(creditNote) {
+  return clean(
+    creditNote?.reference_number ||
+      creditNote?.referenceNumber ||
+      creditNote?.invoice_number ||
+      creditNote?.invoiceNumber ||
+      creditNote?.notes
+  )
+}
+
+function creditNoteInvoiceIds(creditNote) {
+  const ids = new Set()
+  for (const key of ['invoice_id', 'invoiceId']) {
+    if (creditNote?.[key]) ids.add(clean(creditNote[key]))
+  }
+  for (const invoice of Array.isArray(creditNote?.invoices) ? creditNote.invoices : []) {
+    if (invoice?.invoice_id || invoice?.invoiceId) ids.add(clean(invoice.invoice_id || invoice.invoiceId))
+  }
+  return Array.from(ids).filter(Boolean)
+}
+
+function mapCreditNote(creditNote) {
+  return {
+    zohoCreditNoteId: clean(creditNote?.creditnote_id || creditNote?.credit_note_id || creditNote?.id),
+    zohoCreditNoteNumber: creditNoteNumber(creditNote),
+    referenceNumber: creditNoteReference(creditNote),
+    zohoCustomerId: clean(creditNote?.customer_id || creditNote?.customerId),
+    zohoCustomerName: clean(creditNote?.customer_name || creditNote?.customerName),
+    invoiceIds: creditNoteInvoiceIds(creditNote),
+    amount: num(creditNote?.total ?? creditNote?.creditnote_total ?? creditNote?.amount),
+    status: clean(creditNote?.status),
+    raw: creditNote,
+  }
+}
+
 function indexInvoices(invoices) {
   const byInvoiceNumber = new Map()
   const byPoNumber = new Map()
@@ -122,6 +163,17 @@ function indexInvoices(invoices) {
     if (matches.length > 1) duplicateZohoPoNumbers.push(matches[0].zohoPoNumber)
   }
   return { byInvoiceNumber, byPoNumber, duplicateZohoInvoiceNumbers, duplicateZohoPoNumbers }
+}
+
+function invoiceMatchesForOrder(orderId, invoices) {
+  const { byInvoiceNumber, byPoNumber } = indexInvoices(invoices)
+  const orderKey = matchKey(orderId)
+  const poMatches = byPoNumber.get(orderKey) || []
+  const invoiceMatches = poMatches.length > 0 ? [] : (byInvoiceNumber.get(orderKey) || [])
+  return {
+    matches: poMatches.length > 0 ? poMatches : invoiceMatches,
+    matchType: poMatches.length > 0 ? 'po_number' : 'invoice_number_fallback',
+  }
 }
 
 function matchSettlementRowsToInvoices(rows, invoices) {
@@ -175,6 +227,136 @@ function matchSettlementRowsToInvoices(rows, invoices) {
   }
 }
 
+function isRefundReturnRow(row) {
+  return row?.rowClass === ROW_CLASS.REFUND || row?.rowClass === ROW_CLASS.RETURN
+}
+
+function creditNoteMatchesInvoiceOrOrder(creditNote, invoice, orderId) {
+  const cn = mapCreditNote(creditNote)
+  const refs = [
+    cn.referenceNumber,
+    cn.zohoCreditNoteNumber,
+    ...(Array.isArray(cn.invoiceIds) ? cn.invoiceIds : []),
+  ].map(matchKey).filter(Boolean)
+  const needles = [
+    orderId,
+    invoice?.zohoInvoiceId,
+    invoice?.zohoInvoiceNumber,
+    invoice?.zohoPoNumber,
+  ].map(matchKey).filter(Boolean)
+
+  if (invoice?.zohoInvoiceId && cn.invoiceIds.some((id) => matchKey(id) === matchKey(invoice.zohoInvoiceId))) {
+    return true
+  }
+  return needles.some((needle) => refs.some((ref) => ref === needle || ref.includes(needle) || needle.includes(ref)))
+}
+
+function matchRefundReturnRowsToCreditNotes(rows, invoices, creditNotes) {
+  const refundRows = (Array.isArray(rows) ? rows : []).filter(isRefundReturnRow)
+  const mappedCreditNotes = (Array.isArray(creditNotes) ? creditNotes : []).map(mapCreditNote)
+  const matchedReturns = []
+  const missingCreditNotes = []
+  const blockingRows = []
+
+  for (const row of refundRows) {
+    const orderId = clean(row.orderId)
+    const amazonRefundAmount = Math.abs(round2(row.amount))
+    const base = {
+      rowClass: row.rowClass,
+      category: row.category,
+      orderId,
+      amazonRefundAmount,
+      transactionType: row.transactionType || '',
+      amountType: row.amountType || '',
+      amountDescription: row.amountDescription || '',
+      originalRawRow: row.originalRawRow || row.rawRow || row,
+    }
+
+    function blocked(reason, extra = {}) {
+      const out = {
+        ...base,
+        ...extra,
+        status: 'blocked',
+        blockingReason: reason,
+        creditNoteDifference: round2(Number(extra.creditNoteAmount || 0) - amazonRefundAmount),
+      }
+      blockingRows.push(out)
+      missingCreditNotes.push(out)
+      return out
+    }
+
+    if (!orderId) {
+      blocked('Amazon refund/return row is missing order ID.')
+      continue
+    }
+
+    const invoiceMatch = invoiceMatchesForOrder(orderId, invoices)
+    if (invoiceMatch.matches.length === 0) {
+      blocked('No Zoho invoice found for the refund/return Amazon order ID.')
+      continue
+    }
+    if (invoiceMatch.matches.length > 1) {
+      blocked('Multiple Zoho invoices match this Amazon order ID; invoice relationship is unclear.', {
+        candidateInvoiceNumbers: invoiceMatch.matches.map((invoice) => invoice.zohoInvoiceNumber).filter(Boolean),
+      })
+      continue
+    }
+
+    const invoice = invoiceMatch.matches[0]
+    const creditNoteMatches = mappedCreditNotes.filter((creditNote) => creditNoteMatchesInvoiceOrOrder(creditNote, invoice, orderId))
+    const invoiceFields = {
+      zohoInvoiceId: invoice.zohoInvoiceId,
+      zohoInvoiceNumber: invoice.zohoInvoiceNumber,
+      zohoPoNumber: invoice.zohoPoNumber,
+      zohoCustomerId: invoice.zohoCustomerId,
+      zohoCustomerName: invoice.zohoCustomerName,
+      matchType: invoiceMatch.matchType,
+    }
+
+    if (creditNoteMatches.length === 0) {
+      blocked('Missing Credit Note: create or link a Zoho credit note for this Amazon refund/return before posting.', invoiceFields)
+      continue
+    }
+    if (creditNoteMatches.length > 1) {
+      blocked('Multiple Zoho credit notes match this Amazon refund/return; credit-note relationship is unclear.', {
+        ...invoiceFields,
+        candidateCreditNoteNumbers: creditNoteMatches.map((creditNote) => creditNote.zohoCreditNoteNumber).filter(Boolean),
+      })
+      continue
+    }
+
+    const creditNote = creditNoteMatches[0]
+    const creditNoteAmount = Math.abs(round2(creditNote.amount))
+    const creditNoteDifference = round2(creditNoteAmount - amazonRefundAmount)
+    const out = {
+      ...base,
+      ...invoiceFields,
+      zohoCreditNoteId: creditNote.zohoCreditNoteId,
+      zohoCreditNoteNumber: creditNote.zohoCreditNoteNumber,
+      creditNoteAmount,
+      creditNoteStatus: creditNote.status,
+      creditNoteDifference,
+      status: Math.abs(creditNoteDifference) <= 0.01 ? 'matched' : 'blocked',
+      blockingReason: Math.abs(creditNoteDifference) <= 0.01
+        ? ''
+        : 'Credit note amount differs from Amazon refund/return amount by more than 0.01.',
+      originalRawRow: row.originalRawRow || row.rawRow || row,
+    }
+    matchedReturns.push(out)
+    if (out.status !== 'matched') {
+      blockingRows.push(out)
+      missingCreditNotes.push(out)
+    }
+  }
+
+  return {
+    matchedReturns,
+    missingCreditNotes,
+    creditNoteBlockingRows: blockingRows,
+    creditNotes: mappedCreditNotes,
+  }
+}
+
 async function fetchZohoInvoicesForSettlementRows(rows, options = {}) {
   const range = {
     ...deriveInvoiceRange(rows),
@@ -203,6 +385,34 @@ async function fetchZohoInvoicesForSettlementRows(rows, options = {}) {
   }
 }
 
+async function fetchZohoCreditNotesForSettlementRows(rows, options = {}) {
+  const range = {
+    ...deriveInvoiceRange(rows),
+    ...(options.fromDate ? { fromDate: options.fromDate } : {}),
+    ...(options.toDate ? { toDate: options.toDate } : {}),
+  }
+  const customerId = await resolveKsaZohoCustomerId(options)
+  if (Array.isArray(options.creditNotes)) {
+    return {
+      rows: options.creditNotes,
+      truncated: false,
+      pages: 0,
+      ...range,
+      customerId,
+      customerName: KSA_ZOHO_CUSTOMER_NAME,
+    }
+  }
+  const result = await fetchCreditNotes(range.fromDate, range.toDate, customerId || null)
+  return {
+    rows: Array.isArray(result?.rows) ? result.rows : [],
+    truncated: Boolean(result?.truncated),
+    pages: Number(result?.pages) || 0,
+    ...range,
+    customerId,
+    customerName: KSA_ZOHO_CUSTOMER_NAME,
+  }
+}
+
 function buildZohoFetchWarnings(zohoFetch) {
   const warnings = []
   if (!zohoFetch) return warnings
@@ -221,13 +431,36 @@ function buildZohoFetchWarnings(zohoFetch) {
   return warnings
 }
 
+function buildCreditNoteFetchWarnings(creditNoteFetch, refundRows) {
+  const warnings = []
+  if (!refundRows.length || !creditNoteFetch) return warnings
+  if (!creditNoteFetch.rows.length) {
+    warnings.push('No Zoho credit notes were loaded for matching Amazon refund/return rows.')
+  }
+  if (creditNoteFetch.truncated) {
+    warnings.push(
+      `Zoho credit note fetch was truncated for ${creditNoteFetch.customerName || 'KSA-Amazon'} (${creditNoteFetch.fromDate} to ${creditNoteFetch.toDate}). Some refund/return matches may be missing.`
+    )
+  }
+  return warnings
+}
+
 async function matchZohoInvoicesForRows(rows, options = {}) {
   const zohoFetch = await fetchZohoInvoicesForSettlementRows(rows, options)
+  const creditNoteFetch = await fetchZohoCreditNotesForSettlementRows(rows, options)
   const invoices = zohoFetch.rows
+  const refundRows = (Array.isArray(rows) ? rows : []).filter(isRefundReturnRow)
+  const creditNoteMatch = matchRefundReturnRowsToCreditNotes(refundRows, invoices, creditNoteFetch.rows)
   return {
     invoices,
+    creditNotes: creditNoteMatch.creditNotes,
     zohoFetch,
-    zohoFetchWarnings: buildZohoFetchWarnings(zohoFetch),
+    creditNoteFetch,
+    zohoFetchWarnings: [
+      ...buildZohoFetchWarnings(zohoFetch),
+      ...buildCreditNoteFetchWarnings(creditNoteFetch, refundRows),
+    ],
+    ...creditNoteMatch,
     ...matchSettlementRowsToInvoices(rows, invoices),
   }
 }
@@ -237,13 +470,16 @@ module.exports = {
   INVOICE_LOOKBACK_DAYS,
   deriveInvoiceRange,
   matchSettlementRowsToInvoices,
+  matchRefundReturnRowsToCreditNotes,
   matchZohoInvoicesForRows,
   fetchZohoInvoicesForSettlementRows,
+  fetchZohoCreditNotesForSettlementRows,
   buildZohoFetchWarnings,
   resolveKsaZohoCustomerId,
   _internals: {
     indexInvoices,
     mapInvoice,
+    mapCreditNote,
     invoiceNumber,
     poNumber,
     matchKey,

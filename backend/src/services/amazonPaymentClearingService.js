@@ -144,6 +144,9 @@ async function buildPreviewFromReport(options = {}) {
     },
     rows: parsed.rows,
     invoices: zohoMatch.invoices,
+    matchedReturns: zohoMatch.matchedReturns,
+    missingCreditNotes: zohoMatch.missingCreditNotes,
+    creditNoteBlockingRows: zohoMatch.creditNoteBlockingRows,
     parserWarnings: [...(parsed.warnings || []), ...(zohoMatch.zohoFetchWarnings || [])],
     rawRowCount: parsed.rawRowCount,
   })
@@ -199,6 +202,11 @@ function savedBatchToPreview(batch) {
     totals: batch.totals || {},
     pivot: batch.pivot || [],
     settlementLevelFees: batch.settlementLevelFees || [],
+    refundReturnRows: batch.refundReturnRows || [],
+    matchedReturns: batch.matchedReturns || [],
+    missingCreditNotes: batch.missingCreditNotes || [],
+    creditNoteBlockingRows: batch.creditNoteBlockingRows || [],
+    adjustmentRows: batch.adjustmentRows || [],
     reconciliationSummary: batch.reconciliationSummary || {},
     matchedOrders: batch.matchedOrders || [],
     unmatchedOrders: batch.unmatchedOrders || [],
@@ -224,10 +232,39 @@ async function getSavedBatch(id) {
 }
 
 async function approveSavedBatch(id, approvedBy) {
+  const existing = await store.getBatchById(id)
+  validateBatchReadyForApproval(existing)
   const batch = await store.approveBatch(id, approvedBy)
   return {
     ...savedBatchToPreview(batch),
     message: 'Settlement approved and saved.',
+  }
+}
+
+function validateBatchReadyForApproval(batch) {
+  if (!batch) {
+    const err = new Error('Payment clearing batch not found.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  if (batch.reconciliationSummary?.reconciliationStatus === 'mismatch') {
+    const err = new Error('Approval requires a reconciled settlement batch.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_RECONCILED'
+    err.status = 422
+    throw err
+  }
+  if (Array.isArray(batch.unmatchedOrders) && batch.unmatchedOrders.length > 0) {
+    const err = new Error('Approval requires zero unmatched sales orders.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_UNMATCHED_ORDERS'
+    err.status = 422
+    throw err
+  }
+  if (Array.isArray(batch.creditNoteBlockingRows) && batch.creditNoteBlockingRows.length > 0) {
+    const err = new Error('Approval requires all refund/return rows to have matched Zoho credit notes with clean amounts.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_CREDIT_NOTE_BLOCKED'
+    err.status = 422
+    throw err
   }
 }
 

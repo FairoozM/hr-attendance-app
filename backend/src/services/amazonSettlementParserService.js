@@ -1,4 +1,4 @@
-const { categorizeSettlementRow } = require('./amazonPaymentClearingCategoryService')
+const { categorizeSettlementRow, classifySettlementRow } = require('./amazonPaymentClearingCategoryService')
 
 function clean(value) {
   return String(value == null ? '' : value).trim()
@@ -126,6 +126,7 @@ function normalizeSettlementRow(row) {
     originalRawRow: row,
   }
   normalized.category = categorizeSettlementRow(normalized)
+  normalized.rowClass = classifySettlementRow(normalized)
   return normalized
 }
 

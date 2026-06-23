@@ -12,6 +12,7 @@ function sumBy(rows, predicate = () => true) {
 
 function buildReconciliationSummary({
   matchedOrders = [],
+  refundReturnTotal = 0,
   settlementLevelFees = [],
   actualAmazonSettlement = 0,
 } = {}) {
@@ -38,7 +39,8 @@ function buildReconciliationSummary({
       easyShipChargesTotal
   )
   const otherSettlementFeeTotal = round2(settlementLevelDeductions - knownSettlementFeeTotal)
-  const expectedAmazonDeposit = round2(orderLevelNetBalance + settlementLevelDeductions)
+  const refundReturnImpact = round2(refundReturnTotal)
+  const expectedAmazonDeposit = round2(orderLevelNetBalance + refundReturnImpact + settlementLevelDeductions)
   const actualSettlement = round2(actualAmazonSettlement)
   const reconciliationDifference = round2(actualSettlement - expectedAmazonDeposit)
   const reconciliationStatus =
@@ -46,6 +48,7 @@ function buildReconciliationSummary({
 
   return {
     orderLevelNetBalance,
+    refundReturnImpact,
     settlementLevelDeductions,
     advertisingFeeTotal,
     premiumServiceFeeTotal,

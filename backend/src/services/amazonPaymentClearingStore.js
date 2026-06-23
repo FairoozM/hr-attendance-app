@@ -12,6 +12,11 @@ async function ensureAmazonPaymentClearingTables() {
       totals JSONB NOT NULL DEFAULT '{}'::jsonb,
       pivot JSONB NOT NULL DEFAULT '[]'::jsonb,
       settlement_level_fees JSONB NOT NULL DEFAULT '[]'::jsonb,
+      refund_return_rows JSONB NOT NULL DEFAULT '[]'::jsonb,
+      matched_returns JSONB NOT NULL DEFAULT '[]'::jsonb,
+      missing_credit_notes JSONB NOT NULL DEFAULT '[]'::jsonb,
+      credit_note_blocking_rows JSONB NOT NULL DEFAULT '[]'::jsonb,
+      adjustment_rows JSONB NOT NULL DEFAULT '[]'::jsonb,
       reconciliation_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
       matched_orders JSONB NOT NULL DEFAULT '[]'::jsonb,
       unmatched_orders JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -27,6 +32,11 @@ async function ensureAmazonPaymentClearingTables() {
     )
   `)
   await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS settlement_level_fees JSONB NOT NULL DEFAULT '[]'::jsonb`)
+  await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS refund_return_rows JSONB NOT NULL DEFAULT '[]'::jsonb`)
+  await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS matched_returns JSONB NOT NULL DEFAULT '[]'::jsonb`)
+  await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS missing_credit_notes JSONB NOT NULL DEFAULT '[]'::jsonb`)
+  await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS credit_note_blocking_rows JSONB NOT NULL DEFAULT '[]'::jsonb`)
+  await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS adjustment_rows JSONB NOT NULL DEFAULT '[]'::jsonb`)
   await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS reconciliation_summary JSONB NOT NULL DEFAULT '{}'::jsonb`)
   await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS matched_orders JSONB NOT NULL DEFAULT '[]'::jsonb`)
   await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS unmatched_orders JSONB NOT NULL DEFAULT '[]'::jsonb`)
@@ -44,26 +54,44 @@ async function ensureAmazonPaymentClearingTables() {
       amount_type VARCHAR(128),
       amount_description TEXT,
       category VARCHAR(128),
+      row_class VARCHAR(32),
       amount NUMERIC(16, 4) NOT NULL DEFAULT 0,
       currency VARCHAR(8),
       zoho_invoice_id VARCHAR(128),
       zoho_invoice_number VARCHAR(200),
+      zoho_credit_note_id VARCHAR(128),
+      zoho_credit_note_number VARCHAR(200),
+      credit_note_amount NUMERIC(16, 4),
+      credit_note_status VARCHAR(64),
+      credit_note_difference NUMERIC(16, 4),
+      blocking_reason TEXT,
       match_status VARCHAR(32) NOT NULL DEFAULT 'unmatched',
       raw_row JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `)
+  await query(`ALTER TABLE amazon_payment_clearing_rows ADD COLUMN IF NOT EXISTS row_class VARCHAR(32)`)
+  await query(`ALTER TABLE amazon_payment_clearing_rows ADD COLUMN IF NOT EXISTS zoho_credit_note_id VARCHAR(128)`)
+  await query(`ALTER TABLE amazon_payment_clearing_rows ADD COLUMN IF NOT EXISTS zoho_credit_note_number VARCHAR(200)`)
+  await query(`ALTER TABLE amazon_payment_clearing_rows ADD COLUMN IF NOT EXISTS credit_note_amount NUMERIC(16, 4)`)
+  await query(`ALTER TABLE amazon_payment_clearing_rows ADD COLUMN IF NOT EXISTS credit_note_status VARCHAR(64)`)
+  await query(`ALTER TABLE amazon_payment_clearing_rows ADD COLUMN IF NOT EXISTS credit_note_difference NUMERIC(16, 4)`)
+  await query(`ALTER TABLE amazon_payment_clearing_rows ADD COLUMN IF NOT EXISTS blocking_reason TEXT`)
   await query(`
     CREATE TABLE IF NOT EXISTS amazon_payment_clearing_payment_previews (
       id BIGSERIAL PRIMARY KEY,
       batch_id BIGINT NOT NULL REFERENCES amazon_payment_clearing_batches(id) ON DELETE CASCADE,
       summary_json JSONB NOT NULL DEFAULT '{}'::jsonb,
       payments_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+      refund_return_applications_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+      adjustment_clearings_json JSONB NOT NULL DEFAULT '[]'::jsonb,
       status VARCHAR(32) NOT NULL DEFAULT 'previewed',
       created_by INTEGER NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `)
+  await query(`ALTER TABLE amazon_payment_clearing_payment_previews ADD COLUMN IF NOT EXISTS refund_return_applications_json JSONB NOT NULL DEFAULT '[]'::jsonb`)
+  await query(`ALTER TABLE amazon_payment_clearing_payment_previews ADD COLUMN IF NOT EXISTS adjustment_clearings_json JSONB NOT NULL DEFAULT '[]'::jsonb`)
   await query(`
     CREATE TABLE IF NOT EXISTS amazon_payment_clearing_postings (
       id BIGSERIAL PRIMARY KEY,
@@ -148,6 +176,11 @@ function mapBatch(row) {
     totals: safeJson(row.totals, {}),
     pivot: safeJson(row.pivot, []),
     settlementLevelFees: safeJson(row.settlement_level_fees, []),
+    refundReturnRows: safeJson(row.refund_return_rows, []),
+    matchedReturns: safeJson(row.matched_returns, []),
+    missingCreditNotes: safeJson(row.missing_credit_notes, []),
+    creditNoteBlockingRows: safeJson(row.credit_note_blocking_rows, []),
+    adjustmentRows: safeJson(row.adjustment_rows, []),
     reconciliationSummary: safeJson(row.reconciliation_summary, {}),
     matchedOrders: safeJson(row.matched_orders, []),
     unmatchedOrders: safeJson(row.unmatched_orders, []),
@@ -190,9 +223,10 @@ async function savePreviewBatch({ preview, rows, createdBy }) {
     const batchResult = await client.query(
       `INSERT INTO amazon_payment_clearing_batches (
         marketplace, report_id, report_document_id, settlement_id, status,
-        totals, pivot, settlement_level_fees, reconciliation_summary,
+        totals, pivot, settlement_level_fees, refund_return_rows, matched_returns,
+        missing_credit_notes, credit_note_blocking_rows, adjustment_rows, reconciliation_summary,
         matched_orders, unmatched_orders, report_snapshot, warnings, created_by, created_at, updated_at
-      ) VALUES ($1,$2,$3,$4,'previewed',$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12::jsonb,$13,NOW(),NOW())
+      ) VALUES ($1,$2,$3,$4,'previewed',$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12::jsonb,$13::jsonb,$14::jsonb,$15::jsonb,$16::jsonb,$17,NOW(),NOW())
       RETURNING *`,
       [
         preview.marketplace || 'KSA',
@@ -202,6 +236,11 @@ async function savePreviewBatch({ preview, rows, createdBy }) {
         JSON.stringify(preview.totals || {}),
         JSON.stringify(preview.pivot || []),
         JSON.stringify(preview.settlementLevelFees || []),
+        JSON.stringify(preview.refundReturnRows || []),
+        JSON.stringify(preview.matchedReturns || []),
+        JSON.stringify(preview.missingCreditNotes || []),
+        JSON.stringify(preview.creditNoteBlockingRows || []),
+        JSON.stringify(preview.adjustmentRows || []),
         JSON.stringify(preview.reconciliationSummary || {}),
         JSON.stringify(preview.matchedOrders || []),
         JSON.stringify(preview.unmatchedOrders || []),
@@ -217,12 +256,21 @@ async function savePreviewBatch({ preview, rows, createdBy }) {
     }
     for (const row of Array.isArray(rows) ? rows : []) {
       const order = row.orderId ? invoiceByOrder.get(row.orderId) : null
+      const creditNoteRow = (preview.matchedReturns || preview.missingCreditNotes || []).find(
+        (candidate) =>
+          candidate.orderId === row.orderId &&
+          candidate.amountType === row.amountType &&
+          candidate.amountDescription === row.amountDescription &&
+          num(candidate.amazonRefundAmount) === Math.abs(num(row.amount))
+      )
       await client.query(
         `INSERT INTO amazon_payment_clearing_rows (
           batch_id, order_id, transaction_type, amount_type, amount_description,
-          category, amount, currency, zoho_invoice_id, zoho_invoice_number,
+          category, row_class, amount, currency, zoho_invoice_id, zoho_invoice_number,
+          zoho_credit_note_id, zoho_credit_note_number, credit_note_amount,
+          credit_note_status, credit_note_difference, blocking_reason,
           match_status, raw_row, created_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,NOW())`,
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb,NOW())`,
         [
           batchId,
           row.orderId || null,
@@ -230,11 +278,18 @@ async function savePreviewBatch({ preview, rows, createdBy }) {
           row.amountType || null,
           row.amountDescription || null,
           row.category || null,
+          row.rowClass || null,
           num(row.amount),
           row.currency || report.currency || 'SAR',
-          order?.zohoInvoiceId || null,
-          order?.zohoInvoiceNumber || null,
-          order ? order.matchType || 'matched' : row.orderId ? 'unmatched' : 'missing_order_id',
+          creditNoteRow?.zohoInvoiceId || order?.zohoInvoiceId || null,
+          creditNoteRow?.zohoInvoiceNumber || order?.zohoInvoiceNumber || null,
+          creditNoteRow?.zohoCreditNoteId || null,
+          creditNoteRow?.zohoCreditNoteNumber || null,
+          creditNoteRow?.creditNoteAmount == null ? null : num(creditNoteRow.creditNoteAmount),
+          creditNoteRow?.creditNoteStatus || null,
+          creditNoteRow?.creditNoteDifference == null ? null : num(creditNoteRow.creditNoteDifference),
+          creditNoteRow?.blockingReason || null,
+          creditNoteRow ? creditNoteRow.status : order ? order.matchType || 'matched' : row.orderId ? 'unmatched' : 'missing_order_id',
           JSON.stringify(row.originalRawRow || row),
         ]
       )
@@ -300,13 +355,16 @@ async function approveBatch(id, approvedBy) {
 async function savePaymentPreview({ batchId, preview, createdBy }) {
   const result = await query(
     `INSERT INTO amazon_payment_clearing_payment_previews (
-      batch_id, summary_json, payments_json, status, created_by, created_at
-    ) VALUES ($1,$2::jsonb,$3::jsonb,$4,$5,NOW())
+      batch_id, summary_json, payments_json, refund_return_applications_json,
+      adjustment_clearings_json, status, created_by, created_at
+    ) VALUES ($1,$2::jsonb,$3::jsonb,$4::jsonb,$5::jsonb,$6,$7,NOW())
     RETURNING id, created_at`,
     [
       Number(batchId),
       JSON.stringify(preview.paymentPlanSummary || {}),
       JSON.stringify(preview.payments || []),
+      JSON.stringify(preview.refundReturnCreditNoteApplications || []),
+      JSON.stringify(preview.adjustmentClearings || []),
       preview.status || 'previewed',
       createdBy == null ? null : Number(createdBy),
     ]
@@ -333,6 +391,8 @@ async function getLatestPaymentPreviewForBatch(batchId) {
     batchId: Number(row.batch_id),
     paymentPlanSummary: safeJson(row.summary_json, {}),
     payments: safeJson(row.payments_json, []),
+    refundReturnCreditNoteApplications: safeJson(row.refund_return_applications_json, []),
+    adjustmentClearings: safeJson(row.adjustment_clearings_json, []),
     status: row.status || '',
     createdBy: row.created_by == null ? null : Number(row.created_by),
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,

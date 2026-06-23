@@ -2,8 +2,12 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 
 const { parseAmazonSettlementReport, normalizeSettlementDate } = require('../src/services/amazonSettlementParserService')
-const { categorizeSettlementRow, CATEGORY } = require('../src/services/amazonPaymentClearingCategoryService')
-const { matchSettlementRowsToInvoices, deriveInvoiceRange } = require('../src/services/amazonPaymentClearingZohoMatcher')
+const { categorizeSettlementRow, CATEGORY, ROW_CLASS } = require('../src/services/amazonPaymentClearingCategoryService')
+const {
+  matchSettlementRowsToInvoices,
+  matchRefundReturnRowsToCreditNotes,
+  deriveInvoiceRange,
+} = require('../src/services/amazonPaymentClearingZohoMatcher')
 const { buildPreview, orderSummary } = require('../src/services/amazonPaymentClearingPreviewService')
 const { buildOrderFeeBreakdown } = require('../src/services/amazonPaymentClearingOrderBreakdownService')
 const { buildPaymentPreviewFromBatch } = require('../src/services/amazonPaymentClearingPaymentPreviewService')
@@ -30,6 +34,7 @@ test('settlement parser normalizes rows and warnings', () => {
   assert.equal(parsed.rows[0].orderId, '701-1')
   assert.equal(parsed.rows[0].amount, 100)
   assert.equal(parsed.rows[0].category, CATEGORY.PRINCIPAL)
+  assert.equal(parsed.rows[0].rowClass, ROW_CLASS.SALE)
   assert.equal(parsed.metadata.currency, 'SAR')
   assert.ok(parsed.warnings.some((w) => w.includes('do not include an Amazon order ID')))
 })
@@ -48,9 +53,78 @@ test('category mapping handles fees refunds and withheld tax', () => {
     CATEGORY.REFUND
   )
   assert.equal(
+    categorizeSettlementRow({ transactionType: 'Return', amountType: 'ItemPrice', amountDescription: 'Principal', amount: -10 }),
+    CATEGORY.RETURN
+  )
+  assert.equal(
     categorizeSettlementRow({ transactionType: 'Order', amountType: 'MarketplaceWithheldTax', amountDescription: 'Marketplace withheld tax', amount: -2 }),
     CATEGORY.MARKETPLACE_WITHHELD_TAX
   )
+})
+
+test('refund return matching reconciles Amazon refund rows to Zoho credit notes', () => {
+  const rows = [
+    {
+      orderId: '701-return',
+      transactionType: 'Refund',
+      amountType: 'ItemPrice',
+      amountDescription: 'Principal',
+      amount: -100,
+      category: CATEGORY.REFUND,
+      rowClass: ROW_CLASS.REFUND,
+      originalRawRow: { raw: 'kept' },
+    },
+  ]
+  const invoices = [
+    { invoice_id: 'zinv1', invoice_number: 'INV-1', reference_number: '701-return', customer_id: 'cust1', customer_name: 'KSA-Amazon', total: 100 },
+  ]
+  const creditNotes = [
+    { creditnote_id: 'cn1', creditnote_number: 'CN-1', reference_number: '701-return', customer_id: 'cust1', total: 100, status: 'open' },
+  ]
+
+  const result = matchRefundReturnRowsToCreditNotes(rows, invoices, creditNotes)
+
+  assert.equal(result.matchedReturns.length, 1)
+  assert.equal(result.matchedReturns[0].zohoInvoiceId, 'zinv1')
+  assert.equal(result.matchedReturns[0].zohoCreditNoteId, 'cn1')
+  assert.equal(result.matchedReturns[0].amazonRefundAmount, 100)
+  assert.equal(result.matchedReturns[0].creditNoteAmount, 100)
+  assert.equal(result.matchedReturns[0].creditNoteDifference, 0)
+  assert.equal(result.matchedReturns[0].status, 'matched')
+  assert.deepEqual(result.matchedReturns[0].originalRawRow, { raw: 'kept' })
+  assert.equal(result.creditNoteBlockingRows.length, 0)
+})
+
+test('preview separates sales from refunds and blocks missing credit notes', () => {
+  const rows = [
+    { orderId: '701-sale', amount: 100, category: CATEGORY.PRINCIPAL, rowClass: ROW_CLASS.SALE, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Order' },
+    { orderId: '701-sale', amount: -12, category: CATEGORY.COMMISSION, rowClass: ROW_CLASS.FEE, amountType: 'ItemFees', amountDescription: 'Commission', transactionType: 'Order' },
+    { orderId: '701-return', amount: -50, category: CATEGORY.REFUND, rowClass: ROW_CLASS.REFUND, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Refund' },
+  ]
+  const invoices = [
+    { invoice_id: 'zsale', invoice_number: 'INV-SALE', reference_number: '701-sale', customer_name: 'KSA-Amazon', total: 100 },
+    { invoice_id: 'zreturn', invoice_number: 'INV-RETURN', reference_number: '701-return', customer_name: 'KSA-Amazon', total: 50 },
+  ]
+  const creditNoteMatch = matchRefundReturnRowsToCreditNotes([rows[2]], invoices, [])
+  const preview = buildPreview({
+    rows,
+    invoices,
+    matchedReturns: creditNoteMatch.matchedReturns,
+    missingCreditNotes: creditNoteMatch.missingCreditNotes,
+    creditNoteBlockingRows: creditNoteMatch.creditNoteBlockingRows,
+    report: { reportDocumentId: 'doc1', currency: 'SAR' },
+  })
+
+  assert.equal(preview.matchedOrders.length, 1)
+  assert.equal(preview.matchedOrders[0].orderId, '701-sale')
+  assert.equal(preview.totals.refundReturnTotal, -50)
+  assert.equal(preview.reconciliationSummary.refundReturnImpact, -50)
+  assert.equal(preview.reconciliationSummary.expectedAmazonDeposit, 38)
+  assert.equal(preview.reconciliationSummary.actualAmazonSettlement, 38)
+  assert.equal(preview.missingCreditNotes.length, 1)
+  assert.equal(preview.creditNoteBlockingRows.length, 1)
+  assert.match(preview.creditNoteBlockingRows[0].blockingReason, /Missing Credit Note/)
+  assert.ok(preview.warnings.some((warning) => warning.includes('refund/return row')))
 })
 
 test('category mapping classifies settlement-level Amazon fee rows', () => {
@@ -696,6 +770,16 @@ test('payment preview rejects unapproved, unreconciled, and unmatched batches', 
     }),
     /zero unmatched orders/
   )
+  assert.throws(
+    () => buildPaymentPreviewFromBatch({
+      status: 'approved',
+      reconciliationSummary: { reconciliationStatus: 'reconciled', reconciliationDifference: 0 },
+      unmatchedOrders: [],
+      creditNoteBlockingRows: [{ orderId: 'return-1', blockingReason: 'Missing Credit Note' }],
+      matchedOrders: [],
+    }),
+    /refund\/return rows/
+  )
 })
 
 function postingBatch(overrides = {}) {
@@ -976,6 +1060,20 @@ test('payment posting rejects already posted settlement', async () => {
       buildPayloadPreview: fakePayloadPreview,
     }),
     /already been posted/
+  )
+})
+
+test('payment posting rejects missing or mismatched credit notes', async () => {
+  await assert.rejects(
+    () => postApprovedBatch({
+      batch: postingBatch({
+        creditNoteBlockingRows: [{ orderId: 'return-1', blockingReason: 'Missing Credit Note' }],
+      }),
+      store: fakePostingStore(),
+      dryRun: true,
+      buildPayloadPreview: fakePayloadPreview,
+    }),
+    /refund\/return rows/
   )
 })
 

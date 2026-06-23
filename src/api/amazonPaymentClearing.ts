@@ -18,6 +18,8 @@ export interface ClearingTotals {
   orderLevelFeesTotal: number
   settlementLevelFeesTotal: number
   refundsTotal: number
+  returnsTotal?: number
+  refundReturnTotal?: number
   adjustmentsTotal: number
   matchedInvoiceTotal: number
   unmatchedOrderTotal: number
@@ -47,6 +49,7 @@ export interface OrderFeeBreakdown {
 
 export interface ReconciliationSummary {
   orderLevelNetBalance: number
+  refundReturnImpact?: number
   settlementLevelDeductions: number
   advertisingFeeTotal: number
   premiumServiceFeeTotal: number
@@ -82,6 +85,39 @@ export interface UnmatchedOrder extends OrderFeeBreakdown {
   reason: string
 }
 
+export interface RefundReturnCreditNoteRow {
+  rowClass: 'refund' | 'return'
+  category: string
+  orderId: string
+  amazonRefundAmount: number
+  transactionType: string
+  amountType: string
+  amountDescription: string
+  zohoInvoiceId?: string
+  zohoInvoiceNumber?: string
+  zohoPoNumber?: string
+  zohoCustomerId?: string
+  zohoCustomerName?: string
+  zohoCreditNoteId?: string
+  zohoCreditNoteNumber?: string
+  creditNoteAmount?: number
+  creditNoteStatus?: string
+  creditNoteDifference?: number
+  status: 'matched' | 'blocked'
+  blockingReason?: string
+  candidateInvoiceNumbers?: string[]
+  candidateCreditNoteNumbers?: string[]
+}
+
+export interface AdjustmentClearingRow {
+  orderId?: string
+  amountType?: string
+  amountDescription?: string
+  amount: number
+  category?: string
+  rowClass?: string
+}
+
 export interface PaymentClearingPreview {
   success: boolean
   batch?: {
@@ -112,6 +148,11 @@ export interface PaymentClearingPreview {
   totals: ClearingTotals
   pivot: ClearingPivotRow[]
   settlementLevelFees: ClearingPivotRow[]
+  refundReturnRows?: AdjustmentClearingRow[]
+  matchedReturns?: RefundReturnCreditNoteRow[]
+  missingCreditNotes?: RefundReturnCreditNoteRow[]
+  creditNoteBlockingRows?: RefundReturnCreditNoteRow[]
+  adjustmentRows?: AdjustmentClearingRow[]
   reconciliationSummary: ReconciliationSummary
   matchedOrders: MatchedOrder[]
   unmatchedOrders: UnmatchedOrder[]
@@ -154,7 +195,32 @@ export interface PaymentPreviewSummary {
   shippingFbaClearingTotal: number
   totalPaymentAmount: number
   zohoInvoiceTotal: number
+  refundReturnCreditNoteApplicationTotal?: number
+  adjustmentClearingTotal?: number
   difference: number
+}
+
+export interface RefundReturnCreditNoteApplication {
+  orderId: string
+  zohoInvoiceId: string
+  zohoInvoiceNumber: string
+  zohoCreditNoteId: string
+  zohoCreditNoteNumber: string
+  amazonRefundAmount: number
+  creditNoteAmount: number
+  difference: number
+  status: string
+  blockingReason?: string
+}
+
+export interface PaymentPreviewAdjustmentClearing {
+  key: string
+  orderId: string
+  amountType: string
+  amountDescription: string
+  amount: number
+  originalAmount: number
+  status: string
 }
 
 export interface PaymentClearingPaymentPreview {
@@ -165,6 +231,8 @@ export interface PaymentClearingPaymentPreview {
   status: string
   paymentPlanSummary: PaymentPreviewSummary
   payments: PaymentPreviewRow[]
+  refundReturnCreditNoteApplications?: RefundReturnCreditNoteApplication[]
+  adjustmentClearings?: PaymentPreviewAdjustmentClearing[]
   warnings: string[]
 }
 

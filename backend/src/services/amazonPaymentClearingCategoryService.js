@@ -14,11 +14,22 @@ const CATEGORY = Object.freeze({
   EASY_SHIP_CHARGES: 'Easy Ship Charges',
   PROMOTION_DISCOUNT: 'Promotion / Discount',
   REFUND: 'Refund',
+  RETURN: 'Return',
   REIMBURSEMENT: 'Reimbursement',
   ADJUSTMENT: 'Adjustment',
   MARKETPLACE_WITHHELD_TAX: 'Marketplace Withheld Tax',
   OTHER_AMAZON_FEE: 'Other Amazon Fee',
   OTHER: 'Other',
+})
+
+const ROW_CLASS = Object.freeze({
+  SALE: 'sale',
+  FEE: 'fee',
+  REFUND: 'refund',
+  RETURN: 'return',
+  ADJUSTMENT: 'adjustment',
+  SHIPPING_FBA: 'shipping/fba',
+  UNKNOWN: 'unknown',
 })
 
 const CATEGORY_ORDER = [
@@ -37,6 +48,7 @@ const CATEGORY_ORDER = [
   CATEGORY.EASY_SHIP_CHARGES,
   CATEGORY.PROMOTION_DISCOUNT,
   CATEGORY.REFUND,
+  CATEGORY.RETURN,
   CATEGORY.REIMBURSEMENT,
   CATEGORY.ADJUSTMENT,
   CATEGORY.MARKETPLACE_WITHHELD_TAX,
@@ -67,6 +79,7 @@ function categorizeSettlementRow(row) {
   const tx = transactionType.toLowerCase()
   const amount = Number(row?.amount) || 0
 
+  if (tx.includes('return') || hay.includes('return')) return CATEGORY.RETURN
   if (tx.includes('refund') || hay.includes('refund')) return CATEGORY.REFUND
   if (hay.includes('reimbursement')) return CATEGORY.REIMBURSEMENT
   if (tx.includes('adjustment') || hay.includes('adjustment')) return CATEGORY.ADJUSTMENT
@@ -125,6 +138,54 @@ function categorizeSettlementRow(row) {
   return CATEGORY.OTHER
 }
 
+function isCustomerRefundOrReturnRow(row) {
+  const hay = text(row)
+  const tx = field(row, 'transactionType').toLowerCase()
+  const amountType = field(row, 'amountType').toLowerCase()
+  const amountDescription = field(row, 'amountDescription').toLowerCase()
+
+  if (!(tx.includes('refund') || tx.includes('return') || hay.includes('refund') || hay.includes('return'))) {
+    return false
+  }
+
+  // Amazon refund reports also include fee reversals. Credit notes should only
+  // be required for customer-facing refund/return amounts.
+  if (
+    amountType.includes('itemprice') ||
+    amountType.includes('item price') ||
+    ['principal', 'tax', 'shipping', 'shipping tax'].includes(amountDescription)
+  ) {
+    return true
+  }
+
+  return !isFeeCategory(categorizeSettlementRow(row))
+}
+
+function classifySettlementRow(row) {
+  const category = row?.category || categorizeSettlementRow(row)
+  const hay = text(row)
+  const tx = field(row, 'transactionType').toLowerCase()
+
+  if (isCustomerRefundOrReturnRow(row)) {
+    return tx.includes('return') || hay.includes('return') || category === CATEGORY.RETURN
+      ? ROW_CLASS.RETURN
+      : ROW_CLASS.REFUND
+  }
+  if (category === CATEGORY.ADJUSTMENT) return ROW_CLASS.ADJUSTMENT
+  if (
+    category === CATEGORY.SHIPPING ||
+    category === CATEGORY.SHIPPING_TAX ||
+    category === CATEGORY.FBA_FULFILLMENT_FEE ||
+    category === CATEGORY.CLOSING_FEE ||
+    category === CATEGORY.EASY_SHIP_CHARGES
+  ) {
+    return ROW_CLASS.SHIPPING_FBA
+  }
+  if (isFeeCategory(category)) return ROW_CLASS.FEE
+  if (isSalesCategory(category)) return ROW_CLASS.SALE
+  return ROW_CLASS.UNKNOWN
+}
+
 function isFeeCategory(category) {
   return [
     CATEGORY.COMMISSION,
@@ -156,8 +217,11 @@ function hasOrderId(row) {
 
 module.exports = {
   CATEGORY,
+  ROW_CLASS,
   CATEGORY_ORDER,
   categorizeSettlementRow,
+  classifySettlementRow,
+  isCustomerRefundOrReturnRow,
   isFeeCategory,
   isSalesCategory,
   hasOrderId,

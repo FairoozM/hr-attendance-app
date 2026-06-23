@@ -4,6 +4,7 @@ const {
   isFeeCategory,
   isSalesCategory,
   hasOrderId,
+  ROW_CLASS,
 } = require('./amazonPaymentClearingCategoryService')
 const { matchSettlementRowsToInvoices } = require('./amazonPaymentClearingZohoMatcher')
 const { buildOrderFeeBreakdown, round2 } = require('./amazonPaymentClearingOrderBreakdownService')
@@ -68,6 +69,10 @@ function groupRowsByOrder(rows) {
   return { groups, missingOrderIdRows }
 }
 
+function isRefundReturnRow(row) {
+  return row?.rowClass === ROW_CLASS.REFUND || row?.rowClass === ROW_CLASS.RETURN
+}
+
 function orderSummary(orderId, rows, invoice = null, status = 'matched', reason = '') {
   const breakdown = buildOrderFeeBreakdown(rows)
   const out = {
@@ -124,24 +129,33 @@ function buildPreview({
   report = {},
   rows = [],
   invoices = [],
+  matchedReturns = [],
+  missingCreditNotes = [],
+  creditNoteBlockingRows = [],
   parserWarnings = [],
   rawRowCount = rows.length,
 }) {
-  const matchResult = matchSettlementRowsToInvoices(rows, invoices)
-  const { matchedOrders, unmatchedOrders } = buildOrderReconciliation(rows, matchResult)
-  const pivot = buildPivot(rows)
-  const settlementLevelFees = buildSettlementLevelFees(rows)
-  const orderLevelFeeRows = rows.filter((row) => hasOrderId(row) && isFeeCategory(row.category))
-  const settlementLevelFeeRows = rows.filter((row) => !hasOrderId(row) && isFeeCategory(row.category))
+  const allRows = Array.isArray(rows) ? rows : []
+  const refundReturnRows = allRows.filter(isRefundReturnRow)
+  const salesAndFeeRows = allRows.filter((row) => !isRefundReturnRow(row))
+  const matchResult = matchSettlementRowsToInvoices(salesAndFeeRows, invoices)
+  const { matchedOrders, unmatchedOrders } = buildOrderReconciliation(salesAndFeeRows, matchResult)
+  const pivot = buildPivot(allRows)
+  const settlementLevelFees = buildSettlementLevelFees(allRows)
+  const adjustmentRows = allRows.filter((row) => row.rowClass === ROW_CLASS.ADJUSTMENT || row.category === CATEGORY.ADJUSTMENT)
+  const orderLevelFeeRows = salesAndFeeRows.filter((row) => hasOrderId(row) && isFeeCategory(row.category))
+  const settlementLevelFeeRows = allRows.filter((row) => !hasOrderId(row) && isFeeCategory(row.category))
   const matchedInvoiceTotal = round2(
     matchedOrders.reduce((acc, row) => acc + (Number(row.zohoInvoiceTotal) || 0), 0)
   )
   const unmatchedOrderTotal = round2(
     unmatchedOrders.reduce((acc, row) => acc + (Number(row.amazonOrderTotal) || 0), 0)
   )
-  const amazonSettlementTotal = sum(rows)
+  const amazonSettlementTotal = sum(allRows)
+  const refundReturnTotal = sum(refundReturnRows)
   const reconciliationSummary = buildReconciliationSummary({
     matchedOrders,
+    refundReturnTotal,
     settlementLevelFees,
     actualAmazonSettlement: amazonSettlementTotal,
   })
@@ -154,6 +168,9 @@ function buildPreview({
   }
   if (matchResult.missingOrderIdRows.length > 0) {
     warnings.push(`${matchResult.missingOrderIdRows.length} settlement row(s) were not matchable because order ID is missing.`)
+  }
+  if (creditNoteBlockingRows.length > 0) {
+    warnings.push(`${creditNoteBlockingRows.length} refund/return row(s) block approval because credit note reconciliation is not clean.`)
   }
   if (reconciliationSummary.reconciliationStatus === 'mismatch') {
     warnings.push('Settlement total does not match calculated expected deposit.')
@@ -177,6 +194,8 @@ function buildPreview({
       orderLevelFeesTotal: sum(orderLevelFeeRows),
       settlementLevelFeesTotal: sum(settlementLevelFeeRows),
       refundsTotal: sum(rows, (row) => row.category === CATEGORY.REFUND),
+      returnsTotal: sum(rows, (row) => row.category === CATEGORY.RETURN),
+      refundReturnTotal,
       adjustmentsTotal: sum(rows, (row) => row.category === CATEGORY.ADJUSTMENT),
       matchedInvoiceTotal,
       unmatchedOrderTotal,
@@ -184,6 +203,11 @@ function buildPreview({
     },
     pivot,
     settlementLevelFees,
+    refundReturnRows,
+    matchedReturns,
+    missingCreditNotes,
+    creditNoteBlockingRows,
+    adjustmentRows,
     reconciliationSummary,
     matchedOrders,
     unmatchedOrders,
