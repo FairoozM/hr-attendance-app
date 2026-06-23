@@ -226,7 +226,7 @@ async function savePreviewBatch({ preview, rows, createdBy }) {
         totals, pivot, settlement_level_fees, refund_return_rows, matched_returns,
         missing_credit_notes, credit_note_blocking_rows, adjustment_rows, reconciliation_summary,
         matched_orders, unmatched_orders, report_snapshot, warnings, created_by, created_at, updated_at
-      ) VALUES ($1,$2,$3,$4,'previewed',$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12::jsonb,$13::jsonb,$14::jsonb,$15::jsonb,$16::jsonb,$17,NOW(),NOW())
+      ) VALUES ($1,$2,$3,$4,'previewed',$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12::jsonb,$13::jsonb,$14::jsonb,$15::jsonb,$16::jsonb,$17::jsonb,$18,NOW(),NOW())
       RETURNING *`,
       [
         preview.marketplace || 'KSA',
