@@ -55,6 +55,10 @@ function displayYmd(value) {
   return `${String(p.d).padStart(2, '0')} ${MONTHS[p.mo - 1] || ''} ${p.y}`.trim()
 }
 
+function displayZohoYmd(value) {
+  return displayYmd(value).replace(/ /g, '-')
+}
+
 /**
  * Derive the settlement reference metadata for a batch.
  * @returns {{marketplace,settlementId,reportId,startDate,endDate,startDisplay,endDisplay,periodText,referenceBase,batchId}}
@@ -70,6 +74,8 @@ function buildSettlementReference(batch) {
   const endCompact = compactYmd(endDate)
   const startDisplay = displayYmd(startDate)
   const endDisplay = displayYmd(endDate)
+  const startZohoDisplay = displayZohoYmd(startDate)
+  const endZohoDisplay = displayZohoYmd(endDate)
 
   let referenceBase
   if (startCompact && endCompact) {
@@ -84,6 +90,10 @@ function buildSettlementReference(batch) {
     startDisplay && endDisplay
       ? `${startDisplay} - ${endDisplay}`
       : startDisplay || endDisplay || ''
+  const zohoReferenceNumber =
+    startZohoDisplay && endZohoDisplay
+      ? `${startZohoDisplay} to ${endZohoDisplay}`
+      : ''
 
   return {
     marketplace,
@@ -94,6 +104,7 @@ function buildSettlementReference(batch) {
     startDisplay,
     endDisplay,
     periodText,
+    zohoReferenceNumber,
     referenceBase,
     batchId: batch?.batchId ?? null,
   }
@@ -105,6 +116,7 @@ function entryTypeLabel(paymentType) {
 
 // Reference number for a specific entry type, e.g. AMZ-KSA-20260601-20260615-NET.
 function referenceNumberFor(reference, paymentType) {
+  if (reference?.zohoReferenceNumber) return reference.zohoReferenceNumber
   const code =
     ENTRY_TYPE_CODES[paymentType] ||
     String(paymentType || '')
@@ -149,4 +161,5 @@ module.exports = {
   buildEntryReference,
   compactYmd,
   displayYmd,
+  displayZohoYmd,
 }

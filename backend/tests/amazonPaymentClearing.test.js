@@ -934,6 +934,35 @@ test('payment preview can be generated for an already posted settlement', () => 
   assert.equal(preview.paymentPlanSummary.invoiceCount, 1)
 })
 
+test('payment preview includes mapped account-level fee journals on posted settlements', () => {
+  const preview = buildPaymentPreviewFromBatch(postingBatch({
+    status: 'posted',
+    nonOrderLinkedAmazonFeeMappings: [{
+      key: 'KSA|STORAGE|other-transaction|Storage Fee',
+      classification: 'NON_ORDER_LINKED_AMAZON_FEE',
+      marketplace: 'KSA',
+      feeType: 'Storage Fee',
+      normalizedFeeType: 'STORAGE',
+      rawTransactionType: 'other-transaction',
+      description: 'Storage Fee',
+      rowCount: 1,
+      totalAmount: -25,
+      rowNumbers: [9],
+      mappingStatus: 'mapped',
+      mappingRuleId: 44,
+      journalPreview: {
+        referenceNumber: '29-Apr-2026 to 13-May-2026',
+        notes: 'Transferring Amazon KSA payment from 29-Apr-2026 to 13-May-2026 to Expenses accounts',
+        debit: { accountId: 'debit-storage', accountName: 'KSA Amazon Storage Exp', amount: 25 },
+        credit: { accountId: 'credit-clearing', accountName: 'KSA-Amazon Undeposited Funds', amount: 25 },
+      },
+    }],
+  }))
+  assert.equal(preview.amazonFeeJournalLines.length, 1)
+  assert.equal(preview.amazonFeeJournalLines[0].mappingStatus, 'mapped')
+  assert.equal(preview.paymentPlanSummary.amazonFeeJournalTotal, 25)
+})
+
 function postingBatch(overrides = {}) {
   return {
     batchId: 90,
@@ -1145,10 +1174,11 @@ test('settlement reference builds period-based reference number and traceable de
   })
   assert.equal(reference.referenceBase, 'AMZ-KSA-20260601-20260615')
   assert.equal(reference.periodText, '01 Jun 2026 - 15 Jun 2026')
+  assert.equal(reference.zohoReferenceNumber, '01-Jun-2026 to 15-Jun-2026')
 
   const net = buildEntryReference(reference, 'net_balance')
-  assert.equal(net.referenceNumber, 'AMZ-KSA-20260601-20260615-NET')
-  assert.equal(referenceNumberFor(reference, 'commission'), 'AMZ-KSA-20260601-20260615-COMM')
+  assert.equal(net.referenceNumber, '01-Jun-2026 to 15-Jun-2026')
+  assert.equal(referenceNumberFor(reference, 'commission'), '01-Jun-2026 to 15-Jun-2026')
 
   const description = descriptionFor(reference, net.entryLabel)
   assert.ok(description.includes('Amazon KSA Settlement'))
@@ -1183,7 +1213,7 @@ test('payment preview exposes settlement reference and posting references for th
   assert.equal(preview.settlementReference.referenceBase, 'AMZ-KSA-20260601-20260615')
   assert.ok(Array.isArray(preview.postingReferences))
   const net = preview.postingReferences.find((row) => row.paymentType === 'net_balance')
-  assert.equal(net.referenceNumber, 'AMZ-KSA-20260601-20260615-NET')
+  assert.equal(net.referenceNumber, '01-Jun-2026 to 15-Jun-2026')
   assert.ok(net.amount > 0)
   assert.ok(net.description.includes('Period: 01 Jun 2026 - 15 Jun 2026'))
 })
@@ -1215,16 +1245,16 @@ test('posting carries settlement-period reference and description to Zoho payloa
 
   assert.equal(result.settlementReference.referenceBase, 'AMZ-KSA-20260601-20260615')
   for (const payment of created) {
-    assert.ok(payment.referenceNumber.startsWith('AMZ-KSA-20260601-20260615-'))
+    assert.equal(payment.referenceNumber, '01-Jun-2026 to 15-Jun-2026')
     assert.ok(payment.description.includes('Settlement ID: S-9'))
     assert.ok(payment.description.includes('Report ID: RPT-9'))
   }
   for (const posting of store.postings) {
-    assert.ok(posting.referenceNumber.startsWith('AMZ-KSA-20260601-20260615-'))
+    assert.equal(posting.referenceNumber, '01-Jun-2026 to 15-Jun-2026')
     assert.ok(posting.description.includes('Period: 01 Jun 2026 - 15 Jun 2026'))
   }
   for (const row of result.payments) {
-    assert.ok(row.zohoPayloadPreview.reference_number.startsWith('AMZ-KSA-20260601-20260615-'))
+    assert.equal(row.zohoPayloadPreview.reference_number, '01-Jun-2026 to 15-Jun-2026')
     assert.ok(row.zohoPayloadPreview.description.includes('Amazon KSA Settlement'))
   }
 })

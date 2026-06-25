@@ -313,7 +313,7 @@ function normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules = [])
 }
 
 async function batchWithCurrentFeeJournalMappings(batch) {
-  if (!batch || batch.status === 'posted' || batch.postedToZoho === true) return batch
+  if (!batch) return batch
   const feeJournalMappingRules = await store.listFeeJournalMappings({ marketplace: batch.marketplace || MARKETPLACE }).catch(() => [])
   return {
     ...batch,
@@ -617,12 +617,12 @@ async function forceRepostBatch(id, options = {}) {
   })
   if (dryRun) {
     return store.withBatchPostingLock(id, async () =>
-      postApprovedBatch({ batch, store, dryRun: true, allowPosted: true })
+      postApprovedBatch({ batch: await batchWithCurrentFeeJournalMappings(batch), store, dryRun: true, allowPosted: true })
     )
   }
   return store.withBatchPostingLock(id, async () => {
     await store.clearPostingsForBatch(id)
-    const current = await store.getBatchById(id)
+    const current = await batchWithCurrentFeeJournalMappings(await store.getBatchById(id))
     return postApprovedBatch({
       batch: current,
       store,
