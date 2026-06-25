@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   fetchAmazonPaymentClearingZohoChartAccounts,
   saveKsaFeeJournalMapping,
@@ -33,10 +33,10 @@ function SearchableAccountPicker({
   fallbackLabel?: string
   onSelected: (accountId: string) => void
 }) {
-  const listId = useId()
   const accountById = useMemo(() => new Map(accounts.map((account) => [account.accountId, account])), [accounts])
   const labelById = useMemo(() => new Map(accounts.map((account) => [account.accountId, accountLabel(account)])), [accounts])
   const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
 
   useEffect(() => {
     const selectedLabel = selectedId ? labelById.get(selectedId) : ''
@@ -51,16 +51,9 @@ function SearchableAccountPicker({
     }
   }, [accounts, fallbackLabel, labelById, onSelected, selectedId])
 
-  function selectMatchingAccount(value: string) {
-    const cleanValue = value.trim().toLowerCase()
-    const exact = accounts.find((account) => accountLabel(account).toLowerCase() === cleanValue)
-    onSelected(exact?.accountId || '')
-  }
-
-  function selectSingleFilteredAccount() {
-    if (selectedId || !query.trim()) return
+  const filteredAccounts = useMemo(() => {
     const needle = query.trim().toLowerCase()
-    const matches = accounts.filter((account) => {
+    const pool = needle ? accounts.filter((account) => {
       const hay = [
         account.accountName,
         account.accountCode,
@@ -68,34 +61,78 @@ function SearchableAccountPicker({
         account.accountId,
       ].filter(Boolean).join(' ').toLowerCase()
       return hay.includes(needle)
-    })
+    }) : accounts
+    return pool.slice(0, 30)
+  }, [accounts, query])
+
+  function chooseAccount(account: ZohoChartAccount) {
+    onSelected(account.accountId)
+    setQuery(accountLabel(account))
+    setOpen(false)
+  }
+
+  function selectSingleFilteredAccount() {
+    if (selectedId || !query.trim()) return
+    const matches = filteredAccounts
     if (matches.length === 1) {
-      onSelected(matches[0].accountId)
-      setQuery(accountLabel(matches[0]))
+      chooseAccount(matches[0])
     }
   }
 
   const selected = selectedId ? accountById.get(selectedId) : null
 
   return (
-    <div className="apc-step-stack" style={{ gap: '0.2rem', minWidth: '16rem' }}>
+    <div className="apc-step-stack" style={{ gap: '0.2rem', minWidth: '16rem', position: 'relative' }}>
       <input
         className="ainv-input"
-        list={listId}
         placeholder={`${label} account...`}
         value={query}
+        onFocus={() => setOpen(true)}
         onChange={(event) => {
           const next = event.target.value
           setQuery(next)
-          selectMatchingAccount(next)
+          onSelected('')
+          setOpen(true)
         }}
-        onBlur={selectSingleFilteredAccount}
+        onBlur={() => {
+          selectSingleFilteredAccount()
+          window.setTimeout(() => setOpen(false), 120)
+        }}
       />
-      <datalist id={listId}>
-        {accounts.map((account) => (
-          <option key={account.accountId} value={accountLabel(account)} />
-        ))}
-      </datalist>
+      {open ? (
+        <div
+          className="apc-card"
+          style={{
+            position: 'absolute',
+            top: '2.8rem',
+            left: 0,
+            right: 0,
+            zIndex: 20,
+            maxHeight: '14rem',
+            overflowY: 'auto',
+            padding: '0.35rem',
+            boxShadow: '0 10px 24px rgba(15, 23, 42, 0.16)',
+          }}
+        >
+          {filteredAccounts.length ? filteredAccounts.map((account) => (
+            <button
+              key={account.accountId}
+              type="button"
+              className="ainv-btn ainv-btn--ghost"
+              style={{ display: 'block', width: '100%', textAlign: 'left', marginBottom: '0.2rem' }}
+              onMouseDown={(event) => {
+                event.preventDefault()
+                chooseAccount(account)
+              }}
+            >
+              {accountLabel(account)}
+              {account.accountType ? <span className="apc-muted apc-cell-sub"> {account.accountType}</span> : null}
+            </button>
+          )) : (
+            <div className="apc-muted apc-cell-sub" style={{ padding: '0.5rem' }}>No matching Zoho account found.</div>
+          )}
+        </div>
+      ) : null}
       {query && !selectedId ? <span className="apc-muted apc-cell-sub">Select an account from the search results.</span> : null}
       {selected ? <span className="apc-muted apc-cell-sub">Selected: {selected.accountName}</span> : null}
     </div>
@@ -162,6 +199,7 @@ export function Step7AmazonFeeJournalMapping({ ctx }: { ctx: ClearingContext }) 
   const [savingKey, setSavingKey] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [savedFutureKeys, setSavedFutureKeys] = useState<Set<string>>(() => new Set())
 
   useEffect(() => {
     let alive = true
@@ -207,6 +245,7 @@ export function Step7AmazonFeeJournalMapping({ ctx }: { ctx: ClearingContext }) 
         priority: row.mappingRuleUsed?.priority || 100,
       })
       if (ctx.isPosted) {
+        setSavedFutureKeys((current) => new Set(current).add(row.key))
         setNotice('Mapping saved for future settlements. This posted batch remains unchanged and keeps its original snapshot.')
       } else {
         setNotice('Mapping saved. Re-evaluating this settlement...')
@@ -259,6 +298,7 @@ export function Step7AmazonFeeJournalMapping({ ctx }: { ctx: ClearingContext }) 
             {rows.map((row) => {
               const debit = row.debitAccountId ? accountById.get(row.debitAccountId) : null
               const credit = row.creditAccountId ? accountById.get(row.creditAccountId) : null
+              const savedForFuture = savedFutureKeys.has(row.key)
               return (
                 <tr key={row.key}>
                   <td>{row.feeType || '-'}</td>
@@ -271,7 +311,7 @@ export function Step7AmazonFeeJournalMapping({ ctx }: { ctx: ClearingContext }) 
                   <td>{row.creditAccountName || credit?.accountName || '-'}</td>
                   <td>
                     <span className={`apc-pill ${row.mappingStatus === 'needs_mapping' || row.mappingStatus === 'inactive_mapping' ? 'apc-pill--danger' : 'apc-pill--success'}`}>
-                      {statusLabel(row.mappingStatus)}
+                      {savedForFuture ? 'Saved for Future' : statusLabel(row.mappingStatus)}
                     </span>
                   </td>
                   <td>{row.lastUsedAt ? new Date(row.lastUsedAt).toLocaleString() : '-'}</td>
@@ -283,7 +323,7 @@ export function Step7AmazonFeeJournalMapping({ ctx }: { ctx: ClearingContext }) 
                           row={row}
                           accounts={accounts}
                           busy={savingKey === row.key}
-                          buttonLabel="Save for future"
+                          buttonLabel={savedForFuture ? 'Update future mapping' : 'Save for future'}
                           onSave={onSave}
                         />
                       </div>
