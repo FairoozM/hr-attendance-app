@@ -24,11 +24,13 @@ function MappingAction({
   row,
   accounts,
   busy,
+  buttonLabel,
   onSave,
 }: {
   row: AmazonFeeJournalMapping
   accounts: ZohoChartAccount[]
   busy: boolean
+  buttonLabel?: string
   onSave: (row: AmazonFeeJournalMapping, debit: ZohoChartAccount, credit: ZohoChartAccount) => void
 }) {
   const [debitId, setDebitId] = useState(row.debitAccountId || '')
@@ -62,7 +64,7 @@ function MappingAction({
         disabled={disabled}
         onClick={() => debit && credit && onSave(row, debit, credit)}
       >
-        {row.mappingRuleId ? 'Update mapping' : 'Save mapping'}
+        {buttonLabel || (row.mappingRuleId ? 'Update mapping' : 'Save mapping')}
       </button>
     </div>
   )
@@ -120,8 +122,12 @@ export function Step7AmazonFeeJournalMapping({ ctx }: { ctx: ClearingContext }) 
         isActive: true,
         priority: row.mappingRuleUsed?.priority || 100,
       })
-      setNotice('Mapping saved. Re-evaluating this settlement...')
-      await ctx.onReloadCurrentBatch()
+      if (ctx.isPosted) {
+        setNotice('Mapping saved for future settlements. This posted batch remains unchanged and keeps its original snapshot.')
+      } else {
+        setNotice('Mapping saved. Re-evaluating this settlement...')
+        await ctx.onReloadCurrentBatch()
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save fee journal mapping.')
     } finally {
@@ -187,7 +193,16 @@ export function Step7AmazonFeeJournalMapping({ ctx }: { ctx: ClearingContext }) 
                   <td>{row.lastUsedAt ? new Date(row.lastUsedAt).toLocaleString() : '-'}</td>
                   <td>
                     {ctx.isPosted ? (
-                      <span className="apc-muted">Posted batch uses saved snapshot.</span>
+                      <div className="apc-step-stack" style={{ gap: '0.35rem' }}>
+                        <span className="apc-muted">Posted snapshot is unchanged. Save here only affects future/unposted settlements.</span>
+                        <MappingAction
+                          row={row}
+                          accounts={accounts}
+                          busy={savingKey === row.key}
+                          buttonLabel="Save for future"
+                          onSave={onSave}
+                        />
+                      </div>
                     ) : (
                       <MappingAction
                         row={row}
