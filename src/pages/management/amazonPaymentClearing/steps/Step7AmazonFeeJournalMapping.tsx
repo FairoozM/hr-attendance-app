@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import {
   fetchAmazonPaymentClearingZohoChartAccounts,
   saveKsaFeeJournalMapping,
@@ -18,6 +18,88 @@ function statusLabel(status: string) {
   if (status === 'suspense_mapping_used') return 'Suspense Mapping Used'
   if (status === 'inactive_mapping') return 'Inactive Mapping'
   return 'Needs Mapping'
+}
+
+function SearchableAccountPicker({
+  label,
+  accounts,
+  selectedId,
+  fallbackLabel,
+  onSelected,
+}: {
+  label: string
+  accounts: ZohoChartAccount[]
+  selectedId: string
+  fallbackLabel?: string
+  onSelected: (accountId: string) => void
+}) {
+  const listId = useId()
+  const accountById = useMemo(() => new Map(accounts.map((account) => [account.accountId, account])), [accounts])
+  const labelById = useMemo(() => new Map(accounts.map((account) => [account.accountId, accountLabel(account)])), [accounts])
+  const [query, setQuery] = useState('')
+
+  useEffect(() => {
+    const selectedLabel = selectedId ? labelById.get(selectedId) : ''
+    setQuery(selectedLabel || fallbackLabel || '')
+    if (!selectedId && fallbackLabel) {
+      const cleanFallback = fallbackLabel.trim().toLowerCase()
+      const exact = accounts.find((account) =>
+        account.accountName.trim().toLowerCase() === cleanFallback ||
+        accountLabel(account).toLowerCase() === cleanFallback
+      )
+      if (exact) onSelected(exact.accountId)
+    }
+  }, [accounts, fallbackLabel, labelById, onSelected, selectedId])
+
+  function selectMatchingAccount(value: string) {
+    const cleanValue = value.trim().toLowerCase()
+    const exact = accounts.find((account) => accountLabel(account).toLowerCase() === cleanValue)
+    onSelected(exact?.accountId || '')
+  }
+
+  function selectSingleFilteredAccount() {
+    if (selectedId || !query.trim()) return
+    const needle = query.trim().toLowerCase()
+    const matches = accounts.filter((account) => {
+      const hay = [
+        account.accountName,
+        account.accountCode,
+        account.accountType,
+        account.accountId,
+      ].filter(Boolean).join(' ').toLowerCase()
+      return hay.includes(needle)
+    })
+    if (matches.length === 1) {
+      onSelected(matches[0].accountId)
+      setQuery(accountLabel(matches[0]))
+    }
+  }
+
+  const selected = selectedId ? accountById.get(selectedId) : null
+
+  return (
+    <div className="apc-step-stack" style={{ gap: '0.2rem', minWidth: '16rem' }}>
+      <input
+        className="ainv-input"
+        list={listId}
+        placeholder={`${label} account...`}
+        value={query}
+        onChange={(event) => {
+          const next = event.target.value
+          setQuery(next)
+          selectMatchingAccount(next)
+        }}
+        onBlur={selectSingleFilteredAccount}
+      />
+      <datalist id={listId}>
+        {accounts.map((account) => (
+          <option key={account.accountId} value={accountLabel(account)} />
+        ))}
+      </datalist>
+      {query && !selectedId ? <span className="apc-muted apc-cell-sub">Select an account from the search results.</span> : null}
+      {selected ? <span className="apc-muted apc-cell-sub">Selected: {selected.accountName}</span> : null}
+    </div>
+  )
 }
 
 function MappingAction({
@@ -46,18 +128,20 @@ function MappingAction({
 
   return (
     <div className="apc-button-row" style={{ gap: '0.35rem', flexWrap: 'wrap' }}>
-      <select className="ainv-input" value={debitId} onChange={(event) => setDebitId(event.target.value)}>
-        <option value="">Debit account...</option>
-        {accounts.map((account) => (
-          <option key={`debit-${account.accountId}`} value={account.accountId}>{accountLabel(account)}</option>
-        ))}
-      </select>
-      <select className="ainv-input" value={creditId} onChange={(event) => setCreditId(event.target.value)}>
-        <option value="">Credit account...</option>
-        {accounts.map((account) => (
-          <option key={`credit-${account.accountId}`} value={account.accountId}>{accountLabel(account)}</option>
-        ))}
-      </select>
+      <SearchableAccountPicker
+        label="Debit"
+        accounts={accounts}
+        selectedId={debitId}
+        fallbackLabel={row.debitAccountName}
+        onSelected={setDebitId}
+      />
+      <SearchableAccountPicker
+        label="Credit"
+        accounts={accounts}
+        selectedId={creditId}
+        fallbackLabel={row.creditAccountName}
+        onSelected={setCreditId}
+      />
       <button
         className="ainv-btn ainv-btn--sm ainv-btn--primary-sky"
         type="button"
