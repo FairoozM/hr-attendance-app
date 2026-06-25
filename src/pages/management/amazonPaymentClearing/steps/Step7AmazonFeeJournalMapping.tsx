@@ -233,7 +233,7 @@ export function Step7AmazonFeeJournalMapping({ ctx }: { ctx: ClearingContext }) 
 
   const accountById = useMemo(() => new Map(accounts.map((account) => [account.accountId, account])), [accounts])
   if (!preview) return null
-  const unmappedCount = rows.filter((row) => row.mappingStatus === 'needs_mapping').length
+  const unmappedCount = rows.filter((row) => row.mappingStatus === 'needs_mapping' && !savedFutureKeys.has(row.key)).length
   const total = rows.reduce((sum, row) => sum + Math.abs(Number(row.totalAmount) || 0), 0)
   const reference = rows[0]?.journalPreview?.referenceNumber || '-'
   const notes = rows[0]?.journalPreview?.notes || '-'
@@ -311,6 +311,7 @@ export function Step7AmazonFeeJournalMapping({ ctx }: { ctx: ClearingContext }) 
               const debit = row.debitAccountId ? accountById.get(row.debitAccountId) : null
               const credit = row.creditAccountId ? accountById.get(row.creditAccountId) : null
               const savedForFuture = savedFutureKeys.has(row.key)
+              const isBlockingStatus = !savedForFuture && (row.mappingStatus === 'needs_mapping' || row.mappingStatus === 'inactive_mapping')
               return (
                 <tr key={row.key}>
                   <td>{row.feeType || '-'}</td>
@@ -322,7 +323,7 @@ export function Step7AmazonFeeJournalMapping({ ctx }: { ctx: ClearingContext }) 
                   <td>{row.debitAccountName || debit?.accountName || '-'}</td>
                   <td>{row.creditAccountName || credit?.accountName || '-'}</td>
                   <td>
-                    <span className={`apc-pill ${row.mappingStatus === 'needs_mapping' || row.mappingStatus === 'inactive_mapping' ? 'apc-pill--danger' : 'apc-pill--success'}`}>
+                    <span className={`apc-pill ${isBlockingStatus ? 'apc-pill--danger' : 'apc-pill--success'}`}>
                       {savedForFuture ? 'Saved for Future' : statusLabel(row.mappingStatus)}
                     </span>
                   </td>
