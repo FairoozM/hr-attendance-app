@@ -37,9 +37,19 @@ function SearchableAccountPicker({
   const labelById = useMemo(() => new Map(accounts.map((account) => [account.accountId, accountLabel(account)])), [accounts])
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
+  const [userEditing, setUserEditing] = useState(false)
+  const [hydratedSource, setHydratedSource] = useState('')
 
   useEffect(() => {
+    if (userEditing) return
     const selectedLabel = selectedId ? labelById.get(selectedId) : ''
+    const nextSource = selectedId
+      ? `selected:${selectedId}:${selectedLabel || ''}`
+      : fallbackLabel
+        ? `fallback:${fallbackLabel}`
+        : 'empty'
+    if (nextSource === hydratedSource) return
+    setHydratedSource(nextSource)
     setQuery(selectedLabel || fallbackLabel || '')
     if (!selectedId && fallbackLabel) {
       const cleanFallback = fallbackLabel.trim().toLowerCase()
@@ -49,7 +59,7 @@ function SearchableAccountPicker({
       )
       if (exact) onSelected(exact.accountId)
     }
-  }, [accounts, fallbackLabel, labelById, onSelected, selectedId])
+  }, [accounts, fallbackLabel, hydratedSource, labelById, onSelected, selectedId, userEditing])
 
   const filteredAccounts = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -68,6 +78,7 @@ function SearchableAccountPicker({
   function chooseAccount(account: ZohoChartAccount) {
     onSelected(account.accountId)
     setQuery(accountLabel(account))
+    setUserEditing(false)
     setOpen(false)
   }
 
@@ -90,6 +101,7 @@ function SearchableAccountPicker({
         onFocus={() => setOpen(true)}
         onChange={(event) => {
           const next = event.target.value
+          setUserEditing(true)
           setQuery(next)
           onSelected('')
           setOpen(true)
