@@ -928,6 +928,12 @@ test('payment preview rejects unapproved, unreconciled, and unmatched batches', 
   )
 })
 
+test('payment preview can be generated for an already posted settlement', () => {
+  const preview = buildPaymentPreviewFromBatch(postingBatch({ status: 'posted' }))
+  assert.equal(preview.status, 'previewed')
+  assert.equal(preview.paymentPlanSummary.invoiceCount, 1)
+})
+
 function postingBatch(overrides = {}) {
   return {
     batchId: 90,

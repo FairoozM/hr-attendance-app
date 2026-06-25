@@ -100,7 +100,7 @@ export function AmazonPaymentClearingPage() {
   )
   const canGeneratePaymentPreview = Boolean(
     preview?.batch?.batchId &&
-      isApproved &&
+      (isApproved || isPosted) &&
       Math.abs(Number(preview?.reconciliationSummary?.reconciliationDifference) || 0) <= 0.01 &&
       (preview?.unmatchedOrders.length || 0) === 0 &&
       creditNoteBlockingRows.length === 0

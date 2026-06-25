@@ -44,13 +44,7 @@ function requireBatchForPaymentPreview(batch) {
     err.status = 404
     throw err
   }
-  if (batch.status === 'posted') {
-    const err = new Error('Payment preview cannot be generated for an already posted batch.')
-    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_POSTED'
-    err.status = 409
-    throw err
-  }
-  if (batch.status !== 'approved') {
+  if (batch.status !== 'approved' && batch.status !== 'posted') {
     const err = new Error('Payment preview requires an approved settlement batch.')
     err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_APPROVED'
     err.status = 422
