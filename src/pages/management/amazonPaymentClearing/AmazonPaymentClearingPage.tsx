@@ -27,6 +27,7 @@ import { Step3MatchSales } from './steps/Step3MatchSales'
 import { Step4Returns } from './steps/Step4Returns'
 import { Step5Reconcile } from './steps/Step5Reconcile'
 import { Step6Approve } from './steps/Step6Approve'
+import { Step7AmazonFeeJournalMapping } from './steps/Step7AmazonFeeJournalMapping'
 import { Step7Preview } from './steps/Step7Preview'
 import { Step8Post } from './steps/Step8Post'
 import './AmazonPaymentClearingPage.css'
@@ -87,6 +88,10 @@ export function AmazonPaymentClearingPage() {
   const isPosted = preview?.status === 'posted' || preview?.batch?.status === 'posted' || preview?.postedToZoho === true
   const isApproved = !isPosted && (preview?.status === 'approved' || preview?.batch?.status === 'approved')
   const creditNoteBlockingRows = preview?.creditNoteBlockingRows || []
+  const feeJournalMappings = preview?.nonOrderLinkedAmazonFeeMappings || []
+  const unmappedFeeJournalCount = feeJournalMappings.filter((row) => row.mappingStatus !== 'mapped').length
+  const paymentPreviewFeeJournalBlockerCount =
+    paymentPreview?.amazonFeeJournalLines?.filter((row) => row.mappingStatus !== 'mapped').length || 0
   const isCleanForApproval = Boolean(
     preview &&
       preview.reconciliationSummary?.reconciliationStatus === 'reconciled' &&
@@ -101,6 +106,7 @@ export function AmazonPaymentClearingPage() {
       creditNoteBlockingRows.length === 0
   )
   const canPostToZoho = Boolean(canGeneratePaymentPreview && paymentPreview)
+    && paymentPreviewFeeJournalBlockerCount === 0
 
   const loadSavedBatches = useCallback(async () => {
     setLoadingBatches(true)
@@ -245,7 +251,7 @@ export function AmazonPaymentClearingPage() {
       setPaymentPreview(json)
       setPostingResult(null)
       setNotice('Payment clearing preview generated. No Zoho payments have been created.')
-      navigate(clearingPath(8, batchId))
+      navigate(clearingPath(9, batchId))
     } catch (e) {
       setError(safeError(e))
     } finally {
@@ -356,6 +362,7 @@ export function AmazonPaymentClearingPage() {
       6: 'not_started',
       7: 'not_started',
       8: 'not_started',
+      9: 'not_started',
     }
     if (!preview) return statuses
     statuses[2] = 'completed'
@@ -365,10 +372,11 @@ export function AmazonPaymentClearingPage() {
     statuses[4] = creditNoteBlockingRows.length > 0 ? 'blocked' : 'completed'
     statuses[5] = preview.reconciliationSummary?.reconciliationStatus === 'mismatch' ? 'blocked' : 'completed'
     statuses[6] = isApproved || isPosted ? 'completed' : isCleanForApproval ? 'ready' : 'blocked'
-    statuses[7] = paymentPreview ? 'completed' : isApproved || isPosted ? 'ready' : 'not_started'
-    statuses[8] = isPosted ? 'completed' : canPostToZoho && paymentPreview ? 'ready' : 'not_started'
+    statuses[7] = unmappedFeeJournalCount > 0 ? 'blocked' : 'completed'
+    statuses[8] = paymentPreview ? 'completed' : isApproved || isPosted ? 'ready' : 'not_started'
+    statuses[9] = isPosted ? 'completed' : canPostToZoho && paymentPreview ? 'ready' : 'not_started'
     return statuses
-  }, [canPostToZoho, creditNoteBlockingRows.length, isApproved, isCleanForApproval, isPosted, paymentPreview, preview])
+  }, [canPostToZoho, creditNoteBlockingRows.length, isApproved, isCleanForApproval, isPosted, paymentPreview, preview, unmappedFeeJournalCount])
 
   const stepBodies: Record<number, ReactNode> = {
     1: <Step1SelectSettlement ctx={ctx} />,
@@ -377,8 +385,9 @@ export function AmazonPaymentClearingPage() {
     4: <Step4Returns ctx={ctx} />,
     5: <Step5Reconcile ctx={ctx} />,
     6: <Step6Approve ctx={ctx} />,
-    7: <Step7Preview ctx={ctx} />,
-    8: <Step8Post ctx={ctx} />,
+    7: <Step7AmazonFeeJournalMapping ctx={ctx} />,
+    8: <Step7Preview ctx={ctx} />,
+    9: <Step8Post ctx={ctx} />,
   }
 
   const stepSummaries: Record<number, string> = {
@@ -388,8 +397,9 @@ export function AmazonPaymentClearingPage() {
     4: preview ? `${creditNoteBlockingRows.length} credit-note blocker(s)` : '',
     5: preview ? `Difference ${preview.reconciliationSummary?.reconciliationDifference ?? 0}` : '',
     6: isPosted ? 'Posted' : isApproved ? 'Approved' : isCleanForApproval ? 'Ready to approve' : 'Blocked',
-    7: paymentPreview ? `${paymentPreview.paymentPlanSummary.invoiceCount} invoices planned` : 'Not generated',
-    8: isPosted ? 'Posted to Zoho' : 'Not posted',
+    7: preview ? `${feeJournalMappings.length} fee journal group(s) · ${unmappedFeeJournalCount} unmapped` : '',
+    8: paymentPreview ? `${paymentPreview.paymentPlanSummary.invoiceCount} invoices planned` : 'Not generated',
+    9: isPosted ? 'Posted to Zoho' : 'Not posted',
   }
 
   return (

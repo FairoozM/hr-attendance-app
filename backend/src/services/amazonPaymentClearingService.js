@@ -9,6 +9,7 @@ const {
 const { parseAmazonSettlementReport } = require('./amazonSettlementParserService')
 const { matchZohoInvoicesForRows } = require('./amazonPaymentClearingZohoMatcher')
 const { buildPreview } = require('./amazonPaymentClearingPreviewService')
+const { ROW_CLASS } = require('./amazonPaymentClearingCategoryService')
 const { buildPaymentPreviewFromBatch } = require('./amazonPaymentClearingPaymentPreviewService')
 const { postApprovedBatch } = require('./amazonPaymentClearingPostingService')
 const { buildSettlementReference } = require('./amazonPaymentClearingReferenceService')
@@ -241,10 +242,12 @@ function reconstructAllRowsFromStored(storedRows) {
     let status = 'ok'
     let blockingReason = row.blockingReason || ''
     const ms = String(row.matchStatus || '').toLowerCase()
-    if (row.blockingReason) status = 'blocked'
+    if (row.blockingReason && row.matchStatus !== 'account_level_fee') status = 'blocked'
+    else if (ms === 'account_level_fee' || row.rowClass === ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE) status = 'account_level_fee'
     else if (ms === 'missing_order_id' || !row.orderId) status = row.orderId ? 'ok' : 'missing_order_id'
     else if (ms === 'unmatched') status = 'unmatched'
     else if (ms === 'matched' || ms === 'po_number' || ms === 'invoice_number_fallback') status = 'matched'
+    if (status === 'account_level_fee' && !blockingReason) blockingReason = 'Order ID not required for this Amazon fee.'
     if (status === 'missing_order_id' && !blockingReason) blockingReason = 'Settlement row is missing Amazon order ID.'
     return {
       rowNumber: row.rowNumber == null ? idx + 1 : row.rowNumber,
@@ -298,6 +301,7 @@ function savedBatchToPreview(batch) {
     totals: batch.totals || {},
     pivot: batch.pivot || [],
     settlementLevelFees: batch.settlementLevelFees || [],
+    nonOrderLinkedAmazonFeeMappings: batch.nonOrderLinkedAmazonFeeMappings || [],
     refundReturnRows: batch.refundReturnRows || [],
     matchedReturns: batch.matchedReturns || [],
     missingCreditNotes: batch.missingCreditNotes || [],

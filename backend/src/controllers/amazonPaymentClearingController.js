@@ -15,6 +15,7 @@ function safeMessage(err) {
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_REASON_REQUIRED') return err.message
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_PAYMENT_PREVIEW_REQUIRED') return err.message
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_ACCOUNT_ID_MISSING') return err.message
+  if (err?.code === 'AMAZON_PAYMENT_CLEARING_FEE_JOURNAL_UNMAPPED') return err.message
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_MULTIPLE_CUSTOMERS') return err.message
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_CUSTOMER_ID_MISSING') return err.message
   if (err?.code === 'ZOHO_REDIRECT_URI_MISSING') return err.message

@@ -1,4 +1,4 @@
-import { money, PaymentClearingPreviewTable, SettlementReferenceCard, SummaryCard } from '../clearingShared'
+import { AmazonFeeJournalPreviewTable, money, PaymentClearingPreviewTable, SettlementReferenceCard, SummaryCard } from '../clearingShared'
 import type { ClearingContext } from './clearingContext'
 
 export function Step7Preview({ ctx }: { ctx: ClearingContext }) {
@@ -23,6 +23,7 @@ export function Step7Preview({ ctx }: { ctx: ClearingContext }) {
       {!ctx.canGeneratePaymentPreview ? (
         <p className="apc-muted">
           Payment preview requires an approved, reconciled batch with zero unmatched orders and no credit-note blockers.
+          Unmapped Amazon fee journals can be previewed, but they block posting until mapped.
         </p>
       ) : null}
 
@@ -36,6 +37,7 @@ export function Step7Preview({ ctx }: { ctx: ClearingContext }) {
             <SummaryCard label="Shipping/FBA Clearing" value={money(paymentPreview.paymentPlanSummary.shippingFbaClearingTotal)} />
             <SummaryCard label="Refund/Credit Notes" value={money(paymentPreview.paymentPlanSummary.refundReturnCreditNoteApplicationTotal || 0)} />
             <SummaryCard label="Adjustment Clearing" value={money(paymentPreview.paymentPlanSummary.adjustmentClearingTotal || 0)} />
+            <SummaryCard label="Amazon Fee Journals" value={money(paymentPreview.paymentPlanSummary.amazonFeeJournalTotal || 0)} />
             <SummaryCard label="Total Clearing" value={money(paymentPreview.paymentPlanSummary.totalPaymentAmount)} />
             <SummaryCard label="Difference" value={money(paymentPreview.paymentPlanSummary.difference)} />
           </section>
@@ -44,6 +46,8 @@ export function Step7Preview({ ctx }: { ctx: ClearingContext }) {
             postingReferences={paymentPreview.postingReferences}
           />
           <PaymentClearingPreviewTable paymentPreview={paymentPreview} />
+          <h3 className="ainv-page__title" style={{ fontSize: '1rem' }}>Amazon Fee Journal Preview</h3>
+          <AmazonFeeJournalPreviewTable rows={paymentPreview.amazonFeeJournalLines || []} />
           {paymentPreview.warnings.length ? (
             <div className="apc-alert apc-alert--error">
               <ul>

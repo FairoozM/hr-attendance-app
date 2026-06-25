@@ -1,6 +1,6 @@
 const { fetchCustomers, fetchInvoices, fetchCreditNotes } = require('../integrations/zoho/zohoBooksClient')
 const { normalizeSettlementDate } = require('./amazonSettlementParserService')
-const { ROW_CLASS } = require('./amazonPaymentClearingCategoryService')
+const { ROW_CLASS, isNonOrderLinkedAmazonFee } = require('./amazonPaymentClearingCategoryService')
 const { round2 } = require('./amazonPaymentClearingOrderBreakdownService')
 
 const KSA_ZOHO_CUSTOMER_NAME = 'KSA-Amazon'
@@ -188,6 +188,9 @@ function matchSettlementRowsToInvoices(rows, invoices) {
   for (const row of settlementRows) {
     const orderId = clean(row.orderId)
     const orderKey = matchKey(orderId)
+    if (isNonOrderLinkedAmazonFee(row)) {
+      continue
+    }
     if (!orderId) {
       missingOrderIdRows.push(row)
       unmatchedRows.push({ ...row, reason: 'Settlement row is missing Amazon order ID' })

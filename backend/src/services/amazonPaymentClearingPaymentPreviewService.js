@@ -127,6 +127,33 @@ function buildInvoicePaymentPlan(order) {
 function buildPaymentPreviewFromBatch(batch) {
   requireBatchForPaymentPreview(batch)
   const payments = (Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []).map(buildInvoicePaymentPlan)
+  const feeJournalMappings = Array.isArray(batch.nonOrderLinkedAmazonFeeMappings)
+    ? batch.nonOrderLinkedAmazonFeeMappings
+    : []
+  const amazonFeeJournalLines = feeJournalMappings.map((row) => ({
+    key: row.key || `${row.feeType || 'fee'}-${row.rawTransactionType || ''}-${row.description || ''}`,
+    classification: row.classification || 'NON_ORDER_LINKED_AMAZON_FEE',
+    feeType: row.feeType || '',
+    rawTransactionType: row.rawTransactionType || '',
+    description: row.description || '',
+    rowCount: Number(row.rowCount) || 0,
+    totalAmount: round2(Number(row.totalAmount) || 0),
+    mappingStatus: row.mappingStatus || 'needs_mapping',
+    rowNumbers: Array.isArray(row.rowNumbers) ? row.rowNumbers : [],
+    debit: row.journalPreview?.debit || {
+      accountCode: row.debitAccountCode || '',
+      accountName: row.debitAccountName || '',
+      amount: positiveAmount(row.totalAmount),
+    },
+    credit: row.journalPreview?.credit || {
+      accountCode: row.creditAccountCode || '',
+      accountName: row.creditAccountName || '',
+      amount: positiveAmount(row.totalAmount),
+    },
+    referenceNumber: row.journalPreview?.referenceNumber || '',
+    notes: row.journalPreview?.notes || '',
+    status: row.mappingStatus === 'mapped' ? 'ready' : 'needs_mapping',
+  }))
   const refundReturnCreditNoteApplications = (Array.isArray(batch.matchedReturns) ? batch.matchedReturns : []).map((row) => ({
     orderId: row.orderId || '',
     zohoInvoiceId: row.zohoInvoiceId || '',
@@ -177,6 +204,7 @@ function buildPaymentPreviewFromBatch(batch) {
       zohoInvoiceTotal: 0,
       refundReturnCreditNoteApplicationTotal: 0,
       adjustmentClearingTotal: 0,
+      amazonFeeJournalTotal: 0,
       difference: 0,
     }
   )
@@ -190,11 +218,20 @@ function buildPaymentPreviewFromBatch(batch) {
       paymentPlanSummary.adjustmentClearingTotal + row.clearing.amount
     )
   }
+  for (const row of amazonFeeJournalLines) {
+    paymentPlanSummary.amazonFeeJournalTotal = round2(
+      paymentPlanSummary.amazonFeeJournalTotal + Math.abs(Number(row.totalAmount) || 0)
+    )
+  }
   paymentPlanSummary.difference = round2(paymentPlanSummary.zohoInvoiceTotal - paymentPlanSummary.totalPaymentAmount)
   const warnings = []
   const mismatches = payments.filter((row) => row.status === 'mismatch')
   if (mismatches.length > 0) {
     warnings.push(`${mismatches.length} invoice payment plan(s) do not clear to zero.`)
+  }
+  const unmappedFeeJournals = amazonFeeJournalLines.filter((row) => row.mappingStatus !== 'mapped')
+  if (unmappedFeeJournals.length > 0) {
+    warnings.push(`${unmappedFeeJournals.length} Amazon fee journal mapping(s) are unmapped and will block posting.`)
   }
 
   // What Zoho will actually receive: one grouped Record Payment per entry type,
@@ -226,6 +263,7 @@ function buildPaymentPreviewFromBatch(batch) {
     status: 'previewed',
     paymentPlanSummary,
     payments,
+    amazonFeeJournalLines,
     refundReturnCreditNoteApplications,
     adjustmentClearings,
     settlementReference,

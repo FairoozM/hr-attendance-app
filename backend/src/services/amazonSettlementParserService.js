@@ -1,4 +1,4 @@
-const { categorizeSettlementRow, classifySettlementRow } = require('./amazonPaymentClearingCategoryService')
+const { categorizeSettlementRow, classifySettlementRow, isNonOrderLinkedAmazonFee } = require('./amazonPaymentClearingCategoryService')
 
 function clean(value) {
   return String(value == null ? '' : value).trim()
@@ -149,9 +149,13 @@ function parseAmazonSettlementReport(text) {
   }
 
   const normalized = rows.map(normalizeSettlementRow)
-  const missingOrderIdCount = normalized.filter((row) => !row.orderId).length
+  const missingOrderIdCount = normalized.filter((row) => !row.orderId && !isNonOrderLinkedAmazonFee(row)).length
   if (missingOrderIdCount > 0) {
     warnings.push(`${missingOrderIdCount} settlement row(s) do not include an Amazon order ID.`)
+  }
+  const accountLevelFeeCount = normalized.filter(isNonOrderLinkedAmazonFee).length
+  if (accountLevelFeeCount > 0) {
+    warnings.push(`${accountLevelFeeCount} account-level Amazon fee row(s) have no order ID expected.`)
   }
   return {
     rows: normalized,

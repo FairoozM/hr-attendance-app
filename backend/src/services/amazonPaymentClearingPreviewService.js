@@ -5,7 +5,9 @@ const {
   isSalesCategory,
   hasOrderId,
   ROW_CLASS,
+  isNonOrderLinkedAmazonFee,
 } = require('./amazonPaymentClearingCategoryService')
+const { displayYmd } = require('./amazonPaymentClearingReferenceService')
 const { matchSettlementRowsToInvoices } = require('./amazonPaymentClearingZohoMatcher')
 const { buildOrderFeeBreakdown, round2 } = require('./amazonPaymentClearingOrderBreakdownService')
 const { buildReconciliationSummary } = require('./amazonPaymentClearingReconciliationService')
@@ -53,6 +55,127 @@ function buildSettlementLevelFees(rows) {
     byCategory.set(category, entry)
   }
   return orderCategoryEntries(byCategory)
+}
+
+const DEFAULT_FEE_JOURNAL_ACCOUNT_SUGGESTIONS = Object.freeze({
+  [CATEGORY.STORAGE_FEE]: {
+    debitAccountName: 'KSA Amazon Storage Exp',
+    creditAccountName: 'KSA-Amazon Undeposited Funds',
+  },
+  [CATEGORY.ADVERTISING_FEE]: {
+    debitAccountName: 'KSA-Amazon Advertising Exp',
+    creditAccountName: 'KSA-Amazon Undeposited Funds',
+  },
+  [CATEGORY.PREMIUM_SERVICES_FEE]: {
+    debitAccountName: 'KSA Amazon Commission Exp',
+    creditAccountName: 'KSA-Amazon Uncleared Commission Exp',
+  },
+  [CATEGORY.PREMIUM_SERVICES_FEE_TAX]: {
+    debitAccountName: 'KSA Amazon Commission Exp',
+    creditAccountName: 'KSA-Amazon Uncleared Commission Exp',
+  },
+  [CATEGORY.FBA_FULFILLMENT_FEE]: {
+    debitAccountName: 'KSA Amazon Shipping Exp',
+    creditAccountName: 'KSA-Amazon Uncleared Shipping Exp',
+  },
+  [CATEGORY.EASY_SHIP_CHARGES]: {
+    debitAccountName: 'KSA Amazon Shipping Exp',
+    creditAccountName: 'KSA-Amazon Uncleared Shipping Exp',
+  },
+  [CATEGORY.OTHER_AMAZON_FEE]: {
+    debitAccountName: '',
+    creditAccountName: '',
+  },
+})
+
+function configuredFeeJournalAccounts() {
+  if (!process.env.AMAZON_KSA_FEE_JOURNAL_ACCOUNT_MAP) return {}
+  try {
+    return JSON.parse(process.env.AMAZON_KSA_FEE_JOURNAL_ACCOUNT_MAP) || {}
+  } catch (err) {
+    console.warn('[amazon-payment-clearing] invalid AMAZON_KSA_FEE_JOURNAL_ACCOUNT_MAP:', err.message)
+    return {}
+  }
+}
+
+function accountSuggestionForFeeType(feeType) {
+  const configured = configuredFeeJournalAccounts()[feeType] || {}
+  const fallback = DEFAULT_FEE_JOURNAL_ACCOUNT_SUGGESTIONS[feeType] || DEFAULT_FEE_JOURNAL_ACCOUNT_SUGGESTIONS[CATEGORY.OTHER_AMAZON_FEE]
+  return {
+    debitAccountCode: configured.debitAccountCode || configured.debit_account_code || '',
+    debitAccountName: configured.debitAccountName || configured.debit_account_name || fallback.debitAccountName || '',
+    debitAccountId: configured.debitAccountId || configured.debit_account_id || '',
+    creditAccountCode: configured.creditAccountCode || configured.credit_account_code || '',
+    creditAccountName: configured.creditAccountName || configured.credit_account_name || fallback.creditAccountName || '',
+    creditAccountId: configured.creditAccountId || configured.credit_account_id || '',
+  }
+}
+
+function mappingStatus(accounts) {
+  return (accounts.debitAccountId || accounts.debitAccountCode) && (accounts.creditAccountId || accounts.creditAccountCode)
+    ? 'mapped'
+    : 'needs_mapping'
+}
+
+function journalReferenceNumber(report = {}) {
+  const start = displayYmd(report.settlementStartDate || '').replace(/ /g, '-')
+  const end = displayYmd(report.settlementEndDate || '').replace(/ /g, '-')
+  if (start && end) return `${start} to ${end}`
+  return report.settlementId || report.reportId || report.reportDocumentId || 'Amazon KSA settlement'
+}
+
+function journalNotes(report = {}) {
+  const referenceNumber = journalReferenceNumber(report)
+  return `Transferring Amazon KSA payment from ${referenceNumber} to Expenses accounts`
+}
+
+function buildNonOrderLinkedAmazonFeeMappings(rows, report = {}) {
+  const groups = new Map()
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (!isNonOrderLinkedAmazonFee(row)) continue
+    const feeType = row.category || CATEGORY.OTHER_AMAZON_FEE
+    const rawTransactionType = row.transactionType || ''
+    const description = row.amountDescription || row.amountType || ''
+    const key = [feeType, rawTransactionType, description].join('|')
+    const entry = groups.get(key) || {
+      key,
+      classification: ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE,
+      feeType,
+      rawTransactionType,
+      description,
+      rowCount: 0,
+      totalAmount: 0,
+      rowNumbers: [],
+    }
+    entry.rowCount += 1
+    entry.totalAmount = round2(entry.totalAmount + (Number(row.amount) || 0))
+    if (row.rowNumber != null) entry.rowNumbers.push(row.rowNumber)
+    groups.set(key, entry)
+  }
+  return Array.from(groups.values())
+    .map((entry) => {
+      const accounts = accountSuggestionForFeeType(entry.feeType)
+      return {
+        ...entry,
+        ...accounts,
+        mappingStatus: mappingStatus(accounts),
+        journalPreview: {
+          referenceNumber: journalReferenceNumber(report),
+          notes: journalNotes(report),
+          debit: {
+            accountCode: accounts.debitAccountCode,
+            accountName: accounts.debitAccountName,
+            amount: Math.abs(round2(entry.totalAmount)),
+          },
+          credit: {
+            accountCode: accounts.creditAccountCode,
+            accountName: accounts.creditAccountName,
+            amount: Math.abs(round2(entry.totalAmount)),
+          },
+        },
+      }
+    })
+    .sort((a, b) => a.feeType.localeCompare(b.feeType) || a.rawTransactionType.localeCompare(b.rawTransactionType))
 }
 
 function groupRowsByOrder(rows) {
@@ -127,6 +250,9 @@ function buildAllRows(rows, context) {
       } else {
         status = 'review'
       }
+    } else if (isNonOrderLinkedAmazonFee(row)) {
+      status = 'account_level_fee'
+      blockingReason = 'Order ID not required for this Amazon fee.'
     } else if (!orderId) {
       status = 'missing_order_id'
       blockingReason = 'Settlement row is missing Amazon order ID.'
@@ -293,7 +419,7 @@ function buildPreview({
 }) {
   const allRows = Array.isArray(rows) ? rows : []
   const refundReturnRows = allRows.filter(isRefundReturnRow)
-  const salesAndFeeRows = allRows.filter((row) => !isRefundReturnRow(row))
+  const salesAndFeeRows = allRows.filter((row) => !isRefundReturnRow(row) && !isNonOrderLinkedAmazonFee(row))
   const matchResult = matchSettlementRowsToInvoices(salesAndFeeRows, invoices)
   const { matchedOrders, unmatchedOrders } = buildOrderReconciliation(salesAndFeeRows, matchResult)
   const pivot = buildPivot(allRows)
@@ -301,6 +427,8 @@ function buildPreview({
   const adjustmentRows = allRows.filter((row) => row.rowClass === ROW_CLASS.ADJUSTMENT || row.category === CATEGORY.ADJUSTMENT)
   const orderLevelFeeRows = salesAndFeeRows.filter((row) => hasOrderId(row) && isFeeCategory(row.category))
   const settlementLevelFeeRows = allRows.filter((row) => !hasOrderId(row) && isFeeCategory(row.category))
+  const rowsWithNumbers = allRows.map((row, idx) => ({ ...row, rowNumber: idx + 1 }))
+  const nonOrderLinkedAmazonFeeMappings = buildNonOrderLinkedAmazonFeeMappings(rowsWithNumbers, report)
   const matchedInvoiceTotal = round2(
     matchedOrders.reduce((acc, row) => acc + (Number(row.zohoInvoiceTotal) || 0), 0)
   )
@@ -324,6 +452,10 @@ function buildPreview({
   }
   if (matchResult.missingOrderIdRows.length > 0) {
     warnings.push(`${matchResult.missingOrderIdRows.length} settlement row(s) were not matchable because order ID is missing.`)
+  }
+  const unmappedFeeJournalMappings = nonOrderLinkedAmazonFeeMappings.filter((row) => row.mappingStatus !== 'mapped')
+  if (unmappedFeeJournalMappings.length > 0) {
+    warnings.push(`${unmappedFeeJournalMappings.length} account-level Amazon fee group(s) require manual journal mapping before posting.`)
   }
   if (creditNoteBlockingRows.length > 0) {
     warnings.push(`${creditNoteBlockingRows.length} refund/return row(s) block approval because credit note reconciliation is not clean.`)
@@ -373,6 +505,7 @@ function buildPreview({
     },
     pivot,
     settlementLevelFees,
+    nonOrderLinkedAmazonFeeMappings,
     refundReturnRows,
     matchedReturns,
     missingCreditNotes,
@@ -400,6 +533,7 @@ module.exports = {
   buildPreview,
   buildPivot,
   buildSettlementLevelFees,
+  buildNonOrderLinkedAmazonFeeMappings,
   buildOrderReconciliation,
   buildAllRows,
   buildAmountDifferences,

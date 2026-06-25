@@ -6,6 +6,7 @@ const STATUS_FILTERS: Array<{ key: ParsedRowStatus | 'all'; label: string }> = [
   { key: 'matched', label: 'Matched' },
   { key: 'unmatched', label: 'Unmatched' },
   { key: 'missing_order_id', label: 'No order ID' },
+  { key: 'account_level_fee', label: 'Account-level fee' },
   { key: 'blocked', label: 'Blocked' },
   { key: 'review', label: 'Review' },
   { key: 'unknown', label: 'Unknown' },

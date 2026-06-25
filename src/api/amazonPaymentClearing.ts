@@ -123,6 +123,7 @@ export type ParsedRowStatus =
   | 'matched'
   | 'unmatched'
   | 'missing_order_id'
+  | 'account_level_fee'
   | 'blocked'
   | 'review'
   | 'unknown'
@@ -140,6 +141,30 @@ export interface ParsedSettlementRow {
   amountDescription: string
   status: ParsedRowStatus
   blockingReason: string
+}
+
+export interface AmazonFeeJournalMapping {
+  key: string
+  classification: 'NON_ORDER_LINKED_AMAZON_FEE'
+  feeType: string
+  rawTransactionType: string
+  description: string
+  rowCount: number
+  totalAmount: number
+  rowNumbers: number[]
+  debitAccountCode: string
+  debitAccountName: string
+  debitAccountId?: string
+  creditAccountCode: string
+  creditAccountName: string
+  creditAccountId?: string
+  mappingStatus: 'mapped' | 'needs_mapping'
+  journalPreview: {
+    referenceNumber: string
+    notes: string
+    debit: { accountCode: string; accountName: string; amount: number }
+    credit: { accountCode: string; accountName: string; amount: number }
+  }
 }
 
 export type BlockingIssueCode =
@@ -307,6 +332,7 @@ export interface PaymentClearingPreview {
   totals: ClearingTotals
   pivot: ClearingPivotRow[]
   settlementLevelFees: ClearingPivotRow[]
+  nonOrderLinkedAmazonFeeMappings?: AmazonFeeJournalMapping[]
   refundReturnRows?: AdjustmentClearingRow[]
   matchedReturns?: RefundReturnCreditNoteRow[]
   missingCreditNotes?: RefundReturnCreditNoteRow[]
@@ -360,6 +386,7 @@ export interface PaymentPreviewSummary {
   zohoInvoiceTotal: number
   refundReturnCreditNoteApplicationTotal?: number
   adjustmentClearingTotal?: number
+  amazonFeeJournalTotal?: number
   difference: number
 }
 
@@ -386,6 +413,23 @@ export interface PaymentPreviewAdjustmentClearing {
   status: string
 }
 
+export interface AmazonFeeJournalLine {
+  key: string
+  classification: 'NON_ORDER_LINKED_AMAZON_FEE'
+  feeType: string
+  rawTransactionType: string
+  description: string
+  rowCount: number
+  totalAmount: number
+  mappingStatus: 'mapped' | 'needs_mapping'
+  rowNumbers: number[]
+  debit: { accountCode: string; accountName: string; amount: number }
+  credit: { accountCode: string; accountName: string; amount: number }
+  referenceNumber: string
+  notes: string
+  status: 'ready' | 'needs_mapping'
+}
+
 export interface PaymentClearingPaymentPreview {
   success: boolean
   batchId: number
@@ -396,6 +440,7 @@ export interface PaymentClearingPaymentPreview {
   payments: PaymentPreviewRow[]
   refundReturnCreditNoteApplications?: RefundReturnCreditNoteApplication[]
   adjustmentClearings?: PaymentPreviewAdjustmentClearing[]
+  amazonFeeJournalLines?: AmazonFeeJournalLine[]
   settlementReference?: SettlementReference
   postingReferences?: PostingReference[]
   warnings: string[]
@@ -411,6 +456,8 @@ export interface PaymentPostingResult {
     invoicesPosted: number
     paymentsCreated: number
     paymentsSkipped: number
+    journalsCreated?: number
+    journalsSkipped?: number
     errors: number
   }
   payments: Array<{
@@ -440,6 +487,27 @@ export interface PaymentPostingResult {
       account_name: string
       reference_number: string
       description?: string
+    } | null
+    reason?: string
+    error?: string
+    code?: string
+  }>
+  journals?: Array<AmazonFeeJournalLine & {
+    paymentType?: string
+    status: string
+    zohoJournalId?: string
+    zohoPayloadPreview?: {
+      date: string
+      reference_number: string
+      notes: string
+      journal_type: string
+      line_items: Array<{
+        account_id: string
+        account_name?: string
+        debit_or_credit: 'debit' | 'credit'
+        amount: number
+        description?: string
+      }>
     } | null
     reason?: string
     error?: string

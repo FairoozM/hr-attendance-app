@@ -73,6 +73,8 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
             <SummaryCard label="Invoices Posted" value={postingResult.summary.invoicesPosted} />
             <SummaryCard label="Payments Created" value={postingResult.summary.paymentsCreated} />
             <SummaryCard label="Payments Skipped" value={postingResult.summary.paymentsSkipped} />
+            <SummaryCard label="Journals Created" value={postingResult.summary.journalsCreated || 0} />
+            <SummaryCard label="Journals Skipped" value={postingResult.summary.journalsSkipped || 0} />
             <SummaryCard label="Errors" value={postingResult.summary.errors} />
           </section>
           <PostingResultTable result={postingResult} />

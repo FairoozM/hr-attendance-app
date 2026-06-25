@@ -41,8 +41,10 @@ test('settlement parser normalizes rows and warnings', () => {
   assert.equal(parsed.rows[0].amount, 100)
   assert.equal(parsed.rows[0].category, CATEGORY.PRINCIPAL)
   assert.equal(parsed.rows[0].rowClass, ROW_CLASS.SALE)
+  assert.equal(parsed.rows[1].rowClass, ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE)
   assert.equal(parsed.metadata.currency, 'SAR')
-  assert.ok(parsed.warnings.some((w) => w.includes('do not include an Amazon order ID')))
+  assert.ok(parsed.warnings.some((w) => w.includes('account-level Amazon fee row(s) have no order ID expected')))
+  assert.ok(!parsed.warnings.some((w) => w.includes('do not include an Amazon order ID')))
 })
 
 test('category mapping handles fees refunds and withheld tax', () => {
@@ -183,6 +185,34 @@ test('preview flags missing order ID rows and settlement mismatch blocking issue
   assert.equal(missingOrderRow.status, 'missing_order_id')
   const codes = preview.blockingIssues.map((issue) => issue.code)
   assert.ok(codes.includes('MISSING_ORDER_ID'))
+})
+
+test('preview treats account-level Amazon fees without order ID as journal-mapped fees', () => {
+  const rows = [
+    { orderId: '701-1', amount: 100, category: CATEGORY.PRINCIPAL, rowClass: ROW_CLASS.SALE, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Order' },
+    { orderId: '', amount: -25, category: CATEGORY.STORAGE_FEE, rowClass: ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE, amountType: 'other-transaction', amountDescription: 'Storage Fee', transactionType: 'other-transaction' },
+  ]
+  const invoices = [{ invoice_id: 'z1', invoice_number: 'INV-1', reference_number: '701-1', customer_name: 'KSA-Amazon', total: 100 }]
+  const preview = buildPreview({
+    rows,
+    invoices,
+    report: {
+      reportDocumentId: 'doc1',
+      settlementStartDate: '2026-04-15',
+      settlementEndDate: '2026-04-29',
+      currency: 'SAR',
+    },
+  })
+
+  const feeRow = preview.allRows.find((row) => row.rowNumber === 2)
+  assert.equal(feeRow.status, 'account_level_fee')
+  assert.equal(feeRow.blockingReason, 'Order ID not required for this Amazon fee.')
+  assert.equal(preview.missingOrderIdRows.length, 0)
+  assert.equal(preview.unmatchedOrders.length, 0)
+  assert.ok(!preview.blockingIssues.map((issue) => issue.code).includes('MISSING_ORDER_ID'))
+  assert.equal(preview.nonOrderLinkedAmazonFeeMappings.length, 1)
+  assert.equal(preview.nonOrderLinkedAmazonFeeMappings[0].classification, ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE)
+  assert.equal(preview.nonOrderLinkedAmazonFeeMappings[0].journalPreview.referenceNumber, '15-Apr-2026 to 29-Apr-2026')
 })
 
 test('category mapping classifies settlement-level Amazon fee rows', () => {

@@ -6,6 +6,8 @@ import type {
   PostingReference,
   RefundReturnCreditNoteRow,
   SettlementReference,
+  AmazonFeeJournalMapping,
+  AmazonFeeJournalLine,
 } from '../../../api/amazonPaymentClearing'
 import { LIFECYCLE_LABEL } from './clearingSteps'
 
@@ -48,6 +50,7 @@ const ROW_STATUS_CLASS: Record<ParsedRowStatus, string> = {
   matched: 'apc-pill--success',
   unmatched: 'apc-pill--danger',
   missing_order_id: 'apc-pill--danger',
+  account_level_fee: 'apc-pill--info',
   blocked: 'apc-pill--danger',
   review: 'apc-pill--warn',
   unknown: 'apc-pill--warn',
@@ -58,6 +61,7 @@ const ROW_STATUS_LABEL: Record<ParsedRowStatus, string> = {
   matched: 'Matched',
   unmatched: 'Unmatched',
   missing_order_id: 'No order ID',
+  account_level_fee: 'Account-level fee',
   blocked: 'Blocked',
   review: 'Review',
   unknown: 'Unknown',
@@ -127,6 +131,90 @@ export function SettlementLevelFeesTable({ preview }: { preview: PaymentClearing
               <td>{row.category}</td>
               <td>{row.count}</td>
               <td className="apc-money">{money(row.total)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+export function AmazonFeeJournalMappingTable({ rows }: { rows: AmazonFeeJournalMapping[] }) {
+  if (!rows.length) return <div className="apc-empty">No account-level Amazon fees need manual journal mapping.</div>
+  return (
+    <div className="apc-table-wrap apc-table-wrap--wide">
+      <table className="apc-table">
+        <thead>
+          <tr>
+            <th>Fee type</th>
+            <th>Raw transaction type</th>
+            <th>Description</th>
+            <th>Row count</th>
+            <th className="apc-money">Total amount</th>
+            <th>Suggested Zoho debit account</th>
+            <th>Suggested Zoho credit account</th>
+            <th>Mapping status</th>
+            <th>Action / edit mapping</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.key}>
+              <td>{row.feeType || '-'}</td>
+              <td>{row.rawTransactionType || '-'}</td>
+              <td>{row.description || '-'}</td>
+              <td>{row.rowCount}</td>
+              <td className="apc-money">{money(row.totalAmount)}</td>
+              <td>
+                {row.debitAccountName || '-'}
+                {row.debitAccountCode ? <div className="apc-muted apc-cell-sub">code: {row.debitAccountCode}</div> : null}
+              </td>
+              <td>
+                {row.creditAccountName || '-'}
+                {row.creditAccountCode ? <div className="apc-muted apc-cell-sub">code: {row.creditAccountCode}</div> : null}
+              </td>
+              <td>
+                <span className={`apc-pill ${row.mappingStatus === 'mapped' ? 'apc-pill--success' : 'apc-pill--danger'}`}>
+                  {row.mappingStatus === 'mapped' ? 'Mapped' : 'Needs mapping'}
+                </span>
+              </td>
+              <td>
+                <code className="apc-ref">AMAZON_KSA_FEE_JOURNAL_ACCOUNT_MAP</code>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+export function AmazonFeeJournalPreviewTable({ rows }: { rows: AmazonFeeJournalLine[] }) {
+  if (!rows.length) return <div className="apc-empty">No Amazon fee journal lines in this preview.</div>
+  return (
+    <div className="apc-table-wrap apc-table-wrap--wide">
+      <table className="apc-table">
+        <thead>
+          <tr>
+            <th>Fee type</th>
+            <th>Reference Number</th>
+            <th>Notes</th>
+            <th>Debit</th>
+            <th>Credit</th>
+            <th className="apc-money">Amount</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.key}>
+              <td>{row.feeType}</td>
+              <td><code className="apc-ref">{row.referenceNumber || '-'}</code></td>
+              <td>{row.notes || '-'}</td>
+              <td>{row.debit.accountName || '-'}{row.debit.accountCode ? <div className="apc-muted apc-cell-sub">code: {row.debit.accountCode}</div> : null}</td>
+              <td>{row.credit.accountName || '-'}{row.credit.accountCode ? <div className="apc-muted apc-cell-sub">code: {row.credit.accountCode}</div> : null}</td>
+              <td className="apc-money">{money(Math.abs(row.totalAmount))}</td>
+              <td>{row.status}</td>
             </tr>
           ))}
         </tbody>
@@ -556,55 +644,98 @@ export function PaymentClearingPreviewTable({ paymentPreview }: { paymentPreview
 
 export function PostingResultTable({ result }: { result: PaymentPostingResult }) {
   return (
-    <div className="apc-table-wrap apc-table-wrap--wide">
-      <p className="apc-muted apc-table-caption">Exactly what Zoho will receive for each grouped Record Payment.</p>
-      <table className="apc-table">
-        <thead>
-          <tr>
-            <th>Entry</th>
-            <th>Zoho account</th>
-            <th className="apc-money">Amount</th>
-            <th>Reference (sent to Zoho)</th>
-            <th>Description (sent to Zoho)</th>
-            <th>Invoice allocations</th>
-            <th>Status</th>
-            <th>Zoho Payment ID</th>
-          </tr>
-        </thead>
-        <tbody>
-          {result.payments.map((row) => {
-            const reference = row.zohoPayloadPreview?.reference_number || row.referenceNumber || '-'
-            const description = row.zohoPayloadPreview?.description || row.description || ''
-            const accountName = row.zohoPayloadPreview?.account_name || row.accountName || ''
-            const accountId = row.zohoPayloadPreview?.account_id || ''
-            return (
-              <tr key={`${row.invoiceId}-${row.paymentType}`}>
-                <td>{row.entryLabel || row.paymentLabel || row.paymentType}</td>
-                <td>
-                  {accountName || '-'}
-                  {accountId ? <div className="apc-muted apc-cell-sub">id: {accountId}</div> : null}
-                </td>
-                <td className="apc-money">{money(row.zohoPayloadPreview?.amount ?? row.amount)}</td>
-                <td><code className="apc-ref">{reference}</code></td>
-                <td>{description ? <pre className="apc-description">{description}</pre> : '-'}</td>
-                <td>
-                  {row.zohoPayloadPreview?.invoices?.length ? (
-                    <div className="apc-allocation-list">
-                      {row.zohoPayloadPreview.invoices.map((invoice) => (
-                        <div key={`${row.paymentType}-${invoice.invoice_id}`}>
-                          {invoice.invoice_id}: {money(invoice.amount_applied)}
-                        </div>
-                      ))}
-                    </div>
-                  ) : '-'}
-                </td>
-                <td>{row.status}</td>
-                <td>{row.zohoPaymentId || row.reason || row.error || '-'}</td>
+    <div className="apc-step-stack">
+      <div className="apc-table-wrap apc-table-wrap--wide">
+        <p className="apc-muted apc-table-caption">Exactly what Zoho will receive for each grouped Record Payment.</p>
+        <table className="apc-table">
+          <thead>
+            <tr>
+              <th>Entry</th>
+              <th>Zoho account</th>
+              <th className="apc-money">Amount</th>
+              <th>Reference (sent to Zoho)</th>
+              <th>Description (sent to Zoho)</th>
+              <th>Invoice allocations</th>
+              <th>Status</th>
+              <th>Zoho Payment ID</th>
+            </tr>
+          </thead>
+          <tbody>
+            {result.payments.map((row) => {
+              const reference = row.zohoPayloadPreview?.reference_number || row.referenceNumber || '-'
+              const description = row.zohoPayloadPreview?.description || row.description || ''
+              const accountName = row.zohoPayloadPreview?.account_name || row.accountName || ''
+              const accountId = row.zohoPayloadPreview?.account_id || ''
+              return (
+                <tr key={`${row.invoiceId}-${row.paymentType}`}>
+                  <td>{row.entryLabel || row.paymentLabel || row.paymentType}</td>
+                  <td>
+                    {accountName || '-'}
+                    {accountId ? <div className="apc-muted apc-cell-sub">id: {accountId}</div> : null}
+                  </td>
+                  <td className="apc-money">{money(row.zohoPayloadPreview?.amount ?? row.amount)}</td>
+                  <td><code className="apc-ref">{reference}</code></td>
+                  <td>{description ? <pre className="apc-description">{description}</pre> : '-'}</td>
+                  <td>
+                    {row.zohoPayloadPreview?.invoices?.length ? (
+                      <div className="apc-allocation-list">
+                        {row.zohoPayloadPreview.invoices.map((invoice) => (
+                          <div key={`${row.paymentType}-${invoice.invoice_id}`}>
+                            {invoice.invoice_id}: {money(invoice.amount_applied)}
+                          </div>
+                        ))}
+                      </div>
+                    ) : '-'}
+                  </td>
+                  <td>{row.status}</td>
+                  <td>{row.zohoPaymentId || row.reason || row.error || '-'}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      {result.journals?.length ? (
+        <div className="apc-table-wrap apc-table-wrap--wide">
+          <p className="apc-muted apc-table-caption">Exactly what Zoho will receive for each Amazon fee manual journal.</p>
+          <table className="apc-table">
+            <thead>
+              <tr>
+                <th>Fee type</th>
+                <th className="apc-money">Amount</th>
+                <th>Reference</th>
+                <th>Notes</th>
+                <th>Journal lines</th>
+                <th>Status</th>
+                <th>Zoho Journal ID</th>
               </tr>
-            )
-          })}
-        </tbody>
-      </table>
+            </thead>
+            <tbody>
+              {result.journals.map((row) => (
+                <tr key={row.key || row.paymentType}>
+                  <td>{row.feeType}</td>
+                  <td className="apc-money">{money(Math.abs(row.totalAmount))}</td>
+                  <td><code className="apc-ref">{row.zohoPayloadPreview?.reference_number || row.referenceNumber || '-'}</code></td>
+                  <td>{row.zohoPayloadPreview?.notes || row.notes || '-'}</td>
+                  <td>
+                    {row.zohoPayloadPreview?.line_items?.length ? (
+                      <div className="apc-allocation-list">
+                        {row.zohoPayloadPreview.line_items.map((line) => (
+                          <div key={`${row.key}-${line.debit_or_credit}`}>
+                            {line.debit_or_credit}: {line.account_name || line.account_id} {money(line.amount)}
+                          </div>
+                        ))}
+                      </div>
+                    ) : '-'}
+                  </td>
+                  <td>{row.status}</td>
+                  <td>{row.zohoJournalId || row.reason || row.error || '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
     </div>
   )
 }

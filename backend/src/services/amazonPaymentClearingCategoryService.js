@@ -25,6 +25,7 @@ const CATEGORY = Object.freeze({
 const ROW_CLASS = Object.freeze({
   SALE: 'sale',
   FEE: 'fee',
+  NON_ORDER_LINKED_AMAZON_FEE: 'NON_ORDER_LINKED_AMAZON_FEE',
   REFUND: 'refund',
   RETURN: 'return',
   ADJUSTMENT: 'adjustment',
@@ -94,13 +95,7 @@ function categorizeSettlementRow(row) {
   ) {
     return CATEGORY.ADVERTISING_FEE
   }
-  if (
-    transactionType === 'AmazonFees' &&
-    amountType === 'Premium Services Fee' &&
-    amountDescription === 'Base fee'
-  ) {
-    return CATEGORY.PREMIUM_SERVICES_FEE
-  }
+  if (hay.includes('advertising')) return CATEGORY.ADVERTISING_FEE
   if (
     transactionType === 'AmazonFees' &&
     amountType === 'Premium Services Fee' &&
@@ -108,9 +103,18 @@ function categorizeSettlementRow(row) {
   ) {
     return CATEGORY.PREMIUM_SERVICES_FEE_TAX
   }
+  if (
+    transactionType === 'AmazonFees' &&
+    amountType === 'Premium Services Fee' &&
+    amountDescription === 'Base fee'
+  ) {
+    return CATEGORY.PREMIUM_SERVICES_FEE
+  }
+  if (hay.includes('premium services fee')) return CATEGORY.PREMIUM_SERVICES_FEE
   if (amountDescription === 'Storage Fee' || amountDescription === 'StorageRenewalBilling') {
     return CATEGORY.STORAGE_FEE
   }
+  if (hay.includes('storage fee') || hay.includes('storagerenewalbilling')) return CATEGORY.STORAGE_FEE
   if (amountDescription === 'Amazon Easy Ship Charges') return CATEGORY.EASY_SHIP_CHARGES
 
   if (hay.includes('promotion') || hay.includes('promo') || hay.includes('discount') || hay.includes('coupon')) {
@@ -166,6 +170,7 @@ function classifySettlementRow(row) {
   const hay = text(row)
   const tx = field(row, 'transactionType').toLowerCase()
 
+  if (!hasOrderId(row) && isFeeCategory(category)) return ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE
   if (isCustomerRefundOrReturnRow(row)) {
     return tx.includes('return') || hay.includes('return') || category === CATEGORY.RETURN
       ? ROW_CLASS.RETURN
@@ -215,6 +220,11 @@ function hasOrderId(row) {
   return Boolean(field(row, 'orderId'))
 }
 
+function isNonOrderLinkedAmazonFee(row) {
+  const category = row?.category || categorizeSettlementRow(row)
+  return !hasOrderId(row) && isFeeCategory(category)
+}
+
 module.exports = {
   CATEGORY,
   ROW_CLASS,
@@ -225,4 +235,5 @@ module.exports = {
   isFeeCategory,
   isSalesCategory,
   hasOrderId,
+  isNonOrderLinkedAmazonFee,
 }

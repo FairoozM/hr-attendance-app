@@ -63,6 +63,30 @@ function buildCustomerPaymentPayload(payment, opts = {}) {
   }
 }
 
+function buildManualJournalPayload(journal, opts = {}) {
+  const date = journal.date || opts.date || todayLocalDate()
+  return {
+    date,
+    reference_number: journal.referenceNumber || undefined,
+    notes: journal.notes || undefined,
+    journal_type: journal.journalType || 'both',
+    line_items: [
+      {
+        account_id: journal.debitAccountId || opts.debitAccountId || undefined,
+        debit_or_credit: 'debit',
+        amount: Number(journal.amount) || 0,
+        description: journal.description || journal.feeType || undefined,
+      },
+      {
+        account_id: journal.creditAccountId || opts.creditAccountId || undefined,
+        debit_or_credit: 'credit',
+        amount: Number(journal.amount) || 0,
+        description: journal.description || journal.feeType || undefined,
+      },
+    ],
+  }
+}
+
 function clean(value) {
   return value == null ? '' : String(value).trim()
 }
@@ -247,6 +271,60 @@ async function buildCustomerPaymentPayloadPreview(payment, opts = {}) {
   }
 }
 
+async function resolveJournalAccount(account) {
+  return resolveConfiguredDepositAccount({
+    depositToAccountId: account.accountId || '',
+    depositToAccountCode: account.accountCode || '',
+    depositToAccountName: account.accountName || '',
+  })
+}
+
+async function buildManualJournalPayloadPreview(journal, opts = {}) {
+  const debit = await resolveJournalAccount(journal.debit || {})
+  const credit = await resolveJournalAccount(journal.credit || {})
+  const payload = buildManualJournalPayload(journal, {
+    ...opts,
+    debitAccountId: debit.accountId,
+    creditAccountId: credit.accountId,
+  })
+  return {
+    date: payload.date,
+    reference_number: payload.reference_number || '',
+    notes: payload.notes || '',
+    journal_type: payload.journal_type,
+    line_items: payload.line_items.map((line, idx) => ({
+      ...line,
+      account_name: idx === 0 ? debit.accountName : credit.accountName,
+    })),
+  }
+}
+
+async function createZohoManualJournal(journal, opts = {}) {
+  const debit = await resolveJournalAccount(journal.debit || {})
+  const credit = await resolveJournalAccount(journal.credit || {})
+  const payload = buildManualJournalPayload(journal, {
+    ...opts,
+    debitAccountId: debit.accountId,
+    creditAccountId: credit.accountId,
+  })
+  const json = await zohoBooksJsonRequest(
+    `${BOOKS_V3}/journals`,
+    new URLSearchParams(),
+    'POST',
+    buildZohoJsonStringBody(payload),
+    {
+      source: 'amazon_payment_clearing_fee_journal_post',
+      skipCache: true,
+      critical: true,
+    }
+  )
+  const body = json?.journal || json || {}
+  return {
+    zohoJournalId: body.journal_id || body.journalId || body.id || '',
+    raw: json,
+  }
+}
+
 async function createZohoCustomerPayment(payment, opts = {}) {
   const account = await resolveConfiguredDepositAccount(payment)
   const depositToAccountId = account.accountId
@@ -381,8 +459,11 @@ module.exports = {
   CHART_OF_ACCOUNTS_ENDPOINT,
   CHART_OF_ACCOUNTS_REQUIRED_SCOPE,
   buildCustomerPaymentPayload,
+  buildManualJournalPayload,
   buildCustomerPaymentPayloadPreview,
+  buildManualJournalPayloadPreview,
   createZohoCustomerPayment,
+  createZohoManualJournal,
   configuredAccountByCode,
   configuredAccountMappings,
   getAccountDiagnostics,

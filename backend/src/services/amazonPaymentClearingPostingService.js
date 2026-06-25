@@ -59,6 +59,17 @@ function ensureCanPostBatch(batch, paymentPreviewExists, options = {}) {
     err.status = 422
     throw err
   }
+  if (!dryRun) {
+    const feeLines = Array.isArray(batch.nonOrderLinkedAmazonFeeMappings) ? batch.nonOrderLinkedAmazonFeeMappings : []
+    const unmapped = feeLines.filter((row) => row.mappingStatus !== 'mapped')
+    if (unmapped.length > 0) {
+      const err = new Error('Posting requires all Amazon fee journal mappings to be mapped.')
+      err.code = 'AMAZON_PAYMENT_CLEARING_FEE_JOURNAL_UNMAPPED'
+      err.status = 422
+      err.unmappedFeeTypes = unmapped.map((row) => row.feeType).filter(Boolean)
+      throw err
+    }
+  }
 }
 
 function flattenPaymentPreview(paymentPreview) {
@@ -198,6 +209,8 @@ async function postApprovedBatch({
   postedBy,
   createPayment = zohoPaymentService.createZohoCustomerPayment,
   buildPayloadPreview = zohoPaymentService.buildCustomerPaymentPayloadPreview,
+  createManualJournal = zohoPaymentService.createZohoManualJournal,
+  buildJournalPayloadPreview = zohoPaymentService.buildManualJournalPayloadPreview,
 }) {
   const latestPreview = await store.getLatestPaymentPreviewForBatch(batch.batchId)
   ensureCanPostBatch(batch, Boolean(latestPreview), { dryRun, allowPosted })
@@ -208,13 +221,15 @@ async function postApprovedBatch({
     payments: latestPreview?.payments || latestPreview?.paymentsJson,
     refundReturnCreditNoteApplications: latestPreview?.refundReturnCreditNoteApplications || [],
     adjustmentClearings: latestPreview?.adjustmentClearings || [],
+    amazonFeeJournalLines: latestPreview?.amazonFeeJournalLines || [],
   }
   const paymentRows = flattenPaymentPreview(paymentPreview)
   const customerIdsByInvoice = customerByInvoiceId(batch)
   const paymentDate = zohoPaymentService.todayLocalDate()
-  const customerId = requireSingleCustomer(paymentRows, customerIdsByInvoice)
+  const customerId = paymentRows.length ? requireSingleCustomer(paymentRows, customerIdsByInvoice) : ''
   const settlementReference = buildSettlementReference(batch)
-  const postingRows = groupedPaymentRows(paymentRows, customerId, paymentDate, batch)
+  const postingRows = paymentRows.length ? groupedPaymentRows(paymentRows, customerId, paymentDate, batch) : []
+  const feeJournalLines = Array.isArray(paymentPreview.amazonFeeJournalLines) ? paymentPreview.amazonFeeJournalLines : []
   const result = {
     success: true,
     dryRun: Boolean(dryRun),
@@ -225,9 +240,12 @@ async function postApprovedBatch({
       invoicesPosted: new Set(paymentRows.map((row) => row.invoiceId)).size,
       paymentsCreated: 0,
       paymentsSkipped: 0,
+      journalsCreated: 0,
+      journalsSkipped: 0,
       errors: 0,
     },
     payments: [],
+    journals: [],
     errors: [],
   }
 
@@ -302,6 +320,93 @@ async function postApprovedBatch({
     }
   }
 
+  for (const [idx, row] of feeJournalLines.entries()) {
+    const paymentType = `fee_journal_${idx + 1}`
+    const existing = await store.findGroupedPosting(batch.batchId, paymentType)
+    if (existing) {
+      result.summary.journalsSkipped += 1
+      result.journals.push({
+        ...row,
+        paymentType,
+        status: 'skipped',
+        zohoJournalId: existing.zohoPaymentId,
+        reason: 'Already posted for batch/fee journal.',
+      })
+      continue
+    }
+
+    const journalRequest = {
+      feeType: row.feeType,
+      description: row.description,
+      amount: Math.abs(round2(Number(row.totalAmount) || 0)),
+      debit: row.debit,
+      credit: row.credit,
+      referenceNumber: row.referenceNumber,
+      notes: row.notes,
+      date: paymentDate,
+    }
+
+    let zohoPayloadPreview = null
+    try {
+      if (row.mappingStatus !== 'mapped') {
+        const err = new Error('Amazon fee journal mapping is not mapped.')
+        err.code = 'AMAZON_PAYMENT_CLEARING_FEE_JOURNAL_UNMAPPED'
+        throw err
+      }
+      zohoPayloadPreview = await buildJournalPayloadPreview(journalRequest)
+    } catch (err) {
+      result.summary.errors += 1
+      const error = {
+        ...row,
+        paymentType,
+        status: 'error',
+        zohoJournalId: '',
+        error: err?.message || 'Failed to build Zoho journal payload preview',
+        code: err?.code || 'ZOHO_JOURNAL_PAYLOAD_PREVIEW_FAILED',
+      }
+      result.errors.push(error)
+      result.journals.push(error)
+      continue
+    }
+
+    if (dryRun) {
+      result.journals.push({ ...row, paymentType, status: 'dry_run', zohoJournalId: '', zohoPayloadPreview })
+      continue
+    }
+
+    try {
+      const created = await createManualJournal(journalRequest)
+      const posting = await store.insertPosting({
+        batchId: batch.batchId,
+        invoiceId: null,
+        orderId: null,
+        paymentType,
+        postingGroupKey: `APC-${batch.batchId}-${paymentType}`,
+        zohoPaymentId: created.zohoJournalId,
+        amount: journalRequest.amount,
+        accountCode: row.debit?.accountCode || '',
+        invoiceAllocations: row.rowNumbers?.map((rowNumber) => ({ rowNumber })) || [],
+        referenceNumber: row.referenceNumber,
+        description: row.notes,
+        status: 'posted',
+      })
+      result.summary.journalsCreated += 1
+      result.journals.push({ ...row, paymentType, status: 'created', zohoJournalId: posting.zohoPaymentId, zohoPayloadPreview })
+    } catch (err) {
+      result.summary.errors += 1
+      const error = {
+        ...row,
+        paymentType,
+        status: 'error',
+        error: err?.message || 'Failed to create Zoho manual journal',
+        code: err?.code || 'ZOHO_JOURNAL_CREATE_FAILED',
+        zohoPayloadPreview,
+      }
+      result.errors.push(error)
+      result.journals.push(error)
+    }
+  }
+
   if (!dryRun && result.summary.errors === 0) {
     const zohoPaymentIds = result.payments
       .filter((row) => row.zohoPaymentId)
@@ -314,6 +419,13 @@ async function postApprovedBatch({
       ...result.summary,
       forceRepost: Boolean(allowPosted),
       zohoPaymentIds,
+      zohoJournalIds: result.journals
+        .filter((row) => row.zohoJournalId)
+        .map((row) => ({
+          paymentType: row.paymentType,
+          zohoJournalId: row.zohoJournalId,
+          referenceNumber: row.referenceNumber || '',
+        })),
       reference: settlementReference.referenceBase,
       settlementReference,
       postedAt: new Date().toISOString(),

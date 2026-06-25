@@ -52,17 +52,24 @@ export const CLEARING_STEPS: ClearingStep[] = [
   },
   {
     id: 7,
-    key: 'preview',
-    title: 'Payment Preview',
+    key: 'fee-journals',
+    title: 'Amazon Fee Journal Mapping',
     description:
-      'Generate the Zoho payment plan: net balance, commission, shipping/FBA, credit-note application, and adjustment clearing.',
+      'Group account-level Amazon fee rows by fee type and prepare manual journal debit/credit mappings for Zoho.',
   },
   {
     id: 8,
+    key: 'preview',
+    title: 'Payment Preview',
+    description:
+      'Generate the Zoho payment plan: net balance, commission, shipping/FBA, credit-note application, adjustment clearing, and Amazon fee journals.',
+  },
+  {
+    id: 9,
     key: 'post',
     title: 'Post to Zoho',
     description:
-      'Dry run, then post grouped Zoho Record Payments. Posted batches are view-only unless an admin force reposts.',
+      'Dry run, then post grouped Zoho Record Payments and Amazon fee manual journals. Posted batches are view-only unless an admin force reposts.',
   },
 ]
 
