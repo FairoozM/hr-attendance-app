@@ -89,9 +89,9 @@ export function AmazonPaymentClearingPage() {
   const isApproved = !isPosted && (preview?.status === 'approved' || preview?.batch?.status === 'approved')
   const creditNoteBlockingRows = preview?.creditNoteBlockingRows || []
   const feeJournalMappings = preview?.nonOrderLinkedAmazonFeeMappings || []
-  const unmappedFeeJournalCount = feeJournalMappings.filter((row) => row.mappingStatus !== 'mapped').length
+  const unmappedFeeJournalCount = feeJournalMappings.filter((row) => row.mappingStatus === 'needs_mapping').length
   const paymentPreviewFeeJournalBlockerCount =
-    paymentPreview?.amazonFeeJournalLines?.filter((row) => row.mappingStatus !== 'mapped').length || 0
+    paymentPreview?.amazonFeeJournalLines?.filter((row) => row.mappingStatus === 'needs_mapping').length || 0
   const isCleanForApproval = Boolean(
     preview &&
       preview.reconciliationSummary?.reconciliationStatus === 'reconciled' &&

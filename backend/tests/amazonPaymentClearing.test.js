@@ -215,6 +215,25 @@ test('preview treats account-level Amazon fees without order ID as journal-mappe
   assert.equal(preview.nonOrderLinkedAmazonFeeMappings[0].journalPreview.referenceNumber, '15-Apr-2026 to 29-Apr-2026')
 })
 
+test('preview treats no-order Other settlement rows as account-level journal rows', () => {
+  const rows = [
+    { orderId: '701-1', amount: 100, category: CATEGORY.PRINCIPAL, rowClass: ROW_CLASS.SALE, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Order' },
+    { orderId: '', amount: 0, category: CATEGORY.OTHER, rowClass: ROW_CLASS.UNKNOWN, amountType: '', amountDescription: '', transactionType: '' },
+    { orderId: '', amount: -5, category: CATEGORY.OTHER, rowClass: ROW_CLASS.UNKNOWN, amountType: 'other-transaction', amountDescription: 'Other adjustment', transactionType: 'other-transaction' },
+  ]
+  const invoices = [{ invoice_id: 'z1', invoice_number: 'INV-1', reference_number: '701-1', customer_name: 'KSA-Amazon', total: 100 }]
+  const preview = buildPreview({ rows, invoices, report: { reportDocumentId: 'doc1', currency: 'SAR' } })
+
+  assert.equal(preview.allRows[1].status, 'account_level_fee')
+  assert.equal(preview.allRows[2].status, 'account_level_fee')
+  assert.equal(preview.missingOrderIdRows.length, 0)
+  assert.ok(!preview.blockingIssues.map((issue) => issue.code).includes('MISSING_ORDER_ID'))
+  const zeroMapping = preview.nonOrderLinkedAmazonFeeMappings.find((row) => row.totalAmount === 0)
+  const nonzeroMapping = preview.nonOrderLinkedAmazonFeeMappings.find((row) => row.totalAmount === -5)
+  assert.equal(zeroMapping.mappingStatus, 'not_required')
+  assert.equal(nonzeroMapping.mappingStatus, 'needs_mapping')
+})
+
 test('category mapping classifies settlement-level Amazon fee rows', () => {
   assert.equal(
     categorizeSettlementRow({
@@ -561,7 +580,7 @@ test('Zoho matcher reports duplicate PO and invoice numbers plus missing order r
   const rows = [
     { orderId: '701-1', amount: 100 },
     { orderId: '701-2', amount: 50 },
-    { orderId: '', amount: -5 },
+    { orderId: '', amount: -5, category: CATEGORY.PRINCIPAL, rowClass: ROW_CLASS.SALE },
   ]
   const invoices = [
     { invoice_id: 'z1', invoice_number: 'INV-1', reference_number: '701-1', customer_name: 'KSA-Amazon', total: 100 },

@@ -111,7 +111,8 @@ function accountSuggestionForFeeType(feeType) {
   }
 }
 
-function mappingStatus(accounts) {
+function mappingStatus(accounts, amount = 0) {
+  if (Math.abs(round2(Number(amount) || 0)) <= 0.01) return 'not_required'
   return (accounts.debitAccountId || accounts.debitAccountCode) && (accounts.creditAccountId || accounts.creditAccountCode)
     ? 'mapped'
     : 'needs_mapping'
@@ -158,7 +159,7 @@ function buildNonOrderLinkedAmazonFeeMappings(rows, report = {}) {
       return {
         ...entry,
         ...accounts,
-        mappingStatus: mappingStatus(accounts),
+        mappingStatus: mappingStatus(accounts, entry.totalAmount),
         journalPreview: {
           referenceNumber: journalReferenceNumber(report),
           notes: journalNotes(report),
@@ -453,7 +454,7 @@ function buildPreview({
   if (matchResult.missingOrderIdRows.length > 0) {
     warnings.push(`${matchResult.missingOrderIdRows.length} settlement row(s) were not matchable because order ID is missing.`)
   }
-  const unmappedFeeJournalMappings = nonOrderLinkedAmazonFeeMappings.filter((row) => row.mappingStatus !== 'mapped')
+  const unmappedFeeJournalMappings = nonOrderLinkedAmazonFeeMappings.filter((row) => row.mappingStatus === 'needs_mapping')
   if (unmappedFeeJournalMappings.length > 0) {
     warnings.push(`${unmappedFeeJournalMappings.length} account-level Amazon fee group(s) require manual journal mapping before posting.`)
   }

@@ -174,8 +174,12 @@ export function AmazonFeeJournalMappingTable({ rows }: { rows: AmazonFeeJournalM
                 {row.creditAccountCode ? <div className="apc-muted apc-cell-sub">code: {row.creditAccountCode}</div> : null}
               </td>
               <td>
-                <span className={`apc-pill ${row.mappingStatus === 'mapped' ? 'apc-pill--success' : 'apc-pill--danger'}`}>
-                  {row.mappingStatus === 'mapped' ? 'Mapped' : 'Needs mapping'}
+                <span className={`apc-pill ${row.mappingStatus === 'needs_mapping' ? 'apc-pill--danger' : 'apc-pill--success'}`}>
+                  {row.mappingStatus === 'needs_mapping'
+                    ? 'Needs mapping'
+                    : row.mappingStatus === 'not_required'
+                      ? 'Not required'
+                      : 'Mapped'}
                 </span>
               </td>
               <td>

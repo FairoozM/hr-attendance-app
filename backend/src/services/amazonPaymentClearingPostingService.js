@@ -61,7 +61,7 @@ function ensureCanPostBatch(batch, paymentPreviewExists, options = {}) {
   }
   if (!dryRun) {
     const feeLines = Array.isArray(batch.nonOrderLinkedAmazonFeeMappings) ? batch.nonOrderLinkedAmazonFeeMappings : []
-    const unmapped = feeLines.filter((row) => row.mappingStatus !== 'mapped')
+    const unmapped = feeLines.filter((row) => row.mappingStatus === 'needs_mapping')
     if (unmapped.length > 0) {
       const err = new Error('Posting requires all Amazon fee journal mappings to be mapped.')
       err.code = 'AMAZON_PAYMENT_CLEARING_FEE_JOURNAL_UNMAPPED'
@@ -348,7 +348,7 @@ async function postApprovedBatch({
 
     let zohoPayloadPreview = null
     try {
-      if (row.mappingStatus !== 'mapped') {
+      if (row.mappingStatus === 'needs_mapping') {
         const err = new Error('Amazon fee journal mapping is not mapped.')
         err.code = 'AMAZON_PAYMENT_CLEARING_FEE_JOURNAL_UNMAPPED'
         throw err

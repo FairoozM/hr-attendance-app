@@ -130,30 +130,32 @@ function buildPaymentPreviewFromBatch(batch) {
   const feeJournalMappings = Array.isArray(batch.nonOrderLinkedAmazonFeeMappings)
     ? batch.nonOrderLinkedAmazonFeeMappings
     : []
-  const amazonFeeJournalLines = feeJournalMappings.map((row) => ({
-    key: row.key || `${row.feeType || 'fee'}-${row.rawTransactionType || ''}-${row.description || ''}`,
-    classification: row.classification || 'NON_ORDER_LINKED_AMAZON_FEE',
-    feeType: row.feeType || '',
-    rawTransactionType: row.rawTransactionType || '',
-    description: row.description || '',
-    rowCount: Number(row.rowCount) || 0,
-    totalAmount: round2(Number(row.totalAmount) || 0),
-    mappingStatus: row.mappingStatus || 'needs_mapping',
-    rowNumbers: Array.isArray(row.rowNumbers) ? row.rowNumbers : [],
-    debit: row.journalPreview?.debit || {
-      accountCode: row.debitAccountCode || '',
-      accountName: row.debitAccountName || '',
-      amount: positiveAmount(row.totalAmount),
-    },
-    credit: row.journalPreview?.credit || {
-      accountCode: row.creditAccountCode || '',
-      accountName: row.creditAccountName || '',
-      amount: positiveAmount(row.totalAmount),
-    },
-    referenceNumber: row.journalPreview?.referenceNumber || '',
-    notes: row.journalPreview?.notes || '',
-    status: row.mappingStatus === 'mapped' ? 'ready' : 'needs_mapping',
-  }))
+  const amazonFeeJournalLines = feeJournalMappings
+    .filter((row) => Math.abs(round2(Number(row.totalAmount) || 0)) > 0.01)
+    .map((row) => ({
+      key: row.key || `${row.feeType || 'fee'}-${row.rawTransactionType || ''}-${row.description || ''}`,
+      classification: row.classification || 'NON_ORDER_LINKED_AMAZON_FEE',
+      feeType: row.feeType || '',
+      rawTransactionType: row.rawTransactionType || '',
+      description: row.description || '',
+      rowCount: Number(row.rowCount) || 0,
+      totalAmount: round2(Number(row.totalAmount) || 0),
+      mappingStatus: row.mappingStatus || 'needs_mapping',
+      rowNumbers: Array.isArray(row.rowNumbers) ? row.rowNumbers : [],
+      debit: row.journalPreview?.debit || {
+        accountCode: row.debitAccountCode || '',
+        accountName: row.debitAccountName || '',
+        amount: positiveAmount(row.totalAmount),
+      },
+      credit: row.journalPreview?.credit || {
+        accountCode: row.creditAccountCode || '',
+        accountName: row.creditAccountName || '',
+        amount: positiveAmount(row.totalAmount),
+      },
+      referenceNumber: row.journalPreview?.referenceNumber || '',
+      notes: row.journalPreview?.notes || '',
+      status: row.mappingStatus === 'mapped' ? 'ready' : 'needs_mapping',
+    }))
   const refundReturnCreditNoteApplications = (Array.isArray(batch.matchedReturns) ? batch.matchedReturns : []).map((row) => ({
     orderId: row.orderId || '',
     zohoInvoiceId: row.zohoInvoiceId || '',
@@ -229,7 +231,7 @@ function buildPaymentPreviewFromBatch(batch) {
   if (mismatches.length > 0) {
     warnings.push(`${mismatches.length} invoice payment plan(s) do not clear to zero.`)
   }
-  const unmappedFeeJournals = amazonFeeJournalLines.filter((row) => row.mappingStatus !== 'mapped')
+  const unmappedFeeJournals = amazonFeeJournalLines.filter((row) => row.mappingStatus === 'needs_mapping')
   if (unmappedFeeJournals.length > 0) {
     warnings.push(`${unmappedFeeJournals.length} Amazon fee journal mapping(s) are unmapped and will block posting.`)
   }

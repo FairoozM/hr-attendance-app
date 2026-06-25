@@ -158,7 +158,7 @@ export interface AmazonFeeJournalMapping {
   creditAccountCode: string
   creditAccountName: string
   creditAccountId?: string
-  mappingStatus: 'mapped' | 'needs_mapping'
+  mappingStatus: 'mapped' | 'needs_mapping' | 'not_required'
   journalPreview: {
     referenceNumber: string
     notes: string
@@ -421,7 +421,7 @@ export interface AmazonFeeJournalLine {
   description: string
   rowCount: number
   totalAmount: number
-  mappingStatus: 'mapped' | 'needs_mapping'
+  mappingStatus: 'mapped' | 'needs_mapping' | 'not_required'
   rowNumbers: number[]
   debit: { accountCode: string; accountName: string; amount: number }
   credit: { accountCode: string; accountName: string; amount: number }

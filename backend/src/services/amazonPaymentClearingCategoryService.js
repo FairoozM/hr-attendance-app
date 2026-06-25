@@ -170,7 +170,7 @@ function classifySettlementRow(row) {
   const hay = text(row)
   const tx = field(row, 'transactionType').toLowerCase()
 
-  if (!hasOrderId(row) && isFeeCategory(category)) return ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE
+  if (!hasOrderId(row) && (isFeeCategory(category) || category === CATEGORY.OTHER)) return ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE
   if (isCustomerRefundOrReturnRow(row)) {
     return tx.includes('return') || hay.includes('return') || category === CATEGORY.RETURN
       ? ROW_CLASS.RETURN
@@ -222,7 +222,7 @@ function hasOrderId(row) {
 
 function isNonOrderLinkedAmazonFee(row) {
   const category = row?.category || categorizeSettlementRow(row)
-  return !hasOrderId(row) && isFeeCategory(category)
+  return !hasOrderId(row) && (isFeeCategory(category) || category === CATEGORY.OTHER)
 }
 
 module.exports = {

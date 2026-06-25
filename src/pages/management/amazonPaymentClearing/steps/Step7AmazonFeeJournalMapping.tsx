@@ -5,7 +5,7 @@ export function Step7AmazonFeeJournalMapping({ ctx }: { ctx: ClearingContext }) 
   const { preview } = ctx
   if (!preview) return null
   const rows = preview.nonOrderLinkedAmazonFeeMappings || []
-  const unmappedCount = rows.filter((row) => row.mappingStatus !== 'mapped').length
+  const unmappedCount = rows.filter((row) => row.mappingStatus === 'needs_mapping').length
   const total = rows.reduce((sum, row) => sum + Math.abs(Number(row.totalAmount) || 0), 0)
   const reference = rows[0]?.journalPreview?.referenceNumber || '-'
   const notes = rows[0]?.journalPreview?.notes || '-'
