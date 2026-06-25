@@ -8,8 +8,12 @@ const {
 } = require('./amazonSpApiService')
 const { parseAmazonSettlementReport } = require('./amazonSettlementParserService')
 const { matchZohoInvoicesForRows } = require('./amazonPaymentClearingZohoMatcher')
-const { buildPreview } = require('./amazonPaymentClearingPreviewService')
-const { ROW_CLASS } = require('./amazonPaymentClearingCategoryService')
+const {
+  buildPreview,
+  buildBlockingIssues,
+  buildNonOrderLinkedAmazonFeeMappings,
+} = require('./amazonPaymentClearingPreviewService')
+const { ROW_CLASS, isNonOrderLinkedAmazonFee } = require('./amazonPaymentClearingCategoryService')
 const { buildPaymentPreviewFromBatch } = require('./amazonPaymentClearingPaymentPreviewService')
 const { postApprovedBatch } = require('./amazonPaymentClearingPostingService')
 const { buildSettlementReference } = require('./amazonPaymentClearingReferenceService')
@@ -242,17 +246,18 @@ function reconstructAllRowsFromStored(storedRows) {
     let status = 'ok'
     let blockingReason = row.blockingReason || ''
     const ms = String(row.matchStatus || '').toLowerCase()
-    if (row.blockingReason && row.matchStatus !== 'account_level_fee') status = 'blocked'
-    else if (ms === 'account_level_fee' || row.rowClass === ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE) status = 'account_level_fee'
+    if (isNonOrderLinkedAmazonFee(row) || ms === 'account_level_fee' || row.rowClass === ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE) {
+      status = 'account_level_fee'
+      blockingReason = 'Order ID not required for this Amazon fee.'
+    } else if (row.blockingReason && row.matchStatus !== 'account_level_fee') status = 'blocked'
     else if (ms === 'missing_order_id' || !row.orderId) status = row.orderId ? 'ok' : 'missing_order_id'
     else if (ms === 'unmatched') status = 'unmatched'
     else if (ms === 'matched' || ms === 'po_number' || ms === 'invoice_number_fallback') status = 'matched'
-    if (status === 'account_level_fee' && !blockingReason) blockingReason = 'Order ID not required for this Amazon fee.'
     if (status === 'missing_order_id' && !blockingReason) blockingReason = 'Settlement row is missing Amazon order ID.'
     return {
       rowNumber: row.rowNumber == null ? idx + 1 : row.rowNumber,
       category: row.category || '',
-      rowClass: row.rowClass || '',
+      rowClass: status === 'account_level_fee' ? ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE : (row.rowClass || ''),
       orderId: row.orderId || '',
       amount: Number(row.amount) || 0,
       currency: row.currency || '',
@@ -266,11 +271,49 @@ function reconstructAllRowsFromStored(storedRows) {
   })
 }
 
+function normalizeSavedAllRows(allRows) {
+  return (Array.isArray(allRows) ? allRows : []).map((row, idx) => {
+    if (!isNonOrderLinkedAmazonFee(row)) return row
+    return {
+      ...row,
+      rowNumber: row.rowNumber == null ? idx + 1 : row.rowNumber,
+      rowClass: ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE,
+      status: 'account_level_fee',
+      blockingReason: 'Order ID not required for this Amazon fee.',
+    }
+  })
+}
+
+function normalizeSavedWarnings(warnings, allRows) {
+  if ((Array.isArray(allRows) ? allRows : []).some((row) => row.status === 'missing_order_id')) {
+    return Array.isArray(warnings) ? warnings : []
+  }
+  return (Array.isArray(warnings) ? warnings : []).filter(
+    (warning) => !/not matchable because order ID is missing|do not include an Amazon order ID/i.test(String(warning || ''))
+  )
+}
+
+function normalizeSavedBatchPreview(batch, preview) {
+  if (!preview) return preview
+  preview.allRows = normalizeSavedAllRows(preview.allRows)
+  preview.nonOrderLinkedAmazonFeeMappings = Array.isArray(batch.nonOrderLinkedAmazonFeeMappings) && batch.nonOrderLinkedAmazonFeeMappings.length
+    ? batch.nonOrderLinkedAmazonFeeMappings
+    : buildNonOrderLinkedAmazonFeeMappings(preview.allRows, preview.report)
+  preview.blockingIssues = buildBlockingIssues({
+    allRows: preview.allRows,
+    unmatchedOrders: preview.unmatchedOrders,
+    creditNoteBlockingRows: preview.creditNoteBlockingRows,
+    reconciliationStatus: preview.reconciliationSummary?.reconciliationStatus,
+  })
+  preview.warnings = normalizeSavedWarnings(preview.warnings, preview.allRows)
+  return preview
+}
+
 function savedBatchToPreview(batch) {
   if (!batch) return null
   const settlementReference = buildSettlementReference(batch)
   const postingReference = batch.postingSummary?.reference || settlementReference.referenceBase
-  return {
+  return normalizeSavedBatchPreview(batch, {
     success: true,
     batch: {
       batchId: batch.batchId,
@@ -323,7 +366,7 @@ function savedBatchToPreview(batch) {
     postedAt: batch.postedAt,
     postedToZoho: Boolean(batch.postedToZoho),
     postingSummary: batch.postingSummary || {},
-  }
+  })
 }
 
 /**
@@ -342,6 +385,7 @@ async function hydrateSavedBatch(batch) {
   if ((!preview.allRows || preview.allRows.length === 0) && storedRows.length > 0) {
     preview.allRows = reconstructAllRowsFromStored(storedRows)
   }
+  normalizeSavedBatchPreview(batch, preview)
   preview.rawRowCount = preview.allRows.length || storedRows.length || 0
   preview.storedRowCount = storedRows.length
   try {
