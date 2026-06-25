@@ -234,6 +234,44 @@ test('preview treats no-order Other settlement rows as account-level journal row
   assert.equal(nonzeroMapping.mappingStatus, 'needs_mapping')
 })
 
+test('fee journal mapping rules map account-level fees by normalized type', () => {
+  const rows = [
+    { orderId: '', amount: -25, category: CATEGORY.STORAGE_FEE, rowClass: ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE, amountType: 'other-transaction', amountDescription: 'Storage Fee', transactionType: 'other-transaction' },
+  ]
+  const preview = buildPreview({
+    rows,
+    invoices: [],
+    report: {
+      marketplace: 'KSA',
+      reportDocumentId: 'doc1',
+      settlementStartDate: '2026-04-29',
+      settlementEndDate: '2026-05-13',
+      currency: 'SAR',
+    },
+    feeJournalMappingRules: [{
+      id: 7,
+      marketplace: 'KSA',
+      normalizedFeeType: 'STORAGE',
+      rawTransactionType: 'other-transaction',
+      descriptionPattern: 'Storage Fee',
+      debitAccountName: 'KSA Amazon Storage Exp',
+      debitAccountId: 'debit-storage',
+      creditAccountName: 'KSA-Amazon Undeposited Funds',
+      creditAccountId: 'credit-clearing',
+      isActive: true,
+      priority: 100,
+      lastUsedAt: null,
+    }],
+  })
+
+  const mapping = preview.nonOrderLinkedAmazonFeeMappings[0]
+  assert.equal(mapping.normalizedFeeType, 'STORAGE')
+  assert.equal(mapping.mappingStatus, 'mapped')
+  assert.equal(mapping.mappingRuleId, 7)
+  assert.equal(mapping.journalPreview.referenceNumber, '29-Apr-2026 to 13-May-2026')
+  assert.ok(!preview.blockingIssues.map((issue) => issue.code).includes('MISSING_ORDER_ID'))
+})
+
 test('category mapping classifies settlement-level Amazon fee rows', () => {
   assert.equal(
     categorizeSettlementRow({
@@ -940,6 +978,10 @@ function fakePostingStore(existing = [], previewBatch = postingBatch()) {
       this.postedBy = postedBy
       return postingBatch({ status: 'posted', postedBy })
     },
+    async markFeeJournalMappingsUsed(ids) {
+      this.usedMappingIds = ids
+      return Array.isArray(ids) ? ids.length : 0
+    },
     postings,
   }
 }
@@ -958,6 +1000,29 @@ function fakePayloadPreview(payment) {
     account_name: payment.depositToAccountName,
     reference_number: payment.referenceNumber,
     description: payment.description,
+  }
+}
+
+function fakeJournalPayloadPreview(journal) {
+  return {
+    date: journal.date,
+    reference_number: journal.referenceNumber,
+    notes: journal.notes,
+    journal_type: 'both',
+    line_items: [
+      {
+        account_id: journal.debit.accountId,
+        account_name: journal.debit.accountName,
+        debit_or_credit: 'debit',
+        amount: journal.amount,
+      },
+      {
+        account_id: journal.credit.accountId,
+        account_name: journal.credit.accountName,
+        debit_or_credit: 'credit',
+        amount: journal.amount,
+      },
+    ],
   }
 }
 
@@ -1156,6 +1221,100 @@ test('posting carries settlement-period reference and description to Zoho payloa
     assert.ok(row.zohoPayloadPreview.reference_number.startsWith('AMZ-KSA-20260601-20260615-'))
     assert.ok(row.zohoPayloadPreview.description.includes('Amazon KSA Settlement'))
   }
+})
+
+test('non-order-linked fee without mapping blocks real Zoho posting', async () => {
+  const batch = postingBatch({
+    nonOrderLinkedAmazonFeeMappings: [
+      {
+        key: 'KSA|STORAGE|other-transaction|Storage Fee',
+        feeType: 'Storage Fee',
+        normalizedFeeType: 'STORAGE',
+        mappingStatus: 'needs_mapping',
+        totalAmount: -25,
+      },
+    ],
+  })
+  await assert.rejects(
+    () => postApprovedBatch({
+      batch,
+      store: fakePostingStore([], batch),
+      dryRun: false,
+      buildPayloadPreview: fakePayloadPreview,
+      buildJournalPayloadPreview: fakeJournalPayloadPreview,
+    }),
+    /Posting requires all Amazon fee journal mappings to be mapped/
+  )
+})
+
+test('mapped non-order-linked fee posts as manual journal with mapping snapshot', async () => {
+  const batch = postingBatch({
+    matchedOrders: [],
+    report: {
+      settlementStartDate: '2026-04-29',
+      settlementEndDate: '2026-05-13',
+      currency: 'SAR',
+    },
+    nonOrderLinkedAmazonFeeMappings: [
+      {
+        key: 'KSA|ADVERTISING|ServiceFee|Cost of Advertising',
+        classification: 'NON_ORDER_LINKED_AMAZON_FEE',
+        marketplace: 'KSA',
+        feeType: 'Advertising Fee',
+        normalizedFeeType: 'ADVERTISING',
+        rawTransactionType: 'ServiceFee',
+        description: 'Cost of Advertising',
+        rowCount: 2,
+        totalAmount: -80,
+        rowNumbers: [4, 5],
+        debitAccountName: 'KSA-Amazon Advertising Exp',
+        debitAccountId: 'debit-ad',
+        creditAccountName: 'KSA-Amazon Undeposited Funds',
+        creditAccountId: 'credit-clearing',
+        mappingStatus: 'mapped',
+        mappingRuleId: 12,
+        mappingRuleUsed: {
+          id: 12,
+          marketplace: 'KSA',
+          normalizedFeeType: 'ADVERTISING',
+          rawTransactionType: 'ServiceFee',
+          descriptionPattern: 'Cost of Advertising',
+          debitAccountName: 'KSA-Amazon Advertising Exp',
+          debitAccountId: 'debit-ad',
+          creditAccountName: 'KSA-Amazon Undeposited Funds',
+          creditAccountId: 'credit-clearing',
+          isActive: true,
+          priority: 100,
+        },
+        journalPreview: {
+          referenceNumber: '29-Apr-2026 to 13-May-2026',
+          notes: 'Transferring Amazon KSA payment from 29-Apr-2026 to 13-May-2026 to Expenses accounts',
+          debit: { accountId: 'debit-ad', accountName: 'KSA-Amazon Advertising Exp', amount: 80 },
+          credit: { accountId: 'credit-clearing', accountName: 'KSA-Amazon Undeposited Funds', amount: 80 },
+        },
+      },
+    ],
+  })
+  const store = fakePostingStore([], batch)
+  const result = await postApprovedBatch({
+    batch,
+    store,
+    dryRun: false,
+    postedBy: 7,
+    createManualJournal: async (journal) => {
+      assert.equal(journal.referenceNumber, '29-Apr-2026 to 13-May-2026')
+      return { zohoJournalId: 'journal-1', zohoJournalNumber: 'JN-1' }
+    },
+    buildPayloadPreview: fakePayloadPreview,
+    buildJournalPayloadPreview: fakeJournalPayloadPreview,
+  })
+
+  assert.equal(result.summary.journalsCreated, 1)
+  assert.equal(result.journals[0].zohoJournalNumber, 'JN-1')
+  assert.equal(result.journals[0].mappingSnapshot.mappingRuleId, 12)
+  assert.deepEqual(store.usedMappingIds, [12])
+  assert.equal(store.postings[0].referenceNumber, '29-Apr-2026 to 13-May-2026')
+  assert.equal(store.postings[0].mappingSnapshot.normalizedFeeType, 'ADVERTISING')
 })
 
 test('grouped posting rejects multiple customer ids', async () => {

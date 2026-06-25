@@ -47,4 +47,5 @@ export interface ClearingContext {
   onGeneratePaymentPreview: () => void
   onRunPosting: (dryRun: boolean) => void
   onOpenForceRepost: () => void
+  onReloadCurrentBatch: () => Promise<void>
 }

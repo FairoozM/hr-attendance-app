@@ -17,7 +17,7 @@ const { ROW_CLASS, isNonOrderLinkedAmazonFee } = require('./amazonPaymentClearin
 const { buildPaymentPreviewFromBatch } = require('./amazonPaymentClearingPaymentPreviewService')
 const { postApprovedBatch } = require('./amazonPaymentClearingPostingService')
 const { buildSettlementReference } = require('./amazonPaymentClearingReferenceService')
-const { getAccountDiagnostics } = require('./amazonPaymentClearingZohoPaymentService')
+const { getAccountDiagnostics, listZohoChartAccounts } = require('./amazonPaymentClearingZohoPaymentService')
 const { buildZohoOAuthAuthorizeUrl, exchangeZohoAuthorizationCode } = require('../integrations/zoho/zohoOAuth')
 const store = require('./amazonPaymentClearingStore')
 
@@ -166,6 +166,7 @@ async function buildPreviewFromReport(options = {}) {
     toDate: options.toDate,
     customerId: options.zohoCustomerId || null,
   })
+  const feeJournalMappingRules = await store.listFeeJournalMappings({ marketplace: MARKETPLACE }).catch(() => [])
   const metadata = parsed.metadata || {}
   const preview = buildPreview({
     report: {
@@ -184,6 +185,7 @@ async function buildPreviewFromReport(options = {}) {
     creditNoteBlockingRows: zohoMatch.creditNoteBlockingRows,
     parserWarnings: [...(parsed.warnings || []), ...(zohoMatch.zohoFetchWarnings || [])],
     rawRowCount: parsed.rawRowCount,
+    feeJournalMappingRules,
   })
   // One statement per settlement period: Amazon hands out a fresh report id /
   // document id every time you request the same settlement, so reuse the
@@ -293,12 +295,13 @@ function normalizeSavedWarnings(warnings, allRows) {
   )
 }
 
-function normalizeSavedBatchPreview(batch, preview) {
+function normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules = []) {
   if (!preview) return preview
   preview.allRows = normalizeSavedAllRows(preview.allRows)
-  preview.nonOrderLinkedAmazonFeeMappings = Array.isArray(batch.nonOrderLinkedAmazonFeeMappings) && batch.nonOrderLinkedAmazonFeeMappings.length
+  const keepSnapshot = batch.status === 'posted' || batch.postedToZoho === true
+  preview.nonOrderLinkedAmazonFeeMappings = keepSnapshot && Array.isArray(batch.nonOrderLinkedAmazonFeeMappings) && batch.nonOrderLinkedAmazonFeeMappings.length
     ? batch.nonOrderLinkedAmazonFeeMappings
-    : buildNonOrderLinkedAmazonFeeMappings(preview.allRows, preview.report)
+    : buildNonOrderLinkedAmazonFeeMappings(preview.allRows, preview.report, feeJournalMappingRules)
   preview.blockingIssues = buildBlockingIssues({
     allRows: preview.allRows,
     unmatchedOrders: preview.unmatchedOrders,
@@ -307,6 +310,19 @@ function normalizeSavedBatchPreview(batch, preview) {
   })
   preview.warnings = normalizeSavedWarnings(preview.warnings, preview.allRows)
   return preview
+}
+
+async function batchWithCurrentFeeJournalMappings(batch) {
+  if (!batch || batch.status === 'posted' || batch.postedToZoho === true) return batch
+  const feeJournalMappingRules = await store.listFeeJournalMappings({ marketplace: batch.marketplace || MARKETPLACE }).catch(() => [])
+  return {
+    ...batch,
+    nonOrderLinkedAmazonFeeMappings: buildNonOrderLinkedAmazonFeeMappings(
+      Array.isArray(batch.allRows) ? batch.allRows : [],
+      batch.report || {},
+      feeJournalMappingRules
+    ),
+  }
 }
 
 function savedBatchToPreview(batch) {
@@ -376,6 +392,12 @@ function savedBatchToPreview(batch) {
 async function hydrateSavedBatch(batch) {
   const preview = savedBatchToPreview(batch)
   if (!preview) return null
+  let feeJournalMappingRules = []
+  try {
+    feeJournalMappingRules = await store.listFeeJournalMappings({ marketplace: batch.marketplace || MARKETPLACE })
+  } catch {
+    feeJournalMappingRules = []
+  }
   let storedRows = []
   try {
     storedRows = await store.listRowsForBatch(batch.batchId)
@@ -385,7 +407,7 @@ async function hydrateSavedBatch(batch) {
   if ((!preview.allRows || preview.allRows.length === 0) && storedRows.length > 0) {
     preview.allRows = reconstructAllRowsFromStored(storedRows)
   }
-  normalizeSavedBatchPreview(batch, preview)
+  normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules)
   preview.rawRowCount = preview.allRows.length || storedRows.length || 0
   preview.storedRowCount = storedRows.length
   try {
@@ -513,7 +535,7 @@ function validateBatchReadyForApproval(batch) {
 }
 
 async function buildPaymentPreviewForBatch(id, createdBy) {
-  const batch = await store.getBatchById(id)
+  const batch = await batchWithCurrentFeeJournalMappings(await store.getBatchById(id))
   if (!batch) {
     const err = new Error('Payment clearing batch not found.')
     err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
@@ -535,7 +557,7 @@ async function buildPaymentPreviewForBatch(id, createdBy) {
 
 async function postBatchToZoho(id, options = {}) {
   return store.withBatchPostingLock(id, async () => {
-    const batch = await store.getBatchById(id)
+    const batch = await batchWithCurrentFeeJournalMappings(await store.getBatchById(id))
     if (!batch) {
       const err = new Error('Payment clearing batch not found.')
       err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
@@ -619,6 +641,36 @@ async function getZohoAccountDiagnostics() {
   }
 }
 
+async function listZohoAccountsForFeeMapping() {
+  return {
+    success: true,
+    accounts: await listZohoChartAccounts(),
+  }
+}
+
+async function listFeeJournalMappings(options = {}) {
+  return {
+    success: true,
+    marketplace: options.marketplace || MARKETPLACE,
+    mappings: await store.listFeeJournalMappings({
+      marketplace: options.marketplace || MARKETPLACE,
+      includeInactive: options.includeInactive === true,
+    }),
+  }
+}
+
+async function saveFeeJournalMapping(input = {}, actorUserId = null) {
+  const mapping = await store.upsertFeeJournalMapping({
+    ...input,
+    marketplace: input.marketplace || MARKETPLACE,
+    actorUserId,
+  })
+  return {
+    success: true,
+    mapping,
+  }
+}
+
 function getZohoOAuthAuthorizeUrl(state = '') {
   return {
     success: true,
@@ -645,6 +697,9 @@ module.exports = {
   postBatchToZoho,
   forceRepostBatch,
   getZohoAccountDiagnostics,
+  listZohoAccountsForFeeMapping,
+  listFeeJournalMappings,
+  saveFeeJournalMapping,
   getZohoOAuthAuthorizeUrl,
   exchangeZohoOAuthCode,
   _internals: {

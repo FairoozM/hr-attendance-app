@@ -165,6 +165,21 @@ async function fetchChartOfAccounts() {
   return accountCache
 }
 
+function mapChartAccount(account) {
+  return {
+    accountId: clean(account?.account_id || account?.id),
+    accountName: clean(account?.account_name || account?.name),
+    accountCode: clean(account?.account_code || account?.code),
+    accountType: clean(account?.account_type || account?.type),
+    isActive: account?.is_active !== false,
+    raw: account,
+  }
+}
+
+async function listZohoChartAccounts() {
+  return (await fetchChartOfAccounts()).map(mapChartAccount).filter((account) => account.accountId)
+}
+
 async function resolveAccountByCode(accountCode) {
   const code = String(accountCode || '').trim()
   if (!code) return null
@@ -321,6 +336,7 @@ async function createZohoManualJournal(journal, opts = {}) {
   const body = json?.journal || json || {}
   return {
     zohoJournalId: body.journal_id || body.journalId || body.id || '',
+    zohoJournalNumber: body.journal_number || body.journalNumber || body.number || '',
     raw: json,
   }
 }
@@ -467,6 +483,7 @@ module.exports = {
   configuredAccountByCode,
   configuredAccountMappings,
   getAccountDiagnostics,
+  listZohoChartAccounts,
   missingConfiguredAccountError,
   resolveAccountByCode,
   resolveConfiguredDepositAccount,

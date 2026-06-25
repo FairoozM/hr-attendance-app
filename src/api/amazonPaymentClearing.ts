@@ -146,25 +146,62 @@ export interface ParsedSettlementRow {
 export interface AmazonFeeJournalMapping {
   key: string
   classification: 'NON_ORDER_LINKED_AMAZON_FEE'
+  marketplace: string
   feeType: string
+  normalizedFeeType: string
   rawTransactionType: string
   description: string
   rowCount: number
   totalAmount: number
   rowNumbers: number[]
-  debitAccountCode: string
   debitAccountName: string
   debitAccountId?: string
-  creditAccountCode: string
   creditAccountName: string
   creditAccountId?: string
-  mappingStatus: 'mapped' | 'needs_mapping' | 'not_required'
+  mappingRuleId?: number | null
+  mappingRuleUsed?: AmazonFeeJournalMappingRule | null
+  lastUsedAt?: string | null
+  mappingStatus: AmazonFeeJournalMappingStatus
   journalPreview: {
     referenceNumber: string
     notes: string
-    debit: { accountCode: string; accountName: string; amount: number }
-    credit: { accountCode: string; accountName: string; amount: number }
+    debit: { accountId?: string; accountName: string; amount: number }
+    credit: { accountId?: string; accountName: string; amount: number }
   }
+}
+
+export type AmazonFeeJournalMappingStatus =
+  | 'mapped'
+  | 'needs_mapping'
+  | 'not_required'
+  | 'suspense_mapping_used'
+  | 'inactive_mapping'
+
+export interface AmazonFeeJournalMappingRule {
+  id: number
+  marketplace: string
+  normalizedFeeType: string
+  rawTransactionType: string
+  descriptionPattern: string
+  debitAccountName: string
+  debitAccountId: string
+  creditAccountName: string
+  creditAccountId: string
+  isActive: boolean
+  priority: number
+  createdBy?: number | null
+  updatedBy?: number | null
+  createdAt?: string | null
+  updatedAt?: string | null
+  lastUsedAt?: string | null
+}
+
+export interface ZohoChartAccount {
+  accountId: string
+  accountName: string
+  accountCode: string
+  accountType: string
+  isActive: boolean
 }
 
 export type BlockingIssueCode =
@@ -228,6 +265,9 @@ export interface ClearingPosting {
   invoiceAllocations: Array<{ invoiceId: string; invoiceNumber: string; orderId: string; amountApplied: number }>
   referenceNumber: string
   description: string
+  zohoJournalNumber?: string
+  notes?: string
+  mappingSnapshot?: Record<string, unknown>
   status: string
   errorMessage: string
   createdAt: string | null
@@ -416,17 +456,22 @@ export interface PaymentPreviewAdjustmentClearing {
 export interface AmazonFeeJournalLine {
   key: string
   classification: 'NON_ORDER_LINKED_AMAZON_FEE'
+  marketplace?: string
   feeType: string
+  normalizedFeeType?: string
   rawTransactionType: string
   description: string
   rowCount: number
   totalAmount: number
-  mappingStatus: 'mapped' | 'needs_mapping' | 'not_required'
+  mappingStatus: AmazonFeeJournalMappingStatus
   rowNumbers: number[]
-  debit: { accountCode: string; accountName: string; amount: number }
-  credit: { accountCode: string; accountName: string; amount: number }
+  debit: { accountId?: string; accountName: string; amount: number }
+  credit: { accountId?: string; accountName: string; amount: number }
   referenceNumber: string
   notes: string
+  mappingRuleId?: number | null
+  mappingRuleUsed?: AmazonFeeJournalMappingRule | null
+  lastUsedAt?: string | null
   status: 'ready' | 'needs_mapping'
 }
 
@@ -496,6 +541,8 @@ export interface PaymentPostingResult {
     paymentType?: string
     status: string
     zohoJournalId?: string
+    zohoJournalNumber?: string
+    mappingSnapshot?: Record<string, unknown> | null
     zohoPayloadPreview?: {
       date: string
       reference_number: string
@@ -554,6 +601,29 @@ export async function fetchKsaSavedBatches(limit = 50) {
 
 export async function fetchKsaPaymentClearingBatch(batchId: number | string) {
   return api.get(`/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}`, longOpts) as Promise<PaymentClearingPreview>
+}
+
+export async function fetchKsaFeeJournalMappings(includeInactive = true) {
+  const qs = new URLSearchParams({ includeInactive: String(includeInactive) })
+  return api.get(`/api/amazon/payment-clearing/ksa/fee-journal-mappings?${qs.toString()}`, longOpts) as Promise<{
+    success: boolean
+    marketplace: 'KSA'
+    mappings: AmazonFeeJournalMappingRule[]
+  }>
+}
+
+export async function saveKsaFeeJournalMapping(body: Partial<AmazonFeeJournalMappingRule>) {
+  return api.post('/api/amazon/payment-clearing/ksa/fee-journal-mappings', body, longOpts) as Promise<{
+    success: boolean
+    mapping: AmazonFeeJournalMappingRule
+  }>
+}
+
+export async function fetchAmazonPaymentClearingZohoChartAccounts() {
+  return api.get('/api/amazon/payment-clearing/zoho/chart-accounts', longOpts) as Promise<{
+    success: boolean
+    accounts: ZohoChartAccount[]
+  }>
 }
 
 export async function approveKsaPaymentClearingBatch(batchId: number | string) {

@@ -118,6 +118,36 @@ async function getZohoAccountDiagnostics(req, res) {
   }
 }
 
+async function getZohoChartAccounts(req, res) {
+  try {
+    const json = await service.listZohoAccountsForFeeMapping()
+    res.json(json)
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
+async function getFeeJournalMappings(req, res) {
+  try {
+    const json = await service.listFeeJournalMappings({
+      marketplace: req.query?.marketplace || 'KSA',
+      includeInactive: req.query?.includeInactive === 'true',
+    })
+    res.json(json)
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
+async function postFeeJournalMapping(req, res) {
+  try {
+    const json = await service.saveFeeJournalMapping(req.body || {}, req.user?.userId)
+    res.json(json)
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
 async function getZohoOAuthAuthorize(req, res) {
   try {
     const json = service.getZohoOAuthAuthorizeUrl(req.query?.state || '')
@@ -195,6 +225,9 @@ module.exports = {
   postKsaZohoInvoiceMatch,
   getKsaBatch,
   getZohoAccountDiagnostics,
+  getZohoChartAccounts,
+  getFeeJournalMappings,
+  postFeeJournalMapping,
   getZohoOAuthAuthorize,
   getZohoOAuthCallback,
   postZohoOAuthExchange,

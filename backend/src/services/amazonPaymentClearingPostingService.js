@@ -376,6 +376,19 @@ async function postApprovedBatch({
 
     try {
       const created = await createManualJournal(journalRequest)
+      const mappingSnapshot = {
+        mappingRuleId: row.mappingRuleId || row.mappingRuleUsed?.id || null,
+        mappingRuleUsed: row.mappingRuleUsed || null,
+        normalizedFeeType: row.normalizedFeeType || '',
+        feeType: row.feeType || '',
+        rawTransactionType: row.rawTransactionType || '',
+        description: row.description || '',
+        debit: row.debit,
+        credit: row.credit,
+        rowNumbers: row.rowNumbers || [],
+        rowCount: row.rowCount || 0,
+        sourceAmount: row.totalAmount,
+      }
       const posting = await store.insertPosting({
         batchId: batch.batchId,
         invoiceId: null,
@@ -383,15 +396,29 @@ async function postApprovedBatch({
         paymentType,
         postingGroupKey: `APC-${batch.batchId}-${paymentType}`,
         zohoPaymentId: created.zohoJournalId,
+        zohoJournalNumber: created.zohoJournalNumber,
         amount: journalRequest.amount,
-        accountCode: row.debit?.accountCode || '',
+        accountCode: row.debit?.accountId || '',
         invoiceAllocations: row.rowNumbers?.map((rowNumber) => ({ rowNumber })) || [],
         referenceNumber: row.referenceNumber,
         description: row.notes,
+        notes: row.notes,
+        mappingSnapshot,
         status: 'posted',
       })
+      if (row.mappingRuleId || row.mappingRuleUsed?.id) {
+        await store.markFeeJournalMappingsUsed([row.mappingRuleId || row.mappingRuleUsed.id]).catch(() => {})
+      }
       result.summary.journalsCreated += 1
-      result.journals.push({ ...row, paymentType, status: 'created', zohoJournalId: posting.zohoPaymentId, zohoPayloadPreview })
+      result.journals.push({
+        ...row,
+        paymentType,
+        status: 'created',
+        zohoJournalId: posting.zohoPaymentId,
+        zohoJournalNumber: posting.zohoJournalNumber || created.zohoJournalNumber,
+        mappingSnapshot,
+        zohoPayloadPreview,
+      })
     } catch (err) {
       result.summary.errors += 1
       const error = {
@@ -424,7 +451,10 @@ async function postApprovedBatch({
         .map((row) => ({
           paymentType: row.paymentType,
           zohoJournalId: row.zohoJournalId,
+          zohoJournalNumber: row.zohoJournalNumber || '',
           referenceNumber: row.referenceNumber || '',
+          notes: row.notes || '',
+          mappingSnapshot: row.mappingSnapshot || null,
         })),
       reference: settlementReference.referenceBase,
       settlementReference,

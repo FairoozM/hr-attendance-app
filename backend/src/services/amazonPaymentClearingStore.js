@@ -136,6 +136,9 @@ async function ensureAmazonPaymentClearingTables() {
   await query(`ALTER TABLE amazon_payment_clearing_postings ADD COLUMN IF NOT EXISTS invoice_allocations JSONB NOT NULL DEFAULT '[]'::jsonb`)
   await query(`ALTER TABLE amazon_payment_clearing_postings ADD COLUMN IF NOT EXISTS reference_number VARCHAR(128)`)
   await query(`ALTER TABLE amazon_payment_clearing_postings ADD COLUMN IF NOT EXISTS description TEXT`)
+  await query(`ALTER TABLE amazon_payment_clearing_postings ADD COLUMN IF NOT EXISTS zoho_journal_number VARCHAR(128)`)
+  await query(`ALTER TABLE amazon_payment_clearing_postings ADD COLUMN IF NOT EXISTS notes TEXT`)
+  await query(`ALTER TABLE amazon_payment_clearing_postings ADD COLUMN IF NOT EXISTS mapping_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb`)
   await query(`
     CREATE TABLE IF NOT EXISTS amazon_payment_clearing_account_mappings (
       account_code VARCHAR(32) PRIMARY KEY,
@@ -144,6 +147,26 @@ async function ensureAmazonPaymentClearingTables() {
       source VARCHAR(128) NOT NULL DEFAULT 'chartofaccounts',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(`
+    CREATE TABLE IF NOT EXISTS amazon_payment_clearing_fee_journal_mappings (
+      id BIGSERIAL PRIMARY KEY,
+      marketplace VARCHAR(16) NOT NULL DEFAULT 'KSA',
+      normalized_fee_type VARCHAR(64) NOT NULL,
+      raw_transaction_type VARCHAR(128),
+      description_pattern TEXT,
+      debit_account_name TEXT,
+      debit_account_id VARCHAR(128),
+      credit_account_name TEXT,
+      credit_account_id VARCHAR(128),
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      priority INTEGER NOT NULL DEFAULT 100,
+      created_by INTEGER NULL,
+      updated_by INTEGER NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_used_at TIMESTAMPTZ NULL
     )
   `)
   await query(
@@ -183,6 +206,10 @@ async function ensureAmazonPaymentClearingTables() {
     `CREATE UNIQUE INDEX IF NOT EXISTS uq_amz_payment_clearing_postings_group
      ON amazon_payment_clearing_postings (batch_id, payment_type)
      WHERE posting_group_key IS NOT NULL`
+  )
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_amz_fee_journal_mappings_lookup
+     ON amazon_payment_clearing_fee_journal_mappings (marketplace, normalized_fee_type, is_active, priority DESC)`
   )
   // Collapse any historical duplicate statements down to one per settlement
   // period before any further reads/writes happen.
@@ -293,9 +320,34 @@ function mapPosting(row) {
     invoiceAllocations: safeJson(row.invoice_allocations, []),
     referenceNumber: row.reference_number || '',
     description: row.description || '',
+    zohoJournalNumber: row.zoho_journal_number || '',
+    notes: row.notes || '',
+    mappingSnapshot: safeJson(row.mapping_snapshot, {}),
     status: row.status || '',
     errorMessage: row.error_message || '',
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+  }
+}
+
+function mapFeeJournalMapping(row) {
+  if (!row) return null
+  return {
+    id: Number(row.id),
+    marketplace: row.marketplace || 'KSA',
+    normalizedFeeType: row.normalized_fee_type || '',
+    rawTransactionType: row.raw_transaction_type || '',
+    descriptionPattern: row.description_pattern || '',
+    debitAccountName: row.debit_account_name || '',
+    debitAccountId: row.debit_account_id || '',
+    creditAccountName: row.credit_account_name || '',
+    creditAccountId: row.credit_account_id || '',
+    isActive: row.is_active === true || row.is_active === 't',
+    priority: num(row.priority),
+    createdBy: row.created_by == null ? null : Number(row.created_by),
+    updatedBy: row.updated_by == null ? null : Number(row.updated_by),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+    lastUsedAt: row.last_used_at ? new Date(row.last_used_at).toISOString() : null,
   }
 }
 
@@ -709,6 +761,78 @@ async function upsertAccountMapping({ accountCode, accountName, accountId, sourc
   }
 }
 
+async function listFeeJournalMappings({ marketplace = 'KSA', includeInactive = false } = {}) {
+  const result = await query(
+    `SELECT *
+     FROM amazon_payment_clearing_fee_journal_mappings
+     WHERE marketplace = $1
+       AND ($2::boolean = true OR is_active = true)
+     ORDER BY normalized_fee_type ASC, priority DESC, id ASC`,
+    [String(marketplace || 'KSA').toUpperCase(), Boolean(includeInactive)]
+  )
+  return result.rows.map(mapFeeJournalMapping)
+}
+
+async function upsertFeeJournalMapping(mapping = {}) {
+  const id = mapping.id == null ? null : Number(mapping.id)
+  const values = [
+    String(mapping.marketplace || 'KSA').toUpperCase(),
+    String(mapping.normalizedFeeType || '').trim(),
+    mapping.rawTransactionType ? String(mapping.rawTransactionType).trim() : null,
+    mapping.descriptionPattern ? String(mapping.descriptionPattern).trim() : null,
+    mapping.debitAccountName ? String(mapping.debitAccountName).trim() : null,
+    mapping.debitAccountId ? String(mapping.debitAccountId).trim() : null,
+    mapping.creditAccountName ? String(mapping.creditAccountName).trim() : null,
+    mapping.creditAccountId ? String(mapping.creditAccountId).trim() : null,
+    mapping.isActive !== false,
+    Number(mapping.priority) || 100,
+    mapping.actorUserId == null ? null : Number(mapping.actorUserId),
+  ]
+  if (id) {
+    const result = await query(
+      `UPDATE amazon_payment_clearing_fee_journal_mappings
+       SET marketplace = $1,
+           normalized_fee_type = $2,
+           raw_transaction_type = $3,
+           description_pattern = $4,
+           debit_account_name = $5,
+           debit_account_id = $6,
+           credit_account_name = $7,
+           credit_account_id = $8,
+           is_active = $9,
+           priority = $10,
+           updated_by = $11,
+           updated_at = NOW()
+       WHERE id = $12
+       RETURNING *`,
+      [...values, id]
+    )
+    return mapFeeJournalMapping(result.rows[0])
+  }
+  const result = await query(
+    `INSERT INTO amazon_payment_clearing_fee_journal_mappings (
+      marketplace, normalized_fee_type, raw_transaction_type, description_pattern,
+      debit_account_name, debit_account_id, credit_account_name, credit_account_id,
+      is_active, priority, created_by, updated_by, created_at, updated_at
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,NOW(),NOW())
+    RETURNING *`,
+    values
+  )
+  return mapFeeJournalMapping(result.rows[0])
+}
+
+async function markFeeJournalMappingsUsed(ids = []) {
+  const cleanIds = Array.from(new Set((Array.isArray(ids) ? ids : []).map(Number).filter(Boolean)))
+  if (!cleanIds.length) return 0
+  const result = await query(
+    `UPDATE amazon_payment_clearing_fee_journal_mappings
+     SET last_used_at = NOW(), updated_at = NOW()
+     WHERE id = ANY($1::bigint[])`,
+    [cleanIds]
+  )
+  return result.rowCount || 0
+}
+
 async function listPostingsForBatch(batchId) {
   const result = await query(
     `SELECT * FROM amazon_payment_clearing_postings WHERE batch_id = $1 ORDER BY created_at ASC, id ASC`,
@@ -741,8 +865,9 @@ async function insertPosting(row) {
   const result = await query(
     `INSERT INTO amazon_payment_clearing_postings (
       batch_id, invoice_id, order_id, payment_type, posting_group_key, zoho_payment_id,
-      amount, account_code, invoice_allocations, reference_number, description, status, error_message, created_at
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,NOW())
+      amount, account_code, invoice_allocations, reference_number, description,
+      zoho_journal_number, notes, mapping_snapshot, status, error_message, created_at
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14::jsonb,$15,$16,NOW())
     ON CONFLICT (batch_id, invoice_id, payment_type) DO NOTHING
     RETURNING *`,
     [
@@ -757,6 +882,9 @@ async function insertPosting(row) {
       JSON.stringify(row.invoiceAllocations || []),
       row.referenceNumber || null,
       row.description || null,
+      row.zohoJournalNumber || null,
+      row.notes || null,
+      JSON.stringify(row.mappingSnapshot || {}),
       row.status || 'posted',
       row.errorMessage || null,
     ]
@@ -820,6 +948,9 @@ module.exports = {
   getAccountMappings,
   getAccountMappingByCode,
   upsertAccountMapping,
+  listFeeJournalMappings,
+  upsertFeeJournalMapping,
+  markFeeJournalMappingsUsed,
   listPostingsForBatch,
   findPosting,
   findGroupedPosting,

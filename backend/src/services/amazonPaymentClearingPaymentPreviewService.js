@@ -135,7 +135,9 @@ function buildPaymentPreviewFromBatch(batch) {
     .map((row) => ({
       key: row.key || `${row.feeType || 'fee'}-${row.rawTransactionType || ''}-${row.description || ''}`,
       classification: row.classification || 'NON_ORDER_LINKED_AMAZON_FEE',
+      marketplace: row.marketplace || 'KSA',
       feeType: row.feeType || '',
+      normalizedFeeType: row.normalizedFeeType || '',
       rawTransactionType: row.rawTransactionType || '',
       description: row.description || '',
       rowCount: Number(row.rowCount) || 0,
@@ -154,7 +156,10 @@ function buildPaymentPreviewFromBatch(batch) {
       },
       referenceNumber: row.journalPreview?.referenceNumber || '',
       notes: row.journalPreview?.notes || '',
-      status: row.mappingStatus === 'mapped' ? 'ready' : 'needs_mapping',
+      mappingRuleId: row.mappingRuleId || null,
+      mappingRuleUsed: row.mappingRuleUsed || null,
+      lastUsedAt: row.lastUsedAt || null,
+      status: row.mappingStatus === 'needs_mapping' ? 'needs_mapping' : 'ready',
     }))
   const refundReturnCreditNoteApplications = (Array.isArray(batch.matchedReturns) ? batch.matchedReturns : []).map((row) => ({
     orderId: row.orderId || '',

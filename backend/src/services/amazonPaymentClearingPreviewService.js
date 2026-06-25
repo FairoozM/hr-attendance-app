@@ -6,6 +6,8 @@ const {
   hasOrderId,
   ROW_CLASS,
   isNonOrderLinkedAmazonFee,
+  normalizeAmazonFeeType,
+  NORMALIZED_FEE_TYPE,
 } = require('./amazonPaymentClearingCategoryService')
 const { displayYmd } = require('./amazonPaymentClearingReferenceService')
 const { matchSettlementRowsToInvoices } = require('./amazonPaymentClearingZohoMatcher')
@@ -58,64 +60,47 @@ function buildSettlementLevelFees(rows) {
 }
 
 const DEFAULT_FEE_JOURNAL_ACCOUNT_SUGGESTIONS = Object.freeze({
-  [CATEGORY.STORAGE_FEE]: {
+  [NORMALIZED_FEE_TYPE.STORAGE]: {
     debitAccountName: 'KSA Amazon Storage Exp',
     creditAccountName: 'KSA-Amazon Undeposited Funds',
   },
-  [CATEGORY.ADVERTISING_FEE]: {
+  [NORMALIZED_FEE_TYPE.ADVERTISING]: {
     debitAccountName: 'KSA-Amazon Advertising Exp',
     creditAccountName: 'KSA-Amazon Undeposited Funds',
   },
-  [CATEGORY.PREMIUM_SERVICES_FEE]: {
+  [NORMALIZED_FEE_TYPE.PREMIUM_SERVICES]: {
     debitAccountName: 'KSA Amazon Commission Exp',
     creditAccountName: 'KSA-Amazon Uncleared Commission Exp',
   },
-  [CATEGORY.PREMIUM_SERVICES_FEE_TAX]: {
+  [NORMALIZED_FEE_TYPE.COMMISSION]: {
     debitAccountName: 'KSA Amazon Commission Exp',
     creditAccountName: 'KSA-Amazon Uncleared Commission Exp',
   },
-  [CATEGORY.FBA_FULFILLMENT_FEE]: {
+  [NORMALIZED_FEE_TYPE.SHIPPING_FBA]: {
     debitAccountName: 'KSA Amazon Shipping Exp',
     creditAccountName: 'KSA-Amazon Uncleared Shipping Exp',
   },
-  [CATEGORY.EASY_SHIP_CHARGES]: {
-    debitAccountName: 'KSA Amazon Shipping Exp',
-    creditAccountName: 'KSA-Amazon Uncleared Shipping Exp',
-  },
-  [CATEGORY.OTHER_AMAZON_FEE]: {
+  [NORMALIZED_FEE_TYPE.OTHER_ACCOUNT_LEVEL_FEE]: {
     debitAccountName: '',
     creditAccountName: '',
   },
 })
 
-function configuredFeeJournalAccounts() {
-  if (!process.env.AMAZON_KSA_FEE_JOURNAL_ACCOUNT_MAP) return {}
-  try {
-    return JSON.parse(process.env.AMAZON_KSA_FEE_JOURNAL_ACCOUNT_MAP) || {}
-  } catch (err) {
-    console.warn('[amazon-payment-clearing] invalid AMAZON_KSA_FEE_JOURNAL_ACCOUNT_MAP:', err.message)
-    return {}
-  }
-}
-
-function accountSuggestionForFeeType(feeType) {
-  const configured = configuredFeeJournalAccounts()[feeType] || {}
-  const fallback = DEFAULT_FEE_JOURNAL_ACCOUNT_SUGGESTIONS[feeType] || DEFAULT_FEE_JOURNAL_ACCOUNT_SUGGESTIONS[CATEGORY.OTHER_AMAZON_FEE]
+function suggestedAccountsForNormalizedFeeType(normalizedFeeType) {
+  const fallback = DEFAULT_FEE_JOURNAL_ACCOUNT_SUGGESTIONS[normalizedFeeType] || DEFAULT_FEE_JOURNAL_ACCOUNT_SUGGESTIONS[NORMALIZED_FEE_TYPE.OTHER_ACCOUNT_LEVEL_FEE]
   return {
-    debitAccountCode: configured.debitAccountCode || configured.debit_account_code || '',
-    debitAccountName: configured.debitAccountName || configured.debit_account_name || fallback.debitAccountName || '',
-    debitAccountId: configured.debitAccountId || configured.debit_account_id || '',
-    creditAccountCode: configured.creditAccountCode || configured.credit_account_code || '',
-    creditAccountName: configured.creditAccountName || configured.credit_account_name || fallback.creditAccountName || '',
-    creditAccountId: configured.creditAccountId || configured.credit_account_id || '',
+    debitAccountName: fallback.debitAccountName || '',
+    debitAccountId: '',
+    creditAccountName: fallback.creditAccountName || '',
+    creditAccountId: '',
   }
 }
 
-function mappingStatus(accounts, amount = 0) {
+function mappingStatus(accounts, amount = 0, rule = null) {
   if (Math.abs(round2(Number(amount) || 0)) <= 0.01) return 'not_required'
-  return (accounts.debitAccountId || accounts.debitAccountCode) && (accounts.creditAccountId || accounts.creditAccountCode)
-    ? 'mapped'
-    : 'needs_mapping'
+  if (rule && rule.isActive === false) return 'inactive_mapping'
+  if (rule && rule.isSuspense === true) return 'suspense_mapping_used'
+  return accounts.debitAccountId && accounts.creditAccountId ? 'mapped' : 'needs_mapping'
 }
 
 function journalReferenceNumber(report = {}) {
@@ -130,18 +115,49 @@ function journalNotes(report = {}) {
   return `Transferring Amazon KSA payment from ${referenceNumber} to Expenses accounts`
 }
 
-function buildNonOrderLinkedAmazonFeeMappings(rows, report = {}) {
+function matchesDescriptionPattern(pattern, description) {
+  const p = String(pattern || '').trim()
+  if (!p) return true
+  const value = String(description || '').trim()
+  if (p.startsWith('/') && p.lastIndexOf('/') > 0) {
+    const last = p.lastIndexOf('/')
+    try {
+      return new RegExp(p.slice(1, last), p.slice(last + 1) || 'i').test(value)
+    } catch {
+      return false
+    }
+  }
+  return value.toLowerCase().includes(p.toLowerCase())
+}
+
+function findFeeJournalMappingRule(entry, rules = []) {
+  return (Array.isArray(rules) ? rules : [])
+    .filter((rule) => {
+      if (String(rule.marketplace || 'KSA').toUpperCase() !== String(entry.marketplace || 'KSA').toUpperCase()) return false
+      if (String(rule.normalizedFeeType || '') !== String(entry.normalizedFeeType || '')) return false
+      if (rule.rawTransactionType && String(rule.rawTransactionType).trim().toLowerCase() !== String(entry.rawTransactionType || '').trim().toLowerCase()) return false
+      if (!matchesDescriptionPattern(rule.descriptionPattern, entry.description)) return false
+      return rule.isActive !== false
+    })
+    .sort((a, b) => (Number(b.priority) || 0) - (Number(a.priority) || 0) || (Number(a.id) || 0) - (Number(b.id) || 0))[0] || null
+}
+
+function buildNonOrderLinkedAmazonFeeMappings(rows, report = {}, mappingRules = []) {
+  const marketplace = String(report.marketplace || 'KSA').toUpperCase()
   const groups = new Map()
   for (const row of Array.isArray(rows) ? rows : []) {
     if (!isNonOrderLinkedAmazonFee(row)) continue
     const feeType = row.category || CATEGORY.OTHER_AMAZON_FEE
+    const normalizedFeeType = normalizeAmazonFeeType(row)
     const rawTransactionType = row.transactionType || ''
     const description = row.amountDescription || row.amountType || ''
-    const key = [feeType, rawTransactionType, description].join('|')
+    const key = [marketplace, normalizedFeeType, rawTransactionType, description].join('|')
     const entry = groups.get(key) || {
       key,
       classification: ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE,
+      marketplace,
       feeType,
+      normalizedFeeType,
       rawTransactionType,
       description,
       rowCount: 0,
@@ -155,28 +171,40 @@ function buildNonOrderLinkedAmazonFeeMappings(rows, report = {}) {
   }
   return Array.from(groups.values())
     .map((entry) => {
-      const accounts = accountSuggestionForFeeType(entry.feeType)
+      const rule = findFeeJournalMappingRule(entry, mappingRules)
+      const suggestion = suggestedAccountsForNormalizedFeeType(entry.normalizedFeeType)
+      const accounts = rule
+        ? {
+            debitAccountName: rule.debitAccountName || '',
+            debitAccountId: rule.debitAccountId || '',
+            creditAccountName: rule.creditAccountName || '',
+            creditAccountId: rule.creditAccountId || '',
+          }
+        : suggestion
       return {
         ...entry,
         ...accounts,
-        mappingStatus: mappingStatus(accounts, entry.totalAmount),
+        mappingRuleId: rule?.id || null,
+        mappingRuleUsed: rule || null,
+        lastUsedAt: rule?.lastUsedAt || null,
+        mappingStatus: mappingStatus(accounts, entry.totalAmount, rule),
         journalPreview: {
           referenceNumber: journalReferenceNumber(report),
           notes: journalNotes(report),
           debit: {
-            accountCode: accounts.debitAccountCode,
+            accountId: accounts.debitAccountId,
             accountName: accounts.debitAccountName,
             amount: Math.abs(round2(entry.totalAmount)),
           },
           credit: {
-            accountCode: accounts.creditAccountCode,
+            accountId: accounts.creditAccountId,
             accountName: accounts.creditAccountName,
             amount: Math.abs(round2(entry.totalAmount)),
           },
         },
       }
     })
-    .sort((a, b) => a.feeType.localeCompare(b.feeType) || a.rawTransactionType.localeCompare(b.rawTransactionType))
+    .sort((a, b) => a.normalizedFeeType.localeCompare(b.normalizedFeeType) || a.rawTransactionType.localeCompare(b.rawTransactionType))
 }
 
 function groupRowsByOrder(rows) {
@@ -417,6 +445,7 @@ function buildPreview({
   creditNoteBlockingRows = [],
   parserWarnings = [],
   rawRowCount = rows.length,
+  feeJournalMappingRules = [],
 }) {
   const allRows = Array.isArray(rows) ? rows : []
   const refundReturnRows = allRows.filter(isRefundReturnRow)
@@ -429,7 +458,7 @@ function buildPreview({
   const orderLevelFeeRows = salesAndFeeRows.filter((row) => hasOrderId(row) && isFeeCategory(row.category))
   const settlementLevelFeeRows = allRows.filter((row) => !hasOrderId(row) && isFeeCategory(row.category))
   const rowsWithNumbers = allRows.map((row, idx) => ({ ...row, rowNumber: idx + 1 }))
-  const nonOrderLinkedAmazonFeeMappings = buildNonOrderLinkedAmazonFeeMappings(rowsWithNumbers, report)
+  const nonOrderLinkedAmazonFeeMappings = buildNonOrderLinkedAmazonFeeMappings(rowsWithNumbers, report, feeJournalMappingRules)
   const matchedInvoiceTotal = round2(
     matchedOrders.reduce((acc, row) => acc + (Number(row.zohoInvoiceTotal) || 0), 0)
   )

@@ -167,11 +167,11 @@ export function AmazonFeeJournalMappingTable({ rows }: { rows: AmazonFeeJournalM
               <td className="apc-money">{money(row.totalAmount)}</td>
               <td>
                 {row.debitAccountName || '-'}
-                {row.debitAccountCode ? <div className="apc-muted apc-cell-sub">code: {row.debitAccountCode}</div> : null}
+                {row.debitAccountId ? <div className="apc-muted apc-cell-sub">id: {row.debitAccountId}</div> : null}
               </td>
               <td>
                 {row.creditAccountName || '-'}
-                {row.creditAccountCode ? <div className="apc-muted apc-cell-sub">code: {row.creditAccountCode}</div> : null}
+                {row.creditAccountId ? <div className="apc-muted apc-cell-sub">id: {row.creditAccountId}</div> : null}
               </td>
               <td>
                 <span className={`apc-pill ${row.mappingStatus === 'needs_mapping' ? 'apc-pill--danger' : 'apc-pill--success'}`}>
@@ -215,8 +215,8 @@ export function AmazonFeeJournalPreviewTable({ rows }: { rows: AmazonFeeJournalL
               <td>{row.feeType}</td>
               <td><code className="apc-ref">{row.referenceNumber || '-'}</code></td>
               <td>{row.notes || '-'}</td>
-              <td>{row.debit.accountName || '-'}{row.debit.accountCode ? <div className="apc-muted apc-cell-sub">code: {row.debit.accountCode}</div> : null}</td>
-              <td>{row.credit.accountName || '-'}{row.credit.accountCode ? <div className="apc-muted apc-cell-sub">code: {row.credit.accountCode}</div> : null}</td>
+              <td>{row.debit.accountName || '-'}{row.debit.accountId ? <div className="apc-muted apc-cell-sub">id: {row.debit.accountId}</div> : null}</td>
+              <td>{row.credit.accountName || '-'}{row.credit.accountId ? <div className="apc-muted apc-cell-sub">id: {row.credit.accountId}</div> : null}</td>
               <td className="apc-money">{money(Math.abs(row.totalAmount))}</td>
               <td>{row.status}</td>
             </tr>

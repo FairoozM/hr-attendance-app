@@ -33,6 +33,16 @@ const ROW_CLASS = Object.freeze({
   UNKNOWN: 'unknown',
 })
 
+const NORMALIZED_FEE_TYPE = Object.freeze({
+  ADVERTISING: 'ADVERTISING',
+  STORAGE: 'STORAGE',
+  PREMIUM_SERVICES: 'PREMIUM_SERVICES',
+  COMMISSION: 'COMMISSION',
+  SHIPPING_FBA: 'SHIPPING_FBA',
+  SUBSCRIPTION: 'SUBSCRIPTION',
+  OTHER_ACCOUNT_LEVEL_FEE: 'OTHER_ACCOUNT_LEVEL_FEE',
+})
+
 const CATEGORY_ORDER = [
   CATEGORY.PRODUCT_SALES,
   CATEGORY.PRINCIPAL,
@@ -225,9 +235,67 @@ function isNonOrderLinkedAmazonFee(row) {
   return !hasOrderId(row) && (isFeeCategory(category) || category === CATEGORY.OTHER)
 }
 
+function normalizeAmazonFeeType(row) {
+  const category = row?.category || categorizeSettlementRow(row)
+  const hay = text(row)
+  const tx = field(row, 'transactionType').toLowerCase()
+  const amountType = field(row, 'amountType').toLowerCase()
+  const amountDescription = field(row, 'amountDescription').toLowerCase()
+
+  if (
+    category === CATEGORY.ADVERTISING_FEE ||
+    hay.includes('advertising') ||
+    hay.includes('sponsored products') ||
+    hay.includes('sponsored brands') ||
+    (tx === 'servicefee' && amountType.includes('cost of advertising'))
+  ) {
+    return NORMALIZED_FEE_TYPE.ADVERTISING
+  }
+  if (
+    category === CATEGORY.STORAGE_FEE ||
+    hay.includes('storage fee') ||
+    hay.includes('fba storage') ||
+    hay.includes('monthly storage') ||
+    hay.includes('storagerenewalbilling')
+  ) {
+    return NORMALIZED_FEE_TYPE.STORAGE
+  }
+  if (
+    category === CATEGORY.PREMIUM_SERVICES_FEE ||
+    category === CATEGORY.PREMIUM_SERVICES_FEE_TAX ||
+    hay.includes('premium services fee') ||
+    hay.includes('selling on amazon fee') ||
+    hay.includes('marketplace fee') ||
+    (tx === 'amazonfees' && amountDescription.includes('base fee'))
+  ) {
+    return NORMALIZED_FEE_TYPE.PREMIUM_SERVICES
+  }
+  if (category === CATEGORY.COMMISSION || hay.includes('commission')) {
+    return NORMALIZED_FEE_TYPE.COMMISSION
+  }
+  if (
+    category === CATEGORY.FBA_FULFILLMENT_FEE ||
+    category === CATEGORY.EASY_SHIP_CHARGES ||
+    category === CATEGORY.CLOSING_FEE ||
+    hay.includes('fba fee') ||
+    hay.includes('shipping fee') ||
+    hay.includes('fulfillment fee') ||
+    hay.includes('fulfilment fee') ||
+    hay.includes('shipping chargeback') ||
+    hay.includes('delivery service fee')
+  ) {
+    return NORMALIZED_FEE_TYPE.SHIPPING_FBA
+  }
+  if (hay.includes('subscription')) {
+    return NORMALIZED_FEE_TYPE.SUBSCRIPTION
+  }
+  return NORMALIZED_FEE_TYPE.OTHER_ACCOUNT_LEVEL_FEE
+}
+
 module.exports = {
   CATEGORY,
   ROW_CLASS,
+  NORMALIZED_FEE_TYPE,
   CATEGORY_ORDER,
   categorizeSettlementRow,
   classifySettlementRow,
@@ -236,4 +304,5 @@ module.exports = {
   isSalesCategory,
   hasOrderId,
   isNonOrderLinkedAmazonFee,
+  normalizeAmazonFeeType,
 }

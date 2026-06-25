@@ -350,6 +350,10 @@ export function AmazonPaymentClearingPage() {
     onGeneratePaymentPreview,
     onRunPosting,
     onOpenForceRepost: () => setForceRepostOpen(true),
+    onReloadCurrentBatch: async () => {
+      const id = preview?.batch?.batchId || routeBatchId || loadedBatchId
+      if (id) await openBatch(id, { navigate: false })
+    },
   }
 
   const stepStatuses = useMemo<Record<number, StepStatus>>(() => {
