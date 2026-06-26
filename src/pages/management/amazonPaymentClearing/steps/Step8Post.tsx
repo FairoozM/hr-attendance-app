@@ -1,4 +1,4 @@
-import { dateText, money, PostingResultTable, SummaryCard } from '../clearingShared'
+import { AmazonFeeJournalPreviewTable, dateText, money, PostingResultTable, SummaryCard } from '../clearingShared'
 import type { ClearingContext } from './clearingContext'
 
 export function Step8Post({ ctx }: { ctx: ClearingContext }) {
@@ -66,6 +66,16 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
         )}
       </div>
       {!paymentPreview ? <p className="apc-muted">Generate the payment preview in Step 7 before posting.</p> : null}
+
+      {!postingResult && paymentPreview?.amazonFeeJournalLines?.length ? (
+        <section>
+          <h3 className="ainv-page__title" style={{ fontSize: '1rem' }}>Amazon Fee Manual Journal Preview</h3>
+          <p className="apc-muted apc-table-caption">
+            These mapped non-order Amazon fees will be posted as Zoho manual journals, not invoice payments.
+          </p>
+          <AmazonFeeJournalPreviewTable rows={paymentPreview.amazonFeeJournalLines} />
+        </section>
+      ) : null}
 
       {postingResult ? (
         <>

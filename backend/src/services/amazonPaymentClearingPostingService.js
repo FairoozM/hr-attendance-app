@@ -214,14 +214,12 @@ async function postApprovedBatch({
 }) {
   const latestPreview = await store.getLatestPaymentPreviewForBatch(batch.batchId)
   ensureCanPostBatch(batch, Boolean(latestPreview), { dryRun, allowPosted })
+  const currentPreview = buildPaymentPreviewFromBatch(batch)
   const paymentPreview = {
     batchId: batch.batchId,
-    ...(latestPreview || buildPaymentPreviewFromBatch(batch)),
-    paymentPlanSummary: latestPreview?.paymentPlanSummary || latestPreview?.summary || latestPreview?.summaryJson,
-    payments: latestPreview?.payments || latestPreview?.paymentsJson,
-    refundReturnCreditNoteApplications: latestPreview?.refundReturnCreditNoteApplications || [],
-    adjustmentClearings: latestPreview?.adjustmentClearings || [],
-    amazonFeeJournalLines: latestPreview?.amazonFeeJournalLines || [],
+    ...currentPreview,
+    paymentPreviewId: latestPreview?.paymentPreviewId || null,
+    createdAt: latestPreview?.createdAt || null,
   }
   const paymentRows = flattenPaymentPreview(paymentPreview)
   const customerIdsByInvoice = customerByInvoiceId(batch)
