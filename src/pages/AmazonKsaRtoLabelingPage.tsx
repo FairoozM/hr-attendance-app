@@ -287,6 +287,19 @@ export function AmazonKsaRtoLabelingPage() {
     }
   }
 
+  async function saveDraftForUpload() {
+    const invalid = rows.filter((row) => ['Missing Product Code', 'Invalid Qty'].includes(rowStatus(row)))
+    if (invalid.length) throw new Error('Product code and positive quantity are required before uploading files.')
+    const result = activeBatchId
+      ? await updateKsaRtoLabelBatch(activeBatchId, payload())
+      : await createKsaRtoLabelBatch(payload())
+    const nextRows = (result.batch.rows || []).map((row, index) => normalizeRow(row, index))
+    setActiveBatchId(result.batch.id)
+    setRows(nextRows)
+    await refreshBatches()
+    return { batchId: result.batch.id, rows: nextRows }
+  }
+
   async function openBatch(id: number) {
     setBusy(`open-${id}`)
     setError('')
@@ -325,15 +338,20 @@ export function AmazonKsaRtoLabelingPage() {
     }
   }
 
-  async function uploadRowFile(row: DraftRow, fileType: RowFileKind, file: File) {
-    if (!activeBatchId || typeof row.id !== 'number') {
-      setError('Save the batch first, then upload SKU images and PDFs.')
-      return
-    }
+  async function uploadRowFile(row: DraftRow, rowIndex: number, fileType: RowFileKind, file: File) {
     const key = `${fileType}-${row.id}`
     setBusy(key)
+    setError('')
     try {
-      const result = await uploadKsaRtoLabelRowFile(activeBatchId, row.id, fileType, file)
+      let batchId = activeBatchId
+      let targetRow = row
+      if (!batchId || typeof targetRow.id !== 'number') {
+        const saved = await saveDraftForUpload()
+        batchId = saved.batchId
+        targetRow = saved.rows[rowIndex]
+      }
+      if (!batchId || typeof targetRow?.id !== 'number') throw new Error('Could not prepare this SKU row for upload.')
+      const result = await uploadKsaRtoLabelRowFile(batchId, targetRow.id, fileType, file)
       replaceServerRow(result.row)
       setMessage(fileType === 'product_image' ? 'Product image uploaded.' : 'FNSKU label PDF uploaded.')
       await refreshBatches()
@@ -588,14 +606,13 @@ export function AmazonKsaRtoLabelingPage() {
         <div className="akr-panel-head">
           <div>
             <h2>SKU Labeling Grid</h2>
-            <p className="akr-muted">Save the batch first, then upload a product image and FNSKU label PDF on each SKU row.</p>
+            <p className="akr-muted">Click Upload Image or Upload PDF on each SKU row. New drafts are saved automatically before upload.</p>
           </div>
           <button type="button" className="ainv-btn" onClick={() => setRows((prev) => [...prev, newRow()])}>Add row</button>
         </div>
         <div className="akr-sku-grid">
           {rows.map((row, index) => {
             const status = rowStatus(row)
-            const canUpload = Boolean(activeBatchId && typeof row.id === 'number')
             return (
               <article key={row.id} className={`akr-sku-card akr-sku-card--${statusClass(status)}`}>
                 <div className="akr-sku-card__sr">#{index + 1}</div>
@@ -605,15 +622,14 @@ export function AmazonKsaRtoLabelingPage() {
                   ) : (
                     <div className="akr-image-placeholder">Missing image</div>
                   )}
-                  <label className={`akr-upload-chip ${!canUpload ? 'akr-upload-chip--disabled' : ''}`}>
+                  <label className="akr-upload-chip">
                     {row.productImage ? 'Replace image' : 'Upload image'}
                     <input
                       type="file"
                       accept="image/png,image/jpeg,image/webp"
-                      disabled={!canUpload}
                       onChange={(e) => {
                         const file = e.target.files?.[0]
-                        if (file) void uploadRowFile(row, 'product_image', file)
+                        if (file) void uploadRowFile(row, index, 'product_image', file)
                         e.currentTarget.value = ''
                       }}
                     />
@@ -642,15 +658,14 @@ export function AmazonKsaRtoLabelingPage() {
                   ) : (
                     <div className="akr-pdf-missing">Missing PDF</div>
                   )}
-                  <label className={`akr-upload-chip ${!canUpload ? 'akr-upload-chip--disabled' : ''}`}>
+                  <label className="akr-upload-chip">
                     {row.labelPdf ? 'Replace PDF' : 'Upload PDF'}
                     <input
                       type="file"
                       accept="application/pdf,.pdf"
-                      disabled={!canUpload}
                       onChange={(e) => {
                         const file = e.target.files?.[0]
-                        if (file) void uploadRowFile(row, 'fnsku_label_pdf', file)
+                        if (file) void uploadRowFile(row, index, 'fnsku_label_pdf', file)
                         e.currentTarget.value = ''
                       }}
                     />
