@@ -625,7 +625,6 @@ export function AmazonKsaRtoLabelingPage() {
                   <label className="ainv-label">Product name / code<input className="akr-cell-input" value={row.productCode} onChange={(e) => updateRow(row.id, { productCode: e.target.value })} /></label>
                   <label className="ainv-label">FNSKU No<input className="akr-cell-input" value={row.fnskuNo} placeholder="Warning only if missing" onChange={(e) => updateRow(row.id, { fnskuNo: e.target.value })} /></label>
                   <label className="ainv-label">Quantity<input className="akr-cell-input akr-qty" type="number" min={0} value={row.quantity} onChange={(e) => updateRow(row.id, { quantity: Number(e.target.value) })} /></label>
-                  <label className="ainv-label akr-notes-field">Notes<input className="akr-cell-input" value={row.notes || ''} onChange={(e) => updateRow(row.id, { notes: e.target.value })} /></label>
                 </div>
 
                 <div className="akr-pdf-box">

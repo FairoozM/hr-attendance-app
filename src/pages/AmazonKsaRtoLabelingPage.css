@@ -223,10 +223,6 @@
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(7rem, 0.35fr);
 }
 
-.akr-notes-field {
-  grid-column: 1 / -1;
-}
-
 .akr-cell-input {
   width: 100%;
   border: 1px solid var(--theme-border);
