@@ -315,10 +315,16 @@ function normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules = [])
 async function batchWithCurrentFeeJournalMappings(batch) {
   if (!batch) return batch
   const feeJournalMappingRules = await store.listFeeJournalMappings({ marketplace: batch.marketplace || MARKETPLACE }).catch(() => [])
+  let allRows = Array.isArray(batch.allRows) ? batch.allRows : []
+  if (allRows.length === 0 && batch.batchId != null) {
+    const storedRows = await store.listRowsForBatch(batch.batchId).catch(() => [])
+    allRows = reconstructAllRowsFromStored(storedRows)
+  }
   return {
     ...batch,
+    allRows,
     nonOrderLinkedAmazonFeeMappings: buildNonOrderLinkedAmazonFeeMappings(
-      Array.isArray(batch.allRows) ? batch.allRows : [],
+      allRows,
       batch.report || {},
       feeJournalMappingRules
     ),
