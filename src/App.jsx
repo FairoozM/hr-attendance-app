@@ -110,6 +110,7 @@ import { AmazonSyncHealthPage } from './pages/AmazonSyncHealthPage'
 import { AmazonZohoStockPage } from './pages/AmazonZohoStockPage'
 import { SkuChannelCoveragePage } from './pages/SkuChannelCoveragePage'
 import { AmazonOutOfStockClearancePage } from './pages/AmazonOutOfStockClearancePage'
+import { AmazonKsaRtoLabelingPage } from './pages/AmazonKsaRtoLabelingPage'
 import { AmazonFlatFileBulkGenerator } from './pages/AmazonFlatFileBulkGenerator'
 import { AmazonReturnReportPage } from './pages/agent/AmazonReturnReportPage'
 import NoonIntegrationPage from './pages/NoonIntegrationPage'
@@ -437,6 +438,10 @@ function AppContent() {
               <AmazonOutOfStockClearancePage />
             </AdminOnly>
           }
+        />
+        <Route
+          path="amazon/ksa-rto-labeling"
+          element={<AmazonKsaRtoLabelingPage />}
         />
         <Route
           path="ai/amazon-listing"

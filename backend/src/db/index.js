@@ -1097,6 +1097,12 @@ async function testConnection() {
     console.error('[db] ensureAmazonPaymentClearingTables skipped/failed (non-fatal):', e.message || e)
   }
   try {
+    const { ensureAmazonKsaRtoLabelingTables } = require('../services/amazonKsaRtoLabelingService')
+    await ensureAmazonKsaRtoLabelingTables()
+  } catch (e) {
+    console.error('[db] ensureAmazonKsaRtoLabelingTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
     const { ensureAmazonReturnReconciliationTables } = require('../services/amazonReturnReconciliationService')
     await ensureAmazonReturnReconciliationTables()
   } catch (e) {

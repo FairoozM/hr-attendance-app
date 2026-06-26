@@ -40,6 +40,13 @@ function createTaskAttachmentKey(taskId, fileName) {
   return `task-attachments/${taskId}/${crypto.randomUUID()}-${safe}`
 }
 
+function createAmazonKsaRtoLabelKey(batchId, fileType, fileName) {
+  const safe = sanitizeName(fileName)
+  const sid = String(batchId || 'draft').replace(/[^a-zA-Z0-9._-]/g, '_')
+  const kind = String(fileType || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')
+  return `amazon-ksa-rto-labeling/${sid}/${kind}/${crypto.randomUUID()}-${safe}`
+}
+
 function createInfluencerInsightsImageKey(influencerId, fileName) {
   const safe = sanitizeName(fileName)
   const sid = String(influencerId || 'unknown').replace(/[^a-zA-Z0-9._-]/g, '_')
@@ -112,6 +119,7 @@ module.exports = {
   createProfileDocKey,
   createAnnualLeaveLetterKey,
   createTaskAttachmentKey,
+  createAmazonKsaRtoLabelKey,
   createInfluencerInsightsImageKey,
   createInfluencerProfileImageKey,
   getUploadUrl,

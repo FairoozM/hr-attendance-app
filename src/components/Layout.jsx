@@ -77,6 +77,11 @@ const AMAZON_NAV_ITEMS = [
     adminOnly: true,
     searchHint: 'amazon out of stock clearance zoho vigil life smile replenish uae ksa',
   },
+  {
+    to: '/amazon/ksa-rto-labeling',
+    label: 'Amazon KSA RTO Labeling',
+    searchHint: 'amazon ksa rto fnsku label upload pdf sheet agent warehouse lifesmile',
+  },
   { to: '/ai/amazon-listing', label: 'Amazon Listing' },
   { to: '/ai/amazon-bulk-listing', label: 'Amazon Bulk Generator' },
   { to: '/ai/listing-batches', label: 'Listing Batches' },
