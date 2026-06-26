@@ -40,11 +40,12 @@ function createTaskAttachmentKey(taskId, fileName) {
   return `task-attachments/${taskId}/${crypto.randomUUID()}-${safe}`
 }
 
-function createAmazonKsaRtoLabelKey(batchId, fileType, fileName) {
+function createAmazonKsaRtoLabelKey(batchId, fileType, fileName, rowId = null) {
   const safe = sanitizeName(fileName)
   const sid = String(batchId || 'draft').replace(/[^a-zA-Z0-9._-]/g, '_')
   const kind = String(fileType || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')
-  return `amazon-ksa-rto-labeling/${sid}/${kind}/${crypto.randomUUID()}-${safe}`
+  const rowPart = rowId == null ? '' : `/rows/${String(rowId).replace(/[^a-zA-Z0-9._-]/g, '_')}`
+  return `amazon-ksa-rto-labeling/${sid}${rowPart}/${kind}/${crypto.randomUUID()}-${safe}`
 }
 
 function createInfluencerInsightsImageKey(influencerId, fileName) {

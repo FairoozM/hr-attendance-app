@@ -5,14 +5,13 @@ import * as XLSX from 'xlsx'
 import {
   createKsaRtoLabelBatch,
   deleteKsaRtoLabelBatch,
-  deleteKsaRtoLabelFile,
+  deleteKsaRtoLabelRowFile,
   getKsaRtoLabelBatch,
   listKsaRtoLabelBatches,
   parseKsaRtoLabelFile,
   updateKsaRtoLabelBatch,
-  uploadKsaRtoLabelFile,
+  uploadKsaRtoLabelRowFile,
   type KsaRtoBatchPayload,
-  type KsaRtoFileType,
   type KsaRtoLabelBatch,
   type KsaRtoLabelFile,
   type KsaRtoLabelRow,
@@ -26,6 +25,7 @@ const DEFAULT_TITLE = 'Amazon KSA RTO - LIFESMILE'
 const DEFAULT_DESTINATION = 'Wanasa-Lifesmile'
 
 type DraftRow = KsaRtoLabelRow & { id: string | number }
+type RowFileKind = 'product_image' | 'fnsku_label_pdf'
 
 interface BatchMeta {
   batchTitle: string
@@ -42,38 +42,44 @@ function newRow(): DraftRow {
     fnskuNo: '',
     quantity: 1,
     notes: '',
-    status: 'Missing FNSKU',
+    status: 'Missing Product Code',
+    productImage: null,
+    labelPdf: null,
   }
 }
 
-function rowStatus(row: Pick<KsaRtoLabelRow, 'productCode' | 'fnskuNo' | 'quantity'>): KsaRtoRowStatus {
-  if (!row.productCode.trim() || !Number.isFinite(Number(row.quantity)) || Number(row.quantity) <= 0) {
-    return 'Invalid Qty'
-  }
-  if (!row.fnskuNo.trim()) return 'Missing FNSKU'
+function rowStatus(row: Pick<KsaRtoLabelRow, 'productCode' | 'fnskuNo' | 'quantity' | 'productImage' | 'labelPdf'>): KsaRtoRowStatus {
+  if (!String(row.productCode || '').trim()) return 'Missing Product Code'
+  if (!Number.isFinite(Number(row.quantity)) || Number(row.quantity) <= 0) return 'Invalid Qty'
+  if (!String(row.fnskuNo || '').trim()) return 'Missing FNSKU'
+  if (!row.productImage) return 'Missing Image'
+  if (!row.labelPdf) return 'Missing PDF'
   return 'Ready'
 }
 
 function normalizeRow(row: Partial<KsaRtoLabelRow>, index = 0): DraftRow {
   const quantity = Number(String(row.quantity ?? '').replace(/,/g, '').trim())
-  const draft = {
+  const draft: DraftRow = {
     id: row.id ?? `parsed-${Date.now()}-${index}`,
     productCode: String(row.productCode ?? '').trim(),
     fnskuNo: String(row.fnskuNo ?? '').trim(),
     quantity: Number.isFinite(quantity) ? quantity : 0,
     notes: String(row.notes ?? '').trim(),
+    productImage: row.productImage || null,
+    labelPdf: row.labelPdf || null,
+    files: row.files || [],
   }
   return { ...draft, status: rowStatus(draft) }
 }
 
 function formatDate(value?: string) {
-  if (!value) return '—'
+  if (!value) return '-'
   return new Date(value).toLocaleString()
 }
 
 function formatSize(bytes?: number) {
   const size = Number(bytes || 0)
-  if (!size) return '—'
+  if (!size) return '-'
   if (size < 1024) return `${size} B`
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
@@ -92,7 +98,7 @@ function parsePastedRows(text: string): DraftRow[] {
     .filter(Boolean)
   if (!lines.length) return []
   const firstCells = lines[0].split(/\t|,/).map((cell) => cell.trim().toLowerCase())
-  const hasHeader = firstCells.some((cell) => /product|sku|code|fnsku|qty|quantity/.test(cell))
+  const hasHeader = firstCells.some((cell) => /product|sku|code|fnsku|qty|quantity|notes/.test(cell))
   const dataLines = hasHeader ? lines.slice(1) : lines
   return dataLines
     .map((line, index) => {
@@ -110,18 +116,28 @@ function parsePastedRows(text: string): DraftRow[] {
     .filter((row) => row.productCode || row.fnskuNo || row.quantity)
 }
 
-function buildPrintableHtml(meta: BatchMeta, rows: DraftRow[], files: KsaRtoLabelFile[], headerImageUrl?: string) {
-  const pdfNames = files.filter((file) => file.fileType === 'fnsku_pdf').map((file) => file.fileName)
+function statusClass(status: KsaRtoRowStatus) {
+  return status.toLowerCase().replace(/\s+/g, '-')
+}
+
+function imageDataUrl(file: KsaRtoLabelFile | null | undefined) {
+  return file?.downloadUrl || ''
+}
+
+function buildPrintableHtml(meta: BatchMeta, rows: DraftRow[]) {
   const tableRows = rows
-    .map(
-      (row, index) => `
+    .map((row, index) => {
+      const image = imageDataUrl(row.productImage)
+      return `
         <tr>
+          <td>${image ? `<img class="thumb" src="${image}" />` : '<span class="warn">Missing image</span>'}</td>
           <td>${index + 1}</td>
           <td>${row.productCode}</td>
           <td>${row.fnskuNo || '<span class="warn">Missing FNSKU</span>'}</td>
           <td>${row.quantity}</td>
+          <td>${row.labelPdf?.fileName || '<span class="warn">Missing PDF</span>'}</td>
         </tr>`
-    )
+    })
     .join('')
   return `<!doctype html>
     <html>
@@ -129,36 +145,33 @@ function buildPrintableHtml(meta: BatchMeta, rows: DraftRow[], files: KsaRtoLabe
         <title>${meta.batchTitle || DEFAULT_TITLE}</title>
         <style>
           body { font-family: Arial, sans-serif; color: #111827; padding: 24px; }
-          .header-img { max-width: 100%; max-height: 140px; object-fit: contain; margin-bottom: 18px; }
           h1 { font-size: 26px; margin: 0 0 8px; }
           .meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 18px; margin: 12px 0 18px; font-size: 13px; }
           table { width: 100%; border-collapse: collapse; }
-          th, td { border: 1px solid #111827; padding: 12px; font-size: 15px; text-align: left; }
+          th, td { border: 1px solid #111827; padding: 10px; font-size: 13px; text-align: left; vertical-align: middle; }
           th { background: #f3f4f6; }
+          .thumb { width: 72px; height: 72px; object-fit: contain; display: block; }
           .total { margin-top: 16px; font-weight: 700; }
           .warn { color: #92400e; font-weight: 700; }
-          .refs { margin-top: 18px; font-size: 13px; }
           @media print { body { padding: 0; } }
         </style>
       </head>
       <body>
-        ${headerImageUrl ? `<img class="header-img" src="${headerImageUrl}" />` : ''}
         <h1>${meta.batchTitle || DEFAULT_TITLE}</h1>
         <div class="meta">
-          <div><strong>Reference:</strong> ${meta.referenceNo || '—'}</div>
+          <div><strong>Reference:</strong> ${meta.referenceNo || '-'}</div>
           <div><strong>Date:</strong> ${new Date().toLocaleDateString()}</div>
-          <div><strong>Agent:</strong> ${meta.agentName || '—'}</div>
+          <div><strong>Agent:</strong> ${meta.agentName || '-'}</div>
           <div><strong>Destination:</strong> ${meta.destination || DEFAULT_DESTINATION}</div>
         </div>
         <table>
           <thead>
-            <tr><th>Sr. No.</th><th>Product name / code</th><th>FNSKU No</th><th>Quantity</th></tr>
+            <tr><th>Product Image</th><th>Sr.</th><th>Product name / code</th><th>FNSKU No</th><th>Quantity</th><th>FNSKU Label PDF</th></tr>
           </thead>
           <tbody>${tableRows}</tbody>
         </table>
         <div class="total">Total quantity: ${rows.reduce((sum, row) => sum + Number(row.quantity || 0), 0)}</div>
         ${meta.notes ? `<p><strong>Notes:</strong> ${meta.notes}</p>` : ''}
-        ${pdfNames.length ? `<div class="refs"><strong>Uploaded FNSKU PDFs:</strong><br />${pdfNames.join('<br />')}</div>` : ''}
       </body>
     </html>`
 }
@@ -172,7 +185,6 @@ export function AmazonKsaRtoLabelingPage() {
     notes: '',
   })
   const [rows, setRows] = useState<DraftRow[]>([newRow()])
-  const [files, setFiles] = useState<KsaRtoLabelFile[]>([])
   const [batches, setBatches] = useState<KsaRtoLabelBatch[]>([])
   const [activeBatchId, setActiveBatchId] = useState<number | null>(null)
   const [search, setSearch] = useState('')
@@ -180,22 +192,20 @@ export function AmazonKsaRtoLabelingPage() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
-  const [headerPreview, setHeaderPreview] = useState('')
-  const headerInputRef = useRef<HTMLInputElement | null>(null)
-  const pdfInputRef = useRef<HTMLInputElement | null>(null)
   const dataInputRef = useRef<HTMLInputElement | null>(null)
 
   const summary = useMemo(() => {
-    const totalLines = rows.length
-    const totalQuantity = rows.reduce((sum, row) => sum + (Number(row.quantity) > 0 ? Number(row.quantity) : 0), 0)
-    const missingFnsku = rows.filter((row) => rowStatus(row) === 'Missing FNSKU').length
-    const invalidQty = rows.filter((row) => rowStatus(row) === 'Invalid Qty').length
-    const pdfCount = files.filter((file) => file.fileType === 'fnsku_pdf').length
-    return { totalLines, totalQuantity, missingFnsku, invalidQty, pdfCount }
-  }, [files, rows])
-
-  const headerFile = files.find((file) => file.fileType === 'header_image')
-  const headerImageForPreview = headerPreview || headerFile?.downloadUrl || ''
+    const statuses = rows.map(rowStatus)
+    return {
+      totalLines: rows.length,
+      totalQuantity: rows.reduce((sum, row) => sum + (Number(row.quantity) > 0 ? Number(row.quantity) : 0), 0),
+      ready: statuses.filter((status) => status === 'Ready').length,
+      missingFnsku: statuses.filter((status) => status === 'Missing FNSKU').length,
+      missingImage: statuses.filter((status) => status === 'Missing Image').length,
+      missingPdf: statuses.filter((status) => status === 'Missing PDF').length,
+      invalidRows: statuses.filter((status) => status === 'Missing Product Code' || status === 'Invalid Qty').length,
+    }
+  }, [rows])
 
   const refreshBatches = useCallback(async () => {
     const result = await listKsaRtoLabelBatches({ search })
@@ -206,6 +216,15 @@ export function AmazonKsaRtoLabelingPage() {
     void refreshBatches().catch((err) => setError(err.message || 'Could not load batch history.'))
   }, [refreshBatches])
 
+  function resetDraft() {
+    setActiveBatchId(null)
+    setMeta({ batchTitle: DEFAULT_TITLE, referenceNo: '', agentName: '', destination: DEFAULT_DESTINATION, notes: '' })
+    setRows([newRow()])
+    setPasteText('')
+    setMessage('')
+    setError('')
+  }
+
   function updateRow(id: DraftRow['id'], patch: Partial<DraftRow>) {
     setRows((prev) =>
       prev.map((row) => {
@@ -214,6 +233,11 @@ export function AmazonKsaRtoLabelingPage() {
         return { ...next, status: rowStatus(next) }
       })
     )
+  }
+
+  function replaceServerRow(row: KsaRtoLabelRow | null | undefined) {
+    if (!row?.id) return
+    setRows((prev) => prev.map((item) => (String(item.id) === String(row.id) ? normalizeRow(row) : item)))
   }
 
   function appendRows(nextRows: DraftRow[]) {
@@ -226,15 +250,15 @@ export function AmazonKsaRtoLabelingPage() {
         prev.length === 1 && !prev[0].productCode.trim() && !prev[0].fnskuNo.trim() && Number(prev[0].quantity) === 1
       return shouldReplaceBlank ? nextRows : [...prev, ...nextRows]
     })
-    setMessage(`${nextRows.length} row(s) added.`)
+    setMessage(`${nextRows.length} row(s) added. Upload product images and FNSKU PDFs per row after saving.`)
     setError('')
   }
 
   function payload(): KsaRtoBatchPayload {
     return {
       ...meta,
-      headerImageUrl: headerFile?.fileUrl || '',
       rows: rows.map((row) => ({
+        id: typeof row.id === 'number' ? row.id : undefined,
         productCode: row.productCode.trim(),
         fnskuNo: row.fnskuNo.trim(),
         quantity: Number(row.quantity),
@@ -247,15 +271,14 @@ export function AmazonKsaRtoLabelingPage() {
     setBusy('save')
     setError('')
     try {
-      const invalid = rows.filter((row) => rowStatus(row) === 'Invalid Qty')
-      if (invalid.length) throw new Error('Fix invalid product code or quantity rows before saving.')
+      const invalid = rows.filter((row) => ['Missing Product Code', 'Invalid Qty'].includes(rowStatus(row)))
+      if (invalid.length) throw new Error('Product code and positive quantity are required before saving.')
       const result = activeBatchId
         ? await updateKsaRtoLabelBatch(activeBatchId, payload())
         : await createKsaRtoLabelBatch(payload())
       setActiveBatchId(result.batch.id)
       setRows((result.batch.rows || []).map((row, index) => normalizeRow(row, index)))
-      setFiles(result.batch.files || [])
-      setMessage(activeBatchId ? 'Batch updated.' : 'Batch saved.')
+      setMessage(activeBatchId ? 'Batch updated.' : 'Batch saved. You can now upload images and PDFs per SKU row.')
       await refreshBatches()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save batch.')
@@ -279,8 +302,6 @@ export function AmazonKsaRtoLabelingPage() {
         notes: batch.notes || '',
       })
       setRows((batch.rows || []).map((row, index) => normalizeRow(row, index)))
-      setFiles(batch.files || [])
-      setHeaderPreview('')
       setMessage(`Opened batch #${batch.id}.`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not open batch.')
@@ -290,7 +311,7 @@ export function AmazonKsaRtoLabelingPage() {
   }
 
   async function removeBatch(id: number) {
-    if (!window.confirm('Delete this batch, rows, and uploaded files?')) return
+    if (!window.confirm('Delete this batch, rows, and uploaded SKU files?')) return
     setBusy(`delete-batch-${id}`)
     try {
       await deleteKsaRtoLabelBatch(id)
@@ -304,45 +325,35 @@ export function AmazonKsaRtoLabelingPage() {
     }
   }
 
-  function resetDraft() {
-    setActiveBatchId(null)
-    setMeta({ batchTitle: DEFAULT_TITLE, referenceNo: '', agentName: '', destination: DEFAULT_DESTINATION, notes: '' })
-    setRows([newRow()])
-    setFiles([])
-    setHeaderPreview('')
-    setPasteText('')
-  }
-
-  async function uploadFile(fileType: KsaRtoFileType, file: File) {
-    if (!activeBatchId) {
-      setError('Save the batch first, then upload files.')
+  async function uploadRowFile(row: DraftRow, fileType: RowFileKind, file: File) {
+    if (!activeBatchId || typeof row.id !== 'number') {
+      setError('Save the batch first, then upload SKU images and PDFs.')
       return
     }
-    setBusy(fileType)
+    const key = `${fileType}-${row.id}`
+    setBusy(key)
     try {
-      const result = await uploadKsaRtoLabelFile(activeBatchId, fileType, file)
-      setFiles((prev) => [result.file, ...prev.filter((existing) => fileType !== 'header_image' || existing.fileType !== 'header_image')])
-      if (fileType === 'header_image') setHeaderPreview(result.file.downloadUrl)
-      setMessage('File uploaded.')
+      const result = await uploadKsaRtoLabelRowFile(activeBatchId, row.id, fileType, file)
+      replaceServerRow(result.row)
+      setMessage(fileType === 'product_image' ? 'Product image uploaded.' : 'FNSKU label PDF uploaded.')
       await refreshBatches()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not upload file.')
+      setError(err instanceof Error ? err.message : 'Could not upload row file.')
     } finally {
       setBusy('')
     }
   }
 
-  async function removeFile(file: KsaRtoLabelFile) {
+  async function removeRowFile(file: KsaRtoLabelFile) {
     if (!window.confirm(`Remove ${file.fileName}?`)) return
-    setBusy(`file-${file.id}`)
+    setBusy(`row-file-${file.id}`)
     try {
-      await deleteKsaRtoLabelFile(file.id)
-      setFiles((prev) => prev.filter((item) => item.id !== file.id))
-      if (file.fileType === 'header_image') setHeaderPreview('')
-      setMessage('File removed.')
+      const result = await deleteKsaRtoLabelRowFile(file.id)
+      replaceServerRow(result.row)
+      setMessage('Row file removed.')
       await refreshBatches()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not remove file.')
+      setError(err instanceof Error ? err.message : 'Could not remove row file.')
     } finally {
       setBusy('')
     }
@@ -362,9 +373,32 @@ export function AmazonKsaRtoLabelingPage() {
   }
 
   function exportCsv() {
+    const headers = [
+      'product_code',
+      'fnsku_no',
+      'quantity',
+      'image_file_name',
+      'image_url',
+      'label_pdf_file_name',
+      'label_pdf_url',
+      'status',
+      'notes',
+    ]
     const lines = [
-      ['Product name / code', 'FNSKU No', 'Quantity', 'Notes'].map(csvEscape).join(','),
-      ...rows.map((row) => [row.productCode, row.fnskuNo, row.quantity, row.notes || ''].map(csvEscape).join(',')),
+      headers.map(csvEscape).join(','),
+      ...rows.map((row) =>
+        [
+          row.productCode,
+          row.fnskuNo,
+          row.quantity,
+          row.productImage?.fileName || '',
+          row.productImage?.fileUrl || row.productImage?.downloadUrl || '',
+          row.labelPdf?.fileName || '',
+          row.labelPdf?.fileUrl || row.labelPdf?.downloadUrl || '',
+          rowStatus(row),
+          row.notes || '',
+        ].map(csvEscape).join(',')
+      ),
     ]
     downloadBlob(new Blob([`${lines.join('\r\n')}\r\n`], { type: 'text/csv;charset=utf-8' }), 'amazon-ksa-rto-labeling.csv')
   }
@@ -372,10 +406,15 @@ export function AmazonKsaRtoLabelingPage() {
   function exportXlsx() {
     const worksheet = XLSX.utils.json_to_sheet(
       rows.map((row) => ({
-        'Product name / code': row.productCode,
-        'FNSKU No': row.fnskuNo,
-        Quantity: row.quantity,
-        Notes: row.notes || '',
+        product_code: row.productCode,
+        fnsku_no: row.fnskuNo,
+        quantity: row.quantity,
+        image_file_name: row.productImage?.fileName || '',
+        image_url: row.productImage?.fileUrl || row.productImage?.downloadUrl || '',
+        label_pdf_file_name: row.labelPdf?.fileName || '',
+        label_pdf_url: row.labelPdf?.fileUrl || row.labelPdf?.downloadUrl || '',
+        status: rowStatus(row),
+        notes: row.notes || '',
       }))
     )
     const workbook = XLSX.utils.book_new()
@@ -383,37 +422,64 @@ export function AmazonKsaRtoLabelingPage() {
     XLSX.writeFile(workbook, 'amazon-ksa-rto-labeling.xlsx')
   }
 
-  function exportPdf() {
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' })
-    let y = 42
-    if (headerPreview.startsWith('data:image/')) {
-      const imageFormat = headerPreview.startsWith('data:image/jpeg') ? 'JPEG' : headerPreview.startsWith('data:image/webp') ? 'WEBP' : 'PNG'
-      doc.addImage(headerPreview, imageFormat, 42, y, 180, 70, undefined, 'FAST')
-      y += 88
+  async function imageForPdf(file?: KsaRtoLabelFile | null) {
+    if (!file?.downloadUrl) return null
+    try {
+      const res = await fetch(file.downloadUrl, { cache: 'no-store' })
+      const blob = await res.blob()
+      return await new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result || ''))
+        reader.onerror = () => resolve('')
+        reader.readAsDataURL(blob)
+      })
+    } catch {
+      return null
     }
-    doc.setFontSize(18)
-    doc.text(meta.batchTitle || DEFAULT_TITLE, 42, y)
-    y += 24
-    doc.setFontSize(10)
-    doc.text(`Reference: ${meta.referenceNo || '-'}`, 42, y)
-    doc.text(`Date: ${new Date().toLocaleDateString()}`, 300, y)
-    y += 16
-    doc.text(`Agent: ${meta.agentName || '-'}`, 42, y)
-    doc.text(`Destination: ${meta.destination || DEFAULT_DESTINATION}`, 300, y)
-    y += 18
-    autoTable(doc, {
-      startY: y,
-      head: [['Sr. No.', 'Product name / code', 'FNSKU No', 'Quantity']],
-      body: rows.map((row, index) => [index + 1, row.productCode, row.fnskuNo || 'Missing FNSKU', row.quantity]),
-      styles: { fontSize: 10, cellPadding: 8 },
-      headStyles: { fillColor: [243, 244, 246], textColor: [17, 24, 39] },
-    })
-    const finalY = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || y
-    doc.text(`Total quantity: ${summary.totalQuantity}`, 42, finalY + 24)
-    if (meta.notes) doc.text(`Notes: ${meta.notes}`, 42, finalY + 42, { maxWidth: 500 })
-    const pdfNames = files.filter((file) => file.fileType === 'fnsku_pdf').map((file) => file.fileName)
-    if (pdfNames.length) doc.text(`Uploaded FNSKU PDFs: ${pdfNames.join(', ')}`, 42, finalY + 62, { maxWidth: 500 })
-    doc.save('amazon-ksa-rto-labeling.pdf')
+  }
+
+  async function exportPdf() {
+    setBusy('pdf')
+    try {
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
+      doc.setFontSize(18)
+      doc.text(meta.batchTitle || DEFAULT_TITLE, 42, 42)
+      doc.setFontSize(10)
+      doc.text(`Reference: ${meta.referenceNo || '-'}   Agent: ${meta.agentName || '-'}   Destination: ${meta.destination || DEFAULT_DESTINATION}`, 42, 62)
+      const imageCache = new Map<string | number, string>()
+      for (const row of rows) {
+        const data = await imageForPdf(row.productImage)
+        if (data) imageCache.set(row.id, data)
+      }
+      autoTable(doc, {
+        startY: 82,
+        head: [['Image', 'Product name / code', 'FNSKU No', 'Qty', 'FNSKU Label PDF', 'Status']],
+        body: rows.map((row) => [
+          '',
+          row.productCode,
+          row.fnskuNo || 'Missing FNSKU',
+          row.quantity,
+          row.labelPdf?.fileName || 'Missing PDF',
+          rowStatus(row),
+        ]),
+        styles: { fontSize: 9, cellPadding: 7, minCellHeight: 58 },
+        headStyles: { fillColor: [243, 244, 246], textColor: [17, 24, 39] },
+        didDrawCell: (data) => {
+          if (data.section !== 'body' || data.column.index !== 0) return
+          const row = rows[data.row.index]
+          const image = imageCache.get(row.id)
+          if (!image) return
+          const format = image.startsWith('data:image/jpeg') ? 'JPEG' : image.startsWith('data:image/webp') ? 'WEBP' : 'PNG'
+          doc.addImage(image, format, data.cell.x + 5, data.cell.y + 5, 48, 48, undefined, 'FAST')
+        },
+      })
+      const finalY = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || 82
+      doc.text(`Total quantity: ${summary.totalQuantity}`, 42, finalY + 24)
+      if (meta.notes) doc.text(`Notes: ${meta.notes}`, 42, finalY + 42, { maxWidth: 740 })
+      doc.save('amazon-ksa-rto-labeling.pdf')
+    } finally {
+      setBusy('')
+    }
   }
 
   function printSheet() {
@@ -422,10 +488,18 @@ export function AmazonKsaRtoLabelingPage() {
       setError('Popup blocked. Allow popups to print the sheet.')
       return
     }
-    popup.document.write(buildPrintableHtml(meta, rows, files, headerImageForPreview))
+    popup.document.write(buildPrintableHtml(meta, rows))
     popup.document.close()
     popup.focus()
-    window.setTimeout(() => popup.print(), 300)
+    window.setTimeout(() => popup.print(), 500)
+  }
+
+  function duplicateRow(row: DraftRow, index: number) {
+    setRows((prev) => [
+      ...prev.slice(0, index + 1),
+      normalizeRow({ ...row, id: `dup-${Date.now()}`, productImage: null, labelPdf: null, files: [] }),
+      ...prev.slice(index + 1),
+    ])
   }
 
   return (
@@ -435,7 +509,7 @@ export function AmazonKsaRtoLabelingPage() {
           <p className="ainv-page__eyebrow ainv-page__eyebrow--amber">Amazon · KSA RTO</p>
           <h1 className="ainv-page__title">Amazon KSA RTO Labeling / FNSKU Label Upload</h1>
           <p className="ainv-page__lead">
-            Prepare the simple product code, FNSKU, and quantity sheet for the RTO agent. Missing FNSKU is a warning only.
+            Prepare per-SKU product images, FNSKU label PDFs, product codes, FNSKU numbers, and quantities for the KSA RTO agent.
           </p>
         </div>
         <div className="akr-hero__actions">
@@ -449,13 +523,15 @@ export function AmazonKsaRtoLabelingPage() {
       <section className="akr-summary-grid">
         <div className="ainv-summary-card"><p className="ainv-summary-card__label">Total SKUs / Lines</p><p className="ainv-summary-card__value">{summary.totalLines}</p></div>
         <div className="ainv-summary-card"><p className="ainv-summary-card__label">Total Quantity</p><p className="ainv-summary-card__value">{summary.totalQuantity}</p></div>
-        <div className="ainv-summary-card"><p className="ainv-summary-card__label">Missing FNSKU Count</p><p className="ainv-summary-card__value">{summary.missingFnsku}</p></div>
-        <div className="ainv-summary-card"><p className="ainv-summary-card__label">Uploaded PDF Labels</p><p className="ainv-summary-card__value">{summary.pdfCount}</p><p className="ainv-summary-card__hint">{summary.pdfCount ? 'Linked to this batch' : 'No PDFs yet'}</p></div>
+        <div className="ainv-summary-card"><p className="ainv-summary-card__label">Ready</p><p className="ainv-summary-card__value">{summary.ready}</p></div>
+        <div className="ainv-summary-card"><p className="ainv-summary-card__label">Missing FNSKU</p><p className="ainv-summary-card__value">{summary.missingFnsku}</p></div>
+        <div className="ainv-summary-card"><p className="ainv-summary-card__label">Missing Image</p><p className="ainv-summary-card__value">{summary.missingImage}</p></div>
+        <div className="ainv-summary-card"><p className="ainv-summary-card__label">Missing PDF</p><p className="ainv-summary-card__value">{summary.missingPdf}</p></div>
       </section>
 
       {message ? <div className="ainv-banner ainv-banner--sky">{message}</div> : null}
       {error ? <div className="ainv-banner ainv-banner--rose">{error}</div> : null}
-      {summary.invalidQty > 0 ? <div className="ainv-banner ainv-banner--amber">Fix {summary.invalidQty} invalid quantity/product row(s) before saving.</div> : null}
+      {summary.invalidRows > 0 ? <div className="ainv-banner ainv-banner--amber">Fix {summary.invalidRows} missing product code / invalid quantity row(s) before saving.</div> : null}
 
       <section className="akr-grid">
         <div className="ainv-panel akr-main">
@@ -484,7 +560,7 @@ export function AmazonKsaRtoLabelingPage() {
                 <button type="button" onClick={() => void openBatch(batch.id)}>
                   <strong>{batch.batchTitle}</strong>
                   <span>{batch.referenceNo || 'No reference'} · {formatDate(batch.updatedAt)}</span>
-                  <span>{batch.totalLines} lines · Qty {batch.totalQuantity} · Missing {batch.missingFnskuCount}</span>
+                  <span>{batch.totalLines} lines · Qty {batch.totalQuantity} · Missing FNSKU {batch.missingFnskuCount}</span>
                 </button>
                 <button type="button" className="akr-danger-link" onClick={() => void removeBatch(batch.id)}>Delete</button>
               </article>
@@ -497,12 +573,12 @@ export function AmazonKsaRtoLabelingPage() {
       <section className="akr-grid">
         <div className="ainv-panel">
           <div className="akr-panel-head"><h2>Paste from Excel / Google Sheet</h2></div>
-          <textarea className="ainv-input akr-paste" value={pasteText} onChange={(e) => setPasteText(e.target.value)} placeholder="Product name / code\tFNSKU No\tQuantity" />
+          <textarea className="ainv-input akr-paste" value={pasteText} onChange={(e) => setPasteText(e.target.value)} placeholder="Product name / code\tFNSKU No\tQuantity\tNotes" />
           <button type="button" className="ainv-btn ainv-btn--primary-emerald" onClick={() => appendRows(parsePastedRows(pasteText))}>Parse pasted rows</button>
         </div>
         <div className="ainv-panel">
           <div className="akr-panel-head"><h2>Upload CSV / XLSX</h2></div>
-          <p className="akr-muted">Expected columns: product name / code, FNSKU no, quantity, notes optional.</p>
+          <p className="akr-muted">Expected columns: product name / code, FNSKU no, quantity, notes optional. Optional image_url/pdf_url are accepted for future reference.</p>
           <input ref={dataInputRef} className="akr-file-input" type="file" accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => { const file = e.target.files?.[0]; if (file) void parseUpload(file) }} />
           <button type="button" className="ainv-btn" disabled={busy === 'parse'} onClick={() => dataInputRef.current?.click()}>{busy === 'parse' ? 'Parsing...' : 'Choose file'}</button>
         </div>
@@ -510,87 +586,99 @@ export function AmazonKsaRtoLabelingPage() {
 
       <section className="ainv-panel">
         <div className="akr-panel-head">
-          <h2>Manual Entry Table</h2>
+          <div>
+            <h2>SKU Labeling Grid</h2>
+            <p className="akr-muted">Save the batch first, then upload a product image and FNSKU label PDF on each SKU row.</p>
+          </div>
           <button type="button" className="ainv-btn" onClick={() => setRows((prev) => [...prev, newRow()])}>Add row</button>
         </div>
-        <div className="akr-table-wrap">
-          <table className="akr-table">
-            <thead><tr><th>Sr. No.</th><th>Product name / code</th><th>FNSKU No</th><th>Quantity</th><th>Status</th><th>Actions</th></tr></thead>
-            <tbody>
-              {rows.map((row, index) => {
-                const status = rowStatus(row)
-                return (
-                  <tr key={row.id} className={status === 'Missing FNSKU' ? 'akr-row-warn' : status === 'Invalid Qty' ? 'akr-row-error' : ''}>
-                    <td>{index + 1}</td>
-                    <td><input className="akr-cell-input" value={row.productCode} onChange={(e) => updateRow(row.id, { productCode: e.target.value })} /></td>
-                    <td><input className="akr-cell-input" value={row.fnskuNo} placeholder="Optional" onChange={(e) => updateRow(row.id, { fnskuNo: e.target.value })} /></td>
-                    <td><input className="akr-cell-input akr-qty" type="number" min={0} value={row.quantity} onChange={(e) => updateRow(row.id, { quantity: Number(e.target.value) })} /></td>
-                    <td><span className={`akr-status akr-status--${status.toLowerCase().replace(/\s+/g, '-')}`}>{status}</span></td>
-                    <td>
-                      <div className="akr-actions">
-                        <button type="button" onClick={() => updateRow(row.id, { notes: window.prompt('Notes', row.notes || '') || row.notes || '' })}>Edit</button>
-                        <button type="button" onClick={() => setRows((prev) => [...prev.slice(0, index + 1), { ...row, id: `dup-${Date.now()}` }, ...prev.slice(index + 1)])}>Duplicate</button>
-                        <button type="button" onClick={() => { if (window.confirm('Delete this row?')) setRows((prev) => prev.filter((item) => item.id !== row.id)) }}>Delete</button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="akr-grid">
-        <div className="ainv-panel">
-          <div className="akr-panel-head"><h2>Title / Header Picture</h2></div>
-          {headerImageForPreview ? <img className="akr-header-preview" src={headerImageForPreview} alt="Header preview" /> : <div className="akr-empty-upload">PNG, JPG, or WebP banner/logo</div>}
-          <input ref={headerInputRef} className="akr-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => {
-            const file = e.target.files?.[0]
-            if (!file) return
-            const reader = new FileReader()
-            reader.onload = () => setHeaderPreview(String(reader.result || ''))
-            reader.readAsDataURL(file)
-            void uploadFile('header_image', file)
-          }} />
-          <div className="akr-button-row">
-            <button type="button" className="ainv-btn" onClick={() => headerInputRef.current?.click()}>{headerImageForPreview ? 'Replace image' : 'Upload image'}</button>
-            {headerFile ? <button type="button" className="ainv-btn" onClick={() => void removeFile(headerFile)}>Remove</button> : null}
-          </div>
-        </div>
-
-        <div className="ainv-panel">
-          <div className="akr-panel-head"><h2>Upload FNSKU Label PDF</h2></div>
-          <input ref={pdfInputRef} className="akr-file-input" type="file" multiple accept="application/pdf,.pdf" onChange={(e) => {
-            const selected = Array.from(e.target.files || [])
-            selected.forEach((file) => void uploadFile('fnsku_pdf', file))
-            if (pdfInputRef.current) pdfInputRef.current.value = ''
-          }} />
-          <button type="button" className="ainv-btn ainv-btn--primary-sky" onClick={() => pdfInputRef.current?.click()} disabled={!activeBatchId}>Upload PDF labels</button>
-          <div className="akr-file-list">
-            {files.filter((file) => file.fileType === 'fnsku_pdf').map((file) => (
-              <div key={file.id} className="akr-file-card">
-                <div><strong>{file.fileName}</strong><span>{formatDate(file.createdAt)} · {formatSize(file.fileSize)} · {file.status}</span></div>
-                <div className="akr-actions">
-                  {file.downloadUrl ? <a href={file.downloadUrl} target="_blank" rel="noreferrer">View</a> : null}
-                  {file.downloadUrl ? <a href={file.downloadUrl} download={file.fileName}>Download</a> : null}
-                  <button type="button" onClick={() => void removeFile(file)}>Remove</button>
+        <div className="akr-sku-grid">
+          {rows.map((row, index) => {
+            const status = rowStatus(row)
+            const canUpload = Boolean(activeBatchId && typeof row.id === 'number')
+            return (
+              <article key={row.id} className={`akr-sku-card akr-sku-card--${statusClass(status)}`}>
+                <div className="akr-sku-card__sr">#{index + 1}</div>
+                <div className="akr-product-image">
+                  {row.productImage?.downloadUrl ? (
+                    <img src={row.productImage.downloadUrl} alt={row.productCode || 'Product'} />
+                  ) : (
+                    <div className="akr-image-placeholder">Missing image</div>
+                  )}
+                  <label className={`akr-upload-chip ${!canUpload ? 'akr-upload-chip--disabled' : ''}`}>
+                    {row.productImage ? 'Replace image' : 'Upload image'}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      disabled={!canUpload}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) void uploadRowFile(row, 'product_image', file)
+                        e.currentTarget.value = ''
+                      }}
+                    />
+                  </label>
+                  {row.productImage ? <button type="button" className="akr-mini-link" onClick={() => void removeRowFile(row.productImage as KsaRtoLabelFile)}>Remove</button> : null}
                 </div>
-              </div>
-            ))}
-            {!files.some((file) => file.fileType === 'fnsku_pdf') ? <p className="akr-muted">No label PDFs uploaded.</p> : null}
-          </div>
+
+                <div className="akr-sku-fields">
+                  <label className="ainv-label">Product name / code<input className="akr-cell-input" value={row.productCode} onChange={(e) => updateRow(row.id, { productCode: e.target.value })} /></label>
+                  <label className="ainv-label">FNSKU No<input className="akr-cell-input" value={row.fnskuNo} placeholder="Warning only if missing" onChange={(e) => updateRow(row.id, { fnskuNo: e.target.value })} /></label>
+                  <label className="ainv-label">Quantity<input className="akr-cell-input akr-qty" type="number" min={0} value={row.quantity} onChange={(e) => updateRow(row.id, { quantity: Number(e.target.value) })} /></label>
+                  <label className="ainv-label akr-notes-field">Notes<input className="akr-cell-input" value={row.notes || ''} onChange={(e) => updateRow(row.id, { notes: e.target.value })} /></label>
+                </div>
+
+                <div className="akr-pdf-box">
+                  <p className="akr-file-label">FNSKU Label PDF</p>
+                  {row.labelPdf ? (
+                    <div className="akr-pdf-card">
+                      <strong>{row.labelPdf.fileName}</strong>
+                      <span>{formatSize(row.labelPdf.fileSize)} · {formatDate(row.labelPdf.createdAt)}</span>
+                      <div className="akr-actions">
+                        {row.labelPdf.downloadUrl ? <a href={row.labelPdf.downloadUrl} target="_blank" rel="noreferrer">View</a> : null}
+                        {row.labelPdf.downloadUrl ? <a href={row.labelPdf.downloadUrl} download={row.labelPdf.fileName}>Download</a> : null}
+                        <button type="button" onClick={() => void removeRowFile(row.labelPdf as KsaRtoLabelFile)}>Remove</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="akr-pdf-missing">Missing PDF</div>
+                  )}
+                  <label className={`akr-upload-chip ${!canUpload ? 'akr-upload-chip--disabled' : ''}`}>
+                    {row.labelPdf ? 'Replace PDF' : 'Upload PDF'}
+                    <input
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      disabled={!canUpload}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) void uploadRowFile(row, 'fnsku_label_pdf', file)
+                        e.currentTarget.value = ''
+                      }}
+                    />
+                  </label>
+                </div>
+
+                <div className="akr-status-actions">
+                  <span className={`akr-status akr-status--${statusClass(status)}`}>{status}</span>
+                  <div className="akr-actions">
+                    <button type="button" onClick={() => duplicateRow(row, index)}>Duplicate</button>
+                    <button type="button" onClick={() => { if (window.confirm('Delete this row?')) setRows((prev) => prev.filter((item) => item.id !== row.id)) }}>Delete</button>
+                  </div>
+                </div>
+              </article>
+            )
+          })}
         </div>
       </section>
 
       <section className="ainv-panel akr-export-panel">
         <div>
           <h2>Export / Print</h2>
-          <p className="akr-muted">Print sheet uses the agent format: product name / code, FNSKU no, and quantity.</p>
+          <p className="akr-muted">Exports include product thumbnails, product code, FNSKU, quantity, PDF filename/status, and row status.</p>
         </div>
         <div className="akr-button-row">
           <button type="button" className="ainv-btn" onClick={printSheet}>Print Sheet</button>
-          <button type="button" className="ainv-btn" onClick={exportPdf}>Export PDF</button>
+          <button type="button" className="ainv-btn" disabled={busy === 'pdf'} onClick={() => void exportPdf()}>{busy === 'pdf' ? 'Exporting...' : 'Export PDF'}</button>
           <button type="button" className="ainv-btn" onClick={exportXlsx}>Export Excel</button>
           <button type="button" className="ainv-btn" onClick={exportCsv}>Export CSV</button>
         </div>

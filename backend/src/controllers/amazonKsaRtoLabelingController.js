@@ -45,6 +45,8 @@ function rowsFromSheet(sheet) {
       fnskuNo: pickField(normalized, ['fnskuno', 'fnsku', 'amazonfnsku'], 1),
       quantity: pickField(normalized, ['quantity', 'qty'], 2),
       notes: pickField(normalized, ['notes', 'note', 'remarks'], 3),
+      imageUrl: pickField(normalized, ['imageurl', 'productimageurl', 'image'], 4),
+      pdfUrl: pickField(normalized, ['pdfurl', 'labelpdfurl', 'fnskupdfurl', 'fnskulabelpdf'], 5),
     }
   })
   return mappedRows.filter((row) => String(row.productCode || row.fnskuNo || row.quantity || '').trim())
@@ -61,6 +63,8 @@ function parseWorkbook(buffer, originalName) {
     fnskuNo: String(row.fnskuNo || '').trim(),
     quantity: Number(String(row.quantity || '').replace(/,/g, '').trim()),
     notes: String(row.notes || '').trim(),
+    imageUrl: String(row.imageUrl || '').trim(),
+    pdfUrl: String(row.pdfUrl || '').trim(),
     sourceFile: originalName,
   }))
 }
@@ -121,12 +125,37 @@ async function postFile(req, res) {
   }
 }
 
+async function postRowFile(req, res) {
+  try {
+    const fileType = String(req.body?.file_type || req.body?.fileType || '').trim()
+    const result = await service.uploadRowFile(
+      req.params.batchId,
+      req.params.rowId,
+      fileType,
+      req.file,
+      getUserId(req)
+    )
+    res.status(201).json(result)
+  } catch (err) {
+    sendError(res, err, 'Failed to upload row file')
+  }
+}
+
 async function deleteFile(req, res) {
   try {
     await service.deleteFile(req.params.fileId)
     res.json({ success: true })
   } catch (err) {
     sendError(res, err, 'Failed to delete file')
+  }
+}
+
+async function deleteRowFile(req, res) {
+  try {
+    const row = await service.deleteRowFile(req.params.fileId)
+    res.json({ success: true, row })
+  } catch (err) {
+    sendError(res, err, 'Failed to delete row file')
   }
 }
 
@@ -147,6 +176,8 @@ module.exports = {
   putBatch,
   deleteBatch,
   postFile,
+  postRowFile,
   deleteFile,
+  deleteRowFile,
   postParse,
 }

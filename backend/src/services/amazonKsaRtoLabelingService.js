@@ -2,9 +2,16 @@ const { query, pool } = require('../db')
 const s3Service = require('./s3Service')
 
 const STATUS_READY = 'Ready'
+const STATUS_MISSING_PRODUCT_CODE = 'Missing Product Code'
 const STATUS_MISSING_FNSKU = 'Missing FNSKU'
+const STATUS_MISSING_IMAGE = 'Missing Image'
+const STATUS_MISSING_PDF = 'Missing PDF'
 const STATUS_INVALID_QTY = 'Invalid Qty'
 const DEFAULT_DESTINATION = 'Wanasa-Lifesmile'
+const FILE_TYPE_BATCH_HEADER = 'batch_header'
+const FILE_TYPE_HEADER_IMAGE = 'header_image'
+const FILE_TYPE_PRODUCT_IMAGE = 'product_image'
+const FILE_TYPE_FNSKU_LABEL_PDF = 'fnsku_label_pdf'
 
 function intOrNull(value) {
   const n = Number(value)
@@ -26,8 +33,13 @@ function statusForRow(row) {
   const productCode = normalizeText(row.product_code ?? row.productCode)
   const quantity = normalizeQuantity(row.quantity)
   const fnsku = normalizeText(row.fnsku_no ?? row.fnskuNo)
-  if (!productCode || !Number.isFinite(quantity) || quantity <= 0) return STATUS_INVALID_QTY
+  const productImage = row.productImage || row.product_image || row.productImageFile || row.product_image_file
+  const labelPdf = row.labelPdf || row.label_pdf || row.labelPdfFile || row.label_pdf_file
+  if (!productCode) return STATUS_MISSING_PRODUCT_CODE
+  if (!Number.isFinite(quantity) || quantity <= 0) return STATUS_INVALID_QTY
   if (!fnsku) return STATUS_MISSING_FNSKU
+  if (!productImage) return STATUS_MISSING_IMAGE
+  if (!labelPdf) return STATUS_MISSING_PDF
   return STATUS_READY
 }
 
@@ -50,7 +62,7 @@ function normalizeRow(row) {
 function validateBatchPayload(payload) {
   const batchTitle = normalizeText(payload.batch_title ?? payload.batchTitle) || 'Amazon KSA RTO - LIFESMILE'
   const rows = Array.isArray(payload.rows) ? payload.rows.map(normalizeRow) : []
-  const invalid = rows.filter((row) => row.status === STATUS_INVALID_QTY)
+  const invalid = rows.filter((row) => [STATUS_MISSING_PRODUCT_CODE, STATUS_INVALID_QTY].includes(row.status))
   if (!rows.length) {
     const err = new Error('Add at least one labeling row before saving.')
     err.status = 400
@@ -89,11 +101,15 @@ function mapBatch(row) {
     totalLines: Number(row.total_lines || 0),
     totalQuantity: Number(row.total_quantity || 0),
     missingFnskuCount: Number(row.missing_fnsku_count || 0),
+    missingImageCount: Number(row.missing_image_count || 0),
+    missingPdfCount: Number(row.missing_pdf_count || 0),
     pdfFileCount: Number(row.pdf_file_count || 0),
   }
 }
 
-function mapRow(row) {
+function mapRow(row, files = []) {
+  const productImage = files.find((file) => file.fileType === FILE_TYPE_PRODUCT_IMAGE) || null
+  const labelPdf = files.find((file) => file.fileType === FILE_TYPE_FNSKU_LABEL_PDF) || null
   return {
     id: row.id,
     batchId: row.batch_id,
@@ -101,7 +117,16 @@ function mapRow(row) {
     fnskuNo: row.fnsku_no || '',
     quantity: Number(row.quantity || 0),
     notes: row.notes || '',
-    status: row.status,
+    status: statusForRow({
+      product_code: row.product_code,
+      fnsku_no: row.fnsku_no,
+      quantity: row.quantity,
+      productImage,
+      labelPdf,
+    }),
+    productImage,
+    labelPdf,
+    files,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -118,6 +143,7 @@ async function mapFile(row) {
   return {
     id: row.id,
     batchId: row.batch_id,
+    rowId: row.row_id,
     fileType: row.file_type,
     fileName: row.file_name,
     fileUrl: key,
@@ -157,13 +183,14 @@ async function ensureAmazonKsaRtoLabelingTables() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       CONSTRAINT amazon_ksa_rto_label_rows_quantity_chk CHECK (quantity > 0),
-      CONSTRAINT amazon_ksa_rto_label_rows_status_chk CHECK (status IN ('Ready', 'Missing FNSKU', 'Invalid Qty'))
+      CONSTRAINT amazon_ksa_rto_label_rows_status_chk CHECK (status IN ('Ready', 'Missing Product Code', 'Missing FNSKU', 'Missing Image', 'Missing PDF', 'Invalid Qty'))
     )
   `)
   await query(`
     CREATE TABLE IF NOT EXISTS amazon_ksa_rto_label_files (
       id SERIAL PRIMARY KEY,
       batch_id INTEGER NOT NULL REFERENCES amazon_ksa_rto_label_batches(id) ON DELETE CASCADE,
+      row_id INTEGER REFERENCES amazon_ksa_rto_label_rows(id) ON DELETE CASCADE,
       file_type VARCHAR(32) NOT NULL,
       file_name TEXT NOT NULL,
       file_url TEXT NOT NULL,
@@ -171,8 +198,21 @@ async function ensureAmazonKsaRtoLabelingTables() {
       mime_type TEXT,
       uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      CONSTRAINT amazon_ksa_rto_label_files_type_chk CHECK (file_type IN ('header_image', 'fnsku_pdf'))
+      CONSTRAINT amazon_ksa_rto_label_files_type_chk CHECK (file_type IN ('batch_header', 'header_image', 'fnsku_pdf', 'product_image', 'fnsku_label_pdf'))
     )
+  `)
+  await query(`ALTER TABLE amazon_ksa_rto_label_files ADD COLUMN IF NOT EXISTS row_id INTEGER REFERENCES amazon_ksa_rto_label_rows(id) ON DELETE CASCADE`)
+  await query(`ALTER TABLE amazon_ksa_rto_label_rows DROP CONSTRAINT IF EXISTS amazon_ksa_rto_label_rows_status_chk`)
+  await query(`
+    ALTER TABLE amazon_ksa_rto_label_rows
+    ADD CONSTRAINT amazon_ksa_rto_label_rows_status_chk
+    CHECK (status IN ('Ready', 'Missing Product Code', 'Missing FNSKU', 'Missing Image', 'Missing PDF', 'Invalid Qty'))
+  `)
+  await query(`ALTER TABLE amazon_ksa_rto_label_files DROP CONSTRAINT IF EXISTS amazon_ksa_rto_label_files_type_chk`)
+  await query(`
+    ALTER TABLE amazon_ksa_rto_label_files
+    ADD CONSTRAINT amazon_ksa_rto_label_files_type_chk
+    CHECK (file_type IN ('batch_header', 'header_image', 'fnsku_pdf', 'product_image', 'fnsku_label_pdf'))
   `)
   await query(`CREATE INDEX IF NOT EXISTS idx_amazon_ksa_rto_label_batches_created ON amazon_ksa_rto_label_batches(created_at DESC)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_amazon_ksa_rto_label_batches_reference ON amazon_ksa_rto_label_batches(LOWER(reference_no))`)
@@ -180,6 +220,12 @@ async function ensureAmazonKsaRtoLabelingTables() {
   await query(`CREATE INDEX IF NOT EXISTS idx_amazon_ksa_rto_label_rows_product ON amazon_ksa_rto_label_rows(LOWER(product_code))`)
   await query(`CREATE INDEX IF NOT EXISTS idx_amazon_ksa_rto_label_rows_fnsku ON amazon_ksa_rto_label_rows(LOWER(fnsku_no))`)
   await query(`CREATE INDEX IF NOT EXISTS idx_amazon_ksa_rto_label_files_batch ON amazon_ksa_rto_label_files(batch_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_amazon_ksa_rto_label_files_row ON amazon_ksa_rto_label_files(row_id)`)
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_amazon_ksa_rto_row_file_type
+    ON amazon_ksa_rto_label_files(row_id, file_type)
+    WHERE row_id IS NOT NULL AND file_type IN ('product_image', 'fnsku_label_pdf')
+  `)
 }
 
 async function listBatches({ search = '', from = '', to = '', limit = 50 } = {}) {
@@ -212,18 +258,26 @@ async function listBatches({ search = '', from = '', to = '', limit = 50 } = {})
       COALESCE(rs.total_lines, 0)::int AS total_lines,
       COALESCE(rs.total_quantity, 0) AS total_quantity,
       COALESCE(rs.missing_fnsku_count, 0)::int AS missing_fnsku_count,
+      COALESCE(rs.missing_image_count, 0)::int AS missing_image_count,
+      COALESCE(rs.missing_pdf_count, 0)::int AS missing_pdf_count,
       COALESCE(fs.pdf_file_count, 0)::int AS pdf_file_count
     FROM amazon_ksa_rto_label_batches b
     LEFT JOIN (
-      SELECT batch_id,
+      SELECT r.batch_id,
         COUNT(*)::int AS total_lines,
-        COALESCE(SUM(quantity), 0) AS total_quantity,
-        COUNT(*) FILTER (WHERE status = 'Missing FNSKU')::int AS missing_fnsku_count
-      FROM amazon_ksa_rto_label_rows
-      GROUP BY batch_id
+        COALESCE(SUM(r.quantity), 0) AS total_quantity,
+        COUNT(*) FILTER (WHERE COALESCE(r.fnsku_no, '') = '')::int AS missing_fnsku_count,
+        COUNT(*) FILTER (WHERE pi.id IS NULL)::int AS missing_image_count,
+        COUNT(*) FILTER (WHERE lp.id IS NULL)::int AS missing_pdf_count
+      FROM amazon_ksa_rto_label_rows r
+      LEFT JOIN amazon_ksa_rto_label_files pi
+        ON pi.row_id = r.id AND pi.file_type = 'product_image'
+      LEFT JOIN amazon_ksa_rto_label_files lp
+        ON lp.row_id = r.id AND lp.file_type = 'fnsku_label_pdf'
+      GROUP BY r.batch_id
     ) rs ON rs.batch_id = b.id
     LEFT JOIN (
-      SELECT batch_id, COUNT(*) FILTER (WHERE file_type = 'fnsku_pdf')::int AS pdf_file_count
+      SELECT batch_id, COUNT(*) FILTER (WHERE file_type IN ('fnsku_label_pdf', 'fnsku_pdf'))::int AS pdf_file_count
       FROM amazon_ksa_rto_label_files
       GROUP BY batch_id
     ) fs ON fs.batch_id = b.id
@@ -241,18 +295,26 @@ async function getBatch(id) {
       COALESCE(rs.total_lines, 0)::int AS total_lines,
       COALESCE(rs.total_quantity, 0) AS total_quantity,
       COALESCE(rs.missing_fnsku_count, 0)::int AS missing_fnsku_count,
+      COALESCE(rs.missing_image_count, 0)::int AS missing_image_count,
+      COALESCE(rs.missing_pdf_count, 0)::int AS missing_pdf_count,
       COALESCE(fs.pdf_file_count, 0)::int AS pdf_file_count
     FROM amazon_ksa_rto_label_batches b
     LEFT JOIN (
-      SELECT batch_id,
+      SELECT r.batch_id,
         COUNT(*)::int AS total_lines,
-        COALESCE(SUM(quantity), 0) AS total_quantity,
-        COUNT(*) FILTER (WHERE status = 'Missing FNSKU')::int AS missing_fnsku_count
-      FROM amazon_ksa_rto_label_rows
-      GROUP BY batch_id
+        COALESCE(SUM(r.quantity), 0) AS total_quantity,
+        COUNT(*) FILTER (WHERE COALESCE(r.fnsku_no, '') = '')::int AS missing_fnsku_count,
+        COUNT(*) FILTER (WHERE pi.id IS NULL)::int AS missing_image_count,
+        COUNT(*) FILTER (WHERE lp.id IS NULL)::int AS missing_pdf_count
+      FROM amazon_ksa_rto_label_rows r
+      LEFT JOIN amazon_ksa_rto_label_files pi
+        ON pi.row_id = r.id AND pi.file_type = 'product_image'
+      LEFT JOIN amazon_ksa_rto_label_files lp
+        ON lp.row_id = r.id AND lp.file_type = 'fnsku_label_pdf'
+      GROUP BY r.batch_id
     ) rs ON rs.batch_id = b.id
     LEFT JOIN (
-      SELECT batch_id, COUNT(*) FILTER (WHERE file_type = 'fnsku_pdf')::int AS pdf_file_count
+      SELECT batch_id, COUNT(*) FILTER (WHERE file_type IN ('fnsku_label_pdf', 'fnsku_pdf'))::int AS pdf_file_count
       FROM amazon_ksa_rto_label_files
       GROUP BY batch_id
     ) fs ON fs.batch_id = b.id
@@ -261,21 +323,83 @@ async function getBatch(id) {
   if (!batch.rows.length) return null
   const rows = await query(`SELECT * FROM amazon_ksa_rto_label_rows WHERE batch_id = $1 ORDER BY id ASC`, [id])
   const files = await query(`SELECT * FROM amazon_ksa_rto_label_files WHERE batch_id = $1 ORDER BY created_at DESC, id DESC`, [id])
+  const mappedFiles = await Promise.all(files.rows.map(mapFile))
+  const filesByRowId = new Map()
+  for (const file of mappedFiles) {
+    if (file.rowId == null) continue
+    const key = String(file.rowId)
+    if (!filesByRowId.has(key)) filesByRowId.set(key, [])
+    filesByRowId.get(key).push(file)
+  }
   return {
     ...mapBatch(batch.rows[0]),
-    rows: rows.rows.map(mapRow),
-    files: await Promise.all(files.rows.map(mapFile)),
+    rows: rows.rows.map((row) => mapRow(row, filesByRowId.get(String(row.id)) || [])),
+    files: mappedFiles.filter((file) => file.rowId == null),
   }
 }
 
 async function insertRows(client, batchId, rows) {
+  const inserted = []
   for (const row of rows) {
-    await client.query(
+    const result = await client.query(
       `INSERT INTO amazon_ksa_rto_label_rows
         (batch_id, product_code, fnsku_no, quantity, notes, status)
        VALUES ($1,$2,$3,$4,$5,$6)`,
       [batchId, row.product_code, row.fnsku_no, row.quantity, row.notes || null, row.status]
     )
+    inserted.push(result.rows?.[0])
+  }
+  return inserted
+}
+
+async function replaceRowsPreservingFiles(client, batchId, rows) {
+  const keptIds = []
+  for (const row of rows) {
+    if (row.id) {
+      const updated = await client.query(
+        `UPDATE amazon_ksa_rto_label_rows
+         SET product_code = $3,
+             fnsku_no = $4,
+             quantity = $5,
+             notes = $6,
+             status = $7,
+             updated_at = NOW()
+         WHERE id = $1 AND batch_id = $2
+         RETURNING id`,
+        [row.id, batchId, row.product_code, row.fnsku_no, row.quantity, row.notes || null, row.status]
+      )
+      if (updated.rows.length) {
+        keptIds.push(updated.rows[0].id)
+        continue
+      }
+    }
+    const inserted = await client.query(
+      `INSERT INTO amazon_ksa_rto_label_rows
+        (batch_id, product_code, fnsku_no, quantity, notes, status)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       RETURNING id`,
+      [batchId, row.product_code, row.fnsku_no, row.quantity, row.notes || null, row.status]
+    )
+    keptIds.push(inserted.rows[0].id)
+  }
+  if (keptIds.length) {
+    const removedFiles = await client.query(
+      `SELECT f.file_url
+       FROM amazon_ksa_rto_label_files f
+       JOIN amazon_ksa_rto_label_rows r ON r.id = f.row_id
+       WHERE r.batch_id = $1 AND NOT (r.id = ANY($2::int[]))`,
+      [batchId, keptIds]
+    )
+    for (const file of removedFiles.rows) {
+      await s3Service.deleteObjectIfExists(file.file_url).catch(() => {})
+    }
+    await client.query(
+      `DELETE FROM amazon_ksa_rto_label_rows
+       WHERE batch_id = $1 AND NOT (id = ANY($2::int[]))`,
+      [batchId, keptIds]
+    )
+  } else {
+    await client.query(`DELETE FROM amazon_ksa_rto_label_rows WHERE batch_id = $1`, [batchId])
   }
 }
 
@@ -334,8 +458,7 @@ async function updateBatch(id, payload) {
       err.status = 404
       throw err
     }
-    await client.query(`DELETE FROM amazon_ksa_rto_label_rows WHERE batch_id = $1`, [id])
-    await insertRows(client, id, data.rows)
+    await replaceRowsPreservingFiles(client, id, data.rows)
     await client.query('COMMIT')
     return getBatch(id)
   } catch (err) {
@@ -360,13 +483,13 @@ function validateUpload(fileType, file) {
     err.status = 400
     throw err
   }
-  if (fileType === 'header_image') {
+  if ([FILE_TYPE_HEADER_IMAGE, FILE_TYPE_BATCH_HEADER, FILE_TYPE_PRODUCT_IMAGE].includes(fileType)) {
     if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.mimetype)) {
-      const err = new Error('Header image must be PNG, JPG, or WebP.')
+      const err = new Error('Image upload must be PNG, JPG, or WebP.')
       err.status = 400
       throw err
     }
-  } else if (fileType === 'fnsku_pdf') {
+  } else if ([FILE_TYPE_FNSKU_LABEL_PDF, 'fnsku_pdf'].includes(fileType)) {
     if (file.mimetype !== 'application/pdf') {
       const err = new Error('FNSKU label upload must be a PDF.')
       err.status = 400
@@ -377,6 +500,37 @@ function validateUpload(fileType, file) {
     err.status = 400
     throw err
   }
+}
+
+async function rowFilesForRow(rowId) {
+  const result = await query(
+    `SELECT * FROM amazon_ksa_rto_label_files
+     WHERE row_id = $1 AND file_type IN ('product_image', 'fnsku_label_pdf')
+     ORDER BY created_at DESC, id DESC`,
+    [rowId]
+  )
+  return Promise.all(result.rows.map(mapFile))
+}
+
+async function refreshRowStatus(rowId) {
+  const rowResult = await query(`SELECT * FROM amazon_ksa_rto_label_rows WHERE id = $1`, [rowId])
+  if (!rowResult.rows.length) return null
+  const files = await rowFilesForRow(rowId)
+  const nextStatus = statusForRow({
+    product_code: rowResult.rows[0].product_code,
+    fnsku_no: rowResult.rows[0].fnsku_no,
+    quantity: rowResult.rows[0].quantity,
+    productImage: files.find((file) => file.fileType === FILE_TYPE_PRODUCT_IMAGE),
+    labelPdf: files.find((file) => file.fileType === FILE_TYPE_FNSKU_LABEL_PDF),
+  })
+  const updated = await query(
+    `UPDATE amazon_ksa_rto_label_rows
+     SET status = $2, updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [rowId, nextStatus]
+  )
+  return mapRow(updated.rows[0], files)
 }
 
 async function uploadFile(batchId, fileType, file, userId) {
@@ -396,13 +550,58 @@ async function uploadFile(batchId, fileType, file, userId) {
      RETURNING *`,
     [batchId, fileType, file.originalname, key, file.size || null, file.mimetype || null, userId || null]
   )
-  if (fileType === 'header_image') {
+  if ([FILE_TYPE_HEADER_IMAGE, FILE_TYPE_BATCH_HEADER].includes(fileType)) {
     await query(`UPDATE amazon_ksa_rto_label_batches SET header_image_url = $2, updated_at = NOW() WHERE id = $1`, [
       batchId,
       key,
     ])
   }
   return mapFile(inserted.rows[0])
+}
+
+async function uploadRowFile(batchId, rowId, fileType, file, userId) {
+  if (![FILE_TYPE_PRODUCT_IMAGE, FILE_TYPE_FNSKU_LABEL_PDF].includes(fileType)) {
+    const err = new Error('file_type must be product_image or fnsku_label_pdf.')
+    err.status = 400
+    throw err
+  }
+  validateUpload(fileType, file)
+  const rowResult = await query(
+    `SELECT id, batch_id FROM amazon_ksa_rto_label_rows WHERE id = $1 AND batch_id = $2`,
+    [rowId, batchId]
+  )
+  if (!rowResult.rows.length) {
+    const err = new Error('Row not found for this batch.')
+    err.status = 404
+    throw err
+  }
+
+  const existing = await query(
+    `SELECT * FROM amazon_ksa_rto_label_files
+     WHERE batch_id = $1 AND row_id = $2 AND file_type = $3`,
+    [batchId, rowId, fileType]
+  )
+  for (const old of existing.rows) {
+    await s3Service.deleteObjectIfExists(old.file_url).catch(() => {})
+  }
+  await query(
+    `DELETE FROM amazon_ksa_rto_label_files
+     WHERE batch_id = $1 AND row_id = $2 AND file_type = $3`,
+    [batchId, rowId, fileType]
+  )
+
+  const key = s3Service.createAmazonKsaRtoLabelKey(batchId, fileType, file.originalname, rowId)
+  await s3Service.putObjectBuffer({ key, body: file.buffer, contentType: file.mimetype })
+  const inserted = await query(
+    `INSERT INTO amazon_ksa_rto_label_files
+      (batch_id, row_id, file_type, file_name, file_url, file_size, mime_type, uploaded_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+     RETURNING *`,
+    [batchId, rowId, fileType, file.originalname, key, file.size || null, file.mimetype || null, userId || null]
+  )
+  const mapped = await mapFile(inserted.rows[0])
+  const row = await refreshRowStatus(rowId)
+  return { file: mapped, row }
 }
 
 async function deleteFile(fileId) {
@@ -421,11 +620,30 @@ async function deleteFile(fileId) {
   }
 }
 
+async function deleteRowFile(fileId) {
+  const result = await query(`SELECT * FROM amazon_ksa_rto_label_files WHERE id = $1`, [fileId])
+  if (!result.rows.length) return null
+  const file = result.rows[0]
+  if (![FILE_TYPE_PRODUCT_IMAGE, FILE_TYPE_FNSKU_LABEL_PDF].includes(file.file_type)) {
+    const err = new Error('File is not a row-level SKU file.')
+    err.status = 400
+    throw err
+  }
+  await s3Service.deleteObjectIfExists(file.file_url).catch(() => {})
+  await query(`DELETE FROM amazon_ksa_rto_label_files WHERE id = $1`, [fileId])
+  return refreshRowStatus(file.row_id)
+}
+
 module.exports = {
   DEFAULT_DESTINATION,
   STATUS_READY,
+  STATUS_MISSING_PRODUCT_CODE,
   STATUS_MISSING_FNSKU,
+  STATUS_MISSING_IMAGE,
+  STATUS_MISSING_PDF,
   STATUS_INVALID_QTY,
+  FILE_TYPE_PRODUCT_IMAGE,
+  FILE_TYPE_FNSKU_LABEL_PDF,
   ensureAmazonKsaRtoLabelingTables,
   listBatches,
   getBatch,
@@ -433,6 +651,8 @@ module.exports = {
   updateBatch,
   deleteBatch,
   uploadFile,
+  uploadRowFile,
   deleteFile,
+  deleteRowFile,
   statusForRow,
 }

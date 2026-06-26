@@ -2,8 +2,14 @@ import { api } from './client'
 
 const PREFIX = '/api/amazon/ksa-rto-labeling'
 
-export type KsaRtoRowStatus = 'Ready' | 'Missing FNSKU' | 'Invalid Qty'
-export type KsaRtoFileType = 'header_image' | 'fnsku_pdf'
+export type KsaRtoRowStatus =
+  | 'Ready'
+  | 'Missing Product Code'
+  | 'Missing FNSKU'
+  | 'Missing Image'
+  | 'Missing PDF'
+  | 'Invalid Qty'
+export type KsaRtoFileType = 'batch_header' | 'header_image' | 'fnsku_pdf' | 'product_image' | 'fnsku_label_pdf'
 
 export interface KsaRtoLabelRow {
   id?: number | string
@@ -13,6 +19,9 @@ export interface KsaRtoLabelRow {
   quantity: number
   notes?: string
   status?: KsaRtoRowStatus
+  productImage?: KsaRtoLabelFile | null
+  labelPdf?: KsaRtoLabelFile | null
+  files?: KsaRtoLabelFile[]
   createdAt?: string
   updatedAt?: string
 }
@@ -20,6 +29,7 @@ export interface KsaRtoLabelRow {
 export interface KsaRtoLabelFile {
   id: number
   batchId: number
+  rowId?: number | null
   fileType: KsaRtoFileType
   fileName: string
   fileUrl: string
@@ -45,6 +55,8 @@ export interface KsaRtoLabelBatch {
   totalLines: number
   totalQuantity: number
   missingFnskuCount: number
+  missingImageCount: number
+  missingPdfCount: number
   pdfFileCount: number
   rows?: KsaRtoLabelRow[]
   files?: KsaRtoLabelFile[]
@@ -91,8 +103,26 @@ export async function uploadKsaRtoLabelFile(id: number | string, fileType: KsaRt
   return api.postForm(`${PREFIX}/batches/${id}/files`, form, { timeoutMs: 120_000 }) as Promise<{ file: KsaRtoLabelFile }>
 }
 
+export async function uploadKsaRtoLabelRowFile(
+  batchId: number | string,
+  rowId: number | string,
+  fileType: 'product_image' | 'fnsku_label_pdf',
+  file: File
+) {
+  const form = new FormData()
+  form.set('file_type', fileType)
+  form.set('file', file)
+  return api.postForm(`${PREFIX}/batches/${batchId}/rows/${rowId}/files`, form, {
+    timeoutMs: 120_000,
+  }) as Promise<{ file: KsaRtoLabelFile; row: KsaRtoLabelRow }>
+}
+
 export async function deleteKsaRtoLabelFile(fileId: number | string) {
   return api.delete(`${PREFIX}/files/${fileId}`) as Promise<{ success: boolean }>
+}
+
+export async function deleteKsaRtoLabelRowFile(fileId: number | string) {
+  return api.delete(`${PREFIX}/row-files/${fileId}`) as Promise<{ success: boolean; row: KsaRtoLabelRow | null }>
 }
 
 export async function parseKsaRtoLabelFile(file: File) {

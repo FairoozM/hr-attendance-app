@@ -18,7 +18,9 @@ router.post('/batches', ctrl.postBatch)
 router.put('/batches/:id', ctrl.putBatch)
 router.delete('/batches/:id', ctrl.deleteBatch)
 router.post('/batches/:id/files', upload.single('file'), ctrl.postFile)
+router.post('/batches/:batchId/rows/:rowId/files', upload.single('file'), ctrl.postRowFile)
 router.delete('/files/:fileId', ctrl.deleteFile)
+router.delete('/row-files/:fileId', ctrl.deleteRowFile)
 router.post('/parse', upload.single('file'), ctrl.postParse)
 
 module.exports = router
