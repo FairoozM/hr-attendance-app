@@ -1,6 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { freshRequire, mockModule } = require('./_helpers')
+const { captureConsole, freshRequire, makeReqRes, mockModule } = require('./_helpers')
 
 function makeFile({ name = 'file.bin', mimetype = 'application/octet-stream' } = {}) {
   return {
@@ -360,7 +360,33 @@ test('Amazon KSA RTO public share returns batch only when enabled and not expire
   }
 })
 
-test('Amazon KSA RTO public row status only updates agent fields', async () => {
+test('Amazon KSA RTO public row status update to checked works', async () => {
+  const { service, store, restore } = loadService()
+  try {
+    const created = await service.createBatch(
+      {
+        batchTitle: 'KSA RTO Public',
+        rows: [{ productCode: 'LIFEP12', fnskuNo: 'X001ABC', quantity: 2 }],
+      },
+      7
+    )
+    const rowId = created.rows[0].id
+    const shared = await service.setBatchShare(created.id, {})
+    const publicBatch = await service.updatePublicRowStatus(shared.shareToken, rowId, {
+      agentRowStatus: 'checked',
+    })
+
+    assert.equal(publicBatch.rows[0].agentRowStatus, 'checked')
+    assert.equal(publicBatch.rows[0].agentRowNote, '')
+    assert.equal(store.rows[0].agent_row_status, 'checked')
+    assert.ok(store.rows[0].agent_checked_at)
+    assert.equal(store.batches[0].agent_status, 'in_progress')
+  } finally {
+    restore()
+  }
+})
+
+test('Amazon KSA RTO public row status update to issue with note works and only updates agent fields', async () => {
   const { service, store, restore } = loadService()
   try {
     const created = await service.createBatch(
@@ -383,11 +409,41 @@ test('Amazon KSA RTO public row status only updates agent fields', async () => {
 
     assert.equal(publicBatch.rows[0].agentRowStatus, 'issue')
     assert.equal(publicBatch.rows[0].agentRowNote, 'Quantity mismatch')
+    assert.equal(store.rows[0].agent_row_status, 'issue')
+    assert.equal(store.rows[0].agent_row_note, 'Quantity mismatch')
     assert.equal(store.rows[0].product_code, before.product_code)
     assert.equal(store.rows[0].fnsku_no, before.fnsku_no)
     assert.equal(store.rows[0].quantity, before.quantity)
   } finally {
     restore()
+  }
+})
+
+test('Amazon KSA RTO public controller never returns raw DB error messages', async () => {
+  const rawError = new Error('inconsistent types deduced for parameter $3')
+  const restoreService = mockModule('../src/services/amazonKsaRtoLabelingService', {
+    async updatePublicRowStatus() {
+      throw rawError
+    },
+  })
+  try {
+    const controller = freshRequire('../src/controllers/amazonKsaRtoLabelingController')
+    const { req, res } = makeReqRes({
+      params: { shareToken: 'token', rowId: '10' },
+      body: { agentRowStatus: 'checked' },
+    })
+    const logs = await captureConsole(async () => {
+      await controller.postPublicRowStatus(req, res)
+    })
+
+    assert.equal(res.statusCode, 500)
+    assert.equal(res.body.error, 'Could not save this row status. Please try again.')
+    assert.equal(JSON.stringify(res.body).includes('inconsistent types'), false)
+    assert.equal(JSON.stringify(res.body).includes('parameter $3'), false)
+    assert.equal(logs.error.length > 0, true)
+    assert.equal(String(logs.error[0][1]?.message || logs.error[0][1]).includes('inconsistent types'), true)
+  } finally {
+    restoreService()
   }
 })
 

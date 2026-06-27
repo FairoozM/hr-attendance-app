@@ -17,6 +17,18 @@ function sendError(res, err, fallback = 'Request failed') {
   })
 }
 
+function sendPublicError(res, err, fallback = 'Request failed') {
+  const status = err.status && err.status < 500 ? err.status : 500
+  if (status >= 500) {
+    console.error('[amazon-ksa-rto-labeling:public]', err)
+  }
+  const safeMessage =
+    status >= 500
+      ? fallback
+      : err.message || fallback
+  res.status(status).json({ error: safeMessage })
+}
+
 function normalizeHeader(value) {
   return String(value || '')
     .trim()
@@ -232,7 +244,7 @@ async function getPublicBatch(req, res) {
     if (!batch) return res.status(404).json({ error: 'Share link is invalid, disabled, or expired.' })
     res.json({ batch })
   } catch (err) {
-    sendError(res, err, 'Failed to load shared batch')
+    sendPublicError(res, err, 'Could not load this shared batch. Please refresh or ask Life Smile for a new link.')
   }
 }
 
@@ -241,7 +253,7 @@ async function postPublicRowStatus(req, res) {
     const batch = await service.updatePublicRowStatus(req.params.shareToken, req.params.rowId, req.body || {})
     res.json({ batch })
   } catch (err) {
-    sendError(res, err, 'Failed to update row status')
+    sendPublicError(res, err, 'Could not save this row status. Please try again.')
   }
 }
 
@@ -250,7 +262,7 @@ async function postPublicComplete(req, res) {
     const batch = await service.completePublicBatch(req.params.shareToken, req.body || {})
     res.json({ batch })
   } catch (err) {
-    sendError(res, err, 'Failed to complete batch')
+    sendPublicError(res, err, 'Could not complete this batch. Please try again.')
   }
 }
 

@@ -879,11 +879,11 @@ async function updatePublicRowStatus(shareToken, rowId, payload = {}) {
   const note = normalizeText(payload.agent_row_note ?? payload.agentRowNote) || null
   const updated = await query(
     `UPDATE amazon_ksa_rto_label_rows
-     SET agent_row_status = $3,
-         agent_row_note = $4,
-         agent_checked_at = CASE WHEN $3 IN ('checked', 'issue') THEN NOW() ELSE NULL END,
+     SET agent_row_status = $3::varchar,
+         agent_row_note = $4::text,
+         agent_checked_at = CASE WHEN $3::varchar IN ('checked', 'issue') THEN NOW() ELSE NULL END,
          updated_at = NOW()
-     WHERE id = $1 AND batch_id = $2
+     WHERE id = $1::int AND batch_id = $2::int
      RETURNING id`,
     [rowId, batchId, status, note]
   )
@@ -896,7 +896,7 @@ async function updatePublicRowStatus(shareToken, rowId, payload = {}) {
     `UPDATE amazon_ksa_rto_label_batches
      SET agent_status = CASE WHEN agent_status = 'pending' THEN 'in_progress' ELSE agent_status END,
          updated_at = NOW()
-     WHERE id = $1`,
+     WHERE id = $1::int`,
     [batchId]
   )
   const batch = await getBatch(batchId)
@@ -911,10 +911,10 @@ async function completePublicBatch(shareToken, payload = {}) {
     `UPDATE amazon_ksa_rto_label_batches
      SET agent_status = 'completed',
          agent_completed_at = NOW(),
-         agent_notes = $2,
-         agent_completed_by_name = $3,
+         agent_notes = $2::text,
+         agent_completed_by_name = $3::text,
          updated_at = NOW()
-     WHERE id = $1`,
+     WHERE id = $1::int`,
     [batchId, notes, completedByName]
   )
   const batch = await getBatch(batchId)
