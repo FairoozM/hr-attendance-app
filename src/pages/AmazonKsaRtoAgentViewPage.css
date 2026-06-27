@@ -273,10 +273,11 @@
 
 .rto-agent-card {
   display: grid;
-  grid-template-columns: 5.45rem minmax(18rem, 1fr) minmax(19rem, auto);
-  gap: 0.75rem;
+  grid-template-columns: 6.6rem minmax(20rem, 1fr) auto;
+  gap: 1rem;
   align-items: center;
-  padding: 0.62rem 0.75rem;
+  min-height: 7.1rem;
+  padding: 0.6rem 0.85rem;
   scroll-margin: 7rem;
   border-left: 0.34rem solid rgba(245, 158, 11, 0.45);
 }
@@ -300,15 +301,17 @@
 .rto-agent-image-wrap {
   display: grid;
   place-items: center;
-  width: 5.45rem;
-  height: 6.1rem;
+  width: 6.35rem;
+  height: 6.35rem;
   overflow: hidden;
-  border-radius: 0.9rem;
-  background: #fff7ed;
+  border: 1px solid rgba(138, 107, 79, 0.13);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.82);
   color: #a16207;
   font-size: 0.76rem;
   font-weight: 900;
   text-align: center;
+  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.95), 0 8px 18px rgba(120, 83, 45, 0.08);
 }
 
 .rto-agent-image-wrap img {
@@ -366,6 +369,15 @@
   font-size: 1rem;
   font-weight: 900;
   line-height: 1;
+}
+
+.rto-agent-issue-cell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 4.55rem;
+  border-left: 1px solid rgba(138, 107, 79, 0.12);
+  padding-left: 0.9rem;
 }
 
 .rto-agent-row-state--not_checked {
@@ -474,17 +486,20 @@
 }
 
 .rto-agent-card-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto auto auto auto;
   align-items: center;
   justify-content: flex-end;
-  gap: 0.75rem;
-  flex-wrap: wrap;
+  gap: 0.85rem;
 }
 
 .rto-agent-action-section {
   display: grid;
   align-content: center;
   gap: 0.34rem;
+  min-height: 4.55rem;
+  border-left: 1px solid rgba(138, 107, 79, 0.12);
+  padding-left: 0.9rem;
 }
 
 .rto-agent-action-title {
@@ -632,7 +647,7 @@
 .rto-agent-note {
   display: grid;
   gap: 0.4rem;
-  flex-basis: 100%;
+  grid-column: 1 / -1;
   min-width: min(100%, 20rem);
   border-radius: 1rem;
   background: rgba(255, 255, 255, 0.62);
@@ -817,6 +832,13 @@ input:disabled {
 
   .rto-agent-card-actions {
     grid-column: 1 / -1;
+    grid-template-columns: repeat(4, auto);
+    justify-content: start;
+  }
+
+  .rto-agent-action-section,
+  .rto-agent-issue-cell {
+    min-height: auto;
   }
 
   .rto-agent-complete {
@@ -852,6 +874,22 @@ input:disabled {
   .rto-agent-card {
     grid-template-columns: 1fr;
     padding: 0.95rem;
+  }
+
+  .rto-agent-card-actions {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.85rem;
+  }
+
+  .rto-agent-qty,
+  .rto-agent-action-section,
+  .rto-agent-issue-cell {
+    border-left: 0;
+    padding-left: 0;
+  }
+
+  .rto-agent-issue-cell {
+    justify-content: flex-start;
   }
 
   .rto-agent-image-wrap {
@@ -890,15 +928,6 @@ input:disabled {
 
   .rto-agent-summary div {
     padding: 0.65rem;
-  }
-
-  .rto-agent-segmented {
-    grid-template-columns: 1fr;
-    border-radius: 1rem;
-  }
-
-  .rto-agent-segmented button {
-    border-radius: 0.8rem;
   }
 
   .rto-agent-modal-actions {
