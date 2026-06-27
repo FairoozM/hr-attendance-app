@@ -1,3 +1,4 @@
+const crypto = require('crypto')
 const { query, pool } = require('../db')
 const s3Service = require('./s3Service')
 
@@ -12,6 +13,12 @@ const FILE_TYPE_BATCH_HEADER = 'batch_header'
 const FILE_TYPE_HEADER_IMAGE = 'header_image'
 const FILE_TYPE_PRODUCT_IMAGE = 'product_image'
 const FILE_TYPE_FNSKU_LABEL_PDF = 'fnsku_label_pdf'
+const AGENT_STATUS_PENDING = 'pending'
+const AGENT_STATUS_IN_PROGRESS = 'in_progress'
+const AGENT_STATUS_COMPLETED = 'completed'
+const AGENT_ROW_STATUS_NOT_CHECKED = 'not_checked'
+const AGENT_ROW_STATUS_CHECKED = 'checked'
+const AGENT_ROW_STATUS_ISSUE = 'issue'
 
 function intOrNull(value) {
   const n = Number(value)
@@ -27,6 +34,24 @@ function normalizeQuantity(value) {
   const raw = normalizeText(value).replace(/,/g, '')
   if (!raw) return NaN
   return Number(raw)
+}
+
+function normalizeAgentStatus(value) {
+  const status = normalizeText(value)
+  return [AGENT_STATUS_PENDING, AGENT_STATUS_IN_PROGRESS, AGENT_STATUS_COMPLETED].includes(status)
+    ? status
+    : AGENT_STATUS_PENDING
+}
+
+function normalizeAgentRowStatus(value) {
+  const status = normalizeText(value)
+  return [AGENT_ROW_STATUS_NOT_CHECKED, AGENT_ROW_STATUS_CHECKED, AGENT_ROW_STATUS_ISSUE].includes(status)
+    ? status
+    : AGENT_ROW_STATUS_NOT_CHECKED
+}
+
+function generateShareToken() {
+  return crypto.randomBytes(32).toString('base64url')
 }
 
 function statusForRow(row) {
@@ -98,12 +123,22 @@ function mapBatch(row) {
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    shareToken: row.share_token || '',
+    shareEnabled: Boolean(row.share_enabled),
+    shareExpiresAt: row.share_expires_at,
+    agentCompletedAt: row.agent_completed_at,
+    agentNotes: row.agent_notes || '',
+    agentCompletedByName: row.agent_completed_by_name || '',
+    agentStatus: row.agent_status || AGENT_STATUS_PENDING,
     totalLines: Number(row.total_lines || 0),
     totalQuantity: Number(row.total_quantity || 0),
     missingFnskuCount: Number(row.missing_fnsku_count || 0),
     missingImageCount: Number(row.missing_image_count || 0),
     missingPdfCount: Number(row.missing_pdf_count || 0),
     pdfFileCount: Number(row.pdf_file_count || 0),
+    agentCheckedCount: Number(row.agent_checked_count || 0),
+    agentIssueCount: Number(row.agent_issue_count || 0),
+    agentNotCheckedCount: Number(row.agent_not_checked_count || 0),
   }
 }
 
@@ -127,8 +162,68 @@ function mapRow(row, files = []) {
     productImage,
     labelPdf,
     files,
+    agentRowStatus: row.agent_row_status || AGENT_ROW_STATUS_NOT_CHECKED,
+    agentRowNote: row.agent_row_note || '',
+    agentCheckedAt: row.agent_checked_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  }
+}
+
+function mapPublicFile(file) {
+  if (!file) return null
+  return {
+    fileName: file.fileName,
+    downloadUrl: file.downloadUrl,
+    mimeType: file.mimeType,
+    fileSize: file.fileSize,
+  }
+}
+
+function mapPublicRow(row) {
+  return {
+    id: row.id,
+    productCode: row.productCode,
+    fnskuNo: row.fnskuNo,
+    quantity: row.quantity,
+    status: row.status,
+    productImage: mapPublicFile(row.productImage),
+    labelPdf: mapPublicFile(row.labelPdf),
+    agentRowStatus: row.agentRowStatus || AGENT_ROW_STATUS_NOT_CHECKED,
+    agentRowNote: row.agentRowNote || '',
+    agentCheckedAt: row.agentCheckedAt,
+  }
+}
+
+function publicSummary(rows) {
+  return {
+    totalLines: rows.length,
+    totalQuantity: rows.reduce((sum, row) => sum + Number(row.quantity || 0), 0),
+    ready: rows.filter((row) => row.status === STATUS_READY).length,
+    missingFnsku: rows.filter((row) => row.status === STATUS_MISSING_FNSKU).length,
+    missingImage: rows.filter((row) => row.status === STATUS_MISSING_IMAGE).length,
+    missingPdf: rows.filter((row) => row.status === STATUS_MISSING_PDF).length,
+    checked: rows.filter((row) => row.agentRowStatus === AGENT_ROW_STATUS_CHECKED).length,
+    issues: rows.filter((row) => row.agentRowStatus === AGENT_ROW_STATUS_ISSUE).length,
+    notChecked: rows.filter((row) => row.agentRowStatus === AGENT_ROW_STATUS_NOT_CHECKED).length,
+  }
+}
+
+function mapPublicBatch(batch) {
+  const rows = (batch.rows || []).map(mapPublicRow)
+  return {
+    id: batch.id,
+    batchTitle: batch.batchTitle,
+    referenceNo: batch.referenceNo,
+    destination: batch.destination,
+    notes: batch.notes,
+    agentStatus: batch.agentStatus,
+    agentNotes: batch.agentNotes,
+    agentCompletedAt: batch.agentCompletedAt,
+    agentCompletedByName: batch.agentCompletedByName,
+    shareExpiresAt: batch.shareExpiresAt,
+    summary: publicSummary(rows),
+    rows,
   }
 }
 
@@ -166,9 +261,17 @@ async function ensureAmazonKsaRtoLabelingTables() {
       destination TEXT NOT NULL DEFAULT 'Wanasa-Lifesmile',
       notes TEXT,
       header_image_url TEXT,
+      share_token TEXT UNIQUE,
+      share_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      share_expires_at TIMESTAMPTZ,
+      agent_completed_at TIMESTAMPTZ,
+      agent_notes TEXT,
+      agent_completed_by_name TEXT,
+      agent_status VARCHAR(32) NOT NULL DEFAULT 'pending',
       created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT amazon_ksa_rto_label_batches_agent_status_chk CHECK (agent_status IN ('pending', 'in_progress', 'completed'))
     )
   `)
   await query(`
@@ -180,10 +283,14 @@ async function ensureAmazonKsaRtoLabelingTables() {
       quantity NUMERIC(14,2) NOT NULL,
       notes TEXT,
       status VARCHAR(32) NOT NULL,
+      agent_row_status VARCHAR(32) NOT NULL DEFAULT 'not_checked',
+      agent_row_note TEXT,
+      agent_checked_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       CONSTRAINT amazon_ksa_rto_label_rows_quantity_chk CHECK (quantity > 0),
-      CONSTRAINT amazon_ksa_rto_label_rows_status_chk CHECK (status IN ('Ready', 'Missing Product Code', 'Missing FNSKU', 'Missing Image', 'Missing PDF', 'Invalid Qty'))
+      CONSTRAINT amazon_ksa_rto_label_rows_status_chk CHECK (status IN ('Ready', 'Missing Product Code', 'Missing FNSKU', 'Missing Image', 'Missing PDF', 'Invalid Qty')),
+      CONSTRAINT amazon_ksa_rto_label_rows_agent_status_chk CHECK (agent_row_status IN ('not_checked', 'checked', 'issue'))
     )
   `)
   await query(`
@@ -202,6 +309,28 @@ async function ensureAmazonKsaRtoLabelingTables() {
     )
   `)
   await query(`ALTER TABLE amazon_ksa_rto_label_files ADD COLUMN IF NOT EXISTS row_id INTEGER REFERENCES amazon_ksa_rto_label_rows(id) ON DELETE CASCADE`)
+  await query(`ALTER TABLE amazon_ksa_rto_label_batches ADD COLUMN IF NOT EXISTS share_token TEXT UNIQUE`)
+  await query(`ALTER TABLE amazon_ksa_rto_label_batches ADD COLUMN IF NOT EXISTS share_enabled BOOLEAN NOT NULL DEFAULT FALSE`)
+  await query(`ALTER TABLE amazon_ksa_rto_label_batches ADD COLUMN IF NOT EXISTS share_expires_at TIMESTAMPTZ`)
+  await query(`ALTER TABLE amazon_ksa_rto_label_batches ADD COLUMN IF NOT EXISTS agent_completed_at TIMESTAMPTZ`)
+  await query(`ALTER TABLE amazon_ksa_rto_label_batches ADD COLUMN IF NOT EXISTS agent_notes TEXT`)
+  await query(`ALTER TABLE amazon_ksa_rto_label_batches ADD COLUMN IF NOT EXISTS agent_completed_by_name TEXT`)
+  await query(`ALTER TABLE amazon_ksa_rto_label_batches ADD COLUMN IF NOT EXISTS agent_status VARCHAR(32) NOT NULL DEFAULT 'pending'`)
+  await query(`ALTER TABLE amazon_ksa_rto_label_batches DROP CONSTRAINT IF EXISTS amazon_ksa_rto_label_batches_agent_status_chk`)
+  await query(`
+    ALTER TABLE amazon_ksa_rto_label_batches
+    ADD CONSTRAINT amazon_ksa_rto_label_batches_agent_status_chk
+    CHECK (agent_status IN ('pending', 'in_progress', 'completed'))
+  `)
+  await query(`ALTER TABLE amazon_ksa_rto_label_rows ADD COLUMN IF NOT EXISTS agent_row_status VARCHAR(32) NOT NULL DEFAULT 'not_checked'`)
+  await query(`ALTER TABLE amazon_ksa_rto_label_rows ADD COLUMN IF NOT EXISTS agent_row_note TEXT`)
+  await query(`ALTER TABLE amazon_ksa_rto_label_rows ADD COLUMN IF NOT EXISTS agent_checked_at TIMESTAMPTZ`)
+  await query(`ALTER TABLE amazon_ksa_rto_label_rows DROP CONSTRAINT IF EXISTS amazon_ksa_rto_label_rows_agent_status_chk`)
+  await query(`
+    ALTER TABLE amazon_ksa_rto_label_rows
+    ADD CONSTRAINT amazon_ksa_rto_label_rows_agent_status_chk
+    CHECK (agent_row_status IN ('not_checked', 'checked', 'issue'))
+  `)
   await query(`ALTER TABLE amazon_ksa_rto_label_rows DROP CONSTRAINT IF EXISTS amazon_ksa_rto_label_rows_status_chk`)
   await query(`
     ALTER TABLE amazon_ksa_rto_label_rows
@@ -221,6 +350,8 @@ async function ensureAmazonKsaRtoLabelingTables() {
   await query(`CREATE INDEX IF NOT EXISTS idx_amazon_ksa_rto_label_rows_fnsku ON amazon_ksa_rto_label_rows(LOWER(fnsku_no))`)
   await query(`CREATE INDEX IF NOT EXISTS idx_amazon_ksa_rto_label_files_batch ON amazon_ksa_rto_label_files(batch_id)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_amazon_ksa_rto_label_files_row ON amazon_ksa_rto_label_files(row_id)`)
+  await query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_amazon_ksa_rto_label_batches_share_token ON amazon_ksa_rto_label_batches(share_token) WHERE share_token IS NOT NULL`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_amazon_ksa_rto_label_batches_share_enabled ON amazon_ksa_rto_label_batches(share_enabled, share_expires_at)`)
   await query(`
     CREATE UNIQUE INDEX IF NOT EXISTS uq_amazon_ksa_rto_row_file_type
     ON amazon_ksa_rto_label_files(row_id, file_type)
@@ -260,6 +391,9 @@ async function listBatches({ search = '', from = '', to = '', limit = 50 } = {})
       COALESCE(rs.missing_fnsku_count, 0)::int AS missing_fnsku_count,
       COALESCE(rs.missing_image_count, 0)::int AS missing_image_count,
       COALESCE(rs.missing_pdf_count, 0)::int AS missing_pdf_count,
+      COALESCE(rs.agent_checked_count, 0)::int AS agent_checked_count,
+      COALESCE(rs.agent_issue_count, 0)::int AS agent_issue_count,
+      COALESCE(rs.agent_not_checked_count, 0)::int AS agent_not_checked_count,
       COALESCE(fs.pdf_file_count, 0)::int AS pdf_file_count
     FROM amazon_ksa_rto_label_batches b
     LEFT JOIN (
@@ -268,7 +402,10 @@ async function listBatches({ search = '', from = '', to = '', limit = 50 } = {})
         COALESCE(SUM(r.quantity), 0) AS total_quantity,
         COUNT(*) FILTER (WHERE COALESCE(r.fnsku_no, '') = '')::int AS missing_fnsku_count,
         COUNT(*) FILTER (WHERE pi.id IS NULL)::int AS missing_image_count,
-        COUNT(*) FILTER (WHERE lp.id IS NULL)::int AS missing_pdf_count
+        COUNT(*) FILTER (WHERE lp.id IS NULL)::int AS missing_pdf_count,
+        COUNT(*) FILTER (WHERE r.agent_row_status = 'checked')::int AS agent_checked_count,
+        COUNT(*) FILTER (WHERE r.agent_row_status = 'issue')::int AS agent_issue_count,
+        COUNT(*) FILTER (WHERE r.agent_row_status = 'not_checked')::int AS agent_not_checked_count
       FROM amazon_ksa_rto_label_rows r
       LEFT JOIN amazon_ksa_rto_label_files pi
         ON pi.row_id = r.id AND pi.file_type = 'product_image'
@@ -297,6 +434,9 @@ async function getBatch(id) {
       COALESCE(rs.missing_fnsku_count, 0)::int AS missing_fnsku_count,
       COALESCE(rs.missing_image_count, 0)::int AS missing_image_count,
       COALESCE(rs.missing_pdf_count, 0)::int AS missing_pdf_count,
+      COALESCE(rs.agent_checked_count, 0)::int AS agent_checked_count,
+      COALESCE(rs.agent_issue_count, 0)::int AS agent_issue_count,
+      COALESCE(rs.agent_not_checked_count, 0)::int AS agent_not_checked_count,
       COALESCE(fs.pdf_file_count, 0)::int AS pdf_file_count
     FROM amazon_ksa_rto_label_batches b
     LEFT JOIN (
@@ -305,7 +445,10 @@ async function getBatch(id) {
         COALESCE(SUM(r.quantity), 0) AS total_quantity,
         COUNT(*) FILTER (WHERE COALESCE(r.fnsku_no, '') = '')::int AS missing_fnsku_count,
         COUNT(*) FILTER (WHERE pi.id IS NULL)::int AS missing_image_count,
-        COUNT(*) FILTER (WHERE lp.id IS NULL)::int AS missing_pdf_count
+        COUNT(*) FILTER (WHERE lp.id IS NULL)::int AS missing_pdf_count,
+        COUNT(*) FILTER (WHERE r.agent_row_status = 'checked')::int AS agent_checked_count,
+        COUNT(*) FILTER (WHERE r.agent_row_status = 'issue')::int AS agent_issue_count,
+        COUNT(*) FILTER (WHERE r.agent_row_status = 'not_checked')::int AS agent_not_checked_count
       FROM amazon_ksa_rto_label_rows r
       LEFT JOIN amazon_ksa_rto_label_files pi
         ON pi.row_id = r.id AND pi.file_type = 'product_image'
@@ -634,6 +777,150 @@ async function deleteRowFile(fileId) {
   return refreshRowStatus(file.row_id)
 }
 
+async function setBatchShare(id, payload = {}) {
+  const existing = await query(`SELECT id, share_token FROM amazon_ksa_rto_label_batches WHERE id = $1`, [id])
+  if (!existing.rows.length) {
+    const err = new Error('Batch not found.')
+    err.status = 404
+    throw err
+  }
+  let token = existing.rows[0].share_token
+  if (!token) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      token = generateShareToken()
+      const dup = await query(`SELECT id FROM amazon_ksa_rto_label_batches WHERE share_token = $1`, [token])
+      if (!dup.rows.length) break
+      token = ''
+    }
+  }
+  if (!token) {
+    const err = new Error('Could not generate share token.')
+    err.status = 500
+    throw err
+  }
+  const shareEnabled = payload.share_enabled ?? payload.shareEnabled
+  const enable = shareEnabled == null ? true : Boolean(shareEnabled)
+  const expiresAt = normalizeText(payload.share_expires_at ?? payload.shareExpiresAt) || null
+  await query(
+    `UPDATE amazon_ksa_rto_label_batches
+     SET share_token = $2,
+         share_enabled = $3,
+         share_expires_at = $4,
+         agent_status = CASE
+           WHEN agent_status = 'completed' THEN agent_status
+           WHEN $3 THEN agent_status
+           ELSE 'pending'
+         END,
+         updated_at = NOW()
+     WHERE id = $1`,
+    [id, token, enable, expiresAt]
+  )
+  return getBatch(id)
+}
+
+async function disableBatchShare(id) {
+  const updated = await query(
+    `UPDATE amazon_ksa_rto_label_batches
+     SET share_enabled = FALSE, updated_at = NOW()
+     WHERE id = $1
+     RETURNING id`,
+    [id]
+  )
+  if (!updated.rows.length) {
+    const err = new Error('Batch not found.')
+    err.status = 404
+    throw err
+  }
+  return getBatch(id)
+}
+
+async function publicBatchByToken(shareToken) {
+  const token = normalizeText(shareToken)
+  if (!token) return null
+  const result = await query(
+    `SELECT id
+     FROM amazon_ksa_rto_label_batches
+     WHERE share_token = $1
+       AND share_enabled = TRUE
+       AND (share_expires_at IS NULL OR share_expires_at > NOW())`,
+    [token]
+  )
+  if (!result.rows.length) return null
+  const batch = await getBatch(result.rows[0].id)
+  return batch ? mapPublicBatch(batch) : null
+}
+
+async function assertPublicBatchWritable(shareToken) {
+  const token = normalizeText(shareToken)
+  const result = await query(
+    `SELECT id, agent_status
+     FROM amazon_ksa_rto_label_batches
+     WHERE share_token = $1
+       AND share_enabled = TRUE
+       AND (share_expires_at IS NULL OR share_expires_at > NOW())`,
+    [token]
+  )
+  if (!result.rows.length) {
+    const err = new Error('Share link is invalid, disabled, or expired.')
+    err.status = 404
+    throw err
+  }
+  if (result.rows[0].agent_status === AGENT_STATUS_COMPLETED) {
+    const err = new Error('This batch is already completed.')
+    err.status = 409
+    throw err
+  }
+  return result.rows[0].id
+}
+
+async function updatePublicRowStatus(shareToken, rowId, payload = {}) {
+  const batchId = await assertPublicBatchWritable(shareToken)
+  const status = normalizeAgentRowStatus(payload.agent_row_status ?? payload.agentRowStatus)
+  const note = normalizeText(payload.agent_row_note ?? payload.agentRowNote) || null
+  const updated = await query(
+    `UPDATE amazon_ksa_rto_label_rows
+     SET agent_row_status = $3,
+         agent_row_note = $4,
+         agent_checked_at = CASE WHEN $3 IN ('checked', 'issue') THEN NOW() ELSE NULL END,
+         updated_at = NOW()
+     WHERE id = $1 AND batch_id = $2
+     RETURNING id`,
+    [rowId, batchId, status, note]
+  )
+  if (!updated.rows.length) {
+    const err = new Error('Row not found for this shared batch.')
+    err.status = 404
+    throw err
+  }
+  await query(
+    `UPDATE amazon_ksa_rto_label_batches
+     SET agent_status = CASE WHEN agent_status = 'pending' THEN 'in_progress' ELSE agent_status END,
+         updated_at = NOW()
+     WHERE id = $1`,
+    [batchId]
+  )
+  const batch = await getBatch(batchId)
+  return mapPublicBatch(batch)
+}
+
+async function completePublicBatch(shareToken, payload = {}) {
+  const batchId = await assertPublicBatchWritable(shareToken)
+  const notes = normalizeText(payload.agent_notes ?? payload.agentNotes) || null
+  const completedByName = normalizeText(payload.completed_by_name ?? payload.completedByName) || null
+  await query(
+    `UPDATE amazon_ksa_rto_label_batches
+     SET agent_status = 'completed',
+         agent_completed_at = NOW(),
+         agent_notes = $2,
+         agent_completed_by_name = $3,
+         updated_at = NOW()
+     WHERE id = $1`,
+    [batchId, notes, completedByName]
+  )
+  const batch = await getBatch(batchId)
+  return mapPublicBatch(batch)
+}
+
 module.exports = {
   DEFAULT_DESTINATION,
   STATUS_READY,
@@ -644,6 +931,12 @@ module.exports = {
   STATUS_INVALID_QTY,
   FILE_TYPE_PRODUCT_IMAGE,
   FILE_TYPE_FNSKU_LABEL_PDF,
+  AGENT_STATUS_PENDING,
+  AGENT_STATUS_IN_PROGRESS,
+  AGENT_STATUS_COMPLETED,
+  AGENT_ROW_STATUS_NOT_CHECKED,
+  AGENT_ROW_STATUS_CHECKED,
+  AGENT_ROW_STATUS_ISSUE,
   ensureAmazonKsaRtoLabelingTables,
   listBatches,
   getBatch,
@@ -654,5 +947,10 @@ module.exports = {
   uploadRowFile,
   deleteFile,
   deleteRowFile,
+  setBatchShare,
+  disableBatchShare,
+  publicBatchByToken,
+  updatePublicRowStatus,
+  completePublicBatch,
   statusForRow,
 }

@@ -6,10 +6,13 @@ import {
   createKsaRtoLabelBatch,
   deleteKsaRtoLabelBatch,
   deleteKsaRtoLabelRowFile,
+  disableKsaRtoAgentShare,
+  enableKsaRtoAgentShare,
   getKsaRtoLabelBatch,
   listKsaRtoLabelBatches,
   parseKsaRtoLabelFile,
   updateKsaRtoLabelBatch,
+  updateKsaRtoAgentShare,
   uploadKsaRtoLabelRowFile,
   uploadKsaRtoLabelRowFileJson,
   type KsaRtoBatchPayload,
@@ -39,6 +42,19 @@ interface BatchMeta {
   agentName: string
   destination: string
   notes: string
+}
+
+interface ShareState {
+  shareToken: string
+  shareEnabled: boolean
+  shareExpiresAt: string
+  agentStatus: 'pending' | 'in_progress' | 'completed'
+  agentCompletedAt: string
+  agentNotes: string
+  agentCompletedByName: string
+  agentCheckedCount: number
+  agentIssueCount: number
+  agentNotCheckedCount: number
 }
 
 function newRow(): DraftRow {
@@ -130,6 +146,21 @@ function imageDataUrl(file: KsaRtoLabelFile | null | undefined) {
   return file?.downloadUrl || ''
 }
 
+function shareStateFromBatch(batch?: KsaRtoLabelBatch | null): ShareState {
+  return {
+    shareToken: batch?.shareToken || '',
+    shareEnabled: Boolean(batch?.shareEnabled),
+    shareExpiresAt: batch?.shareExpiresAt ? String(batch.shareExpiresAt).slice(0, 10) : '',
+    agentStatus: batch?.agentStatus || 'pending',
+    agentCompletedAt: batch?.agentCompletedAt || '',
+    agentNotes: batch?.agentNotes || '',
+    agentCompletedByName: batch?.agentCompletedByName || '',
+    agentCheckedCount: Number(batch?.agentCheckedCount || 0),
+    agentIssueCount: Number(batch?.agentIssueCount || 0),
+    agentNotCheckedCount: Number(batch?.agentNotCheckedCount || 0),
+  }
+}
+
 function buildPrintableHtml(meta: BatchMeta, rows: DraftRow[]) {
   const tableRows = rows
     .map((row, index) => {
@@ -198,6 +229,7 @@ export function AmazonKsaRtoLabelingPage() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
+  const [share, setShare] = useState<ShareState>(() => shareStateFromBatch(null))
   const dataInputRef = useRef<HTMLInputElement | null>(null)
 
   const summary = useMemo(() => {
@@ -226,6 +258,7 @@ export function AmazonKsaRtoLabelingPage() {
     setActiveBatchId(null)
     setMeta({ batchTitle: DEFAULT_TITLE, referenceNo: '', agentName: '', destination: DEFAULT_DESTINATION, notes: '' })
     setRows([newRow()])
+    setShare(shareStateFromBatch(null))
     setPasteText('')
     setMessage('')
     setError('')
@@ -284,6 +317,7 @@ export function AmazonKsaRtoLabelingPage() {
         : await createKsaRtoLabelBatch(payload())
       setActiveBatchId(result.batch.id)
       setRows((result.batch.rows || []).map((row, index) => normalizeRow(row, index)))
+      setShare(shareStateFromBatch(result.batch))
       setMessage(activeBatchId ? 'Batch updated.' : 'Batch saved. You can now upload images and PDFs per SKU row.')
       await refreshBatches()
     } catch (err) {
@@ -302,6 +336,7 @@ export function AmazonKsaRtoLabelingPage() {
     const nextRows = (result.batch.rows || []).map((row, index) => normalizeRow(row, index))
     setActiveBatchId(result.batch.id)
     setRows(nextRows)
+    setShare(shareStateFromBatch(result.batch))
     await refreshBatches()
     return { batchId: result.batch.id, rows: nextRows }
   }
@@ -321,6 +356,7 @@ export function AmazonKsaRtoLabelingPage() {
         notes: batch.notes || '',
       })
       setRows((batch.rows || []).map((row, index) => normalizeRow(row, index)))
+      setShare(shareStateFromBatch(batch))
       setMessage(`Opened batch #${batch.id}.`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not open batch.')
@@ -342,6 +378,68 @@ export function AmazonKsaRtoLabelingPage() {
     } finally {
       setBusy('')
     }
+  }
+
+  const shareUrl = share.shareToken ? `${window.location.origin}/rto-agent/${share.shareToken}` : ''
+
+  async function enableShare() {
+    if (!activeBatchId) {
+      setError('Save the batch before generating an agent link.')
+      return
+    }
+    setBusy('share')
+    setError('')
+    try {
+      const result = await enableKsaRtoAgentShare(activeBatchId, { shareExpiresAt: share.shareExpiresAt || null })
+      setShare(shareStateFromBatch(result.batch))
+      setMessage('KSA agent link enabled.')
+      await refreshBatches()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not enable share link.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function updateShareExpiry() {
+    if (!activeBatchId) return
+    setBusy('share-expiry')
+    setError('')
+    try {
+      const result = await updateKsaRtoAgentShare(activeBatchId, {
+        shareEnabled: share.shareEnabled,
+        shareExpiresAt: share.shareExpiresAt || null,
+      })
+      setShare(shareStateFromBatch(result.batch))
+      setMessage('Agent link settings updated.')
+      await refreshBatches()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update share link.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function disableShare() {
+    if (!activeBatchId) return
+    setBusy('share-disable')
+    setError('')
+    try {
+      const result = await disableKsaRtoAgentShare(activeBatchId)
+      setShare(shareStateFromBatch(result.batch))
+      setMessage('KSA agent link disabled.')
+      await refreshBatches()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not disable share link.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function copyShareLink() {
+    if (!shareUrl) return
+    await navigator.clipboard.writeText(shareUrl)
+    setMessage('Agent link copied.')
   }
 
   async function uploadRowFile(row: DraftRow, rowIndex: number, fileType: RowFileKind, file: File) {
@@ -599,6 +697,50 @@ export function AmazonKsaRtoLabelingPage() {
             {!batches.length ? <p className="akr-muted">No saved batches yet.</p> : null}
           </div>
         </aside>
+      </section>
+
+      <section className="ainv-panel akr-share-panel">
+        <div className="akr-panel-head">
+          <div>
+            <h2>Share with KSA Agent</h2>
+            <p className="akr-muted">Create a no-login link for this batch only. The public page cannot access the HR & BI app.</p>
+          </div>
+          <span className={`akr-status akr-status--${share.agentStatus === 'completed' ? 'ready' : share.shareEnabled ? 'missing-pdf' : 'invalid-qty'}`}>
+            {share.shareEnabled ? `Agent: ${share.agentStatus.replace('_', ' ')}` : 'Link disabled'}
+          </span>
+        </div>
+        <div className="akr-share-grid">
+          <label className="ainv-label">
+            Optional expiry date
+            <input
+              className="ainv-input"
+              type="date"
+              value={share.shareExpiresAt}
+              onChange={(e) => setShare((prev) => ({ ...prev, shareExpiresAt: e.target.value }))}
+              disabled={!activeBatchId}
+            />
+          </label>
+          <div className="akr-share-link-box">
+            <span>Agent link</span>
+            <strong>{share.shareEnabled && shareUrl ? shareUrl : activeBatchId ? 'Generate link to enable public access' : 'Save batch first'}</strong>
+          </div>
+          <div className="akr-button-row">
+            <button type="button" className="ainv-btn ainv-btn--primary-sky" disabled={!activeBatchId || busy === 'share'} onClick={() => void enableShare()}>
+              {share.shareToken ? 'Enable / Refresh Link' : 'Generate Agent Link'}
+            </button>
+            <button type="button" className="ainv-btn" disabled={!share.shareEnabled || !shareUrl} onClick={() => void copyShareLink()}>Copy Link</button>
+            <button type="button" className="ainv-btn" disabled={!share.shareToken || busy === 'share-expiry'} onClick={() => void updateShareExpiry()}>Save Expiry</button>
+            <button type="button" className="ainv-btn" disabled={!share.shareEnabled || busy === 'share-disable'} onClick={() => void disableShare()}>Disable Link</button>
+          </div>
+        </div>
+        <div className="akr-agent-progress">
+          <span>Checked: <strong>{share.agentCheckedCount}</strong></span>
+          <span>Issues: <strong>{share.agentIssueCount}</strong></span>
+          <span>Not checked: <strong>{share.agentNotCheckedCount}</strong></span>
+          {share.agentCompletedAt ? <span>Completed: <strong>{formatDate(share.agentCompletedAt)}</strong></span> : null}
+          {share.agentCompletedByName ? <span>By: <strong>{share.agentCompletedByName}</strong></span> : null}
+        </div>
+        {share.agentNotes ? <div className="akr-agent-notes"><strong>Agent notes:</strong> {share.agentNotes}</div> : null}
       </section>
 
       <section className="akr-grid">

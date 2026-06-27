@@ -1,0 +1,356 @@
+.rto-agent-page {
+  min-height: 100vh;
+  padding: 1rem;
+  color: #1f2937;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(255, 255, 255, 0.95), transparent 28rem),
+    linear-gradient(135deg, #fffaf1 0%, #f8eadb 52%, #fff7ed 100%);
+}
+
+.rto-agent-page--center {
+  display: grid;
+  place-items: center;
+}
+
+.rto-agent-hero,
+.rto-agent-summary,
+.rto-agent-progress-card,
+.rto-agent-tools,
+.rto-agent-card,
+.rto-agent-complete,
+.rto-agent-invalid {
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 1.6rem;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 12px 18px 40px rgba(120, 83, 45, 0.16), inset 1px 1px 0 rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(18px);
+}
+
+.rto-agent-hero {
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  align-items: flex-start;
+  max-width: 1180px;
+  margin: 0 auto 1rem;
+  padding: 1.2rem;
+}
+
+.rto-agent-eyebrow {
+  margin: 0 0 0.35rem;
+  color: #b45309;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.rto-agent-hero h1,
+.rto-agent-invalid h1,
+.rto-agent-complete h2 {
+  margin: 0;
+  color: #111827;
+}
+
+.rto-agent-hero p {
+  margin: 0.45rem 0 0;
+  color: #6b7280;
+}
+
+.rto-agent-status {
+  border-radius: 999px;
+  padding: 0.45rem 0.85rem;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.rto-agent-status--completed {
+  background: #d1fae5;
+  color: #047857;
+}
+
+.rto-agent-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  max-width: 1180px;
+  margin: 0 auto 1rem;
+  padding: 0.8rem;
+}
+
+.rto-agent-summary div,
+.rto-agent-progress-meta span {
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 0.8rem;
+}
+
+.rto-agent-summary span,
+.rto-agent-row-facts span,
+.rto-agent-share-label {
+  display: block;
+  color: #8a6b4f;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rto-agent-summary strong {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 1.5rem;
+}
+
+.rto-agent-progress-card,
+.rto-agent-tools,
+.rto-agent-complete {
+  max-width: 1180px;
+  margin: 0 auto 1rem;
+  padding: 1rem;
+}
+
+.rto-agent-progress-head,
+.rto-agent-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.rto-agent-progress-bar {
+  height: 0.8rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #f3e8d7;
+  margin: 0.8rem 0;
+}
+
+.rto-agent-progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #10b981, #f59e0b);
+}
+
+.rto-agent-banner {
+  max-width: 1180px;
+  margin: 0 auto 1rem;
+  border-radius: 1rem;
+  padding: 0.8rem 1rem;
+  font-weight: 800;
+}
+
+.rto-agent-banner--ok {
+  background: rgba(16, 185, 129, 0.12);
+  color: #047857;
+}
+
+.rto-agent-banner--error {
+  background: rgba(239, 68, 68, 0.12);
+  color: #b91c1c;
+}
+
+.rto-agent-tools input,
+.rto-agent-complete input,
+.rto-agent-complete textarea,
+.rto-agent-note textarea {
+  width: 100%;
+  border: 1px solid rgba(180, 120, 70, 0.22);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.86);
+  color: #111827;
+  padding: 0.8rem 0.9rem;
+}
+
+.rto-agent-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.rto-agent-filters button,
+.rto-agent-row-actions button,
+.rto-agent-complete button,
+.rto-agent-sticky button,
+.rto-agent-pdf-actions a,
+.rto-agent-pdf-actions span {
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  color: #334155;
+  padding: 0.65rem 0.9rem;
+  font-weight: 900;
+}
+
+.rto-agent-filters button.active,
+.rto-agent-complete button,
+.rto-agent-sticky button,
+.rto-agent-pdf-actions a:first-child {
+  background: linear-gradient(135deg, #f59e0b, #f97316);
+  color: #fff;
+}
+
+.rto-agent-card-grid {
+  display: grid;
+  gap: 1rem;
+  max-width: 1180px;
+  margin: 0 auto 1rem;
+}
+
+.rto-agent-card {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.rto-agent-card--checked {
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+.rto-agent-card--issue {
+  border-color: rgba(239, 68, 68, 0.38);
+  background: rgba(255, 241, 242, 0.75);
+}
+
+.rto-agent-image-wrap {
+  display: grid;
+  place-items: center;
+  min-height: 18rem;
+  overflow: hidden;
+  border-radius: 1.25rem;
+  background: #fff7ed;
+}
+
+.rto-agent-image-wrap img {
+  width: 100%;
+  max-height: 28rem;
+  aspect-ratio: 1820 / 2048;
+  object-fit: contain;
+}
+
+.rto-agent-card-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.rto-agent-card-title h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.rto-agent-card-title span {
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  padding: 0.4rem 0.7rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.rto-agent-row-facts {
+  display: grid;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 1rem 0;
+}
+
+.rto-agent-row-facts p {
+  margin: 0;
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.65);
+  padding: 0.75rem;
+}
+
+.rto-agent-row-facts strong {
+  display: block;
+  margin-top: 0.2rem;
+  word-break: break-word;
+}
+
+.rto-agent-pdf-actions,
+.rto-agent-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 0.8rem;
+}
+
+.rto-agent-note {
+  display: grid;
+  gap: 0.4rem;
+  color: #6b7280;
+  font-weight: 800;
+}
+
+.rto-agent-note textarea,
+.rto-agent-complete textarea {
+  min-height: 5rem;
+}
+
+.rto-agent-complete {
+  display: grid;
+  gap: 0.8rem;
+  margin-bottom: 5rem;
+}
+
+.rto-agent-complete label {
+  display: grid;
+  gap: 0.35rem;
+  color: #6b7280;
+  font-weight: 800;
+}
+
+.rto-agent-sticky {
+  position: sticky;
+  bottom: 0;
+  display: grid;
+  padding: 0.75rem 0;
+  background: linear-gradient(180deg, transparent, rgba(255, 250, 241, 0.96) 30%);
+}
+
+.rto-agent-sticky button {
+  width: min(100%, 1180px);
+  margin: 0 auto;
+  min-height: 3.2rem;
+}
+
+.rto-agent-empty,
+.rto-agent-invalid {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+button:disabled,
+textarea:disabled,
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@media (min-width: 720px) {
+  .rto-agent-page {
+    padding: 1.5rem;
+  }
+
+  .rto-agent-summary {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .rto-agent-card {
+    grid-template-columns: minmax(15rem, 0.42fr) minmax(0, 1fr);
+  }
+
+  .rto-agent-row-facts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

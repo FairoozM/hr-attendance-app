@@ -115,6 +115,33 @@ async function deleteBatch(req, res) {
   }
 }
 
+async function postShare(req, res) {
+  try {
+    const batch = await service.setBatchShare(req.params.id, req.body || {})
+    res.json({ batch })
+  } catch (err) {
+    sendError(res, err, 'Failed to enable share link')
+  }
+}
+
+async function patchShare(req, res) {
+  try {
+    const batch = await service.setBatchShare(req.params.id, req.body || {})
+    res.json({ batch })
+  } catch (err) {
+    sendError(res, err, 'Failed to update share link')
+  }
+}
+
+async function deleteShare(req, res) {
+  try {
+    const batch = await service.disableBatchShare(req.params.id)
+    res.json({ batch })
+  } catch (err) {
+    sendError(res, err, 'Failed to disable share link')
+  }
+}
+
 async function postFile(req, res) {
   try {
     const fileType = String(req.body?.file_type || req.body?.fileType || '').trim()
@@ -199,15 +226,49 @@ async function postParse(req, res) {
   }
 }
 
+async function getPublicBatch(req, res) {
+  try {
+    const batch = await service.publicBatchByToken(req.params.shareToken)
+    if (!batch) return res.status(404).json({ error: 'Share link is invalid, disabled, or expired.' })
+    res.json({ batch })
+  } catch (err) {
+    sendError(res, err, 'Failed to load shared batch')
+  }
+}
+
+async function postPublicRowStatus(req, res) {
+  try {
+    const batch = await service.updatePublicRowStatus(req.params.shareToken, req.params.rowId, req.body || {})
+    res.json({ batch })
+  } catch (err) {
+    sendError(res, err, 'Failed to update row status')
+  }
+}
+
+async function postPublicComplete(req, res) {
+  try {
+    const batch = await service.completePublicBatch(req.params.shareToken, req.body || {})
+    res.json({ batch })
+  } catch (err) {
+    sendError(res, err, 'Failed to complete batch')
+  }
+}
+
 module.exports = {
   getBatches,
   getBatch,
   postBatch,
   putBatch,
   deleteBatch,
+  postShare,
+  patchShare,
+  deleteShare,
   postFile,
   postRowFile,
   deleteFile,
   deleteRowFile,
   postParse,
+  getPublicBatch,
+  postPublicRowStatus,
+  postPublicComplete,
 }

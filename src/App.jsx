@@ -111,6 +111,7 @@ import { AmazonZohoStockPage } from './pages/AmazonZohoStockPage'
 import { SkuChannelCoveragePage } from './pages/SkuChannelCoveragePage'
 import { AmazonOutOfStockClearancePage } from './pages/AmazonOutOfStockClearancePage'
 import { AmazonKsaRtoLabelingPage } from './pages/AmazonKsaRtoLabelingPage'
+import { AmazonKsaRtoAgentViewPage } from './pages/AmazonKsaRtoAgentViewPage'
 import { AmazonFlatFileBulkGenerator } from './pages/AmazonFlatFileBulkGenerator'
 import { AmazonReturnReportPage } from './pages/agent/AmazonReturnReportPage'
 import NoonIntegrationPage from './pages/NoonIntegrationPage'
@@ -154,6 +155,7 @@ function AppContent() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/agent/amazon-return-report/:publicToken" element={<AmazonReturnReportPage />} />
+      <Route path="/rto-agent/:shareToken" element={<AmazonKsaRtoAgentViewPage />} />
       <Route
         path="/"
         element={

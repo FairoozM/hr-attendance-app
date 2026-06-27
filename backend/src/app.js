@@ -32,6 +32,7 @@ const noonRoutes = require('./routes/noonRoutes')
 const skuChannelCoverageRoutes = require('./routes/skuChannelCoverage.routes')
 const amazonReturnReconciliationRoutes = require('./routes/amazonReturnReconciliation.routes')
 const nutritionCoachRoutes = require('./routes/nutritionCoach')
+const amazonKsaRtoLabelingPublicRoutes = require('./routes/amazonKsaRtoLabelingPublic.routes')
 
 const app = express()
 
@@ -77,6 +78,7 @@ app.use(express.json({ limit: '50mb' }))
 app.use('/api/auth', authRouter)
 
 app.use('/api/public/amazon-return-reconciliation', amazonReturnReconciliationRoutes.publicRouter)
+app.use('/api/public/amazon/ksa-rto-labeling', amazonKsaRtoLabelingPublicRoutes)
 
 app.use('/api/user-preferences', authMiddleware.attachAuth, userPreferencesRoutes)
 

@@ -22,6 +22,9 @@ export interface KsaRtoLabelRow {
   productImage?: KsaRtoLabelFile | null
   labelPdf?: KsaRtoLabelFile | null
   files?: KsaRtoLabelFile[]
+  agentRowStatus?: 'not_checked' | 'checked' | 'issue'
+  agentRowNote?: string
+  agentCheckedAt?: string
   createdAt?: string
   updatedAt?: string
 }
@@ -49,6 +52,13 @@ export interface KsaRtoLabelBatch {
   destination: string
   notes: string
   headerImageUrl: string
+  shareToken: string
+  shareEnabled: boolean
+  shareExpiresAt?: string | null
+  agentCompletedAt?: string | null
+  agentNotes: string
+  agentCompletedByName: string
+  agentStatus: 'pending' | 'in_progress' | 'completed'
   createdBy?: number | null
   createdAt: string
   updatedAt: string
@@ -58,6 +68,9 @@ export interface KsaRtoLabelBatch {
   missingImageCount: number
   missingPdfCount: number
   pdfFileCount: number
+  agentCheckedCount: number
+  agentIssueCount: number
+  agentNotCheckedCount: number
   rows?: KsaRtoLabelRow[]
   files?: KsaRtoLabelFile[]
 }
@@ -94,6 +107,21 @@ export async function updateKsaRtoLabelBatch(id: number | string, payload: KsaRt
 
 export async function deleteKsaRtoLabelBatch(id: number | string) {
   return api.delete(`${PREFIX}/batches/${id}`) as Promise<{ success: boolean }>
+}
+
+export async function enableKsaRtoAgentShare(id: number | string, payload: { shareExpiresAt?: string | null } = {}) {
+  return api.post(`${PREFIX}/batches/${id}/share`, payload) as Promise<{ batch: KsaRtoLabelBatch }>
+}
+
+export async function updateKsaRtoAgentShare(
+  id: number | string,
+  payload: { shareEnabled?: boolean; shareExpiresAt?: string | null }
+) {
+  return api.patch(`${PREFIX}/batches/${id}/share`, payload) as Promise<{ batch: KsaRtoLabelBatch }>
+}
+
+export async function disableKsaRtoAgentShare(id: number | string) {
+  return api.delete(`${PREFIX}/batches/${id}/share`) as Promise<{ batch: KsaRtoLabelBatch }>
 }
 
 export async function uploadKsaRtoLabelFile(id: number | string, fileType: KsaRtoFileType, file: File) {
