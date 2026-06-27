@@ -11,7 +11,7 @@ import {
 } from '../api/amazonKsaRtoAgentPublic'
 import './AmazonKsaRtoAgentViewPage.css'
 
-type FilterKey = 'all' | 'ready' | 'missing_pdf' | 'missing_fnsku' | 'checked' | 'issues'
+type FilterKey = 'all' | 'ready' | 'checked' | 'issues' | 'not_checked'
 type ViewMode = 'compact' | 'detailed'
 
 const issueExamples = [
@@ -32,16 +32,14 @@ function statusLabel(status: AgentRowStatus) {
 function rowMatchesFilter(row: PublicKsaRtoRow, filter: FilterKey) {
   if (filter === 'all') return true
   if (filter === 'ready') return row.status === 'Ready'
-  if (filter === 'missing_pdf') return !row.labelPdf || row.status === 'Missing PDF'
-  if (filter === 'missing_fnsku') return !row.fnskuNo || row.status === 'Missing FNSKU'
   if (filter === 'checked') return row.agentRowStatus === 'checked'
   if (filter === 'issues') return row.agentRowStatus === 'issue'
+  if (filter === 'not_checked') return row.agentRowStatus === 'not_checked'
   return true
 }
 
 function filterLabel(filter: FilterKey) {
-  if (filter === 'missing_pdf') return 'Missing PDF'
-  if (filter === 'missing_fnsku') return 'Missing FNSKU'
+  if (filter === 'not_checked') return 'Not checked'
   return filter.charAt(0).toUpperCase() + filter.slice(1)
 }
 
@@ -133,10 +131,9 @@ export function AmazonKsaRtoAgentViewPage() {
     return {
       all: rows.length,
       ready: rows.filter((row) => row.status === 'Ready').length,
-      missing_pdf: rows.filter((row) => !row.labelPdf || row.status === 'Missing PDF').length,
-      missing_fnsku: rows.filter((row) => !row.fnskuNo || row.status === 'Missing FNSKU').length,
       checked: rows.filter((row) => row.agentRowStatus === 'checked').length,
       issues: rows.filter((row) => row.agentRowStatus === 'issue').length,
+      not_checked: rows.filter((row) => row.agentRowStatus === 'not_checked').length,
     } satisfies Record<FilterKey, number>
   }, [batch?.rows])
 
@@ -272,10 +269,8 @@ export function AmazonKsaRtoAgentViewPage() {
         <div className="rto-agent-progress-meta">
           <span>Checked {batch.summary.checked}</span>
           <span>Issues {batch.summary.issues}</span>
-          <span>Not checked {batch.summary.notChecked}</span>
+          <span>Remaining {remainingCount}</span>
           <span>Ready {batch.summary.ready}</span>
-          <span>Missing PDF {batch.summary.missingPdf}</span>
-          <span>Missing FNSKU {batch.summary.missingFnsku}</span>
         </div>
       </section>
 
@@ -293,7 +288,7 @@ export function AmazonKsaRtoAgentViewPage() {
           </div>
         </div>
         <div className="rto-agent-filters">
-          {(['all', 'ready', 'missing_pdf', 'missing_fnsku', 'checked', 'issues'] as FilterKey[]).map((key) => (
+          {(['all', 'ready', 'checked', 'issues', 'not_checked'] as FilterKey[]).map((key) => (
             <button key={key} className={filter === key ? 'active' : ''} onClick={() => setFilter(key as FilterKey)} type="button">
               {filterLabel(key)} <strong>{filterCounts[key]}</strong>
             </button>
@@ -315,20 +310,26 @@ export function AmazonKsaRtoAgentViewPage() {
             </div>
             <div className="rto-agent-card-main">
               <div className="rto-agent-card-title">
-                <div>
-                  <h2>{row.productCode}</h2>
-                  <div className="rto-agent-fnsku-line">
-                    <span>FNSKU</span>
-                    <strong>{row.fnskuNo || 'Missing'}</strong>
-                    <button
-                      type="button"
-                      disabled={!row.fnskuNo}
-                      onClick={() => void copyFnsku(row)}
-                      aria-label={`Copy FNSKU for ${row.productCode}`}
-                      title={`Copy FNSKU for ${row.productCode}`}
-                    >
-                      <Copy size={16} aria-hidden="true" />
-                    </button>
+                <div className="rto-agent-identity">
+                  <div className="rto-agent-identity-field">
+                    <span className="rto-agent-identity-label">Product Code</span>
+                    <strong className="rto-agent-product-code">{row.productCode}</strong>
+                  </div>
+                  <div className="rto-agent-identity-field">
+                    <span className="rto-agent-identity-label">Amazon FNSKU</span>
+                    <div className={`rto-agent-fnsku-value ${!row.fnskuNo ? 'rto-agent-fnsku-value--missing' : ''}`}>
+                      <strong>{row.fnskuNo || 'Missing FNSKU'}</strong>
+                      {row.fnskuNo ? (
+                        <button
+                          type="button"
+                          onClick={() => void copyFnsku(row)}
+                          aria-label="Copy FNSKU"
+                          title="Copy FNSKU"
+                        >
+                          <Copy size={15} aria-hidden="true" />
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
                 <div className="rto-agent-badges">
@@ -336,14 +337,16 @@ export function AmazonKsaRtoAgentViewPage() {
                   {viewMode === 'detailed' ? (
                     <span className={`rto-agent-row-state rto-agent-row-state--${row.agentRowStatus}`}>{statusLabel(row.agentRowStatus)}</span>
                   ) : null}
-                  {row.status !== 'Ready' ? <span className="rto-agent-warning-badge">{row.status}</span> : null}
+                  {!row.fnskuNo ? <span className="rto-agent-warning-badge">FNSKU missing</span> : null}
+                  {!row.labelPdf ? <span className="rto-agent-warning-badge">Label missing</span> : null}
+                  {row.status !== 'Ready' && row.fnskuNo && row.labelPdf ? <span className="rto-agent-warning-badge">{row.status}</span> : null}
                 </div>
               </div>
               {viewMode === 'detailed' ? (
                 <div className="rto-agent-row-facts">
                   <p><span>Product Code</span><strong>{row.productCode}</strong></p>
                   <p><span>FNSKU</span><strong>{row.fnskuNo || 'Missing'}</strong></p>
-                  <p><span>Label PDF</span><strong>{row.labelPdf?.fileName || 'Missing PDF'}</strong></p>
+                  <p><span>Label PDF</span><strong>{row.labelPdf?.fileName || 'Label missing'}</strong></p>
                 </div>
               ) : null}
             </div>
@@ -405,11 +408,19 @@ export function AmazonKsaRtoAgentViewPage() {
                   className={`rto-agent-issue-trigger ${row.agentRowStatus === 'issue' ? 'active' : ''}`}
                   disabled={isCompleted || busy === `row-${row.id}`}
                   onClick={() => setIssuePanelRowId((current) => (current === row.id ? null : row.id))}
-                  aria-label={`Report issue for ${row.productCode}`}
-                  title={`Report issue for ${row.productCode}`}
+                  aria-label={
+                    row.agentRowStatus === 'issue'
+                      ? `View or edit issue for ${row.productCode}`
+                      : `Report issue for ${row.productCode}`
+                  }
+                  title={
+                    row.agentRowStatus === 'issue'
+                      ? `View or edit issue for ${row.productCode}`
+                      : `Report issue for ${row.productCode}`
+                  }
                 >
                   <TriangleAlert size={18} aria-hidden="true" />
-                  <span>Report issue</span>
+                  <span>{row.agentRowStatus === 'issue' ? 'Edit issue' : 'Report issue'}</span>
                 </button>
               </div>
               {issuePanelRowId === row.id ? (
@@ -446,13 +457,16 @@ export function AmazonKsaRtoAgentViewPage() {
                     onChange={(e) => setNoteDrafts((prev) => ({ ...prev, [row.id]: e.currentTarget.value }))}
                   />
                   <div className="rto-agent-note-actions">
+                    <button type="button" onClick={() => setIssuePanelRowId(null)} disabled={busy === `row-${row.id}`}>
+                      Cancel
+                    </button>
                     {row.agentRowStatus === 'issue' ? (
                       <button type="button" onClick={() => void clearIssue(row)} disabled={isCompleted || busy === `row-${row.id}`}>
                         Clear issue
                       </button>
                     ) : null}
                     <button type="button" className="primary" onClick={() => void saveIssue(row)} disabled={isCompleted || busy === `row-${row.id}`}>
-                      Save issue
+                      {row.agentRowStatus === 'issue' ? 'Save changes' : 'Save issue'}
                     </button>
                   </div>
                 </div>

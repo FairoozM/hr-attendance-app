@@ -203,7 +203,6 @@
 .rto-agent-secondary-btn,
 .rto-agent-view-toggle button,
 .rto-agent-note-chips button,
-.rto-agent-fnsku-line button,
 .rto-agent-check-control,
 .rto-agent-issue-trigger,
 .rto-agent-note-actions button,
@@ -326,13 +325,6 @@
   gap: 1rem;
 }
 
-.rto-agent-card-title h2 {
-  margin: 0;
-  color: #111827;
-  font-size: 1.05rem;
-  line-height: 1.25;
-}
-
 .rto-agent-badges {
   display: flex;
   flex-wrap: wrap;
@@ -375,33 +367,69 @@
   color: #a16207;
 }
 
-.rto-agent-fnsku-line {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  align-items: center;
-  margin-top: 0.5rem;
+.rto-agent-identity {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
 }
 
-.rto-agent-fnsku-line span {
+.rto-agent-identity-field {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.rto-agent-identity-label {
   color: #8a6b4f;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.rto-agent-fnsku-line strong {
+.rto-agent-product-code {
   color: #111827;
+  font-size: clamp(1rem, 1.1vw, 1.12rem);
+  font-weight: 850;
+  line-height: 1.22;
   word-break: break-word;
 }
 
-.rto-agent-fnsku-line button {
+.rto-agent-fnsku-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-width: 0;
+}
+
+.rto-agent-fnsku-value strong {
+  color: #111827;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: clamp(0.94rem, 1vw, 1.05rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  word-break: break-word;
+}
+
+.rto-agent-fnsku-value--missing strong {
+  color: #a16207;
+  font-family: inherit;
+}
+
+.rto-agent-fnsku-value button {
   display: inline-grid;
   place-items: center;
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 2rem;
+  height: 2rem;
+  min-width: 2rem;
+  min-height: 2rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  color: #475569;
   padding: 0;
+  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.9), 0 6px 14px rgba(120, 83, 45, 0.08);
 }
 
 .rto-agent-row-facts {
@@ -441,8 +469,7 @@
 
 .rto-agent-label-icon,
 .rto-agent-icon-btn,
-.rto-agent-issue-trigger,
-.rto-agent-fnsku-line button {
+.rto-agent-issue-trigger {
   display: inline-grid;
   place-items: center;
   min-width: 2.75rem;
@@ -731,8 +758,8 @@ input:disabled {
     height: 12rem;
   }
 
-  .rto-agent-page--detailed .rto-agent-card-title h2 {
-    font-size: 1.22rem;
+  .rto-agent-page--detailed .rto-agent-product-code {
+    font-size: 1.14rem;
   }
 }
 
