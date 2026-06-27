@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, Copy, Download, Eye, FileText, Tag, TriangleAlert, X } from 'lucide-react'
+import { Check, Copy, Download, Eye, FileText, Pencil, Tag, Trash2, TriangleAlert, X } from 'lucide-react'
 import { useParams } from 'react-router-dom'
 import {
   completePublicKsaRtoBatch,
@@ -180,6 +180,11 @@ export function AmazonKsaRtoAgentViewPage() {
     setIssuePanelRowId(null)
   }
 
+  async function confirmClearIssue(row: PublicKsaRtoRow) {
+    if (!window.confirm(`Clear issue for ${row.productCode}? This will return the row to not checked.`)) return
+    await clearIssue(row)
+  }
+
   async function copyFnsku(row: PublicKsaRtoRow) {
     if (!row.fnskuNo) {
       setError('FNSKU is missing for this row.')
@@ -333,7 +338,6 @@ export function AmazonKsaRtoAgentViewPage() {
                   </div>
                 </div>
                 <div className="rto-agent-badges">
-                  <span className="rto-agent-qty">Qty {row.quantity}</span>
                   {viewMode === 'detailed' ? (
                     <span className={`rto-agent-row-state rto-agent-row-state--${row.agentRowStatus}`}>{statusLabel(row.agentRowStatus)}</span>
                   ) : null}
@@ -351,6 +355,7 @@ export function AmazonKsaRtoAgentViewPage() {
               ) : null}
             </div>
             <div className="rto-agent-card-actions">
+              <span className="rto-agent-qty"><span>QTY</span><strong>{row.quantity}</strong></span>
               <div className="rto-agent-pdf-actions">
                 <span className="rto-agent-label-icon" title={row.labelPdf?.downloadUrl ? 'Label PDF' : 'Missing label'}>
                   <Tag size={18} aria-hidden="true" />
@@ -384,9 +389,27 @@ export function AmazonKsaRtoAgentViewPage() {
               </div>
               <div className="rto-agent-row-primary-actions">
                 {row.agentRowStatus === 'issue' ? (
-                  <div className="rto-agent-issue-reported">
+                  <div className="rto-agent-issue-module">
                     <TriangleAlert size={18} aria-hidden="true" />
                     <span>Issue reported</span>
+                    <button
+                      type="button"
+                      disabled={isCompleted || busy === `row-${row.id}`}
+                      onClick={() => setIssuePanelRowId(row.id)}
+                      aria-label={`View or edit issue for ${row.productCode}`}
+                      title={`View or edit issue for ${row.productCode}`}
+                    >
+                      <Pencil size={15} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isCompleted || busy === `row-${row.id}`}
+                      onClick={() => void confirmClearIssue(row)}
+                      aria-label={`Clear issue for ${row.productCode}`}
+                      title={`Clear issue for ${row.productCode}`}
+                    >
+                      <Trash2 size={15} aria-hidden="true" />
+                    </button>
                   </div>
                 ) : (
                   <label className="rto-agent-check-control">
@@ -403,25 +426,19 @@ export function AmazonKsaRtoAgentViewPage() {
                     <span>Checked</span>
                   </label>
                 )}
-                <button
-                  type="button"
-                  className={`rto-agent-issue-trigger ${row.agentRowStatus === 'issue' ? 'active' : ''}`}
-                  disabled={isCompleted || busy === `row-${row.id}`}
-                  onClick={() => setIssuePanelRowId((current) => (current === row.id ? null : row.id))}
-                  aria-label={
-                    row.agentRowStatus === 'issue'
-                      ? `View or edit issue for ${row.productCode}`
-                      : `Report issue for ${row.productCode}`
-                  }
-                  title={
-                    row.agentRowStatus === 'issue'
-                      ? `View or edit issue for ${row.productCode}`
-                      : `Report issue for ${row.productCode}`
-                  }
-                >
-                  <TriangleAlert size={18} aria-hidden="true" />
-                  <span>{row.agentRowStatus === 'issue' ? 'Edit issue' : 'Report issue'}</span>
-                </button>
+                {row.agentRowStatus !== 'issue' ? (
+                  <button
+                    type="button"
+                    className="rto-agent-issue-trigger"
+                    disabled={isCompleted || busy === `row-${row.id}`}
+                    onClick={() => setIssuePanelRowId((current) => (current === row.id ? null : row.id))}
+                    aria-label={`Report issue for ${row.productCode}`}
+                    title={`Report issue for ${row.productCode}`}
+                  >
+                    <TriangleAlert size={18} aria-hidden="true" />
+                    <span>Report issue</span>
+                  </button>
+                ) : null}
               </div>
               {issuePanelRowId === row.id ? (
                 <div className="rto-agent-note">

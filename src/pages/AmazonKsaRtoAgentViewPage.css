@@ -332,7 +332,6 @@
   gap: 0.42rem;
 }
 
-.rto-agent-qty,
 .rto-agent-row-state,
 .rto-agent-warning-badge {
   border-radius: 999px;
@@ -343,8 +342,30 @@
 }
 
 .rto-agent-qty {
-  background: #eef2ff;
-  color: #3730a3;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-height: 2.75rem;
+  min-width: 5.2rem;
+  border: 1px solid rgba(138, 107, 79, 0.18);
+  border-radius: 0.95rem;
+  background: rgba(255, 251, 235, 0.86);
+  color: #1f2937;
+  padding: 0.45rem 0.75rem;
+  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.86), 0 7px 16px rgba(120, 83, 45, 0.06);
+}
+
+.rto-agent-qty span {
+  color: #8a6b4f;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+}
+
+.rto-agent-qty strong {
+  font-size: 1rem;
+  font-weight: 900;
+  line-height: 1;
 }
 
 .rto-agent-row-state--not_checked {
@@ -563,36 +584,36 @@
   display: none;
 }
 
-.rto-agent-page--detailed .rto-agent-issue-trigger,
-.rto-agent-issue-trigger.active {
+.rto-agent-issue-module {
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
-  width: auto;
-  padding: 0 0.72rem;
-}
-
-.rto-agent-page--detailed .rto-agent-issue-trigger span,
-.rto-agent-issue-trigger.active span {
-  display: inline;
-}
-
-.rto-agent-issue-trigger.active {
-  background: #ffe4e6;
-  color: #be123c;
-}
-
-.rto-agent-issue-reported {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.42rem;
+  gap: 0.38rem;
   min-height: 2.75rem;
   border-radius: 999px;
-  background: #ffe4e6;
+  border: 1px solid rgba(244, 63, 94, 0.2);
+  background: rgba(255, 228, 230, 0.78);
   color: #be123c;
-  padding: 0.45rem 0.75rem;
+  padding: 0.35rem 0.42rem 0.35rem 0.7rem;
   font-size: 0.82rem;
   font-weight: 900;
+}
+
+.rto-agent-issue-module button {
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  min-width: 2rem;
+  min-height: 2rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.68);
+  color: #be123c;
+  padding: 0;
+}
+
+.rto-agent-issue-module button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.9);
 }
 
 .rto-agent-note {
@@ -818,18 +839,6 @@ input:disabled {
   .rto-agent-card {
     grid-template-columns: 1fr;
     padding: 0.95rem;
-  }
-
-  .rto-agent-issue-trigger {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    width: auto;
-    padding: 0 0.72rem;
-  }
-
-  .rto-agent-issue-trigger span {
-    display: inline;
   }
 
   .rto-agent-image-wrap {
