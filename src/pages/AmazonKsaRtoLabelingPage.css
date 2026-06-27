@@ -199,8 +199,7 @@
 .akr-product-image img,
 .akr-image-placeholder {
   width: 100%;
-  min-height: 8rem;
-  max-height: 9rem;
+  aspect-ratio: 1820 / 2048;
   object-fit: contain;
   border: 1px solid var(--theme-border);
   border-radius: 1rem;

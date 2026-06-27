@@ -24,6 +24,11 @@ import './AmazonKsaRtoLabelingPage.css'
 
 const DEFAULT_TITLE = 'Amazon KSA RTO - LIFESMILE'
 const DEFAULT_DESTINATION = 'Wanasa-Lifesmile'
+const PRODUCT_IMAGE_RATIO = 2048 / 1820
+const PRINT_IMAGE_WIDTH = 72
+const PRINT_IMAGE_HEIGHT = Math.round(PRINT_IMAGE_WIDTH * PRODUCT_IMAGE_RATIO)
+const PDF_IMAGE_WIDTH = 48
+const PDF_IMAGE_HEIGHT = Math.round(PDF_IMAGE_WIDTH * PRODUCT_IMAGE_RATIO)
 
 type DraftRow = KsaRtoLabelRow & { id: string | number }
 type RowFileKind = 'product_image' | 'fnsku_label_pdf'
@@ -151,7 +156,7 @@ function buildPrintableHtml(meta: BatchMeta, rows: DraftRow[]) {
           table { width: 100%; border-collapse: collapse; }
           th, td { border: 1px solid #111827; padding: 10px; font-size: 13px; text-align: left; vertical-align: middle; }
           th { background: #f3f4f6; }
-          .thumb { width: 72px; height: 72px; object-fit: contain; display: block; }
+          .thumb { width: ${PRINT_IMAGE_WIDTH}px; height: ${PRINT_IMAGE_HEIGHT}px; object-fit: contain; display: block; }
           .total { margin-top: 16px; font-weight: 700; }
           .warn { color: #92400e; font-weight: 700; }
           @media print { body { padding: 0; } }
@@ -488,7 +493,7 @@ export function AmazonKsaRtoLabelingPage() {
           row.labelPdf?.fileName || 'Missing PDF',
           rowStatus(row),
         ]),
-        styles: { fontSize: 9, cellPadding: 7, minCellHeight: 58 },
+        styles: { fontSize: 9, cellPadding: 7, minCellHeight: PDF_IMAGE_HEIGHT + 10 },
         headStyles: { fillColor: [243, 244, 246], textColor: [17, 24, 39] },
         didDrawCell: (data) => {
           if (data.section !== 'body' || data.column.index !== 0) return
@@ -496,7 +501,7 @@ export function AmazonKsaRtoLabelingPage() {
           const image = imageCache.get(row.id)
           if (!image) return
           const format = image.startsWith('data:image/jpeg') ? 'JPEG' : image.startsWith('data:image/webp') ? 'WEBP' : 'PNG'
-          doc.addImage(image, format, data.cell.x + 5, data.cell.y + 5, 48, 48, undefined, 'FAST')
+          doc.addImage(image, format, data.cell.x + 5, data.cell.y + 5, PDF_IMAGE_WIDTH, PDF_IMAGE_HEIGHT, undefined, 'FAST')
         },
       })
       const finalY = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || 82
