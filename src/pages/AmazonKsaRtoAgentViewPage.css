@@ -376,8 +376,7 @@
   align-items: center;
   justify-content: flex-end;
   min-height: 4.55rem;
-  border-left: 1px solid rgba(138, 107, 79, 0.12);
-  padding-left: 0.9rem;
+  padding-left: 0.15rem;
 }
 
 .rto-agent-row-state--not_checked {
@@ -496,10 +495,23 @@
 .rto-agent-action-section {
   display: grid;
   align-content: center;
+  justify-items: center;
   gap: 0.34rem;
-  min-height: 4.55rem;
-  border-left: 1px solid rgba(138, 107, 79, 0.12);
-  padding-left: 0.9rem;
+  min-width: 7.2rem;
+  min-height: 5rem;
+  border: 1px solid rgba(138, 107, 79, 0.14);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.68);
+  padding: 0.62rem 0.75rem;
+  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.88), 0 8px 18px rgba(120, 83, 45, 0.06);
+}
+
+.rto-agent-label-section {
+  background: rgba(255, 253, 247, 0.78);
+}
+
+.rto-agent-actions-section {
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .rto-agent-action-title {
