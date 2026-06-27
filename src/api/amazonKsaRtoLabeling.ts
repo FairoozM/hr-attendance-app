@@ -117,6 +117,33 @@ export async function uploadKsaRtoLabelRowFile(
   }) as Promise<{ file: KsaRtoLabelFile; row: KsaRtoLabelRow }>
 }
 
+function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(reader.error || new Error('Could not read file.'))
+    reader.readAsDataURL(file)
+  })
+}
+
+export async function uploadKsaRtoLabelRowFileJson(
+  batchId: number | string,
+  rowId: number | string,
+  fileType: 'product_image' | 'fnsku_label_pdf',
+  file: File
+) {
+  return api.post(
+    `${PREFIX}/batches/${batchId}/rows/${rowId}/files`,
+    {
+      file_type: fileType,
+      file_name: file.name,
+      mime_type: file.type,
+      file_base64: await fileToDataUrl(file),
+    },
+    { timeoutMs: 120_000 }
+  ) as Promise<{ file: KsaRtoLabelFile; row: KsaRtoLabelRow }>
+}
+
 export async function deleteKsaRtoLabelFile(fileId: number | string) {
   return api.delete(`${PREFIX}/files/${fileId}`) as Promise<{ success: boolean }>
 }

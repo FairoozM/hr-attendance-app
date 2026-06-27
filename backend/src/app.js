@@ -71,7 +71,7 @@ app.use(
 const integrationsRoutes = require('./routes/integrations')
 app.use('/api/integrations', integrationsRoutes)
 
-app.use(express.json({ limit: '10mb' }))
+app.use(express.json({ limit: '50mb' }))
 
 // Auth router — POST /api/auth/login, POST /api/auth/logout, GET /api/auth/me, …
 app.use('/api/auth', authRouter)

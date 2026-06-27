@@ -11,6 +11,7 @@ import {
   parseKsaRtoLabelFile,
   updateKsaRtoLabelBatch,
   uploadKsaRtoLabelRowFile,
+  uploadKsaRtoLabelRowFileJson,
   type KsaRtoBatchPayload,
   type KsaRtoLabelBatch,
   type KsaRtoLabelFile,
@@ -351,7 +352,14 @@ export function AmazonKsaRtoLabelingPage() {
         targetRow = saved.rows[rowIndex]
       }
       if (!batchId || typeof targetRow?.id !== 'number') throw new Error('Could not prepare this SKU row for upload.')
-      const result = await uploadKsaRtoLabelRowFile(batchId, targetRow.id, fileType, file)
+      let result: { file: KsaRtoLabelFile; row: KsaRtoLabelRow }
+      try {
+        result = await uploadKsaRtoLabelRowFile(batchId, targetRow.id, fileType, file)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : ''
+        if (!/non-JSON|Got HTML|not reaching your Express API|HTTP 403/i.test(message)) throw err
+        result = await uploadKsaRtoLabelRowFileJson(batchId, targetRow.id, fileType, file)
+      }
       replaceServerRow(result.row)
       setMessage(fileType === 'product_image' ? 'Product image uploaded.' : 'FNSKU label PDF uploaded.')
       await refreshBatches()

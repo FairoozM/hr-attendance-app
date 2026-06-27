@@ -128,16 +128,46 @@ async function postFile(req, res) {
 async function postRowFile(req, res) {
   try {
     const fileType = String(req.body?.file_type || req.body?.fileType || '').trim()
+    const jsonFile = fileFromJsonPayload(req.body || {})
     const result = await service.uploadRowFile(
       req.params.batchId,
       req.params.rowId,
       fileType,
-      req.file,
+      req.file || jsonFile,
       getUserId(req)
     )
     res.status(201).json(result)
   } catch (err) {
     sendError(res, err, 'Failed to upload row file')
+  }
+}
+
+function fileFromJsonPayload(body) {
+  const raw = String(body.file_base64 || body.fileBase64 || '').trim()
+  if (!raw) return null
+  const originalname = String(body.file_name || body.fileName || 'upload.bin').trim() || 'upload.bin'
+  const declaredMime = String(body.mime_type || body.mimeType || '').trim()
+  const match = raw.match(/^data:([^;,]+);base64,(.+)$/)
+  const mimetype = declaredMime || match?.[1] || 'application/octet-stream'
+  const data = match ? match[2] : raw
+  let buffer
+  try {
+    buffer = Buffer.from(data, 'base64')
+  } catch {
+    const err = new Error('Invalid base64 file payload.')
+    err.status = 400
+    throw err
+  }
+  if (!buffer.length) {
+    const err = new Error('Uploaded file is empty.')
+    err.status = 400
+    throw err
+  }
+  return {
+    originalname,
+    mimetype,
+    size: buffer.length,
+    buffer,
   }
 }
 
