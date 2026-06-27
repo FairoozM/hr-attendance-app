@@ -380,7 +380,7 @@ export function AmazonKsaRtoLabelingPage() {
     }
   }
 
-  const shareUrl = share.shareToken ? `${window.location.origin}/rto-agent/${share.shareToken}` : ''
+  const shareUrl = share.shareToken ? `${window.location.origin}/#/rto-agent/${share.shareToken}` : ''
 
   async function enableShare() {
     if (!activeBatchId) {
