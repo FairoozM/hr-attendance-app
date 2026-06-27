@@ -834,6 +834,38 @@ async function disableBatchShare(id) {
   return getBatch(id)
 }
 
+async function reopenAgentBatch(id, payload = {}) {
+  const existing = await query(`SELECT id FROM amazon_ksa_rto_label_batches WHERE id = $1`, [id])
+  if (!existing.rows.length) {
+    const err = new Error('Batch not found.')
+    err.status = 404
+    throw err
+  }
+
+  await query(
+    `UPDATE amazon_ksa_rto_label_batches
+     SET agent_status = 'in_progress',
+         agent_completed_at = NULL,
+         updated_at = NOW()
+     WHERE id = $1::int`,
+    [id]
+  )
+
+  if (Boolean(payload.reset_rows ?? payload.resetRows)) {
+    await query(
+      `UPDATE amazon_ksa_rto_label_rows
+       SET agent_row_status = 'not_checked',
+           agent_row_note = NULL,
+           agent_checked_at = NULL,
+           updated_at = NOW()
+       WHERE batch_id = $1::int`,
+      [id]
+    )
+  }
+
+  return getBatch(id)
+}
+
 async function publicBatchByToken(shareToken) {
   const token = normalizeText(shareToken)
   if (!token) return null
@@ -949,6 +981,7 @@ module.exports = {
   deleteRowFile,
   setBatchShare,
   disableBatchShare,
+  reopenAgentBatch,
   publicBatchByToken,
   updatePublicRowStatus,
   completePublicBatch,

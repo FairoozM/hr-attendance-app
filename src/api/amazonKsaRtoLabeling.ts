@@ -124,6 +124,10 @@ export async function disableKsaRtoAgentShare(id: number | string) {
   return api.delete(`${PREFIX}/batches/${id}/share`) as Promise<{ batch: KsaRtoLabelBatch }>
 }
 
+export async function reopenKsaRtoAgentBatch(id: number | string, payload: { resetRows?: boolean } = {}) {
+  return api.post(`${PREFIX}/batches/${id}/reopen-agent`, payload) as Promise<{ batch: KsaRtoLabelBatch }>
+}
+
 export async function uploadKsaRtoLabelFile(id: number | string, fileType: KsaRtoFileType, file: File) {
   const form = new FormData()
   form.set('file_type', fileType)

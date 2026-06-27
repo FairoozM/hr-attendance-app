@@ -154,6 +154,15 @@ async function deleteShare(req, res) {
   }
 }
 
+async function postReopenAgent(req, res) {
+  try {
+    const batch = await service.reopenAgentBatch(req.params.id, req.body || {})
+    res.json({ batch })
+  } catch (err) {
+    sendError(res, err, 'Failed to reopen agent batch')
+  }
+}
+
 async function postFile(req, res) {
   try {
     const fileType = String(req.body?.file_type || req.body?.fileType || '').trim()
@@ -275,6 +284,7 @@ module.exports = {
   postShare,
   patchShare,
   deleteShare,
+  postReopenAgent,
   postFile,
   postRowFile,
   deleteFile,

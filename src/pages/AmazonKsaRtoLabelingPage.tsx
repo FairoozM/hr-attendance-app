@@ -11,6 +11,7 @@ import {
   getKsaRtoLabelBatch,
   listKsaRtoLabelBatches,
   parseKsaRtoLabelFile,
+  reopenKsaRtoAgentBatch,
   updateKsaRtoLabelBatch,
   updateKsaRtoAgentShare,
   uploadKsaRtoLabelRowFile,
@@ -230,6 +231,8 @@ export function AmazonKsaRtoLabelingPage() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
   const [share, setShare] = useState<ShareState>(() => shareStateFromBatch(null))
+  const [reopenDialogOpen, setReopenDialogOpen] = useState(false)
+  const [reopenResetRows, setReopenResetRows] = useState(false)
   const dataInputRef = useRef<HTMLInputElement | null>(null)
 
   const summary = useMemo(() => {
@@ -259,6 +262,8 @@ export function AmazonKsaRtoLabelingPage() {
     setMeta({ batchTitle: DEFAULT_TITLE, referenceNo: '', agentName: '', destination: DEFAULT_DESTINATION, notes: '' })
     setRows([newRow()])
     setShare(shareStateFromBatch(null))
+    setReopenDialogOpen(false)
+    setReopenResetRows(false)
     setPasteText('')
     setMessage('')
     setError('')
@@ -381,6 +386,7 @@ export function AmazonKsaRtoLabelingPage() {
   }
 
   const shareUrl = share.shareToken ? `${window.location.origin}/#/rto-agent/${share.shareToken}` : ''
+  const canReopenAgentBatch = share.agentStatus === 'completed' || Boolean(share.agentCompletedAt)
 
   async function enableShare() {
     if (!activeBatchId) {
@@ -431,6 +437,25 @@ export function AmazonKsaRtoLabelingPage() {
       await refreshBatches()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not disable share link.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function reopenAgentBatch() {
+    if (!activeBatchId) return
+    setBusy('reopen-agent')
+    setError('')
+    try {
+      const result = await reopenKsaRtoAgentBatch(activeBatchId, { resetRows: reopenResetRows })
+      setShare(shareStateFromBatch(result.batch))
+      setRows((result.batch.rows || []).map((row, index) => normalizeRow(row, index)))
+      setReopenDialogOpen(false)
+      setReopenResetRows(false)
+      setMessage(reopenResetRows ? 'Agent batch reopened and row checks reset.' : 'Agent batch reopened. The same public link is usable again.')
+      await refreshBatches()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not reopen agent batch.')
     } finally {
       setBusy('')
     }
@@ -732,6 +757,22 @@ export function AmazonKsaRtoLabelingPage() {
             <button type="button" className="ainv-btn" disabled={!share.shareToken || busy === 'share-expiry'} onClick={() => void updateShareExpiry()}>Save Expiry</button>
             <button type="button" className="ainv-btn" disabled={!share.shareEnabled || busy === 'share-disable'} onClick={() => void disableShare()}>Disable Link</button>
           </div>
+          {canReopenAgentBatch ? (
+            <div className="akr-reopen-agent-box">
+              <div>
+                <strong>Agent batch is completed</strong>
+                <p>Reopen it if the KSA agent completed by mistake or you need to continue testing with the same public link.</p>
+              </div>
+              <button
+                type="button"
+                className="ainv-btn ainv-btn--primary-amber"
+                disabled={!activeBatchId || busy === 'reopen-agent'}
+                onClick={() => setReopenDialogOpen(true)}
+              >
+                Reopen Agent Batch
+              </button>
+            </div>
+          ) : null}
         </div>
         <div className="akr-agent-progress">
           <span>Checked: <strong>{share.agentCheckedCount}</strong></span>
@@ -742,6 +783,34 @@ export function AmazonKsaRtoLabelingPage() {
         </div>
         {share.agentNotes ? <div className="akr-agent-notes"><strong>Agent notes:</strong> {share.agentNotes}</div> : null}
       </section>
+
+      {reopenDialogOpen ? (
+        <div className="akr-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="akr-reopen-title">
+          <div className="akr-reopen-modal">
+            <p className="akr-modal-eyebrow">Internal only</p>
+            <h2 id="akr-reopen-title">Reopen this agent batch?</h2>
+            <p>
+              This will allow the KSA agent to continue marking rows and submitting completion again. The same public agent link will keep working.
+            </p>
+            <label className="akr-reset-check">
+              <input
+                type="checkbox"
+                checked={reopenResetRows}
+                onChange={(event) => setReopenResetRows(event.currentTarget.checked)}
+              />
+              <span>Also reset all row checks/issues</span>
+            </label>
+            <div className="akr-modal-actions">
+              <button type="button" className="ainv-btn" disabled={busy === 'reopen-agent'} onClick={() => setReopenDialogOpen(false)}>
+                Cancel
+              </button>
+              <button type="button" className="ainv-btn ainv-btn--primary-amber" disabled={busy === 'reopen-agent'} onClick={() => void reopenAgentBatch()}>
+                {busy === 'reopen-agent' ? 'Reopening...' : 'Reopen Agent Batch'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <section className="akr-grid">
         <div className="ainv-panel">

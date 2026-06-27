@@ -115,6 +115,14 @@ function makeStore() {
       if (batch) batch.share_enabled = false
       return { rows: batch ? [{ id: batch.id }] : [] }
     }
+    if (compact.startsWith("UPDATE amazon_ksa_rto_label_rows SET agent_row_status = 'not_checked'")) {
+      for (const row of store.rows.filter((item) => item.batch_id === Number(params[0]))) {
+        row.agent_row_status = 'not_checked'
+        row.agent_row_note = null
+        row.agent_checked_at = null
+      }
+      return { rows: [] }
+    }
     if (compact.startsWith('UPDATE amazon_ksa_rto_label_rows SET agent_row_status')) {
       const row = store.rows.find((item) => item.id === Number(params[0]) && item.batch_id === Number(params[1]))
       if (row) {
@@ -136,6 +144,14 @@ function makeStore() {
         batch.agent_completed_at = new Date().toISOString()
         batch.agent_notes = params[1]
         batch.agent_completed_by_name = params[2]
+      }
+      return { rows: [] }
+    }
+    if (compact.startsWith("UPDATE amazon_ksa_rto_label_batches SET agent_status = 'in_progress'")) {
+      const batch = store.batches.find((item) => item.id === Number(params[0]))
+      if (batch) {
+        batch.agent_status = 'in_progress'
+        batch.agent_completed_at = null
       }
       return { rows: [] }
     }
@@ -471,6 +487,79 @@ test('Amazon KSA RTO public complete sets completed status and notes', async () 
       service.updatePublicRowStatus(shared.shareToken, created.rows[0].id, { agentRowStatus: 'checked' }),
       /already completed/
     )
+  } finally {
+    restore()
+  }
+})
+
+test('Amazon KSA RTO completed batch can be reopened without resetting row statuses', async () => {
+  const { service, store, restore } = loadService()
+  try {
+    const created = await service.createBatch(
+      {
+        batchTitle: 'KSA RTO Public',
+        rows: [{ productCode: 'LIFEP12', fnskuNo: 'X001ABC', quantity: 2 }],
+      },
+      7
+    )
+    const rowId = created.rows[0].id
+    const shared = await service.setBatchShare(created.id, {})
+    await service.updatePublicRowStatus(shared.shareToken, rowId, {
+      agentRowStatus: 'issue',
+      agentRowNote: 'Damaged item',
+    })
+    await service.completePublicBatch(shared.shareToken, {
+      agentNotes: 'Finished too early',
+      completedByName: 'KSA Agent',
+    })
+
+    const beforeToken = store.batches[0].share_token
+    const reopened = await service.reopenAgentBatch(created.id, { resetRows: false })
+
+    assert.equal(reopened.agentStatus, 'in_progress')
+    assert.equal(reopened.agentCompletedAt, null)
+    assert.equal(reopened.shareToken, beforeToken)
+    assert.equal(reopened.shareEnabled, true)
+    assert.equal(reopened.rows[0].agentRowStatus, 'issue')
+    assert.equal(reopened.rows[0].agentRowNote, 'Damaged item')
+
+    const publicBatch = await service.updatePublicRowStatus(shared.shareToken, rowId, {
+      agentRowStatus: 'checked',
+    })
+    assert.equal(publicBatch.agentStatus, 'in_progress')
+    assert.equal(publicBatch.rows[0].agentRowStatus, 'checked')
+  } finally {
+    restore()
+  }
+})
+
+test('Amazon KSA RTO reopen with reset clears row checks/issues and notes', async () => {
+  const { service, restore } = loadService()
+  try {
+    const created = await service.createBatch(
+      {
+        batchTitle: 'KSA RTO Public',
+        rows: [{ productCode: 'LIFEP12', fnskuNo: 'X001ABC', quantity: 2 }],
+      },
+      7
+    )
+    const rowId = created.rows[0].id
+    const shared = await service.setBatchShare(created.id, {})
+    await service.updatePublicRowStatus(shared.shareToken, rowId, {
+      agentRowStatus: 'issue',
+      agentRowNote: 'Quantity mismatch',
+    })
+    await service.completePublicBatch(shared.shareToken, {})
+
+    const reopened = await service.reopenAgentBatch(created.id, { resetRows: true })
+
+    assert.equal(reopened.agentStatus, 'in_progress')
+    assert.equal(reopened.agentCompletedAt, null)
+    assert.equal(reopened.shareToken, shared.shareToken)
+    assert.equal(reopened.shareEnabled, true)
+    assert.equal(reopened.rows[0].agentRowStatus, 'not_checked')
+    assert.equal(reopened.rows[0].agentRowNote, '')
+    assert.equal(reopened.rows[0].agentCheckedAt, null)
   } finally {
     restore()
   }
