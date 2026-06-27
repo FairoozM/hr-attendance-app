@@ -202,9 +202,12 @@
 .rto-agent-filters button,
 .rto-agent-secondary-btn,
 .rto-agent-view-toggle button,
-.rto-agent-segmented button,
 .rto-agent-note-chips button,
 .rto-agent-fnsku-line button,
+.rto-agent-check-control,
+.rto-agent-issue-trigger,
+.rto-agent-note-actions button,
+.rto-agent-note-close,
 .rto-agent-complete button,
 .rto-agent-sticky button,
 .rto-agent-pdf-actions a,
@@ -215,6 +218,15 @@
   color: #334155;
   padding: 0.65rem 0.9rem;
   font-weight: 900;
+}
+
+.rto-agent-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
 }
 
 .rto-agent-filters button strong {
@@ -262,10 +274,10 @@
 
 .rto-agent-card {
   display: grid;
-  grid-template-columns: 8.25rem minmax(0, 1fr) minmax(18rem, 0.45fr);
-  gap: 0.9rem;
+  grid-template-columns: 5.45rem minmax(18rem, 1fr) minmax(19rem, auto);
+  gap: 0.75rem;
   align-items: center;
-  padding: 0.82rem;
+  padding: 0.62rem 0.75rem;
   scroll-margin: 7rem;
   border-left: 0.34rem solid rgba(245, 158, 11, 0.45);
 }
@@ -289,12 +301,13 @@
 .rto-agent-image-wrap {
   display: grid;
   place-items: center;
-  width: 8.25rem;
-  height: 9.25rem;
+  width: 5.45rem;
+  height: 6.1rem;
   overflow: hidden;
-  border-radius: 1rem;
+  border-radius: 0.9rem;
   background: #fff7ed;
   color: #a16207;
+  font-size: 0.76rem;
   font-weight: 900;
   text-align: center;
 }
@@ -384,8 +397,11 @@
 }
 
 .rto-agent-fnsku-line button {
-  padding: 0.3rem 0.52rem;
-  font-size: 0.72rem;
+  display: inline-grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
 }
 
 .rto-agent-row-facts {
@@ -409,64 +425,176 @@
 }
 
 .rto-agent-card-actions {
-  display: grid;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   gap: 0.65rem;
+  flex-wrap: wrap;
 }
 
-.rto-agent-pdf-actions,
-.rto-agent-segmented {
+.rto-agent-pdf-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.6rem;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.rto-agent-label-icon,
+.rto-agent-icon-btn,
+.rto-agent-issue-trigger,
+.rto-agent-fnsku-line button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  border-radius: 999px;
+  border: 0;
+  background: rgba(255, 255, 255, 0.86);
+  color: #475569;
+  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.9), 0 7px 16px rgba(120, 83, 45, 0.08);
+}
+
+.rto-agent-label-icon {
+  color: #8a6b4f;
+  background: rgba(255, 247, 237, 0.9);
+}
+
+.rto-agent-icon-btn {
+  padding: 0;
+}
+
+.rto-agent-pdf-primary {
+  background: rgba(219, 234, 254, 0.95);
+  color: #1d4ed8;
 }
 
 .rto-agent-pdf-secondary {
   background: rgba(255, 255, 255, 0.9);
+  color: #334155;
 }
 
 .rto-agent-pdf-missing {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   background: #fef3c7;
   color: #92400e;
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
 }
 
-.rto-agent-segmented {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.28rem;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.62);
-  padding: 0.28rem;
+.rto-agent-row-primary-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-.rto-agent-segmented button {
-  padding: 0.54rem 0.48rem;
-  font-size: 0.78rem;
+.rto-agent-check-control {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0.35rem 0.75rem 0.35rem 0.4rem;
+  color: #334155;
+  cursor: pointer;
 }
 
-.rto-agent-segmented button.active:nth-child(1) {
-  background: #fef3c7;
-  color: #92400e;
+.rto-agent-check-control input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
 }
 
-.rto-agent-segmented button.active:nth-child(2) {
+.rto-agent-checkbox-box {
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border: 2px solid rgba(148, 163, 184, 0.62);
+  border-radius: 0.62rem;
+  background: rgba(255, 255, 255, 0.9);
+  color: #047857;
+}
+
+.rto-agent-check-control:has(input:checked) {
   background: #d1fae5;
   color: #047857;
 }
 
-.rto-agent-segmented button.active:nth-child(3) {
+.rto-agent-check-control:has(input:checked) .rto-agent-checkbox-box {
+  border-color: #34d399;
+  background: #ecfdf5;
+}
+
+.rto-agent-issue-trigger {
+  padding: 0;
+  color: #a16207;
+}
+
+.rto-agent-issue-trigger span {
+  display: none;
+}
+
+.rto-agent-page--detailed .rto-agent-issue-trigger,
+.rto-agent-issue-trigger.active {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: auto;
+  padding: 0 0.72rem;
+}
+
+.rto-agent-page--detailed .rto-agent-issue-trigger span,
+.rto-agent-issue-trigger.active span {
+  display: inline;
+}
+
+.rto-agent-issue-trigger.active {
   background: #ffe4e6;
   color: #be123c;
+}
+
+.rto-agent-issue-reported {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-height: 2.75rem;
+  border-radius: 999px;
+  background: #ffe4e6;
+  color: #be123c;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 900;
 }
 
 .rto-agent-note {
   display: grid;
   gap: 0.4rem;
+  flex-basis: 100%;
+  min-width: min(100%, 20rem);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.62);
+  padding: 0.65rem;
   color: #6b7280;
   font-weight: 800;
 }
 
-.rto-agent-note > span {
+.rto-agent-note-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.rto-agent-note-head span {
   font-size: 0.78rem;
+}
+
+.rto-agent-note-close {
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+  padding: 0;
 }
 
 .rto-agent-note-chips {
@@ -483,6 +611,21 @@
 .rto-agent-note textarea,
 .rto-agent-complete textarea {
   min-height: 5rem;
+}
+
+.rto-agent-note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.rto-agent-note-actions button {
+  min-height: 2.75rem;
+}
+
+.rto-agent-note-actions .primary {
+  background: #be123c;
+  color: #fff;
 }
 
 .rto-agent-complete {
@@ -648,6 +791,18 @@ input:disabled {
   .rto-agent-card {
     grid-template-columns: 1fr;
     padding: 0.95rem;
+  }
+
+  .rto-agent-issue-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    width: auto;
+    padding: 0 0.72rem;
+  }
+
+  .rto-agent-issue-trigger span {
+    display: inline;
   }
 
   .rto-agent-image-wrap {

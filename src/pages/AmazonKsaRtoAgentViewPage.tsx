@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Check, Copy, Download, Eye, FileText, Tag, TriangleAlert, X } from 'lucide-react'
 import { useParams } from 'react-router-dom'
 import {
   completePublicKsaRtoBatch,
@@ -77,6 +78,7 @@ export function AmazonKsaRtoAgentViewPage() {
   const [search, setSearch] = useState('')
   const [viewMode, setViewMode] = useState<ViewMode>('compact')
   const [noteDrafts, setNoteDrafts] = useState<Record<number, string>>({})
+  const [issuePanelRowId, setIssuePanelRowId] = useState<number | null>(null)
   const [completeNotes, setCompleteNotes] = useState('')
   const [completedByName, setCompletedByName] = useState('')
   const [confirmComplete, setConfirmComplete] = useState(false)
@@ -156,12 +158,29 @@ export function AmazonKsaRtoAgentViewPage() {
       const result = await updatePublicKsaRtoRowStatus(shareToken, row.id, { agentRowStatus, agentRowNote: note })
       setBatch(result.batch)
       setNoteDrafts((prev) => ({ ...prev, [row.id]: result.batch.rows.find((item) => item.id === row.id)?.agentRowNote || '' }))
+      if (agentRowStatus !== 'issue') setIssuePanelRowId(null)
       setMessage(`Row ${row.productCode} marked ${statusLabel(agentRowStatus).toLowerCase()}.`)
     } catch (err) {
       setError(friendlyError(err, 'Could not save this row status. Please try again.'))
     } finally {
       setBusy('')
     }
+  }
+
+  async function toggleChecked(row: PublicKsaRtoRow, checked: boolean) {
+    await setRowStatus(row, checked ? 'checked' : 'not_checked', '')
+  }
+
+  async function saveIssue(row: PublicKsaRtoRow) {
+    const note = (noteDrafts[row.id] ?? row.agentRowNote ?? '').trim()
+    await setRowStatus(row, 'issue', note)
+    setIssuePanelRowId(null)
+  }
+
+  async function clearIssue(row: PublicKsaRtoRow) {
+    setNoteDrafts((prev) => ({ ...prev, [row.id]: '' }))
+    await setRowStatus(row, 'not_checked', '')
+    setIssuePanelRowId(null)
   }
 
   async function copyFnsku(row: PublicKsaRtoRow) {
@@ -301,12 +320,22 @@ export function AmazonKsaRtoAgentViewPage() {
                   <div className="rto-agent-fnsku-line">
                     <span>FNSKU</span>
                     <strong>{row.fnskuNo || 'Missing'}</strong>
-                    <button type="button" disabled={!row.fnskuNo} onClick={() => void copyFnsku(row)}>Copy</button>
+                    <button
+                      type="button"
+                      disabled={!row.fnskuNo}
+                      onClick={() => void copyFnsku(row)}
+                      aria-label={`Copy FNSKU for ${row.productCode}`}
+                      title={`Copy FNSKU for ${row.productCode}`}
+                    >
+                      <Copy size={16} aria-hidden="true" />
+                    </button>
                   </div>
                 </div>
                 <div className="rto-agent-badges">
                   <span className="rto-agent-qty">Qty {row.quantity}</span>
-                  <span className={`rto-agent-row-state rto-agent-row-state--${row.agentRowStatus}`}>{statusLabel(row.agentRowStatus)}</span>
+                  {viewMode === 'detailed' ? (
+                    <span className={`rto-agent-row-state rto-agent-row-state--${row.agentRowStatus}`}>{statusLabel(row.agentRowStatus)}</span>
+                  ) : null}
                   {row.status !== 'Ready' ? <span className="rto-agent-warning-badge">{row.status}</span> : null}
                 </div>
               </div>
@@ -320,31 +349,82 @@ export function AmazonKsaRtoAgentViewPage() {
             </div>
             <div className="rto-agent-card-actions">
               <div className="rto-agent-pdf-actions">
+                <span className="rto-agent-label-icon" title={row.labelPdf?.downloadUrl ? 'Label PDF' : 'Missing label'}>
+                  <Tag size={18} aria-hidden="true" />
+                  <span className="rto-agent-sr">Label PDF</span>
+                </span>
                 {row.labelPdf?.downloadUrl ? (
                   <>
-                    <a className="rto-agent-pdf-primary" href={row.labelPdf.downloadUrl} target="_blank" rel="noreferrer">View Label PDF</a>
-                    <a className="rto-agent-pdf-secondary" href={row.labelPdf.downloadUrl} download={row.labelPdf.fileName}>Download</a>
+                    <a
+                      className="rto-agent-icon-btn rto-agent-pdf-primary"
+                      href={row.labelPdf.downloadUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={`View label PDF for ${row.productCode}`}
+                      title={`View label PDF for ${row.productCode}`}
+                    >
+                      <Eye size={18} aria-hidden="true" />
+                    </a>
+                    <a
+                      className="rto-agent-icon-btn rto-agent-pdf-secondary"
+                      href={row.labelPdf.downloadUrl}
+                      download={row.labelPdf.fileName}
+                      aria-label={`Download label PDF for ${row.productCode}`}
+                      title={`Download label PDF for ${row.productCode}`}
+                    >
+                      <Download size={18} aria-hidden="true" />
+                    </a>
                   </>
                 ) : (
-                  <span className="rto-agent-pdf-missing">Label PDF missing</span>
+                  <span className="rto-agent-pdf-missing"><FileText size={16} aria-hidden="true" /> Missing label</span>
                 )}
               </div>
-              <div className="rto-agent-segmented" aria-label={`Status for ${row.productCode}`}>
-                {(['not_checked', 'checked', 'issue'] as AgentRowStatus[]).map((status) => (
-                  <button
-                    key={status}
-                    disabled={isCompleted || busy === `row-${row.id}`}
-                    className={row.agentRowStatus === status ? 'active' : ''}
-                    onClick={() => void setRowStatus(row, status, status === 'issue' ? noteDrafts[row.id] || row.agentRowNote || '' : '')}
-                    type="button"
-                  >
-                    {statusLabel(status)}
-                  </button>
-                ))}
+              <div className="rto-agent-row-primary-actions">
+                {row.agentRowStatus === 'issue' ? (
+                  <div className="rto-agent-issue-reported">
+                    <TriangleAlert size={18} aria-hidden="true" />
+                    <span>Issue reported</span>
+                  </div>
+                ) : (
+                  <label className="rto-agent-check-control">
+                    <input
+                      type="checkbox"
+                      checked={row.agentRowStatus === 'checked'}
+                      disabled={isCompleted || busy === `row-${row.id}`}
+                      onChange={(event) => void toggleChecked(row, event.currentTarget.checked)}
+                      aria-label={`Mark ${row.productCode} as checked`}
+                    />
+                    <span className="rto-agent-checkbox-box" aria-hidden="true">
+                      {row.agentRowStatus === 'checked' ? <Check size={18} /> : null}
+                    </span>
+                    <span>Checked</span>
+                  </label>
+                )}
+                <button
+                  type="button"
+                  className={`rto-agent-issue-trigger ${row.agentRowStatus === 'issue' ? 'active' : ''}`}
+                  disabled={isCompleted || busy === `row-${row.id}`}
+                  onClick={() => setIssuePanelRowId((current) => (current === row.id ? null : row.id))}
+                  aria-label={`Report issue for ${row.productCode}`}
+                  title={`Report issue for ${row.productCode}`}
+                >
+                  <TriangleAlert size={18} aria-hidden="true" />
+                  <span>Report issue</span>
+                </button>
               </div>
-              {row.agentRowStatus === 'issue' ? (
+              {issuePanelRowId === row.id ? (
                 <div className="rto-agent-note">
-                  <span>Issue note</span>
+                  <div className="rto-agent-note-head">
+                    <span>Issue details</span>
+                    <button
+                      type="button"
+                      className="rto-agent-note-close"
+                      onClick={() => setIssuePanelRowId(null)}
+                      aria-label={`Close issue panel for ${row.productCode}`}
+                    >
+                      <X size={16} aria-hidden="true" />
+                    </button>
+                  </div>
                   <div className="rto-agent-note-chips">
                     {issueExamples.map((example) => (
                       <button
@@ -353,7 +433,6 @@ export function AmazonKsaRtoAgentViewPage() {
                         disabled={isCompleted || busy === `row-${row.id}`}
                         onClick={() => {
                           setNoteDrafts((prev) => ({ ...prev, [row.id]: example }))
-                          void setRowStatus(row, 'issue', example)
                         }}
                       >
                         {example}
@@ -365,8 +444,17 @@ export function AmazonKsaRtoAgentViewPage() {
                     placeholder="Add issue details..."
                     value={noteDrafts[row.id] ?? row.agentRowNote ?? ''}
                     onChange={(e) => setNoteDrafts((prev) => ({ ...prev, [row.id]: e.currentTarget.value }))}
-                    onBlur={(e) => void setRowStatus(row, 'issue', e.currentTarget.value.trim())}
                   />
+                  <div className="rto-agent-note-actions">
+                    {row.agentRowStatus === 'issue' ? (
+                      <button type="button" onClick={() => void clearIssue(row)} disabled={isCompleted || busy === `row-${row.id}`}>
+                        Clear issue
+                      </button>
+                    ) : null}
+                    <button type="button" className="primary" onClick={() => void saveIssue(row)} disabled={isCompleted || busy === `row-${row.id}`}>
+                      Save issue
+                    </button>
+                  </div>
                 </div>
               ) : null}
             </div>
