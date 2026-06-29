@@ -621,10 +621,19 @@
   box-shadow: 0 10px 20px rgba(120, 83, 45, 0.11);
 }
 
-.rto-agent-check-btn input {
+.rto-agent-check-btn input[type='checkbox'] {
   position: absolute;
+  top: 50%;
+  left: 0.55rem;
+  width: 1.55rem;
+  height: 1.55rem;
+  margin: 0;
+  transform: translateY(-50%);
   opacity: 0;
-  pointer-events: none;
+  cursor: pointer;
+  z-index: 2;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .rto-agent-check-btn--checked {
@@ -634,6 +643,9 @@
 }
 
 .rto-agent-checkbox-box {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 1.55rem;
   display: inline-grid;
   place-items: center;
   width: 1.55rem;
@@ -642,6 +654,7 @@
   border-radius: 0.45rem;
   background: #fffefb;
   color: #047857;
+  pointer-events: none;
 }
 
 .rto-agent-check-btn--checked .rto-agent-checkbox-box {
@@ -653,6 +666,7 @@
   display: inline-block;
   min-width: 4.55rem;
   text-align: left;
+  pointer-events: none;
 }
 
 .rto-agent-status-pill {
