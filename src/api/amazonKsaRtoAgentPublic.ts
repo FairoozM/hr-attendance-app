@@ -15,6 +15,8 @@ export interface PublicKsaRtoFile {
 export interface PublicKsaRtoRow {
   id: number
   productCode: string
+  productTitle: string
+  companyCode: string
   fnskuNo: string
   quantity: number
   status: string

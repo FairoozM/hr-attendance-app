@@ -70,6 +70,8 @@ function statusForRow(row) {
 
 function normalizeRow(row) {
   const productCode = normalizeText(row.product_code ?? row.productCode)
+  const productTitle = normalizeText(row.product_title ?? row.productTitle) || null
+  const companyCode = normalizeText(row.company_code ?? row.companyCode) || null
   const fnskuNo = normalizeText(row.fnsku_no ?? row.fnskuNo)
   const quantity = normalizeQuantity(row.quantity)
   const notes = normalizeText(row.notes)
@@ -77,6 +79,8 @@ function normalizeRow(row) {
   return {
     id: intOrNull(row.id),
     product_code: productCode,
+    product_title: productTitle,
+    company_code: companyCode,
     fnsku_no: fnskuNo || null,
     quantity,
     notes,
@@ -149,6 +153,8 @@ function mapRow(row, files = []) {
     id: row.id,
     batchId: row.batch_id,
     productCode: row.product_code,
+    productTitle: row.product_title || '',
+    companyCode: row.company_code || '',
     fnskuNo: row.fnsku_no || '',
     quantity: Number(row.quantity || 0),
     notes: row.notes || '',
@@ -184,6 +190,8 @@ function mapPublicRow(row) {
   return {
     id: row.id,
     productCode: row.productCode,
+    productTitle: row.productTitle || '',
+    companyCode: row.companyCode || '',
     fnskuNo: row.fnskuNo,
     quantity: row.quantity,
     status: row.status,
@@ -279,6 +287,8 @@ async function ensureAmazonKsaRtoLabelingTables() {
       id SERIAL PRIMARY KEY,
       batch_id INTEGER NOT NULL REFERENCES amazon_ksa_rto_label_batches(id) ON DELETE CASCADE,
       product_code TEXT NOT NULL,
+      product_title TEXT,
+      company_code TEXT,
       fnsku_no TEXT,
       quantity NUMERIC(14,2) NOT NULL,
       notes TEXT,
@@ -345,6 +355,10 @@ async function ensureAmazonKsaRtoLabelingTables() {
   `)
   await query(`CREATE INDEX IF NOT EXISTS idx_amazon_ksa_rto_label_batches_created ON amazon_ksa_rto_label_batches(created_at DESC)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_amazon_ksa_rto_label_batches_reference ON amazon_ksa_rto_label_batches(LOWER(reference_no))`)
+  await query(`ALTER TABLE amazon_ksa_rto_label_rows ADD COLUMN IF NOT EXISTS company_code TEXT`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_amazon_ksa_rto_label_rows_company_code ON amazon_ksa_rto_label_rows(LOWER(company_code))`)
+  await query(`ALTER TABLE amazon_ksa_rto_label_rows ADD COLUMN IF NOT EXISTS product_title TEXT`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_amazon_ksa_rto_label_rows_title ON amazon_ksa_rto_label_rows(LOWER(product_title))`)
   await query(`CREATE INDEX IF NOT EXISTS idx_amazon_ksa_rto_label_rows_batch ON amazon_ksa_rto_label_rows(batch_id)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_amazon_ksa_rto_label_rows_product ON amazon_ksa_rto_label_rows(LOWER(product_code))`)
   await query(`CREATE INDEX IF NOT EXISTS idx_amazon_ksa_rto_label_rows_fnsku ON amazon_ksa_rto_label_rows(LOWER(fnsku_no))`)
@@ -371,7 +385,7 @@ async function listBatches({ search = '', from = '', to = '', limit = 50 } = {})
       OR EXISTS (
         SELECT 1 FROM amazon_ksa_rto_label_rows r
         WHERE r.batch_id = b.id
-          AND (LOWER(r.product_code) LIKE $${params.length} OR LOWER(COALESCE(r.fnsku_no, '')) LIKE $${params.length})
+          AND (LOWER(r.product_code) LIKE $${params.length} OR LOWER(COALESCE(r.product_title, '')) LIKE $${params.length} OR LOWER(COALESCE(r.company_code, '')) LIKE $${params.length} OR LOWER(COALESCE(r.fnsku_no, '')) LIKE $${params.length})
       )
     )`)
   }
@@ -486,9 +500,9 @@ async function insertRows(client, batchId, rows) {
   for (const row of rows) {
     const result = await client.query(
       `INSERT INTO amazon_ksa_rto_label_rows
-        (batch_id, product_code, fnsku_no, quantity, notes, status)
-       VALUES ($1,$2,$3,$4,$5,$6)`,
-      [batchId, row.product_code, row.fnsku_no, row.quantity, row.notes || null, row.status]
+        (batch_id, product_code, product_title, company_code, fnsku_no, quantity, notes, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [batchId, row.product_code, row.product_title, row.company_code, row.fnsku_no, row.quantity, row.notes || null, row.status]
     )
     inserted.push(result.rows?.[0])
   }
@@ -502,14 +516,16 @@ async function replaceRowsPreservingFiles(client, batchId, rows) {
       const updated = await client.query(
         `UPDATE amazon_ksa_rto_label_rows
          SET product_code = $3,
-             fnsku_no = $4,
-             quantity = $5,
-             notes = $6,
-             status = $7,
+             product_title = $4,
+             company_code = $5,
+             fnsku_no = $6,
+             quantity = $7,
+             notes = $8,
+             status = $9,
              updated_at = NOW()
          WHERE id = $1 AND batch_id = $2
          RETURNING id`,
-        [row.id, batchId, row.product_code, row.fnsku_no, row.quantity, row.notes || null, row.status]
+        [row.id, batchId, row.product_code, row.product_title, row.company_code, row.fnsku_no, row.quantity, row.notes || null, row.status]
       )
       if (updated.rows.length) {
         keptIds.push(updated.rows[0].id)
@@ -518,10 +534,10 @@ async function replaceRowsPreservingFiles(client, batchId, rows) {
     }
     const inserted = await client.query(
       `INSERT INTO amazon_ksa_rto_label_rows
-        (batch_id, product_code, fnsku_no, quantity, notes, status)
-       VALUES ($1,$2,$3,$4,$5,$6)
+        (batch_id, product_code, product_title, company_code, fnsku_no, quantity, notes, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
        RETURNING id`,
-      [batchId, row.product_code, row.fnsku_no, row.quantity, row.notes || null, row.status]
+      [batchId, row.product_code, row.product_title, row.company_code, row.fnsku_no, row.quantity, row.notes || null, row.status]
     )
     keptIds.push(inserted.rows[0].id)
   }

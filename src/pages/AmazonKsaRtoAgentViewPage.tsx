@@ -121,7 +121,12 @@ export function AmazonKsaRtoAgentViewPage() {
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase()
     return (batch?.rows || []).filter((row) => {
-      const matchesSearch = !q || row.productCode.toLowerCase().includes(q) || row.fnskuNo.toLowerCase().includes(q)
+      const matchesSearch =
+        !q ||
+        row.productCode.toLowerCase().includes(q) ||
+        row.productTitle.toLowerCase().includes(q) ||
+        row.companyCode.toLowerCase().includes(q) ||
+        row.fnskuNo.toLowerCase().includes(q)
       return matchesSearch && rowMatchesFilter(row, filter)
     })
   }, [batch?.rows, filter, search])
@@ -267,7 +272,7 @@ export function AmazonKsaRtoAgentViewPage() {
 
       <section className="rto-agent-progress-card">
         <div className="rto-agent-progress-head">
-          <strong>Agent progress</strong>
+          <strong>Wanasa progress</strong>
           <span>{batch.summary.checked + batch.summary.issues} / {batch.summary.totalLines} reviewed</span>
         </div>
         <div className="rto-agent-progress-bar"><span style={{ width: `${progressPercent}%` }} /></div>
@@ -316,26 +321,44 @@ export function AmazonKsaRtoAgentViewPage() {
             <div className="rto-agent-card-main">
               <div className="rto-agent-card-title">
                 <div className="rto-agent-identity">
-                  <div className="rto-agent-identity-field">
-                    <span className="rto-agent-identity-label">Product Code</span>
-                    <strong className="rto-agent-product-code">{row.productCode}</strong>
-                  </div>
-                  <div className="rto-agent-identity-field">
-                    <span className="rto-agent-identity-label">Amazon FNSKU</span>
-                    <div className={`rto-agent-fnsku-value ${!row.fnskuNo ? 'rto-agent-fnsku-value--missing' : ''}`}>
-                      <strong>{row.fnskuNo || 'Missing FNSKU'}</strong>
-                      {row.fnskuNo ? (
-                        <button
-                          type="button"
-                          onClick={() => void copyFnsku(row)}
-                          aria-label="Copy FNSKU"
-                          title="Copy FNSKU"
-                        >
-                          <Copy size={15} aria-hidden="true" />
-                        </button>
-                      ) : null}
+                  <div className="rto-agent-identity-row rto-agent-identity-row--primary">
+                    <div className="rto-agent-identity-field">
+                      <span className="rto-agent-identity-label">Product Code</span>
+                      <strong className="rto-agent-product-code">{row.productCode}</strong>
+                    </div>
+                    <div className="rto-agent-identity-field">
+                      <span className="rto-agent-identity-label">Amazon FNSKU</span>
+                      <div className={`rto-agent-fnsku-value ${!row.fnskuNo ? 'rto-agent-fnsku-value--missing' : ''}`}>
+                        <strong>{row.fnskuNo || 'Missing FNSKU'}</strong>
+                        {row.fnskuNo ? (
+                          <button
+                            type="button"
+                            onClick={() => void copyFnsku(row)}
+                            aria-label="Copy FNSKU"
+                            title="Copy FNSKU"
+                          >
+                            <Copy size={15} aria-hidden="true" />
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
+                  {row.companyCode || row.productTitle ? (
+                    <div className="rto-agent-identity-row rto-agent-identity-row--title">
+                      {row.companyCode ? (
+                        <div className="rto-agent-identity-field rto-agent-identity-field--title">
+                          <span className="rto-agent-identity-label">Company code</span>
+                          <strong className="rto-agent-company-code">{row.companyCode}</strong>
+                        </div>
+                      ) : null}
+                      {row.productTitle ? (
+                        <div className="rto-agent-identity-field rto-agent-identity-field--title">
+                          <span className="rto-agent-identity-label">Title</span>
+                          <strong className="rto-agent-product-title">{row.productTitle}</strong>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="rto-agent-badges">
                   {viewMode === 'detailed' ? (
@@ -348,6 +371,8 @@ export function AmazonKsaRtoAgentViewPage() {
               </div>
               {viewMode === 'detailed' ? (
                 <div className="rto-agent-row-facts">
+                  <p><span>Company code</span><strong>{row.companyCode || '-'}</strong></p>
+                  <p><span>Title</span><strong>{row.productTitle || '-'}</strong></p>
                   <p><span>Product Code</span><strong>{row.productCode}</strong></p>
                   <p><span>FNSKU</span><strong>{row.fnskuNo || 'Missing'}</strong></p>
                   <p><span>Label PDF</span><strong>{row.labelPdf?.fileName || 'Label missing'}</strong></p>

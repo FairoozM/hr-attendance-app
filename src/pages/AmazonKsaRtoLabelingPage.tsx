@@ -62,6 +62,8 @@ function newRow(): DraftRow {
   return {
     id: `row-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     productCode: '',
+    productTitle: '',
+    companyCode: '',
     fnskuNo: '',
     quantity: 1,
     notes: '',
@@ -85,6 +87,8 @@ function normalizeRow(row: Partial<KsaRtoLabelRow>, index = 0): DraftRow {
   const draft: DraftRow = {
     id: row.id ?? `parsed-${Date.now()}-${index}`,
     productCode: String(row.productCode ?? '').trim(),
+    productTitle: String(row.productTitle ?? '').trim(),
+    companyCode: String(row.companyCode ?? '').trim(),
     fnskuNo: String(row.fnskuNo ?? '').trim(),
     quantity: Number.isFinite(quantity) ? quantity : 0,
     notes: String(row.notes ?? '').trim(),
@@ -121,7 +125,7 @@ function parsePastedRows(text: string): DraftRow[] {
     .filter(Boolean)
   if (!lines.length) return []
   const firstCells = lines[0].split(/\t|,/).map((cell) => cell.trim().toLowerCase())
-  const hasHeader = firstCells.some((cell) => /product|sku|code|fnsku|qty|quantity|notes/.test(cell))
+  const hasHeader = firstCells.some((cell) => /product|sku|code|fnsku|qty|quantity|notes|title/.test(cell))
   const dataLines = hasHeader ? lines.slice(1) : lines
   return dataLines
     .map((line, index) => {
@@ -171,6 +175,8 @@ function buildPrintableHtml(meta: BatchMeta, rows: DraftRow[]) {
           <td>${image ? `<img class="thumb" src="${image}" />` : '<span class="warn">Missing image</span>'}</td>
           <td>${index + 1}</td>
           <td>${row.productCode}</td>
+          <td>${row.companyCode || '-'}</td>
+          <td>${row.productTitle || '-'}</td>
           <td>${row.fnskuNo || '<span class="warn">Missing FNSKU</span>'}</td>
           <td>${row.quantity}</td>
           <td>${row.labelPdf?.fileName || '<span class="warn">Missing PDF</span>'}</td>
@@ -199,12 +205,12 @@ function buildPrintableHtml(meta: BatchMeta, rows: DraftRow[]) {
         <div class="meta">
           <div><strong>Reference:</strong> ${meta.referenceNo || '-'}</div>
           <div><strong>Date:</strong> ${new Date().toLocaleDateString()}</div>
-          <div><strong>Agent:</strong> ${meta.agentName || '-'}</div>
+          <div><strong>Wanasa:</strong> ${meta.agentName || '-'}</div>
           <div><strong>Destination:</strong> ${meta.destination || DEFAULT_DESTINATION}</div>
         </div>
         <table>
           <thead>
-            <tr><th>Product Image</th><th>Sr.</th><th>Product name / code</th><th>FNSKU No</th><th>Quantity</th><th>FNSKU Label PDF</th></tr>
+            <tr><th>Product Image</th><th>Sr.</th><th>Product name / code</th><th>Company code</th><th>Title</th><th>FNSKU No</th><th>Quantity</th><th>FNSKU Label PDF</th></tr>
           </thead>
           <tbody>${tableRows}</tbody>
         </table>
@@ -304,6 +310,8 @@ export function AmazonKsaRtoLabelingPage() {
       rows: rows.map((row) => ({
         id: typeof row.id === 'number' ? row.id : undefined,
         productCode: row.productCode.trim(),
+        productTitle: row.productTitle?.trim() || '',
+        companyCode: row.companyCode?.trim() || '',
         fnskuNo: row.fnskuNo.trim(),
         quantity: Number(row.quantity),
         notes: row.notes || '',
@@ -390,7 +398,7 @@ export function AmazonKsaRtoLabelingPage() {
 
   async function enableShare() {
     if (!activeBatchId) {
-      setError('Save the batch before generating an agent link.')
+      setError('Save the batch before generating a Wanasa link.')
       return
     }
     setBusy('share')
@@ -398,7 +406,7 @@ export function AmazonKsaRtoLabelingPage() {
     try {
       const result = await enableKsaRtoAgentShare(activeBatchId, { shareExpiresAt: share.shareExpiresAt || null })
       setShare(shareStateFromBatch(result.batch))
-      setMessage('KSA agent link enabled.')
+      setMessage('KSA Wanasa link enabled.')
       await refreshBatches()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not enable share link.')
@@ -417,7 +425,7 @@ export function AmazonKsaRtoLabelingPage() {
         shareExpiresAt: share.shareExpiresAt || null,
       })
       setShare(shareStateFromBatch(result.batch))
-      setMessage('Agent link settings updated.')
+      setMessage('Wanasa link settings updated.')
       await refreshBatches()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not update share link.')
@@ -433,7 +441,7 @@ export function AmazonKsaRtoLabelingPage() {
     try {
       const result = await disableKsaRtoAgentShare(activeBatchId)
       setShare(shareStateFromBatch(result.batch))
-      setMessage('KSA agent link disabled.')
+      setMessage('KSA Wanasa link disabled.')
       await refreshBatches()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not disable share link.')
@@ -452,10 +460,10 @@ export function AmazonKsaRtoLabelingPage() {
       setRows((result.batch.rows || []).map((row, index) => normalizeRow(row, index)))
       setReopenDialogOpen(false)
       setReopenResetRows(false)
-      setMessage(reopenResetRows ? 'Agent batch reopened and row checks reset.' : 'Agent batch reopened. The same public link is usable again.')
+      setMessage(reopenResetRows ? 'Wanasa batch reopened and row checks reset.' : 'Wanasa batch reopened. The same public link is usable again.')
       await refreshBatches()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not reopen agent batch.')
+      setError(err instanceof Error ? err.message : 'Could not reopen Wanasa batch.')
     } finally {
       setBusy('')
     }
@@ -464,7 +472,7 @@ export function AmazonKsaRtoLabelingPage() {
   async function copyShareLink() {
     if (!shareUrl) return
     await navigator.clipboard.writeText(shareUrl)
-    setMessage('Agent link copied.')
+    setMessage('Wanasa link copied.')
   }
 
   async function uploadRowFile(row: DraftRow, rowIndex: number, fileType: RowFileKind, file: File) {
@@ -529,6 +537,8 @@ export function AmazonKsaRtoLabelingPage() {
   function exportCsv() {
     const headers = [
       'product_code',
+      'company_code',
+      'product_title',
       'fnsku_no',
       'quantity',
       'image_file_name',
@@ -543,6 +553,8 @@ export function AmazonKsaRtoLabelingPage() {
       ...rows.map((row) =>
         [
           row.productCode,
+          row.companyCode || '',
+          row.productTitle || '',
           row.fnskuNo,
           row.quantity,
           row.productImage?.fileName || '',
@@ -561,6 +573,8 @@ export function AmazonKsaRtoLabelingPage() {
     const worksheet = XLSX.utils.json_to_sheet(
       rows.map((row) => ({
         product_code: row.productCode,
+        company_code: row.companyCode || '',
+        product_title: row.productTitle || '',
         fnsku_no: row.fnskuNo,
         quantity: row.quantity,
         image_file_name: row.productImage?.fileName || '',
@@ -599,7 +613,7 @@ export function AmazonKsaRtoLabelingPage() {
       doc.setFontSize(18)
       doc.text(meta.batchTitle || DEFAULT_TITLE, 42, 42)
       doc.setFontSize(10)
-      doc.text(`Reference: ${meta.referenceNo || '-'}   Agent: ${meta.agentName || '-'}   Destination: ${meta.destination || DEFAULT_DESTINATION}`, 42, 62)
+      doc.text(`Reference: ${meta.referenceNo || '-'}   Wanasa: ${meta.agentName || '-'}   Destination: ${meta.destination || DEFAULT_DESTINATION}`, 42, 62)
       const imageCache = new Map<string | number, string>()
       for (const row of rows) {
         const data = await imageForPdf(row.productImage)
@@ -607,10 +621,12 @@ export function AmazonKsaRtoLabelingPage() {
       }
       autoTable(doc, {
         startY: 82,
-        head: [['Image', 'Product name / code', 'FNSKU No', 'Qty', 'FNSKU Label PDF', 'Status']],
+        head: [['Image', 'Product name / code', 'Company code', 'Title', 'FNSKU No', 'Qty', 'FNSKU Label PDF', 'Status']],
         body: rows.map((row) => [
           '',
           row.productCode,
+          row.companyCode || '-',
+          row.productTitle || '-',
           row.fnskuNo || 'Missing FNSKU',
           row.quantity,
           row.labelPdf?.fileName || 'Missing PDF',
@@ -663,7 +679,7 @@ export function AmazonKsaRtoLabelingPage() {
           <p className="ainv-page__eyebrow ainv-page__eyebrow--amber">Amazon · KSA RTO</p>
           <h1 className="ainv-page__title">Amazon KSA RTO Labeling / FNSKU Label Upload</h1>
           <p className="ainv-page__lead">
-            Prepare per-SKU product images, FNSKU label PDFs, product codes, FNSKU numbers, and quantities for the KSA RTO agent.
+            Prepare per-SKU product images, FNSKU label PDFs, product codes, FNSKU numbers, and quantities for Wanasa.
           </p>
         </div>
         <div className="akr-hero__actions">
@@ -696,7 +712,7 @@ export function AmazonKsaRtoLabelingPage() {
           <div className="akr-form-grid">
             <label className="ainv-label">Batch title<input className="ainv-input" value={meta.batchTitle} onChange={(e) => setMeta({ ...meta, batchTitle: e.target.value })} /></label>
             <label className="ainv-label">Reference no<input className="ainv-input" value={meta.referenceNo} onChange={(e) => setMeta({ ...meta, referenceNo: e.target.value })} /></label>
-            <label className="ainv-label">Agent name<input className="ainv-input" value={meta.agentName} onChange={(e) => setMeta({ ...meta, agentName: e.target.value })} /></label>
+            <label className="ainv-label">Wanasa name<input className="ainv-input" value={meta.agentName} onChange={(e) => setMeta({ ...meta, agentName: e.target.value })} /></label>
             <label className="ainv-label">Destination<input className="ainv-input" value={meta.destination} onChange={(e) => setMeta({ ...meta, destination: e.target.value })} /></label>
             <label className="ainv-label akr-span-2">Notes<textarea className="ainv-input" rows={3} value={meta.notes} onChange={(e) => setMeta({ ...meta, notes: e.target.value })} /></label>
           </div>
@@ -727,11 +743,11 @@ export function AmazonKsaRtoLabelingPage() {
       <section className="ainv-panel akr-share-panel">
         <div className="akr-panel-head">
           <div>
-            <h2>Share with KSA Agent</h2>
+            <h2>Share with Wanasa</h2>
             <p className="akr-muted">Create a no-login link for this batch only. The public page cannot access the HR & BI app.</p>
           </div>
           <span className={`akr-status akr-status--${share.agentStatus === 'completed' ? 'ready' : share.shareEnabled ? 'missing-pdf' : 'invalid-qty'}`}>
-            {share.shareEnabled ? `Agent: ${share.agentStatus.replace('_', ' ')}` : 'Link disabled'}
+            {share.shareEnabled ? `Wanasa: ${share.agentStatus.replace('_', ' ')}` : 'Link disabled'}
           </span>
         </div>
         <div className="akr-share-grid">
@@ -746,12 +762,12 @@ export function AmazonKsaRtoLabelingPage() {
             />
           </label>
           <div className="akr-share-link-box">
-            <span>Agent link</span>
+            <span>Wanasa link</span>
             <strong>{share.shareEnabled && shareUrl ? shareUrl : activeBatchId ? 'Generate link to enable public access' : 'Save batch first'}</strong>
           </div>
           <div className="akr-button-row">
             <button type="button" className="ainv-btn ainv-btn--primary-sky" disabled={!activeBatchId || busy === 'share'} onClick={() => void enableShare()}>
-              {share.shareToken ? 'Enable / Refresh Link' : 'Generate Agent Link'}
+              {share.shareToken ? 'Enable / Refresh Link' : 'Generate Wanasa Link'}
             </button>
             <button type="button" className="ainv-btn" disabled={!share.shareEnabled || !shareUrl} onClick={() => void copyShareLink()}>Copy Link</button>
             <button type="button" className="ainv-btn" disabled={!share.shareToken || busy === 'share-expiry'} onClick={() => void updateShareExpiry()}>Save Expiry</button>
@@ -760,8 +776,8 @@ export function AmazonKsaRtoLabelingPage() {
           {canReopenAgentBatch ? (
             <div className="akr-reopen-agent-box">
               <div>
-                <strong>Agent batch is completed</strong>
-                <p>Reopen it if the KSA agent completed by mistake or you need to continue testing with the same public link.</p>
+                <strong>Wanasa batch is completed</strong>
+                <p>Reopen it if Wanasa completed by mistake or you need to continue testing with the same public link.</p>
               </div>
               <button
                 type="button"
@@ -769,7 +785,7 @@ export function AmazonKsaRtoLabelingPage() {
                 disabled={!activeBatchId || busy === 'reopen-agent'}
                 onClick={() => setReopenDialogOpen(true)}
               >
-                Reopen Agent Batch
+                Reopen Wanasa Batch
               </button>
             </div>
           ) : null}
@@ -781,16 +797,16 @@ export function AmazonKsaRtoLabelingPage() {
           {share.agentCompletedAt ? <span>Completed: <strong>{formatDate(share.agentCompletedAt)}</strong></span> : null}
           {share.agentCompletedByName ? <span>By: <strong>{share.agentCompletedByName}</strong></span> : null}
         </div>
-        {share.agentNotes ? <div className="akr-agent-notes"><strong>Agent notes:</strong> {share.agentNotes}</div> : null}
+        {share.agentNotes ? <div className="akr-agent-notes"><strong>Wanasa notes:</strong> {share.agentNotes}</div> : null}
       </section>
 
       {reopenDialogOpen ? (
         <div className="akr-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="akr-reopen-title">
           <div className="akr-reopen-modal">
             <p className="akr-modal-eyebrow">Internal only</p>
-            <h2 id="akr-reopen-title">Reopen this agent batch?</h2>
+            <h2 id="akr-reopen-title">Reopen this Wanasa batch?</h2>
             <p>
-              This will allow the KSA agent to continue marking rows and submitting completion again. The same public agent link will keep working.
+              This will allow Wanasa to continue marking rows and submitting completion again. The same public Wanasa link will keep working.
             </p>
             <label className="akr-reset-check">
               <input
@@ -805,7 +821,7 @@ export function AmazonKsaRtoLabelingPage() {
                 Cancel
               </button>
               <button type="button" className="ainv-btn ainv-btn--primary-amber" disabled={busy === 'reopen-agent'} onClick={() => void reopenAgentBatch()}>
-                {busy === 'reopen-agent' ? 'Reopening...' : 'Reopen Agent Batch'}
+                {busy === 'reopen-agent' ? 'Reopening...' : 'Reopen Wanasa Batch'}
               </button>
             </div>
           </div>
@@ -820,7 +836,7 @@ export function AmazonKsaRtoLabelingPage() {
         </div>
         <div className="ainv-panel">
           <div className="akr-panel-head"><h2>Upload CSV / XLSX</h2></div>
-          <p className="akr-muted">Expected columns: product name / code, FNSKU no, quantity, notes optional. Optional image_url/pdf_url are accepted for future reference.</p>
+          <p className="akr-muted">Expected columns: product name / code, company code optional, title optional, FNSKU no, quantity, notes optional.</p>
           <input ref={dataInputRef} className="akr-file-input" type="file" accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => { const file = e.target.files?.[0]; if (file) void parseUpload(file) }} />
           <button type="button" className="ainv-btn" disabled={busy === 'parse'} onClick={() => dataInputRef.current?.click()}>{busy === 'parse' ? 'Parsing...' : 'Choose file'}</button>
         </div>
@@ -863,6 +879,8 @@ export function AmazonKsaRtoLabelingPage() {
 
                 <div className="akr-sku-fields">
                   <label className="ainv-label">Product name / code<input className="akr-cell-input" value={row.productCode} onChange={(e) => updateRow(row.id, { productCode: e.target.value })} /></label>
+                  <label className="ainv-label">Company code<input className="akr-cell-input" value={row.companyCode || ''} placeholder="e.g. EGG-13SET-GRAY" onChange={(e) => updateRow(row.id, { companyCode: e.target.value })} /></label>
+                  <label className="ainv-label akr-span-2">Title<input className="akr-cell-input" value={row.productTitle || ''} placeholder="e.g. 13-Piece Stacable Cookware Set" onChange={(e) => updateRow(row.id, { productTitle: e.target.value })} /></label>
                   <label className="ainv-label">FNSKU No<input className="akr-cell-input" value={row.fnskuNo} placeholder="Warning only if missing" onChange={(e) => updateRow(row.id, { fnskuNo: e.target.value })} /></label>
                   <label className="ainv-label">Quantity<input className="akr-cell-input akr-qty" type="number" min={0} value={row.quantity} onChange={(e) => updateRow(row.id, { quantity: Number(e.target.value) })} /></label>
                 </div>
@@ -912,7 +930,7 @@ export function AmazonKsaRtoLabelingPage() {
       <section className="ainv-panel akr-export-panel">
         <div>
           <h2>Export / Print</h2>
-          <p className="akr-muted">Exports include product thumbnails, product code, FNSKU, quantity, PDF filename/status, and row status.</p>
+          <p className="akr-muted">Exports include product thumbnails, product code, company code, title, FNSKU, quantity, PDF filename/status, and row status.</p>
         </div>
         <div className="akr-button-row">
           <button type="button" className="ainv-btn" onClick={printSheet}>Print Sheet</button>

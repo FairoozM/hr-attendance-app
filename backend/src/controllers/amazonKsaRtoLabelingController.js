@@ -53,12 +53,14 @@ function rowsFromSheet(sheet) {
       normalized[normalizeHeader(key)] = value
     }
     return {
-      productCode: pickField(normalized, ['productnamecode', 'productcode', 'productname', 'sku', 'code', 'item'], 0),
-      fnskuNo: pickField(normalized, ['fnskuno', 'fnsku', 'amazonfnsku'], 1),
-      quantity: pickField(normalized, ['quantity', 'qty'], 2),
-      notes: pickField(normalized, ['notes', 'note', 'remarks'], 3),
-      imageUrl: pickField(normalized, ['imageurl', 'productimageurl', 'image'], 4),
-      pdfUrl: pickField(normalized, ['pdfurl', 'labelpdfurl', 'fnskupdfurl', 'fnskulabelpdf'], 5),
+      productCode: pickField(normalized, ['productnamecode', 'productcode', 'sku', 'code', 'item'], 0),
+      productTitle: pickField(normalized, ['producttitle', 'title', 'itemtitle', 'productname'], 1),
+      companyCode: pickField(normalized, ['companycode', 'company_code', 'internalcode', 'lifesmilecode', 'skucode']),
+      fnskuNo: pickField(normalized, ['fnskuno', 'fnsku', 'amazonfnsku'], 2),
+      quantity: pickField(normalized, ['quantity', 'qty'], 3),
+      notes: pickField(normalized, ['notes', 'note', 'remarks'], 4),
+      imageUrl: pickField(normalized, ['imageurl', 'productimageurl', 'image'], 5),
+      pdfUrl: pickField(normalized, ['pdfurl', 'labelpdfurl', 'fnskupdfurl', 'fnskulabelpdf'], 6),
     }
   })
   return mappedRows.filter((row) => String(row.productCode || row.fnskuNo || row.quantity || '').trim())
@@ -72,6 +74,8 @@ function parseWorkbook(buffer, originalName) {
   return rows.map((row, index) => ({
     id: `parsed-${Date.now()}-${index}`,
     productCode: String(row.productCode || '').trim(),
+    productTitle: String(row.productTitle || '').trim(),
+    companyCode: String(row.companyCode || '').trim(),
     fnskuNo: String(row.fnskuNo || '').trim(),
     quantity: Number(String(row.quantity || '').replace(/,/g, '').trim()),
     notes: String(row.notes || '').trim(),
@@ -159,7 +163,7 @@ async function postReopenAgent(req, res) {
     const batch = await service.reopenAgentBatch(req.params.id, req.body || {})
     res.json({ batch })
   } catch (err) {
-    sendError(res, err, 'Failed to reopen agent batch')
+    sendError(res, err, 'Failed to reopen Wanasa batch')
   }
 }
 

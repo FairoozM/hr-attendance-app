@@ -216,10 +216,12 @@ function makeStore() {
         id: store.rowId++,
         batch_id: Number(params[0]),
         product_code: params[1],
-        fnsku_no: params[2],
-        quantity: Number(params[3]),
-        notes: params[4],
-        status: params[5],
+        product_title: params[2] || null,
+        company_code: params[3] || null,
+        fnsku_no: params[4],
+        quantity: Number(params[5]),
+        notes: params[6],
+        status: params[7],
         agent_row_status: 'not_checked',
         agent_row_note: null,
         agent_checked_at: null,
@@ -290,6 +292,30 @@ test('Amazon KSA RTO labeling status distinguishes missing product code and row 
       }),
       service.STATUS_READY
     )
+  } finally {
+    restore()
+  }
+})
+
+test('Amazon KSA RTO row company code and title are saved and exposed in public view', async () => {
+  const { service, restore } = loadService()
+  try {
+    const created = await service.createBatch(
+      {
+        batchTitle: 'KSA RTO Public',
+        rows: [{ productCode: 'EGGLIGHT GRAY', productTitle: '13-Piece Stacable Cookware Set', companyCode: 'EGG-13SET-GRAY', fnskuNo: 'X001ABC', quantity: 2 }],
+      },
+      7
+    )
+    assert.equal(created.rows[0].productCode, 'EGGLIGHT GRAY')
+    assert.equal(created.rows[0].productTitle, '13-Piece Stacable Cookware Set')
+    assert.equal(created.rows[0].companyCode, 'EGG-13SET-GRAY')
+
+    const shared = await service.setBatchShare(created.id, {})
+    const publicBatch = await service.publicBatchByToken(shared.shareToken)
+    assert.equal(publicBatch.rows[0].productCode, 'EGGLIGHT GRAY')
+    assert.equal(publicBatch.rows[0].productTitle, '13-Piece Stacable Cookware Set')
+    assert.equal(publicBatch.rows[0].companyCode, 'EGG-13SET-GRAY')
   } finally {
     restore()
   }

@@ -405,6 +405,40 @@
   min-width: 0;
 }
 
+.rto-agent-identity-row--primary {
+  display: grid;
+  grid-template-columns: minmax(9rem, 1fr) minmax(11rem, 1.15fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.rto-agent-identity-row--title {
+  display: grid;
+  gap: 0.42rem;
+  min-width: 0;
+}
+
+.rto-agent-company-code {
+  color: #111827;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: clamp(0.92rem, 1vw, 1.02rem);
+  font-weight: 800;
+  line-height: 1.28;
+  word-break: break-word;
+}
+
+.rto-agent-identity-field--title {
+  min-width: 0;
+}
+
+.rto-agent-product-title {
+  color: #374151;
+  font-size: clamp(0.92rem, 1vw, 1rem);
+  font-weight: 750;
+  line-height: 1.38;
+  word-break: break-word;
+}
+
 .rto-agent-identity-field {
   display: grid;
   gap: 0.18rem;
@@ -886,6 +920,10 @@ input:disabled {
   .rto-agent-card {
     grid-template-columns: 1fr;
     padding: 0.95rem;
+  }
+
+  .rto-agent-identity-row--primary {
+    grid-template-columns: 1fr;
   }
 
   .rto-agent-card-actions {

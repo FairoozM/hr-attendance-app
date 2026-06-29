@@ -15,6 +15,8 @@ export interface KsaRtoLabelRow {
   id?: number | string
   batchId?: number
   productCode: string
+  productTitle?: string
+  companyCode?: string
   fnskuNo: string
   quantity: number
   notes?: string
