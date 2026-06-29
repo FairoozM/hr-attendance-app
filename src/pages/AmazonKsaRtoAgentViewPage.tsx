@@ -12,7 +12,6 @@ import {
 import './AmazonKsaRtoAgentViewPage.css'
 
 type FilterKey = 'all' | 'ready' | 'checked' | 'issues' | 'not_checked'
-type ViewMode = 'compact' | 'detailed'
 
 const issueExamples = [
   'Missing physical item',
@@ -74,7 +73,6 @@ export function AmazonKsaRtoAgentViewPage() {
   const [message, setMessage] = useState('')
   const [filter, setFilter] = useState<FilterKey>('all')
   const [search, setSearch] = useState('')
-  const [viewMode, setViewMode] = useState<ViewMode>('compact')
   const [noteDrafts, setNoteDrafts] = useState<Record<number, string>>({})
   const [issuePanelRowId, setIssuePanelRowId] = useState<number | null>(null)
   const [completeNotes, setCompleteNotes] = useState('')
@@ -246,7 +244,7 @@ export function AmazonKsaRtoAgentViewPage() {
   if (!batch) return <InvalidLinkScreen message={error} />
 
   return (
-    <main className={`rto-agent-page rto-agent-page--${viewMode}`}>
+    <main className="rto-agent-page">
       <header className="rto-agent-hero">
         <div>
           <p className="rto-agent-eyebrow">Amazon KSA RTO - LIFESMILE</p>
@@ -292,10 +290,6 @@ export function AmazonKsaRtoAgentViewPage() {
         <div className="rto-agent-toolbar">
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search product code, company code, title, or FNSKU..." />
           <button type="button" className="rto-agent-secondary-btn" onClick={goToNextUnreviewed}>Next unreviewed</button>
-          <div className="rto-agent-view-toggle" aria-label="View mode">
-            <button type="button" className={viewMode === 'compact' ? 'active' : ''} onClick={() => setViewMode('compact')}>Compact</button>
-            <button type="button" className={viewMode === 'detailed' ? 'active' : ''} onClick={() => setViewMode('detailed')}>Detailed</button>
-          </div>
         </div>
         <div className="rto-agent-filters">
           {(['all', 'ready', 'checked', 'issues', 'not_checked'] as FilterKey[]).map((key) => (
@@ -339,11 +333,11 @@ export function AmazonKsaRtoAgentViewPage() {
                 <div className="rto-agent-card-main">
                   <div className="rto-agent-identity">
                     <div className="rto-agent-identity-row rto-agent-identity-row--primary">
-                      <div className="rto-agent-identity-field">
+                      <div className="rto-agent-identity-field rto-agent-identity-field--product">
                         <span className="rto-agent-identity-label">Product Code</span>
                         <strong className="rto-agent-product-code">{row.productCode}</strong>
                       </div>
-                      <div className="rto-agent-identity-field">
+                      <div className="rto-agent-identity-field rto-agent-identity-field--fnsku">
                         <span className="rto-agent-identity-label">Amazon FNSKU</span>
                         <div className={`rto-agent-fnsku-value ${!row.fnskuNo ? 'rto-agent-fnsku-value--missing' : ''}`}>
                           <strong>{row.fnskuNo || 'Missing FNSKU'}</strong>
@@ -381,14 +375,6 @@ export function AmazonKsaRtoAgentViewPage() {
                       <span className="rto-agent-warning-badge">{row.status}</span>
                     ) : null}
                   </div>
-
-                  {viewMode === 'detailed' ? (
-                    <div className="rto-agent-row-facts">
-                      <p><span>Label PDF</span><strong>{row.labelPdf?.fileName || 'Label missing'}</strong></p>
-                      <p><span>Row status</span><strong>{statusLabel(row.agentRowStatus)}</strong></p>
-                      <p><span>Data status</span><strong>{row.status}</strong></p>
-                    </div>
-                  ) : null}
                 </div>
 
                 <div className="rto-agent-ops-panel">

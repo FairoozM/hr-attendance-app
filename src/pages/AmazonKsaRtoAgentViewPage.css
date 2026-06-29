@@ -187,7 +187,7 @@
 
 .rto-agent-toolbar {
   display: grid;
-  grid-template-columns: minmax(18rem, 1fr) auto auto;
+  grid-template-columns: minmax(18rem, 1fr) auto;
   gap: 0.75rem;
   align-items: center;
 }
@@ -201,7 +201,6 @@
 
 .rto-agent-filters button,
 .rto-agent-secondary-btn,
-.rto-agent-view-toggle button,
 .rto-agent-note-chips button,
 .rto-agent-note-actions button,
 .rto-agent-note-close,
@@ -235,28 +234,14 @@
 }
 
 .rto-agent-filters button.active,
-.rto-agent-view-toggle button.active,
 .rto-agent-complete button,
 .rto-agent-sticky button {
   background: linear-gradient(135deg, #c48a3a, #a9712d);
   color: #fff;
 }
 
-.rto-agent-secondary-btn,
-.rto-agent-view-toggle {
+.rto-agent-secondary-btn {
   white-space: nowrap;
-}
-
-.rto-agent-view-toggle {
-  display: inline-flex;
-  gap: 0.35rem;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.56);
-  padding: 0.25rem;
-}
-
-.rto-agent-view-toggle button {
-  padding: 0.48rem 0.72rem;
 }
 
 .rto-agent-card-grid {
@@ -384,10 +369,20 @@
 }
 
 .rto-agent-identity-row--primary {
-  display: grid;
-  grid-template-columns: minmax(10rem, 1.1fr) minmax(12rem, 1.2fr);
-  gap: 1.25rem;
-  align-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1.5rem 2.25rem;
+}
+
+.rto-agent-identity-field--product {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
+.rto-agent-identity-field--fnsku {
+  flex: 1 1 12rem;
+  min-width: 0;
 }
 
 .rto-agent-identity-row--meta {
@@ -417,7 +412,7 @@
   font-size: clamp(1.05rem, 1.15vw, 1.22rem);
   font-weight: 900;
   line-height: 1.2;
-  word-break: break-word;
+  white-space: nowrap;
 }
 
 .rto-agent-company-code {
@@ -846,21 +841,6 @@ input:disabled {
   opacity: 0.55;
 }
 
-@media (min-width: 960px) {
-  .rto-agent-page--detailed .rto-agent-card-body {
-    grid-template-columns: auto 8.5rem minmax(0, 1fr) auto;
-  }
-
-  .rto-agent-page--detailed .rto-agent-image-wrap {
-    width: 8.5rem;
-    height: 8.5rem;
-  }
-
-  .rto-agent-page--detailed .rto-agent-product-code {
-    font-size: 1.18rem;
-  }
-}
-
 @media (max-width: 1280px) {
   .rto-agent-card-body {
     grid-template-columns: auto 7rem minmax(0, 1fr);
@@ -924,7 +904,7 @@ input:disabled {
   }
 
   .rto-agent-identity-row--primary {
-    grid-template-columns: 1fr;
+    gap: 1rem 1.5rem;
   }
 
   .rto-agent-ops-panel {
