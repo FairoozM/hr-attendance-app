@@ -117,6 +117,14 @@
   width: 2.85rem;
   height: 2.85rem;
   border-radius: 0.8rem;
+  line-height: 0;
+}
+
+.rto-agent-summary-icon svg {
+  display: block;
+  width: 1.125rem;
+  height: 1.125rem;
+  flex-shrink: 0;
 }
 
 .rto-agent-summary-copy {
@@ -163,7 +171,7 @@
   padding: 0.72rem;
 }
 
-.rto-agent-summary span,
+.rto-agent-summary-copy > span,
 .rto-agent-row-facts span,
 .rto-agent-share-label {
   display: block;
@@ -174,7 +182,7 @@
   text-transform: uppercase;
 }
 
-.rto-agent-summary strong {
+.rto-agent-summary-copy > strong {
   display: block;
   margin-top: 0.2rem;
   font-size: clamp(1.15rem, 1.45vw, 1.55rem);
