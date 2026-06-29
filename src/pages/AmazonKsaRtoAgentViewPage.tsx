@@ -497,7 +497,10 @@ export function AmazonKsaRtoAgentViewPage() {
                     disabled={isCompleted || rowBusy}
                     placeholder="Add issue details..."
                     value={noteDrafts[row.id] ?? row.agentRowNote ?? ''}
-                    onChange={(e) => setNoteDrafts((prev) => ({ ...prev, [row.id]: e.currentTarget.value }))}
+                    onChange={(e) => {
+                      const nextNote = e.target.value
+                      setNoteDrafts((prev) => ({ ...prev, [row.id]: nextNote }))
+                    }}
                   />
                   <div className="rto-agent-note-actions">
                     <button type="button" onClick={() => setIssuePanelRowId(null)} disabled={rowBusy}>
