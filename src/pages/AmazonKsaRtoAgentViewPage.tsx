@@ -561,7 +561,12 @@ export function AmazonKsaRtoAgentViewPage() {
         </label>
         <label>
           Final notes optional
-          <textarea value={completeNotes} onChange={(e) => setCompleteNotes(e.target.value)} disabled={isCompleted} />
+          <input
+            value={completeNotes}
+            onChange={(e) => setCompleteNotes(e.target.value)}
+            disabled={isCompleted}
+            placeholder="Optional final notes"
+          />
         </label>
         <button type="button" disabled={isCompleted || busy === 'complete'} onClick={() => void completeBatch(false)}>
           {isCompleted ? 'Batch Completed' : busy === 'complete' ? 'Completing...' : 'Complete Batch'}
