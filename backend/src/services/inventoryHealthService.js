@@ -1,5 +1,5 @@
 /**
- * Inventory Health & Dead Stock — fast V1 (items + sales-by-item only).
+ * Inventory Health & Dead Stock — fast V1 (items + sales-by-item + bundle consumption).
  * No invoice history, last-sold dates, or per-SKU Zoho calls on the main path.
  */
 
@@ -7,10 +7,14 @@ const { fetchAllItemsRaw, fetchItemsRawForWarehouse } = require('../integrations
 const { readZohoConfig } = require('../integrations/zoho/zohoConfig')
 const { parseFamilyFromZohoItem } = require('../integrations/zoho/zohoItemFamily')
 const { getSales } = require('../integrations/zoho/weeklyReportZohoTransactions')
+const { fetchCompositeItemDetail } = require('../integrations/zoho/zohoInventoryClient')
 const { _internals: zohoWeeklyInternals } = require('./weeklyReportZohoData')
 const { listMembersOfGroup } = require('./itemReportGroupsService')
 const { attachImageFieldsToRows, getImageCacheDebugInfo } = require('./inventoryItemImageStore')
 const { readDiskCacheEntry, writeDiskCacheEntry, clearDiskCache } = require('./inventoryHealthDiskCache')
+const {
+  _internals: { buildCompositeUsageAggregate, bundleUsageQtyForItem },
+} = require('./purchasePlanningService')
 
 const SLOW_MOVING_GROUP = 'slow_moving'
 const ZERO_SALES_MONTHS_OF_COVER = 999
@@ -110,6 +114,36 @@ function lookupSalesAmount(maps, itemId, sku) {
   const sk = normalizeSkuKey(sku)
   if (sk && maps.bySkuAmount.has(sk)) return maps.bySkuAmount.get(sk)
   return 0
+}
+
+function lookupConsumptionQty(directSalesMaps, bundleUsage, itemId, sku) {
+  const direct = lookupSalesQty(directSalesMaps, itemId, sku)
+  const bundle = bundleUsageQtyForItem(bundleUsage, { zoho_item_id: itemId, sku })
+  return direct + bundle
+}
+
+async function fetchCompositeMappedItemsCached(compositeItemId, cache) {
+  const id = compositeItemId != null ? String(compositeItemId).trim() : ''
+  if (!id) return []
+  if (cache.has(id)) return cache.get(id)
+  try {
+    const detail = await fetchCompositeItemDetail(id, {
+      source: 'inventory_health_composite_usage_detail',
+    })
+    const entity = detail && detail.composite_item ? detail.composite_item : detail
+    const mapped = Array.isArray(entity && entity.mapped_items) ? entity.mapped_items : []
+    cache.set(id, mapped)
+    return mapped
+  } catch (err) {
+    cache.set(id, [])
+    return []
+  }
+}
+
+async function buildBundleUsageForLines(lines, compositeMappedCache) {
+  return buildCompositeUsageAggregate(lines, (compositeItemId) =>
+    fetchCompositeMappedItemsCached(compositeItemId, compositeMappedCache),
+  )
 }
 
 function resolveUnitSalesPrice(item, salesQty365, salesAmount365) {
@@ -279,7 +313,7 @@ function computeInventoryHealthMetrics(input) {
 function buildReasonV1(ctx) {
   const reasons = []
   if (ctx.currentStockQty > 0 && ctx.salesQty180 === 0) {
-    reasons.push('No sales in last 180 days while stock is available')
+    reasons.push('No direct sales or bundle consumption in last 180 days while stock is available')
   }
   if (ctx.monthsOfCover >= 12) {
     reasons.push('Stock cover is above 12 months')
@@ -432,7 +466,7 @@ function buildFamilyMoneyFrozen(rows) {
 }
 
 function cacheKeyForBase(warehouseId) {
-  return `wh:${warehouseId || 'all'}:sales-val-v2`
+  return `wh:${warehouseId || 'all'}:sales-bundle-v1`
 }
 
 /** Reject test/tiny payloads that must never serve production (e.g. single "Widget" row). */
@@ -537,7 +571,8 @@ function emptyDebug() {
       processing: 0,
       total: 0,
     },
-    mode: 'fast_items_sales_only',
+    mode: 'items_sales_plus_bundle_usage',
+    compositeDetailLookups: 0,
   }
 }
 
@@ -626,6 +661,13 @@ async function loadInventoryHealthBase({ warehouseId = null, refresh = false } =
     const sales90 = aggregateSalesLines(sales90R.lines)
     const sales180 = aggregateSalesLines(sales180R.lines)
     const sales365 = aggregateSalesLines(sales365R.lines)
+    const compositeMappedCache = new Map()
+    const [bundle90, bundle180, bundle365] = await Promise.all([
+      buildBundleUsageForLines(sales90R.lines, compositeMappedCache),
+      buildBundleUsageForLines(sales180R.lines, compositeMappedCache),
+      buildBundleUsageForLines(sales365R.lines, compositeMappedCache),
+    ])
+    debug.compositeDetailLookups = compositeMappedCache.size
     const slowSet = buildSlowMovingSkuSet(slowMembers)
     const familyFieldId = cfg.familyCustomFieldId
 
@@ -639,9 +681,10 @@ async function loadInventoryHealthBase({ warehouseId = null, refresh = false } =
       const currentStockQty = parseWarehouseScopedStockOnHand(item, warehouseId)
       const availableStockQty = parseAvailableStockQty(item, warehouseId)
       const purchaseRate = parseZohoUnitPurchasePrice(item) || 0
-      const salesQty365 = lookupSalesQty(sales365, itemId, sku)
+      const directSalesQty365 = lookupSalesQty(sales365, itemId, sku)
       const salesAmount365 = lookupSalesAmount(sales365, itemId, sku)
-      const salesPrice = resolveUnitSalesPrice(item, salesQty365, salesAmount365)
+      const salesPrice = resolveUnitSalesPrice(item, directSalesQty365, salesAmount365)
+      const salesQty365 = lookupConsumptionQty(sales365, bundle365, itemId, sku)
 
       rows.push(
         computeInventoryHealthMetrics({
@@ -654,8 +697,8 @@ async function loadInventoryHealthBase({ warehouseId = null, refresh = false } =
           availableStockQty,
           salesPrice,
           purchaseRate,
-          salesQty90: lookupSalesQty(sales90, itemId, sku),
-          salesQty180: lookupSalesQty(sales180, itemId, sku),
+          salesQty90: lookupConsumptionQty(sales90, bundle90, itemId, sku),
+          salesQty180: lookupConsumptionQty(sales180, bundle180, itemId, sku),
           salesQty365,
         }),
       )
@@ -849,6 +892,7 @@ module.exports = {
   classifyRiskClassV1,
   computeRiskScoreV1,
   lookupSalesAmount,
+  lookupConsumptionQty,
   resolveUnitSalesPrice,
   ZERO_SALES_MONTHS_OF_COVER,
   _internals: {
@@ -856,5 +900,6 @@ module.exports = {
     sortRows,
     isActiveZohoItem,
     emptyDebug,
+    buildBundleUsageForLines,
   },
 }

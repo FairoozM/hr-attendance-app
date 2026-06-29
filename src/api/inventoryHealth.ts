@@ -71,6 +71,7 @@ export interface InventoryHealthDebug {
     total: number
   }
   mode: string
+  compositeDetailLookups?: number
 }
 
 export interface FamilyMoneyFrozenRow {

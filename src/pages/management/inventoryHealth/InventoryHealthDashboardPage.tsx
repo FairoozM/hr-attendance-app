@@ -528,7 +528,7 @@ export function InventoryHealthDashboardPage() {
         <div>
           <h1>Inventory Health &amp; Dead Stock</h1>
           <p>
-            Fast V1 view using Zoho stock and sales-by-item velocity only (no last-sold scan on load).
+            Fast V1 view using Zoho stock and sales velocity (direct sales + bundle consumption).
             Highlights hidden slow movers inside otherwise normal families.{' '}
             <strong>First Zoho load can take 1–3 min once;</strong> after that it uses server cache (fast).
           </p>
@@ -884,7 +884,7 @@ export function InventoryHealthDashboardPage() {
                       <th className="ih-col-family">Family</th>
                       <th className="ih-col-num">Stock</th>
                       <th className="ih-col-num">Value</th>
-                      <th className="ih-col-sales">90 / 180 / 365 Sales</th>
+                      <th className="ih-col-sales">90 / 180 / 365 Sold</th>
                       <th className="ih-col-cover">Cover</th>
                       <th className="ih-col-risk">Risk</th>
                       <th className="ih-col-tags">Tags</th>
@@ -1040,7 +1040,7 @@ export function InventoryHealthDashboardPage() {
               <dd title="Not loaded in fast V1 mode">—</dd>
             </div>
             <div className="ih-detail-item">
-              <dt>Sales 90 / 180 / 365 days</dt>
+              <dt>Sold 90 / 180 / 365 days (direct + bundles)</dt>
               <dd>{formatNum(selected.salesQty90, 0)} / {formatNum(selected.salesQty180, 0)} / {formatNum(selected.salesQty365, 0)}</dd>
             </div>
             <div className="ih-detail-item">

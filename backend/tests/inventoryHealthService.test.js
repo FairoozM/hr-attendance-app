@@ -13,8 +13,9 @@ const {
   parseFilters,
   getInventoryHealthDashboard,
   loadInventoryHealthBase,
+  lookupConsumptionQty,
   ZERO_SALES_MONTHS_OF_COVER,
-  _internals: { emptyDebug },
+  _internals: { emptyDebug, buildBundleUsageForLines },
 } = require('../src/services/inventoryHealthService')
 
 function baseInput(overrides = {}) {
@@ -90,7 +91,7 @@ test('endpoint pipeline does not call invoice / last-sold helpers', async () => 
     const base = await svc.loadInventoryHealthBase({ refresh: true })
     assert.equal(invoiceListCalls, 0)
     assert.equal(invoiceDetailCalls, 0)
-    assert.equal(base.debug.mode, 'fast_items_sales_only')
+    assert.equal(base.debug.mode, 'items_sales_plus_bundle_usage')
     assert.ok(base.rows.length >= 1)
   } finally {
     restoreConfig()
@@ -191,7 +192,7 @@ test('endpoint response includes debug timings', async () => {
     svc.clearInventoryHealthCache()
     const data = await svc.getInventoryHealthDashboard({ includeZeroStock: 'false' })
     assert.ok(data.debug)
-    assert.equal(data.debug.mode, 'fast_items_sales_only')
+    assert.equal(data.debug.mode, 'items_sales_plus_bundle_usage')
     assert.ok(typeof data.debug.timingsMs.total === 'number')
     assert.ok(data.debug.activeItemsFetched >= 1)
   } finally {
@@ -285,8 +286,106 @@ test('cache does not expose stale errors after clear', () => {
 
 test('emptyDebug helper shape', () => {
   const d = emptyDebug()
-  assert.equal(d.mode, 'fast_items_sales_only')
+  assert.equal(d.mode, 'items_sales_plus_bundle_usage')
   assert.ok(d.timingsMs)
+})
+
+test('lookupConsumptionQty adds direct sales and bundle component usage', async () => {
+  const direct = {
+    byItemId: new Map([['comp-1', 2]]),
+    bySku: new Map(),
+  }
+  const bundle = {
+    byItemId: new Map([['comp-1', 6]]),
+    bySku: new Map(),
+  }
+  assert.equal(lookupConsumptionQty(direct, bundle, 'comp-1', 'COMP-1'), 8)
+  assert.equal(lookupConsumptionQty(direct, bundle, 'other', 'OTHER'), 0)
+})
+
+test('bundle consumption lowers dead-stock risk for components sold only in kits', async () => {
+  const { mockModule, freshRequire } = require('./_helpers')
+
+  const restoreAdapter = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchAllItemsRaw: async () => [
+      {
+        item_id: 'comp-1',
+        sku: '2FP7S-20-BLACK',
+        name: 'Component',
+        status: 'active',
+        stock_on_hand: 1,
+        purchase_rate: 5,
+      },
+    ],
+    fetchItemsRawForWarehouse: async () => [],
+  })
+  const restoreSales = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
+    getSales: async () => ({
+      lines: [{ item_id: 'kit-1', sku: 'LIFEP7S-SET', name: 'LIFEP7S SET', quantity: 3 }],
+      list_truncated: false,
+      list_pages: 1,
+    }),
+  })
+  const restoreClient = mockModule('../src/integrations/zoho/zohoInventoryClient', {
+    fetchCompositeItemDetail: async () => ({
+      composite_item: {
+        mapped_items: [{ item_id: 'comp-1', sku: '2FP7S-20-BLACK', quantity: 2 }],
+      },
+    }),
+  })
+  const restoreGroups = mockModule('../src/services/itemReportGroupsService', {
+    listMembersOfGroup: async () => [],
+  })
+  const restoreConfig = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: null, organizationId: '1' }),
+  })
+
+  clearInventoryHealthCache()
+
+  try {
+    const svc = freshRequire('../src/services/inventoryHealthService')
+    svc.clearInventoryHealthCache()
+    const base = await svc.loadInventoryHealthBase({ refresh: true })
+    const row = base.rows.find((r) => r.sku === '2FP7S-20-BLACK')
+    assert.ok(row)
+    assert.equal(row.salesQty180, 6)
+    assert.equal(row.riskClass, 'Healthy')
+    assert.equal(base.debug.compositeDetailLookups, 1)
+  } finally {
+    restoreConfig()
+    restoreGroups()
+    restoreClient()
+    restoreSales()
+    restoreAdapter()
+    clearInventoryHealthCache()
+  }
+})
+
+test('buildBundleUsageForLines reuses composite mapped-item cache across windows', async () => {
+  let detailCalls = 0
+  const cache = new Map()
+  const fetchMapped = async (compositeItemId) => {
+    detailCalls += 1
+    return [{ item_id: 'comp-1', sku: 'COMP-1', quantity: 1 }]
+  }
+  const lines = [{ item_id: 'kit-1', sku: 'KIT-1-SET', name: 'KIT-1-SET', quantity: 2 }]
+  const { buildCompositeUsageAggregate } = require('../src/services/purchasePlanningService')._internals
+  const usage1 = await buildCompositeUsageAggregate(lines, async (id) => {
+    if (cache.has(id)) return cache.get(id)
+    const mapped = await fetchMapped(id)
+    cache.set(id, mapped)
+    return mapped
+  })
+  const usage2 = await buildCompositeUsageAggregate(lines, async (id) => {
+    if (cache.has(id)) return cache.get(id)
+    const mapped = await fetchMapped(id)
+    cache.set(id, mapped)
+    return mapped
+  })
+  assert.equal(detailCalls, 1)
+  assert.equal(usage1.byItemId.get('comp-1'), 2)
+  assert.equal(usage2.byItemId.get('comp-1'), 2)
+  void buildBundleUsageForLines
 })
 
 test('non-admin access is blocked at route layer', async () => {
