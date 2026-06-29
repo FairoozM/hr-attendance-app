@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, Copy, Download, Eye, FileText, Pencil, Tag, Trash2, TriangleAlert, X } from 'lucide-react'
+import { Check, Copy, Download, Eye, FileText, Pencil, Trash2, TriangleAlert, X } from 'lucide-react'
 import { useParams } from 'react-router-dom'
 import {
   completePublicKsaRtoBatch,
@@ -290,7 +290,7 @@ export function AmazonKsaRtoAgentViewPage() {
 
       <section className="rto-agent-tools">
         <div className="rto-agent-toolbar">
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search product code or FNSKU..." />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search product code, company code, title, or FNSKU..." />
           <button type="button" className="rto-agent-secondary-btn" onClick={goToNextUnreviewed}>Next unreviewed</button>
           <div className="rto-agent-view-toggle" aria-label="View mode">
             <button type="button" className={viewMode === 'compact' ? 'active' : ''} onClick={() => setViewMode('compact')}>Compact</button>
@@ -307,166 +307,179 @@ export function AmazonKsaRtoAgentViewPage() {
       </section>
 
       <section className="rto-agent-card-grid">
-        {filteredRows.map((row) => (
-          <article
-            key={row.id}
-            ref={(node) => {
-              rowRefs.current[row.id] = node
-            }}
-            className={`rto-agent-card rto-agent-card--${row.agentRowStatus} ${row.status !== 'Ready' ? 'rto-agent-card--warning' : ''}`}
-          >
-            <div className="rto-agent-image-wrap">
-              {row.productImage?.downloadUrl ? <img src={row.productImage.downloadUrl} alt={row.productCode} /> : <div>Missing image</div>}
-            </div>
-            <div className="rto-agent-card-main">
-              <div className="rto-agent-card-title">
-                <div className="rto-agent-identity">
-                  <div className="rto-agent-identity-row rto-agent-identity-row--primary">
-                    <div className="rto-agent-identity-field">
-                      <span className="rto-agent-identity-label">Product Code</span>
-                      <strong className="rto-agent-product-code">{row.productCode}</strong>
+        {filteredRows.map((row, rowIndex) => {
+          const serialNo = String(
+            (batch.rows.findIndex((item) => item.id === row.id) + 1) || rowIndex + 1
+          ).padStart(2, '0')
+          const rowBusy = busy === `row-${row.id}`
+          const isChecked = row.agentRowStatus === 'checked'
+          const hasIssue = row.agentRowStatus === 'issue'
+
+          return (
+            <article
+              key={row.id}
+              ref={(node) => {
+                rowRefs.current[row.id] = node
+              }}
+              className={`rto-agent-card rto-agent-card--${row.agentRowStatus} ${row.status !== 'Ready' ? 'rto-agent-card--warning' : ''}`}
+            >
+              <div className="rto-agent-card-body">
+                <div className="rto-agent-sr-badge" aria-hidden="true">
+                  {serialNo}
+                </div>
+
+                <div className="rto-agent-image-wrap">
+                  {row.productImage?.downloadUrl ? (
+                    <img src={row.productImage.downloadUrl} alt={row.productCode} />
+                  ) : (
+                    <div className="rto-agent-image-missing">Missing image</div>
+                  )}
+                </div>
+
+                <div className="rto-agent-card-main">
+                  <div className="rto-agent-identity">
+                    <div className="rto-agent-identity-row rto-agent-identity-row--primary">
+                      <div className="rto-agent-identity-field">
+                        <span className="rto-agent-identity-label">Product Code</span>
+                        <strong className="rto-agent-product-code">{row.productCode}</strong>
+                      </div>
+                      <div className="rto-agent-identity-field">
+                        <span className="rto-agent-identity-label">Amazon FNSKU</span>
+                        <div className={`rto-agent-fnsku-value ${!row.fnskuNo ? 'rto-agent-fnsku-value--missing' : ''}`}>
+                          <strong>{row.fnskuNo || 'Missing FNSKU'}</strong>
+                          {row.fnskuNo ? (
+                            <button
+                              type="button"
+                              className="rto-agent-copy-btn"
+                              onClick={() => void copyFnsku(row)}
+                              aria-label="Copy FNSKU"
+                              title="Copy FNSKU"
+                            >
+                              <Copy size={15} aria-hidden="true" />
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
                     </div>
-                    <div className="rto-agent-identity-field">
-                      <span className="rto-agent-identity-label">Amazon FNSKU</span>
-                      <div className={`rto-agent-fnsku-value ${!row.fnskuNo ? 'rto-agent-fnsku-value--missing' : ''}`}>
-                        <strong>{row.fnskuNo || 'Missing FNSKU'}</strong>
-                        {row.fnskuNo ? (
-                          <button
-                            type="button"
-                            onClick={() => void copyFnsku(row)}
-                            aria-label="Copy FNSKU"
-                            title="Copy FNSKU"
-                          >
-                            <Copy size={15} aria-hidden="true" />
-                          </button>
-                        ) : null}
+
+                    <div className="rto-agent-identity-row rto-agent-identity-row--meta">
+                      <div className="rto-agent-identity-field">
+                        <span className="rto-agent-identity-label">Company Code</span>
+                        <strong className="rto-agent-company-code">{row.companyCode || '—'}</strong>
+                      </div>
+                      <div className="rto-agent-identity-field rto-agent-identity-field--title">
+                        <span className="rto-agent-identity-label">Title</span>
+                        <strong className="rto-agent-product-title">{row.productTitle || '—'}</strong>
                       </div>
                     </div>
                   </div>
-                  {row.companyCode || row.productTitle ? (
-                    <div className="rto-agent-identity-row rto-agent-identity-row--title">
-                      {row.companyCode ? (
-                        <div className="rto-agent-identity-field rto-agent-identity-field--title">
-                          <span className="rto-agent-identity-label">Company code</span>
-                          <strong className="rto-agent-company-code">{row.companyCode}</strong>
-                        </div>
-                      ) : null}
-                      {row.productTitle ? (
-                        <div className="rto-agent-identity-field rto-agent-identity-field--title">
-                          <span className="rto-agent-identity-label">Title</span>
-                          <strong className="rto-agent-product-title">{row.productTitle}</strong>
-                        </div>
-                      ) : null}
+
+                  <div className="rto-agent-badges">
+                    {!row.fnskuNo ? <span className="rto-agent-warning-badge">FNSKU missing</span> : null}
+                    {!row.labelPdf ? <span className="rto-agent-warning-badge">Label missing</span> : null}
+                    {row.status !== 'Ready' && row.fnskuNo && row.labelPdf ? (
+                      <span className="rto-agent-warning-badge">{row.status}</span>
+                    ) : null}
+                  </div>
+
+                  {viewMode === 'detailed' ? (
+                    <div className="rto-agent-row-facts">
+                      <p><span>Label PDF</span><strong>{row.labelPdf?.fileName || 'Label missing'}</strong></p>
+                      <p><span>Row status</span><strong>{statusLabel(row.agentRowStatus)}</strong></p>
+                      <p><span>Data status</span><strong>{row.status}</strong></p>
                     </div>
                   ) : null}
                 </div>
-                <div className="rto-agent-badges">
-                  {viewMode === 'detailed' ? (
-                    <span className={`rto-agent-row-state rto-agent-row-state--${row.agentRowStatus}`}>{statusLabel(row.agentRowStatus)}</span>
-                  ) : null}
-                  {!row.fnskuNo ? <span className="rto-agent-warning-badge">FNSKU missing</span> : null}
-                  {!row.labelPdf ? <span className="rto-agent-warning-badge">Label missing</span> : null}
-                  {row.status !== 'Ready' && row.fnskuNo && row.labelPdf ? <span className="rto-agent-warning-badge">{row.status}</span> : null}
-                </div>
-              </div>
-              {viewMode === 'detailed' ? (
-                <div className="rto-agent-row-facts">
-                  <p><span>Company code</span><strong>{row.companyCode || '-'}</strong></p>
-                  <p><span>Title</span><strong>{row.productTitle || '-'}</strong></p>
-                  <p><span>Product Code</span><strong>{row.productCode}</strong></p>
-                  <p><span>FNSKU</span><strong>{row.fnskuNo || 'Missing'}</strong></p>
-                  <p><span>Label PDF</span><strong>{row.labelPdf?.fileName || 'Label missing'}</strong></p>
-                </div>
-              ) : null}
-            </div>
-            <div className="rto-agent-card-actions">
-              <span className="rto-agent-qty"><span>QTY</span><strong>{row.quantity}</strong></span>
-              <div className="rto-agent-action-section rto-agent-label-section">
-                <span className="rto-agent-action-title"><Tag size={15} aria-hidden="true" /> Amazon Label</span>
-                <div className="rto-agent-pdf-actions">
-                  {row.labelPdf?.downloadUrl ? (
-                    <>
-                      <a
-                        className="rto-agent-icon-btn rto-agent-pdf-primary"
-                        href={row.labelPdf.downloadUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        aria-label={`View label PDF for ${row.productCode}`}
-                        title={`View label PDF for ${row.productCode}`}
-                      >
-                        <Eye size={18} aria-hidden="true" />
-                      </a>
-                      <a
-                        className="rto-agent-icon-btn rto-agent-pdf-secondary"
-                        href={row.labelPdf.downloadUrl}
-                        download={row.labelPdf.fileName}
-                        aria-label={`Download label PDF for ${row.productCode}`}
-                        title={`Download label PDF for ${row.productCode}`}
-                      >
-                        <Download size={18} aria-hidden="true" />
-                      </a>
-                    </>
-                  ) : (
-                    <span className="rto-agent-pdf-missing"><FileText size={16} aria-hidden="true" /> Missing label</span>
-                  )}
-                </div>
-              </div>
-              <div className="rto-agent-action-section rto-agent-actions-section">
-                <span className="rto-agent-action-title">Actions</span>
-                <div className="rto-agent-row-primary-actions">
-                  <label className="rto-agent-check-control">
-                    <input
-                      type="checkbox"
-                      checked={row.agentRowStatus === 'checked'}
-                      disabled={isCompleted || busy === `row-${row.id}` || row.agentRowStatus === 'issue'}
-                      onChange={(event) => void toggleChecked(row, event.currentTarget.checked)}
-                      aria-label={`Mark ${row.productCode} as checked`}
-                    />
-                    <span className="rto-agent-checkbox-box" aria-hidden="true">
-                      {row.agentRowStatus === 'checked' ? <Check size={18} /> : null}
-                    </span>
-                    <span>{row.agentRowStatus === 'checked' ? 'Checked' : 'Check'}</span>
-                  </label>
-                </div>
-              </div>
-              <div className="rto-agent-issue-cell">
-                {row.agentRowStatus === 'issue' ? (
-                  <div className="rto-agent-issue-module">
-                    <TriangleAlert size={18} aria-hidden="true" />
-                    <span>Issue reported</span>
-                    <button
-                      type="button"
-                      disabled={isCompleted || busy === `row-${row.id}`}
-                      onClick={() => setIssuePanelRowId(row.id)}
-                      aria-label={`View or edit issue for ${row.productCode}`}
-                      title={`View or edit issue for ${row.productCode}`}
-                    >
-                      <Pencil size={15} aria-hidden="true" />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isCompleted || busy === `row-${row.id}`}
-                      onClick={() => void confirmClearIssue(row)}
-                      aria-label={`Clear issue for ${row.productCode}`}
-                      title={`Clear issue for ${row.productCode}`}
-                    >
-                      <Trash2 size={15} aria-hidden="true" />
-                    </button>
+
+                <div className="rto-agent-ops-panel">
+                  <div className="rto-agent-ops-section rto-agent-ops-qty">
+                    <span className="rto-agent-ops-label">QTY</span>
+                    <strong className="rto-agent-ops-qty-value">{row.quantity}</strong>
                   </div>
-                ) : (
-                  <button
-                    type="button"
-                    className="rto-agent-issue-trigger"
-                    disabled={isCompleted || busy === `row-${row.id}`}
-                    onClick={() => setIssuePanelRowId((current) => (current === row.id ? null : row.id))}
-                    aria-label={`Report issue for ${row.productCode}`}
-                    title={`Report issue for ${row.productCode}`}
-                  >
-                    <TriangleAlert size={18} aria-hidden="true" />
-                    <span>Report issue</span>
-                  </button>
-                )}
+
+                  <div className="rto-agent-ops-section rto-agent-ops-label-block">
+                    <span className="rto-agent-ops-label">Amazon Label</span>
+                    <div className="rto-agent-label-actions">
+                      {row.labelPdf?.downloadUrl ? (
+                        <>
+                          <a
+                            className="rto-agent-label-btn"
+                            href={row.labelPdf.downloadUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            aria-label={`View label PDF for ${row.productCode}`}
+                          >
+                            <Eye size={18} aria-hidden="true" />
+                            <span>View</span>
+                          </a>
+                          <a
+                            className="rto-agent-label-btn"
+                            href={row.labelPdf.downloadUrl}
+                            download={row.labelPdf.fileName}
+                            aria-label={`Download label PDF for ${row.productCode}`}
+                          >
+                            <Download size={18} aria-hidden="true" />
+                            <span>Download</span>
+                          </a>
+                        </>
+                      ) : (
+                        <span className="rto-agent-pdf-missing">
+                          <FileText size={16} aria-hidden="true" />
+                          Missing label
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rto-agent-ops-section rto-agent-ops-actions">
+                    <span className="rto-agent-ops-label">Actions</span>
+                    <label
+                      className={`rto-agent-check-btn ${isChecked ? 'rto-agent-check-btn--checked' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        disabled={isCompleted || rowBusy || hasIssue}
+                        onChange={(event) => void toggleChecked(row, event.currentTarget.checked)}
+                        aria-label={`Mark ${row.productCode} as checked`}
+                      />
+                      <span className="rto-agent-checkbox-box" aria-hidden="true">
+                        {isChecked ? <Check size={16} /> : null}
+                      </span>
+                      <span>{isChecked ? 'Checked' : 'Check Item'}</span>
+                    </label>
+                  </div>
+
+                  <div className="rto-agent-ops-section rto-agent-ops-status">
+                    <span className="rto-agent-ops-label">Issue Status</span>
+                    {hasIssue ? (
+                      <button
+                        type="button"
+                        className="rto-agent-status-pill rto-agent-status-pill--issue"
+                        disabled={isCompleted || rowBusy}
+                        onClick={() => setIssuePanelRowId(row.id)}
+                        aria-label={`View or edit issue for ${row.productCode}`}
+                      >
+                        <TriangleAlert size={16} aria-hidden="true" />
+                        <span>Issue</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className={`rto-agent-status-pill rto-agent-status-pill--ok ${isChecked ? 'rto-agent-status-pill--ok-checked' : ''}`}
+                        disabled={isCompleted || rowBusy}
+                        onClick={() => setIssuePanelRowId((current) => (current === row.id ? null : row.id))}
+                        aria-label={`Report issue for ${row.productCode}`}
+                        title="Report issue"
+                      >
+                        <Check size={16} aria-hidden="true" />
+                        <span>OK</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
+
               {issuePanelRowId === row.id ? (
                 <div className="rto-agent-note">
                   <div className="rto-agent-note-head">
@@ -485,7 +498,7 @@ export function AmazonKsaRtoAgentViewPage() {
                       <button
                         key={example}
                         type="button"
-                        disabled={isCompleted || busy === `row-${row.id}`}
+                        disabled={isCompleted || rowBusy}
                         onClick={() => {
                           setNoteDrafts((prev) => ({ ...prev, [row.id]: example }))
                         }}
@@ -495,30 +508,57 @@ export function AmazonKsaRtoAgentViewPage() {
                     ))}
                   </div>
                   <textarea
-                    disabled={isCompleted || busy === `row-${row.id}`}
+                    disabled={isCompleted || rowBusy}
                     placeholder="Add issue details..."
                     value={noteDrafts[row.id] ?? row.agentRowNote ?? ''}
                     onChange={(e) => setNoteDrafts((prev) => ({ ...prev, [row.id]: e.currentTarget.value }))}
                   />
                   <div className="rto-agent-note-actions">
-                    <button type="button" onClick={() => setIssuePanelRowId(null)} disabled={busy === `row-${row.id}`}>
+                    <button type="button" onClick={() => setIssuePanelRowId(null)} disabled={rowBusy}>
                       Cancel
                     </button>
-                    {row.agentRowStatus === 'issue' ? (
-                      <button type="button" onClick={() => void clearIssue(row)} disabled={isCompleted || busy === `row-${row.id}`}>
-                        Clear issue
+                    {hasIssue ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => void confirmClearIssue(row)}
+                          disabled={isCompleted || rowBusy}
+                        >
+                          <Trash2 size={15} aria-hidden="true" />
+                          Clear issue
+                        </button>
+                        <button
+                          type="button"
+                          className="primary"
+                          onClick={() => void saveIssue(row)}
+                          disabled={isCompleted || rowBusy}
+                        >
+                          <Pencil size={15} aria-hidden="true" />
+                          Save changes
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="primary"
+                        onClick={() => void saveIssue(row)}
+                        disabled={isCompleted || rowBusy}
+                      >
+                        Save issue
                       </button>
-                    ) : null}
-                    <button type="button" className="primary" onClick={() => void saveIssue(row)} disabled={isCompleted || busy === `row-${row.id}`}>
-                      {row.agentRowStatus === 'issue' ? 'Save changes' : 'Save issue'}
-                    </button>
+                    )}
                   </div>
                 </div>
               ) : null}
-            </div>
-          </article>
-        ))}
+            </article>
+          )
+        })}
         {!filteredRows.length ? <div className="rto-agent-empty">No rows match this filter.</div> : null}
+        {batch.rows.length ? (
+          <p className="rto-agent-list-footer">
+            Showing <strong>{filteredRows.length}</strong> of <strong>{batch.rows.length}</strong> items
+          </p>
+        ) : null}
       </section>
 
       <section className="rto-agent-complete">
