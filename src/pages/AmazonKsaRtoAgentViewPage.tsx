@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, Copy, Download, Eye, FileText, Pencil, Trash2, TriangleAlert, X } from 'lucide-react'
+import { Check, ClipboardCheck, Copy, Download, Eye, FileText, Layers, ListTodo, Package, Pencil, Trash2, TriangleAlert, X } from 'lucide-react'
 import { useParams } from 'react-router-dom'
 import {
   completePublicKsaRtoBatch,
@@ -260,12 +260,60 @@ export function AmazonKsaRtoAgentViewPage() {
       </header>
 
       <section className="rto-agent-summary">
-        <div><span>Total SKUs</span><strong>{batch.summary.totalLines}</strong></div>
-        <div><span>Total Qty</span><strong>{batch.summary.totalQuantity}</strong></div>
-        <div><span>Reviewed</span><strong>{reviewedCount}</strong></div>
-        <div><span>Checked</span><strong>{batch.summary.checked}</strong></div>
-        <div><span>Issues</span><strong>{batch.summary.issues}</strong></div>
-        <div><span>Remaining</span><strong>{remainingCount}</strong></div>
+        <div className="rto-agent-summary-card rto-agent-summary-card--skus">
+          <span className="rto-agent-summary-icon" aria-hidden="true">
+            <Package size={18} />
+          </span>
+          <div className="rto-agent-summary-copy">
+            <span>Total SKUs</span>
+            <strong>{batch.summary.totalLines}</strong>
+          </div>
+        </div>
+        <div className="rto-agent-summary-card rto-agent-summary-card--qty">
+          <span className="rto-agent-summary-icon" aria-hidden="true">
+            <Layers size={18} />
+          </span>
+          <div className="rto-agent-summary-copy">
+            <span>Total Qty</span>
+            <strong>{batch.summary.totalQuantity}</strong>
+          </div>
+        </div>
+        <div className="rto-agent-summary-card rto-agent-summary-card--reviewed">
+          <span className="rto-agent-summary-icon" aria-hidden="true">
+            <ClipboardCheck size={18} />
+          </span>
+          <div className="rto-agent-summary-copy">
+            <span>Reviewed</span>
+            <strong>{reviewedCount}</strong>
+          </div>
+        </div>
+        <div className="rto-agent-summary-card rto-agent-summary-card--checked">
+          <span className="rto-agent-summary-icon" aria-hidden="true">
+            <Check size={18} />
+          </span>
+          <div className="rto-agent-summary-copy">
+            <span>Checked</span>
+            <strong>{batch.summary.checked}</strong>
+          </div>
+        </div>
+        <div className="rto-agent-summary-card rto-agent-summary-card--issues">
+          <span className="rto-agent-summary-icon" aria-hidden="true">
+            <TriangleAlert size={18} />
+          </span>
+          <div className="rto-agent-summary-copy">
+            <span>Issues</span>
+            <strong>{batch.summary.issues}</strong>
+          </div>
+        </div>
+        <div className="rto-agent-summary-card rto-agent-summary-card--remaining">
+          <span className="rto-agent-summary-icon" aria-hidden="true">
+            <ListTodo size={18} />
+          </span>
+          <div className="rto-agent-summary-copy">
+            <span>Remaining</span>
+            <strong>{remainingCount}</strong>
+          </div>
+        </div>
       </section>
 
       <section className="rto-agent-progress-card">
