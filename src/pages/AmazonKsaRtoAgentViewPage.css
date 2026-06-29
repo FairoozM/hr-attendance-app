@@ -252,8 +252,10 @@
 }
 
 .rto-agent-card {
+  position: relative;
+  isolation: isolate;
   display: grid;
-  gap: 0.85rem;
+  gap: 0;
   padding: 1rem 1.15rem;
   scroll-margin: 7rem;
   border: 1px solid rgba(214, 196, 168, 0.52);
@@ -263,14 +265,17 @@
   box-shadow:
     0 12px 30px rgba(120, 83, 45, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
-  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.rto-agent-card--note-open {
+  z-index: 4;
 }
 
 .rto-agent-card:hover {
-  transform: translateY(-2px);
   border-left-color: rgba(196, 142, 72, 0.82);
   box-shadow:
-    0 18px 38px rgba(120, 83, 45, 0.12),
+    0 16px 34px rgba(120, 83, 45, 0.11),
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 
@@ -295,6 +300,7 @@
   grid-template-columns: auto 7.8rem minmax(0, 1fr) auto;
   gap: 1rem 1.15rem;
   align-items: center;
+  min-height: 8.5rem;
 }
 
 .rto-agent-sr-badge {
@@ -504,6 +510,8 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(5.4rem, auto));
   align-items: stretch;
+  align-self: center;
+  min-height: 6.85rem;
   padding: 0.9rem 0.35rem;
   border: 1px solid rgba(214, 196, 168, 0.45);
   border-radius: 1.1rem;
@@ -569,11 +577,10 @@
   font-weight: 800;
   text-decoration: none;
   box-shadow: 0 5px 14px rgba(120, 83, 45, 0.07);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: box-shadow 0.15s ease;
 }
 
 .rto-agent-label-btn:hover {
-  transform: translateY(-1px);
   box-shadow: 0 10px 20px rgba(120, 83, 45, 0.11);
 }
 
@@ -594,7 +601,9 @@
   position: relative;
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 0.5rem;
+  width: 8.35rem;
   min-height: 2.85rem;
   border: 1px solid rgba(214, 196, 168, 0.48);
   border-radius: 0.9rem;
@@ -605,11 +614,10 @@
   font-weight: 800;
   cursor: pointer;
   box-shadow: 0 5px 14px rgba(120, 83, 45, 0.07);
-  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  transition: box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .rto-agent-check-btn:hover:not(:has(input:disabled)) {
-  transform: translateY(-1px);
   box-shadow: 0 10px 20px rgba(120, 83, 45, 0.11);
 }
 
@@ -641,24 +649,30 @@
   background: #f0fdf8;
 }
 
+.rto-agent-check-btn__label {
+  display: inline-block;
+  min-width: 4.55rem;
+  text-align: left;
+}
+
 .rto-agent-status-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.35rem;
-  min-width: 5.2rem;
+  width: 5.65rem;
   min-height: 2.35rem;
   border: 1px solid transparent;
   border-radius: 999px;
-  padding: 0.4rem 0.8rem;
+  padding: 0.4rem 0.55rem;
   font-size: 0.8rem;
   font-weight: 900;
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .rto-agent-status-pill:hover:not(:disabled) {
-  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(120, 83, 45, 0.1);
 }
 
 .rto-agent-status-pill--issue {
@@ -691,14 +705,22 @@
 }
 
 .rto-agent-note {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  left: 0;
+  right: 0;
+  z-index: 5;
   display: grid;
   gap: 0.4rem;
   border: 1px solid rgba(214, 196, 168, 0.35);
   border-radius: 1rem;
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.96);
   padding: 0.75rem;
   color: #6b7280;
   font-weight: 800;
+  box-shadow:
+    0 18px 42px rgba(120, 83, 45, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 
 .rto-agent-note-head {
@@ -844,6 +866,7 @@ input:disabled {
 @media (max-width: 1280px) {
   .rto-agent-card-body {
     grid-template-columns: auto 7rem minmax(0, 1fr);
+    min-height: 0;
   }
 
   .rto-agent-ops-panel {
@@ -851,6 +874,7 @@ input:disabled {
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0;
     padding: 0.85rem 0.25rem;
+    min-height: 0;
   }
 }
 
@@ -892,6 +916,7 @@ input:disabled {
   .rto-agent-card-body {
     grid-template-columns: auto 1fr;
     align-items: start;
+    min-height: 0;
   }
 
   .rto-agent-image-wrap {
@@ -909,6 +934,7 @@ input:disabled {
 
   .rto-agent-ops-panel {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-height: 0;
   }
 
   .rto-agent-ops-section {
@@ -983,6 +1009,16 @@ input:disabled {
   .rto-agent-ops-panel {
     grid-template-columns: 1fr;
     padding: 0.75rem 0.55rem;
+    min-height: 0;
+  }
+
+  .rto-agent-check-btn {
+    width: min(100%, 10.5rem);
+  }
+
+  .rto-agent-note {
+    left: 0;
+    right: 0;
   }
 
   .rto-agent-ops-section {

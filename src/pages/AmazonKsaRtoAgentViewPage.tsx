@@ -315,7 +315,7 @@ export function AmazonKsaRtoAgentViewPage() {
               ref={(node) => {
                 rowRefs.current[row.id] = node
               }}
-              className={`rto-agent-card rto-agent-card--${row.agentRowStatus} ${row.status !== 'Ready' ? 'rto-agent-card--warning' : ''}`}
+              className={`rto-agent-card rto-agent-card--${row.agentRowStatus} ${row.status !== 'Ready' ? 'rto-agent-card--warning' : ''} ${issuePanelRowId === row.id ? 'rto-agent-card--note-open' : ''}`}
             >
               <div className="rto-agent-card-body">
                 <div className="rto-agent-sr-badge" aria-hidden="true">
@@ -432,7 +432,7 @@ export function AmazonKsaRtoAgentViewPage() {
                       <span className="rto-agent-checkbox-box" aria-hidden="true">
                         {isChecked ? <Check size={16} /> : null}
                       </span>
-                      <span>{isChecked ? 'Checked' : 'Check Item'}</span>
+                      <span className="rto-agent-check-btn__label">{isChecked ? 'Checked' : 'Check Item'}</span>
                     </label>
                   </div>
 
