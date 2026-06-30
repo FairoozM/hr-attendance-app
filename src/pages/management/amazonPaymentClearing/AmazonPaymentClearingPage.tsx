@@ -145,7 +145,7 @@ export function AmazonPaymentClearingPage() {
 
   const applyPreview = useCallback((json: PaymentClearingPreview) => {
     setPreview(json)
-    setPaymentPreview(null)
+    setPaymentPreview(json.paymentPreview ?? null)
     setPostingResult(null)
     search.reset()
   }, [search])

@@ -277,12 +277,21 @@ export interface PostingSummary {
   invoicesPosted?: number
   paymentsCreated?: number
   paymentsSkipped?: number
+  journalsCreated?: number
+  journalsSkipped?: number
   errors?: number
   forceRepost?: boolean
   postedAt?: string
   reference?: string
   settlementReference?: SettlementReference
   zohoPaymentIds?: Array<{ paymentType: string; zohoPaymentId: string; referenceNumber?: string }>
+  zohoJournalIds?: Array<{
+    paymentType: string
+    zohoJournalId: string
+    zohoJournalNumber?: string
+    referenceNumber?: string
+    notes?: string
+  }>
 }
 
 export interface ClearingAuditEntry {
@@ -390,6 +399,7 @@ export interface PaymentClearingPreview {
   duplicateZohoPoNumbers?: string[]
   unmatchedOrderIds?: string[]
   missingOrderIdRows?: AdjustmentClearingRow[]
+  paymentPreview?: PaymentClearingPaymentPreview | null
 }
 
 export interface PaymentPreviewAccount {

@@ -21,6 +21,7 @@ const {
 const {
   buildCustomerPaymentPayload,
   buildCustomerPaymentPayloadPreview,
+  buildManualJournalPayload,
   CHART_OF_ACCOUNTS_REQUIRED_SCOPE,
   resolveDepositAccount,
   todayLocalDate,
@@ -1040,7 +1041,7 @@ function fakePayloadPreview(payment) {
 
 function fakeJournalPayloadPreview(journal) {
   return {
-    date: journal.date,
+    journal_date: journal.date,
     reference_number: journal.referenceNumber,
     notes: journal.notes,
     journal_type: 'both',
@@ -1397,6 +1398,25 @@ test('Zoho customer payment payload uses explicit posting date', () => {
   assert.equal(payload.date, '2026-06-15')
   assert.equal(payload.account_id, 'acct1024')
   assert.equal(payload.invoices[0].amount_applied, 123.45)
+})
+
+test('Zoho manual journal payload uses journal_date for Books API', () => {
+  const payload = buildManualJournalPayload({
+    amount: 858.38,
+    date: '2026-06-30',
+    referenceNumber: '29-Apr-2026 to 13-May-2026',
+    notes: 'Transferring Amazon KSA payment',
+    debitAccountId: 'debit-ad',
+    creditAccountId: 'credit-clearing',
+    feeType: 'Advertising Fee',
+  })
+
+  assert.equal(payload.journal_date, '2026-06-30')
+  assert.equal(payload.date, undefined)
+  assert.equal(payload.reference_number, '29-Apr-2026 to 13-May-2026')
+  assert.equal(payload.line_items.length, 2)
+  assert.equal(payload.line_items[0].debit_or_credit, 'debit')
+  assert.equal(payload.line_items[1].debit_or_credit, 'credit')
 })
 
 test('Zoho payment account resolution uses configured account id without chart lookup', async () => {

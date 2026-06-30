@@ -64,9 +64,9 @@ function buildCustomerPaymentPayload(payment, opts = {}) {
 }
 
 function buildManualJournalPayload(journal, opts = {}) {
-  const date = journal.date || opts.date || todayLocalDate()
+  const journalDate = journal.date || opts.date || todayLocalDate()
   return {
-    date,
+    journal_date: journalDate,
     reference_number: journal.referenceNumber || undefined,
     notes: journal.notes || undefined,
     journal_type: journal.journalType || 'both',
@@ -303,7 +303,7 @@ async function buildManualJournalPayloadPreview(journal, opts = {}) {
     creditAccountId: credit.accountId,
   })
   return {
-    date: payload.date,
+    journal_date: payload.journal_date,
     reference_number: payload.reference_number || '',
     notes: payload.notes || '',
     journal_type: payload.journal_type,

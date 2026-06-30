@@ -1,4 +1,12 @@
-import { AmazonFeeJournalPreviewTable, dateText, money, PostingResultTable, SummaryCard } from '../clearingShared'
+import {
+  AmazonFeeJournalPreviewTable,
+  dateText,
+  isFeeJournalPostingType,
+  money,
+  PostedStoredEntriesTable,
+  PostingResultTable,
+  SummaryCard,
+} from '../clearingShared'
 import type { ClearingContext } from './clearingContext'
 
 export function Step8Post({ ctx }: { ctx: ClearingContext }) {
@@ -7,10 +15,13 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
   const postedBy = preview.postedBy ?? preview.batch?.postedBy ?? null
   const postedAt = preview.postedAt ?? preview.batch?.postedAt ?? null
   const postingSummary = preview.postingSummary || preview.batch?.postingSummary
-  const priorIds = postingSummary?.zohoPaymentIds || []
+  const priorPaymentIds = postingSummary?.zohoPaymentIds || []
+  const priorJournalIds = postingSummary?.zohoJournalIds || []
   const postingReference =
     preview.postingReference || preview.batch?.postingReference || postingSummary?.reference || ''
   const storedPostings = Array.isArray(preview.postings) ? preview.postings : []
+  const storedJournalCount = storedPostings.filter((row) => isFeeJournalPostingType(row.paymentType)).length
+  const journalLines = paymentPreview?.amazonFeeJournalLines || []
 
   return (
     <div className="apc-step-stack">
@@ -18,18 +29,36 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
         <div className="apc-alert apc-approved-panel" role="status">
           <strong>Posted to Zoho.</strong>
           {postingReference ? (
-            <span> Reference: <code className="apc-ref">{postingReference}</code>.</span>
+            <span> Payment reference: <code className="apc-ref">{postingReference}</code>.</span>
           ) : null}
           <div>Posted by {postedBy ?? '-'} at {dateText(postedAt)}.</div>
-          {priorIds.length ? (
-            <span>
+          {priorPaymentIds.length ? (
+            <div>
               Zoho payment IDs:{' '}
-              {priorIds
+              {priorPaymentIds
                 .map((entry) => (entry.referenceNumber ? `${entry.zohoPaymentId} (${entry.referenceNumber})` : entry.zohoPaymentId))
                 .join(', ')}
               .
-            </span>
+            </div>
           ) : null}
+          {priorJournalIds.length ? (
+            <div>
+              Zoho journal entries:{' '}
+              {priorJournalIds
+                .map((entry) => {
+                  const label = entry.zohoJournalNumber || entry.zohoJournalId
+                  return entry.referenceNumber ? `${label} (${entry.referenceNumber})` : label
+                })
+                .join(', ')}
+              .
+            </div>
+          ) : storedJournalCount === 0 && journalLines.length === 0 ? (
+            <div className="apc-muted">No manual journal entries were posted for this settlement.</div>
+          ) : null}
+          <p className="apc-muted">
+            Record Payments use the AMZ-KSA reference. Manual journals for Amazon fees use the settlement date-range
+            reference (for example, 29-Apr-2026 to 13-May-2026), so search Zoho Journals by that range if needed.
+          </p>
           <p className="apc-muted">
             This batch is view-only. Dry run is still available. To repost, an admin must use Force Repost and provide a
             reason.
@@ -65,15 +94,19 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
           </button>
         )}
       </div>
-      {!paymentPreview ? <p className="apc-muted">Generate the payment preview in Step 7 before posting.</p> : null}
+      {!paymentPreview ? (
+        <p className="apc-muted">Generate the payment preview in Step 8 before posting.</p>
+      ) : null}
 
-      {!postingResult && paymentPreview?.amazonFeeJournalLines?.length ? (
+      {journalLines.length ? (
         <section>
-          <h3 className="ainv-page__title" style={{ fontSize: '1rem' }}>Amazon Fee Manual Journal Preview</h3>
+          <h3 className="ainv-page__title" style={{ fontSize: '1rem' }}>
+            Amazon Fee Manual Journal {ctx.isPosted ? 'Posted Lines' : 'Preview'}
+          </h3>
           <p className="apc-muted apc-table-caption">
-            These mapped non-order Amazon fees will be posted as Zoho manual journals, not invoice payments.
+            These mapped non-order Amazon fees are posted as Zoho manual journals, not invoice payments.
           </p>
-          <AmazonFeeJournalPreviewTable rows={paymentPreview.amazonFeeJournalLines} />
+          <AmazonFeeJournalPreviewTable rows={journalLines} />
         </section>
       ) : null}
 
@@ -91,33 +124,15 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
         </>
       ) : null}
 
-      {!postingResult && ctx.isPosted && storedPostings.length ? (
+      {!postingResult && ctx.isPosted ? (
         <section>
-          <p className="apc-muted apc-table-caption">Posted Zoho entries for this settlement (from the audit record).</p>
-          <div className="apc-table-wrap apc-table-wrap--wide">
-            <table className="apc-table">
-              <thead>
-                <tr>
-                  <th>Entry</th>
-                  <th className="apc-money">Amount</th>
-                  <th>Reference (sent to Zoho)</th>
-                  <th>Description (sent to Zoho)</th>
-                  <th>Zoho Payment ID</th>
-                </tr>
-              </thead>
-              <tbody>
-                {storedPostings.map((row) => (
-                  <tr key={row.id}>
-                    <td>{row.paymentType}</td>
-                    <td className="apc-money">{money(row.amount)}</td>
-                    <td><code className="apc-ref">{row.referenceNumber || '-'}</code></td>
-                    <td>{row.description ? <pre className="apc-description">{row.description}</pre> : '-'}</td>
-                    <td>{row.zohoPaymentId || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {postingSummary ? (
+            <section className="apc-summary-grid">
+              <SummaryCard label="Payments Created" value={postingSummary.paymentsCreated ?? '-'} />
+              <SummaryCard label="Journals Created" value={postingSummary.journalsCreated ?? 0} />
+            </section>
+          ) : null}
+          <PostedStoredEntriesTable postings={storedPostings} postingSummary={postingSummary} />
         </section>
       ) : null}
 

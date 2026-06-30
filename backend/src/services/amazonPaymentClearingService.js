@@ -426,6 +426,26 @@ async function hydrateSavedBatch(batch) {
   } catch {
     preview.postings = []
   }
+  try {
+    const latestPaymentPreview = await store.getLatestPaymentPreviewForBatch(batch.batchId)
+    if (latestPaymentPreview) {
+      preview.paymentPreview = {
+        batchId: batch.batchId,
+        status: 'previewed',
+        paymentPreviewId: latestPaymentPreview.paymentPreviewId,
+        createdAt: latestPaymentPreview.createdAt,
+        paymentPlanSummary: latestPaymentPreview.paymentPlanSummary,
+        payments: latestPaymentPreview.payments,
+        refundReturnCreditNoteApplications: latestPaymentPreview.refundReturnCreditNoteApplications,
+        adjustmentClearings: latestPaymentPreview.adjustmentClearings,
+        amazonFeeJournalLines: latestPaymentPreview.amazonFeeJournalLines,
+        settlementReference: buildSettlementReference(batch),
+        warnings: [],
+      }
+    }
+  } catch {
+    // Non-fatal: batch detail still loads without a saved payment preview.
+  }
   return preview
 }
 

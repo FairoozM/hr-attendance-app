@@ -1,9 +1,11 @@
 import type {
+  ClearingPosting,
   ParsedRowStatus,
   PaymentClearingPaymentPreview,
   PaymentClearingPreview,
   PaymentPostingResult,
   PostingReference,
+  PostingSummary,
   RefundReturnCreditNoteRow,
   SettlementReference,
   AmazonFeeJournalMapping,
@@ -22,6 +24,15 @@ export function money(value: number | null | undefined) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(Number(value) || 0)
+}
+
+export function isFeeJournalPostingType(paymentType: string) {
+  return String(paymentType || '').startsWith('fee_journal')
+}
+
+function journalFeeTypeLabel(row: ClearingPosting) {
+  const snapshot = row.mappingSnapshot as { feeType?: string; description?: string } | undefined
+  return snapshot?.feeType || snapshot?.description || row.paymentType
 }
 
 export function dateText(value: string | null | undefined) {
@@ -641,6 +652,99 @@ export function PaymentClearingPreviewTable({ paymentPreview }: { paymentPreview
             </table>
           </div>
         </>
+      ) : null}
+    </div>
+  )
+}
+
+export function PostedStoredEntriesTable({
+  postings,
+  postingSummary,
+}: {
+  postings: ClearingPosting[]
+  postingSummary?: PostingSummary
+}) {
+  const paymentRows = postings.filter((row) => !isFeeJournalPostingType(row.paymentType))
+  const journalRows = postings.filter((row) => isFeeJournalPostingType(row.paymentType))
+  const summaryJournalIds = postingSummary?.zohoJournalIds || []
+
+  if (!paymentRows.length && !journalRows.length && !summaryJournalIds.length) {
+    return <div className="apc-empty">No posted Zoho entries are recorded for this settlement.</div>
+  }
+
+  return (
+    <div className="apc-step-stack">
+      {paymentRows.length ? (
+        <div className="apc-table-wrap apc-table-wrap--wide">
+          <p className="apc-muted apc-table-caption">Posted Zoho Record Payments for this settlement.</p>
+          <table className="apc-table">
+            <thead>
+              <tr>
+                <th>Entry</th>
+                <th className="apc-money">Amount</th>
+                <th>Reference (sent to Zoho)</th>
+                <th>Description (sent to Zoho)</th>
+                <th>Zoho Payment ID</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paymentRows.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.paymentType}</td>
+                  <td className="apc-money">{money(row.amount)}</td>
+                  <td><code className="apc-ref">{row.referenceNumber || '-'}</code></td>
+                  <td>{row.description ? <pre className="apc-description">{row.description}</pre> : '-'}</td>
+                  <td>{row.zohoPaymentId || '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
+      {journalRows.length || summaryJournalIds.length ? (
+        <div className="apc-table-wrap apc-table-wrap--wide">
+          <p className="apc-muted apc-table-caption">
+            Posted Zoho manual journals for account-level Amazon fees. These use the settlement date-range reference, not
+            the AMZ-KSA payment reference above.
+          </p>
+          <table className="apc-table">
+            <thead>
+              <tr>
+                <th>Fee type</th>
+                <th className="apc-money">Amount</th>
+                <th>Reference (sent to Zoho)</th>
+                <th>Notes</th>
+                <th>Zoho Journal #</th>
+                <th>Zoho Journal ID</th>
+              </tr>
+            </thead>
+            <tbody>
+              {journalRows.map((row) => (
+                <tr key={row.id}>
+                  <td>{journalFeeTypeLabel(row)}</td>
+                  <td className="apc-money">{money(row.amount)}</td>
+                  <td><code className="apc-ref">{row.referenceNumber || '-'}</code></td>
+                  <td>{row.notes || row.description || '-'}</td>
+                  <td>{row.zohoJournalNumber || '-'}</td>
+                  <td>{row.zohoPaymentId || '-'}</td>
+                </tr>
+              ))}
+              {journalRows.length === 0
+                ? summaryJournalIds.map((row) => (
+                    <tr key={`${row.paymentType}-${row.zohoJournalId}`}>
+                      <td>{row.paymentType}</td>
+                      <td className="apc-money">-</td>
+                      <td><code className="apc-ref">{row.referenceNumber || '-'}</code></td>
+                      <td>{row.notes || '-'}</td>
+                      <td>{row.zohoJournalNumber || '-'}</td>
+                      <td>{row.zohoJournalId || '-'}</td>
+                    </tr>
+                  ))
+                : null}
+            </tbody>
+          </table>
+        </div>
       ) : null}
     </div>
   )
