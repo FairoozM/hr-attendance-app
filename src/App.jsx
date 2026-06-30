@@ -55,6 +55,7 @@ import { AgreementsPage } from './pages/influencers/AgreementsPage'
 import { InfluencerPerformancePage } from './pages/influencers/InfluencerPerformancePage'
 import { SimCardsPage } from './pages/SimCardsPage'
 import { DocumentExpiryPage } from './pages/management/DocumentExpiryPage'
+import { SubscriptionsPage } from './pages/management/subscriptions/SubscriptionsPage'
 import { PaymentsPage as CompanyPaymentsPage } from './pages/management/PaymentsPage'
 import { PurchasePlanningPage } from './pages/management/PurchasePlanningPage'
 import { AmazonPaymentClearingPage } from './pages/management/amazonPaymentClearing/AmazonPaymentClearingPage'
@@ -218,6 +219,14 @@ function AppContent() {
           element={
             <PermissionGuard module="document_expiry" action="view">
               <DocumentExpiryPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="management/subscriptions"
+          element={
+            <PermissionGuard module="subscriptions" action="view">
+              <SubscriptionsPage />
             </PermissionGuard>
           }
         />

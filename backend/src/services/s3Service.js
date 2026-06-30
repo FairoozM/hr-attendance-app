@@ -60,6 +60,12 @@ function createInfluencerProfileImageKey(influencerId, fileName) {
   return `influencer-profile-images/${sid}/${crypto.randomUUID()}-${safe}`
 }
 
+function createSubscriptionInvoiceKey(subscriptionId, fileName) {
+  const safe = sanitizeName(fileName)
+  const sid = String(subscriptionId || 'unknown').replace(/[^a-zA-Z0-9._-]/g, '_')
+  return `subscription-invoices/${sid}/${crypto.randomUUID()}-${safe}`
+}
+
 async function getUploadUrl({ key, contentType, expiresIn = 300 }) {
   const Bucket = requireBucket()
   const command = new PutObjectCommand({
@@ -123,6 +129,7 @@ module.exports = {
   createAmazonKsaRtoLabelKey,
   createInfluencerInsightsImageKey,
   createInfluencerProfileImageKey,
+  createSubscriptionInvoiceKey,
   getUploadUrl,
   getDownloadUrl,
   putObjectBuffer,

@@ -104,6 +104,17 @@ const MODULES = [
     ],
   },
   {
+    section: 'Management',
+    key: 'subscriptions',
+    label: 'Subscription Management',
+    permissions: [
+      { key: 'view', label: 'View subscription tracker' },
+      { key: 'add', label: 'Add subscriptions (includes view)' },
+      { key: 'edit', label: 'Edit subscriptions, invoices, and payments (includes view)' },
+      { key: 'delete', label: 'Delete subscriptions (includes view)' },
+    ],
+  },
+  {
     section: 'Prices',
     key: 'prices',
     label: 'Prices (UAE & KSA)',
@@ -325,6 +336,17 @@ function ModuleIcon({ moduleKey, className = '' }) {
       <svg {...common}>
         <path d="M12 2v20" />
         <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+      </svg>
+    )
+  }
+
+  if (moduleKey === 'subscriptions') {
+    return (
+      <svg {...common}>
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="M7 8h10" />
+        <path d="M7 12h6" />
+        <path d="M7 16h4" />
       </svg>
     )
   }

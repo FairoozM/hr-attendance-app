@@ -1,5 +1,6 @@
 const { query } = require('../db')
 const documentExpiryNotificationsService = require('./documentExpiryNotificationsService')
+const subscriptionNotificationsService = require('./subscriptionNotificationsService')
 
 const REMINDER_TYPE = 'shop_visit_main_shop_reminder'
 const TRIGGER_PREFIX = 'shop_visit_reminder:'
@@ -101,6 +102,7 @@ async function listSystemNotifications({ limit = 50 } = {}) {
 }
 
 async function listForAdmin({ limit = 50 } = {}) {
+  await subscriptionNotificationsService.syncSubscriptionNotifications()
   const [docReminders, systemRows] = await Promise.all([
     documentExpiryNotificationsService.listVisibleReminders(),
     listSystemNotifications({ limit }),
@@ -109,6 +111,7 @@ async function listForAdmin({ limit = 50 } = {}) {
 }
 
 async function unreadCountForAdmin() {
+  await subscriptionNotificationsService.syncSubscriptionNotifications()
   const [docCount, systemCount] = await Promise.all([
     documentExpiryNotificationsService.unreadCount(),
     (async () => {

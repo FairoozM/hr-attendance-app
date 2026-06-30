@@ -116,6 +116,19 @@ async function startServer() {
       })
     }
 
+    const MS_PER_DAY = 24 * 60 * 60 * 1000
+    setImmediate(() => {
+      const { syncSubscriptionNotifications } = require('./services/subscriptionNotificationsService')
+      syncSubscriptionNotifications().catch((err) => {
+        console.warn('[subscriptions] initial notification sync failed:', err?.message || err)
+      })
+      setInterval(() => {
+        syncSubscriptionNotifications().catch((err) => {
+          console.warn('[subscriptions] daily notification sync failed:', err?.message || err)
+        })
+      }, MS_PER_DAY)
+    })
+
     const opt = getOptionalFlagDecision()
     if (opt.effective) {
       console.warn(

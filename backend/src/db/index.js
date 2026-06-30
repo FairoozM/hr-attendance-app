@@ -548,6 +548,99 @@ async function ensureDocumentExpiryTable() {
   }
 }
 
+async function ensureSubscriptionsTables() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS subscriptions (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(500) NOT NULL,
+      vendor VARCHAR(255) NOT NULL DEFAULT '',
+      category VARCHAR(100) NOT NULL DEFAULT 'Other',
+      status VARCHAR(50) NOT NULL DEFAULT 'Active',
+      billing_cycle VARCHAR(50) NOT NULL DEFAULT 'Monthly',
+      cost NUMERIC(14, 2) NOT NULL DEFAULT 0,
+      currency VARCHAR(10) NOT NULL DEFAULT 'AED',
+      start_date DATE,
+      expiry_date DATE,
+      auto_renew BOOLEAN NOT NULL DEFAULT false,
+      responsible_person VARCHAR(255) NOT NULL DEFAULT '',
+      invoice_required BOOLEAN NOT NULL DEFAULT true,
+      invoice_status VARCHAR(100) NOT NULL DEFAULT 'Missing',
+      payment_status VARCHAR(100) NOT NULL DEFAULT 'Unpaid',
+      payment_sent_at TIMESTAMPTZ,
+      payment_sent_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      notes TEXT NOT NULL DEFAULT '',
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_subscriptions_expiry ON subscriptions(expiry_date)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_subscriptions_deleted ON subscriptions(deleted_at)`)
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_subscriptions_name_active
+    ON subscriptions(name) WHERE deleted_at IS NULL
+  `)
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS subscription_invoices (
+      id SERIAL PRIMARY KEY,
+      subscription_id INTEGER NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+      file_name VARCHAR(500) NOT NULL DEFAULT '',
+      file_url TEXT NOT NULL DEFAULT '',
+      s3_key VARCHAR(1000) NOT NULL DEFAULT '',
+      amount NUMERIC(14, 2),
+      currency VARCHAR(10) NOT NULL DEFAULT 'AED',
+      uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      notes TEXT NOT NULL DEFAULT ''
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_subscription_invoices_sub ON subscription_invoices(subscription_id)`)
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS subscription_activity_logs (
+      id SERIAL PRIMARY KEY,
+      subscription_id INTEGER NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+      action VARCHAR(100) NOT NULL,
+      message TEXT NOT NULL DEFAULT '',
+      metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_subscription_activity_sub ON subscription_activity_logs(subscription_id)`)
+
+  const seeded = await query(`SELECT COUNT(*)::int AS n FROM subscriptions WHERE deleted_at IS NULL`)
+  if ((seeded.rows[0]?.n || 0) > 0) return
+
+  const seedRows = [
+    ['ChatGPT', 'OpenAI', 'AI', 'Monthly', 661, '2026-01-01', '2026-07-15'],
+    ['360 Dialog', '360dialog', 'Communication', 'Monthly', 450, '2026-01-01', '2026-08-01'],
+    ['Cursor', 'Cursor', 'AI', 'Monthly', 220, '2026-01-01', '2026-07-10'],
+    ['Indeed Jobs', 'Indeed', 'Marketing', 'Monthly', 375, '2026-01-01', '2026-07-05'],
+    ['Amazon AWS', 'Amazon', 'Hosting', 'Monthly', 170, '2026-01-01', '2026-07-28'],
+    ['Vercel', 'Vercel', 'Hosting', 'Monthly', 295, '2026-01-01', '2026-08-15'],
+    ['Respond.io', 'Respond.io', 'Communication', 'Monthly', 731.33, '2026-01-01', '2026-07-03'],
+    ['Pecdora', 'Pecdora', 'Marketplace', 'Yearly', 110, '2025-06-01', '2026-06-15'],
+    ['Zoho Books', 'Zoho', 'Accounting', 'Yearly', 3360, '2025-07-01', '2026-07-01'],
+    ['Adobe Creative Cloud', 'Adobe', 'Design & Dev', 'Yearly', 250, '2025-08-01', '2026-08-01'],
+    ['Envato Elements', 'Envato', 'Design & Dev', 'Yearly', 530, '2025-11-01', '2026-11-30'],
+    ['Alibaba Seller Account', 'Alibaba', 'Marketplace', 'Yearly', 99, '2025-09-01', '2026-09-01'],
+    ['Freepik', 'Freepik', 'Design & Dev', 'Yearly', 19.99, '2025-12-01', '2026-12-01'],
+  ]
+
+  for (const [name, vendor, category, billingCycle, cost, startDate, expiryDate] of seedRows) {
+    await query(
+      `INSERT INTO subscriptions
+         (name, vendor, category, billing_cycle, cost, currency, start_date, expiry_date, invoice_required, invoice_status, payment_status)
+       VALUES ($1, $2, $3, $4, $5, 'AED', $6, $7, true, 'Missing', 'Unpaid')`,
+      [name, vendor, category, billingCycle, cost, startDate, expiryDate]
+    )
+  }
+}
+
 async function ensureSimCardsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS sim_cards (
@@ -979,6 +1072,11 @@ async function testConnection() {
     await ensureDocumentExpiryTable()
   } catch (e) {
     console.error('[db] ensureDocumentExpiryTable skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    await ensureSubscriptionsTables()
+  } catch (e) {
+    console.error('[db] ensureSubscriptionsTables skipped/failed (non-fatal):', e.message || e)
   }
   try {
     await ensureProjectsTable()
@@ -1667,6 +1765,7 @@ module.exports = {
   ensureInfluencersSnapshotTable,
   ensureInfluencerPerformanceRecordsTable,
   ensureDocumentExpiryTable,
+  ensureSubscriptionsTables,
   ensureItemReportGroupsTable,
   ensureItemReportGroupsImportLogTable,
   ensureAiBudgetAndUsageTables,

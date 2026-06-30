@@ -699,6 +699,7 @@ export function Layout() {
     if (location.pathname.startsWith('/prices/composite-items')) return 'Composite Items Prices'
     if (location.pathname.startsWith('/prices/saved-composite-items')) return 'Saved Composite Items'
     if (location.pathname.startsWith('/management/document-expiry')) return 'Document Expiry Tracker'
+    if (location.pathname.startsWith('/management/subscriptions')) return 'Subscription Management'
     if (location.pathname.startsWith('/reports/weekly-report/weekly-ads'))   return 'Weekly Ads Report'
     if (location.pathname.startsWith('/reports/weekly-report/sales'))        return 'Weekly Sales Reports'
     if (location.pathname.startsWith('/reports/weekly-report/slow-moving'))  return 'Weekly Slow Moving Sales Report'
@@ -826,6 +827,7 @@ export function Layout() {
 
   const managementItems = [
     can('document_expiry', 'view') && { label: 'Document Expiry Tracker', to: '/management/document-expiry' },
+    can('subscriptions', 'view') && { label: 'Subscription Management', to: '/management/subscriptions' },
     can('company_payments', 'view') && { label: 'Payments', to: '/management/payments' },
     isAdmin && { label: 'Purchase Planning', to: '/management/purchase-planning' },
     isAdmin && { label: 'Inventory Health', to: '/management/inventory-health' },
@@ -950,6 +952,8 @@ export function Layout() {
           ? 'company payments asad main shop expense salary vat bill subscription supplier'
           : i.to === '/management/document-expiry'
             ? 'document licence trade license vat compliance expiry'
+          : i.to === '/management/subscriptions'
+            ? 'subscription management chatgpt cursor aws zoho adobe envato vercel invoice payment renewal'
             : '',
     })),
     ...REPORTS_ITEMS.map(i => ({
