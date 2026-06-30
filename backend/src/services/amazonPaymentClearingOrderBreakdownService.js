@@ -91,6 +91,35 @@ function isRefundReturnLikeRow(row) {
   )
 }
 
+function isSettlementReturnRow(row) {
+  if (!row) return false
+  if (isRefundReturnLikeRow(row)) return true
+  const category = clean(row?.category).toLowerCase()
+  const rowClass = clean(row?.rowClass).toLowerCase()
+  return (
+    category === String(CATEGORY.REFUND).toLowerCase() ||
+    category === String(CATEGORY.RETURN).toLowerCase() ||
+    rowClass === 'refund' ||
+    rowClass === 'return'
+  )
+}
+
+function collectSettlementReturnOrderIds(allRows, options = {}) {
+  const ids = new Set()
+  for (const row of detectNetNegativeOrderRefundRows(allRows)) {
+    if (row?.orderId) ids.add(clean(row.orderId))
+  }
+  for (const row of Array.isArray(allRows) ? allRows : []) {
+    if (isSettlementReturnRow(row) && row.orderId) ids.add(clean(row.orderId))
+  }
+  for (const key of ['matchedReturns', 'refundReturnRows', 'creditNoteBlockingRows', 'missingCreditNotes', 'netNegativeReturnOrders']) {
+    for (const row of options[key] || []) {
+      if (row?.orderId) ids.add(clean(row.orderId))
+    }
+  }
+  return ids
+}
+
 function isNetNegativeOrderReturn(breakdown) {
   const principal = round2(Number(breakdown?.principalTotal) || 0)
   const net = round2(Number(breakdown?.netSettlementAmount) || 0)
@@ -163,6 +192,9 @@ module.exports = {
   classifyOrderRowBucket,
   buildOrderFeeBreakdown,
   isFeeLike,
+  isRefundReturnLikeRow,
+  isSettlementReturnRow,
+  collectSettlementReturnOrderIds,
   isNetNegativeOrderReturn,
   buildSyntheticRefundReturnFromOrder,
   detectNetNegativeOrderRefundRows,

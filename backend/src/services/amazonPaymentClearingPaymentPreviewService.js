@@ -1,5 +1,4 @@
-const { round2, isNetNegativeOrderReturn, detectNetNegativeOrderRefundRows } = require('./amazonPaymentClearingOrderBreakdownService')
-const { collectSettlementReturnOrderIds } = require('./amazonPaymentClearingPreviewService')
+const { round2, isNetNegativeOrderReturn, collectSettlementReturnOrderIds } = require('./amazonPaymentClearingOrderBreakdownService')
 const { buildSettlementReference, buildEntryReference } = require('./amazonPaymentClearingReferenceService')
 
 const PAYMENT_ACCOUNTS = Object.freeze({
@@ -120,14 +119,13 @@ function buildInvoicePaymentPlan(order) {
 }
 
 function netNegativeReturnOrderIdsForBatch(batch) {
-  const ids = collectSettlementReturnOrderIds(batch?.allRows || [])
-  for (const order of Array.isArray(batch?.netNegativeReturnOrders) ? batch.netNegativeReturnOrders : []) {
-    if (order?.orderId) ids.add(String(order.orderId))
-  }
-  for (const row of Array.isArray(batch?.matchedReturns) ? batch.matchedReturns : []) {
-    if (row?.orderId) ids.add(String(row.orderId))
-  }
-  return ids
+  return collectSettlementReturnOrderIds(batch?.allRows || [], {
+    matchedReturns: batch?.matchedReturns,
+    refundReturnRows: batch?.refundReturnRows,
+    creditNoteBlockingRows: batch?.creditNoteBlockingRows,
+    missingCreditNotes: batch?.missingCreditNotes,
+    netNegativeReturnOrders: batch?.netNegativeReturnOrders,
+  })
 }
 
 function buildPaymentPreviewFromBatch(batch) {

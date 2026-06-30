@@ -213,6 +213,47 @@ test('payment preview excludes orders with explicit Amazon refund rows', () => {
   assert.equal(paymentPreview.payments.length, 0)
 })
 
+test('payment preview excludes refunds detected by category when rowClass is missing', () => {
+  const orderId = '406-2446480-5429962'
+  const allRows = [
+    {
+      orderId,
+      amount: -1132.51,
+      category: 'Refund',
+      rowClass: '',
+      amountType: 'ItemPrice',
+      amountDescription: 'Principal',
+      transactionType: 'Refund',
+    },
+    {
+      orderId,
+      amount: 166.48,
+      category: 'Refund',
+      rowClass: '',
+      amountType: 'ItemFees',
+      amountDescription: 'Commission',
+      transactionType: 'Refund',
+    },
+  ]
+  const paymentPreview = buildPaymentPreviewFromBatch({
+    status: 'approved',
+    batchId: 1,
+    allRows,
+    matchedOrders: [
+      {
+        orderId,
+        principalTotal: 1132.51,
+        netSettlementAmount: -966.03,
+        zohoInvoiceTotal: 1132.51,
+        zohoInvoiceNumber: 'INV-041380',
+      },
+    ],
+    reconciliationSummary: { reconciliationStatus: 'reconciled', reconciliationDifference: 0 },
+    nonOrderLinkedAmazonFeeMappings: [],
+  })
+  assert.equal(paymentPreview.payments.length, 0)
+})
+
 test('preview separates sales from refunds and blocks missing credit notes', () => {
   const rows = [
     { orderId: '701-sale', amount: 100, category: CATEGORY.PRINCIPAL, rowClass: ROW_CLASS.SALE, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Order' },

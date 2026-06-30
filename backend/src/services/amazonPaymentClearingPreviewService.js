@@ -11,7 +11,7 @@ const {
 } = require('./amazonPaymentClearingCategoryService')
 const { displayYmd } = require('./amazonPaymentClearingReferenceService')
 const { matchSettlementRowsToInvoices } = require('./amazonPaymentClearingZohoMatcher')
-const { buildOrderFeeBreakdown, detectNetNegativeOrderRefundRows, isNetNegativeOrderReturn, round2 } = require('./amazonPaymentClearingOrderBreakdownService')
+const { buildOrderFeeBreakdown, detectNetNegativeOrderRefundRows, isNetNegativeOrderReturn, isSettlementReturnRow, collectSettlementReturnOrderIds, round2 } = require('./amazonPaymentClearingOrderBreakdownService')
 const { buildReconciliationSummary } = require('./amazonPaymentClearingReconciliationService')
 
 function sum(rows, predicate = () => true) {
@@ -222,7 +222,7 @@ function groupRowsByOrder(rows) {
 }
 
 function isRefundReturnRow(row) {
-  return row?.rowClass === ROW_CLASS.REFUND || row?.rowClass === ROW_CLASS.RETURN
+  return isSettlementReturnRow(row)
 }
 
 function refundReturnKey(row) {
@@ -507,20 +507,14 @@ function augmentCreditNoteBlockingForNetNegative(preview) {
   return preview
 }
 
-function collectSettlementReturnOrderIds(allRows) {
-  const ids = new Set()
-  for (const row of detectNetNegativeOrderRefundRows(allRows)) {
-    if (row?.orderId) ids.add(String(row.orderId))
-  }
-  for (const row of Array.isArray(allRows) ? allRows : []) {
-    if (isRefundReturnRow(row) && row.orderId) ids.add(String(row.orderId).trim())
-  }
-  return ids
-}
-
 function removeReturnOrdersFromMatchedSales(preview, allRows) {
   if (!preview) return preview
-  const returnOrderIds = collectSettlementReturnOrderIds(allRows)
+  const returnOrderIds = collectSettlementReturnOrderIds(allRows, {
+    matchedReturns: preview.matchedReturns,
+    refundReturnRows: preview.refundReturnRows,
+    creditNoteBlockingRows: preview.creditNoteBlockingRows,
+    missingCreditNotes: preview.missingCreditNotes,
+  })
   if (!returnOrderIds.size) return preview
 
   const before = Array.isArray(preview.matchedOrders) ? preview.matchedOrders.length : 0
@@ -818,8 +812,6 @@ module.exports = {
   buildAmountDifferences,
   buildBlockingIssues,
   applyNetNegativeOrderAdjustments,
-  collectSettlementReturnOrderIds,
-  removeReturnOrdersFromMatchedSales,
   groupRowsByOrder,
   orderSummary,
   round2,

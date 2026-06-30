@@ -14,7 +14,8 @@ const {
   buildNonOrderLinkedAmazonFeeMappings,
   applyNetNegativeOrderAdjustments,
 } = require('./amazonPaymentClearingPreviewService')
-const { ROW_CLASS, isNonOrderLinkedAmazonFee } = require('./amazonPaymentClearingCategoryService')
+const { ROW_CLASS, isNonOrderLinkedAmazonFee, CATEGORY } = require('./amazonPaymentClearingCategoryService')
+const { isSettlementReturnRow } = require('./amazonPaymentClearingOrderBreakdownService')
 const { buildPaymentPreviewFromBatch } = require('./amazonPaymentClearingPaymentPreviewService')
 const { postApprovedBatch } = require('./amazonPaymentClearingPostingService')
 const { buildSettlementReference } = require('./amazonPaymentClearingReferenceService')
@@ -246,14 +247,32 @@ function deriveLifecycleStatus(batch) {
   return reconciledClean ? 'ready_for_review' : 'draft'
 }
 
+function resolveStoredRowClass(row) {
+  const existing = String(row?.rowClass || '').trim().toLowerCase()
+  if (existing === 'refund' || existing === 'return') return existing
+  const category = String(row?.category || '').trim().toLowerCase()
+  if (category === 'refund') return ROW_CLASS.REFUND
+  if (category === 'return') return ROW_CLASS.RETURN
+  const tx = String(row?.transactionType || '').trim().toLowerCase()
+  if (tx.includes('refund')) return ROW_CLASS.REFUND
+  if (tx.includes('return')) return ROW_CLASS.RETURN
+  return row?.rowClass || ''
+}
+
 function reconstructAllRowsFromStored(storedRows) {
   return (Array.isArray(storedRows) ? storedRows : []).map((row, idx) => {
+    const rowClass = resolveStoredRowClass(row)
     let status = 'ok'
     let blockingReason = row.blockingReason || ''
     const ms = String(row.matchStatus || '').toLowerCase()
-    if (isNonOrderLinkedAmazonFee(row) || ms === 'account_level_fee' || row.rowClass === ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE) {
+    if (isNonOrderLinkedAmazonFee(row) || ms === 'account_level_fee' || rowClass === ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE) {
       status = 'account_level_fee'
       blockingReason = 'Order ID not required for this Amazon fee.'
+    } else if (isSettlementReturnRow({ ...row, rowClass })) {
+      status = row.zohoCreditNoteId ? 'matched' : row.blockingReason ? 'blocked' : 'review'
+      if (status === 'blocked' && !blockingReason) {
+        blockingReason = row.blockingReason || 'Refund/return credit note reconciliation is not clean.'
+      }
     } else if (row.blockingReason && row.matchStatus !== 'account_level_fee') status = 'blocked'
     else if (ms === 'missing_order_id' || !row.orderId) status = row.orderId ? 'ok' : 'missing_order_id'
     else if (ms === 'unmatched') status = 'unmatched'
@@ -262,7 +281,7 @@ function reconstructAllRowsFromStored(storedRows) {
     return {
       rowNumber: row.rowNumber == null ? idx + 1 : row.rowNumber,
       category: row.category || '',
-      rowClass: status === 'account_level_fee' ? ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE : (row.rowClass || ''),
+      rowClass: status === 'account_level_fee' ? ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE : rowClass,
       orderId: row.orderId || '',
       amount: Number(row.amount) || 0,
       currency: row.currency || '',
@@ -319,9 +338,11 @@ async function enrichBatchForClearingOperations(batch) {
   if (!batch) return batch
   const feeJournalMappingRules = await store.listFeeJournalMappings({ marketplace: batch.marketplace || MARKETPLACE }).catch(() => [])
   let allRows = Array.isArray(batch.allRows) ? batch.allRows : []
-  if (allRows.length === 0 && batch.batchId != null) {
+  if (batch.batchId != null) {
     const storedRows = await store.listRowsForBatch(batch.batchId).catch(() => [])
-    allRows = reconstructAllRowsFromStored(storedRows)
+    if (storedRows.length > 0) {
+      allRows = reconstructAllRowsFromStored(storedRows)
+    }
   }
   const preview = savedBatchToPreview(batch)
   if (!preview) return batch
@@ -457,7 +478,7 @@ async function hydrateSavedBatch(batch) {
   } catch {
     storedRows = []
   }
-  if ((!preview.allRows || preview.allRows.length === 0) && storedRows.length > 0) {
+  if (storedRows.length > 0) {
     preview.allRows = reconstructAllRowsFromStored(storedRows)
   }
   normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules)

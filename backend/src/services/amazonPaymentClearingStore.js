@@ -1,4 +1,5 @@
 const { query, pool } = require('../db')
+const { isSettlementReturnRow } = require('./amazonPaymentClearingOrderBreakdownService')
 
 async function ensureAmazonPaymentClearingTables() {
   await query(`
@@ -359,7 +360,8 @@ async function insertClearingRows(client, batchId, preview, rows, report) {
   let rowNumber = 0
   for (const row of Array.isArray(rows) ? rows : []) {
     rowNumber += 1
-    const order = row.orderId ? invoiceByOrder.get(row.orderId) : null
+    const isReturnRow = isSettlementReturnRow(row)
+    const order = !isReturnRow && row.orderId ? invoiceByOrder.get(row.orderId) : null
     const creditNoteRow = (preview.matchedReturns || preview.missingCreditNotes || []).find(
       (candidate) =>
         candidate.orderId === row.orderId &&
@@ -394,7 +396,17 @@ async function insertClearingRows(client, batchId, preview, rows, report) {
         creditNoteRow?.creditNoteStatus || null,
         creditNoteRow?.creditNoteDifference == null ? null : num(creditNoteRow.creditNoteDifference),
         creditNoteRow?.blockingReason || null,
-        creditNoteRow ? creditNoteRow.status : order ? order.matchType || 'matched' : row.orderId ? 'unmatched' : row.rowClass === 'NON_ORDER_LINKED_AMAZON_FEE' ? 'account_level_fee' : 'missing_order_id',
+        creditNoteRow
+          ? creditNoteRow.status
+          : isReturnRow
+            ? 'review'
+            : order
+              ? order.matchType || 'matched'
+              : row.orderId
+                ? 'unmatched'
+                : row.rowClass === 'NON_ORDER_LINKED_AMAZON_FEE'
+                  ? 'account_level_fee'
+                  : 'missing_order_id',
         JSON.stringify(row.originalRawRow || row),
       ]
     )
