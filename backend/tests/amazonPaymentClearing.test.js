@@ -150,6 +150,35 @@ test('preview treats net-negative order rows as returns and excludes them from s
   assert.equal(paymentPreview.payments[0].orderId, '701-sale')
 })
 
+test('payment preview excludes stale matched orders when settlement rows are net-negative', () => {
+  const orderId = '406-2446480-5429962'
+  const allRows = [
+    { orderId: '701-sale', amount: 100, category: CATEGORY.PRINCIPAL, rowClass: ROW_CLASS.SALE, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Order' },
+    { orderId, amount: -1132.51, category: CATEGORY.PRINCIPAL, rowClass: ROW_CLASS.SALE, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Order' },
+    { orderId, amount: 37.95, category: CATEGORY.COMMISSION, rowClass: ROW_CLASS.FEE, amountType: 'ItemFees', amountDescription: 'Commission', transactionType: 'Order' },
+  ]
+  const paymentPreview = buildPaymentPreviewFromBatch({
+    status: 'approved',
+    batchId: 1,
+    allRows,
+    matchedOrders: [
+      { orderId: '701-sale', principalTotal: 100, netSettlementAmount: 100, zohoInvoiceTotal: 100 },
+      {
+        orderId,
+        principalTotal: 1132.51,
+        netSettlementAmount: 1094.56,
+        zohoInvoiceTotal: 1132.51,
+        zohoInvoiceNumber: 'INV-041390',
+      },
+    ],
+    reconciliationSummary: { reconciliationStatus: 'reconciled', reconciliationDifference: 0 },
+    nonOrderLinkedAmazonFeeMappings: [],
+  })
+  assert.equal(paymentPreview.payments.length, 1)
+  assert.equal(paymentPreview.payments[0].orderId, '701-sale')
+  assert.ok(!paymentPreview.payments.some((row) => row.orderId === orderId))
+})
+
 test('preview separates sales from refunds and blocks missing credit notes', () => {
   const rows = [
     { orderId: '701-sale', amount: 100, category: CATEGORY.PRINCIPAL, rowClass: ROW_CLASS.SALE, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Order' },

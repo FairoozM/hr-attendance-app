@@ -1,4 +1,8 @@
-const { round2, isNetNegativeOrderReturn } = require('./amazonPaymentClearingOrderBreakdownService')
+const {
+  round2,
+  isNetNegativeOrderReturn,
+  detectNetNegativeOrderRefundRows,
+} = require('./amazonPaymentClearingOrderBreakdownService')
 const { buildSettlementReference, buildEntryReference } = require('./amazonPaymentClearingReferenceService')
 
 const PAYMENT_ACCOUNTS = Object.freeze({
@@ -118,10 +122,22 @@ function buildInvoicePaymentPlan(order) {
   }
 }
 
+function netNegativeReturnOrderIdsForBatch(batch) {
+  const ids = new Set()
+  for (const order of Array.isArray(batch?.netNegativeReturnOrders) ? batch.netNegativeReturnOrders : []) {
+    if (order?.orderId) ids.add(String(order.orderId))
+  }
+  for (const row of detectNetNegativeOrderRefundRows(batch?.allRows || [])) {
+    if (row?.orderId) ids.add(String(row.orderId))
+  }
+  return ids
+}
+
 function buildPaymentPreviewFromBatch(batch) {
   requireBatchForPaymentPreview(batch)
+  const netNegativeIds = netNegativeReturnOrderIdsForBatch(batch)
   const salesOrders = (Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []).filter(
-    (order) => !isNetNegativeOrderReturn(order)
+    (order) => !netNegativeIds.has(String(order.orderId || '')) && !isNetNegativeOrderReturn(order)
   )
   const payments = salesOrders.map(buildInvoicePaymentPlan)
   const feeJournalMappings = Array.isArray(batch.nonOrderLinkedAmazonFeeMappings)

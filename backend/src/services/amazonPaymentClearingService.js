@@ -315,7 +315,7 @@ function normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules = [])
   return preview
 }
 
-async function batchWithCurrentFeeJournalMappings(batch) {
+async function enrichBatchForClearingOperations(batch) {
   if (!batch) return batch
   const feeJournalMappingRules = await store.listFeeJournalMappings({ marketplace: batch.marketplace || MARKETPLACE }).catch(() => [])
   let allRows = Array.isArray(batch.allRows) ? batch.allRows : []
@@ -323,14 +323,58 @@ async function batchWithCurrentFeeJournalMappings(batch) {
     const storedRows = await store.listRowsForBatch(batch.batchId).catch(() => [])
     allRows = reconstructAllRowsFromStored(storedRows)
   }
+  const preview = savedBatchToPreview(batch)
+  if (!preview) return batch
+  if (allRows.length > 0) preview.allRows = allRows
+  normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules)
+  applyNetNegativeOrderAdjustments(preview, preview.allRows)
   return {
     ...batch,
-    allRows,
-    nonOrderLinkedAmazonFeeMappings: buildNonOrderLinkedAmazonFeeMappings(
-      allRows,
-      batch.report || {},
-      feeJournalMappingRules
-    ),
+    allRows: preview.allRows,
+    matchedOrders: preview.matchedOrders,
+    unmatchedOrders: preview.unmatchedOrders,
+    netNegativeReturnOrders: preview.netNegativeReturnOrders || [],
+    syntheticRefundRows: preview.syntheticRefundRows || [],
+    matchedReturns: preview.matchedReturns ?? batch.matchedReturns,
+    creditNoteBlockingRows: preview.creditNoteBlockingRows ?? batch.creditNoteBlockingRows,
+    blockingIssues: preview.blockingIssues,
+    reconciliationSummary: preview.reconciliationSummary,
+    nonOrderLinkedAmazonFeeMappings: preview.nonOrderLinkedAmazonFeeMappings,
+    adjustmentRows: preview.adjustmentRows ?? batch.adjustmentRows,
+    totals: preview.totals ?? batch.totals,
+    warnings: preview.warnings,
+  }
+}
+
+async function batchWithCurrentFeeJournalMappings(batch) {
+  return enrichBatchForClearingOperations(batch)
+}
+
+function buildLivePaymentPreviewForBatch(batch, preview) {
+  if (!batch || (batch.status !== 'approved' && batch.status !== 'posted')) return null
+  try {
+    const enrichedBatch = {
+      ...batch,
+      matchedOrders: preview.matchedOrders,
+      unmatchedOrders: preview.unmatchedOrders,
+      netNegativeReturnOrders: preview.netNegativeReturnOrders,
+      matchedReturns: preview.matchedReturns,
+      creditNoteBlockingRows: preview.creditNoteBlockingRows,
+      allRows: preview.allRows,
+      nonOrderLinkedAmazonFeeMappings: preview.nonOrderLinkedAmazonFeeMappings,
+      reconciliationSummary: preview.reconciliationSummary,
+      adjustmentRows: preview.adjustmentRows,
+    }
+    const recomputed = buildPaymentPreviewFromBatch(enrichedBatch)
+    return {
+      batchId: batch.batchId,
+      status: 'previewed',
+      ...recomputed,
+      settlementReference: buildSettlementReference(batch),
+      warnings: recomputed.warnings || [],
+    }
+  } catch {
+    return null
   }
 }
 
@@ -420,6 +464,7 @@ async function hydrateSavedBatch(batch) {
   applyNetNegativeOrderAdjustments(preview, preview.allRows)
   preview.rawRowCount = preview.allRows.length || storedRows.length || 0
   preview.storedRowCount = storedRows.length
+  preview.paymentPreview = buildLivePaymentPreviewForBatch(batch, preview)
   try {
     preview.auditLog = await store.listClearingAudit(batch.batchId)
   } catch {
@@ -429,26 +474,6 @@ async function hydrateSavedBatch(batch) {
     preview.postings = await store.listPostingsForBatch(batch.batchId)
   } catch {
     preview.postings = []
-  }
-  try {
-    const latestPaymentPreview = await store.getLatestPaymentPreviewForBatch(batch.batchId)
-    if (latestPaymentPreview) {
-      preview.paymentPreview = {
-        batchId: batch.batchId,
-        status: 'previewed',
-        paymentPreviewId: latestPaymentPreview.paymentPreviewId,
-        createdAt: latestPaymentPreview.createdAt,
-        paymentPlanSummary: latestPaymentPreview.paymentPlanSummary,
-        payments: latestPaymentPreview.payments,
-        refundReturnCreditNoteApplications: latestPaymentPreview.refundReturnCreditNoteApplications,
-        adjustmentClearings: latestPaymentPreview.adjustmentClearings,
-        amazonFeeJournalLines: latestPaymentPreview.amazonFeeJournalLines,
-        settlementReference: buildSettlementReference(batch),
-        warnings: [],
-      }
-    }
-  } catch {
-    // Non-fatal: batch detail still loads without a saved payment preview.
   }
   return preview
 }
@@ -528,7 +553,7 @@ async function listSavedBatches(limit = 50) {
 }
 
 async function approveSavedBatch(id, approvedBy) {
-  const existing = await store.getBatchById(id)
+  const existing = await enrichBatchForClearingOperations(await store.getBatchById(id))
   validateBatchReadyForApproval(existing)
   const batch = await store.approveBatch(id, approvedBy)
   return {
@@ -559,6 +584,12 @@ function validateBatchReadyForApproval(batch) {
   if (Array.isArray(batch.creditNoteBlockingRows) && batch.creditNoteBlockingRows.length > 0) {
     const err = new Error('Approval requires all refund/return rows to have matched Zoho credit notes with clean amounts.')
     err.code = 'AMAZON_PAYMENT_CLEARING_CREDIT_NOTE_BLOCKED'
+    err.status = 422
+    throw err
+  }
+  if (Array.isArray(batch.netNegativeReturnOrders) && batch.netNegativeReturnOrders.length > 0) {
+    const err = new Error('Approval requires net-negative order returns to be matched to Zoho credit notes before clearing.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_NET_NEGATIVE_ORDER_BLOCKED'
     err.status = 422
     throw err
   }

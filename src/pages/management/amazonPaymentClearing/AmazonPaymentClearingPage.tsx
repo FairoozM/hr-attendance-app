@@ -88,6 +88,7 @@ export function AmazonPaymentClearingPage() {
   const isPosted = preview?.status === 'posted' || preview?.batch?.status === 'posted' || preview?.postedToZoho === true
   const isApproved = !isPosted && (preview?.status === 'approved' || preview?.batch?.status === 'approved')
   const creditNoteBlockingRows = preview?.creditNoteBlockingRows || []
+  const netNegativeReturnOrders = preview?.netNegativeReturnOrders || []
   const feeJournalMappings = preview?.nonOrderLinkedAmazonFeeMappings || []
   const unmappedFeeJournalCount = feeJournalMappings.filter((row) => row.mappingStatus === 'needs_mapping').length
   const paymentPreviewFeeJournalBlockerCount =
@@ -96,7 +97,12 @@ export function AmazonPaymentClearingPage() {
     preview &&
       preview.reconciliationSummary?.reconciliationStatus === 'reconciled' &&
       preview.unmatchedOrders.length === 0 &&
-      creditNoteBlockingRows.length === 0
+      creditNoteBlockingRows.length === 0 &&
+      netNegativeReturnOrders.every((order) =>
+        (preview?.matchedReturns || []).some(
+          (row) => row.orderId === order.orderId && row.zohoCreditNoteId
+        )
+      )
   )
   const canGeneratePaymentPreview = Boolean(
     preview?.batch?.batchId &&

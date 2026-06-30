@@ -474,6 +474,39 @@ function buildOrderReconciliation(rows, matchResult, netNegativeReturnOrderIds =
   return { matchedOrders, unmatchedOrders, netNegativeReturnOrders }
 }
 
+function augmentCreditNoteBlockingForNetNegative(preview) {
+  if (!preview) return preview
+  const matchedReturnByOrder = new Map()
+  for (const row of preview.matchedReturns || []) {
+    if (row?.orderId && row.zohoCreditNoteId) matchedReturnByOrder.set(row.orderId, row)
+  }
+  const blockingByOrder = new Set(
+    (preview.creditNoteBlockingRows || []).map((row) => row.orderId).filter(Boolean)
+  )
+  const nextBlocking = [...(preview.creditNoteBlockingRows || [])]
+  for (const order of preview.netNegativeReturnOrders || []) {
+    const orderId = order?.orderId
+    if (!orderId || matchedReturnByOrder.has(orderId) || blockingByOrder.has(orderId)) continue
+    nextBlocking.push({
+      orderId,
+      rowClass: ROW_CLASS.RETURN,
+      category: CATEGORY.RETURN,
+      amazonRefundAmount: Math.abs(round2(Number(order.principalTotal) || 0)),
+      zohoInvoiceId: order.zohoInvoiceId || '',
+      zohoInvoiceNumber: order.zohoInvoiceNumber || '',
+      zohoCreditNoteId: '',
+      zohoCreditNoteNumber: '',
+      creditNoteAmount: 0,
+      creditNoteDifference: 0,
+      status: 'blocked',
+      blockingReason: 'Missing Credit Note for net-negative order return',
+    })
+    blockingByOrder.add(orderId)
+  }
+  preview.creditNoteBlockingRows = nextBlocking
+  return preview
+}
+
 function applyNetNegativeOrderAdjustments(preview, rows = []) {
   if (!preview) return preview
   const allRows = Array.isArray(rows) ? rows : preview.allRows || []
@@ -520,6 +553,7 @@ function applyNetNegativeOrderAdjustments(preview, rows = []) {
   preview.duplicateZohoInvoiceNumbers = matchResult.duplicateZohoInvoiceNumbers
   preview.duplicateZohoPoNumbers = matchResult.duplicateZohoPoNumbers
   preview.missingOrderIdRows = matchResult.missingOrderIdRows
+  augmentCreditNoteBlockingForNetNegative(preview)
 
   const explicitRefundTotal = sum(allRows.filter(isRefundReturnRow))
   const derivedRefundTotal = round2(
