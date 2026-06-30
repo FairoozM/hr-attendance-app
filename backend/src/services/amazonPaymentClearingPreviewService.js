@@ -507,9 +507,63 @@ function augmentCreditNoteBlockingForNetNegative(preview) {
   return preview
 }
 
+function collectSettlementReturnOrderIds(allRows) {
+  const ids = new Set()
+  for (const row of detectNetNegativeOrderRefundRows(allRows)) {
+    if (row?.orderId) ids.add(String(row.orderId))
+  }
+  for (const row of Array.isArray(allRows) ? allRows : []) {
+    if (isRefundReturnRow(row) && row.orderId) ids.add(String(row.orderId).trim())
+  }
+  return ids
+}
+
+function removeReturnOrdersFromMatchedSales(preview, allRows) {
+  if (!preview) return preview
+  const returnOrderIds = collectSettlementReturnOrderIds(allRows)
+  if (!returnOrderIds.size) return preview
+
+  const before = Array.isArray(preview.matchedOrders) ? preview.matchedOrders.length : 0
+  preview.matchedOrders = (preview.matchedOrders || []).filter(
+    (order) => !returnOrderIds.has(String(order.orderId || ''))
+  )
+  if (preview.matchedOrders.length === before) return preview
+
+  const explicitRefundTotal = sum(allRows.filter(isRefundReturnRow))
+  const syntheticRefundRows = detectNetNegativeOrderRefundRows(allRows)
+  const derivedRefundTotal = round2(
+    syntheticRefundRows.reduce((acc, row) => acc + (Number(row.amount) || 0), 0)
+  )
+  preview.refundReturnTotal = round2(explicitRefundTotal + derivedRefundTotal)
+  preview.reconciliationSummary = buildReconciliationSummary({
+    matchedOrders: preview.matchedOrders,
+    refundReturnTotal: preview.refundReturnTotal,
+    settlementLevelFees: preview.settlementLevelFees || [],
+    actualAmazonSettlement: preview.totals?.amazonSettlementTotal ?? sum(allRows),
+  })
+  preview.amountDifferences = buildAmountDifferences(preview.matchedOrders)
+  const unifiedRows = buildAllRows(allRows, {
+    unmatchedOrderIds: preview.unmatchedOrderIds || [],
+    matchedOrderIds: preview.matchedOrders.map((order) => order.orderId),
+    matchedReturns: preview.matchedReturns || [],
+    creditNoteBlockingRows: preview.creditNoteBlockingRows || [],
+    netNegativeReturnOrderIds: Array.from(returnOrderIds),
+  })
+  preview.allRows = unifiedRows
+  preview.blockingIssues = buildBlockingIssues({
+    allRows: unifiedRows,
+    unmatchedOrders: preview.unmatchedOrders,
+    creditNoteBlockingRows: preview.creditNoteBlockingRows,
+    reconciliationStatus: preview.reconciliationSummary?.reconciliationStatus,
+    netNegativeReturnOrders: preview.netNegativeReturnOrders || [],
+  })
+  return preview
+}
+
 function applyNetNegativeOrderAdjustments(preview, rows = []) {
   if (!preview) return preview
   const allRows = Array.isArray(rows) ? rows : preview.allRows || []
+  removeReturnOrdersFromMatchedSales(preview, allRows)
   const priorMatchedByOrder = new Map(
     (Array.isArray(preview.matchedOrders) ? preview.matchedOrders : []).map((order) => [order.orderId, order])
   )
@@ -764,6 +818,8 @@ module.exports = {
   buildAmountDifferences,
   buildBlockingIssues,
   applyNetNegativeOrderAdjustments,
+  collectSettlementReturnOrderIds,
+  removeReturnOrdersFromMatchedSales,
   groupRowsByOrder,
   orderSummary,
   round2,
