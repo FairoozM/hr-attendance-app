@@ -4,6 +4,8 @@ import { SubscriptionIcon } from './SubscriptionIcon'
 import {
   SubscriptionStatusBadge,
   DaysRemainingLabel,
+  InvoiceStatusBadge,
+  PaymentStatusBadge,
   fmtDate,
   fmtMoney,
 } from './subscriptionDisplay'
@@ -19,6 +21,7 @@ interface Props {
   onMarkPaid: (id: string) => Promise<void>
   onRenew: (id: string) => Promise<void>
   canEdit: boolean
+  canDelete: boolean
   actionLoading: boolean
 }
 
@@ -33,6 +36,7 @@ export function SubscriptionDetailDrawer({
   onMarkPaid,
   onRenew,
   canEdit,
+  canDelete,
   actionLoading,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
@@ -54,12 +58,12 @@ export function SubscriptionDetailDrawer({
         <div className="sub-drawer__head">
           <div>
             <div className="sub-drawer__title-row">
-              <SubscriptionIcon name={sub.name} vendor={sub.vendor} size={36} className="sub-icon--drawer" />
-              <h2 style={{ margin: 0, fontSize: '1.15rem' }}>{sub.name}</h2>
+              <SubscriptionIcon name={sub.name} vendor={sub.vendor} variant="drawer" />
+              <h2>{sub.name}</h2>
             </div>
-            <div style={{ marginTop: '0.35rem', display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+            <div className="sub-drawer__badges">
               <SubscriptionStatusBadge expiryDate={sub.expiryDate} />
-              <span className="sub-badge sub-badge--neutral">{sub.category}</span>
+              <span className="sub-pill sub-pill--muted">{sub.category}</span>
             </div>
           </div>
           <button type="button" className="btn btn--ghost btn--sm" onClick={onClose} aria-label="Close">
@@ -76,50 +80,24 @@ export function SubscriptionDetailDrawer({
               <dt>Cost</dt><dd>{fmtMoney(sub.cost, sub.currency)}</dd>
               <dt>Start</dt><dd>{fmtDate(sub.startDate)}</dd>
               <dt>Expiry</dt><dd>{fmtDate(sub.expiryDate)}</dd>
-              <dt>Days Left</dt><dd><DaysRemainingLabel expiryDate={sub.expiryDate} /></dd>
-              <dt>Invoice Status</dt><dd>{sub.invoiceStatus}</dd>
-              <dt>Payment Status</dt><dd>{sub.paymentStatus}</dd>
+              <dt>Days left</dt><dd><DaysRemainingLabel expiryDate={sub.expiryDate} /></dd>
               <dt>Responsible</dt><dd>{sub.responsiblePerson || '—'}</dd>
               <dt>Auto-renew</dt><dd>{sub.autoRenew ? 'Yes' : 'No'}</dd>
             </dl>
             {sub.notes && (
-              <p style={{ margin: '0.75rem 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+              <p style={{ margin: '0.625rem 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
                 {sub.notes}
               </p>
             )}
           </section>
 
-          {canEdit && (
-            <section className="sub-drawer__section">
-              <h3>Actions</h3>
-              <div className="sub-actions">
-                <button type="button" className="btn btn--ghost btn--sm" onClick={() => onEdit(sub)} disabled={actionLoading}>
-                  Edit
-                </button>
-                <button type="button" className="btn btn--ghost btn--sm" onClick={() => fileRef.current?.click()} disabled={actionLoading}>
-                  Upload Invoice
-                </button>
-                <button type="button" className="btn btn--ghost btn--sm" onClick={() => onSendPayment(sub)} disabled={actionLoading}>
-                  Send to Payment Group
-                </button>
-                <button type="button" className="btn btn--ghost btn--sm" onClick={() => onMarkPaid(sub.id)} disabled={actionLoading}>
-                  Mark Paid
-                </button>
-                <button type="button" className="btn btn--primary btn--sm" onClick={() => onRenew(sub.id)} disabled={actionLoading}>
-                  Renew
-                </button>
-                <button type="button" className="btn btn--danger btn--sm" onClick={() => onDelete(sub.id)} disabled={actionLoading}>
-                  Delete
-                </button>
-              </div>
-              <input ref={fileRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" hidden onChange={handleFile} />
-            </section>
-          )}
-
           <section className="sub-drawer__section">
-            <h3>Invoices ({sub.invoices?.length ?? sub.invoiceCount})</h3>
+            <h3>Invoice</h3>
+            <p style={{ margin: '0 0 0.375rem', fontSize: '0.8125rem' }}>
+              <InvoiceStatusBadge status={sub.invoiceStatus} />
+            </p>
             {(sub.invoices?.length ?? 0) === 0 ? (
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0 }}>No invoices uploaded.</p>
+              <p style={{ fontSize: '0.8125rem', color: '#64748b', margin: 0 }}>No invoices uploaded.</p>
             ) : (
               sub.invoices!.map((inv) => (
                 <div key={inv.id} className="sub-invoice-item">
@@ -137,9 +115,45 @@ export function SubscriptionDetailDrawer({
           </section>
 
           <section className="sub-drawer__section">
+            <h3>Payment</h3>
+            <p style={{ margin: 0, fontSize: '0.8125rem' }}>
+              <PaymentStatusBadge status={sub.paymentStatus} />
+            </p>
+          </section>
+
+          {canEdit && (
+            <section className="sub-drawer__section">
+              <h3>Actions</h3>
+              <div className="sub-drawer__actions">
+                <button type="button" className="btn btn--ghost btn--sm" onClick={() => onEdit(sub)} disabled={actionLoading}>
+                  Edit
+                </button>
+                <button type="button" className="btn btn--ghost btn--sm" onClick={() => fileRef.current?.click()} disabled={actionLoading}>
+                  Upload Invoice
+                </button>
+                <button type="button" className="btn btn--ghost btn--sm" onClick={() => onSendPayment(sub)} disabled={actionLoading}>
+                  Send to Payment Group
+                </button>
+                <button type="button" className="btn btn--ghost btn--sm" onClick={() => onMarkPaid(sub.id)} disabled={actionLoading}>
+                  Mark Paid
+                </button>
+                <button type="button" className="btn btn--primary btn--sm" onClick={() => onRenew(sub.id)} disabled={actionLoading}>
+                  Renew
+                </button>
+                {canDelete && (
+                  <button type="button" className="btn btn--danger btn--sm" onClick={() => onDelete(sub.id)} disabled={actionLoading}>
+                    Delete
+                  </button>
+                )}
+              </div>
+              <input ref={fileRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" hidden onChange={handleFile} />
+            </section>
+          )}
+
+          <section className="sub-drawer__section">
             <h3>Activity Log</h3>
             {(sub.activityLogs?.length ?? 0) === 0 ? (
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0 }}>No activity yet.</p>
+              <p style={{ fontSize: '0.8125rem', color: '#64748b', margin: 0 }}>No activity yet.</p>
             ) : (
               sub.activityLogs!.map((log) => (
                 <div key={log.id} className="sub-activity-item">

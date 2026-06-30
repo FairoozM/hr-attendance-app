@@ -17,11 +17,16 @@ import { Modal } from '../../../components/Modal'
 import { SubscriptionFormModal } from './SubscriptionFormModal'
 import { SubscriptionDetailDrawer } from './SubscriptionDetailDrawer'
 import { PaymentGroupModal } from './PaymentGroupModal'
+import { SubscriptionKpiCards } from './SubscriptionKpiCards'
+import { SubscriptionRowActions } from './SubscriptionRowActions'
 import { SubscriptionNameWithIcon } from './SubscriptionIcon'
 import {
   SubscriptionStatusBadge,
   DaysRemainingLabel,
+  InvoiceStatusBadge,
+  PaymentStatusBadge,
   SUBSCRIPTION_CATEGORIES,
+  BILLING_CYCLES,
 } from './subscriptionDisplay'
 import './SubscriptionsPage.css'
 
@@ -37,6 +42,7 @@ export function SubscriptionsPage() {
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [billingFilter, setBillingFilter] = useState('')
 
   const [formOpen, setFormOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<Subscription | null>(null)
@@ -57,6 +63,7 @@ export function SubscriptionsPage() {
     const q = search.trim().toLowerCase()
     return items.filter((sub) => {
       if (categoryFilter && sub.category !== categoryFilter) return false
+      if (billingFilter && sub.billingCycle !== billingFilter) return false
       if (statusFilter && computeSubscriptionStatus(sub.expiryDate) !== statusFilter) return false
       if (q) {
         const blob = [sub.name, sub.vendor, sub.category, sub.responsiblePerson].join(' ').toLowerCase()
@@ -64,7 +71,7 @@ export function SubscriptionsPage() {
       }
       return true
     })
-  }, [items, search, categoryFilter, statusFilter])
+  }, [items, search, categoryFilter, statusFilter, billingFilter])
 
   const openAdd = useCallback(() => {
     setEditTarget(null)
@@ -98,8 +105,8 @@ export function SubscriptionsPage() {
           await createItem(form)
         }
         setFormOpen(false)
-        if (detailSub?.id === editTarget?.id) {
-          const refreshed = await fetchSubscription(editTarget!.id)
+        if (detailSub?.id === editTarget?.id && editTarget) {
+          const refreshed = await fetchSubscription(editTarget.id)
           setDetailSub(refreshed)
         }
       } catch (err) {
@@ -137,9 +144,7 @@ export function SubscriptionsPage() {
       const { subscription } = await confirmSendToPaymentGroup(paymentSubId)
       setPaymentModalOpen(false)
       await refreshOne(paymentSubId)
-      if (detailSub?.id === paymentSubId) {
-        setDetailSub(subscription)
-      }
+      if (detailSub?.id === paymentSubId) setDetailSub(subscription)
     } finally {
       setPaymentConfirming(false)
     }
@@ -193,81 +198,68 @@ export function SubscriptionsPage() {
     window.open(url, '_blank', 'noopener,noreferrer')
   }, [])
 
-  const stopRowClick = (e: React.MouseEvent) => e.stopPropagation()
-
   return (
     <div className="page">
       <div className="subscriptions-page">
-        <div className="sub-page-hero">
+        <header className="sub-page-header">
           <div>
             <h1 className="sub-page-title">Subscription Management</h1>
             <p className="sub-page-subtitle">
-              Track company tool subscriptions — expiry, invoices, and payment follow-up for
-              ChatGPT, Cursor, AWS, Zoho, Adobe, and more.
+              Track renewals, invoices, and payment follow-ups.
             </p>
           </div>
-          {canAdd && (
-            <button type="button" className="btn btn--primary" onClick={openAdd}>
-              + Add Subscription
-            </button>
-          )}
-        </div>
+        </header>
 
-        {error && <div className="sub-error-banner">⚠ {error}</div>}
+        {error && <div className="sub-error-banner">{error}</div>}
 
-        {summary && (
-          <div className="sub-summary-cards">
-            <div className="sub-summary-card sub-summary-card--total">
-              <span className="sub-summary-card__count">{summary.totalSubscriptions}</span>
-              <span className="sub-summary-card__label">Total</span>
-            </div>
-            <div className="sub-summary-card sub-summary-card--cost">
-              <span className="sub-summary-card__count">{fmtMoney(summary.monthlyCost)}</span>
-              <span className="sub-summary-card__label">Monthly Cost</span>
-            </div>
-            <div className="sub-summary-card sub-summary-card--cost">
-              <span className="sub-summary-card__count">{fmtMoney(summary.annualizedCost)}</span>
-              <span className="sub-summary-card__label">Annualized</span>
-            </div>
-            <div className="sub-summary-card sub-summary-card--expiring">
-              <span className="sub-summary-card__count">{summary.expiringIn30Days}</span>
-              <span className="sub-summary-card__label">Expiring in 30 Days</span>
-            </div>
-            <div className="sub-summary-card sub-summary-card--expired">
-              <span className="sub-summary-card__count">{summary.expired}</span>
-              <span className="sub-summary-card__label">Expired</span>
-            </div>
-            <div className="sub-summary-card sub-summary-card--invoice">
-              <span className="sub-summary-card__count">{summary.missingInvoices}</span>
-              <span className="sub-summary-card__label">Missing Invoices</span>
-            </div>
-            <div className="sub-summary-card sub-summary-card--payment">
-              <span className="sub-summary-card__count">{summary.pendingPayments}</span>
-              <span className="sub-summary-card__label">Pending Payments</span>
-            </div>
+        {summary && <SubscriptionKpiCards summary={summary} />}
+
+        <div className="sub-toolbar">
+          <div className="sub-toolbar__field sub-toolbar__field--search">
+            <label htmlFor="sub-search">Search</label>
+            <input
+              id="sub-search"
+              type="search"
+              placeholder="Name, vendor, category…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
           </div>
-        )}
-
-        <div className="sub-filters">
-          <input
-            type="search"
-            placeholder="Search subscriptions…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-            <option value="">All categories</option>
-            {SUBSCRIPTION_CATEGORIES.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="">All statuses</option>
-            <option value="Expired">Expired</option>
-            <option value="Expiring Soon">Expiring Soon</option>
-            <option value="Upcoming">Upcoming</option>
-            <option value="Active">Active</option>
-          </select>
+          <div className="sub-toolbar__field">
+            <label htmlFor="sub-category">Category</label>
+            <select id="sub-category" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+              <option value="">All</option>
+              {SUBSCRIPTION_CATEGORIES.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+          <div className="sub-toolbar__field">
+            <label htmlFor="sub-status">Status</label>
+            <select id="sub-status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <option value="">All</option>
+              <option value="Expired">Expired</option>
+              <option value="Expiring Soon">Expiring Soon</option>
+              <option value="Upcoming">Upcoming</option>
+              <option value="Active">Active</option>
+            </select>
+          </div>
+          <div className="sub-toolbar__field">
+            <label htmlFor="sub-billing">Billing</label>
+            <select id="sub-billing" value={billingFilter} onChange={(e) => setBillingFilter(e.target.value)}>
+              <option value="">All</option>
+              {BILLING_CYCLES.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+          {canAdd && (
+            <div className="sub-toolbar__actions">
+              <button type="button" className="btn btn--primary" onClick={openAdd}>
+                Add Subscription
+              </button>
+            </div>
+          )}
         </div>
 
         {loading ? (
@@ -276,70 +268,69 @@ export function SubscriptionsPage() {
           <div className="sub-empty">No subscriptions found.</div>
         ) : (
           <>
-            <div className="sub-table-wrap">
-              <table className="sub-table">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Category</th>
-                    <th>Status</th>
-                    <th>Billing</th>
-                    <th>Cost</th>
-                    <th>Start</th>
-                    <th>Expiry</th>
-                    <th>Days Remaining</th>
-                    <th>Invoice</th>
-                    <th>Payment</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((sub) => (
-                    <tr key={sub.id} onClick={() => openDetail(sub)}>
-                      <td>
-                        <SubscriptionNameWithIcon name={sub.name} vendor={sub.vendor} size={22} className="sub-table__name" />
-                      </td>
-                      <td>{sub.category}</td>
-                      <td><SubscriptionStatusBadge expiryDate={sub.expiryDate} /></td>
-                      <td>{sub.billingCycle}</td>
-                      <td>{fmtMoney(sub.cost, sub.currency)}</td>
-                      <td>{fmtDate(sub.startDate)}</td>
-                      <td>{fmtDate(sub.expiryDate)}</td>
-                      <td><DaysRemainingLabel expiryDate={sub.expiryDate} /></td>
-                      <td><span className="sub-badge sub-badge--neutral">{sub.invoiceStatus}</span></td>
-                      <td><span className="sub-badge sub-badge--neutral">{sub.paymentStatus}</span></td>
-                      <td onClick={stopRowClick}>
-                        <div className="sub-actions">
-                          {canEdit && (
-                            <button type="button" className="btn btn--ghost btn--sm" onClick={() => openEdit(sub)}>
-                              Edit
-                            </button>
-                          )}
-                          {canDelete && (
-                            <button type="button" className="btn btn--danger btn--sm" onClick={() => setDeleteId(sub.id)}>
-                              Delete
-                            </button>
-                          )}
-                        </div>
-                      </td>
+            <div className="sub-table-panel">
+              <div className="sub-table-wrap">
+                <table className="sub-table">
+                  <thead>
+                    <tr>
+                      <th className="col-name">Name</th>
+                      <th>Category</th>
+                      <th>Status</th>
+                      <th>Billing</th>
+                      <th className="col-cost">Cost</th>
+                      <th className="col-date">Start</th>
+                      <th className="col-date">Expiry</th>
+                      <th>Days Left</th>
+                      <th>Invoice</th>
+                      <th>Payment</th>
+                      <th className="col-actions">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {filtered.map((sub) => (
+                      <tr key={sub.id} onClick={() => openDetail(sub)}>
+                        <td className="col-name">
+                          <SubscriptionNameWithIcon name={sub.name} vendor={sub.vendor} />
+                        </td>
+                        <td>{sub.category}</td>
+                        <td><SubscriptionStatusBadge expiryDate={sub.expiryDate} /></td>
+                        <td>{sub.billingCycle}</td>
+                        <td className="col-cost">{fmtMoney(sub.cost, sub.currency)}</td>
+                        <td className="col-date">{fmtDate(sub.startDate)}</td>
+                        <td className="col-date">{fmtDate(sub.expiryDate)}</td>
+                        <td><DaysRemainingLabel expiryDate={sub.expiryDate} /></td>
+                        <td><InvoiceStatusBadge status={sub.invoiceStatus} /></td>
+                        <td><PaymentStatusBadge status={sub.paymentStatus} /></td>
+                        <td className="col-actions">
+                          <SubscriptionRowActions
+                            sub={sub}
+                            canEdit={canEdit}
+                            canDelete={canDelete}
+                            onView={openDetail}
+                            onEdit={openEdit}
+                            onDelete={setDeleteId}
+                            onSendPayment={handleSendPayment}
+                            onMarkPaid={handleMarkPaid}
+                            onRenew={handleRenew}
+                            onUploadInvoice={handleUploadInvoice}
+                            onDownloadInvoice={handleDownloadInvoice}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             <div className="sub-cards">
               {filtered.map((sub) => (
                 <div key={sub.id} className="sub-card" onClick={() => openDetail(sub)}>
                   <div className="sub-card__head">
-                    <div className="sub-card__title-row">
-                      <SubscriptionNameWithIcon name={sub.name} vendor={sub.vendor} size={22} />
-                    </div>
+                    <SubscriptionNameWithIcon name={sub.name} vendor={sub.vendor} />
                     <SubscriptionStatusBadge expiryDate={sub.expiryDate} />
                   </div>
                   <div className="sub-card__meta">
-                    <span>Category: <strong>{sub.category}</strong></span>
-                    <span>Billing: <strong>{sub.billingCycle}</strong></span>
                     <span>Cost: <strong>{fmtMoney(sub.cost, sub.currency)}</strong></span>
                     <span>Expiry: <strong>{fmtDate(sub.expiryDate)}</strong></span>
                     <span>Days: <strong>{sub.daysRemainingLabel}</strong></span>
@@ -365,13 +356,14 @@ export function SubscriptionsPage() {
         subscription={detailSub}
         onClose={() => setDetailSub(null)}
         onEdit={openEdit}
-        onDelete={(id) => setDeleteId(id)}
+        onDelete={setDeleteId}
         onUploadInvoice={handleUploadInvoice}
         onDownloadInvoice={handleDownloadInvoice}
         onSendPayment={handleSendPayment}
         onMarkPaid={handleMarkPaid}
         onRenew={handleRenew}
         canEdit={canEdit}
+        canDelete={canDelete}
         actionLoading={actionLoading}
       />
 
@@ -383,12 +375,10 @@ export function SubscriptionsPage() {
         confirming={paymentConfirming}
       />
 
-      <Modal
-        title="Delete Subscription"
-        open={!!deleteId}
-        onClose={() => setDeleteId(null)}
-      >
-        <p>Are you sure you want to delete this subscription?</p>
+      <Modal title="Delete Subscription" open={!!deleteId} onClose={() => setDeleteId(null)}>
+        <p style={{ margin: '0 0 1rem', fontSize: '0.875rem', color: '#475569' }}>
+          This will remove the subscription from the tracker. This action cannot be undone.
+        </p>
         <div className="modal-actions">
           <button type="button" className="btn btn--ghost" onClick={() => setDeleteId(null)}>Cancel</button>
           <button type="button" className="btn btn--danger" onClick={handleDelete} disabled={deleteLoading}>

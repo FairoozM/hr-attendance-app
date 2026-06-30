@@ -60,6 +60,15 @@ export function formatDaysRemaining(expiryDate: string | null | undefined): stri
   return `${days} day${days !== 1 ? 's' : ''} left`
 }
 
+export function daysRemainingPillVariant(expiryDate: string | null | undefined): string {
+  const days = getDaysLeft(expiryDate)
+  if (days === null) return 'muted'
+  if (days < 0) return 'expired'
+  if (days <= 7) return 'critical'
+  if (days <= 30) return 'warning'
+  return 'ok'
+}
+
 export function statusBadgeVariant(status: SubscriptionStatus): string {
   switch (status) {
     case SUBSCRIPTION_STATUS.EXPIRED:
