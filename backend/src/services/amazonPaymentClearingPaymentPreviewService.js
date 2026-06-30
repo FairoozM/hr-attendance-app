@@ -1,4 +1,4 @@
-const { round2 } = require('./amazonPaymentClearingOrderBreakdownService')
+const { round2, isNetNegativeOrderReturn } = require('./amazonPaymentClearingOrderBreakdownService')
 const { buildSettlementReference, buildEntryReference } = require('./amazonPaymentClearingReferenceService')
 
 const PAYMENT_ACCOUNTS = Object.freeze({
@@ -120,7 +120,10 @@ function buildInvoicePaymentPlan(order) {
 
 function buildPaymentPreviewFromBatch(batch) {
   requireBatchForPaymentPreview(batch)
-  const payments = (Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []).map(buildInvoicePaymentPlan)
+  const salesOrders = (Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []).filter(
+    (order) => !isNetNegativeOrderReturn(order)
+  )
+  const payments = salesOrders.map(buildInvoicePaymentPlan)
   const feeJournalMappings = Array.isArray(batch.nonOrderLinkedAmazonFeeMappings)
     ? batch.nonOrderLinkedAmazonFeeMappings
     : []

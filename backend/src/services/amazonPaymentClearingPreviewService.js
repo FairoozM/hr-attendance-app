@@ -11,7 +11,7 @@ const {
 } = require('./amazonPaymentClearingCategoryService')
 const { displayYmd } = require('./amazonPaymentClearingReferenceService')
 const { matchSettlementRowsToInvoices } = require('./amazonPaymentClearingZohoMatcher')
-const { buildOrderFeeBreakdown, round2 } = require('./amazonPaymentClearingOrderBreakdownService')
+const { buildOrderFeeBreakdown, detectNetNegativeOrderRefundRows, isNetNegativeOrderReturn, round2 } = require('./amazonPaymentClearingOrderBreakdownService')
 const { buildReconciliationSummary } = require('./amazonPaymentClearingReconciliationService')
 
 function sum(rows, predicate = () => true) {
@@ -226,6 +226,9 @@ function isRefundReturnRow(row) {
 }
 
 function refundReturnKey(row) {
+  if (row?.settlementDerivedReturn) {
+    return `derived|${String(row?.orderId || '').trim().toLowerCase()}`
+  }
   return [
     String(row?.orderId || '').trim().toLowerCase(),
     String(row?.amountType || '').trim().toLowerCase(),
@@ -238,6 +241,7 @@ const BLOCKING_ISSUE_LABELS = {
   MISSING_ORDER_ID: 'Settlement rows missing an Amazon order ID',
   UNMATCHED_SALES: 'Sales orders with no matching Zoho invoice',
   MISSING_CREDIT_NOTE: 'Refund/return rows with no matching Zoho credit note',
+  NET_NEGATIVE_ORDER: 'Net-negative orders that must be cleared via Zoho credit notes',
   CREDIT_NOTE_DIFF: 'Refund/return rows where the credit note amount differs',
   SETTLEMENT_MISMATCH: 'Settlement total does not match the expected deposit',
   UNKNOWN_ROWS: 'Settlement rows that could not be classified',
@@ -254,9 +258,11 @@ function buildAllRows(rows, context) {
     matchedOrderIds = [],
     matchedReturns = [],
     creditNoteBlockingRows = [],
+    netNegativeReturnOrderIds = [],
   } = context || {}
   const unmatchedSet = new Set(unmatchedOrderIds.map((id) => String(id)))
   const matchedSet = new Set(matchedOrderIds.map((id) => String(id)))
+  const netNegativeSet = new Set(netNegativeReturnOrderIds.map((id) => String(id)))
   const blockedByKey = new Map()
   for (const blocked of creditNoteBlockingRows) blockedByKey.set(refundReturnKey(blocked), blocked)
   const matchedReturnByKey = new Map()
@@ -285,6 +291,10 @@ function buildAllRows(rows, context) {
     } else if (!orderId) {
       status = 'missing_order_id'
       blockingReason = 'Settlement row is missing Amazon order ID.'
+    } else if (netNegativeSet.has(orderId)) {
+      status = 'blocked'
+      blockingReason =
+        'Net-negative order in settlement must be cleared via a Zoho sales return / credit note, not an invoice payment.'
     } else if (unmatchedSet.has(orderId)) {
       status = 'unmatched'
       blockingReason = 'No Zoho invoice found with matching PO number or invoice_number.'
@@ -330,7 +340,13 @@ function buildAmountDifferences(matchedOrders) {
     .filter((row) => Math.abs(row.difference) > 0.01)
 }
 
-function buildBlockingIssues({ allRows, unmatchedOrders, creditNoteBlockingRows, reconciliationStatus }) {
+function buildBlockingIssues({
+  allRows,
+  unmatchedOrders,
+  creditNoteBlockingRows,
+  reconciliationStatus,
+  netNegativeReturnOrders = [],
+}) {
   const issues = []
   const add = (code, predicateRows, extra = {}) => {
     const rowNumbers = predicateRows.map((row) => row.rowNumber).filter((n) => Number.isFinite(n))
@@ -371,6 +387,16 @@ function buildBlockingIssues({ allRows, unmatchedOrders, creditNoteBlockingRows,
       orderIds: Array.from(new Set(diffCn.map((row) => row.orderId).filter(Boolean))),
     })
   }
+  const derivedNetNegative = (netNegativeReturnOrders || []).filter((row) => row.requiresCreditNote !== false)
+  if (derivedNetNegative.length) {
+    issues.push({
+      code: 'NET_NEGATIVE_ORDER',
+      label: BLOCKING_ISSUE_LABELS.NET_NEGATIVE_ORDER,
+      count: derivedNetNegative.length,
+      rowNumbers: [],
+      orderIds: derivedNetNegative.map((row) => row.orderId).filter(Boolean),
+    })
+  }
   if (reconciliationStatus === 'mismatch') {
     issues.push({
       code: 'SETTLEMENT_MISMATCH',
@@ -407,7 +433,8 @@ function orderSummary(orderId, rows, invoice = null, status = 'matched', reason 
   return out
 }
 
-function buildOrderReconciliation(rows, matchResult) {
+function buildOrderReconciliation(rows, matchResult, netNegativeReturnOrderIds = []) {
+  const netNegativeSet = new Set((netNegativeReturnOrderIds || []).map((id) => String(id)))
   const { groups } = groupRowsByOrder(rows)
   const matchedByOrder = new Map()
   for (const row of matchResult.matchedRows || []) {
@@ -417,8 +444,18 @@ function buildOrderReconciliation(rows, matchResult) {
   }
   const matchedOrders = []
   const unmatchedOrders = []
+  const netNegativeReturnOrders = []
   for (const [orderId, orderRows] of groups.entries()) {
+    const breakdown = buildOrderFeeBreakdown(orderRows)
     const invoice = matchedByOrder.get(orderId)
+    if (netNegativeSet.has(orderId) || isNetNegativeOrderReturn(breakdown)) {
+      netNegativeReturnOrders.push({
+        ...orderSummary(orderId, orderRows, invoice || null, 'net_negative_return'),
+        requiresCreditNote: true,
+        settlementDerivedReturn: true,
+      })
+      continue
+    }
     if (invoice) {
       matchedOrders.push(orderSummary(orderId, orderRows, invoice, 'matched'))
     } else {
@@ -433,7 +470,107 @@ function buildOrderReconciliation(rows, matchResult) {
   }
   matchedOrders.sort((a, b) => a.orderId.localeCompare(b.orderId))
   unmatchedOrders.sort((a, b) => a.orderId.localeCompare(b.orderId))
-  return { matchedOrders, unmatchedOrders }
+  netNegativeReturnOrders.sort((a, b) => a.orderId.localeCompare(b.orderId))
+  return { matchedOrders, unmatchedOrders, netNegativeReturnOrders }
+}
+
+function applyNetNegativeOrderAdjustments(preview, rows = []) {
+  if (!preview) return preview
+  const allRows = Array.isArray(rows) ? rows : preview.allRows || []
+  const priorMatchedByOrder = new Map(
+    (Array.isArray(preview.matchedOrders) ? preview.matchedOrders : []).map((order) => [order.orderId, order])
+  )
+  const syntheticRefundRows = detectNetNegativeOrderRefundRows(allRows)
+  const netNegativeReturnOrderIds = syntheticRefundRows.map((row) => row.orderId).filter(Boolean)
+  if (!netNegativeReturnOrderIds.length) {
+    preview.netNegativeReturnOrders = preview.netNegativeReturnOrders || []
+    preview.syntheticRefundRows = preview.syntheticRefundRows || []
+    return preview
+  }
+
+  const salesAndFeeRows = allRows.filter((row) => !isRefundReturnRow(row) && !isNonOrderLinkedAmazonFee(row))
+  const salesRows = salesAndFeeRows.filter((row) => {
+    const orderId = String(row.orderId || '').trim()
+    return !(orderId && netNegativeReturnOrderIds.includes(orderId))
+  })
+  const matchResult = matchSettlementRowsToInvoices(salesRows, preview.invoices || [])
+  const reconciled = buildOrderReconciliation(salesAndFeeRows, matchResult, netNegativeReturnOrderIds)
+
+  preview.matchedOrders = reconciled.matchedOrders
+  preview.unmatchedOrders = reconciled.unmatchedOrders
+  preview.netNegativeReturnOrders = reconciled.netNegativeReturnOrders.map((order) => {
+    const prior = priorMatchedByOrder.get(order.orderId)
+    if (!prior) return order
+    return {
+      ...order,
+      zohoInvoiceId: order.zohoInvoiceId || prior.zohoInvoiceId,
+      zohoInvoiceNumber: order.zohoInvoiceNumber || prior.zohoInvoiceNumber,
+      zohoPoNumber: order.zohoPoNumber || prior.zohoPoNumber,
+      zohoCustomerId: order.zohoCustomerId || prior.zohoCustomerId,
+      zohoCustomerName: order.zohoCustomerName || prior.zohoCustomerName,
+      zohoInvoiceTotal: order.zohoInvoiceTotal ?? prior.zohoInvoiceTotal,
+      matchType: order.matchType || prior.matchType,
+    }
+  })
+  preview.syntheticRefundRows = syntheticRefundRows
+  preview.matchedRows = matchResult.matchedRows
+  preview.unmatchedRows = matchResult.unmatchedRows
+  preview.matchedInvoices = matchResult.matchedInvoices
+  preview.unmatchedOrderIds = matchResult.unmatchedOrderIds
+  preview.duplicateZohoInvoiceNumbers = matchResult.duplicateZohoInvoiceNumbers
+  preview.duplicateZohoPoNumbers = matchResult.duplicateZohoPoNumbers
+  preview.missingOrderIdRows = matchResult.missingOrderIdRows
+
+  const explicitRefundTotal = sum(allRows.filter(isRefundReturnRow))
+  const derivedRefundTotal = round2(
+    syntheticRefundRows.reduce((acc, row) => acc + (Number(row.amount) || 0), 0)
+  )
+  preview.refundReturnTotal = round2(explicitRefundTotal + derivedRefundTotal)
+  preview.totals = {
+    ...(preview.totals || {}),
+    refundReturnTotal: preview.refundReturnTotal,
+    returnsTotal: sum(allRows, (row) => row.category === CATEGORY.RETURN),
+    refundsTotal: sum(allRows, (row) => row.category === CATEGORY.REFUND),
+  }
+  preview.reconciliationSummary = buildReconciliationSummary({
+    matchedOrders: preview.matchedOrders,
+    refundReturnTotal: preview.refundReturnTotal,
+    settlementLevelFees: preview.settlementLevelFees || [],
+    actualAmazonSettlement: preview.totals?.amazonSettlementTotal ?? sum(allRows),
+  })
+
+  const unifiedRows = buildAllRows(allRows, {
+    unmatchedOrderIds: matchResult.unmatchedOrderIds,
+    matchedOrderIds: preview.matchedOrders.map((order) => order.orderId),
+    matchedReturns: preview.matchedReturns || [],
+    creditNoteBlockingRows: preview.creditNoteBlockingRows || [],
+    netNegativeReturnOrderIds,
+  })
+  preview.allRows = unifiedRows
+  preview.blockingIssues = buildBlockingIssues({
+    allRows: unifiedRows,
+    unmatchedOrders: preview.unmatchedOrders,
+    creditNoteBlockingRows: preview.creditNoteBlockingRows,
+    reconciliationStatus: preview.reconciliationSummary?.reconciliationStatus,
+    netNegativeReturnOrders: preview.netNegativeReturnOrders,
+  })
+  preview.amountDifferences = buildAmountDifferences(preview.matchedOrders)
+
+  const derivedBlocking = (preview.creditNoteBlockingRows || []).filter((row) =>
+    syntheticRefundRows.some((synthetic) => synthetic.orderId === row.orderId)
+  )
+  if (derivedBlocking.length) {
+    preview.warnings = [
+      ...(Array.isArray(preview.warnings) ? preview.warnings : []),
+      `${derivedBlocking.length} net-negative order(s) block approval until matched to Zoho credit notes.`,
+    ]
+  } else if (preview.netNegativeReturnOrders.length) {
+    preview.warnings = [
+      ...(Array.isArray(preview.warnings) ? preview.warnings : []),
+      `${preview.netNegativeReturnOrders.length} net-negative order(s) were removed from invoice payment clearing and must use Zoho credit notes.`,
+    ]
+  }
+  return preview
 }
 
 function buildPreview({
@@ -446,12 +583,28 @@ function buildPreview({
   parserWarnings = [],
   rawRowCount = rows.length,
   feeJournalMappingRules = [],
+  syntheticRefundRows = [],
+  netNegativeReturnOrderIds = [],
 }) {
   const allRows = Array.isArray(rows) ? rows : []
+  const detectedSynthetic = syntheticRefundRows.length
+    ? syntheticRefundRows
+    : detectNetNegativeOrderRefundRows(allRows)
+  const netNegativeIds = netNegativeReturnOrderIds.length
+    ? netNegativeReturnOrderIds
+    : detectedSynthetic.map((row) => row.orderId).filter(Boolean)
   const refundReturnRows = allRows.filter(isRefundReturnRow)
   const salesAndFeeRows = allRows.filter((row) => !isRefundReturnRow(row) && !isNonOrderLinkedAmazonFee(row))
-  const matchResult = matchSettlementRowsToInvoices(salesAndFeeRows, invoices)
-  const { matchedOrders, unmatchedOrders } = buildOrderReconciliation(salesAndFeeRows, matchResult)
+  const salesRows = salesAndFeeRows.filter((row) => {
+    const orderId = String(row.orderId || '').trim()
+    return !(orderId && netNegativeIds.includes(orderId))
+  })
+  const matchResult = matchSettlementRowsToInvoices(salesRows, invoices)
+  const { matchedOrders, unmatchedOrders, netNegativeReturnOrders } = buildOrderReconciliation(
+    salesAndFeeRows,
+    matchResult,
+    netNegativeIds
+  )
   const pivot = buildPivot(allRows)
   const settlementLevelFees = buildSettlementLevelFees(allRows)
   const adjustmentRows = allRows.filter((row) => row.rowClass === ROW_CLASS.ADJUSTMENT || row.category === CATEGORY.ADJUSTMENT)
@@ -466,7 +619,10 @@ function buildPreview({
     unmatchedOrders.reduce((acc, row) => acc + (Number(row.amazonOrderTotal) || 0), 0)
   )
   const amazonSettlementTotal = sum(allRows)
-  const refundReturnTotal = sum(refundReturnRows)
+  const derivedRefundTotal = round2(
+    detectedSynthetic.reduce((acc, row) => acc + (Number(row.amount) || 0), 0)
+  )
+  const refundReturnTotal = round2(sum(refundReturnRows) + derivedRefundTotal)
   const reconciliationSummary = buildReconciliationSummary({
     matchedOrders,
     refundReturnTotal,
@@ -499,6 +655,7 @@ function buildPreview({
     matchedOrderIds: matchedOrders.map((order) => order.orderId),
     matchedReturns,
     creditNoteBlockingRows,
+    netNegativeReturnOrderIds: netNegativeIds,
   })
   const amountDifferences = buildAmountDifferences(matchedOrders)
   const blockingIssues = buildBlockingIssues({
@@ -506,10 +663,12 @@ function buildPreview({
     unmatchedOrders,
     creditNoteBlockingRows,
     reconciliationStatus: reconciliationSummary.reconciliationStatus,
+    netNegativeReturnOrders,
   })
 
   return {
     marketplace: 'KSA',
+    invoices,
     report: {
       reportId: report.reportId || '',
       reportDocumentId: report.reportDocumentId || '',
@@ -544,6 +703,8 @@ function buildPreview({
     reconciliationSummary,
     matchedOrders,
     unmatchedOrders,
+    netNegativeReturnOrders,
+    syntheticRefundRows: detectedSynthetic,
     allRows: unifiedRows,
     amountDifferences,
     blockingIssues,
@@ -568,6 +729,7 @@ module.exports = {
   buildAllRows,
   buildAmountDifferences,
   buildBlockingIssues,
+  applyNetNegativeOrderAdjustments,
   groupRowsByOrder,
   orderSummary,
   round2,

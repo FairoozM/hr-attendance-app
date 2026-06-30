@@ -562,6 +562,37 @@ export function UnmatchedOrdersTable({ preview }: { preview: PaymentClearingPrev
   )
 }
 
+export function NetNegativeReturnOrdersTable({ preview }: { preview: PaymentClearingPreview }) {
+  const rows = preview.netNegativeReturnOrders || []
+  if (!rows.length) return <div className="apc-empty">No net-negative orders detected in this settlement.</div>
+  return (
+    <div className="apc-table-wrap apc-table-wrap--wide">
+      <table className="apc-table">
+        <thead>
+          <tr>
+            <th>Amazon Order ID</th>
+            <th>Zoho Invoice</th>
+            <th className="apc-money">Principal</th>
+            <th className="apc-money">Net Balance</th>
+            <th>Required action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.orderId}>
+              <td>{row.orderId}</td>
+              <td>{row.zohoInvoiceNumber || row.zohoPoNumber || '-'}</td>
+              <td className="apc-money">{money(row.principalTotal)}</td>
+              <td className="apc-money">{money(row.netSettlementAmount)}</td>
+              <td>Clear via Zoho credit note / sales return — not invoice payment</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 export function PaymentClearingPreviewTable({ paymentPreview }: { paymentPreview: PaymentClearingPaymentPreview }) {
   return (
     <div className="apc-table-wrap apc-table-wrap--wide">

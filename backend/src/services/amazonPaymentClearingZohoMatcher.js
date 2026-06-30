@@ -1,7 +1,7 @@
 const { fetchCustomers, fetchInvoices, fetchCreditNotes } = require('../integrations/zoho/zohoBooksClient')
 const { normalizeSettlementDate } = require('./amazonSettlementParserService')
 const { ROW_CLASS, isNonOrderLinkedAmazonFee } = require('./amazonPaymentClearingCategoryService')
-const { round2 } = require('./amazonPaymentClearingOrderBreakdownService')
+const { detectNetNegativeOrderRefundRows, round2 } = require('./amazonPaymentClearingOrderBreakdownService')
 
 const KSA_ZOHO_CUSTOMER_NAME = 'KSA-Amazon'
 /** Zoho invoice date is often weeks before Amazon settlement payout. */
@@ -449,22 +449,38 @@ function buildCreditNoteFetchWarnings(creditNoteFetch, refundRows) {
 }
 
 async function matchZohoInvoicesForRows(rows, options = {}) {
-  const zohoFetch = await fetchZohoInvoicesForSettlementRows(rows, options)
-  const creditNoteFetch = await fetchZohoCreditNotesForSettlementRows(rows, options)
+  const settlementRows = Array.isArray(rows) ? rows : []
+  const zohoFetch = await fetchZohoInvoicesForSettlementRows(settlementRows, options)
+  const creditNoteFetch = await fetchZohoCreditNotesForSettlementRows(settlementRows, options)
   const invoices = zohoFetch.rows
-  const refundRows = (Array.isArray(rows) ? rows : []).filter(isRefundReturnRow)
+  const syntheticRefundRows = detectNetNegativeOrderRefundRows(settlementRows)
+  const netNegativeReturnOrderIds = new Set(syntheticRefundRows.map((row) => clean(row.orderId)).filter(Boolean))
+  const explicitRefundRows = settlementRows.filter(isRefundReturnRow)
+  const refundRows = [...explicitRefundRows, ...syntheticRefundRows]
   const creditNoteMatch = matchRefundReturnRowsToCreditNotes(refundRows, invoices, creditNoteFetch.rows)
+  const salesRows = settlementRows.filter((row) => {
+    if (isRefundReturnRow(row) || isNonOrderLinkedAmazonFee(row)) return false
+    const orderId = clean(row.orderId)
+    return !(orderId && netNegativeReturnOrderIds.has(orderId))
+  })
   return {
     invoices,
     creditNotes: creditNoteMatch.creditNotes,
     zohoFetch,
     creditNoteFetch,
+    syntheticRefundRows,
+    netNegativeReturnOrderIds: Array.from(netNegativeReturnOrderIds).sort(),
     zohoFetchWarnings: [
       ...buildZohoFetchWarnings(zohoFetch),
       ...buildCreditNoteFetchWarnings(creditNoteFetch, refundRows),
+      ...(syntheticRefundRows.length
+        ? [
+            `${syntheticRefundRows.length} order(s) have negative principal/net in this settlement and must be cleared via Zoho credit notes, not invoice payments.`,
+          ]
+        : []),
     ],
     ...creditNoteMatch,
-    ...matchSettlementRowsToInvoices(rows, invoices),
+    ...matchSettlementRowsToInvoices(salesRows, invoices),
   }
 }
 

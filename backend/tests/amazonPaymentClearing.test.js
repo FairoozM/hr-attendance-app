@@ -9,7 +9,7 @@ const {
   deriveInvoiceRange,
 } = require('../src/services/amazonPaymentClearingZohoMatcher')
 const { buildPreview, orderSummary } = require('../src/services/amazonPaymentClearingPreviewService')
-const { buildOrderFeeBreakdown } = require('../src/services/amazonPaymentClearingOrderBreakdownService')
+const { buildOrderFeeBreakdown, detectNetNegativeOrderRefundRows } = require('../src/services/amazonPaymentClearingOrderBreakdownService')
 const { buildPaymentPreviewFromBatch } = require('../src/services/amazonPaymentClearingPaymentPreviewService')
 const { postApprovedBatch } = require('../src/services/amazonPaymentClearingPostingService')
 const {
@@ -102,6 +102,52 @@ test('refund return matching reconciles Amazon refund rows to Zoho credit notes'
   assert.equal(result.matchedReturns[0].status, 'matched')
   assert.deepEqual(result.matchedReturns[0].originalRawRow, { raw: 'kept' })
   assert.equal(result.creditNoteBlockingRows.length, 0)
+})
+
+test('preview treats net-negative order rows as returns and excludes them from sales clearing', () => {
+  const orderId = '406-2446480-5429962'
+  const rows = [
+    { orderId: '701-sale', amount: 100, category: CATEGORY.PRINCIPAL, rowClass: ROW_CLASS.SALE, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Order' },
+    { orderId: '701-sale', amount: -12, category: CATEGORY.COMMISSION, rowClass: ROW_CLASS.FEE, amountType: 'ItemFees', amountDescription: 'Commission', transactionType: 'Order' },
+    { orderId, amount: -1132.51, category: CATEGORY.PRINCIPAL, rowClass: ROW_CLASS.SALE, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Order' },
+    { orderId, amount: 37.95, category: CATEGORY.COMMISSION, rowClass: ROW_CLASS.FEE, amountType: 'ItemFees', amountDescription: 'Commission', transactionType: 'Order' },
+  ]
+  const invoices = [
+    { invoice_id: 'zsale', invoice_number: 'INV-SALE', reference_number: '701-sale', customer_name: 'KSA-Amazon', total: 100 },
+    { invoice_id: 'zreturn', invoice_number: 'INV-041390', reference_number: orderId, customer_name: 'KSA-Amazon', total: 1132.51 },
+  ]
+  const syntheticRows = detectNetNegativeOrderRefundRows(rows)
+  const creditNoteMatch = matchRefundReturnRowsToCreditNotes(syntheticRows, invoices, [])
+  const preview = buildPreview({
+    rows,
+    invoices,
+    matchedReturns: creditNoteMatch.matchedReturns,
+    missingCreditNotes: creditNoteMatch.missingCreditNotes,
+    creditNoteBlockingRows: creditNoteMatch.creditNoteBlockingRows,
+    syntheticRefundRows: syntheticRows,
+    netNegativeReturnOrderIds: syntheticRows.map((row) => row.orderId),
+  })
+
+  assert.equal(preview.matchedOrders.length, 1)
+  assert.equal(preview.matchedOrders[0].orderId, '701-sale')
+  assert.equal(preview.netNegativeReturnOrders.length, 1)
+  assert.equal(preview.netNegativeReturnOrders[0].orderId, orderId)
+  assert.ok(preview.netNegativeReturnOrders[0].principalTotal < 0)
+  assert.equal(preview.creditNoteBlockingRows.length, 1)
+  assert.match(preview.creditNoteBlockingRows[0].blockingReason, /Missing Credit Note/)
+
+  const paymentPreview = buildPaymentPreviewFromBatch({
+    status: 'approved',
+    batchId: 1,
+    matchedOrders: preview.matchedOrders,
+    unmatchedOrders: [],
+    matchedReturns: preview.matchedReturns,
+    creditNoteBlockingRows: [],
+    reconciliationSummary: { ...preview.reconciliationSummary, reconciliationStatus: 'reconciled', reconciliationDifference: 0 },
+    nonOrderLinkedAmazonFeeMappings: [],
+  })
+  assert.equal(paymentPreview.payments.length, 1)
+  assert.equal(paymentPreview.payments[0].orderId, '701-sale')
 })
 
 test('preview separates sales from refunds and blocks missing credit notes', () => {

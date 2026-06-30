@@ -12,6 +12,7 @@ const {
   buildPreview,
   buildBlockingIssues,
   buildNonOrderLinkedAmazonFeeMappings,
+  applyNetNegativeOrderAdjustments,
 } = require('./amazonPaymentClearingPreviewService')
 const { ROW_CLASS, isNonOrderLinkedAmazonFee } = require('./amazonPaymentClearingCategoryService')
 const { buildPaymentPreviewFromBatch } = require('./amazonPaymentClearingPaymentPreviewService')
@@ -186,6 +187,8 @@ async function buildPreviewFromReport(options = {}) {
     parserWarnings: [...(parsed.warnings || []), ...(zohoMatch.zohoFetchWarnings || [])],
     rawRowCount: parsed.rawRowCount,
     feeJournalMappingRules,
+    syntheticRefundRows: zohoMatch.syntheticRefundRows || [],
+    netNegativeReturnOrderIds: zohoMatch.netNegativeReturnOrderIds || [],
   })
   // One statement per settlement period: Amazon hands out a fresh report id /
   // document id every time you request the same settlement, so reuse the
@@ -414,6 +417,7 @@ async function hydrateSavedBatch(batch) {
     preview.allRows = reconstructAllRowsFromStored(storedRows)
   }
   normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules)
+  applyNetNegativeOrderAdjustments(preview, preview.allRows)
   preview.rawRowCount = preview.allRows.length || storedRows.length || 0
   preview.storedRowCount = storedRows.length
   try {

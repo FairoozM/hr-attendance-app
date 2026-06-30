@@ -77,6 +77,61 @@ function classifyOrderRowBucket(row) {
   return null
 }
 
+const { ROW_CLASS, CATEGORY, isNonOrderLinkedAmazonFee } = require('./amazonPaymentClearingCategoryService')
+
+const NET_NEGATIVE_ORDER_TOLERANCE = 0.01
+
+function isRefundReturnLikeRow(row) {
+  const tx = clean(row?.transactionType).toLowerCase()
+  return (
+    row?.rowClass === ROW_CLASS.REFUND ||
+    row?.rowClass === ROW_CLASS.RETURN ||
+    tx.includes('refund') ||
+    tx.includes('return')
+  )
+}
+
+function isNetNegativeOrderReturn(breakdown) {
+  const principal = round2(Number(breakdown?.principalTotal) || 0)
+  const net = round2(Number(breakdown?.netSettlementAmount) || 0)
+  return principal < -NET_NEGATIVE_ORDER_TOLERANCE && net < -NET_NEGATIVE_ORDER_TOLERANCE
+}
+
+function buildSyntheticRefundReturnFromOrder(orderId, breakdown) {
+  const principal = round2(breakdown.principalTotal)
+  const net = round2(breakdown.netSettlementAmount)
+  return {
+    orderId,
+    rowClass: ROW_CLASS.RETURN,
+    category: CATEGORY.RETURN,
+    transactionType: 'SettlementNetNegative',
+    amountType: 'ItemPrice',
+    amountDescription: 'Principal',
+    amount: principal,
+    settlementDerivedReturn: true,
+    netSettlementAmount: net,
+    principalTotal: principal,
+  }
+}
+
+function detectNetNegativeOrderRefundRows(rows) {
+  const groups = new Map()
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const orderId = clean(row?.orderId)
+    if (!orderId || isNonOrderLinkedAmazonFee(row) || isRefundReturnLikeRow(row)) continue
+    if (!groups.has(orderId)) groups.set(orderId, [])
+    groups.get(orderId).push(row)
+  }
+  const synthetic = []
+  for (const [orderId, orderRows] of groups.entries()) {
+    const breakdown = buildOrderFeeBreakdown(orderRows)
+    if (isNetNegativeOrderReturn(breakdown)) {
+      synthetic.push(buildSyntheticRefundReturnFromOrder(orderId, breakdown))
+    }
+  }
+  return synthetic.sort((a, b) => String(a.orderId).localeCompare(String(b.orderId)))
+}
+
 function buildOrderFeeBreakdown(orderRows) {
   const breakdown = emptyBreakdown()
   for (const row of Array.isArray(orderRows) ? orderRows : []) {
@@ -108,5 +163,9 @@ module.exports = {
   classifyOrderRowBucket,
   buildOrderFeeBreakdown,
   isFeeLike,
+  isNetNegativeOrderReturn,
+  buildSyntheticRefundReturnFromOrder,
+  detectNetNegativeOrderRefundRows,
+  NET_NEGATIVE_ORDER_TOLERANCE,
   round2,
 }

@@ -77,6 +77,21 @@ export interface MatchedOrder extends OrderFeeBreakdown {
   matchType: 'po_number' | 'invoice_number_fallback'
 }
 
+export interface NetNegativeReturnOrder extends OrderFeeBreakdown {
+  orderId: string
+  zohoInvoiceId?: string
+  zohoInvoiceNumber?: string
+  zohoPoNumber?: string
+  zohoCustomerId?: string
+  zohoCustomerName?: string
+  zohoInvoiceTotal?: number
+  matchType?: 'po_number' | 'invoice_number_fallback'
+  status: 'net_negative_return'
+  requiresCreditNote?: boolean
+  settlementDerivedReturn?: boolean
+  reason?: string
+}
+
 export interface UnmatchedOrder extends OrderFeeBreakdown {
   orderId: string
   feesTotal: number
@@ -390,6 +405,7 @@ export interface PaymentClearingPreview {
   reconciliationSummary: ReconciliationSummary
   matchedOrders: MatchedOrder[]
   unmatchedOrders: UnmatchedOrder[]
+  netNegativeReturnOrders?: NetNegativeReturnOrder[]
   allRows?: ParsedSettlementRow[]
   blockingIssues?: BlockingIssue[]
   amountDifferences?: AmountDifferenceRow[]
