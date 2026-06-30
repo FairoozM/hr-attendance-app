@@ -1,4 +1,4 @@
-const { round2, isNetNegativeOrderReturn, collectSettlementReturnOrderIds } = require('./amazonPaymentClearingOrderBreakdownService')
+const { round2, isNetNegativeOrderReturn, collectInvoicePaymentExcludedOrderIds } = require('./amazonPaymentClearingOrderBreakdownService')
 const { buildSettlementReference, buildEntryReference } = require('./amazonPaymentClearingReferenceService')
 
 const PAYMENT_ACCOUNTS = Object.freeze({
@@ -118,21 +118,17 @@ function buildInvoicePaymentPlan(order) {
   }
 }
 
-function netNegativeReturnOrderIdsForBatch(batch) {
-  return collectSettlementReturnOrderIds(batch?.allRows || [], {
-    matchedReturns: batch?.matchedReturns,
-    refundReturnRows: batch?.refundReturnRows,
-    creditNoteBlockingRows: batch?.creditNoteBlockingRows,
-    missingCreditNotes: batch?.missingCreditNotes,
+function invoicePaymentExcludedOrderIdsForBatch(batch) {
+  return collectInvoicePaymentExcludedOrderIds(batch?.allRows || [], {
     netNegativeReturnOrders: batch?.netNegativeReturnOrders,
   })
 }
 
 function buildPaymentPreviewFromBatch(batch) {
   requireBatchForPaymentPreview(batch)
-  const netNegativeIds = netNegativeReturnOrderIdsForBatch(batch)
+  const excludedOrderIds = invoicePaymentExcludedOrderIdsForBatch(batch)
   const salesOrders = (Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []).filter(
-    (order) => !netNegativeIds.has(String(order.orderId || '')) && !isNetNegativeOrderReturn(order)
+    (order) => !excludedOrderIds.has(String(order.orderId || '')) && !isNetNegativeOrderReturn(order)
   )
   const payments = salesOrders.map(buildInvoicePaymentPlan)
   const feeJournalMappings = Array.isArray(batch.nonOrderLinkedAmazonFeeMappings)

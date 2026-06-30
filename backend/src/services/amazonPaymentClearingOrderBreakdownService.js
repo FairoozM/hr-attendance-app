@@ -120,6 +120,46 @@ function collectSettlementReturnOrderIds(allRows, options = {}) {
   return ids
 }
 
+function orderHasSalePrincipalInSettlement(allRows, orderId) {
+  const target = clean(orderId)
+  if (!target) return false
+  for (const row of Array.isArray(allRows) ? allRows : []) {
+    if (clean(row?.orderId) !== target) continue
+    if (isSettlementReturnRow(row)) continue
+    const tx = clean(row?.transactionType).toLowerCase()
+    if (tx && tx !== 'order' && (tx.includes('refund') || tx.includes('return'))) continue
+    const isPrincipal =
+      clean(row?.amountType) === 'ItemPrice' && clean(row?.amountDescription) === 'Principal'
+    if (isPrincipal && num(row.amount) > NET_NEGATIVE_ORDER_TOLERANCE) return true
+  }
+  return false
+}
+
+/**
+ * Order IDs that must not receive invoice payment clearing at all (refund-only or
+ * net-negative order rows). Orders with both a received sale and separate refund
+ * rows are not excluded — the sale clears as payment and refunds use credit notes.
+ */
+function collectInvoicePaymentExcludedOrderIds(allRows, options = {}) {
+  const ids = new Set()
+  for (const row of detectNetNegativeOrderRefundRows(allRows)) {
+    if (row?.orderId) ids.add(clean(row.orderId))
+  }
+  for (const row of options.netNegativeReturnOrders || []) {
+    if (row?.orderId) ids.add(clean(row.orderId))
+  }
+  const refundOrderIds = new Set()
+  for (const row of Array.isArray(allRows) ? allRows : []) {
+    if (isSettlementReturnRow(row) && row.orderId) refundOrderIds.add(clean(row.orderId))
+  }
+  for (const orderId of refundOrderIds) {
+    if (!orderHasSalePrincipalInSettlement(allRows, orderId)) {
+      ids.add(orderId)
+    }
+  }
+  return ids
+}
+
 function isNetNegativeOrderReturn(breakdown) {
   const principal = round2(Number(breakdown?.principalTotal) || 0)
   const net = round2(Number(breakdown?.netSettlementAmount) || 0)
@@ -195,6 +235,8 @@ module.exports = {
   isRefundReturnLikeRow,
   isSettlementReturnRow,
   collectSettlementReturnOrderIds,
+  collectInvoicePaymentExcludedOrderIds,
+  orderHasSalePrincipalInSettlement,
   isNetNegativeOrderReturn,
   buildSyntheticRefundReturnFromOrder,
   detectNetNegativeOrderRefundRows,

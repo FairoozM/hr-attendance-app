@@ -254,6 +254,44 @@ test('payment preview excludes refunds detected by category when rowClass is mis
   assert.equal(paymentPreview.payments.length, 0)
 })
 
+test('payment preview keeps sale clearing when order has both sale and refund rows', () => {
+  const orderId = '406-2446480-5429962'
+  const allRows = [
+    { orderId, amount: 1132.51, category: CATEGORY.PRINCIPAL, rowClass: ROW_CLASS.SALE, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Order' },
+    { orderId, amount: -37.95, category: CATEGORY.FBA_FULFILLMENT_FEE, rowClass: ROW_CLASS.FEE, amountType: 'ItemFees', amountDescription: 'FBAPerUnitFulfillmentFee', transactionType: 'Order' },
+    { orderId, amount: -166.48, category: CATEGORY.COMMISSION, rowClass: ROW_CLASS.FEE, amountType: 'ItemFees', amountDescription: 'Commission', transactionType: 'Order' },
+    { orderId, amount: -1132.51, category: CATEGORY.REFUND, rowClass: ROW_CLASS.REFUND, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Refund' },
+    { orderId, amount: 166.48, category: CATEGORY.REFUND, rowClass: ROW_CLASS.REFUND, amountType: 'ItemFees', amountDescription: 'Commission', transactionType: 'Refund' },
+  ]
+  const paymentPreview = buildPaymentPreviewFromBatch({
+    status: 'approved',
+    batchId: 1,
+    allRows,
+    matchedOrders: [
+      {
+        orderId,
+        principalTotal: 1132.51,
+        netSettlementAmount: 928.08,
+        zohoInvoiceTotal: 1132.51,
+        zohoInvoiceNumber: 'INV-041380',
+      },
+    ],
+    matchedReturns: [
+      {
+        orderId,
+        zohoCreditNoteId: 'cn-1',
+        status: 'matched',
+        amazonRefundAmount: 1132.51,
+        creditNoteAmount: 1132.51,
+      },
+    ],
+    reconciliationSummary: { reconciliationStatus: 'reconciled', reconciliationDifference: 0 },
+    nonOrderLinkedAmazonFeeMappings: [],
+  })
+  assert.equal(paymentPreview.payments.length, 1)
+  assert.equal(paymentPreview.payments[0].orderId, orderId)
+})
+
 test('preview separates sales from refunds and blocks missing credit notes', () => {
   const rows = [
     { orderId: '701-sale', amount: 100, category: CATEGORY.PRINCIPAL, rowClass: ROW_CLASS.SALE, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Order' },
