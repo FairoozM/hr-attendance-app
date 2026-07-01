@@ -4,6 +4,7 @@ const zohoPaymentService = require('./amazonPaymentClearingZohoPaymentService')
 const { buildSettlementReference, buildEntryReference } = require('./amazonPaymentClearingReferenceService')
 const { isCreditNoteApplyComplete } = require('./amazonPaymentClearingCreditNotePostingService')
 const { buildReturnFeePlan, aggregateReturnFeeJournalLines } = require('./amazonPaymentClearingReturnFeeService')
+const { fetchInvoicesByIds, invoiceBalanceDue } = require('../integrations/zoho/zohoBooksClient')
 const store = require('./amazonPaymentClearingStore')
 
 const PAYMENT_TYPES = Object.freeze({
@@ -309,6 +310,62 @@ function requireSingleCustomer(paymentRows, customerIdsByInvoice) {
   return Array.from(customerIds)[0] || ''
 }
 
+function mergeInvoiceAllocations(allocations) {
+  const merged = new Map()
+  for (const row of Array.isArray(allocations) ? allocations : []) {
+    const invoiceId = String(row.invoiceId || '').trim()
+    if (!invoiceId) continue
+    const existing = merged.get(invoiceId)
+    const amountApplied = round2(Number(row.amountApplied) || 0)
+    if (!existing) {
+      merged.set(invoiceId, {
+        invoiceId,
+        invoiceNumber: row.invoiceNumber || '',
+        orderId: row.orderId || '',
+        amountApplied,
+      })
+      continue
+    }
+    existing.amountApplied = round2(existing.amountApplied + amountApplied)
+    if (!existing.invoiceNumber && row.invoiceNumber) existing.invoiceNumber = row.invoiceNumber
+    if (!existing.orderId && row.orderId) existing.orderId = row.orderId
+  }
+  return Array.from(merged.values())
+}
+
+async function validateInvoiceBalancesForPosting(paymentPreview, opts = {}) {
+  const fetchByIds = opts.fetchInvoicesByIds || fetchInvoicesByIds
+  const payments = Array.isArray(paymentPreview?.payments) ? paymentPreview.payments : []
+  const invoiceIds = payments.map((row) => row.zohoInvoiceId).filter(Boolean)
+  if (!invoiceIds.length) return []
+  const invoices = await fetchByIds(invoiceIds)
+  const issues = []
+  for (const plan of payments) {
+    const invoiceId = String(plan.zohoInvoiceId || '').trim()
+    if (!invoiceId) continue
+    const invoice = invoices.get(invoiceId)
+    const balanceDue = invoiceBalanceDue(invoice)
+    if (balanceDue == null) continue
+    const plannedTotal = round2(plan.totalClearingAmount)
+    if (plannedTotal <= balanceDue + PAYMENT_PREVIEW_TOLERANCE) continue
+    const invoiceNumber = plan.zohoInvoiceNumber || invoice?.invoice_number || invoice?.number || invoiceId
+    issues.push({
+      orderId: plan.orderId || '',
+      zohoInvoiceId: invoiceId,
+      zohoInvoiceNumber: invoiceNumber,
+      balanceDue,
+      plannedPaymentTotal: plannedTotal,
+      netBalanceAmount: round2(plan.netBalancePayment?.amount),
+      commissionAmount: round2(plan.commissionPayment?.amount),
+      shippingAmount: round2(plan.shippingFbaPayment?.amount),
+      message:
+        `Invoice ${invoiceNumber} balance due is SAR ${balanceDue} but clearing requires SAR ${plannedTotal}. ` +
+        'The invoice may already be paid or have credit notes applied in Zoho.',
+    })
+  }
+  return issues
+}
+
 function groupedPaymentRows(paymentRows, customerId, paymentDate, batch) {
   const batchId = batch?.batchId ?? batch
   const reference = buildSettlementReference(typeof batch === 'object' ? batch : { batchId })
@@ -338,24 +395,26 @@ function groupedPaymentRows(paymentRows, customerId, paymentDate, batch) {
     })
   }
   return Array.from(groups.values()).map((group) => {
-    const amount = round2(group.amount)
+    const invoiceAllocations = mergeInvoiceAllocations(group.invoiceAllocations)
+    const amount = round2(invoiceAllocations.reduce((sum, row) => sum + (Number(row.amountApplied) || 0), 0))
     const entry = buildEntryReference(reference, group.paymentType)
     return {
       ...group,
-      invoiceNumber: `${group.invoiceAllocations.length} invoices`,
+      invoiceNumber: `${invoiceAllocations.length} invoices`,
       amount,
+      invoiceAllocations,
       entryLabel: entry.entryLabel,
       referenceNumber: entry.referenceNumber,
       description: entry.description,
       settlementReference: reference,
       source: {
         customerId,
-        invoices: group.invoiceAllocations,
+        invoices: invoiceAllocations,
       },
       zohoPaymentRequest: {
         customerId,
         amount,
-        invoices: group.invoiceAllocations,
+        invoices: invoiceAllocations,
         depositToAccountCode: group.accountCode,
         depositToAccountName: group.accountName,
         paymentDate,
@@ -376,6 +435,7 @@ async function postApprovedBatch({
   buildPayloadPreview = zohoPaymentService.buildCustomerPaymentPayloadPreview,
   createManualJournal = zohoPaymentService.createZohoManualJournal,
   buildJournalPayloadPreview = zohoPaymentService.buildManualJournalPayloadPreview,
+  fetchInvoicesByIds: fetchInvoicesByIdsOverride,
 }) {
   const latestPreview = await store.getLatestPaymentPreviewForBatch(batch.batchId)
   await ensureCanPostBatch(batch, Boolean(latestPreview), { dryRun, allowPosted })
@@ -412,7 +472,30 @@ async function postApprovedBatch({
     errors: [],
   }
 
+  const balanceIssues = await validateInvoiceBalancesForPosting(paymentPreview, {
+    fetchInvoicesByIds: fetchInvoicesByIdsOverride,
+  }).catch(() => [])
+  const balanceIssueByInvoiceId = new Map(balanceIssues.map((row) => [row.zohoInvoiceId, row]))
+
   for (const row of postingRows) {
+    const blockingIssues = row.invoiceAllocations
+      .map((allocation) => balanceIssueByInvoiceId.get(allocation.invoiceId))
+      .filter(Boolean)
+    if (blockingIssues.length) {
+      result.summary.errors += 1
+      const error = {
+        ...row,
+        status: 'error',
+        zohoPaymentId: '',
+        error: blockingIssues.map((issue) => issue.message).join(' | '),
+        code: 'ZOHO_INVOICE_BALANCE_INSUFFICIENT',
+        balanceIssues: blockingIssues,
+      }
+      result.errors.push(error)
+      result.payments.push(error)
+      continue
+    }
+
     const existing = await store.findGroupedPosting(batch.batchId, row.paymentType)
     if (existing) {
       result.summary.paymentsSkipped += 1
@@ -695,6 +778,8 @@ module.exports = {
   ensureCanPostBatch,
   ensureCanPostReturnFeeJournals,
   isReturnFeePostComplete,
+  mergeInvoiceAllocations,
+  validateInvoiceBalancesForPosting,
   flattenPaymentPreview,
   groupedPaymentRows,
   requireSingleCustomer,

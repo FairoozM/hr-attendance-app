@@ -1344,6 +1344,42 @@ test('payment posting prevents duplicates by batch invoice and payment type', as
   assert.equal(store.postedBy, 7)
 })
 
+test('mergeInvoiceAllocations sums duplicate invoice rows', () => {
+  const { mergeInvoiceAllocations } = require('../src/services/amazonPaymentClearingPostingService')
+  const merged = mergeInvoiceAllocations([
+    { invoiceId: 'z1', invoiceNumber: 'INV-1', orderId: 'o1', amountApplied: 100 },
+    { invoiceId: 'z1', invoiceNumber: 'INV-1', orderId: 'o2', amountApplied: 50 },
+  ])
+  assert.equal(merged.length, 1)
+  assert.equal(merged[0].amountApplied, 150)
+})
+
+test('payment posting blocks when Zoho invoice balance is below clearing plan', async () => {
+  const batch = postingBatchWithInvoiceCount(2)
+  const store = fakePostingStore([], batch)
+  let calls = 0
+  const result = await postApprovedBatch({
+    batch,
+    store,
+    dryRun: true,
+    fetchInvoicesByIds: async (ids) => {
+      const map = new Map()
+      for (const id of ids) {
+        map.set(id, { invoice_id: id, invoice_number: `INV-${id}`, balance: 1 })
+      }
+      return map
+    },
+    createPayment: async () => {
+      calls += 1
+      return { zohoPaymentId: 'should-not-run' }
+    },
+    buildPayloadPreview: fakePayloadPreview,
+  })
+  assert.equal(calls, 0)
+  assert.equal(result.summary.errors, 3)
+  assert.ok(result.payments.every((payment) => payment.code === 'ZOHO_INVOICE_BALANCE_INSUFFICIENT'))
+})
+
 test('grouped posting creates three payments with eleven invoice allocations each', async () => {
   const batch = postingBatchWithInvoiceCount(11)
   const store = fakePostingStore([], batch)
@@ -1352,6 +1388,13 @@ test('grouped posting creates three payments with eleven invoice allocations eac
     batch,
     store,
     dryRun: false,
+    fetchInvoicesByIds: async (ids) => {
+      const map = new Map()
+      for (const id of ids) {
+        map.set(id, { invoice_id: id, invoice_number: `INV-${id}`, balance: 100000 })
+      }
+      return map
+    },
     createPayment: async (payment) => {
       created.push(payment)
       return { zohoPaymentId: `pay-${payment.depositToAccountCode}` }

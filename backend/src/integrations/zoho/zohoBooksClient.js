@@ -244,6 +244,56 @@ async function applyCreditNoteToInvoice(creditNoteId, invoices) {
  * Create an open credit note in Zoho Books.
  * @param {object} payload
  */
+function clean(value) {
+  return value == null ? '' : String(value).trim()
+}
+
+function num(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : 0
+}
+
+function invoiceBalanceDue(invoice) {
+  if (!invoice) return null
+  const raw = invoice.balance ?? invoice.balance_due ?? invoice.unpaid_amount ?? invoice.amount_due
+  if (raw == null || raw === '') return null
+  return Math.round(num(raw) * 100) / 100
+}
+
+/**
+ * Fetch a single Zoho Books invoice (includes live balance due).
+ * @param {string} invoiceId
+ */
+async function fetchInvoiceById(invoiceId) {
+  const id = clean(invoiceId)
+  if (!id) return null
+  const json = await zohoApiRequest(
+    `${BOOKS_V3}/invoices/${encodeURIComponent(id)}`,
+    new URLSearchParams(),
+    'GET',
+    undefined,
+    { source: 'amazon_payment_clearing_invoice', skipCache: true }
+  )
+  return json?.invoice || json || null
+}
+
+/**
+ * Fetch multiple invoices by id in parallel for payment balance checks.
+ * @param {string[]} invoiceIds
+ * @returns {Promise<Map<string, object>>}
+ */
+async function fetchInvoicesByIds(invoiceIds) {
+  const ids = [...new Set((Array.isArray(invoiceIds) ? invoiceIds : []).map(clean).filter(Boolean))]
+  const rows = await Promise.all(ids.map((id) => fetchInvoiceById(id).catch(() => null)))
+  const out = new Map()
+  for (const invoice of rows) {
+    if (!invoice) continue
+    const id = clean(invoice.invoice_id || invoice.id)
+    if (id) out.set(id, invoice)
+  }
+  return out
+}
+
 async function createCreditNote(payload) {
   const json = await zohoApiRequest(
     `${BOOKS_V3}/creditnotes`,
@@ -263,6 +313,9 @@ async function createCreditNote(payload) {
 module.exports = {
   fetchCustomers,
   fetchInvoices,
+  fetchInvoiceById,
+  fetchInvoicesByIds,
+  invoiceBalanceDue,
   fetchCreditNotes,
   fetchCreditNotesByCustomer,
   listCreditNoteInvoiceApplications,
