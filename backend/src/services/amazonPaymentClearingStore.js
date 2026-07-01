@@ -121,7 +121,7 @@ async function ensureAmazonPaymentClearingTables() {
       batch_id BIGINT NOT NULL REFERENCES amazon_payment_clearing_batches(id) ON DELETE CASCADE,
       invoice_id VARCHAR(128),
       order_id VARCHAR(128),
-      payment_type VARCHAR(32) NOT NULL,
+      payment_type VARCHAR(64) NOT NULL,
       posting_group_key VARCHAR(128),
       zoho_payment_id VARCHAR(128),
       amount NUMERIC(16, 4) NOT NULL DEFAULT 0,
@@ -132,7 +132,7 @@ async function ensureAmazonPaymentClearingTables() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `)
-  await query(`ALTER TABLE amazon_payment_clearing_postings ALTER COLUMN invoice_id DROP NOT NULL`)
+  await query(`ALTER TABLE amazon_payment_clearing_postings ALTER COLUMN payment_type TYPE VARCHAR(64)`)
   await query(`ALTER TABLE amazon_payment_clearing_postings ADD COLUMN IF NOT EXISTS posting_group_key VARCHAR(128)`)
   await query(`ALTER TABLE amazon_payment_clearing_postings ADD COLUMN IF NOT EXISTS invoice_allocations JSONB NOT NULL DEFAULT '[]'::jsonb`)
   await query(`ALTER TABLE amazon_payment_clearing_postings ADD COLUMN IF NOT EXISTS reference_number VARCHAR(128)`)

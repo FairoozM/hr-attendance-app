@@ -123,9 +123,7 @@ async function isReturnFeePostComplete(batchId, batchOverride = null) {
       .filter((row) => String(row.paymentType || '').startsWith('return_fee_journal_') && row.status === 'posted')
       .map((row) => row.paymentType)
   )
-  return returnFeeJournalLines.every((row, idx) =>
-    postedTypes.has(`return_fee_journal_${row.normalizedFeeType || idx + 1}`)
-  )
+  return returnFeeJournalLines.every((_row, idx) => postedTypes.has(`return_fee_journal_${idx + 1}`))
 }
 
 async function postReturnFeeJournalRows({
@@ -140,7 +138,7 @@ async function postReturnFeeJournalRows({
   const returnFeePlan = buildReturnFeePlan(batch, batch.allRows || [])
   const returnFeeJournalLines = aggregateReturnFeeJournalLines(returnFeePlan.journalLines || [])
   for (const [idx, row] of returnFeeJournalLines.entries()) {
-    const paymentType = `return_fee_journal_${row.normalizedFeeType || idx + 1}`
+    const paymentType = `return_fee_journal_${idx + 1}`
     const existing = await store.findGroupedPosting(batch.batchId, paymentType)
     if (existing) {
       result.summary.journalsSkipped += 1
