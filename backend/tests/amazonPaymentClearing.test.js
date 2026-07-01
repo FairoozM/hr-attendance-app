@@ -1928,6 +1928,66 @@ test('credit note matching links warehouse credit note number to Amazon order id
   assert.equal(result.matchedReturns[0].status, 'matched')
 })
 
+test('collectReturnRowsForApply prefers matchedReturns over stale blockers', () => {
+  const { collectReturnRowsForApply } = require('../src/services/amazonPaymentClearingCreditNotePostingService')
+  const rows = collectReturnRowsForApply({
+    creditNoteBlockingRows: [
+      {
+        orderId: '407-5302986-4161132',
+        status: 'blocked',
+        blockingReason: 'Credit note amount differs from Amazon refund/return amount by more than 0.01.',
+        zohoInvoiceId: 'zinv',
+        zohoInvoiceNumber: 'INV-041580',
+        amazonRefundAmount: 6,
+      },
+    ],
+    matchedReturns: [
+      {
+        orderId: '407-5302986-4161132',
+        status: 'matched',
+        zohoInvoiceId: 'zinv',
+        zohoInvoiceNumber: 'INV-041580',
+        zohoCreditNoteId: 'cn1',
+        zohoCreditNoteNumber: '407-5302986-4161132',
+        creditNoteAmount: 1065,
+        amazonRefundAmount: 1065,
+        creditNoteAction: 'matched_existing',
+      },
+    ],
+    allRows: [],
+  })
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].zohoCreditNoteId, 'cn1')
+  assert.equal(rows[0].status, 'matched')
+  assert.equal(rows[0].amazonRefundAmount, 1065)
+})
+
+test('credit note apply plan applies existing credit note even when legacy status was blocked', async () => {
+  const batch = {
+    batchId: 13,
+    marketplace: 'KSA',
+    report: { settlementId: 'SET1', settlementStartDate: '2026-05-01', settlementEndDate: '2026-05-15' },
+  }
+  const row = await resolvePlanRowAction(
+    {
+      orderId: '407-5302986-4161132',
+      amazonRefundAmount: 1065,
+      creditNoteAmount: 1065,
+      zohoInvoiceId: 'zinv',
+      zohoInvoiceNumber: 'INV-041580',
+      zohoCreditNoteId: 'cn1',
+      zohoCreditNoteNumber: '407-5302986-4161132',
+      creditNoteAction: 'blocked',
+      status: 'blocked',
+      blockingReason: 'Credit note amount differs from Amazon refund/return amount by more than 0.01.',
+    },
+    batch,
+    { listApplications: async () => [] }
+  )
+  assert.equal(row.action, 'apply_existing')
+  assert.equal(row.applyAmount, 1065)
+})
+
 test('credit note apply plan applies full existing credit note amount', async () => {
   const batch = {
     batchId: 12,

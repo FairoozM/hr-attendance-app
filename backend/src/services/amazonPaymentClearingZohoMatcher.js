@@ -392,9 +392,16 @@ function matchRefundReturnRowsToCreditNotes(rows, invoices, creditNotes) {
     const creditNoteAmount = Math.abs(round2(creditNote.amount))
     const invoiceTotal = Math.abs(round2(invoice.zohoInvoiceTotal))
     const creditNoteDifference = round2(creditNoteAmount - amazonRefundAmount)
+    const orderKey = matchKey(orderId)
+    const matchesOrderLinkedCn =
+      orderKey &&
+      matchKey(creditNote.zohoCreditNoteNumber) === orderKey &&
+      invoiceTotal > 0 &&
+      Math.abs(creditNoteAmount - invoiceTotal) <= 0.01
     const matchesInvoiceTotal =
       invoiceTotal > 0 && Math.abs(creditNoteAmount - invoiceTotal) <= 0.01
     const matchesPrincipal = Math.abs(creditNoteDifference) <= 0.01
+    const isMatched = matchesPrincipal || matchesInvoiceTotal || matchesOrderLinkedCn
     const out = {
       ...base,
       ...invoiceFields,
@@ -404,8 +411,8 @@ function matchRefundReturnRowsToCreditNotes(rows, invoices, creditNotes) {
       creditNoteStatus: creditNote.status,
       creditNoteDifference,
       creditNoteAction: 'matched_existing',
-      status: matchesPrincipal || matchesInvoiceTotal ? 'matched' : 'blocked',
-      blockingReason: matchesPrincipal || matchesInvoiceTotal
+      status: isMatched ? 'matched' : 'blocked',
+      blockingReason: isMatched
         ? ''
         : 'Credit note amount differs from Amazon refund/return amount by more than 0.01.',
       originalRawRow: row.originalRawRow || row.rawRow || row,

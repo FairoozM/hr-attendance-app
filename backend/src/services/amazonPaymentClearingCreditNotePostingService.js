@@ -65,6 +65,51 @@ function settlementHasReturnApplyWork(batch) {
   })
 }
 
+function buildSettlementRowsForZohoRematch(batch, rows) {
+  const settlementRows = Array.isArray(batch?.allRows) ? [...batch.allRows] : []
+  const refundOrders = new Set(
+    settlementRows.filter((row) => isRefundLikeRow(row) && clean(row.orderId)).map((row) => clean(row.orderId))
+  )
+  for (const row of rows) {
+    const orderId = clean(row.orderId)
+    if (!orderId || refundOrders.has(orderId)) continue
+    refundOrders.add(orderId)
+    settlementRows.push({
+      orderId,
+      amount: -positiveAmount(row.amazonRefundAmount),
+      transactionType: row.transactionType || 'Refund',
+      rowClass: row.rowClass || 'refund',
+      category: row.category || 'Refund',
+      amountType: row.amountType || 'ItemPrice',
+      amountDescription: row.amountDescription || 'Principal',
+    })
+  }
+  return settlementRows
+}
+
+function buildBlockedPlanRow(row, batch, opts = {}) {
+  const invoiceId = clean(row.zohoInvoiceId)
+  const creditNoteId = clean(row.zohoCreditNoteId)
+  const applyAmount = creditNoteId ? resolveCreditNoteApplyAmount(row) : positiveAmount(row.amazonRefundAmount)
+  const settlementReference = buildSettlementReference(batch)
+  const entry = buildEntryReference(settlementReference, 'refund_return', `Order ${row.orderId}`)
+  return {
+    orderId: row.orderId,
+    action: 'blocked',
+    status: 'blocked',
+    blockingReason: row.blockingReason || 'Credit note apply is blocked for this return row.',
+    applyAmount,
+    amazonRefundAmount: positiveAmount(row.amazonRefundAmount),
+    creditNoteAmount: positiveAmount(row.creditNoteAmount),
+    zohoInvoiceId: invoiceId,
+    zohoInvoiceNumber: row.zohoInvoiceNumber || '',
+    zohoCreditNoteId: creditNoteId,
+    zohoCreditNoteNumber: row.zohoCreditNoteNumber || '',
+    referenceNumber: entry.referenceNumber,
+    description: entry.description,
+  }
+}
+
 function collectReturnRowsForApply(batch) {
   const byOrder = new Map()
   const allRows = Array.isArray(batch?.allRows) ? batch.allRows : []
@@ -90,7 +135,6 @@ function collectReturnRowsForApply(batch) {
     })
   }
 
-  for (const row of batch?.matchedReturns || []) upsert(row, 'matchedReturns')
   for (const row of batch?.refundReturnRows || []) upsert(row, 'refundReturnRows')
   for (const row of batch?.netNegativeReturnOrders || []) {
     upsert(
@@ -110,6 +154,10 @@ function collectReturnRowsForApply(batch) {
     )
   }
   for (const row of batch?.creditNoteBlockingRows || []) {
+    const orderId = clean(row?.orderId)
+    if (!orderId) continue
+    const existing = byOrder.get(orderId)
+    if (existing?.status === 'matched' || clean(existing?.zohoCreditNoteId)) continue
     if (row?.creditNoteAction === 'ready_to_create' || row?.zohoInvoiceId) upsert(row, 'creditNoteBlockingRows')
   }
   for (const row of batch?.allRows || []) {
@@ -126,6 +174,7 @@ function collectReturnRowsForApply(batch) {
       'allRows'
     )
   }
+  for (const row of batch?.matchedReturns || []) upsert(row, 'matchedReturns')
 
   return Array.from(byOrder.values()).map((row) => ({
     ...row,
@@ -135,17 +184,7 @@ function collectReturnRowsForApply(batch) {
 
 async function refreshReturnRowsFromLiveZoho(batch, rows, opts = {}) {
   if (!rows.length) return rows
-  const allRows = Array.isArray(batch?.allRows) ? batch.allRows : []
-  const settlementRows = allRows.length
-    ? allRows
-    : rows.map((row) => ({
-        orderId: row.orderId,
-        amount: -positiveAmount(row.amazonRefundAmount),
-        transactionType: row.transactionType || 'Refund',
-        rowClass: row.rowClass || 'refund',
-        amountType: row.amountType || 'ItemPrice',
-        amountDescription: row.amountDescription || 'Principal',
-      }))
+  const settlementRows = buildSettlementRowsForZohoRematch(batch, rows)
   const zohoMatch = await matchZohoInvoicesForRows(settlementRows, opts)
   const freshByOrder = new Map()
   for (const row of zohoMatch.matchedReturns || []) {
@@ -158,15 +197,22 @@ async function refreshReturnRowsFromLiveZoho(batch, rows, opts = {}) {
   return rows.map((row) => {
     const fresh = freshByOrder.get(clean(row.orderId))
     if (!fresh) return row
+    const creditNoteId = clean(fresh.zohoCreditNoteId) || clean(row.zohoCreditNoteId)
+    const resolvedStatus =
+      creditNoteId && fresh.status === 'blocked' && (fresh.creditNoteAction === 'matched_existing' || positiveAmount(fresh.creditNoteAmount) > 0)
+        ? 'matched'
+        : fresh.status || row.status
     return {
       ...row,
       ...fresh,
       amazonRefundAmount: positiveAmount(fresh.amazonRefundAmount || row.amazonRefundAmount),
       creditNoteAmount: positiveAmount(fresh.creditNoteAmount || row.creditNoteAmount),
-      zohoCreditNoteId: clean(fresh.zohoCreditNoteId) || clean(row.zohoCreditNoteId),
+      zohoCreditNoteId: creditNoteId,
       zohoCreditNoteNumber: clean(fresh.zohoCreditNoteNumber) || clean(row.zohoCreditNoteNumber),
-      creditNoteAction: fresh.creditNoteAction || row.creditNoteAction,
-      status: fresh.status || row.status,
+      creditNoteAction:
+        creditNoteId && resolvedStatus === 'matched' ? 'matched_existing' : fresh.creditNoteAction || row.creditNoteAction,
+      status: resolvedStatus,
+      blockingReason: resolvedStatus === 'matched' ? '' : fresh.blockingReason || row.blockingReason || '',
     }
   })
 }
@@ -202,24 +248,10 @@ function buildCreateCreditNotePayload(row, customerId, paymentDate) {
 async function resolvePlanRowAction(row, batch, opts = {}) {
   const listApplications = opts.listApplications || listCreditNoteInvoiceApplications
   const invoiceId = clean(row.zohoInvoiceId)
-  const creditNoteId = clean(row.zohoCreditNoteId)
-  const applyAmount = creditNoteId ? resolveCreditNoteApplyAmount(row) : positiveAmount(row.amazonRefundAmount)
+  const creditNoteIdForApply = clean(row.zohoCreditNoteId)
+  const applyAmount = creditNoteIdForApply ? resolveCreditNoteApplyAmount(row) : positiveAmount(row.amazonRefundAmount)
   const settlementReference = buildSettlementReference(batch)
   const entry = buildEntryReference(settlementReference, 'refund_return', `Order ${row.orderId}`)
-
-  if (row.creditNoteAction === 'blocked' || row.status === 'blocked') {
-    if (row.creditNoteAction !== 'ready_to_create') {
-      return {
-        orderId: row.orderId,
-        action: 'blocked',
-        status: 'blocked',
-        blockingReason: row.blockingReason || 'Credit note apply is blocked for this return row.',
-        applyAmount,
-        zohoInvoiceId: invoiceId,
-        zohoInvoiceNumber: row.zohoInvoiceNumber || '',
-      }
-    }
-  }
 
   if (!invoiceId) {
     return {
@@ -231,7 +263,7 @@ async function resolvePlanRowAction(row, batch, opts = {}) {
     }
   }
 
-  if (applyAmount <= TOLERANCE) {
+  if (applyAmount <= TOLERANCE && !creditNoteIdForApply) {
     return {
       orderId: row.orderId,
       action: 'blocked',
@@ -242,7 +274,6 @@ async function resolvePlanRowAction(row, batch, opts = {}) {
     }
   }
 
-  const creditNoteIdForApply = clean(row.zohoCreditNoteId)
   if (creditNoteIdForApply) {
     const applied = await invoiceApplicationTotal(creditNoteIdForApply, invoiceId, listApplications)
     if (applied >= applyAmount - TOLERANCE) {
@@ -284,7 +315,7 @@ async function resolvePlanRowAction(row, batch, opts = {}) {
     }
   }
 
-  if (row.creditNoteAction === 'ready_to_create' || !creditNoteIdForApply) {
+  if (row.creditNoteAction === 'ready_to_create') {
     const customerId = await resolveKsaZohoCustomerId(opts)
     return {
       orderId: row.orderId,
@@ -305,14 +336,7 @@ async function resolvePlanRowAction(row, batch, opts = {}) {
     }
   }
 
-  return {
-    orderId: row.orderId,
-    action: 'blocked',
-    status: 'blocked',
-    blockingReason: row.blockingReason || 'Unable to determine credit note apply action.',
-    applyAmount,
-    zohoInvoiceId: invoiceId,
-  }
+  return buildBlockedPlanRow(row, batch, opts)
 }
 
 async function buildCreditNoteApplyPlan(batch, opts = {}) {
