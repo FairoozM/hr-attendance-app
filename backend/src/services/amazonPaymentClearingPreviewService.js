@@ -280,8 +280,14 @@ function buildAllRows(rows, context) {
         status = 'blocked'
         blockingReason = blocked.blockingReason || 'Refund/return credit note reconciliation is not clean.'
       } else if (matched) {
-        status = matched.status === 'matched' ? 'matched' : 'blocked'
-        blockingReason = matched.status === 'matched' ? '' : (matched.blockingReason || '')
+        if (matched.status === 'matched') {
+          status = 'matched'
+        } else if (matched.status === 'ready_to_create') {
+          status = 'ready_to_create'
+        } else {
+          status = 'blocked'
+          blockingReason = matched.blockingReason || ''
+        }
       } else {
         status = 'review'
       }
@@ -367,10 +373,10 @@ function buildBlockingIssues({
   )
 
   const missingCn = (creditNoteBlockingRows || []).filter(
-    (row) => !row.zohoCreditNoteId || /missing|no zoho/i.test(row.blockingReason || '')
+    (row) => row.creditNoteAction === 'blocked' && (!row.zohoCreditNoteId || /missing|no zoho/i.test(row.blockingReason || ''))
   )
   const diffCn = (creditNoteBlockingRows || []).filter(
-    (row) => row.zohoCreditNoteId && /differ/i.test(row.blockingReason || '')
+    (row) => row.creditNoteAction === 'blocked' && row.zohoCreditNoteId && /differ/i.test(row.blockingReason || '')
   )
   if (missingCn.length) {
     issues.push({
@@ -487,25 +493,34 @@ function augmentCreditNoteBlockingForNetNegative(preview) {
     (preview.creditNoteBlockingRows || []).map((row) => row.orderId).filter(Boolean)
   )
   const nextBlocking = [...(preview.creditNoteBlockingRows || [])]
+  const nextReady = [...(preview.matchedReturns || [])]
   for (const order of preview.netNegativeReturnOrders || []) {
     const orderId = order?.orderId
     if (!orderId || matchedReturnByOrder.has(orderId) || blockingByOrder.has(orderId)) continue
-    nextBlocking.push({
+    const readyRow = {
       orderId,
       rowClass: ROW_CLASS.RETURN,
       category: CATEGORY.RETURN,
       amazonRefundAmount: Math.abs(round2(Number(order.principalTotal) || 0)),
       zohoInvoiceId: order.zohoInvoiceId || '',
       zohoInvoiceNumber: order.zohoInvoiceNumber || '',
+      zohoPoNumber: order.zohoPoNumber || '',
       zohoCreditNoteId: '',
       zohoCreditNoteNumber: '',
       creditNoteAmount: 0,
       creditNoteDifference: 0,
-      status: 'blocked',
-      blockingReason: 'Missing Credit Note for net-negative order return',
-    })
-    blockingByOrder.add(orderId)
+      creditNoteAction: order.zohoInvoiceId ? 'ready_to_create' : 'blocked',
+      status: order.zohoInvoiceId ? 'ready_to_create' : 'blocked',
+      blockingReason: order.zohoInvoiceId ? '' : 'No Zoho invoice found for net-negative order return.',
+    }
+    if (readyRow.status === 'ready_to_create') {
+      nextReady.push(readyRow)
+    } else {
+      nextBlocking.push(readyRow)
+      blockingByOrder.add(orderId)
+    }
   }
+  preview.matchedReturns = nextReady
   preview.creditNoteBlockingRows = nextBlocking
   return preview
 }

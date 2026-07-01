@@ -156,10 +156,76 @@ async function fetchCreditNotes(fromDate, toDate, customerId = null) {
 // Export fetchCreditNotesByCustomer as alias (used by controller)
 const fetchCreditNotesByCustomer = fetchCreditNotes
 
+function buildZohoJsonStringBody(payload) {
+  const form = new URLSearchParams()
+  form.set('JSONString', JSON.stringify(payload))
+  return form.toString()
+}
+
+/**
+ * List invoices a credit note has been applied to.
+ * @param {string} creditNoteId
+ * @returns {Promise<object[]>}
+ */
+async function listCreditNoteInvoiceApplications(creditNoteId) {
+  const id = String(creditNoteId || '').trim()
+  if (!id) return []
+  const json = await zohoApiRequest(`${BOOKS_V3}/creditnotes/${encodeURIComponent(id)}/invoices`, new URLSearchParams())
+  if (Array.isArray(json?.invoices)) return json.invoices
+  if (Array.isArray(json?.creditnote?.invoices)) return json.creditnote.invoices
+  return []
+}
+
+/**
+ * Apply credit note balance to one or more invoices.
+ * @param {string} creditNoteId
+ * @param {{ invoice_id: string, amount_applied: number }[]} invoices
+ */
+async function applyCreditNoteToInvoice(creditNoteId, invoices) {
+  const id = String(creditNoteId || '').trim()
+  const payload = {
+    invoices: (Array.isArray(invoices) ? invoices : []).map((row) => ({
+      invoice_id: String(row.invoice_id || row.invoiceId || ''),
+      amount_applied: Number(row.amount_applied ?? row.amountApplied) || 0,
+    })),
+  }
+  const json = await zohoApiRequest(
+    `${BOOKS_V3}/creditnotes/${encodeURIComponent(id)}/invoices`,
+    new URLSearchParams(),
+    'POST',
+    buildZohoJsonStringBody(payload),
+    { source: 'amazon_payment_clearing_cn_apply', skipCache: true, critical: true }
+  )
+  return json
+}
+
+/**
+ * Create an open credit note in Zoho Books.
+ * @param {object} payload
+ */
+async function createCreditNote(payload) {
+  const json = await zohoApiRequest(
+    `${BOOKS_V3}/creditnotes`,
+    new URLSearchParams(),
+    'POST',
+    buildZohoJsonStringBody(payload),
+    { source: 'amazon_payment_clearing_cn_create', skipCache: true, critical: true }
+  )
+  const body = json?.creditnote || json || {}
+  return {
+    creditNoteId: body.creditnote_id || body.credit_note_id || body.id || '',
+    creditNoteNumber: body.creditnote_number || body.credit_note_number || body.number || '',
+    raw: json,
+  }
+}
+
 module.exports = {
   fetchCustomers,
   fetchInvoices,
   fetchCreditNotes,
   fetchCreditNotesByCustomer,
+  listCreditNoteInvoiceApplications,
+  applyCreditNoteToInvoice,
+  createCreditNote,
   BOOKS_V3,
 }

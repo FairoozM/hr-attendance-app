@@ -42,13 +42,18 @@ function deriveInvoiceRange(rows, lookbackDays = INVOICE_LOOKBACK_DAYS) {
     }
   }
   dates.sort()
-  const fallbackTo = new Date().toISOString().slice(0, 10)
+  const today = new Date().toISOString().slice(0, 10)
+  const fallbackTo = today
   const fallbackFrom = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const settlementFromDate = dates[0] || fallbackFrom
   const settlementToDate = dates[dates.length - 1] || fallbackTo
+  // Zoho invoices are often created after the settlement period ends (backfilled PO
+  // numbers, delayed Books entry). Extend the fetch window through today so late
+  // invoices still match when a batch is previewed or reopened.
+  const toDate = settlementToDate >= today ? settlementToDate : today
   return {
     fromDate: shiftDateIso(settlementFromDate, -lookbackDays),
-    toDate: settlementToDate,
+    toDate,
     settlementFromDate,
     settlementToDate,
     lookbackDays,
@@ -279,6 +284,7 @@ function matchRefundReturnRowsToCreditNotes(rows, invoices, creditNotes) {
       const out = {
         ...base,
         ...extra,
+        creditNoteAction: 'blocked',
         status: 'blocked',
         blockingReason: reason,
         creditNoteDifference: round2(Number(extra.creditNoteAmount || 0) - amazonRefundAmount),
@@ -317,7 +323,16 @@ function matchRefundReturnRowsToCreditNotes(rows, invoices, creditNotes) {
     }
 
     if (creditNoteMatches.length === 0) {
-      blocked('Missing Credit Note: create or link a Zoho credit note for this Amazon refund/return before posting.', invoiceFields)
+      matchedReturns.push({
+        ...base,
+        ...invoiceFields,
+        creditNoteAction: 'ready_to_create',
+        status: 'ready_to_create',
+        creditNoteAmount: 0,
+        creditNoteDifference: round2(0 - amazonRefundAmount),
+        blockingReason: '',
+        originalRawRow: row.originalRawRow || row.rawRow || row,
+      })
       continue
     }
     if (creditNoteMatches.length > 1) {
@@ -339,6 +354,7 @@ function matchRefundReturnRowsToCreditNotes(rows, invoices, creditNotes) {
       creditNoteAmount,
       creditNoteStatus: creditNote.status,
       creditNoteDifference,
+      creditNoteAction: 'matched_existing',
       status: Math.abs(creditNoteDifference) <= 0.01 ? 'matched' : 'blocked',
       blockingReason: Math.abs(creditNoteDifference) <= 0.01
         ? ''
@@ -347,6 +363,7 @@ function matchRefundReturnRowsToCreditNotes(rows, invoices, creditNotes) {
     }
     matchedReturns.push(out)
     if (out.status !== 'matched') {
+      out.creditNoteAction = 'blocked'
       blockingRows.push(out)
       missingCreditNotes.push(out)
     }

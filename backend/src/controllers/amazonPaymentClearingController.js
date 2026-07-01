@@ -20,7 +20,8 @@ function safeMessage(err) {
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_CUSTOMER_ID_MISSING') return err.message
   if (err?.code === 'ZOHO_REDIRECT_URI_MISSING') return err.message
   if (err?.code === 'ZOHO_AUTH_CODE_REQUIRED') return err.message
-  if (err?.code === 'AMAZON_SETTLEMENT_REPORT_DOCUMENT_MISSING') return err.message
+  if (err?.code === 'AMAZON_PAYMENT_CLEARING_CREDIT_NOTE_APPLY_REQUIRED') return err.message
+  if (err?.code === 'AMAZON_PAYMENT_CLEARING_RETURN_FEE_BLOCKED') return err.message
   if (err?.code === 'AMAZON_REPORT_DOCUMENT_URL') return 'Amazon returned an invalid settlement report document URL.'
   if (err?.code === 'AMAZON_LWA_CONFIG' || err?.code === 'AMAZON_SPAPI_CONFIG') {
     return 'Amazon SP-API is not configured on the server.'
@@ -175,6 +176,36 @@ async function getZohoOAuthCallback(req, res) {
   }
 }
 
+async function getKsaCreditNoteApplyPlan(req, res) {
+  try {
+    const json = await service.getCreditNoteApplyPlanForBatch(req.params.id)
+    res.json(json)
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
+async function postKsaApplyCreditNotes(req, res) {
+  try {
+    const json = await service.applyCreditNotesForBatchId(req.params.id, {
+      dryRun: req.body?.dryRun !== false,
+      postedBy: req.user?.userId,
+    })
+    res.json(json)
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
+async function getKsaReturnFeePlan(req, res) {
+  try {
+    const json = await service.getReturnFeePlanForBatch(req.params.id)
+    res.json(json)
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
 async function postKsaApproveBatch(req, res) {
   try {
     const json = await service.approveSavedBatch(req.params.id, req.user?.userId)
@@ -232,6 +263,9 @@ module.exports = {
   getZohoOAuthCallback,
   postZohoOAuthExchange,
   postKsaApproveBatch,
+  getKsaCreditNoteApplyPlan,
+  postKsaApplyCreditNotes,
+  getKsaReturnFeePlan,
   postKsaPaymentPreview,
   postKsaPostToZoho,
   postKsaForceRepost,

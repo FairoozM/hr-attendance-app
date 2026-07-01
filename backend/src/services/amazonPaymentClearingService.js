@@ -7,7 +7,7 @@ const {
   throwAmazonSpApiIfFailed,
 } = require('./amazonSpApiService')
 const { parseAmazonSettlementReport } = require('./amazonSettlementParserService')
-const { matchZohoInvoicesForRows } = require('./amazonPaymentClearingZohoMatcher')
+const { matchZohoInvoicesForRows, deriveInvoiceRange } = require('./amazonPaymentClearingZohoMatcher')
 const {
   buildPreview,
   buildBlockingIssues,
@@ -21,7 +21,12 @@ const { postApprovedBatch } = require('./amazonPaymentClearingPostingService')
 const { buildSettlementReference } = require('./amazonPaymentClearingReferenceService')
 const { getAccountDiagnostics, listZohoChartAccounts } = require('./amazonPaymentClearingZohoPaymentService')
 const { buildZohoOAuthAuthorizeUrl, exchangeZohoAuthorizationCode } = require('../integrations/zoho/zohoOAuth')
-const store = require('./amazonPaymentClearingStore')
+const { buildReturnFeePlan } = require('./amazonPaymentClearingReturnFeeService')
+const {
+  buildCreditNoteApplyPlan,
+  applyCreditNotesForBatch,
+  isCreditNoteApplyComplete,
+} = require('./amazonPaymentClearingCreditNotePostingService')
 
 const MARKETPLACE_KEY = 'ksa'
 const MARKETPLACE = 'KSA'
@@ -460,6 +465,70 @@ function savedBatchToPreview(batch) {
 }
 
 /**
+ * Re-run Zoho invoice matching for a draft batch that still has unmatched orders.
+ * Uses stored settlement rows and extends the Zoho date window through today.
+ */
+async function maybeRematchZohoForDraftBatch(batch, storedRows, preview, feeJournalMappingRules) {
+  if (!batch || batch.status === 'posted' || batch.postedToZoho) return preview
+  const priorUnmatched = Array.isArray(batch.unmatchedOrders) ? batch.unmatchedOrders.length : 0
+  if (priorUnmatched === 0 || !storedRows.length) return preview
+
+  const report = preview.report || {}
+  const settlementDates = {
+    settlementStartDate: report.settlementStartDate,
+    settlementEndDate: report.settlementEndDate,
+    depositDate: report.depositDate,
+  }
+  const range = deriveInvoiceRange([settlementDates])
+  const rows = storedRows.map((row) => {
+    const raw = row.rawRow && typeof row.rawRow === 'object' ? row.rawRow : {}
+    return {
+      ...raw,
+      orderId: row.orderId || raw.orderId || '',
+      amount: row.amount ?? raw.amount,
+      category: row.category || raw.category || '',
+      rowClass: row.rowClass || raw.rowClass || '',
+      transactionType: row.transactionType || raw.transactionType || '',
+      amountType: row.amountType || raw.amountType || '',
+      amountDescription: row.amountDescription || raw.amountDescription || '',
+      ...settlementDates,
+    }
+  })
+
+  const zohoMatch = await matchZohoInvoicesForRows(rows, {
+    fromDate: range.fromDate,
+    toDate: range.toDate,
+  })
+  const rematchedPreview = buildPreview({
+    report,
+    rows,
+    invoices: zohoMatch.invoices,
+    matchedReturns: zohoMatch.matchedReturns,
+    missingCreditNotes: zohoMatch.missingCreditNotes,
+    creditNoteBlockingRows: zohoMatch.creditNoteBlockingRows,
+    parserWarnings: [...(preview.warnings || []), ...(zohoMatch.zohoFetchWarnings || [])],
+    rawRowCount: rows.length,
+    feeJournalMappingRules,
+    syntheticRefundRows: zohoMatch.syntheticRefundRows || [],
+    netNegativeReturnOrderIds: zohoMatch.netNegativeReturnOrderIds || [],
+  })
+
+  const newUnmatched = Array.isArray(rematchedPreview.unmatchedOrders) ? rematchedPreview.unmatchedOrders.length : 0
+  if (newUnmatched >= priorUnmatched) return preview
+
+  await store.savePreviewBatch({
+    preview: { ...rematchedPreview, marketplace: batch.marketplace || MARKETPLACE },
+    rows,
+    existingBatchId: batch.batchId,
+  })
+  normalizeSavedBatchPreview(batch, rematchedPreview, feeJournalMappingRules)
+  applyNetNegativeOrderAdjustments(rematchedPreview, rematchedPreview.allRows || rows)
+  rematchedPreview.rematchedZoho = true
+  rematchedPreview.fromCache = true
+  return rematchedPreview
+}
+
+/**
  * Reopen a saved batch with full row-level transparency reconstructed from the
  * persisted rows table, without ever calling Amazon SP-API.
  */
@@ -483,20 +552,26 @@ async function hydrateSavedBatch(batch) {
   }
   normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules)
   applyNetNegativeOrderAdjustments(preview, preview.allRows)
-  preview.rawRowCount = preview.allRows.length || storedRows.length || 0
-  preview.storedRowCount = storedRows.length
-  preview.paymentPreview = buildLivePaymentPreviewForBatch(batch, preview)
+  let hydrated = preview
   try {
-    preview.auditLog = await store.listClearingAudit(batch.batchId)
+    hydrated = await maybeRematchZohoForDraftBatch(batch, storedRows, preview, feeJournalMappingRules)
   } catch {
-    preview.auditLog = []
+    hydrated = preview
+  }
+  hydrated.rawRowCount = hydrated.allRows?.length || storedRows.length || 0
+  hydrated.storedRowCount = storedRows.length
+  hydrated.paymentPreview = buildLivePaymentPreviewForBatch(batch, hydrated)
+  try {
+    hydrated.auditLog = await store.listClearingAudit(batch.batchId)
+  } catch {
+    hydrated.auditLog = []
   }
   try {
-    preview.postings = await store.listPostingsForBatch(batch.batchId)
+    hydrated.postings = await store.listPostingsForBatch(batch.batchId)
   } catch {
-    preview.postings = []
+    hydrated.postings = []
   }
-  return preview
+  return hydrated
 }
 
 async function getSavedBatch(id) {
@@ -716,6 +791,50 @@ async function forceRepostBatch(id, options = {}) {
   })
 }
 
+async function getCreditNoteApplyPlanForBatch(id) {
+  const batch = await batchWithCurrentFeeJournalMappings(await store.getBatchById(id))
+  if (!batch) {
+    const err = new Error('Payment clearing batch not found.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  const plan = await buildCreditNoteApplyPlan(batch)
+  return { success: true, ...plan }
+}
+
+async function applyCreditNotesForBatchId(id, options = {}) {
+  const batch = await batchWithCurrentFeeJournalMappings(await store.getBatchById(id))
+  if (!batch) {
+    const err = new Error('Payment clearing batch not found.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  if (batch.status !== 'approved' && batch.status !== 'posted') {
+    const err = new Error('Credit note apply requires an approved settlement batch.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_APPROVED'
+    err.status = 422
+    throw err
+  }
+  return applyCreditNotesForBatch(batch, {
+    dryRun: options.dryRun !== false,
+    postedBy: options.postedBy,
+  })
+}
+
+async function getReturnFeePlanForBatch(id) {
+  const batch = await batchWithCurrentFeeJournalMappings(await store.getBatchById(id))
+  if (!batch) {
+    const err = new Error('Payment clearing batch not found.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  const plan = buildReturnFeePlan(batch, batch.allRows || [])
+  return { success: true, ...plan, creditNoteApplyComplete: await isCreditNoteApplyComplete(id) }
+}
+
 async function getZohoAccountDiagnostics() {
   return {
     success: true,
@@ -778,6 +897,9 @@ module.exports = {
   buildPaymentPreviewForBatch,
   postBatchToZoho,
   forceRepostBatch,
+  getCreditNoteApplyPlanForBatch,
+  applyCreditNotesForBatchId,
+  getReturnFeePlanForBatch,
   getZohoAccountDiagnostics,
   listZohoAccountsForFeeMapping,
   listFeeJournalMappings,

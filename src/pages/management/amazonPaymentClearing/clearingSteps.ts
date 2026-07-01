@@ -34,7 +34,7 @@ export const CLEARING_STEPS: ClearingStep[] = [
     key: 'returns',
     title: 'Reconcile Returns to Credit Notes',
     description:
-      'Match Amazon refund/return rows to Zoho credit notes. Missing or mismatched credit notes block posting until resolved.',
+      'Match Amazon refund/return rows to existing Zoho credit notes, or mark returns that will be created and applied in step 8.',
   },
   {
     id: 5,
@@ -48,7 +48,7 @@ export const CLEARING_STEPS: ClearingStep[] = [
     key: 'approve',
     title: 'Approve Settlement',
     description:
-      'Approval is gated until sales, returns, credit notes, and settlement totals are all clean.',
+      'Approval is gated until sales, hard-blocked returns, and settlement totals are clean.',
   },
   {
     id: 7,
@@ -59,17 +59,31 @@ export const CLEARING_STEPS: ClearingStep[] = [
   },
   {
     id: 8,
-    key: 'preview',
-    title: 'Payment Preview',
+    key: 'apply-credit-notes',
+    title: 'Apply Credit Notes',
     description:
-      'Generate the Zoho payment plan: net balance, commission, shipping/FBA, credit-note application, adjustment clearing, and Amazon fee journals.',
+      'Create missing Zoho credit notes when needed, or apply warehouse-precreated credit notes to the matched invoices.',
   },
   {
     id: 9,
+    key: 'return-fees',
+    title: 'Return Fee Clearing',
+    description:
+      'Review Amazon return fee asymmetry: commission reversals, retained shipping/FBA, and any residual variance journals before posting.',
+  },
+  {
+    id: 10,
+    key: 'preview',
+    title: 'Payment Preview',
+    description:
+      'Generate the Zoho sales payment plan: net balance, commission, and shipping/FBA clearing for matched invoices.',
+  },
+  {
+    id: 11,
     key: 'post',
     title: 'Post to Zoho',
     description:
-      'Dry run, then post grouped Zoho Record Payments and Amazon fee manual journals. Posted batches are view-only unless an admin force reposts.',
+      'Dry run, then post grouped Zoho Record Payments, return fee journals, and Amazon fee manual journals. Posted batches are view-only unless an admin force reposts.',
   },
 ]
 

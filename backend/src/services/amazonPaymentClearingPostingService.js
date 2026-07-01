@@ -2,6 +2,8 @@ const { buildPaymentPreviewFromBatch, PAYMENT_PREVIEW_TOLERANCE } = require('./a
 const { round2 } = require('./amazonPaymentClearingOrderBreakdownService')
 const zohoPaymentService = require('./amazonPaymentClearingZohoPaymentService')
 const { buildSettlementReference, buildEntryReference } = require('./amazonPaymentClearingReferenceService')
+const { isCreditNoteApplyComplete, collectReturnRowsForApply } = require('./amazonPaymentClearingCreditNotePostingService')
+const { buildReturnFeePlan, aggregateReturnFeeJournalLines } = require('./amazonPaymentClearingReturnFeeService')
 
 const PAYMENT_TYPES = Object.freeze({
   NET_BALANCE: 'net_balance',
@@ -9,7 +11,7 @@ const PAYMENT_TYPES = Object.freeze({
   SHIPPING_FBA: 'shipping_fba',
 })
 
-function ensureCanPostBatch(batch, paymentPreviewExists, options = {}) {
+async function ensureCanPostBatch(batch, paymentPreviewExists, options = {}) {
   const dryRun = options.dryRun !== false
   const allowPosted = options.allowPosted === true
   if (!batch) {
@@ -58,6 +60,25 @@ function ensureCanPostBatch(batch, paymentPreviewExists, options = {}) {
     err.code = 'AMAZON_PAYMENT_CLEARING_PAYMENT_PREVIEW_REQUIRED'
     err.status = 422
     throw err
+  }
+  if (!dryRun && batch.batchId != null) {
+    const returnRows = collectReturnRowsForApply(batch)
+    if (returnRows.length > 0) {
+      const cnComplete = await isCreditNoteApplyComplete(batch.batchId, batch)
+      if (!cnComplete) {
+        const err = new Error('Posting requires all return credit notes to be applied in step 8 before posting sales payments.')
+        err.code = 'AMAZON_PAYMENT_CLEARING_CREDIT_NOTE_APPLY_REQUIRED'
+        err.status = 422
+        throw err
+      }
+    }
+    const returnFeePlan = buildReturnFeePlan(batch, batch.allRows || [])
+    if ((returnFeePlan.summary?.varianceBlockerCount || 0) > 0) {
+      const err = new Error('Posting requires return fee residuals to be mapped or resolved in step 9.')
+      err.code = 'AMAZON_PAYMENT_CLEARING_RETURN_FEE_BLOCKED'
+      err.status = 422
+      throw err
+    }
   }
   if (!dryRun) {
     const feeLines = Array.isArray(batch.nonOrderLinkedAmazonFeeMappings) ? batch.nonOrderLinkedAmazonFeeMappings : []
@@ -213,7 +234,7 @@ async function postApprovedBatch({
   buildJournalPayloadPreview = zohoPaymentService.buildManualJournalPayloadPreview,
 }) {
   const latestPreview = await store.getLatestPaymentPreviewForBatch(batch.batchId)
-  ensureCanPostBatch(batch, Boolean(latestPreview), { dryRun, allowPosted })
+  await ensureCanPostBatch(batch, Boolean(latestPreview), { dryRun, allowPosted })
   const currentPreview = buildPaymentPreviewFromBatch(batch)
   const paymentPreview = {
     batchId: batch.batchId,
@@ -432,6 +453,107 @@ async function postApprovedBatch({
     }
   }
 
+  const returnFeePlan = buildReturnFeePlan(batch, batch.allRows || [])
+  const returnFeeJournalLines = aggregateReturnFeeJournalLines(returnFeePlan.journalLines || [])
+  for (const [idx, row] of returnFeeJournalLines.entries()) {
+    const paymentType = `return_fee_journal_${row.normalizedFeeType || idx + 1}`
+    const existing = await store.findGroupedPosting(batch.batchId, paymentType)
+    if (existing) {
+      result.summary.journalsSkipped += 1
+      result.journals.push({
+        ...row,
+        paymentType,
+        status: 'skipped',
+        zohoJournalId: existing.zohoPaymentId,
+        reason: 'Already posted for batch/return fee journal.',
+      })
+      continue
+    }
+
+    const journalRequest = {
+      feeType: row.feeType,
+      description: row.notes || row.feeType,
+      amount: Math.abs(round2(Number(row.amount) || 0)),
+      debit: row.debit,
+      credit: row.credit,
+      referenceNumber: row.referenceNumber,
+      notes: row.notes,
+      date: paymentDate,
+    }
+
+    let zohoPayloadPreview = null
+    try {
+      zohoPayloadPreview = await buildJournalPayloadPreview(journalRequest)
+    } catch (err) {
+      result.summary.errors += 1
+      const error = {
+        ...row,
+        paymentType,
+        status: 'error',
+        zohoJournalId: '',
+        error: err?.message || 'Failed to build return fee journal payload preview',
+        code: err?.code || 'ZOHO_RETURN_FEE_JOURNAL_PREVIEW_FAILED',
+      }
+      result.errors.push(error)
+      result.journals.push(error)
+      continue
+    }
+
+    if (dryRun) {
+      result.journals.push({ ...row, paymentType, status: 'dry_run', zohoJournalId: '', zohoPayloadPreview })
+      continue
+    }
+
+    try {
+      const created = await createManualJournal(journalRequest)
+      const mappingSnapshot = {
+        normalizedFeeType: row.normalizedFeeType || '',
+        feeType: row.feeType || '',
+        orderIds: row.orderIds || [],
+        sourceAmount: row.amount,
+      }
+      const posting = await store.insertPosting({
+        batchId: batch.batchId,
+        invoiceId: null,
+        orderId: null,
+        paymentType,
+        postingGroupKey: `APC-${batch.batchId}-${paymentType}`,
+        zohoPaymentId: created.zohoJournalId,
+        zohoJournalNumber: created.zohoJournalNumber,
+        amount: journalRequest.amount,
+        accountCode: row.debit?.accountCode || '',
+        invoiceAllocations: (row.orderIds || []).map((orderId) => ({ orderId })),
+        referenceNumber: row.referenceNumber,
+        description: row.notes,
+        notes: row.notes,
+        mappingSnapshot,
+        status: 'posted',
+      })
+      result.summary.journalsCreated += 1
+      result.journals.push({
+        ...row,
+        paymentType,
+        status: 'created',
+        zohoJournalId: posting.zohoPaymentId,
+        zohoJournalNumber: posting.zohoJournalNumber || created.zohoJournalNumber,
+        mappingSnapshot,
+        zohoPayloadPreview,
+      })
+    } catch (err) {
+      result.summary.errors += 1
+      const error = {
+        ...row,
+        paymentType,
+        status: 'error',
+        error: err?.message || 'Failed to create return fee journal',
+        code: err?.code || 'ZOHO_RETURN_FEE_JOURNAL_CREATE_FAILED',
+        zohoPayloadPreview,
+      }
+      result.errors.push(error)
+      result.journals.push(error)
+    }
+  }
+
   if (!dryRun && result.summary.errors === 0) {
     const zohoPaymentIds = result.payments
       .filter((row) => row.zohoPaymentId)
@@ -443,6 +565,7 @@ async function postApprovedBatch({
     await store.markBatchPosted(batch.batchId, postedBy, {
       ...result.summary,
       forceRepost: Boolean(allowPosted),
+      returnFeeJournalsPosted: returnFeeJournalLines.length,
       zohoPaymentIds,
       zohoJournalIds: result.journals
         .filter((row) => row.zohoJournalId)

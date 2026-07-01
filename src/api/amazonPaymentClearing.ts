@@ -118,7 +118,8 @@ export interface RefundReturnCreditNoteRow {
   creditNoteAmount?: number
   creditNoteStatus?: string
   creditNoteDifference?: number
-  status: 'matched' | 'blocked'
+  status: 'matched' | 'blocked' | 'ready_to_create'
+  creditNoteAction?: 'matched_existing' | 'ready_to_create' | 'blocked'
   blockingReason?: string
   candidateInvoiceNumbers?: string[]
   candidateCreditNoteNumbers?: string[]
@@ -379,6 +380,7 @@ export interface PaymentClearingPreview {
   postingReference?: string
   postings?: ClearingPosting[]
   fromCache?: boolean
+  rematchedZoho?: boolean
   refreshedFromAmazon?: boolean
   auditLog?: ClearingAuditEntry[]
   storedRowCount?: number
@@ -515,6 +517,94 @@ export interface PaymentClearingPaymentPreview {
   settlementReference?: SettlementReference
   postingReferences?: PostingReference[]
   warnings: string[]
+}
+
+export interface CreditNoteApplyPlanRow {
+  orderId: string
+  action: 'skipped_already_applied' | 'skipped_already_posted' | 'apply_existing' | 'create_and_apply' | 'blocked'
+  status: string
+  applyAmount: number
+  amountAlreadyApplied?: number
+  zohoInvoiceId?: string
+  zohoInvoiceNumber?: string
+  zohoCreditNoteId?: string
+  zohoCreditNoteNumber?: string
+  blockingReason?: string
+}
+
+export interface CreditNoteApplyPlan {
+  success?: boolean
+  batchId: number
+  rows: CreditNoteApplyPlanRow[]
+  summary: {
+    totalRows: number
+    skippedAlreadyApplied: number
+    applyExisting: number
+    createAndApply: number
+    blocked: number
+    completed: number
+    isComplete?: boolean
+  }
+}
+
+export interface CreditNoteApplyResult {
+  success: boolean
+  dryRun: boolean
+  batchId: number
+  plan?: CreditNoteApplyPlan
+  summary: {
+    created: number
+    applied: number
+    skipped: number
+    errors: number
+  }
+  rows: CreditNoteApplyPlanRow[]
+  errors: CreditNoteApplyPlanRow[]
+}
+
+export interface ReturnFeeBreakdown {
+  orderId: string
+  customerRefundAmount: number
+  commissionReversal: number
+  shippingFbaRetained: number
+  otherFeeDelta: number
+  netReturnSettlement: number
+  rowCount: number
+}
+
+export interface ReturnFeeJournalLine {
+  key: string
+  orderId: string
+  feeType: string
+  normalizedFeeType?: string
+  amount: number
+  debit?: { accountCode?: string; accountName?: string; accountId?: string; amount?: number }
+  credit?: { accountCode?: string; accountName?: string; accountId?: string; amount?: number }
+  referenceNumber?: string
+  notes?: string
+  status: string
+  blockingReason?: string
+  residual?: number
+}
+
+export interface ReturnFeePlan {
+  success?: boolean
+  batchId: number
+  breakdowns: ReturnFeeBreakdown[]
+  journalLines: ReturnFeeJournalLine[]
+  aggregatedJournalLines?: ReturnFeeJournalLine[]
+  summary: {
+    orderCount: number
+    customerRefundTotal: number
+    commissionReversalTotal: number
+    shippingRetainedTotal: number
+    netReturnSettlementTotal: number
+    journalLineCount: number
+    varianceBlockerCount: number
+    aggregatedJournalCount?: number
+  }
+  warnings?: string[]
+  creditNoteApplyComplete?: boolean
 }
 
 export interface PaymentPostingResult {
@@ -654,6 +744,18 @@ export async function fetchAmazonPaymentClearingZohoChartAccounts() {
 
 export async function approveKsaPaymentClearingBatch(batchId: number | string) {
   return api.post(`/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/approve`, {}, longOpts) as Promise<PaymentClearingPreview>
+}
+
+export async function fetchKsaCreditNoteApplyPlan(batchId: number | string) {
+  return api.get(`/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/credit-note-apply-plan`, longOpts) as Promise<CreditNoteApplyPlan>
+}
+
+export async function applyKsaCreditNotes(batchId: number | string, dryRun = true) {
+  return api.post(`/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/apply-credit-notes`, { dryRun }, longOpts) as Promise<CreditNoteApplyResult>
+}
+
+export async function fetchKsaReturnFeePlan(batchId: number | string) {
+  return api.get(`/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/return-fee-plan`, longOpts) as Promise<ReturnFeePlan>
 }
 
 export async function generateKsaPaymentClearingPaymentPreview(batchId: number | string) {

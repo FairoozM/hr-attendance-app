@@ -3,17 +3,19 @@ import { exportCreditNoteRows } from '../clearingExport'
 import { ReturnCreditNotesTable, SummaryCard } from '../clearingShared'
 import type { ClearingContext } from './clearingContext'
 
-type Tab = 'matched' | 'missing' | 'differences'
+type Tab = 'matched' | 'ready_to_create' | 'missing' | 'differences'
 
 export function Step4Returns({ ctx }: { ctx: ClearingContext }) {
   const { preview } = ctx
   const [tab, setTab] = useState<Tab>('matched')
   if (!preview) return null
   const matchedReturns = (preview.matchedReturns || []).filter((row) => row.status === 'matched')
+  const readyToCreate = (preview.matchedReturns || []).filter((row) => row.status === 'ready_to_create')
   const blockingRows = preview.creditNoteBlockingRows || []
   const diffRows = (preview.matchedReturns || []).filter((row) => Math.abs(Number(row.creditNoteDifference) || 0) > 0.01)
   const tabs: Array<{ key: Tab; label: string; count: number }> = [
     { key: 'matched', label: 'Matched returns', count: matchedReturns.length },
+    { key: 'ready_to_create', label: 'Will create at clearance', count: readyToCreate.length },
     { key: 'missing', label: 'Missing / blocked', count: blockingRows.length },
     { key: 'differences', label: 'Amount differences', count: diffRows.length },
   ]
@@ -22,13 +24,17 @@ export function Step4Returns({ ctx }: { ctx: ClearingContext }) {
       <section className="apc-summary-grid">
         <SummaryCard label="Refund/Return Rows" value={(preview.refundReturnRows || []).length} />
         <SummaryCard label="Matched Credit Notes" value={matchedReturns.length} />
+        <SummaryCard label="Will Create" value={readyToCreate.length} />
         <SummaryCard label="Missing / Blocked" value={blockingRows.length} />
       </section>
 
       {blockingRows.length ? (
         <div className="apc-alert apc-alert--error" role="alert">
-          These refund/return rows block approval and posting until the Zoho credit note relationship is fixed. Credit
-          notes are never created automatically.
+          These refund/return rows block approval until the invoice relationship or credit note amount is fixed.
+        </div>
+      ) : readyToCreate.length ? (
+        <div className="apc-alert" role="status">
+          {readyToCreate.length} return(s) have no Zoho credit note yet. Step 8 will create and apply them after approval.
         </div>
       ) : (
         <div className="apc-alert" role="status">All refund/return rows are matched to clean Zoho credit notes.</div>
@@ -54,6 +60,9 @@ export function Step4Returns({ ctx }: { ctx: ClearingContext }) {
 
       {tab === 'matched' ? (
         <ReturnCreditNotesTable rows={matchedReturns} emptyText="No matched refund/return credit notes." />
+      ) : null}
+      {tab === 'ready_to_create' ? (
+        <ReturnCreditNotesTable rows={readyToCreate} emptyText="No returns marked for clearance-time credit note creation." />
       ) : null}
       {tab === 'missing' ? (
         <ReturnCreditNotesTable rows={blockingRows} emptyText="No missing or blocked credit-note rows." />

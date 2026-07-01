@@ -94,8 +94,8 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
           </button>
         )}
       </div>
-      {!paymentPreview ? (
-        <p className="apc-muted">Generate the payment preview in Step 8 before posting.</p>
+        {!paymentPreview ? (
+        <p className="apc-muted">Generate the payment preview in Step 10 before posting.</p>
       ) : null}
 
       {journalLines.length ? (

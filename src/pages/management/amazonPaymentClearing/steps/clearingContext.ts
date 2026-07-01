@@ -48,4 +48,5 @@ export interface ClearingContext {
   onRunPosting: (dryRun: boolean) => void
   onOpenForceRepost: () => void
   onReloadCurrentBatch: () => Promise<void>
+  setNotice: (value: string) => void
 }

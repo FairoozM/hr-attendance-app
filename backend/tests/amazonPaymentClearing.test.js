@@ -11,7 +11,7 @@ const {
 const { buildPreview, orderSummary } = require('../src/services/amazonPaymentClearingPreviewService')
 const { buildOrderFeeBreakdown, detectNetNegativeOrderRefundRows } = require('../src/services/amazonPaymentClearingOrderBreakdownService')
 const { buildPaymentPreviewFromBatch } = require('../src/services/amazonPaymentClearingPaymentPreviewService')
-const { postApprovedBatch } = require('../src/services/amazonPaymentClearingPostingService')
+const { postApprovedBatch, ensureCanPostBatch } = require('../src/services/amazonPaymentClearingPostingService')
 const {
   buildSettlementReference,
   buildEntryReference,
@@ -27,6 +27,14 @@ const {
   todayLocalDate,
 } = require('../src/services/amazonPaymentClearingZohoPaymentService')
 const { ZOHO_OAUTH_SCOPES, ZOHO_PAYMENT_CLEARING_GRANULAR_SCOPES } = require('../src/integrations/zoho/zohoOAuth')
+const {
+  buildReturnFeeBreakdown,
+  buildReturnFeePlan,
+} = require('../src/services/amazonPaymentClearingReturnFeeService')
+const {
+  buildCreditNoteApplyPlan,
+  resolvePlanRowAction,
+} = require('../src/services/amazonPaymentClearingCreditNotePostingService')
 const paymentClearingRoutes = require('../src/routes/amazonPaymentClearing.routes')
 
 test('settlement parser normalizes rows and warnings', () => {
@@ -133,8 +141,10 @@ test('preview treats net-negative order rows as returns and excludes them from s
   assert.equal(preview.netNegativeReturnOrders.length, 1)
   assert.equal(preview.netNegativeReturnOrders[0].orderId, orderId)
   assert.ok(preview.netNegativeReturnOrders[0].principalTotal < 0)
-  assert.equal(preview.creditNoteBlockingRows.length, 1)
-  assert.match(preview.creditNoteBlockingRows[0].blockingReason, /Missing Credit Note/)
+  assert.equal(preview.creditNoteBlockingRows.length, 0)
+  const readyReturn = (preview.matchedReturns || []).find((row) => row.orderId === orderId)
+  assert.equal(readyReturn?.status, 'ready_to_create')
+  assert.equal(readyReturn?.creditNoteAction, 'ready_to_create')
 
   const paymentPreview = buildPaymentPreviewFromBatch({
     status: 'approved',
@@ -292,7 +302,7 @@ test('payment preview keeps sale clearing when order has both sale and refund ro
   assert.equal(paymentPreview.payments[0].orderId, orderId)
 })
 
-test('preview separates sales from refunds and blocks missing credit notes', () => {
+test('preview separates sales from refunds and marks missing credit notes ready to create', () => {
   const rows = [
     { orderId: '701-sale', amount: 100, category: CATEGORY.PRINCIPAL, rowClass: ROW_CLASS.SALE, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Order' },
     { orderId: '701-sale', amount: -12, category: CATEGORY.COMMISSION, rowClass: ROW_CLASS.FEE, amountType: 'ItemFees', amountDescription: 'Commission', transactionType: 'Order' },
@@ -318,10 +328,11 @@ test('preview separates sales from refunds and blocks missing credit notes', () 
   assert.equal(preview.reconciliationSummary.refundReturnImpact, -50)
   assert.equal(preview.reconciliationSummary.expectedAmazonDeposit, 38)
   assert.equal(preview.reconciliationSummary.actualAmazonSettlement, 38)
-  assert.equal(preview.missingCreditNotes.length, 1)
-  assert.equal(preview.creditNoteBlockingRows.length, 1)
-  assert.match(preview.creditNoteBlockingRows[0].blockingReason, /Missing Credit Note/)
-  assert.ok(preview.warnings.some((warning) => warning.includes('refund/return row')))
+  assert.equal(preview.missingCreditNotes.length, 0)
+  assert.equal(preview.creditNoteBlockingRows.length, 0)
+  const readyReturn = (preview.matchedReturns || []).find((row) => row.orderId === '701-return')
+  assert.equal(readyReturn?.status, 'ready_to_create')
+  assert.equal(readyReturn?.creditNoteAction, 'ready_to_create')
 })
 
 test('preview builds row-level allRows, blockingIssues, and amount differences', () => {
@@ -350,11 +361,11 @@ test('preview builds row-level allRows, blockingIssues, and amount differences',
   const unmatchedRow = preview.allRows.find((row) => row.orderId === '701-unmatched')
   assert.equal(unmatchedRow.status, 'unmatched')
   const returnRow = preview.allRows.find((row) => row.orderId === '701-return')
-  assert.equal(returnRow.status, 'blocked')
+  assert.equal(returnRow.status, 'ready_to_create')
 
   const codes = preview.blockingIssues.map((issue) => issue.code)
   assert.ok(codes.includes('UNMATCHED_SALES'))
-  assert.ok(codes.includes('MISSING_CREDIT_NOTE'))
+  assert.ok(!codes.includes('MISSING_CREDIT_NOTE'))
 
   const amountDiff = preview.amountDifferences.find((row) => row.orderId === '701-sale')
   assert.ok(amountDiff)
@@ -762,17 +773,28 @@ test('deriveInvoiceRange handles Amazon settlement date format', () => {
   assert.equal(range.settlementFromDate, '2026-05-07')
   assert.equal(range.settlementToDate, '2026-05-15')
   assert.equal(range.fromDate, '2026-01-07')
-  assert.equal(range.toDate, '2026-05-15')
+  assert.equal(range.toDate >= '2026-05-15', true)
+})
+
+test('deriveInvoiceRange extends Zoho fetch through today for late invoices', () => {
+  const range = deriveInvoiceRange([
+    { settlementStartDate: '2026-05-01', settlementEndDate: '2026-05-15', depositDate: '2026-05-20', postedDate: '2026-05-10' },
+  ])
+  const today = new Date().toISOString().slice(0, 10)
+  assert.equal(range.settlementFromDate, '2026-05-01')
+  assert.equal(range.settlementToDate, '2026-05-20')
+  assert.equal(range.fromDate, '2026-01-01')
+  assert.equal(range.toDate, today)
 })
 
 test('deriveInvoiceRange pads Zoho fetch window backward from settlement dates', () => {
   const range = deriveInvoiceRange([
-    { settlementStartDate: '2026-05-01', settlementEndDate: '2026-05-15', depositDate: '2026-05-20', postedDate: '2026-05-10' },
+    { settlementStartDate: '2099-05-01', settlementEndDate: '2099-05-15', depositDate: '2099-05-20', postedDate: '2099-05-10' },
   ])
-  assert.equal(range.settlementFromDate, '2026-05-01')
-  assert.equal(range.settlementToDate, '2026-05-20')
-  assert.equal(range.fromDate, '2026-01-01')
-  assert.equal(range.toDate, '2026-05-20')
+  assert.equal(range.settlementFromDate, '2099-05-01')
+  assert.equal(range.settlementToDate, '2099-05-20')
+  assert.equal(range.fromDate, '2099-01-01')
+  assert.equal(range.toDate, '2099-05-20')
 })
 
 test('Zoho matcher matches Amazon order ID to Zoho PO number first', () => {
@@ -1742,6 +1764,92 @@ test('payment posting reports Zoho API failures without marking batch posted', a
   assert.ok(result.errors[0].error.includes('Zoho rejected commission payment'))
 })
 
+test('return fee breakdown splits commission reversal and retained shipping on refund rows', () => {
+  const orderId = '406-2446480-5429962'
+  const rows = [
+    { orderId, transactionType: 'Refund', amountType: 'ItemPrice', amountDescription: 'Principal', amount: -1132.51 },
+    { orderId, transactionType: 'Refund', amountType: 'ItemFees', amountDescription: 'Commission', amount: 166.48 },
+    { orderId, transactionType: 'Refund', amountType: 'ItemFees', amountDescription: 'FBAPerUnitFulfillmentFee', amount: -37.95 },
+  ]
+  const breakdown = buildReturnFeeBreakdown(rows)
+  assert.equal(breakdown.customerRefundAmount, -1132.51)
+  assert.equal(breakdown.commissionReversal, 166.48)
+  assert.equal(breakdown.shippingFbaRetained, -37.95)
+  assert.ok(breakdown.netReturnSettlement < 0)
+})
+
+test('credit note apply plan marks missing credit note as create_and_apply', async () => {
+  const batch = {
+    batchId: 9,
+    marketplace: 'KSA',
+    report: { settlementId: 'SET1', settlementStartDate: '2026-05-01', settlementEndDate: '2026-05-15' },
+    matchedReturns: [
+      {
+        orderId: '701-return',
+        amazonRefundAmount: 50,
+        zohoInvoiceId: 'zinv',
+        zohoInvoiceNumber: 'INV-RETURN',
+        creditNoteAction: 'ready_to_create',
+        status: 'ready_to_create',
+      },
+    ],
+    creditNoteBlockingRows: [],
+  }
+  const row = await resolvePlanRowAction(batch.matchedReturns[0], batch, {
+    listApplications: async () => [],
+    customerId: 'cust1',
+    paymentDate: '2026-05-20',
+  })
+  assert.equal(row.action, 'create_and_apply')
+  assert.equal(row.applyAmount, 50)
+})
+
+test('credit note apply plan skips already applied credit notes', async () => {
+  const batch = {
+    batchId: 10,
+    marketplace: 'KSA',
+    report: { settlementId: 'SET1', settlementStartDate: '2026-05-01', settlementEndDate: '2026-05-15' },
+    matchedReturns: [
+      {
+        orderId: '701-return',
+        amazonRefundAmount: 50,
+        zohoInvoiceId: 'zinv',
+        zohoInvoiceNumber: 'INV-RETURN',
+        zohoCreditNoteId: 'cn1',
+        zohoCreditNoteNumber: 'CN-1',
+        creditNoteAction: 'matched_existing',
+        status: 'matched',
+      },
+    ],
+    creditNoteBlockingRows: [],
+  }
+  const row = await resolvePlanRowAction(batch.matchedReturns[0], batch, {
+    listApplications: async () => [{ invoice_id: 'zinv', amount_applied: 50 }],
+    paymentDate: '2026-05-20',
+  })
+  assert.equal(row.action, 'skipped_already_applied')
+})
+
+test('return fee plan aggregates journals for settlement posting', () => {
+  const batch = {
+    batchId: 11,
+    marketplace: 'KSA',
+    report: { settlementId: 'SET1', settlementStartDate: '2026-05-01', settlementEndDate: '2026-05-15' },
+    matchedReturns: [{ orderId: '701-return' }],
+    creditNoteBlockingRows: [],
+  }
+  const allRows = [
+    { orderId: '701-return', transactionType: 'Refund', amountType: 'ItemPrice', amountDescription: 'Principal', amount: -100 },
+    { orderId: '701-return', transactionType: 'Refund', amountType: 'ItemFees', amountDescription: 'Commission', amount: 12 },
+    { orderId: '701-return', transactionType: 'Refund', amountType: 'ItemFees', amountDescription: 'FBAPerUnitFulfillmentFee', amount: -8 },
+  ]
+  const plan = buildReturnFeePlan(batch, allRows)
+  assert.equal(plan.breakdowns.length, 1)
+  assert.ok(plan.journalLines.length >= 2)
+  assert.equal(plan.summary.commissionReversalTotal, 12)
+  assert.equal(plan.summary.shippingRetainedTotal, 8)
+})
+
 test('payment clearing route is admin protected', () => {
   const stack = paymentClearingRoutes.stack.filter((layer) => layer.name !== 'query' && layer.name !== 'expressInit')
   assert.equal(stack[0].handle.name, 'requireAuth')
@@ -1766,5 +1874,8 @@ test('payment clearing route exposes saved batch and approve endpoints', () => {
   assert.ok(routes.some((route) => route.path === '/zoho/oauth/exchange' && route.methods.includes('post')))
   assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/approve' && route.methods.includes('post')))
   assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/payment-preview' && route.methods.includes('post')))
+  assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/credit-note-apply-plan' && route.methods.includes('get')))
+  assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/apply-credit-notes' && route.methods.includes('post')))
+  assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/return-fee-plan' && route.methods.includes('get')))
   assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/post-to-zoho' && route.methods.includes('post')))
 })

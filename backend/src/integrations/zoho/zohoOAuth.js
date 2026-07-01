@@ -9,10 +9,12 @@ const ZOHO_OAUTH_SCOPES = Object.freeze([
 const ZOHO_PAYMENT_CLEARING_GRANULAR_SCOPES = Object.freeze([
   'ZohoBooks.invoices.READ',
   'ZohoBooks.creditnotes.READ',
+  'ZohoBooks.creditnotes.CREATE',
   'ZohoBooks.contacts.READ',
   'ZohoBooks.reports.READ',
   'ZohoBooks.settings.READ',
   'ZohoBooks.accountants.READ',
+  'ZohoBooks.journals.CREATE',
   'ZohoBooks.customerpayments.READ',
   'ZohoBooks.customerpayments.CREATE',
   'ZohoBooks.customerpayments.UPDATE',
