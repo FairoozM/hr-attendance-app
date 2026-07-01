@@ -95,8 +95,8 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
   return (
     <div className="apc-step-stack">
       <div className="apc-alert">
-        Loads Zoho credit notes for each Amazon return in this settlement. Apply warehouse-created credit notes to
-        their invoices, or create and apply missing credit notes from the Amazon refund amount.
+        After sales payments are posted in step 9, apply warehouse credit notes to their invoices, or create and apply
+        missing credit notes from the Amazon refund amount.
       </div>
 
       {localError ? <div className="apc-alert apc-alert--error" role="alert">{localError}</div> : null}
@@ -122,7 +122,7 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
           className="ainv-btn"
           type="button"
           onClick={() => void onPreviewApply()}
-          disabled={!ctx.isApproved || applying || readyCount === 0}
+          disabled={!ctx.isPosted || applying || readyCount === 0}
         >
           Preview apply
         </button>
@@ -130,14 +130,16 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
           className="ainv-btn ainv-btn--danger"
           type="button"
           onClick={() => void onApply()}
-          disabled={!ctx.isApproved || applying || readyCount === 0}
+          disabled={!ctx.isPosted || applying || readyCount === 0}
         >
           {applying ? 'Applying...' : 'Apply credit notes to invoices'}
         </button>
       </div>
 
-      {!ctx.isApproved ? (
-        <p className="apc-muted">Approve the settlement in step 6 first. You can review the Zoho credit note plan below.</p>
+      {!ctx.isPosted ? (
+        <p className="apc-muted">
+          Post sales payments in step 9 first. You can review the Zoho credit note plan below while waiting.
+        </p>
       ) : null}
 
       <div className="apc-table-wrap apc-table-wrap--wide">

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { fetchKsaReturnFeePlan, type ReturnFeePlan } from '../../../../api/amazonPaymentClearing'
-import { money, SummaryCard } from '../clearingShared'
+import { money, PostingResultTable, SummaryCard } from '../clearingShared'
 import type { ClearingContext } from './clearingContext'
 
 export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
-  const { preview } = ctx
+  const { preview, postingResult } = ctx
   const [plan, setPlan] = useState<ReturnFeePlan | null>(null)
   const [loading, setLoading] = useState(false)
   const [localError, setLocalError] = useState('')
@@ -34,9 +34,15 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
   return (
     <div className="apc-step-stack">
       <div className="apc-alert">
-        Amazon may reverse commission on a return but still keep shipping/FBA fees. These journals post in step 11
-        alongside sales payments — they are not a single opaque net difference.
+        After credit notes are applied in step 10, review return fee asymmetry (commission reversed vs shipping/FBA
+        retained) and post the clearing journals here.
       </div>
+
+      {!ctx.isPosted ? (
+        <p className="apc-muted">Complete step 9 (post sales payments) and step 10 (apply credit notes) before posting return fee journals.</p>
+      ) : !ctx.creditNoteApplyComplete && plan?.creditNoteApplyComplete === false ? (
+        <p className="apc-muted">Apply all return credit notes in step 10 before posting return fee journals.</p>
+      ) : null}
 
       {localError ? <div className="apc-alert apc-alert--error" role="alert">{localError}</div> : null}
       {(plan?.warnings || []).map((warning) => (
@@ -44,8 +50,24 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
       ))}
 
       <div className="apc-button-row">
-        <button className="ainv-btn ainv-btn--sm" type="button" onClick={() => void loadPlan()} disabled={loading}>
+        <button className="ainv-btn ainv-btn--sm" type="button" onClick={() => void loadPlan()} disabled={loading || ctx.postingReturnFees}>
           {loading ? 'Loading...' : 'Refresh return fee plan'}
+        </button>
+        <button
+          className="ainv-btn"
+          type="button"
+          onClick={() => ctx.onPostReturnFeeJournals(true)}
+          disabled={!ctx.canPostReturnFeeJournals || ctx.postingReturnFees || (plan?.journalLines || []).length === 0}
+        >
+          {ctx.postingReturnFees ? 'Working...' : 'Dry run journals'}
+        </button>
+        <button
+          className="ainv-btn ainv-btn--danger"
+          type="button"
+          onClick={() => ctx.onPostReturnFeeJournals(false)}
+          disabled={!ctx.canPostReturnFeeJournals || ctx.postingReturnFees || ctx.returnFeePostComplete}
+        >
+          Post return fee journals
         </button>
       </div>
 
@@ -89,7 +111,7 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
         </table>
       </div>
 
-      <h3 className="ainv-page__title" style={{ fontSize: '1rem' }}>Planned journals (posted in step 11)</h3>
+      <h3 className="ainv-page__title" style={{ fontSize: '1rem' }}>Planned journals</h3>
       <div className="apc-table-wrap">
         <table className="apc-table">
           <thead>
@@ -122,6 +144,17 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
           </tbody>
         </table>
       </div>
+
+      {postingResult && (postingResult.journals?.length || postingResult.summary.journalsCreated) ? (
+        <>
+          <section className="apc-summary-grid">
+            <SummaryCard label="Journals Created" value={postingResult.summary.journalsCreated || 0} />
+            <SummaryCard label="Journals Skipped" value={postingResult.summary.journalsSkipped || 0} />
+            <SummaryCard label="Errors" value={postingResult.summary.errors} />
+          </section>
+          <PostingResultTable result={postingResult} />
+        </>
+      ) : null}
     </div>
   )
 }

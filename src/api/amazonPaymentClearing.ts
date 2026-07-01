@@ -607,6 +607,7 @@ export interface ReturnFeePlan {
   }
   warnings?: string[]
   creditNoteApplyComplete?: boolean
+  returnFeePostComplete?: boolean
 }
 
 export interface PaymentPostingResult {
@@ -766,6 +767,14 @@ export async function generateKsaPaymentClearingPaymentPreview(batchId: number |
 
 export async function postKsaPaymentClearingToZoho(batchId: number | string, dryRun = true) {
   return api.post(`/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/post-to-zoho`, { dryRun }, longOpts) as Promise<PaymentPostingResult>
+}
+
+export async function postKsaReturnFeeJournals(batchId: number | string, dryRun = true) {
+  return api.post(
+    `/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/post-return-fee-journals`,
+    { dryRun },
+    longOpts
+  ) as Promise<PaymentPostingResult>
 }
 
 export async function forceRepostKsaPaymentClearing(

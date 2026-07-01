@@ -25,6 +25,7 @@ export interface ClearingContext {
   approving: boolean
   generatingPaymentPreview: boolean
   posting: boolean
+  postingReturnFees: boolean
 
   search: ReturnType<typeof useClearingSearch>
 
@@ -33,6 +34,9 @@ export interface ClearingContext {
   isCleanForApproval: boolean
   canGeneratePaymentPreview: boolean
   canPostToZoho: boolean
+  canPostReturnFeeJournals: boolean
+  creditNoteApplyComplete: boolean
+  returnFeePostComplete: boolean
 
   setReportId: (value: string) => void
   setReportDocumentId: (value: string) => void
@@ -46,6 +50,7 @@ export interface ClearingContext {
   onApprove: () => void
   onGeneratePaymentPreview: () => void
   onRunPosting: (dryRun: boolean) => void
+  onPostReturnFeeJournals: (dryRun: boolean) => void
   onOpenForceRepost: () => void
   onReloadCurrentBatch: () => Promise<void>
   setNotice: (value: string) => void

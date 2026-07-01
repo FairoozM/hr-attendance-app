@@ -13,6 +13,7 @@ import {
   type PaymentClearingPreview,
   type PaymentPostingResult,
   postKsaPaymentClearingToZoho,
+  postKsaReturnFeeJournals,
   previewKsaSettlementReport,
   type SavedBatchSummary,
   type SettlementReport,
@@ -67,10 +68,12 @@ export function AmazonPaymentClearingPage() {
   const [approving, setApproving] = useState(false)
   const [generatingPaymentPreview, setGeneratingPaymentPreview] = useState(false)
   const [posting, setPosting] = useState(false)
+  const [postingReturnFees, setPostingReturnFees] = useState(false)
 
   const [forceRepostOpen, setForceRepostOpen] = useState(false)
   const [creditNoteApplyComplete, setCreditNoteApplyComplete] = useState(false)
   const [returnFeeBlockerCount, setReturnFeeBlockerCount] = useState(0)
+  const [returnFeePostComplete, setReturnFeePostComplete] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
 
@@ -115,16 +118,20 @@ export function AmazonPaymentClearingPage() {
   const canPostToZoho = Boolean(
     canGeneratePaymentPreview &&
       paymentPreview &&
-      paymentPreviewFeeJournalBlockerCount === 0 &&
+      paymentPreviewFeeJournalBlockerCount === 0
+  )
+  const canPostReturnFeeJournals = Boolean(
+    isPosted &&
       creditNoteApplyComplete &&
       returnFeeBlockerCount === 0
   )
 
   useEffect(() => {
     const batchId = preview?.batch?.batchId
-    if (!batchId || (!isApproved && !isPosted)) {
+    if (!batchId || !isPosted) {
       setCreditNoteApplyComplete(false)
       setReturnFeeBlockerCount(0)
+      setReturnFeePostComplete(false)
       return
     }
     void fetchKsaCreditNoteApplyPlan(batchId)
@@ -138,9 +145,15 @@ export function AmazonPaymentClearingPage() {
       })
       .catch(() => setCreditNoteApplyComplete(false))
     void fetchKsaReturnFeePlan(batchId)
-      .then((plan) => setReturnFeeBlockerCount(plan.summary?.varianceBlockerCount || 0))
-      .catch(() => setReturnFeeBlockerCount(0))
-  }, [preview?.batch?.batchId, preview?.matchedReturns, preview?.netNegativeReturnOrders, preview?.refundReturnRows, isApproved, isPosted])
+      .then((plan) => {
+        setReturnFeeBlockerCount(plan.summary?.varianceBlockerCount || 0)
+        setReturnFeePostComplete(Boolean(plan.returnFeePostComplete))
+      })
+      .catch(() => {
+        setReturnFeeBlockerCount(0)
+        setReturnFeePostComplete(false)
+      })
+  }, [preview?.batch?.batchId, preview?.matchedReturns, preview?.netNegativeReturnOrders, preview?.refundReturnRows, isPosted])
 
   const loadSavedBatches = useCallback(async () => {
     setLoadingBatches(true)
@@ -289,7 +302,7 @@ export function AmazonPaymentClearingPage() {
       setPaymentPreview(json)
       setPostingResult(null)
       setNotice('Payment clearing preview generated. No Zoho payments have been created.')
-      navigate(clearingPath(10, batchId))
+      navigate(clearingPath(8, batchId))
     } catch (e) {
       setError(safeError(e))
     } finally {
@@ -326,6 +339,37 @@ export function AmazonPaymentClearingPage() {
       }
     },
     [loadSavedBatches, preview?.batch?.batchId]
+  )
+
+  const onPostReturnFeeJournals = useCallback(
+    async (dryRun: boolean) => {
+      const batchId = preview?.batch?.batchId
+      if (!batchId) return
+      if (!dryRun) {
+        const ok = window.confirm('Post return fee clearing journals to Zoho for this settlement?')
+        if (!ok) return
+      }
+      setPostingReturnFees(true)
+      setError('')
+      setNotice('')
+      try {
+        const json = await postKsaReturnFeeJournals(batchId, dryRun)
+        setPostingResult(json)
+        setNotice(dryRun ? 'Return fee journal dry run completed.' : 'Return fee journals posted to Zoho.')
+        if (!dryRun && json.summary.errors === 0) {
+          const refreshed = await fetchKsaPaymentClearingBatch(batchId)
+          setPreview(refreshed)
+          const feePlan = await fetchKsaReturnFeePlan(batchId)
+          setReturnFeePostComplete(Boolean(feePlan.returnFeePostComplete))
+          setReturnFeeBlockerCount(feePlan.summary?.varianceBlockerCount || 0)
+        }
+      } catch (e) {
+        setError(safeError(e))
+      } finally {
+        setPostingReturnFees(false)
+      }
+    },
+    [preview?.batch?.batchId]
   )
 
   const onConfirmForceRepost = useCallback(
@@ -370,12 +414,16 @@ export function AmazonPaymentClearingPage() {
     approving,
     generatingPaymentPreview,
     posting,
+    postingReturnFees,
     search,
     isPosted,
     isApproved,
     isCleanForApproval,
     canGeneratePaymentPreview,
     canPostToZoho,
+    canPostReturnFeeJournals,
+    creditNoteApplyComplete,
+    returnFeePostComplete,
     setReportId,
     setReportDocumentId,
     setBatchIdToOpen,
@@ -387,6 +435,7 @@ export function AmazonPaymentClearingPage() {
     onApprove,
     onGeneratePaymentPreview,
     onRunPosting,
+    onPostReturnFeeJournals,
     onOpenForceRepost: () => setForceRepostOpen(true),
     onReloadCurrentBatch: async () => {
       const id = preview?.batch?.batchId || routeBatchId || loadedBatchId
@@ -418,12 +467,18 @@ export function AmazonPaymentClearingPage() {
     statuses[5] = preview.reconciliationSummary?.reconciliationStatus === 'mismatch' ? 'blocked' : 'completed'
     statuses[6] = isApproved || isPosted ? 'completed' : isCleanForApproval ? 'ready' : 'blocked'
     statuses[7] = unmappedFeeJournalCount > 0 ? 'blocked' : 'completed'
-    statuses[8] = creditNoteApplyComplete ? 'completed' : isApproved || isPosted ? 'ready' : 'not_started'
-    statuses[9] = returnFeeBlockerCount > 0 ? 'blocked' : isApproved || isPosted ? 'completed' : 'not_started'
-    statuses[10] = paymentPreview ? 'completed' : isApproved || isPosted ? 'ready' : 'not_started'
-    statuses[11] = isPosted ? 'completed' : canPostToZoho && paymentPreview ? 'ready' : 'not_started'
+    statuses[8] = paymentPreview ? 'completed' : isApproved || isPosted ? 'ready' : 'not_started'
+    statuses[9] = isPosted ? 'completed' : canPostToZoho && paymentPreview ? 'ready' : 'not_started'
+    statuses[10] = creditNoteApplyComplete ? 'completed' : isPosted ? 'ready' : 'not_started'
+    statuses[11] = returnFeePostComplete
+      ? 'completed'
+      : returnFeeBlockerCount > 0
+        ? 'blocked'
+        : isPosted && creditNoteApplyComplete
+          ? 'ready'
+          : 'not_started'
     return statuses
-  }, [canPostToZoho, creditNoteApplyComplete, creditNoteBlockingRows.length, isApproved, isCleanForApproval, isPosted, paymentPreview, preview, returnFeeBlockerCount, unmappedFeeJournalCount])
+  }, [canPostToZoho, creditNoteApplyComplete, creditNoteBlockingRows.length, isApproved, isCleanForApproval, isPosted, paymentPreview, preview, returnFeeBlockerCount, returnFeePostComplete, unmappedFeeJournalCount])
 
   const stepBodies: Record<number, ReactNode> = {
     1: <Step1SelectSettlement ctx={ctx} />,
@@ -433,10 +488,10 @@ export function AmazonPaymentClearingPage() {
     5: <Step5Reconcile ctx={ctx} />,
     6: <Step6Approve ctx={ctx} />,
     7: <Step7AmazonFeeJournalMapping ctx={ctx} />,
-    8: <Step8ApplyCreditNotes ctx={ctx} />,
-    9: <Step9ReturnFeeClearing ctx={ctx} />,
-    10: <Step10PaymentPreview ctx={ctx} />,
-    11: <Step11Post ctx={ctx} />,
+    8: <Step10PaymentPreview ctx={ctx} />,
+    9: <Step11Post ctx={ctx} />,
+    10: <Step8ApplyCreditNotes ctx={ctx} />,
+    11: <Step9ReturnFeeClearing ctx={ctx} />,
   }
 
   const stepSummaries: Record<number, string> = {
@@ -447,10 +502,10 @@ export function AmazonPaymentClearingPage() {
     5: preview ? `Difference ${preview.reconciliationSummary?.reconciliationDifference ?? 0}` : '',
     6: isPosted ? 'Posted' : isApproved ? 'Approved' : isCleanForApproval ? 'Ready to approve' : 'Blocked',
     7: preview ? `${feeJournalMappings.length} fee journal group(s) · ${unmappedFeeJournalCount} unmapped` : '',
-    8: creditNoteApplyComplete ? 'Credit notes applied' : 'Apply pending',
-    9: preview ? `${returnFeeBlockerCount} variance blocker(s)` : '',
-    10: paymentPreview ? `${paymentPreview.paymentPlanSummary.invoiceCount} invoices planned` : 'Not generated',
-    11: isPosted ? 'Posted to Zoho' : 'Not posted',
+    8: paymentPreview ? `${paymentPreview.paymentPlanSummary.invoiceCount} invoices planned` : 'Not generated',
+    9: isPosted ? 'Sales payments posted' : 'Not posted',
+    10: creditNoteApplyComplete ? 'Credit notes applied' : isPosted ? 'Apply pending' : 'After sales post',
+    11: returnFeePostComplete ? 'Return fees posted' : preview ? `${returnFeeBlockerCount} variance blocker(s)` : '',
   }
 
   return (
@@ -463,8 +518,8 @@ export function AmazonPaymentClearingPage() {
           traceable to the exact settlement rows.
         </p>
         <div className="ainv-callout-emerald">
-          <strong>Zoho posting guarded.</strong> Posting is blocked until sales, returns, credit notes, and settlement
-          totals are clean. Posted batches are view-only unless an admin force reposts with a reason.
+          <strong>Zoho posting guarded.</strong> Sales payments post in step 9 after reconciliation is clean. Return
+          credit notes and refund journals run in steps 10–11 only after payments land in Zoho.
         </div>
       </section>
 
@@ -486,7 +541,7 @@ export function AmazonPaymentClearingPage() {
             collapsed={activeStep !== step.id}
             onExpand={() => goToStep(step.id)}
             summary={stepSummaries[step.id]}
-            blocker={status === 'blocked' ? 'Resolve the blocking items before posting.' : undefined}
+            blocker={status === 'blocked' ? (step.id === 11 ? 'Resolve return fee variance blockers before posting journals.' : 'Resolve the blocking items before continuing.') : undefined}
           >
             {stepBodies[step.id]}
           </StepPanel>

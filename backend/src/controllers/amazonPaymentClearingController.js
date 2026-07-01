@@ -236,6 +236,18 @@ async function postKsaPostToZoho(req, res) {
   }
 }
 
+async function postKsaReturnFeeJournals(req, res) {
+  try {
+    const json = await service.postReturnFeeJournalsForBatchId(req.params.id, {
+      dryRun: req.body?.dryRun !== false,
+      postedBy: req.user?.userId,
+    })
+    res.json(json)
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
 async function postKsaForceRepost(req, res) {
   try {
     const json = await service.forceRepostBatch(req.params.id, {
@@ -268,5 +280,6 @@ module.exports = {
   getKsaReturnFeePlan,
   postKsaPaymentPreview,
   postKsaPostToZoho,
+  postKsaReturnFeeJournals,
   postKsaForceRepost,
 }

@@ -17,7 +17,7 @@ const {
 const { ROW_CLASS, isNonOrderLinkedAmazonFee, CATEGORY } = require('./amazonPaymentClearingCategoryService')
 const { isSettlementReturnRow } = require('./amazonPaymentClearingOrderBreakdownService')
 const { buildPaymentPreviewFromBatch } = require('./amazonPaymentClearingPaymentPreviewService')
-const { postApprovedBatch } = require('./amazonPaymentClearingPostingService')
+const { postApprovedBatch, postReturnFeeJournalsForBatch, isReturnFeePostComplete } = require('./amazonPaymentClearingPostingService')
 const { buildSettlementReference } = require('./amazonPaymentClearingReferenceService')
 const { getAccountDiagnostics, listZohoChartAccounts } = require('./amazonPaymentClearingZohoPaymentService')
 const store = require('./amazonPaymentClearingStore')
@@ -762,7 +762,7 @@ async function postBatchToZoho(id, options = {}) {
  * Admin-only force repost of an already-posted batch. Requires an explicit
  * reason, records an audit entry with the previous Zoho payment IDs, and (for a
  * real post) clears prior posting rows so new payments can be created. Only the
- * already-posted guard is bypassed; reconciliation/credit-note guards still apply.
+ * already-posted guard is bypassed; reconciliation guards still apply. Return credit notes and return fee journals are separate steps after sales post.
  */
 async function forceRepostBatch(id, options = {}) {
   const dryRun = options.dryRun !== false
@@ -863,6 +863,12 @@ async function applyCreditNotesForBatchId(id, options = {}) {
     err.status = 422
     throw err
   }
+  if (options.dryRun === false && batch.status !== 'posted' && !batch.postedToZoho) {
+    const err = new Error('Credit note apply requires sales payments to be posted first (step 9).')
+    err.code = 'AMAZON_PAYMENT_CLEARING_SALES_NOT_POSTED'
+    err.status = 422
+    throw err
+  }
   return applyCreditNotesForBatch(batch, {
     dryRun: options.dryRun !== false,
     postedBy: options.postedBy,
@@ -878,7 +884,30 @@ async function getReturnFeePlanForBatch(id) {
     throw err
   }
   const plan = buildReturnFeePlan(batch, batch.allRows || [])
-  return { success: true, ...plan, creditNoteApplyComplete: await isCreditNoteApplyComplete(id) }
+  return {
+    success: true,
+    ...plan,
+    creditNoteApplyComplete: await isCreditNoteApplyComplete(id, batch),
+    returnFeePostComplete: await isReturnFeePostComplete(id, batch),
+  }
+}
+
+async function postReturnFeeJournalsForBatchId(id, options = {}) {
+  return store.withBatchPostingLock(id, async () => {
+    const batch = await batchWithCurrentFeeJournalMappings(await store.getBatchById(id))
+    if (!batch) {
+      const err = new Error('Payment clearing batch not found.')
+      err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+      err.status = 404
+      throw err
+    }
+    return postReturnFeeJournalsForBatch({
+      batch,
+      store,
+      dryRun: options.dryRun !== false,
+      postedBy: options.postedBy,
+    })
+  })
 }
 
 async function getZohoAccountDiagnostics() {
@@ -942,6 +971,7 @@ module.exports = {
   approveSavedBatch,
   buildPaymentPreviewForBatch,
   postBatchToZoho,
+  postReturnFeeJournalsForBatchId,
   forceRepostBatch,
   getCreditNoteApplyPlanForBatch,
   applyCreditNotesForBatchId,

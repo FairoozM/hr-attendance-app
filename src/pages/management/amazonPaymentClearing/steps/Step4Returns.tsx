@@ -73,7 +73,7 @@ export function Step4Returns({ ctx }: { ctx: ClearingContext }) {
         </div>
       ) : readyToCreate.length ? (
         <div className="apc-alert" role="status">
-          {readyToCreate.length} return(s) have no Zoho credit note yet. Step 8 will create and apply them after approval.
+          {readyToCreate.length} return(s) have no Zoho credit note yet. Step 10 will create and apply them after sales payments are posted.
         </div>
       ) : (
         <div className="apc-alert" role="status">All refund/return rows are matched to clean Zoho credit notes.</div>

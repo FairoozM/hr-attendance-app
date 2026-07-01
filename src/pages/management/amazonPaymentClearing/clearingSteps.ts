@@ -34,7 +34,7 @@ export const CLEARING_STEPS: ClearingStep[] = [
     key: 'returns',
     title: 'Reconcile Returns to Credit Notes',
     description:
-      'Match Amazon refund/return rows to existing Zoho credit notes, or mark returns that will be created and applied in step 8.',
+      'Match Amazon refund/return rows to existing Zoho credit notes, or mark returns for create-and-apply in step 10 after sales payments are posted.',
   },
   {
     id: 5,
@@ -59,31 +59,31 @@ export const CLEARING_STEPS: ClearingStep[] = [
   },
   {
     id: 8,
-    key: 'apply-credit-notes',
-    title: 'Apply Credit Notes',
-    description:
-      'Create missing Zoho credit notes when needed, or apply warehouse-precreated credit notes to the matched invoices.',
-  },
-  {
-    id: 9,
-    key: 'return-fees',
-    title: 'Return Fee Clearing',
-    description:
-      'Review Amazon return fee asymmetry: commission reversals, retained shipping/FBA, and any residual variance journals before posting.',
-  },
-  {
-    id: 10,
     key: 'preview',
     title: 'Payment Preview',
     description:
       'Generate the Zoho sales payment plan: net balance, commission, and shipping/FBA clearing for matched invoices.',
   },
   {
-    id: 11,
+    id: 9,
     key: 'post',
-    title: 'Post to Zoho',
+    title: 'Post Sales Payments to Zoho',
     description:
-      'Dry run, then post grouped Zoho Record Payments, return fee journals, and Amazon fee manual journals. Posted batches are view-only unless an admin force reposts.',
+      'Dry run, then post grouped Zoho Record Payments and account-level Amazon fee journals. Return refunds are handled in steps 10–11 after payments land.',
+  },
+  {
+    id: 10,
+    key: 'apply-credit-notes',
+    title: 'Apply Credit Notes',
+    description:
+      'After sales payments are posted, apply warehouse credit notes to invoices or create and apply missing credit notes for Amazon returns.',
+  },
+  {
+    id: 11,
+    key: 'return-fees',
+    title: 'Return Fee Clearing',
+    description:
+      'After credit notes are applied, review return fee asymmetry and post commission/shipping return journals to Zoho.',
   },
 ]
 

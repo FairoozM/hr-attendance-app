@@ -66,7 +66,8 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
         </div>
       ) : (
         <div className="apc-alert">
-          <strong>Posting writes to Zoho.</strong> Use Dry Run first, then POST TO ZOHO after confirming the preview.
+          <strong>Posting sales payments to Zoho.</strong> Use Dry Run first, then POST TO ZOHO after confirming the
+          preview. Return refunds and return fee journals are handled in steps 10–11 after payments land.
         </div>
       )}
 
@@ -95,7 +96,7 @@ export function Step8Post({ ctx }: { ctx: ClearingContext }) {
         )}
       </div>
         {!paymentPreview ? (
-        <p className="apc-muted">Generate the payment preview in Step 10 before posting.</p>
+        <p className="apc-muted">Generate the payment preview in step 8 before posting.</p>
       ) : null}
 
       {journalLines.length ? (

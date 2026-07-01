@@ -1892,4 +1892,5 @@ test('payment clearing route exposes saved batch and approve endpoints', () => {
   assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/apply-credit-notes' && route.methods.includes('post')))
   assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/return-fee-plan' && route.methods.includes('get')))
   assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/post-to-zoho' && route.methods.includes('post')))
+  assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/post-return-fee-journals' && route.methods.includes('post')))
 })
