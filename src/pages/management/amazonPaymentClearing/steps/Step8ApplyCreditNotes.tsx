@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   applyKsaCreditNotes,
   fetchKsaCreditNoteApplyPlan,
@@ -9,9 +9,9 @@ import type { ClearingContext } from './clearingContext'
 
 const ACTION_LABEL: Record<string, string> = {
   skipped_already_applied: 'Already applied in Zoho',
-  skipped_already_posted: 'Already posted in clearing',
-  apply_existing: 'Apply existing credit note',
-  create_and_apply: 'Create and apply',
+  skipped_already_posted: 'Recorded in clearing',
+  apply_existing: 'Apply credit note to invoice',
+  create_and_apply: 'Create credit note and apply',
   blocked: 'Blocked',
 }
 
@@ -23,6 +23,12 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
   const [localError, setLocalError] = useState('')
 
   const batchId = preview?.batch?.batchId
+  const settlementReturnCount = useMemo(() => {
+    const refundRows = preview?.refundReturnRows?.length || 0
+    const matchedReturns = preview?.matchedReturns?.length || 0
+    const netNegative = preview?.netNegativeReturnOrders?.length || 0
+    return Math.max(refundRows, matchedReturns, netNegative)
+  }, [preview?.matchedReturns, preview?.netNegativeReturnOrders, preview?.refundReturnRows])
 
   const loadPlan = useCallback(async () => {
     if (!batchId) return
@@ -51,7 +57,7 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
     try {
       const json = await applyKsaCreditNotes(batchId, true)
       setPlan(json.plan || null)
-      ctx.setNotice('Credit note apply dry run completed. No Zoho changes were made.')
+      ctx.setNotice('Dry run complete. Zoho was not changed.')
     } catch (e) {
       setLocalError(e instanceof Error ? e.message : 'Dry run failed')
     } finally {
@@ -61,7 +67,7 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
 
   const onApply = async () => {
     if (!batchId) return
-    const ok = window.confirm('Apply credit notes to Zoho for all ready return rows?')
+    const ok = window.confirm('Apply credit notes to Zoho invoices for all ready return rows?')
     if (!ok) return
     setApplying(true)
     setLocalError('')
@@ -83,62 +89,96 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
 
   const rows = plan?.rows || []
   const readyCount = rows.filter((row) => row.action === 'apply_existing' || row.action === 'create_and_apply').length
+  const existingCnCount = rows.filter((row) => row.zohoCreditNoteId && row.action !== 'create_and_apply').length
+  const planLooksEmpty = rows.length === 0 && settlementReturnCount > 0
 
   return (
     <div className="apc-step-stack">
       <div className="apc-alert">
-        Warehouse may have already created credit notes in Zoho. This step applies them to invoices, or creates and
-        applies missing credit notes from the Amazon refund amount.
+        Loads Zoho credit notes for each Amazon return in this settlement. Apply warehouse-created credit notes to
+        their invoices, or create and apply missing credit notes from the Amazon refund amount.
       </div>
 
       {localError ? <div className="apc-alert apc-alert--error" role="alert">{localError}</div> : null}
+      {planLooksEmpty ? (
+        <div className="apc-alert apc-alert--error" role="alert">
+          This settlement has {settlementReturnCount} return row(s) but no apply plan was built. Click Refresh plan
+          or reopen the batch from step 1.
+        </div>
+      ) : null}
 
       <section className="apc-summary-grid">
-        <SummaryCard label="Return Rows" value={plan?.summary?.totalRows ?? '-'} />
+        <SummaryCard label="Return Orders" value={plan?.summary?.totalRows ?? settlementReturnCount} />
+        <SummaryCard label="Zoho Credit Notes" value={existingCnCount} />
         <SummaryCard label="Ready to Apply" value={readyCount} />
         <SummaryCard label="Already Applied" value={plan?.summary?.skippedAlreadyApplied ?? '-'} />
-        <SummaryCard label="Blocked" value={plan?.summary?.blocked ?? '-'} />
       </section>
 
       <div className="apc-button-row">
         <button className="ainv-btn ainv-btn--sm" type="button" onClick={() => void loadPlan()} disabled={loading || applying}>
-          {loading ? 'Loading...' : 'Refresh plan'}
+          {loading ? 'Loading from Zoho...' : 'Refresh plan'}
         </button>
-        <button className="ainv-btn" type="button" onClick={() => void onPreviewApply()} disabled={!ctx.isApproved || applying || readyCount === 0}>
+        <button
+          className="ainv-btn"
+          type="button"
+          onClick={() => void onPreviewApply()}
+          disabled={!ctx.isApproved || applying || readyCount === 0}
+        >
           Preview apply
         </button>
-        <button className="ainv-btn ainv-btn--danger" type="button" onClick={() => void onApply()} disabled={!ctx.isApproved || applying || readyCount === 0}>
-          {applying ? 'Working...' : 'Apply credit notes'}
+        <button
+          className="ainv-btn ainv-btn--danger"
+          type="button"
+          onClick={() => void onApply()}
+          disabled={!ctx.isApproved || applying || readyCount === 0}
+        >
+          {applying ? 'Applying...' : 'Apply credit notes to invoices'}
         </button>
       </div>
 
-      {!ctx.isApproved ? <p className="apc-muted">Approve the settlement in step 6 before applying credit notes.</p> : null}
+      {!ctx.isApproved ? (
+        <p className="apc-muted">Approve the settlement in step 6 first. You can review the Zoho credit note plan below.</p>
+      ) : null}
 
-      <div className="apc-table-wrap">
+      <div className="apc-table-wrap apc-table-wrap--wide">
         <table className="apc-table">
           <thead>
             <tr>
-              <th>Order</th>
-              <th>Invoice</th>
-              <th>Credit note</th>
+              <th>Amazon order</th>
+              <th>Zoho invoice</th>
+              <th>Zoho credit note</th>
+              <th className="apc-money">CN amount</th>
+              <th className="apc-money">Amazon refund</th>
+              <th className="apc-money">Apply to invoice</th>
+              <th className="apc-money">Already applied</th>
               <th>Action</th>
-              <th className="apc-money">Apply amount</th>
               <th>Status</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={6} className="apc-muted">No return credit note rows for this settlement.</td>
+                <td colSpan={9} className="apc-muted">
+                  {loading ? 'Loading credit notes from Zoho...' : 'No return orders in this settlement.'}
+                </td>
               </tr>
             ) : (
               rows.map((row) => (
                 <tr key={row.orderId}>
                   <td>{row.orderId}</td>
                   <td>{row.zohoInvoiceNumber || row.zohoInvoiceId || '-'}</td>
-                  <td>{row.zohoCreditNoteNumber || row.zohoCreditNoteId || (row.action === 'create_and_apply' ? 'Will create' : '-')}</td>
+                  <td>
+                    {row.zohoCreditNoteNumber || row.zohoCreditNoteId || (row.action === 'create_and_apply' ? 'Will create' : '-')}
+                  </td>
+                  <td className="apc-money">{row.creditNoteAmount ? money(row.creditNoteAmount) : '-'}</td>
+                  <td className="apc-money">{money(row.amazonRefundAmount ?? row.applyAmount)}</td>
+                  <td className="apc-money">
+                    {row.action === 'apply_existing' || row.action === 'create_and_apply' ? money(row.applyAmount) : '-'}
+                  </td>
+                  <td className="apc-money">
+                    {row.amountAlreadyApplied != null && row.amountAlreadyApplied > 0 ? money(row.amountAlreadyApplied) : '-'}
+                  </td>
                   <td>{ACTION_LABEL[row.action] || row.action}</td>
-                  <td className="apc-money">{money(row.applyAmount)}</td>
                   <td>{row.blockingReason || row.status || '-'}</td>
                 </tr>
               ))

@@ -524,6 +524,8 @@ export interface CreditNoteApplyPlanRow {
   action: 'skipped_already_applied' | 'skipped_already_posted' | 'apply_existing' | 'create_and_apply' | 'blocked'
   status: string
   applyAmount: number
+  amazonRefundAmount?: number
+  creditNoteAmount?: number
   amountAlreadyApplied?: number
   zohoInvoiceId?: string
   zohoInvoiceNumber?: string

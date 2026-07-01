@@ -363,6 +363,7 @@ async function enrichBatchForClearingOperations(batch) {
     netNegativeReturnOrders: preview.netNegativeReturnOrders || [],
     syntheticRefundRows: preview.syntheticRefundRows || [],
     matchedReturns: preview.matchedReturns ?? batch.matchedReturns,
+    refundReturnRows: preview.refundReturnRows ?? batch.refundReturnRows ?? [],
     creditNoteBlockingRows: preview.creditNoteBlockingRows ?? batch.creditNoteBlockingRows,
     blockingIssues: preview.blockingIssues,
     reconciliationSummary: preview.reconciliationSummary,
@@ -816,8 +817,28 @@ async function forceRepostBatch(id, options = {}) {
   })
 }
 
+async function batchForCreditNoteApply(id) {
+  const raw = await store.getBatchById(id)
+  if (!raw) return null
+  const hydrated = await hydrateSavedBatch(raw)
+  const enriched = await enrichBatchForClearingOperations(raw)
+  return {
+    ...enriched,
+    batchId: raw.batchId,
+    marketplace: raw.marketplace || MARKETPLACE,
+    status: raw.status,
+    postedToZoho: raw.postedToZoho,
+    report: hydrated?.report || enriched.report || raw.report,
+    matchedReturns: hydrated?.matchedReturns || enriched.matchedReturns || [],
+    creditNoteBlockingRows: hydrated?.creditNoteBlockingRows || enriched.creditNoteBlockingRows || [],
+    netNegativeReturnOrders: hydrated?.netNegativeReturnOrders || enriched.netNegativeReturnOrders || [],
+    refundReturnRows: hydrated?.refundReturnRows || enriched.refundReturnRows || raw.refundReturnRows || [],
+    allRows: hydrated?.allRows || enriched.allRows || [],
+  }
+}
+
 async function getCreditNoteApplyPlanForBatch(id) {
-  const batch = await batchWithCurrentFeeJournalMappings(await store.getBatchById(id))
+  const batch = await batchForCreditNoteApply(id)
   if (!batch) {
     const err = new Error('Payment clearing batch not found.')
     err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
@@ -829,7 +850,7 @@ async function getCreditNoteApplyPlanForBatch(id) {
 }
 
 async function applyCreditNotesForBatchId(id, options = {}) {
-  const batch = await batchWithCurrentFeeJournalMappings(await store.getBatchById(id))
+  const batch = await batchForCreditNoteApply(id)
   if (!batch) {
     const err = new Error('Payment clearing batch not found.')
     err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_FOUND'

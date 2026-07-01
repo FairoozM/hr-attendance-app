@@ -1850,6 +1850,20 @@ test('return fee plan aggregates journals for settlement posting', () => {
   assert.equal(plan.summary.shippingRetainedTotal, 8)
 })
 
+test('collectReturnRowsForApply includes refundReturnRows from saved batch', () => {
+  const { collectReturnRowsForApply } = require('../src/services/amazonPaymentClearingCreditNotePostingService')
+  const rows = collectReturnRowsForApply({
+    matchedReturns: [],
+    refundReturnRows: [
+      { orderId: '701-return', amount: -50, transactionType: 'Refund' },
+    ],
+    allRows: [],
+  })
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].orderId, '701-return')
+  assert.equal(rows[0].amazonRefundAmount, 50)
+})
+
 test('payment clearing route is admin protected', () => {
   const stack = paymentClearingRoutes.stack.filter((layer) => layer.name !== 'query' && layer.name !== 'expressInit')
   assert.equal(stack[0].handle.name, 'requireAuth')

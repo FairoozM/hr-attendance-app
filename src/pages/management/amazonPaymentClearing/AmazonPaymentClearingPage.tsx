@@ -128,12 +128,19 @@ export function AmazonPaymentClearingPage() {
       return
     }
     void fetchKsaCreditNoteApplyPlan(batchId)
-      .then((plan) => setCreditNoteApplyComplete(Boolean(plan.summary?.isComplete)))
+      .then((plan) => {
+        const hasReturns =
+          (preview?.refundReturnRows?.length || 0) > 0 ||
+          (preview?.matchedReturns?.length || 0) > 0 ||
+          (preview?.netNegativeReturnOrders?.length || 0) > 0
+        const complete = Boolean(plan.summary?.isComplete)
+        setCreditNoteApplyComplete(!hasReturns ? complete : complete && (plan.summary?.totalRows || 0) > 0)
+      })
       .catch(() => setCreditNoteApplyComplete(false))
     void fetchKsaReturnFeePlan(batchId)
       .then((plan) => setReturnFeeBlockerCount(plan.summary?.varianceBlockerCount || 0))
       .catch(() => setReturnFeeBlockerCount(0))
-  }, [preview?.batch?.batchId, isApproved, isPosted])
+  }, [preview?.batch?.batchId, preview?.matchedReturns, preview?.netNegativeReturnOrders, preview?.refundReturnRows, isApproved, isPosted])
 
   const loadSavedBatches = useCallback(async () => {
     setLoadingBatches(true)
