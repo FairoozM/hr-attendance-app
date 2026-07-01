@@ -504,7 +504,7 @@ export function AmazonPaymentClearingPage() {
     7: preview ? `${feeJournalMappings.length} fee journal group(s) · ${unmappedFeeJournalCount} unmapped` : '',
     8: paymentPreview ? `${paymentPreview.paymentPlanSummary.invoiceCount} invoices planned` : 'Not generated',
     9: isPosted ? 'Sales payments posted' : 'Not posted',
-    10: creditNoteApplyComplete ? 'Credit notes applied' : isPosted ? 'Apply pending' : 'After sales post',
+    10: creditNoteApplyComplete ? 'Credit notes refunded' : isPosted ? 'Refund pending' : 'After sales post',
     11: returnFeePostComplete ? 'Return fees posted' : preview ? `${returnFeeBlockerCount} variance blocker(s)` : '',
   }
 

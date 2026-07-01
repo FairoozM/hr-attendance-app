@@ -1,7 +1,7 @@
 const {
-  listCreditNoteInvoiceApplications,
-  applyCreditNoteToInvoice,
+  listCreditNoteRefunds,
   createCreditNote,
+  refundCreditNote,
 } = require('../integrations/zoho/zohoBooksClient')
 const { matchZohoInvoicesForRows, resolveKsaZohoCustomerId } = require('./amazonPaymentClearingZohoMatcher')
 const { buildSettlementReference, buildEntryReference } = require('./amazonPaymentClearingReferenceService')
@@ -11,7 +11,10 @@ const zohoPaymentService = require('./amazonPaymentClearingZohoPaymentService')
 const store = require('./amazonPaymentClearingStore')
 
 const TOLERANCE = 0.01
-const PAYMENT_TYPE = 'credit_note_apply'
+const PAYMENT_TYPE = 'credit_note_refund'
+const LEGACY_PAYMENT_TYPE = 'credit_note_apply'
+const UNDEPOSITED_ACCOUNT_CODE = '1024'
+const UNDEPOSITED_ACCOUNT_NAME = 'KSA-Amazon Undeposited Funds'
 
 function clean(value) {
   return String(value == null ? '' : value).trim()
@@ -217,14 +220,54 @@ async function refreshReturnRowsFromLiveZoho(batch, rows, opts = {}) {
   })
 }
 
-async function invoiceApplicationTotal(creditNoteId, invoiceId, listApplications = listCreditNoteInvoiceApplications) {
-  const apps = await listApplications(creditNoteId)
+function resolveCreditNoteRefundAmount(row) {
+  return resolveCreditNoteApplyAmount(row)
+}
+
+async function resolveUndepositedRefundAccount(opts = {}) {
+  const resolver = opts.resolveDepositAccount || zohoPaymentService.resolveConfiguredDepositAccount
+  return resolver({
+    depositToAccountCode: UNDEPOSITED_ACCOUNT_CODE,
+    depositToAccountName: UNDEPOSITED_ACCOUNT_NAME,
+  })
+}
+
+async function creditNoteRefundTotal(creditNoteId, referenceNumber = '', listRefunds = listCreditNoteRefunds) {
+  const refunds = await listRefunds(creditNoteId)
+  const refKey = clean(referenceNumber)
   let total = 0
-  for (const row of apps) {
-    if (clean(row.invoice_id || row.invoiceId) !== clean(invoiceId)) continue
-    total = round2(total + num(row.amount_applied ?? row.amountApplied ?? row.applied_amount))
+  for (const row of refunds) {
+    const rowRef = clean(row.reference_number || row.referenceNumber)
+    if (refKey && rowRef && rowRef !== refKey) continue
+    total = round2(total + num(row.amount ?? row.amount_bcy ?? row.amount_fcy))
   }
   return total
+}
+
+async function buildRefundCreditNoteRequest(row, batch, opts = {}) {
+  const paymentDate = opts.paymentDate || zohoPaymentService.todayLocalDate()
+  const settlementReference = buildSettlementReference(batch)
+  const entry = buildEntryReference(settlementReference, 'refund_return', `Order ${row.orderId}`)
+  const account = await resolveUndepositedRefundAccount(opts)
+  const amount = resolveCreditNoteRefundAmount(row)
+  return {
+    amount,
+    paymentDate,
+    referenceNumber: entry.referenceNumber,
+    description: entry.description,
+    settlementReference,
+    refundAccountCode: UNDEPOSITED_ACCOUNT_CODE,
+    refundAccountName: account.accountName || UNDEPOSITED_ACCOUNT_NAME,
+    refundAccountId: account.accountId,
+    zohoRefundRequest: {
+      date: paymentDate,
+      refund_mode: 'Bank Transfer',
+      reference_number: entry.referenceNumber,
+      amount,
+      from_account_id: account.accountId,
+      description: entry.description,
+    },
+  }
 }
 
 function buildCreateCreditNotePayload(row, customerId, paymentDate) {
@@ -246,97 +289,99 @@ function buildCreateCreditNotePayload(row, customerId, paymentDate) {
 }
 
 async function resolvePlanRowAction(row, batch, opts = {}) {
-  const listApplications = opts.listApplications || listCreditNoteInvoiceApplications
+  const listRefunds = opts.listRefunds || listCreditNoteRefunds
   const invoiceId = clean(row.zohoInvoiceId)
-  const creditNoteIdForApply = clean(row.zohoCreditNoteId)
-  const applyAmount = creditNoteIdForApply ? resolveCreditNoteApplyAmount(row) : positiveAmount(row.amazonRefundAmount)
+  const creditNoteId = clean(row.zohoCreditNoteId)
+  const refundAmount = creditNoteId ? resolveCreditNoteRefundAmount(row) : positiveAmount(row.amazonRefundAmount)
   const settlementReference = buildSettlementReference(batch)
   const entry = buildEntryReference(settlementReference, 'refund_return', `Order ${row.orderId}`)
 
+  const baseFields = {
+    orderId: row.orderId,
+    amazonRefundAmount: positiveAmount(row.amazonRefundAmount),
+    creditNoteAmount: positiveAmount(row.creditNoteAmount),
+    zohoInvoiceId: invoiceId,
+    zohoInvoiceNumber: row.zohoInvoiceNumber || '',
+    zohoCreditNoteId: creditNoteId,
+    zohoCreditNoteNumber: row.zohoCreditNoteNumber || '',
+    refundAccountCode: UNDEPOSITED_ACCOUNT_CODE,
+    refundAccountName: UNDEPOSITED_ACCOUNT_NAME,
+    referenceNumber: entry.referenceNumber,
+    description: entry.description,
+  }
+
   if (!invoiceId) {
     return {
-      orderId: row.orderId,
+      ...baseFields,
       action: 'blocked',
       status: 'blocked',
       blockingReason: 'No Zoho invoice found for this Amazon return order.',
-      applyAmount,
+      applyAmount: refundAmount,
+      refundAmount,
     }
   }
 
-  if (applyAmount <= TOLERANCE && !creditNoteIdForApply) {
+  if (refundAmount <= TOLERANCE && !creditNoteId) {
     return {
-      orderId: row.orderId,
+      ...baseFields,
       action: 'blocked',
       status: 'blocked',
       blockingReason: 'Amazon refund amount is zero.',
-      applyAmount,
-      zohoInvoiceId: invoiceId,
+      applyAmount: refundAmount,
+      refundAmount,
     }
   }
 
-  if (creditNoteIdForApply) {
-    const applied = await invoiceApplicationTotal(creditNoteIdForApply, invoiceId, listApplications)
-    if (applied >= applyAmount - TOLERANCE) {
+  if (creditNoteId) {
+    const refunded = await creditNoteRefundTotal(creditNoteId, entry.referenceNumber, listRefunds)
+    if (refunded >= refundAmount - TOLERANCE) {
       return {
-        orderId: row.orderId,
-        action: 'skipped_already_applied',
+        ...baseFields,
+        action: 'skipped_already_refunded',
         status: 'completed',
-        applyAmount,
-        amazonRefundAmount: positiveAmount(row.amazonRefundAmount),
-        amountAlreadyApplied: applied,
-        creditNoteAmount: positiveAmount(row.creditNoteAmount),
-        zohoInvoiceId: invoiceId,
-        zohoInvoiceNumber: row.zohoInvoiceNumber || '',
-        zohoCreditNoteId: creditNoteIdForApply,
-        zohoCreditNoteNumber: row.zohoCreditNoteNumber || '',
-        referenceNumber: entry.referenceNumber,
-        description: entry.description,
+        applyAmount: refundAmount,
+        refundAmount,
+        amountAlreadyRefunded: refunded,
       }
     }
-    const remaining = round2(applyAmount - applied)
+    const remaining = round2(refundAmount - refunded)
+    const refundRequest = await buildRefundCreditNoteRequest({ ...row, creditNoteAmount: refundAmount }, batch, opts)
     return {
-      orderId: row.orderId,
-      action: 'apply_existing',
+      ...baseFields,
+      action: 'refund_existing',
       status: 'ready',
       applyAmount: remaining,
-      amazonRefundAmount: positiveAmount(row.amazonRefundAmount),
-      amountAlreadyApplied: applied,
-      creditNoteAmount: positiveAmount(row.creditNoteAmount),
-      zohoInvoiceId: invoiceId,
-      zohoInvoiceNumber: row.zohoInvoiceNumber || '',
-      zohoCreditNoteId: creditNoteIdForApply,
-      zohoCreditNoteNumber: row.zohoCreditNoteNumber || '',
-      referenceNumber: entry.referenceNumber,
-      description: entry.description,
-      zohoApplyRequest: {
-        creditNoteId: creditNoteIdForApply,
-        invoices: [{ invoice_id: invoiceId, amount_applied: remaining }],
+      refundAmount: remaining,
+      amountAlreadyRefunded: refunded,
+      refundAccountId: refundRequest.refundAccountId,
+      zohoRefundRequest: {
+        ...refundRequest.zohoRefundRequest,
+        amount: remaining,
       },
     }
   }
 
   if (row.creditNoteAction === 'ready_to_create') {
     const customerId = await resolveKsaZohoCustomerId(opts)
-    return {
-      orderId: row.orderId,
-      action: 'create_and_apply',
+    const paymentDate = opts.paymentDate || zohoPaymentService.todayLocalDate()
+  return {
+      ...baseFields,
+      action: 'create_and_refund',
       status: 'ready',
-      applyAmount,
-      amazonRefundAmount: positiveAmount(row.amazonRefundAmount),
-      creditNoteAmount: 0,
-      zohoInvoiceId: invoiceId,
-      zohoInvoiceNumber: row.zohoInvoiceNumber || '',
+      applyAmount: refundAmount,
+      refundAmount,
       zohoCustomerId: customerId,
-      referenceNumber: entry.referenceNumber,
-      description: entry.description,
-      zohoCreateRequest: buildCreateCreditNotePayload(row, customerId, opts.paymentDate || zohoPaymentService.todayLocalDate()),
-      zohoApplyRequest: {
-        invoices: [{ invoice_id: invoiceId, amount_applied: applyAmount }],
-      },
+      zohoCreateRequest: buildCreateCreditNotePayload(row, customerId, paymentDate),
+      zohoRefundRequest: (await buildRefundCreditNoteRequest(row, batch, { ...opts, paymentDate })).zohoRefundRequest,
     }
   }
 
-  return buildBlockedPlanRow(row, batch, opts)
+  return {
+    ...buildBlockedPlanRow(row, batch, opts),
+    refundAmount: refundAmount,
+    refundAccountCode: UNDEPOSITED_ACCOUNT_CODE,
+    refundAccountName: UNDEPOSITED_ACCOUNT_NAME,
+  }
 }
 
 async function buildCreditNoteApplyPlan(batch, opts = {}) {
@@ -352,18 +397,20 @@ async function buildCreditNoteApplyPlan(batch, opts = {}) {
   const summary = planRows.reduce(
     (acc, row) => {
       acc.totalRows += 1
-      if (row.action === 'skipped_already_applied') acc.skippedAlreadyApplied += 1
-      if (row.action === 'apply_existing') acc.applyExisting += 1
-      if (row.action === 'create_and_apply') acc.createAndApply += 1
+      if (row.action === 'skipped_already_refunded' || row.action === 'skipped_already_applied') acc.skippedAlreadyRefunded += 1
+      if (row.action === 'refund_existing' || row.action === 'apply_existing') acc.refundExisting += 1
+      if (row.action === 'create_and_refund' || row.action === 'create_and_apply') acc.createAndRefund += 1
       if (row.action === 'blocked') acc.blocked += 1
-      if (row.status === 'completed' || row.action === 'skipped_already_applied') acc.completed += 1
+      if (row.status === 'completed' || row.action === 'skipped_already_refunded' || row.action === 'skipped_already_applied') {
+        acc.completed += 1
+      }
       return acc
     },
     {
       totalRows: 0,
-      skippedAlreadyApplied: 0,
-      applyExisting: 0,
-      createAndApply: 0,
+      skippedAlreadyRefunded: 0,
+      refundExisting: 0,
+      createAndRefund: 0,
       blocked: 0,
       completed: 0,
     }
@@ -371,7 +418,7 @@ async function buildCreditNoteApplyPlan(batch, opts = {}) {
   const existingPostings = await store.listPostingsForBatch(batch.batchId).catch(() => [])
   const postedOrders = new Set(
     existingPostings
-      .filter((row) => row.paymentType === PAYMENT_TYPE && row.status === 'posted')
+      .filter((row) => (row.paymentType === PAYMENT_TYPE || row.paymentType === LEGACY_PAYMENT_TYPE) && row.status === 'posted')
       .map((row) => clean(row.orderId))
       .filter(Boolean)
   )
@@ -381,12 +428,16 @@ async function buildCreditNoteApplyPlan(batch, opts = {}) {
       row.status = 'completed'
     }
   }
+  summary.skippedAlreadyApplied = summary.skippedAlreadyRefunded
+  summary.applyExisting = summary.refundExisting
+  summary.createAndApply = summary.createAndRefund
   summary.isComplete =
     !settlementHasReturnApplyWork(batch) ||
     (planRows.length > 0 &&
       summary.blocked === 0 &&
       planRows.every(
         (row) =>
+          row.action === 'skipped_already_refunded' ||
           row.action === 'skipped_already_applied' ||
           row.action === 'skipped_already_posted' ||
           row.status === 'posted' ||
@@ -413,7 +464,8 @@ async function applyCreditNotesForBatch(batch, options = {}) {
   const dryRun = options.dryRun !== false
   const plan = await buildCreditNoteApplyPlan(batch, {
     paymentDate: options.paymentDate || zohoPaymentService.todayLocalDate(),
-    listApplications: options.listApplications,
+    listRefunds: options.listRefunds,
+    resolveDepositAccount: options.resolveDepositAccount,
   })
 
   const result = {
@@ -424,6 +476,7 @@ async function applyCreditNotesForBatch(batch, options = {}) {
     summary: {
       created: 0,
       applied: 0,
+      refunded: 0,
       skipped: 0,
       errors: 0,
     },
@@ -436,7 +489,11 @@ async function applyCreditNotesForBatch(batch, options = {}) {
   }
 
   for (const row of plan.rows) {
-    if (row.action === 'skipped_already_applied' || row.action === 'skipped_already_posted') {
+    if (
+      row.action === 'skipped_already_refunded' ||
+      row.action === 'skipped_already_applied' ||
+      row.action === 'skipped_already_posted'
+    ) {
       result.summary.skipped += 1
       result.rows.push({ ...row, status: 'skipped' })
       continue
@@ -452,18 +509,23 @@ async function applyCreditNotesForBatch(batch, options = {}) {
       let creditNoteId = clean(row.zohoCreditNoteId)
       let creditNoteNumber = row.zohoCreditNoteNumber || ''
 
-      if (row.action === 'create_and_apply') {
+      if (row.action === 'create_and_refund' || row.action === 'create_and_apply') {
         const created = await (options.createCreditNote || createCreditNote)(row.zohoCreateRequest)
         creditNoteId = clean(created.creditNoteId)
         creditNoteNumber = created.creditNoteNumber || ''
         result.summary.created += 1
       }
 
-      const applyInvoices = row.action === 'create_and_apply'
-        ? row.zohoApplyRequest.invoices
-        : row.zohoApplyRequest?.invoices || [{ invoice_id: row.zohoInvoiceId, amount_applied: row.applyAmount }]
+      const refundPayload = row.zohoRefundRequest || {
+        date: options.paymentDate || zohoPaymentService.todayLocalDate(),
+        amount: row.refundAmount ?? row.applyAmount,
+        reference_number: row.referenceNumber,
+        description: row.description,
+        from_account_id: row.refundAccountId,
+      }
 
-      await (options.applyCreditNoteToInvoice || applyCreditNoteToInvoice)(creditNoteId, applyInvoices)
+      const refunded = await (options.refundCreditNote || refundCreditNote)(creditNoteId, refundPayload)
+      result.summary.refunded += 1
       result.summary.applied += 1
 
       const posting = await store.insertPosting({
@@ -471,17 +533,20 @@ async function applyCreditNotesForBatch(batch, options = {}) {
         invoiceId: row.zohoInvoiceId,
         orderId: row.orderId,
         paymentType: PAYMENT_TYPE,
-        postingGroupKey: `APC-${batch.batchId}-cn-${row.orderId}`,
-        zohoPaymentId: creditNoteId,
-        amount: row.applyAmount,
-        accountCode: 'credit_note_application',
-        invoiceAllocations: applyInvoices,
+        postingGroupKey: `APC-${batch.batchId}-cn-refund-${row.orderId}`,
+        zohoPaymentId: refunded.creditNoteRefundId || creditNoteId,
+        amount: row.refundAmount ?? row.applyAmount,
+        accountCode: row.refundAccountCode || UNDEPOSITED_ACCOUNT_CODE,
+        invoiceAllocations: [],
         referenceNumber: row.referenceNumber,
         description: row.description,
         mappingSnapshot: {
           action: row.action,
           zohoCreditNoteId: creditNoteId,
           zohoCreditNoteNumber: creditNoteNumber,
+          zohoCreditNoteRefundId: refunded.creditNoteRefundId || '',
+          refundAccountId: refundPayload.from_account_id || row.refundAccountId || '',
+          refundAccountName: row.refundAccountName || UNDEPOSITED_ACCOUNT_NAME,
         },
         status: 'posted',
       })
@@ -491,6 +556,7 @@ async function applyCreditNotesForBatch(batch, options = {}) {
         status: 'posted',
         zohoCreditNoteId: creditNoteId,
         zohoCreditNoteNumber: creditNoteNumber,
+        zohoCreditNoteRefundId: refunded.creditNoteRefundId || '',
         postingId: posting?.postingId,
       })
     } catch (err) {
@@ -498,8 +564,8 @@ async function applyCreditNotesForBatch(batch, options = {}) {
       const errorRow = {
         ...row,
         status: 'error',
-        error: err?.message || 'Credit note apply failed',
-        code: err?.code || 'CREDIT_NOTE_APPLY_FAILED',
+        error: err?.message || 'Credit note refund failed',
+        code: err?.code || 'CREDIT_NOTE_REFUND_FAILED',
       }
       result.errors.push(errorRow)
       result.rows.push(errorRow)
@@ -512,6 +578,9 @@ async function applyCreditNotesForBatch(batch, options = {}) {
 
 module.exports = {
   PAYMENT_TYPE,
+  LEGACY_PAYMENT_TYPE,
+  UNDEPOSITED_ACCOUNT_CODE,
+  UNDEPOSITED_ACCOUNT_NAME,
   TOLERANCE,
   collectReturnRowsForApply,
   settlementHasReturnApplyWork,
@@ -520,8 +589,11 @@ module.exports = {
   applyCreditNotesForBatch,
   isCreditNoteApplyComplete,
   buildCreateCreditNotePayload,
+  buildRefundCreditNoteRequest,
   resolvePlanRowAction,
   resolveAmazonRefundAmount,
   resolveCreditNoteApplyAmount,
+  resolveCreditNoteRefundAmount,
   principalRefundAmountForOrder,
+  creditNoteRefundTotal,
 }

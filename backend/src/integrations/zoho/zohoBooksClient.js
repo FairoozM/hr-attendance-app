@@ -176,6 +176,47 @@ async function listCreditNoteInvoiceApplications(creditNoteId) {
   return []
 }
 
+async function listCreditNoteRefunds(creditNoteId) {
+  const id = String(creditNoteId || '').trim()
+  if (!id) return []
+  const json = await zohoApiRequest(`${BOOKS_V3}/creditnotes/${encodeURIComponent(id)}/refunds`, new URLSearchParams())
+  if (Array.isArray(json?.creditnote_refunds)) return json.creditnote_refunds
+  if (Array.isArray(json?.creditnote?.creditnote_refunds)) return json.creditnote.creditnote_refunds
+  return []
+}
+
+/**
+ * Refund an open credit note balance to a bank/cash account (e.g. undeposited funds).
+ * @param {string} creditNoteId
+ * @param {object} payload
+ */
+async function refundCreditNote(creditNoteId, payload) {
+  const id = String(creditNoteId || '').trim()
+  const body = {
+    date: payload.date,
+    refund_mode: payload.refund_mode || payload.refundMode || 'Bank Transfer',
+    reference_number: payload.reference_number || payload.referenceNumber || '',
+    amount: Number(payload.amount) || 0,
+    from_account_id: String(payload.from_account_id || payload.fromAccountId || ''),
+    description: payload.description || '',
+  }
+  const json = await zohoApiRequest(
+    `${BOOKS_V3}/creditnotes/${encodeURIComponent(id)}/refunds`,
+    new URLSearchParams(),
+    'POST',
+    buildZohoJsonStringBody(body),
+    { source: 'amazon_payment_clearing_cn_refund', skipCache: true, critical: true }
+  )
+  const refund = json?.creditnote_refund || json?.creditnote?.creditnote_refund || json || {}
+  return {
+    creditNoteRefundId: refund.creditnote_refund_id || refund.credit_note_refund_id || refund.id || '',
+    creditNoteId: refund.creditnote_id || id,
+    amount: Number(refund.amount ?? refund.amount_bcy ?? body.amount) || 0,
+    referenceNumber: refund.reference_number || body.reference_number || '',
+    raw: json,
+  }
+}
+
 /**
  * Apply credit note balance to one or more invoices.
  * @param {string} creditNoteId
@@ -225,7 +266,9 @@ module.exports = {
   fetchCreditNotes,
   fetchCreditNotesByCustomer,
   listCreditNoteInvoiceApplications,
+  listCreditNoteRefunds,
   applyCreditNoteToInvoice,
+  refundCreditNote,
   createCreditNote,
   BOOKS_V3,
 }

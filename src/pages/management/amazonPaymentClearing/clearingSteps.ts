@@ -74,9 +74,9 @@ export const CLEARING_STEPS: ClearingStep[] = [
   {
     id: 10,
     key: 'apply-credit-notes',
-    title: 'Apply Credit Notes',
+    title: 'Refund Credit Notes',
     description:
-      'After sales payments are posted, apply warehouse credit notes to invoices or create and apply missing credit notes for Amazon returns.',
+      'After sales payments are posted, refund warehouse credit notes to KSA-Amazon Undeposited Funds. Create missing credit notes first when needed.',
   },
   {
     id: 11,

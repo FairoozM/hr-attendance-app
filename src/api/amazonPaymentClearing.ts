@@ -521,17 +521,31 @@ export interface PaymentClearingPaymentPreview {
 
 export interface CreditNoteApplyPlanRow {
   orderId: string
-  action: 'skipped_already_applied' | 'skipped_already_posted' | 'apply_existing' | 'create_and_apply' | 'blocked'
+  action:
+    | 'skipped_already_refunded'
+    | 'skipped_already_applied'
+    | 'skipped_already_posted'
+    | 'refund_existing'
+    | 'apply_existing'
+    | 'create_and_refund'
+    | 'create_and_apply'
+    | 'blocked'
   status: string
   applyAmount: number
+  refundAmount?: number
   amazonRefundAmount?: number
   creditNoteAmount?: number
+  amountAlreadyRefunded?: number
   amountAlreadyApplied?: number
+  refundAccountCode?: string
+  refundAccountName?: string
+  refundAccountId?: string
   zohoInvoiceId?: string
   zohoInvoiceNumber?: string
   zohoCreditNoteId?: string
   zohoCreditNoteNumber?: string
   blockingReason?: string
+  error?: string
 }
 
 export interface CreditNoteApplyPlan {
@@ -540,9 +554,12 @@ export interface CreditNoteApplyPlan {
   rows: CreditNoteApplyPlanRow[]
   summary: {
     totalRows: number
-    skippedAlreadyApplied: number
-    applyExisting: number
-    createAndApply: number
+    skippedAlreadyRefunded?: number
+    skippedAlreadyApplied?: number
+    refundExisting?: number
+    applyExisting?: number
+    createAndRefund?: number
+    createAndApply?: number
     blocked: number
     completed: number
     isComplete?: boolean
@@ -557,6 +574,7 @@ export interface CreditNoteApplyResult {
   summary: {
     created: number
     applied: number
+    refunded?: number
     skipped: number
     errors: number
   }

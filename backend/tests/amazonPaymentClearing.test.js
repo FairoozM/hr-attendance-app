@@ -1778,7 +1778,7 @@ test('return fee breakdown splits commission reversal and retained shipping on r
   assert.ok(breakdown.netReturnSettlement < 0)
 })
 
-test('credit note apply plan marks missing credit note as create_and_apply', async () => {
+test('credit note apply plan marks missing credit note as create_and_refund', async () => {
   const batch = {
     batchId: 9,
     marketplace: 'KSA',
@@ -1796,15 +1796,16 @@ test('credit note apply plan marks missing credit note as create_and_apply', asy
     creditNoteBlockingRows: [],
   }
   const row = await resolvePlanRowAction(batch.matchedReturns[0], batch, {
-    listApplications: async () => [],
+    listRefunds: async () => [],
+    resolveDepositAccount: async () => ({ accountId: 'acct-undep', accountName: 'KSA-Amazon Undeposited Funds' }),
     customerId: 'cust1',
     paymentDate: '2026-05-20',
   })
-  assert.equal(row.action, 'create_and_apply')
-  assert.equal(row.applyAmount, 50)
+  assert.equal(row.action, 'create_and_refund')
+  assert.equal(row.refundAmount, 50)
 })
 
-test('credit note apply plan skips already applied credit notes', async () => {
+test('credit note apply plan skips already refunded credit notes', async () => {
   const batch = {
     batchId: 10,
     marketplace: 'KSA',
@@ -1813,6 +1814,7 @@ test('credit note apply plan skips already applied credit notes', async () => {
       {
         orderId: '701-return',
         amazonRefundAmount: 50,
+        creditNoteAmount: 50,
         zohoInvoiceId: 'zinv',
         zohoInvoiceNumber: 'INV-RETURN',
         zohoCreditNoteId: 'cn1',
@@ -1824,10 +1826,11 @@ test('credit note apply plan skips already applied credit notes', async () => {
     creditNoteBlockingRows: [],
   }
   const row = await resolvePlanRowAction(batch.matchedReturns[0], batch, {
-    listApplications: async () => [{ invoice_id: 'zinv', amount_applied: 50 }],
+    listRefunds: async () => [{ amount: 50 }],
+    resolveDepositAccount: async () => ({ accountId: 'acct-undep', accountName: 'KSA-Amazon Undeposited Funds' }),
     paymentDate: '2026-05-20',
   })
-  assert.equal(row.action, 'skipped_already_applied')
+  assert.equal(row.action, 'skipped_already_refunded')
 })
 
 test('return fee plan aggregates journals for settlement posting', () => {
@@ -1982,9 +1985,12 @@ test('credit note apply plan applies existing credit note even when legacy statu
       blockingReason: 'Credit note amount differs from Amazon refund/return amount by more than 0.01.',
     },
     batch,
-    { listApplications: async () => [] }
+    {
+      listRefunds: async () => [],
+      resolveDepositAccount: async () => ({ accountId: 'acct-undep', accountName: 'KSA-Amazon Undeposited Funds' }),
+    }
   )
-  assert.equal(row.action, 'apply_existing')
+  assert.equal(row.action, 'refund_existing')
   assert.equal(row.applyAmount, 1065)
 })
 
@@ -2009,12 +2015,14 @@ test('credit note apply plan applies full existing credit note amount', async ()
     creditNoteBlockingRows: [],
   }
   const row = await resolvePlanRowAction(batch.matchedReturns[0], batch, {
-    listApplications: async () => [],
+    listRefunds: async () => [],
+    resolveDepositAccount: async () => ({ accountId: 'acct-undep', accountName: 'KSA-Amazon Undeposited Funds' }),
     paymentDate: '2026-06-17',
   })
-  assert.equal(row.action, 'apply_existing')
+  assert.equal(row.action, 'refund_existing')
   assert.equal(row.applyAmount, 1065)
-  assert.equal(row.creditNoteAmount, 1065)
+  assert.equal(row.refundAmount, 1065)
+  assert.equal(row.refundAccountName, 'KSA-Amazon Undeposited Funds')
 })
 
 test('payment clearing route is admin protected', () => {
