@@ -8,7 +8,68 @@ REGION="${AWS_REGION:-eu-central-1}"
 INSTANCE_ID="${HR_BACKEND_INSTANCE_ID:-i-00f9451138c169214}"
 BUCKET="${HR_BACKEND_ARTIFACT_BUCKET:-hr-lifesmile-artifacts}"
 KEY="hr-backend-latest.tar.gz"
+ARTIFACT="/tmp/${KEY}"
 TMPJSON="$(mktemp)"
+REMOTE_SCRIPT="$(mktemp)"
+
+cleanup_local() {
+  rm -f "$TMPJSON" "$REMOTE_SCRIPT"
+}
+trap cleanup_local EXIT
+
+ssm_disk_snapshot() {
+  local label="$1"
+  local cmd_id
+  echo "==> ${label}"
+  cmd_id=$(aws ssm send-command --region "$REGION" \
+    --instance-ids "$INSTANCE_ID" \
+    --document-name "AWS-RunShellScript" \
+    --parameters commands="echo '=== Disk usage (${label}) ==='" "df -h /" "if [ -f ${ARTIFACT} ]; then ls -lah ${ARTIFACT}; else echo '${ARTIFACT} not present'; fi" \
+    --query 'Command.CommandId' --output text)
+  sleep 5
+  aws ssm get-command-invocation --region "$REGION" --command-id "$cmd_id" --instance-id "$INSTANCE_ID" \
+    --query 'StandardOutputContent' --output text || true
+}
+
+cat >"$REMOTE_SCRIPT" <<REMOTE
+set -euo pipefail
+
+echo "=== Disk usage before deploy ==="
+df -h /
+
+cd /home/ubuntu/hr-attendance-app
+sudo -u ubuntu aws s3 cp s3://${BUCKET}/${KEY} ${ARTIFACT}
+sudo -u ubuntu tar xzf ${ARTIFACT} -C /home/ubuntu/hr-attendance-app
+cd /home/ubuntu/hr-attendance-app/backend
+sudo -u ubuntu npm ci --omit=dev
+systemctl restart hr-attendance-backend.service
+bash -c 'set -e; for i in \$(seq 1 45); do if curl -sf -m 3 http://127.0.0.1:5001/api/health; then echo health_ok; exit 0; fi; sleep 1; done; echo health check timed out after 45s >&2; exit 1'
+
+echo "=== Disk usage after deploy (before /tmp cleanup) ==="
+df -h /
+ls -lah ${ARTIFACT}
+
+rm -f ${ARTIFACT}
+if [ -e ${ARTIFACT} ]; then
+  echo "ERROR: failed to remove ${ARTIFACT}" >&2
+  exit 1
+fi
+echo "Removed ${ARTIFACT} after successful health check"
+
+echo "=== Disk usage after /tmp cleanup ==="
+df -h /
+REMOTE
+
+python3 - "$REMOTE_SCRIPT" "$TMPJSON" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    script = f.read()
+
+with open(sys.argv[2], "w", encoding="utf-8") as f:
+    json.dump({"commands": [script]}, f)
+PY
 
 echo "==> Packaging backend..."
 tar czf "/tmp/$KEY" --exclude=node_modules --exclude=.env --exclude=backend/data -C "$ROOT" backend shared
@@ -16,32 +77,24 @@ tar czf "/tmp/$KEY" --exclude=node_modules --exclude=.env --exclude=backend/data
 echo "==> Uploading s3://${BUCKET}/${KEY}..."
 aws s3 cp "/tmp/$KEY" "s3://${BUCKET}/${KEY}" --region "$REGION"
 
-cat >"$TMPJSON" <<EOF
-{
-  "commands": [
-    "set -e",
-    "cd /home/ubuntu/hr-attendance-app",
-    "sudo -u ubuntu aws s3 cp s3://${BUCKET}/${KEY} /tmp/${KEY}",
-    "sudo -u ubuntu tar xzf /tmp/${KEY} -C /home/ubuntu/hr-attendance-app",
-    "cd /home/ubuntu/hr-attendance-app/backend",
-    "sudo -u ubuntu npm ci --omit=dev",
-    "systemctl restart hr-attendance-backend.service",
-    "bash -c 'set -e; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45; do if curl -sf -m 3 http://127.0.0.1:5001/api/health; then echo health_ok; exit 0; fi; sleep 1; done; echo health check timed out after 45s >&2; exit 1'"
-  ]
-}
-EOF
-
 echo "==> SSM deploy on ${INSTANCE_ID}..."
 CMD_ID=$(aws ssm send-command --region "$REGION" \
   --instance-ids "$INSTANCE_ID" \
   --document-name "AWS-RunShellScript" \
   --parameters "file://${TMPJSON}" \
   --query 'Command.CommandId' --output text)
-rm -f "$TMPJSON"
 
 # npm ci + extract + health poll can take 60s+
 sleep 60
+STATUS=$(aws ssm get-command-invocation --region "$REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+  --query 'Status' --output text)
 aws ssm get-command-invocation --region "$REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
-  --query '[Status,StandardOutputContent,StandardErrorContent]' --output text
+  --query '[StandardOutputContent,StandardErrorContent]' --output text
+
+if [ "$STATUS" != "Success" ]; then
+  echo "==> Deploy failed (SSM status: ${STATUS}). Fetching disk usage for debugging..."
+  ssm_disk_snapshot "deploy failure snapshot"
+  exit 1
+fi
 
 echo "Done."
