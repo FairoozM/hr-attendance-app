@@ -506,6 +506,17 @@ async function applyCreditNotesForBatch(batch, options = {}) {
     }
 
     try {
+      const existingPosting =
+        (row.zohoInvoiceId &&
+          (await store.findPosting(batch.batchId, row.zohoInvoiceId, PAYMENT_TYPE))) ||
+        (row.zohoInvoiceId &&
+          (await store.findPosting(batch.batchId, row.zohoInvoiceId, LEGACY_PAYMENT_TYPE)))
+      if (existingPosting?.status === 'posted') {
+        result.summary.skipped += 1
+        result.rows.push({ ...row, status: 'skipped', postingId: existingPosting.postingId })
+        continue
+      }
+
       let creditNoteId = clean(row.zohoCreditNoteId)
       let creditNoteNumber = row.zohoCreditNoteNumber || ''
 
@@ -533,7 +544,6 @@ async function applyCreditNotesForBatch(batch, options = {}) {
         invoiceId: row.zohoInvoiceId,
         orderId: row.orderId,
         paymentType: PAYMENT_TYPE,
-        postingGroupKey: `APC-${batch.batchId}-cn-refund-${row.orderId}`,
         zohoPaymentId: refunded.creditNoteRefundId || creditNoteId,
         amount: row.refundAmount ?? row.applyAmount,
         accountCode: row.refundAccountCode || UNDEPOSITED_ACCOUNT_CODE,
