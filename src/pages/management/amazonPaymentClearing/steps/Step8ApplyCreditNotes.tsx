@@ -47,12 +47,13 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
     try {
       const json = await fetchKsaCreditNoteApplyPlan(batchId)
       setPlan(json)
+      await ctx.refreshPostClearingStepStatus(batchId)
     } catch (e) {
       setLocalError(e instanceof Error ? e.message : 'Failed to load credit note refund plan')
     } finally {
       setLoading(false)
     }
-  }, [batchId])
+  }, [batchId, ctx.refreshPostClearingStepStatus])
 
   useEffect(() => {
     void loadPlan()
@@ -87,6 +88,7 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
       const json = await applyKsaCreditNotes(batchId, false)
       setPlan(json.plan || null)
       await ctx.onReloadCurrentBatch()
+      await ctx.refreshPostClearingStepStatus(batchId)
       const errorRows = (json.errors || []).filter((row) => row.error || row.blockingReason)
       if (errorRows.length) {
         setLocalError(errorRows.map((row) => `${row.orderId}: ${row.error || row.blockingReason}`).join(' | '))
@@ -107,6 +109,7 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
   const readyCount = rows.filter((row) => READY_ACTIONS.has(row.action)).length
   const existingCnCount = rows.filter((row) => row.zohoCreditNoteId && !row.action.startsWith('create_')).length
   const planLooksEmpty = rows.length === 0 && settlementReturnCount > 0
+  const stepComplete = Boolean(plan?.summary?.isComplete || ctx.creditNoteApplyComplete)
 
   return (
     <div className="apc-step-stack">
@@ -154,6 +157,11 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
         >
           {applying ? 'Refunding...' : 'Refund credit notes to undeposited funds'}
         </button>
+        {stepComplete ? (
+          <button className="ainv-btn" type="button" onClick={() => ctx.goToStep(11)}>
+            Continue to return fee clearing (step 11)
+          </button>
+        ) : null}
       </div>
 
       {!ctx.isPosted ? (

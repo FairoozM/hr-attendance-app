@@ -384,6 +384,16 @@ async function resolvePlanRowAction(row, batch, opts = {}) {
   }
 }
 
+function isCreditNotePlanRowComplete(row) {
+  return (
+    row.action === 'skipped_already_refunded' ||
+    row.action === 'skipped_already_applied' ||
+    row.action === 'skipped_already_posted' ||
+    row.status === 'posted' ||
+    row.status === 'completed'
+  )
+}
+
 async function buildCreditNoteApplyPlan(batch, opts = {}) {
   let rows = collectReturnRowsForApply(batch)
   if (opts.refreshZoho !== false && rows.length > 0) {
@@ -428,21 +438,14 @@ async function buildCreditNoteApplyPlan(batch, opts = {}) {
       row.status = 'completed'
     }
   }
+  summary.blocked = planRows.filter((row) => row.action === 'blocked').length
+  summary.completed = planRows.filter((row) => isCreditNotePlanRowComplete(row)).length
   summary.skippedAlreadyApplied = summary.skippedAlreadyRefunded
   summary.applyExisting = summary.refundExisting
   summary.createAndApply = summary.createAndRefund
   summary.isComplete =
     !settlementHasReturnApplyWork(batch) ||
-    (planRows.length > 0 &&
-      summary.blocked === 0 &&
-      planRows.every(
-        (row) =>
-          row.action === 'skipped_already_refunded' ||
-          row.action === 'skipped_already_applied' ||
-          row.action === 'skipped_already_posted' ||
-          row.status === 'posted' ||
-          row.status === 'completed'
-      ))
+    (planRows.length > 0 && summary.blocked === 0 && planRows.every((row) => isCreditNotePlanRowComplete(row)))
 
   return {
     batchId: batch.batchId,
@@ -592,6 +595,7 @@ module.exports = {
   UNDEPOSITED_ACCOUNT_CODE,
   UNDEPOSITED_ACCOUNT_NAME,
   TOLERANCE,
+  isCreditNotePlanRowComplete,
   collectReturnRowsForApply,
   settlementHasReturnApplyWork,
   refreshReturnRowsFromLiveZoho,

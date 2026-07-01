@@ -10,6 +10,9 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
   const [localError, setLocalError] = useState('')
 
   const batchId = preview?.batch?.batchId
+  const creditNotesDone = ctx.creditNoteApplyComplete || plan?.creditNoteApplyComplete === true
+  const varianceBlockers = plan?.summary?.varianceBlockerCount ?? ctx.returnFeeBlockerCount
+  const canPostJournals = Boolean(ctx.isPosted && creditNotesDone && varianceBlockers === 0)
 
   const loadPlan = useCallback(async () => {
     if (!batchId) return
@@ -18,12 +21,13 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
     try {
       const json = await fetchKsaReturnFeePlan(batchId)
       setPlan(json)
+      await ctx.refreshPostClearingStepStatus(batchId)
     } catch (e) {
       setLocalError(e instanceof Error ? e.message : 'Failed to load return fee plan')
     } finally {
       setLoading(false)
     }
-  }, [batchId])
+  }, [batchId, ctx.refreshPostClearingStepStatus])
 
   useEffect(() => {
     void loadPlan()
@@ -40,8 +44,14 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
 
       {!ctx.isPosted ? (
         <p className="apc-muted">Complete step 9 (post sales payments) and step 10 (apply credit notes) before posting return fee journals.</p>
-      ) : !ctx.creditNoteApplyComplete && plan?.creditNoteApplyComplete === false ? (
+      ) : !creditNotesDone ? (
         <p className="apc-muted">Apply all return credit notes in step 10 before posting return fee journals.</p>
+      ) : varianceBlockers > 0 ? (
+        <p className="apc-muted">
+          {varianceBlockers} return order(s) have fee residuals that need a variance account or manual review before
+          journals can post. Set <code>AMAZON_KSA_ZOHO_RETURN_VARIANCE_ACCOUNT_ID</code> on the backend or review the
+          planned journal table below.
+        </p>
       ) : null}
 
       {localError ? <div className="apc-alert apc-alert--error" role="alert">{localError}</div> : null}
@@ -57,7 +67,7 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
           className="ainv-btn"
           type="button"
           onClick={() => ctx.onPostReturnFeeJournals(true)}
-          disabled={!ctx.canPostReturnFeeJournals || ctx.postingReturnFees || (plan?.journalLines || []).length === 0}
+          disabled={!canPostJournals || ctx.postingReturnFees || (plan?.journalLines || []).length === 0}
         >
           {ctx.postingReturnFees ? 'Working...' : 'Dry run journals'}
         </button>
@@ -65,7 +75,7 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
           className="ainv-btn ainv-btn--danger"
           type="button"
           onClick={() => ctx.onPostReturnFeeJournals(false)}
-          disabled={!ctx.canPostReturnFeeJournals || ctx.postingReturnFees || ctx.returnFeePostComplete}
+          disabled={!canPostJournals || ctx.postingReturnFees || ctx.returnFeePostComplete}
         >
           Post return fee journals
         </button>

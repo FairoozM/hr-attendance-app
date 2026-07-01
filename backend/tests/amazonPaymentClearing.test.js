@@ -2025,6 +2025,13 @@ test('credit note apply plan applies full existing credit note amount', async ()
   assert.equal(row.refundAccountName, 'KSA-Amazon Undeposited Funds')
 })
 
+test('credit note plan row completion includes skipped posted refunds', () => {
+  const { isCreditNotePlanRowComplete } = require('../src/services/amazonPaymentClearingCreditNotePostingService')
+  assert.equal(isCreditNotePlanRowComplete({ action: 'skipped_already_posted', status: 'completed' }), true)
+  assert.equal(isCreditNotePlanRowComplete({ action: 'skipped_already_refunded', status: 'completed' }), true)
+  assert.equal(isCreditNotePlanRowComplete({ action: 'refund_existing', status: 'ready' }), false)
+})
+
 test('payment clearing route is admin protected', () => {
   const stack = paymentClearingRoutes.stack.filter((layer) => layer.name !== 'query' && layer.name !== 'expressInit')
   assert.equal(stack[0].handle.name, 'requireAuth')

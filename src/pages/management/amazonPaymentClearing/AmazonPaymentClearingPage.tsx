@@ -126,34 +126,32 @@ export function AmazonPaymentClearingPage() {
       returnFeeBlockerCount === 0
   )
 
-  useEffect(() => {
-    const batchId = preview?.batch?.batchId
-    if (!batchId || !isPosted) {
+  const refreshPostClearingStepStatus = useCallback(async (batchId?: string | number) => {
+    const id = batchId ?? preview?.batch?.batchId
+    if (!id || !isPosted) {
       setCreditNoteApplyComplete(false)
       setReturnFeeBlockerCount(0)
       setReturnFeePostComplete(false)
       return
     }
-    void fetchKsaCreditNoteApplyPlan(batchId)
-      .then((plan) => {
-        const hasReturns =
-          (preview?.refundReturnRows?.length || 0) > 0 ||
-          (preview?.matchedReturns?.length || 0) > 0 ||
-          (preview?.netNegativeReturnOrders?.length || 0) > 0
-        const complete = Boolean(plan.summary?.isComplete)
-        setCreditNoteApplyComplete(!hasReturns ? complete : complete && (plan.summary?.totalRows || 0) > 0)
-      })
-      .catch(() => setCreditNoteApplyComplete(false))
-    void fetchKsaReturnFeePlan(batchId)
-      .then((plan) => {
-        setReturnFeeBlockerCount(plan.summary?.varianceBlockerCount || 0)
-        setReturnFeePostComplete(Boolean(plan.returnFeePostComplete))
-      })
-      .catch(() => {
-        setReturnFeeBlockerCount(0)
-        setReturnFeePostComplete(false)
-      })
-  }, [preview?.batch?.batchId, preview?.matchedReturns, preview?.netNegativeReturnOrders, preview?.refundReturnRows, isPosted])
+    try {
+      const [cnPlan, feePlan] = await Promise.all([
+        fetchKsaCreditNoteApplyPlan(id),
+        fetchKsaReturnFeePlan(id),
+      ])
+      setCreditNoteApplyComplete(Boolean(cnPlan.summary?.isComplete))
+      setReturnFeeBlockerCount(feePlan.summary?.varianceBlockerCount || 0)
+      setReturnFeePostComplete(Boolean(feePlan.returnFeePostComplete))
+    } catch {
+      setCreditNoteApplyComplete(false)
+      setReturnFeeBlockerCount(0)
+      setReturnFeePostComplete(false)
+    }
+  }, [isPosted, preview?.batch?.batchId])
+
+  useEffect(() => {
+    void refreshPostClearingStepStatus()
+  }, [refreshPostClearingStepStatus])
 
   const loadSavedBatches = useCallback(async () => {
     setLoadingBatches(true)
@@ -331,6 +329,7 @@ export function AmazonPaymentClearingPage() {
           const refreshed = await fetchKsaPaymentClearingBatch(batchId)
           setPreview(refreshed)
           await loadSavedBatches()
+          await refreshPostClearingStepStatus(batchId)
         }
       } catch (e) {
         setError(safeError(e))
@@ -338,7 +337,7 @@ export function AmazonPaymentClearingPage() {
         setPosting(false)
       }
     },
-    [loadSavedBatches, preview?.batch?.batchId]
+    [loadSavedBatches, preview?.batch?.batchId, refreshPostClearingStepStatus]
   )
 
   const onPostReturnFeeJournals = useCallback(
@@ -362,6 +361,7 @@ export function AmazonPaymentClearingPage() {
           const feePlan = await fetchKsaReturnFeePlan(batchId)
           setReturnFeePostComplete(Boolean(feePlan.returnFeePostComplete))
           setReturnFeeBlockerCount(feePlan.summary?.varianceBlockerCount || 0)
+          await refreshPostClearingStepStatus(batchId)
         }
       } catch (e) {
         setError(safeError(e))
@@ -369,7 +369,7 @@ export function AmazonPaymentClearingPage() {
         setPostingReturnFees(false)
       }
     },
-    [preview?.batch?.batchId]
+    [preview?.batch?.batchId, refreshPostClearingStepStatus]
   )
 
   const onConfirmForceRepost = useCallback(
@@ -441,6 +441,8 @@ export function AmazonPaymentClearingPage() {
       const id = preview?.batch?.batchId || routeBatchId || loadedBatchId
       if (id) await openBatch(id, { navigate: false })
     },
+    refreshPostClearingStepStatus,
+    goToStep,
     setNotice,
   }
 
