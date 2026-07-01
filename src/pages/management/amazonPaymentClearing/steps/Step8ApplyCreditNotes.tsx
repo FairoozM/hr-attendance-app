@@ -95,8 +95,8 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
   return (
     <div className="apc-step-stack">
       <div className="apc-alert">
-        After sales payments are posted in step 9, apply warehouse credit notes to their invoices, or create and apply
-        missing credit notes from the Amazon refund amount.
+        After sales payments are posted in step 9, apply existing warehouse credit notes to their invoices for the full
+        credit note amount. Missing credit notes are created from the Amazon principal refund only.
       </div>
 
       {localError ? <div className="apc-alert apc-alert--error" role="alert">{localError}</div> : null}

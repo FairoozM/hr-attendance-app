@@ -2,6 +2,7 @@ const { fetchCustomers, fetchInvoices, fetchCreditNotes } = require('../integrat
 const { normalizeSettlementDate } = require('./amazonSettlementParserService')
 const { ROW_CLASS, isNonOrderLinkedAmazonFee } = require('./amazonPaymentClearingCategoryService')
 const { detectNetNegativeOrderRefundRows, round2 } = require('./amazonPaymentClearingOrderBreakdownService')
+const { buildReturnFeeBreakdown } = require('./amazonPaymentClearingReturnFeeService')
 
 const KSA_ZOHO_CUSTOMER_NAME = 'KSA-Amazon'
 /** Zoho invoice date is often weeks before Amazon settlement payout. */
@@ -241,6 +242,20 @@ function isRefundReturnRow(row) {
 
 function creditNoteMatchesInvoiceOrOrder(creditNote, invoice, orderId) {
   const cn = mapCreditNote(creditNote)
+  const orderKey = matchKey(orderId)
+  const invoiceIdKey = matchKey(invoice?.zohoInvoiceId)
+  const invoiceNumberKey = matchKey(invoice?.zohoInvoiceNumber)
+
+  if (invoiceIdKey && cn.invoiceIds.some((id) => matchKey(id) === invoiceIdKey)) {
+    return true
+  }
+  if (orderKey && matchKey(cn.zohoCreditNoteNumber) === orderKey) {
+    return true
+  }
+  if (invoiceNumberKey && matchKey(cn.referenceNumber) === invoiceNumberKey) {
+    return true
+  }
+
   const refs = [
     cn.referenceNumber,
     cn.zohoCreditNoteNumber,
@@ -253,22 +268,50 @@ function creditNoteMatchesInvoiceOrOrder(creditNote, invoice, orderId) {
     invoice?.zohoPoNumber,
   ].map(matchKey).filter(Boolean)
 
-  if (invoice?.zohoInvoiceId && cn.invoiceIds.some((id) => matchKey(id) === matchKey(invoice.zohoInvoiceId))) {
-    return true
-  }
   return needles.some((needle) => refs.some((ref) => ref === needle || ref.includes(needle) || needle.includes(ref)))
 }
 
+function groupRefundRowsByOrder(rows) {
+  const groups = new Map()
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (!isRefundReturnRow(row)) continue
+    const orderId = clean(row.orderId)
+    if (!orderId) continue
+    if (!groups.has(orderId)) groups.set(orderId, [])
+    groups.get(orderId).push(row)
+  }
+  return groups
+}
+
+function principalRefundAmountForOrderRows(orderRows) {
+  const breakdown = buildReturnFeeBreakdown(orderRows)
+  return Math.abs(round2(breakdown.customerRefundAmount))
+}
+
+function representativeRefundRowForOrder(orderId, orderRows) {
+  const principal = principalRefundAmountForOrderRows(orderRows)
+  const principalRow = orderRows.find(
+    (row) => clean(row.amountType) === 'ItemPrice' && clean(row.amountDescription).toLowerCase() === 'principal'
+  )
+  const representative = principalRow || orderRows[0]
+  return {
+    ...representative,
+    orderId,
+    amount: principal > 0 ? -principal : representative.amount,
+    amazonRefundAmount: principal,
+  }
+}
+
 function matchRefundReturnRowsToCreditNotes(rows, invoices, creditNotes) {
-  const refundRows = (Array.isArray(rows) ? rows : []).filter(isRefundReturnRow)
+  const refundRowsByOrder = groupRefundRowsByOrder(rows)
   const mappedCreditNotes = (Array.isArray(creditNotes) ? creditNotes : []).map(mapCreditNote)
   const matchedReturns = []
   const missingCreditNotes = []
   const blockingRows = []
 
-  for (const row of refundRows) {
-    const orderId = clean(row.orderId)
-    const amazonRefundAmount = Math.abs(round2(row.amount))
+  for (const [orderId, orderRows] of refundRowsByOrder.entries()) {
+    const row = representativeRefundRowForOrder(orderId, orderRows)
+    const amazonRefundAmount = principalRefundAmountForOrderRows(orderRows) || Math.abs(round2(row.amount))
     const base = {
       rowClass: row.rowClass,
       category: row.category,
@@ -312,7 +355,9 @@ function matchRefundReturnRowsToCreditNotes(rows, invoices, creditNotes) {
     }
 
     const invoice = invoiceMatch.matches[0]
-    const creditNoteMatches = mappedCreditNotes.filter((creditNote) => creditNoteMatchesInvoiceOrOrder(creditNote, invoice, orderId))
+    const creditNoteMatches = (Array.isArray(creditNotes) ? creditNotes : [])
+      .filter((creditNote) => creditNoteMatchesInvoiceOrOrder(creditNote, invoice, orderId))
+      .map(mapCreditNote)
     const invoiceFields = {
       zohoInvoiceId: invoice.zohoInvoiceId,
       zohoInvoiceNumber: invoice.zohoInvoiceNumber,
@@ -345,7 +390,11 @@ function matchRefundReturnRowsToCreditNotes(rows, invoices, creditNotes) {
 
     const creditNote = creditNoteMatches[0]
     const creditNoteAmount = Math.abs(round2(creditNote.amount))
+    const invoiceTotal = Math.abs(round2(invoice.zohoInvoiceTotal))
     const creditNoteDifference = round2(creditNoteAmount - amazonRefundAmount)
+    const matchesInvoiceTotal =
+      invoiceTotal > 0 && Math.abs(creditNoteAmount - invoiceTotal) <= 0.01
+    const matchesPrincipal = Math.abs(creditNoteDifference) <= 0.01
     const out = {
       ...base,
       ...invoiceFields,
@@ -355,8 +404,8 @@ function matchRefundReturnRowsToCreditNotes(rows, invoices, creditNotes) {
       creditNoteStatus: creditNote.status,
       creditNoteDifference,
       creditNoteAction: 'matched_existing',
-      status: Math.abs(creditNoteDifference) <= 0.01 ? 'matched' : 'blocked',
-      blockingReason: Math.abs(creditNoteDifference) <= 0.01
+      status: matchesPrincipal || matchesInvoiceTotal ? 'matched' : 'blocked',
+      blockingReason: matchesPrincipal || matchesInvoiceTotal
         ? ''
         : 'Credit note amount differs from Amazon refund/return amount by more than 0.01.',
       originalRawRow: row.originalRawRow || row.rawRow || row,
@@ -520,5 +569,8 @@ module.exports = {
     poNumber,
     matchKey,
     shiftDateIso,
+    groupRefundRowsByOrder,
+    principalRefundAmountForOrderRows,
+    creditNoteMatchesInvoiceOrOrder,
   },
 }

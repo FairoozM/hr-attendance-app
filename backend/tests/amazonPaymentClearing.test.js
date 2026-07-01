@@ -1864,6 +1864,99 @@ test('collectReturnRowsForApply includes refundReturnRows from saved batch', () 
   assert.equal(rows[0].amazonRefundAmount, 50)
 })
 
+test('collectReturnRowsForApply uses principal refund not last fee line per order', () => {
+  const { collectReturnRowsForApply } = require('../src/services/amazonPaymentClearingCreditNotePostingService')
+  const orderId = '407-5302986-4161132'
+  const rows = collectReturnRowsForApply({
+    matchedReturns: [],
+    allRows: [
+      { orderId, transactionType: 'Refund', amountType: 'ItemPrice', amountDescription: 'Principal', amount: -1065, transactionType: 'Refund' },
+      { orderId, transactionType: 'Refund', amountType: 'ItemFees', amountDescription: 'Commission', amount: 6, transactionType: 'Refund' },
+      { orderId, transactionType: 'Refund', amountType: 'ItemFees', amountDescription: 'FBAPerUnitFulfillmentFee', amount: -12, transactionType: 'Refund' },
+    ],
+  })
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].amazonRefundAmount, 1065)
+})
+
+test('credit note matching links warehouse credit note number to Amazon order id', () => {
+  const rows = [
+    {
+      orderId: '407-5302986-4161132',
+      transactionType: 'Refund',
+      amountType: 'ItemPrice',
+      amountDescription: 'Principal',
+      amount: -1065,
+      category: CATEGORY.REFUND,
+      rowClass: ROW_CLASS.REFUND,
+    },
+    {
+      orderId: '407-5302986-4161132',
+      transactionType: 'Refund',
+      amountType: 'ItemFees',
+      amountDescription: 'Commission',
+      amount: 6,
+      category: CATEGORY.REFUND,
+      rowClass: ROW_CLASS.REFUND,
+    },
+  ]
+  const invoices = [
+    {
+      invoice_id: 'zinv1',
+      invoice_number: 'INV-041580',
+      reference_number: '407-5302986-4161132',
+      customer_id: 'cust1',
+      customer_name: 'KSA-Amazon',
+      total: 1065,
+    },
+  ]
+  const creditNotes = [
+    {
+      creditnote_id: 'cn1',
+      creditnote_number: '407-5302986-4161132',
+      reference_number: 'Grade A - Brand New',
+      invoice_id: 'zinv1',
+      customer_id: 'cust1',
+      total: 1065,
+      status: 'open',
+    },
+  ]
+  const result = matchRefundReturnRowsToCreditNotes(rows, invoices, creditNotes)
+  assert.equal(result.matchedReturns.length, 1)
+  assert.equal(result.matchedReturns[0].amazonRefundAmount, 1065)
+  assert.equal(result.matchedReturns[0].zohoCreditNoteId, 'cn1')
+  assert.equal(result.matchedReturns[0].status, 'matched')
+})
+
+test('credit note apply plan applies full existing credit note amount', async () => {
+  const batch = {
+    batchId: 12,
+    marketplace: 'KSA',
+    report: { settlementId: 'SET1', settlementStartDate: '2026-05-01', settlementEndDate: '2026-05-15' },
+    matchedReturns: [
+      {
+        orderId: '407-5302986-4161132',
+        amazonRefundAmount: 1065,
+        creditNoteAmount: 1065,
+        zohoInvoiceId: 'zinv',
+        zohoInvoiceNumber: 'INV-041580',
+        zohoCreditNoteId: 'cn1',
+        zohoCreditNoteNumber: '407-5302986-4161132',
+        creditNoteAction: 'matched_existing',
+        status: 'matched',
+      },
+    ],
+    creditNoteBlockingRows: [],
+  }
+  const row = await resolvePlanRowAction(batch.matchedReturns[0], batch, {
+    listApplications: async () => [],
+    paymentDate: '2026-06-17',
+  })
+  assert.equal(row.action, 'apply_existing')
+  assert.equal(row.applyAmount, 1065)
+  assert.equal(row.creditNoteAmount, 1065)
+})
+
 test('payment clearing route is admin protected', () => {
   const stack = paymentClearingRoutes.stack.filter((layer) => layer.name !== 'query' && layer.name !== 'expressInit')
   assert.equal(stack[0].handle.name, 'requireAuth')
