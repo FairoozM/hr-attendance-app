@@ -412,7 +412,7 @@ test('preview treats account-level Amazon fees without order ID as journal-mappe
   assert.ok(!preview.blockingIssues.map((issue) => issue.code).includes('MISSING_ORDER_ID'))
   assert.equal(preview.nonOrderLinkedAmazonFeeMappings.length, 1)
   assert.equal(preview.nonOrderLinkedAmazonFeeMappings[0].classification, ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE)
-  assert.equal(preview.nonOrderLinkedAmazonFeeMappings[0].journalPreview.referenceNumber, '15-Apr-2026 to 29-Apr-2026')
+  assert.equal(preview.nonOrderLinkedAmazonFeeMappings[0].journalPreview.referenceNumber, '15-Apr-2026 to 29-Apr-2026 Storage Fee')
 })
 
 test('preview treats no-order Other settlement rows as account-level journal rows', () => {
@@ -468,7 +468,7 @@ test('fee journal mapping rules map account-level fees by normalized type', () =
   assert.equal(mapping.normalizedFeeType, 'STORAGE')
   assert.equal(mapping.mappingStatus, 'mapped')
   assert.equal(mapping.mappingRuleId, 7)
-  assert.equal(mapping.journalPreview.referenceNumber, '29-Apr-2026 to 13-May-2026')
+  assert.equal(mapping.journalPreview.referenceNumber, '29-Apr-2026 to 13-May-2026 Storage Fee')
   assert.ok(!preview.blockingIssues.map((issue) => issue.code).includes('MISSING_ORDER_ID'))
 })
 
@@ -1410,9 +1410,9 @@ test('grouped posting creates three payments with eleven invoice allocations eac
     const total = payment.invoices.reduce((sum, row) => sum + row.amountApplied, 0)
     assert.equal(payment.amount, total)
   }
-  assert.equal(created.find((p) => p.referenceNumber.endsWith('-NET')).amount, 935)
-  assert.equal(created.find((p) => p.referenceNumber.endsWith('-COMM')).amount, 110)
-  assert.equal(created.find((p) => p.referenceNumber.endsWith('-SHIP')).amount, 55)
+  assert.equal(created.find((p) => p.referenceNumber.includes('Net Undeposited')).amount, 935)
+  assert.equal(created.find((p) => p.referenceNumber.includes('Commission Undeposited')).amount, 110)
+  assert.equal(created.find((p) => p.referenceNumber.includes('Shipping Undeposited')).amount, 55)
 })
 
 test('settlement reference builds period-based reference number and traceable description', () => {
@@ -1431,8 +1431,8 @@ test('settlement reference builds period-based reference number and traceable de
   assert.equal(reference.zohoReferenceNumber, '01-Jun-2026 to 15-Jun-2026')
 
   const net = buildEntryReference(reference, 'net_balance')
-  assert.equal(net.referenceNumber, '01-Jun-2026 to 15-Jun-2026')
-  assert.equal(referenceNumberFor(reference, 'commission'), '01-Jun-2026 to 15-Jun-2026')
+  assert.equal(net.referenceNumber, '01-Jun-2026 to 15-Jun-2026 Net Undeposited')
+  assert.equal(referenceNumberFor(reference, 'commission'), '01-Jun-2026 to 15-Jun-2026 Commission Undeposited')
 
   const description = descriptionFor(reference, net.entryLabel)
   assert.ok(description.includes('Amazon KSA Settlement'))
@@ -1467,7 +1467,7 @@ test('payment preview exposes settlement reference and posting references for th
   assert.equal(preview.settlementReference.referenceBase, 'AMZ-KSA-20260601-20260615')
   assert.ok(Array.isArray(preview.postingReferences))
   const net = preview.postingReferences.find((row) => row.paymentType === 'net_balance')
-  assert.equal(net.referenceNumber, '01-Jun-2026 to 15-Jun-2026')
+  assert.equal(net.referenceNumber, '01-Jun-2026 to 15-Jun-2026 Net Undeposited')
   assert.ok(net.amount > 0)
   assert.ok(net.description.includes('Period: 01 Jun 2026 - 15 Jun 2026'))
 })
@@ -1499,16 +1499,21 @@ test('posting carries settlement-period reference and description to Zoho payloa
 
   assert.equal(result.settlementReference.referenceBase, 'AMZ-KSA-20260601-20260615')
   for (const payment of created) {
-    assert.equal(payment.referenceNumber, '01-Jun-2026 to 15-Jun-2026')
+    assert.ok(payment.referenceNumber.includes('01-Jun-2026 to 15-Jun-2026'))
+    assert.ok(
+      payment.referenceNumber.includes('Net Undeposited') ||
+        payment.referenceNumber.includes('Commission Undeposited') ||
+        payment.referenceNumber.includes('Shipping Undeposited')
+    )
     assert.ok(payment.description.includes('Settlement ID: S-9'))
     assert.ok(payment.description.includes('Report ID: RPT-9'))
   }
   for (const posting of store.postings) {
-    assert.equal(posting.referenceNumber, '01-Jun-2026 to 15-Jun-2026')
+    assert.ok(posting.referenceNumber.includes('01-Jun-2026 to 15-Jun-2026'))
     assert.ok(posting.description.includes('Period: 01 Jun 2026 - 15 Jun 2026'))
   }
   for (const row of result.payments) {
-    assert.equal(row.zohoPayloadPreview.reference_number, '01-Jun-2026 to 15-Jun-2026')
+    assert.ok(row.zohoPayloadPreview.reference_number.includes('01-Jun-2026 to 15-Jun-2026'))
     assert.ok(row.zohoPayloadPreview.description.includes('Amazon KSA Settlement'))
   }
 })

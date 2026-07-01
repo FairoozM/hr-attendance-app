@@ -28,6 +28,25 @@ const ENTRY_TYPE_LABELS = Object.freeze({
   adjustment: 'Adjustment Clearing',
 })
 
+// Short suffix appended to the settlement date range in Zoho reference_number fields.
+const ENTRY_TYPE_ZOHO_REF_SUFFIX = Object.freeze({
+  net_balance: 'Net Undeposited',
+  commission: 'Commission Undeposited',
+  shipping_fba: 'Shipping Undeposited',
+  advertising: 'Advertising Fee',
+  storage: 'Storage Fee',
+  refund_return: 'Credit Note Refund',
+  adjustment: 'Adjustment',
+  return_commission_reversal: 'Return Commission',
+  return_shipping_retained: 'Return Shipping',
+  return_other_fee: 'Return Other Fee',
+  return_variance: 'Return Variance',
+  ADVERTISING: 'Advertising Fee',
+  STORAGE: 'Storage Fee',
+  PREMIUM_SERVICES: 'Premium Services Fee',
+  OTHER: 'Amazon Fee',
+})
+
 function parseYmd(value) {
   if (!value) return null
   const s = String(value).trim()
@@ -114,9 +133,28 @@ function entryTypeLabel(paymentType) {
   return ENTRY_TYPE_LABELS[paymentType] || 'Settlement Clearing'
 }
 
-// Reference number for a specific entry type, e.g. AMZ-KSA-20260601-20260615-NET.
+function entryTypeZohoRefSuffix(paymentType) {
+  const raw = String(paymentType || '').trim()
+  if (!raw) return 'Clearing'
+  const lower = raw.toLowerCase()
+  if (ENTRY_TYPE_ZOHO_REF_SUFFIX[lower]) return ENTRY_TYPE_ZOHO_REF_SUFFIX[lower]
+  if (ENTRY_TYPE_ZOHO_REF_SUFFIX[raw]) return ENTRY_TYPE_ZOHO_REF_SUFFIX[raw]
+  if (lower.includes('_')) {
+    return lower
+      .split('_')
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ')
+  }
+  return raw.charAt(0).toUpperCase() + raw.slice(1)
+}
+
+// Reference number for a specific entry type, e.g. 01-Jun-2026 to 15-Jun-2026 Net Undeposited.
 function referenceNumberFor(reference, paymentType) {
-  if (reference?.zohoReferenceNumber) return reference.zohoReferenceNumber
+  const suffix = entryTypeZohoRefSuffix(paymentType)
+  if (reference?.zohoReferenceNumber) {
+    return `${reference.zohoReferenceNumber} ${suffix}`
+  }
   const code =
     ENTRY_TYPE_CODES[paymentType] ||
     String(paymentType || '')
@@ -124,7 +162,7 @@ function referenceNumberFor(reference, paymentType) {
       .replace(/[^A-Z0-9]+/g, '')
       .slice(0, 6) ||
     'ENTRY'
-  return `${reference.referenceBase}-${code}`
+  return `${reference.referenceBase}-${code} ${suffix}`.trim()
 }
 
 // Multi-line description sent to Zoho with full settlement traceability.
@@ -154,10 +192,12 @@ function buildEntryReference(reference, paymentType, entryLabelOverride) {
 module.exports = {
   ENTRY_TYPE_CODES,
   ENTRY_TYPE_LABELS,
+  ENTRY_TYPE_ZOHO_REF_SUFFIX,
   buildSettlementReference,
   referenceNumberFor,
   descriptionFor,
   entryTypeLabel,
+  entryTypeZohoRefSuffix,
   buildEntryReference,
   compactYmd,
   displayYmd,

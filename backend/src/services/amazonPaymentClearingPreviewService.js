@@ -9,7 +9,7 @@ const {
   normalizeAmazonFeeType,
   NORMALIZED_FEE_TYPE,
 } = require('./amazonPaymentClearingCategoryService')
-const { displayYmd } = require('./amazonPaymentClearingReferenceService')
+const { buildSettlementReference, referenceNumberFor } = require('./amazonPaymentClearingReferenceService')
 const { matchSettlementRowsToInvoices } = require('./amazonPaymentClearingZohoMatcher')
 const { buildOrderFeeBreakdown, detectNetNegativeOrderRefundRows, isNetNegativeOrderReturn, isSettlementReturnRow, collectInvoicePaymentExcludedOrderIds, orderHasSalePrincipalInSettlement, round2 } = require('./amazonPaymentClearingOrderBreakdownService')
 const { buildReconciliationSummary } = require('./amazonPaymentClearingReconciliationService')
@@ -103,15 +103,13 @@ function mappingStatus(accounts, amount = 0, rule = null) {
   return accounts.debitAccountId && accounts.creditAccountId ? 'mapped' : 'needs_mapping'
 }
 
-function journalReferenceNumber(report = {}) {
-  const start = displayYmd(report.settlementStartDate || '').replace(/ /g, '-')
-  const end = displayYmd(report.settlementEndDate || '').replace(/ /g, '-')
-  if (start && end) return `${start} to ${end}`
-  return report.settlementId || report.reportId || report.reportDocumentId || 'Amazon KSA settlement'
+function journalReferenceNumber(report = {}, paymentType = 'advertising') {
+  const settlementRef = buildSettlementReference({ report, marketplace: report.marketplace || 'KSA' })
+  return referenceNumberFor(settlementRef, paymentType)
 }
 
-function journalNotes(report = {}) {
-  const referenceNumber = journalReferenceNumber(report)
+function journalNotes(report = {}, paymentType = 'advertising') {
+  const referenceNumber = journalReferenceNumber(report, paymentType)
   return `Transferring Amazon KSA payment from ${referenceNumber} to Expenses accounts`
 }
 
@@ -189,8 +187,8 @@ function buildNonOrderLinkedAmazonFeeMappings(rows, report = {}, mappingRules = 
         lastUsedAt: rule?.lastUsedAt || null,
         mappingStatus: mappingStatus(accounts, entry.totalAmount, rule),
         journalPreview: {
-          referenceNumber: journalReferenceNumber(report),
-          notes: journalNotes(report),
+          referenceNumber: journalReferenceNumber(report, entry.normalizedFeeType || entry.feeType),
+          notes: journalNotes(report, entry.normalizedFeeType || entry.feeType),
           debit: {
             accountId: accounts.debitAccountId,
             accountName: accounts.debitAccountName,
