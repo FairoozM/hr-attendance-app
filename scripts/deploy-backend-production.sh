@@ -20,19 +20,31 @@ trap cleanup_local EXIT
 ssm_disk_snapshot() {
   local label="$1"
   local cmd_id
+  local snapshot_json
+  snapshot_json="$(mktemp)"
   echo "==> ${label}"
+  cat >"$snapshot_json" <<EOF
+{
+  "commands": [
+    "echo '=== Disk usage (${label}) ==='",
+    "df -h /",
+    "if [ -f ${ARTIFACT} ]; then ls -lah ${ARTIFACT}; else echo '${ARTIFACT} not present'; fi"
+  ]
+}
+EOF
   cmd_id=$(aws ssm send-command --region "$REGION" \
     --instance-ids "$INSTANCE_ID" \
     --document-name "AWS-RunShellScript" \
-    --parameters commands="echo '=== Disk usage (${label}) ==='" "df -h /" "if [ -f ${ARTIFACT} ]; then ls -lah ${ARTIFACT}; else echo '${ARTIFACT} not present'; fi" \
+    --parameters "file://${snapshot_json}" \
     --query 'Command.CommandId' --output text)
+  rm -f "$snapshot_json"
   sleep 5
   aws ssm get-command-invocation --region "$REGION" --command-id "$cmd_id" --instance-id "$INSTANCE_ID" \
     --query 'StandardOutputContent' --output text || true
 }
 
 cat >"$REMOTE_SCRIPT" <<REMOTE
-set -euo pipefail
+set -eu
 
 echo "=== Disk usage before deploy ==="
 df -h /
