@@ -642,7 +642,7 @@ export interface PaymentPostingResult {
     journalsSkipped?: number
     errors: number
   }
-  payments: Array<{
+  payments?: Array<{
     paymentType: string
     paymentLabel: string
     orderId: string

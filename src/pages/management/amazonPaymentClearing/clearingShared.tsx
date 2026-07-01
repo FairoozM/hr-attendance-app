@@ -782,25 +782,29 @@ export function PostedStoredEntriesTable({
 }
 
 export function PostingResultTable({ result }: { result: PaymentPostingResult }) {
+  const payments = result.payments || []
+  const journals = result.journals || []
+
   return (
     <div className="apc-step-stack">
-      <div className="apc-table-wrap apc-table-wrap--wide">
-        <p className="apc-muted apc-table-caption">Exactly what Zoho will receive for each grouped Record Payment.</p>
-        <table className="apc-table">
-          <thead>
-            <tr>
-              <th>Entry</th>
-              <th>Zoho account</th>
-              <th className="apc-money">Amount</th>
-              <th>Reference (sent to Zoho)</th>
-              <th>Description (sent to Zoho)</th>
-              <th>Invoice allocations</th>
-              <th>Status</th>
-              <th>Zoho Payment ID</th>
-            </tr>
-          </thead>
-          <tbody>
-            {result.payments.map((row) => {
+      {payments.length > 0 ? (
+        <div className="apc-table-wrap apc-table-wrap--wide">
+          <p className="apc-muted apc-table-caption">Exactly what Zoho will receive for each grouped Record Payment.</p>
+          <table className="apc-table">
+            <thead>
+              <tr>
+                <th>Entry</th>
+                <th>Zoho account</th>
+                <th className="apc-money">Amount</th>
+                <th>Reference (sent to Zoho)</th>
+                <th>Description (sent to Zoho)</th>
+                <th>Invoice allocations</th>
+                <th>Status</th>
+                <th>Zoho Payment ID</th>
+              </tr>
+            </thead>
+            <tbody>
+              {payments.map((row) => {
               const reference = row.zohoPayloadPreview?.reference_number || row.referenceNumber || '-'
               const description = row.zohoPayloadPreview?.description || row.description || ''
               const accountName = row.zohoPayloadPreview?.account_name || row.accountName || ''
@@ -834,7 +838,8 @@ export function PostingResultTable({ result }: { result: PaymentPostingResult })
           </tbody>
         </table>
       </div>
-      {result.journals?.length ? (
+      ) : null}
+      {journals.length > 0 ? (
         <div className="apc-table-wrap apc-table-wrap--wide">
           <p className="apc-muted apc-table-caption">Exactly what Zoho will receive for each Amazon fee manual journal.</p>
           <table className="apc-table">
@@ -850,10 +855,10 @@ export function PostingResultTable({ result }: { result: PaymentPostingResult })
               </tr>
             </thead>
             <tbody>
-              {result.journals.map((row) => (
+              {journals.map((row) => (
                 <tr key={row.key || row.paymentType}>
                   <td>{row.feeType}</td>
-                  <td className="apc-money">{money(Math.abs(row.totalAmount))}</td>
+                  <td className="apc-money">{money(Math.abs(row.totalAmount ?? row.amount ?? 0))}</td>
                   <td><code className="apc-ref">{row.zohoPayloadPreview?.reference_number || row.referenceNumber || '-'}</code></td>
                   <td>{row.zohoPayloadPreview?.notes || row.notes || '-'}</td>
                   <td>

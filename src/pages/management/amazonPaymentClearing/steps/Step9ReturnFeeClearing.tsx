@@ -155,12 +155,12 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
         </table>
       </div>
 
-      {postingResult && (postingResult.journals?.length || postingResult.summary.journalsCreated) ? (
+      {postingResult && (postingResult.journals?.length || postingResult.summary?.journalsCreated) ? (
         <>
           <section className="apc-summary-grid">
             <SummaryCard label="Journals Created" value={postingResult.summary.journalsCreated || 0} />
             <SummaryCard label="Journals Skipped" value={postingResult.summary.journalsSkipped || 0} />
-            <SummaryCard label="Errors" value={postingResult.summary.errors} />
+            <SummaryCard label="Errors" value={postingResult.summary?.errors ?? 0} />
           </section>
           <PostingResultTable result={postingResult} />
         </>
