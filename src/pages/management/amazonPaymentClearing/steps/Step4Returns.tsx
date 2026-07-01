@@ -1,18 +1,57 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { exportCreditNoteRows } from '../clearingExport'
 import { ReturnCreditNotesTable, SummaryCard } from '../clearingShared'
+import type { RefundReturnCreditNoteRow } from '../../../../api/amazonPaymentClearing'
 import type { ClearingContext } from './clearingContext'
 
 type Tab = 'matched' | 'ready_to_create' | 'missing' | 'differences'
 
+function mergeBlockingReturnRows(
+  creditNoteBlockingRows: RefundReturnCreditNoteRow[] | undefined,
+  matchedReturns: RefundReturnCreditNoteRow[] | undefined,
+) {
+  const byOrder = new Map<string, RefundReturnCreditNoteRow>()
+  for (const row of creditNoteBlockingRows || []) {
+    const orderId = String(row.orderId || '').trim()
+    if (orderId) byOrder.set(orderId, row)
+  }
+  for (const row of matchedReturns || []) {
+    if (row.status !== 'blocked') continue
+    const orderId = String(row.orderId || '').trim()
+    if (!orderId || byOrder.has(orderId)) continue
+    byOrder.set(orderId, row)
+  }
+  return Array.from(byOrder.values())
+}
+
 export function Step4Returns({ ctx }: { ctx: ClearingContext }) {
   const { preview } = ctx
+  const matchedReturns = useMemo(
+    () => (preview?.matchedReturns || []).filter((row) => row.status === 'matched'),
+    [preview?.matchedReturns],
+  )
+  const readyToCreate = useMemo(
+    () => (preview?.matchedReturns || []).filter((row) => row.status === 'ready_to_create'),
+    [preview?.matchedReturns],
+  )
+  const blockingRows = useMemo(
+    () => mergeBlockingReturnRows(preview?.creditNoteBlockingRows, preview?.matchedReturns),
+    [preview?.creditNoteBlockingRows, preview?.matchedReturns],
+  )
+  const diffRows = useMemo(
+    () => (preview?.matchedReturns || []).filter((row) => Math.abs(Number(row.creditNoteDifference) || 0) > 0.01),
+    [preview?.matchedReturns],
+  )
   const [tab, setTab] = useState<Tab>('matched')
+
+  useEffect(() => {
+    if (!preview) return
+    if (blockingRows.length > 0) setTab('missing')
+    else if (readyToCreate.length > 0) setTab('ready_to_create')
+    else setTab('matched')
+  }, [preview?.batch?.batchId, blockingRows.length, readyToCreate.length])
+
   if (!preview) return null
-  const matchedReturns = (preview.matchedReturns || []).filter((row) => row.status === 'matched')
-  const readyToCreate = (preview.matchedReturns || []).filter((row) => row.status === 'ready_to_create')
-  const blockingRows = preview.creditNoteBlockingRows || []
-  const diffRows = (preview.matchedReturns || []).filter((row) => Math.abs(Number(row.creditNoteDifference) || 0) > 0.01)
   const tabs: Array<{ key: Tab; label: string; count: number }> = [
     { key: 'matched', label: 'Matched returns', count: matchedReturns.length },
     { key: 'ready_to_create', label: 'Will create at clearance', count: readyToCreate.length },

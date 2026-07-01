@@ -466,13 +466,31 @@ function savedBatchToPreview(batch) {
 }
 
 /**
- * Re-run Zoho invoice matching for a draft batch that still has unmatched orders.
- * Uses stored settlement rows and extends the Zoho date window through today.
+ * Re-run Zoho invoice/credit-note matching for a draft batch saved under older
+ * rules (e.g. missing CNs hard-blocked instead of ready_to_create) or with
+ * stale unmatched invoices.
  */
-async function maybeRematchZohoForDraftBatch(batch, storedRows, preview, feeJournalMappingRules) {
-  if (!batch || batch.status === 'posted' || batch.postedToZoho) return preview
+function shouldRematchZohoOnDraftReopen(batch) {
+  if (!batch || batch.status === 'posted' || batch.postedToZoho) return false
   const priorUnmatched = Array.isArray(batch.unmatchedOrders) ? batch.unmatchedOrders.length : 0
-  if (priorUnmatched === 0 || !storedRows.length) return preview
+  if (priorUnmatched > 0) return true
+  const blockers = Array.isArray(batch.creditNoteBlockingRows) ? batch.creditNoteBlockingRows : []
+  if (!blockers.length) return false
+  return blockers.some((row) => {
+    if (row?.creditNoteAction === 'ready_to_create') return true
+    if (row?.zohoCreditNoteId && /differ/i.test(String(row.blockingReason || ''))) return false
+    if (!row?.zohoCreditNoteId && row?.zohoInvoiceId) return true
+    if (/missing credit note/i.test(String(row.blockingReason || ''))) return true
+    return false
+  })
+}
+
+async function maybeRematchZohoForDraftBatch(batch, storedRows, preview, feeJournalMappingRules) {
+  if (!shouldRematchZohoOnDraftReopen(batch) || !storedRows.length) return preview
+
+  const priorUnmatched = Array.isArray(batch.unmatchedOrders) ? batch.unmatchedOrders.length : 0
+  const priorBlocking = Array.isArray(batch.creditNoteBlockingRows) ? batch.creditNoteBlockingRows.length : 0
+  const priorReady = (preview.matchedReturns || []).filter((row) => row.status === 'ready_to_create').length
 
   const report = preview.report || {}
   const settlementDates = {
@@ -515,7 +533,13 @@ async function maybeRematchZohoForDraftBatch(batch, storedRows, preview, feeJour
   })
 
   const newUnmatched = Array.isArray(rematchedPreview.unmatchedOrders) ? rematchedPreview.unmatchedOrders.length : 0
-  if (newUnmatched >= priorUnmatched) return preview
+  const newBlocking = Array.isArray(rematchedPreview.creditNoteBlockingRows) ? rematchedPreview.creditNoteBlockingRows.length : 0
+  const newReady = (rematchedPreview.matchedReturns || []).filter((row) => row.status === 'ready_to_create').length
+  const improved =
+    newUnmatched < priorUnmatched ||
+    newBlocking < priorBlocking ||
+    newReady > priorReady
+  if (!improved) return preview
 
   await store.savePreviewBatch({
     preview: { ...rematchedPreview, marketplace: batch.marketplace || MARKETPLACE },

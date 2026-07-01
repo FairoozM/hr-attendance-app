@@ -1,4 +1,4 @@
-import { dateText } from '../clearingShared'
+import { dateText, ReturnCreditNotesTable } from '../clearingShared'
 import type { ClearingContext } from './clearingContext'
 
 export function Step6Approve({ ctx }: { ctx: ClearingContext }) {
@@ -17,6 +17,11 @@ export function Step6Approve({ ctx }: { ctx: ClearingContext }) {
   if ((preview.creditNoteBlockingRows || []).length > 0) {
     reasons.push(`${(preview.creditNoteBlockingRows || []).length} refund/return row(s) have missing or mismatched Zoho credit notes.`)
   }
+
+  const blockingReturnRows = [
+    ...(preview.creditNoteBlockingRows || []),
+    ...(preview.matchedReturns || []).filter((row) => row.status === 'blocked'),
+  ].filter((row, idx, rows) => rows.findIndex((other) => other.orderId === row.orderId) === idx)
 
   return (
     <div className="apc-step-stack">
@@ -37,6 +42,14 @@ export function Step6Approve({ ctx }: { ctx: ClearingContext }) {
               <li key={reason}>{reason}</li>
             ))}
           </ul>
+          {blockingReturnRows.length ? (
+            <>
+              <p style={{ marginTop: '0.75rem' }}>
+                Open <strong>Step 4 — Reconcile Returns</strong> and use the <strong>Missing / blocked</strong> tab for details.
+              </p>
+              <ReturnCreditNotesTable rows={blockingReturnRows} emptyText="No blocked return rows." />
+            </>
+          ) : null}
         </div>
       )}
 
