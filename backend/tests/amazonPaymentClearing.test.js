@@ -484,6 +484,40 @@ test('preview treats Amazon advertising credits as mappable account-level fee jo
   assert.equal(mapping.journalPreview.debit.accountName, 'KSA-Amazon Undeposited Funds')
   assert.equal(mapping.journalPreview.credit.accountName, 'KSA-Amazon Advertising Exp')
   assert.equal(preview.reconciliationSummary.reconciliationStatus, 'reconciled')
+  assert.equal(preview.creditNoteBlockingRows.length, 0)
+})
+
+test('sanitizeCreditNotePreview drops stale no-order credit note blockers for advertising credits', () => {
+  const { sanitizeCreditNotePreview } = require('../src/services/amazonPaymentClearingPreviewService')
+  const preview = sanitizeCreditNotePreview({
+    allRows: [],
+    unmatchedOrders: [],
+    reconciliationSummary: { reconciliationStatus: 'reconciled' },
+    refundReturnRows: [{
+      orderId: '',
+      amountType: 'Refund for Advertiser',
+      amountDescription: 'TransactionTotalAmount',
+      transactionType: 'ServiceFee',
+      amount: 1.32,
+      rowClass: 'refund',
+    }],
+    creditNoteBlockingRows: [{
+      orderId: '',
+      creditNoteAction: 'blocked',
+      blockingReason: 'Amazon refund/return row is missing order ID.',
+    }],
+    matchedReturns: [],
+    missingCreditNotes: [],
+  }, [{
+    orderId: '',
+    amount: 1.32,
+    amountType: 'Refund for Advertiser',
+    amountDescription: 'TransactionTotalAmount',
+    transactionType: 'ServiceFee',
+  }])
+
+  assert.equal(preview.refundReturnRows.length, 0)
+  assert.equal(preview.creditNoteBlockingRows.length, 0)
 })
 
 test('preview treats no-order Other settlement rows as account-level journal rows', () => {

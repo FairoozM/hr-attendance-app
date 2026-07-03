@@ -1,6 +1,6 @@
 const { fetchCustomers, fetchInvoices, fetchCreditNotes } = require('../integrations/zoho/zohoBooksClient')
 const { normalizeSettlementDate } = require('./amazonSettlementParserService')
-const { ROW_CLASS, isNonOrderLinkedAmazonFee } = require('./amazonPaymentClearingCategoryService')
+const { ROW_CLASS, isNonOrderLinkedAmazonFee, isAdvertisingCreditRow } = require('./amazonPaymentClearingCategoryService')
 const { detectNetNegativeOrderRefundRows, round2 } = require('./amazonPaymentClearingOrderBreakdownService')
 const { buildReturnFeeBreakdown } = require('./amazonPaymentClearingReturnFeeService')
 
@@ -237,6 +237,7 @@ function matchSettlementRowsToInvoices(rows, invoices) {
 }
 
 function isRefundReturnRow(row) {
+  if (isNonOrderLinkedAmazonFee(row) || isAdvertisingCreditRow(row)) return false
   return row?.rowClass === ROW_CLASS.REFUND || row?.rowClass === ROW_CLASS.RETURN
 }
 
@@ -528,7 +529,7 @@ async function matchZohoInvoicesForRows(rows, options = {}) {
   const invoices = zohoFetch.rows
   const syntheticRefundRows = detectNetNegativeOrderRefundRows(settlementRows)
   const netNegativeReturnOrderIds = new Set(syntheticRefundRows.map((row) => clean(row.orderId)).filter(Boolean))
-  const explicitRefundRows = settlementRows.filter(isRefundReturnRow)
+  const explicitRefundRows = settlementRows.filter((row) => isRefundReturnRow(row) && !isNonOrderLinkedAmazonFee(row))
   const refundRows = [...explicitRefundRows, ...syntheticRefundRows]
   const creditNoteMatch = matchRefundReturnRowsToCreditNotes(refundRows, invoices, creditNoteFetch.rows)
   const salesRows = settlementRows.filter((row) => {

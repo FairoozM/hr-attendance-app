@@ -694,7 +694,7 @@ function buildPreview({
   const netNegativeIds = netNegativeReturnOrderIds.length
     ? netNegativeReturnOrderIds
     : detectedSynthetic.map((row) => row.orderId).filter(Boolean)
-  const refundReturnRows = allRows.filter(isRefundReturnRow)
+  const refundReturnRows = allRows.filter((row) => isRefundReturnRow(row) && !isNonOrderLinkedAmazonFee(row))
   const salesAndFeeRows = allRows.filter((row) => !isRefundReturnRow(row) && !isNonOrderLinkedAmazonFee(row))
   const salesRows = salesAndFeeRows.filter((row) => {
     const orderId = String(row.orderId || '').trim()
@@ -767,7 +767,7 @@ function buildPreview({
     netNegativeReturnOrders,
   })
 
-  return {
+  const preview = {
     marketplace: 'KSA',
     invoices,
     report: {
@@ -819,6 +819,36 @@ function buildPreview({
     duplicateZohoPoNumbers: matchResult.duplicateZohoPoNumbers,
     missingOrderIdRows: matchResult.missingOrderIdRows,
   }
+  return sanitizeCreditNotePreview(preview, allRows)
+}
+
+function isActionableCreditNoteRow(row) {
+  return Boolean(String(row?.orderId || '').trim()) && !isNonOrderLinkedAmazonFee(row)
+}
+
+function sanitizeCreditNotePreview(preview, settlementRows = []) {
+  if (!preview || typeof preview !== 'object') return preview
+  const rows = Array.isArray(settlementRows) ? settlementRows : []
+  if (rows.length) {
+    preview.refundReturnRows = rows.filter((row) => isRefundReturnRow(row) && !isNonOrderLinkedAmazonFee(row))
+  } else {
+    preview.refundReturnRows = (Array.isArray(preview.refundReturnRows) ? preview.refundReturnRows : [])
+      .filter((row) => !isNonOrderLinkedAmazonFee(row))
+  }
+  preview.matchedReturns = (Array.isArray(preview.matchedReturns) ? preview.matchedReturns : [])
+    .filter(isActionableCreditNoteRow)
+  preview.missingCreditNotes = (Array.isArray(preview.missingCreditNotes) ? preview.missingCreditNotes : [])
+    .filter(isActionableCreditNoteRow)
+  preview.creditNoteBlockingRows = (Array.isArray(preview.creditNoteBlockingRows) ? preview.creditNoteBlockingRows : [])
+    .filter(isActionableCreditNoteRow)
+  preview.blockingIssues = buildBlockingIssues({
+    allRows: preview.allRows || [],
+    unmatchedOrders: preview.unmatchedOrders || [],
+    creditNoteBlockingRows: preview.creditNoteBlockingRows || [],
+    reconciliationStatus: preview.reconciliationSummary?.reconciliationStatus,
+    netNegativeReturnOrders: preview.netNegativeReturnOrders || [],
+  })
+  return preview
 }
 
 module.exports = {
@@ -830,6 +860,7 @@ module.exports = {
   buildAllRows,
   buildAmountDifferences,
   buildBlockingIssues,
+  sanitizeCreditNotePreview,
   applyNetNegativeOrderAdjustments,
   groupRowsByOrder,
   orderSummary,

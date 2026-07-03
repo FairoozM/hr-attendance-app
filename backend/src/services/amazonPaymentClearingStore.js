@@ -386,7 +386,7 @@ async function insertClearingRows(client, batchId, preview, rows, report) {
         row.amountType || null,
         row.amountDescription || null,
         row.category || null,
-        row.rowClass || null,
+        isNonOrderLinkedAmazonFee(row) ? 'NON_ORDER_LINKED_AMAZON_FEE' : (row.rowClass || null),
         num(row.amount),
         row.currency || report.currency || 'SAR',
         creditNoteRow?.zohoInvoiceId || order?.zohoInvoiceId || null,

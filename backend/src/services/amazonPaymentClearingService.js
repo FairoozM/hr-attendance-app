@@ -13,6 +13,7 @@ const {
   buildBlockingIssues,
   buildNonOrderLinkedAmazonFeeMappings,
   applyNetNegativeOrderAdjustments,
+  sanitizeCreditNotePreview,
 } = require('./amazonPaymentClearingPreviewService')
 const {
   ROW_CLASS,
@@ -329,19 +330,23 @@ function normalizeSavedWarnings(warnings, allRows) {
   )
 }
 
-function normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules = []) {
+function normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules = [], settlementRows = []) {
   if (!preview) return preview
   preview.allRows = normalizeSavedAllRows(preview.allRows)
   const keepSnapshot = batch.status === 'posted' || batch.postedToZoho === true
   preview.nonOrderLinkedAmazonFeeMappings = keepSnapshot && Array.isArray(batch.nonOrderLinkedAmazonFeeMappings) && batch.nonOrderLinkedAmazonFeeMappings.length
     ? batch.nonOrderLinkedAmazonFeeMappings
     : buildNonOrderLinkedAmazonFeeMappings(preview.allRows, preview.report, feeJournalMappingRules)
-  preview.blockingIssues = buildBlockingIssues({
-    allRows: preview.allRows,
-    unmatchedOrders: preview.unmatchedOrders,
-    creditNoteBlockingRows: preview.creditNoteBlockingRows,
-    reconciliationStatus: preview.reconciliationSummary?.reconciliationStatus,
-  })
+  if (!keepSnapshot) {
+    sanitizeCreditNotePreview(preview, settlementRows)
+  } else {
+    preview.blockingIssues = buildBlockingIssues({
+      allRows: preview.allRows,
+      unmatchedOrders: preview.unmatchedOrders,
+      creditNoteBlockingRows: preview.creditNoteBlockingRows,
+      reconciliationStatus: preview.reconciliationSummary?.reconciliationStatus,
+    })
+  }
   preview.warnings = normalizeSavedWarnings(preview.warnings, preview.allRows)
   return preview
 }
@@ -359,7 +364,14 @@ async function enrichBatchForClearingOperations(batch) {
   const preview = savedBatchToPreview(batch)
   if (!preview) return batch
   if (allRows.length > 0) preview.allRows = allRows
-  normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules)
+  let settlementRows = []
+  if (batch.batchId != null) {
+    const storedRows = await store.listRowsForBatch(batch.batchId).catch(() => [])
+    if (storedRows.length > 0) {
+      settlementRows = storedRowsToSettlementRows(storedRows, batch.report || {})
+    }
+  }
+  normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules, settlementRows)
   applyNetNegativeOrderAdjustments(preview, preview.allRows)
   return {
     ...batch,
@@ -748,7 +760,25 @@ async function hydrateSavedBatch(batch) {
     }
     preview.allRows = reconstructAllRowsFromStored(storedRows)
   }
-  normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules)
+  const settlementRows = storedRows.length
+    ? storedRowsToSettlementRows(storedRows, batch.report || preview.report || {})
+    : []
+  const staleCreditNoteBlockers = (batch.creditNoteBlockingRows || []).some((row) => !String(row?.orderId || '').trim())
+  const staleRefundReturnRows = (batch.refundReturnRows || []).some((row) => isNonOrderLinkedAmazonFee(row))
+  normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules, settlementRows)
+  if (
+    storedRows.length > 0 &&
+    batch.status !== 'posted' &&
+    !batch.postedToZoho &&
+    (staleCreditNoteBlockers || staleRefundReturnRows)
+  ) {
+    try {
+      await store.updateBatchPreviewSnapshot(batch.batchId, preview)
+      batch = await store.getBatchById(batch.batchId)
+    } catch {
+      // Continue with in-memory sanitized preview.
+    }
+  }
   applyNetNegativeOrderAdjustments(preview, preview.allRows)
   let hydrated = preview
   try {
