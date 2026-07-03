@@ -484,6 +484,8 @@ test('preview treats Amazon advertising credits as mappable account-level fee jo
   assert.equal(mapping.journalPreview.debit.accountName, 'KSA-Amazon Undeposited Funds')
   assert.equal(mapping.journalPreview.credit.accountName, 'KSA-Amazon Advertising Exp')
   assert.equal(preview.reconciliationSummary.reconciliationStatus, 'reconciled')
+  assert.equal(preview.reconciliationSummary.refundReturnImpact, 0)
+  assert.equal(preview.reconciliationSummary.advertisingFeeTotal, 1.32)
   assert.equal(preview.creditNoteBlockingRows.length, 0)
 })
 
@@ -518,6 +520,8 @@ test('sanitizeCreditNotePreview drops stale no-order credit note blockers for ad
 
   assert.equal(preview.refundReturnRows.length, 0)
   assert.equal(preview.creditNoteBlockingRows.length, 0)
+  assert.equal(preview.reconciliationSummary.refundReturnImpact, 0)
+  assert.equal(preview.reconciliationSummary.reconciliationStatus, 'reconciled')
 })
 
 test('preview treats no-order Other settlement rows as account-level journal rows', () => {

@@ -14,6 +14,7 @@ const {
   buildNonOrderLinkedAmazonFeeMappings,
   applyNetNegativeOrderAdjustments,
   sanitizeCreditNotePreview,
+  recomputePreviewReconciliation,
 } = require('./amazonPaymentClearingPreviewService')
 const {
   ROW_CLASS,
@@ -339,6 +340,9 @@ function normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules = [],
     : buildNonOrderLinkedAmazonFeeMappings(preview.allRows, preview.report, feeJournalMappingRules)
   if (!keepSnapshot) {
     sanitizeCreditNotePreview(preview, settlementRows)
+    if (settlementRows.length) {
+      recomputePreviewReconciliation(preview, settlementRows)
+    }
   } else {
     preview.blockingIssues = buildBlockingIssues({
       allRows: preview.allRows,
@@ -765,12 +769,14 @@ async function hydrateSavedBatch(batch) {
     : []
   const staleCreditNoteBlockers = (batch.creditNoteBlockingRows || []).some((row) => !String(row?.orderId || '').trim())
   const staleRefundReturnRows = (batch.refundReturnRows || []).some((row) => isNonOrderLinkedAmazonFee(row))
+  const staleReconciliation = batch.reconciliationSummary?.reconciliationStatus === 'mismatch'
+    && Math.abs(Number(batch.reconciliationSummary?.reconciliationDifference) || 0) > 0.01
   normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules, settlementRows)
   if (
     storedRows.length > 0 &&
     batch.status !== 'posted' &&
     !batch.postedToZoho &&
-    (staleCreditNoteBlockers || staleRefundReturnRows)
+    (staleCreditNoteBlockers || staleRefundReturnRows || staleReconciliation)
   ) {
     try {
       await store.updateBatchPreviewSnapshot(batch.batchId, preview)

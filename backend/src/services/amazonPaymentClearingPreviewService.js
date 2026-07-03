@@ -51,7 +51,9 @@ function buildSettlementLevelFees(rows) {
     if (hasOrderId(row) && !isNonOrderLinkedAmazonFee(row)) continue
     const amount = Number(row.amount) || 0
     if (!amount && !row.transactionType && !row.amountType && !row.amountDescription) continue
-    const category = row.category || categorizeSettlementRow(row)
+    const category = isNonOrderLinkedAmazonFee(row)
+      ? categorizeSettlementRow(row)
+      : (row.category || categorizeSettlementRow(row))
     const entry = byCategory.get(category) || { category, count: 0, total: 0 }
     entry.count += 1
     entry.total = round2(entry.total + amount)
@@ -228,6 +230,53 @@ function isRefundReturnRow(row) {
   return isSettlementReturnRow(row)
 }
 
+function isCustomerRefundReturnSettlementRow(row) {
+  return isRefundReturnRow(row) && !isNonOrderLinkedAmazonFee(row)
+}
+
+function computeRefundReturnTotal(rows, syntheticRefundRows = []) {
+  const allRows = Array.isArray(rows) ? rows : []
+  const synthetic = Array.isArray(syntheticRefundRows) ? syntheticRefundRows : detectNetNegativeOrderRefundRows(allRows)
+  const explicitRefundTotal = sum(allRows.filter(isCustomerRefundReturnSettlementRow))
+  const derivedRefundTotal = round2(
+    synthetic.reduce((acc, row) => acc + (Number(row.amount) || 0), 0)
+  )
+  return round2(explicitRefundTotal + derivedRefundTotal)
+}
+
+function recomputePreviewReconciliation(preview, settlementRows = []) {
+  if (!preview || typeof preview !== 'object') return preview
+  const rows = Array.isArray(settlementRows) && settlementRows.length
+    ? settlementRows
+    : (Array.isArray(preview.allRows) ? preview.allRows : [])
+  if (!rows.length) return preview
+  const syntheticRefundRows = preview.syntheticRefundRows?.length
+    ? preview.syntheticRefundRows
+    : detectNetNegativeOrderRefundRows(rows)
+  preview.settlementLevelFees = buildSettlementLevelFees(rows)
+  preview.refundReturnRows = rows.filter(isCustomerRefundReturnSettlementRow)
+  preview.refundReturnTotal = computeRefundReturnTotal(rows, syntheticRefundRows)
+  preview.totals = {
+    ...(preview.totals || {}),
+    amazonSettlementTotal: sum(rows),
+    refundReturnTotal: preview.refundReturnTotal,
+  }
+  preview.reconciliationSummary = buildReconciliationSummary({
+    matchedOrders: preview.matchedOrders || [],
+    refundReturnTotal: preview.refundReturnTotal,
+    settlementLevelFees: preview.settlementLevelFees,
+    actualAmazonSettlement: preview.totals.amazonSettlementTotal,
+  })
+  preview.blockingIssues = buildBlockingIssues({
+    allRows: preview.allRows || [],
+    unmatchedOrders: preview.unmatchedOrders || [],
+    creditNoteBlockingRows: preview.creditNoteBlockingRows || [],
+    reconciliationStatus: preview.reconciliationSummary?.reconciliationStatus,
+    netNegativeReturnOrders: preview.netNegativeReturnOrders || [],
+  })
+  return preview
+}
+
 function refundReturnKey(row) {
   if (row?.settlementDerivedReturn) {
     return `derived|${String(row?.orderId || '').trim().toLowerCase()}`
@@ -275,7 +324,10 @@ function buildAllRows(rows, context) {
     const orderId = String(row.orderId || '').trim()
     let status = 'ok'
     let blockingReason = ''
-    if (isRefundReturnRow(row)) {
+    if (isNonOrderLinkedAmazonFee(row)) {
+      status = 'account_level_fee'
+      blockingReason = 'Order ID not required for this Amazon fee.'
+    } else if (isRefundReturnRow(row)) {
       const key = refundReturnKey(row)
       const blocked = blockedByKey.get(key)
       const matched = matchedReturnByKey.get(key)
@@ -294,9 +346,6 @@ function buildAllRows(rows, context) {
       } else {
         status = 'review'
       }
-    } else if (isNonOrderLinkedAmazonFee(row)) {
-      status = 'account_level_fee'
-      blockingReason = 'Order ID not required for this Amazon fee.'
     } else if (!orderId) {
       status = 'missing_order_id'
       blockingReason = 'Settlement row is missing Amazon order ID.'
@@ -320,7 +369,7 @@ function buildAllRows(rows, context) {
     return {
       rowNumber: idx + 1,
       category: row.category || CATEGORY.OTHER,
-      rowClass: row.rowClass || ROW_CLASS.UNKNOWN,
+      rowClass: status === 'account_level_fee' ? ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE : (row.rowClass || ROW_CLASS.UNKNOWN),
       orderId,
       amount: round2(Number(row.amount) || 0),
       currency: row.currency || '',
@@ -541,7 +590,7 @@ function removeReturnOrdersFromMatchedSales(preview, allRows) {
   )
   if (preview.matchedOrders.length === before) return preview
 
-  const explicitRefundTotal = sum(allRows.filter(isRefundReturnRow))
+  const explicitRefundTotal = sum(allRows.filter(isCustomerRefundReturnSettlementRow))
   const syntheticRefundRows = detectNetNegativeOrderRefundRows(allRows)
   const derivedRefundTotal = round2(
     syntheticRefundRows.reduce((acc, row) => acc + (Number(row.amount) || 0), 0)
@@ -622,7 +671,7 @@ function applyNetNegativeOrderAdjustments(preview, rows = []) {
   preview.missingOrderIdRows = matchResult.missingOrderIdRows
   augmentCreditNoteBlockingForNetNegative(preview)
 
-  const explicitRefundTotal = sum(allRows.filter(isRefundReturnRow))
+  const explicitRefundTotal = sum(allRows.filter(isCustomerRefundReturnSettlementRow))
   const derivedRefundTotal = round2(
     syntheticRefundRows.reduce((acc, row) => acc + (Number(row.amount) || 0), 0)
   )
@@ -694,7 +743,7 @@ function buildPreview({
   const netNegativeIds = netNegativeReturnOrderIds.length
     ? netNegativeReturnOrderIds
     : detectedSynthetic.map((row) => row.orderId).filter(Boolean)
-  const refundReturnRows = allRows.filter((row) => isRefundReturnRow(row) && !isNonOrderLinkedAmazonFee(row))
+  const refundReturnRows = allRows.filter(isCustomerRefundReturnSettlementRow)
   const salesAndFeeRows = allRows.filter((row) => !isRefundReturnRow(row) && !isNonOrderLinkedAmazonFee(row))
   const salesRows = salesAndFeeRows.filter((row) => {
     const orderId = String(row.orderId || '').trim()
@@ -720,10 +769,7 @@ function buildPreview({
     unmatchedOrders.reduce((acc, row) => acc + (Number(row.amazonOrderTotal) || 0), 0)
   )
   const amazonSettlementTotal = sum(allRows)
-  const derivedRefundTotal = round2(
-    detectedSynthetic.reduce((acc, row) => acc + (Number(row.amount) || 0), 0)
-  )
-  const refundReturnTotal = round2(sum(refundReturnRows) + derivedRefundTotal)
+  const refundReturnTotal = computeRefundReturnTotal(allRows, detectedSynthetic)
   const reconciliationSummary = buildReconciliationSummary({
     matchedOrders,
     refundReturnTotal,
@@ -841,14 +887,7 @@ function sanitizeCreditNotePreview(preview, settlementRows = []) {
     .filter(isActionableCreditNoteRow)
   preview.creditNoteBlockingRows = (Array.isArray(preview.creditNoteBlockingRows) ? preview.creditNoteBlockingRows : [])
     .filter(isActionableCreditNoteRow)
-  preview.blockingIssues = buildBlockingIssues({
-    allRows: preview.allRows || [],
-    unmatchedOrders: preview.unmatchedOrders || [],
-    creditNoteBlockingRows: preview.creditNoteBlockingRows || [],
-    reconciliationStatus: preview.reconciliationSummary?.reconciliationStatus,
-    netNegativeReturnOrders: preview.netNegativeReturnOrders || [],
-  })
-  return preview
+  return recomputePreviewReconciliation(preview, rows)
 }
 
 module.exports = {
@@ -861,6 +900,7 @@ module.exports = {
   buildAmountDifferences,
   buildBlockingIssues,
   sanitizeCreditNotePreview,
+  recomputePreviewReconciliation,
   applyNetNegativeOrderAdjustments,
   groupRowsByOrder,
   orderSummary,
