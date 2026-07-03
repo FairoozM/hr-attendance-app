@@ -68,6 +68,19 @@ export function Step3MatchSales({ ctx }: { ctx: ClearingContext }) {
             </div>
           ) : null}
           <UnmatchedOrdersTable preview={preview} />
+          {(preview.allRows || []).some((row) => row.status === 'unmatched') ? (
+            <>
+              <p className="apc-muted">
+                Subscription or account-level Amazon fees sometimes use a reference ID instead of a real order ID.
+                Mark them as account-level fees below if they should not match a Zoho invoice.
+              </p>
+              <RowTable
+                rows={(preview.allRows || []).filter((row) => row.status === 'unmatched')}
+                canMarkAccountLevelFee={!ctx.isPosted}
+                onMarkAccountLevelFee={ctx.onMarkAccountLevelFee}
+              />
+            </>
+          ) : null}
         </div>
       ) : null}
       {tab === 'missing' ? <RowTable rows={missingOrderIdRows} /> : null}

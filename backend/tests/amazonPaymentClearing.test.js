@@ -415,6 +415,38 @@ test('preview treats account-level Amazon fees without order ID as journal-mappe
   assert.equal(preview.nonOrderLinkedAmazonFeeMappings[0].journalPreview.referenceNumber, '15-Apr-2026 to 29-Apr-2026 Storage Fee')
 })
 
+test('preview treats AMPS Core pseudo order IDs as account-level fees', () => {
+  const rows = [
+    { orderId: '701-1', amount: 100, category: CATEGORY.PRINCIPAL, rowClass: ROW_CLASS.SALE, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Order' },
+    {
+      orderId: 'AMPSCoreSA_352991477012_SA_2026_02_01',
+      amount: -2370.1,
+      category: CATEGORY.OTHER_AMAZON_FEE,
+      rowClass: ROW_CLASS.FEE,
+      amountType: 'other-transaction',
+      amountDescription: 'Paid Services Fee',
+      transactionType: 'other-transaction',
+    },
+  ]
+  const invoices = [{ invoice_id: 'z1', invoice_number: 'INV-1', reference_number: '701-1', customer_name: 'KSA-Amazon', total: 100 }]
+  const preview = buildPreview({
+    rows,
+    invoices,
+    report: {
+      reportDocumentId: 'doc1',
+      settlementStartDate: '2026-02-01',
+      settlementEndDate: '2026-02-15',
+      currency: 'SAR',
+    },
+  })
+
+  const feeRow = preview.allRows.find((row) => row.rowNumber === 2)
+  assert.equal(feeRow.status, 'account_level_fee')
+  assert.equal(feeRow.blockingReason, 'Order ID not required for this Amazon fee.')
+  assert.equal(preview.unmatchedOrders.length, 0)
+  assert.ok(preview.nonOrderLinkedAmazonFeeMappings.some((row) => row.normalizedFeeType === 'PREMIUM_SERVICES'))
+})
+
 test('preview treats no-order Other settlement rows as account-level journal rows', () => {
   const rows = [
     { orderId: '701-1', amount: 100, category: CATEGORY.PRINCIPAL, rowClass: ROW_CLASS.SALE, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Order' },

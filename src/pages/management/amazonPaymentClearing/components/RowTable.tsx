@@ -41,9 +41,20 @@ export function FilterChips({
   )
 }
 
-export function RowTable({ rows, focusedRowNumbers }: { rows: ParsedSettlementRow[]; focusedRowNumbers?: number[] | null }) {
+export function RowTable({
+  rows,
+  focusedRowNumbers,
+  canMarkAccountLevelFee = false,
+  onMarkAccountLevelFee,
+}: {
+  rows: ParsedSettlementRow[]
+  focusedRowNumbers?: number[] | null
+  canMarkAccountLevelFee?: boolean
+  onMarkAccountLevelFee?: (rowNumber: number) => void | Promise<void>
+}) {
   if (!rows.length) return <div className="apc-empty">No rows match the current filter.</div>
   const focusSet = focusedRowNumbers && focusedRowNumbers.length ? new Set(focusedRowNumbers) : null
+  const showActions = canMarkAccountLevelFee && typeof onMarkAccountLevelFee === 'function'
   return (
     <div className="apc-table-wrap apc-table-wrap--wide">
       <table className="apc-table">
@@ -59,6 +70,7 @@ export function RowTable({ rows, focusedRowNumbers }: { rows: ParsedSettlementRo
             <th className="apc-money">Amount</th>
             <th>Status</th>
             <th>Blocking Reason</th>
+            {showActions ? <th>Actions</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -74,6 +86,21 @@ export function RowTable({ rows, focusedRowNumbers }: { rows: ParsedSettlementRo
               <td className="apc-money">{money(row.amount)}</td>
               <td><RowStatusPill status={row.status as ParsedRowStatus} /></td>
               <td>{row.blockingReason || '-'}</td>
+              {showActions ? (
+                <td>
+                  {row.status === 'unmatched' ? (
+                    <button
+                      className="ainv-btn ainv-btn--sm"
+                      type="button"
+                      onClick={() => void onMarkAccountLevelFee(row.rowNumber)}
+                    >
+                      Mark as account-level fee
+                    </button>
+                  ) : (
+                    '-'
+                  )}
+                </td>
+              ) : null}
             </tr>
           ))}
         </tbody>

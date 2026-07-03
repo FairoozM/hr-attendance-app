@@ -53,6 +53,7 @@ export interface ClearingContext {
   onPostReturnFeeJournals: (dryRun: boolean) => void
   onOpenForceRepost: () => void
   onReloadCurrentBatch: () => Promise<void>
+  onMarkAccountLevelFee: (rowNumber: number) => Promise<void>
   refreshPostClearingStepStatus: (batchId?: string | number) => Promise<void>
   goToStep: (stepId: number) => void
   setNotice: (value: string) => void

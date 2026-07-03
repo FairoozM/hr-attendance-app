@@ -230,7 +230,35 @@ function hasOrderId(row) {
   return Boolean(field(row, 'orderId'))
 }
 
+function isAmazonOrderIdFormat(orderId) {
+  return /^\d{3}-\d{7}-\d{7}$/.test(field(orderId))
+}
+
+function isPseudoOrderAccountLevelFee(row) {
+  const orderId = field(row, 'orderId')
+  if (!orderId || isAmazonOrderIdFormat(orderId)) return false
+  if (isCustomerRefundOrReturnRow(row)) return false
+
+  const category = row?.category || categorizeSettlementRow(row)
+  if (!isFeeCategory(category) && category !== CATEGORY.OTHER) return false
+
+  const orderKey = orderId.toLowerCase()
+  const amountDescription = field(row, 'amountDescription').toLowerCase()
+  const tx = field(row, 'transactionType').toLowerCase()
+
+  if (/^ampscore|^amp[_-]?core/.test(orderKey)) return true
+  if (amountDescription.includes('paid services fee')) return true
+  if (category === CATEGORY.PREMIUM_SERVICES_FEE || category === CATEGORY.PREMIUM_SERVICES_FEE_TAX) {
+    return true
+  }
+  if (['other-transaction', 'servicefee', 'amazonfees'].includes(tx)) return true
+
+  return false
+}
+
 function isNonOrderLinkedAmazonFee(row) {
+  if (String(row?.matchStatus || '').toLowerCase() === 'account_level_fee') return true
+  if (isPseudoOrderAccountLevelFee(row)) return true
   const category = row?.category || categorizeSettlementRow(row)
   return !hasOrderId(row) && (isFeeCategory(category) || category === CATEGORY.OTHER)
 }
@@ -264,6 +292,8 @@ function normalizeAmazonFeeType(row) {
     category === CATEGORY.PREMIUM_SERVICES_FEE ||
     category === CATEGORY.PREMIUM_SERVICES_FEE_TAX ||
     hay.includes('premium services fee') ||
+    hay.includes('paid services fee') ||
+    hay.includes('ampscore') ||
     hay.includes('selling on amazon fee') ||
     hay.includes('marketplace fee') ||
     (tx === 'amazonfees' && amountDescription.includes('base fee'))
@@ -303,6 +333,8 @@ module.exports = {
   isFeeCategory,
   isSalesCategory,
   hasOrderId,
+  isAmazonOrderIdFormat,
+  isPseudoOrderAccountLevelFee,
   isNonOrderLinkedAmazonFee,
   normalizeAmazonFeeType,
 }

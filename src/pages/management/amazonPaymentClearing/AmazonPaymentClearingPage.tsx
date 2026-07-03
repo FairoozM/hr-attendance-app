@@ -15,6 +15,7 @@ import {
   postKsaPaymentClearingToZoho,
   postKsaReturnFeeJournals,
   previewKsaSettlementReport,
+  reclassifyKsaAccountLevelFees,
   type SavedBatchSummary,
   type SettlementReport,
 } from '../../../api/amazonPaymentClearing'
@@ -398,6 +399,23 @@ export function AmazonPaymentClearingPage() {
     [loadSavedBatches, preview?.batch?.batchId]
   )
 
+  const onMarkAccountLevelFee = useCallback(
+    async (rowNumber: number) => {
+      const batchId = preview?.batch?.batchId
+      if (!batchId) return
+      setError('')
+      setNotice('')
+      try {
+        const refreshed = await reclassifyKsaAccountLevelFees(batchId, [rowNumber])
+        setPreview(refreshed)
+        setNotice(refreshed.message || `Row ${rowNumber} marked as account-level fee.`)
+      } catch (e) {
+        setError(safeError(e))
+      }
+    },
+    [preview?.batch?.batchId]
+  )
+
   const ctx: ClearingContext = {
     preview,
     paymentPreview,
@@ -441,6 +459,7 @@ export function AmazonPaymentClearingPage() {
       const id = preview?.batch?.batchId || routeBatchId || loadedBatchId
       if (id) await openBatch(id, { navigate: false })
     },
+    onMarkAccountLevelFee,
     refreshPostClearingStepStatus,
     goToStep,
     setNotice,

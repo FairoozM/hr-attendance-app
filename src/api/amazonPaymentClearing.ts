@@ -805,3 +805,14 @@ export async function forceRepostKsaPaymentClearing(
     longOpts
   ) as Promise<PaymentPostingResult>
 }
+
+export async function reclassifyKsaAccountLevelFees(
+  batchId: number | string,
+  rowNumbers: number[]
+) {
+  return api.post(
+    `/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/reclassify-account-level-fees`,
+    { rowNumbers },
+    longOpts
+  ) as Promise<PaymentClearingPreview & { message?: string }>
+}

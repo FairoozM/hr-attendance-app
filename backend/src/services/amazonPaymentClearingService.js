@@ -14,7 +14,12 @@ const {
   buildNonOrderLinkedAmazonFeeMappings,
   applyNetNegativeOrderAdjustments,
 } = require('./amazonPaymentClearingPreviewService')
-const { ROW_CLASS, isNonOrderLinkedAmazonFee, CATEGORY } = require('./amazonPaymentClearingCategoryService')
+const {
+  ROW_CLASS,
+  isAmazonOrderIdFormat,
+  isNonOrderLinkedAmazonFee,
+  CATEGORY,
+} = require('./amazonPaymentClearingCategoryService')
 const { isSettlementReturnRow } = require('./amazonPaymentClearingOrderBreakdownService')
 const { buildPaymentPreviewFromBatch } = require('./amazonPaymentClearingPaymentPreviewService')
 const { postApprovedBatch, postReturnFeeJournalsForBatch, isReturnFeePostComplete } = require('./amazonPaymentClearingPostingService')
@@ -486,6 +491,146 @@ function shouldRematchZohoOnDraftReopen(batch) {
   })
 }
 
+function storedRowsToSettlementRows(storedRows, report = {}) {
+  const settlementDates = {
+    settlementStartDate: report.settlementStartDate || '',
+    settlementEndDate: report.settlementEndDate || '',
+    depositDate: report.depositDate || '',
+  }
+  return (Array.isArray(storedRows) ? storedRows : []).map((row) => {
+    const raw = row.rawRow && typeof row.rawRow === 'object' ? row.rawRow : {}
+    return {
+      ...raw,
+      orderId: row.orderId || raw.orderId || '',
+      amount: row.amount ?? raw.amount,
+      category: row.category || raw.category || '',
+      rowClass: row.rowClass || raw.rowClass || '',
+      matchStatus: row.matchStatus || raw.matchStatus || '',
+      transactionType: row.transactionType || raw.transactionType || '',
+      amountType: row.amountType || raw.amountType || '',
+      amountDescription: row.amountDescription || raw.amountDescription || '',
+      ...settlementDates,
+    }
+  })
+}
+
+function invoicesFromMatchedOrders(matchedOrders = []) {
+  return (Array.isArray(matchedOrders) ? matchedOrders : [])
+    .map((order) => ({
+      invoice_id: order.zohoInvoiceId || '',
+      invoice_number: order.zohoInvoiceNumber || '',
+      reference_number: order.zohoPoNumber || order.orderId || '',
+      customer_id: order.zohoCustomerId || '',
+      customer_name: order.zohoCustomerName || '',
+      total: order.zohoInvoiceTotal,
+    }))
+    .filter((invoice) => invoice.invoice_id || invoice.reference_number)
+}
+
+function rowNumbersNeedingAccountLevelFeeFix(storedRows = []) {
+  return (Array.isArray(storedRows) ? storedRows : [])
+    .filter((row) => isNonOrderLinkedAmazonFee(row) && String(row.matchStatus || '').toLowerCase() !== 'account_level_fee')
+    .map((row) => row.rowNumber)
+    .filter((value) => Number.isFinite(value))
+}
+
+function batchHasPseudoOrderUnmatched(batch) {
+  return (Array.isArray(batch?.unmatchedOrders) ? batch.unmatchedOrders : []).some((order) => {
+    const orderId = String(order?.orderId || '').trim()
+    return orderId && !isAmazonOrderIdFormat(orderId)
+  })
+}
+
+async function refreshBatchPreviewFromStoredRows(batchId, batch = null) {
+  const resolvedBatch = batch || await store.getBatchById(batchId)
+  if (!resolvedBatch) {
+    const err = new Error('Payment clearing batch not found.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  const storedRows = await store.listRowsForBatch(batchId)
+  const feeJournalMappingRules = await store.listFeeJournalMappings({
+    marketplace: resolvedBatch.marketplace || MARKETPLACE,
+  }).catch(() => [])
+  const report = resolvedBatch.report || {}
+  const rows = storedRowsToSettlementRows(storedRows, report)
+  const preview = buildPreview({
+    report,
+    rows,
+    invoices: invoicesFromMatchedOrders(resolvedBatch.matchedOrders),
+    matchedReturns: resolvedBatch.matchedReturns || [],
+    missingCreditNotes: resolvedBatch.missingCreditNotes || [],
+    creditNoteBlockingRows: resolvedBatch.creditNoteBlockingRows || [],
+    parserWarnings: resolvedBatch.warnings || [],
+    rawRowCount: rows.length,
+    feeJournalMappingRules,
+  })
+  await store.updateBatchPreviewSnapshot(batchId, preview)
+  return preview
+}
+
+async function syncAccountLevelFeeRowsForBatch(batch, storedRows) {
+  if (!batch || batch.status === 'posted' || batch.postedToZoho) return false
+  let rowNumbers = rowNumbersNeedingAccountLevelFeeFix(storedRows)
+  if (!rowNumbers.length && batchHasPseudoOrderUnmatched(batch)) {
+    const pseudoOrderIds = new Set(
+      (batch.unmatchedOrders || [])
+        .filter((order) => {
+          const orderId = String(order?.orderId || '').trim()
+          return orderId && !isAmazonOrderIdFormat(orderId)
+        })
+        .map((order) => order.orderId)
+    )
+    rowNumbers = (Array.isArray(storedRows) ? storedRows : [])
+      .filter((row) => pseudoOrderIds.has(row.orderId))
+      .map((row) => row.rowNumber)
+      .filter((value) => Number.isFinite(value))
+  }
+  if (!rowNumbers.length) return false
+  await store.updateRowsMatchStatus(batch.batchId, rowNumbers, 'account_level_fee')
+  await refreshBatchPreviewFromStoredRows(batch.batchId)
+  return true
+}
+
+async function reclassifyAccountLevelFeesForBatch(batchId, rowNumbers = []) {
+  const batch = await store.getBatchById(batchId)
+  if (!batch) {
+    const err = new Error('Payment clearing batch not found.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  if (batch.status === 'posted' || batch.postedToZoho) {
+    const err = new Error('Posted settlement batches cannot be reclassified.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_POSTED'
+    err.status = 409
+    throw err
+  }
+  const ids = (Array.isArray(rowNumbers) ? rowNumbers : [])
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value))
+  if (!ids.length) {
+    const err = new Error('At least one settlement row number is required.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_ROW_NUMBERS_REQUIRED'
+    err.status = 422
+    throw err
+  }
+  const updated = await store.updateRowsMatchStatus(batchId, ids, 'account_level_fee')
+  if (!updated) {
+    const err = new Error('No settlement rows were updated.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_ROWS_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  await refreshBatchPreviewFromStoredRows(batchId)
+  const hydrated = await hydrateSavedBatch(await store.getBatchById(batchId))
+  return {
+    ...hydrated,
+    message: `${updated} row(s) marked as account-level Amazon fee.`,
+  }
+}
+
 async function maybeRematchZohoForDraftBatch(batch, storedRows, preview, feeJournalMappingRules) {
   if (!shouldRematchZohoOnDraftReopen(batch) || !storedRows.length) return preview
 
@@ -574,6 +719,16 @@ async function hydrateSavedBatch(batch) {
     storedRows = []
   }
   if (storedRows.length > 0) {
+    try {
+      const synced = await syncAccountLevelFeeRowsForBatch(batch, storedRows)
+      if (synced) {
+        batch = await store.getBatchById(batch.batchId)
+        preview = savedBatchToPreview(batch)
+        storedRows = await store.listRowsForBatch(batch.batchId)
+      }
+    } catch {
+      // Keep going with stored rows even if auto-sync fails.
+    }
     preview.allRows = reconstructAllRowsFromStored(storedRows)
   }
   normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules)
@@ -982,6 +1137,7 @@ module.exports = {
   saveFeeJournalMapping,
   getZohoOAuthAuthorizeUrl,
   exchangeZohoOAuthCode,
+  reclassifyAccountLevelFeesForBatch,
   _internals: {
     extractReports,
     normalizeReport,

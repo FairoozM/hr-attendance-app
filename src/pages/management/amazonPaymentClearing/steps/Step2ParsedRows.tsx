@@ -38,7 +38,12 @@ export function Step2ParsedRows({ ctx }: { ctx: ClearingContext }) {
         </div>
       </div>
       <FilterChips active={search.filter.status} counts={search.counts} onSelect={search.setStatus} />
-      <RowTable rows={search.filtered} focusedRowNumbers={search.filter.rowNumbers} />
+      <RowTable
+        rows={search.filtered}
+        focusedRowNumbers={search.filter.rowNumbers}
+        canMarkAccountLevelFee={!ctx.isPosted}
+        onMarkAccountLevelFee={ctx.onMarkAccountLevelFee}
+      />
 
       <details className="apc-details">
         <summary>Category breakdown &amp; settlement-level fees</summary>

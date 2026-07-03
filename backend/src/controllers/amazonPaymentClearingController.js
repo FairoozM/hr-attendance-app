@@ -22,6 +22,8 @@ function safeMessage(err) {
   if (err?.code === 'ZOHO_AUTH_CODE_REQUIRED') return err.message
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_CREDIT_NOTE_APPLY_REQUIRED') return err.message
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_RETURN_FEE_BLOCKED') return err.message
+  if (err?.code === 'AMAZON_PAYMENT_CLEARING_ROW_NUMBERS_REQUIRED') return err.message
+  if (err?.code === 'AMAZON_PAYMENT_CLEARING_ROWS_NOT_FOUND') return err.message
   if (err?.code === 'AMAZON_REPORT_DOCUMENT_URL') return 'Amazon returned an invalid settlement report document URL.'
   if (err?.code === 'AMAZON_LWA_CONFIG' || err?.code === 'AMAZON_SPAPI_CONFIG') {
     return 'Amazon SP-API is not configured on the server.'
@@ -261,6 +263,15 @@ async function postKsaForceRepost(req, res) {
   }
 }
 
+async function postKsaReclassifyAccountLevelFees(req, res) {
+  try {
+    const json = await service.reclassifyAccountLevelFeesForBatch(req.params.id, req.body?.rowNumbers)
+    res.json(json)
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
 module.exports = {
   getKsaSettlementReports,
   postKsaPreview,
@@ -282,4 +293,5 @@ module.exports = {
   postKsaPostToZoho,
   postKsaReturnFeeJournals,
   postKsaForceRepost,
+  postKsaReclassifyAccountLevelFees,
 }

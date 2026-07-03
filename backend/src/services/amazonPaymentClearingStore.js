@@ -1,4 +1,5 @@
 const { query, pool } = require('../db')
+const { isNonOrderLinkedAmazonFee } = require('./amazonPaymentClearingCategoryService')
 const { isSettlementReturnRow } = require('./amazonPaymentClearingOrderBreakdownService')
 
 async function ensureAmazonPaymentClearingTables() {
@@ -402,10 +403,10 @@ async function insertClearingRows(client, batchId, preview, rows, report) {
             ? 'review'
             : order
               ? order.matchType || 'matched'
-              : row.orderId
-                ? 'unmatched'
-                : row.rowClass === 'NON_ORDER_LINKED_AMAZON_FEE'
-                  ? 'account_level_fee'
+              : isNonOrderLinkedAmazonFee(row)
+                ? 'account_level_fee'
+                : row.orderId
+                  ? 'unmatched'
                   : 'missing_order_id',
         JSON.stringify(row.originalRawRow || row),
       ]
@@ -522,6 +523,70 @@ async function listRowsForBatch(batchId) {
     [Number(batchId)]
   )
   return result.rows.map(mapStoredRow)
+}
+
+async function updateRowsMatchStatus(batchId, rowNumbers, matchStatus) {
+  const ids = (Array.isArray(rowNumbers) ? rowNumbers : [])
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value))
+  if (!ids.length) return 0
+  const result = await query(
+    `UPDATE amazon_payment_clearing_rows
+     SET match_status = $3,
+         row_class = CASE WHEN $3 = 'account_level_fee' THEN 'NON_ORDER_LINKED_AMAZON_FEE' ELSE row_class END,
+         blocking_reason = CASE
+           WHEN $3 = 'account_level_fee' THEN 'Order ID not required for this Amazon fee.'
+           ELSE blocking_reason
+         END
+     WHERE batch_id = $1 AND row_number = ANY($2::int[])`,
+    [Number(batchId), ids, String(matchStatus)]
+  )
+  return result.rowCount || 0
+}
+
+async function updateBatchPreviewSnapshot(batchId, preview) {
+  const result = await query(
+    `UPDATE amazon_payment_clearing_batches SET
+      totals = $1::jsonb,
+      pivot = $2::jsonb,
+      settlement_level_fees = $3::jsonb,
+      non_order_linked_amazon_fee_mappings = $4::jsonb,
+      refund_return_rows = $5::jsonb,
+      matched_returns = $6::jsonb,
+      missing_credit_notes = $7::jsonb,
+      credit_note_blocking_rows = $8::jsonb,
+      adjustment_rows = $9::jsonb,
+      reconciliation_summary = $10::jsonb,
+      matched_orders = $11::jsonb,
+      unmatched_orders = $12::jsonb,
+      all_rows = $13::jsonb,
+      blocking_issues = $14::jsonb,
+      amount_differences = $15::jsonb,
+      warnings = $16::jsonb,
+      updated_at = NOW()
+    WHERE id = $17
+    RETURNING *`,
+    [
+      JSON.stringify(preview.totals || {}),
+      JSON.stringify(preview.pivot || []),
+      JSON.stringify(preview.settlementLevelFees || []),
+      JSON.stringify(preview.nonOrderLinkedAmazonFeeMappings || []),
+      JSON.stringify(preview.refundReturnRows || []),
+      JSON.stringify(preview.matchedReturns || []),
+      JSON.stringify(preview.missingCreditNotes || []),
+      JSON.stringify(preview.creditNoteBlockingRows || []),
+      JSON.stringify(preview.adjustmentRows || []),
+      JSON.stringify(preview.reconciliationSummary || {}),
+      JSON.stringify(preview.matchedOrders || []),
+      JSON.stringify(preview.unmatchedOrders || []),
+      JSON.stringify(preview.allRows || []),
+      JSON.stringify(preview.blockingIssues || []),
+      JSON.stringify(preview.amountDifferences || []),
+      JSON.stringify(preview.warnings || []),
+      Number(batchId),
+    ]
+  )
+  return mapBatch(result.rows[0])
 }
 
 async function findBatchByReport({ reportId, reportDocumentId, settlementId, marketplace = 'KSA' } = {}) {
@@ -948,6 +1013,8 @@ module.exports = {
   listRecentBatches,
   getBatchById,
   listRowsForBatch,
+  updateRowsMatchStatus,
+  updateBatchPreviewSnapshot,
   findBatchByReport,
   findBatchBySettlement,
   dedupeBatches,
