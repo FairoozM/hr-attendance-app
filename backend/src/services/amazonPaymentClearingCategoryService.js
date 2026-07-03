@@ -35,6 +35,7 @@ const ROW_CLASS = Object.freeze({
 
 const NORMALIZED_FEE_TYPE = Object.freeze({
   ADVERTISING: 'ADVERTISING',
+  ADVERTISING_CREDIT: 'ADVERTISING_CREDIT',
   STORAGE: 'STORAGE',
   PREMIUM_SERVICES: 'PREMIUM_SERVICES',
   COMMISSION: 'COMMISSION',
@@ -91,6 +92,12 @@ function categorizeSettlementRow(row) {
   const amount = Number(row?.amount) || 0
 
   if (tx.includes('return') || hay.includes('return')) return CATEGORY.RETURN
+  if (
+    (transactionType === 'ServiceFee' || tx === 'servicefee') &&
+    (amountType === 'Refund for Advertiser' || hay.includes('refund for advertiser'))
+  ) {
+    return CATEGORY.ADVERTISING_FEE
+  }
   if (tx.includes('refund') || hay.includes('refund')) return CATEGORY.REFUND
   if (hay.includes('reimbursement')) return CATEGORY.REIMBURSEMENT
   if (tx.includes('adjustment') || hay.includes('adjustment')) return CATEGORY.ADJUSTMENT
@@ -155,7 +162,18 @@ function categorizeSettlementRow(row) {
   return CATEGORY.OTHER
 }
 
+function isAdvertisingCreditRow(row) {
+  const orderId = field(row, 'orderId')
+  if (orderId && isAmazonOrderIdFormat(orderId)) return false
+  const tx = field(row, 'transactionType').toLowerCase()
+  const amountType = field(row, 'amountType').toLowerCase()
+  const hay = text(row).toLowerCase()
+  if (tx !== 'servicefee' && !hay.includes('servicefee')) return false
+  return amountType.includes('refund for advertiser') || hay.includes('refund for advertiser')
+}
+
 function isCustomerRefundOrReturnRow(row) {
+  if (isAdvertisingCreditRow(row)) return false
   const hay = text(row)
   const tx = field(row, 'transactionType').toLowerCase()
   const amountType = field(row, 'amountType').toLowerCase()
@@ -184,6 +202,7 @@ function classifySettlementRow(row) {
   const tx = field(row, 'transactionType').toLowerCase()
 
   if (isPseudoOrderAccountLevelFee(row)) return ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE
+  if (isAdvertisingCreditRow(row)) return ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE
   if (!hasOrderId(row) && (isFeeCategory(category) || category === CATEGORY.OTHER)) return ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE
   if (isCustomerRefundOrReturnRow(row)) {
     return tx.includes('return') || hay.includes('return') || category === CATEGORY.RETURN
@@ -262,6 +281,7 @@ function isPseudoOrderAccountLevelFee(row) {
 
 function isNonOrderLinkedAmazonFee(row) {
   if (String(row?.matchStatus || '').toLowerCase() === 'account_level_fee') return true
+  if (isAdvertisingCreditRow(row)) return true
   if (isPseudoOrderAccountLevelFee(row)) return true
   const category = row?.category || categorizeSettlementRow(row)
   return !hasOrderId(row) && (isFeeCategory(category) || category === CATEGORY.OTHER)
@@ -274,6 +294,13 @@ function normalizeAmazonFeeType(row) {
   const amountType = field(row, 'amountType').toLowerCase()
   const amountDescription = field(row, 'amountDescription').toLowerCase()
 
+  if (
+    isAdvertisingCreditRow(row) ||
+    hay.includes('refund for advertiser') ||
+    (tx === 'servicefee' && amountType.includes('refund for advertiser'))
+  ) {
+    return NORMALIZED_FEE_TYPE.ADVERTISING_CREDIT
+  }
   if (
     category === CATEGORY.ADVERTISING_FEE ||
     hay.includes('advertising') ||
@@ -338,6 +365,7 @@ module.exports = {
   isSalesCategory,
   hasOrderId,
   isAmazonOrderIdFormat,
+  isAdvertisingCreditRow,
   isPseudoOrderAccountLevelFee,
   isNonOrderLinkedAmazonFee,
   normalizeAmazonFeeType,

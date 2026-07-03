@@ -42,6 +42,7 @@ const ENTRY_TYPE_ZOHO_REF_SUFFIX = Object.freeze({
   return_other_fee: 'Return Other Fee',
   return_variance: 'Return Variance',
   ADVERTISING: 'Advertising Fee',
+  ADVERTISING_CREDIT: 'Advertising Credit',
   STORAGE: 'Storage Fee',
   PREMIUM_SERVICES: 'Premium Services Fee',
   OTHER: 'Amazon Fee',

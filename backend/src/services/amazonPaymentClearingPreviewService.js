@@ -69,6 +69,10 @@ const DEFAULT_FEE_JOURNAL_ACCOUNT_SUGGESTIONS = Object.freeze({
     debitAccountName: 'KSA-Amazon Advertising Exp',
     creditAccountName: 'KSA-Amazon Undeposited Funds',
   },
+  [NORMALIZED_FEE_TYPE.ADVERTISING_CREDIT]: {
+    debitAccountName: 'KSA-Amazon Undeposited Funds',
+    creditAccountName: 'KSA-Amazon Advertising Exp',
+  },
   [NORMALIZED_FEE_TYPE.PREMIUM_SERVICES]: {
     debitAccountName: 'KSA Amazon Commission Exp',
     creditAccountName: 'KSA-Amazon Uncleared Commission Exp',

@@ -273,8 +273,9 @@ export function Step7AmazonFeeJournalMapping({ ctx }: { ctx: ClearingContext }) 
   return (
     <div className="apc-step-stack">
       <div className={unmappedCount ? 'apc-alert apc-alert--error' : 'apc-alert'}>
-        <strong>Account-level Amazon fees are posted as manual journals.</strong>{' '}
+        <strong>Account-level Amazon fees and credits are posted as manual journals.</strong>{' '}
         These rows affect the settlement total but are not matched to Zoho invoices or credit notes.
+        Advertising credits (Refund for Advertiser) map as revenue: debit undeposited funds, credit your revenue account.
       </div>
       <section className="apc-summary-grid">
         <SummaryCard label="Fee Groups" value={rows.length} />

@@ -77,7 +77,7 @@ function classifyOrderRowBucket(row) {
   return null
 }
 
-const { ROW_CLASS, CATEGORY, isNonOrderLinkedAmazonFee } = require('./amazonPaymentClearingCategoryService')
+const { ROW_CLASS, CATEGORY, isNonOrderLinkedAmazonFee, isAdvertisingCreditRow } = require('./amazonPaymentClearingCategoryService')
 
 const NET_NEGATIVE_ORDER_TOLERANCE = 0.01
 
@@ -93,6 +93,8 @@ function isRefundReturnLikeRow(row) {
 
 function isSettlementReturnRow(row) {
   if (!row) return false
+  if (isAdvertisingCreditRow(row)) return false
+  if (isNonOrderLinkedAmazonFee(row)) return false
   if (isRefundReturnLikeRow(row)) return true
   const category = clean(row?.category).toLowerCase()
   const rowClass = clean(row?.rowClass).toLowerCase()

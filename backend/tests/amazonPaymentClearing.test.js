@@ -449,6 +449,43 @@ test('preview treats AMPS Core pseudo order IDs as account-level fees', () => {
   assert.ok(preview.nonOrderLinkedAmazonFeeMappings.some((row) => row.normalizedFeeType === 'PREMIUM_SERVICES'))
 })
 
+test('preview treats Amazon advertising credits as mappable account-level fee journals', () => {
+  const rows = [
+    { orderId: '701-1', amount: 100, category: CATEGORY.PRINCIPAL, rowClass: ROW_CLASS.SALE, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Order' },
+    { orderId: '', amount: -10, category: CATEGORY.COMMISSION, rowClass: ROW_CLASS.FEE, amountType: 'ItemFees', amountDescription: 'Commission', transactionType: 'Order' },
+    {
+      orderId: '',
+      amount: 1.32,
+      amountType: 'Refund for Advertiser',
+      amountDescription: 'TransactionTotalAmount',
+      transactionType: 'ServiceFee',
+    },
+  ]
+  const invoices = [{ invoice_id: 'z1', invoice_number: 'INV-1', reference_number: '701-1', customer_name: 'KSA-Amazon', total: 100 }]
+  const preview = buildPreview({
+    rows,
+    invoices,
+    report: {
+      reportDocumentId: 'doc1',
+      settlementStartDate: '2026-02-01',
+      settlementEndDate: '2026-02-15',
+      currency: 'SAR',
+    },
+  })
+
+  const creditRow = preview.allRows.find((row) => row.rowNumber === 3)
+  assert.equal(creditRow.status, 'account_level_fee')
+  assert.equal(creditRow.blockingReason, 'Order ID not required for this Amazon fee.')
+  assert.equal(preview.refundReturnRows.length, 0)
+  const mapping = preview.nonOrderLinkedAmazonFeeMappings.find((row) => row.normalizedFeeType === 'ADVERTISING_CREDIT')
+  assert.ok(mapping)
+  assert.equal(mapping.totalAmount, 1.32)
+  assert.equal(mapping.mappingStatus, 'needs_mapping')
+  assert.equal(mapping.journalPreview.debit.accountName, 'KSA-Amazon Undeposited Funds')
+  assert.equal(mapping.journalPreview.credit.accountName, 'KSA-Amazon Advertising Exp')
+  assert.equal(preview.reconciliationSummary.reconciliationStatus, 'reconciled')
+})
+
 test('preview treats no-order Other settlement rows as account-level journal rows', () => {
   const rows = [
     { orderId: '701-1', amount: 100, category: CATEGORY.PRINCIPAL, rowClass: ROW_CLASS.SALE, amountType: 'ItemPrice', amountDescription: 'Principal', transactionType: 'Order' },
