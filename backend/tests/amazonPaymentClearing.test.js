@@ -421,7 +421,6 @@ test('preview treats AMPS Core pseudo order IDs as account-level fees', () => {
     {
       orderId: 'AMPSCoreSA_352991477012_SA_2026_02_01',
       amount: -2370.1,
-      category: CATEGORY.OTHER_AMAZON_FEE,
       rowClass: ROW_CLASS.FEE,
       amountType: 'other-transaction',
       amountDescription: 'Paid Services Fee',
@@ -444,6 +443,9 @@ test('preview treats AMPS Core pseudo order IDs as account-level fees', () => {
   assert.equal(feeRow.status, 'account_level_fee')
   assert.equal(feeRow.blockingReason, 'Order ID not required for this Amazon fee.')
   assert.equal(preview.unmatchedOrders.length, 0)
+  assert.ok(!preview.blockingIssues.map((issue) => issue.code).includes('SETTLEMENT_MISMATCH'))
+  assert.equal(preview.reconciliationSummary.premiumServiceFeeTotal, -2370.1)
+  assert.equal(preview.reconciliationSummary.reconciliationStatus, 'reconciled')
   assert.ok(preview.nonOrderLinkedAmazonFeeMappings.some((row) => row.normalizedFeeType === 'PREMIUM_SERVICES'))
 })
 

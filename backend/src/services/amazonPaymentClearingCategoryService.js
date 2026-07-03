@@ -121,6 +121,9 @@ function categorizeSettlementRow(row) {
     return CATEGORY.PREMIUM_SERVICES_FEE
   }
   if (hay.includes('premium services fee')) return CATEGORY.PREMIUM_SERVICES_FEE
+  if (amountDescription === 'Paid Services Fee' || hay.includes('paid services fee')) {
+    return CATEGORY.PREMIUM_SERVICES_FEE
+  }
   if (amountDescription === 'Storage Fee' || amountDescription === 'StorageRenewalBilling') {
     return CATEGORY.STORAGE_FEE
   }
@@ -180,6 +183,7 @@ function classifySettlementRow(row) {
   const hay = text(row)
   const tx = field(row, 'transactionType').toLowerCase()
 
+  if (isPseudoOrderAccountLevelFee(row)) return ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE
   if (!hasOrderId(row) && (isFeeCategory(category) || category === CATEGORY.OTHER)) return ROW_CLASS.NON_ORDER_LINKED_AMAZON_FEE
   if (isCustomerRefundOrReturnRow(row)) {
     return tx.includes('return') || hay.includes('return') || category === CATEGORY.RETURN

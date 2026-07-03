@@ -5,6 +5,7 @@ const {
   isSalesCategory,
   hasOrderId,
   ROW_CLASS,
+  categorizeSettlementRow,
   isNonOrderLinkedAmazonFee,
   normalizeAmazonFeeType,
   NORMALIZED_FEE_TYPE,
@@ -47,10 +48,10 @@ function orderCategoryEntries(byCategory) {
 function buildSettlementLevelFees(rows) {
   const byCategory = new Map()
   for (const row of Array.isArray(rows) ? rows : []) {
-    if (hasOrderId(row)) continue
+    if (hasOrderId(row) && !isNonOrderLinkedAmazonFee(row)) continue
     const amount = Number(row.amount) || 0
     if (!amount && !row.transactionType && !row.amountType && !row.amountDescription) continue
-    const category = row.category || CATEGORY.OTHER
+    const category = row.category || categorizeSettlementRow(row)
     const entry = byCategory.get(category) || { category, count: 0, total: 0 }
     entry.count += 1
     entry.total = round2(entry.total + amount)
@@ -705,7 +706,7 @@ function buildPreview({
   const settlementLevelFees = buildSettlementLevelFees(allRows)
   const adjustmentRows = allRows.filter((row) => row.rowClass === ROW_CLASS.ADJUSTMENT || row.category === CATEGORY.ADJUSTMENT)
   const orderLevelFeeRows = salesAndFeeRows.filter((row) => hasOrderId(row) && isFeeCategory(row.category))
-  const settlementLevelFeeRows = allRows.filter((row) => !hasOrderId(row) && isFeeCategory(row.category))
+  const settlementLevelFeeRows = allRows.filter((row) => isNonOrderLinkedAmazonFee(row) || (!hasOrderId(row) && isFeeCategory(row.category)))
   const rowsWithNumbers = allRows.map((row, idx) => ({ ...row, rowNumber: idx + 1 }))
   const nonOrderLinkedAmazonFeeMappings = buildNonOrderLinkedAmazonFeeMappings(rowsWithNumbers, report, feeJournalMappingRules)
   const matchedInvoiceTotal = round2(

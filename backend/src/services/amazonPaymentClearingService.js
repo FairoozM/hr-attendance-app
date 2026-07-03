@@ -18,6 +18,7 @@ const {
   ROW_CLASS,
   isAmazonOrderIdFormat,
   isNonOrderLinkedAmazonFee,
+  hasOrderId,
   CATEGORY,
 } = require('./amazonPaymentClearingCategoryService')
 const { isSettlementReturnRow } = require('./amazonPaymentClearingOrderBreakdownService')
@@ -541,6 +542,12 @@ function batchHasPseudoOrderUnmatched(batch) {
   })
 }
 
+function storedRowsHavePseudoOrderAccountLevelFees(storedRows = []) {
+  return (Array.isArray(storedRows) ? storedRows : []).some(
+    (row) => isNonOrderLinkedAmazonFee(row) && hasOrderId(row)
+  )
+}
+
 async function refreshBatchPreviewFromStoredRows(batchId, batch = null) {
   const resolvedBatch = batch || await store.getBatchById(batchId)
   if (!resolvedBatch) {
@@ -722,6 +729,16 @@ async function hydrateSavedBatch(batch) {
     try {
       const synced = await syncAccountLevelFeeRowsForBatch(batch, storedRows)
       if (synced) {
+        batch = await store.getBatchById(batch.batchId)
+        preview = savedBatchToPreview(batch)
+        storedRows = await store.listRowsForBatch(batch.batchId)
+      } else if (
+        batch.status !== 'posted' &&
+        !batch.postedToZoho &&
+        batch.reconciliationSummary?.reconciliationStatus === 'mismatch' &&
+        storedRowsHavePseudoOrderAccountLevelFees(storedRows)
+      ) {
+        await refreshBatchPreviewFromStoredRows(batch.batchId, batch)
         batch = await store.getBatchById(batch.batchId)
         preview = savedBatchToPreview(batch)
         storedRows = await store.listRowsForBatch(batch.batchId)
