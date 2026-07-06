@@ -7,8 +7,10 @@ import {
   fetchKsaPaymentClearingBatch,
   fetchKsaSavedBatches,
   fetchKsaSettlementReports,
+  fetchKsaZohoCustomers,
   forceRepostKsaPaymentClearing,
   generateKsaPaymentClearingPaymentPreview,
+  type KsaZohoCustomerOption,
   type PaymentClearingPaymentPreview,
   type PaymentClearingPreview,
   type PaymentPostingResult,
@@ -48,6 +50,8 @@ function clearingPath(stepId: number, batchId?: string | number | null) {
   return bid ? `${BASE_PATH}/batch/${bid}/${key}` : `${BASE_PATH}/${key}`
 }
 
+const KSA_AMAZON_CUSTOMER = 'KSA-Amazon'
+
 export function AmazonPaymentClearingPage() {
   const navigate = useNavigate()
   const params = useParams()
@@ -56,6 +60,8 @@ export function AmazonPaymentClearingPage() {
   const [reportId, setReportId] = useState('')
   const [reportDocumentId, setReportDocumentId] = useState('')
   const [batchIdToOpen, setBatchIdToOpen] = useState('')
+  const [zohoCustomerName, setZohoCustomerName] = useState(KSA_AMAZON_CUSTOMER)
+  const [zohoCustomers, setZohoCustomers] = useState<KsaZohoCustomerOption[]>([])
   const [reports, setReports] = useState<SettlementReport[]>([])
   const [savedBatches, setSavedBatches] = useState<SavedBatchSummary[]>([])
   const [preview, setPreview] = useState<PaymentClearingPreview | null>(null)
@@ -170,6 +176,17 @@ export function AmazonPaymentClearingPage() {
     void loadSavedBatches()
   }, [loadSavedBatches])
 
+  useEffect(() => {
+    void (async () => {
+      try {
+        const json = await fetchKsaZohoCustomers()
+        setZohoCustomers(Array.isArray(json.customers) ? json.customers : [])
+      } catch {
+        setZohoCustomers([])
+      }
+    })()
+  }, [])
+
   const onFetchReports = useCallback(async () => {
     setLoadingReports(true)
     setError('')
@@ -193,8 +210,16 @@ export function AmazonPaymentClearingPage() {
     setPreview(json)
     setPaymentPreview(json.paymentPreview ?? null)
     setPostingResult(null)
+    if (json.zohoCustomerName || json.batch?.zohoCustomerName) {
+      setZohoCustomerName(json.zohoCustomerName || json.batch?.zohoCustomerName || KSA_AMAZON_CUSTOMER)
+    }
     search.reset()
   }, [search])
+
+  const selectedZohoCustomer = useMemo(
+    () => zohoCustomers.find((row) => row.name === zohoCustomerName) || null,
+    [zohoCustomerName, zohoCustomers]
+  )
 
   const runPreview = useCallback(
     async (forceRefresh: boolean) => {
@@ -207,6 +232,8 @@ export function AmazonPaymentClearingPage() {
           reportDocumentId: reportDocumentId.trim() || undefined,
           daysBack: 90,
           forceRefresh,
+          zohoCustomerId: selectedZohoCustomer?.customerId || undefined,
+          zohoCustomerName: zohoCustomerName || undefined,
         })
         applyPreview(json)
         navigate(clearingPath(2, json.batch?.batchId))
@@ -224,7 +251,7 @@ export function AmazonPaymentClearingPage() {
         setPreviewing(false)
       }
     },
-    [applyPreview, loadSavedBatches, navigate, reportDocumentId, reportId]
+    [applyPreview, loadSavedBatches, navigate, reportDocumentId, reportId, selectedZohoCustomer, zohoCustomerName]
   )
 
   const onRefreshFromAmazon = useCallback(() => {
@@ -422,6 +449,8 @@ export function AmazonPaymentClearingPage() {
     postingResult,
     reports,
     savedBatches,
+    zohoCustomers,
+    zohoCustomerName,
     reportId,
     reportDocumentId,
     batchIdToOpen,
@@ -445,6 +474,7 @@ export function AmazonPaymentClearingPage() {
     setReportId,
     setReportDocumentId,
     setBatchIdToOpen,
+    setZohoCustomerName,
     onFetchReports,
     onPreview: () => void runPreview(false),
     onRefreshFromAmazon,

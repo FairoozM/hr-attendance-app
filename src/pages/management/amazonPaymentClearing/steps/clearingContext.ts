@@ -4,6 +4,7 @@ import type {
   PaymentPostingResult,
   SavedBatchSummary,
   SettlementReport,
+  KsaZohoCustomerOption,
 } from '../../../../api/amazonPaymentClearing'
 import type { useClearingSearch } from '../hooks/useClearingSearch'
 
@@ -14,6 +15,8 @@ export interface ClearingContext {
 
   reports: SettlementReport[]
   savedBatches: SavedBatchSummary[]
+  zohoCustomers: KsaZohoCustomerOption[]
+  zohoCustomerName: string
   reportId: string
   reportDocumentId: string
   batchIdToOpen: string
@@ -41,6 +44,7 @@ export interface ClearingContext {
   setReportId: (value: string) => void
   setReportDocumentId: (value: string) => void
   setBatchIdToOpen: (value: string) => void
+  setZohoCustomerName: (value: string) => void
 
   onFetchReports: () => void
   onPreview: () => void

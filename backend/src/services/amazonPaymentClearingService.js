@@ -11,6 +11,8 @@ const {
   matchZohoInvoicesForRows,
   deriveInvoiceRange,
   matchRefundReturnRowsToCreditNotes,
+  resolveKsaZohoCustomer,
+  listKsaZohoCustomerOptions,
 } = require('./amazonPaymentClearingZohoMatcher')
 const {
   buildPreview,
@@ -230,10 +232,15 @@ async function buildPreviewFromReport(options = {}) {
 
   const text = await downloadSettlementReportDocument(report.reportDocumentId)
   const parsed = parseAmazonSettlementReport(text)
+  const { customerId: zohoCustomerId, customerName: zohoCustomerName } = await resolveKsaZohoCustomer({
+    customerId: options.zohoCustomerId,
+    customerName: options.zohoCustomerName,
+  })
   const zohoMatch = await matchZohoInvoicesForRows(parsed.rows, {
     fromDate: options.fromDate,
     toDate: options.toDate,
-    customerId: options.zohoCustomerId || null,
+    customerId: zohoCustomerId,
+    customerName: zohoCustomerName,
   })
   const feeJournalMappingRules = await store.listFeeJournalMappings({ marketplace: MARKETPLACE }).catch(() => [])
   const metadata = parsed.metadata || {}
@@ -258,7 +265,9 @@ async function buildPreviewFromReport(options = {}) {
     syntheticRefundRows: zohoMatch.syntheticRefundRows || [],
     netNegativeReturnOrderIds: zohoMatch.netNegativeReturnOrderIds || [],
   })
-  // One statement per settlement period: Amazon hands out a fresh report id /
+  preview.zohoCustomerId = zohoCustomerId || ''
+  preview.zohoCustomerName = zohoCustomerName || ''
+  // One statement per settlement period:
   // document id every time you request the same settlement, so reuse the
   // existing batch keyed on the stable settlement id instead of inserting a
   // duplicate. Already-posted settlements are reopened, never overwritten.
@@ -482,6 +491,13 @@ function buildLivePaymentPreviewForBatch(batch, preview) {
   }
 }
 
+function batchZohoMatchOptions(batch, preview = null) {
+  return {
+    customerId: batch?.zohoCustomerId || preview?.zohoCustomerId || null,
+    customerName: batch?.zohoCustomerName || preview?.zohoCustomerName || null,
+  }
+}
+
 function savedBatchToPreview(batch) {
   if (!batch) return null
   const settlementReference = buildSettlementReference(batch)
@@ -501,6 +517,8 @@ function savedBatchToPreview(batch) {
       postingSummary: batch.postingSummary || {},
       settlementReference,
       postingReference,
+      zohoCustomerId: batch.zohoCustomerId || '',
+      zohoCustomerName: batch.zohoCustomerName || '',
     },
     settlementReference,
     postingReference,
@@ -539,6 +557,8 @@ function savedBatchToPreview(batch) {
     postedAt: batch.postedAt,
     postedToZoho: Boolean(batch.postedToZoho),
     postingSummary: batch.postingSummary || {},
+    zohoCustomerId: batch.zohoCustomerId || '',
+    zohoCustomerName: batch.zohoCustomerName || '',
   })
 }
 
@@ -811,6 +831,7 @@ async function maybeRematchZohoForDraftBatch(batch, storedRows, preview, feeJour
   const zohoMatch = await matchZohoInvoicesForRows(rows, {
     fromDate: range.fromDate,
     toDate: range.toDate,
+    ...batchZohoMatchOptions(batch, preview),
   })
   const rematchedPreview = buildPreview({
     report,
@@ -825,6 +846,8 @@ async function maybeRematchZohoForDraftBatch(batch, storedRows, preview, feeJour
     syntheticRefundRows: zohoMatch.syntheticRefundRows || [],
     netNegativeReturnOrderIds: zohoMatch.netNegativeReturnOrderIds || [],
   })
+  rematchedPreview.zohoCustomerId = batch.zohoCustomerId || preview.zohoCustomerId || ''
+  rematchedPreview.zohoCustomerName = batch.zohoCustomerName || preview.zohoCustomerName || ''
 
   const newUnmatched = Array.isArray(rematchedPreview.unmatchedOrders) ? rematchedPreview.unmatchedOrders.length : 0
   const newBlocking = Array.isArray(rematchedPreview.creditNoteBlockingRows) ? rematchedPreview.creditNoteBlockingRows.length : 0
@@ -1002,6 +1025,8 @@ async function listSavedBatches(limit = 50) {
       unmatchedOrderCount: Array.isArray(batch.unmatchedOrders) ? batch.unmatchedOrders.length : 0,
       creditNoteBlockerCount: Array.isArray(batch.creditNoteBlockingRows) ? batch.creditNoteBlockingRows.length : 0,
       reconciliationStatus: batch.reconciliationSummary?.reconciliationStatus || '',
+      zohoCustomerId: batch.zohoCustomerId || '',
+      zohoCustomerName: batch.zohoCustomerName || '',
       createdAt: batch.createdAt,
       approvedAt: batch.approvedAt,
       postedAt: batch.postedAt,
@@ -1289,6 +1314,14 @@ function getZohoOAuthAuthorizeUrl(state = '') {
   }
 }
 
+async function listKsaZohoCustomers() {
+  return {
+    success: true,
+    marketplace: MARKETPLACE,
+    customers: await listKsaZohoCustomerOptions(),
+  }
+}
+
 async function exchangeZohoOAuthCode(code) {
   return {
     success: true,
@@ -1303,6 +1336,7 @@ module.exports = {
   matchZohoInvoicesPreview,
   getSavedBatch,
   listSavedBatches,
+  listKsaZohoCustomers,
   approveSavedBatch,
   buildPaymentPreviewForBatch,
   postBatchToZoho,

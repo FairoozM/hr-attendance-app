@@ -7,6 +7,7 @@ const router = express.Router({ mergeParams: true })
 router.use(requireAuth, requireAdmin)
 
 router.get('/ksa/settlements', ctrl.getKsaSettlementReports)
+router.get('/ksa/zoho-customers', ctrl.getKsaZohoCustomers)
 router.get('/zoho/account-diagnostics', ctrl.getZohoAccountDiagnostics)
 router.get('/zoho/chart-accounts', ctrl.getZohoChartAccounts)
 router.get('/zoho/oauth/authorize-url', ctrl.getZohoOAuthAuthorize)

@@ -72,9 +72,19 @@ async function postKsaPreview(req, res) {
       fromDate: req.body?.fromDate,
       toDate: req.body?.toDate,
       zohoCustomerId: req.body?.zohoCustomerId,
+      zohoCustomerName: req.body?.zohoCustomerName,
       forceRefresh: req.body?.forceRefresh === true,
       createdBy: req.user?.userId,
     })
+    res.json(json)
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
+async function getKsaZohoCustomers(req, res) {
+  try {
+    const json = await service.listKsaZohoCustomers()
     res.json(json)
   } catch (err) {
     sendError(res, err)
@@ -96,6 +106,7 @@ async function postKsaZohoInvoiceMatch(req, res) {
       fromDate: req.body?.fromDate,
       toDate: req.body?.toDate,
       customerId: req.body?.zohoCustomerId,
+      customerName: req.body?.zohoCustomerName,
     })
     res.json(json)
   } catch (err) {
@@ -275,6 +286,7 @@ async function postKsaReclassifyAccountLevelFees(req, res) {
 module.exports = {
   getKsaSettlementReports,
   postKsaPreview,
+  getKsaZohoCustomers,
   getKsaSavedBatches,
   postKsaZohoInvoiceMatch,
   getKsaBatch,

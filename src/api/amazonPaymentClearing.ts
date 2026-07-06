@@ -346,10 +346,19 @@ export interface SavedBatchSummary {
   unmatchedOrderCount: number
   creditNoteBlockerCount: number
   reconciliationStatus: string
+  zohoCustomerId?: string
+  zohoCustomerName?: string
   postingReference?: string
   createdAt: string | null
   approvedAt: string | null
   postedAt: string | null
+}
+
+export interface KsaZohoCustomerOption {
+  name: string
+  label: string
+  customerId: string
+  available: boolean
 }
 
 export interface PaymentClearingPreview {
@@ -367,7 +376,11 @@ export interface PaymentClearingPreview {
     postingSummary?: PostingSummary
     settlementReference?: SettlementReference
     postingReference?: string
+    zohoCustomerId?: string
+    zohoCustomerName?: string
   }
+  zohoCustomerId?: string
+  zohoCustomerName?: string
   status?: string
   lifecycleStatus?: LifecycleStatus
   approvedBy?: number | null
@@ -718,11 +731,23 @@ export async function fetchKsaSettlementReports(daysBack = 90) {
   }>
 }
 
+export async function fetchKsaZohoCustomers() {
+  return api.get('/api/amazon/payment-clearing/ksa/zoho-customers', longOpts) as Promise<{
+    success: boolean
+    marketplace: 'KSA'
+    customers: KsaZohoCustomerOption[]
+  }>
+}
+
 export async function previewKsaSettlementReport(body: {
   reportId?: string
   reportDocumentId?: string
   daysBack?: number
   forceRefresh?: boolean
+  zohoCustomerId?: string
+  zohoCustomerName?: string
+  fromDate?: string
+  toDate?: string
 }) {
   return api.post('/api/amazon/payment-clearing/ksa/preview', body, longOpts) as Promise<PaymentClearingPreview>
 }

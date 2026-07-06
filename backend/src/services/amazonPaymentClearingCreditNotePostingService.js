@@ -397,13 +397,18 @@ function isCreditNotePlanRowComplete(row) {
 }
 
 async function buildCreditNoteApplyPlan(batch, opts = {}) {
+  const matchOpts = {
+    ...opts,
+    customerId: opts.customerId || batch.zohoCustomerId || null,
+    customerName: opts.customerName || batch.zohoCustomerName || null,
+  }
   let rows = collectReturnRowsForApply(batch)
-  if (opts.refreshZoho !== false && rows.length > 0) {
-    rows = await refreshReturnRowsFromLiveZoho(batch, rows, opts)
+  if (matchOpts.refreshZoho !== false && rows.length > 0) {
+    rows = await refreshReturnRowsFromLiveZoho(batch, rows, matchOpts)
   }
   const planRows = []
   for (const row of rows) {
-    planRows.push(await resolvePlanRowAction(row, batch, opts))
+    planRows.push(await resolvePlanRowAction(row, batch, matchOpts))
   }
 
   const summary = planRows.reduce(

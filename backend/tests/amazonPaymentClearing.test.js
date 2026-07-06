@@ -7,6 +7,9 @@ const {
   matchSettlementRowsToInvoices,
   matchRefundReturnRowsToCreditNotes,
   deriveInvoiceRange,
+  resolveKsaZohoCustomerId,
+  resolveKsaZohoCustomer,
+  LEGACY_KSA_ZOHO_CUSTOMER_NAME,
 } = require('../src/services/amazonPaymentClearingZohoMatcher')
 const { buildPreview, orderSummary } = require('../src/services/amazonPaymentClearingPreviewService')
 const { buildOrderFeeBreakdown, detectNetNegativeOrderRefundRows } = require('../src/services/amazonPaymentClearingOrderBreakdownService')
@@ -885,6 +888,17 @@ test('deriveInvoiceRange handles Amazon settlement date format', () => {
   assert.equal(range.toDate >= '2026-05-15', true)
 })
 
+test('deriveInvoiceRange caps Zoho fetch for historical settlements older than 90 days', () => {
+  const range = deriveInvoiceRange([
+    { settlementStartDate: '2025-07-09', settlementEndDate: '2025-07-23', depositDate: '2025-07-25' },
+  ])
+  assert.equal(range.settlementFromDate, '2025-07-09')
+  assert.equal(range.settlementToDate, '2025-07-25')
+  assert.equal(range.fromDate, '2025-03-11')
+  assert.equal(range.toDate, '2025-10-23')
+  assert.notEqual(range.toDate, new Date().toISOString().slice(0, 10))
+})
+
 test('deriveInvoiceRange extends Zoho fetch through today for late invoices', () => {
   const range = deriveInvoiceRange([
     { settlementStartDate: '2026-05-01', settlementEndDate: '2026-05-15', depositDate: '2026-05-20', postedDate: '2026-05-10' },
@@ -904,6 +918,20 @@ test('deriveInvoiceRange pads Zoho fetch window backward from settlement dates',
   assert.equal(range.settlementToDate, '2099-05-20')
   assert.equal(range.fromDate, '2099-01-01')
   assert.equal(range.toDate, '2099-05-20')
+})
+
+test('resolveKsaZohoCustomer preserves explicit customer id and name', async () => {
+  const resolved = await resolveKsaZohoCustomer({
+    customerId: 'zoho-contact-legacy',
+    customerName: LEGACY_KSA_ZOHO_CUSTOMER_NAME,
+  })
+  assert.equal(resolved.customerId, 'zoho-contact-legacy')
+  assert.equal(resolved.customerName, LEGACY_KSA_ZOHO_CUSTOMER_NAME)
+})
+
+test('resolveKsaZohoCustomerId returns explicit customer id without Zoho lookup', async () => {
+  const id = await resolveKsaZohoCustomerId({ customerId: 'explicit-id-123' })
+  assert.equal(id, 'explicit-id-123')
 })
 
 test('Zoho matcher matches Amazon order ID to Zoho PO number first', () => {
@@ -2338,6 +2366,7 @@ test('payment clearing route exposes saved batch and approve endpoints', () => {
 
   assert.ok(routes.some((route) => route.path === '/ksa/batches/:id' && route.methods.includes('get')))
   assert.ok(routes.some((route) => route.path === '/ksa/batches' && route.methods.includes('get')))
+  assert.ok(routes.some((route) => route.path === '/ksa/zoho-customers' && route.methods.includes('get')))
   assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/force-repost' && route.methods.includes('post')))
   assert.ok(routes.some((route) => route.path === '/zoho/account-diagnostics' && route.methods.includes('get')))
   assert.ok(routes.some((route) => route.path === '/zoho/oauth/authorize-url' && route.methods.includes('get')))

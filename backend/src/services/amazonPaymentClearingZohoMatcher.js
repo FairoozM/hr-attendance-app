@@ -5,10 +5,20 @@ const { detectNetNegativeOrderRefundRows, round2 } = require('./amazonPaymentCle
 const { buildReturnFeeBreakdown } = require('./amazonPaymentClearingReturnFeeService')
 
 const KSA_ZOHO_CUSTOMER_NAME = 'KSA-Amazon'
+const LEGACY_KSA_ZOHO_CUSTOMER_NAME = 'Life Smile Business'
+const KSA_ZOHO_CUSTOMER_OPTIONS = Object.freeze([
+  { name: KSA_ZOHO_CUSTOMER_NAME, label: 'KSA-Amazon (current)' },
+  { name: LEGACY_KSA_ZOHO_CUSTOMER_NAME, label: 'Life Smile Business (legacy 2025)' },
+])
 /** Zoho invoice date is often weeks before Amazon settlement payout. */
 const INVOICE_LOOKBACK_DAYS = 120
+/** Extend invoice fetch after settlement end for backfilled Zoho entries. */
+const INVOICE_FORWARD_DAYS = 90
+/** Settlements older than this use a capped forward window instead of today. */
+const HISTORICAL_SETTLEMENT_DAYS = 90
 
 let cachedKsaCustomerId = null
+const customerIdByNameCache = new Map()
 
 function clean(value) {
   return String(value == null ? '' : value).trim()
@@ -48,21 +58,65 @@ function deriveInvoiceRange(rows, lookbackDays = INVOICE_LOOKBACK_DAYS) {
   const fallbackFrom = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const settlementFromDate = dates[0] || fallbackFrom
   const settlementToDate = dates[dates.length - 1] || fallbackTo
-  // Zoho invoices are often created after the settlement period ends (backfilled PO
-  // numbers, delayed Books entry). Extend the fetch window through today so late
-  // invoices still match when a batch is previewed or reopened.
-  const toDate = settlementToDate >= today ? settlementToDate : today
+  const historicalCutoff = shiftDateIso(today, -HISTORICAL_SETTLEMENT_DAYS)
+  let toDate
+  if (settlementToDate >= today) {
+    toDate = settlementToDate
+  } else if (settlementToDate < historicalCutoff) {
+    toDate = shiftDateIso(settlementToDate, INVOICE_FORWARD_DAYS)
+  } else {
+    // Recent settlements: extend through today so late Zoho invoices still match.
+    toDate = today
+  }
   return {
     fromDate: shiftDateIso(settlementFromDate, -lookbackDays),
     toDate,
     settlementFromDate,
     settlementToDate,
     lookbackDays,
+    invoiceForwardDays: INVOICE_FORWARD_DAYS,
   }
+}
+
+async function resolveZohoCustomerByName(customerName) {
+  const name = clean(customerName)
+  if (!name) return null
+  if (customerIdByNameCache.has(name)) return customerIdByNameCache.get(name)
+  const customers = await fetchCustomers()
+  const hit = (Array.isArray(customers) ? customers : []).find(
+    (customer) => clean(customer?.contact_name || customer?.customer_name) === name
+  )
+  const id = clean(hit?.contact_id || hit?.customer_id)
+  if (id) customerIdByNameCache.set(name, id)
+  return id || null
+}
+
+async function resolveKsaZohoCustomer(options = {}) {
+  const explicitName = clean(options.customerName)
+  const customerId = await resolveKsaZohoCustomerId(options)
+  let customerName = explicitName
+  if (!customerName && customerId) {
+    for (const option of KSA_ZOHO_CUSTOMER_OPTIONS) {
+      const cachedId = customerIdByNameCache.get(option.name)
+      if (cachedId && cachedId === customerId) {
+        customerName = option.name
+        break
+      }
+    }
+    if (!customerName && cachedKsaCustomerId && cachedKsaCustomerId === customerId) {
+      customerName = KSA_ZOHO_CUSTOMER_NAME
+    }
+  }
+  if (!customerName) customerName = KSA_ZOHO_CUSTOMER_NAME
+  return { customerId, customerName }
 }
 
 async function resolveKsaZohoCustomerId(options = {}) {
   if (options.customerId) return clean(options.customerId)
+  if (options.customerName) {
+    const byName = await resolveZohoCustomerByName(options.customerName)
+    if (byName) return byName
+  }
   const fromEnv = clean(process.env.AMAZON_KSA_ZOHO_CUSTOMER_ID)
   if (fromEnv) return fromEnv
   if (cachedKsaCustomerId) return cachedKsaCustomerId
@@ -72,6 +126,20 @@ async function resolveKsaZohoCustomerId(options = {}) {
   )
   cachedKsaCustomerId = clean(hit?.contact_id || hit?.customer_id)
   return cachedKsaCustomerId || null
+}
+
+async function listKsaZohoCustomerOptions() {
+  const rows = []
+  for (const option of KSA_ZOHO_CUSTOMER_OPTIONS) {
+    const customerId = await resolveZohoCustomerByName(option.name)
+    rows.push({
+      name: option.name,
+      label: option.label,
+      customerId: customerId || '',
+      available: Boolean(customerId),
+    })
+  }
+  return rows
 }
 
 function invoiceNumber(invoice) {
@@ -443,6 +511,7 @@ async function fetchZohoInvoicesForSettlementRows(rows, options = {}) {
     ...(options.toDate ? { toDate: options.toDate } : {}),
   }
   const customerId = await resolveKsaZohoCustomerId(options)
+  const customerName = clean(options.customerName) || KSA_ZOHO_CUSTOMER_NAME
   if (Array.isArray(options.invoices)) {
     return {
       rows: options.invoices,
@@ -450,7 +519,7 @@ async function fetchZohoInvoicesForSettlementRows(rows, options = {}) {
       pages: 0,
       ...range,
       customerId,
-      customerName: KSA_ZOHO_CUSTOMER_NAME,
+      customerName,
     }
   }
   const result = await fetchInvoices(range.fromDate, range.toDate, customerId || null)
@@ -460,7 +529,7 @@ async function fetchZohoInvoicesForSettlementRows(rows, options = {}) {
     pages: Number(result?.pages) || 0,
     ...range,
     customerId,
-    customerName: KSA_ZOHO_CUSTOMER_NAME,
+    customerName,
   }
 }
 
@@ -471,6 +540,7 @@ async function fetchZohoCreditNotesForSettlementRows(rows, options = {}) {
     ...(options.toDate ? { toDate: options.toDate } : {}),
   }
   const customerId = await resolveKsaZohoCustomerId(options)
+  const customerName = clean(options.customerName) || KSA_ZOHO_CUSTOMER_NAME
   if (Array.isArray(options.creditNotes)) {
     return {
       rows: options.creditNotes,
@@ -478,7 +548,7 @@ async function fetchZohoCreditNotesForSettlementRows(rows, options = {}) {
       pages: 0,
       ...range,
       customerId,
-      customerName: KSA_ZOHO_CUSTOMER_NAME,
+      customerName,
     }
   }
   const result = await fetchCreditNotes(range.fromDate, range.toDate, customerId || null)
@@ -488,7 +558,7 @@ async function fetchZohoCreditNotesForSettlementRows(rows, options = {}) {
     pages: Number(result?.pages) || 0,
     ...range,
     customerId,
-    customerName: KSA_ZOHO_CUSTOMER_NAME,
+    customerName,
   }
 }
 
@@ -505,7 +575,7 @@ function buildZohoFetchWarnings(zohoFetch) {
     )
   }
   if (!zohoFetch.customerId) {
-    warnings.push(`Could not resolve Zoho customer "${KSA_ZOHO_CUSTOMER_NAME}". Set AMAZON_KSA_ZOHO_CUSTOMER_ID or verify the customer exists in Zoho Books.`)
+    warnings.push(`Could not resolve Zoho customer "${zohoFetch.customerName || KSA_ZOHO_CUSTOMER_NAME}". Set AMAZON_KSA_ZOHO_CUSTOMER_ID or verify the customer exists in Zoho Books.`)
   }
   return warnings
 }
@@ -562,7 +632,10 @@ async function matchZohoInvoicesForRows(rows, options = {}) {
 
 module.exports = {
   KSA_ZOHO_CUSTOMER_NAME,
+  LEGACY_KSA_ZOHO_CUSTOMER_NAME,
   INVOICE_LOOKBACK_DAYS,
+  INVOICE_FORWARD_DAYS,
+  HISTORICAL_SETTLEMENT_DAYS,
   deriveInvoiceRange,
   matchSettlementRowsToInvoices,
   matchRefundReturnRowsToCreditNotes,
@@ -571,6 +644,8 @@ module.exports = {
   fetchZohoCreditNotesForSettlementRows,
   buildZohoFetchWarnings,
   resolveKsaZohoCustomerId,
+  resolveKsaZohoCustomer,
+  listKsaZohoCustomerOptions,
   _internals: {
     indexInvoices,
     mapInvoice,

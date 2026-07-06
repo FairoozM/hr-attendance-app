@@ -1,18 +1,92 @@
 import { dateRangeText, dateText, LifecycleBadge, money } from '../clearingShared'
 import type { ClearingContext } from './clearingContext'
 
+const LEGACY_KSA_SETTLEMENTS = [
+  { period: '09.07.2025 – 23.07.2025', expectedTotal: 4427.15 },
+  { period: '23.07.2025 – 06.08.2025', expectedTotal: 1952.84 },
+  { period: '06.08.2025 – 20.08.2025', expectedTotal: 11536.19 },
+  { period: '20.08.2025 – 03.09.2025', expectedTotal: 781.11 },
+] as const
+
+const LEGACY_CUSTOMER_NAME = 'Life Smile Business'
+
 export function Step1SelectSettlement({ ctx }: { ctx: ClearingContext }) {
   const selectedReport = ctx.reports.find(
     (row) => row.reportId === ctx.reportId || row.reportDocumentId === ctx.reportDocumentId
   )
+  const isLegacyCustomer = ctx.zohoCustomerName === LEGACY_CUSTOMER_NAME
+  const selectedCustomer = ctx.zohoCustomers.find((row) => row.name === ctx.zohoCustomerName)
+
   return (
     <div className="apc-step-stack">
       <div className="apc-callout">
         Saved settlements load instantly from the database. "Fetch Latest KSA Settlement" lists Amazon
         settlement reports created in the last 90 days (Amazon API limit). "Preview Report" reuses a saved
         batch when one exists for the report; use "Refresh from Amazon" only when you need to re-fetch the raw report.
-        For older reports, paste the reportId manually.
+        For 2025 legacy settlements, select <strong>Life Smile Business</strong>, paste the reportId from Seller Central,
+        and verify the settlement total in Step 2 before posting.
       </div>
+
+      <div className="apc-actions">
+        <label className="ainv-label">
+          Zoho customer
+          <select
+            className="ainv-input"
+            value={ctx.zohoCustomerName}
+            onChange={(e) => ctx.setZohoCustomerName(e.target.value)}
+            disabled={ctx.previewing || ctx.reopening}
+          >
+            {ctx.zohoCustomers.length ? (
+              ctx.zohoCustomers.map((row) => (
+                <option key={row.name} value={row.name} disabled={!row.available}>
+                  {row.label}
+                  {!row.available ? ' (not found in Zoho)' : ''}
+                </option>
+              ))
+            ) : (
+              <>
+                <option value="KSA-Amazon">KSA-Amazon (current)</option>
+                <option value={LEGACY_CUSTOMER_NAME}>Life Smile Business (legacy 2025)</option>
+              </>
+            )}
+          </select>
+        </label>
+        {selectedCustomer && !selectedCustomer.available ? (
+          <p className="apc-muted" style={{ color: 'var(--ainv-danger, #c0392b)' }}>
+            Zoho customer "{selectedCustomer.name}" was not found. Check the contact name in Zoho Books.
+          </p>
+        ) : null}
+      </div>
+
+      {isLegacyCustomer ? (
+        <div className="apc-callout">
+          <strong>2025 legacy settlements (Life Smile Business)</strong> — process one at a time. Paste each reportId,
+          preview, then confirm the settlement total matches before posting.
+          <div className="apc-table-wrap" style={{ marginTop: '0.75rem' }}>
+            <table className="apc-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Period</th>
+                  <th className="apc-money">Expected total (SAR)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {LEGACY_KSA_SETTLEMENTS.map((row, index) => (
+                  <tr key={row.period}>
+                    <td>{index + 1}</td>
+                    <td>{row.period}</td>
+                    <td className="apc-money">{money(row.expectedTotal)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="apc-muted" style={{ marginTop: '0.5rem' }}>
+            Recommended pilot order: start with #4 (781.11 SAR), then #2, #1, #3.
+          </p>
+        </div>
+      ) : null}
 
       <div>
         <div className="apc-stage-panel__header">
@@ -30,6 +104,7 @@ export function Step1SelectSettlement({ ctx }: { ctx: ClearingContext }) {
                   <th>Settlement</th>
                   <th>Range</th>
                   <th className="apc-money">Settlement Total</th>
+                  <th>Zoho Customer</th>
                   <th>Matched</th>
                   <th>Blockers</th>
                   <th>Lifecycle</th>
@@ -45,6 +120,7 @@ export function Step1SelectSettlement({ ctx }: { ctx: ClearingContext }) {
                     <td>{batch.settlementId || '-'}</td>
                     <td>{dateRangeText(batch.settlementStartDate, batch.settlementEndDate)}</td>
                     <td className="apc-money">{money(batch.amazonSettlementTotal)}</td>
+                    <td>{batch.zohoCustomerName || 'KSA-Amazon'}</td>
                     <td>{batch.matchedOrderCount}</td>
                     <td>{batch.creditNoteBlockerCount + batch.unmatchedOrderCount}</td>
                     <td><LifecycleBadge status={batch.lifecycleStatus} /></td>

@@ -54,6 +54,8 @@ async function ensureAmazonPaymentClearingTables() {
   await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS amount_differences JSONB NOT NULL DEFAULT '[]'::jsonb`)
   await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS posted_to_zoho BOOLEAN NOT NULL DEFAULT false`)
   await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS posting_summary JSONB NOT NULL DEFAULT '{}'::jsonb`)
+  await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS zoho_customer_id VARCHAR(128)`)
+  await query(`ALTER TABLE amazon_payment_clearing_batches ADD COLUMN IF NOT EXISTS zoho_customer_name VARCHAR(256)`)
   await query(`
     CREATE TABLE IF NOT EXISTS amazon_payment_clearing_rows (
       id BIGSERIAL PRIMARY KEY,
@@ -295,6 +297,8 @@ function mapBatch(row) {
     amountDifferences: safeJson(row.amount_differences, []),
     report: safeJson(row.report_snapshot, {}),
     warnings: safeJson(row.warnings, []),
+    zohoCustomerId: row.zoho_customer_id || '',
+    zohoCustomerName: row.zoho_customer_name || '',
     postedToZoho: row.posted_to_zoho === true || row.posted_to_zoho === 't',
     postingSummary: safeJson(row.posting_summary, {}),
     createdBy: row.created_by == null ? null : Number(row.created_by),
@@ -438,6 +442,8 @@ function batchColumnValues(preview, createdBy) {
     JSON.stringify(preview.amountDifferences || []),
     JSON.stringify(preview.report || {}),
     JSON.stringify(preview.warnings || []),
+    preview.zohoCustomerId || null,
+    preview.zohoCustomerName || null,
     createdBy == null ? null : Number(createdBy),
   ]
 }
@@ -458,10 +464,11 @@ async function savePreviewBatch({ preview, rows, createdBy, existingBatchId = nu
           credit_note_blocking_rows = $12::jsonb, adjustment_rows = $13::jsonb, reconciliation_summary = $14::jsonb,
           matched_orders = $15::jsonb, unmatched_orders = $16::jsonb, all_rows = $17::jsonb,
           blocking_issues = $18::jsonb, amount_differences = $19::jsonb, report_snapshot = $20::jsonb,
-          warnings = $21::jsonb, created_by = COALESCE($22, created_by),
+          warnings = $21::jsonb, zoho_customer_id = $22, zoho_customer_name = $23,
+          created_by = COALESCE($24, created_by),
           approved_by = NULL, approved_at = NULL, posted_by = NULL, posted_at = NULL,
           posted_to_zoho = false, posting_summary = '{}'::jsonb, updated_at = NOW()
-        WHERE id = $23
+        WHERE id = $25
         RETURNING *`,
         [...batchColumnValues(preview, createdBy), Number(existingBatchId)]
       )
@@ -473,8 +480,8 @@ async function savePreviewBatch({ preview, rows, createdBy, existingBatchId = nu
           totals, pivot, settlement_level_fees, non_order_linked_amazon_fee_mappings, refund_return_rows, matched_returns,
           missing_credit_notes, credit_note_blocking_rows, adjustment_rows, reconciliation_summary,
           matched_orders, unmatched_orders, all_rows, blocking_issues, amount_differences,
-          report_snapshot, warnings, created_by, created_at, updated_at
-        ) VALUES ($1,$2,$3,$4,'previewed',$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12::jsonb,$13::jsonb,$14::jsonb,$15::jsonb,$16::jsonb,$17::jsonb,$18::jsonb,$19::jsonb,$20::jsonb,$21::jsonb,$22,NOW(),NOW())
+          report_snapshot, warnings, zoho_customer_id, zoho_customer_name, created_by, created_at, updated_at
+        ) VALUES ($1,$2,$3,$4,'previewed',$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12::jsonb,$13::jsonb,$14::jsonb,$15::jsonb,$16::jsonb,$17::jsonb,$18::jsonb,$19::jsonb,$20::jsonb,$21::jsonb,$22,$23,$24,NOW(),NOW())
         RETURNING *`,
         batchColumnValues(preview, createdBy)
       )
