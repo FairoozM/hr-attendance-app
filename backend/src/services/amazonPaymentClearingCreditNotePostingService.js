@@ -40,6 +40,8 @@ function principalRefundAmountForOrder(orderId, allRows) {
   )
   if (!orderRows.length) return 0
   const breakdown = buildReturnFeeBreakdown(orderRows)
+  const principalOnly = positiveAmount(breakdown.principalRefundAmount)
+  if (principalOnly > TOLERANCE) return principalOnly
   return positiveAmount(breakdown.customerRefundAmount)
 }
 

@@ -2088,6 +2088,75 @@ test('credit note matching links warehouse credit note number to Amazon order id
   assert.equal(result.matchedReturns[0].status, 'matched')
 })
 
+test('credit note matching ignores offset promotion lines on partial multi-item invoice return', () => {
+  const orderId = '404-8863387-3332314'
+  const rows = [
+    {
+      orderId,
+      transactionType: 'Refund',
+      amountType: 'ItemPrice',
+      amountDescription: 'Principal',
+      amount: -1065,
+      category: CATEGORY.REFUND,
+      rowClass: ROW_CLASS.REFUND,
+    },
+    {
+      orderId,
+      transactionType: 'Refund',
+      amountType: 'ItemPrice',
+      amountDescription: 'Shipping',
+      amount: -6,
+      category: CATEGORY.REFUND,
+      rowClass: ROW_CLASS.REFUND,
+    },
+    {
+      orderId,
+      transactionType: 'Refund',
+      amountType: 'Promotion',
+      amountDescription: 'Principal',
+      amount: 6,
+      category: CATEGORY.PROMOTION_DISCOUNT,
+      rowClass: ROW_CLASS.REFUND,
+    },
+    {
+      orderId,
+      transactionType: 'Refund',
+      amountType: 'Promotion',
+      amountDescription: 'Principal',
+      amount: -6,
+      category: CATEGORY.PROMOTION_DISCOUNT,
+      rowClass: ROW_CLASS.REFUND,
+    },
+  ]
+  const invoices = [
+    {
+      invoice_id: 'zinv1',
+      invoice_number: 'INV-040055',
+      reference_number: orderId,
+      customer_id: 'cust1',
+      customer_name: 'KSA-Amazon',
+      total: 2835,
+    },
+  ]
+  const creditNotes = [
+    {
+      creditnote_id: 'cn1',
+      creditnote_number: orderId,
+      reference_number: 'Grade A - Brand New',
+      invoice_id: 'zinv1',
+      customer_id: 'cust1',
+      total: 1065,
+      status: 'open',
+    },
+  ]
+  const result = matchRefundReturnRowsToCreditNotes(rows, invoices, creditNotes)
+  assert.equal(result.matchedReturns.length, 1)
+  assert.equal(result.matchedReturns[0].amazonRefundAmount, 1065)
+  assert.equal(result.matchedReturns[0].creditNoteAmount, 1065)
+  assert.equal(result.matchedReturns[0].status, 'matched')
+  assert.equal(result.creditNoteBlockingRows.length, 0)
+})
+
 test('collectReturnRowsForApply prefers matchedReturns over stale blockers', () => {
   const { collectReturnRowsForApply } = require('../src/services/amazonPaymentClearingCreditNotePostingService')
   const rows = collectReturnRowsForApply({

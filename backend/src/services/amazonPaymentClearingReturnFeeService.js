@@ -27,6 +27,7 @@ function emptyReturnBreakdown(orderId = '') {
   return {
     orderId,
     customerRefundAmount: 0,
+    principalRefundAmount: 0,
     commissionReversal: 0,
     shippingFbaRetained: 0,
     otherFeeDelta: 0,
@@ -51,6 +52,9 @@ function buildReturnFeeBreakdown(orderRows) {
     const amountType = clean(row.amountType)
     const amountDesc = clean(row.amountDescription)
 
+    if (amountType === 'ItemPrice' && amountDesc.toLowerCase() === 'principal') {
+      breakdown.principalRefundAmount = round2(breakdown.principalRefundAmount + amount)
+    }
     if (amountType === 'ItemPrice' && ['principal', 'tax', 'shipping', 'shipping tax'].includes(amountDesc.toLowerCase())) {
       breakdown.customerRefundAmount = round2(breakdown.customerRefundAmount + amount)
       continue

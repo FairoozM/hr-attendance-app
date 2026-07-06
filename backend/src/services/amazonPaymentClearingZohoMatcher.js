@@ -286,6 +286,8 @@ function groupRefundRowsByOrder(rows) {
 
 function principalRefundAmountForOrderRows(orderRows) {
   const breakdown = buildReturnFeeBreakdown(orderRows)
+  const principalOnly = Math.abs(round2(breakdown.principalRefundAmount))
+  if (principalOnly > 0) return principalOnly
   return Math.abs(round2(breakdown.customerRefundAmount))
 }
 
