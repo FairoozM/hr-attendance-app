@@ -708,7 +708,7 @@ export interface PaymentPostingResult {
 
 const longOpts = { timeoutMs: 480_000 }
 
-export async function fetchKsaSettlementReports(daysBack = 60) {
+export async function fetchKsaSettlementReports(daysBack = 365) {
   const qs = new URLSearchParams({ daysBack: String(daysBack) })
   return api.get(`/api/amazon/payment-clearing/ksa/settlements?${qs.toString()}`, longOpts) as Promise<{
     success: boolean

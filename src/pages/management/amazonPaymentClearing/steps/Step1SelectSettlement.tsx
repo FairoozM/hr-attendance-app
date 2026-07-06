@@ -8,8 +8,9 @@ export function Step1SelectSettlement({ ctx }: { ctx: ClearingContext }) {
   return (
     <div className="apc-step-stack">
       <div className="apc-callout">
-        Saved settlements load instantly from the database. "Preview Report" reuses a saved batch when one exists for
-        the report; use "Refresh from Amazon" only when you need to re-fetch the raw report.
+        Saved settlements load instantly from the database. "Fetch Latest KSA Settlement" lists Amazon
+        settlement reports from the last 12 months. "Preview Report" reuses a saved batch when one exists
+        for the report; use "Refresh from Amazon" only when you need to re-fetch the raw report.
       </div>
 
       <div>

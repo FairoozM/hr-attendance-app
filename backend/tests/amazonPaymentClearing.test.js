@@ -2301,6 +2301,16 @@ test('credit note plan row completion includes skipped posted refunds', () => {
   assert.equal(isCreditNotePlanRowComplete({ action: 'refund_existing', status: 'ready' }), false)
 })
 
+test('settlement report list sorts by settlement end date newest first', () => {
+  const { settlementReportSortTime } = require('../src/services/amazonPaymentClearingService')._internals
+  const reports = [
+    { reportId: 'older', dataEndTime: '2026-04-01T00:00:00Z' },
+    { reportId: 'target', dataEndTime: '2026-04-15T00:00:00Z' },
+    { reportId: 'newer', dataEndTime: '2026-06-24T00:00:00Z' },
+  ].sort((a, b) => settlementReportSortTime(b).localeCompare(settlementReportSortTime(a)))
+  assert.deepEqual(reports.map((row) => row.reportId), ['newer', 'target', 'older'])
+})
+
 test('payment clearing route is admin protected', () => {
   const stack = paymentClearingRoutes.stack.filter((layer) => layer.name !== 'query' && layer.name !== 'expressInit')
   assert.equal(stack[0].handle.name, 'requireAuth')
