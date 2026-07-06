@@ -7,7 +7,11 @@ const {
   throwAmazonSpApiIfFailed,
 } = require('./amazonSpApiService')
 const { parseAmazonSettlementReport } = require('./amazonSettlementParserService')
-const { matchZohoInvoicesForRows, deriveInvoiceRange } = require('./amazonPaymentClearingZohoMatcher')
+const {
+  matchZohoInvoicesForRows,
+  deriveInvoiceRange,
+  matchRefundReturnRowsToCreditNotes,
+} = require('./amazonPaymentClearingZohoMatcher')
 const {
   buildPreview,
   buildBlockingIssues,
@@ -341,6 +345,7 @@ function normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules = [],
   if (!keepSnapshot) {
     sanitizeCreditNotePreview(preview, settlementRows)
     if (settlementRows.length) {
+      rematchCreditNotesFromSettlementRows(preview, settlementRows)
       recomputePreviewReconciliation(preview, settlementRows)
     }
   } else {
@@ -501,7 +506,7 @@ function shouldRematchZohoOnDraftReopen(batch) {
   if (!blockers.length) return false
   return blockers.some((row) => {
     if (row?.creditNoteAction === 'ready_to_create') return true
-    if (row?.zohoCreditNoteId && /differ/i.test(String(row.blockingReason || ''))) return false
+    if (row?.zohoCreditNoteId && /differ/i.test(String(row.blockingReason || ''))) return true
     if (!row?.zohoCreditNoteId && row?.zohoInvoiceId) return true
     if (/missing credit note/i.test(String(row.blockingReason || ''))) return true
     return false
@@ -544,6 +549,70 @@ function invoicesFromMatchedOrders(matchedOrders = []) {
     .filter((invoice) => invoice.invoice_id || invoice.reference_number)
 }
 
+function creditNotesFromStoredReturnPreview(matchedReturns = [], creditNoteBlockingRows = [], missingCreditNotes = []) {
+  const seen = new Set()
+  const out = []
+  for (const row of [...matchedReturns, ...creditNoteBlockingRows, ...missingCreditNotes]) {
+    const id = String(row?.zohoCreditNoteId || '').trim()
+    const number = String(row?.zohoCreditNoteNumber || '').trim()
+    const key = id || number
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    out.push({
+      creditnote_id: id,
+      creditnote_number: number || row.orderId || '',
+      reference_number: row.zohoPoNumber || '',
+      invoice_id: row.zohoInvoiceId || '',
+      total: row.creditNoteAmount,
+      status: row.creditNoteStatus || 'open',
+    })
+  }
+  return out
+}
+
+function invoicesForCreditNoteRematch(matchedOrders = [], returnRows = []) {
+  const byId = new Map()
+  for (const invoice of invoicesFromMatchedOrders(matchedOrders)) {
+    const id = String(invoice.invoice_id || '').trim()
+    if (id) byId.set(id, invoice)
+  }
+  for (const row of Array.isArray(returnRows) ? returnRows : []) {
+    const id = String(row?.zohoInvoiceId || '').trim()
+    if (!id) continue
+    const existing = byId.get(id)
+    byId.set(id, {
+      invoice_id: id,
+      invoice_number: row.zohoInvoiceNumber || existing?.invoice_number || '',
+      reference_number: row.zohoPoNumber || row.orderId || existing?.reference_number || '',
+      customer_id: row.zohoCustomerId || existing?.customer_id || '',
+      customer_name: row.zohoCustomerName || existing?.customer_name || '',
+      total: row.zohoInvoiceTotal ?? existing?.total,
+    })
+  }
+  return Array.from(byId.values())
+}
+
+function rematchCreditNotesFromSettlementRows(preview, settlementRows) {
+  if (!preview || !Array.isArray(settlementRows) || settlementRows.length === 0) return preview
+  const returnPreviewRows = [
+    ...(preview.matchedReturns || []),
+    ...(preview.creditNoteBlockingRows || []),
+    ...(preview.missingCreditNotes || []),
+  ]
+  const invoices = invoicesForCreditNoteRematch(preview.matchedOrders, returnPreviewRows)
+  if (!invoices.length) return preview
+  const creditNotes = creditNotesFromStoredReturnPreview(
+    preview.matchedReturns,
+    preview.creditNoteBlockingRows,
+    preview.missingCreditNotes
+  )
+  const cnMatch = matchRefundReturnRowsToCreditNotes(settlementRows, invoices, creditNotes)
+  preview.matchedReturns = cnMatch.matchedReturns
+  preview.missingCreditNotes = cnMatch.missingCreditNotes
+  preview.creditNoteBlockingRows = cnMatch.creditNoteBlockingRows
+  return preview
+}
+
 function rowNumbersNeedingAccountLevelFeeFix(storedRows = []) {
   return (Array.isArray(storedRows) ? storedRows : [])
     .filter((row) => isNonOrderLinkedAmazonFee(row) && String(row.matchStatus || '').toLowerCase() !== 'account_level_fee')
@@ -578,13 +647,20 @@ async function refreshBatchPreviewFromStoredRows(batchId, batch = null) {
   }).catch(() => [])
   const report = resolvedBatch.report || {}
   const rows = storedRowsToSettlementRows(storedRows, report)
+  const rematchSeed = {
+    matchedOrders: resolvedBatch.matchedOrders || [],
+    matchedReturns: resolvedBatch.matchedReturns || [],
+    missingCreditNotes: resolvedBatch.missingCreditNotes || [],
+    creditNoteBlockingRows: resolvedBatch.creditNoteBlockingRows || [],
+  }
+  rematchCreditNotesFromSettlementRows(rematchSeed, rows)
   const preview = buildPreview({
     report,
     rows,
     invoices: invoicesFromMatchedOrders(resolvedBatch.matchedOrders),
-    matchedReturns: resolvedBatch.matchedReturns || [],
-    missingCreditNotes: resolvedBatch.missingCreditNotes || [],
-    creditNoteBlockingRows: resolvedBatch.creditNoteBlockingRows || [],
+    matchedReturns: rematchSeed.matchedReturns,
+    missingCreditNotes: rematchSeed.missingCreditNotes,
+    creditNoteBlockingRows: rematchSeed.creditNoteBlockingRows,
     parserWarnings: resolvedBatch.warnings || [],
     rawRowCount: rows.length,
     feeJournalMappingRules,
@@ -771,12 +847,14 @@ async function hydrateSavedBatch(batch) {
   const staleRefundReturnRows = (batch.refundReturnRows || []).some((row) => isNonOrderLinkedAmazonFee(row))
   const staleReconciliation = batch.reconciliationSummary?.reconciliationStatus === 'mismatch'
     && Math.abs(Number(batch.reconciliationSummary?.reconciliationDifference) || 0) > 0.01
+  const priorCreditNoteBlockers = Array.isArray(batch.creditNoteBlockingRows) ? batch.creditNoteBlockingRows.length : 0
   normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules, settlementRows)
+  const rematchedCreditNoteBlockers = Array.isArray(preview.creditNoteBlockingRows) ? preview.creditNoteBlockingRows.length : 0
   if (
     storedRows.length > 0 &&
     batch.status !== 'posted' &&
     !batch.postedToZoho &&
-    (staleCreditNoteBlockers || staleRefundReturnRows || staleReconciliation)
+    (staleCreditNoteBlockers || staleRefundReturnRows || staleReconciliation || rematchedCreditNoteBlockers !== priorCreditNoteBlockers)
   ) {
     try {
       await store.updateBatchPreviewSnapshot(batch.batchId, preview)
@@ -1195,5 +1273,6 @@ module.exports = {
     extractReports,
     normalizeReport,
     resolveReport,
+    rematchCreditNotesFromSettlementRows,
   },
 }

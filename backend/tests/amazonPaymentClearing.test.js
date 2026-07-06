@@ -2157,6 +2157,49 @@ test('credit note matching ignores offset promotion lines on partial multi-item 
   assert.equal(result.creditNoteBlockingRows.length, 0)
 })
 
+test('saved batch credit note rematch clears stale amount-differ blockers from stored rows', () => {
+  const { rematchCreditNotesFromSettlementRows } = require('../src/services/amazonPaymentClearingService')._internals
+  const orderId = '404-8863387-3332314'
+  const settlementRows = [
+    { orderId, transactionType: 'Refund', amountType: 'ItemPrice', amountDescription: 'Principal', amount: -1065, rowClass: ROW_CLASS.REFUND },
+    { orderId, transactionType: 'Refund', amountType: 'ItemPrice', amountDescription: 'Shipping', amount: -6, rowClass: ROW_CLASS.REFUND },
+    { orderId, transactionType: 'Refund', amountType: 'Promotion', amountDescription: 'Principal', amount: 6, rowClass: ROW_CLASS.REFUND },
+    { orderId, transactionType: 'Refund', amountType: 'Promotion', amountDescription: 'Principal', amount: -6, rowClass: ROW_CLASS.REFUND },
+  ]
+  const preview = {
+    matchedOrders: [
+      {
+        orderId,
+        zohoInvoiceId: 'zinv1',
+        zohoInvoiceNumber: 'INV-040055',
+        zohoPoNumber: orderId,
+        zohoInvoiceTotal: 2835,
+      },
+    ],
+    matchedReturns: [],
+    creditNoteBlockingRows: [
+      {
+        orderId,
+        amazonRefundAmount: 1071,
+        creditNoteAmount: 1065,
+        zohoInvoiceId: 'zinv1',
+        zohoInvoiceNumber: 'INV-040055',
+        zohoCreditNoteId: 'cn1',
+        zohoCreditNoteNumber: orderId,
+        status: 'blocked',
+        creditNoteAction: 'blocked',
+        blockingReason: 'Credit note amount differs from Amazon refund/return amount by more than 0.01.',
+      },
+    ],
+    missingCreditNotes: [],
+  }
+  rematchCreditNotesFromSettlementRows(preview, settlementRows)
+  assert.equal(preview.creditNoteBlockingRows.length, 0)
+  assert.equal(preview.matchedReturns.length, 1)
+  assert.equal(preview.matchedReturns[0].amazonRefundAmount, 1065)
+  assert.equal(preview.matchedReturns[0].status, 'matched')
+})
+
 test('collectReturnRowsForApply prefers matchedReturns over stale blockers', () => {
   const { collectReturnRowsForApply } = require('../src/services/amazonPaymentClearingCreditNotePostingService')
   const rows = collectReturnRowsForApply({
