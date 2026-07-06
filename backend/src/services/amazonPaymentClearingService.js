@@ -45,12 +45,31 @@ const MARKETPLACE_KEY = 'ksa'
 const MARKETPLACE = 'KSA'
 const SETTLEMENT_REPORT_TYPE =
   process.env.AMAZON_KSA_SETTLEMENT_REPORT_TYPE || 'GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2'
-const SETTLEMENT_LIST_DAYS_BACK = Number(process.env.AMAZON_KSA_SETTLEMENT_LIST_DAYS_BACK) || 365
+/** Amazon listReports rejects createdSince older than ~90 days (InvalidInput). */
+const AMAZON_LIST_REPORTS_MAX_DAYS_BACK = Number(process.env.AMAZON_LIST_REPORTS_MAX_DAYS_BACK) || 90
+const SETTLEMENT_LIST_DAYS_BACK = Number(process.env.AMAZON_KSA_SETTLEMENT_LIST_DAYS_BACK) || AMAZON_LIST_REPORTS_MAX_DAYS_BACK
 const SETTLEMENT_LIST_PAGE_SIZE = Number(process.env.AMAZON_KSA_SETTLEMENT_LIST_PAGE_SIZE) || 100
 const SETTLEMENT_LIST_MAX_PAGES = Number(process.env.AMAZON_KSA_SETTLEMENT_LIST_MAX_PAGES) || 20
 
 function isoDaysAgo(days) {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+}
+
+function clampSettlementListDaysBack(daysBack) {
+  const requested = Number(daysBack)
+  const normalized = Number.isFinite(requested) && requested > 0 ? requested : SETTLEMENT_LIST_DAYS_BACK
+  return Math.min(normalized, AMAZON_LIST_REPORTS_MAX_DAYS_BACK)
+}
+
+function resolveSettlementListCreatedSince(options = {}) {
+  const daysBack = clampSettlementListDaysBack(options.daysBack)
+  const earliestAllowed = isoDaysAgo(AMAZON_LIST_REPORTS_MAX_DAYS_BACK)
+  const requestedSince = options.createdSince ? String(options.createdSince).trim() : isoDaysAgo(daysBack)
+  return {
+    daysBack,
+    createdSince: requestedSince < earliestAllowed ? earliestAllowed : requestedSince,
+    maxDaysBack: AMAZON_LIST_REPORTS_MAX_DAYS_BACK,
+  }
 }
 
 function extractReports(data) {
@@ -88,8 +107,7 @@ function settlementReportSortTime(report) {
 
 async function listRecentSettlementReports(options = {}) {
   const marketplaceId = marketplaceIdForKey(MARKETPLACE_KEY)
-  const daysBack = Number(options.daysBack) || SETTLEMENT_LIST_DAYS_BACK
-  const createdSince = options.createdSince || isoDaysAgo(daysBack)
+  const { daysBack, createdSince, maxDaysBack } = resolveSettlementListCreatedSince(options)
   const pageSize = Number(options.pageSize) || SETTLEMENT_LIST_PAGE_SIZE
   const maxPages = Number(options.maxPages) || SETTLEMENT_LIST_MAX_PAGES
   const byReportId = new Map()
@@ -125,6 +143,7 @@ async function listRecentSettlementReports(options = {}) {
     marketplaceId,
     daysBack,
     createdSince,
+    maxDaysBack,
     reports,
   }
 }
@@ -1306,5 +1325,7 @@ module.exports = {
     rematchCreditNotesFromSettlementRows,
     reportListNextToken,
     settlementReportSortTime,
+    clampSettlementListDaysBack,
+    resolveSettlementListCreatedSince,
   },
 }

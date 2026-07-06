@@ -2301,6 +2301,16 @@ test('credit note plan row completion includes skipped posted refunds', () => {
   assert.equal(isCreditNotePlanRowComplete({ action: 'refund_existing', status: 'ready' }), false)
 })
 
+test('settlement report list clamps createdSince to Amazon 90-day API limit', () => {
+  const { clampSettlementListDaysBack, resolveSettlementListCreatedSince } =
+    require('../src/services/amazonPaymentClearingService')._internals
+  assert.equal(clampSettlementListDaysBack(365), 90)
+  assert.equal(clampSettlementListDaysBack(60), 60)
+  const resolved = resolveSettlementListCreatedSince({ daysBack: 365 })
+  assert.equal(resolved.daysBack, 90)
+  assert.ok(resolved.createdSince >= new Date(Date.now() - 91 * 24 * 60 * 60 * 1000).toISOString())
+})
+
 test('settlement report list sorts by settlement end date newest first', () => {
   const { settlementReportSortTime } = require('../src/services/amazonPaymentClearingService')._internals
   const reports = [

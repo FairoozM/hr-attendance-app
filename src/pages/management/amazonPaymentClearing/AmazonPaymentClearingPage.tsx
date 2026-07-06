@@ -205,7 +205,7 @@ export function AmazonPaymentClearingPage() {
         const json = await previewKsaSettlementReport({
           reportId: reportId.trim() || undefined,
           reportDocumentId: reportDocumentId.trim() || undefined,
-          daysBack: 365,
+          daysBack: 90,
           forceRefresh,
         })
         applyPreview(json)
