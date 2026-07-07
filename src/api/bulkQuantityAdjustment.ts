@@ -73,8 +73,8 @@ function safeError(err: unknown) {
 }
 
 export async function downloadTemplate() {
-  const blob = await fetchBinary('/api/zoho/bulk-quantity-adjustments/template')
-  downloadBlob(blob, 'bulk_quantity_adjustment_template.csv')
+  const { blob, filename } = await fetchBinary('/api/zoho/bulk-quantity-adjustments/template')
+  downloadBlob(blob, filename || 'bulk_quantity_adjustment_template.csv')
 }
 
 export async function uploadBulkAdjustmentFile(file: File): Promise<UploadResponse> {
@@ -117,13 +117,13 @@ export async function refreshBulkAdjustmentValuation(batchId: number): Promise<B
 }
 
 export async function downloadBulkAdjustmentErrors(batchId: number, fileName: string) {
-  const blob = await fetchBinary(`/api/zoho/bulk-quantity-adjustments/${batchId}/export-errors`)
-  downloadBlob(blob, fileName)
+  const { blob, filename } = await fetchBinary(`/api/zoho/bulk-quantity-adjustments/${batchId}/export-errors`)
+  downloadBlob(blob, filename || fileName)
 }
 
 export async function downloadBulkAdjustmentResults(batchId: number, fileName: string) {
-  const blob = await fetchBinary(`/api/zoho/bulk-quantity-adjustments/${batchId}/export-results`)
-  downloadBlob(blob, fileName)
+  const { blob, filename } = await fetchBinary(`/api/zoho/bulk-quantity-adjustments/${batchId}/export-results`)
+  downloadBlob(blob, filename || fileName)
 }
 
 export { safeError }
