@@ -1,4 +1,4 @@
-import { api, downloadBlob, fetchBinary, postForm } from './client'
+import { api, downloadBlob, fetchBinary } from './client'
 
 export type BulkQtyAdjustmentSummary = {
   total_rows: number
@@ -80,7 +80,7 @@ export async function downloadTemplate() {
 export async function uploadBulkAdjustmentFile(file: File): Promise<UploadResponse> {
   const form = new FormData()
   form.append('file', file)
-  return postForm('/api/zoho/bulk-quantity-adjustments/upload', form, {
+  return api.postForm('/api/zoho/bulk-quantity-adjustments/upload', form, {
     timeoutMs: 120_000,
   }) as Promise<UploadResponse>
 }
