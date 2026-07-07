@@ -708,6 +708,7 @@ export function Layout() {
     if (location.pathname.startsWith('/reports/sales-vs-expenses')) return 'Sales vs Expenses'
     if (location.pathname.startsWith('/reports')) return 'Reports'
     if (location.pathname.startsWith('/taxation/ksa-vat')) return 'KSA VAT Tax'
+    if (location.pathname.startsWith('/admin/zoho/bulk-quantity-adjustment')) return 'Bulk Quantity Adjustment'
     if (location.pathname.startsWith('/admin/zoho/bulk-invoice')) return 'Bulk Zoho Invoice'
     if (location.pathname.startsWith('/ai/amazon-zoho-stock')) return 'Amazon + Zoho Stock'
     if (location.pathname.startsWith('/ai/amazon-out-of-stock-clearance')) return 'Amazon Out of Stock Clearance'
@@ -763,6 +764,7 @@ export function Layout() {
   ].filter(Boolean)
   const zohoItems = [
     isAdmin && { label: 'Bulk Zoho Invoice', to: '/admin/zoho/bulk-invoice' },
+    isAdmin && { label: 'Bulk Quantity Adjustment', to: '/admin/zoho/bulk-quantity-adjustment' },
   ].filter(Boolean)
   const listsItems = [
     can('sim_cards', 'view') && { label: 'Sim Cards List', to: '/lists/sim-cards' },
@@ -969,7 +971,7 @@ export function Layout() {
     ...zohoItems.map(i => ({
       ...i,
       group: 'Zoho',
-      searchHint: 'bulk zoho invoice sku customer warehouse line items inventory',
+      searchHint: 'bulk zoho invoice sku customer warehouse line items inventory bulk quantity adjustment stock',
     })),
     ...adminNavItems.map(i => ({
       ...i,

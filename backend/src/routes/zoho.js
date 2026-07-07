@@ -9,6 +9,8 @@ const zohoBulkInvoiceController = require('../controllers/zohoBulkInvoiceControl
 const inventoryHealthController = require('../controllers/inventoryHealthController')
 const inventoryHealthImageController = require('../controllers/inventoryHealthImageController')
 
+const bulkQuantityAdjustmentController = require('../controllers/bulkQuantityAdjustmentController')
+
 const router = express.Router()
 
 router.post(
@@ -50,6 +52,58 @@ router.post(
   '/invoices/bulk-create',
   requireAdmin,
   zohoBulkInvoiceController.bulkCreateInvoice
+)
+
+router.get(
+  '/bulk-quantity-adjustments/template',
+  requireAdmin,
+  bulkQuantityAdjustmentController.getTemplate,
+)
+router.post(
+  '/bulk-quantity-adjustments/upload',
+  requireAdmin,
+  bulkQuantityAdjustmentController.uploadMiddleware,
+  bulkQuantityAdjustmentController.uploadFile,
+)
+router.post(
+  '/bulk-quantity-adjustments/validate',
+  requireAdmin,
+  bulkQuantityAdjustmentController.validateBatchFromBody,
+)
+router.post(
+  '/bulk-quantity-adjustments/post',
+  requireAdmin,
+  bulkQuantityAdjustmentController.postToZohoFromBody,
+)
+router.get(
+  '/bulk-quantity-adjustments/:batchId',
+  requireAdmin,
+  bulkQuantityAdjustmentController.getBatch,
+)
+router.post(
+  '/bulk-quantity-adjustments/:batchId/validate',
+  requireAdmin,
+  bulkQuantityAdjustmentController.validateBatch,
+)
+router.post(
+  '/bulk-quantity-adjustments/:batchId/post',
+  requireAdmin,
+  bulkQuantityAdjustmentController.postToZoho,
+)
+router.post(
+  '/bulk-quantity-adjustments/:batchId/refresh-valuation',
+  requireAdmin,
+  bulkQuantityAdjustmentController.refreshValuation,
+)
+router.get(
+  '/bulk-quantity-adjustments/:batchId/export-errors',
+  requireAdmin,
+  bulkQuantityAdjustmentController.exportErrors,
+)
+router.get(
+  '/bulk-quantity-adjustments/:batchId/export-results',
+  requireAdmin,
+  bulkQuantityAdjustmentController.exportResults,
 )
 
 router.get('/inventory-health', requireAuth, requireAdmin, inventoryHealthController.getInventoryHealth)

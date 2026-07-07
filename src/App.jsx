@@ -21,6 +21,7 @@ import { EmployeeProfileAdminPage } from './pages/EmployeeProfileAdminPage'
 import { RolesPermissionsPage } from './pages/RolesPermissionsPage'
 import { ItemReportGroupsAdminPage } from './pages/admin/ItemReportGroupsAdminPage'
 import BulkZohoInvoicePage from './pages/admin/BulkZohoInvoicePage'
+import BulkQuantityAdjustmentPage from './pages/admin/zoho/bulkQuantityAdjustment/BulkQuantityAdjustmentPage'
 import { InfluencerListPage } from './pages/influencers/InfluencerListPage'
 import { AddInfluencerPage } from './pages/influencers/AddInfluencerPage'
 /** /influencers/:id (legacy profile URL) — send users straight to the editor. */
@@ -375,6 +376,14 @@ function AppContent() {
             <PermissionGuard module="weekly_reports" action="view">
               <BulkZohoInvoicePage />
             </PermissionGuard>
+          }
+        />
+        <Route
+          path="admin/zoho/bulk-quantity-adjustment"
+          element={
+            <AdminOnly>
+              <BulkQuantityAdjustmentPage />
+            </AdminOnly>
           }
         />
 

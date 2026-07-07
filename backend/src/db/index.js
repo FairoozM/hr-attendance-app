@@ -1143,6 +1143,12 @@ async function testConnection() {
     console.error('[db] ensureZohoBulkInvoiceTables skipped/failed (non-fatal):', e.message || e)
   }
   try {
+    const { ensureBulkQuantityAdjustmentTables } = require('../services/bulkQuantityAdjustmentStore')
+    await ensureBulkQuantityAdjustmentTables()
+  } catch (e) {
+    console.error('[db] ensureBulkQuantityAdjustmentTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
     const { ensurePurchasePlanningTables } = require('../services/purchasePlanningService')
     await ensurePurchasePlanningTables()
   } catch (e) {
