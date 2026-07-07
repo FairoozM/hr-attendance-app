@@ -2,7 +2,7 @@ const ExcelJS = require('exceljs')
 const { parseCsv, indexHeaders, cellOf } = require('../utils/csv')
 const { parseTabularExcel, isExcelFile } = require('./vigilStockParseService')
 const { findItemsBySkuOrName, upsertItems, getItemCacheStats } = require('./zohoBulkInvoiceStore')
-const { fetchWarehouses } = require('../integrations/zoho/zohoWarehouses')
+const { fetchWarehouses, resolveAdjustmentLocation } = require('../integrations/zoho/zohoWarehouses')
 const { fetchItemById, zohoApiRequest } = require('../integrations/zoho/zohoInventoryClient')
 const { fetchItemsRawForWarehouse } = require('../integrations/zoho/zohoAdapter')
 const { readZohoConfig, INVENTORY_V1 } = require('../integrations/zoho/zohoConfig')
@@ -567,7 +567,10 @@ async function postBatch(batchId, { date, confirmedBy }) {
   }
 
   let rows = await getBatchRows(batchId)
-  const validRows = rows.filter((r) => r.validation_status === 'valid')
+  const retryFailed = batch.status === 'failed'
+  const validRows = rows.filter((r) => (
+    r.validation_status === 'valid' && (retryFailed || r.posting_status !== 'posted')
+  ))
   if (!validRows.length) {
     const err = new Error('No valid rows to post. Fix validation errors first.')
     err.code = 'NO_VALID_ROWS'
@@ -596,10 +599,27 @@ async function postBatch(batchId, { date, confirmedBy }) {
 
   for (const [, groupRows] of groups) {
     const first = groupRows[0]
+    const locationTarget = await resolveAdjustmentLocation({
+      warehouseId: first.warehouse_id,
+      warehouseName: first.warehouse_name,
+    })
+    if (!locationTarget.location_id && !locationTarget.warehouse_id) {
+      const msg = `Could not resolve Zoho location/warehouse for "${first.warehouse_name || first.warehouse_id}"`
+      for (const row of groupRows) {
+        rowPatches.push({
+          id: row.id,
+          patch: { posting_status: 'failed', error_message: msg },
+        })
+        failedCount += 1
+      }
+      continue
+    }
+
     const lineItems = groupRows.map((r) => ({
       item_id: r.zoho_item_id,
       quantity_adjusted: r.adjustment_qty,
-      warehouse_id: r.warehouse_id,
+      location_id: locationTarget.location_id || undefined,
+      warehouse_id: locationTarget.location_id ? undefined : locationTarget.warehouse_id,
       description: r.description || r.remarks || '',
     }))
 
@@ -622,7 +642,8 @@ async function postBatch(batchId, { date, confirmedBy }) {
               ? `${first.reference_number}-${chunkIndex + 1}`
               : first.reference_number)
             : batch.batch_reference,
-          warehouse_id: first.warehouse_id,
+          location_id: locationTarget.location_id || undefined,
+          warehouse_id: locationTarget.location_id ? undefined : locationTarget.warehouse_id,
           line_items: chunk,
         })
 

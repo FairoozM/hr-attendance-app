@@ -77,6 +77,33 @@ test('findItemInLookup: matches normalized SKU variants', () => {
   assert.equal(findItemInLookup('DOES-NOT-EXIST', lookup), null)
 })
 
+test('buildAdjustmentPayload: uses warehouse_id only when no location_id', () => {
+  const { buildAdjustmentPayload } = require('../src/integrations/zoho/zohoInventoryAdjustments')
+  const payload = buildAdjustmentPayload({
+    date: '2026-06-30',
+    reason: 'test',
+    warehouse_id: '12345',
+    line_items: [{ item_id: '999', quantity_adjusted: -1, warehouse_id: '12345' }],
+  })
+  assert.equal(payload.warehouse_id, '12345')
+  assert.equal(payload.location_id, undefined)
+  assert.equal(payload.line_items[0].warehouse_id, '12345')
+  assert.equal(payload.line_items[0].location_id, undefined)
+})
+
+test('buildAdjustmentPayload: uses location_id when resolved from locations API', () => {
+  const { buildAdjustmentPayload } = require('../src/integrations/zoho/zohoInventoryAdjustments')
+  const payload = buildAdjustmentPayload({
+    date: '2026-06-30',
+    reason: 'test',
+    location_id: '460000000038080',
+    line_items: [{ item_id: '999', quantity_adjusted: -1 }],
+  })
+  assert.equal(payload.location_id, '460000000038080')
+  assert.equal(payload.warehouse_id, undefined)
+  assert.equal(payload.line_items[0].location_id, '460000000038080')
+})
+
 test('chunkLineItems: splits large groups', () => {
   const { chunkLineItems, MAX_LINES_PER_ADJUSTMENT } = require('../src/integrations/zoho/zohoInventoryAdjustments')
   const items = Array.from({ length: 150 }, (_, i) => ({ item_id: String(i), quantity_adjusted: 1 }))

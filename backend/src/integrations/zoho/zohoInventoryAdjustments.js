@@ -10,24 +10,12 @@ function buildJsonStringBody(payload) {
 }
 
 /**
- * Create one quantity inventory adjustment in Zoho Inventory.
- * All IDs and quantities are passed as strings per Zoho guidance for large IDs.
- *
- * @param {object} params
- * @param {string} params.date YYYY-MM-DD
- * @param {string} params.reason
- * @param {string} [params.description]
- * @param {string} [params.reference_number]
- * @param {string} [params.warehouse_id]
- * @param {Array<{ item_id: string, quantity_adjusted: number|string, warehouse_id?: string, description?: string }>} params.line_items
+ * Build Zoho inventory adjustment payload.
+ * Uses location_id OR warehouse_id — never both, and never warehouse_id as location_id.
  */
-async function createQuantityInventoryAdjustment(params) {
-  const c = readZohoConfig()
-  if (c.code !== 'ok') {
-    const e = new Error('Zoho is not configured')
-    e.code = 'ZOHO_NOT_CONFIGURED'
-    throw e
-  }
+function buildAdjustmentPayload(params) {
+  const locationId = params.location_id ? String(params.location_id) : null
+  const warehouseId = params.warehouse_id ? String(params.warehouse_id) : null
 
   const lineItems = (params.line_items || []).map((li) => {
     const out = {
@@ -35,10 +23,14 @@ async function createQuantityInventoryAdjustment(params) {
       quantity_adjusted: String(li.quantity_adjusted),
     }
     if (li.description) out.description = String(li.description)
-    const wh = li.warehouse_id || params.warehouse_id
-    if (wh) {
-      out.warehouse_id = String(wh)
-      out.location_id = String(wh)
+
+    const lineLocationId = li.location_id ? String(li.location_id) : locationId
+    const lineWarehouseId = li.warehouse_id ? String(li.warehouse_id) : warehouseId
+
+    if (lineLocationId) {
+      out.location_id = lineLocationId
+    } else if (lineWarehouseId) {
+      out.warehouse_id = lineWarehouseId
     }
     return out
   })
@@ -51,10 +43,27 @@ async function createQuantityInventoryAdjustment(params) {
   }
   if (params.description) payload.description = params.description
   if (params.reference_number) payload.reference_number = params.reference_number
-  if (params.warehouse_id) {
-    payload.warehouse_id = String(params.warehouse_id)
-    payload.location_id = String(params.warehouse_id)
+  if (locationId) {
+    payload.location_id = locationId
+  } else if (warehouseId) {
+    payload.warehouse_id = warehouseId
   }
+  return payload
+}
+
+/**
+ * Create one quantity inventory adjustment in Zoho Inventory.
+ * All IDs and quantities are passed as strings per Zoho guidance for large IDs.
+ */
+async function createQuantityInventoryAdjustment(params) {
+  const c = readZohoConfig()
+  if (c.code !== 'ok') {
+    const e = new Error('Zoho is not configured')
+    e.code = 'ZOHO_NOT_CONFIGURED'
+    throw e
+  }
+
+  const payload = buildAdjustmentPayload(params)
 
   const json = await zohoApiRequest(
     `${INVENTORY_V1}/inventoryadjustments`,
@@ -120,11 +129,6 @@ async function fetchInventoryAdjustmentDetail(inventoryAdjustmentId) {
   }
 }
 
-/**
- * Split line items into safe batches for Zoho POST.
- * @param {object[]} lineItems
- * @param {number} [maxPerBatch]
- */
 function chunkLineItems(lineItems, maxPerBatch = MAX_LINES_PER_ADJUSTMENT) {
   const items = Array.isArray(lineItems) ? lineItems : []
   const chunks = []
@@ -135,6 +139,7 @@ function chunkLineItems(lineItems, maxPerBatch = MAX_LINES_PER_ADJUSTMENT) {
 }
 
 module.exports = {
+  buildAdjustmentPayload,
   createQuantityInventoryAdjustment,
   fetchInventoryAdjustmentDetail,
   chunkLineItems,
