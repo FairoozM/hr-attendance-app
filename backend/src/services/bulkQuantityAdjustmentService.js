@@ -1,9 +1,13 @@
 const ExcelJS = require('exceljs')
 const { parseCsv, indexHeaders, cellOf } = require('../utils/csv')
 const { parseTabularExcel, isExcelFile } = require('./vigilStockParseService')
-const { findItemsBySkus, getItemCacheStats } = require('./zohoBulkInvoiceStore')
+const { findItemsBySkuOrName, upsertItems, getItemCacheStats } = require('./zohoBulkInvoiceStore')
 const { fetchWarehouses } = require('../integrations/zoho/zohoWarehouses')
-const { fetchItemById } = require('../integrations/zoho/zohoInventoryClient')
+const { fetchItemById, zohoApiRequest } = require('../integrations/zoho/zohoInventoryClient')
+const { fetchItemsRawForWarehouse } = require('../integrations/zoho/zohoAdapter')
+const { readZohoConfig, INVENTORY_V1 } = require('../integrations/zoho/zohoConfig')
+const { normalizeSku } = require('../utils/normalizeSku')
+const { expandExactMatchVariants } = require('../utils/purchasePlanningSkuMatcher')
 const {
   createQuantityInventoryAdjustment,
   fetchInventoryAdjustmentDetail,
@@ -205,6 +209,142 @@ function resolveWarehouse(row, maps) {
   return { warehouse_id: '', warehouse_name: '', unresolved: true }
 }
 
+function cacheRowFromZohoItem(item) {
+  const raw = item && typeof item === 'object' ? item : {}
+  return {
+    sku: clean(raw.sku || raw.item_code || raw.code),
+    item_id: String(raw.item_id || raw.id || ''),
+    name: clean(raw.name || raw.item_name || ''),
+    rate: toNumber(raw.rate ?? raw.sales_rate, 0),
+    raw_json: raw,
+  }
+}
+
+function lookupKeysForItem(item) {
+  const keys = new Set()
+  const addRaw = (value) => {
+    for (const variant of expandExactMatchVariants(value)) {
+      const key = normalizeSku(variant)
+      if (key) keys.add(key)
+    }
+  }
+  const raw = item?.raw_json && typeof item.raw_json === 'object' ? item.raw_json : item
+  addRaw(item?.sku)
+  addRaw(item?.item_code)
+  addRaw(item?.code)
+  addRaw(item?.part_number)
+  addRaw(item?.name)
+  addRaw(raw?.sku)
+  addRaw(raw?.part_number)
+  addRaw(raw?.item_code)
+  addRaw(raw?.code)
+  addRaw(raw?.name)
+  return keys
+}
+
+function indexItemsByLookupKeys(items, lookup) {
+  for (const item of items || []) {
+    if (!item) continue
+    const row = item.item_id ? item : cacheRowFromZohoItem(item)
+    if (!row.item_id) continue
+    for (const key of lookupKeysForItem(row)) {
+      if (!lookup.has(key)) lookup.set(key, row)
+    }
+  }
+}
+
+function findItemInLookup(sku, lookup) {
+  for (const variant of expandExactMatchVariants(sku)) {
+    const key = normalizeSku(variant)
+    if (key && lookup.has(key)) return lookup.get(key)
+  }
+  return null
+}
+
+async function searchZohoItemBySku(sku) {
+  const c = readZohoConfig()
+  if (c.code !== 'ok') return null
+  const needle = clean(sku)
+  if (!needle) return null
+  const p = new URLSearchParams()
+  p.set('organization_id', c.organizationId)
+  p.set('search_text', needle)
+  p.set('page', '1')
+  p.set('per_page', '25')
+  if (String(process.env.ZOHO_ITEMS_INCLUDE_INACTIVE || '').trim() !== '1') {
+    p.set('filter_by', 'Status.Active')
+  }
+  const json = await zohoApiRequest(`${INVENTORY_V1}/items`, p, 'GET', undefined, {
+    source: 'bulk_qty_adjustment_item_search',
+    skipCache: true,
+  })
+  const list = Array.isArray(json?.items) ? json.items : []
+  for (const item of list) {
+    const probe = new Map()
+    indexItemsByLookupKeys([item], probe)
+    if (findItemInLookup(sku, probe)) return cacheRowFromZohoItem(item)
+  }
+  return null
+}
+
+async function buildSkuLookup(skus, warehouseIds) {
+  const lookup = new Map()
+  const wanted = [...new Set((Array.isArray(skus) ? skus : []).map(clean).filter(Boolean))]
+
+  const cacheRows = await findItemsBySkuOrName(wanted)
+  indexItemsByLookupKeys(cacheRows, lookup)
+
+  let missing = wanted.filter((sku) => !findItemInLookup(sku, lookup))
+  let warehouseItemsScanned = 0
+  let zohoSearches = 0
+
+  for (const whId of warehouseIds || []) {
+    if (!whId || missing.length === 0) continue
+    const items = await fetchItemsRawForWarehouse(whId)
+    warehouseItemsScanned += items.length
+    indexItemsByLookupKeys(items, lookup)
+    missing = wanted.filter((sku) => !findItemInLookup(sku, lookup))
+  }
+
+  const newlyFound = []
+  const MAX_LIVE_SEARCH = 100
+  for (const sku of missing.slice(0, MAX_LIVE_SEARCH)) {
+    if (findItemInLookup(sku, lookup)) continue
+    try {
+      const found = await searchZohoItemBySku(sku)
+      zohoSearches += 1
+      if (found) {
+        newlyFound.push(found)
+        indexItemsByLookupKeys([found], lookup)
+      }
+    } catch (e) {
+      console.warn('[bulk-qty-adj] sku search failed:', sku, e && e.message ? e.message : e)
+    }
+  }
+
+  if (newlyFound.length) {
+    try {
+      await upsertItems(newlyFound.map((row) => row.raw_json || row))
+    } catch (e) {
+      console.warn('[bulk-qty-adj] cache upsert failed:', e && e.message ? e.message : e)
+    }
+  }
+
+  missing = wanted.filter((sku) => !findItemInLookup(sku, lookup))
+  return {
+    lookup,
+    find: (sku) => findItemInLookup(sku, lookup),
+    stats: {
+      requested: wanted.length,
+      matched: wanted.length - missing.length,
+      unmatched: missing.length,
+      cache_rows_used: cacheRows.length,
+      warehouse_items_scanned: warehouseItemsScanned,
+      zoho_searches: zohoSearches,
+    },
+  }
+}
+
 function summarizeRows(rows) {
   const total = rows.length
   const valid = rows.filter((r) => r.validation_status === 'valid').length
@@ -248,24 +388,35 @@ async function validateBatchRows(batchId) {
   const whMaps = buildWarehouseMaps(warehouses)
 
   const skus = [...new Set(rows.map((r) => clean(r.sku)).filter(Boolean))]
-  const foundItems = await findItemsBySkus(skus)
-  const itemBySku = new Map()
-  for (const item of foundItems) {
-    const key = clean(item.sku).toLowerCase()
-    if (key && !itemBySku.has(key)) itemBySku.set(key, item)
-  }
+  const warehouseIds = [
+    ...new Set(
+      rows
+        .map((row) => resolveWarehouse(row, whMaps))
+        .map((wh) => clean(wh.warehouse_id))
+        .filter(Boolean),
+    ),
+  ]
+
+  const skuResolver = await buildSkuLookup(skus, warehouseIds)
 
   const skuCounts = new Map()
   for (const row of rows) {
-    const key = clean(row.sku).toLowerCase()
+    const key = normalizeSku(row.sku)
     if (!key) continue
     skuCounts.set(key, (skuCounts.get(key) || 0) + 1)
   }
 
   const stockCache = new Map()
-  async function getStock(itemId, warehouseId) {
+  async function getStock(itemId, warehouseId, prefetchedItem) {
     const cacheKey = `${itemId}:${warehouseId}`
     if (stockCache.has(cacheKey)) return stockCache.get(cacheKey)
+    if (prefetchedItem) {
+      const fromList = parseWarehouseStock(prefetchedItem, warehouseId)
+      if (fromList != null) {
+        stockCache.set(cacheKey, fromList)
+        return fromList
+      }
+    }
     try {
       const detail = await fetchItemById(itemId, { skipCache: true })
       const stock = parseWarehouseStock(detail, warehouseId)
@@ -304,13 +455,13 @@ async function validateBatchRows(batchId) {
       validationStatus = validationStatus === 'valid' ? 'missing_warehouse' : validationStatus
     }
 
-    const skuKey = sku.toLowerCase()
+    const skuKey = normalizeSku(sku)
     if (skuKey && (skuCounts.get(skuKey) || 0) > 1) {
       errors.push('Duplicate SKU in upload file')
       if (validationStatus === 'valid') validationStatus = 'duplicate'
     }
 
-    let zohoItem = skuKey ? itemBySku.get(skuKey) : null
+    const zohoItem = sku ? skuResolver.find(sku) : null
     if (sku && !zohoItem) {
       errors.push('SKU not found in Zoho (exact match)')
       validationStatus = 'unmatched'
@@ -325,7 +476,8 @@ async function validateBatchRows(batchId) {
       zohoItemId = String(zohoItem.item_id)
       itemName = itemName || zohoItem.name || ''
       if (wh.warehouse_id && validationStatus === 'valid') {
-        currentStock = await getStock(zohoItemId, wh.warehouse_id)
+        const prefetched = zohoItem.raw_json || zohoItem
+        currentStock = await getStock(zohoItemId, wh.warehouse_id, prefetched)
         if (Number.isFinite(currentStock) && Number.isFinite(qty)) {
           expectedAfter = Math.round((currentStock + qty) * 10000) / 10000
         }
@@ -360,7 +512,13 @@ async function validateBatchRows(batchId) {
   })
 
   const cache = await getItemCacheStats()
-  return { batch: updatedBatch, rows: updatedRows, summary, cache }
+  return {
+    batch: updatedBatch,
+    rows: updatedRows,
+    summary,
+    cache,
+    sku_resolution: skuResolver.stats,
+  }
 }
 
 async function uploadAndCreateBatch({ buffer, fileName, createdBy }) {
@@ -696,5 +854,8 @@ module.exports = {
   buildErrorExportWorkbook,
   buildResultExportWorkbook,
   summarizeRows,
+  buildSkuLookup,
+  findItemInLookup,
+  cacheRowFromZohoItem,
   MAX_UPLOAD_ROWS,
 }

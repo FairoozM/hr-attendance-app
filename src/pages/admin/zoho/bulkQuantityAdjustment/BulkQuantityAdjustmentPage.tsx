@@ -242,6 +242,10 @@ export default function BulkQuantityAdjustmentPage() {
       } else {
         setNotice(`${data.summary.valid_rows} row(s) are ready for review.`)
       }
+      const sr = (data as { sku_resolution?: { matched?: number; requested?: number; warehouse_items_scanned?: number } }).sku_resolution
+      if (sr && Number.isFinite(sr.matched) && Number.isFinite(sr.requested)) {
+        setNotice((prev) => `${prev ? `${prev} ` : ''}Matched ${sr.matched}/${sr.requested} SKUs from Zoho${sr.warehouse_items_scanned ? ` (scanned ${sr.warehouse_items_scanned} warehouse items)` : ''}.`)
+      }
     } catch (err) {
       setError(safeError(err))
     } finally {

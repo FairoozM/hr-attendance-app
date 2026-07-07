@@ -68,6 +68,15 @@ test('templateCsvContent: includes header row', () => {
   assert.match(csv, /EXAMPLE-SKU-001/)
 })
 
+test('findItemInLookup: matches normalized SKU variants', () => {
+  const { findItemInLookup, cacheRowFromZohoItem } = require('../src/services/bulkQuantityAdjustmentService')
+  const lookup = new Map()
+  const row = cacheRowFromZohoItem({ item_id: '123', sku: 'TOOL-ECO-6-BLUE', name: 'Tool Blue' })
+  lookup.set('TOOL-ECO-6-BLUE', row)
+  assert.equal(findItemInLookup('tool-eco-6-blue', lookup)?.item_id, '123')
+  assert.equal(findItemInLookup('DOES-NOT-EXIST', lookup), null)
+})
+
 test('chunkLineItems: splits large groups', () => {
   const { chunkLineItems, MAX_LINES_PER_ADJUSTMENT } = require('../src/integrations/zoho/zohoInventoryAdjustments')
   const items = Array.from({ length: 150 }, (_, i) => ({ item_id: String(i), quantity_adjusted: 1 }))
