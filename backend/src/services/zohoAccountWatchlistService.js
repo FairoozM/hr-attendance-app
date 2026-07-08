@@ -195,7 +195,8 @@ async function fetchChartOfAccountsWithBalances({ skipCache = true } = {}) {
 }
 
 /**
- * Per-account Zoho detail — includes closing_balance (often unavailable on the list endpoint).
+ * Per-account Zoho detail — includes closing_balance and recent transaction lines.
+ * Response uses `chart_of_account` (underscore), not `chartofaccount`.
  */
 async function fetchAccountDetail(accountId) {
   const id = clean(accountId)
@@ -211,12 +212,41 @@ async function fetchAccountDetail(accountId) {
       cacheCategory: 'default',
     },
   )
-  const account = json?.chartofaccount || json?.account || json
+  const account =
+    json?.chart_of_account ||
+    json?.chartofaccount ||
+    json?.account ||
+    (json?.account_id || json?.account_name ? json : null)
   if (!account || typeof account !== 'object') return null
-  return mapAccountWithBalance({
+
+  const mapped = mapAccountWithBalance({
     ...account,
     account_id: account.account_id || id,
+    // Detail uses closing_balance; list uses current_balance.
+    current_balance: account.current_balance ?? account.balance,
+    closing_balance: account.closing_balance,
   })
+
+  const rawTxs = Array.isArray(account.transactions) ? account.transactions : []
+  const transactions = rawTxs.map((tx) =>
+    mapTransactionRow({
+      ...tx,
+      transaction_date: tx.transaction_date || tx.date,
+      transaction_type: tx.transaction_type || tx.entity_type || tx.entity_type_formatted,
+      entry_number: tx.entry_number || tx.transaction_number || '',
+      reference_number: tx.reference_number,
+      description: tx.description || tx.reference_number || '',
+      debit_amount: tx.debit_amount ?? tx.debit ?? tx.fcy_debit,
+      credit_amount: tx.credit_amount ?? tx.credit ?? tx.fcy_credit,
+      debit_or_credit: tx.debit_or_credit,
+    }),
+  )
+
+  return {
+    ...mapped,
+    closingBalance: mapped.closingBalance,
+    transactions,
+  }
 }
 
 function addDaysYmd(ymd, days) {
@@ -233,20 +263,68 @@ function mapTransactionRow(tx) {
   return {
     transactionId: clean(tx?.transaction_id || tx?.categorized_transaction_id),
     transactionDate: clean(tx?.transaction_date || tx?.date),
-    transactionType: clean(tx?.transaction_type || tx?.transaction_type_formatted),
+    transactionType: clean(tx?.transaction_type || tx?.transaction_type_formatted || tx?.entity_type),
     entryNumber: clean(tx?.entry_number || tx?.transaction_number),
     referenceNumber: clean(tx?.reference_number),
     description: clean(tx?.description),
-    debitAmount: parseBalance(tx?.debit_amount),
-    creditAmount: parseBalance(tx?.credit_amount),
+    debitAmount: parseBalance(tx?.debit_amount ?? tx?.debit ?? tx?.fcy_debit),
+    creditAmount: parseBalance(tx?.credit_amount ?? tx?.credit ?? tx?.fcy_credit),
     debitOrCredit: clean(tx?.debit_or_credit).toLowerCase(),
     raw: tx,
   }
 }
 
 /**
+ * Future-dated transactions for an account (date strictly after asOfDate).
+ * Prefer lines embedded on GET /chartofaccounts/{id} (has real debit/credit rows).
+ * The list endpoint /accounttransactions only returns entity_type counts for this org.
+ */
+async function fetchFutureAccountTransactions(accountId, { asOfDate = todayLocalDate() } = {}) {
+  const id = clean(accountId)
+  if (!id) return []
+
+  // Primary: account detail embeds recent transaction lines (including future-dated).
+  try {
+    const detail = await fetchAccountDetail(id)
+    const fromDetail = (detail?.transactions || []).filter(
+      (tx) => tx.transactionDate && tx.transactionDate > asOfDate,
+    )
+    if (fromDetail.length > 0) return fromDetail
+  } catch (err) {
+    console.warn(
+      '[zoho-account-watchlist] account detail txs failed',
+      id,
+      err?.message || err,
+    )
+  }
+
+  // Fallback: year window on accounttransactions (often only returns type counts — still try).
+  const year = asOfDate.slice(0, 4)
+  const startFrom = addDaysYmd(asOfDate, 1)
+  const yearEnd = `${year}-12-31`
+  const rangeEnd = yearEnd < startFrom ? addDaysYmd(asOfDate, 366) : yearEnd
+
+  try {
+    const raw = await fetchAccountTransactionsRaw(id, {
+      date_start: `${year}-01-01`,
+      date_end: rangeEnd,
+    })
+    return raw
+      .map(mapTransactionRow)
+      .filter((tx) => tx.transactionDate && tx.transactionDate > asOfDate)
+  } catch (err) {
+    console.warn(
+      '[zoho-account-watchlist] accounttransactions fallback failed',
+      id,
+      err?.message || err,
+    )
+    return []
+  }
+}
+
+/**
  * List account transactions from Zoho Books CoA endpoint.
- * Response shape varies; normalize to a flat array.
+ * Note: for some orgs this returns entity_type count summaries, not line items.
  */
 async function fetchAccountTransactionsRaw(accountId, extraParams = {}) {
   const id = clean(accountId)
@@ -275,66 +353,20 @@ async function fetchAccountTransactionsRaw(accountId, extraParams = {}) {
   if (Array.isArray(json?.transactions)) return json.transactions
   if (Array.isArray(json?.accounttransactions)) return json.accounttransactions
   if (Array.isArray(json?.account_transactions)) return json.account_transactions
+  // Zoho may return type-count summaries under transaction_list — those are not line items.
+  if (Array.isArray(json?.transaction_list)) {
+    const looksLikeLines = json.transaction_list.some(
+      (row) => row && (row.transaction_date || row.date || row.debit != null || row.credit != null),
+    )
+    if (looksLikeLines) return json.transaction_list
+  }
   return []
 }
 
 /**
- * Future-dated transactions for an account (date strictly after asOfDate).
- *
- * Zoho Books date search params are inconsistent across products (date_start vs date.start).
- * Strategy:
- *  1) Try future-only window with both underscore + dotted params.
- *  2) Fall back to calendar-year (or asOf→+1y) window and filter client-side.
- */
-async function fetchFutureAccountTransactions(accountId, { asOfDate = todayLocalDate() } = {}) {
-  const id = clean(accountId)
-  if (!id) return []
-
-  const startFrom = addDaysYmd(asOfDate, 1)
-  const year = asOfDate.slice(0, 4)
-  const yearEnd = `${year}-12-31`
-  // If today is late in the year, also cover into next year so near-term future txs aren't missed.
-  const rangeEnd = yearEnd < startFrom ? addDaysYmd(asOfDate, 366) : yearEnd
-
-  const attempts = [
-    // Underscore form used elsewhere in this codebase for Books list APIs.
-    { date_start: startFrom, date_end: rangeEnd },
-    // Broad current-year window (includes past + future); filter client-side.
-    // Needed when Zoho ignores future-only filters or date.after.
-    { date_start: `${year}-01-01`, date_end: rangeEnd },
-  ]
-
-  let lastRows = []
-  for (const extra of attempts) {
-    try {
-      const raw = await fetchAccountTransactionsRaw(id, extra)
-      lastRows = raw
-      const future = raw
-        .map(mapTransactionRow)
-        .filter((tx) => tx.transactionDate && tx.transactionDate > asOfDate)
-      if (future.length > 0) return future
-      // If the future-only window returned rows but none after asOfDate, still try year window.
-      // If year window also has none after asOfDate, fall through.
-    } catch (err) {
-      console.warn(
-        '[zoho-account-watchlist] accounttransactions attempt failed',
-        id,
-        JSON.stringify(extra),
-        err?.message || err,
-      )
-    }
-  }
-
-  // Last resort: whatever the final attempt returned, filter client-side.
-  return lastRows
-    .map(mapTransactionRow)
-    .filter((tx) => tx.transactionDate && tx.transactionDate > asOfDate)
-}
-
-/**
- * Enrich one account with full balance (incl. future) from future-dated transactions.
- * If future-tx query returns nothing but Zoho account detail has a different closing_balance,
- * use that as Full balance so we still surface the gap (e.g. future drawings).
+ * Enrich one account with full balance (incl. future).
+ * One GET /chartofaccounts/{id} returns closing_balance + recent transaction lines
+ * (this org's /accounttransactions only returns entity_type counts).
  */
 async function enrichAccountWithFullBalance(account, { asOfDate = todayLocalDate() } = {}) {
   if (!account?.accountId) return account
@@ -344,45 +376,26 @@ async function enrichAccountWithFullBalance(account, { asOfDate = todayLocalDate
   let detailClosing = null
 
   try {
-    const rows = await withTimeout(
-      fetchFutureAccountTransactions(account.accountId, { asOfDate }),
-      35_000,
-      `future txs for ${account.accountId}`,
+    const detail = await withTimeout(
+      fetchAccountDetail(account.accountId),
+      25_000,
+      `account detail for ${account.accountId}`,
     )
-    futureTransactions = rows.filter((tx) => {
+    if (detail?.closingBalance != null) detailClosing = detail.closingBalance
+    if (detail?.currencyCode && !account.currencyCode) {
+      account = { ...account, currencyCode: detail.currencyCode }
+    }
+    futureTransactions = (detail?.transactions || []).filter((tx) => {
       const d = clean(tx.transactionDate)
       return d && d > asOfDate
     })
   } catch (err) {
-    enrichError = err?.message || 'Failed to load future transactions'
+    enrichError = err?.message || 'Failed to load full balance'
     console.warn(
-      '[zoho-account-watchlist] future transactions failed for',
+      '[zoho-account-watchlist] account detail enrich failed for',
       account.accountId,
       enrichError,
     )
-  }
-
-  // If no future line items came back, ask Zoho for account detail closing_balance
-  // (this is what Accounts Transactions "Closing Balance" uses).
-  if (futureTransactions.length === 0) {
-    try {
-      const detail = await withTimeout(
-        fetchAccountDetail(account.accountId),
-        12_000,
-        `account detail for ${account.accountId}`,
-      )
-      if (detail?.closingBalance != null) detailClosing = detail.closingBalance
-      if (detail?.currencyCode && !account.currencyCode) {
-        account = { ...account, currencyCode: detail.currencyCode }
-      }
-    } catch (err) {
-      // Non-fatal — keep current-only balances.
-      console.warn(
-        '[zoho-account-watchlist] closing balance fallback failed for',
-        account.accountId,
-        err?.message || err,
-      )
-    }
   }
 
   const futureImpactFromTxs = futureTransactions.reduce(
@@ -401,9 +414,18 @@ async function enrichAccountWithFullBalance(account, { asOfDate = todayLocalDate
     Math.abs(detailClosing - currentBalance) >= 0.005
   ) {
     fullBalance = detailClosing
+  } else if (detailClosing != null && currentBalance == null) {
+    fullBalance = detailClosing
   } else if (currentBalance != null) {
     fullBalance = currentBalance
-  } else if (detailClosing != null) {
+  }
+
+  // Prefer Zoho closing_balance when it disagrees with current (authoritative full figure).
+  if (
+    detailClosing != null &&
+    currentBalance != null &&
+    Math.abs(detailClosing - currentBalance) >= 0.005
+  ) {
     fullBalance = detailClosing
   }
 
@@ -423,7 +445,7 @@ async function enrichAccountWithFullBalance(account, { asOfDate = todayLocalDate
       transactionType: tx.transactionType,
       entryNumber: tx.entryNumber,
       referenceNumber: tx.referenceNumber,
-      description: tx.description,
+      description: tx.description || tx.referenceNumber,
       debitAmount: tx.debitAmount,
       creditAmount: tx.creditAmount,
       impact: roundMoney(transactionBalanceDelta(tx, account.accountType)),

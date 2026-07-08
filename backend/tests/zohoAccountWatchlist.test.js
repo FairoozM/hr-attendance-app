@@ -92,7 +92,7 @@ test('listWatchlistWithBalances returns empty state without calling Zoho', async
   assert.equal(zohoCalled, false)
 })
 
-test('listWatchlistWithBalances merges live balances and future full balance', async () => {
+test('listWatchlistWithBalances uses chart_of_account closing + future lines', async () => {
   mockModule('../src/services/zohoApiClient', {
     zohoBooksJsonRequest: async (path, searchParams) => {
       const p = String(path || '')
@@ -106,32 +106,31 @@ test('listWatchlistWithBalances merges live balances and future full balance', a
               account_type: 'cash',
               current_balance: 50,
             },
-            {
-              account_id: '202',
-              account_name: 'Other',
-              account_code: '9999',
-              account_type: 'expense',
-              current_balance: 1,
-            },
           ],
         }
       }
-      if (p.includes('/accounttransactions')) {
+      if (p.includes('/chartofaccounts/101')) {
         return {
-          transactions: [
-            {
-              transaction_id: 'tx1',
-              transaction_date: '2099-01-15',
-              transaction_type: 'journal',
-              entry_number: 'J-1',
-              debit_amount: 0,
-              credit_amount: 20,
-              description: 'Future credit',
-            },
-          ],
+          chart_of_account: {
+            account_id: '101',
+            account_name: 'Cash',
+            account_code: '1000',
+            account_type: 'cash',
+            closing_balance: 30,
+            transactions: [
+              {
+                transaction_id: 'tx1',
+                date: '2099-01-15',
+                entity_type: 'journal',
+                debit: 0,
+                credit: 20,
+                reference_number: 'Future credit',
+              },
+            ],
+          },
         }
       }
-      return { chartofaccounts: [], transactions: [] }
+      return { chartofaccounts: [] }
     },
   })
   mockModule('../src/integrations/zoho/zohoOAuth', {
@@ -179,6 +178,55 @@ test('listWatchlistWithBalances merges live balances and future full balance', a
   assert.equal(result.accounts[1].balanceUnavailable, true)
 })
 
+test('enrichAccountWithFullBalance reads capital closing + Jul 12 drawing', async () => {
+  mockModule('../src/services/zohoApiClient', {
+    zohoBooksJsonRequest: async () => ({
+      chart_of_account: {
+        account_id: '4265011000013506001',
+        account_name: 'Abdolrahim Mirzadeh Capital Account',
+        account_code: '1700',
+        account_type: 'equity',
+        closing_balance: 32533.53,
+        transactions: [
+          {
+            date: '2026-07-12',
+            transaction_id: 't1',
+            entity_type: 'transfer_fund',
+            reference_number: 'BPV-0127 CHQ#808774 Cash to Abdolrahim capital',
+            debit: 82210.68,
+            credit: '',
+          },
+        ],
+      },
+    }),
+  })
+  mockModule('../src/integrations/zoho/zohoOAuth', {
+    getZohoTokenDiagnostics: async () => ({ hasToken: true, scopes: ['ZohoBooks.fullaccess.all'] }),
+  })
+  mockModule('../src/services/zohoAccountWatchlistStore', {
+    listWatchedAccounts: async () => [],
+    getWatchedAccount: async () => null,
+    addWatchedAccount: async () => ({}),
+    removeWatchedAccount: async () => false,
+  })
+
+  const { enrichAccountWithFullBalance } = freshRequire('../src/services/zohoAccountWatchlistService')
+  const enriched = await enrichAccountWithFullBalance(
+    {
+      accountId: '4265011000013506001',
+      accountName: 'Abdolrahim Mirzadeh Capital Account',
+      accountCode: '1700',
+      accountType: 'equity',
+      currentBalance: 114744.21,
+    },
+    { asOfDate: '2026-07-08' },
+  )
+  assert.equal(enriched.fullBalance, 32533.53)
+  assert.equal(enriched.futureImpact, -82210.68)
+  assert.equal(enriched.futureTransactionCount, 1)
+  assert.match(enriched.futureTransactions[0].referenceNumber, /BPV-0127/)
+})
+
 test('transactionBalanceDelta treats equity credits as positive', () => {
   mockModule('../src/services/zohoApiClient', {
     zohoBooksJsonRequest: async () => ({ chartofaccounts: [] }),
@@ -193,68 +241,14 @@ test('transactionBalanceDelta treats equity credits as positive', () => {
     removeWatchedAccount: async () => false,
   })
   const { transactionBalanceDelta } = freshRequire('../src/services/zohoAccountWatchlistService')
-  // Equity (credit-normal): owner drawing debit reduces balance
   assert.equal(
     transactionBalanceDelta({ debit_amount: 82210.68, credit_amount: 0 }, 'equity'),
     -82210.68,
   )
-  // Cash (debit-normal): credit reduces balance
   assert.equal(
     transactionBalanceDelta({ debit_amount: 0, credit_amount: 20 }, 'cash'),
     -20,
   )
-})
-
-test('fetchFutureAccountTransactions filters client-side from year window', async () => {
-  const calls = []
-  mockModule('../src/services/zohoApiClient', {
-    zohoBooksJsonRequest: async (_path, searchParams) => {
-      calls.push(Object.fromEntries(searchParams.entries()))
-      // First call: future-only window returns empty (Zoho quirk).
-      if (searchParams.get('date_start') === '2026-07-09') {
-        return { transactions: [] }
-      }
-      // Year window returns past + future; service filters client-side.
-      return {
-        transactions: [
-          {
-            transaction_id: 'tx-future',
-            transaction_date: '2026-07-12',
-            transaction_type: 'transfer_fund',
-            entry_number: 'BPV-0127',
-            debit_amount: 82210.68,
-            credit_amount: 0,
-            description: 'Cash to Abdolrahim capital',
-          },
-          {
-            transaction_id: 'tx-old',
-            transaction_date: '2026-06-30',
-            transaction_type: 'journal',
-            entry_number: '3576',
-            debit_amount: 0,
-            credit_amount: 21000,
-            description: 'should be filtered out',
-          },
-        ],
-      }
-    },
-  })
-  mockModule('../src/integrations/zoho/zohoOAuth', {
-    getZohoTokenDiagnostics: async () => ({ hasToken: true, scopes: ['ZohoBooks.fullaccess.all'] }),
-  })
-  mockModule('../src/services/zohoAccountWatchlistStore', {
-    listWatchedAccounts: async () => [],
-    getWatchedAccount: async () => null,
-    addWatchedAccount: async () => ({}),
-    removeWatchedAccount: async () => false,
-  })
-
-  const { fetchFutureAccountTransactions } = freshRequire('../src/services/zohoAccountWatchlistService')
-  const rows = await fetchFutureAccountTransactions('acct-1700', { asOfDate: '2026-07-08' })
-  assert.equal(calls[0].date_start, '2026-07-09')
-  assert.equal(calls[1].date_start, '2026-01-01')
-  assert.equal(rows.length, 1)
-  assert.equal(rows[0].entryNumber, 'BPV-0127')
 })
 
 test('addAccountToWatchlist rejects unknown Zoho account', async () => {
