@@ -349,8 +349,6 @@ export function AccountBalanceWatchlistPage() {
                           <div className="abw-warn">Not found in Zoho</div>
                         ) : account.balanceUnavailable ? (
                           <div className="abw-warn">Balance unavailable</div>
-                        ) : account.enrichError ? (
-                          <div className="abw-warn">{account.enrichError}</div>
                         ) : null}
                         {futureCount > 0 ? (
                           <button
@@ -361,6 +359,8 @@ export function AccountBalanceWatchlistPage() {
                             {expanded ? 'Hide' : 'Show'} {futureCount} future txn
                             {futureCount === 1 ? '' : 's'}
                           </button>
+                        ) : account.enrichError ? (
+                          <div className="abw-warn">{account.enrichError}</div>
                         ) : (
                           <div className="abw-muted">No future transactions</div>
                         )}

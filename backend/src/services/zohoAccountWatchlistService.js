@@ -245,22 +245,20 @@ function mapTransactionRow(tx) {
 }
 
 /**
- * Future-dated transactions for an account (date strictly after asOfDate).
- * Zoho Books CoA search uses dotted variants: date.after / date.start (not date_after).
+ * List account transactions from Zoho Books CoA endpoint.
+ * Response shape varies; normalize to a flat array.
  */
-async function fetchFutureAccountTransactions(accountId, { asOfDate = todayLocalDate() } = {}) {
+async function fetchAccountTransactionsRaw(accountId, extraParams = {}) {
   const id = clean(accountId)
   if (!id) return []
 
-  const startFrom = addDaysYmd(asOfDate, 1)
-  // Prefer date.after (exclusive). Also send date.start as a fallback some Zoho stacks accept.
   const params = new URLSearchParams()
   params.set('account_id', id)
-  params.set('date.after', asOfDate)
-  params.set('date.start', startFrom)
   params.set('per_page', '200')
   params.set('sort_column', 'transaction_date')
-  params.set('filter_by', 'TransactionType.All')
+  for (const [key, value] of Object.entries(extraParams || {})) {
+    if (value != null && value !== '') params.set(key, String(value))
+  }
 
   const json = await zohoBooksJsonRequest(
     ACCOUNT_TRANSACTIONS_ENDPOINT,
@@ -274,13 +272,61 @@ async function fetchFutureAccountTransactions(accountId, { asOfDate = todayLocal
     },
   )
 
-  const rows = Array.isArray(json?.transactions)
-    ? json.transactions
-    : Array.isArray(json?.accounttransactions)
-      ? json.accounttransactions
-      : []
+  if (Array.isArray(json?.transactions)) return json.transactions
+  if (Array.isArray(json?.accounttransactions)) return json.accounttransactions
+  if (Array.isArray(json?.account_transactions)) return json.account_transactions
+  return []
+}
 
-  return rows
+/**
+ * Future-dated transactions for an account (date strictly after asOfDate).
+ *
+ * Zoho Books date search params are inconsistent across products (date_start vs date.start).
+ * Strategy:
+ *  1) Try future-only window with both underscore + dotted params.
+ *  2) Fall back to calendar-year (or asOf→+1y) window and filter client-side.
+ */
+async function fetchFutureAccountTransactions(accountId, { asOfDate = todayLocalDate() } = {}) {
+  const id = clean(accountId)
+  if (!id) return []
+
+  const startFrom = addDaysYmd(asOfDate, 1)
+  const year = asOfDate.slice(0, 4)
+  const yearEnd = `${year}-12-31`
+  // If today is late in the year, also cover into next year so near-term future txs aren't missed.
+  const rangeEnd = yearEnd < startFrom ? addDaysYmd(asOfDate, 366) : yearEnd
+
+  const attempts = [
+    // Underscore form used elsewhere in this codebase for Books list APIs.
+    { date_start: startFrom, date_end: rangeEnd },
+    // Broad current-year window (includes past + future); filter client-side.
+    // Needed when Zoho ignores future-only filters or date.after.
+    { date_start: `${year}-01-01`, date_end: rangeEnd },
+  ]
+
+  let lastRows = []
+  for (const extra of attempts) {
+    try {
+      const raw = await fetchAccountTransactionsRaw(id, extra)
+      lastRows = raw
+      const future = raw
+        .map(mapTransactionRow)
+        .filter((tx) => tx.transactionDate && tx.transactionDate > asOfDate)
+      if (future.length > 0) return future
+      // If the future-only window returned rows but none after asOfDate, still try year window.
+      // If year window also has none after asOfDate, fall through.
+    } catch (err) {
+      console.warn(
+        '[zoho-account-watchlist] accounttransactions attempt failed',
+        id,
+        JSON.stringify(extra),
+        err?.message || err,
+      )
+    }
+  }
+
+  // Last resort: whatever the final attempt returned, filter client-side.
+  return lastRows
     .map(mapTransactionRow)
     .filter((tx) => tx.transactionDate && tx.transactionDate > asOfDate)
 }
@@ -300,7 +346,7 @@ async function enrichAccountWithFullBalance(account, { asOfDate = todayLocalDate
   try {
     const rows = await withTimeout(
       fetchFutureAccountTransactions(account.accountId, { asOfDate }),
-      18_000,
+      35_000,
       `future txs for ${account.accountId}`,
     )
     futureTransactions = rows.filter((tx) => {
@@ -505,7 +551,7 @@ async function listWatchlistWithBalances() {
     try {
       const enriched = await withTimeout(
         enrichAccountWithFullBalance(row, { asOfDate }),
-        Math.min(20_000, remaining),
+        Math.min(35_000, remaining),
         `enrich ${row.accountId}`,
       )
       return { ...enriched, refreshedAt, asOfDate }

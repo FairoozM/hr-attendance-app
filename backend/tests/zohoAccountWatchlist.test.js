@@ -205,16 +205,21 @@ test('transactionBalanceDelta treats equity credits as positive', () => {
   )
 })
 
-test('fetchFutureAccountTransactions uses Zoho date.after search param', async () => {
-  let seenParams = null
+test('fetchFutureAccountTransactions filters client-side from year window', async () => {
+  const calls = []
   mockModule('../src/services/zohoApiClient', {
     zohoBooksJsonRequest: async (_path, searchParams) => {
-      seenParams = searchParams
+      calls.push(Object.fromEntries(searchParams.entries()))
+      // First call: future-only window returns empty (Zoho quirk).
+      if (searchParams.get('date_start') === '2026-07-09') {
+        return { transactions: [] }
+      }
+      // Year window returns past + future; service filters client-side.
       return {
         transactions: [
           {
             transaction_id: 'tx-future',
-            transaction_date: '2099-07-12',
+            transaction_date: '2026-07-12',
             transaction_type: 'transfer_fund',
             entry_number: 'BPV-0127',
             debit_amount: 82210.68,
@@ -246,8 +251,8 @@ test('fetchFutureAccountTransactions uses Zoho date.after search param', async (
 
   const { fetchFutureAccountTransactions } = freshRequire('../src/services/zohoAccountWatchlistService')
   const rows = await fetchFutureAccountTransactions('acct-1700', { asOfDate: '2026-07-08' })
-  assert.equal(seenParams.get('date.after'), '2026-07-08')
-  assert.equal(seenParams.get('date.start'), '2026-07-09')
+  assert.equal(calls[0].date_start, '2026-07-09')
+  assert.equal(calls[1].date_start, '2026-01-01')
   assert.equal(rows.length, 1)
   assert.equal(rows[0].entryNumber, 'BPV-0127')
 })
