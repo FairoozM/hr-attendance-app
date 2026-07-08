@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react'
 import { dateRangeText, dateText, LifecycleBadge, money } from '../clearingShared'
 import type { ClearingContext } from './clearingContext'
 
@@ -11,11 +12,20 @@ const LEGACY_KSA_SETTLEMENTS = [
 const LEGACY_CUSTOMER_NAME = 'Life Smile Business'
 
 export function Step1SelectSettlement({ ctx }: { ctx: ClearingContext }) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const [uploadFileName, setUploadFileName] = useState('')
   const selectedReport = ctx.reports.find(
     (row) => row.reportId === ctx.reportId || row.reportDocumentId === ctx.reportDocumentId
   )
   const isLegacyCustomer = ctx.zohoCustomerName === LEGACY_CUSTOMER_NAME
   const selectedCustomer = ctx.zohoCustomers.find((row) => row.name === ctx.zohoCustomerName)
+
+  const onPickSettlementFile = (file: File | null | undefined) => {
+    if (!file) return
+    setUploadFileName(file.name)
+    ctx.onUploadSettlementFile(file, false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
 
   return (
     <div className="apc-step-stack">
@@ -23,8 +33,9 @@ export function Step1SelectSettlement({ ctx }: { ctx: ClearingContext }) {
         Saved settlements load instantly from the database. "Fetch Latest KSA Settlement" lists Amazon
         settlement reports created in the last 90 days (Amazon API limit). "Preview Report" reuses a saved
         batch when one exists for the report; use "Refresh from Amazon" only when you need to re-fetch the raw report.
-        For 2025 legacy settlements, select <strong>Life Smile Business</strong>, paste the reportId from Seller Central,
-        and verify the settlement total in Step 2 before posting.
+        For 2025 legacy settlements, select <strong>Life Smile Business</strong>, upload the Seller Central
+        settlement file (TSV/CSV/XLSX), and verify the settlement total in Step 2 before posting — do not paste an old
+        reportId (Amazon returns NotFound for expired ReportRequestIds).
       </div>
 
       <div className="apc-actions">
@@ -60,8 +71,8 @@ export function Step1SelectSettlement({ ctx }: { ctx: ClearingContext }) {
 
       {isLegacyCustomer ? (
         <div className="apc-callout">
-          <strong>2025 legacy settlements (Life Smile Business)</strong> — process one at a time. Paste each reportId,
-          preview, then confirm the settlement total matches before posting.
+          <strong>2025 legacy settlements (Life Smile Business)</strong> — process one at a time. Upload each
+          Seller Central settlement file, then confirm the settlement total matches before posting.
           <div className="apc-table-wrap" style={{ marginTop: '0.75rem' }}>
             <table className="apc-table">
               <thead>
@@ -87,6 +98,14 @@ export function Step1SelectSettlement({ ctx }: { ctx: ClearingContext }) {
           </p>
         </div>
       ) : null}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".tsv,.txt,.csv,.xlsx,.xls,.xlsm,text/tab-separated-values,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+        style={{ display: 'none' }}
+        onChange={(e) => onPickSettlementFile(e.target.files?.[0])}
+      />
 
       <div>
         <div className="apc-stage-panel__header">
@@ -192,6 +211,16 @@ export function Step1SelectSettlement({ ctx }: { ctx: ClearingContext }) {
           >
             {ctx.previewing ? 'Loading...' : 'Preview Report'}
           </button>
+          <button
+            className={isLegacyCustomer ? 'ainv-btn ainv-btn--primary-sky' : 'ainv-btn'}
+            type="button"
+            disabled={ctx.previewing || ctx.loadingReports}
+            onClick={() => fileInputRef.current?.click()}
+            title="Import a Seller Central settlement download when Amazon reportIds are expired."
+          >
+            {ctx.previewing && uploadFileName ? 'Importing...' : 'Upload settlement file'}
+          </button>
+          {uploadFileName ? <span className="apc-muted">{uploadFileName}</span> : null}
           <button
             className="ainv-btn ainv-btn--danger"
             type="button"

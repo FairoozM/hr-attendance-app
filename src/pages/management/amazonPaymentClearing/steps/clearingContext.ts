@@ -49,6 +49,7 @@ export interface ClearingContext {
   onFetchReports: () => void
   onPreview: () => void
   onRefreshFromAmazon: () => void
+  onUploadSettlementFile: (file: File, forceRefresh?: boolean) => void
   onOpenBatchId: () => void
   onOpenSavedBatch: (batchId: number) => void
   onApprove: () => void

@@ -6,7 +6,10 @@ const {
   marketplaceIdForKey,
   throwAmazonSpApiIfFailed,
 } = require('./amazonSpApiService')
-const { parseAmazonSettlementReport } = require('./amazonSettlementParserService')
+const {
+  parseAmazonSettlementReport,
+  parseAmazonSettlementReportBuffer,
+} = require('./amazonSettlementParserService')
 const {
   matchZohoInvoicesForRows,
   deriveInvoiceRange,
@@ -193,45 +196,24 @@ async function downloadSettlementReportDocument(reportDocumentId) {
   return download.data || ''
 }
 
-async function buildPreviewFromReport(options = {}) {
-  const forceRefresh = options.forceRefresh === true
+function uploadedSettlementDocumentId(settlementId, fileName = '') {
+  const sid = String(settlementId || '').trim()
+  if (sid) return `upload:settlement:${sid}`
+  const safeName = String(fileName || 'settlement')
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+    .slice(0, 80)
+  return `upload:file:${safeName || 'settlement'}:${Date.now()}`
+}
 
-  // Fetch-once: when the report is already saved locally, reopen it from the
-  // database instead of calling Amazon SP-API again.
-  if (!forceRefresh && (options.reportDocumentId || options.reportId)) {
-    const cached = await store.findBatchByReport({
-      reportId: options.reportId,
-      reportDocumentId: options.reportDocumentId,
-    })
-    if (cached) {
-      return { ...(await hydrateSavedBatch(cached)), fromCache: true }
-    }
-  }
-
-  const report = await resolveReport(options)
-  if (!report.reportDocumentId) {
-    const err = new Error('Selected Amazon settlement report is missing reportDocumentId.')
-    err.code = 'AMAZON_SETTLEMENT_REPORT_DOCUMENT_MISSING'
-    err.status = 422
-    throw err
-  }
-
-  const existing = await store.findBatchByReport({
-    reportId: report.reportId,
-    reportDocumentId: report.reportDocumentId,
-  })
-  if (existing && !forceRefresh) {
-    return { ...(await hydrateSavedBatch(existing)), fromCache: true }
-  }
-  if (existing && forceRefresh && (existing.status === 'posted' || existing.postedToZoho)) {
-    const err = new Error('This settlement has already been posted to Zoho and cannot be refreshed from Amazon. Use Force Repost if you must re-post.')
-    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_ALREADY_POSTED'
-    err.status = 409
-    throw err
-  }
-
-  const text = await downloadSettlementReportDocument(report.reportDocumentId)
-  const parsed = parseAmazonSettlementReport(text)
+async function buildAndSavePreviewFromParsed({
+  report,
+  parsed,
+  options = {},
+  existing = null,
+  forceRefresh = false,
+  refreshFlagKey = 'refreshedFromAmazon',
+}) {
   const { customerId: zohoCustomerId, customerName: zohoCustomerName } = await resolveKsaZohoCustomer({
     customerId: options.zohoCustomerId,
     customerName: options.zohoCustomerName,
@@ -293,9 +275,113 @@ async function buildPreviewFromReport(options = {}) {
   return {
     success: true,
     batch: savedBatch,
-    refreshedFromAmazon: Boolean(reusedExisting && forceRefresh),
+    [refreshFlagKey]: Boolean(reusedExisting && forceRefresh),
     ...preview,
   }
+}
+
+async function buildPreviewFromReport(options = {}) {
+  const forceRefresh = options.forceRefresh === true
+
+  // Fetch-once: when the report is already saved locally, reopen it from the
+  // database instead of calling Amazon SP-API again.
+  if (!forceRefresh && (options.reportDocumentId || options.reportId)) {
+    const cached = await store.findBatchByReport({
+      reportId: options.reportId,
+      reportDocumentId: options.reportDocumentId,
+    })
+    if (cached) {
+      return { ...(await hydrateSavedBatch(cached)), fromCache: true }
+    }
+  }
+
+  const report = await resolveReport(options)
+  if (!report.reportDocumentId) {
+    const err = new Error('Selected Amazon settlement report is missing reportDocumentId.')
+    err.code = 'AMAZON_SETTLEMENT_REPORT_DOCUMENT_MISSING'
+    err.status = 422
+    throw err
+  }
+
+  const existing = await store.findBatchByReport({
+    reportId: report.reportId,
+    reportDocumentId: report.reportDocumentId,
+  })
+  if (existing && !forceRefresh) {
+    return { ...(await hydrateSavedBatch(existing)), fromCache: true }
+  }
+  if (existing && forceRefresh && (existing.status === 'posted' || existing.postedToZoho)) {
+    const err = new Error('This settlement has already been posted to Zoho and cannot be refreshed from Amazon. Use Force Repost if you must re-post.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_ALREADY_POSTED'
+    err.status = 409
+    throw err
+  }
+
+  const text = await downloadSettlementReportDocument(report.reportDocumentId)
+  const parsed = parseAmazonSettlementReport(text)
+  return buildAndSavePreviewFromParsed({
+    report,
+    parsed,
+    options,
+    existing,
+    forceRefresh,
+    refreshFlagKey: 'refreshedFromAmazon',
+  })
+}
+
+/**
+ * Legacy / Seller Central path: import a downloaded settlement flat file (TSV/CSV/XLSX)
+ * without calling Amazon SP-API. Needed when reportIds older than ~90 days return NotFound.
+ */
+async function buildPreviewFromUploadedSettlement(options = {}) {
+  const forceRefresh = options.forceRefresh === true
+  const fileName = String(options.fileName || options.originalname || 'settlement.tsv').trim()
+  const parsed = parseAmazonSettlementReportBuffer(options.buffer, fileName)
+  const metadata = parsed.metadata || {}
+  if (!metadata.settlementId && !(parsed.rows || []).length) {
+    const err = new Error('Could not parse settlement rows from the uploaded file. Export the Amazon settlement as TSV/CSV or XLSX.')
+    err.code = 'AMAZON_SETTLEMENT_UPLOAD_INVALID'
+    err.status = 400
+    throw err
+  }
+
+  const reportDocumentId = uploadedSettlementDocumentId(metadata.settlementId, fileName)
+  const report = {
+    reportId: '',
+    reportDocumentId,
+    reportType: SETTLEMENT_REPORT_TYPE,
+    processingStatus: 'DONE',
+    createdTime: '',
+    processingEndTime: '',
+    dataStartTime: metadata.settlementStartDate || '',
+    dataEndTime: metadata.settlementEndDate || '',
+    marketplaceIds: [marketplaceIdForKey(MARKETPLACE_KEY)],
+    raw: { source: 'upload', fileName },
+  }
+
+  const existing = await store.findBatchByReport({
+    reportDocumentId,
+    settlementId: metadata.settlementId,
+  })
+  if (existing && !forceRefresh) {
+    return { ...(await hydrateSavedBatch(existing)), fromCache: true, fromUpload: true }
+  }
+  if (existing && forceRefresh && (existing.status === 'posted' || existing.postedToZoho)) {
+    const err = new Error('This settlement has already been posted to Zoho and cannot be re-imported. Use Force Repost if you must re-post.')
+    err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_ALREADY_POSTED'
+    err.status = 409
+    throw err
+  }
+
+  const result = await buildAndSavePreviewFromParsed({
+    report,
+    parsed,
+    options,
+    existing,
+    forceRefresh,
+    refreshFlagKey: 'refreshedFromUpload',
+  })
+  return { ...result, fromUpload: true }
 }
 
 async function matchZohoInvoicesPreview(rows, options = {}) {
@@ -1333,6 +1419,7 @@ module.exports = {
   SETTLEMENT_REPORT_TYPE,
   listRecentSettlementReports,
   buildPreviewFromReport,
+  buildPreviewFromUploadedSettlement,
   matchZohoInvoicesPreview,
   getSavedBatch,
   listSavedBatches,

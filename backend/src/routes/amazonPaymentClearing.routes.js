@@ -1,8 +1,13 @@
 const express = require('express')
+const multer = require('multer')
 const { requireAuth, requireAdmin } = require('../middleware/auth')
 const ctrl = require('../controllers/amazonPaymentClearingController')
 
 const router = express.Router({ mergeParams: true })
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+})
 
 router.use(requireAuth, requireAdmin)
 
@@ -16,6 +21,7 @@ router.post('/zoho/oauth/exchange', ctrl.postZohoOAuthExchange)
 router.get('/ksa/batches', ctrl.getKsaSavedBatches)
 router.get('/ksa/batches/:id', ctrl.getKsaBatch)
 router.post('/ksa/preview', ctrl.postKsaPreview)
+router.post('/ksa/preview-upload', upload.single('file'), ctrl.postKsaPreviewUpload)
 router.post('/ksa/batches/:id/approve', ctrl.postKsaApproveBatch)
 router.get('/ksa/batches/:id/credit-note-apply-plan', ctrl.getKsaCreditNoteApplyPlan)
 router.post('/ksa/batches/:id/apply-credit-notes', ctrl.postKsaApplyCreditNotes)

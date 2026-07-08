@@ -17,6 +17,7 @@ import {
   postKsaPaymentClearingToZoho,
   postKsaReturnFeeJournals,
   previewKsaSettlementReport,
+  previewKsaSettlementUpload,
   reclassifyKsaAccountLevelFees,
   type SavedBatchSummary,
   type SettlementReport,
@@ -261,6 +262,36 @@ export function AmazonPaymentClearingPage() {
     if (ok) void runPreview(true)
   }, [runPreview])
 
+  const onUploadSettlementFile = useCallback(
+    async (file: File, forceRefresh = false) => {
+      setPreviewing(true)
+      setError('')
+      setNotice('')
+      try {
+        const json = await previewKsaSettlementUpload(file, {
+          forceRefresh,
+          zohoCustomerId: selectedZohoCustomer?.customerId || undefined,
+          zohoCustomerName: zohoCustomerName || undefined,
+        })
+        applyPreview(json)
+        navigate(clearingPath(2, json.batch?.batchId))
+        setNotice(
+          json.refreshedFromUpload
+            ? 'Re-imported uploaded settlement. Parsed rows and reconciliation were replaced.'
+            : json.fromCache
+              ? 'Loaded saved settlement batch from the database (no Amazon call).'
+              : 'Uploaded settlement parsed and saved.'
+        )
+        await loadSavedBatches()
+      } catch (e) {
+        setError(safeError(e))
+      } finally {
+        setPreviewing(false)
+      }
+    },
+    [applyPreview, loadSavedBatches, navigate, selectedZohoCustomer, zohoCustomerName]
+  )
+
   const openBatch = useCallback(
     async (id: string | number, opts: { navigate?: boolean } = {}) => {
       const value = String(id).trim()
@@ -478,6 +509,7 @@ export function AmazonPaymentClearingPage() {
     onFetchReports,
     onPreview: () => void runPreview(false),
     onRefreshFromAmazon,
+    onUploadSettlementFile: (file, forceRefresh) => void onUploadSettlementFile(file, forceRefresh),
     onOpenBatchId: () => void openBatch(batchIdToOpen),
     onOpenSavedBatch: (id) => void openBatch(id),
     onApprove,

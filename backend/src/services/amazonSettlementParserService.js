@@ -166,8 +166,51 @@ function parseAmazonSettlementReport(text) {
   }
 }
 
+function isSpreadsheetSettlementFilename(fileName) {
+  return /\.(xlsx|xls|xlsm)$/i.test(clean(fileName))
+}
+
+/**
+ * Seller Central downloads are often .xlsx/.xls; SP-API documents are TSV/CSV.
+ * Convert worksheets to tab-delimited text so the flat-file parser can reuse the same path.
+ */
+function settlementTextFromBuffer(buffer, fileName = '') {
+  if (buffer == null) {
+    const err = new Error('Settlement file is empty.')
+    err.code = 'AMAZON_SETTLEMENT_UPLOAD_EMPTY'
+    err.status = 400
+    throw err
+  }
+  const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer)
+  if (!buf.length) {
+    const err = new Error('Settlement file is empty.')
+    err.code = 'AMAZON_SETTLEMENT_UPLOAD_EMPTY'
+    err.status = 400
+    throw err
+  }
+  if (isSpreadsheetSettlementFilename(fileName)) {
+    const XLSX = require('xlsx')
+    const workbook = XLSX.read(buf, { type: 'buffer', cellDates: false, raw: false })
+    const sheetName = workbook.SheetNames[0]
+    if (!sheetName) {
+      const err = new Error('Settlement spreadsheet has no sheets.')
+      err.code = 'AMAZON_SETTLEMENT_UPLOAD_INVALID'
+      err.status = 400
+      throw err
+    }
+    return XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName], { FS: '\t', blankrows: false })
+  }
+  return buf.toString('utf8')
+}
+
+function parseAmazonSettlementReportBuffer(buffer, fileName = '') {
+  return parseAmazonSettlementReport(settlementTextFromBuffer(buffer, fileName))
+}
+
 module.exports = {
   parseAmazonSettlementReport,
+  parseAmazonSettlementReportBuffer,
+  settlementTextFromBuffer,
   parseDelimitedRows,
   normalizeSettlementRow,
   normalizeSettlementDate,

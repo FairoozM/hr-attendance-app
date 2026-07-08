@@ -395,6 +395,8 @@ export interface PaymentClearingPreview {
   fromCache?: boolean
   rematchedZoho?: boolean
   refreshedFromAmazon?: boolean
+  refreshedFromUpload?: boolean
+  fromUpload?: boolean
   auditLog?: ClearingAuditEntry[]
   storedRowCount?: number
   message?: string
@@ -750,6 +752,26 @@ export async function previewKsaSettlementReport(body: {
   toDate?: string
 }) {
   return api.post('/api/amazon/payment-clearing/ksa/preview', body, longOpts) as Promise<PaymentClearingPreview>
+}
+
+export async function previewKsaSettlementUpload(
+  file: File,
+  body: {
+    forceRefresh?: boolean
+    zohoCustomerId?: string
+    zohoCustomerName?: string
+    fromDate?: string
+    toDate?: string
+  } = {}
+) {
+  const form = new FormData()
+  form.append('file', file)
+  if (body.forceRefresh) form.append('forceRefresh', 'true')
+  if (body.zohoCustomerId) form.append('zohoCustomerId', body.zohoCustomerId)
+  if (body.zohoCustomerName) form.append('zohoCustomerName', body.zohoCustomerName)
+  if (body.fromDate) form.append('fromDate', body.fromDate)
+  if (body.toDate) form.append('toDate', body.toDate)
+  return api.postForm('/api/amazon/payment-clearing/ksa/preview-upload', form, longOpts) as Promise<PaymentClearingPreview>
 }
 
 export async function fetchKsaSavedBatches(limit = 50) {

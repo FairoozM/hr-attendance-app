@@ -1,7 +1,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { parseAmazonSettlementReport, normalizeSettlementDate } = require('../src/services/amazonSettlementParserService')
+const { parseAmazonSettlementReport, parseAmazonSettlementReportBuffer, normalizeSettlementDate } = require('../src/services/amazonSettlementParserService')
 const { categorizeSettlementRow, CATEGORY, ROW_CLASS } = require('../src/services/amazonPaymentClearingCategoryService')
 const {
   matchSettlementRowsToInvoices,
@@ -57,6 +57,18 @@ test('settlement parser normalizes rows and warnings', () => {
   assert.equal(parsed.metadata.currency, 'SAR')
   assert.ok(parsed.warnings.some((w) => w.includes('account-level Amazon fee row(s) have no order ID expected')))
   assert.ok(!parsed.warnings.some((w) => w.includes('do not include an Amazon order ID')))
+})
+
+test('settlement parser accepts Seller Central buffer uploads with DD.MM.YYYY dates', () => {
+  const text = [
+    'settlement-id\tsettlement-start-date\tsettlement-end-date\tdeposit-date\ttotal-amount\tcurrency\ttransaction-type\torder-id\tamount-type\tamount-description\tamount\tmarketplace-name',
+    '25101876372\t09.07.2025\t23.07.2025\t24.07.2025\t4427.15\tSAR\tOrder\t408-7440628-8909134\tItemPrice\tPrincipal\t219\tAmazon.sa',
+  ].join('\n')
+  const parsed = parseAmazonSettlementReportBuffer(Buffer.from(text, 'utf8'), 'legacy-settlement.tsv')
+  assert.equal(parsed.metadata.settlementId, '25101876372')
+  assert.equal(parsed.metadata.settlementStartDate, '2025-07-09')
+  assert.equal(parsed.metadata.settlementEndDate, '2025-07-23')
+  assert.equal(parsed.rows[0].amount, 219)
 })
 
 test('category mapping handles fees refunds and withheld tax', () => {
@@ -2366,6 +2378,8 @@ test('payment clearing route exposes saved batch and approve endpoints', () => {
 
   assert.ok(routes.some((route) => route.path === '/ksa/batches/:id' && route.methods.includes('get')))
   assert.ok(routes.some((route) => route.path === '/ksa/batches' && route.methods.includes('get')))
+  assert.ok(routes.some((route) => route.path === '/ksa/preview' && route.methods.includes('post')))
+  assert.ok(routes.some((route) => route.path === '/ksa/preview-upload' && route.methods.includes('post')))
   assert.ok(routes.some((route) => route.path === '/ksa/zoho-customers' && route.methods.includes('get')))
   assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/force-repost' && route.methods.includes('post')))
   assert.ok(routes.some((route) => route.path === '/zoho/account-diagnostics' && route.methods.includes('get')))

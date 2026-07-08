@@ -25,6 +25,7 @@ function safeMessage(err) {
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_ROW_NUMBERS_REQUIRED') return err.message
   if (err?.code === 'AMAZON_PAYMENT_CLEARING_ROWS_NOT_FOUND') return err.message
   if (err?.code === 'AMAZON_REPORT_DOCUMENT_URL') return 'Amazon returned an invalid settlement report document URL.'
+  if (err?.code === 'AMAZON_SETTLEMENT_UPLOAD_EMPTY' || err?.code === 'AMAZON_SETTLEMENT_UPLOAD_INVALID') return err.message
   if (err?.code === 'AMAZON_LWA_CONFIG' || err?.code === 'AMAZON_SPAPI_CONFIG') {
     return 'Amazon SP-API is not configured on the server.'
   }
@@ -74,6 +75,35 @@ async function postKsaPreview(req, res) {
       zohoCustomerId: req.body?.zohoCustomerId,
       zohoCustomerName: req.body?.zohoCustomerName,
       forceRefresh: req.body?.forceRefresh === true,
+      createdBy: req.user?.userId,
+    })
+    res.json(json)
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
+async function postKsaPreviewUpload(req, res) {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({
+        success: false,
+        error: 'Upload a settlement TSV, CSV, or XLSX file.',
+        code: 'AMAZON_SETTLEMENT_UPLOAD_EMPTY',
+      })
+    }
+    const forceRefresh =
+      req.body?.forceRefresh === true ||
+      req.body?.forceRefresh === 'true' ||
+      req.body?.forceRefresh === '1'
+    const json = await service.buildPreviewFromUploadedSettlement({
+      buffer: req.file.buffer,
+      fileName: req.file.originalname,
+      fromDate: req.body?.fromDate,
+      toDate: req.body?.toDate,
+      zohoCustomerId: req.body?.zohoCustomerId,
+      zohoCustomerName: req.body?.zohoCustomerName,
+      forceRefresh,
       createdBy: req.user?.userId,
     })
     res.json(json)
@@ -286,6 +316,7 @@ async function postKsaReclassifyAccountLevelFees(req, res) {
 module.exports = {
   getKsaSettlementReports,
   postKsaPreview,
+  postKsaPreviewUpload,
   getKsaZohoCustomers,
   getKsaSavedBatches,
   postKsaZohoInvoiceMatch,
