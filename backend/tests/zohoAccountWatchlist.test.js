@@ -205,6 +205,53 @@ test('transactionBalanceDelta treats equity credits as positive', () => {
   )
 })
 
+test('fetchFutureAccountTransactions uses Zoho date.after search param', async () => {
+  let seenParams = null
+  mockModule('../src/services/zohoApiClient', {
+    zohoBooksJsonRequest: async (_path, searchParams) => {
+      seenParams = searchParams
+      return {
+        transactions: [
+          {
+            transaction_id: 'tx-future',
+            transaction_date: '2099-07-12',
+            transaction_type: 'transfer_fund',
+            entry_number: 'BPV-0127',
+            debit_amount: 82210.68,
+            credit_amount: 0,
+            description: 'Cash to Abdolrahim capital',
+          },
+          {
+            transaction_id: 'tx-old',
+            transaction_date: '2026-06-30',
+            transaction_type: 'journal',
+            entry_number: '3576',
+            debit_amount: 0,
+            credit_amount: 21000,
+            description: 'should be filtered out',
+          },
+        ],
+      }
+    },
+  })
+  mockModule('../src/integrations/zoho/zohoOAuth', {
+    getZohoTokenDiagnostics: async () => ({ hasToken: true, scopes: ['ZohoBooks.fullaccess.all'] }),
+  })
+  mockModule('../src/services/zohoAccountWatchlistStore', {
+    listWatchedAccounts: async () => [],
+    getWatchedAccount: async () => null,
+    addWatchedAccount: async () => ({}),
+    removeWatchedAccount: async () => false,
+  })
+
+  const { fetchFutureAccountTransactions } = freshRequire('../src/services/zohoAccountWatchlistService')
+  const rows = await fetchFutureAccountTransactions('acct-1700', { asOfDate: '2026-07-08' })
+  assert.equal(seenParams.get('date.after'), '2026-07-08')
+  assert.equal(seenParams.get('date.start'), '2026-07-09')
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].entryNumber, 'BPV-0127')
+})
+
 test('addAccountToWatchlist rejects unknown Zoho account', async () => {
   mockModule('../src/services/zohoApiClient', {
     zohoBooksJsonRequest: async () => ({ chartofaccounts: [] }),

@@ -219,18 +219,48 @@ async function fetchAccountDetail(accountId) {
   })
 }
 
+function addDaysYmd(ymd, days) {
+  const d = new Date(`${ymd}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return ymd
+  d.setDate(d.getDate() + Number(days || 0))
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function mapTransactionRow(tx) {
+  return {
+    transactionId: clean(tx?.transaction_id || tx?.categorized_transaction_id),
+    transactionDate: clean(tx?.transaction_date || tx?.date),
+    transactionType: clean(tx?.transaction_type || tx?.transaction_type_formatted),
+    entryNumber: clean(tx?.entry_number || tx?.transaction_number),
+    referenceNumber: clean(tx?.reference_number),
+    description: clean(tx?.description),
+    debitAmount: parseBalance(tx?.debit_amount),
+    creditAmount: parseBalance(tx?.credit_amount),
+    debitOrCredit: clean(tx?.debit_or_credit).toLowerCase(),
+    raw: tx,
+  }
+}
+
 /**
- * Future-dated transactions for an account (date strictly after today).
+ * Future-dated transactions for an account (date strictly after asOfDate).
+ * Zoho Books CoA search uses dotted variants: date.after / date.start (not date_after).
  */
 async function fetchFutureAccountTransactions(accountId, { asOfDate = todayLocalDate() } = {}) {
   const id = clean(accountId)
   if (!id) return []
 
+  const startFrom = addDaysYmd(asOfDate, 1)
+  // Prefer date.after (exclusive). Also send date.start as a fallback some Zoho stacks accept.
   const params = new URLSearchParams()
   params.set('account_id', id)
-  params.set('date_after', asOfDate)
+  params.set('date.after', asOfDate)
+  params.set('date.start', startFrom)
   params.set('per_page', '200')
   params.set('sort_column', 'transaction_date')
+  params.set('filter_by', 'TransactionType.All')
 
   const json = await zohoBooksJsonRequest(
     ACCOUNT_TRANSACTIONS_ENDPOINT,
@@ -250,36 +280,29 @@ async function fetchFutureAccountTransactions(accountId, { asOfDate = todayLocal
       ? json.accounttransactions
       : []
 
-  return rows.map((tx) => ({
-    transactionId: clean(tx?.transaction_id || tx?.categorized_transaction_id),
-    transactionDate: clean(tx?.transaction_date || tx?.date),
-    transactionType: clean(tx?.transaction_type || tx?.transaction_type_formatted),
-    entryNumber: clean(tx?.entry_number || tx?.transaction_number),
-    referenceNumber: clean(tx?.reference_number),
-    description: clean(tx?.description),
-    debitAmount: parseBalance(tx?.debit_amount),
-    creditAmount: parseBalance(tx?.credit_amount),
-    debitOrCredit: clean(tx?.debit_or_credit).toLowerCase(),
-    raw: tx,
-  }))
+  return rows
+    .map(mapTransactionRow)
+    .filter((tx) => tx.transactionDate && tx.transactionDate > asOfDate)
 }
 
 /**
- * Enrich one account with full balance (incl. future) from future-dated transactions only.
- * Skips the slow per-account detail call — list current_balance + future txs is enough.
+ * Enrich one account with full balance (incl. future) from future-dated transactions.
+ * If future-tx query returns nothing but Zoho account detail has a different closing_balance,
+ * use that as Full balance so we still surface the gap (e.g. future drawings).
  */
 async function enrichAccountWithFullBalance(account, { asOfDate = todayLocalDate() } = {}) {
   if (!account?.accountId) return account
 
   let futureTransactions = []
   let enrichError = null
+  let detailClosing = null
+
   try {
     const rows = await withTimeout(
       fetchFutureAccountTransactions(account.accountId, { asOfDate }),
-      20_000,
+      18_000,
       `future txs for ${account.accountId}`,
     )
-    // Defense in depth: only keep dates strictly after as-of, in case Zoho ignores date_after.
     futureTransactions = rows.filter((tx) => {
       const d = clean(tx.transactionDate)
       return d && d > asOfDate
@@ -293,6 +316,29 @@ async function enrichAccountWithFullBalance(account, { asOfDate = todayLocalDate
     )
   }
 
+  // If no future line items came back, ask Zoho for account detail closing_balance
+  // (this is what Accounts Transactions "Closing Balance" uses).
+  if (futureTransactions.length === 0) {
+    try {
+      const detail = await withTimeout(
+        fetchAccountDetail(account.accountId),
+        12_000,
+        `account detail for ${account.accountId}`,
+      )
+      if (detail?.closingBalance != null) detailClosing = detail.closingBalance
+      if (detail?.currencyCode && !account.currencyCode) {
+        account = { ...account, currencyCode: detail.currencyCode }
+      }
+    } catch (err) {
+      // Non-fatal — keep current-only balances.
+      console.warn(
+        '[zoho-account-watchlist] closing balance fallback failed for',
+        account.accountId,
+        err?.message || err,
+      )
+    }
+  }
+
   const futureImpactFromTxs = futureTransactions.reduce(
     (sum, tx) => sum + transactionBalanceDelta(tx, account.accountType),
     0,
@@ -303,8 +349,16 @@ async function enrichAccountWithFullBalance(account, { asOfDate = todayLocalDate
   let fullBalance = null
   if (currentBalance != null && futureTransactions.length > 0) {
     fullBalance = roundMoney(currentBalance + roundedImpact)
+  } else if (
+    currentBalance != null &&
+    detailClosing != null &&
+    Math.abs(detailClosing - currentBalance) >= 0.005
+  ) {
+    fullBalance = detailClosing
   } else if (currentBalance != null) {
     fullBalance = currentBalance
+  } else if (detailClosing != null) {
+    fullBalance = detailClosing
   }
 
   let futureImpact = null
@@ -331,6 +385,7 @@ async function enrichAccountWithFullBalance(account, { asOfDate = todayLocalDate
 
   return {
     ...account,
+    closingBalance: detailClosing ?? account.closingBalance,
     fullBalance,
     futureImpact,
     futureTransactionCount: summarizedFuture.length,
@@ -556,6 +611,7 @@ module.exports = {
   mapAccountWithBalance,
   isDebitNormalAccount,
   transactionBalanceDelta,
+  addDaysYmd,
   fetchChartOfAccountsWithBalances,
   fetchAccountDetail,
   fetchFutureAccountTransactions,
