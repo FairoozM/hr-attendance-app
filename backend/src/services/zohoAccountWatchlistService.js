@@ -114,6 +114,48 @@ function roundMoney(n) {
   return Math.round(n * 100) / 100
 }
 
+/**
+ * Run async work over items with a fixed concurrency (avoids Zoho rate-limit stalls).
+ * @template T, R
+ * @param {T[]} items
+ * @param {number} concurrency
+ * @param {(item: T, index: number) => Promise<R>} worker
+ * @returns {Promise<R[]>}
+ */
+async function mapWithConcurrency(items, concurrency, worker) {
+  const list = Array.isArray(items) ? items : []
+  const limit = Math.max(1, Number(concurrency) || 1)
+  const out = new Array(list.length)
+  let next = 0
+
+  async function runOne() {
+    while (next < list.length) {
+      const i = next
+      next += 1
+      out[i] = await worker(list[i], i)
+    }
+  }
+
+  const runners = Array.from({ length: Math.min(limit, list.length) }, () => runOne())
+  await Promise.all(runners)
+  return out
+}
+
+function withTimeout(promise, ms, label) {
+  const timeoutMs = Math.max(1000, Number(ms) || 15000)
+  let timer
+  return Promise.race([
+    promise.finally(() => clearTimeout(timer)),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const err = new Error(`${label || 'operation'} timed out after ${timeoutMs}ms`)
+        err.code = 'WATCHLIST_ENRICH_TIMEOUT'
+        reject(err)
+      }, timeoutMs)
+    }),
+  ])
+}
+
 function tokenHasChartOfAccountsScope(tokenDiagnostics) {
   const scopes = Array.isArray(tokenDiagnostics?.scopes) ? tokenDiagnostics.scopes : []
   return (
@@ -223,38 +265,31 @@ async function fetchFutureAccountTransactions(accountId, { asOfDate = todayLocal
 }
 
 /**
- * Enrich one account with full balance (incl. future) and future transaction summary.
+ * Enrich one account with full balance (incl. future) from future-dated transactions only.
+ * Skips the slow per-account detail call — list current_balance + future txs is enough.
  */
-async function enrichAccountWithFullBalance(account) {
+async function enrichAccountWithFullBalance(account, { asOfDate = todayLocalDate() } = {}) {
   if (!account?.accountId) return account
 
-  let detailClosing = null
-  let detailCurrency = ''
-  try {
-    const detail = await fetchAccountDetail(account.accountId)
-    if (detail) {
-      detailClosing = detail.closingBalance
-      detailCurrency = detail.currencyCode || ''
-      if (!account.accountName && detail.accountName) account.accountName = detail.accountName
-      if (!account.accountCode && detail.accountCode) account.accountCode = detail.accountCode
-      if (!account.accountType && detail.accountType) account.accountType = detail.accountType
-    }
-  } catch (err) {
-    console.warn(
-      '[zoho-account-watchlist] account detail failed for',
-      account.accountId,
-      err?.message || err,
-    )
-  }
-
   let futureTransactions = []
+  let enrichError = null
   try {
-    futureTransactions = await fetchFutureAccountTransactions(account.accountId)
+    const rows = await withTimeout(
+      fetchFutureAccountTransactions(account.accountId, { asOfDate }),
+      20_000,
+      `future txs for ${account.accountId}`,
+    )
+    // Defense in depth: only keep dates strictly after as-of, in case Zoho ignores date_after.
+    futureTransactions = rows.filter((tx) => {
+      const d = clean(tx.transactionDate)
+      return d && d > asOfDate
+    })
   } catch (err) {
+    enrichError = err?.message || 'Failed to load future transactions'
     console.warn(
       '[zoho-account-watchlist] future transactions failed for',
       account.accountId,
-      err?.message || err,
+      enrichError,
     )
   }
 
@@ -268,8 +303,6 @@ async function enrichAccountWithFullBalance(account) {
   let fullBalance = null
   if (currentBalance != null && futureTransactions.length > 0) {
     fullBalance = roundMoney(currentBalance + roundedImpact)
-  } else if (detailClosing != null) {
-    fullBalance = detailClosing
   } else if (currentBalance != null) {
     fullBalance = currentBalance
   }
@@ -298,13 +331,12 @@ async function enrichAccountWithFullBalance(account) {
 
   return {
     ...account,
-    currencyCode: account.currencyCode || detailCurrency,
-    closingBalance: detailClosing ?? account.closingBalance,
     fullBalance,
     futureImpact,
     futureTransactionCount: summarizedFuture.length,
     futureTransactions: summarizedFuture,
     balanceUnavailable: currentBalance == null && fullBalance == null,
+    enrichError: enrichError || undefined,
   }
 }
 
@@ -397,23 +429,44 @@ async function listWatchlistWithBalances() {
     }
   })
 
-  // Only enrich accounts that still exist in Zoho (N small watchlist → N detail + N future-tx calls).
-  const accounts = await Promise.all(
-    baseRows.map(async (row) => {
-      if (row.notFoundInZoho) return row
-      try {
-        const enriched = await enrichAccountWithFullBalance(row)
-        return { ...enriched, refreshedAt, asOfDate }
-      } catch (err) {
-        console.warn('[zoho-account-watchlist] enrich failed:', row.accountId, err?.message || err)
-        return {
-          ...row,
-          asOfDate,
-          enrichError: err?.message || 'Failed to load full balance',
-        }
+  // Enrich with limited concurrency. Soft deadline so CloudFront (~60s) never eats the request:
+  // if future-tx calls are slow, return current balances immediately with a note.
+  const deadlineMs = 45_000
+  const startedAt = Date.now()
+  const accounts = await mapWithConcurrency(baseRows, 2, async (row) => {
+    if (row.notFoundInZoho) return { ...row, asOfDate }
+    const remaining = deadlineMs - (Date.now() - startedAt)
+    if (remaining < 3_000) {
+      return {
+        ...row,
+        fullBalance: row.currentBalance,
+        futureImpact: row.currentBalance != null ? 0 : null,
+        futureTransactionCount: 0,
+        futureTransactions: [],
+        asOfDate,
+        enrichError: 'Full balance skipped — refresh again to include future transactions',
       }
-    }),
-  )
+    }
+    try {
+      const enriched = await withTimeout(
+        enrichAccountWithFullBalance(row, { asOfDate }),
+        Math.min(20_000, remaining),
+        `enrich ${row.accountId}`,
+      )
+      return { ...enriched, refreshedAt, asOfDate }
+    } catch (err) {
+      console.warn('[zoho-account-watchlist] enrich failed:', row.accountId, err?.message || err)
+      return {
+        ...row,
+        fullBalance: row.currentBalance,
+        futureImpact: row.currentBalance != null ? 0 : null,
+        futureTransactionCount: 0,
+        futureTransactions: [],
+        asOfDate,
+        enrichError: err?.message || 'Failed to load full balance',
+      }
+    }
+  })
 
   return {
     accounts,

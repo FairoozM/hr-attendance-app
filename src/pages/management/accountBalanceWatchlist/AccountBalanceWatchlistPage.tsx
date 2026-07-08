@@ -280,7 +280,11 @@ export function AccountBalanceWatchlistPage() {
 
       {loading ? (
         <div className="abw-state" role="status">
-          Loading watchlist balances…
+          <p className="abw-state__title">Loading watchlist balances…</p>
+          <p className="abw-state__body">
+            Fetching Zoho current balances and checking for future-dated transactions.
+            This can take a few seconds for each watched account.
+          </p>
         </div>
       ) : null}
 

@@ -116,9 +116,6 @@ test('listWatchlistWithBalances merges live balances and future full balance', a
           ],
         }
       }
-      if (p.includes('/chartofaccounts/101') && !p.includes('accounttransactions')) {
-        return { chartofaccount: { account_id: '101', closing_balance: 30, currency_code: 'AED' } }
-      }
       if (p.includes('/accounttransactions')) {
         return {
           transactions: [
