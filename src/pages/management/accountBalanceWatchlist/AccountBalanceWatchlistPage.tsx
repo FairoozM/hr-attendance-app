@@ -385,7 +385,7 @@ export function AccountBalanceWatchlistPage() {
                               : ''
                         }`}
                       >
-                        {futureCount > 0 || (impact != null && impact !== 0)
+                        {futureCount > 0
                           ? formatSignedMoney(impact, account.currencyCode)
                           : '—'}
                       </td>

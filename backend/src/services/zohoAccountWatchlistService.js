@@ -93,12 +93,23 @@ function mapAccountWithBalance(account) {
   const closingBalance = parseBalance(
     account?.closing_balance ?? account?.closingBalance ?? account?.closing_balance_formatted,
   )
+  const isDebit =
+    account?.isdebit === true ||
+    account?.isDebit === true ||
+    account?.is_debit === true
+      ? true
+      : account?.isdebit === false ||
+          account?.isDebit === false ||
+          account?.is_debit === false
+        ? false
+        : null
   return {
     accountId,
     accountName: clean(account?.account_name || account?.name),
     accountCode: clean(account?.account_code || account?.code),
     accountType: clean(account?.account_type || account?.type),
     isActive: account?.is_active !== false,
+    isDebit,
     currentBalance,
     closingBalance,
     fullBalance: closingBalance,
@@ -108,6 +119,19 @@ function mapAccountWithBalance(account) {
     balanceUnavailable: currentBalance == null && closingBalance == null,
     currencyCode: clean(account?.currency_code || account?.currency_code_formatted || ''),
   }
+}
+
+/**
+ * Zoho detail closing_balance is often unsigned magnitude.
+ * - Credit-normal accounts (equity/liability/income): UI shows credit as positive → use |closing|.
+ * - Debit-normal accounts (bank/cash/assets): isdebit=false means credit balance → negative.
+ */
+function signedClosingBalance(closing, { accountType, isDebit } = {}) {
+  if (closing == null || !Number.isFinite(Number(closing))) return null
+  const abs = Math.abs(Number(closing))
+  if (!isDebitNormalAccount(accountType)) return abs
+  if (isDebit === false) return -abs
+  return abs
 }
 
 function roundMoney(n) {
@@ -225,6 +249,7 @@ async function fetchAccountDetail(accountId) {
     // Detail uses closing_balance; list uses current_balance.
     current_balance: account.current_balance ?? account.balance,
     closing_balance: account.closing_balance,
+    isdebit: account.isdebit,
   })
 
   const rawTxs = Array.isArray(account.transactions) ? account.transactions : []
@@ -244,6 +269,7 @@ async function fetchAccountDetail(accountId) {
 
   return {
     ...mapped,
+    isDebit: mapped.isDebit,
     closingBalance: mapped.closingBalance,
     transactions,
   }
@@ -365,15 +391,20 @@ async function fetchAccountTransactionsRaw(accountId, extraParams = {}) {
 
 /**
  * Enrich one account with full balance (incl. future).
- * One GET /chartofaccounts/{id} returns closing_balance + recent transaction lines
- * (this org's /accounttransactions only returns entity_type counts).
+ * One GET /chartofaccounts/{id} returns closing_balance + recent transaction lines.
+ *
+ * Important: Zoho closing_balance is often unsigned. Do NOT invent Future Impact from a
+ * sign-only mismatch (e.g. current -48,217.82 vs closing 48,217.82 with zero future txs).
+ * Future Impact is only from real future-dated transactions.
  */
 async function enrichAccountWithFullBalance(account, { asOfDate = todayLocalDate() } = {}) {
   if (!account?.accountId) return account
 
   let futureTransactions = []
   let enrichError = null
-  let detailClosing = null
+  let detailClosingRaw = null
+  let detailIsDebit = account.isDebit ?? null
+  let detailAccountType = account.accountType
 
   try {
     const detail = await withTimeout(
@@ -381,7 +412,9 @@ async function enrichAccountWithFullBalance(account, { asOfDate = todayLocalDate
       25_000,
       `account detail for ${account.accountId}`,
     )
-    if (detail?.closingBalance != null) detailClosing = detail.closingBalance
+    if (detail?.closingBalance != null) detailClosingRaw = detail.closingBalance
+    if (detail?.isDebit != null) detailIsDebit = detail.isDebit
+    if (detail?.accountType) detailAccountType = detail.accountType
     if (detail?.currencyCode && !account.currencyCode) {
       account = { ...account, currencyCode: detail.currencyCode }
     }
@@ -398,43 +431,18 @@ async function enrichAccountWithFullBalance(account, { asOfDate = todayLocalDate
     )
   }
 
-  const futureImpactFromTxs = futureTransactions.reduce(
-    (sum, tx) => sum + transactionBalanceDelta(tx, account.accountType),
-    0,
-  )
-  const roundedImpact = roundMoney(futureImpactFromTxs)
-
   const currentBalance = account.currentBalance
-  let fullBalance = null
-  if (currentBalance != null && futureTransactions.length > 0) {
-    fullBalance = roundMoney(currentBalance + roundedImpact)
-  } else if (
-    currentBalance != null &&
-    detailClosing != null &&
-    Math.abs(detailClosing - currentBalance) >= 0.005
-  ) {
-    fullBalance = detailClosing
-  } else if (detailClosing != null && currentBalance == null) {
-    fullBalance = detailClosing
-  } else if (currentBalance != null) {
-    fullBalance = currentBalance
-  }
+  const signedClosing = signedClosingBalance(detailClosingRaw, {
+    accountType: detailAccountType || account.accountType,
+    isDebit: detailIsDebit,
+  })
 
-  // Prefer Zoho closing_balance when it disagrees with current (authoritative full figure).
-  if (
-    detailClosing != null &&
-    currentBalance != null &&
-    Math.abs(detailClosing - currentBalance) >= 0.005
-  ) {
-    fullBalance = detailClosing
-  }
-
-  let futureImpact = null
-  if (currentBalance != null && fullBalance != null) {
-    futureImpact = roundMoney(fullBalance - currentBalance)
-  } else if (futureTransactions.length > 0) {
-    futureImpact = roundedImpact
-  }
+  const futureImpactFromTxs = roundMoney(
+    futureTransactions.reduce(
+      (sum, tx) => sum + transactionBalanceDelta(tx, detailAccountType || account.accountType),
+      0,
+    ),
+  )
 
   const summarizedFuture = futureTransactions
     .slice()
@@ -448,12 +456,37 @@ async function enrichAccountWithFullBalance(account, { asOfDate = todayLocalDate
       description: tx.description || tx.referenceNumber,
       debitAmount: tx.debitAmount,
       creditAmount: tx.creditAmount,
-      impact: roundMoney(transactionBalanceDelta(tx, account.accountType)),
+      impact: roundMoney(
+        transactionBalanceDelta(tx, detailAccountType || account.accountType),
+      ),
     }))
+
+  let fullBalance = currentBalance
+  let futureImpact = null
+
+  if (summarizedFuture.length > 0) {
+    // Prefer authoritative signed closing when present; else project from current + future txs.
+    if (signedClosing != null) {
+      fullBalance = signedClosing
+    } else if (currentBalance != null) {
+      fullBalance = roundMoney(currentBalance + futureImpactFromTxs)
+    }
+    if (currentBalance != null && fullBalance != null) {
+      futureImpact = roundMoney(fullBalance - currentBalance)
+    } else {
+      futureImpact = futureImpactFromTxs
+    }
+  } else {
+    // No future txs → Full must match Current. Ignore unsigned closing sign quirks.
+    fullBalance = currentBalance
+    futureImpact = currentBalance != null ? 0 : null
+  }
 
   return {
     ...account,
-    closingBalance: detailClosing ?? account.closingBalance,
+    accountType: detailAccountType || account.accountType,
+    isDebit: detailIsDebit,
+    closingBalance: signedClosing ?? detailClosingRaw ?? account.closingBalance,
     fullBalance,
     futureImpact,
     futureTransactionCount: summarizedFuture.length,
@@ -678,6 +711,7 @@ module.exports = {
   CHART_OF_ACCOUNTS_REQUIRED_SCOPE,
   mapAccountWithBalance,
   isDebitNormalAccount,
+  signedClosingBalance,
   transactionBalanceDelta,
   addDaysYmd,
   fetchChartOfAccountsWithBalances,

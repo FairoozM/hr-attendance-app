@@ -186,6 +186,7 @@ test('enrichAccountWithFullBalance reads capital closing + Jul 12 drawing', asyn
         account_name: 'Abdolrahim Mirzadeh Capital Account',
         account_code: '1700',
         account_type: 'equity',
+        isdebit: false,
         closing_balance: 32533.53,
         transactions: [
           {
@@ -225,6 +226,55 @@ test('enrichAccountWithFullBalance reads capital closing + Jul 12 drawing', asyn
   assert.equal(enriched.futureImpact, -82210.68)
   assert.equal(enriched.futureTransactionCount, 1)
   assert.match(enriched.futureTransactions[0].referenceNumber, /BPV-0127/)
+})
+
+test('enrichAccountWithFullBalance does not invent future impact from unsigned closing sign', async () => {
+  mockModule('../src/services/zohoApiClient', {
+    zohoBooksJsonRequest: async () => ({
+      chart_of_account: {
+        account_id: 'basmat',
+        account_name: 'BASMAT CASH FOR ECOMMERCE',
+        account_code: '1006',
+        account_type: 'bank',
+        isdebit: false,
+        closing_balance: 48217.82,
+        transactions: [
+          { date: '2026-07-08', transaction_id: 't1', entity_type: 'deposit', debit: '', credit: 100 },
+        ],
+      },
+    }),
+  })
+  mockModule('../src/integrations/zoho/zohoOAuth', {
+    getZohoTokenDiagnostics: async () => ({ hasToken: true, scopes: ['ZohoBooks.fullaccess.all'] }),
+  })
+  mockModule('../src/services/zohoAccountWatchlistStore', {
+    listWatchedAccounts: async () => [],
+    getWatchedAccount: async () => null,
+    addWatchedAccount: async () => ({}),
+    removeWatchedAccount: async () => false,
+  })
+
+  const { enrichAccountWithFullBalance, signedClosingBalance } = freshRequire(
+    '../src/services/zohoAccountWatchlistService',
+  )
+  assert.equal(
+    signedClosingBalance(48217.82, { accountType: 'bank', isDebit: false }),
+    -48217.82,
+  )
+
+  const enriched = await enrichAccountWithFullBalance(
+    {
+      accountId: 'basmat',
+      accountName: 'BASMAT CASH FOR ECOMMERCE',
+      accountCode: '1006',
+      accountType: 'bank',
+      currentBalance: -48217.82,
+    },
+    { asOfDate: '2026-07-08' },
+  )
+  assert.equal(enriched.fullBalance, -48217.82)
+  assert.equal(enriched.futureImpact, 0)
+  assert.equal(enriched.futureTransactionCount, 0)
 })
 
 test('transactionBalanceDelta treats equity credits as positive', () => {
