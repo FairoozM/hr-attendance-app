@@ -56,7 +56,7 @@ function timeoutMsForPath(path, explicitMs) {
   if (normalized.includes('/sku-coverage')) return 120_000
   if (normalized.includes('/inventory-health')) return 300_000
   if (normalized.includes('/bulk-quantity-adjustments')) return 300_000
-  if (normalized.includes('/account-watchlist')) return 120_000
+  if (normalized.includes('/account-watchlist')) return 180_000
   return API_REQUEST_TIMEOUT_MS
 }
 

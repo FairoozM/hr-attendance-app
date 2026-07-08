@@ -92,30 +92,49 @@ test('listWatchlistWithBalances returns empty state without calling Zoho', async
   assert.equal(zohoCalled, false)
 })
 
-test('listWatchlistWithBalances merges live balances for watched ids', async () => {
+test('listWatchlistWithBalances merges live balances and future full balance', async () => {
   mockModule('../src/services/zohoApiClient', {
-    zohoBooksJsonRequest: async (_path, searchParams) => {
-      assert.equal(searchParams.get('showbalance'), 'true')
-      return {
-        chartofaccounts: [
-          {
-            account_id: '101',
-            account_name: 'Cash',
-            account_code: '1000',
-            account_type: 'cash',
-            current_balance: 50,
-            closing_balance: 40,
-          },
-          {
-            account_id: '202',
-            account_name: 'Other',
-            account_code: '9999',
-            account_type: 'expense',
-            current_balance: 1,
-            closing_balance: 1,
-          },
-        ],
+    zohoBooksJsonRequest: async (path, searchParams) => {
+      const p = String(path || '')
+      if (p.endsWith('/chartofaccounts') && searchParams?.get?.('showbalance') === 'true') {
+        return {
+          chartofaccounts: [
+            {
+              account_id: '101',
+              account_name: 'Cash',
+              account_code: '1000',
+              account_type: 'cash',
+              current_balance: 50,
+            },
+            {
+              account_id: '202',
+              account_name: 'Other',
+              account_code: '9999',
+              account_type: 'expense',
+              current_balance: 1,
+            },
+          ],
+        }
       }
+      if (p.includes('/chartofaccounts/101') && !p.includes('accounttransactions')) {
+        return { chartofaccount: { account_id: '101', closing_balance: 30, currency_code: 'AED' } }
+      }
+      if (p.includes('/accounttransactions')) {
+        return {
+          transactions: [
+            {
+              transaction_id: 'tx1',
+              transaction_date: '2099-01-15',
+              transaction_type: 'journal',
+              entry_number: 'J-1',
+              debit_amount: 0,
+              credit_amount: 20,
+              description: 'Future credit',
+            },
+          ],
+        }
+      }
+      return { chartofaccounts: [], transactions: [] }
     },
   })
   mockModule('../src/integrations/zoho/zohoOAuth', {
@@ -154,11 +173,39 @@ test('listWatchlistWithBalances merges live balances for watched ids', async () 
   assert.equal(result.accounts.length, 2)
   assert.equal(result.accounts[0].accountId, '101')
   assert.equal(result.accounts[0].currentBalance, 50)
-  assert.equal(result.accounts[0].closingBalance, 40)
+  assert.equal(result.accounts[0].fullBalance, 30)
+  assert.equal(result.accounts[0].futureImpact, -20)
+  assert.equal(result.accounts[0].futureTransactionCount, 1)
   assert.equal(result.accounts[0].notFoundInZoho, false)
   assert.equal(result.accounts[1].accountId, 'missing')
   assert.equal(result.accounts[1].notFoundInZoho, true)
   assert.equal(result.accounts[1].balanceUnavailable, true)
+})
+
+test('transactionBalanceDelta treats equity credits as positive', () => {
+  mockModule('../src/services/zohoApiClient', {
+    zohoBooksJsonRequest: async () => ({ chartofaccounts: [] }),
+  })
+  mockModule('../src/integrations/zoho/zohoOAuth', {
+    getZohoTokenDiagnostics: async () => ({ hasToken: true, scopes: ['ZohoBooks.fullaccess.all'] }),
+  })
+  mockModule('../src/services/zohoAccountWatchlistStore', {
+    listWatchedAccounts: async () => [],
+    getWatchedAccount: async () => null,
+    addWatchedAccount: async () => ({}),
+    removeWatchedAccount: async () => false,
+  })
+  const { transactionBalanceDelta } = freshRequire('../src/services/zohoAccountWatchlistService')
+  // Equity (credit-normal): owner drawing debit reduces balance
+  assert.equal(
+    transactionBalanceDelta({ debit_amount: 82210.68, credit_amount: 0 }, 'equity'),
+    -82210.68,
+  )
+  // Cash (debit-normal): credit reduces balance
+  assert.equal(
+    transactionBalanceDelta({ debit_amount: 0, credit_amount: 20 }, 'cash'),
+    -20,
+  )
 })
 
 test('addAccountToWatchlist rejects unknown Zoho account', async () => {

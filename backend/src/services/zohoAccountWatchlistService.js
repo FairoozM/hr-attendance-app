@@ -1,6 +1,10 @@
 /**
  * Zoho Books Account Balance Watchlist — company-level shared list with live balances.
  * Uses showbalance=true; does not alter Amazon Payment Clearing chart-of-accounts cache.
+ *
+ * Current balance = CoA list current_balance (as of today).
+ * Full balance = includes future-dated transactions (via account detail closing_balance
+ * and/or projected from future accounttransactions).
  */
 
 const { zohoBooksJsonRequest } = require('./zohoApiClient')
@@ -9,7 +13,23 @@ const store = require('./zohoAccountWatchlistStore')
 
 const BOOKS_V3 = '/books/v3'
 const CHART_OF_ACCOUNTS_ENDPOINT = `${BOOKS_V3}/chartofaccounts`
+const ACCOUNT_TRANSACTIONS_ENDPOINT = `${BOOKS_V3}/chartofaccounts/accounttransactions`
 const CHART_OF_ACCOUNTS_REQUIRED_SCOPE = 'ZohoBooks.accountants.READ'
+
+/** Account types where debit increases the reported balance. */
+const DEBIT_NORMAL_TYPES = new Set([
+  'cash',
+  'bank',
+  'other_asset',
+  'other_current_asset',
+  'fixed_asset',
+  'stock',
+  'payment_clearing_account',
+  'accounts_receivable',
+  'expense',
+  'cost_of_goods_sold',
+  'other_expense',
+])
 
 function clean(value) {
   return value == null ? '' : String(value).trim()
@@ -17,8 +37,52 @@ function clean(value) {
 
 function parseBalance(value) {
   if (value == null || value === '') return null
+  if (typeof value === 'string') {
+    const stripped = value.replace(/[^0-9.\-]/g, '')
+    const n = Number(stripped)
+    return Number.isFinite(n) ? n : null
+  }
   const n = Number(value)
   return Number.isFinite(n) ? n : null
+}
+
+function todayLocalDate() {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function isDebitNormalAccount(accountType) {
+  const t = clean(accountType).toLowerCase()
+  if (!t) return true
+  if (DEBIT_NORMAL_TYPES.has(t)) return true
+  if (t.includes('asset') || t.includes('expense') || t === 'stock' || t === 'bank' || t === 'cash') {
+    return true
+  }
+  return false
+}
+
+/**
+ * Signed effect of one transaction on the account's displayed balance.
+ * Debit-normal: debit +, credit −. Credit-normal (equity/liability/income): credit +, debit −.
+ */
+function transactionBalanceDelta(tx, accountType) {
+  const debit =
+    parseBalance(tx?.debit_amount ?? tx?.debitAmount) || 0
+  const credit =
+    parseBalance(tx?.credit_amount ?? tx?.creditAmount) || 0
+  const side = clean(tx?.debit_or_credit ?? tx?.debitOrCredit).toLowerCase()
+  const debitNormal = isDebitNormalAccount(accountType)
+
+  if (debit > 0 || credit > 0) {
+    if (debitNormal) return debit - credit
+    return credit - debit
+  }
+  if (side === 'debit') return debitNormal ? Math.abs(debit || credit || 0) : -Math.abs(debit || credit || 0)
+  if (side === 'credit') return debitNormal ? -Math.abs(credit || debit || 0) : Math.abs(credit || debit || 0)
+  return 0
 }
 
 function mapAccountWithBalance(account) {
@@ -37,9 +101,17 @@ function mapAccountWithBalance(account) {
     isActive: account?.is_active !== false,
     currentBalance,
     closingBalance,
+    fullBalance: closingBalance,
+    futureImpact: null,
+    futureTransactionCount: 0,
+    futureTransactions: [],
     balanceUnavailable: currentBalance == null && closingBalance == null,
     currencyCode: clean(account?.currency_code || account?.currency_code_formatted || ''),
   }
+}
+
+function roundMoney(n) {
+  return Math.round(n * 100) / 100
 }
 
 function tokenHasChartOfAccountsScope(tokenDiagnostics) {
@@ -78,6 +150,162 @@ async function fetchChartOfAccountsWithBalances({ skipCache = true } = {}) {
       : []
 
   return raw.map(mapAccountWithBalance).filter((account) => account.accountId)
+}
+
+/**
+ * Per-account Zoho detail — includes closing_balance (often unavailable on the list endpoint).
+ */
+async function fetchAccountDetail(accountId) {
+  const id = clean(accountId)
+  if (!id) return null
+  const json = await zohoBooksJsonRequest(
+    `${CHART_OF_ACCOUNTS_ENDPOINT}/${encodeURIComponent(id)}`,
+    new URLSearchParams(),
+    'GET',
+    undefined,
+    {
+      source: 'zoho_account_watchlist_detail',
+      skipCache: true,
+      cacheCategory: 'default',
+    },
+  )
+  const account = json?.chartofaccount || json?.account || json
+  if (!account || typeof account !== 'object') return null
+  return mapAccountWithBalance({
+    ...account,
+    account_id: account.account_id || id,
+  })
+}
+
+/**
+ * Future-dated transactions for an account (date strictly after today).
+ */
+async function fetchFutureAccountTransactions(accountId, { asOfDate = todayLocalDate() } = {}) {
+  const id = clean(accountId)
+  if (!id) return []
+
+  const params = new URLSearchParams()
+  params.set('account_id', id)
+  params.set('date_after', asOfDate)
+  params.set('per_page', '200')
+  params.set('sort_column', 'transaction_date')
+
+  const json = await zohoBooksJsonRequest(
+    ACCOUNT_TRANSACTIONS_ENDPOINT,
+    params,
+    'GET',
+    undefined,
+    {
+      source: 'zoho_account_watchlist_future_txs',
+      skipCache: true,
+      cacheCategory: 'default',
+    },
+  )
+
+  const rows = Array.isArray(json?.transactions)
+    ? json.transactions
+    : Array.isArray(json?.accounttransactions)
+      ? json.accounttransactions
+      : []
+
+  return rows.map((tx) => ({
+    transactionId: clean(tx?.transaction_id || tx?.categorized_transaction_id),
+    transactionDate: clean(tx?.transaction_date || tx?.date),
+    transactionType: clean(tx?.transaction_type || tx?.transaction_type_formatted),
+    entryNumber: clean(tx?.entry_number || tx?.transaction_number),
+    referenceNumber: clean(tx?.reference_number),
+    description: clean(tx?.description),
+    debitAmount: parseBalance(tx?.debit_amount),
+    creditAmount: parseBalance(tx?.credit_amount),
+    debitOrCredit: clean(tx?.debit_or_credit).toLowerCase(),
+    raw: tx,
+  }))
+}
+
+/**
+ * Enrich one account with full balance (incl. future) and future transaction summary.
+ */
+async function enrichAccountWithFullBalance(account) {
+  if (!account?.accountId) return account
+
+  let detailClosing = null
+  let detailCurrency = ''
+  try {
+    const detail = await fetchAccountDetail(account.accountId)
+    if (detail) {
+      detailClosing = detail.closingBalance
+      detailCurrency = detail.currencyCode || ''
+      if (!account.accountName && detail.accountName) account.accountName = detail.accountName
+      if (!account.accountCode && detail.accountCode) account.accountCode = detail.accountCode
+      if (!account.accountType && detail.accountType) account.accountType = detail.accountType
+    }
+  } catch (err) {
+    console.warn(
+      '[zoho-account-watchlist] account detail failed for',
+      account.accountId,
+      err?.message || err,
+    )
+  }
+
+  let futureTransactions = []
+  try {
+    futureTransactions = await fetchFutureAccountTransactions(account.accountId)
+  } catch (err) {
+    console.warn(
+      '[zoho-account-watchlist] future transactions failed for',
+      account.accountId,
+      err?.message || err,
+    )
+  }
+
+  const futureImpactFromTxs = futureTransactions.reduce(
+    (sum, tx) => sum + transactionBalanceDelta(tx, account.accountType),
+    0,
+  )
+  const roundedImpact = roundMoney(futureImpactFromTxs)
+
+  const currentBalance = account.currentBalance
+  let fullBalance = null
+  if (currentBalance != null && futureTransactions.length > 0) {
+    fullBalance = roundMoney(currentBalance + roundedImpact)
+  } else if (detailClosing != null) {
+    fullBalance = detailClosing
+  } else if (currentBalance != null) {
+    fullBalance = currentBalance
+  }
+
+  let futureImpact = null
+  if (currentBalance != null && fullBalance != null) {
+    futureImpact = roundMoney(fullBalance - currentBalance)
+  } else if (futureTransactions.length > 0) {
+    futureImpact = roundedImpact
+  }
+
+  const summarizedFuture = futureTransactions
+    .slice()
+    .sort((a, b) => String(a.transactionDate).localeCompare(String(b.transactionDate)))
+    .map((tx) => ({
+      transactionId: tx.transactionId,
+      transactionDate: tx.transactionDate,
+      transactionType: tx.transactionType,
+      entryNumber: tx.entryNumber,
+      referenceNumber: tx.referenceNumber,
+      description: tx.description,
+      debitAmount: tx.debitAmount,
+      creditAmount: tx.creditAmount,
+      impact: roundMoney(transactionBalanceDelta(tx, account.accountType)),
+    }))
+
+  return {
+    ...account,
+    currencyCode: account.currencyCode || detailCurrency,
+    closingBalance: detailClosing ?? account.closingBalance,
+    fullBalance,
+    futureImpact,
+    futureTransactionCount: summarizedFuture.length,
+    futureTransactions: summarizedFuture,
+    balanceUnavailable: currentBalance == null && fullBalance == null,
+  }
 }
 
 async function assertZohoBooksAccess() {
@@ -133,8 +361,9 @@ async function listWatchlistWithBalances() {
   const allAccounts = await fetchChartOfAccountsWithBalances({ skipCache: true })
   const byId = new Map(allAccounts.map((a) => [a.accountId, a]))
   const refreshedAt = new Date().toISOString()
+  const asOfDate = todayLocalDate()
 
-  const accounts = watched.map((row) => {
+  const baseRows = watched.map((row) => {
     const live = byId.get(row.accountId)
     if (!live) {
       return {
@@ -144,6 +373,10 @@ async function listWatchlistWithBalances() {
         accountType: row.accountType,
         currentBalance: null,
         closingBalance: null,
+        fullBalance: null,
+        futureImpact: null,
+        futureTransactionCount: 0,
+        futureTransactions: [],
         balanceUnavailable: true,
         notFoundInZoho: true,
         currencyCode: '',
@@ -164,10 +397,29 @@ async function listWatchlistWithBalances() {
     }
   })
 
+  // Only enrich accounts that still exist in Zoho (N small watchlist → N detail + N future-tx calls).
+  const accounts = await Promise.all(
+    baseRows.map(async (row) => {
+      if (row.notFoundInZoho) return row
+      try {
+        const enriched = await enrichAccountWithFullBalance(row)
+        return { ...enriched, refreshedAt, asOfDate }
+      } catch (err) {
+        console.warn('[zoho-account-watchlist] enrich failed:', row.accountId, err?.message || err)
+        return {
+          ...row,
+          asOfDate,
+          enrichError: err?.message || 'Failed to load full balance',
+        }
+      }
+    }),
+  )
+
   return {
     accounts,
     empty: false,
     refreshedAt,
+    asOfDate,
     count: accounts.length,
   }
 }
@@ -246,9 +498,15 @@ async function removeAccountFromWatchlist(accountId) {
 
 module.exports = {
   CHART_OF_ACCOUNTS_ENDPOINT,
+  ACCOUNT_TRANSACTIONS_ENDPOINT,
   CHART_OF_ACCOUNTS_REQUIRED_SCOPE,
   mapAccountWithBalance,
+  isDebitNormalAccount,
+  transactionBalanceDelta,
   fetchChartOfAccountsWithBalances,
+  fetchAccountDetail,
+  fetchFutureAccountTransactions,
+  enrichAccountWithFullBalance,
   listAllAccountsWithBalances,
   listWatchlistWithBalances,
   addAccountToWatchlist,

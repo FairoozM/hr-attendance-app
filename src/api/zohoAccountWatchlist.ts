@@ -1,5 +1,17 @@
 import { api } from './client'
 
+export type ZohoWatchlistFutureTransaction = {
+  transactionId?: string
+  transactionDate?: string
+  transactionType?: string
+  entryNumber?: string
+  referenceNumber?: string
+  description?: string
+  debitAmount?: number | null
+  creditAmount?: number | null
+  impact?: number
+}
+
 export type ZohoWatchlistAccount = {
   accountId: string
   accountName: string
@@ -8,12 +20,20 @@ export type ZohoWatchlistAccount = {
   isActive?: boolean
   currentBalance: number | null
   closingBalance: number | null
+  /** Balance including future-dated transactions. */
+  fullBalance?: number | null
+  /** fullBalance − currentBalance */
+  futureImpact?: number | null
+  futureTransactionCount?: number
+  futureTransactions?: ZohoWatchlistFutureTransaction[]
+  asOfDate?: string
   balanceUnavailable?: boolean
   notFoundInZoho?: boolean
   currencyCode?: string
   sortOrder?: number
   createdAt?: string
   refreshedAt?: string
+  enrichError?: string
 }
 
 export type WatchlistResponse = {
@@ -21,6 +41,7 @@ export type WatchlistResponse = {
   accounts: ZohoWatchlistAccount[]
   empty?: boolean
   refreshedAt?: string
+  asOfDate?: string
   message?: string
   count?: number
 }
@@ -33,7 +54,7 @@ export type AllAccountsResponse = {
 }
 
 export async function fetchWatchlistAccounts(): Promise<WatchlistResponse> {
-  return api.get('/api/zoho/account-watchlist', { timeoutMs: 120_000 }) as Promise<WatchlistResponse>
+  return api.get('/api/zoho/account-watchlist', { timeoutMs: 180_000 }) as Promise<WatchlistResponse>
 }
 
 export async function fetchAllZohoAccountsWithBalances(): Promise<AllAccountsResponse> {
