@@ -10,8 +10,34 @@ const inventoryHealthController = require('../controllers/inventoryHealthControl
 const inventoryHealthImageController = require('../controllers/inventoryHealthImageController')
 
 const bulkQuantityAdjustmentController = require('../controllers/bulkQuantityAdjustmentController')
+const zohoAccountWatchlistController = require('../controllers/zohoAccountWatchlistController')
 
 const router = express.Router()
+
+router.get(
+  '/account-watchlist/accounts',
+  requireAuth,
+  requireAdmin,
+  zohoAccountWatchlistController.getAllAccounts,
+)
+router.get(
+  '/account-watchlist',
+  requireAuth,
+  requireAdmin,
+  zohoAccountWatchlistController.getWatchlist,
+)
+router.post(
+  '/account-watchlist',
+  requireAuth,
+  requireAdmin,
+  zohoAccountWatchlistController.postWatchlist,
+)
+router.delete(
+  '/account-watchlist/:accountId',
+  requireAuth,
+  requireAdmin,
+  zohoAccountWatchlistController.deleteWatchlistAccount,
+)
 
 router.post(
   '/items/images/fetch',

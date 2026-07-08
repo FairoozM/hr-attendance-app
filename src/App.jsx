@@ -62,6 +62,7 @@ import { PurchasePlanningPage } from './pages/management/PurchasePlanningPage'
 import { AmazonPaymentClearingPage } from './pages/management/amazonPaymentClearing/AmazonPaymentClearingPage'
 import { AmazonReturnReconciliationPage } from './pages/management/amazonReturnReconciliation/AmazonReturnReconciliationPage'
 import { InventoryHealthDashboardPage } from './pages/management/inventoryHealth/InventoryHealthDashboardPage'
+import { AccountBalanceWatchlistPage } from './pages/management/accountBalanceWatchlist/AccountBalanceWatchlistPage'
 import { AllPricesPage } from './pages/management/AllPricesPage'
 import { KsaPricingPage } from './pages/management/ksaPricing/KsaPricingPage'
 import { DuplicatePriceCleanupPage } from './pages/management/DuplicatePriceCleanupPage'
@@ -292,6 +293,14 @@ function AppContent() {
           element={
             <AdminOnly>
               <InventoryHealthDashboardPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="management/account-balance-watchlist"
+          element={
+            <AdminOnly>
+              <AccountBalanceWatchlistPage />
             </AdminOnly>
           }
         />

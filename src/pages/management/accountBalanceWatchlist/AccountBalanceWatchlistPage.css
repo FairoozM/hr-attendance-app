@@ -1,0 +1,335 @@
+/* Account Balance Watchlist — clean executive finance monitoring */
+
+.abw-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  color: #334155;
+}
+
+.abw-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  padding: 1.35rem 1.5rem;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.03), transparent 55%),
+    #fff;
+}
+
+.abw-kicker {
+  margin: 0 0 0.35rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.abw-title {
+  margin: 0;
+  font-size: clamp(1.35rem, 2.2vw, 1.75rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: #0f172a;
+}
+
+.abw-subtitle {
+  margin: 0.4rem 0 0;
+  max-width: 40rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: #64748b;
+}
+
+.abw-header__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.abw-meta {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #94a3b8;
+}
+
+.abw-btn {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 0.55rem 0.95rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+
+.abw-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.abw-btn--primary {
+  background: #0f172a;
+  color: #fff;
+}
+
+.abw-btn--primary:hover:not(:disabled) {
+  background: #1e293b;
+}
+
+.abw-btn--ghost {
+  background: #fff;
+  border-color: #e2e8f0;
+  color: #334155;
+}
+
+.abw-btn--ghost:hover:not(:disabled) {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.abw-btn--danger-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: #b91c1c;
+  padding: 0.35rem 0.55rem;
+}
+
+.abw-btn--danger-ghost:hover:not(:disabled) {
+  background: #fef2f2;
+}
+
+.abw-btn--sm {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.75rem;
+}
+
+.abw-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 2rem 1.5rem;
+  border-radius: 16px;
+  border: 1px dashed #cbd5e1;
+  background: #f8fafc;
+}
+
+.abw-state--error {
+  border-style: solid;
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.abw-state--empty {
+  border-style: dashed;
+  background:
+    linear-gradient(180deg, #ffffff, #f8fafc);
+}
+
+.abw-state__title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: #0f172a;
+}
+
+.abw-state__body {
+  margin: 0;
+  max-width: 34rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: #64748b;
+}
+
+.abw-table-wrap {
+  overflow: auto;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+}
+
+.abw-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 720px;
+}
+
+.abw-table th,
+.abw-table td {
+  padding: 0.85rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+  font-size: 0.875rem;
+}
+
+.abw-table th {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  background: #f8fafc;
+}
+
+.abw-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.abw-table tbody tr:hover td {
+  background: #fafbfc;
+}
+
+.abw-account-name {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.abw-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.abw-balance {
+  font-weight: 600;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+
+.abw-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8125rem;
+  color: #475569;
+}
+
+.abw-muted {
+  color: #94a3b8;
+  font-size: 0.8125rem;
+}
+
+.abw-warn {
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  color: #b45309;
+}
+
+.abw-actions-col {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.abw-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 12rem;
+}
+
+.abw-picker__hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.abw-picker__search {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.7rem 0.85rem;
+  font-size: 0.875rem;
+  color: #0f172a;
+  background: #fff;
+}
+
+.abw-picker__search:focus {
+  outline: none;
+  border-color: #94a3b8;
+  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08);
+}
+
+.abw-picker__error {
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 0.8125rem;
+}
+
+.abw-picker__status {
+  padding: 1.25rem 0.25rem;
+  color: #64748b;
+  font-size: 0.875rem;
+}
+
+.abw-picker__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: min(52vh, 420px);
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+
+.abw-picker__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.85rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.abw-picker__row:last-child {
+  border-bottom: none;
+}
+
+.abw-picker__main {
+  min-width: 0;
+}
+
+.abw-picker__name {
+  font-weight: 600;
+  color: #0f172a;
+  font-size: 0.875rem;
+}
+
+.abw-picker__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.abw-picker-modal {
+  max-width: 36rem;
+  width: calc(100vw - 2rem);
+}
+
+@media (max-width: 720px) {
+  .abw-header {
+    padding: 1.1rem 1.15rem;
+  }
+
+  .abw-header__actions {
+    width: 100%;
+  }
+
+  .abw-header__actions .abw-btn {
+    flex: 1;
+  }
+}

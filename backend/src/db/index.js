@@ -1079,6 +1079,12 @@ async function testConnection() {
     console.error('[db] ensureSubscriptionsTables skipped/failed (non-fatal):', e.message || e)
   }
   try {
+    const { ensureZohoAccountWatchlistTable } = require('../services/zohoAccountWatchlistStore')
+    await ensureZohoAccountWatchlistTable()
+  } catch (e) {
+    console.error('[db] ensureZohoAccountWatchlistTable skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
     await ensureProjectsTable()
   } catch (e) {
     console.error('[db] ensureProjectsTable skipped/failed (non-fatal):', e.message || e)
