@@ -17,13 +17,21 @@ export function safeError(err: unknown) {
   return err instanceof Error ? err.message : 'Request failed'
 }
 
-export function money(value: number | null | undefined) {
+export function money(value: number | null | undefined, currency = 'SAR') {
+  const code = String(currency || 'SAR').trim().toUpperCase() || 'SAR'
   return new Intl.NumberFormat('en-AE', {
     style: 'currency',
-    currency: 'SAR',
+    currency: code,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(Number(value) || 0)
+}
+
+export function previewCurrency(preview?: { report?: { currency?: string }; zohoCustomerName?: string } | null) {
+  const fromReport = String(preview?.report?.currency || '').trim().toUpperCase()
+  if (fromReport) return fromReport
+  if (preview?.zohoCustomerName === 'Life Smile Business') return 'AED'
+  return 'SAR'
 }
 
 export function isFeeJournalPostingType(paymentType: string) {
@@ -249,6 +257,8 @@ function ReconciliationStatusBadge({ status }: { status: 'reconciled' | 'mismatc
 
 export function SettlementReconciliation({ preview }: { preview: PaymentClearingPreview }) {
   const summary = preview.reconciliationSummary
+  const currency = previewCurrency(preview)
+  const fmt = (value: number | null | undefined) => money(value, currency)
   const lines = [
     ['Order-Level Net Balance', summary.orderLevelNetBalance],
     ['Refund/Return Impact', summary.refundReturnImpact || 0],
@@ -275,20 +285,20 @@ export function SettlementReconciliation({ preview }: { preview: PaymentClearing
             {lines.map(([label, value]) => (
               <tr key={label}>
                 <td>{label}</td>
-                <td className="apc-money">{money(value)}</td>
+                <td className="apc-money">{fmt(value)}</td>
               </tr>
             ))}
             <tr className="apc-total-row">
               <td>Expected Amazon Deposit</td>
-              <td className="apc-money">{money(summary.expectedAmazonDeposit)}</td>
+              <td className="apc-money">{fmt(summary.expectedAmazonDeposit)}</td>
             </tr>
             <tr>
               <td>Amazon Settlement Total</td>
-              <td className="apc-money">{money(summary.actualAmazonSettlement)}</td>
+              <td className="apc-money">{fmt(summary.actualAmazonSettlement)}</td>
             </tr>
             <tr className={summary.reconciliationStatus === 'mismatch' ? 'apc-reconciliation__difference--bad' : ''}>
               <td>Difference</td>
-              <td className="apc-money">{money(summary.reconciliationDifference)}</td>
+              <td className="apc-money">{fmt(summary.reconciliationDifference)}</td>
             </tr>
           </tbody>
         </table>
@@ -342,6 +352,8 @@ export function ReturnCreditNotesTable({ rows, emptyText }: { rows: RefundReturn
 
 export function AmountDifferencesTable({ preview }: { preview: PaymentClearingPreview }) {
   const rows = preview.amountDifferences || []
+  const currency = previewCurrency(preview)
+  const fmt = (value: number | null | undefined) => money(value, currency)
   if (!rows.length) return <div className="apc-empty">No matched orders differ from their Zoho invoice total above 0.01.</div>
   return (
     <div className="apc-table-wrap">
@@ -360,9 +372,9 @@ export function AmountDifferencesTable({ preview }: { preview: PaymentClearingPr
             <tr key={row.orderId}>
               <td>{row.orderId}</td>
               <td>{row.zohoInvoiceNumber || row.zohoInvoiceId || '-'}</td>
-              <td className="apc-money">{money(row.amazonOrderTotal)}</td>
-              <td className="apc-money">{money(row.zohoInvoiceTotal)}</td>
-              <td className="apc-money">{money(row.difference)}</td>
+              <td className="apc-money">{fmt(row.amazonOrderTotal)}</td>
+              <td className="apc-money">{fmt(row.zohoInvoiceTotal)}</td>
+              <td className="apc-money">{fmt(row.difference)}</td>
             </tr>
           ))}
         </tbody>
@@ -417,6 +429,8 @@ export function DifferencesTable({ preview }: { preview: PaymentClearingPreview 
 
 export function MatchedOrdersTable({ preview }: { preview: PaymentClearingPreview }) {
   if (!preview.matchedOrders.length) return <div className="apc-empty">No matched orders yet.</div>
+  const currency = previewCurrency(preview)
+  const fmt = (value: number | null | undefined) => money(value, currency)
   const shippingOffset = (row: PaymentClearingPreview['matchedOrders'][number]) => (
     (Number(row.shippingCollectedTotal) || 0) + (Number(row.shippingPromotionTotal) || 0)
   )
@@ -489,18 +503,18 @@ export function MatchedOrdersTable({ preview }: { preview: PaymentClearingPrevie
               </td>
               <td>{row.zohoInvoiceNumber || '-'}</td>
               <td>{row.zohoCustomerName || '-'}</td>
-              <td className="apc-money">{money(row.zohoInvoiceTotal)}</td>
-              <td className="apc-money">{money(row.principalTotal)}</td>
-              <td className="apc-money">{money(row.shippingCollectedTotal)}</td>
-              <td className="apc-money">{money(row.grossAmazonTotal)}</td>
-              <td className="apc-money">{money(row.commissionTotal)}</td>
-              <td className="apc-money">{money(row.fulfillmentFeeTotal)}</td>
-              <td className="apc-money">{money(row.closingFeeTotal)}</td>
-              <td className="apc-money">{money(row.shippingPromotionTotal)}</td>
-              <td className="apc-money">{money(shippingOffset(row))}</td>
-              <td className="apc-money">{money(row.otherAmazonFeeTotal)}</td>
-              <td className="apc-money">{money(invoiceClearingFee(row))}</td>
-              <td className="apc-money">{money(row.netSettlementAmount)}</td>
+              <td className="apc-money">{fmt(row.zohoInvoiceTotal)}</td>
+              <td className="apc-money">{fmt(row.principalTotal)}</td>
+              <td className="apc-money">{fmt(row.shippingCollectedTotal)}</td>
+              <td className="apc-money">{fmt(row.grossAmazonTotal)}</td>
+              <td className="apc-money">{fmt(row.commissionTotal)}</td>
+              <td className="apc-money">{fmt(row.fulfillmentFeeTotal)}</td>
+              <td className="apc-money">{fmt(row.closingFeeTotal)}</td>
+              <td className="apc-money">{fmt(row.shippingPromotionTotal)}</td>
+              <td className="apc-money">{fmt(shippingOffset(row))}</td>
+              <td className="apc-money">{fmt(row.otherAmazonFeeTotal)}</td>
+              <td className="apc-money">{fmt(invoiceClearingFee(row))}</td>
+              <td className="apc-money">{fmt(row.netSettlementAmount)}</td>
               <td>{row.status}</td>
             </tr>
           ))}
@@ -510,18 +524,18 @@ export function MatchedOrdersTable({ preview }: { preview: PaymentClearingPrevie
             <td>Total matched orders</td>
             <td>{preview.matchedOrders.length}</td>
             <td>-</td>
-            <td className="apc-money">{money(totals.zohoInvoiceTotal)}</td>
-            <td className="apc-money">{money(totals.principalTotal)}</td>
-            <td className="apc-money">{money(totals.shippingCollectedTotal)}</td>
-            <td className="apc-money">{money(totals.grossAmazonTotal)}</td>
-            <td className="apc-money">{money(totals.commissionTotal)}</td>
-            <td className="apc-money">{money(totals.fulfillmentFeeTotal)}</td>
-            <td className="apc-money">{money(totals.closingFeeTotal)}</td>
-            <td className="apc-money">{money(totals.shippingPromotionTotal)}</td>
-            <td className="apc-money">{money(totals.shippingOffsetTotal)}</td>
-            <td className="apc-money">{money(totals.otherAmazonFeeTotal)}</td>
-            <td className="apc-money">{money(totals.invoiceClearingFeeTotal)}</td>
-            <td className="apc-money">{money(totals.netSettlementAmount)}</td>
+            <td className="apc-money">{fmt(totals.zohoInvoiceTotal)}</td>
+            <td className="apc-money">{fmt(totals.principalTotal)}</td>
+            <td className="apc-money">{fmt(totals.shippingCollectedTotal)}</td>
+            <td className="apc-money">{fmt(totals.grossAmazonTotal)}</td>
+            <td className="apc-money">{fmt(totals.commissionTotal)}</td>
+            <td className="apc-money">{fmt(totals.fulfillmentFeeTotal)}</td>
+            <td className="apc-money">{fmt(totals.closingFeeTotal)}</td>
+            <td className="apc-money">{fmt(totals.shippingPromotionTotal)}</td>
+            <td className="apc-money">{fmt(totals.shippingOffsetTotal)}</td>
+            <td className="apc-money">{fmt(totals.otherAmazonFeeTotal)}</td>
+            <td className="apc-money">{fmt(totals.invoiceClearingFeeTotal)}</td>
+            <td className="apc-money">{fmt(totals.netSettlementAmount)}</td>
             <td>-</td>
           </tr>
         </tfoot>
@@ -593,7 +607,8 @@ export function NetNegativeReturnOrdersTable({ preview }: { preview: PaymentClea
   )
 }
 
-export function PaymentClearingPreviewTable({ paymentPreview }: { paymentPreview: PaymentClearingPaymentPreview }) {
+export function PaymentClearingPreviewTable({ paymentPreview, currency = 'SAR' }: { paymentPreview: PaymentClearingPaymentPreview; currency?: string }) {
+  const fmt = (value: number | null | undefined) => money(value, currency)
   return (
     <div className="apc-table-wrap apc-table-wrap--wide">
       <table className="apc-table">
@@ -618,13 +633,13 @@ export function PaymentClearingPreviewTable({ paymentPreview }: { paymentPreview
               <td>{row.orderId}</td>
               <td>{row.zohoInvoiceNumber || '-'}</td>
               <td>{row.zohoPoNumber || '-'}</td>
-              <td className="apc-money">{money(row.invoiceTotal)}</td>
-              <td className="apc-money">{money(row.shippingOffsetTotal)}</td>
-              <td className="apc-money">{money(row.netBalancePayment.amount)}</td>
-              <td className="apc-money">{money(row.commissionPayment.amount)}</td>
-              <td className="apc-money">{money(row.shippingFbaPayment.amount)}</td>
-              <td className="apc-money">{money(row.totalClearingAmount)}</td>
-              <td className="apc-money">{money(row.remainingDifference)}</td>
+              <td className="apc-money">{fmt(row.invoiceTotal)}</td>
+              <td className="apc-money">{fmt(row.shippingOffsetTotal)}</td>
+              <td className="apc-money">{fmt(row.netBalancePayment.amount)}</td>
+              <td className="apc-money">{fmt(row.commissionPayment.amount)}</td>
+              <td className="apc-money">{fmt(row.shippingFbaPayment.amount)}</td>
+              <td className="apc-money">{fmt(row.totalClearingAmount)}</td>
+              <td className="apc-money">{fmt(row.remainingDifference)}</td>
               <td>{row.status}</td>
             </tr>
           ))}

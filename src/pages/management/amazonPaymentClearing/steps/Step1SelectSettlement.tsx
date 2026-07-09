@@ -79,7 +79,7 @@ export function Step1SelectSettlement({ ctx }: { ctx: ClearingContext }) {
                 <tr>
                   <th>#</th>
                   <th>Period</th>
-                  <th className="apc-money">Expected total (SAR)</th>
+                  <th className="apc-money">Expected total (AED)</th>
                 </tr>
               </thead>
               <tbody>
@@ -87,7 +87,7 @@ export function Step1SelectSettlement({ ctx }: { ctx: ClearingContext }) {
                   <tr key={row.period}>
                     <td>{index + 1}</td>
                     <td>{row.period}</td>
-                    <td className="apc-money">{money(row.expectedTotal)}</td>
+                    <td className="apc-money">{money(row.expectedTotal, 'AED')}</td>
                   </tr>
                 ))}
               </tbody>

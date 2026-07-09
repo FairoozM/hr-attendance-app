@@ -1,9 +1,11 @@
-import { AmazonFeeJournalPreviewTable, money, PaymentClearingPreviewTable, SettlementReferenceCard, SummaryCard } from '../clearingShared'
+import { AmazonFeeJournalPreviewTable, money, PaymentClearingPreviewTable, previewCurrency, SettlementReferenceCard, SummaryCard } from '../clearingShared'
 import type { ClearingContext } from './clearingContext'
 
 export function Step7Preview({ ctx }: { ctx: ClearingContext }) {
   const { preview, paymentPreview } = ctx
   if (!preview) return null
+  const currency = previewCurrency(preview)
+  const fmt = (value: number | null | undefined) => money(value, currency)
   return (
     <div className="apc-step-stack">
       <div className="apc-alert">
@@ -32,20 +34,20 @@ export function Step7Preview({ ctx }: { ctx: ClearingContext }) {
           <section className="apc-summary-grid">
             <SummaryCard label="Invoices" value={paymentPreview.paymentPlanSummary.invoiceCount} />
             <SummaryCard label="Payment Entries" value={paymentPreview.paymentPlanSummary.paymentEntryCount} />
-            <SummaryCard label="Net Balance Payments" value={money(paymentPreview.paymentPlanSummary.netBalanceTotal)} />
-            <SummaryCard label="Commission Clearing" value={money(paymentPreview.paymentPlanSummary.commissionClearingTotal)} />
-            <SummaryCard label="Shipping/FBA Clearing" value={money(paymentPreview.paymentPlanSummary.shippingFbaClearingTotal)} />
-            <SummaryCard label="Refund/Credit Notes" value={money(paymentPreview.paymentPlanSummary.refundReturnCreditNoteApplicationTotal || 0)} />
-            <SummaryCard label="Adjustment Clearing" value={money(paymentPreview.paymentPlanSummary.adjustmentClearingTotal || 0)} />
-            <SummaryCard label="Amazon Fee Journals" value={money(paymentPreview.paymentPlanSummary.amazonFeeJournalTotal || 0)} />
-            <SummaryCard label="Total Clearing" value={money(paymentPreview.paymentPlanSummary.totalPaymentAmount)} />
-            <SummaryCard label="Difference" value={money(paymentPreview.paymentPlanSummary.difference)} />
+            <SummaryCard label="Net Balance Payments" value={fmt(paymentPreview.paymentPlanSummary.netBalanceTotal)} />
+            <SummaryCard label="Commission Clearing" value={fmt(paymentPreview.paymentPlanSummary.commissionClearingTotal)} />
+            <SummaryCard label="Shipping/FBA Clearing" value={fmt(paymentPreview.paymentPlanSummary.shippingFbaClearingTotal)} />
+            <SummaryCard label="Refund/Credit Notes" value={fmt(paymentPreview.paymentPlanSummary.refundReturnCreditNoteApplicationTotal || 0)} />
+            <SummaryCard label="Adjustment Clearing" value={fmt(paymentPreview.paymentPlanSummary.adjustmentClearingTotal || 0)} />
+            <SummaryCard label="Amazon Fee Journals" value={fmt(paymentPreview.paymentPlanSummary.amazonFeeJournalTotal || 0)} />
+            <SummaryCard label="Total Clearing" value={fmt(paymentPreview.paymentPlanSummary.totalPaymentAmount)} />
+            <SummaryCard label="Difference" value={fmt(paymentPreview.paymentPlanSummary.difference)} />
           </section>
           <SettlementReferenceCard
             reference={paymentPreview.settlementReference}
             postingReferences={paymentPreview.postingReferences}
           />
-          <PaymentClearingPreviewTable paymentPreview={paymentPreview} />
+          <PaymentClearingPreviewTable paymentPreview={paymentPreview} currency={currency} />
           <h3 className="ainv-page__title" style={{ fontSize: '1rem' }}>Amazon Fee Journal Preview</h3>
           <AmazonFeeJournalPreviewTable rows={paymentPreview.amazonFeeJournalLines || []} />
           {paymentPreview.warnings.length ? (

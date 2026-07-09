@@ -1,5 +1,21 @@
 const { round2, isNetNegativeOrderReturn, collectInvoicePaymentExcludedOrderIds } = require('./amazonPaymentClearingOrderBreakdownService')
 const { buildSettlementReference, buildEntryReference } = require('./amazonPaymentClearingReferenceService')
+const {
+  convertLegacyOrderSummary,
+  isLegacyKsaPaymentClearingCustomer,
+} = require('./amazonPaymentClearingCurrencyService')
+
+function clean(value) {
+  return String(value == null ? '' : value).trim()
+}
+
+function matchedOrdersForPaymentPreview(batch) {
+  const customerName = batch?.zohoCustomerName || ''
+  const orders = Array.isArray(batch?.matchedOrders) ? batch.matchedOrders : []
+  if (!isLegacyKsaPaymentClearingCustomer(customerName)) return orders
+  if (clean(batch?.report?.currency) === 'AED') return orders
+  return orders.map((order) => convertLegacyOrderSummary(order, customerName))
+}
 
 const PAYMENT_ACCOUNTS = Object.freeze({
   NET_BALANCE: {
@@ -127,7 +143,7 @@ function invoicePaymentExcludedOrderIdsForBatch(batch) {
 function buildPaymentPreviewFromBatch(batch) {
   requireBatchForPaymentPreview(batch)
   const excludedOrderIds = invoicePaymentExcludedOrderIdsForBatch(batch)
-  const salesOrders = (Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []).filter(
+  const salesOrders = matchedOrdersForPaymentPreview(batch).filter(
     (order) => !excludedOrderIds.has(String(order.orderId || '')) && !isNetNegativeOrderReturn(order)
   )
   const payments = salesOrders.map(buildInvoicePaymentPlan)

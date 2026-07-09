@@ -41,10 +41,10 @@ const store = require('./amazonPaymentClearingStore')
 const { buildZohoOAuthAuthorizeUrl, exchangeZohoAuthorizationCode } = require('../integrations/zoho/zohoOAuth')
 const { buildReturnFeePlan } = require('./amazonPaymentClearingReturnFeeService')
 const {
-  buildCreditNoteApplyPlan,
-  applyCreditNotesForBatch,
-  isCreditNoteApplyComplete,
-} = require('./amazonPaymentClearingCreditNotePostingService')
+  applyLegacyCurrencyToSettlementRows,
+  legacyCurrencyParserWarning,
+  settlementCurrencyForCustomer,
+} = require('./amazonPaymentClearingCurrencyService')
 
 const MARKETPLACE_KEY = 'ksa'
 const MARKETPLACE = 'KSA'
@@ -226,6 +226,8 @@ async function buildAndSavePreviewFromParsed({
   })
   const feeJournalMappingRules = await store.listFeeJournalMappings({ marketplace: MARKETPLACE }).catch(() => [])
   const metadata = parsed.metadata || {}
+  const settlementRows = applyLegacyCurrencyToSettlementRows(parsed.rows, zohoCustomerName)
+  const legacyCurrencyWarning = legacyCurrencyParserWarning(zohoCustomerName)
   const preview = buildPreview({
     report: {
       reportId: report.reportId,
@@ -234,14 +236,18 @@ async function buildAndSavePreviewFromParsed({
       settlementStartDate: metadata.settlementStartDate,
       settlementEndDate: metadata.settlementEndDate,
       depositDate: metadata.depositDate,
-      currency: metadata.currency || 'SAR',
+      currency: settlementCurrencyForCustomer(zohoCustomerName, metadata.currency),
     },
-    rows: parsed.rows,
+    rows: settlementRows,
     invoices: zohoMatch.invoices,
     matchedReturns: zohoMatch.matchedReturns,
     missingCreditNotes: zohoMatch.missingCreditNotes,
     creditNoteBlockingRows: zohoMatch.creditNoteBlockingRows,
-    parserWarnings: [...(parsed.warnings || []), ...(zohoMatch.zohoFetchWarnings || [])],
+    parserWarnings: [
+      ...(parsed.warnings || []),
+      ...(zohoMatch.zohoFetchWarnings || []),
+      ...(legacyCurrencyWarning ? [legacyCurrencyWarning] : []),
+    ],
     rawRowCount: parsed.rawRowCount,
     feeJournalMappingRules,
     syntheticRefundRows: zohoMatch.syntheticRefundRows || [],
@@ -521,7 +527,7 @@ async function enrichBatchForClearingOperations(batch) {
   if (batch.batchId != null) {
     const storedRows = await store.listRowsForBatch(batch.batchId).catch(() => [])
     if (storedRows.length > 0) {
-      settlementRows = storedRowsToSettlementRows(storedRows, batch.report || {})
+      settlementRows = storedRowsToSettlementRows(storedRows, batch.report || {}, batch.zohoCustomerName || '')
     }
   }
   normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules, settlementRows)
@@ -668,13 +674,13 @@ function shouldRematchZohoOnDraftReopen(batch) {
   })
 }
 
-function storedRowsToSettlementRows(storedRows, report = {}) {
+function storedRowsToSettlementRows(storedRows, report = {}, customerName = '') {
   const settlementDates = {
     settlementStartDate: report.settlementStartDate || '',
     settlementEndDate: report.settlementEndDate || '',
     depositDate: report.depositDate || '',
   }
-  return (Array.isArray(storedRows) ? storedRows : []).map((row) => {
+  const rows = (Array.isArray(storedRows) ? storedRows : []).map((row) => {
     const raw = row.rawRow && typeof row.rawRow === 'object' ? row.rawRow : {}
     return {
       ...raw,
@@ -686,9 +692,11 @@ function storedRowsToSettlementRows(storedRows, report = {}) {
       transactionType: row.transactionType || raw.transactionType || '',
       amountType: row.amountType || raw.amountType || '',
       amountDescription: row.amountDescription || raw.amountDescription || '',
+      currency: row.currency || raw.currency || report.currency || 'SAR',
       ...settlementDates,
     }
   })
+  return applyLegacyCurrencyToSettlementRows(rows, customerName)
 }
 
 function invoicesFromMatchedOrders(matchedOrders = []) {
@@ -801,7 +809,8 @@ async function refreshBatchPreviewFromStoredRows(batchId, batch = null) {
     marketplace: resolvedBatch.marketplace || MARKETPLACE,
   }).catch(() => [])
   const report = resolvedBatch.report || {}
-  const rows = storedRowsToSettlementRows(storedRows, report)
+  const customerName = resolvedBatch.zohoCustomerName || ''
+  const rows = storedRowsToSettlementRows(storedRows, report, customerName)
   const rematchSeed = {
     matchedOrders: resolvedBatch.matchedOrders || [],
     matchedReturns: resolvedBatch.matchedReturns || [],
@@ -810,7 +819,10 @@ async function refreshBatchPreviewFromStoredRows(batchId, batch = null) {
   }
   rematchCreditNotesFromSettlementRows(rematchSeed, rows)
   const preview = buildPreview({
-    report,
+    report: {
+      ...report,
+      currency: settlementCurrencyForCustomer(customerName, report.currency),
+    },
     rows,
     invoices: invoicesFromMatchedOrders(resolvedBatch.matchedOrders),
     matchedReturns: rematchSeed.matchedReturns,
@@ -899,20 +911,25 @@ async function maybeRematchZohoForDraftBatch(batch, storedRows, preview, feeJour
     depositDate: report.depositDate,
   }
   const range = deriveInvoiceRange([settlementDates])
-  const rows = storedRows.map((row) => {
-    const raw = row.rawRow && typeof row.rawRow === 'object' ? row.rawRow : {}
-    return {
-      ...raw,
-      orderId: row.orderId || raw.orderId || '',
-      amount: row.amount ?? raw.amount,
-      category: row.category || raw.category || '',
-      rowClass: row.rowClass || raw.rowClass || '',
-      transactionType: row.transactionType || raw.transactionType || '',
-      amountType: row.amountType || raw.amountType || '',
-      amountDescription: row.amountDescription || raw.amountDescription || '',
-      ...settlementDates,
-    }
-  })
+  const customerName = batch.zohoCustomerName || preview.zohoCustomerName || ''
+  const rows = applyLegacyCurrencyToSettlementRows(
+    storedRows.map((row) => {
+      const raw = row.rawRow && typeof row.rawRow === 'object' ? row.rawRow : {}
+      return {
+        ...raw,
+        orderId: row.orderId || raw.orderId || '',
+        amount: row.amount ?? raw.amount,
+        category: row.category || raw.category || '',
+        rowClass: row.rowClass || raw.rowClass || '',
+        transactionType: row.transactionType || raw.transactionType || '',
+        amountType: row.amountType || raw.amountType || '',
+        amountDescription: row.amountDescription || raw.amountDescription || '',
+        ...settlementDates,
+      }
+    }),
+    customerName
+  )
+  const legacyCurrencyWarning = legacyCurrencyParserWarning(customerName)
 
   const zohoMatch = await matchZohoInvoicesForRows(rows, {
     fromDate: range.fromDate,
@@ -920,13 +937,20 @@ async function maybeRematchZohoForDraftBatch(batch, storedRows, preview, feeJour
     ...batchZohoMatchOptions(batch, preview),
   })
   const rematchedPreview = buildPreview({
-    report,
+    report: {
+      ...report,
+      currency: settlementCurrencyForCustomer(customerName, report.currency),
+    },
     rows,
     invoices: zohoMatch.invoices,
     matchedReturns: zohoMatch.matchedReturns,
     missingCreditNotes: zohoMatch.missingCreditNotes,
     creditNoteBlockingRows: zohoMatch.creditNoteBlockingRows,
-    parserWarnings: [...(preview.warnings || []), ...(zohoMatch.zohoFetchWarnings || [])],
+    parserWarnings: [
+      ...(preview.warnings || []),
+      ...(zohoMatch.zohoFetchWarnings || []),
+      ...(legacyCurrencyWarning ? [legacyCurrencyWarning] : []),
+    ],
     rawRowCount: rows.length,
     feeJournalMappingRules,
     syntheticRefundRows: zohoMatch.syntheticRefundRows || [],
@@ -999,7 +1023,7 @@ async function hydrateSavedBatch(batch) {
     preview.allRows = reconstructAllRowsFromStored(storedRows)
   }
   const settlementRows = storedRows.length
-    ? storedRowsToSettlementRows(storedRows, batch.report || preview.report || {})
+    ? storedRowsToSettlementRows(storedRows, batch.report || preview.report || {}, batch.zohoCustomerName || preview.zohoCustomerName || '')
     : []
   const staleCreditNoteBlockers = (batch.creditNoteBlockingRows || []).some((row) => !String(row?.orderId || '').trim())
   const staleRefundReturnRows = (batch.refundReturnRows || []).some((row) => isNonOrderLinkedAmazonFee(row))

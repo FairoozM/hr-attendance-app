@@ -14,6 +14,12 @@ const {
 const { buildPreview, orderSummary } = require('../src/services/amazonPaymentClearingPreviewService')
 const { buildOrderFeeBreakdown, detectNetNegativeOrderRefundRows } = require('../src/services/amazonPaymentClearingOrderBreakdownService')
 const { buildPaymentPreviewFromBatch } = require('../src/services/amazonPaymentClearingPaymentPreviewService')
+const {
+  applyLegacyCurrencyToSettlementRows,
+  isLegacyKsaPaymentClearingCustomer,
+  sarAmountToAed,
+  settlementCurrencyForCustomer,
+} = require('../src/services/amazonPaymentClearingCurrencyService')
 const { postApprovedBatch, ensureCanPostBatch } = require('../src/services/amazonPaymentClearingPostingService')
 const {
   buildSettlementReference,
@@ -1085,6 +1091,76 @@ test('orderSummary exposes full fee breakdown on matched orders', () => {
   assert.equal(summary.netSettlementAmount, 109.4)
   assert.equal(summary.netAmount, 109.4)
   assert.equal(summary.grossAmazonTotal, 350)
+})
+
+test('legacy Life Smile settlement currency converts SAR amounts to AED', () => {
+  assert.equal(isLegacyKsaPaymentClearingCustomer(LEGACY_KSA_ZOHO_CUSTOMER_NAME), true)
+  assert.equal(isLegacyKsaPaymentClearingCustomer('KSA-Amazon'), false)
+  assert.equal(settlementCurrencyForCustomer(LEGACY_KSA_ZOHO_CUSTOMER_NAME, 'SAR'), 'AED')
+  assert.equal(settlementCurrencyForCustomer('KSA-Amazon', 'SAR'), 'SAR')
+  const rows = applyLegacyCurrencyToSettlementRows(
+    [{ amount: 955, currency: 'SAR', orderId: '171-1' }],
+    LEGACY_KSA_ZOHO_CUSTOMER_NAME
+  )
+  assert.equal(rows[0].currency, 'AED')
+  assert.equal(rows[0].amount, sarAmountToAed(955))
+})
+
+test('legacy payment preview clears when Zoho invoice is AED and Amazon rows were converted from SAR', () => {
+  const principalAed = sarAmountToAed(955)
+  const commissionAed = sarAmountToAed(-130.36)
+  const fulfillmentAed = sarAmountToAed(-27.6)
+  const preview = buildPaymentPreviewFromBatch({
+    batchId: 20,
+    status: 'approved',
+    zohoCustomerName: LEGACY_KSA_ZOHO_CUSTOMER_NAME,
+    report: { currency: 'AED' },
+    reconciliationSummary: { reconciliationStatus: 'reconciled', reconciliationDifference: 0 },
+    unmatchedOrders: [],
+    matchedOrders: [
+      {
+        orderId: '171-0034579-1023563',
+        zohoInvoiceId: 'z1',
+        zohoInvoiceNumber: 'INV-LEGACY',
+        zohoPoNumber: '171-0034579-1023563',
+        zohoCustomerName: LEGACY_KSA_ZOHO_CUSTOMER_NAME,
+        zohoInvoiceTotal: principalAed,
+        principalTotal: principalAed,
+        commissionTotal: commissionAed,
+        fulfillmentFeeTotal: fulfillmentAed,
+        closingFeeTotal: 0,
+        shippingPromotionTotal: 0,
+        otherAmazonFeeTotal: 0,
+      },
+    ],
+  })
+  assert.equal(preview.payments[0].status, 'ready')
+  assert.equal(preview.payments[0].remainingDifference, 0)
+})
+
+test('legacy payment preview converts stored SAR matched orders for old batches', () => {
+  const preview = buildPaymentPreviewFromBatch({
+    batchId: 21,
+    status: 'approved',
+    zohoCustomerName: LEGACY_KSA_ZOHO_CUSTOMER_NAME,
+    report: { currency: 'SAR' },
+    reconciliationSummary: { reconciliationStatus: 'reconciled', reconciliationDifference: 0 },
+    unmatchedOrders: [],
+    matchedOrders: [
+      {
+        orderId: '171-1',
+        zohoInvoiceTotal: sarAmountToAed(2329),
+        principalTotal: 2329,
+        commissionTotal: -342.36,
+        fulfillmentFeeTotal: -54.05,
+        closingFeeTotal: 0,
+        shippingPromotionTotal: 0,
+        otherAmazonFeeTotal: 0,
+      },
+    ],
+  })
+  assert.equal(preview.payments[0].status, 'ready')
+  assert.equal(preview.payments[0].totalClearingAmount, sarAmountToAed(2329))
 })
 
 test('payment preview splits invoice into net, commission, and shipping/FBA payments', () => {
