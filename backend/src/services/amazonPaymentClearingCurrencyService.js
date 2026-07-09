@@ -86,10 +86,35 @@ function legacyCurrencyParserWarning(customerName) {
 
 const LEGACY_SETTLEMENT_FX_NOTE =
   'Legacy settlement FX difference must be posted manually to Zoho currency exchange gain/loss.'
+const LEGACY_INVOICE_PAYMENT_FX_NOTE =
+  'Legacy invoice clearing differences are expected after SAR→AED conversion — post payments in Zoho and book rounding to currency exchange gain/loss.'
 const SETTLEMENT_MISMATCH_WARNING = 'Settlement total does not match calculated expected deposit.'
+const LEGACY_PAYMENT_PREVIEW_TOLERANCE = Number(process.env.AMAZON_KSA_LEGACY_PAYMENT_PREVIEW_TOLERANCE) || 1
 
 function legacyAllowsSettlementReconciliationMismatch(customerName) {
   return isLegacyKsaPaymentClearingCustomer(customerName)
+}
+
+function legacyPaymentPreviewTolerance(customerName) {
+  return isLegacyKsaPaymentClearingCustomer(customerName) ? LEGACY_PAYMENT_PREVIEW_TOLERANCE : 0.01
+}
+
+function resolveClearingCustomerName(source) {
+  if (!source || typeof source !== 'object') return ''
+  return clean(source.zohoCustomerName || source.batch?.zohoCustomerName)
+}
+
+function isLegacyPaymentPlanDifferenceAcceptable(remainingDifference, customerName) {
+  return Math.abs(Number(remainingDifference) || 0) <= legacyPaymentPreviewTolerance(customerName)
+}
+
+function paymentPlanStatusForCustomer(remainingDifference, customerName, strictTolerance = 0.01) {
+  const abs = Math.abs(Number(remainingDifference) || 0)
+  if (abs <= strictTolerance) return 'ready'
+  if (isLegacyKsaPaymentClearingCustomer(customerName) && abs <= legacyPaymentPreviewTolerance(customerName)) {
+    return 'ready_fx_adjustment'
+  }
+  return 'mismatch'
 }
 
 function isSettlementReconciliationAcceptable(reconciliationSummary, customerName, tolerance = 0.01) {
@@ -140,8 +165,14 @@ module.exports = {
   convertLegacyOrderSummary,
   legacyCurrencyParserWarning,
   LEGACY_SETTLEMENT_FX_NOTE,
+  LEGACY_INVOICE_PAYMENT_FX_NOTE,
   SETTLEMENT_MISMATCH_WARNING,
+  LEGACY_PAYMENT_PREVIEW_TOLERANCE,
   legacyAllowsSettlementReconciliationMismatch,
+  legacyPaymentPreviewTolerance,
+  resolveClearingCustomerName,
+  isLegacyPaymentPlanDifferenceAcceptable,
+  paymentPlanStatusForCustomer,
   isSettlementReconciliationAcceptable,
   applyLegacySettlementMismatchTolerance,
 }

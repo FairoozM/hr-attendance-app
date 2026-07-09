@@ -384,7 +384,7 @@ export function AmazonPaymentClearingPage() {
         const json = await postKsaPaymentClearingToZoho(batchId, dryRun)
         setPostingResult(json)
         setNotice(dryRun ? 'Dry run completed. No Zoho payments were created.' : 'Zoho posting completed.')
-        if (!dryRun && json.summary.errors === 0) {
+        if (!dryRun && json.summary?.errors === 0) {
           const refreshed = await fetchKsaPaymentClearingBatch(batchId)
           setPreview(refreshed)
           await loadSavedBatches()

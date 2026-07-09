@@ -27,10 +27,10 @@ export function money(value: number | null | undefined, currency = 'SAR') {
   }).format(Number(value) || 0)
 }
 
-export function previewCurrency(preview?: { report?: { currency?: string }; zohoCustomerName?: string } | null) {
+export function previewCurrency(preview?: { report?: { currency?: string }; zohoCustomerName?: string; batch?: { zohoCustomerName?: string } } | null) {
+  if (isLegacyKsaPaymentClearingCustomer(clearingCustomerName(preview))) return 'AED'
   const fromReport = String(preview?.report?.currency || '').trim().toUpperCase()
   if (fromReport) return fromReport
-  if (preview?.zohoCustomerName === 'Life Smile Business') return 'AED'
   return 'SAR'
 }
 
@@ -38,8 +38,16 @@ export const LEGACY_KSA_ZOHO_CUSTOMER_NAME = 'Life Smile Business'
 export const LEGACY_SETTLEMENT_FX_NOTE =
   'Legacy settlement FX difference must be posted manually to Zoho currency exchange gain/loss.'
 
+export function clearingCustomerName(preview?: { zohoCustomerName?: string; batch?: { zohoCustomerName?: string } } | null) {
+  return String(preview?.zohoCustomerName || preview?.batch?.zohoCustomerName || '').trim()
+}
+
 export function isLegacyKsaPaymentClearingCustomer(customerName?: string | null) {
   return String(customerName || '').trim() === LEGACY_KSA_ZOHO_CUSTOMER_NAME
+}
+
+export function isLegacyKsaPaymentClearingPreview(preview?: PaymentClearingPreview | null) {
+  return isLegacyKsaPaymentClearingCustomer(clearingCustomerName(preview))
 }
 
 export function isSettlementReconciliationAcceptable(preview?: PaymentClearingPreview | null) {
@@ -48,7 +56,7 @@ export function isSettlementReconciliationAcceptable(preview?: PaymentClearingPr
   if (summary.reconciliationStatus === 'reconciled') {
     return Math.abs(Number(summary.reconciliationDifference) || 0) <= 0.01
   }
-  if (summary.reconciliationStatus === 'mismatch' && isLegacyKsaPaymentClearingCustomer(preview.zohoCustomerName)) {
+  if (summary.reconciliationStatus === 'mismatch' && isLegacyKsaPaymentClearingPreview(preview)) {
     return true
   }
   return false
@@ -57,7 +65,17 @@ export function isSettlementReconciliationAcceptable(preview?: PaymentClearingPr
 export function legacySettlementMismatchBlocksClearing(preview?: PaymentClearingPreview | null) {
   if (!preview?.reconciliationSummary) return true
   if (preview.reconciliationSummary.reconciliationStatus !== 'mismatch') return false
-  return !isLegacyKsaPaymentClearingCustomer(preview.zohoCustomerName)
+  return !isLegacyKsaPaymentClearingPreview(preview)
+}
+
+export function isLegacyPaymentClearingWarning(warning: string) {
+  return /legacy settlement fx|legacy invoice payment|currency exchange gain\/loss/i.test(warning)
+}
+
+function paymentPlanStatusLabel(status: string) {
+  if (status === 'ready_fx_adjustment') return 'FX adjust'
+  if (status === 'ready') return 'ready'
+  return status
 }
 
 export function isFeeJournalPostingType(paymentType: string) {
@@ -272,11 +290,21 @@ export function AmazonFeeJournalPreviewTable({ rows }: { rows: AmazonFeeJournalL
   )
 }
 
-function ReconciliationStatusBadge({ status }: { status: 'reconciled' | 'mismatch' }) {
+function ReconciliationStatusBadge({
+  status,
+  legacyFxTolerance = false,
+}: {
+  status: 'reconciled' | 'mismatch'
+  legacyFxTolerance?: boolean
+}) {
   const isReconciled = status === 'reconciled'
   return (
-    <span className={`apc-status-badge ${isReconciled ? 'apc-status-badge--success' : 'apc-status-badge--danger'}`}>
-      {isReconciled ? 'RECONCILED' : 'MISMATCH'}
+    <span
+      className={`apc-status-badge ${
+        isReconciled ? 'apc-status-badge--success' : legacyFxTolerance ? 'apc-status-badge--warn' : 'apc-status-badge--danger'
+      }`}
+    >
+      {isReconciled ? 'RECONCILED' : legacyFxTolerance ? 'FX ADJUST' : 'MISMATCH'}
     </span>
   )
 }
@@ -285,7 +313,7 @@ export function SettlementReconciliation({ preview }: { preview: PaymentClearing
   const summary = preview.reconciliationSummary
   const currency = previewCurrency(preview)
   const legacyFxTolerance =
-    summary.reconciliationStatus === 'mismatch' && isLegacyKsaPaymentClearingCustomer(preview.zohoCustomerName)
+    summary.reconciliationStatus === 'mismatch' && isLegacyKsaPaymentClearingPreview(preview)
   const fmt = (value: number | null | undefined) => money(value, currency)
   const lines = [
     ['Order-Level Net Balance', summary.orderLevelNetBalance],
@@ -305,7 +333,7 @@ export function SettlementReconciliation({ preview }: { preview: PaymentClearing
           Reconciles order-level Amazon earnings to the final settlement amount deposited by Amazon after advertising,
           premium service fees, storage fees, and other settlement-level deductions.
         </p>
-        <ReconciliationStatusBadge status={summary.reconciliationStatus} />
+        <ReconciliationStatusBadge status={summary.reconciliationStatus} legacyFxTolerance={legacyFxTolerance} />
       </div>
       <div className="apc-table-wrap">
         <table className="apc-table">
@@ -426,7 +454,7 @@ export function DifferencesTable({ preview }: { preview: PaymentClearingPreview 
       status: preview.reconciliationSummary.reconciliationStatus,
       reason:
         preview.reconciliationSummary.reconciliationStatus === 'mismatch'
-          ? isLegacyKsaPaymentClearingCustomer(preview.zohoCustomerName)
+          ? isLegacyKsaPaymentClearingPreview(preview)
             ? LEGACY_SETTLEMENT_FX_NOTE
             : 'Settlement total does not match expected deposit.'
           : '',
@@ -679,7 +707,11 @@ export function PaymentClearingPreviewTable({ paymentPreview, currency = 'SAR' }
               <td className="apc-money">{fmt(row.shippingFbaPayment.amount)}</td>
               <td className="apc-money">{fmt(row.totalClearingAmount)}</td>
               <td className="apc-money">{fmt(row.remainingDifference)}</td>
-              <td>{row.status}</td>
+              <td>
+                <span className={row.status === 'mismatch' ? 'apc-pill apc-pill--danger' : row.status === 'ready_fx_adjustment' ? 'apc-pill apc-pill--warn' : 'apc-pill apc-pill--success'}>
+                  {paymentPlanStatusLabel(row.status)}
+                </span>
+              </td>
             </tr>
           ))}
         </tbody>

@@ -456,7 +456,7 @@ export interface PaymentPreviewRow {
   shippingFbaPayment: PaymentPreviewAccount
   totalClearingAmount: number
   remainingDifference: number
-  status: 'ready' | 'mismatch'
+  status: 'ready' | 'ready_fx_adjustment' | 'mismatch'
 }
 
 export interface PaymentPreviewSummary {
@@ -831,7 +831,39 @@ export async function generateKsaPaymentClearingPaymentPreview(batchId: number |
 }
 
 export async function postKsaPaymentClearingToZoho(batchId: number | string, dryRun = true) {
-  return api.post(`/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/post-to-zoho`, { dryRun }, longOpts) as Promise<PaymentPostingResult>
+  if (dryRun) {
+    return api.post(
+      `/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/post-to-zoho`,
+      { dryRun: true },
+      longOpts
+    ) as Promise<PaymentPostingResult>
+  }
+
+  const started = (await api.post(
+    `/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/post-to-zoho`,
+    { dryRun: false },
+    longOpts
+  )) as PaymentPostingResult & { jobId?: string; status?: string }
+
+  if (!started?.jobId) return started
+
+  const deadline = Date.now() + longOpts.timeoutMs
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+    const job = (await api.get(
+      `/api/amazon/payment-clearing/ksa/post-to-zoho-jobs/${encodeURIComponent(started.jobId)}`,
+      longOpts
+    )) as {
+      status?: string
+      error?: string
+      result?: PaymentPostingResult
+    }
+    if (job.status === 'completed' && job.result) return job.result
+    if (job.status === 'failed') {
+      throw new Error(job.error || 'Zoho posting failed.')
+    }
+  }
+  throw new Error('Zoho posting timed out while waiting for the background job to finish.')
 }
 
 export async function postKsaReturnFeeJournals(batchId: number | string, dryRun = true) {

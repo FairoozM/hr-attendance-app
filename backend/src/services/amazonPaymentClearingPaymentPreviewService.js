@@ -4,6 +4,8 @@ const {
   convertLegacyOrderSummary,
   isLegacyKsaPaymentClearingCustomer,
   isSettlementReconciliationAcceptable,
+  paymentPlanStatusForCustomer,
+  LEGACY_SETTLEMENT_DISPLAY_CURRENCY,
 } = require('./amazonPaymentClearingCurrencyService')
 
 function clean(value) {
@@ -14,7 +16,7 @@ function matchedOrdersForPaymentPreview(batch) {
   const customerName = batch?.zohoCustomerName || ''
   const orders = Array.isArray(batch?.matchedOrders) ? batch.matchedOrders : []
   if (!isLegacyKsaPaymentClearingCustomer(customerName)) return orders
-  if (clean(batch?.report?.currency) === 'AED') return orders
+  if (clean(batch?.report?.currency) === LEGACY_SETTLEMENT_DISPLAY_CURRENCY) return orders
   return orders.map((order) => convertLegacyOrderSummary(order, customerName))
 }
 
@@ -88,7 +90,7 @@ function requireBatchForPaymentPreview(batch) {
   }
 }
 
-function buildInvoicePaymentPlan(order) {
+function buildInvoicePaymentPlan(order, customerName = '') {
   const shippingOffsetTotal = round2(
     (Number(order.shippingCollectedTotal) || 0) + (Number(order.shippingPromotionTotal) || 0)
   )
@@ -130,7 +132,7 @@ function buildInvoicePaymentPlan(order) {
     shippingFbaPayment,
     totalClearingAmount,
     remainingDifference,
-    status: Math.abs(remainingDifference) <= PAYMENT_PREVIEW_TOLERANCE ? 'ready' : 'mismatch',
+    status: paymentPlanStatusForCustomer(remainingDifference, customerName, PAYMENT_PREVIEW_TOLERANCE),
   }
 }
 
@@ -146,7 +148,8 @@ function buildPaymentPreviewFromBatch(batch) {
   const salesOrders = matchedOrdersForPaymentPreview(batch).filter(
     (order) => !excludedOrderIds.has(String(order.orderId || '')) && !isNetNegativeOrderReturn(order)
   )
-  const payments = salesOrders.map(buildInvoicePaymentPlan)
+  const customerName = batch.zohoCustomerName || ''
+  const payments = salesOrders.map((order) => buildInvoicePaymentPlan(order, customerName))
   const feeJournalMappings = Array.isArray(batch.nonOrderLinkedAmazonFeeMappings)
     ? batch.nonOrderLinkedAmazonFeeMappings
     : []
@@ -252,8 +255,13 @@ function buildPaymentPreviewFromBatch(batch) {
   }
   paymentPlanSummary.difference = round2(paymentPlanSummary.zohoInvoiceTotal - paymentPlanSummary.totalPaymentAmount)
   const warnings = []
+  const fxAdjustments = payments.filter((row) => row.status === 'ready_fx_adjustment')
   const mismatches = payments.filter((row) => row.status === 'mismatch')
-  if (mismatches.length > 0) {
+  if (fxAdjustments.length > 0 && isLegacyKsaPaymentClearingCustomer(customerName)) {
+    warnings.push(
+      `${fxAdjustments.length} legacy invoice payment plan(s) have small FX rounding differences — book the remainder to currency exchange gain/loss in Zoho.`
+    )
+  } else if (mismatches.length > 0) {
     warnings.push(`${mismatches.length} invoice payment plan(s) do not clear to zero.`)
   }
   const unmappedFeeJournals = amazonFeeJournalLines.filter((row) => row.mappingStatus === 'needs_mapping')
@@ -287,6 +295,7 @@ function buildPaymentPreviewFromBatch(batch) {
 
   return {
     batchId: batch.batchId,
+    zohoCustomerName: customerName,
     status: 'previewed',
     paymentPlanSummary,
     payments,

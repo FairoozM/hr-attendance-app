@@ -269,11 +269,30 @@ async function postKsaPaymentPreview(req, res) {
 
 async function postKsaPostToZoho(req, res) {
   try {
-    const json = await service.postBatchToZoho(req.params.id, {
-      dryRun: req.body?.dryRun !== false,
-      postedBy: req.user?.userId,
-    })
-    res.json(json)
+    const dryRun = req.body?.dryRun !== false
+    if (dryRun) {
+      const json = await service.postBatchToZoho(req.params.id, {
+        dryRun: true,
+        postedBy: req.user?.userId,
+      })
+      return res.json(json)
+    }
+    const { startPostToZohoJob } = require('../services/amazonPaymentClearingPostingJobService')
+    const json = startPostToZohoJob(req.params.id, { postedBy: req.user?.userId })
+    return res.status(202).json({ success: true, ...json })
+  } catch (err) {
+    sendError(res, err)
+  }
+}
+
+async function getKsaPostToZohoJob(req, res) {
+  try {
+    const { getPostToZohoJob } = require('../services/amazonPaymentClearingPostingJobService')
+    const json = getPostToZohoJob(req.params.jobId)
+    if (!json) {
+      return res.status(404).json({ success: false, error: 'Posting job not found.', code: 'AMAZON_PAYMENT_CLEARING_POST_JOB_NOT_FOUND' })
+    }
+    return res.json({ success: true, ...json })
   } catch (err) {
     sendError(res, err)
   }
@@ -334,6 +353,7 @@ module.exports = {
   getKsaReturnFeePlan,
   postKsaPaymentPreview,
   postKsaPostToZoho,
+  getKsaPostToZohoJob,
   postKsaReturnFeeJournals,
   postKsaForceRepost,
   postKsaReclassifyAccountLevelFees,

@@ -1,4 +1,4 @@
-import { AmazonFeeJournalPreviewTable, money, PaymentClearingPreviewTable, previewCurrency, SettlementReferenceCard, SummaryCard } from '../clearingShared'
+import { AmazonFeeJournalPreviewTable, isLegacyPaymentClearingWarning, money, PaymentClearingPreviewTable, previewCurrency, SettlementReferenceCard, SummaryCard } from '../clearingShared'
 import type { ClearingContext } from './clearingContext'
 
 export function Step7Preview({ ctx }: { ctx: ClearingContext }) {
@@ -51,7 +51,7 @@ export function Step7Preview({ ctx }: { ctx: ClearingContext }) {
           <h3 className="ainv-page__title" style={{ fontSize: '1rem' }}>Amazon Fee Journal Preview</h3>
           <AmazonFeeJournalPreviewTable rows={paymentPreview.amazonFeeJournalLines || []} />
           {paymentPreview.warnings.length ? (
-            <div className="apc-alert apc-alert--error">
+            <div className={paymentPreview.warnings.every(isLegacyPaymentClearingWarning) ? 'apc-alert' : 'apc-alert apc-alert--error'}>
               <ul>
                 {paymentPreview.warnings.map((warning) => (
                   <li key={warning}>{warning}</li>

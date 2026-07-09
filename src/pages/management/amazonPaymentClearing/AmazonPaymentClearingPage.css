@@ -168,6 +168,11 @@
   color: #b91c1c;
 }
 
+.apc-status-badge--warn {
+  background: color-mix(in srgb, #f59e0b 20%, transparent);
+  color: #b45309;
+}
+
 .apc-reconciliation__difference--bad td {
   color: #b91c1c;
   font-weight: 700;

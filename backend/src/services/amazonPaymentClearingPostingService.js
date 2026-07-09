@@ -6,7 +6,7 @@ const { isCreditNoteApplyComplete } = require('./amazonPaymentClearingCreditNote
 const { buildReturnFeePlan, aggregateReturnFeeJournalLines } = require('./amazonPaymentClearingReturnFeeService')
 const { fetchInvoicesByIds, invoiceBalanceDue } = require('../integrations/zoho/zohoBooksClient')
 const store = require('./amazonPaymentClearingStore')
-const { isSettlementReconciliationAcceptable } = require('./amazonPaymentClearingCurrencyService')
+const { isSettlementReconciliationAcceptable, legacyPaymentPreviewTolerance } = require('./amazonPaymentClearingCurrencyService')
 
 const PAYMENT_TYPES = Object.freeze({
   NET_BALANCE: 'net_balance',
@@ -335,6 +335,8 @@ function mergeInvoiceAllocations(allocations) {
 
 async function validateInvoiceBalancesForPosting(paymentPreview, opts = {}) {
   const fetchByIds = opts.fetchInvoicesByIds || fetchInvoicesByIds
+  const customerName = paymentPreview?.zohoCustomerName || ''
+  const balanceTolerance = legacyPaymentPreviewTolerance(customerName)
   const payments = Array.isArray(paymentPreview?.payments) ? paymentPreview.payments : []
   const invoiceIds = payments.map((row) => row.zohoInvoiceId).filter(Boolean)
   if (!invoiceIds.length) return []
@@ -347,7 +349,7 @@ async function validateInvoiceBalancesForPosting(paymentPreview, opts = {}) {
     const balanceDue = invoiceBalanceDue(invoice)
     if (balanceDue == null) continue
     const plannedTotal = round2(plan.totalClearingAmount)
-    if (plannedTotal <= balanceDue + PAYMENT_PREVIEW_TOLERANCE) continue
+    if (plannedTotal <= balanceDue + balanceTolerance) continue
     const invoiceNumber = plan.zohoInvoiceNumber || invoice?.invoice_number || invoice?.number || invoiceId
     issues.push({
       orderId: plan.orderId || '',
@@ -442,6 +444,7 @@ async function postApprovedBatch({
   const currentPreview = buildPaymentPreviewFromBatch(batch)
   const paymentPreview = {
     batchId: batch.batchId,
+    zohoCustomerName: batch.zohoCustomerName || '',
     ...currentPreview,
     paymentPreviewId: latestPreview?.paymentPreviewId || null,
     createdAt: latestPreview?.createdAt || null,

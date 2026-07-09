@@ -13,7 +13,7 @@ const {
 } = require('../src/services/amazonPaymentClearingZohoMatcher')
 const { buildPreview, orderSummary } = require('../src/services/amazonPaymentClearingPreviewService')
 const { buildOrderFeeBreakdown, detectNetNegativeOrderRefundRows } = require('../src/services/amazonPaymentClearingOrderBreakdownService')
-const { buildPaymentPreviewFromBatch } = require('../src/services/amazonPaymentClearingPaymentPreviewService')
+const { buildPaymentPreviewFromBatch, buildInvoicePaymentPlan } = require('../src/services/amazonPaymentClearingPaymentPreviewService')
 const {
   applyLegacyCurrencyToSettlementRows,
   isLegacyKsaPaymentClearingCustomer,
@@ -21,6 +21,7 @@ const {
   settlementCurrencyForCustomer,
   applyLegacySettlementMismatchTolerance,
   isSettlementReconciliationAcceptable,
+  paymentPlanStatusForCustomer,
 } = require('../src/services/amazonPaymentClearingCurrencyService')
 const { postApprovedBatch, ensureCanPostBatch } = require('../src/services/amazonPaymentClearingPostingService')
 const {
@@ -912,6 +913,53 @@ test('legacy Life Smile settlement mismatch allows payment preview and posting c
   })
   assert.doesNotThrow(() => buildPaymentPreviewFromBatch(batch))
   assert.doesNotThrow(() => ensureCanPostBatch(batch, true))
+})
+
+test('legacy Life Smile invoice payment preview tolerates small FX rounding differences', () => {
+  const plan = buildInvoicePaymentPlan(
+    {
+      orderId: '171-1',
+      zohoInvoiceId: 'z1',
+      zohoInvoiceNumber: 'INV-1',
+      zohoPoNumber: '171-1',
+      zohoInvoiceTotal: 166.43,
+      principalTotal: 166.37,
+      commissionTotal: 0,
+      fulfillmentFeeTotal: 0,
+      closingFeeTotal: 0,
+      otherAmazonFeeTotal: 0,
+      shippingCollectedTotal: 0,
+      shippingPromotionTotal: 0,
+    },
+    LEGACY_KSA_ZOHO_CUSTOMER_NAME
+  )
+  assert.equal(plan.remainingDifference, 0.06)
+  assert.equal(plan.status, 'ready_fx_adjustment')
+
+  const preview = buildPaymentPreviewFromBatch(postingBatch({
+    zohoCustomerName: LEGACY_KSA_ZOHO_CUSTOMER_NAME,
+    report: { currency: 'AED' },
+    reconciliationSummary: { reconciliationStatus: 'mismatch', reconciliationDifference: -306.46 },
+    matchedOrders: [
+      {
+        orderId: '171-1',
+        zohoInvoiceId: 'zinv1',
+        zohoInvoiceNumber: 'INV-1',
+        zohoPoNumber: '171-1',
+        zohoInvoiceTotal: 166.43,
+        principalTotal: 166.37,
+        commissionTotal: 0,
+        fulfillmentFeeTotal: 0,
+        closingFeeTotal: 0,
+        otherAmazonFeeTotal: 0,
+        shippingCollectedTotal: 0,
+        shippingPromotionTotal: 0,
+      },
+    ],
+  }))
+  assert.equal(preview.payments[0].status, 'ready_fx_adjustment')
+  assert.ok(preview.warnings.some((warning) => /legacy invoice payment plan/i.test(warning)))
+  assert.ok(!preview.warnings.some((warning) => /do not clear to zero/i.test(warning)))
 })
 
 test('normalizeSettlementDate parses Amazon DD.MM.YYYY timestamps to ISO', () => {
@@ -2502,5 +2550,6 @@ test('payment clearing route exposes saved batch and approve endpoints', () => {
   assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/apply-credit-notes' && route.methods.includes('post')))
   assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/return-fee-plan' && route.methods.includes('get')))
   assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/post-to-zoho' && route.methods.includes('post')))
+  assert.ok(routes.some((route) => route.path === '/ksa/post-to-zoho-jobs/:jobId' && route.methods.includes('get')))
   assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/post-return-fee-journals' && route.methods.includes('post')))
 })
