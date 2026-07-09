@@ -84,6 +84,50 @@ function legacyCurrencyParserWarning(customerName) {
   )
 }
 
+const LEGACY_SETTLEMENT_FX_NOTE =
+  'Legacy settlement FX difference must be posted manually to Zoho currency exchange gain/loss.'
+const SETTLEMENT_MISMATCH_WARNING = 'Settlement total does not match calculated expected deposit.'
+
+function legacyAllowsSettlementReconciliationMismatch(customerName) {
+  return isLegacyKsaPaymentClearingCustomer(customerName)
+}
+
+function isSettlementReconciliationAcceptable(reconciliationSummary, customerName, tolerance = 0.01) {
+  if (!reconciliationSummary || typeof reconciliationSummary !== 'object') return false
+  if (reconciliationSummary.reconciliationStatus === 'reconciled') {
+    const diff = Math.abs(Number(reconciliationSummary.reconciliationDifference) || 0)
+    return diff <= tolerance
+  }
+  if (
+    reconciliationSummary.reconciliationStatus === 'mismatch' &&
+    legacyAllowsSettlementReconciliationMismatch(customerName)
+  ) {
+    return true
+  }
+  return false
+}
+
+function applyLegacySettlementMismatchTolerance(preview) {
+  if (!preview || !legacyAllowsSettlementReconciliationMismatch(preview.zohoCustomerName)) return preview
+  if (preview.reconciliationSummary?.reconciliationStatus !== 'mismatch') return preview
+
+  preview.blockingIssues = (preview.blockingIssues || []).filter((issue) => issue.code !== 'SETTLEMENT_MISMATCH')
+
+  const warnings = Array.isArray(preview.warnings) ? [...preview.warnings] : []
+  let replacedMismatchWarning = false
+  preview.warnings = warnings.map((warning) => {
+    if (warning === SETTLEMENT_MISMATCH_WARNING) {
+      replacedMismatchWarning = true
+      return LEGACY_SETTLEMENT_FX_NOTE
+    }
+    return warning
+  })
+  if (!replacedMismatchWarning && !preview.warnings.includes(LEGACY_SETTLEMENT_FX_NOTE)) {
+    preview.warnings.push(LEGACY_SETTLEMENT_FX_NOTE)
+  }
+  return preview
+}
+
 module.exports = {
   LEGACY_SETTLEMENT_SOURCE_CURRENCY,
   LEGACY_SETTLEMENT_DISPLAY_CURRENCY,
@@ -95,4 +139,9 @@ module.exports = {
   applyLegacyCurrencyToSettlementRows,
   convertLegacyOrderSummary,
   legacyCurrencyParserWarning,
+  LEGACY_SETTLEMENT_FX_NOTE,
+  SETTLEMENT_MISMATCH_WARNING,
+  legacyAllowsSettlementReconciliationMismatch,
+  isSettlementReconciliationAcceptable,
+  applyLegacySettlementMismatchTolerance,
 }

@@ -44,6 +44,8 @@ const {
   applyLegacyCurrencyToSettlementRows,
   legacyCurrencyParserWarning,
   settlementCurrencyForCustomer,
+  applyLegacySettlementMismatchTolerance,
+  isSettlementReconciliationAcceptable,
 } = require('./amazonPaymentClearingCurrencyService')
 
 const MARKETPLACE_KEY = 'ksa'
@@ -255,6 +257,7 @@ async function buildAndSavePreviewFromParsed({
   })
   preview.zohoCustomerId = zohoCustomerId || ''
   preview.zohoCustomerName = zohoCustomerName || ''
+  applyLegacySettlementMismatchTolerance(preview)
   // One statement per settlement period:
   // document id every time you request the same settlement, so reuse the
   // existing batch keyed on the stable settlement id instead of inserting a
@@ -408,7 +411,7 @@ function deriveLifecycleStatus(batch) {
   if (!batch) return 'draft'
   if (batch.status === 'posted' || batch.postedToZoho) return 'posted'
   const reconciledClean =
-    batch.reconciliationSummary?.reconciliationStatus !== 'mismatch' &&
+    isSettlementReconciliationAcceptable(batch.reconciliationSummary, batch.zohoCustomerName) &&
     (!Array.isArray(batch.unmatchedOrders) || batch.unmatchedOrders.length === 0) &&
     (!Array.isArray(batch.creditNoteBlockingRows) || batch.creditNoteBlockingRows.length === 0)
   if (batch.status === 'approved') return 'ready_to_post'
@@ -504,9 +507,11 @@ function normalizeSavedBatchPreview(batch, preview, feeJournalMappingRules = [],
       unmatchedOrders: preview.unmatchedOrders,
       creditNoteBlockingRows: preview.creditNoteBlockingRows,
       reconciliationStatus: preview.reconciliationSummary?.reconciliationStatus,
+      zohoCustomerName: batch.zohoCustomerName || preview.zohoCustomerName,
     })
   }
   preview.warnings = normalizeSavedWarnings(preview.warnings, preview.allRows)
+  applyLegacySettlementMismatchTolerance(preview)
   return preview
 }
 
@@ -958,6 +963,7 @@ async function maybeRematchZohoForDraftBatch(batch, storedRows, preview, feeJour
   })
   rematchedPreview.zohoCustomerId = batch.zohoCustomerId || preview.zohoCustomerId || ''
   rematchedPreview.zohoCustomerName = batch.zohoCustomerName || preview.zohoCustomerName || ''
+  applyLegacySettlementMismatchTolerance(rematchedPreview)
 
   const newUnmatched = Array.isArray(rematchedPreview.unmatchedOrders) ? rematchedPreview.unmatchedOrders.length : 0
   const newBlocking = Array.isArray(rematchedPreview.creditNoteBlockingRows) ? rematchedPreview.creditNoteBlockingRows.length : 0
@@ -1161,7 +1167,7 @@ function validateBatchReadyForApproval(batch) {
     err.status = 404
     throw err
   }
-  if (batch.reconciliationSummary?.reconciliationStatus === 'mismatch') {
+  if (!isSettlementReconciliationAcceptable(batch.reconciliationSummary, batch.zohoCustomerName)) {
     const err = new Error('Approval requires a reconciled settlement batch.')
     err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_RECONCILED'
     err.status = 422

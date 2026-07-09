@@ -34,6 +34,32 @@ export function previewCurrency(preview?: { report?: { currency?: string }; zoho
   return 'SAR'
 }
 
+export const LEGACY_KSA_ZOHO_CUSTOMER_NAME = 'Life Smile Business'
+export const LEGACY_SETTLEMENT_FX_NOTE =
+  'Legacy settlement FX difference must be posted manually to Zoho currency exchange gain/loss.'
+
+export function isLegacyKsaPaymentClearingCustomer(customerName?: string | null) {
+  return String(customerName || '').trim() === LEGACY_KSA_ZOHO_CUSTOMER_NAME
+}
+
+export function isSettlementReconciliationAcceptable(preview?: PaymentClearingPreview | null) {
+  if (!preview?.reconciliationSummary) return false
+  const summary = preview.reconciliationSummary
+  if (summary.reconciliationStatus === 'reconciled') {
+    return Math.abs(Number(summary.reconciliationDifference) || 0) <= 0.01
+  }
+  if (summary.reconciliationStatus === 'mismatch' && isLegacyKsaPaymentClearingCustomer(preview.zohoCustomerName)) {
+    return true
+  }
+  return false
+}
+
+export function legacySettlementMismatchBlocksClearing(preview?: PaymentClearingPreview | null) {
+  if (!preview?.reconciliationSummary) return true
+  if (preview.reconciliationSummary.reconciliationStatus !== 'mismatch') return false
+  return !isLegacyKsaPaymentClearingCustomer(preview.zohoCustomerName)
+}
+
 export function isFeeJournalPostingType(paymentType: string) {
   return String(paymentType || '').startsWith('fee_journal')
 }
@@ -258,6 +284,8 @@ function ReconciliationStatusBadge({ status }: { status: 'reconciled' | 'mismatc
 export function SettlementReconciliation({ preview }: { preview: PaymentClearingPreview }) {
   const summary = preview.reconciliationSummary
   const currency = previewCurrency(preview)
+  const legacyFxTolerance =
+    summary.reconciliationStatus === 'mismatch' && isLegacyKsaPaymentClearingCustomer(preview.zohoCustomerName)
   const fmt = (value: number | null | undefined) => money(value, currency)
   const lines = [
     ['Order-Level Net Balance', summary.orderLevelNetBalance],
@@ -296,7 +324,7 @@ export function SettlementReconciliation({ preview }: { preview: PaymentClearing
               <td>Amazon Settlement Total</td>
               <td className="apc-money">{fmt(summary.actualAmazonSettlement)}</td>
             </tr>
-            <tr className={summary.reconciliationStatus === 'mismatch' ? 'apc-reconciliation__difference--bad' : ''}>
+            <tr className={summary.reconciliationStatus === 'mismatch' && !legacyFxTolerance ? 'apc-reconciliation__difference--bad' : ''}>
               <td>Difference</td>
               <td className="apc-money">{fmt(summary.reconciliationDifference)}</td>
             </tr>
@@ -304,9 +332,15 @@ export function SettlementReconciliation({ preview }: { preview: PaymentClearing
         </table>
       </div>
       {summary.reconciliationStatus === 'mismatch' ? (
-        <div className="apc-alert apc-alert--error" role="alert">
-          Settlement total does not match calculated expected deposit.
-        </div>
+        legacyFxTolerance ? (
+          <div className="apc-alert" role="status">
+            {LEGACY_SETTLEMENT_FX_NOTE}
+          </div>
+        ) : (
+          <div className="apc-alert apc-alert--error" role="alert">
+            Settlement total does not match calculated expected deposit.
+          </div>
+        )
       ) : null}
     </div>
   )
@@ -390,7 +424,12 @@ export function DifferencesTable({ preview }: { preview: PaymentClearingPreview 
       label: 'Settlement reconciliation',
       difference: preview.reconciliationSummary.reconciliationDifference,
       status: preview.reconciliationSummary.reconciliationStatus,
-      reason: preview.reconciliationSummary.reconciliationStatus === 'mismatch' ? 'Settlement total does not match expected deposit.' : '',
+      reason:
+        preview.reconciliationSummary.reconciliationStatus === 'mismatch'
+          ? isLegacyKsaPaymentClearingCustomer(preview.zohoCustomerName)
+            ? LEGACY_SETTLEMENT_FX_NOTE
+            : 'Settlement total does not match expected deposit.'
+          : '',
     },
     ...creditNoteDiffs.map((row) => ({
       label: `Credit note ${row.zohoCreditNoteNumber || row.orderId}`,

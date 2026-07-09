@@ -3,6 +3,7 @@ const { buildSettlementReference, buildEntryReference } = require('./amazonPayme
 const {
   convertLegacyOrderSummary,
   isLegacyKsaPaymentClearingCustomer,
+  isSettlementReconciliationAcceptable,
 } = require('./amazonPaymentClearingCurrencyService')
 
 function clean(value) {
@@ -67,8 +68,7 @@ function requireBatchForPaymentPreview(batch) {
     throw err
   }
   const reconciliation = batch.reconciliationSummary || {}
-  const diff = Number(reconciliation.reconciliationDifference) || 0
-  if (reconciliation.reconciliationStatus === 'mismatch' || Math.abs(diff) > PAYMENT_PREVIEW_TOLERANCE) {
+  if (!isSettlementReconciliationAcceptable(reconciliation, batch.zohoCustomerName, PAYMENT_PREVIEW_TOLERANCE)) {
     const err = new Error('Payment preview requires a reconciled settlement batch.')
     err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_RECONCILED'
     err.status = 422

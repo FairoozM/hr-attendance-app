@@ -22,7 +22,7 @@ import {
   type SavedBatchSummary,
   type SettlementReport,
 } from '../../../api/amazonPaymentClearing'
-import { safeError } from './clearingShared'
+import { isSettlementReconciliationAcceptable, legacySettlementMismatchBlocksClearing, safeError } from './clearingShared'
 import { CLEARING_STEPS, type StepStatus } from './clearingSteps'
 import { ClearingStepper, StepPanel } from './components/ClearingStepper'
 import { ForceRepostModal } from './components/ForceRepostModal'
@@ -112,14 +112,14 @@ export function AmazonPaymentClearingPage() {
     paymentPreview?.amazonFeeJournalLines?.filter((row) => row.mappingStatus === 'needs_mapping').length || 0
   const isCleanForApproval = Boolean(
     preview &&
-      preview.reconciliationSummary?.reconciliationStatus === 'reconciled' &&
+      isSettlementReconciliationAcceptable(preview) &&
       preview.unmatchedOrders.length === 0 &&
       creditNoteBlockingRows.length === 0
   )
   const canGeneratePaymentPreview = Boolean(
     preview?.batch?.batchId &&
       (isApproved || isPosted) &&
-      Math.abs(Number(preview?.reconciliationSummary?.reconciliationDifference) || 0) <= 0.01 &&
+      isSettlementReconciliationAcceptable(preview) &&
       (preview?.unmatchedOrders.length || 0) === 0 &&
       creditNoteBlockingRows.length === 0
   )
@@ -547,7 +547,7 @@ export function AmazonPaymentClearingPage() {
       ? 'blocked'
       : 'completed'
     statuses[4] = creditNoteBlockingRows.length > 0 ? 'blocked' : 'completed'
-    statuses[5] = preview.reconciliationSummary?.reconciliationStatus === 'mismatch' ? 'blocked' : 'completed'
+    statuses[5] = legacySettlementMismatchBlocksClearing(preview) ? 'blocked' : 'completed'
     statuses[6] = isApproved || isPosted ? 'completed' : isCleanForApproval ? 'ready' : 'blocked'
     statuses[7] = unmappedFeeJournalCount > 0 ? 'blocked' : 'completed'
     statuses[8] = paymentPreview ? 'completed' : isApproved || isPosted ? 'ready' : 'not_started'

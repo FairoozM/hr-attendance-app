@@ -19,6 +19,8 @@ const {
   isLegacyKsaPaymentClearingCustomer,
   sarAmountToAed,
   settlementCurrencyForCustomer,
+  applyLegacySettlementMismatchTolerance,
+  isSettlementReconciliationAcceptable,
 } = require('../src/services/amazonPaymentClearingCurrencyService')
 const { postApprovedBatch, ensureCanPostBatch } = require('../src/services/amazonPaymentClearingPostingService')
 const {
@@ -884,6 +886,34 @@ test('reconciliation summary reports mismatch status and warning when settlement
   assert.ok(preview.blockingIssues.some((issue) => issue.code === 'SETTLEMENT_MISMATCH'))
 })
 
+test('legacy Life Smile settlement mismatch does not block clearance', () => {
+  const preview = {
+    zohoCustomerName: LEGACY_KSA_ZOHO_CUSTOMER_NAME,
+    reconciliationSummary: {
+      reconciliationStatus: 'mismatch',
+      reconciliationDifference: -306.46,
+    },
+    blockingIssues: [{ code: 'SETTLEMENT_MISMATCH', label: 'Settlement mismatch', count: 1 }],
+    warnings: ['Settlement total does not match calculated expected deposit.'],
+  }
+  applyLegacySettlementMismatchTolerance(preview)
+  assert.ok(!preview.blockingIssues.some((issue) => issue.code === 'SETTLEMENT_MISMATCH'))
+  assert.ok(preview.warnings.some((warning) => /currency exchange gain\/loss/i.test(warning)))
+  assert.equal(
+    isSettlementReconciliationAcceptable(preview.reconciliationSummary, LEGACY_KSA_ZOHO_CUSTOMER_NAME),
+    true
+  )
+})
+
+test('legacy Life Smile settlement mismatch allows payment preview and posting checks', () => {
+  const batch = postingBatch({
+    zohoCustomerName: LEGACY_KSA_ZOHO_CUSTOMER_NAME,
+    reconciliationSummary: { reconciliationStatus: 'mismatch', reconciliationDifference: -306.46 },
+  })
+  assert.doesNotThrow(() => buildPaymentPreviewFromBatch(batch))
+  assert.doesNotThrow(() => ensureCanPostBatch(batch, true))
+})
+
 test('normalizeSettlementDate parses Amazon DD.MM.YYYY timestamps to ISO', () => {
   assert.equal(normalizeSettlementDate('07.05.2026 00:00:00 UTC'), '2026-05-07')
   assert.equal(normalizeSettlementDate('13.05.2026 00:00:00 UTC'), '2026-05-13')
@@ -1343,6 +1373,10 @@ test('payment preview rejects unapproved, unreconciled, and unmatched batches', 
     }),
     /reconciled settlement batch/
   )
+  assert.doesNotThrow(() => buildPaymentPreviewFromBatch(postingBatch({
+    zohoCustomerName: LEGACY_KSA_ZOHO_CUSTOMER_NAME,
+    reconciliationSummary: { reconciliationStatus: 'mismatch', reconciliationDifference: -306.46 },
+  })))
   assert.throws(
     () => buildPaymentPreviewFromBatch({
       status: 'approved',

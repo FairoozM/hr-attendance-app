@@ -14,6 +14,7 @@ const { buildSettlementReference, referenceNumberFor } = require('./amazonPaymen
 const { matchSettlementRowsToInvoices } = require('./amazonPaymentClearingZohoMatcher')
 const { buildOrderFeeBreakdown, detectNetNegativeOrderRefundRows, isNetNegativeOrderReturn, isSettlementReturnRow, collectInvoicePaymentExcludedOrderIds, orderHasSalePrincipalInSettlement, round2 } = require('./amazonPaymentClearingOrderBreakdownService')
 const { buildReconciliationSummary } = require('./amazonPaymentClearingReconciliationService')
+const { legacyAllowsSettlementReconciliationMismatch } = require('./amazonPaymentClearingCurrencyService')
 
 function sum(rows, predicate = () => true) {
   return round2((Array.isArray(rows) ? rows : []).reduce((acc, row) => {
@@ -273,6 +274,7 @@ function recomputePreviewReconciliation(preview, settlementRows = []) {
     creditNoteBlockingRows: preview.creditNoteBlockingRows || [],
     reconciliationStatus: preview.reconciliationSummary?.reconciliationStatus,
     netNegativeReturnOrders: preview.netNegativeReturnOrders || [],
+    zohoCustomerName: preview.zohoCustomerName,
   })
   return preview
 }
@@ -407,6 +409,7 @@ function buildBlockingIssues({
   creditNoteBlockingRows,
   reconciliationStatus,
   netNegativeReturnOrders = [],
+  zohoCustomerName = '',
 }) {
   const issues = []
   const add = (code, predicateRows, extra = {}) => {
@@ -458,7 +461,7 @@ function buildBlockingIssues({
       orderIds: derivedNetNegative.map((row) => row.orderId).filter(Boolean),
     })
   }
-  if (reconciliationStatus === 'mismatch') {
+  if (reconciliationStatus === 'mismatch' && !legacyAllowsSettlementReconciliationMismatch(zohoCustomerName)) {
     issues.push({
       code: 'SETTLEMENT_MISMATCH',
       label: BLOCKING_ISSUE_LABELS.SETTLEMENT_MISMATCH,
@@ -618,6 +621,7 @@ function removeReturnOrdersFromMatchedSales(preview, allRows) {
     creditNoteBlockingRows: preview.creditNoteBlockingRows,
     reconciliationStatus: preview.reconciliationSummary?.reconciliationStatus,
     netNegativeReturnOrders: preview.netNegativeReturnOrders || [],
+    zohoCustomerName: preview.zohoCustomerName,
   })
   return preview
 }
@@ -703,6 +707,7 @@ function applyNetNegativeOrderAdjustments(preview, rows = []) {
     creditNoteBlockingRows: preview.creditNoteBlockingRows,
     reconciliationStatus: preview.reconciliationSummary?.reconciliationStatus,
     netNegativeReturnOrders: preview.netNegativeReturnOrders,
+    zohoCustomerName: preview.zohoCustomerName,
   })
   preview.amountDifferences = buildAmountDifferences(preview.matchedOrders)
 

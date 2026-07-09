@@ -1,4 +1,4 @@
-import { dateText, ReturnCreditNotesTable } from '../clearingShared'
+import { dateText, legacySettlementMismatchBlocksClearing, ReturnCreditNotesTable } from '../clearingShared'
 import type { ClearingContext } from './clearingContext'
 
 export function Step6Approve({ ctx }: { ctx: ClearingContext }) {
@@ -8,7 +8,7 @@ export function Step6Approve({ ctx }: { ctx: ClearingContext }) {
   const approvedAt = preview.approvedAt ?? preview.batch?.approvedAt ?? null
 
   const reasons: string[] = []
-  if (preview.reconciliationSummary?.reconciliationStatus === 'mismatch') {
+  if (legacySettlementMismatchBlocksClearing(preview)) {
     reasons.push('Settlement total does not match the expected deposit.')
   }
   if (preview.unmatchedOrders.length > 0) {

@@ -6,6 +6,7 @@ const { isCreditNoteApplyComplete } = require('./amazonPaymentClearingCreditNote
 const { buildReturnFeePlan, aggregateReturnFeeJournalLines } = require('./amazonPaymentClearingReturnFeeService')
 const { fetchInvoicesByIds, invoiceBalanceDue } = require('../integrations/zoho/zohoBooksClient')
 const store = require('./amazonPaymentClearingStore')
+const { isSettlementReconciliationAcceptable } = require('./amazonPaymentClearingCurrencyService')
 
 const PAYMENT_TYPES = Object.freeze({
   NET_BALANCE: 'net_balance',
@@ -38,8 +39,7 @@ async function ensureCanPostBatch(batch, paymentPreviewExists, options = {}) {
     err.status = 422
     throw err
   }
-  const diff = Number(batch.reconciliationSummary?.reconciliationDifference) || 0
-  if (batch.reconciliationSummary?.reconciliationStatus === 'mismatch' || Math.abs(diff) > PAYMENT_PREVIEW_TOLERANCE) {
+  if (!isSettlementReconciliationAcceptable(batch.reconciliationSummary, batch.zohoCustomerName, PAYMENT_PREVIEW_TOLERANCE)) {
     const err = new Error('Posting requires a reconciled settlement batch.')
     err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_RECONCILED'
     err.status = 422
