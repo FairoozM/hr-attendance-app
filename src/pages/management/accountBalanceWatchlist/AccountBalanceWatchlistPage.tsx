@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Modal } from '../../../components/Modal'
 import {
   addAccountToWatchlist,
@@ -6,8 +6,9 @@ import {
   fetchWatchlistAccounts,
   removeAccountFromWatchlist,
   type ZohoWatchlistAccount,
-  type ZohoWatchlistFutureTransaction,
 } from '../../../api/zohoAccountWatchlist'
+import { groupWatchlistAccounts } from './accountWatchlistSections'
+import { WatchlistAccountsTable } from './WatchlistAccountsTable'
 import './AccountBalanceWatchlistPage.css'
 
 function formatMoney(value: number | null | undefined, currencyCode = ''): string {
@@ -17,13 +18,6 @@ function formatMoney(value: number | null | undefined, currencyCode = ''): strin
     maximumFractionDigits: 2,
   }).format(value)
   return currencyCode ? `${formatted} ${currencyCode}` : formatted
-}
-
-function formatSignedMoney(value: number | null | undefined, currencyCode = ''): string {
-  if (value == null || !Number.isFinite(value)) return '—'
-  if (value === 0) return formatMoney(0, currencyCode)
-  const sign = value > 0 ? '+' : '−'
-  return `${sign}${formatMoney(Math.abs(value), currencyCode)}`
 }
 
 function formatType(type: string): string {
@@ -66,45 +60,6 @@ function accountMatchesQuery(account: ZohoWatchlistAccount, query: string): bool
     .join(' ')
     .toLowerCase()
   return blob.includes(q)
-}
-
-function FutureTxList({
-  transactions,
-  currencyCode = '',
-}: {
-  transactions: ZohoWatchlistFutureTransaction[]
-  currencyCode?: string
-}) {
-  if (!transactions.length) return null
-  return (
-    <div className="abw-future">
-      <div className="abw-future__title">
-        Future transactions ({transactions.length})
-      </div>
-      <ul className="abw-future__list">
-        {transactions.map((tx, idx) => (
-          <li
-            key={tx.transactionId || `${tx.transactionDate}-${tx.entryNumber}-${idx}`}
-            className="abw-future__row"
-          >
-            <div className="abw-future__main">
-              <span className="abw-future__date">{formatShortDate(tx.transactionDate)}</span>
-              <span className="abw-future__type">{formatType(tx.transactionType || '')}</span>
-              <span className="abw-mono">{tx.entryNumber || tx.referenceNumber || '—'}</span>
-            </div>
-            <div className="abw-future__desc">{tx.description || '—'}</div>
-            <div
-              className={`abw-future__impact ${
-                (tx.impact || 0) < 0 ? 'abw-future__impact--neg' : (tx.impact || 0) > 0 ? 'abw-future__impact--pos' : ''
-              }`}
-            >
-              {formatSignedMoney(tx.impact, currencyCode)}
-            </div>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
 }
 
 export function AccountBalanceWatchlistPage() {
@@ -160,6 +115,11 @@ export function AccountBalanceWatchlistPage() {
 
   const watchedIds = useMemo(
     () => new Set(accounts.map((a) => a.accountId)),
+    [accounts],
+  )
+
+  const accountSections = useMemo(
+    () => groupWatchlistAccounts(accounts),
     [accounts],
   )
 
@@ -316,108 +276,25 @@ export function AccountBalanceWatchlistPage() {
       ) : null}
 
       {!loading && !error && accounts.length > 0 ? (
-        <div className="abw-table-wrap">
-          <table className="abw-table">
-            <thead>
-              <tr>
-                <th>Account</th>
-                <th>Code</th>
-                <th>Type</th>
-                <th className="abw-num">Current balance</th>
-                <th className="abw-num">Full balance</th>
-                <th className="abw-num">Future impact</th>
-                <th>Refreshed</th>
-                <th className="abw-actions-col"> </th>
-              </tr>
-            </thead>
-            <tbody>
-              {accounts.map((account) => {
-                const futureCount = account.futureTransactionCount || 0
-                const expanded = expandedIds.has(account.accountId)
-                const impact = account.futureImpact
-                const hasDiff =
-                  account.currentBalance != null &&
-                  account.fullBalance != null &&
-                  Math.abs((account.fullBalance || 0) - (account.currentBalance || 0)) >= 0.005
-
-                return (
-                  <Fragment key={account.accountId}>
-                    <tr>
-                      <td>
-                        <div className="abw-account-name">{account.accountName || '—'}</div>
-                        {account.notFoundInZoho ? (
-                          <div className="abw-warn">Not found in Zoho</div>
-                        ) : account.balanceUnavailable ? (
-                          <div className="abw-warn">Balance unavailable</div>
-                        ) : null}
-                        {futureCount > 0 ? (
-                          <button
-                            type="button"
-                            className="abw-link"
-                            onClick={() => toggleExpanded(account.accountId)}
-                          >
-                            {expanded ? 'Hide' : 'Show'} {futureCount} future txn
-                            {futureCount === 1 ? '' : 's'}
-                          </button>
-                        ) : account.enrichError ? (
-                          <div className="abw-warn">{account.enrichError}</div>
-                        ) : (
-                          <div className="abw-muted">No future transactions</div>
-                        )}
-                      </td>
-                      <td className="abw-mono">{account.accountCode || '—'}</td>
-                      <td>{formatType(account.accountType)}</td>
-                      <td className="abw-num abw-balance">
-                        {formatMoney(account.currentBalance, account.currencyCode)}
-                      </td>
-                      <td className={`abw-num abw-balance ${hasDiff ? 'abw-balance--full' : ''}`}>
-                        {formatMoney(
-                          account.fullBalance ?? account.closingBalance,
-                          account.currencyCode,
-                        )}
-                      </td>
-                      <td
-                        className={`abw-num abw-impact ${
-                          (impact || 0) < 0
-                            ? 'abw-impact--neg'
-                            : (impact || 0) > 0
-                              ? 'abw-impact--pos'
-                              : ''
-                        }`}
-                      >
-                        {futureCount > 0
-                          ? formatSignedMoney(impact, account.currencyCode)
-                          : '—'}
-                      </td>
-                      <td className="abw-muted">
-                        {formatRefreshedAt(account.refreshedAt || refreshedAt)}
-                      </td>
-                      <td className="abw-actions-col">
-                        <button
-                          type="button"
-                          className="abw-btn abw-btn--danger-ghost"
-                          onClick={() => void handleRemove(account.accountId)}
-                          disabled={removingId === account.accountId}
-                        >
-                          {removingId === account.accountId ? 'Removing…' : 'Remove'}
-                        </button>
-                      </td>
-                    </tr>
-                    {expanded && futureCount > 0 ? (
-                      <tr className="abw-expand-row">
-                        <td colSpan={8}>
-                          <FutureTxList
-                            transactions={account.futureTransactions || []}
-                            currencyCode={account.currencyCode}
-                          />
-                        </td>
-                      </tr>
-                    ) : null}
-                  </Fragment>
-                )
-              })}
-            </tbody>
-          </table>
+        <div className="abw-sections">
+          {accountSections.map((section) => (
+            <section key={section.id} className="abw-section">
+              <div className="abw-section__header">
+                <h2 className="abw-section__title">{section.title}</h2>
+                <span className="abw-section__count">
+                  {section.accounts.length} account{section.accounts.length === 1 ? '' : 's'}
+                </span>
+              </div>
+              <WatchlistAccountsTable
+                accounts={section.accounts}
+                refreshedAt={refreshedAt}
+                expandedIds={expandedIds}
+                removingId={removingId}
+                onToggleExpanded={toggleExpanded}
+                onRemove={(accountId) => void handleRemove(accountId)}
+              />
+            </section>
+          ))}
         </div>
       ) : null}
 
