@@ -71,26 +71,6 @@
   color: var(--text-secondary, #6b7a99);
 }
 
-.war-section__row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-}
-
-.war-section__row .war-section__title {
-  margin-bottom: 0;
-}
-
-.war-history-count {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary, #6b7a99);
-  background: var(--bg-muted, rgba(180, 193, 218, 0.2));
-  padding: 3px 10px;
-  border-radius: 20px;
-}
-
 /* ─── Form meta row ───────────────────────────────────────────────── */
 .war-form-meta {
   display: grid;

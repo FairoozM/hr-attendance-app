@@ -970,12 +970,6 @@ export function WeeklyAdsReportPage() {
 
       {/* ─── History ─── */}
       <section className="war-section">
-        <div className="war-section__row">
-          <h2 className="war-section__title">Report History</h2>
-          <span className="war-history-count">
-            {historyLoading ? '…' : `${history.length} ${history.length === 1 ? 'report' : 'reports'}`}
-          </span>
-        </div>
         {historyError ? <p className="war-zoho-feedback war-zoho-feedback--error">{historyError}</p> : null}
         {historySaveError ? <p className="war-zoho-feedback war-zoho-feedback--error">{historySaveError}</p> : null}
         {historyLoading ? (
