@@ -30,12 +30,16 @@ export function Step1SelectSettlement({ ctx }: { ctx: ClearingContext }) {
   return (
     <div className="apc-step-stack">
       <div className="apc-callout">
-        Saved settlements load instantly from the database. "Fetch Latest KSA Settlement" lists Amazon
+        Saved settlements load instantly from the database. "Fetch Latest {ctx.marketplace} Settlement" lists Amazon
         settlement reports created in the last 90 days (Amazon API limit). "Preview Report" reuses a saved
         batch when one exists for the report; use "Refresh from Amazon" only when you need to re-fetch the raw report.
-        For 2025 legacy settlements, select <strong>Life Smile Business</strong>, upload the Seller Central
-        settlement file (TSV/CSV/XLSX), and verify the settlement total in Step 2 before posting — do not paste an old
-        reportId (Amazon returns NotFound for expired ReportRequestIds).
+        {ctx.marketplace === 'KSA' ? (
+          <>
+            {' '}For 2025 legacy settlements, select <strong>Life Smile Business</strong>, upload the Seller Central
+            settlement file (TSV/CSV/XLSX), and verify the settlement total in Step 2 before posting — do not paste an old
+            reportId (Amazon returns NotFound for expired ReportRequestIds).
+          </>
+        ) : null}
       </div>
 
       <div className="apc-actions">
@@ -56,8 +60,14 @@ export function Step1SelectSettlement({ ctx }: { ctx: ClearingContext }) {
               ))
             ) : (
               <>
-                <option value="KSA-Amazon">KSA-Amazon (current)</option>
-                <option value={LEGACY_CUSTOMER_NAME}>Life Smile Business (legacy 2025)</option>
+                {ctx.marketplace === 'UAE' ? (
+                  <option value="Amazon">Amazon (UAE)</option>
+                ) : (
+                  <>
+                    <option value="KSA-Amazon">KSA-Amazon (current)</option>
+                    <option value={LEGACY_CUSTOMER_NAME}>Life Smile Business (legacy 2025)</option>
+                  </>
+                )}
               </>
             )}
           </select>
@@ -69,7 +79,7 @@ export function Step1SelectSettlement({ ctx }: { ctx: ClearingContext }) {
         ) : null}
       </div>
 
-      {isLegacyCustomer ? (
+      {ctx.marketplace === 'KSA' && isLegacyCustomer ? (
         <div className="apc-callout">
           <strong>2025 legacy settlements (Life Smile Business)</strong> — process one at a time. Upload each
           Seller Central settlement file, then confirm the settlement total matches before posting.
@@ -139,7 +149,7 @@ export function Step1SelectSettlement({ ctx }: { ctx: ClearingContext }) {
                     <td>{batch.settlementId || '-'}</td>
                     <td>{dateRangeText(batch.settlementStartDate, batch.settlementEndDate)}</td>
                     <td className="apc-money">{money(batch.amazonSettlementTotal)}</td>
-                    <td>{batch.zohoCustomerName || 'KSA-Amazon'}</td>
+                    <td>{batch.zohoCustomerName || (ctx.marketplace === 'UAE' ? 'Amazon' : 'KSA-Amazon')}</td>
                     <td>{batch.matchedOrderCount}</td>
                     <td>{batch.creditNoteBlockerCount + batch.unmatchedOrderCount}</td>
                     <td><LifecycleBadge status={batch.lifecycleStatus} /></td>
@@ -201,7 +211,7 @@ export function Step1SelectSettlement({ ctx }: { ctx: ClearingContext }) {
         </label>
         <div className="apc-button-row">
           <button className="ainv-btn" type="button" onClick={ctx.onFetchReports} disabled={ctx.loadingReports || ctx.previewing}>
-            {ctx.loadingReports ? 'Fetching...' : 'Fetch Latest KSA Settlement'}
+            {ctx.loadingReports ? 'Fetching...' : `Fetch Latest ${ctx.marketplace} Settlement`}
           </button>
           <button
             className="ainv-btn ainv-btn--primary-sky"

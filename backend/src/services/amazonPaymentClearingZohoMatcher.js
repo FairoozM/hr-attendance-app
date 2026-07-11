@@ -3,13 +3,14 @@ const { normalizeSettlementDate } = require('./amazonSettlementParserService')
 const { ROW_CLASS, isNonOrderLinkedAmazonFee, isAdvertisingCreditRow } = require('./amazonPaymentClearingCategoryService')
 const { detectNetNegativeOrderRefundRows, round2 } = require('./amazonPaymentClearingOrderBreakdownService')
 const { buildReturnFeeBreakdown } = require('./amazonPaymentClearingReturnFeeService')
+const {
+  KSA_ZOHO_CUSTOMER_NAME,
+  LEGACY_KSA_ZOHO_CUSTOMER_NAME,
+  UAE_ZOHO_CUSTOMER_NAME,
+  getPaymentClearingMarketplaceConfig,
+  marketplaceKeyFromCodeOrKey,
+} = require('./amazonPaymentClearingMarketplaceConfig')
 
-const KSA_ZOHO_CUSTOMER_NAME = 'KSA-Amazon'
-const LEGACY_KSA_ZOHO_CUSTOMER_NAME = 'Life Smile Business'
-const KSA_ZOHO_CUSTOMER_OPTIONS = Object.freeze([
-  { name: KSA_ZOHO_CUSTOMER_NAME, label: 'KSA-Amazon (current)' },
-  { name: LEGACY_KSA_ZOHO_CUSTOMER_NAME, label: 'Life Smile Business (legacy 2025)' },
-])
 /** Zoho invoice date is often weeks before Amazon settlement payout. */
 const INVOICE_LOOKBACK_DAYS = 120
 /** Extend invoice fetch after settlement end for backfilled Zoho entries. */
@@ -17,7 +18,7 @@ const INVOICE_FORWARD_DAYS = 90
 /** Settlements older than this use a capped forward window instead of today. */
 const HISTORICAL_SETTLEMENT_DAYS = 90
 
-let cachedKsaCustomerId = null
+const cachedCustomerIdByMarketplace = new Map()
 const customerIdByNameCache = new Map()
 
 function clean(value) {
@@ -91,46 +92,60 @@ async function resolveZohoCustomerByName(customerName) {
   return id || null
 }
 
-async function resolveKsaZohoCustomer(options = {}) {
+async function resolvePaymentClearingZohoCustomer(options = {}) {
+  const cfg = getPaymentClearingMarketplaceConfig(options.marketplace || options.marketplaceKey || 'ksa')
   const explicitName = clean(options.customerName)
-  const customerId = await resolveKsaZohoCustomerId(options)
+  const customerId = await resolvePaymentClearingZohoCustomerId(options)
   let customerName = explicitName
   if (!customerName && customerId) {
-    for (const option of KSA_ZOHO_CUSTOMER_OPTIONS) {
+    for (const option of cfg.zohoCustomerOptions) {
       const cachedId = customerIdByNameCache.get(option.name)
       if (cachedId && cachedId === customerId) {
         customerName = option.name
         break
       }
     }
-    if (!customerName && cachedKsaCustomerId && cachedKsaCustomerId === customerId) {
-      customerName = KSA_ZOHO_CUSTOMER_NAME
+    const cachedDefault = cachedCustomerIdByMarketplace.get(cfg.key)
+    if (!customerName && cachedDefault && cachedDefault === customerId) {
+      customerName = cfg.defaultZohoCustomerName
     }
   }
-  if (!customerName) customerName = KSA_ZOHO_CUSTOMER_NAME
-  return { customerId, customerName }
+  if (!customerName) customerName = cfg.defaultZohoCustomerName
+  return { customerId, customerName, marketplace: cfg.code }
 }
 
-async function resolveKsaZohoCustomerId(options = {}) {
+async function resolvePaymentClearingZohoCustomerId(options = {}) {
+  const cfg = getPaymentClearingMarketplaceConfig(options.marketplace || options.marketplaceKey || 'ksa')
   if (options.customerId) return clean(options.customerId)
   if (options.customerName) {
     const byName = await resolveZohoCustomerByName(options.customerName)
     if (byName) return byName
   }
-  const fromEnv = clean(process.env.AMAZON_KSA_ZOHO_CUSTOMER_ID)
+  const fromEnv = clean(cfg.zohoCustomerId)
   if (fromEnv) return fromEnv
-  if (cachedKsaCustomerId) return cachedKsaCustomerId
+  const cached = cachedCustomerIdByMarketplace.get(cfg.key)
+  if (cached) return cached
   const customers = await fetchCustomers()
   const hit = (Array.isArray(customers) ? customers : []).find(
-    (customer) => clean(customer?.contact_name || customer?.customer_name) === KSA_ZOHO_CUSTOMER_NAME
+    (customer) => clean(customer?.contact_name || customer?.customer_name) === cfg.defaultZohoCustomerName
   )
-  cachedKsaCustomerId = clean(hit?.contact_id || hit?.customer_id)
-  return cachedKsaCustomerId || null
+  const id = clean(hit?.contact_id || hit?.customer_id)
+  if (id) cachedCustomerIdByMarketplace.set(cfg.key, id)
+  return id || null
 }
 
-async function listKsaZohoCustomerOptions() {
+async function resolveKsaZohoCustomer(options = {}) {
+  return resolvePaymentClearingZohoCustomer({ ...options, marketplace: 'KSA' })
+}
+
+async function resolveKsaZohoCustomerId(options = {}) {
+  return resolvePaymentClearingZohoCustomerId({ ...options, marketplace: 'KSA' })
+}
+
+async function listPaymentClearingZohoCustomerOptions(marketplace = 'KSA') {
+  const cfg = getPaymentClearingMarketplaceConfig(marketplace)
   const rows = []
-  for (const option of KSA_ZOHO_CUSTOMER_OPTIONS) {
+  for (const option of cfg.zohoCustomerOptions) {
     const customerId = await resolveZohoCustomerByName(option.name)
     rows.push({
       name: option.name,
@@ -140,6 +155,10 @@ async function listKsaZohoCustomerOptions() {
     })
   }
   return rows
+}
+
+async function listKsaZohoCustomerOptions() {
+  return listPaymentClearingZohoCustomerOptions('KSA')
 }
 
 function invoiceNumber(invoice) {
@@ -505,13 +524,14 @@ function matchRefundReturnRowsToCreditNotes(rows, invoices, creditNotes) {
 }
 
 async function fetchZohoInvoicesForSettlementRows(rows, options = {}) {
+  const cfg = getPaymentClearingMarketplaceConfig(options.marketplace || options.marketplaceKey || 'ksa')
   const range = {
     ...deriveInvoiceRange(rows),
     ...(options.fromDate ? { fromDate: options.fromDate } : {}),
     ...(options.toDate ? { toDate: options.toDate } : {}),
   }
-  const customerId = await resolveKsaZohoCustomerId(options)
-  const customerName = clean(options.customerName) || KSA_ZOHO_CUSTOMER_NAME
+  const customerId = await resolvePaymentClearingZohoCustomerId(options)
+  const customerName = clean(options.customerName) || cfg.defaultZohoCustomerName
   if (Array.isArray(options.invoices)) {
     return {
       rows: options.invoices,
@@ -534,13 +554,14 @@ async function fetchZohoInvoicesForSettlementRows(rows, options = {}) {
 }
 
 async function fetchZohoCreditNotesForSettlementRows(rows, options = {}) {
+  const cfg = getPaymentClearingMarketplaceConfig(options.marketplace || options.marketplaceKey || 'ksa')
   const range = {
     ...deriveInvoiceRange(rows),
     ...(options.fromDate ? { fromDate: options.fromDate } : {}),
     ...(options.toDate ? { toDate: options.toDate } : {}),
   }
-  const customerId = await resolveKsaZohoCustomerId(options)
-  const customerName = clean(options.customerName) || KSA_ZOHO_CUSTOMER_NAME
+  const customerId = await resolvePaymentClearingZohoCustomerId(options)
+  const customerName = clean(options.customerName) || cfg.defaultZohoCustomerName
   if (Array.isArray(options.creditNotes)) {
     return {
       rows: options.creditNotes,
@@ -562,7 +583,8 @@ async function fetchZohoCreditNotesForSettlementRows(rows, options = {}) {
   }
 }
 
-function buildZohoFetchWarnings(zohoFetch) {
+function buildZohoFetchWarnings(zohoFetch, marketplace = 'KSA') {
+  const cfg = getPaymentClearingMarketplaceConfig(marketplace)
   const warnings = []
   if (!zohoFetch) return warnings
   if (!zohoFetch.rows.length) {
@@ -571,16 +593,19 @@ function buildZohoFetchWarnings(zohoFetch) {
   }
   if (zohoFetch.truncated) {
     warnings.push(
-      `Zoho invoice fetch was truncated at 4,000 rows for ${zohoFetch.customerName || 'KSA-Amazon'} (${zohoFetch.fromDate} to ${zohoFetch.toDate}). Some matches may be missing.`
+      `Zoho invoice fetch was truncated at 4,000 rows for ${zohoFetch.customerName || cfg.defaultZohoCustomerName} (${zohoFetch.fromDate} to ${zohoFetch.toDate}). Some matches may be missing.`
     )
   }
   if (!zohoFetch.customerId) {
-    warnings.push(`Could not resolve Zoho customer "${zohoFetch.customerName || KSA_ZOHO_CUSTOMER_NAME}". Set AMAZON_KSA_ZOHO_CUSTOMER_ID or verify the customer exists in Zoho Books.`)
+    warnings.push(
+      `Could not resolve Zoho customer "${zohoFetch.customerName || cfg.defaultZohoCustomerName}". Set ${cfg.zohoCustomerIdEnv} or verify the customer exists in Zoho Books.`
+    )
   }
   return warnings
 }
 
-function buildCreditNoteFetchWarnings(creditNoteFetch, refundRows) {
+function buildCreditNoteFetchWarnings(creditNoteFetch, refundRows, marketplace = 'KSA') {
+  const cfg = getPaymentClearingMarketplaceConfig(marketplace)
   const warnings = []
   if (!refundRows.length || !creditNoteFetch) return warnings
   if (!creditNoteFetch.rows.length) {
@@ -588,13 +613,14 @@ function buildCreditNoteFetchWarnings(creditNoteFetch, refundRows) {
   }
   if (creditNoteFetch.truncated) {
     warnings.push(
-      `Zoho credit note fetch was truncated for ${creditNoteFetch.customerName || 'KSA-Amazon'} (${creditNoteFetch.fromDate} to ${creditNoteFetch.toDate}). Some refund/return matches may be missing.`
+      `Zoho credit note fetch was truncated for ${creditNoteFetch.customerName || cfg.defaultZohoCustomerName} (${creditNoteFetch.fromDate} to ${creditNoteFetch.toDate}). Some refund/return matches may be missing.`
     )
   }
   return warnings
 }
 
 async function matchZohoInvoicesForRows(rows, options = {}) {
+  const marketplaceKey = marketplaceKeyFromCodeOrKey(options.marketplace || options.marketplaceKey || 'ksa')
   const settlementRows = Array.isArray(rows) ? rows : []
   const zohoFetch = await fetchZohoInvoicesForSettlementRows(settlementRows, options)
   const creditNoteFetch = await fetchZohoCreditNotesForSettlementRows(settlementRows, options)
@@ -617,8 +643,8 @@ async function matchZohoInvoicesForRows(rows, options = {}) {
     syntheticRefundRows,
     netNegativeReturnOrderIds: Array.from(netNegativeReturnOrderIds).sort(),
     zohoFetchWarnings: [
-      ...buildZohoFetchWarnings(zohoFetch),
-      ...buildCreditNoteFetchWarnings(creditNoteFetch, refundRows),
+      ...buildZohoFetchWarnings(zohoFetch, marketplaceKey),
+      ...buildCreditNoteFetchWarnings(creditNoteFetch, refundRows, marketplaceKey),
       ...(syntheticRefundRows.length
         ? [
             `${syntheticRefundRows.length} order(s) have negative principal/net in this settlement and must be cleared via Zoho credit notes, not invoice payments.`,
@@ -633,6 +659,7 @@ async function matchZohoInvoicesForRows(rows, options = {}) {
 module.exports = {
   KSA_ZOHO_CUSTOMER_NAME,
   LEGACY_KSA_ZOHO_CUSTOMER_NAME,
+  UAE_ZOHO_CUSTOMER_NAME,
   INVOICE_LOOKBACK_DAYS,
   INVOICE_FORWARD_DAYS,
   HISTORICAL_SETTLEMENT_DAYS,
@@ -646,6 +673,9 @@ module.exports = {
   resolveKsaZohoCustomerId,
   resolveKsaZohoCustomer,
   listKsaZohoCustomerOptions,
+  resolvePaymentClearingZohoCustomerId,
+  resolvePaymentClearingZohoCustomer,
+  listPaymentClearingZohoCustomerOptions,
   _internals: {
     indexInvoices,
     mapInvoice,

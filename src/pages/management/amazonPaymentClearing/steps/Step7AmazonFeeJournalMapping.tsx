@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   fetchAmazonPaymentClearingZohoChartAccounts,
-  saveKsaFeeJournalMapping,
+  saveFeeJournalMapping,
   type AmazonFeeJournalMapping,
   type ZohoChartAccount,
 } from '../../../../api/amazonPaymentClearing'
@@ -243,9 +243,9 @@ export function Step7AmazonFeeJournalMapping({ ctx }: { ctx: ClearingContext }) 
     setError('')
     setNotice('')
     try {
-      await saveKsaFeeJournalMapping({
+      await saveFeeJournalMapping(ctx.marketplace, {
         id: row.mappingRuleId || undefined,
-        marketplace: row.marketplace || preview.marketplace,
+        marketplace: row.marketplace || preview.marketplace || ctx.marketplace,
         normalizedFeeType: row.normalizedFeeType,
         rawTransactionType: row.rawTransactionType || '',
         descriptionPattern: row.description || '',

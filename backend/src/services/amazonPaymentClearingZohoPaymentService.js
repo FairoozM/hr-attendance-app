@@ -2,28 +2,16 @@ const { zohoBooksJsonRequest } = require('./zohoApiClient')
 const { readZohoConfig } = require('../integrations/zoho/zohoConfig')
 const { getZohoTokenDiagnostics } = require('../integrations/zoho/zohoOAuth')
 const store = require('./amazonPaymentClearingStore')
+const { getPaymentClearingMarketplaceConfig } = require('./amazonPaymentClearingMarketplaceConfig')
 
 const BOOKS_V3 = '/books/v3'
 const CHART_OF_ACCOUNTS_ENDPOINT = `${BOOKS_V3}/chartofaccounts`
 const CHART_OF_ACCOUNTS_REQUIRED_SCOPE = 'ZohoBooks.accountants.READ'
-const PAYMENT_ACCOUNT_ENV = Object.freeze({
-  1024: {
-    id: 'AMAZON_KSA_ZOHO_UNDEPOSITED_FUNDS_ACCOUNT_ID',
-    name: 'AMAZON_KSA_ZOHO_UNDEPOSITED_FUNDS_ACCOUNT_NAME',
-    defaultName: 'KSA-Amazon Undeposited Funds',
-  },
-  1026: {
-    id: 'AMAZON_KSA_ZOHO_COMMISSION_ACCOUNT_ID',
-    name: 'AMAZON_KSA_ZOHO_COMMISSION_ACCOUNT_NAME',
-    defaultName: 'KSA-Amazon Uncleared Commission Exp',
-  },
-  1028: {
-    id: 'AMAZON_KSA_ZOHO_SHIPPING_FBA_ACCOUNT_ID',
-    name: 'AMAZON_KSA_ZOHO_SHIPPING_FBA_ACCOUNT_NAME',
-    defaultName: 'KSA-Amazon Uncleared Shipping Exp',
-  },
-})
 let accountCache = null
+
+function paymentAccountEnvFor(marketplace) {
+  return getPaymentClearingMarketplaceConfig(marketplace).paymentAccountEnv
+}
 
 function buildZohoJsonStringBody(payload) {
   const form = new URLSearchParams()
@@ -91,11 +79,14 @@ function clean(value) {
   return value == null ? '' : String(value).trim()
 }
 
-function configuredPaymentAccountMap() {
+function configuredPaymentAccountMap(marketplace = 'KSA') {
+  const cfg = getPaymentClearingMarketplaceConfig(marketplace)
+  const paymentAccountEnv = cfg.paymentAccountEnv
   const out = new Map()
-  if (process.env.AMAZON_KSA_ZOHO_PAYMENT_ACCOUNT_MAP) {
+  const mapEnv = process.env[cfg.paymentAccountMapEnv]
+  if (mapEnv) {
     try {
-      const parsed = JSON.parse(process.env.AMAZON_KSA_ZOHO_PAYMENT_ACCOUNT_MAP)
+      const parsed = JSON.parse(mapEnv)
       for (const [code, value] of Object.entries(parsed || {})) {
         const accountId = clean(value?.account_id || value?.accountId || value?.id)
         if (accountId) {
@@ -103,15 +94,15 @@ function configuredPaymentAccountMap() {
             accountCode: clean(code),
             accountId,
             accountName: clean(value?.account_name || value?.accountName || value?.name),
-            source: 'AMAZON_KSA_ZOHO_PAYMENT_ACCOUNT_MAP',
+            source: cfg.paymentAccountMapEnv,
           })
         }
       }
     } catch (err) {
-      console.warn('[amazon-payment-clearing] invalid AMAZON_KSA_ZOHO_PAYMENT_ACCOUNT_MAP:', err.message)
+      console.warn(`[amazon-payment-clearing] invalid ${cfg.paymentAccountMapEnv}:`, err.message)
     }
   }
-  for (const [code, env] of Object.entries(PAYMENT_ACCOUNT_ENV)) {
+  for (const [code, env] of Object.entries(paymentAccountEnv)) {
     const accountId = clean(process.env[env.id])
     if (!accountId) continue
     out.set(code, {
@@ -124,16 +115,16 @@ function configuredPaymentAccountMap() {
   return out
 }
 
-function configuredAccountByCode(accountCode) {
-  return configuredPaymentAccountMap().get(clean(accountCode)) || null
+function configuredAccountByCode(accountCode, marketplace = 'KSA') {
+  return configuredPaymentAccountMap(marketplace).get(clean(accountCode)) || null
 }
 
-function requiredPaymentAccountConfig(accountCode) {
-  return PAYMENT_ACCOUNT_ENV[clean(accountCode)] || null
+function requiredPaymentAccountConfig(accountCode, marketplace = 'KSA') {
+  return paymentAccountEnvFor(marketplace)[clean(accountCode)] || null
 }
 
-function configuredAccountMappings() {
-  return Array.from(configuredPaymentAccountMap().values())
+function configuredAccountMappings(marketplace = 'KSA') {
+  return Array.from(configuredPaymentAccountMap(marketplace).values())
 }
 
 function tokenHasChartOfAccountsScope(tokenDiagnostics) {
@@ -187,18 +178,25 @@ async function resolveAccountByCode(accountCode) {
   return accounts.find((account) => String(account?.account_code || account?.code || '').trim() === code) || null
 }
 
-function missingConfiguredAccountError(accountCode) {
+function marketplaceFromPaymentOrOpts(payment = {}, opts = {}) {
+  return opts.marketplace || payment.marketplace || 'KSA'
+}
+
+function missingConfiguredAccountError(accountCode, marketplace = 'KSA') {
   const code = clean(accountCode)
   const err = new Error(`Missing configured account ID for account code ${code}`)
   err.code = 'AMAZON_PAYMENT_CLEARING_ACCOUNT_ID_MISSING'
   err.accountCode = code
-  err.requiredEnv = requiredPaymentAccountConfig(code)?.id || null
+  err.requiredEnv = requiredPaymentAccountConfig(code, marketplace)?.id || null
   err.status = 422
   return err
 }
 
-async function resolveConfiguredDepositAccount(payment) {
-  const configuredAccount = payment.depositToAccountId ? null : configuredAccountByCode(payment.depositToAccountCode)
+async function resolveConfiguredDepositAccount(payment, opts = {}) {
+  const marketplace = marketplaceFromPaymentOrOpts(payment, opts)
+  const configuredAccount = payment.depositToAccountId
+    ? null
+    : configuredAccountByCode(payment.depositToAccountCode, marketplace)
   if (configuredAccount?.accountId) {
     return {
       accountId: configuredAccount.accountId,
@@ -218,7 +216,7 @@ async function resolveConfiguredDepositAccount(payment) {
     }
     const tokenDiagnostics = await getZohoTokenDiagnostics().catch(() => null)
     if (tokenHasChartOfAccountsScope(tokenDiagnostics)) {
-      const discovered = await resolveDepositAccount(payment, { allowChartLookup: true })
+      const discovered = await resolveDepositAccount(payment, { ...opts, allowChartLookup: true, marketplace })
       if (discovered?.accountId) {
         await store.upsertAccountMapping({
           accountCode: clean(payment.depositToAccountCode),
@@ -234,7 +232,7 @@ async function resolveConfiguredDepositAccount(payment) {
         }
       }
     }
-    throw missingConfiguredAccountError(payment.depositToAccountCode)
+    throw missingConfiguredAccountError(payment.depositToAccountCode, marketplace)
   }
   return {
     accountId: depositToAccountId,
@@ -244,8 +242,11 @@ async function resolveConfiguredDepositAccount(payment) {
 }
 
 async function resolveDepositAccount(payment, opts = {}) {
+  const marketplace = marketplaceFromPaymentOrOpts(payment, opts)
   if (opts.allowChartLookup === true) {
-    const configuredAccount = payment.depositToAccountId ? null : configuredAccountByCode(payment.depositToAccountCode)
+    const configuredAccount = payment.depositToAccountId
+      ? null
+      : configuredAccountByCode(payment.depositToAccountCode, marketplace)
     if (configuredAccount?.accountId) {
       return {
         accountId: configuredAccount.accountId,
@@ -267,11 +268,11 @@ async function resolveDepositAccount(payment, opts = {}) {
       source: payment.depositToAccountId ? 'payload' : CHART_OF_ACCOUNTS_ENDPOINT,
     }
   }
-  return resolveConfiguredDepositAccount(payment)
+  return resolveConfiguredDepositAccount(payment, opts)
 }
 
 async function buildCustomerPaymentPayloadPreview(payment, opts = {}) {
-  const account = await resolveConfiguredDepositAccount(payment)
+  const account = await resolveConfiguredDepositAccount(payment, opts)
   const payload = buildCustomerPaymentPayload(payment, { ...opts, depositToAccountId: account.accountId })
   return {
     customer_id: payload.customer_id || '',
@@ -286,17 +287,21 @@ async function buildCustomerPaymentPayloadPreview(payment, opts = {}) {
   }
 }
 
-async function resolveJournalAccount(account) {
-  return resolveConfiguredDepositAccount({
-    depositToAccountId: account.accountId || '',
-    depositToAccountCode: account.accountCode || '',
-    depositToAccountName: account.accountName || '',
-  })
+async function resolveJournalAccount(account, opts = {}) {
+  return resolveConfiguredDepositAccount(
+    {
+      depositToAccountId: account.accountId || '',
+      depositToAccountCode: account.accountCode || '',
+      depositToAccountName: account.accountName || '',
+      marketplace: opts.marketplace || account.marketplace,
+    },
+    opts
+  )
 }
 
 async function buildManualJournalPayloadPreview(journal, opts = {}) {
-  const debit = await resolveJournalAccount(journal.debit || {})
-  const credit = await resolveJournalAccount(journal.credit || {})
+  const debit = await resolveJournalAccount(journal.debit || {}, opts)
+  const credit = await resolveJournalAccount(journal.credit || {}, opts)
   const payload = buildManualJournalPayload(journal, {
     ...opts,
     debitAccountId: debit.accountId,
@@ -315,8 +320,8 @@ async function buildManualJournalPayloadPreview(journal, opts = {}) {
 }
 
 async function createZohoManualJournal(journal, opts = {}) {
-  const debit = await resolveJournalAccount(journal.debit || {})
-  const credit = await resolveJournalAccount(journal.credit || {})
+  const debit = await resolveJournalAccount(journal.debit || {}, opts)
+  const credit = await resolveJournalAccount(journal.credit || {}, opts)
   const payload = buildManualJournalPayload(journal, {
     ...opts,
     debitAccountId: debit.accountId,
@@ -342,7 +347,7 @@ async function createZohoManualJournal(journal, opts = {}) {
 }
 
 async function createZohoCustomerPayment(payment, opts = {}) {
-  const account = await resolveConfiguredDepositAccount(payment)
+  const account = await resolveConfiguredDepositAccount(payment, opts)
   const depositToAccountId = account.accountId
   const payload = buildCustomerPaymentPayload(payment, { ...opts, depositToAccountId })
   const json = await zohoBooksJsonRequest(
@@ -363,7 +368,9 @@ async function createZohoCustomerPayment(payment, opts = {}) {
   }
 }
 
-async function getAccountDiagnostics() {
+async function getAccountDiagnostics(marketplace = 'KSA') {
+  const cfg = getPaymentClearingMarketplaceConfig(marketplace)
+  const paymentAccountEnv = cfg.paymentAccountEnv
   const config = readZohoConfig()
   const organizationId = config.code === 'ok' ? config.organizationId : null
   let oauthScopes = null
@@ -405,8 +412,8 @@ async function getAccountDiagnostics() {
 
   const sampleAccountLookupResult = []
   const cachedMappings = await store.getAccountMappings().catch(() => [])
-  for (const code of Object.keys(PAYMENT_ACCOUNT_ENV)) {
-    const configured = configuredAccountByCode(code)
+  for (const code of Object.keys(paymentAccountEnv)) {
+    const configured = configuredAccountByCode(code, marketplace)
     if (configured) {
       sampleAccountLookupResult.push({
         accountCode: code,
@@ -422,7 +429,7 @@ async function getAccountDiagnostics() {
       sampleAccountLookupResult.push({
         accountCode: code,
         accountId: cached.accountId,
-        accountName: cached.accountName || PAYMENT_ACCOUNT_ENV[code].defaultName,
+        accountName: cached.accountName || paymentAccountEnv[code].defaultName,
         source: cached.source || 'cached',
         chartOfAccountsApiCalled: false,
       })
@@ -433,14 +440,14 @@ async function getAccountDiagnostics() {
       if (discovered) {
         const mapping = await store.upsertAccountMapping({
           accountCode: code,
-          accountName: discovered.account_name || discovered.name || PAYMENT_ACCOUNT_ENV[code].defaultName,
+          accountName: discovered.account_name || discovered.name || paymentAccountEnv[code].defaultName,
           accountId: discovered.account_id || discovered.id,
           source: CHART_OF_ACCOUNTS_ENDPOINT,
         }).catch(() => null)
         sampleAccountLookupResult.push({
           accountCode: code,
           accountId: mapping?.accountId || discovered.account_id || discovered.id || null,
-          accountName: mapping?.accountName || discovered.account_name || discovered.name || PAYMENT_ACCOUNT_ENV[code].defaultName,
+          accountName: mapping?.accountName || discovered.account_name || discovered.name || paymentAccountEnv[code].defaultName,
           source: mapping?.source || CHART_OF_ACCOUNTS_ENDPOINT,
           chartOfAccountsApiCalled: true,
         })
@@ -450,13 +457,14 @@ async function getAccountDiagnostics() {
     sampleAccountLookupResult.push({
       accountCode: code,
       accountId: null,
-      accountName: PAYMENT_ACCOUNT_ENV[code].defaultName,
+      accountName: paymentAccountEnv[code].defaultName,
       source: CHART_OF_ACCOUNTS_ENDPOINT,
       chartOfAccountsApiCalled: true,
     })
   }
 
   return {
+    marketplace: cfg.code,
     organizationId,
     accountLookupEndpoint: CHART_OF_ACCOUNTS_ENDPOINT,
     requiredOAuthScope: CHART_OF_ACCOUNTS_REQUIRED_SCOPE,
@@ -464,7 +472,7 @@ async function getAccountDiagnostics() {
     oauthScopeRaw,
     oauthScopesAvailable,
     oauthError,
-    configuredAccountMappings: configuredAccountMappings(),
+    configuredAccountMappings: configuredAccountMappings(marketplace),
     cachedAccountMappings: cachedMappings,
     chartOfAccountsAccessResult,
     sampleAccountLookupResult,

@@ -7,6 +7,7 @@ const {
   paymentPlanStatusForCustomer,
   LEGACY_SETTLEMENT_DISPLAY_CURRENCY,
 } = require('./amazonPaymentClearingCurrencyService')
+const { getPaymentClearingMarketplaceConfig } = require('./amazonPaymentClearingMarketplaceConfig')
 
 function clean(value) {
   return String(value == null ? '' : value).trim()
@@ -20,6 +21,7 @@ function matchedOrdersForPaymentPreview(batch) {
   return orders.map((order) => convertLegacyOrderSummary(order, customerName))
 }
 
+/** @deprecated Prefer marketplace-aware accounts from getPaymentClearingMarketplaceConfig */
 const PAYMENT_ACCOUNTS = Object.freeze({
   NET_BALANCE: {
     depositToAccountCode: '1024',
@@ -42,6 +44,10 @@ const PAYMENT_ACCOUNTS = Object.freeze({
     depositToAccountName: 'Amazon Adjustment Clearing',
   },
 })
+
+function paymentAccountsFor(marketplace) {
+  return getPaymentClearingMarketplaceConfig(marketplace).paymentPreviewAccounts
+}
 
 const PAYMENT_PREVIEW_TOLERANCE = 0.01
 
@@ -90,7 +96,8 @@ function requireBatchForPaymentPreview(batch) {
   }
 }
 
-function buildInvoicePaymentPlan(order, customerName = '') {
+function buildInvoicePaymentPlan(order, customerName = '', marketplace = 'KSA') {
+  const accounts = paymentAccountsFor(marketplace)
   const shippingOffsetTotal = round2(
     (Number(order.shippingCollectedTotal) || 0) + (Number(order.shippingPromotionTotal) || 0)
   )
@@ -108,9 +115,9 @@ function buildInvoicePaymentPlan(order, customerName = '') {
       (Number(order.otherAmazonFeeTotal) || 0) +
       shippingOffsetTotal
   )
-  const netBalancePayment = payment(invoiceClearingNetBalance, PAYMENT_ACCOUNTS.NET_BALANCE)
-  const commissionPayment = payment(order.commissionTotal, PAYMENT_ACCOUNTS.COMMISSION)
-  const shippingFbaPayment = payment(shippingFbaFeeTotal, PAYMENT_ACCOUNTS.SHIPPING_FBA)
+  const netBalancePayment = payment(invoiceClearingNetBalance, accounts.NET_BALANCE)
+  const commissionPayment = payment(order.commissionTotal, accounts.COMMISSION)
+  const shippingFbaPayment = payment(shippingFbaFeeTotal, accounts.SHIPPING_FBA)
   const totalClearingAmount = round2(
     netBalancePayment.amount + commissionPayment.amount + shippingFbaPayment.amount
   )
@@ -144,12 +151,14 @@ function invoicePaymentExcludedOrderIdsForBatch(batch) {
 
 function buildPaymentPreviewFromBatch(batch) {
   requireBatchForPaymentPreview(batch)
+  const marketplace = batch.marketplace || 'KSA'
+  const accounts = paymentAccountsFor(marketplace)
   const excludedOrderIds = invoicePaymentExcludedOrderIdsForBatch(batch)
   const salesOrders = matchedOrdersForPaymentPreview(batch).filter(
     (order) => !excludedOrderIds.has(String(order.orderId || '')) && !isNetNegativeOrderReturn(order)
   )
   const customerName = batch.zohoCustomerName || ''
-  const payments = salesOrders.map((order) => buildInvoicePaymentPlan(order, customerName))
+  const payments = salesOrders.map((order) => buildInvoicePaymentPlan(order, customerName, marketplace))
   const feeJournalMappings = Array.isArray(batch.nonOrderLinkedAmazonFeeMappings)
     ? batch.nonOrderLinkedAmazonFeeMappings
     : []
@@ -158,7 +167,7 @@ function buildPaymentPreviewFromBatch(batch) {
     .map((row) => ({
       key: row.key || `${row.feeType || 'fee'}-${row.rawTransactionType || ''}-${row.description || ''}`,
       classification: row.classification || 'NON_ORDER_LINKED_AMAZON_FEE',
-      marketplace: row.marketplace || 'KSA',
+      marketplace: row.marketplace || marketplace,
       feeType: row.feeType || '',
       normalizedFeeType: row.normalizedFeeType || '',
       rawTransactionType: row.rawTransactionType || '',
@@ -197,7 +206,7 @@ function buildPaymentPreviewFromBatch(batch) {
     blockingReason: row.blockingReason || '',
     application: {
       amount: positiveAmount(row.creditNoteAmount),
-      ...PAYMENT_ACCOUNTS.REFUND_RETURN,
+      ...accounts.REFUND_RETURN,
     },
   }))
   const adjustmentClearings = (Array.isArray(batch.adjustmentRows) ? batch.adjustmentRows : []).map((row, idx) => ({
@@ -210,7 +219,7 @@ function buildPaymentPreviewFromBatch(batch) {
     status: 'review',
     clearing: {
       amount: positiveAmount(row.amount),
-      ...PAYMENT_ACCOUNTS.ADJUSTMENT,
+      ...accounts.ADJUSTMENT,
     },
   }))
   const paymentPlanSummary = payments.reduce(
@@ -276,25 +285,26 @@ function buildPaymentPreviewFromBatch(batch) {
     {
       paymentType: 'net_balance',
       amount: paymentPlanSummary.netBalanceTotal,
-      ...PAYMENT_ACCOUNTS.NET_BALANCE,
+      ...accounts.NET_BALANCE,
       ...buildEntryReference(settlementReference, 'net_balance'),
     },
     {
       paymentType: 'commission',
       amount: paymentPlanSummary.commissionClearingTotal,
-      ...PAYMENT_ACCOUNTS.COMMISSION,
+      ...accounts.COMMISSION,
       ...buildEntryReference(settlementReference, 'commission'),
     },
     {
       paymentType: 'shipping_fba',
       amount: paymentPlanSummary.shippingFbaClearingTotal,
-      ...PAYMENT_ACCOUNTS.SHIPPING_FBA,
+      ...accounts.SHIPPING_FBA,
       ...buildEntryReference(settlementReference, 'shipping_fba'),
     },
   ].filter((row) => Number(row.amount) > 0)
 
   return {
     batchId: batch.batchId,
+    marketplace,
     zohoCustomerName: customerName,
     status: 'previewed',
     paymentPlanSummary,

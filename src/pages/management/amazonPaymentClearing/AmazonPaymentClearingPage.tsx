@@ -1,24 +1,24 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
-  approveKsaPaymentClearingBatch,
-  fetchKsaCreditNoteApplyPlan,
-  fetchKsaReturnFeePlan,
-  fetchKsaPaymentClearingBatch,
-  fetchKsaSavedBatches,
-  fetchKsaSettlementReports,
-  fetchKsaZohoCustomers,
-  forceRepostKsaPaymentClearing,
-  generateKsaPaymentClearingPaymentPreview,
+  approvePaymentClearingBatch,
+  fetchCreditNoteApplyPlan,
+  fetchReturnFeePlan,
+  fetchPaymentClearingBatch,
+  fetchSavedBatches,
+  fetchSettlementReports,
+  fetchZohoCustomers,
+  forceRepostPaymentClearing,
+  generatePaymentClearingPaymentPreview,
   type KsaZohoCustomerOption,
   type PaymentClearingPaymentPreview,
   type PaymentClearingPreview,
   type PaymentPostingResult,
-  postKsaPaymentClearingToZoho,
-  postKsaReturnFeeJournals,
-  previewKsaSettlementReport,
-  previewKsaSettlementUpload,
-  reclassifyKsaAccountLevelFees,
+  postPaymentClearingToZoho,
+  postReturnFeeJournals,
+  previewSettlementReport,
+  previewSettlementUpload,
+  reclassifyAccountLevelFees,
   type SavedBatchSummary,
   type SettlementReport,
 } from '../../../api/amazonPaymentClearing'
@@ -27,6 +27,12 @@ import { CLEARING_STEPS, type StepStatus } from './clearingSteps'
 import { ClearingStepper, StepPanel } from './components/ClearingStepper'
 import { ForceRepostModal } from './components/ForceRepostModal'
 import { useClearingSearch } from './hooks/useClearingSearch'
+import {
+  clearingBasePath,
+  clearingPageTitle,
+  defaultZohoCustomerName,
+  marketplaceFromPathname,
+} from './marketplaceConfig'
 import type { ClearingContext } from './steps/clearingContext'
 import { Step1SelectSettlement } from './steps/Step1SelectSettlement'
 import { Step2ParsedRows } from './steps/Step2ParsedRows'
@@ -41,27 +47,28 @@ import { Step7Preview as Step10PaymentPreview } from './steps/Step7Preview'
 import { Step8Post as Step11Post } from './steps/Step8Post'
 import './AmazonPaymentClearingPage.css'
 
-const BASE_PATH = '/management/amazon-payment-clearing'
 const STEP_KEY_TO_ID = new Map(CLEARING_STEPS.map((step) => [step.key, step.id]))
 const STEP_ID_TO_KEY = new Map(CLEARING_STEPS.map((step) => [step.id, step.key]))
 
-function clearingPath(stepId: number, batchId?: string | number | null) {
-  const key = STEP_ID_TO_KEY.get(stepId) || 'select'
-  const bid = batchId == null ? '' : String(batchId).trim()
-  return bid ? `${BASE_PATH}/batch/${bid}/${key}` : `${BASE_PATH}/${key}`
-}
-
-const KSA_AMAZON_CUSTOMER = 'KSA-Amazon'
-
 export function AmazonPaymentClearingPage() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const marketplace = marketplaceFromPathname(location.pathname)
+  const basePath = clearingBasePath(marketplace)
   const params = useParams()
   const routeBatchId = params.batchId ? String(params.batchId) : ''
   const routeStepKey = params.stepKey || ''
+
+  function clearingPath(stepId: number, batchId?: string | number | null) {
+    const key = STEP_ID_TO_KEY.get(stepId) || 'select'
+    const bid = batchId == null ? '' : String(batchId).trim()
+    return bid ? `${basePath}/batch/${bid}/${key}` : `${basePath}/${key}`
+  }
+
   const [reportId, setReportId] = useState('')
   const [reportDocumentId, setReportDocumentId] = useState('')
   const [batchIdToOpen, setBatchIdToOpen] = useState('')
-  const [zohoCustomerName, setZohoCustomerName] = useState(KSA_AMAZON_CUSTOMER)
+  const [zohoCustomerName, setZohoCustomerName] = useState(() => defaultZohoCustomerName(marketplace))
   const [zohoCustomers, setZohoCustomers] = useState<KsaZohoCustomerOption[]>([])
   const [reports, setReports] = useState<SettlementReport[]>([])
   const [savedBatches, setSavedBatches] = useState<SavedBatchSummary[]>([])
@@ -85,6 +92,15 @@ export function AmazonPaymentClearingPage() {
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
 
+  useEffect(() => {
+    setZohoCustomerName(defaultZohoCustomerName(marketplace))
+    setPreview(null)
+    setPaymentPreview(null)
+    setPostingResult(null)
+    setReports([])
+    setSavedBatches([])
+  }, [marketplace])
+
   const search = useClearingSearch(preview?.allRows || [])
 
   const loadedBatchId = preview?.batch?.batchId != null ? String(preview.batch.batchId) : ''
@@ -99,7 +115,7 @@ export function AmazonPaymentClearingPage() {
     (stepId: number) => {
       navigate(clearingPath(stepId, loadedBatchId || routeBatchId || null))
     },
-    [navigate, loadedBatchId, routeBatchId]
+    [navigate, loadedBatchId, routeBatchId, basePath]
   )
 
   const isPosted = preview?.status === 'posted' || preview?.batch?.status === 'posted' || preview?.postedToZoho === true
@@ -144,8 +160,8 @@ export function AmazonPaymentClearingPage() {
     }
     try {
       const [cnPlan, feePlan] = await Promise.all([
-        fetchKsaCreditNoteApplyPlan(id),
-        fetchKsaReturnFeePlan(id),
+        fetchCreditNoteApplyPlan(marketplace, id),
+        fetchReturnFeePlan(marketplace, id),
       ])
       setCreditNoteApplyComplete(Boolean(cnPlan.summary?.isComplete))
       setReturnFeeBlockerCount(feePlan.summary?.varianceBlockerCount || 0)
@@ -164,7 +180,7 @@ export function AmazonPaymentClearingPage() {
   const loadSavedBatches = useCallback(async () => {
     setLoadingBatches(true)
     try {
-      const json = await fetchKsaSavedBatches()
+      const json = await fetchSavedBatches(marketplace, 50)
       setSavedBatches(Array.isArray(json.batches) ? json.batches : [])
     } catch (e) {
       setError(safeError(e))
@@ -180,7 +196,7 @@ export function AmazonPaymentClearingPage() {
   useEffect(() => {
     void (async () => {
       try {
-        const json = await fetchKsaZohoCustomers()
+        const json = await fetchZohoCustomers(marketplace)
         setZohoCustomers(Array.isArray(json.customers) ? json.customers : [])
       } catch {
         setZohoCustomers([])
@@ -192,7 +208,7 @@ export function AmazonPaymentClearingPage() {
     setLoadingReports(true)
     setError('')
     try {
-      const json = await fetchKsaSettlementReports()
+      const json = await fetchSettlementReports(marketplace, 90)
       const rows = Array.isArray(json.reports) ? json.reports : []
       setReports(rows)
       if (rows[0]) {
@@ -212,10 +228,10 @@ export function AmazonPaymentClearingPage() {
     setPaymentPreview(json.paymentPreview ?? null)
     setPostingResult(null)
     if (json.zohoCustomerName || json.batch?.zohoCustomerName) {
-      setZohoCustomerName(json.zohoCustomerName || json.batch?.zohoCustomerName || KSA_AMAZON_CUSTOMER)
+      setZohoCustomerName(json.zohoCustomerName || json.batch?.zohoCustomerName || defaultZohoCustomerName(marketplace))
     }
     search.reset()
-  }, [search])
+  }, [search, marketplace])
 
   const selectedZohoCustomer = useMemo(
     () => zohoCustomers.find((row) => row.name === zohoCustomerName) || null,
@@ -228,7 +244,7 @@ export function AmazonPaymentClearingPage() {
       setError('')
       setNotice('')
       try {
-        const json = await previewKsaSettlementReport({
+        const json = await previewSettlementReport(marketplace, {
           reportId: reportId.trim() || undefined,
           reportDocumentId: reportDocumentId.trim() || undefined,
           daysBack: 90,
@@ -268,7 +284,7 @@ export function AmazonPaymentClearingPage() {
       setError('')
       setNotice('')
       try {
-        const json = await previewKsaSettlementUpload(file, {
+        const json = await previewSettlementUpload(marketplace, file, {
           forceRefresh,
           zohoCustomerId: selectedZohoCustomer?.customerId || undefined,
           zohoCustomerName: zohoCustomerName || undefined,
@@ -300,7 +316,7 @@ export function AmazonPaymentClearingPage() {
       setError('')
       setNotice('')
       try {
-        const json = await fetchKsaPaymentClearingBatch(value)
+        const json = await fetchPaymentClearingBatch(marketplace, value)
         applyPreview(json)
         setBatchIdToOpen(value)
         if (opts.navigate !== false) {
@@ -334,7 +350,7 @@ export function AmazonPaymentClearingPage() {
     setError('')
     setNotice('')
     try {
-      const json = await approveKsaPaymentClearingBatch(batchId)
+      const json = await approvePaymentClearingBatch(marketplace, batchId)
       setPreview(json)
       setPaymentPreview(null)
       setPostingResult(null)
@@ -355,7 +371,7 @@ export function AmazonPaymentClearingPage() {
     setError('')
     setNotice('')
     try {
-      const json = await generateKsaPaymentClearingPaymentPreview(batchId)
+      const json = await generatePaymentClearingPaymentPreview(marketplace, batchId)
       setPaymentPreview(json)
       setPostingResult(null)
       setNotice('Payment clearing preview generated. No Zoho payments have been created.')
@@ -381,11 +397,11 @@ export function AmazonPaymentClearingPage() {
       setError('')
       setNotice('')
       try {
-        const json = await postKsaPaymentClearingToZoho(batchId, dryRun)
+        const json = await postPaymentClearingToZoho(marketplace, batchId, dryRun)
         setPostingResult(json)
         setNotice(dryRun ? 'Dry run completed. No Zoho payments were created.' : 'Zoho posting completed.')
         if (!dryRun && json.summary?.errors === 0) {
-          const refreshed = await fetchKsaPaymentClearingBatch(batchId)
+          const refreshed = await fetchPaymentClearingBatch(marketplace, batchId)
           setPreview(refreshed)
           await loadSavedBatches()
           await refreshPostClearingStepStatus(batchId)
@@ -411,13 +427,13 @@ export function AmazonPaymentClearingPage() {
       setError('')
       setNotice('')
       try {
-        const json = await postKsaReturnFeeJournals(batchId, dryRun)
+        const json = await postReturnFeeJournals(marketplace, batchId, dryRun)
         setPostingResult(json)
         setNotice(dryRun ? 'Return fee journal dry run completed.' : 'Return fee journals posted to Zoho.')
         if (!dryRun && json.summary.errors === 0) {
-          const refreshed = await fetchKsaPaymentClearingBatch(batchId)
+          const refreshed = await fetchPaymentClearingBatch(marketplace, batchId)
           setPreview(refreshed)
-          const feePlan = await fetchKsaReturnFeePlan(batchId)
+          const feePlan = await fetchReturnFeePlan(marketplace, batchId)
           setReturnFeePostComplete(Boolean(feePlan.returnFeePostComplete))
           setReturnFeeBlockerCount(feePlan.summary?.varianceBlockerCount || 0)
           await refreshPostClearingStepStatus(batchId)
@@ -439,12 +455,12 @@ export function AmazonPaymentClearingPage() {
       setError('')
       setNotice('')
       try {
-        const json = await forceRepostKsaPaymentClearing(batchId, { reason, dryRun: false })
+        const json = await forceRepostPaymentClearing(marketplace, batchId, { reason, dryRun: false })
         setPostingResult(json)
         setForceRepostOpen(false)
         setNotice('Force repost completed and logged to the audit trail.')
         if (json.summary.errors === 0) {
-          const refreshed = await fetchKsaPaymentClearingBatch(batchId)
+          const refreshed = await fetchPaymentClearingBatch(marketplace, batchId)
           setPreview(refreshed)
           await loadSavedBatches()
         }
@@ -464,7 +480,7 @@ export function AmazonPaymentClearingPage() {
       setError('')
       setNotice('')
       try {
-        const refreshed = await reclassifyKsaAccountLevelFees(batchId, [rowNumber])
+        const refreshed = await reclassifyAccountLevelFees(marketplace, batchId, [rowNumber])
         setPreview(refreshed)
         setNotice(refreshed.message || `Row ${rowNumber} marked as account-level fee.`)
       } catch (e) {
@@ -475,6 +491,7 @@ export function AmazonPaymentClearingPage() {
   )
 
   const ctx: ClearingContext = {
+    marketplace,
     preview,
     paymentPreview,
     postingResult,
@@ -595,7 +612,7 @@ export function AmazonPaymentClearingPage() {
     <div className="ainv-page apc-page">
       <section className="ainv-page__header">
         <div className="ainv-page__eyebrow ainv-page__eyebrow--amber">Management · Amazon · KSA</div>
-        <h1 className="ainv-page__title">Amazon KSA Payment Clearing</h1>
+        <h1 className="ainv-page__title">{clearingPageTitle(marketplace)}</h1>
         <p className="ainv-page__lead">
           Fetch once, reconcile sales and returns against Zoho, and post grouped Record Payments — with every warning
           traceable to the exact settlement rows.

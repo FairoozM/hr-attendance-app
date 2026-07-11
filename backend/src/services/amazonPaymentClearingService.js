@@ -14,9 +14,16 @@ const {
   matchZohoInvoicesForRows,
   deriveInvoiceRange,
   matchRefundReturnRowsToCreditNotes,
-  resolveKsaZohoCustomer,
-  listKsaZohoCustomerOptions,
+  resolvePaymentClearingZohoCustomer,
+  listPaymentClearingZohoCustomerOptions,
 } = require('./amazonPaymentClearingZohoMatcher')
+const {
+  getPaymentClearingMarketplaceConfig,
+  assertBatchMarketplace,
+  normalizeMarketplaceCode,
+  marketplaceKeyFromCodeOrKey,
+  AMAZON_LIST_REPORTS_MAX_DAYS_BACK,
+} = require('./amazonPaymentClearingMarketplaceConfig')
 const {
   buildPreview,
   buildBlockingIssues,
@@ -48,34 +55,34 @@ const {
   isSettlementReconciliationAcceptable,
 } = require('./amazonPaymentClearingCurrencyService')
 
-const MARKETPLACE_KEY = 'ksa'
+/** @deprecated Prefer getPaymentClearingMarketplaceConfig(marketplace).settlementReportType */
+const SETTLEMENT_REPORT_TYPE = getPaymentClearingMarketplaceConfig('ksa').settlementReportType
 const MARKETPLACE = 'KSA'
-const SETTLEMENT_REPORT_TYPE =
-  process.env.AMAZON_KSA_SETTLEMENT_REPORT_TYPE || 'GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2'
-/** Amazon listReports rejects createdSince older than ~90 days (InvalidInput). */
-const AMAZON_LIST_REPORTS_MAX_DAYS_BACK = Number(process.env.AMAZON_LIST_REPORTS_MAX_DAYS_BACK) || 90
-const SETTLEMENT_LIST_DAYS_BACK = Number(process.env.AMAZON_KSA_SETTLEMENT_LIST_DAYS_BACK) || AMAZON_LIST_REPORTS_MAX_DAYS_BACK
-const SETTLEMENT_LIST_PAGE_SIZE = Number(process.env.AMAZON_KSA_SETTLEMENT_LIST_PAGE_SIZE) || 100
-const SETTLEMENT_LIST_MAX_PAGES = Number(process.env.AMAZON_KSA_SETTLEMENT_LIST_MAX_PAGES) || 20
+const MARKETPLACE_KEY = 'ksa'
+
+function marketplaceConfigFromOptions(options = {}) {
+  return getPaymentClearingMarketplaceConfig(options.marketplace || options.marketplaceKey || MARKETPLACE)
+}
 
 function isoDaysAgo(days) {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
 }
 
-function clampSettlementListDaysBack(daysBack) {
+function clampSettlementListDaysBack(daysBack, cfg = getPaymentClearingMarketplaceConfig('ksa')) {
   const requested = Number(daysBack)
-  const normalized = Number.isFinite(requested) && requested > 0 ? requested : SETTLEMENT_LIST_DAYS_BACK
-  return Math.min(normalized, AMAZON_LIST_REPORTS_MAX_DAYS_BACK)
+  const normalized = Number.isFinite(requested) && requested > 0 ? requested : cfg.settlementListDaysBack
+  return Math.min(normalized, cfg.listReportsMaxDaysBack)
 }
 
 function resolveSettlementListCreatedSince(options = {}) {
-  const daysBack = clampSettlementListDaysBack(options.daysBack)
-  const earliestAllowed = isoDaysAgo(AMAZON_LIST_REPORTS_MAX_DAYS_BACK)
+  const cfg = marketplaceConfigFromOptions(options)
+  const daysBack = clampSettlementListDaysBack(options.daysBack, cfg)
+  const earliestAllowed = isoDaysAgo(cfg.listReportsMaxDaysBack)
   const requestedSince = options.createdSince ? String(options.createdSince).trim() : isoDaysAgo(daysBack)
   return {
     daysBack,
     createdSince: requestedSince < earliestAllowed ? earliestAllowed : requestedSince,
-    maxDaysBack: AMAZON_LIST_REPORTS_MAX_DAYS_BACK,
+    maxDaysBack: cfg.listReportsMaxDaysBack,
   }
 }
 
@@ -113,24 +120,25 @@ function settlementReportSortTime(report) {
 }
 
 async function listRecentSettlementReports(options = {}) {
-  const marketplaceId = marketplaceIdForKey(MARKETPLACE_KEY)
+  const cfg = marketplaceConfigFromOptions(options)
+  const marketplaceId = marketplaceIdForKey(cfg.key)
   const { daysBack, createdSince, maxDaysBack } = resolveSettlementListCreatedSince(options)
-  const pageSize = Number(options.pageSize) || SETTLEMENT_LIST_PAGE_SIZE
-  const maxPages = Number(options.maxPages) || SETTLEMENT_LIST_MAX_PAGES
+  const pageSize = Number(options.pageSize) || cfg.settlementListPageSize
+  const maxPages = Number(options.maxPages) || cfg.settlementListMaxPages
   const byReportId = new Map()
   let nextToken = ''
 
   for (let page = 0; page < maxPages; page += 1) {
     const spRes = await listAmazonReports({
-      marketplaceKey: MARKETPLACE_KEY,
-      reportTypes: [SETTLEMENT_REPORT_TYPE],
+      marketplaceKey: cfg.key,
+      reportTypes: [cfg.settlementReportType],
       processingStatuses: ['DONE'],
       marketplaceIds: [marketplaceId],
       createdSince,
       pageSize,
       ...(nextToken ? { nextToken } : {}),
     })
-    throwAmazonSpApiIfFailed(spRes, 'listSettlementReports', MARKETPLACE_KEY)
+    throwAmazonSpApiIfFailed(spRes, 'listSettlementReports', cfg.key)
     for (const report of extractReports(spRes.data).map(normalizeReport).filter(Boolean)) {
       const key = report.reportId || report.reportDocumentId
       if (!key || byReportId.has(key)) continue
@@ -145,8 +153,8 @@ async function listRecentSettlementReports(options = {}) {
   )
   return {
     success: true,
-    marketplace: MARKETPLACE,
-    reportType: SETTLEMENT_REPORT_TYPE,
+    marketplace: cfg.code,
+    reportType: cfg.settlementReportType,
     marketplaceId,
     daysBack,
     createdSince,
@@ -156,9 +164,10 @@ async function listRecentSettlementReports(options = {}) {
 }
 
 async function resolveReport(options = {}) {
+  const cfg = marketplaceConfigFromOptions(options)
   if (options.reportId) {
-    const spRes = await getAmazonReport(options.reportId, { marketplaceKey: MARKETPLACE_KEY })
-    throwAmazonSpApiIfFailed(spRes, 'getSettlementReport', MARKETPLACE_KEY)
+    const spRes = await getAmazonReport(options.reportId, { marketplaceKey: cfg.key })
+    throwAmazonSpApiIfFailed(spRes, 'getSettlementReport', cfg.key)
     const report = normalizeReport(spRes.data) || { reportId: options.reportId, reportDocumentId: '' }
     return report
   }
@@ -166,35 +175,41 @@ async function resolveReport(options = {}) {
     return {
       reportId: '',
       reportDocumentId: String(options.reportDocumentId).trim(),
-      reportType: SETTLEMENT_REPORT_TYPE,
+      reportType: cfg.settlementReportType,
       processingStatus: 'DONE',
       createdTime: '',
       processingEndTime: '',
       dataStartTime: '',
       dataEndTime: '',
-      marketplaceIds: [marketplaceIdForKey(MARKETPLACE_KEY)],
+      marketplaceIds: [marketplaceIdForKey(cfg.key)],
       raw: {},
     }
   }
-  const recent = await listRecentSettlementReports({ daysBack: options.daysBack, pageSize: options.pageSize })
+  const recent = await listRecentSettlementReports({
+    daysBack: options.daysBack,
+    pageSize: options.pageSize,
+    marketplace: cfg.code,
+    marketplaceKey: cfg.key,
+  })
   const report = recent.reports.find((r) => r.reportDocumentId) || recent.reports[0]
   if (!report) {
-    const err = new Error('No recent KSA settlement report found in Amazon SP-API.')
-    err.code = 'AMAZON_KSA_SETTLEMENT_REPORT_NOT_FOUND'
+    const err = new Error(cfg.settlementNotFoundMessage)
+    err.code = cfg.settlementNotFoundCode
     err.status = 404
     throw err
   }
   return report
 }
 
-async function downloadSettlementReportDocument(reportDocumentId) {
-  const doc = await getAmazonReportDocument(reportDocumentId, { marketplaceKey: MARKETPLACE_KEY })
-  throwAmazonSpApiIfFailed(doc, 'getSettlementReportDocument', MARKETPLACE_KEY)
+async function downloadSettlementReportDocument(reportDocumentId, options = {}) {
+  const cfg = marketplaceConfigFromOptions(options)
+  const doc = await getAmazonReportDocument(reportDocumentId, { marketplaceKey: cfg.key })
+  throwAmazonSpApiIfFailed(doc, 'getSettlementReportDocument', cfg.key)
   const download = await downloadAmazonReportDocument(doc.data?.url, {
-    marketplaceKey: MARKETPLACE_KEY,
+    marketplaceKey: cfg.key,
     compressionAlgorithm: doc.data?.compressionAlgorithm,
   })
-  throwAmazonSpApiIfFailed(download, 'downloadSettlementReportDocument', MARKETPLACE_KEY)
+  throwAmazonSpApiIfFailed(download, 'downloadSettlementReportDocument', cfg.key)
   return download.data || ''
 }
 
@@ -216,17 +231,20 @@ async function buildAndSavePreviewFromParsed({
   forceRefresh = false,
   refreshFlagKey = 'refreshedFromAmazon',
 }) {
-  const { customerId: zohoCustomerId, customerName: zohoCustomerName } = await resolveKsaZohoCustomer({
+  const cfg = marketplaceConfigFromOptions(options)
+  const { customerId: zohoCustomerId, customerName: zohoCustomerName } = await resolvePaymentClearingZohoCustomer({
     customerId: options.zohoCustomerId,
     customerName: options.zohoCustomerName,
+    marketplace: cfg.code,
   })
   const zohoMatch = await matchZohoInvoicesForRows(parsed.rows, {
     fromDate: options.fromDate,
     toDate: options.toDate,
     customerId: zohoCustomerId,
     customerName: zohoCustomerName,
+    marketplace: cfg.code,
   })
-  const feeJournalMappingRules = await store.listFeeJournalMappings({ marketplace: MARKETPLACE }).catch(() => [])
+  const feeJournalMappingRules = await store.listFeeJournalMappings({ marketplace: cfg.code }).catch(() => [])
   const metadata = parsed.metadata || {}
   const settlementRows = applyLegacyCurrencyToSettlementRows(parsed.rows, zohoCustomerName)
   const legacyCurrencyWarning = legacyCurrencyParserWarning(zohoCustomerName)
@@ -239,6 +257,7 @@ async function buildAndSavePreviewFromParsed({
       settlementEndDate: metadata.settlementEndDate,
       depositDate: metadata.depositDate,
       currency: settlementCurrencyForCustomer(zohoCustomerName, metadata.currency),
+      marketplace: cfg.code,
     },
     rows: settlementRows,
     invoices: zohoMatch.invoices,
@@ -255,6 +274,7 @@ async function buildAndSavePreviewFromParsed({
     syntheticRefundRows: zohoMatch.syntheticRefundRows || [],
     netNegativeReturnOrderIds: zohoMatch.netNegativeReturnOrderIds || [],
   })
+  preview.marketplace = cfg.code
   preview.zohoCustomerId = zohoCustomerId || ''
   preview.zohoCustomerName = zohoCustomerName || ''
   applyLegacySettlementMismatchTolerance(preview)
@@ -265,7 +285,7 @@ async function buildAndSavePreviewFromParsed({
   let reuseBatchId = existing ? existing.batchId : null
   let reusedExisting = Boolean(existing)
   if (!reuseBatchId && metadata.settlementId) {
-    const bySettlement = await store.findBatchBySettlement(metadata.settlementId, MARKETPLACE)
+    const bySettlement = await store.findBatchBySettlement(metadata.settlementId, cfg.code)
     if (bySettlement) {
       if (!forceRefresh && (bySettlement.status === 'posted' || bySettlement.postedToZoho)) {
         return { ...(await hydrateSavedBatch(bySettlement)), fromCache: true }
@@ -290,6 +310,7 @@ async function buildAndSavePreviewFromParsed({
 }
 
 async function buildPreviewFromReport(options = {}) {
+  const cfg = marketplaceConfigFromOptions(options)
   const forceRefresh = options.forceRefresh === true
 
   // Fetch-once: when the report is already saved locally, reopen it from the
@@ -298,6 +319,7 @@ async function buildPreviewFromReport(options = {}) {
     const cached = await store.findBatchByReport({
       reportId: options.reportId,
       reportDocumentId: options.reportDocumentId,
+      marketplace: cfg.code,
     })
     if (cached) {
       return { ...(await hydrateSavedBatch(cached)), fromCache: true }
@@ -315,6 +337,7 @@ async function buildPreviewFromReport(options = {}) {
   const existing = await store.findBatchByReport({
     reportId: report.reportId,
     reportDocumentId: report.reportDocumentId,
+    marketplace: cfg.code,
   })
   if (existing && !forceRefresh) {
     return { ...(await hydrateSavedBatch(existing)), fromCache: true }
@@ -326,12 +349,12 @@ async function buildPreviewFromReport(options = {}) {
     throw err
   }
 
-  const text = await downloadSettlementReportDocument(report.reportDocumentId)
-  const parsed = parseAmazonSettlementReport(text)
+  const reportText = await downloadSettlementReportDocument(report.reportDocumentId, options)
+  const parsed = parseAmazonSettlementReport(reportText)
   return buildAndSavePreviewFromParsed({
     report,
     parsed,
-    options,
+    options: { ...options, marketplace: cfg.code, marketplaceKey: cfg.key },
     existing,
     forceRefresh,
     refreshFlagKey: 'refreshedFromAmazon',
@@ -343,6 +366,7 @@ async function buildPreviewFromReport(options = {}) {
  * without calling Amazon SP-API. Needed when reportIds older than ~90 days return NotFound.
  */
 async function buildPreviewFromUploadedSettlement(options = {}) {
+  const cfg = marketplaceConfigFromOptions(options)
   const forceRefresh = options.forceRefresh === true
   const fileName = String(options.fileName || options.originalname || 'settlement.tsv').trim()
   const parsed = parseAmazonSettlementReportBuffer(options.buffer, fileName)
@@ -358,19 +382,20 @@ async function buildPreviewFromUploadedSettlement(options = {}) {
   const report = {
     reportId: '',
     reportDocumentId,
-    reportType: SETTLEMENT_REPORT_TYPE,
+    reportType: cfg.settlementReportType,
     processingStatus: 'DONE',
     createdTime: '',
     processingEndTime: '',
     dataStartTime: metadata.settlementStartDate || '',
     dataEndTime: metadata.settlementEndDate || '',
-    marketplaceIds: [marketplaceIdForKey(MARKETPLACE_KEY)],
+    marketplaceIds: [marketplaceIdForKey(cfg.key)],
     raw: { source: 'upload', fileName },
   }
 
   const existing = await store.findBatchByReport({
     reportDocumentId,
     settlementId: metadata.settlementId,
+    marketplace: cfg.code,
   })
   if (existing && !forceRefresh) {
     return { ...(await hydrateSavedBatch(existing)), fromCache: true, fromUpload: true }
@@ -385,7 +410,7 @@ async function buildPreviewFromUploadedSettlement(options = {}) {
   const result = await buildAndSavePreviewFromParsed({
     report,
     parsed,
-    options,
+    options: { ...options, marketplace: cfg.code, marketplaceKey: cfg.key },
     existing,
     forceRefresh,
     refreshFlagKey: 'refreshedFromUpload',
@@ -1074,13 +1099,16 @@ async function hydrateSavedBatch(batch) {
   return hydrated
 }
 
-async function getSavedBatch(id) {
+async function getSavedBatch(id, options = {}) {
   const batch = await store.getBatchById(id)
   if (!batch) {
     const err = new Error('Payment clearing batch not found.')
     err.code = 'AMAZON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
     err.status = 404
     throw err
+  }
+  if (options.marketplace || options.marketplaceKey) {
+    assertBatchMarketplace(batch, options.marketplace || options.marketplaceKey)
   }
   return hydrateSavedBatch(batch)
 }
@@ -1117,21 +1145,26 @@ function dedupeBatchesByPeriod(batches) {
   )
 }
 
-async function listSavedBatches(limit = 50) {
-  const batches = dedupeBatchesByPeriod(await store.listRecentBatches(limit))
+async function listSavedBatches(limit = 50, options = {}) {
+  const cfg = marketplaceConfigFromOptions(options)
+  const all = await store.listRecentBatches(Math.min(100, Math.max(Number(limit) || 50, 50)))
+  const filtered = (Array.isArray(all) ? all : []).filter(
+    (batch) => normalizeMarketplaceCode(batch.marketplace || 'KSA') === cfg.code
+  )
+  const batches = dedupeBatchesByPeriod(filtered).slice(0, Math.min(50, Math.max(1, Number(limit) || 50)))
   return {
     success: true,
-    marketplace: MARKETPLACE,
+    marketplace: cfg.code,
     batches: (Array.isArray(batches) ? batches : []).map((batch) => ({
       batchId: batch.batchId,
-      marketplace: batch.marketplace || MARKETPLACE,
+      marketplace: batch.marketplace || cfg.code,
       reportId: batch.reportId || batch.report?.reportId || '',
       reportDocumentId: batch.reportDocumentId || batch.report?.reportDocumentId || '',
       settlementId: batch.settlementId || batch.report?.settlementId || '',
       settlementStartDate: batch.report?.settlementStartDate || '',
       settlementEndDate: batch.report?.settlementEndDate || '',
       depositDate: batch.report?.depositDate || '',
-      currency: settlementCurrencyForCustomer(batch.zohoCustomerName, batch.report?.currency || 'SAR'),
+      currency: settlementCurrencyForCustomer(batch.zohoCustomerName, batch.report?.currency || (cfg.code === 'UAE' ? 'AED' : 'SAR')),
       status: batch.status,
       lifecycleStatus: deriveLifecycleStatus(batch),
       postedToZoho: Boolean(batch.postedToZoho),
@@ -1386,10 +1419,10 @@ async function postReturnFeeJournalsForBatchId(id, options = {}) {
   })
 }
 
-async function getZohoAccountDiagnostics() {
+async function getZohoAccountDiagnostics(marketplace = 'KSA') {
   return {
     success: true,
-    ...(await getAccountDiagnostics()),
+    ...(await getAccountDiagnostics(marketplace)),
   }
 }
 
@@ -1431,10 +1464,15 @@ function getZohoOAuthAuthorizeUrl(state = '') {
 }
 
 async function listKsaZohoCustomers() {
+  return listZohoCustomers('KSA')
+}
+
+async function listZohoCustomers(marketplace = 'KSA') {
+  const cfg = getPaymentClearingMarketplaceConfig(marketplace)
   return {
     success: true,
-    marketplace: MARKETPLACE,
-    customers: await listKsaZohoCustomerOptions(),
+    marketplace: cfg.code,
+    customers: await listPaymentClearingZohoCustomerOptions(cfg.code),
   }
 }
 
@@ -1454,6 +1492,7 @@ module.exports = {
   getSavedBatch,
   listSavedBatches,
   listKsaZohoCustomers,
+  listZohoCustomers,
   approveSavedBatch,
   buildPaymentPreviewForBatch,
   postBatchToZoho,
@@ -1469,6 +1508,8 @@ module.exports = {
   getZohoOAuthAuthorizeUrl,
   exchangeZohoOAuthCode,
   reclassifyAccountLevelFeesForBatch,
+  assertBatchMarketplace,
+  getPaymentClearingMarketplaceConfig,
   _internals: {
     extractReports,
     normalizeReport,
@@ -1478,5 +1519,6 @@ module.exports = {
     settlementReportSortTime,
     clampSettlementListDaysBack,
     resolveSettlementListCreatedSince,
+    marketplaceConfigFromOptions,
   },
 }

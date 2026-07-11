@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { fetchKsaReturnFeePlan, type ReturnFeePlan } from '../../../../api/amazonPaymentClearing'
+import { fetchReturnFeePlan, type ReturnFeePlan } from '../../../../api/amazonPaymentClearing'
 import { money, PostingResultTable, SummaryCard } from '../clearingShared'
 import type { ClearingContext } from './clearingContext'
 
@@ -19,7 +19,7 @@ export function Step9ReturnFeeClearing({ ctx }: { ctx: ClearingContext }) {
     setLoading(true)
     setLocalError('')
     try {
-      const json = await fetchKsaReturnFeePlan(batchId)
+      const json = await fetchReturnFeePlan(ctx.marketplace, batchId)
       setPlan(json)
       await ctx.refreshPostClearingStepStatus(batchId)
     } catch (e) {

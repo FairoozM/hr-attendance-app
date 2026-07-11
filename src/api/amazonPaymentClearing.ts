@@ -723,22 +723,56 @@ export interface PaymentPostingResult {
 
 const longOpts = { timeoutMs: 480_000 }
 
-export async function fetchKsaSettlementReports(daysBack = 90) {
+export type PaymentClearingMarketplace = 'KSA' | 'UAE'
+
+export function paymentClearingApiSegment(marketplace: PaymentClearingMarketplace | string = 'KSA'): 'ksa' | 'uae' {
+  return String(marketplace).trim().toUpperCase() === 'UAE' ? 'uae' : 'ksa'
+}
+
+function paymentClearingBase(marketplace: PaymentClearingMarketplace | string = 'KSA') {
+  return `/api/amazon/payment-clearing/${paymentClearingApiSegment(marketplace)}`
+}
+
+export async function fetchSettlementReports(marketplace: PaymentClearingMarketplace = 'KSA', daysBack = 90) {
   const qs = new URLSearchParams({ daysBack: String(daysBack) })
-  return api.get(`/api/amazon/payment-clearing/ksa/settlements?${qs.toString()}`, longOpts) as Promise<{
+  return api.get(`${paymentClearingBase(marketplace)}/settlements?${qs.toString()}`, longOpts) as Promise<{
     success: boolean
-    marketplace: 'KSA'
+    marketplace: PaymentClearingMarketplace
     reportType: string
     reports: SettlementReport[]
   }>
 }
 
-export async function fetchKsaZohoCustomers() {
-  return api.get('/api/amazon/payment-clearing/ksa/zoho-customers', longOpts) as Promise<{
+export async function fetchKsaSettlementReports(daysBack = 90) {
+  return fetchSettlementReports('KSA', daysBack)
+}
+
+export async function fetchZohoCustomers(marketplace: PaymentClearingMarketplace = 'KSA') {
+  return api.get(`${paymentClearingBase(marketplace)}/zoho-customers`, longOpts) as Promise<{
     success: boolean
-    marketplace: 'KSA'
+    marketplace: PaymentClearingMarketplace
     customers: KsaZohoCustomerOption[]
   }>
+}
+
+export async function fetchKsaZohoCustomers() {
+  return fetchZohoCustomers('KSA')
+}
+
+export async function previewSettlementReport(
+  marketplace: PaymentClearingMarketplace,
+  body: {
+    reportId?: string
+    reportDocumentId?: string
+    daysBack?: number
+    forceRefresh?: boolean
+    zohoCustomerId?: string
+    zohoCustomerName?: string
+    fromDate?: string
+    toDate?: string
+  }
+) {
+  return api.post(`${paymentClearingBase(marketplace)}/preview`, body, longOpts) as Promise<PaymentClearingPreview>
 }
 
 export async function previewKsaSettlementReport(body: {
@@ -751,10 +785,11 @@ export async function previewKsaSettlementReport(body: {
   fromDate?: string
   toDate?: string
 }) {
-  return api.post('/api/amazon/payment-clearing/ksa/preview', body, longOpts) as Promise<PaymentClearingPreview>
+  return previewSettlementReport('KSA', body)
 }
 
-export async function previewKsaSettlementUpload(
+export async function previewSettlementUpload(
+  marketplace: PaymentClearingMarketplace,
   file: File,
   body: {
     forceRefresh?: boolean
@@ -771,36 +806,74 @@ export async function previewKsaSettlementUpload(
   if (body.zohoCustomerName) form.append('zohoCustomerName', body.zohoCustomerName)
   if (body.fromDate) form.append('fromDate', body.fromDate)
   if (body.toDate) form.append('toDate', body.toDate)
-  return api.postForm('/api/amazon/payment-clearing/ksa/preview-upload', form, longOpts) as Promise<PaymentClearingPreview>
+  return api.postForm(`${paymentClearingBase(marketplace)}/preview-upload`, form, longOpts) as Promise<PaymentClearingPreview>
 }
 
-export async function fetchKsaSavedBatches(limit = 50) {
+export async function previewKsaSettlementUpload(
+  file: File,
+  body: {
+    forceRefresh?: boolean
+    zohoCustomerId?: string
+    zohoCustomerName?: string
+    fromDate?: string
+    toDate?: string
+  } = {}
+) {
+  return previewSettlementUpload('KSA', file, body)
+}
+
+export async function fetchSavedBatches(marketplace: PaymentClearingMarketplace = 'KSA', limit = 50) {
   const qs = new URLSearchParams({ limit: String(limit) })
-  return api.get(`/api/amazon/payment-clearing/ksa/batches?${qs.toString()}`, longOpts) as Promise<{
+  return api.get(`${paymentClearingBase(marketplace)}/batches?${qs.toString()}`, longOpts) as Promise<{
     success: boolean
-    marketplace: 'KSA'
+    marketplace: PaymentClearingMarketplace
     batches: SavedBatchSummary[]
   }>
 }
 
-export async function fetchKsaPaymentClearingBatch(batchId: number | string) {
-  return api.get(`/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}`, longOpts) as Promise<PaymentClearingPreview>
+export async function fetchKsaSavedBatches(limit = 50) {
+  return fetchSavedBatches('KSA', limit)
 }
 
-export async function fetchKsaFeeJournalMappings(includeInactive = true) {
+export async function fetchPaymentClearingBatch(marketplace: PaymentClearingMarketplace, batchId: number | string) {
+  return api.get(
+    `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}`,
+    longOpts
+  ) as Promise<PaymentClearingPreview>
+}
+
+export async function fetchKsaPaymentClearingBatch(batchId: number | string) {
+  return fetchPaymentClearingBatch('KSA', batchId)
+}
+
+export async function fetchFeeJournalMappings(marketplace: PaymentClearingMarketplace = 'KSA', includeInactive = true) {
   const qs = new URLSearchParams({ includeInactive: String(includeInactive) })
-  return api.get(`/api/amazon/payment-clearing/ksa/fee-journal-mappings?${qs.toString()}`, longOpts) as Promise<{
+  return api.get(`${paymentClearingBase(marketplace)}/fee-journal-mappings?${qs.toString()}`, longOpts) as Promise<{
     success: boolean
-    marketplace: 'KSA'
+    marketplace: PaymentClearingMarketplace
     mappings: AmazonFeeJournalMappingRule[]
   }>
 }
 
-export async function saveKsaFeeJournalMapping(body: Partial<AmazonFeeJournalMappingRule>) {
-  return api.post('/api/amazon/payment-clearing/ksa/fee-journal-mappings', body, longOpts) as Promise<{
+export async function fetchKsaFeeJournalMappings(includeInactive = true) {
+  return fetchFeeJournalMappings('KSA', includeInactive)
+}
+
+export async function saveFeeJournalMapping(
+  marketplace: PaymentClearingMarketplace,
+  body: Partial<AmazonFeeJournalMappingRule>
+) {
+  return api.post(`${paymentClearingBase(marketplace)}/fee-journal-mappings`, {
+    ...body,
+    marketplace,
+  }, longOpts) as Promise<{
     success: boolean
     mapping: AmazonFeeJournalMappingRule
   }>
+}
+
+export async function saveKsaFeeJournalMapping(body: Partial<AmazonFeeJournalMappingRule>) {
+  return saveFeeJournalMapping('KSA', body)
 }
 
 export async function fetchAmazonPaymentClearingZohoChartAccounts() {
@@ -810,37 +883,82 @@ export async function fetchAmazonPaymentClearingZohoChartAccounts() {
   }>
 }
 
+export async function approvePaymentClearingBatch(marketplace: PaymentClearingMarketplace, batchId: number | string) {
+  return api.post(
+    `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}/approve`,
+    {},
+    longOpts
+  ) as Promise<PaymentClearingPreview>
+}
+
 export async function approveKsaPaymentClearingBatch(batchId: number | string) {
-  return api.post(`/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/approve`, {}, longOpts) as Promise<PaymentClearingPreview>
+  return approvePaymentClearingBatch('KSA', batchId)
+}
+
+export async function fetchCreditNoteApplyPlan(marketplace: PaymentClearingMarketplace, batchId: number | string) {
+  return api.get(
+    `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}/credit-note-apply-plan`,
+    longOpts
+  ) as Promise<CreditNoteApplyPlan>
 }
 
 export async function fetchKsaCreditNoteApplyPlan(batchId: number | string) {
-  return api.get(`/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/credit-note-apply-plan`, longOpts) as Promise<CreditNoteApplyPlan>
+  return fetchCreditNoteApplyPlan('KSA', batchId)
+}
+
+export async function applyCreditNotes(marketplace: PaymentClearingMarketplace, batchId: number | string, dryRun = true) {
+  return api.post(
+    `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}/apply-credit-notes`,
+    { dryRun },
+    longOpts
+  ) as Promise<CreditNoteApplyResult>
 }
 
 export async function applyKsaCreditNotes(batchId: number | string, dryRun = true) {
-  return api.post(`/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/apply-credit-notes`, { dryRun }, longOpts) as Promise<CreditNoteApplyResult>
+  return applyCreditNotes('KSA', batchId, dryRun)
+}
+
+export async function fetchReturnFeePlan(marketplace: PaymentClearingMarketplace, batchId: number | string) {
+  return api.get(
+    `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}/return-fee-plan`,
+    longOpts
+  ) as Promise<ReturnFeePlan>
 }
 
 export async function fetchKsaReturnFeePlan(batchId: number | string) {
-  return api.get(`/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/return-fee-plan`, longOpts) as Promise<ReturnFeePlan>
+  return fetchReturnFeePlan('KSA', batchId)
+}
+
+export async function generatePaymentClearingPaymentPreview(
+  marketplace: PaymentClearingMarketplace,
+  batchId: number | string
+) {
+  return api.post(
+    `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}/payment-preview`,
+    {},
+    longOpts
+  ) as Promise<PaymentClearingPaymentPreview>
 }
 
 export async function generateKsaPaymentClearingPaymentPreview(batchId: number | string) {
-  return api.post(`/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/payment-preview`, {}, longOpts) as Promise<PaymentClearingPaymentPreview>
+  return generatePaymentClearingPaymentPreview('KSA', batchId)
 }
 
-export async function postKsaPaymentClearingToZoho(batchId: number | string, dryRun = true) {
+export async function postPaymentClearingToZoho(
+  marketplace: PaymentClearingMarketplace,
+  batchId: number | string,
+  dryRun = true
+) {
   if (dryRun) {
     return api.post(
-      `/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/post-to-zoho`,
+      `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}/post-to-zoho`,
       { dryRun: true },
       longOpts
     ) as Promise<PaymentPostingResult>
   }
 
   const started = (await api.post(
-    `/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/post-to-zoho`,
+    `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}/post-to-zoho`,
     { dryRun: false },
     longOpts
   )) as PaymentPostingResult & { jobId?: string; status?: string }
@@ -851,7 +969,7 @@ export async function postKsaPaymentClearingToZoho(batchId: number | string, dry
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 2000))
     const job = (await api.get(
-      `/api/amazon/payment-clearing/ksa/post-to-zoho-jobs/${encodeURIComponent(started.jobId)}`,
+      `${paymentClearingBase(marketplace)}/post-to-zoho-jobs/${encodeURIComponent(started.jobId)}`,
       longOpts
     )) as {
       status?: string
@@ -866,10 +984,34 @@ export async function postKsaPaymentClearingToZoho(batchId: number | string, dry
   throw new Error('Zoho posting timed out while waiting for the background job to finish.')
 }
 
-export async function postKsaReturnFeeJournals(batchId: number | string, dryRun = true) {
+export async function postKsaPaymentClearingToZoho(batchId: number | string, dryRun = true) {
+  return postPaymentClearingToZoho('KSA', batchId, dryRun)
+}
+
+export async function postReturnFeeJournals(
+  marketplace: PaymentClearingMarketplace,
+  batchId: number | string,
+  dryRun = true
+) {
   return api.post(
-    `/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/post-return-fee-journals`,
+    `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}/post-return-fee-journals`,
     { dryRun },
+    longOpts
+  ) as Promise<PaymentPostingResult>
+}
+
+export async function postKsaReturnFeeJournals(batchId: number | string, dryRun = true) {
+  return postReturnFeeJournals('KSA', batchId, dryRun)
+}
+
+export async function forceRepostPaymentClearing(
+  marketplace: PaymentClearingMarketplace,
+  batchId: number | string,
+  body: { reason: string; dryRun?: boolean }
+) {
+  return api.post(
+    `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}/force-repost`,
+    { dryRun: body.dryRun !== false, reason: body.reason },
     longOpts
   ) as Promise<PaymentPostingResult>
 }
@@ -878,20 +1020,24 @@ export async function forceRepostKsaPaymentClearing(
   batchId: number | string,
   body: { reason: string; dryRun?: boolean }
 ) {
+  return forceRepostPaymentClearing('KSA', batchId, body)
+}
+
+export async function reclassifyAccountLevelFees(
+  marketplace: PaymentClearingMarketplace,
+  batchId: number | string,
+  rowNumbers: number[]
+) {
   return api.post(
-    `/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/force-repost`,
-    { dryRun: body.dryRun !== false, reason: body.reason },
+    `${paymentClearingBase(marketplace)}/batches/${encodeURIComponent(String(batchId))}/reclassify-account-level-fees`,
+    { rowNumbers },
     longOpts
-  ) as Promise<PaymentPostingResult>
+  ) as Promise<PaymentClearingPreview & { message?: string }>
 }
 
 export async function reclassifyKsaAccountLevelFees(
   batchId: number | string,
   rowNumbers: number[]
 ) {
-  return api.post(
-    `/api/amazon/payment-clearing/ksa/batches/${encodeURIComponent(String(batchId))}/reclassify-account-level-fees`,
-    { rowNumbers },
-    longOpts
-  ) as Promise<PaymentClearingPreview & { message?: string }>
+  return reclassifyAccountLevelFees('KSA', batchId, rowNumbers)
 }

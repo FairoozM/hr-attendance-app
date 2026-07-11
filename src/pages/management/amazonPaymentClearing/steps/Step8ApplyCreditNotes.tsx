@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  applyKsaCreditNotes,
-  fetchKsaCreditNoteApplyPlan,
+  applyCreditNotes,
+  fetchCreditNoteApplyPlan,
   type CreditNoteApplyPlan,
 } from '../../../../api/amazonPaymentClearing'
 import { money, SummaryCard } from '../clearingShared'
+import { undepositedFundsLabel } from '../marketplaceConfig'
 import type { ClearingContext } from './clearingContext'
 
 const ACTION_LABEL: Record<string, string> = {
@@ -45,7 +46,7 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
     setLoading(true)
     setLocalError('')
     try {
-      const json = await fetchKsaCreditNoteApplyPlan(batchId)
+      const json = await fetchCreditNoteApplyPlan(ctx.marketplace, batchId)
       setPlan(json)
       await ctx.refreshPostClearingStepStatus(batchId)
     } catch (e) {
@@ -66,7 +67,7 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
     setApplying(true)
     setLocalError('')
     try {
-      const json = await applyKsaCreditNotes(batchId, true)
+      const json = await applyCreditNotes(ctx.marketplace, batchId, true)
       setPlan(json.plan || null)
       ctx.setNotice('Dry run complete. Zoho was not changed.')
     } catch (e) {
@@ -79,13 +80,13 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
   const onApply = async () => {
     if (!batchId) return
     const ok = window.confirm(
-      'Refund all ready credit notes to KSA-Amazon Undeposited Funds in Zoho? Invoices were already paid in step 9.'
+      `Refund all ready credit notes to ${undepositedFundsLabel(ctx.marketplace)} in Zoho? Invoices were already paid in step 9.`
     )
     if (!ok) return
     setApplying(true)
     setLocalError('')
     try {
-      const json = await applyKsaCreditNotes(batchId, false)
+      const json = await applyCreditNotes(ctx.marketplace, batchId, false)
       setPlan(json.plan || null)
       await ctx.onReloadCurrentBatch()
       await ctx.refreshPostClearingStepStatus(batchId)
@@ -115,7 +116,7 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
     <div className="apc-step-stack">
       <div className="apc-alert">
         After sales payments are posted in step 9, refund each warehouse credit note to{' '}
-        <strong>KSA-Amazon Undeposited Funds</strong>. Invoices are already paid — do not apply credit notes to them
+        <strong>{undepositedFundsLabel(ctx.marketplace)}</strong>. Invoices are already paid — do not apply credit notes to them
         again. Missing credit notes are created first, then refunded.
       </div>
 
@@ -206,7 +207,7 @@ export function Step8ApplyCreditNotes({ ctx }: { ctx: ClearingContext }) {
                   <td className="apc-money">
                     {READY_ACTIONS.has(row.action) ? money(row.refundAmount ?? row.applyAmount) : '-'}
                   </td>
-                  <td>{row.refundAccountName || (READY_ACTIONS.has(row.action) ? 'KSA-Amazon Undeposited Funds' : '-')}</td>
+                  <td>{row.refundAccountName || (READY_ACTIONS.has(row.action) ? undepositedFundsLabel(ctx.marketplace) : '-')}</td>
                   <td className="apc-money">
                     {(row.amountAlreadyRefunded ?? row.amountAlreadyApplied) != null &&
                     (row.amountAlreadyRefunded ?? row.amountAlreadyApplied)! > 0

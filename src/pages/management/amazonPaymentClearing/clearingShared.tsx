@@ -686,9 +686,9 @@ export function PaymentClearingPreviewTable({ paymentPreview, currency = 'SAR' }
             <th>Zoho P.O.#</th>
             <th className="apc-money">Invoice Total</th>
             <th className="apc-money">Shipping Offset</th>
-            <th className="apc-money">Net Balance Payment<br /><span>KSA-Amazon Undeposited Funds (1024)</span></th>
-            <th className="apc-money">Commission Payment<br /><span>KSA-Amazon Uncleared Commission Exp (1026)</span></th>
-            <th className="apc-money">Shipping/FBA Payment<br /><span>KSA-Amazon Uncleared Shipping Exp (1028)</span></th>
+            <th className="apc-money">Net Balance Payment<br /><span>Undeposited Funds (1024)</span></th>
+            <th className="apc-money">Commission Payment<br /><span>Uncleared Commission Exp (1026)</span></th>
+            <th className="apc-money">Shipping/FBA Payment<br /><span>Uncleared Shipping Exp (1028)</span></th>
             <th className="apc-money">Total Clearing</th>
             <th className="apc-money">Difference</th>
             <th>Status</th>

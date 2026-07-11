@@ -1,13 +1,19 @@
 const { round2, isSettlementReturnRow } = require('./amazonPaymentClearingOrderBreakdownService')
 const { buildSettlementReference, buildEntryReference } = require('./amazonPaymentClearingReferenceService')
+const { getPaymentClearingMarketplaceConfig } = require('./amazonPaymentClearingMarketplaceConfig')
 
 const TOLERANCE = 0.01
 
+/** @deprecated Prefer marketplace-aware accounts from getPaymentClearingMarketplaceConfig */
 const RETURN_FEE_ACCOUNTS = Object.freeze({
   UNDEPOSITED: { accountCode: '1024', accountName: 'KSA-Amazon Undeposited Funds' },
   COMMISSION: { accountCode: '1026', accountName: 'KSA-Amazon Uncleared Commission Exp' },
   SHIPPING_FBA: { accountCode: '1028', accountName: 'KSA-Amazon Uncleared Shipping Exp' },
 })
+
+function returnFeeAccountsFor(marketplace) {
+  return getPaymentClearingMarketplaceConfig(marketplace).returnFeeAccounts
+}
 
 function clean(value) {
   return String(value == null ? '' : value).trim()
@@ -112,6 +118,9 @@ function journalLineAmount(value) {
 
 function buildReturnFeeJournalLinesForBreakdown(breakdown, batch, opts = {}) {
   const lines = []
+  const marketplace = opts.marketplace || batch?.marketplace || 'KSA'
+  const cfg = getPaymentClearingMarketplaceConfig(marketplace)
+  const accounts = returnFeeAccountsFor(marketplace)
   const settlementReference = buildSettlementReference(batch)
   const orderId = breakdown.orderId
 
@@ -124,8 +133,8 @@ function buildReturnFeeJournalLinesForBreakdown(breakdown, batch, opts = {}) {
       feeType: 'return_commission_reversal',
       normalizedFeeType: 'RETURN_COMMISSION_REVERSAL',
       amount: commissionAmt,
-      debit: { ...RETURN_FEE_ACCOUNTS.UNDEPOSITED, amount: commissionAmt },
-      credit: { ...RETURN_FEE_ACCOUNTS.COMMISSION, amount: commissionAmt },
+      debit: { ...accounts.UNDEPOSITED, amount: commissionAmt },
+      credit: { ...accounts.COMMISSION, amount: commissionAmt },
       referenceNumber: entry.referenceNumber,
       notes: entry.description || `Amazon return commission reversal ${orderId}`,
       status: 'ready',
@@ -141,8 +150,8 @@ function buildReturnFeeJournalLinesForBreakdown(breakdown, batch, opts = {}) {
       feeType: 'return_shipping_retained',
       normalizedFeeType: 'RETURN_SHIPPING_RETAINED',
       amount: shippingAmt,
-      debit: { ...RETURN_FEE_ACCOUNTS.SHIPPING_FBA, amount: shippingAmt },
-      credit: { ...RETURN_FEE_ACCOUNTS.UNDEPOSITED, amount: shippingAmt },
+      debit: { ...accounts.SHIPPING_FBA, amount: shippingAmt },
+      credit: { ...accounts.UNDEPOSITED, amount: shippingAmt },
       referenceNumber: entry.referenceNumber,
       notes: entry.description || `Amazon return shipping/FBA retained ${orderId}`,
       status: 'ready',
@@ -160,11 +169,11 @@ function buildReturnFeeJournalLinesForBreakdown(breakdown, batch, opts = {}) {
       normalizedFeeType: 'RETURN_OTHER_FEE',
       amount: otherAmt,
       debit: isDebitUndeposited
-        ? { ...RETURN_FEE_ACCOUNTS.SHIPPING_FBA, amount: otherAmt }
-        : { ...RETURN_FEE_ACCOUNTS.UNDEPOSITED, amount: otherAmt },
+        ? { ...accounts.SHIPPING_FBA, amount: otherAmt }
+        : { ...accounts.UNDEPOSITED, amount: otherAmt },
       credit: isDebitUndeposited
-        ? { ...RETURN_FEE_ACCOUNTS.UNDEPOSITED, amount: otherAmt }
-        : { ...RETURN_FEE_ACCOUNTS.SHIPPING_FBA, amount: otherAmt },
+        ? { ...accounts.UNDEPOSITED, amount: otherAmt }
+        : { ...accounts.SHIPPING_FBA, amount: otherAmt },
       referenceNumber: entry.referenceNumber,
       notes: entry.description || `Amazon return other fee delta ${orderId}`,
       status: 'ready',
@@ -177,7 +186,7 @@ function buildReturnFeeJournalLinesForBreakdown(breakdown, batch, opts = {}) {
       breakdown.otherFeeDelta
   )
   const residual = round2(breakdown.netReturnSettlement - breakdown.customerRefundAmount - feeJournalNet)
-  const varianceAccountId = clean(process.env.AMAZON_KSA_ZOHO_RETURN_VARIANCE_ACCOUNT_ID)
+  const varianceAccountId = clean(opts.returnVarianceAccountId ?? cfg.returnVarianceAccountId)
   if (Math.abs(residual) > TOLERANCE) {
     if (!varianceAccountId && !opts.allowVarianceWithoutAccount) {
       lines.push({
@@ -188,7 +197,7 @@ function buildReturnFeeJournalLinesForBreakdown(breakdown, batch, opts = {}) {
         amount: Math.abs(residual),
         residual,
         status: 'needs_mapping',
-        blockingReason: 'Return fee residual exceeds tolerance. Set AMAZON_KSA_ZOHO_RETURN_VARIANCE_ACCOUNT_ID or review Amazon rows.',
+        blockingReason: `Return fee residual exceeds tolerance. Set ${cfg.returnVarianceAccountIdEnv} or review Amazon rows.`,
       })
     } else if (varianceAccountId) {
       const entry = buildEntryReference(settlementReference, 'return_variance', `Order ${orderId}`)
@@ -205,11 +214,11 @@ function buildReturnFeeJournalLinesForBreakdown(breakdown, batch, opts = {}) {
         normalizedFeeType: 'RETURN_VARIANCE',
         amount: amt,
         debit: residual < 0
-          ? { ...RETURN_FEE_ACCOUNTS.UNDEPOSITED, accountId: varianceAccountId, amount: amt }
+          ? { ...accounts.UNDEPOSITED, accountId: varianceAccountId, amount: amt }
           : { ...varianceAccount, amount: amt },
         credit: residual < 0
           ? { ...varianceAccount, amount: amt }
-          : { ...RETURN_FEE_ACCOUNTS.UNDEPOSITED, accountId: varianceAccountId, amount: amt },
+          : { ...accounts.UNDEPOSITED, accountId: varianceAccountId, amount: amt },
         referenceNumber: entry.referenceNumber,
         notes: entry.description || `Amazon return fee variance ${orderId}`,
         status: 'ready',

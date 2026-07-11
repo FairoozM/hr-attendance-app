@@ -9,6 +9,7 @@ import type {
 import type { useClearingSearch } from '../hooks/useClearingSearch'
 
 export interface ClearingContext {
+  marketplace: 'KSA' | 'UAE'
   preview: PaymentClearingPreview | null
   paymentPreview: PaymentClearingPaymentPreview | null
   postingResult: PaymentPostingResult | null

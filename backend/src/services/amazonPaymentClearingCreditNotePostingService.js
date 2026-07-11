@@ -3,18 +3,32 @@ const {
   createCreditNote,
   refundCreditNote,
 } = require('../integrations/zoho/zohoBooksClient')
-const { matchZohoInvoicesForRows, resolveKsaZohoCustomerId } = require('./amazonPaymentClearingZohoMatcher')
+const {
+  matchZohoInvoicesForRows,
+  resolvePaymentClearingZohoCustomerId,
+  resolveKsaZohoCustomerId,
+} = require('./amazonPaymentClearingZohoMatcher')
 const { buildSettlementReference, buildEntryReference } = require('./amazonPaymentClearingReferenceService')
 const { round2 } = require('./amazonPaymentClearingOrderBreakdownService')
 const { buildReturnFeeBreakdown } = require('./amazonPaymentClearingReturnFeeService')
 const zohoPaymentService = require('./amazonPaymentClearingZohoPaymentService')
 const store = require('./amazonPaymentClearingStore')
+const { getPaymentClearingMarketplaceConfig } = require('./amazonPaymentClearingMarketplaceConfig')
 
 const TOLERANCE = 0.01
 const PAYMENT_TYPE = 'credit_note_refund'
 const LEGACY_PAYMENT_TYPE = 'credit_note_apply'
 const UNDEPOSITED_ACCOUNT_CODE = '1024'
+/** @deprecated Prefer marketplace undeposited account name from config */
 const UNDEPOSITED_ACCOUNT_NAME = 'KSA-Amazon Undeposited Funds'
+
+function undepositedAccountFor(marketplace) {
+  const cfg = getPaymentClearingMarketplaceConfig(marketplace)
+  return {
+    accountCode: cfg.undepositedAccountCode,
+    accountName: cfg.undepositedAccountName,
+  }
+}
 
 function clean(value) {
   return String(value == null ? '' : value).trim()
@@ -227,11 +241,17 @@ function resolveCreditNoteRefundAmount(row) {
 }
 
 async function resolveUndepositedRefundAccount(opts = {}) {
+  const marketplace = opts.marketplace || 'KSA'
+  const undeposited = undepositedAccountFor(marketplace)
   const resolver = opts.resolveDepositAccount || zohoPaymentService.resolveConfiguredDepositAccount
-  return resolver({
-    depositToAccountCode: UNDEPOSITED_ACCOUNT_CODE,
-    depositToAccountName: UNDEPOSITED_ACCOUNT_NAME,
-  })
+  return resolver(
+    {
+      depositToAccountCode: undeposited.accountCode,
+      depositToAccountName: undeposited.accountName,
+      marketplace,
+    },
+    { marketplace }
+  )
 }
 
 async function creditNoteRefundTotal(creditNoteId, referenceNumber = '', listRefunds = listCreditNoteRefunds) {
@@ -247,10 +267,12 @@ async function creditNoteRefundTotal(creditNoteId, referenceNumber = '', listRef
 }
 
 async function buildRefundCreditNoteRequest(row, batch, opts = {}) {
+  const marketplace = opts.marketplace || batch?.marketplace || 'KSA'
+  const undeposited = undepositedAccountFor(marketplace)
   const paymentDate = opts.paymentDate || zohoPaymentService.todayLocalDate()
   const settlementReference = buildSettlementReference(batch)
   const entry = buildEntryReference(settlementReference, 'refund_return', `Order ${row.orderId}`)
-  const account = await resolveUndepositedRefundAccount(opts)
+  const account = await resolveUndepositedRefundAccount({ ...opts, marketplace })
   const amount = resolveCreditNoteRefundAmount(row)
   return {
     amount,
@@ -258,8 +280,8 @@ async function buildRefundCreditNoteRequest(row, batch, opts = {}) {
     referenceNumber: entry.referenceNumber,
     description: entry.description,
     settlementReference,
-    refundAccountCode: UNDEPOSITED_ACCOUNT_CODE,
-    refundAccountName: account.accountName || UNDEPOSITED_ACCOUNT_NAME,
+    refundAccountCode: undeposited.accountCode,
+    refundAccountName: account.accountName || undeposited.accountName,
     refundAccountId: account.accountId,
     zohoRefundRequest: {
       date: paymentDate,
@@ -272,17 +294,18 @@ async function buildRefundCreditNoteRequest(row, batch, opts = {}) {
   }
 }
 
-function buildCreateCreditNotePayload(row, customerId, paymentDate) {
+function buildCreateCreditNotePayload(row, customerId, paymentDate, marketplace = 'KSA') {
   const orderId = clean(row.orderId)
   const amount = positiveAmount(row.amazonRefundAmount)
+  const label = getPaymentClearingMarketplaceConfig(marketplace).label
   return {
     customer_id: customerId,
     date: paymentDate,
     reference_number: orderId,
     line_items: [
       {
-        name: `Amazon KSA return ${orderId}`,
-        description: `Amazon KSA return ${orderId}`,
+        name: `${label} return ${orderId}`,
+        description: `${label} return ${orderId}`,
         rate: amount,
         quantity: 1,
       },
@@ -291,12 +314,15 @@ function buildCreateCreditNotePayload(row, customerId, paymentDate) {
 }
 
 async function resolvePlanRowAction(row, batch, opts = {}) {
+  const marketplace = opts.marketplace || batch?.marketplace || 'KSA'
+  const undeposited = undepositedAccountFor(marketplace)
   const listRefunds = opts.listRefunds || listCreditNoteRefunds
   const invoiceId = clean(row.zohoInvoiceId)
   const creditNoteId = clean(row.zohoCreditNoteId)
   const refundAmount = creditNoteId ? resolveCreditNoteRefundAmount(row) : positiveAmount(row.amazonRefundAmount)
   const settlementReference = buildSettlementReference(batch)
   const entry = buildEntryReference(settlementReference, 'refund_return', `Order ${row.orderId}`)
+  const matchOpts = { ...opts, marketplace }
 
   const baseFields = {
     orderId: row.orderId,
@@ -306,8 +332,8 @@ async function resolvePlanRowAction(row, batch, opts = {}) {
     zohoInvoiceNumber: row.zohoInvoiceNumber || '',
     zohoCreditNoteId: creditNoteId,
     zohoCreditNoteNumber: row.zohoCreditNoteNumber || '',
-    refundAccountCode: UNDEPOSITED_ACCOUNT_CODE,
-    refundAccountName: UNDEPOSITED_ACCOUNT_NAME,
+    refundAccountCode: undeposited.accountCode,
+    refundAccountName: undeposited.accountName,
     referenceNumber: entry.referenceNumber,
     description: entry.description,
   }
@@ -347,7 +373,7 @@ async function resolvePlanRowAction(row, batch, opts = {}) {
       }
     }
     const remaining = round2(refundAmount - refunded)
-    const refundRequest = await buildRefundCreditNoteRequest({ ...row, creditNoteAmount: refundAmount }, batch, opts)
+    const refundRequest = await buildRefundCreditNoteRequest({ ...row, creditNoteAmount: refundAmount }, batch, matchOpts)
     return {
       ...baseFields,
       action: 'refund_existing',
@@ -356,6 +382,7 @@ async function resolvePlanRowAction(row, batch, opts = {}) {
       refundAmount: remaining,
       amountAlreadyRefunded: refunded,
       refundAccountId: refundRequest.refundAccountId,
+      refundAccountName: refundRequest.refundAccountName || undeposited.accountName,
       zohoRefundRequest: {
         ...refundRequest.zohoRefundRequest,
         amount: remaining,
@@ -364,25 +391,25 @@ async function resolvePlanRowAction(row, batch, opts = {}) {
   }
 
   if (row.creditNoteAction === 'ready_to_create') {
-    const customerId = await resolveKsaZohoCustomerId(opts)
+    const customerId = await resolvePaymentClearingZohoCustomerId(matchOpts)
     const paymentDate = opts.paymentDate || zohoPaymentService.todayLocalDate()
-  return {
+    return {
       ...baseFields,
       action: 'create_and_refund',
       status: 'ready',
       applyAmount: refundAmount,
       refundAmount,
       zohoCustomerId: customerId,
-      zohoCreateRequest: buildCreateCreditNotePayload(row, customerId, paymentDate),
-      zohoRefundRequest: (await buildRefundCreditNoteRequest(row, batch, { ...opts, paymentDate })).zohoRefundRequest,
+      zohoCreateRequest: buildCreateCreditNotePayload(row, customerId, paymentDate, marketplace),
+      zohoRefundRequest: (await buildRefundCreditNoteRequest(row, batch, { ...matchOpts, paymentDate })).zohoRefundRequest,
     }
   }
 
   return {
-    ...buildBlockedPlanRow(row, batch, opts),
+    ...buildBlockedPlanRow(row, batch, matchOpts),
     refundAmount: refundAmount,
-    refundAccountCode: UNDEPOSITED_ACCOUNT_CODE,
-    refundAccountName: UNDEPOSITED_ACCOUNT_NAME,
+    refundAccountCode: undeposited.accountCode,
+    refundAccountName: undeposited.accountName,
   }
 }
 
@@ -397,8 +424,10 @@ function isCreditNotePlanRowComplete(row) {
 }
 
 async function buildCreditNoteApplyPlan(batch, opts = {}) {
+  const marketplace = opts.marketplace || batch?.marketplace || 'KSA'
   const matchOpts = {
     ...opts,
+    marketplace,
     customerId: opts.customerId || batch.zohoCustomerId || null,
     customerName: opts.customerName || batch.zohoCustomerName || null,
   }
@@ -556,7 +585,7 @@ async function applyCreditNotesForBatch(batch, options = {}) {
         paymentType: PAYMENT_TYPE,
         zohoPaymentId: refunded.creditNoteRefundId || creditNoteId,
         amount: row.refundAmount ?? row.applyAmount,
-        accountCode: row.refundAccountCode || UNDEPOSITED_ACCOUNT_CODE,
+        accountCode: row.refundAccountCode || undepositedAccountFor(batch.marketplace || 'KSA').accountCode,
         invoiceAllocations: [],
         referenceNumber: row.referenceNumber,
         description: row.description,
@@ -566,7 +595,7 @@ async function applyCreditNotesForBatch(batch, options = {}) {
           zohoCreditNoteNumber: creditNoteNumber,
           zohoCreditNoteRefundId: refunded.creditNoteRefundId || '',
           refundAccountId: refundPayload.from_account_id || row.refundAccountId || '',
-          refundAccountName: row.refundAccountName || UNDEPOSITED_ACCOUNT_NAME,
+          refundAccountName: row.refundAccountName || undepositedAccountFor(batch.marketplace || 'KSA').accountName,
         },
         status: 'posted',
       })

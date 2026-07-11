@@ -281,6 +281,38 @@ function AppContent() {
           }
         />
         <Route
+          path="management/amazon-uae-payment-clearing"
+          element={
+            <AdminOnly>
+              <AmazonPaymentClearingPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="management/amazon-uae-payment-clearing/:stepKey"
+          element={
+            <AdminOnly>
+              <AmazonPaymentClearingPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="management/amazon-uae-payment-clearing/batch/:batchId"
+          element={
+            <AdminOnly>
+              <AmazonPaymentClearingPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="management/amazon-uae-payment-clearing/batch/:batchId/:stepKey"
+          element={
+            <AdminOnly>
+              <AmazonPaymentClearingPage />
+            </AdminOnly>
+          }
+        />
+        <Route
           path="management/amazon-return-reconciliation"
           element={
             <AdminOnly>

@@ -15,6 +15,7 @@ const { matchSettlementRowsToInvoices } = require('./amazonPaymentClearingZohoMa
 const { buildOrderFeeBreakdown, detectNetNegativeOrderRefundRows, isNetNegativeOrderReturn, isSettlementReturnRow, collectInvoicePaymentExcludedOrderIds, orderHasSalePrincipalInSettlement, round2 } = require('./amazonPaymentClearingOrderBreakdownService')
 const { buildReconciliationSummary } = require('./amazonPaymentClearingReconciliationService')
 const { legacyAllowsSettlementReconciliationMismatch } = require('./amazonPaymentClearingCurrencyService')
+const { getPaymentClearingMarketplaceConfig } = require('./amazonPaymentClearingMarketplaceConfig')
 
 function sum(rows, predicate = () => true) {
   return round2((Array.isArray(rows) ? rows : []).reduce((acc, row) => {
@@ -63,39 +64,12 @@ function buildSettlementLevelFees(rows) {
   return orderCategoryEntries(byCategory)
 }
 
-const DEFAULT_FEE_JOURNAL_ACCOUNT_SUGGESTIONS = Object.freeze({
-  [NORMALIZED_FEE_TYPE.STORAGE]: {
-    debitAccountName: 'KSA Amazon Storage Exp',
-    creditAccountName: 'KSA-Amazon Undeposited Funds',
-  },
-  [NORMALIZED_FEE_TYPE.ADVERTISING]: {
-    debitAccountName: 'KSA-Amazon Advertising Exp',
-    creditAccountName: 'KSA-Amazon Undeposited Funds',
-  },
-  [NORMALIZED_FEE_TYPE.ADVERTISING_CREDIT]: {
-    debitAccountName: 'KSA-Amazon Undeposited Funds',
-    creditAccountName: 'KSA-Amazon Advertising Exp',
-  },
-  [NORMALIZED_FEE_TYPE.PREMIUM_SERVICES]: {
-    debitAccountName: 'KSA Amazon Commission Exp',
-    creditAccountName: 'KSA-Amazon Uncleared Commission Exp',
-  },
-  [NORMALIZED_FEE_TYPE.COMMISSION]: {
-    debitAccountName: 'KSA Amazon Commission Exp',
-    creditAccountName: 'KSA-Amazon Uncleared Commission Exp',
-  },
-  [NORMALIZED_FEE_TYPE.SHIPPING_FBA]: {
-    debitAccountName: 'KSA Amazon Shipping Exp',
-    creditAccountName: 'KSA-Amazon Uncleared Shipping Exp',
-  },
-  [NORMALIZED_FEE_TYPE.OTHER_ACCOUNT_LEVEL_FEE]: {
+function suggestedAccountsForNormalizedFeeType(normalizedFeeType, marketplace = 'KSA') {
+  const suggestions = getPaymentClearingMarketplaceConfig(marketplace).feeJournalAccountSuggestions
+  const fallback = suggestions[normalizedFeeType] || suggestions.OTHER_ACCOUNT_LEVEL_FEE || {
     debitAccountName: '',
     creditAccountName: '',
-  },
-})
-
-function suggestedAccountsForNormalizedFeeType(normalizedFeeType) {
-  const fallback = DEFAULT_FEE_JOURNAL_ACCOUNT_SUGGESTIONS[normalizedFeeType] || DEFAULT_FEE_JOURNAL_ACCOUNT_SUGGESTIONS[NORMALIZED_FEE_TYPE.OTHER_ACCOUNT_LEVEL_FEE]
+  }
   return {
     debitAccountName: fallback.debitAccountName || '',
     debitAccountId: '',
@@ -117,8 +91,10 @@ function journalReferenceNumber(report = {}, paymentType = 'advertising') {
 }
 
 function journalNotes(report = {}, paymentType = 'advertising') {
+  const marketplace = report.marketplace || 'KSA'
+  const label = getPaymentClearingMarketplaceConfig(marketplace).journalNotesLabel
   const referenceNumber = journalReferenceNumber(report, paymentType)
-  return `Transferring Amazon KSA payment from ${referenceNumber} to Expenses accounts`
+  return `Transferring ${label} payment from ${referenceNumber} to Expenses accounts`
 }
 
 function matchesDescriptionPattern(pattern, description) {
@@ -178,7 +154,7 @@ function buildNonOrderLinkedAmazonFeeMappings(rows, report = {}, mappingRules = 
   return Array.from(groups.values())
     .map((entry) => {
       const rule = findFeeJournalMappingRule(entry, mappingRules)
-      const suggestion = suggestedAccountsForNormalizedFeeType(entry.normalizedFeeType)
+      const suggestion = suggestedAccountsForNormalizedFeeType(entry.normalizedFeeType, marketplace)
       const accounts = rule
         ? {
             debitAccountName: rule.debitAccountName || '',

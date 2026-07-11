@@ -2534,22 +2534,70 @@ test('payment clearing route exposes saved batch and approve endpoints', () => {
       methods: Object.keys(route.methods).sort(),
     }))
 
-  assert.ok(routes.some((route) => route.path === '/ksa/batches/:id' && route.methods.includes('get')))
-  assert.ok(routes.some((route) => route.path === '/ksa/batches' && route.methods.includes('get')))
-  assert.ok(routes.some((route) => route.path === '/ksa/preview' && route.methods.includes('post')))
-  assert.ok(routes.some((route) => route.path === '/ksa/preview-upload' && route.methods.includes('post')))
-  assert.ok(routes.some((route) => route.path === '/ksa/zoho-customers' && route.methods.includes('get')))
-  assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/force-repost' && route.methods.includes('post')))
+  assert.ok(routes.some((route) => route.path === '/:marketplace/batches/:id' && route.methods.includes('get')))
+  assert.ok(routes.some((route) => route.path === '/:marketplace/batches' && route.methods.includes('get')))
+  assert.ok(routes.some((route) => route.path === '/:marketplace/preview' && route.methods.includes('post')))
+  assert.ok(routes.some((route) => route.path === '/:marketplace/preview-upload' && route.methods.includes('post')))
+  assert.ok(routes.some((route) => route.path === '/:marketplace/zoho-customers' && route.methods.includes('get')))
+  assert.ok(routes.some((route) => route.path === '/:marketplace/batches/:id/force-repost' && route.methods.includes('post')))
   assert.ok(routes.some((route) => route.path === '/zoho/account-diagnostics' && route.methods.includes('get')))
   assert.ok(routes.some((route) => route.path === '/zoho/oauth/authorize-url' && route.methods.includes('get')))
   assert.ok(routes.some((route) => route.path === '/zoho/oauth/callback' && route.methods.includes('get')))
   assert.ok(routes.some((route) => route.path === '/zoho/oauth/exchange' && route.methods.includes('post')))
-  assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/approve' && route.methods.includes('post')))
-  assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/payment-preview' && route.methods.includes('post')))
-  assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/credit-note-apply-plan' && route.methods.includes('get')))
-  assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/apply-credit-notes' && route.methods.includes('post')))
-  assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/return-fee-plan' && route.methods.includes('get')))
-  assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/post-to-zoho' && route.methods.includes('post')))
-  assert.ok(routes.some((route) => route.path === '/ksa/post-to-zoho-jobs/:jobId' && route.methods.includes('get')))
-  assert.ok(routes.some((route) => route.path === '/ksa/batches/:id/post-return-fee-journals' && route.methods.includes('post')))
+  assert.ok(routes.some((route) => route.path === '/:marketplace/batches/:id/approve' && route.methods.includes('post')))
+  assert.ok(routes.some((route) => route.path === '/:marketplace/batches/:id/payment-preview' && route.methods.includes('post')))
+  assert.ok(routes.some((route) => route.path === '/:marketplace/batches/:id/credit-note-apply-plan' && route.methods.includes('get')))
+  assert.ok(routes.some((route) => route.path === '/:marketplace/batches/:id/apply-credit-notes' && route.methods.includes('post')))
+  assert.ok(routes.some((route) => route.path === '/:marketplace/batches/:id/return-fee-plan' && route.methods.includes('get')))
+  assert.ok(routes.some((route) => route.path === '/:marketplace/batches/:id/post-to-zoho' && route.methods.includes('post')))
+  assert.ok(routes.some((route) => route.path === '/:marketplace/post-to-zoho-jobs/:jobId' && route.methods.includes('get')))
+  assert.ok(routes.some((route) => route.path === '/:marketplace/batches/:id/post-return-fee-journals' && route.methods.includes('post')))
+  assert.ok(routes.some((route) => route.path === '/:marketplace/settlements' && route.methods.includes('get')))
+})
+
+test('payment clearing marketplace config distinguishes KSA and UAE', () => {
+  const {
+    getPaymentClearingMarketplaceConfig,
+    assertBatchMarketplace,
+  } = require('../src/services/amazonPaymentClearingMarketplaceConfig')
+  const ksa = getPaymentClearingMarketplaceConfig('ksa')
+  const uae = getPaymentClearingMarketplaceConfig('uae')
+  assert.equal(ksa.code, 'KSA')
+  assert.equal(uae.code, 'UAE')
+  assert.equal(ksa.key, 'ksa')
+  assert.equal(uae.key, 'uae')
+  assert.equal(ksa.defaultZohoCustomerName, 'KSA-Amazon')
+  assert.equal(uae.defaultZohoCustomerName, 'Amazon')
+  assert.equal(ksa.undepositedAccountName, 'KSA-Amazon Undeposited Funds')
+  assert.equal(uae.undepositedAccountName, 'Amazon Undeposited Funds')
+  assert.equal(ksa.supportsLegacySarToAed, true)
+  assert.equal(uae.supportsLegacySarToAed, false)
+  assert.equal(uae.feeJournalAccountSuggestions.ADVERTISING.debitAccountName, 'Amazon Advertising Exp')
+  assert.doesNotThrow(() => assertBatchMarketplace({ marketplace: 'UAE' }, 'uae'))
+  assert.throws(
+    () => assertBatchMarketplace({ marketplace: 'KSA' }, 'uae'),
+    (err) => err.code === 'AMAZON_PAYMENT_CLEARING_MARKETPLACE_MISMATCH'
+  )
+})
+
+test('UAE payment preview uses Amazon undeposited account names', () => {
+  const plan = buildInvoicePaymentPlan(
+    {
+      orderId: '403-uae-1',
+      zohoInvoiceId: 'inv-1',
+      zohoInvoiceNumber: 'INV-1',
+      zohoInvoiceTotal: 100,
+      principalTotal: 110,
+      commissionTotal: -10,
+      fulfillmentFeeTotal: 0,
+      closingFeeTotal: 0,
+      otherAmazonFeeTotal: 0,
+      shippingCollectedTotal: 0,
+      shippingPromotionTotal: 0,
+    },
+    'Amazon',
+    'UAE'
+  )
+  assert.equal(plan.netBalancePayment.depositToAccountName, 'Amazon Undeposited Funds')
+  assert.equal(plan.commissionPayment.depositToAccountName, 'Amazon Uncleared Commission Exp')
 })
