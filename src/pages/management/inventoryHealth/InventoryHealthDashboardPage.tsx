@@ -813,10 +813,16 @@ export function InventoryHealthDashboardPage() {
             {inventoryFetching ? 'Loading…' : 'Apply warehouse'}
           </button>
         </div>
-        {warehousePending ? (
+        {warehousePending && !inventoryFetching ? (
           <div className="ih-filter-hint ih-filter-hint--pending">
             Warehouse changed to <strong>{warehouseLabel(warehouses, filters.warehouseId)}</strong>. Click{' '}
-            <strong>Apply warehouse</strong> to fetch from Zoho (may take 1–3 minutes).
+            <strong>Apply warehouse</strong> to load that warehouse (first time may take 1–3 minutes).
+          </div>
+        ) : null}
+        {warehousePending && inventoryFetching ? (
+          <div className="ih-filter-hint ih-filter-hint--pending">
+            Applying <strong>{warehouseLabel(warehouses, filters.warehouseId)}</strong> — fetching Zoho stock for
+            this warehouse. Keep this tab open.
           </div>
         ) : null}
         {warehousesError ? <div className="ih-filter-hint ih-filter-hint--warn">{warehousesError}</div> : null}
