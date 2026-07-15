@@ -68,7 +68,11 @@ test('attachImageFieldsToRows reads permanent imageUrl from cache only', async (
     }),
   })
 
-  const restoreHealth = mockHealthCacheFallback()
+  const restoreDisk = mockModule('../src/services/inventoryHealthDiskCache', {
+    readDiskCacheEntry: () => null,
+    writeDiskCacheEntry: () => {},
+    clearDiskCache: () => {},
+  })
 
   const restoreAdapter = mockModule('../src/integrations/zoho/zohoAdapter', {
     fetchAllItemsRaw: async () => [baseItem()],
@@ -95,6 +99,7 @@ test('attachImageFieldsToRows reads permanent imageUrl from cache only', async (
   assert.equal(data.rows[0].imageUrl, '/api/zoho/inventory-health/images/file/1001')
   assert.equal(data.rows[0].imageMissing, false)
 
+  restoreDisk()
   restoreStore()
   restoreAdapter()
   restoreSales()

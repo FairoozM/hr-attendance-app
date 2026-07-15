@@ -96,13 +96,21 @@ async function startServer() {
       setImmediate(() => {
         try {
           const { readDiskCacheEntry } = require('./services/inventoryHealthDiskCache')
-          const { loadInventoryHealthBase } = require('./services/inventoryHealthService')
-          if (readDiskCacheEntry('wh:all')) {
+          const { loadInventoryHealthBase, cacheKeyForBase } = require('./services/inventoryHealthService')
+          const warmKey = cacheKeyForBase(null)
+          const freshDisk = readDiskCacheEntry(warmKey)
+          if (freshDisk) {
             console.log('[inventory-health] disk cache present — skip startup warm')
             return
           }
-          console.log('[inventory-health] warming Zoho dashboard cache in background…')
-          loadInventoryHealthBase({ refresh: false })
+          const staleDisk = readDiskCacheEntry(warmKey, { allowStale: true })
+          if (staleDisk) {
+            console.log('[inventory-health] expired disk cache present — background refresh on start')
+          } else {
+            console.log('[inventory-health] warming Zoho dashboard cache in background…')
+          }
+          // refresh:true when stale so we actually rebuild; false when empty (same path).
+          loadInventoryHealthBase({ refresh: Boolean(staleDisk) })
             .then((payload) => {
               const n = payload?.debug?.activeItemsFetched ?? payload?.rows?.length ?? '?'
               console.log(`[inventory-health] startup warm complete (${n} active items)`)

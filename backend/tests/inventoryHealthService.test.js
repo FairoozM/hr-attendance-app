@@ -284,6 +284,99 @@ test('cache does not expose stale errors after clear', () => {
   assert.doesNotThrow(() => clearInventoryHealthCache())
 })
 
+test('expired disk cache is served stale without blocking on Zoho', async () => {
+  const { mockModule, freshRequire } = require('./_helpers')
+  const path = require('path')
+  const fs = require('fs')
+  const os = require('os')
+
+  const restoreAdapter = mockModule('../src/integrations/zoho/zohoAdapter', {
+    fetchAllItemsRaw: async () => {
+      await new Promise((r) => setTimeout(r, 500))
+      return Array.from({ length: 120 }, (_, i) => ({
+        item_id: String(i + 1),
+        sku: `SKU-${i + 1}`,
+        name: `Item ${i + 1}`,
+        status: 'active',
+        stock_on_hand: 1,
+        purchase_rate: 10,
+      }))
+    },
+    fetchItemsRawForWarehouse: async () => [],
+  })
+  const restoreSales = mockModule('../src/integrations/zoho/weeklyReportZohoTransactions', {
+    getSales: async () => ({ lines: [], list_truncated: false, list_pages: 1 }),
+  })
+  const restoreGroups = mockModule('../src/services/itemReportGroupsService', {
+    listMembersOfGroup: async () => [],
+  })
+  const restoreConfig = mockModule('../src/integrations/zoho/zohoConfig', {
+    readZohoConfig: () => ({ code: 'ok', familyCustomFieldId: null, organizationId: '1' }),
+  })
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ih-cache-'))
+  const cacheFile = path.join(tmpDir, 'inventory-health-base-cache.json')
+  const rows = Array.from({ length: 120 }, (_, i) => ({
+    sku: `SKU-${i + 1}`,
+    itemId: String(i + 1),
+    itemName: `Item ${i + 1}`,
+    currentStockQty: 1,
+  }))
+  fs.writeFileSync(
+    cacheFile,
+    JSON.stringify({
+      version: 1,
+      entries: {
+        'wh:all:sales-bundle-v1': {
+          expiresAt: Date.now() - 60_000,
+          savedAt: Date.now() - 120_000,
+          value: {
+            rows,
+            warnings: [],
+            debug: { activeItemsFetched: 120 },
+            asOfDate: '2026-07-01',
+            warehouseId: null,
+            generatedAt: new Date(Date.now() - 120_000).toISOString(),
+            cacheStatus: 'miss',
+          },
+        },
+      },
+    }),
+  )
+
+  const restoreDisk = mockModule('../src/services/inventoryHealthDiskCache', {
+    readDiskCacheEntry: (key, opts = {}) => {
+      const parsed = JSON.parse(fs.readFileSync(cacheFile, 'utf8'))
+      const entry = parsed.entries[key]
+      if (!entry) return null
+      const stale = Date.now() > Number(entry.expiresAt)
+      if (stale && !opts.allowStale) return null
+      return { expiresAt: Number(entry.expiresAt), value: entry.value, error: null, stale }
+    },
+    writeDiskCacheEntry: () => {},
+    clearDiskCache: () => {},
+  })
+
+  try {
+    const svc = freshRequire('../src/services/inventoryHealthService')
+    svc.clearInventoryHealthCache()
+    const t0 = Date.now()
+    const base = await svc.loadInventoryHealthBase({ refresh: false })
+    const elapsed = Date.now() - t0
+    assert.equal(base.cacheStatus, 'stale')
+    assert.equal(base.rows.length, 120)
+    assert.ok(elapsed < 200, `expected fast stale serve, got ${elapsed}ms`)
+    // Background refresh may have started; do not require Zoho call timing here.
+  } finally {
+    restoreDisk()
+    restoreAdapter()
+    restoreSales()
+    restoreGroups()
+    restoreConfig()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
 test('emptyDebug helper shape', () => {
   const d = emptyDebug()
   assert.equal(d.mode, 'items_sales_plus_bundle_usage')

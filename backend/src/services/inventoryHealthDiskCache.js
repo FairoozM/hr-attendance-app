@@ -20,14 +20,23 @@ function readAllEntries() {
   }
 }
 
-function readDiskCacheEntry(key) {
+/**
+ * @param {string} key
+ * @param {{ allowStale?: boolean }} [opts]
+ * @returns {{ expiresAt: number, value: object, error: null, stale: boolean } | null}
+ */
+function readDiskCacheEntry(key, opts = {}) {
+  const allowStale = opts.allowStale === true
   const entry = readAllEntries()[key]
   if (!entry || !entry.value || !entry.expiresAt) return null
-  if (Date.now() > Number(entry.expiresAt)) return null
+  const expiresAt = Number(entry.expiresAt)
+  const stale = Date.now() > expiresAt
+  if (stale && !allowStale) return null
   return {
-    expiresAt: Number(entry.expiresAt),
+    expiresAt,
     value: entry.value,
     error: null,
+    stale,
   }
 }
 

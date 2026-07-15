@@ -732,22 +732,10 @@ async function syncOneInventoryImage({ itemId, sku, force = false } = {}) {
 }
 
 async function getInventoryImageCacheStatus(activeItemCount = null) {
+  // Fast path only — never await loadInventoryHealthBase here.
+  // That Zoho rebuild can take 1–3+ minutes and CloudFront origin timeout (~30s) returns 504 HTML.
   const status = await inventoryItemImageStore.getImageCacheStatus()
   let totalActive = activeItemCount != null && activeItemCount > 0 ? activeItemCount : null
-  if (totalActive == null) {
-    try {
-      const base = await inventoryHealthService.loadInventoryHealthBase({ refresh: false })
-      const fromBase =
-        base?.debug?.activeItemsFetched ||
-        (Array.isArray(base?.rows) ? base.rows.length : 0) ||
-        null
-      if (fromBase != null && fromBase >= 100) {
-        totalActive = fromBase
-      }
-    } catch {
-      totalActive = null
-    }
-  }
   if (totalActive == null) {
     totalActive = Math.max(status.cachedImages + status.missingImages, 0)
   }

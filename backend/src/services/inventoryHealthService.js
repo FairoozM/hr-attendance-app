@@ -576,6 +576,27 @@ function emptyDebug() {
   }
 }
 
+/**
+ * Serve expired-but-valid disk/memory data immediately and refresh Zoho in the background.
+ * Avoids CloudFront ~30s origin timeout when TTL lapses (full Zoho rebuild is 1–3+ minutes).
+ */
+function serveStaleAndRefresh(key, warehouseId, staleEntry, cacheStatus) {
+  const STALE_SERVE_MS = Math.min(CACHE_TTL_MS, 2 * 60 * 1000)
+  _dashboardCache.set(key, {
+    expiresAt: Date.now() + STALE_SERVE_MS,
+    value: staleEntry.value,
+    error: null,
+  })
+  if (!_dashboardInFlight.has(key)) {
+    console.log(`[inventory-health] serving ${cacheStatus} cache — refreshing Zoho in background`)
+    // Fire-and-forget; callers must not await this path for the HTTP response.
+    loadInventoryHealthBase({ warehouseId, refresh: true }).catch((err) => {
+      console.warn('[inventory-health] background refresh failed:', err?.message || err)
+    })
+  }
+  return { ...staleEntry.value, cacheStatus }
+}
+
 async function loadInventoryHealthBase({ warehouseId = null, refresh = false } = {}) {
   const cfg = readZohoConfig()
   if (cfg.code !== 'ok') {
@@ -598,6 +619,10 @@ async function loadInventoryHealthBase({ warehouseId = null, refresh = false } =
       err.code = 'INVENTORY_HEALTH_CACHE_ERROR'
       throw err
     }
+    // Memory expired but still plausible — keep serving while Zoho rebuilds (CloudFront-safe).
+    if (hit && hit.value && !hit.error && isPlausibleCachePayload(hit.value)) {
+      return serveStaleAndRefresh(key, warehouseId, hit, 'stale')
+    }
     const diskHit = readDiskCacheEntry(key)
     if (diskHit) {
       if (isPlausibleCachePayload(diskHit.value)) {
@@ -607,9 +632,25 @@ async function loadInventoryHealthBase({ warehouseId = null, refresh = false } =
       console.warn('[inventory-health] ignoring invalid disk cache — will refetch from Zoho')
       invalidateBadCacheEntry(key)
     }
+    const staleDisk = readDiskCacheEntry(key, { allowStale: true })
+    if (staleDisk && isPlausibleCachePayload(staleDisk.value)) {
+      return serveStaleAndRefresh(key, warehouseId, staleDisk, 'stale')
+    }
   }
 
   if (_dashboardInFlight.has(key)) {
+    // When a client only needs data and a rebuild is already running, prefer any stale payload
+    // over waiting behind CloudFront's origin timeout.
+    if (!refresh) {
+      const staleDisk = readDiskCacheEntry(key, { allowStale: true })
+      if (staleDisk && isPlausibleCachePayload(staleDisk.value)) {
+        return { ...staleDisk.value, cacheStatus: 'stale' }
+      }
+      const mem = _dashboardCache.get(key)
+      if (mem?.value && !mem.error && isPlausibleCachePayload(mem.value)) {
+        return { ...mem.value, cacheStatus: 'stale' }
+      }
+    }
     const v = await _dashboardInFlight.get(key)
     return { ...v, cacheStatus: refresh ? 'refresh' : v.cacheStatus || 'shared' }
   }
@@ -881,6 +922,7 @@ function clearInventoryHealthCache() {
 module.exports = {
   getInventoryHealthDashboard,
   loadInventoryHealthBase,
+  cacheKeyForBase,
   rowsToCsv,
   clearInventoryHealthCache,
   parseFilters,
