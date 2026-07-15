@@ -26,17 +26,41 @@ function formatLocalIso(d) {
   return `${y}-${m}-${day}`
 }
 
+/**
+ * Normalize pg DATE / Date / ISO strings to YYYY-MM-DD.
+ * node-pg returns DATE columns as Date objects; String(date).slice(0, 10) yields
+ * "Wed Jul 15" (not ISO) and breaks SQL inserts with "NaN-NaN-NaN".
+ */
+function toIsoDate(value) {
+  if (value == null || value === '') return null
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null
+    return formatLocalIso(value)
+  }
+  const s = String(value).trim()
+  const iso = s.slice(0, 10)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso
+  const parsed = new Date(s)
+  if (Number.isNaN(parsed.getTime())) return null
+  return formatLocalIso(parsed)
+}
+
 function parseLocalDate(isoDate) {
-  const s = String(isoDate).slice(0, 10)
-  const [y, m, d] = s.split('-').map(Number)
+  if (isoDate instanceof Date) {
+    return new Date(isoDate.getFullYear(), isoDate.getMonth(), isoDate.getDate())
+  }
+  const iso = toIsoDate(isoDate)
+  if (!iso) return new Date(NaN)
+  const [y, m, d] = iso.split('-').map(Number)
   return new Date(y, m - 1, d)
 }
 
 function getDaysLeft(expiryDate) {
   if (!expiryDate) return null
+  const exp = parseLocalDate(expiryDate)
+  if (Number.isNaN(exp.getTime())) return null
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  const exp = parseLocalDate(expiryDate)
   exp.setHours(0, 0, 0, 0)
   return Math.ceil((exp - today) / (1000 * 60 * 60 * 24))
 }
@@ -100,6 +124,7 @@ function addBillingPeriod(expiryDate, billingCycle) {
 
 function subtractDays(isoDate, days) {
   const d = parseLocalDate(isoDate)
+  if (Number.isNaN(d.getTime())) return null
   d.setDate(d.getDate() - Number(days))
   return formatLocalIso(d)
 }
@@ -115,4 +140,5 @@ module.exports = {
   addBillingPeriod,
   subtractDays,
   formatLocalIso,
+  toIsoDate,
 }

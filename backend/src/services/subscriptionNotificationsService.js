@@ -1,6 +1,6 @@
 const { query } = require('../db')
 const subscriptionService = require('./subscriptionService')
-const { getDaysLeft, formatDaysRemaining, subtractDays } = require('./subscriptionUtils')
+const { getDaysLeft, formatDaysRemaining, subtractDays, toIsoDate } = require('./subscriptionUtils')
 
 const NOTIFICATION_TYPE = 'subscription_expiry'
 const INVOICE_MISSING_TYPE = 'subscription_invoice_missing'
@@ -55,13 +55,15 @@ async function syncSubscriptionNotifications() {
 
   for (const sub of subs.rows) {
     const subId = sub.id
-    const expiryDate = String(sub.expiry_date).slice(0, 10)
+    const expiryDate = toIsoDate(sub.expiry_date)
+    if (!expiryDate) continue
     const name = sub.name || 'Subscription'
     const daysLeft = getDaysLeft(expiryDate)
     const invoiceCount = Number(sub.invoice_count) || 0
 
     for (const trigger of EXPIRY_TRIGGERS) {
       const scheduledFor = trigger === 0 ? expiryDate : subtractDays(expiryDate, trigger)
+      if (!scheduledFor) continue
       const triggerKey = buildExpiryTriggerKey(subId, trigger, expiryDate)
       activeKeys.add(triggerKey)
 

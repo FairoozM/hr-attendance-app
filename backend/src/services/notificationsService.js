@@ -101,8 +101,16 @@ async function listSystemNotifications({ limit = 50 } = {}) {
   return result.rows
 }
 
+async function syncSubscriptionsSafe() {
+  try {
+    await subscriptionNotificationsService.syncSubscriptionNotifications()
+  } catch (err) {
+    console.error('[notifications] subscription sync failed:', err?.message || err)
+  }
+}
+
 async function listForAdmin({ limit = 50 } = {}) {
-  await subscriptionNotificationsService.syncSubscriptionNotifications()
+  await syncSubscriptionsSafe()
   const [docReminders, systemRows] = await Promise.all([
     documentExpiryNotificationsService.listVisibleReminders(),
     listSystemNotifications({ limit }),
@@ -111,7 +119,7 @@ async function listForAdmin({ limit = 50 } = {}) {
 }
 
 async function unreadCountForAdmin() {
-  await subscriptionNotificationsService.syncSubscriptionNotifications()
+  await syncSubscriptionsSafe()
   const [docCount, systemCount] = await Promise.all([
     documentExpiryNotificationsService.unreadCount(),
     (async () => {
