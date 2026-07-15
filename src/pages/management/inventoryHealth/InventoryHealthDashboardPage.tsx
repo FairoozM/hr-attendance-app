@@ -303,11 +303,33 @@ export function InventoryHealthDashboardPage() {
     if (opts?.refresh) setRefreshing(true)
     else setLoading(true)
     try {
-      const result = opts?.refresh
-        ? await refreshInventoryHealth(query)
-        : await fetchInventoryHealth(query)
-      setData(result)
-      setAppliedWarehouseId(warehouseId)
+      if (opts?.refresh) {
+        // Async Zoho rebuild — keeps existing cache until new data is ready (CloudFront-safe).
+        const result = await refreshInventoryHealth(query)
+        setData(result)
+        setAppliedWarehouseId(warehouseId)
+        return
+      }
+
+      const deadline = Date.now() + 300_000
+      // Poll when server is warming an empty cache (503 INVENTORY_HEALTH_WARMING).
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        try {
+          const result = await fetchInventoryHealth(query)
+          setData(result)
+          setAppliedWarehouseId(warehouseId)
+          return
+        } catch (err) {
+          const code = (err as { code?: string })?.code
+          const bodyCode = (err as { body?: { code?: string } })?.body?.code
+          const warming = code === 'INVENTORY_HEALTH_WARMING' || bodyCode === 'INVENTORY_HEALTH_WARMING'
+          if (!warming || Date.now() > deadline) throw err
+          setError('Loading from Zoho (first build) — waiting for cache…')
+          await new Promise((r) => setTimeout(r, 5000))
+          setError('')
+        }
+      }
     } catch (err) {
       const body = err as { message?: string; debug?: InventoryHealthDebug }
       setError(safeError(err))

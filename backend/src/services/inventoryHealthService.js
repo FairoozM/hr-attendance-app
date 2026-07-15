@@ -650,6 +650,11 @@ async function loadInventoryHealthBase({ warehouseId = null, refresh = false } =
       if (mem?.value && !mem.error && isPlausibleCachePayload(mem.value)) {
         return { ...mem.value, cacheStatus: 'stale' }
       }
+      const warming = new Error(
+        'Inventory health is rebuilding from Zoho. This can take 1–3 minutes — retry shortly.',
+      )
+      warming.code = 'INVENTORY_HEALTH_WARMING'
+      throw warming
     }
     const v = await _dashboardInFlight.get(key)
     return { ...v, cacheStatus: refresh ? 'refresh' : v.cacheStatus || 'shared' }
@@ -789,6 +794,14 @@ async function loadInventoryHealthBase({ warehouseId = null, refresh = false } =
     })
 
   _dashboardInFlight.set(key, promise)
+  if (!refresh) {
+    // Cold miss: rebuild in background and answer immediately (CloudFront ~30s origin limit).
+    const warming = new Error(
+      'Inventory health is loading from Zoho. This can take 1–3 minutes — retry shortly.',
+    )
+    warming.code = 'INVENTORY_HEALTH_WARMING'
+    throw warming
+  }
   return promise
 }
 

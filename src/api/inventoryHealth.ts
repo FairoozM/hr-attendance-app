@@ -135,10 +135,52 @@ export async function fetchInventoryHealth(params: InventoryHealthQuery = {}) {
   return api.get(path, { timeoutMs: INVENTORY_HEALTH_TIMEOUT_MS }) as Promise<InventoryHealthDashboard>
 }
 
-export async function refreshInventoryHealth(params: InventoryHealthQuery = {}) {
+export interface InventoryHealthRefreshJob {
+  jobId: string
+  status: 'queued' | 'running' | 'completed' | 'failed'
+  alreadyRunning?: boolean
+  progress?: { step?: string }
+  startedAt: string
+  completedAt: string | null
+  error?: string | null
+  warehouseId?: string | null
+}
+
+/** Start background Zoho rebuild (202) — does not wipe cache until new data is ready. */
+export async function startInventoryHealthRefresh(params: InventoryHealthQuery = {}) {
   const q = buildQuery({ ...params, refresh: true })
   const path = q ? `/api/zoho/inventory-health/refresh?${q}` : '/api/zoho/inventory-health/refresh'
-  return api.post(path, {}, { timeoutMs: INVENTORY_HEALTH_TIMEOUT_MS }) as Promise<InventoryHealthDashboard>
+  return api.post(path, { warehouseId: params.warehouseId || null }, { timeoutMs: 30_000 }) as Promise<InventoryHealthRefreshJob>
+}
+
+export async function fetchInventoryHealthRefreshJob(jobId: string) {
+  return api.get(`/api/zoho/inventory-health/refresh/job/${encodeURIComponent(jobId)}`, {
+    timeoutMs: 15_000,
+  }) as Promise<InventoryHealthRefreshJob>
+}
+
+/** @deprecated Prefer startInventoryHealthRefresh + poll; kept for older callers. */
+export async function refreshInventoryHealth(params: InventoryHealthQuery = {}) {
+  const job = await startInventoryHealthRefresh(params)
+  const deadline = Date.now() + INVENTORY_HEALTH_TIMEOUT_MS
+  let current = job
+  while (current.status === 'queued' || current.status === 'running') {
+    if (Date.now() > deadline) {
+      const err = new Error('Inventory health refresh timed out waiting for Zoho rebuild.') as Error & {
+        code?: string
+      }
+      err.code = 'INVENTORY_HEALTH_REFRESH_TIMEOUT'
+      throw err
+    }
+    await new Promise((r) => setTimeout(r, 4000))
+    current = await fetchInventoryHealthRefreshJob(current.jobId)
+  }
+  if (current.status === 'failed') {
+    const err = new Error(current.error || 'Inventory health refresh failed') as Error & { code?: string }
+    err.code = 'INVENTORY_HEALTH_REFRESH_ERROR'
+    throw err
+  }
+  return fetchInventoryHealth({ ...params, refresh: false })
 }
 
 export async function downloadInventoryHealthCsv(params: InventoryHealthQuery = {}) {

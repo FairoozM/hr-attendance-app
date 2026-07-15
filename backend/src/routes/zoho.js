@@ -136,6 +136,18 @@ router.get('/inventory-health', requireAuth, requireAdmin, inventoryHealthContro
 router.get('/inventory-health/export.csv', requireAuth, requireAdmin, inventoryHealthController.exportInventoryHealthCsv)
 router.post('/inventory-health/refresh', requireAuth, requireAdmin, inventoryHealthController.postInventoryHealthRefresh)
 router.get(
+  '/inventory-health/refresh/job/:jobId',
+  requireAuth,
+  requireAdmin,
+  inventoryHealthController.getInventoryHealthRefreshJob,
+)
+router.get(
+  '/inventory-health/refresh/active',
+  requireAuth,
+  requireAdmin,
+  inventoryHealthController.getActiveInventoryHealthRefreshJob,
+)
+router.get(
   '/inventory-health/images/file/:itemId',
   requireAuth,
   requireAdmin,

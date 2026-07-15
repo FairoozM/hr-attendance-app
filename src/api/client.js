@@ -190,6 +190,7 @@ async function handleResponse(res, requestUrl) {
     const err = new Error(msg)
     err.status = res.status
     err.url = url
+    err.code = data?.code || undefined
     err.body = data
     throw err
   }

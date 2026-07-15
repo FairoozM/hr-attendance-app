@@ -190,7 +190,7 @@ test('endpoint response includes debug timings', async () => {
   try {
     const svc = freshRequire('../src/services/inventoryHealthService')
     svc.clearInventoryHealthCache()
-    const data = await svc.getInventoryHealthDashboard({ includeZeroStock: 'false' })
+    const data = await svc.getInventoryHealthDashboard({ includeZeroStock: 'false', refresh: '1' })
     assert.ok(data.debug)
     assert.equal(data.debug.mode, 'items_sales_plus_bundle_usage')
     assert.ok(typeof data.debug.timingsMs.total === 'number')
