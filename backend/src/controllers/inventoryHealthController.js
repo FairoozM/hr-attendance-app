@@ -103,7 +103,9 @@ async function getInventoryHealthRefreshJob(req, res) {
 
 async function getActiveInventoryHealthRefreshJob(req, res) {
   try {
-    return res.json({ job: refreshJobService.getActiveRefreshJob() })
+    const warehouseId =
+      (req.query && req.query.warehouseId) || null
+    return res.json({ job: refreshJobService.getActiveRefreshJob(warehouseId) })
   } catch (err) {
     console.error('[inventory-health] active refresh job failed:', err?.message || err)
     return res.status(500).json({

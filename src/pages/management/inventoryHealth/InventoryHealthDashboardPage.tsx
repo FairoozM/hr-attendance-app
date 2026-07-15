@@ -297,14 +297,38 @@ export function InventoryHealthDashboardPage() {
       ...INVENTORY_HEALTH_LOAD_QUERY,
       warehouseId: warehouseId || undefined,
     }
+    const applyingWarehouse =
+      !opts?.refresh && (warehouseId || '') !== (appliedWarehouseId || '')
     setFetchTargetWarehouseId(warehouseId)
     setError('')
     setErrorDebug('')
-    if (opts?.refresh) setRefreshing(true)
+    if (opts?.refresh || applyingWarehouse) setRefreshing(true)
     else setLoading(true)
+
+    const isWarmingErr = (err: unknown) => {
+      const code = (err as { code?: string })?.code
+      const bodyCode = (err as { body?: { code?: string } })?.body?.code
+      return code === 'INVENTORY_HEALTH_WARMING' || bodyCode === 'INVENTORY_HEALTH_WARMING'
+    }
+
     try {
       if (opts?.refresh) {
-        // Async Zoho rebuild — keeps existing cache until new data is ready (CloudFront-safe).
+        const result = await refreshInventoryHealth(query)
+        setData(result)
+        setAppliedWarehouseId(warehouseId)
+        return
+      }
+
+      if (applyingWarehouse) {
+        // Prefer existing per-warehouse cache; only kick Zoho rebuild when cold/missing.
+        try {
+          const cached = await fetchInventoryHealth(query)
+          setData(cached)
+          setAppliedWarehouseId(warehouseId)
+          return
+        } catch (err) {
+          if (!isWarmingErr(err)) throw err
+        }
         const result = await refreshInventoryHealth(query)
         setData(result)
         setAppliedWarehouseId(warehouseId)
@@ -312,7 +336,7 @@ export function InventoryHealthDashboardPage() {
       }
 
       const deadline = Date.now() + 300_000
-      // Poll when server is warming an empty cache (503 INVENTORY_HEALTH_WARMING).
+      // Poll when server is warming an empty "all warehouses" cache (503 INVENTORY_HEALTH_WARMING).
       // eslint-disable-next-line no-constant-condition
       while (true) {
         try {
@@ -321,10 +345,7 @@ export function InventoryHealthDashboardPage() {
           setAppliedWarehouseId(warehouseId)
           return
         } catch (err) {
-          const code = (err as { code?: string })?.code
-          const bodyCode = (err as { body?: { code?: string } })?.body?.code
-          const warming = code === 'INVENTORY_HEALTH_WARMING' || bodyCode === 'INVENTORY_HEALTH_WARMING'
-          if (!warming || Date.now() > deadline) throw err
+          if (!isWarmingErr(err) || Date.now() > deadline) throw err
           setError('Loading from Zoho (first build) — waiting for cache…')
           await new Promise((r) => setTimeout(r, 5000))
           setError('')

@@ -11,7 +11,7 @@ const { fetchCompositeItemDetail } = require('../integrations/zoho/zohoInventory
 const { _internals: zohoWeeklyInternals } = require('./weeklyReportZohoData')
 const { listMembersOfGroup } = require('./itemReportGroupsService')
 const { attachImageFieldsToRows, getImageCacheDebugInfo } = require('./inventoryItemImageStore')
-const { readDiskCacheEntry, writeDiskCacheEntry, clearDiskCache } = require('./inventoryHealthDiskCache')
+const { readDiskCacheEntry, writeDiskCacheEntry, clearDiskCache, deleteDiskCacheEntry } = require('./inventoryHealthDiskCache')
 const {
   _internals: { buildCompositeUsageAggregate, bundleUsageQtyForItem },
 } = require('./purchasePlanningService')
@@ -470,12 +470,22 @@ function cacheKeyForBase(warehouseId) {
 }
 
 /** Reject test/tiny payloads that must never serve production (e.g. single "Widget" row). */
-function isPlausibleCachePayload(value) {
+function minPlausibleActiveItems(warehouseId = null) {
+  // Per-warehouse sets are often smaller than the full catalog; don't reject Amazon FBA etc. at 100.
+  if (warehouseId) {
+    return Math.max(1, parseInt(process.env.INVENTORY_HEALTH_MIN_CACHE_ITEMS_WH || '5', 10) || 5)
+  }
+  return MIN_CACHE_ACTIVE_ITEMS
+}
+
+function isPlausibleCachePayload(value, warehouseId = null) {
   if (!value || !Array.isArray(value.rows) || value.rows.length === 0) return false
   const active = Number(value.debug?.activeItemsFetched) || value.rows.length
-  if (active < MIN_CACHE_ACTIVE_ITEMS) {
+  const minActive = minPlausibleActiveItems(warehouseId)
+  if (active < minActive) {
     console.warn(
-      `[inventory-health] rejecting cache with ${active} active items (min ${MIN_CACHE_ACTIVE_ITEMS})`,
+      `[inventory-health] rejecting cache with ${active} active items (min ${minActive}` +
+        `${warehouseId ? `, warehouse ${warehouseId}` : ''})`,
     )
     return false
   }
@@ -484,7 +494,7 @@ function isPlausibleCachePayload(value) {
 
 function invalidateBadCacheEntry(key) {
   _dashboardCache.delete(key)
-  clearDiskCache()
+  deleteDiskCacheEntry(key)
 }
 
 function applyRowFilters(rows, filters) {
@@ -609,7 +619,7 @@ async function loadInventoryHealthBase({ warehouseId = null, refresh = false } =
   if (!refresh) {
     const hit = _dashboardCache.get(key)
     if (hit && Date.now() < hit.expiresAt && !hit.error) {
-      if (isPlausibleCachePayload(hit.value)) {
+      if (isPlausibleCachePayload(hit.value, warehouseId)) {
         return { ...hit.value, cacheStatus: 'hit' }
       }
       invalidateBadCacheEntry(key)
@@ -620,12 +630,12 @@ async function loadInventoryHealthBase({ warehouseId = null, refresh = false } =
       throw err
     }
     // Memory expired but still plausible — keep serving while Zoho rebuilds (CloudFront-safe).
-    if (hit && hit.value && !hit.error && isPlausibleCachePayload(hit.value)) {
+    if (hit && hit.value && !hit.error && isPlausibleCachePayload(hit.value, warehouseId)) {
       return serveStaleAndRefresh(key, warehouseId, hit, 'stale')
     }
     const diskHit = readDiskCacheEntry(key)
     if (diskHit) {
-      if (isPlausibleCachePayload(diskHit.value)) {
+      if (isPlausibleCachePayload(diskHit.value, warehouseId)) {
         _dashboardCache.set(key, diskHit)
         return { ...diskHit.value, cacheStatus: 'disk' }
       }
@@ -633,7 +643,7 @@ async function loadInventoryHealthBase({ warehouseId = null, refresh = false } =
       invalidateBadCacheEntry(key)
     }
     const staleDisk = readDiskCacheEntry(key, { allowStale: true })
-    if (staleDisk && isPlausibleCachePayload(staleDisk.value)) {
+    if (staleDisk && isPlausibleCachePayload(staleDisk.value, warehouseId)) {
       return serveStaleAndRefresh(key, warehouseId, staleDisk, 'stale')
     }
   }
@@ -643,11 +653,11 @@ async function loadInventoryHealthBase({ warehouseId = null, refresh = false } =
     // over waiting behind CloudFront's origin timeout.
     if (!refresh) {
       const staleDisk = readDiskCacheEntry(key, { allowStale: true })
-      if (staleDisk && isPlausibleCachePayload(staleDisk.value)) {
+      if (staleDisk && isPlausibleCachePayload(staleDisk.value, warehouseId)) {
         return { ...staleDisk.value, cacheStatus: 'stale' }
       }
       const mem = _dashboardCache.get(key)
-      if (mem?.value && !mem.error && isPlausibleCachePayload(mem.value)) {
+      if (mem?.value && !mem.error && isPlausibleCachePayload(mem.value, warehouseId)) {
         return { ...mem.value, cacheStatus: 'stale' }
       }
       const warming = new Error(

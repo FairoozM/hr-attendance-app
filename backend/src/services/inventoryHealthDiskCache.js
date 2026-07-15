@@ -55,6 +55,22 @@ function writeDiskCacheEntry(key, expiresAt, value) {
   }
 }
 
+function deleteDiskCacheEntry(key) {
+  try {
+    if (!fs.existsSync(CACHE_FILE)) return
+    const entries = readAllEntries()
+    if (!entries[key]) return
+    delete entries[key]
+    if (Object.keys(entries).length === 0) {
+      fs.unlinkSync(CACHE_FILE)
+      return
+    }
+    fs.writeFileSync(CACHE_FILE, JSON.stringify({ version: 1, entries }))
+  } catch (err) {
+    console.warn('[inventory-health] disk cache delete failed:', err?.message || err)
+  }
+}
+
 function clearDiskCache() {
   try {
     if (fs.existsSync(CACHE_FILE)) fs.unlinkSync(CACHE_FILE)
@@ -66,5 +82,6 @@ function clearDiskCache() {
 module.exports = {
   readDiskCacheEntry,
   writeDiskCacheEntry,
+  deleteDiskCacheEntry,
   clearDiskCache,
 }

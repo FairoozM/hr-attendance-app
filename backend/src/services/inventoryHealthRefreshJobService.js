@@ -1,13 +1,19 @@
 /**
  * Background Zoho rebuild for inventory health (CloudFront-safe — returns immediately).
  * Does not clear the existing cache until the new payload is written successfully.
+ * Jobs are keyed per warehouse so Apply warehouse is not blocked by an "all warehouses" rebuild.
  */
 
 const crypto = require('crypto')
 const inventoryHealthService = require('./inventoryHealthService')
 
 const jobs = new Map()
-let activeJobId = null
+/** @type {Map<string, string>} cacheKey -> jobId */
+const activeJobByWarehouseKey = new Map()
+
+function warehouseKey(warehouseId) {
+  return inventoryHealthService.cacheKeyForBase(warehouseId || null)
+}
 
 function serializeJob(job) {
   if (!job) return null
@@ -23,11 +29,13 @@ function serializeJob(job) {
   }
 }
 
-function getActiveRefreshJob() {
-  if (!activeJobId) return null
-  const job = jobs.get(activeJobId)
+function getActiveRefreshJob(warehouseId = null) {
+  const key = warehouseKey(warehouseId)
+  const jobId = activeJobByWarehouseKey.get(key)
+  if (!jobId) return null
+  const job = jobs.get(jobId)
   if (!job || !['queued', 'running'].includes(job.status)) {
-    activeJobId = null
+    activeJobByWarehouseKey.delete(key)
     return null
   }
   return serializeJob(job)
@@ -38,29 +46,33 @@ function getRefreshJob(jobId) {
 }
 
 function startRefreshJob({ warehouseId = null } = {}) {
-  const running = getActiveRefreshJob()
+  const wh = warehouseId ? String(warehouseId).trim() : null
+  const key = warehouseKey(wh)
+  const running = getActiveRefreshJob(wh)
   if (running) return { ...running, alreadyRunning: true }
 
   const jobId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`
   const now = new Date().toISOString()
-  const wh = warehouseId ? String(warehouseId).trim() : null
   const job = {
     jobId,
     status: 'queued',
-    progress: { step: 'Queued Zoho rebuild…' },
+    progress: { step: wh ? `Queued Zoho rebuild for warehouse ${wh}…` : 'Queued Zoho rebuild…' },
     startedAt: now,
     completedAt: null,
     error: null,
     warehouseId: wh,
+    cacheKey: key,
   }
   jobs.set(jobId, job)
-  activeJobId = jobId
+  activeJobByWarehouseKey.set(key, jobId)
 
   setImmediate(async () => {
     job.status = 'running'
-    job.progress = { step: 'Fetching Zoho items + sales…' }
+    job.progress = {
+      step: wh ? `Fetching Zoho items + sales for warehouse ${wh}…` : 'Fetching Zoho items + sales…',
+    }
     try {
-      // refresh:true rebuilds and overwrites cache — do NOT clear first (avoids empty 504 window).
+      // refresh:true rebuilds and overwrites cache — do NOT clear first.
       await inventoryHealthService.loadInventoryHealthBase({
         warehouseId: wh,
         refresh: true,
@@ -74,7 +86,9 @@ function startRefreshJob({ warehouseId = null } = {}) {
       job.completedAt = new Date().toISOString()
       console.error('[inventory-health] background refresh failed:', job.error)
     } finally {
-      if (activeJobId === jobId) activeJobId = null
+      if (activeJobByWarehouseKey.get(key) === jobId) {
+        activeJobByWarehouseKey.delete(key)
+      }
     }
   })
 
