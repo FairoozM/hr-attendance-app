@@ -78,6 +78,7 @@ export function getAllPricesMarket(marketId) {
 /** @param {string} pathname */
 export function resolveAllPricesMarketFromPath(pathname) {
   if (pathname.startsWith('/prices/all-prices-ksa')) return PRICES_MARKET_KSA
+  if (pathname.startsWith('/prices/all-prices-custom')) return PRICES_MARKET_UAE
   if (pathname.startsWith('/prices/all-prices')) return PRICES_MARKET_UAE
   return PRICES_MARKET_UAE
 }

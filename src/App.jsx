@@ -64,6 +64,7 @@ import { AmazonReturnReconciliationPage } from './pages/management/amazonReturnR
 import { InventoryHealthDashboardPage } from './pages/management/inventoryHealth/InventoryHealthDashboardPage'
 import { AccountBalanceWatchlistPage } from './pages/management/accountBalanceWatchlist/AccountBalanceWatchlistPage'
 import { AllPricesPage } from './pages/management/AllPricesPage'
+import { AllUaePricesCustomPage } from './pages/management/AllUaePricesCustomPage'
 import { KsaPricingPage } from './pages/management/ksaPricing/KsaPricingPage'
 import { DuplicatePriceCleanupPage } from './pages/management/DuplicatePriceCleanupPage'
 import { HistoricalPricesPage } from './pages/management/HistoricalPricesPage'
@@ -342,6 +343,14 @@ function AppContent() {
           element={
             <PermissionGuard module="prices" action="view">
               <AllPricesPage market="uae" />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="prices/all-prices-custom"
+          element={
+            <PermissionGuard module="prices" action="view">
+              <AllUaePricesCustomPage />
             </PermissionGuard>
           }
         />

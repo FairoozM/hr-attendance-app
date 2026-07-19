@@ -1,7 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import {
   buildAllPricesBundle,
+  computeCostUpEcommercePriceRow,
+  computeCustomUaePriceRow,
   computeEcommercePriceRow,
+  CUSTOM_FIXED_COMMISSION_PCT,
+  areCustomUaeRatesValid,
   formatLastSavedAt,
   hydrateAllPricesStateFromBundle,
   isBrkhTemplateSeedRows,
@@ -122,5 +126,55 @@ describe('allPricesEcommerceUtils seed safety', () => {
     expect(rows[0].salesPrice).toBe('10')
     expect(rows[0].shipping).toBe('0')
     expect(rows[0].purchasePrice).toBe('3.5')
+  })
+})
+
+describe('cost-up / All UAE Prices (Custom) helpers', () => {
+  it('computeCostUpEcommercePriceRow ignores wholesale salesPrice', () => {
+    const computed = computeCostUpEcommercePriceRow(
+      { salesPrice: '999', purchasePrice: '26.83', shipping: '21' },
+      { vatPct: 5, commissionPct: 15, advertisingPct: 15, requiredProfitPct: 25 },
+    )
+    // denominator = 1 - 0.05 - 0.15 - 0.15 - 0.25 = 0.40
+    // (26.83 + 21) / 0.40 = 119.575 → round 120
+    expect(computed.salesPriceFromWholesale).toBe(false)
+    expect(computed.salesPrice).toBe(120)
+    expect(computed.denominatorInvalid).toBe(false)
+  })
+
+  it('allows 0% VAT, advertising, and profit with fixed commission', () => {
+    const computed = computeCustomUaePriceRow(
+      { purchasePrice: '40', shipping: '10', salesPrice: '500' },
+      { vatPct: 0, advertisingPct: 0, requiredProfitPct: 0 },
+    )
+    // denominator = 1 - 0.15 = 0.85; (40+10)/0.85 ≈ 58.82 → 59
+    expect(computed.salesPrice).toBe(59)
+    expect(computed.denominatorInvalid).toBe(false)
+  })
+
+  it('forces commission to 15% even if rates say otherwise', () => {
+    const computed = computeCustomUaePriceRow(
+      { purchasePrice: '40', shipping: '10' },
+      { vatPct: 0, advertisingPct: 0, requiredProfitPct: 0, commissionPct: 99 },
+    )
+    expect(CUSTOM_FIXED_COMMISSION_PCT).toBe(15)
+    expect(computed.salesPrice).toBe(59)
+  })
+
+  it('marks denominator invalid when rates sum to 100%+', () => {
+    const computed = computeCustomUaePriceRow(
+      { purchasePrice: '10', shipping: '5' },
+      { vatPct: 40, advertisingPct: 30, requiredProfitPct: 15 },
+    )
+    // 40 + 15 + 30 + 15 = 100
+    expect(computed.denominatorInvalid).toBe(true)
+    expect(computed.salesPrice).toBe(0)
+  })
+
+  it('areCustomUaeRatesValid enforces under-100% with fixed commission', () => {
+    expect(areCustomUaeRatesValid(5, 15, 25)).toBe(true)
+    expect(areCustomUaeRatesValid(0, 0, 0)).toBe(true)
+    expect(areCustomUaeRatesValid(40, 30, 15)).toBe(false)
+    expect(areCustomUaeRatesValid(-1, 0, 0)).toBe(false)
   })
 })

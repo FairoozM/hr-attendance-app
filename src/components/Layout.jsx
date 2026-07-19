@@ -694,6 +694,7 @@ export function Layout() {
     if (location.pathname.startsWith('/management/account-balance-watchlist')) return 'Account Balance Watchlist'
     if (location.pathname.startsWith('/management/payments')) return 'Company payments'
     if (location.pathname.startsWith('/prices/all-prices-ksa')) return 'All Prices (KSA)'
+    if (location.pathname.startsWith('/prices/all-prices-custom')) return 'All UAE Prices (Custom)'
     if (location.pathname.startsWith('/prices/all-prices')) return 'All Prices (UAE)'
     if (location.pathname.startsWith('/prices/historical-prices')) return 'Historical Prices'
     if (location.pathname.startsWith('/prices/duplicate-cleanup')) return 'Duplicate Price Cleanup'
@@ -774,6 +775,7 @@ export function Layout() {
 
   const pricesItems = [
     can('prices', 'view') && { label: 'All Prices (UAE)', to: '/prices/all-prices' },
+    can('prices', 'view') && { label: 'All UAE Prices (Custom)', to: '/prices/all-prices-custom' },
     can('prices', 'view') && { label: 'All Prices (KSA)', to: '/prices/all-prices-ksa' },
     can('prices', 'view') && { label: 'Historical Prices', to: '/prices/historical-prices' },
     can('prices', 'view') && { label: 'Duplicate Price Cleanup', to: '/prices/duplicate-cleanup' },
@@ -930,6 +932,8 @@ export function Layout() {
       searchHint:
         i.to === '/prices/all-prices'
           ? 'all prices uae aed catalog sku zoho inventory pricing ecommerce'
+          : i.to === '/prices/all-prices-custom'
+            ? 'all uae prices custom vat advertising profit commission catalog'
           : i.to === '/prices/all-prices-ksa'
             ? 'all prices ksa sar catalog sku zoho inventory pricing ecommerce'
           : i.to === '/prices/historical-prices'

@@ -1166,6 +1166,12 @@ async function testConnection() {
     console.error('[db] ensureAiBudgetAndUsageTables skipped/failed (non-fatal):', e.message || e)
   }
   try {
+    const { ensureUaePricesCustomRatesTable } = require('../services/uaePricesCustomService')
+    await ensureUaePricesCustomRatesTable()
+  } catch (e) {
+    console.error('[db] ensureUaePricesCustomRatesTable skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
     await ensureAmazonBulkListingTables()
   } catch (e) {
     console.error('[db] ensureAmazonBulkListingTables skipped/failed (non-fatal):', e.message || e)

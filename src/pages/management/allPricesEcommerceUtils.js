@@ -14,6 +14,9 @@ export const DEFAULT_RATES = {
   requiredProfitPct: 25,
 }
 
+/** Commission is locked at 15% for All UAE Prices (Custom). */
+export const CUSTOM_FIXED_COMMISSION_PCT = 15
+
 /** @returns {boolean} */
 export function isProductionBuild() {
   return typeof import.meta !== 'undefined' && Boolean(import.meta.env?.PROD)
@@ -54,26 +57,23 @@ function buildComputedPriceRow(salesPrice, safePurchase, safeShipping, vat, comm
 }
 
 /**
- * Wholesales sales price is the source of truth when provided on the row.
- * VAT, commission, and advertising are derived from that sales price; profit % is informational.
+ * Cost-up sales price from purchase + shipping and rate percentages.
+ * Always ignores any wholesale salesPrice on the row.
  *
- * Legacy rows without salesPrice still use the old cost-based formula as a fallback.
+ * @param {{ purchasePrice?: unknown, shipping?: unknown }} row
+ * @param {{ vatPct?: unknown, commissionPct?: unknown, advertisingPct?: unknown, requiredProfitPct?: unknown }} [rates]
  */
-export function computeEcommercePriceRow(row, rates = DEFAULT_RATES) {
-  const purchase = Number(row.purchasePrice)
-  const shipping = Number(row.shipping)
+export function computeCostUpEcommercePriceRow(row, rates = DEFAULT_RATES) {
+  const purchase = Number(row?.purchasePrice)
+  const shipping = Number(row?.shipping)
   const vat = toDec(rates.vatPct)
   const commission = toDec(rates.commissionPct)
   const advertising = toDec(rates.advertisingPct)
+  const reqProfit = toDec(rates.requiredProfitPct)
 
   const safePurchase = Number.isFinite(purchase) ? purchase : 0
   const safeShipping = Number.isFinite(shipping) ? shipping : 0
 
-  if (hasWholesaleSalesPrice(row)) {
-    return buildComputedPriceRow(Number(row.salesPrice), safePurchase, safeShipping, vat, commission, advertising)
-  }
-
-  const reqProfit = toDec(rates.requiredProfitPct)
   const denominator = 1 - vat - commission - advertising - reqProfit
 
   if (denominator <= 0 || denominator >= 1) {
@@ -98,6 +98,58 @@ export function computeEcommercePriceRow(row, rates = DEFAULT_RATES) {
     salesPriceFromWholesale: false,
     salesPriceRaw,
   }
+}
+
+/**
+ * All UAE Prices (Custom): cost-up with commission locked at 15%.
+ * Purchase/shipping come from the shared UAE catalog; wholesale salesPrice is ignored.
+ *
+ * @param {{ purchasePrice?: unknown, shipping?: unknown }} row
+ * @param {{ vatPct?: unknown, advertisingPct?: unknown, requiredProfitPct?: unknown, commissionPct?: unknown }} [rates]
+ */
+export function computeCustomUaePriceRow(row, rates = DEFAULT_RATES) {
+  return computeCostUpEcommercePriceRow(row, {
+    vatPct: rates?.vatPct,
+    advertisingPct: rates?.advertisingPct,
+    requiredProfitPct: rates?.requiredProfitPct,
+    commissionPct: CUSTOM_FIXED_COMMISSION_PCT,
+  })
+}
+
+/**
+ * Client-side mirror of backend check: VAT + 15% commission + advertising + profit must be under 100%.
+ * @param {number} vatPct
+ * @param {number} advertisingPct
+ * @param {number} requiredProfitPct
+ */
+export function areCustomUaeRatesValid(vatPct, advertisingPct, requiredProfitPct) {
+  if (![vatPct, advertisingPct, requiredProfitPct].every((n) => Number.isFinite(n) && n >= 0 && n <= 100)) {
+    return false
+  }
+  return vatPct + CUSTOM_FIXED_COMMISSION_PCT + advertisingPct + requiredProfitPct < 100
+}
+
+/**
+ * Wholesales sales price is the source of truth when provided on the row.
+ * VAT, commission, and advertising are derived from that sales price; profit % is informational.
+ *
+ * Legacy rows without salesPrice still use the old cost-based formula as a fallback.
+ */
+export function computeEcommercePriceRow(row, rates = DEFAULT_RATES) {
+  const purchase = Number(row.purchasePrice)
+  const shipping = Number(row.shipping)
+  const vat = toDec(rates.vatPct)
+  const commission = toDec(rates.commissionPct)
+  const advertising = toDec(rates.advertisingPct)
+
+  const safePurchase = Number.isFinite(purchase) ? purchase : 0
+  const safeShipping = Number.isFinite(shipping) ? shipping : 0
+
+  if (hasWholesaleSalesPrice(row)) {
+    return buildComputedPriceRow(Number(row.salesPrice), safePurchase, safeShipping, vat, commission, advertising)
+  }
+
+  return computeCostUpEcommercePriceRow(row, rates)
 }
 
 export function makeRowId() {
