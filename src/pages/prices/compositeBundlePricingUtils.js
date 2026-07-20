@@ -1,6 +1,6 @@
 /** Composite bundle economics — mirrors All Prices formula with single bundle shipping. */
 
-import { PREF_SAVED_COMPOSITES } from '../../constants/userPreferenceKeys'
+import { PREF_SAVED_COMPOSITES, PREF_SAVED_COMPOSITES_CUSTOM } from '../../constants/userPreferenceKeys'
 import { getUserPrefKey, requestUserPrefSave } from '../../lib/userPreferencesBridge'
 import {
   buildPurchasePriceMap as buildResolverPurchasePriceMap,
@@ -9,6 +9,8 @@ import {
 
 export const STORAGE_KEY_SAVED_COMPOSITES = 'hr-saved-composite-items-v1'
 export const SAVED_COMPOSITES_UPDATED_EVENT = 'hr-saved-composite-items-updated'
+export const STORAGE_KEY_SAVED_COMPOSITES_CUSTOM = 'hr-saved-composite-items-custom-v1'
+export const SAVED_COMPOSITES_CUSTOM_UPDATED_EVENT = 'hr-saved-composite-items-custom-updated'
 
 function toDec(pct) {
   const n = Number(pct)
@@ -24,6 +26,15 @@ function notifySavedCompositeItemsChanged() {
   if (typeof window === 'undefined') return
   try {
     window.dispatchEvent(new CustomEvent(SAVED_COMPOSITES_UPDATED_EVENT))
+  } catch {
+    /* ignore */
+  }
+}
+
+function notifySavedCompositeItemsCustomChanged() {
+  if (typeof window === 'undefined') return
+  try {
+    window.dispatchEvent(new CustomEvent(SAVED_COMPOSITES_CUSTOM_UPDATED_EVENT))
   } catch {
     /* ignore */
   }
@@ -273,20 +284,7 @@ export function findPurchaseForComponent(purchaseMap, component) {
 
 export function loadSavedCompositeItems() {
   try {
-    const parsed = getUserPrefKey(PREF_SAVED_COMPOSITES, [])
-    if (!Array.isArray(parsed)) return []
-    return parsed
-      .filter((item) => item && typeof item === 'object' && String(item.sku || '').trim())
-      .map((item) => ({
-        ...item,
-        sku: String(item.sku || '').trim(),
-        name: item.name != null ? String(item.name) : '',
-        composite_item_id: item.composite_item_id != null ? String(item.composite_item_id) : '',
-        components: Array.isArray(item.components) ? item.components : [],
-        saved_at: item.saved_at || item.updated_at || new Date().toISOString(),
-        updated_at: item.updated_at || item.saved_at || new Date().toISOString(),
-      }))
-      .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))
+    return normalizeSavedCompositeList(getUserPrefKey(PREF_SAVED_COMPOSITES, []))
   } catch {
     return []
   }
@@ -320,6 +318,61 @@ export function removeSavedCompositeItem(sku) {
   const next = loadSavedCompositeItems().filter((item) => makeSavedCompositeKey(item.sku) !== key)
   requestUserPrefSave(PREF_SAVED_COMPOSITES, next)
   notifySavedCompositeItemsChanged()
+  return next
+}
+
+function normalizeSavedCompositeList(parsed) {
+  if (!Array.isArray(parsed)) return []
+  return parsed
+    .filter((item) => item && typeof item === 'object' && String(item.sku || '').trim())
+    .map((item) => ({
+      ...item,
+      sku: String(item.sku || '').trim(),
+      name: item.name != null ? String(item.name) : '',
+      composite_item_id: item.composite_item_id != null ? String(item.composite_item_id) : '',
+      components: Array.isArray(item.components) ? item.components : [],
+      saved_at: item.saved_at || item.updated_at || new Date().toISOString(),
+      updated_at: item.updated_at || item.saved_at || new Date().toISOString(),
+    }))
+    .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))
+}
+
+export function loadSavedCompositeItemsCustom() {
+  try {
+    return normalizeSavedCompositeList(getUserPrefKey(PREF_SAVED_COMPOSITES_CUSTOM, []))
+  } catch {
+    return []
+  }
+}
+
+export function saveSavedCompositeItemCustom(record) {
+  const sku = String(record?.sku || '').trim()
+  if (!sku) throw new Error('Composite SKU is required before saving.')
+  const now = new Date().toISOString()
+  const key = makeSavedCompositeKey(sku)
+  const current = loadSavedCompositeItemsCustom()
+  const existing = current.find((item) => makeSavedCompositeKey(item.sku) === key)
+  const nextRecord = {
+    ...record,
+    sku,
+    saved_at: existing?.saved_at || record?.saved_at || now,
+    updated_at: now,
+  }
+  const next = [
+    nextRecord,
+    ...current.filter((item) => makeSavedCompositeKey(item.sku) !== key),
+  ]
+  requestUserPrefSave(PREF_SAVED_COMPOSITES_CUSTOM, next)
+  notifySavedCompositeItemsCustomChanged()
+  return nextRecord
+}
+
+export function removeSavedCompositeItemCustom(sku) {
+  const key = makeSavedCompositeKey(sku)
+  if (!key) return loadSavedCompositeItemsCustom()
+  const next = loadSavedCompositeItemsCustom().filter((item) => makeSavedCompositeKey(item.sku) !== key)
+  requestUserPrefSave(PREF_SAVED_COMPOSITES_CUSTOM, next)
+  notifySavedCompositeItemsCustomChanged()
   return next
 }
 

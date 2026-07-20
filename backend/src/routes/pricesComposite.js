@@ -5,6 +5,7 @@ const reportCtrl = require('../controllers/compositeItemsPriceReportController')
 const cogsCtrl = require('../controllers/cogsController')
 const ksaPricingCtrl = require('../controllers/ksaPricingController')
 const uaeCustomCtrl = require('../controllers/uaePricesCustomController')
+const uaeCompositeCustomCtrl = require('../controllers/uaeCompositeCustomRatesController')
 
 const router = express.Router()
 
@@ -27,6 +28,20 @@ router.get(
   auth.requireAuth,
   auth.requirePermission('prices', 'view'),
   uaeCustomCtrl.getCatalogHandler,
+)
+
+router.get(
+  '/uae-composite-custom/rates',
+  auth.requireAuth,
+  auth.requirePermission('prices', 'view'),
+  uaeCompositeCustomCtrl.getRatesHandler,
+)
+
+router.put(
+  '/uae-composite-custom/rates',
+  auth.requireAuth,
+  auth.requireAdmin,
+  uaeCompositeCustomCtrl.putRatesHandler,
 )
 
 router.get(

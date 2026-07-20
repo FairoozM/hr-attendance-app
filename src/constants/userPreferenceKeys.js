@@ -6,6 +6,8 @@ export const PREF_COMPANY_PAYMENTS = 'company_payments_v1'
 export const PREF_SALES_VS_EXPENSES = 'sales_vs_expenses_v1'
 export const PREF_NOTIFICATIONS_DISMISSED = 'notifications_dismissed_v1'
 export const PREF_SAVED_COMPOSITES = 'saved_composites_v1'
+/** Saved composites priced with Composite Items Prices (Custom) shared rates. */
+export const PREF_SAVED_COMPOSITES_CUSTOM = 'saved_composites_custom_v1'
 export const PREF_ALL_PRICES_EC = 'all_prices_ecommerce_v1'
 export const PREF_ALL_PRICES_SAVED_LISTS = 'all_prices_saved_lists_v1'
 export const PREF_ALL_PRICES_RECOVERY_SNAPSHOTS = 'all_prices_recovery_snapshots_v1'

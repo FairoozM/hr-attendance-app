@@ -69,7 +69,9 @@ import { KsaPricingPage } from './pages/management/ksaPricing/KsaPricingPage'
 import { DuplicatePriceCleanupPage } from './pages/management/DuplicatePriceCleanupPage'
 import { HistoricalPricesPage } from './pages/management/HistoricalPricesPage'
 import { CompositeItemsPricesPage } from './pages/prices/CompositeItemsPricesPage'
+import { CompositeItemsPricesCustomPage } from './pages/prices/CompositeItemsPricesCustomPage'
 import { SavedCompositeItemsPage } from './pages/prices/SavedCompositeItemsPage'
+import { SavedCompositeItemsCustomPage } from './pages/prices/SavedCompositeItemsCustomPage'
 import { CompositeItemsPriceReportsPage } from './pages/prices/CompositeItemsPriceReportsPage'
 import { WeeklyAdsReportPage } from './pages/reports/WeeklyAdsReportPage'
 import { WeeklySalesReportPage } from './pages/reports/WeeklySalesReportPage'
@@ -395,10 +397,26 @@ function AppContent() {
           }
         />
         <Route
+          path="prices/composite-items-custom"
+          element={
+            <PermissionGuard module="prices" action="view">
+              <CompositeItemsPricesCustomPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
           path="prices/saved-composite-items"
           element={
             <PermissionGuard module="prices" action="view">
               <SavedCompositeItemsPage />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="prices/saved-composite-items-custom"
+          element={
+            <PermissionGuard module="prices" action="view">
+              <SavedCompositeItemsCustomPage />
             </PermissionGuard>
           }
         />

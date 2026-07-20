@@ -699,7 +699,9 @@ export function Layout() {
     if (location.pathname.startsWith('/prices/historical-prices')) return 'Historical Prices'
     if (location.pathname.startsWith('/prices/duplicate-cleanup')) return 'Duplicate Price Cleanup'
     if (location.pathname.startsWith('/prices/composite-items/reports')) return 'Composite Items Price Reports'
+    if (location.pathname.startsWith('/prices/composite-items-custom')) return 'Composite Items Prices (Custom)'
     if (location.pathname.startsWith('/prices/composite-items')) return 'Composite Items Prices'
+    if (location.pathname.startsWith('/prices/saved-composite-items-custom')) return 'Saved Composite Items (Custom)'
     if (location.pathname.startsWith('/prices/saved-composite-items')) return 'Saved Composite Items'
     if (location.pathname.startsWith('/management/document-expiry')) return 'Document Expiry Tracker'
     if (location.pathname.startsWith('/management/subscriptions')) return 'Subscription Management'
@@ -780,7 +782,9 @@ export function Layout() {
     can('prices', 'view') && { label: 'Historical Prices', to: '/prices/historical-prices' },
     can('prices', 'view') && { label: 'Duplicate Price Cleanup', to: '/prices/duplicate-cleanup' },
     can('prices', 'view') && { label: 'Composite Items Prices', to: '/prices/composite-items' },
+    can('prices', 'view') && { label: 'Composite Items Prices (Custom)', to: '/prices/composite-items-custom' },
     can('prices', 'view') && { label: 'Saved Composite Items', to: '/prices/saved-composite-items' },
+    can('prices', 'view') && { label: 'Saved Composite Items (Custom)', to: '/prices/saved-composite-items-custom' },
     can('prices', 'view') && { label: 'Composite Items Price Reports', to: '/prices/composite-items/reports' },
   ].filter(Boolean)
 
@@ -942,8 +946,12 @@ export function Layout() {
           ? 'duplicate price cleanup active item no itemno safe auto conflict review'
           : i.to === '/prices/composite-items/reports'
             ? 'composite items price report zoho all composites incremental full saved reports components'
+          : i.to === '/prices/composite-items-custom'
+            ? 'composite items prices custom vat commission advertising profit editable rates bom bundle'
           : i.to === '/prices/composite-items'
             ? 'composite items prices bom bundle kit assembly components rolled up'
+            : i.to === '/prices/saved-composite-items-custom'
+              ? 'saved composite items custom skus bundle totals editable rates expandable'
             : i.to === '/prices/saved-composite-items'
               ? 'saved composite items skus bundle totals saved prices expandable'
               : '',
