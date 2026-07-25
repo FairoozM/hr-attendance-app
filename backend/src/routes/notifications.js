@@ -4,13 +4,25 @@ const auth = require('../middleware/auth')
 
 const router = express.Router()
 
-router.get('/', auth.requireAuth, auth.requireAdmin, ctrl.list)
-router.get('/unread-count', auth.requireAuth, auth.requireAdmin, ctrl.unreadCount)
-router.patch('/:id/read', auth.requireAuth, auth.requireAdmin, ctrl.markRead)
-router.post('/mark-all-read', auth.requireAuth, auth.requireAdmin, ctrl.markAllRead)
+router.use(auth.requireAuth, auth.requireAdmin)
 
-router.post('/:key/snooze', auth.requireAuth, auth.requireAdmin, ctrl.snooze)
-router.post('/:key/ignore', auth.requireAuth, auth.requireAdmin, ctrl.ignoreNotification)
-router.post('/:key/resolve', auth.requireAuth, auth.requireAdmin, ctrl.resolveNotification)
+// Canonical read: items + counts in one round trip.
+router.get('/inbox', ctrl.inbox)
+
+// Actions on dynamic reminders take the key in the body, so keys never travel through the URL.
+router.post('/mark-all-read', ctrl.markAllRead)
+router.post('/mark-read', ctrl.markMany)
+router.post('/snooze', ctrl.snooze)
+router.post('/ignore', ctrl.ignoreNotification)
+router.post('/resolve', ctrl.resolveNotification)
+router.post('/restore', ctrl.reactivateNotification)
+
+// Legacy shapes kept so an older cached bundle keeps working after deploy.
+router.get('/', ctrl.list)
+router.get('/unread-count', ctrl.unreadCount)
+router.patch('/:id/read', ctrl.markRead)
+router.post('/:key/snooze', ctrl.snooze)
+router.post('/:key/ignore', ctrl.ignoreNotification)
+router.post('/:key/resolve', ctrl.resolveNotification)
 
 module.exports = router

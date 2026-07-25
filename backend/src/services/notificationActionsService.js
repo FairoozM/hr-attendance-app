@@ -1,15 +1,60 @@
 const { query } = require('../db')
 
 const VALID_STATUSES = new Set(['active', 'snoozed', 'resolved', 'ignored'])
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
-function todayUtcDate() {
-  return new Date().toISOString().slice(0, 10)
+/**
+ * Business calendar used for every "is it due today" decision. The API server often runs in UTC
+ * while the business day is UTC+4, so a plain UTC date flips reminders a day early for four hours
+ * every night. Overridable for deployments in another region.
+ */
+const BUSINESS_TIME_ZONE = process.env.APP_TIMEZONE || 'Asia/Dubai'
+
+/** Current calendar day in the business timezone as YYYY-MM-DD. */
+function todayIso(timeZone = BUSINESS_TIME_ZONE) {
+  try {
+    // en-CA formats as YYYY-MM-DD.
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date())
+  } catch {
+    return new Date().toISOString().slice(0, 10)
+  }
+}
+
+function isIsoDate(value) {
+  return ISO_DATE_RE.test(String(value || ''))
+}
+
+/**
+ * Normalize pg DATE / Date / ISO input to YYYY-MM-DD.
+ * node-pg returns DATE columns as Date objects at *local* midnight, so `toISOString()` would
+ * shift the day in negative UTC offsets — read the local calendar fields instead.
+ */
+function toIsoDate(value) {
+  if (value == null || value === '') return null
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null
+    const y = value.getFullYear()
+    const m = String(value.getMonth() + 1).padStart(2, '0')
+    const d = String(value.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }
+  const iso = String(value).trim().slice(0, 10)
+  return isIsoDate(iso) ? iso : null
 }
 
 function normalizeKey(key) {
   const k = String(key || '').trim()
   if (!k) return null
   return k.slice(0, 512)
+}
+
+function normalizeKeys(keys) {
+  return [...new Set((Array.isArray(keys) ? keys : []).map(normalizeKey).filter(Boolean))]
 }
 
 async function findByKey(notificationKey) {
@@ -25,7 +70,7 @@ async function findByKey(notificationKey) {
 }
 
 async function findByKeys(keys) {
-  const list = [...new Set((keys || []).map(normalizeKey).filter(Boolean))]
+  const list = normalizeKeys(keys)
   if (!list.length) return new Map()
   const result = await query(
     `SELECT *
@@ -38,6 +83,10 @@ async function findByKeys(keys) {
   return map
 }
 
+/**
+ * Write a status transition. `read_at` / `read_by` are deliberately left out of the conflict
+ * update so that snoozing or ignoring an already-read reminder does not resurrect it as unread.
+ */
 async function upsertAction({
   notificationKey,
   status,
@@ -56,7 +105,7 @@ async function upsertAction({
   const now = new Date()
   const resolvedAt = status === 'resolved' ? now : null
   const ignoredAt = status === 'ignored' ? now : null
-  const snoozeDate = status === 'snoozed' ? snoozedUntil : null
+  const snoozeDate = status === 'snoozed' ? toIsoDate(snoozedUntil) : null
 
   const result = await query(
     `INSERT INTO notification_actions (
@@ -88,31 +137,36 @@ async function upsertAction({
       ignoredAt,
       ignoredBy,
       String(ignoreReason || '').slice(0, 2000),
-      dueDate,
+      toIsoDate(dueDate),
     ]
   )
   return result.rows[0]
 }
 
-function isActionVisible(action) {
+/**
+ * Should a reminder with this action row still appear in the inbox?
+ * A snooze that has elapsed becomes visible again (and reports `snooze_expired`).
+ */
+function isActionVisible(action, today = todayIso()) {
   if (!action) return true
   if (action.status === 'ignored') return false
   if (action.status === 'resolved') return false
   if (action.status === 'snoozed') {
-    if (!action.snoozed_until) return true
-    return String(action.snoozed_until).slice(0, 10) <= todayUtcDate()
+    const until = toIsoDate(action.snoozed_until)
+    if (!until) return true
+    return until <= today
   }
   return true
 }
 
+function isActionRead(action) {
+  return Boolean(action?.read_at)
+}
+
 async function snooze({ notificationKey, snoozedUntil, userId, sourceType, sourceId, dueDate }) {
-  const until = String(snoozedUntil || '').slice(0, 10)
-  if (!until || !/^\d{4}-\d{2}-\d{2}$/.test(until)) {
-    throw new Error('snoozedUntil must be YYYY-MM-DD')
-  }
-  if (until < todayUtcDate()) {
-    throw new Error('snoozedUntil must be today or in the future')
-  }
+  const until = toIsoDate(snoozedUntil)
+  if (!until) throw new Error('snoozedUntil must be a valid YYYY-MM-DD date')
+  if (until < todayIso()) throw new Error('snoozedUntil must be today or in the future')
   return upsertAction({
     notificationKey,
     status: 'snoozed',
@@ -146,13 +200,63 @@ async function resolve({ notificationKey, userId, sourceType, sourceId, dueDate 
   })
 }
 
+/** Undo a snooze / ignore / resolve, putting the reminder back into the inbox. */
+async function reactivate({ notificationKey, sourceType, sourceId, dueDate }) {
+  return upsertAction({
+    notificationKey,
+    status: 'active',
+    sourceType,
+    sourceId,
+    dueDate,
+  })
+}
+
+/**
+ * Mark dynamic reminders read without altering their status, so they stay visible but stop
+ * inflating the bell badge. Returns the number of rows touched.
+ */
+async function markKeysRead({ keys, userId = null, sourceType = '', read = true }) {
+  const list = normalizeKeys(keys)
+  if (!list.length) return 0
+
+  if (!read) {
+    const cleared = await query(
+      `UPDATE notification_actions
+       SET read_at = NULL, read_by = NULL, updated_at = NOW()
+       WHERE notification_key = ANY($1::text[])`,
+      [list]
+    )
+    return cleared.rowCount
+  }
+
+  const result = await query(
+    `INSERT INTO notification_actions (notification_key, source_type, status, read_at, read_by)
+     SELECT k, $2, 'active', NOW(), $3
+     FROM UNNEST($1::text[]) AS k
+     ON CONFLICT (notification_key) DO UPDATE SET
+       read_at = COALESCE(notification_actions.read_at, NOW()),
+       read_by = COALESCE(notification_actions.read_by, EXCLUDED.read_by),
+       updated_at = NOW()`,
+    [list, String(sourceType || '').slice(0, 64), userId]
+  )
+  return result.rowCount
+}
+
 module.exports = {
+  BUSINESS_TIME_ZONE,
   findByKey,
   findByKeys,
   upsertAction,
   isActionVisible,
+  isActionRead,
   snooze,
   ignore,
   resolve,
-  todayUtcDate,
+  reactivate,
+  markKeysRead,
+  todayIso,
+  isIsoDate,
+  toIsoDate,
+  /** @deprecated Use `todayIso()` — kept so existing callers keep working. */
+  todayUtcDate: todayIso,
 }

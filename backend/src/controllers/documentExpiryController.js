@@ -57,6 +57,20 @@ async function list(req, res) {
   }
 }
 
+/** Single record, so the notification renew form does not need the whole list preloaded. */
+async function getOne(req, res) {
+  try {
+    const id = parseInt(req.params.id, 10)
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
+    const row = await svc.findById(id)
+    if (!row) return res.status(404).json({ error: 'Document expiry record not found' })
+    res.json(mapRow(row))
+  } catch (err) {
+    console.error('[document-expiry] get error:', err)
+    res.status(500).json({ error: 'Failed to fetch document expiry record' })
+  }
+}
+
 async function create(req, res) {
   try {
     const payload = normalizePayload(req.body)
@@ -80,14 +94,16 @@ async function update(req, res) {
     const oldKey = documentExpiryNotificationsService.buildNotificationKey(existing)
     const row = await svc.update(id, payload.value)
     const newKey = documentExpiryNotificationsService.buildNotificationKey(row)
-    if (oldKey !== newKey || payload.value.expiry_date !== existing.expiry_date) {
+    // Renewing retires the reminder for the previous expiry date; a new key is generated for the
+    // new date, so the client never has to resolve the stale reminder itself.
+    if (oldKey !== newKey) {
       try {
         await notificationActionsService.resolve({
           notificationKey: oldKey,
           userId: req.user?.id ?? null,
           sourceType: documentExpiryNotificationsService.SOURCE_TYPE,
           sourceId: String(id),
-          dueDate: String(existing.expiry_date || '').slice(0, 10) || null,
+          dueDate: notificationActionsService.toIsoDate(existing.expiry_date),
         })
       } catch (resolveErr) {
         console.error('[document-expiry] resolve old notification action:', resolveErr)
@@ -113,4 +129,4 @@ async function remove(req, res) {
   }
 }
 
-module.exports = { list, create, update, remove }
+module.exports = { list, getOne, create, update, remove }

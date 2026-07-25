@@ -126,12 +126,15 @@ async function startServer() {
 
     const MS_PER_DAY = 24 * 60 * 60 * 1000
     setImmediate(() => {
-      const { syncSubscriptionNotifications } = require('./services/subscriptionNotificationsService')
-      syncSubscriptionNotifications().catch((err) => {
+      // Go through the coalescer rather than calling the service directly: it holds the advisory
+      // lock and the shared interval, so a boot or timer tick cannot overlap a request-path sync
+      // (or a peer instance's sync) and clobber rows mid-pass.
+      const { syncSubscriptions } = require('./services/notificationsService')
+      syncSubscriptions().catch((err) => {
         console.warn('[subscriptions] initial notification sync failed:', err?.message || err)
       })
       setInterval(() => {
-        syncSubscriptionNotifications().catch((err) => {
+        syncSubscriptions().catch((err) => {
           console.warn('[subscriptions] daily notification sync failed:', err?.message || err)
         })
       }, MS_PER_DAY)

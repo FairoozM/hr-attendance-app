@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "test": "node --test --test-reporter=spec tests/",
+    "test": "node --test --test-reporter=spec \"tests/**/*.test.js\"",
     "test:amazon-token": "node scripts/test-amazon-lwa-token.js",
     "test:amazon-spapi": "node scripts/test-amazon-spapi-sandbox.js",
     "test:amazon-marketplaces": "node scripts/test-amazon-marketplaces.js",

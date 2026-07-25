@@ -2,18 +2,45 @@ const notificationsService = require('../services/notificationsService')
 const notificationActionsService = require('../services/notificationActionsService')
 const documentExpiryNotificationsService = require('../services/documentExpiryNotificationsService')
 
-function parseActionMeta(body) {
+/**
+ * Express has already percent-decoded `req.params`, so the previous extra `decodeURIComponent`
+ * threw a URIError (surfacing as a confusing 400) for any key containing a literal `%`.
+ * Prefer the body value, which needs no decoding at all.
+ */
+function readNotificationKey(req) {
+  const fromBody = req.body?.notificationKey ?? req.body?.notification_key
+  if (fromBody) return String(fromBody).trim()
+  return String(req.params?.key || '').trim()
+}
+
+function parseActionMeta(body = {}) {
   return {
     sourceType: String(body.sourceType || body.source_type || '').trim(),
     sourceId: String(body.sourceId || body.source_id || '').trim(),
-    dueDate: String(body.dueDate || body.due_date || '').slice(0, 10) || null,
+    dueDate: notificationActionsService.toIsoDate(body.dueDate || body.due_date),
+  }
+}
+
+function toArray(value) {
+  if (Array.isArray(value)) return value
+  if (value == null || value === '') return []
+  return [value]
+}
+
+/** Single round trip for the notification pane: items + the counts the badge/tabs need. */
+async function inbox(req, res) {
+  try {
+    const data = await notificationsService.getInbox({ limit: req.query.limit })
+    res.json(data)
+  } catch (err) {
+    console.error('[notifications] inbox:', err)
+    res.status(500).json({ error: 'Failed to load notifications' })
   }
 }
 
 async function list(req, res) {
   try {
-    const limit = req.query.limit ? parseInt(req.query.limit, 10) : 50
-    const rows = await notificationsService.listForAdmin({ limit })
+    const rows = await notificationsService.listForAdmin({ limit: req.query.limit })
     res.json(rows)
   } catch (err) {
     console.error('[notifications] list:', err)
@@ -44,74 +71,85 @@ async function markRead(req, res) {
   }
 }
 
+/**
+ * Mark a mixed batch read or unread. Persisted notifications are addressed by numeric `ids`,
+ * dynamic document reminders by their notification `keys`.
+ */
+async function markMany(req, res) {
+  try {
+    const body = req.body || {}
+    const read = body.read === undefined ? true : Boolean(body.read)
+    const result = await notificationsService.markManyRead({
+      ids: toArray(body.ids),
+      keys: toArray(body.keys),
+      userId: req.user?.id ?? null,
+      read,
+    })
+    res.json({ ok: true, read, ...result })
+  } catch (err) {
+    console.error('[notifications] markMany:', err)
+    res.status(500).json({ error: 'Failed to update notifications' })
+  }
+}
+
 async function markAllRead(req, res) {
   try {
-    await notificationsService.markAllRead()
-    res.json({ ok: true })
+    const result = await notificationsService.markAllRead({ userId: req.user?.id ?? null })
+    res.json({ ok: true, ...result })
   } catch (err) {
     console.error('[notifications] markAllRead:', err)
     res.status(500).json({ error: 'Failed to mark all read' })
   }
 }
 
-async function snooze(req, res) {
-  try {
-    const key = decodeURIComponent(String(req.params.key || ''))
-    const { snoozedUntil } = req.body || {}
-    const meta = parseActionMeta(req.body || {})
-    const row = await notificationActionsService.snooze({
-      notificationKey: key,
-      snoozedUntil,
-      userId: req.user?.id ?? null,
-      ...meta,
-    })
-    res.json(row)
-  } catch (err) {
-    console.error('[notifications] snooze:', err)
-    res.status(400).json({ error: err.message || 'Failed to snooze notification' })
+function actionHandler(label, run) {
+  return async function handle(req, res) {
+    try {
+      const notificationKey = readNotificationKey(req)
+      if (!notificationKey) return res.status(400).json({ error: 'notificationKey is required' })
+      const row = await run({
+        notificationKey,
+        userId: req.user?.id ?? null,
+        body: req.body || {},
+        ...parseActionMeta(req.body || {}),
+      })
+      res.json(row)
+    } catch (err) {
+      console.error(`[notifications] ${label}:`, err)
+      res.status(400).json({ error: err.message || `Failed to ${label} notification` })
+    }
   }
 }
 
-async function ignoreNotification(req, res) {
-  try {
-    const key = decodeURIComponent(String(req.params.key || ''))
-    const reason = String(req.body?.reason || '').trim()
-    const meta = parseActionMeta(req.body || {})
-    const row = await notificationActionsService.ignore({
-      notificationKey: key,
-      userId: req.user?.id ?? null,
-      reason,
-      ...meta,
-    })
-    res.json(row)
-  } catch (err) {
-    console.error('[notifications] ignore:', err)
-    res.status(400).json({ error: err.message || 'Failed to ignore notification' })
-  }
-}
+const snooze = actionHandler('snooze', ({ body, ...rest }) =>
+  notificationActionsService.snooze({ ...rest, snoozedUntil: body.snoozedUntil || body.snoozed_until })
+)
 
-async function resolveNotification(req, res) {
-  try {
-    const key = decodeURIComponent(String(req.params.key || ''))
-    const meta = parseActionMeta(req.body || {})
-    const row = await notificationActionsService.resolve({
-      notificationKey: key,
-      userId: req.user?.id ?? null,
-      ...meta,
-    })
-    res.json(row)
-  } catch (err) {
-    console.error('[notifications] resolve:', err)
-    res.status(400).json({ error: err.message || 'Failed to resolve notification' })
-  }
-}
+const ignoreNotification = actionHandler('ignore', ({ body, ...rest }) =>
+  notificationActionsService.ignore({ ...rest, reason: String(body.reason || '').trim() })
+)
+
+const resolveNotification = actionHandler('resolve', ({ body: _body, ...rest }) =>
+  notificationActionsService.resolve(rest)
+)
+
+/** Undo a snooze / ignore / resolve so the reminder returns to the inbox. */
+const reactivateNotification = actionHandler('restore', ({ body: _body, ...rest }) =>
+  notificationActionsService.reactivate({
+    ...rest,
+    sourceType: rest.sourceType || documentExpiryNotificationsService.SOURCE_TYPE,
+  })
+)
 
 module.exports = {
+  inbox,
   list,
   unreadCount,
   markRead,
+  markMany,
   markAllRead,
   snooze,
   ignoreNotification,
   resolveNotification,
+  reactivateNotification,
 }

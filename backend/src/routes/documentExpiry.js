@@ -5,6 +5,7 @@ const ctrl = require('../controllers/documentExpiryController')
 const router = express.Router()
 
 router.get('/',     auth.requireAuth, auth.requirePermission('document_expiry', 'view'),   ctrl.list)
+router.get('/:id',  auth.requireAuth, auth.requirePermission('document_expiry', 'view'),   ctrl.getOne)
 router.post('/',    auth.requireAuth, auth.requirePermission('document_expiry', 'add'),    ctrl.create)
 router.put('/:id',  auth.requireAuth, auth.requirePermission('document_expiry', 'edit'),   ctrl.update)
 router.delete('/:id', auth.requireAuth, auth.requirePermission('document_expiry', 'delete'), ctrl.remove)

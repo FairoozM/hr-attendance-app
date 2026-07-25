@@ -42,13 +42,19 @@ function buildInvoiceMissingTitle(name) {
 /**
  * Sync subscription expiry notifications into the notifications table.
  * Idempotent via unique trigger_key; stale rows removed when subscription changes.
+ *
+ * Not safe to run concurrently with itself: `activeKeys` is a snapshot, and the trailing DELETE
+ * removes every row outside it, so overlapping passes can delete each other's rows (which resets
+ * `is_read` when the row is re-INSERTed later). Call it through
+ * `notificationsService.syncSubscriptions`, which serializes it behind an advisory lock.
  */
 async function syncSubscriptionNotifications() {
   const subs = await query(
     `SELECT s.id, s.name, s.expiry_date, s.payment_status, s.invoice_required, s.invoice_status,
             (SELECT COUNT(*)::int FROM subscription_invoices si WHERE si.subscription_id = s.id) AS invoice_count
      FROM subscriptions s
-     WHERE s.deleted_at IS NULL AND s.expiry_date IS NOT NULL`
+     WHERE s.deleted_at IS NULL AND s.expiry_date IS NOT NULL
+     ORDER BY s.id`
   )
 
   const activeKeys = new Set()

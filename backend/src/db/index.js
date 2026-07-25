@@ -363,6 +363,7 @@ async function ensureNotificationsTable() {
   await query(`CREATE INDEX IF NOT EXISTS idx_notifications_scheduled ON notifications(scheduled_for)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_notifications_employee ON notifications(employee_id)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_notifications_leave ON notifications(annual_leave_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(is_read, scheduled_for)`)
 }
 
 async function ensureNotificationActionsTable() {
@@ -384,9 +385,31 @@ async function ensureNotificationActionsTable() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `)
+  // Read state is independent of status so a reminder can be read while still active/visible.
+  await query(`ALTER TABLE notification_actions ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ`)
+  await query(
+    `ALTER TABLE notification_actions
+     ADD COLUMN IF NOT EXISTS read_by INTEGER REFERENCES users(id) ON DELETE SET NULL`
+  )
   await query(`CREATE INDEX IF NOT EXISTS idx_notification_actions_status ON notification_actions(status)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_notification_actions_snoozed_until ON notification_actions(snoozed_until)`)
   await query(`CREATE INDEX IF NOT EXISTS idx_notification_actions_source ON notification_actions(source_type, source_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_notification_actions_read_at ON notification_actions(read_at)`)
+}
+
+/**
+ * Shared "when did the fleet last sync" state. Without it the sync throttle is per-process, so
+ * every additional worker/container performs its own delete-and-reinsert pass.
+ */
+async function ensureNotificationSyncStateTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS notification_sync_state (
+      sync_name VARCHAR(64) PRIMARY KEY,
+      last_run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_run_by VARCHAR(128) NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
 }
 
 /** Backfill shop visit state for already-approved leaves */
@@ -404,6 +427,7 @@ async function ensureShopVisitSchemaOnly() {
   await ensureAnnualLeaveShopVisitColumns()
   await ensureNotificationsTable()
   await ensureNotificationActionsTable()
+  await ensureNotificationSyncStateTable()
   await backfillShopVisitPendingSubmission()
 }
 
@@ -1783,6 +1807,7 @@ module.exports = {
   ensureInfluencersSnapshotTable,
   ensureInfluencerPerformanceRecordsTable,
   ensureDocumentExpiryTable,
+  ensureNotificationSyncStateTable,
   ensureSubscriptionsTables,
   ensureItemReportGroupsTable,
   ensureItemReportGroupsImportLogTable,
