@@ -208,7 +208,7 @@ export function AmazonZohoStockPage() {
           void loadData()
         }
       } catch (e) {
-        setRefreshing(false)
+        // Keep the progress UI up while the job may still be running; only surface the poll error.
         setRefreshError(safeErrorMessage(e))
       }
     }, 4000)
@@ -287,6 +287,62 @@ export function AmazonZohoStockPage() {
           </ol>
         </div>
       </header>
+
+      {syncInProgress ? (
+        <div
+          className="ainv-sync-progress"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <div className="ainv-sync-progress__row">
+            <span className="ainv-sync-progress__label">
+              Syncing: {job?.progress?.step || 'Running refresh…'}
+              {' — '}
+              table updates after each marketplace is saved.
+            </span>
+            {job?.progress?.total > 0 ? (
+              <span className="ainv-sync-progress__pct font-mono">
+                {formatNumber(job.progress.current)} / {formatNumber(job.progress.total)}
+                {` · ${Math.min(
+                  100,
+                  Math.round((Number(job.progress.current) / Number(job.progress.total)) * 100)
+                )}%`}
+              </span>
+            ) : null}
+          </div>
+          <div
+            className="ainv-sync-progress__track"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={job?.progress?.total > 0 ? Number(job.progress.total) : 100}
+            aria-valuenow={
+              job?.progress?.total > 0 ? Number(job.progress.current) || 0 : undefined
+            }
+          >
+            <div
+              className={`ainv-sync-progress__fill${
+                !(job?.progress?.total > 0) ? ' ainv-sync-progress__fill--indeterminate' : ''
+              }`}
+              style={
+                job?.progress?.total > 0
+                  ? {
+                      width: `${Math.min(
+                        100,
+                        Math.max(
+                          0,
+                          Math.round(
+                            (Number(job.progress.current) / Number(job.progress.total)) * 100
+                          )
+                        )
+                      )}%`,
+                    }
+                  : undefined
+              }
+            />
+          </div>
+        </div>
+      ) : null}
 
       <section className="ainv-panel">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -387,16 +443,6 @@ export function AmazonZohoStockPage() {
           <div>Comparison generated: <span className="font-mono" style={{ color: 'var(--text-soft)' }}>{formatDateTime(timestamps.comparisonGeneratedAt)}</span></div>
         </div>
 
-        {syncInProgress ? (
-          <div className="ainv-banner ainv-banner--sky mt-4">
-            Syncing: {job?.progress?.step || 'Running refresh…'}
-            {job?.progress?.total > 0
-              ? ` (${formatNumber(job.progress.current)} / ${formatNumber(job.progress.total)})`
-              : ''}
-            {' '}
-            — table updates after each marketplace is saved.
-          </div>
-        ) : null}
         {refreshError ? (
           <div className="ainv-banner ainv-banner--amber mt-4">{refreshError}</div>
         ) : null}

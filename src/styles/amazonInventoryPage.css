@@ -230,6 +230,73 @@
   font-size: 0.875rem;
 }
 
+/* Sync progress — pinned under the app topbar for the whole refresh */
+.ainv-sync-progress {
+  position: sticky;
+  top: 0.35rem;
+  z-index: 45;
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, #0ea5e9 35%, var(--theme-border));
+  background: color-mix(in srgb, #0ea5e9 18%, var(--theme-glass-bg));
+  color: #0369a1;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  box-shadow: 0 10px 28px color-mix(in srgb, #0c4a6e 18%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+:root[data-theme='dark'] .ainv-sync-progress {
+  color: #bae6fd;
+}
+
+.ainv-sync-progress__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.ainv-sync-progress__label {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.ainv-sync-progress__pct {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  opacity: 0.9;
+}
+
+.ainv-sync-progress__track {
+  margin-top: 0.55rem;
+  height: 0.5rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, #0ea5e9 18%, var(--theme-border-subtle, #e2e8f0));
+}
+
+.ainv-sync-progress__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #38bdf8, #0284c7);
+  transition: width 200ms ease;
+}
+
+.ainv-sync-progress__fill--indeterminate {
+  width: 40%;
+  animation: ainv-sync-indeterminate 1.2s ease-in-out infinite;
+}
+
+@keyframes ainv-sync-indeterminate {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(280%);
+  }
+}
+
 .ainv-banner--sky {
   border: 1px solid color-mix(in srgb, #0ea5e9 35%, var(--theme-border));
   background: color-mix(in srgb, #0ea5e9 12%, var(--theme-glass-bg));
