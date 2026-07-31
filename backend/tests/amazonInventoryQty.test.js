@@ -14,6 +14,12 @@ const {
   filterSellerFlexActiveListings,
   mapListingRow,
 } = require('../src/services/amazonListingsInventoryReadService')
+const {
+  resolveAmazonSpApiHttpTimeoutMs,
+} = require('../src/services/amazonSpApiService')
+const {
+  _internals: { refreshStaleMinutes },
+} = require('../src/services/amazonZohoStockRefreshJobStore')
 
 describe('Amazon FBA quantity mapping', () => {
   it('treats Seller Central on-hand (totalQuantity) as in stock when fulfillable is 0', () => {
@@ -178,5 +184,24 @@ describe('Amazon FBA quantity mapping', () => {
     assert.equal(merged.totalQty, 10)
     assert.equal(merged.availableQty, 10)
     assert.equal(merged.stockSource, 'fba_api')
+  })
+})
+
+describe('Amazon + Zoho refresh guardrails', () => {
+  it('uses a 60 second SP-API timeout by default', () => {
+    assert.equal(resolveAmazonSpApiHttpTimeoutMs(undefined), 60_000)
+    assert.equal(resolveAmazonSpApiHttpTimeoutMs('invalid'), 60_000)
+  })
+
+  it('honors explicit SP-API timeout values within safe bounds', () => {
+    assert.equal(resolveAmazonSpApiHttpTimeoutMs(30_000), 30_000)
+    assert.equal(resolveAmazonSpApiHttpTimeoutMs(1_000), 5_000)
+    assert.equal(resolveAmazonSpApiHttpTimeoutMs(300_000), 120_000)
+  })
+
+  it('uses a 10 minute no-progress stale threshold by default', () => {
+    assert.equal(refreshStaleMinutes(undefined), 10)
+    assert.equal(refreshStaleMinutes('invalid'), 10)
+    assert.equal(refreshStaleMinutes(5), 5)
   })
 })

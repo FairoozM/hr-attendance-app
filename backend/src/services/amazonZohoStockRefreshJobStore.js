@@ -1,5 +1,11 @@
 const { query } = require('../db')
 
+function refreshStaleMinutes(value = process.env.AMAZON_ZOHO_STOCK_REFRESH_STALE_MINUTES) {
+  const parsed = parseInt(String(value == null ? '' : value).trim(), 10)
+  const minutes = Number.isFinite(parsed) && parsed > 0 ? parsed : 10
+  return Math.min(120, Math.max(2, minutes))
+}
+
 async function ensureAmazonZohoStockRefreshJobTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS amazon_zoho_stock_refresh_job (
@@ -110,16 +116,13 @@ async function getJob(jobId) {
 
 async function findRunningJob(marketplace) {
   const mk = String(marketplace || 'all').trim().toLowerCase()
-  const staleMins = Math.max(
-    10,
-    parseInt(String(process.env.AMAZON_ZOHO_STOCK_REFRESH_STALE_MINUTES || '45'), 10) || 45
-  )
+  const staleMins = refreshStaleMinutes()
   const r = await query(
     `SELECT id, marketplace, status, progress_step, progress_current, progress_total,
             error_message, total_rows, metadata, started_at, completed_at
      FROM amazon_zoho_stock_refresh_job
      WHERE status IN ('queued', 'running')
-       AND started_at > NOW() - ($2::int * interval '1 minute')
+       AND updated_at > NOW() - ($2::int * interval '1 minute')
        AND ($1 = 'all' OR marketplace = $1 OR marketplace = 'all')
      ORDER BY started_at DESC
      LIMIT 1`,
@@ -129,10 +132,7 @@ async function findRunningJob(marketplace) {
 }
 
 async function markStaleJobsFailed() {
-  const staleMins = Math.max(
-    10,
-    parseInt(String(process.env.AMAZON_ZOHO_STOCK_REFRESH_STALE_MINUTES || '45'), 10) || 45
-  )
+  const staleMins = refreshStaleMinutes()
   await query(
     `UPDATE amazon_zoho_stock_refresh_job
      SET status = 'failed',
@@ -140,7 +140,7 @@ async function markStaleJobsFailed() {
          error_message = COALESCE(error_message, 'Refresh timed out or server restarted'),
          updated_at = NOW()
      WHERE status IN ('queued', 'running')
-       AND started_at < NOW() - ($1::int * interval '1 minute')`,
+       AND updated_at < NOW() - ($1::int * interval '1 minute')`,
     [staleMins]
   )
 }
@@ -152,4 +152,7 @@ module.exports = {
   getJob,
   findRunningJob,
   markStaleJobsFailed,
+  _internals: {
+    refreshStaleMinutes,
+  },
 }

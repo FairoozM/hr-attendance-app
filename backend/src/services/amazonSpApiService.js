@@ -25,9 +25,23 @@ const {
 
 const LWA_TOKEN_URL = 'https://api.amazon.com/auth/o2/token';
 const DEFAULT_USER_AGENT = 'LifeSmile-HRBI-SPAPI-Sandbox-Test/1.0';
+const DEFAULT_AMAZON_SP_API_HTTP_TIMEOUT_MS = 60_000;
+const MIN_AMAZON_SP_API_HTTP_TIMEOUT_MS = 5_000;
+const MAX_AMAZON_SP_API_HTTP_TIMEOUT_MS = 120_000;
 
 const SANDBOX_DEFAULT_MARKETPLACE_ID = 'ATVPDKIKX0DER';
 const AMAZON_LISTINGS_REPORT_TYPE = 'GET_MERCHANT_LISTINGS_DATA';
+
+function resolveAmazonSpApiHttpTimeoutMs(value = process.env.AMAZON_SP_API_HTTP_TIMEOUT_MS) {
+  const parsed = parseInt(String(value == null ? '' : value).trim(), 10);
+  const timeoutMs = Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_AMAZON_SP_API_HTTP_TIMEOUT_MS;
+  return Math.min(
+    MAX_AMAZON_SP_API_HTTP_TIMEOUT_MS,
+    Math.max(MIN_AMAZON_SP_API_HTTP_TIMEOUT_MS, timeoutMs)
+  );
+}
 
 /** @returns {'production'|'sandbox'} */
 function getAmazonSpApiMode() {
@@ -326,7 +340,7 @@ async function callAmazonSpApiHttp(path, options = {}) {
     params,
     paramsSerializer,
     data,
-    timeout,
+    timeout: resolveAmazonSpApiHttpTimeoutMs(timeout),
     headers: {
       'x-amz-access-token': accessToken,
       'user-agent': DEFAULT_USER_AGENT,
@@ -847,6 +861,7 @@ async function getAmazonFbaInventorySummaries(params = {}) {
 }
 
 module.exports = {
+  resolveAmazonSpApiHttpTimeoutMs,
   getAmazonSpApiMode,
   normalizeMarketplaceKey,
   getAmazonConfig,

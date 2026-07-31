@@ -96,6 +96,7 @@ async function startAmazonZohoStockRefresh(options = {}) {
 
 async function getAmazonZohoStockRefreshJob(jobId) {
   await ensureTables()
+  await jobStore.markStaleJobsFailed()
   return serializeJob(await jobStore.getJob(jobId))
 }
 
