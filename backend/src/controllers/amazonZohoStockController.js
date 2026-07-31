@@ -8,6 +8,7 @@ const STOCK_FILTERS = new Set([
   'mismatch',
   'bothOutOfStock',
   'zohoNotFound',
+  'amazonNotFound',
   'sellerCentralInactiveOos',
 ])
 

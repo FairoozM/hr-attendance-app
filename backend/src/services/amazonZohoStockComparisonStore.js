@@ -187,6 +187,10 @@ function appendListingStatusScope(clauses, stockFilter) {
     clauses.push(`listing_status = 'INACTIVE_OOS'`)
     return
   }
+  if (sf === 'amazonNotFound') {
+    clauses.push(`listing_status = 'ZOHO_ONLY'`)
+    return
+  }
   clauses.push(`listing_status = 'ACTIVE'`)
   clauses.push(`UPPER(COALESCE(fulfillment_channel, '')) LIKE '%AMAZON%'`)
 }
@@ -201,7 +205,10 @@ function buildWhere(filters = {}) {
   }
   const listingScope = String(filters.listingScope || '').trim().toLowerCase()
   const stockFilter = String(filters.stockFilter || 'all').trim()
-  if (listingScope !== 'coverage') {
+  if (listingScope === 'coverage') {
+    // SKU Channel Coverage indexes Amazon listings only — exclude Zoho-only anti-join rows.
+    clauses.push(`COALESCE(listing_status, '') <> 'ZOHO_ONLY'`)
+  } else {
     appendListingStatusScope(clauses, stockFilter)
   }
   const search = String(filters.search || '').trim()
@@ -289,14 +296,27 @@ async function getComparisonSummary(filters = {}) {
           AND GREATEST(COALESCE(amazon_total_qty, 0), COALESCE(amazon_available_qty, 0)) = 0
       )::int AS amazon_out_of_stock,
       COUNT(*) FILTER (WHERE listing_status = 'INACTIVE_OOS')::int AS seller_central_inactive_oos,
-      COUNT(*) FILTER (WHERE COALESCE(zoho_available_qty, 0) = 0 AND zoho_stock_status <> 'Not Found')::int AS zoho_out_of_stock,
-      COUNT(*) FILTER (WHERE is_mismatch = true)::int AS mismatches,
-      COUNT(*) FILTER (WHERE zoho_stock_status = 'Not Found')::int AS zoho_not_found,
       COUNT(*) FILTER (
-        WHERE GREATEST(COALESCE(amazon_total_qty, 0), COALESCE(amazon_available_qty, 0)) = 0
+        WHERE COALESCE(listing_status, '') <> 'ZOHO_ONLY'
+          AND COALESCE(zoho_available_qty, 0) = 0
+          AND zoho_stock_status <> 'Not Found'
+      )::int AS zoho_out_of_stock,
+      COUNT(*) FILTER (
+        WHERE COALESCE(listing_status, '') <> 'ZOHO_ONLY' AND is_mismatch = true
+      )::int AS mismatches,
+      COUNT(*) FILTER (
+        WHERE COALESCE(listing_status, '') <> 'ZOHO_ONLY' AND zoho_stock_status = 'Not Found'
+      )::int AS zoho_not_found,
+      COUNT(*) FILTER (
+        WHERE COALESCE(listing_status, '') <> 'ZOHO_ONLY'
+          AND GREATEST(COALESCE(amazon_total_qty, 0), COALESCE(amazon_available_qty, 0)) = 0
           AND COALESCE(zoho_available_qty, 0) = 0
       )::int AS both_out_of_stock,
-      COUNT(*) FILTER (WHERE recommended_action = 'Low Zoho stock warning')::int AS low_zoho_stock,
+      COUNT(*) FILTER (
+        WHERE COALESCE(listing_status, '') <> 'ZOHO_ONLY'
+          AND recommended_action = 'Low Zoho stock warning'
+      )::int AS low_zoho_stock,
+      COUNT(*) FILTER (WHERE listing_status = 'ZOHO_ONLY')::int AS amazon_not_found,
       MAX(amazon_last_fetched_at) AS amazon_last_fetched_at,
       MAX(zoho_last_fetched_at) AS zoho_last_fetched_at,
       MAX(comparison_generated_at) AS comparison_generated_at
@@ -314,6 +334,7 @@ async function getComparisonSummary(filters = {}) {
       zohoNotFound: Number(row.zoho_not_found || 0),
       bothOutOfStock: Number(row.both_out_of_stock || 0),
       lowZohoStock: Number(row.low_zoho_stock || 0),
+      amazonNotFound: Number(row.amazon_not_found || 0),
     },
     timestamps: {
       amazonLastFetchedAt: row.amazon_last_fetched_at ? new Date(row.amazon_last_fetched_at).toISOString() : null,
@@ -362,4 +383,9 @@ module.exports = {
   getComparisonSummary,
   getLatestComparisonGeneratedAt,
   getWarningMessages,
+  _internals: {
+    buildWhere,
+    appendListingStatusScope,
+    mapDbRow,
+  },
 }

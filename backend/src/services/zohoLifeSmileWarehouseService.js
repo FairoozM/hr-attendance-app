@@ -179,10 +179,11 @@ function zohoMapToRows(zohoBySku) {
 async function fetchAllLifeSmileWarehouseStock() {
   const warehouse = await resolveLifeSmileWarehouse()
   const rawItems = await fetchItemsRawForWarehouse(warehouse.warehouseId)
-  const index = indexZohoWarehouseItems(rawItems, warehouse.warehouseName, warehouse.warehouseId)
+  const rawList = Array.isArray(rawItems) ? rawItems : []
+  const index = indexZohoWarehouseItems(rawList, warehouse.warehouseName, warehouse.warehouseId)
   const rows = []
   const seenItemIds = new Set()
-  for (const item of Array.isArray(rawItems) ? rawItems : []) {
+  for (const item of rawList) {
     const entry = buildZohoStockEntry(item, warehouse.warehouseName, warehouse.warehouseId)
     if (!entry) continue
     const itemId = entry.itemId || entry.normalizedSku
@@ -193,19 +194,18 @@ async function fetchAllLifeSmileWarehouseStock() {
   return {
     warehouse,
     rows,
+    rawItems: rawList,
     index,
     fetchedAt: new Date().toISOString(),
     itemCount: rows.length,
-    rawItemCount: Array.isArray(rawItems) ? rawItems.length : 0,
+    rawItemCount: rawList.length,
   }
 }
 
-async function fetchZohoStockForSkus({ skus, progress }) {
-  const warehouse = await resolveLifeSmileWarehouse()
-  progress?.({ step: 'Fetching Zoho Life Smile warehouse stock', current: 0, total: skus.length })
-
+/** Build Amazon SKU lookup set (normalized + optional exact variants) for warehouse matching. */
+function buildAmazonSkuSet(skus) {
   const skuSet = new Set()
-  for (const raw of skus) {
+  for (const raw of skus || []) {
     const base = normalizeSku(raw)
     if (!base) continue
     skuSet.add(base)
@@ -213,7 +213,14 @@ async function fetchZohoStockForSkus({ skus, progress }) {
       for (const variant of expandExactMatchVariants(raw)) skuSet.add(variant)
     }
   }
+  return skuSet
+}
 
+async function fetchZohoStockForSkus({ skus, progress }) {
+  const warehouse = await resolveLifeSmileWarehouse()
+  progress?.({ step: 'Fetching Zoho Life Smile warehouse stock', current: 0, total: skus.length })
+
+  const skuSet = buildAmazonSkuSet(skus)
   const items = await fetchItemsRawForWarehouse(warehouse.warehouseId)
   const { map: zohoBySku, matchedKeys } = buildZohoStockMap(
     items,
@@ -236,14 +243,43 @@ async function fetchZohoStockForSkus({ skus, progress }) {
   }
 }
 
+/**
+ * Match Amazon SKUs against an already-fetched Life Smile warehouse dump (avoids a second Zoho scan).
+ */
+function matchZohoStockFromWarehouseDump({ warehouseStock, skus }) {
+  const warehouse = warehouseStock?.warehouse || {}
+  const rawItems = Array.isArray(warehouseStock?.rawItems) ? warehouseStock.rawItems : []
+  const skuSet = buildAmazonSkuSet(skus)
+  const { map: zohoBySku, matchedKeys } = buildZohoStockMap(
+    rawItems,
+    skuSet,
+    warehouse.warehouseName,
+    warehouse.warehouseId
+  )
+  return {
+    zohoBySku,
+    warehouse,
+    fetchedAt: warehouseStock?.fetchedAt || new Date().toISOString(),
+    matchStats: {
+      matched: matchedKeys,
+      requested: skuSet.size,
+      zohoItemsScanned: rawItems.length,
+      warehouseId: warehouse.warehouseId,
+      warehouseName: warehouse.warehouseName,
+    },
+  }
+}
+
 module.exports = {
   resolveLifeSmileWarehouse,
   buildZohoStockEntry,
   zohoItemLookupKeys,
   indexZohoWarehouseItems,
   buildZohoStockMap,
+  buildAmazonSkuSet,
   fetchAllLifeSmileWarehouseStock,
   fetchZohoStockForSkus,
+  matchZohoStockFromWarehouseDump,
   lookupZohoEntry,
   zohoMapToRows,
   normalizeSku,

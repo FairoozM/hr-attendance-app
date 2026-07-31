@@ -9,6 +9,7 @@ const STOCK_FILTERS = [
   { value: 'mismatch', label: 'Mismatch' },
   { value: 'bothOutOfStock', label: 'Both Out of Stock' },
   { value: 'zohoNotFound', label: 'Zoho Not Found' },
+  { value: 'amazonNotFound', label: 'Not on Amazon' },
 ]
 
 const VALID_STOCK_FILTERS = new Set(STOCK_FILTERS.map((f) => f.value))
@@ -59,6 +60,7 @@ function formatDateTime(value) {
 
 function statusBadgeClass(label) {
   const s = String(label || '').toLowerCase()
+  if (s.includes('create listing')) return 'ainv-badge ainv-badge--warn'
   if (s.includes('not found')) return 'ainv-badge ainv-badge--warn'
   if (s.includes('replenish') || s.includes('low') || s.includes('out of stock')) {
     return 'ainv-badge ainv-badge--warn'
@@ -442,6 +444,13 @@ export function AmazonZohoStockPage() {
           onClick={() => applyStockFilter('zohoNotFound')}
         />
         <SummaryCard
+          label="Not on Amazon"
+          value={summary.amazonNotFound || 0}
+          active={stockFilter === 'amazonNotFound'}
+          onClick={() => applyStockFilter('amazonNotFound')}
+          hint="Active Zoho · no Amazon listing"
+        />
+        <SummaryCard
           label="Both Out of Stock"
           value={summary.bothOutOfStock || 0}
           active={stockFilter === 'bothOutOfStock'}
@@ -474,7 +483,9 @@ export function AmazonZohoStockPage() {
                 ? 'Seller Central inactive OOS SKU list'
                 : stockFilter === 'amazonOutOfStock'
                   ? 'Amazon active · FBA zero-stock SKU list'
-                  : 'Comparison rows'}
+                  : stockFilter === 'amazonNotFound'
+                    ? 'Active Zoho · missing Amazon listing'
+                    : 'Comparison rows'}
             </h2>
             <p className="text-sm" style={{ color: 'var(--text-dim)' }}>
               Showing {rows.length} of {formatNumber(pagination.total)} rows
