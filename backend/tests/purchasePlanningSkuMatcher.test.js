@@ -8,8 +8,10 @@ const {
   getParentSku,
   expandMatchCandidates,
   buildVigilIndexes,
+  buildAmbiguityAwareVigilIndexes,
   matchZohoSkuToVigil,
   matchZohoSkuToVigilWithIndexes,
+  matchSkuToVigilWithAmbiguity,
 } = require('../src/utils/purchasePlanningSkuMatcher')
 const {
   parseVigilExcel,
@@ -114,6 +116,32 @@ test('matchZohoSkuToVigilWithIndexes matches single-call helper', () => {
   ]
   const indexes = buildVigilIndexes(vigilRows)
   assert.deepEqual(matchZohoSkuToVigilWithIndexes(indexes, 'abc-black'), matchZohoSkuToVigil('abc-black', vigilRows))
+})
+
+test('ambiguity-aware matcher repeats one family quantity across colored variants', () => {
+  const indexes = buildAmbiguityAwareVigilIndexes([
+    { itemCode: 'FAMILY-12', availableStock: 20 },
+  ])
+  const red = matchSkuToVigilWithAmbiguity(indexes, 'FAMILY-12-RED')
+  const blue = matchSkuToVigilWithAmbiguity(indexes, 'FAMILY-12-BLUE')
+  assert.equal(red.matchType, 'parent')
+  assert.equal(red.wholesaleAvailableQty, 20)
+  assert.equal(blue.matchType, 'parent')
+  assert.equal(blue.wholesaleAvailableQty, 20)
+})
+
+test('ambiguity-aware matcher refuses conflicting duplicate Vigil codes', () => {
+  const indexes = buildAmbiguityAwareVigilIndexes([
+    { itemCode: 'DUPLICATE-1', availableStock: 4 },
+    { itemCode: 'duplicate-1', availableStock: 9 },
+  ])
+  assert.deepEqual(matchSkuToVigilWithAmbiguity(indexes, 'DUPLICATE-1'), {
+    matched: false,
+    ambiguous: true,
+    matchType: 'exact',
+    matchedVigilCode: '',
+    wholesaleAvailableQty: null,
+  })
 })
 
 test('applyVigilMatchesToLowStockRows stays fast with many SKUs (index built once)', () => {

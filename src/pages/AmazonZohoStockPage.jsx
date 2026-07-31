@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, fetchBinary, downloadBlob } from '../api/client'
+import { VigilUploadPanel } from '../components/amazon/outOfStockClearance/VigilUploadPanel'
 
 const STOCK_FILTERS = [
   { value: 'all', label: 'Active listings (default)' },
@@ -38,6 +39,10 @@ function buildQuery(params) {
     qs.set(key, String(value))
   })
   return qs.toString()
+}
+
+function comparisonRowKey(row) {
+  return `${row?.marketplace || ''}:${row?.normalizedSku || row?.sellerSku || ''}`
 }
 
 function safeErrorMessage(err) {
@@ -106,6 +111,17 @@ async function exportAmazonZohoStock(params) {
   return fetchBinary(`/api/inventory/amazon-zoho-stock/export${query ? `?${query}` : ''}`)
 }
 
+async function matchAmazonZohoVigilStock(vigilRows, rows) {
+  return api.post('/api/inventory/amazon-zoho-stock/vigil-match', {
+    vigilRows,
+    items: rows.map((row) => ({
+      rowKey: comparisonRowKey(row),
+      sellerSku: row.sellerSku || '',
+      zohoSku: row.zoho?.sku || '',
+    })),
+  })
+}
+
 export function AmazonZohoStockPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [marketplace, setMarketplace] = useState(() => parseMarketplace(searchParams.get('marketplace')))
@@ -120,6 +136,10 @@ export function AmazonZohoStockPage() {
   const [job, setJob] = useState(null)
   const [error, setError] = useState('')
   const [refreshError, setRefreshError] = useState('')
+  const [vigilRows, setVigilRows] = useState([])
+  const [vigilMatches, setVigilMatches] = useState({})
+  const [vigilMatching, setVigilMatching] = useState(false)
+  const [vigilMatchError, setVigilMatchError] = useState('')
 
   const syncUrl = useCallback((next) => {
     const params = new URLSearchParams()
@@ -243,7 +263,10 @@ export function AmazonZohoStockPage() {
     }
   }, [marketplace, search, stockFilter])
 
-  const rows = Array.isArray(payload?.data) ? payload.data : []
+  const rows = useMemo(
+    () => (Array.isArray(payload?.data) ? payload.data : []),
+    [payload?.data]
+  )
   const pagination = payload?.pagination || { page, limit, total: 0, pages: 1 }
   const summary = payload?.summary || {}
   const allWarnings = Array.isArray(payload?.warnings) ? payload.warnings : []
@@ -257,6 +280,45 @@ export function AmazonZohoStockPage() {
           !String(w).toLowerCase().includes('run refresh for fresh')
       )
     : allWarnings
+
+  useEffect(() => {
+    let cancelled = false
+    if (vigilRows.length === 0 || rows.length === 0) {
+      setVigilMatches({})
+      setVigilMatchError('')
+      setVigilMatching(false)
+      return undefined
+    }
+
+    setVigilMatching(true)
+    setVigilMatchError('')
+    void matchAmazonZohoVigilStock(vigilRows, rows)
+      .then((json) => {
+        if (cancelled) return
+        if (!json?.success) throw new Error(json?.error || 'Vigil stock matching failed')
+        const next = {}
+        for (const match of Array.isArray(json.matches) ? json.matches : []) {
+          next[match.rowKey] = match
+        }
+        setVigilMatches(next)
+      })
+      .catch((e) => {
+        if (cancelled) return
+        setVigilMatches({})
+        setVigilMatchError(safeErrorMessage(e))
+      })
+      .finally(() => {
+        if (!cancelled) setVigilMatching(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [rows, vigilRows])
+
+  const vigilMatchedCount = Object.values(vigilMatches).filter(
+    (match) => match?.matchType === 'exact' || match?.matchType === 'parent'
+  ).length
 
   return (
     <div className="ainv-page mx-auto flex max-w-[120rem] flex-col gap-8 px-4 pb-16 pt-4 md:px-6">
@@ -456,6 +518,17 @@ export function AmazonZohoStockPage() {
         ) : null}
       </section>
 
+      <VigilUploadPanel onConfirmed={setVigilRows} />
+      {vigilRows.length > 0 ? (
+        <div className={`ainv-banner ${vigilMatchError ? 'ainv-banner--amber' : 'ainv-banner--sky'}`}>
+          {vigilMatchError
+            ? `Vigil matching failed: ${vigilMatchError}`
+            : vigilMatching
+              ? `Matching ${formatNumber(vigilRows.length)} confirmed Vigil rows to this page…`
+              : `${formatNumber(vigilMatchedCount)} of ${formatNumber(rows.length)} visible rows matched Vigil stock. Family quantities are repeated for each matching color variant.`}
+        </div>
+      ) : null}
+
       <section className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
         <SummaryCard
           label="Seller Flex Listings"
@@ -563,7 +636,7 @@ export function AmazonZohoStockPage() {
         </div>
 
         <div className="ainv-table-wrap" style={{ maxWidth: '100%' }}>
-          <table className="ainv-table" style={{ minWidth: '95rem' }}>
+          <table className="ainv-table" style={{ minWidth: '101rem' }}>
             <thead>
               <tr>
                 <th className="px-3 py-3">Image</th>
@@ -577,13 +650,16 @@ export function AmazonZohoStockPage() {
                 <th className="px-3 py-3">Seller Flex on-hand</th>
                 <th className="px-3 py-3">Seller Flex fulfillable</th>
                 <th className="px-3 py-3">Zoho available for sale</th>
+                <th className="px-3 py-3">Vigil Stock Qty</th>
                 <th className="px-3 py-3">Difference</th>
                 <th className="px-3 py-3">Status / Recommended Action</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
-                <tr key={`${row.marketplace}:${row.normalizedSku}`}>
+              {rows.map((row) => {
+                const vigilMatch = vigilMatches[comparisonRowKey(row)]
+                return (
+                <tr key={comparisonRowKey(row)}>
                   <td>
                     {row.image ? (
                       <img src={row.image} alt="" className="h-12 w-12 rounded-lg object-cover" loading="lazy" />
@@ -619,6 +695,26 @@ export function AmazonZohoStockPage() {
                   </td>
                   <td className="px-3 py-3">{formatNumber(row.amazon?.availableQty)}</td>
                   <td className="px-3 py-3 font-semibold">{formatNumber(row.zoho?.availableQty)}</td>
+                  <td className="px-3 py-3">
+                    {vigilMatching ? (
+                      <span className="ainv-table__muted">Matching…</span>
+                    ) : vigilMatch?.ambiguous ? (
+                      <span className="ainv-badge ainv-badge--warn" title="Multiple Vigil rows match this SKU">
+                        Ambiguous
+                      </span>
+                    ) : vigilMatch?.matchType === 'exact' || vigilMatch?.matchType === 'parent' ? (
+                      <div className="flex flex-col gap-1">
+                        <span className="font-semibold">{formatNumber(vigilMatch.vigilStockQty)}</span>
+                        {vigilMatch.matchType === 'parent' ? (
+                          <span className="ainv-badge ainv-badge--neutral" title="Colorless Vigil family quantity repeated for this variant">
+                            Family match
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td className="font-semibold" style={{ color: Number(row.comparison?.difference) < 0 ? '#be123c' : 'var(--text)' }}>
                     {formatNumber(row.comparison?.difference)}
                   </td>
@@ -633,17 +729,18 @@ export function AmazonZohoStockPage() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                )
+              })}
               {!loading && rows.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="py-12 text-center ainv-table__muted">
+                  <td colSpan={14} className="py-12 text-center ainv-table__muted">
                     No comparison rows found. Run refresh to generate cached data or adjust filters.
                   </td>
                 </tr>
               ) : null}
               {loading ? (
                 <tr>
-                  <td colSpan={13} className="py-12 text-center ainv-table__muted">Loading cached comparison data…</td>
+                  <td colSpan={14} className="py-12 text-center ainv-table__muted">Loading cached comparison data…</td>
                 </tr>
               ) : null}
             </tbody>

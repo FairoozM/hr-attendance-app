@@ -5,6 +5,7 @@ const {
   CREATE_LISTING_ACTION,
   _internals: {
     buildAmazonNotFoundRows,
+    matchVigilStockForComparisonItems,
     isZohoItemActive,
     deriveRecommendedAction,
   },
@@ -195,5 +196,61 @@ describe('amazonZohoStock amazonNotFound filter SQL scope', () => {
     const { whereSql } = buildWhere({ listingScope: 'coverage', stockFilter: 'all', marketplace: 'uae' })
     assert.match(whereSql, /<> 'ZOHO_ONLY'/)
     assert.doesNotMatch(whereSql, /listing_status = 'ACTIVE'/)
+  })
+})
+
+describe('amazonZohoStock Vigil quantity matching', () => {
+  it('prefers an Amazon SKU exact match over the Zoho SKU', () => {
+    const matches = matchVigilStockForComparisonItems({
+      vigilRows: [
+        { itemCode: 'AMAZON-RED', availableStock: 4 },
+        { itemCode: 'ZOHO-RED', availableStock: 9 },
+      ],
+      items: [
+        {
+          rowKey: 'UAE:amazon-red',
+          sellerSku: 'AMAZON-RED',
+          zohoSku: 'ZOHO-RED',
+        },
+      ],
+    })
+    assert.deepEqual(matches[0], {
+      rowKey: 'UAE:amazon-red',
+      vigilStockQty: 4,
+      matchType: 'exact',
+      ambiguous: false,
+    })
+  })
+
+  it('falls back to a colorless Vigil family through the Zoho SKU', () => {
+    const matches = matchVigilStockForComparisonItems({
+      vigilRows: [{ itemCode: 'LIFEP17-16', availableStock: 12 }],
+      items: [
+        {
+          rowKey: 'UAE:barcode',
+          sellerSku: '6294021006859',
+          zohoSku: 'LIFEP17-16-BLUE',
+        },
+      ],
+    })
+    assert.deepEqual(matches[0], {
+      rowKey: 'UAE:barcode',
+      vigilStockQty: 12,
+      matchType: 'parent',
+      ambiguous: false,
+    })
+  })
+
+  it('returns no quantity for unmatched comparison rows', () => {
+    const matches = matchVigilStockForComparisonItems({
+      vigilRows: [{ itemCode: 'OTHER-SKU', availableStock: 6 }],
+      items: [{ rowKey: 'UAE:missing', sellerSku: 'NO-MATCH', zohoSku: '' }],
+    })
+    assert.deepEqual(matches[0], {
+      rowKey: 'UAE:missing',
+      vigilStockQty: null,
+      matchType: 'not_found',
+      ambiguous: false,
+    })
   })
 })

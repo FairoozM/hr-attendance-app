@@ -287,6 +287,44 @@ function buildVigilIndexes(vigilRows) {
   return { exact }
 }
 
+function buildAmbiguityAwareVigilIndexes(vigilRows) {
+  const exact = new Map()
+  const duplicateKeys = new Set()
+  for (const row of Array.isArray(vigilRows) ? vigilRows : []) {
+    const sources = vigilRowCodeSources(row)
+    if (sources.length === 0) continue
+    const primary = normalizeSku(sources[0])
+    if (!primary) continue
+    const entry = {
+      code: primary,
+      qty: toQty(
+        row.availableStock ??
+          row.available_stock ??
+          row.availableQty ??
+          row.available_qty ??
+          row.qty ??
+          row.quantity ??
+          row.stock
+      ),
+      row,
+    }
+    const rowKeys = new Set()
+    for (const rawCode of sources) {
+      for (const key of expandExactMatchVariants(rawCode)) {
+        if (rowKeys.has(key)) continue
+        rowKeys.add(key)
+        const previous = exact.get(key)
+        if (!previous) {
+          exact.set(key, entry)
+        } else if (previous.code !== entry.code || previous.qty !== entry.qty) {
+          duplicateKeys.add(key)
+        }
+      }
+    }
+  }
+  return { exact, duplicateKeys }
+}
+
 function matchZohoSkuToVigilWithIndexes(indexes, zohoSku) {
   for (const candidate of expandMatchCandidates(zohoSku)) {
     const match = indexes.exact.get(candidate.key)
@@ -308,6 +346,37 @@ function matchZohoSkuToVigilWithIndexes(indexes, zohoSku) {
   }
 }
 
+function matchSkuToVigilWithAmbiguity(indexes, sku) {
+  for (const candidate of expandMatchCandidates(sku)) {
+    if (indexes.duplicateKeys?.has(candidate.key)) {
+      return {
+        matched: false,
+        ambiguous: true,
+        matchType: candidate.matchKind,
+        matchedVigilCode: '',
+        wholesaleAvailableQty: null,
+      }
+    }
+    const match = indexes.exact.get(candidate.key)
+    if (match) {
+      return {
+        matched: true,
+        ambiguous: false,
+        matchType: candidate.matchKind,
+        matchedVigilCode: match.code,
+        wholesaleAvailableQty: match.qty,
+      }
+    }
+  }
+  return {
+    matched: false,
+    ambiguous: false,
+    matchType: 'not_found',
+    matchedVigilCode: '',
+    wholesaleAvailableQty: null,
+  }
+}
+
 function matchZohoSkuToVigil(zohoSku, vigilRows) {
   return matchZohoSkuToVigilWithIndexes(buildVigilIndexes(vigilRows), zohoSku)
 }
@@ -322,6 +391,8 @@ module.exports = {
   expandMatchCandidates,
   vigilRowCodeSources,
   buildVigilIndexes,
+  buildAmbiguityAwareVigilIndexes,
   matchZohoSkuToVigilWithIndexes,
+  matchSkuToVigilWithAmbiguity,
   matchZohoSkuToVigil,
 }

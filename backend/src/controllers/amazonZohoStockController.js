@@ -1,6 +1,9 @@
 const comparisonService = require('../services/amazonZohoStockComparisonService')
 const refreshJobs = require('../services/amazonZohoStockRefreshJobService')
 
+const MAX_VIGIL_MATCH_ROWS = 10_000
+const MAX_COMPARISON_MATCH_ITEMS = 500
+
 const STOCK_FILTERS = new Set([
   'all',
   'amazonOutOfStock',
@@ -41,6 +44,54 @@ async function getAmazonZohoStock(req, res) {
     return res.status(500).json({
       success: false,
       error: 'Failed to read cached Amazon + Zoho stock comparison',
+    })
+  }
+}
+
+async function postAmazonZohoStockVigilMatch(req, res) {
+  try {
+    const vigilRows = Array.isArray(req.body?.vigilRows) ? req.body.vigilRows : []
+    const items = Array.isArray(req.body?.items) ? req.body.items : []
+    if (vigilRows.length > MAX_VIGIL_MATCH_ROWS) {
+      return res.status(400).json({
+        success: false,
+        error: `Vigil upload exceeds ${MAX_VIGIL_MATCH_ROWS} rows`,
+      })
+    }
+    if (items.length > MAX_COMPARISON_MATCH_ITEMS) {
+      return res.status(400).json({
+        success: false,
+        error: `Comparison match request exceeds ${MAX_COMPARISON_MATCH_ITEMS} rows`,
+      })
+    }
+
+    const safeVigilRows = vigilRows
+      .map((row) => ({
+        itemCode: String(row?.itemCode || '').trim().slice(0, 512),
+        normalizedItemCode: String(row?.normalizedItemCode || '').trim().slice(0, 512),
+        availableStock: Number.isFinite(Number(row?.availableStock))
+          ? Number(row.availableStock)
+          : 0,
+      }))
+      .filter((row) => row.itemCode || row.normalizedItemCode)
+    const safeItems = items.map((item, index) => ({
+      rowKey: String(item?.rowKey || index).slice(0, 1100),
+      sellerSku: String(item?.sellerSku || '').trim().slice(0, 512),
+      zohoSku: String(item?.zohoSku || '').trim().slice(0, 512),
+    }))
+
+    return res.json({
+      success: true,
+      matches: comparisonService.matchVigilStockForComparisonItems({
+        vigilRows: safeVigilRows,
+        items: safeItems,
+      }),
+    })
+  } catch (e) {
+    console.error('[amazon-zoho-stock] Vigil match failed:', e?.message || e)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to match Vigil stock quantities',
     })
   }
 }
@@ -109,6 +160,7 @@ async function exportAmazonZohoStock(req, res) {
 
 module.exports = {
   getAmazonZohoStock,
+  postAmazonZohoStockVigilMatch,
   postAmazonZohoStockRefresh,
   getAmazonZohoStockRefreshStatus,
   exportAmazonZohoStock,

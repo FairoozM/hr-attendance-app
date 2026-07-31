@@ -15,6 +15,10 @@ const {
   buildAmazonSkuSet,
   normalizeSku,
 } = require('./zohoLifeSmileWarehouseService')
+const {
+  buildAmbiguityAwareVigilIndexes,
+  matchSkuToVigilWithAmbiguity,
+} = require('../utils/purchasePlanningSkuMatcher')
 
 const ZOHO_ONLY_LISTING_STATUS = 'ZOHO_ONLY'
 const CREATE_LISTING_ACTION = 'Create listing on Amazon'
@@ -96,6 +100,27 @@ function mergeRows({
         zohoLastFetchedAt: zohoFetchedAt,
         comparisonGeneratedAt,
       },
+    }
+  })
+}
+
+function matchVigilStockForComparisonItems({ vigilRows, items }) {
+  const indexes = buildAmbiguityAwareVigilIndexes(vigilRows)
+  return (Array.isArray(items) ? items : []).map((item, index) => {
+    const rowKey = String(item?.rowKey || index)
+    const amazonSku = String(item?.sellerSku || '').trim()
+    const zohoSku = String(item?.zohoSku || '').trim()
+
+    let match = matchSkuToVigilWithAmbiguity(indexes, amazonSku)
+    if (!match.matched && !match.ambiguous && zohoSku) {
+      match = matchSkuToVigilWithAmbiguity(indexes, zohoSku)
+    }
+
+    return {
+      rowKey,
+      vigilStockQty: match.matched ? toNumber(match.wholesaleAvailableQty) : null,
+      matchType: match.matchType,
+      ambiguous: Boolean(match.ambiguous),
     }
   })
 }
@@ -466,11 +491,13 @@ module.exports = {
   refreshAmazonZohoStockComparison,
   readCachedAmazonZohoStock,
   exportAmazonZohoStockCsv,
+  matchVigilStockForComparisonItems,
   ZOHO_ONLY_LISTING_STATUS,
   CREATE_LISTING_ACTION,
   _internals: {
     normalizeSku,
     mergeRows,
+    matchVigilStockForComparisonItems,
     deriveRecommendedAction,
     buildAmazonNotFoundRows,
     isZohoItemActive,
