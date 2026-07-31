@@ -130,6 +130,19 @@ test('ambiguity-aware matcher repeats one family quantity across colored variant
   assert.equal(blue.wholesaleAvailableQty, 20)
 })
 
+test('ambiguity-aware matcher indexes SKU-like family prefixes from Vigil item names', () => {
+  const indexes = buildAmbiguityAwareVigilIndexes([
+    {
+      itemCode: '629110000001',
+      itemName: 'LIFE P17-16 Fry Pan',
+      availableStock: 14,
+    },
+  ])
+  const match = matchSkuToVigilWithAmbiguity(indexes, 'LIFE P17-16')
+  assert.equal(match.matched, true)
+  assert.equal(match.wholesaleAvailableQty, 14)
+})
+
 test('ambiguity-aware matcher refuses conflicting duplicate Vigil codes', () => {
   const indexes = buildAmbiguityAwareVigilIndexes([
     { itemCode: 'DUPLICATE-1', availableStock: 4 },

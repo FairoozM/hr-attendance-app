@@ -17,6 +17,7 @@ const {
 } = require('./zohoLifeSmileWarehouseService')
 const {
   buildAmbiguityAwareVigilIndexes,
+  itemNameMatchSources,
   matchSkuToVigilWithAmbiguity,
 } = require('../utils/purchasePlanningSkuMatcher')
 
@@ -110,10 +111,17 @@ function matchVigilStockForComparisonItems({ vigilRows, items }) {
     const rowKey = String(item?.rowKey || index)
     const amazonSku = String(item?.sellerSku || '').trim()
     const zohoSku = String(item?.zohoSku || '').trim()
+    const zohoItemName = String(item?.zohoItemName || '').trim()
 
     let match = matchSkuToVigilWithAmbiguity(indexes, amazonSku)
     if (!match.matched && !match.ambiguous && zohoSku) {
       match = matchSkuToVigilWithAmbiguity(indexes, zohoSku)
+    }
+    if (!match.matched && !match.ambiguous && zohoItemName) {
+      for (const source of itemNameMatchSources(zohoItemName)) {
+        match = matchSkuToVigilWithAmbiguity(indexes, source)
+        if (match.matched || match.ambiguous) break
+      }
     }
 
     return {

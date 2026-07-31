@@ -118,6 +118,7 @@ async function matchAmazonZohoVigilStock(vigilRows, rows) {
       rowKey: comparisonRowKey(row),
       sellerSku: row.sellerSku || '',
       zohoSku: row.zoho?.sku || '',
+      zohoItemName: row.zoho?.itemName || '',
     })),
   })
 }

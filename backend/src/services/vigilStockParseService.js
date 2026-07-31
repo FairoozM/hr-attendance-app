@@ -104,7 +104,20 @@ const STOCK_CANDIDATES = [
   'available',
 ]
 
-const ITEM_NAME_CANDIDATES = ['item name', 'item_name', 'name', 'description', 'product name', 'product_name']
+const ITEM_NAME_CANDIDATES = [
+  'item name',
+  'item_name',
+  'name',
+  'description',
+  'product name',
+  'product_name',
+  'stk name',
+  'stk_name',
+  'stk description',
+  'stk_description',
+  'stk desc',
+  'stk_desc',
+]
 
 function resolveHeaders(headerIdx, columnMapping = {}) {
   const itemCodeHeader =

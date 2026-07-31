@@ -241,6 +241,32 @@ describe('amazonZohoStock Vigil quantity matching', () => {
     })
   })
 
+  it('matches family prefixes from Vigil and Zoho item names when their SKUs differ', () => {
+    const matches = matchVigilStockForComparisonItems({
+      vigilRows: [
+        {
+          itemCode: '629110000001',
+          itemName: 'LIFE P17-16 Fry Pan',
+          availableStock: 18,
+        },
+      ],
+      items: [
+        {
+          rowKey: 'UAE:different-barcode',
+          sellerSku: 'AMAZON-UNRELATED',
+          zohoSku: '629110999999',
+          zohoItemName: 'LIFE P17-16 BLUE Fry Pan',
+        },
+      ],
+    })
+    assert.deepEqual(matches[0], {
+      rowKey: 'UAE:different-barcode',
+      vigilStockQty: 18,
+      matchType: 'parent',
+      ambiguous: false,
+    })
+  })
+
   it('returns no quantity for unmatched comparison rows', () => {
     const matches = matchVigilStockForComparisonItems({
       vigilRows: [{ itemCode: 'OTHER-SKU', availableStock: 6 }],

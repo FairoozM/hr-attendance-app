@@ -84,6 +84,7 @@ export function VigilUploadPanel({ onConfirmed }: VigilUploadPanelProps) {
   const [needsMapping, setNeedsMapping] = useState(false)
   const [itemCodeHeader, setItemCodeHeader] = useState('')
   const [stockHeader, setStockHeader] = useState('')
+  const [itemNameHeader, setItemNameHeader] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [filters, setFilters] = useState<VigilPreviewFilterState>(DEFAULT_VIGIL_PREVIEW_FILTERS)
@@ -121,7 +122,7 @@ export function VigilUploadPanel({ onConfirmed }: VigilUploadPanelProps) {
   }, [preview])
 
   const runPreview = useCallback(
-    async (mapping?: { itemCodeHeader?: string; stockHeader?: string }) => {
+    async (mapping?: { itemCodeHeader?: string; stockHeader?: string; itemNameHeader?: string }) => {
       if (!file) return
       setBusy(true)
       setError('')
@@ -131,6 +132,7 @@ export function VigilUploadPanel({ onConfirmed }: VigilUploadPanelProps) {
         setNeedsMapping(Boolean(res.needsColumnMapping))
         if (res.preview.summary.itemCodeHeader) setItemCodeHeader(res.preview.summary.itemCodeHeader)
         if (res.preview.summary.stockHeader) setStockHeader(res.preview.summary.stockHeader)
+        if (res.preview.summary.itemNameHeader) setItemNameHeader(res.preview.summary.itemNameHeader)
         if (res.needsColumnMapping && !mapping) {
           setError(res.message || 'Confirm column mapping before using this file.')
         }
@@ -191,6 +193,9 @@ export function VigilUploadPanel({ onConfirmed }: VigilUploadPanelProps) {
             setPreview(null)
             setError('')
             setNeedsMapping(false)
+            setItemCodeHeader('')
+            setStockHeader('')
+            setItemNameHeader('')
             resetFilters()
           }}
         />
@@ -212,8 +217,8 @@ export function VigilUploadPanel({ onConfirmed }: VigilUploadPanelProps) {
         </button>
       </div>
       {error && <p className="ainv-banner ainv-banner--amber mt-3">{error}</p>}
-      {needsMapping && headers.length > 0 && (
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
+      {preview && headers.length > 0 && (
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
           <label className="ainv-label">
             Item code column
             <select
@@ -244,12 +249,27 @@ export function VigilUploadPanel({ onConfirmed }: VigilUploadPanelProps) {
               ))}
             </select>
           </label>
+          <label className="ainv-label">
+            Item / family name column (optional)
+            <select
+              className="ainv-input"
+              value={itemNameHeader}
+              onChange={(e) => setItemNameHeader(e.target.value)}
+            >
+              <option value="">No family-name column</option>
+              {headers.map((h) => (
+                <option key={h} value={h}>
+                  {h}
+                </option>
+              ))}
+            </select>
+          </label>
           <button
             type="button"
-            className="ainv-btn ainv-btn--amber md:col-span-2"
+            className="ainv-btn ainv-btn--amber md:col-span-3"
             disabled={!itemCodeHeader || !stockHeader || busy}
             onClick={() =>
-              void runPreview({ itemCodeHeader, stockHeader })
+              void runPreview({ itemCodeHeader, stockHeader, itemNameHeader })
             }
           >
             Apply column mapping and re-preview
@@ -373,6 +393,7 @@ export function VigilUploadPanel({ onConfirmed }: VigilUploadPanelProps) {
             >
               {preview.summary.validRows} valid / {preview.summary.invalidRows} invalid — Item:{' '}
               {preview.summary.itemCodeHeader || '—'} · Stock: {preview.summary.stockHeader || '—'}
+              {' '}· Family name: {preview.summary.itemNameHeader || '—'}
               {filtersActive ? (
                 <>
                   {' '}
@@ -391,6 +412,7 @@ export function VigilUploadPanel({ onConfirmed }: VigilUploadPanelProps) {
                   <tr>
                     <th className="px-3 py-2">Row</th>
                     <th className="px-3 py-2">Item code</th>
+                    <th className="px-3 py-2">Item / family name</th>
                     <th className="px-3 py-2">Stock</th>
                     <th className="px-3 py-2">Status</th>
                   </tr>
@@ -400,6 +422,7 @@ export function VigilUploadPanel({ onConfirmed }: VigilUploadPanelProps) {
                     <tr key={row.rowNumber}>
                       <td className="px-3 py-2">{row.rowNumber}</td>
                       <td className="px-3 py-2 ainv-table__sku">{row.itemCode || '—'}</td>
+                      <td className="px-3 py-2 ainv-table__sku">{row.itemName || '—'}</td>
                       <td className={`px-3 py-2 font-mono ${stockCellClass(row.availableStock)}`}>
                         {formatNumber(row.availableStock)}
                       </td>

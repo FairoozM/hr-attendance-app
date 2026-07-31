@@ -68,6 +68,7 @@ async function postAmazonZohoStockVigilMatch(req, res) {
     const safeVigilRows = vigilRows
       .map((row) => ({
         itemCode: String(row?.itemCode || '').trim().slice(0, 512),
+        itemName: String(row?.itemName || '').trim().slice(0, 512),
         normalizedItemCode: String(row?.normalizedItemCode || '').trim().slice(0, 512),
         availableStock: Number.isFinite(Number(row?.availableStock))
           ? Number(row.availableStock)
@@ -78,6 +79,7 @@ async function postAmazonZohoStockVigilMatch(req, res) {
       rowKey: String(item?.rowKey || index).slice(0, 1100),
       sellerSku: String(item?.sellerSku || '').trim().slice(0, 512),
       zohoSku: String(item?.zohoSku || '').trim().slice(0, 512),
+      zohoItemName: String(item?.zohoItemName || '').trim().slice(0, 512),
     }))
 
     return res.json({

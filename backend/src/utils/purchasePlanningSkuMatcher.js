@@ -251,11 +251,32 @@ function vigilRowCodeSources(row) {
     seen.add(s)
     out.push(s)
   }
+  for (const value of [row.itemName, row.item_name, row.name, row.description]) {
+    for (const source of itemNameMatchSources(value)) {
+      if (seen.has(source)) continue
+      seen.add(source)
+      out.push(source)
+    }
+  }
   return out
 }
 
 function cleanRowCode(value) {
   return String(value == null ? '' : value).trim()
+}
+
+function itemNameMatchSources(value) {
+  const name = cleanRowCode(value)
+  if (!name) return []
+  const sources = [name]
+  const tokens = normalizeSku(name).split(/[\s|/]+/).filter(Boolean)
+  const maxPrefixLength = Math.min(4, tokens.length)
+  for (let length = maxPrefixLength; length >= 1; length -= 1) {
+    const prefix = tokens.slice(0, length).join(' ')
+    if (prefix.length < 3 || !/\d/.test(prefix)) continue
+    if (!sources.includes(prefix)) sources.push(prefix)
+  }
+  return sources
 }
 
 function buildVigilIndexes(vigilRows) {
@@ -389,6 +410,7 @@ module.exports = {
   getParentSku,
   expandExactMatchVariants,
   expandMatchCandidates,
+  itemNameMatchSources,
   vigilRowCodeSources,
   buildVigilIndexes,
   buildAmbiguityAwareVigilIndexes,
