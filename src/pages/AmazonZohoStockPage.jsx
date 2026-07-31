@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, fetchBinary, downloadBlob } from '../api/client'
+import { api, fetchBinary, postBinary, downloadBlob } from '../api/client'
 import { VigilUploadPanel } from '../components/amazon/outOfStockClearance/VigilUploadPanel'
 
 const STOCK_FILTERS = [
@@ -106,9 +106,12 @@ async function getAmazonZohoStockRefreshStatus(jobId) {
   return api.get(`/api/inventory/amazon-zoho-stock/refresh/${encodeURIComponent(jobId)}`)
 }
 
-async function exportAmazonZohoStock(params) {
+async function exportAmazonZohoStock(params, vigilRows = []) {
   const query = buildQuery(params)
-  return fetchBinary(`/api/inventory/amazon-zoho-stock/export${query ? `?${query}` : ''}`)
+  const path = `/api/inventory/amazon-zoho-stock/export${query ? `?${query}` : ''}`
+  return vigilRows.length > 0
+    ? postBinary(path, { vigilRows }, { timeoutMs: 120_000 })
+    : fetchBinary(path)
 }
 
 async function matchAmazonZohoVigilStock(vigilRows, rows) {
@@ -255,14 +258,17 @@ export function AmazonZohoStockPage() {
     setExporting(true)
     setError('')
     try {
-      const { blob, filename } = await exportAmazonZohoStock({ marketplace, search, stockFilter })
+      const { blob, filename } = await exportAmazonZohoStock(
+        { marketplace, search, stockFilter },
+        vigilRows
+      )
       downloadBlob(blob, filename || 'amazon-zoho-stock.csv')
     } catch (e) {
       setError(safeErrorMessage(e))
     } finally {
       setExporting(false)
     }
-  }, [marketplace, search, stockFilter])
+  }, [marketplace, search, stockFilter, vigilRows])
 
   const rows = useMemo(
     () => (Array.isArray(payload?.data) ? payload.data : []),

@@ -33,6 +33,19 @@ function parseFilters(query) {
   }
 }
 
+function sanitizeVigilRows(rows) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => ({
+      itemCode: String(row?.itemCode || '').trim().slice(0, 512),
+      itemName: String(row?.itemName || '').trim().slice(0, 512),
+      normalizedItemCode: String(row?.normalizedItemCode || '').trim().slice(0, 512),
+      availableStock: Number.isFinite(Number(row?.availableStock))
+        ? Number(row.availableStock)
+        : 0,
+    }))
+    .filter((row) => row.itemCode || row.normalizedItemCode)
+}
+
 async function getAmazonZohoStock(req, res) {
   try {
     const filters = parseFilters(req.query || {})
@@ -65,16 +78,7 @@ async function postAmazonZohoStockVigilMatch(req, res) {
       })
     }
 
-    const safeVigilRows = vigilRows
-      .map((row) => ({
-        itemCode: String(row?.itemCode || '').trim().slice(0, 512),
-        itemName: String(row?.itemName || '').trim().slice(0, 512),
-        normalizedItemCode: String(row?.normalizedItemCode || '').trim().slice(0, 512),
-        availableStock: Number.isFinite(Number(row?.availableStock))
-          ? Number(row.availableStock)
-          : 0,
-      }))
-      .filter((row) => row.itemCode || row.normalizedItemCode)
+    const safeVigilRows = sanitizeVigilRows(vigilRows)
     const safeItems = items.map((item, index) => ({
       rowKey: String(item?.rowKey || index).slice(0, 1100),
       sellerSku: String(item?.sellerSku || '').trim().slice(0, 512),
@@ -146,7 +150,17 @@ async function getAmazonZohoStockRefreshStatus(req, res) {
 
 async function exportAmazonZohoStock(req, res) {
   try {
-    const csv = await comparisonService.exportAmazonZohoStockCsv(parseFilters(req.query || {}))
+    const vigilRows = Array.isArray(req.body?.vigilRows) ? req.body.vigilRows : []
+    if (vigilRows.length > MAX_VIGIL_MATCH_ROWS) {
+      return res.status(400).json({
+        success: false,
+        error: `Vigil upload exceeds ${MAX_VIGIL_MATCH_ROWS} rows`,
+      })
+    }
+    const csv = await comparisonService.exportAmazonZohoStockCsv(
+      parseFilters(req.query || {}),
+      sanitizeVigilRows(vigilRows)
+    )
     const stamp = new Date().toISOString().slice(0, 10)
     res.setHeader('Content-Type', 'text/csv; charset=utf-8')
     res.setHeader('Content-Disposition', `attachment; filename="amazon-zoho-stock-${stamp}.csv"`)

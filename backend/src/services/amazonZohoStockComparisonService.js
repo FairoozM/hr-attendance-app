@@ -454,6 +454,7 @@ function rowsToCsv(rows) {
     'Seller Flex On-Hand',
     'Seller Flex Fulfillable',
     'Zoho Available For Sale',
+    'Vigil Stock Qty',
     'Difference',
     'Zoho Status',
     'Amazon Status',
@@ -475,6 +476,7 @@ function rowsToCsv(rows) {
         row.amazon?.totalQty ?? row.amazon?.availableQty,
         row.amazon?.availableQty,
         row.zoho?.availableQty,
+        row.vigilStockQty,
         row.comparison?.difference,
         row.zoho?.stockStatus,
         row.amazon?.stockStatus,
@@ -490,9 +492,25 @@ function rowsToCsv(rows) {
   return lines.join('\n')
 }
 
-async function exportAmazonZohoStockCsv(filters = {}) {
+async function exportAmazonZohoStockCsv(filters = {}, vigilRows = []) {
   const rows = await store.selectAllComparisonRows(filters)
-  return rowsToCsv(rows)
+  if (!Array.isArray(vigilRows) || vigilRows.length === 0) return rowsToCsv(rows)
+
+  const matches = matchVigilStockForComparisonItems({
+    vigilRows,
+    items: rows.map((row, index) => ({
+      rowKey: String(index),
+      sellerSku: row.sellerSku || '',
+      zohoSku: row.zoho?.sku || '',
+      zohoItemName: row.zoho?.itemName || '',
+    })),
+  })
+  return rowsToCsv(
+    rows.map((row, index) => ({
+      ...row,
+      vigilStockQty: matches[index]?.vigilStockQty ?? null,
+    }))
+  )
 }
 
 module.exports = {

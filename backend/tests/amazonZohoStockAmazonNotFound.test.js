@@ -8,6 +8,7 @@ const {
     matchVigilStockForComparisonItems,
     isZohoItemActive,
     deriveRecommendedAction,
+    rowsToCsv,
   },
 } = require('../src/services/amazonZohoStockComparisonService')
 const {
@@ -278,5 +279,20 @@ describe('amazonZohoStock Vigil quantity matching', () => {
       matchType: 'not_found',
       ambiguous: false,
     })
+  })
+
+  it('includes Vigil stock quantity in CSV exports', () => {
+    const csv = rowsToCsv([
+      {
+        marketplace: 'UAE',
+        sellerSku: 'FAMILY-1-BLUE',
+        zoho: { availableQty: 3 },
+        amazon: { availableQty: 0, totalQty: 0 },
+        comparison: {},
+        vigilStockQty: 27,
+      },
+    ])
+    const [headers, values] = csv.split('\n').map((line) => line.split(','))
+    assert.equal(values[headers.indexOf('Vigil Stock Qty')], '27')
   })
 })
