@@ -11,6 +11,10 @@ const STOCK_FILTERS = [
   { value: 'bothOutOfStock', label: 'Both Out of Stock' },
   { value: 'zohoNotFound', label: 'Zoho Not Found' },
   { value: 'amazonNotFound', label: 'Not on Amazon' },
+  { value: 'amazonNoonLive', label: 'Live on Amazon + Noon' },
+  { value: 'noonLiveAmazonMissing', label: 'Live on Noon · missing Amazon' },
+  { value: 'amazonLiveNoonMissing', label: 'Live on Amazon · missing Noon' },
+  { value: 'noonOutOfStock', label: 'Noon Out of Stock' },
 ]
 
 const VALID_STOCK_FILTERS = new Set(STOCK_FILTERS.map((f) => f.value))
@@ -98,8 +102,8 @@ async function getAmazonZohoStock(params) {
   return api.get(`/api/inventory/amazon-zoho-stock${query ? `?${query}` : ''}`)
 }
 
-async function startAmazonZohoStockRefresh(marketplace) {
-  return api.post('/api/inventory/amazon-zoho-stock/refresh', { marketplace })
+async function startAmazonZohoStockRefresh(marketplace, mode = 'full') {
+  return api.post('/api/inventory/amazon-zoho-stock/refresh', { marketplace, mode })
 }
 
 async function getAmazonZohoStockRefreshStatus(jobId) {
@@ -239,11 +243,11 @@ export function AmazonZohoStockPage() {
     return () => window.clearInterval(timer)
   }, [job?.jobId, job?.status, loadData])
 
-  const startRefresh = useCallback(async () => {
+  const startRefreshMode = useCallback(async (mode) => {
     setRefreshing(true)
     setRefreshError('')
     try {
-      const json = await startAmazonZohoStockRefresh(marketplace)
+      const json = await startAmazonZohoStockRefresh(marketplace, mode)
       setJob(json)
       if (!['queued', 'running'].includes(json.status)) {
         setRefreshing(false)
@@ -253,6 +257,11 @@ export function AmazonZohoStockPage() {
       setRefreshError(safeErrorMessage(e))
     }
   }, [marketplace])
+  const startRefresh = useCallback(() => startRefreshMode('full'), [startRefreshMode])
+  const startNoonStockRefresh = useCallback(
+    () => startRefreshMode('noonStockOnly'),
+    [startRefreshMode]
+  )
 
   const runExport = useCallback(async () => {
     setExporting(true)
@@ -331,10 +340,10 @@ export function AmazonZohoStockPage() {
     <div className="ainv-page mx-auto flex max-w-[120rem] flex-col gap-8 px-4 pb-16 pt-4 md:px-6">
       <header className="ainv-page__header">
         <p className="ainv-page__eyebrow">Admin Inventory</p>
-        <h1 className="ainv-page__title">Amazon + Zoho Stock Comparison</h1>
+        <h1 className="ainv-page__title">Amazon + Zoho + Noon Stock Comparison</h1>
         <p className="ainv-page__lead">
-          Compare <strong>Seller Flex / Amazon-fulfilled</strong> active listings against Zoho stock. FBM and search
-          suppressed SKUs are excluded. Refresh pulls FBA API + AFN Manage Inventory for on-hand.
+          Compare <strong>Seller Flex / Amazon-fulfilled</strong> listings against Zoho and cached Noon UAE/KSA
+          listings and stock. Noon reads are cache-first; stale stock refreshes are paced and capped.
         </p>
         <div className="ainv-callout-emerald">
           <p className="ainv-callout-emerald__title">Out of stock workflow (use this instead of slow clearance scans)</p>
@@ -432,7 +441,7 @@ export function AmazonZohoStockPage() {
               Search
               <input
                 className="ainv-input"
-                placeholder="SKU / ASIN / title"
+                placeholder="Amazon / Zoho / Noon SKU, ASIN, or title"
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value)
@@ -493,7 +502,17 @@ export function AmazonZohoStockPage() {
               disabled={refreshing || ['queued', 'running'].includes(job?.status)}
               className="ainv-btn ainv-btn--primary-emerald"
             >
-              {refreshing || ['queued', 'running'].includes(job?.status) ? 'Refreshing…' : 'Refresh Amazon + Zoho'}
+              {refreshing || ['queued', 'running'].includes(job?.status) ? 'Refreshing…' : 'Refresh Amazon + Zoho + Noon'}
+            </button>
+            <button
+              type="button"
+              onClick={startNoonStockRefresh}
+              disabled={refreshing || ['queued', 'running'].includes(job?.status)}
+              className="ainv-btn ainv-btn--primary-sky"
+            >
+              {refreshing || ['queued', 'running'].includes(job?.status)
+                ? 'Refreshing…'
+                : 'Refresh stale Noon stock'}
             </button>
             <button
               type="button"
@@ -506,9 +525,11 @@ export function AmazonZohoStockPage() {
           </div>
         </div>
 
-        <div className="mt-4 grid gap-2 text-xs md:grid-cols-3" style={{ color: 'var(--text-dim)' }}>
+        <div className="mt-4 grid gap-2 text-xs md:grid-cols-5" style={{ color: 'var(--text-dim)' }}>
           <div>Amazon last fetched: <span className="font-mono" style={{ color: 'var(--text-soft)' }}>{formatDateTime(timestamps.amazonLastFetchedAt)}</span></div>
           <div>Zoho last fetched: <span className="font-mono" style={{ color: 'var(--text-soft)' }}>{formatDateTime(timestamps.zohoLastFetchedAt)}</span></div>
+          <div>Noon catalog synced: <span className="font-mono" style={{ color: 'var(--text-soft)' }}>{formatDateTime(timestamps.noonCatalogSyncedAt)}</span></div>
+          <div>Noon stock synced: <span className="font-mono" style={{ color: 'var(--text-soft)' }}>{formatDateTime(timestamps.noonStockSyncedAt)}</span></div>
           <div>Comparison generated: <span className="font-mono" style={{ color: 'var(--text-soft)' }}>{formatDateTime(timestamps.comparisonGeneratedAt)}</span></div>
         </div>
 
@@ -577,6 +598,32 @@ export function AmazonZohoStockPage() {
           hint="Active Zoho · no Amazon listing"
         />
         <SummaryCard
+          label="Live on Amazon + Noon"
+          value={summary.amazonNoonLive || 0}
+          active={stockFilter === 'amazonNoonLive'}
+          onClick={() => applyStockFilter('amazonNoonLive')}
+        />
+        <SummaryCard
+          label="Noon Live · Missing Amazon"
+          value={summary.noonLiveAmazonMissing || 0}
+          active={stockFilter === 'noonLiveAmazonMissing'}
+          onClick={() => applyStockFilter('noonLiveAmazonMissing')}
+          hint="Active Noon listings not found on Amazon"
+        />
+        <SummaryCard
+          label="Amazon Live · Missing Noon"
+          value={summary.amazonLiveNoonMissing || 0}
+          active={stockFilter === 'amazonLiveNoonMissing'}
+          onClick={() => applyStockFilter('amazonLiveNoonMissing')}
+        />
+        <SummaryCard
+          label="Noon Out of Stock"
+          value={summary.noonOutOfStock || 0}
+          active={stockFilter === 'noonOutOfStock'}
+          onClick={() => applyStockFilter('noonOutOfStock')}
+          hint="Active Noon · cached stock = 0"
+        />
+        <SummaryCard
           label="Both Out of Stock"
           value={summary.bothOutOfStock || 0}
           active={stockFilter === 'bothOutOfStock'}
@@ -611,13 +658,23 @@ export function AmazonZohoStockPage() {
                   ? 'Amazon active · FBA zero-stock SKU list'
                   : stockFilter === 'amazonNotFound'
                     ? 'Active Zoho · missing Amazon listing'
-                    : 'Comparison rows'}
+                    : stockFilter === 'noonLiveAmazonMissing'
+                      ? 'Active Noon · missing Amazon listing'
+                      : stockFilter === 'amazonLiveNoonMissing'
+                        ? 'Active Amazon · missing Noon listing'
+                        : stockFilter === 'amazonNoonLive'
+                          ? 'Live on Amazon and Noon'
+                          : stockFilter === 'noonOutOfStock'
+                            ? 'Active Noon · zero cached stock'
+                            : 'Comparison rows'}
             </h2>
             <p className="text-sm" style={{ color: 'var(--text-dim)' }}>
               Showing {rows.length} of {formatNumber(pagination.total)} rows
               {stockFilter === 'amazonOutOfStock'
                 ? ' (Seller Flex · FBA qty = 0 by design)'
-                : ' (Seller Flex / Amazon-fulfilled only)'}
+                : stockFilter.startsWith('noon')
+                  ? ' (Noon cache-backed rows)'
+                  : ' (Seller Flex / Amazon-fulfilled only)'}
               .
             </p>
           </div>
@@ -643,7 +700,7 @@ export function AmazonZohoStockPage() {
         </div>
 
         <div className="ainv-table-wrap" style={{ maxWidth: '100%' }}>
-          <table className="ainv-table" style={{ minWidth: '101rem' }}>
+          <table className="ainv-table" style={{ minWidth: '124rem' }}>
             <thead>
               <tr>
                 <th className="px-3 py-3">Image</th>
@@ -657,6 +714,9 @@ export function AmazonZohoStockPage() {
                 <th className="px-3 py-3">Seller Flex on-hand</th>
                 <th className="px-3 py-3">Seller Flex fulfillable</th>
                 <th className="px-3 py-3">Zoho available for sale</th>
+                <th className="px-3 py-3">Noon matched SKU</th>
+                <th className="px-3 py-3">Noon live status</th>
+                <th className="px-3 py-3">Noon stock qty</th>
                 <th className="px-3 py-3">Vigil Stock Qty</th>
                 <th className="px-3 py-3">Difference</th>
                 <th className="px-3 py-3">Status / Recommended Action</th>
@@ -702,6 +762,26 @@ export function AmazonZohoStockPage() {
                   </td>
                   <td className="px-3 py-3">{formatNumber(row.amazon?.availableQty)}</td>
                   <td className="px-3 py-3 font-semibold">{formatNumber(row.zoho?.availableQty)}</td>
+                  <td className="ainv-table__sku">
+                    {row.noon?.partnerSku || row.noon?.sku || '—'}
+                  </td>
+                  <td className="px-3 py-3">
+                    <span className={statusBadgeClass(row.noon?.isActive ? 'In Stock' : row.noon?.listingStatus)}>
+                      {row.noon?.isActive === true
+                        ? `Live${row.noon?.listingStatus && row.noon.listingStatus !== 'ACTIVE' ? ` · ${row.noon.listingStatus}` : ''}`
+                        : row.noon?.listingStatus || 'Not Found'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3">
+                    <div className="flex flex-col gap-1">
+                      <span className="font-semibold">{formatNumber(row.noon?.stockQty)}</span>
+                      {row.noon?.stockSyncedAt ? (
+                        <span className="text-xs ainv-table__muted" title={formatDateTime(row.noon.stockSyncedAt)}>
+                          {formatDateTime(row.noon.stockSyncedAt)}
+                        </span>
+                      ) : null}
+                    </div>
+                  </td>
                   <td className="px-3 py-3">
                     {vigilMatching ? (
                       <span className="ainv-table__muted">Matching…</span>
@@ -731,7 +811,7 @@ export function AmazonZohoStockPage() {
                         {row.comparison?.recommendedAction || '—'}
                       </span>
                       <span className="text-xs ainv-table__muted">
-                        Amazon: {row.amazon?.stockStatus || 'Unknown'} · Zoho: {row.zoho?.stockStatus || 'Unknown'}
+                        Amazon: {row.amazon?.stockStatus || 'Unknown'} · Zoho: {row.zoho?.stockStatus || 'Unknown'} · Noon: {row.noon?.listingStatus || 'Not Found'}
                       </span>
                     </div>
                   </td>
@@ -740,14 +820,14 @@ export function AmazonZohoStockPage() {
               })}
               {!loading && rows.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="py-12 text-center ainv-table__muted">
+                  <td colSpan={17} className="py-12 text-center ainv-table__muted">
                     No comparison rows found. Run refresh to generate cached data or adjust filters.
                   </td>
                 </tr>
               ) : null}
               {loading ? (
                 <tr>
-                  <td colSpan={14} className="py-12 text-center ainv-table__muted">Loading cached comparison data…</td>
+                  <td colSpan={17} className="py-12 text-center ainv-table__muted">Loading cached comparison data…</td>
                 </tr>
               ) : null}
             </tbody>

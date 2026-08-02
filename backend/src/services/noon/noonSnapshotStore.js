@@ -103,6 +103,109 @@ async function ensureNoonProductSnapshotsTable() {
     CREATE INDEX IF NOT EXISTS idx_noon_product_snapshots_search
       ON noon_product_snapshots(LOWER(partner_sku), LOWER(COALESCE(noon_sku, '')), LOWER(COALESCE(title, '')))
   `)
+  await query(`
+    CREATE TABLE IF NOT EXISTS noon_sync_state (
+      country_code TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'idle',
+      last_catalog_sync_at TIMESTAMPTZ,
+      last_stock_sync_at TIMESTAMPTZ,
+      started_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      catalog_items INTEGER NOT NULL DEFAULT 0,
+      stock_cursor TEXT,
+      last_error TEXT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+}
+
+async function claimNoonSync(countryCode, staleMinutes = 45) {
+  const country = normalizeCountryCode(countryCode)
+  const result = await query(
+    `INSERT INTO noon_sync_state (country_code, status, started_at, updated_at)
+     VALUES ($1, 'running', NOW(), NOW())
+     ON CONFLICT (country_code)
+     DO UPDATE SET status = 'running', started_at = NOW(), last_error = NULL, updated_at = NOW()
+     WHERE noon_sync_state.status <> 'running'
+        OR noon_sync_state.updated_at < NOW() - ($2::text || ' minutes')::interval
+     RETURNING *`,
+    [country, Math.max(5, Number(staleMinutes) || 45)]
+  )
+  return result.rows[0] || null
+}
+
+async function completeNoonSync(countryCode, patch = {}) {
+  const result = await query(
+    `INSERT INTO noon_sync_state (
+       country_code, status, last_catalog_sync_at, last_stock_sync_at,
+       completed_at, catalog_items, stock_cursor, last_error, updated_at
+     )
+     VALUES ($1, $2, $3, $4, NOW(), $5, $6, $7, NOW())
+     ON CONFLICT (country_code)
+     DO UPDATE SET
+       status = EXCLUDED.status,
+       last_catalog_sync_at = COALESCE(EXCLUDED.last_catalog_sync_at, noon_sync_state.last_catalog_sync_at),
+       last_stock_sync_at = COALESCE(EXCLUDED.last_stock_sync_at, noon_sync_state.last_stock_sync_at),
+       completed_at = NOW(),
+       catalog_items = CASE WHEN EXCLUDED.catalog_items > 0 THEN EXCLUDED.catalog_items ELSE noon_sync_state.catalog_items END,
+       stock_cursor = EXCLUDED.stock_cursor,
+       last_error = EXCLUDED.last_error,
+       updated_at = NOW()
+     RETURNING *`,
+    [
+      normalizeCountryCode(countryCode),
+      patch.status || 'completed',
+      patch.catalogSynced ? new Date() : null,
+      patch.stockSynced ? new Date() : null,
+      Number(patch.catalogItems) || 0,
+      nullableString(patch.stockCursor),
+      nullableString(patch.error),
+    ]
+  )
+  return result.rows[0] || null
+}
+
+async function getNoonSyncState(countryCode) {
+  const result = await query(
+    `SELECT * FROM noon_sync_state WHERE country_code = $1`,
+    [normalizeCountryCode(countryCode)]
+  )
+  return result.rows[0] || null
+}
+
+async function markMissingNoonSnapshotsInactive(countryCode, activePartnerSkus) {
+  const skus = Array.from(new Set((activePartnerSkus || []).map((sku) => String(sku || '').trim()).filter(Boolean)))
+  const result = await query(
+    `UPDATE noon_product_snapshots
+     SET is_active = FALSE, updated_at = NOW()
+     WHERE country_code = $1
+       AND NOT (partner_sku = ANY($2::text[]))`,
+    [normalizeCountryCode(countryCode), skus]
+  )
+  return result.rowCount || 0
+}
+
+async function listStaleActiveNoonSnapshots(options = {}) {
+  const countryCode = normalizeCountryCode(options.countryCode)
+  const staleHours = Math.max(1, Number(options.staleHours) || 12)
+  const limit = Math.min(Math.max(Number(options.limit) || 100, 1), 1000)
+  const prioritySkus = Array.from(
+    new Set((options.prioritySkus || []).map((sku) => String(sku || '').trim()).filter(Boolean))
+  )
+  const result = await query(
+    `SELECT ${SNAPSHOT_FIELDS}
+     FROM noon_product_snapshots
+     WHERE country_code = $1
+       AND is_active IS TRUE
+       AND (stock_synced_at IS NULL OR stock_synced_at < NOW() - ($2::text || ' hours')::interval)
+     ORDER BY
+       CASE WHEN partner_sku = ANY($3::text[]) THEN 0 ELSE 1 END,
+       stock_synced_at ASC NULLS FIRST,
+       partner_sku ASC
+     LIMIT $4`,
+    [countryCode, staleHours, prioritySkus, limit]
+  )
+  return result.rows
 }
 
 async function updateNoonProductSnapshotStock(payload) {
@@ -257,9 +360,14 @@ async function getNoonProductSnapshotsForAudit(countryCode = 'ae') {
 }
 
 module.exports = {
+  claimNoonSync,
+  completeNoonSync,
   ensureNoonProductSnapshotsTable,
+  getNoonSyncState,
   getNoonProductSnapshotsForAudit,
   listNoonProductSnapshots,
+  listStaleActiveNoonSnapshots,
+  markMissingNoonSnapshotsInactive,
   normalizeCountryCode,
   updateNoonProductSnapshotStock,
   upsertNoonProductSnapshot,

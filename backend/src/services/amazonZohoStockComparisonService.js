@@ -12,6 +12,8 @@ const {
   matchZohoStockFromWarehouseDump,
   buildZohoStockEntry,
   zohoItemLookupKeys,
+  indexZohoWarehouseItems,
+  lookupZohoEntry,
   buildAmazonSkuSet,
   normalizeSku,
 } = require('./zohoLifeSmileWarehouseService')
@@ -20,8 +22,13 @@ const {
   itemNameMatchSources,
   matchSkuToVigilWithAmbiguity,
 } = require('../utils/purchasePlanningSkuMatcher')
+const { ensureNoonCatalogCache } = require('./noon/noonSnapshotSyncService')
+const { getNoonProductSnapshotsForAudit } = require('./noon/noonSnapshotStore')
+const { syncStaleNoonStock } = require('./noon/noonStockService')
+const { resolveNoonMatchKeys } = require('./skuChannelCoverageMatching')
 
 const ZOHO_ONLY_LISTING_STATUS = 'ZOHO_ONLY'
+const NOON_ONLY_LISTING_STATUS = 'NOON_ONLY'
 const CREATE_LISTING_ACTION = 'Create listing on Amazon'
 
 function toNumber(value, fallback = 0) {
@@ -35,6 +42,173 @@ function isZohoItemActive(raw) {
   const status = String(raw.status || raw.item_status || '').trim().toLowerCase()
   if (status === 'inactive' || status === 'deleted') return false
   return true
+}
+
+function noonCountryCode(marketplaceKey) {
+  return String(marketplaceKey || '').toLowerCase() === 'ksa' ? 'sa' : 'ae'
+}
+
+function noonWarehouseCode(countryCode) {
+  const countrySpecific = process.env[`NOON_WAREHOUSE_CODE_${String(countryCode).toUpperCase()}`]
+  return String(countrySpecific || process.env.NOON_WAREHOUSE_CODE || '').trim()
+}
+
+function isActiveNoonSnapshot(snapshot) {
+  return snapshot?.is_active === true || snapshot?.isActive === true
+}
+
+function noonPayload(snapshot, countryCode) {
+  if (!snapshot) {
+    return {
+      partnerSku: '',
+      sku: '',
+      title: '',
+      countryCode,
+      isActive: null,
+      listingStatus: 'Not Found',
+      stockQty: null,
+      stockSyncedAt: null,
+      catalogSyncedAt: null,
+    }
+  }
+  return {
+    partnerSku: snapshot.partner_sku || snapshot.partnerSku || '',
+    sku: snapshot.noon_sku || snapshot.sku || '',
+    title: snapshot.title || '',
+    countryCode,
+    isActive: isActiveNoonSnapshot(snapshot),
+    listingStatus:
+      snapshot.is_active === false
+        ? 'INACTIVE'
+        : snapshot.pricing_status_code || snapshot.pricingStatusCode || 'ACTIVE',
+    stockQty:
+      snapshot.stock_quantity == null && snapshot.stockQuantity == null
+        ? null
+        : toNumber(snapshot.stock_quantity ?? snapshot.stockQuantity),
+    stockSyncedAt: snapshot.stock_synced_at || snapshot.stockSyncedAt || null,
+    catalogSyncedAt: snapshot.last_synced_at || snapshot.lastSyncedAt || null,
+  }
+}
+
+function buildNoonSnapshotIndex(snapshots) {
+  const index = new Map()
+  const ambiguous = new Set()
+  for (const snapshot of snapshots || []) {
+    if (!isActiveNoonSnapshot(snapshot)) continue
+    for (const candidate of resolveNoonMatchKeys(snapshot)) {
+      const previous = index.get(candidate.key)
+      if (previous && previous !== snapshot) {
+        ambiguous.add(candidate.key)
+        continue
+      }
+      index.set(candidate.key, snapshot)
+    }
+  }
+  for (const key of ambiguous) index.delete(key)
+  return index
+}
+
+function rowNoonLookupKeys(row) {
+  const keys = buildAmazonSkuSet([row?.sellerSku, row?.normalizedSku])
+  for (const key of zohoItemLookupKeys(row?.zoho || {}, row?.zoho || {})) keys.add(key)
+  return keys
+}
+
+function attachNoonToRows(rows, snapshots, countryCode) {
+  const index = buildNoonSnapshotIndex(snapshots)
+  const matchedPartnerSkus = new Set()
+  const nextRows = (rows || []).map((row) => {
+    let match = null
+    for (const key of rowNoonLookupKeys(row)) {
+      match = index.get(key)
+      if (match) break
+    }
+    if (match) matchedPartnerSkus.add(String(match.partner_sku || match.partnerSku || ''))
+    return { ...row, noon: noonPayload(match, countryCode) }
+  })
+  return { rows: nextRows, matchedPartnerSkus }
+}
+
+function appendNoonOnlyRows({
+  rows,
+  snapshots,
+  countryCode,
+  marketplaceKey,
+  marketplaceId,
+  warehouseStock,
+  amazonFetchedAt,
+  zohoFetchedAt,
+  comparisonGeneratedAt,
+}) {
+  const result = rows.slice()
+  const usedNoonSkus = new Set(
+    rows.map((row) => String(row.noon?.partnerSku || '')).filter(Boolean)
+  )
+  const usedKeys = new Set(rows.map((row) => row.normalizedSku).filter(Boolean))
+  const zohoIndex = warehouseStock
+    ? indexZohoWarehouseItems(
+        warehouseStock.rawItems,
+        warehouseStock.warehouse?.warehouseName,
+        warehouseStock.warehouse?.warehouseId
+      )
+    : new Map()
+
+  for (const snapshot of snapshots || []) {
+    if (!isActiveNoonSnapshot(snapshot)) continue
+    const partnerSku = String(snapshot.partner_sku || snapshot.partnerSku || '').trim()
+    if (!partnerSku || usedNoonSkus.has(partnerSku)) continue
+    const matchKeys = resolveNoonMatchKeys(snapshot)
+    const normalizedSku = matchKeys[0]?.key || normalizeSku(partnerSku)
+    if (!normalizedSku || usedKeys.has(normalizedSku)) continue
+
+    let zoho = null
+    for (const match of matchKeys) {
+      zoho = lookupZohoEntry(zohoIndex, match.key)
+      if (zoho) break
+    }
+    const zohoAvailable = toNumber(zoho?.availableQty)
+    result.push({
+      marketplaceKey,
+      marketplace: marketplaceLabel(marketplaceKey),
+      marketplaceId,
+      sellerSku: matchKeys[0]?.rawSku || partnerSku,
+      normalizedSku,
+      asin: '',
+      title: snapshot.title || partnerSku,
+      image: snapshot.image_url || '',
+      listingStatus: NOON_ONLY_LISTING_STATUS,
+      fulfillmentChannel: '',
+      price: {
+        amount: snapshot.price == null ? null : toNumber(snapshot.price),
+        currencyCode: marketplaceKey === 'ksa' ? 'SAR' : 'AED',
+      },
+      amazon: { availableQty: 0, totalQty: 0, stockStatus: 'Not Found' },
+      zoho: zoho || {
+        itemId: '',
+        sku: '',
+        normalizedSku,
+        itemName: '',
+        itemType: '',
+        warehouseName: warehouseStock?.warehouse?.warehouseName || '',
+        availableQty: 0,
+        stockStatus: warehouseStock ? 'Not Found' : 'Unknown',
+      },
+      noon: noonPayload(snapshot, countryCode),
+      comparison: {
+        difference: zohoAvailable,
+        isMismatch: false,
+        recommendedAction: CREATE_LISTING_ACTION,
+      },
+      timestamps: {
+        amazonLastFetchedAt: amazonFetchedAt,
+        zohoLastFetchedAt: zohoFetchedAt,
+        comparisonGeneratedAt,
+      },
+    })
+    usedKeys.add(normalizedSku)
+    usedNoonSkus.add(partnerSku)
+  }
+  return result
 }
 
 function deriveRecommendedAction({ amazonAvailable, zohoAvailable, zohoStatus, difference, threshold, amazonStatus }) {
@@ -384,7 +558,70 @@ async function refreshAmazonZohoStockComparison({ marketplace = 'all', progress,
       rows = rows.concat(amazonNotFoundRows)
     }
 
-    rows = attachRowWarnings(rows, [zohoWarning, ...amazonWarnings, amazonResult.inactiveWarning])
+    const countryCode = noonCountryCode(marketplaceKey)
+    const noonWarnings = []
+    try {
+      progress?.({ step: `Refreshing Noon ${countryCode.toUpperCase()} catalog cache`, current: 0, total: 0 })
+      const catalogSync = await ensureNoonCatalogCache({ countryCode })
+      if (catalogSync?.inProgress) {
+        noonWarnings.push(`Noon ${countryCode.toUpperCase()} catalog refresh is already running; cached rows were used.`)
+      }
+      if (Array.isArray(catalogSync?.errors) && catalogSync.errors.length > 0) {
+        noonWarnings.push(`Noon ${countryCode.toUpperCase()} catalog refresh completed with errors; cached data may be partial.`)
+      }
+    } catch (e) {
+      noonWarnings.push(`Noon ${countryCode.toUpperCase()} catalog refresh failed; existing Noon cache was used.`)
+      console.warn('[amazon-zoho-stock] Noon catalog refresh failed:', countryCode, e?.message || e)
+    }
+
+    let noonSnapshots = []
+    try {
+      noonSnapshots = await getNoonProductSnapshotsForAudit(countryCode)
+      const preliminary = attachNoonToRows(rows, noonSnapshots, countryCode)
+      progress?.({
+        step: `Refreshing stale Noon ${countryCode.toUpperCase()} stock`,
+        current: 0,
+        total: preliminary.matchedPartnerSkus.size,
+      })
+      const stockSync = await syncStaleNoonStock({
+        countryCode,
+        warehouse: noonWarehouseCode(countryCode),
+        prioritySkus: [...preliminary.matchedPartnerSkus],
+        onProgress: ({ current, total }) =>
+          progress?.({
+            step: `Refreshing stale Noon ${countryCode.toUpperCase()} stock`,
+            current,
+            total,
+          }),
+      })
+      if (!stockSync.ok && stockSync.errors?.length) {
+        noonWarnings.push(`Some Noon ${countryCode.toUpperCase()} stock quantities could not be refreshed.`)
+      }
+      if (stockSync.updated > 0) noonSnapshots = await getNoonProductSnapshotsForAudit(countryCode)
+    } catch (e) {
+      noonWarnings.push(`Noon ${countryCode.toUpperCase()} stock refresh failed; cached stock was used.`)
+      console.warn('[amazon-zoho-stock] Noon stock refresh failed:', countryCode, e?.message || e)
+    }
+
+    const withNoon = attachNoonToRows(rows, noonSnapshots, countryCode)
+    rows = appendNoonOnlyRows({
+      rows: withNoon.rows,
+      snapshots: noonSnapshots,
+      countryCode,
+      marketplaceKey,
+      marketplaceId: amazonResult.marketplaceId,
+      warehouseStock,
+      amazonFetchedAt: amazonResult.amazonFetchedAt,
+      zohoFetchedAt: zohoResult.fetchedAt,
+      comparisonGeneratedAt,
+    })
+
+    rows = attachRowWarnings(rows, [
+      zohoWarning,
+      ...noonWarnings,
+      ...amazonWarnings,
+      amazonResult.inactiveWarning,
+    ])
     await store.replaceMarketplaceRows(amazonResult.marketplaceKey, rows)
     totalRows += rows.length
 
@@ -409,6 +646,38 @@ async function refreshAmazonZohoStockComparison({ marketplace = 'all', progress,
     comparisonGeneratedAt,
     zohoMeta,
   }
+}
+
+async function refreshStaleNoonStockForComparison({ marketplace = 'all', progress } = {}) {
+  const mkRaw = String(marketplace || 'all').trim().toLowerCase()
+  const marketplaceKeys = mkRaw === 'uae' || mkRaw === 'ksa' ? [mkRaw] : ['uae', 'ksa']
+  let totalRows = 0
+  let totalStockUpdated = 0
+
+  for (const marketplaceKey of marketplaceKeys) {
+    const countryCode = noonCountryCode(marketplaceKey)
+    const cachedRows = await store.selectMarketplaceRowsUnscoped(marketplaceKey)
+    let snapshots = await getNoonProductSnapshotsForAudit(countryCode)
+    const preliminary = attachNoonToRows(cachedRows, snapshots, countryCode)
+    const stockResult = await syncStaleNoonStock({
+      countryCode,
+      warehouse: noonWarehouseCode(countryCode),
+      prioritySkus: [...preliminary.matchedPartnerSkus],
+      onProgress: ({ current, total }) =>
+        progress?.({
+          step: `Refreshing stale Noon ${countryCode.toUpperCase()} stock`,
+          current,
+          total,
+        }),
+    })
+    totalStockUpdated += stockResult.updated || 0
+    if (stockResult.updated > 0) snapshots = await getNoonProductSnapshotsForAudit(countryCode)
+    const refreshed = attachNoonToRows(cachedRows, snapshots, countryCode)
+    await store.updateMarketplaceNoonRows(marketplaceKey, refreshed.rows)
+    totalRows += refreshed.rows.length
+  }
+
+  return { totalRows, totalStockUpdated, marketplaces: marketplaceKeys }
 }
 
 async function readCachedAmazonZohoStock(filters = {}, options = {}) {
@@ -455,6 +724,13 @@ function rowsToCsv(rows) {
     'Seller Flex Fulfillable',
     'Zoho Available For Sale',
     'Vigil Stock Qty',
+    'Noon Partner SKU',
+    'Noon SKU',
+    'Noon Live',
+    'Noon Status',
+    'Noon Stock Qty',
+    'Noon Catalog Synced At',
+    'Noon Stock Synced At',
     'Difference',
     'Zoho Status',
     'Amazon Status',
@@ -477,6 +753,13 @@ function rowsToCsv(rows) {
         row.amazon?.availableQty,
         row.zoho?.availableQty,
         row.vigilStockQty,
+        row.noon?.partnerSku,
+        row.noon?.sku,
+        row.noon?.isActive,
+        row.noon?.listingStatus,
+        row.noon?.stockQty,
+        row.noon?.catalogSyncedAt,
+        row.noon?.stockSyncedAt,
         row.comparison?.difference,
         row.zoho?.stockStatus,
         row.amazon?.stockStatus,
@@ -515,10 +798,12 @@ async function exportAmazonZohoStockCsv(filters = {}, vigilRows = []) {
 
 module.exports = {
   refreshAmazonZohoStockComparison,
+  refreshStaleNoonStockForComparison,
   readCachedAmazonZohoStock,
   exportAmazonZohoStockCsv,
   matchVigilStockForComparisonItems,
   ZOHO_ONLY_LISTING_STATUS,
+  NOON_ONLY_LISTING_STATUS,
   CREATE_LISTING_ACTION,
   _internals: {
     normalizeSku,
@@ -526,6 +811,10 @@ module.exports = {
     matchVigilStockForComparisonItems,
     deriveRecommendedAction,
     buildAmazonNotFoundRows,
+    appendNoonOnlyRows,
+    attachNoonToRows,
+    buildNoonSnapshotIndex,
+    noonCountryCode,
     isZohoItemActive,
     rowsToCsv,
   },

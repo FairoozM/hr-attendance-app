@@ -1,5 +1,11 @@
 const { noonPost } = require('./noonClient')
-const { getNoonProductSnapshotsForAudit, normalizeCountryCode, updateNoonProductSnapshotStock } = require('./noonSnapshotStore')
+const {
+  completeNoonSync,
+  getNoonProductSnapshotsForAudit,
+  listStaleActiveNoonSnapshots,
+  normalizeCountryCode,
+  updateNoonProductSnapshotStock,
+} = require('./noonSnapshotStore')
 const { flattenJson } = require('./noonRichContentAuditService')
 
 const STOCK_LIST_PATH = '/v1/stock-list'
@@ -18,6 +24,23 @@ const STOCK_FIELD_KEYWORDS = [
   'fbp',
 ]
 const WAREHOUSE_FIELD_KEYWORDS = ['warehouse', 'warehousecode', 'warehouseid']
+
+function boundedNumber(value, fallback, min, max) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback
+}
+
+function sleep(ms) {
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve()
+}
+
+function stockSyncSettings() {
+  return {
+    staleHours: boundedNumber(process.env.NOON_STOCK_CACHE_TTL_HOURS, 12, 1, 720),
+    maxPerRun: boundedNumber(process.env.NOON_STOCK_MAX_PER_RUN, 100, 1, 1000),
+    pacingMs: boundedNumber(process.env.NOON_API_PACING_MS, 250, 0, 5000),
+  }
+}
 
 function normalizeKey(value) {
   return String(value || '').replace(/[^a-z0-9]/gi, '').toLowerCase()
@@ -303,7 +326,8 @@ async function syncNoonStockForSkus(options = {}) {
     }
   }
 
-  for (const partnerSku of uniqueSkus) {
+  for (let index = 0; index < uniqueSkus.length; index += 1) {
+    const partnerSku = uniqueSkus[index]
     try {
       const diagnostic = await debugNoonStock(partnerSku, warehouse)
       const updated = await updateNoonProductSnapshotStock({
@@ -323,6 +347,10 @@ async function syncNoonStockForSkus(options = {}) {
         meta: error && error.meta ? error.meta : undefined,
       })
     }
+    if (typeof options.onProgress === 'function') {
+      await options.onProgress({ current: index + 1, total: uniqueSkus.length, partnerSku })
+    }
+    if (index < uniqueSkus.length - 1) await sleep(boundedNumber(options.pacingMs, stockSyncSettings().pacingMs, 0, 5000))
   }
 
   return {
@@ -336,9 +364,39 @@ async function syncNoonStockForSkus(options = {}) {
   }
 }
 
+async function syncStaleNoonStock(options = {}) {
+  const countryCode = normalizeCountryCode(options.countryCode || options.country_code)
+  const settings = stockSyncSettings()
+  const staleRows = await listStaleActiveNoonSnapshots({
+    countryCode,
+    staleHours: options.staleHours || settings.staleHours,
+    limit: options.limit || settings.maxPerRun,
+    prioritySkus: options.prioritySkus || [],
+  })
+  if (staleRows.length === 0) {
+    return { ok: true, countryCode, requested: 0, updated: 0, results: [], errors: [], cached: true }
+  }
+  const result = await syncNoonStockForSkus({
+    countryCode,
+    warehouse: options.warehouse || process.env.NOON_WAREHOUSE_CODE,
+    partnerSkus: staleRows.map((row) => row.partner_sku),
+    pacingMs: options.pacingMs ?? settings.pacingMs,
+    onProgress: options.onProgress,
+  })
+  await completeNoonSync(countryCode, {
+    status: result.ok ? 'completed' : 'partial',
+    stockSynced: result.updated > 0,
+    stockCursor: staleRows[staleRows.length - 1]?.partner_sku,
+    error: result.errors.map((error) => error.message).join('; ').slice(0, 2000),
+  })
+  return { ...result, cached: false }
+}
+
 module.exports = {
   auditNoonStockFields,
   debugNoonStock,
   discoverNoonWarehouses,
+  stockSyncSettings,
+  syncStaleNoonStock,
   syncNoonStockForSkus,
 }

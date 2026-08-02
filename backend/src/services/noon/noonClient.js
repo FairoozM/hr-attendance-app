@@ -6,6 +6,25 @@ const { NoonServiceError } = require('./noonErrors')
 
 const TIMEOUT_MS = 15_000
 
+function boundedInt(value, fallback, min, max) {
+  const parsed = Number.parseInt(String(value ?? ''), 10)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(max, Math.max(min, parsed))
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function retryAfterMs(headers, attempt) {
+  const raw = headers?.['retry-after']
+  const seconds = Number(raw)
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, 60_000)
+  const dateMs = raw ? Date.parse(String(raw)) : NaN
+  if (Number.isFinite(dateMs)) return Math.min(Math.max(dateMs - Date.now(), 0), 60_000)
+  return Math.min(1000 * (2 ** attempt), 30_000)
+}
+
 function safeMessageFromBody(data, fallback) {
   if (data && typeof data === 'object' && !Array.isArray(data)) {
     if (typeof data.message === 'string' && data.message.trim()) return data.message.trim()
@@ -74,6 +93,14 @@ async function requestNoon(method, requestPath, body, options = {}) {
   const url = normalizeRequestPath(requestPath)
   const safeFullUrl = `${config.baseUrl}${url}`
 
+  const maxRateLimitRetries = boundedInt(
+    options.maxRateLimitRetries ?? process.env.NOON_RATE_LIMIT_RETRIES,
+    2,
+    0,
+    5
+  )
+  const sleepFn = typeof options.sleepFn === 'function' ? options.sleepFn : sleep
+
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const cookieHeader =
       attempt === 0
@@ -81,19 +108,24 @@ async function requestNoon(method, requestPath, body, options = {}) {
         : await refreshNoonSessionCookie()
 
     try {
-      const response = await client.request({
-        method,
-        url,
-        data: body,
-        params: options.params,
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-          'User-Agent': config.userAgent,
-          Cookie: cookieHeader,
-          ...(options.headers || {}),
-        },
-      })
+      let response
+      for (let rateAttempt = 0; rateAttempt <= maxRateLimitRetries; rateAttempt += 1) {
+        response = await client.request({
+          method,
+          url,
+          data: body,
+          params: options.params,
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            'User-Agent': config.userAgent,
+            Cookie: cookieHeader,
+            ...(options.headers || {}),
+          },
+        })
+        if (response.status !== 429 || rateAttempt >= maxRateLimitRetries) break
+        await sleepFn(retryAfterMs(response.headers, rateAttempt))
+      }
 
       if (response.status === 401 && attempt === 0) continue
 
@@ -186,6 +218,7 @@ function noonPost(requestPath, body, options) {
 }
 
 module.exports = {
+  retryAfterMs,
   noonGet,
   noonPost,
 }

@@ -32,6 +32,15 @@ async function ensureAmazonZohoStockComparisonTables() {
       zoho_actual_qty NUMERIC(16, 4),
       zoho_committed_qty NUMERIC(16, 4),
       zoho_stock_status VARCHAR(32) NOT NULL DEFAULT 'Unknown',
+      noon_partner_sku VARCHAR(512),
+      noon_sku VARCHAR(512),
+      noon_title TEXT,
+      noon_country_code VARCHAR(8),
+      noon_is_active BOOLEAN,
+      noon_listing_status VARCHAR(64),
+      noon_stock_qty NUMERIC(16, 4),
+      noon_stock_synced_at TIMESTAMPTZ,
+      noon_catalog_synced_at TIMESTAMPTZ,
       difference NUMERIC(16, 4),
       is_mismatch BOOLEAN NOT NULL DEFAULT false,
       recommended_action TEXT,
@@ -53,6 +62,21 @@ async function ensureAmazonZohoStockComparisonTables() {
   )
   await query(
     `CREATE INDEX IF NOT EXISTS idx_amz_zoho_stock_generated ON amazon_zoho_stock_comparison (comparison_generated_at DESC)`
+  )
+  await query(`
+    ALTER TABLE amazon_zoho_stock_comparison
+      ADD COLUMN IF NOT EXISTS noon_partner_sku VARCHAR(512),
+      ADD COLUMN IF NOT EXISTS noon_sku VARCHAR(512),
+      ADD COLUMN IF NOT EXISTS noon_title TEXT,
+      ADD COLUMN IF NOT EXISTS noon_country_code VARCHAR(8),
+      ADD COLUMN IF NOT EXISTS noon_is_active BOOLEAN,
+      ADD COLUMN IF NOT EXISTS noon_listing_status VARCHAR(64),
+      ADD COLUMN IF NOT EXISTS noon_stock_qty NUMERIC(16, 4),
+      ADD COLUMN IF NOT EXISTS noon_stock_synced_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS noon_catalog_synced_at TIMESTAMPTZ
+  `)
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_amz_zoho_stock_noon ON amazon_zoho_stock_comparison (marketplace_key, noon_is_active, noon_partner_sku)`
   )
 }
 
@@ -77,12 +101,15 @@ async function replaceMarketplaceRows(marketplaceKey, rows) {
           amazon_total_qty, amazon_stock_status,
           zoho_item_id, zoho_sku, zoho_normalized_sku, zoho_item_name, zoho_item_type, zoho_warehouse_name,
           zoho_available_qty, zoho_actual_qty, zoho_committed_qty, zoho_stock_status,
+          noon_partner_sku, noon_sku, noon_title, noon_country_code, noon_is_active, noon_listing_status,
+          noon_stock_qty, noon_stock_synced_at, noon_catalog_synced_at,
           difference, is_mismatch, recommended_action,
           amazon_last_fetched_at, zoho_last_fetched_at, comparison_generated_at,
           warnings, raw_safe_json, created_at, updated_at
         ) VALUES (
           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
-          $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35::jsonb,$36::jsonb,NOW(),NOW()
+          $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,
+          $41,$42,$43,$44::jsonb,$45::jsonb,NOW(),NOW()
         )`,
         [
           row.marketplaceKey,
@@ -113,6 +140,15 @@ async function replaceMarketplaceRows(marketplaceKey, rows) {
           numOrNull(row.zoho?.actualQty),
           numOrNull(row.zoho?.committedQty),
           row.zoho?.stockStatus || 'Unknown',
+          row.noon?.partnerSku || null,
+          row.noon?.sku || null,
+          row.noon?.title || null,
+          row.noon?.countryCode || null,
+          typeof row.noon?.isActive === 'boolean' ? row.noon.isActive : null,
+          row.noon?.listingStatus || null,
+          numOrNull(row.noon?.stockQty),
+          row.noon?.stockSyncedAt || null,
+          row.noon?.catalogSyncedAt || null,
           numOrNull(row.comparison?.difference),
           Boolean(row.comparison?.isMismatch),
           row.comparison?.recommendedAction || null,
@@ -137,6 +173,8 @@ async function replaceMarketplaceRows(marketplaceKey, rows) {
 function mapDbRow(r) {
   const amazonLastFetchedAt = r.amazon_last_fetched_at ? new Date(r.amazon_last_fetched_at).toISOString() : null
   const zohoLastFetchedAt = r.zoho_last_fetched_at ? new Date(r.zoho_last_fetched_at).toISOString() : null
+  const noonStockSyncedAt = r.noon_stock_synced_at ? new Date(r.noon_stock_synced_at).toISOString() : null
+  const noonCatalogSyncedAt = r.noon_catalog_synced_at ? new Date(r.noon_catalog_synced_at).toISOString() : null
   const comparisonGeneratedAt = r.comparison_generated_at ? new Date(r.comparison_generated_at).toISOString() : null
   return {
     marketplace: r.marketplace,
@@ -167,6 +205,17 @@ function mapDbRow(r) {
       availableQty: r.zoho_available_qty == null ? null : Number(r.zoho_available_qty),
       stockStatus: r.zoho_stock_status || 'Unknown',
     },
+    noon: {
+      partnerSku: r.noon_partner_sku || '',
+      sku: r.noon_sku || '',
+      title: r.noon_title || '',
+      countryCode: r.noon_country_code || '',
+      isActive: typeof r.noon_is_active === 'boolean' ? r.noon_is_active : null,
+      listingStatus: r.noon_listing_status || (r.noon_partner_sku ? 'ACTIVE' : 'Not Found'),
+      stockQty: r.noon_stock_qty == null ? null : Number(r.noon_stock_qty),
+      stockSyncedAt: noonStockSyncedAt,
+      catalogSyncedAt: noonCatalogSyncedAt,
+    },
     comparison: {
       difference: r.difference == null ? null : Number(r.difference),
       isMismatch: Boolean(r.is_mismatch),
@@ -191,6 +240,7 @@ function appendListingStatusScope(clauses, stockFilter) {
     clauses.push(`listing_status = 'ZOHO_ONLY'`)
     return
   }
+  if (sf === 'noonLiveAmazonMissing' || sf === 'noonOutOfStock') return
   clauses.push(`listing_status = 'ACTIVE'`)
   clauses.push(`UPPER(COALESCE(fulfillment_channel, '')) LIKE '%AMAZON%'`)
 }
@@ -207,7 +257,7 @@ function buildWhere(filters = {}) {
   const stockFilter = String(filters.stockFilter || 'all').trim()
   if (listingScope === 'coverage') {
     // SKU Channel Coverage indexes Amazon listings only — exclude Zoho-only anti-join rows.
-    clauses.push(`COALESCE(listing_status, '') <> 'ZOHO_ONLY'`)
+    clauses.push(`COALESCE(listing_status, '') NOT IN ('ZOHO_ONLY', 'NOON_ONLY')`)
   } else {
     appendListingStatusScope(clauses, stockFilter)
   }
@@ -219,6 +269,9 @@ function buildWhere(filters = {}) {
       OR LOWER(normalized_sku) LIKE $${values.length}
       OR LOWER(COALESCE(asin, '')) LIKE $${values.length}
       OR LOWER(COALESCE(title, '')) LIKE $${values.length}
+      OR LOWER(COALESCE(noon_partner_sku, '')) LIKE $${values.length}
+      OR LOWER(COALESCE(noon_sku, '')) LIKE $${values.length}
+      OR LOWER(COALESCE(noon_title, '')) LIKE $${values.length}
     )`)
   }
   if (stockFilter === 'amazonOutOfStock') {
@@ -234,6 +287,16 @@ function buildWhere(filters = {}) {
     )
   }
   if (stockFilter === 'zohoNotFound') clauses.push(`zoho_stock_status = 'Not Found'`)
+  if (stockFilter === 'amazonNoonLive') clauses.push(`noon_is_active IS TRUE`)
+  if (stockFilter === 'amazonLiveNoonMissing') {
+    clauses.push(`(noon_partner_sku IS NULL OR noon_is_active IS NOT TRUE)`)
+  }
+  if (stockFilter === 'noonLiveAmazonMissing') {
+    clauses.push(`noon_is_active IS TRUE AND amazon_stock_status = 'Not Found'`)
+  }
+  if (stockFilter === 'noonOutOfStock') {
+    clauses.push(`noon_is_active IS TRUE AND COALESCE(noon_stock_qty, 0) = 0`)
+  }
   return {
     whereSql: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '',
     values,
@@ -276,6 +339,60 @@ async function selectAllComparisonRows(filters = {}) {
   return rows.rows.map(mapDbRow)
 }
 
+async function selectMarketplaceRowsUnscoped(marketplaceKey) {
+  const result = await query(
+    `SELECT * FROM amazon_zoho_stock_comparison
+     WHERE marketplace_key = $1
+     ORDER BY normalized_sku ASC`,
+    [String(marketplaceKey).toLowerCase() === 'ksa' ? 'ksa' : 'uae']
+  )
+  return result.rows.map(mapDbRow)
+}
+
+async function updateMarketplaceNoonRows(marketplaceKey, rows) {
+  const mk = String(marketplaceKey).toLowerCase() === 'ksa' ? 'ksa' : 'uae'
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    for (const row of rows || []) {
+      await client.query(
+        `UPDATE amazon_zoho_stock_comparison
+         SET noon_partner_sku = $3,
+             noon_sku = $4,
+             noon_title = $5,
+             noon_country_code = $6,
+             noon_is_active = $7,
+             noon_listing_status = $8,
+             noon_stock_qty = $9,
+             noon_stock_synced_at = $10,
+             noon_catalog_synced_at = $11,
+             updated_at = NOW()
+         WHERE marketplace_key = $1 AND normalized_sku = $2`,
+        [
+          mk,
+          row.normalizedSku,
+          row.noon?.partnerSku || null,
+          row.noon?.sku || null,
+          row.noon?.title || null,
+          row.noon?.countryCode || null,
+          typeof row.noon?.isActive === 'boolean' ? row.noon.isActive : null,
+          row.noon?.listingStatus || null,
+          numOrNull(row.noon?.stockQty),
+          row.noon?.stockSyncedAt || null,
+          row.noon?.catalogSyncedAt || null,
+        ]
+      )
+    }
+    await client.query('COMMIT')
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw error
+  } finally {
+    client.release()
+  }
+  return { rowsUpdated: rows?.length || 0 }
+}
+
 async function getComparisonSummary(filters = {}) {
   const marketplace = String(filters.marketplace || 'all').trim().toLowerCase()
   const clauses = []
@@ -297,28 +414,42 @@ async function getComparisonSummary(filters = {}) {
       )::int AS amazon_out_of_stock,
       COUNT(*) FILTER (WHERE listing_status = 'INACTIVE_OOS')::int AS seller_central_inactive_oos,
       COUNT(*) FILTER (
-        WHERE COALESCE(listing_status, '') <> 'ZOHO_ONLY'
+        WHERE COALESCE(listing_status, '') NOT IN ('ZOHO_ONLY', 'NOON_ONLY')
           AND COALESCE(zoho_available_qty, 0) = 0
           AND zoho_stock_status <> 'Not Found'
       )::int AS zoho_out_of_stock,
       COUNT(*) FILTER (
-        WHERE COALESCE(listing_status, '') <> 'ZOHO_ONLY' AND is_mismatch = true
+        WHERE COALESCE(listing_status, '') NOT IN ('ZOHO_ONLY', 'NOON_ONLY') AND is_mismatch = true
       )::int AS mismatches,
       COUNT(*) FILTER (
-        WHERE COALESCE(listing_status, '') <> 'ZOHO_ONLY' AND zoho_stock_status = 'Not Found'
+        WHERE COALESCE(listing_status, '') NOT IN ('ZOHO_ONLY', 'NOON_ONLY') AND zoho_stock_status = 'Not Found'
       )::int AS zoho_not_found,
       COUNT(*) FILTER (
-        WHERE COALESCE(listing_status, '') <> 'ZOHO_ONLY'
+        WHERE COALESCE(listing_status, '') NOT IN ('ZOHO_ONLY', 'NOON_ONLY')
           AND GREATEST(COALESCE(amazon_total_qty, 0), COALESCE(amazon_available_qty, 0)) = 0
           AND COALESCE(zoho_available_qty, 0) = 0
       )::int AS both_out_of_stock,
       COUNT(*) FILTER (
-        WHERE COALESCE(listing_status, '') <> 'ZOHO_ONLY'
+        WHERE COALESCE(listing_status, '') NOT IN ('ZOHO_ONLY', 'NOON_ONLY')
           AND recommended_action = 'Low Zoho stock warning'
       )::int AS low_zoho_stock,
       COUNT(*) FILTER (WHERE listing_status = 'ZOHO_ONLY')::int AS amazon_not_found,
+      COUNT(*) FILTER (
+        WHERE listing_status = 'ACTIVE' AND noon_is_active IS TRUE
+      )::int AS amazon_noon_live,
+      COUNT(*) FILTER (
+        WHERE noon_is_active IS TRUE AND amazon_stock_status = 'Not Found'
+      )::int AS noon_live_amazon_missing,
+      COUNT(*) FILTER (
+        WHERE listing_status = 'ACTIVE' AND (noon_partner_sku IS NULL OR noon_is_active IS NOT TRUE)
+      )::int AS amazon_live_noon_missing,
+      COUNT(*) FILTER (
+        WHERE noon_is_active IS TRUE AND COALESCE(noon_stock_qty, 0) = 0
+      )::int AS noon_out_of_stock,
       MAX(amazon_last_fetched_at) AS amazon_last_fetched_at,
       MAX(zoho_last_fetched_at) AS zoho_last_fetched_at,
+      MAX(noon_catalog_synced_at) AS noon_catalog_synced_at,
+      MAX(noon_stock_synced_at) AS noon_stock_synced_at,
       MAX(comparison_generated_at) AS comparison_generated_at
      FROM amazon_zoho_stock_comparison ${whereSql}`,
     values
@@ -335,10 +466,16 @@ async function getComparisonSummary(filters = {}) {
       bothOutOfStock: Number(row.both_out_of_stock || 0),
       lowZohoStock: Number(row.low_zoho_stock || 0),
       amazonNotFound: Number(row.amazon_not_found || 0),
+      amazonNoonLive: Number(row.amazon_noon_live || 0),
+      noonLiveAmazonMissing: Number(row.noon_live_amazon_missing || 0),
+      amazonLiveNoonMissing: Number(row.amazon_live_noon_missing || 0),
+      noonOutOfStock: Number(row.noon_out_of_stock || 0),
     },
     timestamps: {
       amazonLastFetchedAt: row.amazon_last_fetched_at ? new Date(row.amazon_last_fetched_at).toISOString() : null,
       zohoLastFetchedAt: row.zoho_last_fetched_at ? new Date(row.zoho_last_fetched_at).toISOString() : null,
+      noonCatalogSyncedAt: row.noon_catalog_synced_at ? new Date(row.noon_catalog_synced_at).toISOString() : null,
+      noonStockSyncedAt: row.noon_stock_synced_at ? new Date(row.noon_stock_synced_at).toISOString() : null,
       comparisonGeneratedAt: row.comparison_generated_at ? new Date(row.comparison_generated_at).toISOString() : null,
     },
   }
@@ -380,6 +517,8 @@ module.exports = {
   replaceMarketplaceRows,
   selectComparisonRows,
   selectAllComparisonRows,
+  selectMarketplaceRowsUnscoped,
+  updateMarketplaceNoonRows,
   getComparisonSummary,
   getLatestComparisonGeneratedAt,
   getWarningMessages,

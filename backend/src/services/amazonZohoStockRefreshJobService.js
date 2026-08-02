@@ -33,6 +33,7 @@ async function startAmazonZohoStockRefresh(options = {}) {
   await jobStore.markStaleJobsFailed()
 
   const marketplace = String(options.marketplace || 'all').trim().toLowerCase()
+  const mode = options.mode === 'noonStockOnly' ? 'noonStockOnly' : 'full'
   const running = await jobStore.findRunningJob(marketplace)
   if (running) return serializeJob(running)
 
@@ -46,30 +47,37 @@ async function startAmazonZohoStockRefresh(options = {}) {
       progress: { step: 'Starting refresh', current: 0, total: 0 },
     })
     try {
-      const result = await comparisonService.refreshAmazonZohoStockComparison({
-        marketplace,
-        progress: (progress) => {
-          void jobStore.updateJob(jobId, {
-            status: 'running',
-            progress: {
-              step: progress.step || 'Running',
-              current: Number.isFinite(Number(progress.current)) ? Number(progress.current) : 0,
-              total: Number.isFinite(Number(progress.total)) ? Number(progress.total) : 0,
-            },
+      const progressHandler = (progress) => {
+        void jobStore.updateJob(jobId, {
+          status: 'running',
+          progress: {
+            step: progress.step || 'Running',
+            current: Number.isFinite(Number(progress.current)) ? Number(progress.current) : 0,
+            total: Number.isFinite(Number(progress.total)) ? Number(progress.total) : 0,
+          },
+        })
+      }
+      const result =
+        mode === 'noonStockOnly'
+          ? await comparisonService.refreshStaleNoonStockForComparison({
+              marketplace,
+              progress: progressHandler,
+            })
+          : await comparisonService.refreshAmazonZohoStockComparison({
+              marketplace,
+              progress: progressHandler,
+              onMarketplaceComplete: async ({ marketplaceKey, rowsInserted, zohoMatchStats }) => {
+                await jobStore.updateJob(jobId, {
+                  status: 'running',
+                  progress: {
+                    step: `Saved ${marketplaceKey.toUpperCase()} cache (${rowsInserted} rows)`,
+                    current: rowsInserted,
+                    total: rowsInserted,
+                  },
+                  metadata: { lastMarketplaceSaved: marketplaceKey, zohoMatchStats },
+                })
+              },
           })
-        },
-        onMarketplaceComplete: async ({ marketplaceKey, rowsInserted, zohoMatchStats }) => {
-          await jobStore.updateJob(jobId, {
-            status: 'running',
-            progress: {
-              step: `Saved ${marketplaceKey.toUpperCase()} cache (${rowsInserted} rows)`,
-              current: rowsInserted,
-              total: rowsInserted,
-            },
-            metadata: { lastMarketplaceSaved: marketplaceKey, zohoMatchStats },
-          })
-        },
-      })
       await jobStore.updateJob(jobId, {
         status: 'completed',
         completedAt: new Date().toISOString(),
@@ -79,7 +87,7 @@ async function startAmazonZohoStockRefresh(options = {}) {
           current: result.totalRows,
           total: result.totalRows,
         },
-        metadata: { zohoMeta: result.zohoMeta },
+        metadata: { zohoMeta: result.zohoMeta, mode, totalStockUpdated: result.totalStockUpdated },
       })
     } catch (e) {
       await jobStore.updateJob(jobId, {

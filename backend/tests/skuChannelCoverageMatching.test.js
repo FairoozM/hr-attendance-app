@@ -13,6 +13,10 @@ const {
   buildMismatchNotes,
   attachVigilToCoverageRows,
 } = require('../src/services/skuChannelCoverageMatching')
+const { retryAfterMs } = require('../src/services/noon/noonClient')
+const { catalogPacingMs } = require('../src/services/noon/noonProductService')
+const { syncStateIsFresh } = require('../src/services/noon/noonSnapshotSyncService')
+const { stockSyncSettings } = require('../src/services/noon/noonStockService')
 
 describe('normalizeSkuKey', () => {
   it('returns null for empty values', () => {
@@ -201,5 +205,42 @@ describe('mapNoonItemsToIndexEntries', () => {
     const index = buildChannelIndex(entries)
     assert.ok(index.has('R23G'))
     assert.equal(index.get('R23G').rawSku, 'R23G')
+  })
+})
+
+describe('Noon cache and rate-limit controls', () => {
+  it('bounds request pacing and stock refresh settings', () => {
+    const original = {
+      pacing: process.env.NOON_API_PACING_MS,
+      ttl: process.env.NOON_STOCK_CACHE_TTL_HOURS,
+      max: process.env.NOON_STOCK_MAX_PER_RUN,
+    }
+    try {
+      process.env.NOON_API_PACING_MS = '99999'
+      process.env.NOON_STOCK_CACHE_TTL_HOURS = '0'
+      process.env.NOON_STOCK_MAX_PER_RUN = '5000'
+      assert.equal(catalogPacingMs(), 5000)
+      assert.deepEqual(stockSyncSettings(), {
+        staleHours: 1,
+        maxPerRun: 1000,
+        pacingMs: 5000,
+      })
+    } finally {
+      if (original.pacing == null) delete process.env.NOON_API_PACING_MS
+      else process.env.NOON_API_PACING_MS = original.pacing
+      if (original.ttl == null) delete process.env.NOON_STOCK_CACHE_TTL_HOURS
+      else process.env.NOON_STOCK_CACHE_TTL_HOURS = original.ttl
+      if (original.max == null) delete process.env.NOON_STOCK_MAX_PER_RUN
+      else process.env.NOON_STOCK_MAX_PER_RUN = original.max
+    }
+  })
+
+  it('honors Retry-After and identifies fresh durable catalog state', () => {
+    assert.equal(retryAfterMs({ 'retry-after': '3' }, 0), 3000)
+    assert.equal(retryAfterMs({}, 2), 4000)
+    assert.equal(
+      syncStateIsFresh({ last_catalog_sync_at: new Date(Date.now() - 60_000).toISOString() }),
+      true
+    )
   })
 })

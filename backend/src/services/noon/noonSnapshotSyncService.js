@@ -1,14 +1,39 @@
 const { noonPost } = require('./noonClient')
 const {
+  fetchAllEligibleCatalogItems,
   getEligibleCatalogItems,
   normalizePricingCountryCode,
 } = require('./noonProductService')
 const {
+  claimNoonSync,
+  completeNoonSync,
+  getNoonSyncState,
   listNoonProductSnapshots,
+  markMissingNoonSnapshotsInactive,
   upsertNoonProductSnapshot,
 } = require('./noonSnapshotStore')
 
 const PRICING_GET_PATH = '/pricing/v1/pricing/get'
+const fullSyncInFlight = new Map()
+let catalogFetchInFlight = null
+let recentCatalog = null
+
+function boundedNumber(value, fallback, min, max) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback
+}
+
+function sleep(ms) {
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve()
+}
+
+function catalogCacheTtlHours() {
+  return boundedNumber(process.env.NOON_CATALOG_CACHE_TTL_HOURS, 6, 1, 168)
+}
+
+function apiPacingMs() {
+  return boundedNumber(process.env.NOON_API_PACING_MS, 250, 0, 5000)
+}
 
 function chunkArray(items, size) {
   const chunks = []
@@ -49,7 +74,8 @@ async function fetchPricingForPartnerSkus(partnerSkus, countryCode) {
   const pricingItems = []
   const errors = []
 
-  for (const chunk of chunks) {
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunk = chunks[index]
     const body = {
       items: chunk.map((partnerSku) => ({
         partner_sku: partnerSku,
@@ -69,6 +95,7 @@ async function fetchPricingForPartnerSkus(partnerSkus, countryCode) {
         path: error && error.meta ? error.meta.path : PRICING_GET_PATH,
       })
     }
+    if (index < chunks.length - 1) await sleep(apiPacingMs())
   }
 
   return {
@@ -79,11 +106,7 @@ async function fetchPricingForPartnerSkus(partnerSkus, countryCode) {
   }
 }
 
-async function syncNoonCatalogPricing(options = {}) {
-  const countryCode = normalizePricingCountryCode(options.countryCode || options.country_code)
-  const limit = normalizeLimit(options.limit)
-  const catalog = await getEligibleCatalogItems({ limit })
-  const catalogItems = Array.isArray(catalog.items) ? catalog.items : []
+async function persistCatalogPricing(catalogItems, countryCode) {
   const partnerSkus = catalogItems.map((item) => item && item.partnerSku).filter(Boolean)
   const pricing = await fetchPricingForPartnerSkus(partnerSkus, countryCode)
   const pricingMap = makePricingMap(pricing.items)
@@ -140,8 +163,89 @@ async function syncNoonCatalogPricing(options = {}) {
   }
 }
 
+async function syncNoonCatalogPricing(options = {}) {
+  const countryCode = normalizePricingCountryCode(options.countryCode || options.country_code)
+  const limit = normalizeLimit(options.limit)
+  const catalog = await getEligibleCatalogItems({ limit })
+  return persistCatalogPricing(Array.isArray(catalog.items) ? catalog.items : [], countryCode)
+}
+
+async function syncNoonCatalogPricingFull(options = {}) {
+  const countryCode = normalizePricingCountryCode(options.countryCode || options.country_code)
+  const now = Date.now()
+  if (!recentCatalog || now - recentCatalog.fetchedAt > 5 * 60 * 1000) {
+    if (!catalogFetchInFlight) {
+      catalogFetchInFlight = fetchAllEligibleCatalogItems({ pacingMs: apiPacingMs() })
+        .then((catalog) => {
+          recentCatalog = { catalog, fetchedAt: Date.now() }
+          return catalog
+        })
+        .finally(() => {
+          catalogFetchInFlight = null
+        })
+    }
+  }
+  const catalog = recentCatalog && now - recentCatalog.fetchedAt <= 5 * 60 * 1000
+    ? recentCatalog.catalog
+    : await catalogFetchInFlight
+  const catalogItems = Array.isArray(catalog.items) ? catalog.items : []
+  const result = await persistCatalogPricing(catalogItems, countryCode)
+  result.pageCount = catalog.pageCount || 0
+  if (result.ok) {
+    result.markedInactive = await markMissingNoonSnapshotsInactive(countryCode, catalogItems.map((item) => item.partnerSku))
+  } else {
+    result.markedInactive = 0
+  }
+  return result
+}
+
+function syncStateIsFresh(state, now = Date.now()) {
+  const timestamp = state?.last_catalog_sync_at ? new Date(state.last_catalog_sync_at).getTime() : 0
+  return timestamp > 0 && now - timestamp < catalogCacheTtlHours() * 60 * 60 * 1000
+}
+
+async function ensureNoonCatalogCache(options = {}) {
+  const countryCode = normalizePricingCountryCode(options.countryCode || options.country_code)
+  const force = Boolean(options.force)
+  const state = await getNoonSyncState(countryCode)
+  if (!force && syncStateIsFresh(state)) {
+    return { ok: true, countryCode, cached: true, state }
+  }
+  if (fullSyncInFlight.has(countryCode)) return fullSyncInFlight.get(countryCode)
+
+  const claimed = await claimNoonSync(countryCode)
+  if (!claimed) {
+    return { ok: true, countryCode, cached: true, inProgress: true, state: await getNoonSyncState(countryCode) }
+  }
+
+  const promise = syncNoonCatalogPricingFull({ countryCode })
+    .then(async (result) => {
+      await completeNoonSync(countryCode, {
+        status: result.ok ? 'completed' : 'failed',
+        catalogSynced: result.ok,
+        catalogItems: result.totalCatalogItems,
+        error: result.ok ? '' : result.errors.map((error) => error.message).join('; ').slice(0, 2000),
+      })
+      return { ...result, cached: false }
+    })
+    .catch(async (error) => {
+      await completeNoonSync(countryCode, {
+        status: 'failed',
+        error: String(error?.message || error).slice(0, 2000),
+      })
+      throw error
+    })
+    .finally(() => fullSyncInFlight.delete(countryCode))
+  fullSyncInFlight.set(countryCode, promise)
+  return promise
+}
+
 module.exports = {
+  catalogCacheTtlHours,
+  ensureNoonCatalogCache,
   fetchPricingForPartnerSkus,
   listNoonProductSnapshots,
   syncNoonCatalogPricing,
+  syncNoonCatalogPricingFull,
+  syncStateIsFresh,
 }

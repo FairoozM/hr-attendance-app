@@ -334,6 +334,15 @@ async function getProductOffers(partnerSku) {
 const CATALOG_ITEMS_PATH = '/fbn/inbound/v1/catalog/items'
 const CATALOG_MAX_PAGES = 100
 
+function catalogPacingMs(value = process.env.NOON_API_PACING_MS) {
+  const parsed = Number.parseInt(String(value || '250'), 10)
+  return Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), 5000) : 250
+}
+
+function sleep(ms) {
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve()
+}
+
 function catalogItemsPath(nextToken) {
   if (!nextToken) return CATALOG_ITEMS_PATH
   const params = new URLSearchParams()
@@ -389,6 +398,10 @@ async function fetchAllEligibleCatalogItems(options = {}) {
     const pageItems = Array.isArray(page.rawItems) ? page.rawItems : []
     normalizedItems.push(...pageItems.map(normalizeCatalogItem))
     nextToken = page.nextToken
+    if (nextToken) {
+      // eslint-disable-next-line no-await-in-loop
+      await sleep(catalogPacingMs(options.pacingMs))
+    }
   } while (nextToken)
 
   const filteredItems = filterCatalogItems(normalizedItems, options)
@@ -494,6 +507,7 @@ module.exports = {
   debugProductLookup,
   debugPricingRequestVariants,
   fetchAllEligibleCatalogItems,
+  catalogPacingMs,
   getEligibleCatalogItems,
   getProductOffers,
   getWhoami,

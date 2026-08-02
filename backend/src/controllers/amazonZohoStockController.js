@@ -13,6 +13,10 @@ const STOCK_FILTERS = new Set([
   'zohoNotFound',
   'amazonNotFound',
   'sellerCentralInactiveOos',
+  'amazonNoonLive',
+  'noonLiveAmazonMissing',
+  'amazonLiveNoonMissing',
+  'noonOutOfStock',
 ])
 
 function parseMarketplace(value) {
@@ -105,7 +109,8 @@ async function postAmazonZohoStockVigilMatch(req, res) {
 async function postAmazonZohoStockRefresh(req, res) {
   try {
     const marketplace = parseMarketplace(req.body?.marketplace || req.query?.marketplace || 'all')
-    const job = await refreshJobs.startAmazonZohoStockRefresh({ marketplace })
+    const mode = req.body?.mode === 'noonStockOnly' ? 'noonStockOnly' : 'full'
+    const job = await refreshJobs.startAmazonZohoStockRefresh({ marketplace, mode })
     return res.json({
       success: true,
       jobId: job.jobId,

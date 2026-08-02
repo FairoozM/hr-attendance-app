@@ -2,13 +2,17 @@ const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
 const {
   ZOHO_ONLY_LISTING_STATUS,
+  NOON_ONLY_LISTING_STATUS,
   CREATE_LISTING_ACTION,
   _internals: {
     buildAmazonNotFoundRows,
+    appendNoonOnlyRows,
+    attachNoonToRows,
     matchVigilStockForComparisonItems,
     isZohoItemActive,
     deriveRecommendedAction,
     rowsToCsv,
+    noonCountryCode,
   },
 } = require('../src/services/amazonZohoStockComparisonService')
 const {
@@ -195,8 +199,78 @@ describe('amazonZohoStock amazonNotFound filter SQL scope', () => {
 
   it('coverage listingScope excludes ZOHO_ONLY', () => {
     const { whereSql } = buildWhere({ listingScope: 'coverage', stockFilter: 'all', marketplace: 'uae' })
-    assert.match(whereSql, /<> 'ZOHO_ONLY'/)
+    assert.match(whereSql, /NOT IN \('ZOHO_ONLY', 'NOON_ONLY'\)/)
     assert.doesNotMatch(whereSql, /listing_status = 'ACTIVE'/)
+  })
+
+  it('builds cache-only Noon channel filters without changing default Amazon scope', () => {
+    const missingAmazon = buildWhere({ stockFilter: 'noonLiveAmazonMissing', marketplace: 'uae' }).whereSql
+    assert.match(missingAmazon, /noon_is_active IS TRUE/)
+    assert.match(missingAmazon, /amazon_stock_status = 'Not Found'/)
+    assert.doesNotMatch(missingAmazon, /listing_status = 'ACTIVE'/)
+
+    const missingNoon = buildWhere({ stockFilter: 'amazonLiveNoonMissing', marketplace: 'ksa' }).whereSql
+    assert.match(missingNoon, /listing_status = 'ACTIVE'/)
+    assert.match(missingNoon, /noon_partner_sku IS NULL/)
+  })
+})
+
+describe('amazonZohoStock Noon matching', () => {
+  const baseRow = {
+    marketplaceKey: 'uae',
+    marketplace: 'UAE',
+    marketplaceId: 'A2VIGQ35RCS4UG',
+    sellerSku: 'AMAZON-SKU',
+    normalizedSku: 'AMAZON-SKU',
+    listingStatus: 'ACTIVE',
+    amazon: { stockStatus: 'In Stock', totalQty: 2, availableQty: 2 },
+    zoho: { sku: 'ZOHO-ALIAS', itemName: 'NOON-PSKU', availableQty: 4, stockStatus: 'In Stock' },
+    comparison: {},
+    timestamps: {},
+  }
+
+  it('maps Amazon marketplaces to Noon countries', () => {
+    assert.equal(noonCountryCode('uae'), 'ae')
+    assert.equal(noonCountryCode('ksa'), 'sa')
+  })
+
+  it('matches a Noon PSKU through the Zoho item-name alias', () => {
+    const result = attachNoonToRows(
+      [baseRow],
+      [{
+        partner_sku: 'PARTNER-1',
+        psku: 'NOON-PSKU',
+        noon_sku: 'N123',
+        title: 'Noon item',
+        is_active: true,
+        stock_quantity: '8',
+      }],
+      'ae'
+    )
+    assert.equal(result.rows[0].noon.partnerSku, 'PARTNER-1')
+    assert.equal(result.rows[0].noon.stockQty, 8)
+    assert.deepEqual([...result.matchedPartnerSkus], ['PARTNER-1'])
+  })
+
+  it('appends active unmatched Noon rows and ignores inactive rows', () => {
+    const rows = appendNoonOnlyRows({
+      rows: [],
+      snapshots: [
+        { partner_sku: 'LIVE-1', psku: 'LIVE-1', title: 'Live', is_active: true, stock_quantity: 5 },
+        { partner_sku: 'OLD-1', psku: 'OLD-1', title: 'Old', is_active: false, stock_quantity: 9 },
+      ],
+      countryCode: 'ae',
+      marketplaceKey: 'uae',
+      marketplaceId: 'A2VIGQ35RCS4UG',
+      warehouseStock: null,
+      amazonFetchedAt: '2026-08-02T10:00:00.000Z',
+      zohoFetchedAt: null,
+      comparisonGeneratedAt: '2026-08-02T10:01:00.000Z',
+    })
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0].listingStatus, NOON_ONLY_LISTING_STATUS)
+    assert.equal(rows[0].amazon.stockStatus, 'Not Found')
+    assert.equal(rows[0].noon.stockQty, 5)
   })
 })
 
@@ -294,5 +368,29 @@ describe('amazonZohoStock Vigil quantity matching', () => {
     ])
     const [headers, values] = csv.split('\n').map((line) => line.split(','))
     assert.equal(values[headers.indexOf('Vigil Stock Qty')], '27')
+  })
+
+  it('includes Noon listing and stock fields in CSV exports', () => {
+    const csv = rowsToCsv([
+      {
+        marketplace: 'KSA',
+        sellerSku: 'SKU-1',
+        amazon: {},
+        zoho: {},
+        noon: {
+          partnerSku: 'NOON-1',
+          sku: 'N-1',
+          isActive: true,
+          listingStatus: 'ACTIVE',
+          stockQty: 11,
+          catalogSyncedAt: '2026-08-02T10:00:00.000Z',
+          stockSyncedAt: '2026-08-02T10:01:00.000Z',
+        },
+        comparison: {},
+      },
+    ])
+    const [headers, values] = csv.split('\n').map((line) => line.split(','))
+    assert.equal(values[headers.indexOf('Noon Partner SKU')], 'NOON-1')
+    assert.equal(values[headers.indexOf('Noon Stock Qty')], '11')
   })
 })
