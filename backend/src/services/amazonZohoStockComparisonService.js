@@ -44,8 +44,8 @@ function isZohoItemActive(raw) {
   return true
 }
 
-function noonCountryCode(marketplaceKey) {
-  return String(marketplaceKey || '').toLowerCase() === 'ksa' ? 'sa' : 'ae'
+function noonCountryCode() {
+  return 'ae'
 }
 
 function noonWarehouseCode(countryCode) {
@@ -475,8 +475,8 @@ function attachRowWarnings(rows, messages) {
 }
 
 async function refreshAmazonZohoStockComparison({ marketplace = 'all', progress, onMarketplaceComplete } = {}) {
-  const mkRaw = String(marketplace || 'all').trim().toLowerCase()
-  const marketplaceKeys = mkRaw === 'uae' || mkRaw === 'ksa' ? [mkRaw] : ['uae', 'ksa']
+  void marketplace
+  const marketplaceKeys = ['uae']
   const amazonWarnings = []
   const comparisonGeneratedAt = new Date().toISOString()
   let totalRows = 0
@@ -649,8 +649,8 @@ async function refreshAmazonZohoStockComparison({ marketplace = 'all', progress,
 }
 
 async function refreshStaleNoonStockForComparison({ marketplace = 'all', progress } = {}) {
-  const mkRaw = String(marketplace || 'all').trim().toLowerCase()
-  const marketplaceKeys = mkRaw === 'uae' || mkRaw === 'ksa' ? [mkRaw] : ['uae', 'ksa']
+  void marketplace
+  const marketplaceKeys = ['uae']
   let totalRows = 0
   let totalStockUpdated = 0
 

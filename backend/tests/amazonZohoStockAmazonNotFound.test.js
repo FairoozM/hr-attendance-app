@@ -209,7 +209,7 @@ describe('amazonZohoStock amazonNotFound filter SQL scope', () => {
     assert.match(missingAmazon, /amazon_stock_status = 'Not Found'/)
     assert.doesNotMatch(missingAmazon, /listing_status = 'ACTIVE'/)
 
-    const missingNoon = buildWhere({ stockFilter: 'amazonLiveNoonMissing', marketplace: 'ksa' }).whereSql
+    const missingNoon = buildWhere({ stockFilter: 'amazonLiveNoonMissing', marketplace: 'uae' }).whereSql
     assert.match(missingNoon, /listing_status = 'ACTIVE'/)
     assert.match(missingNoon, /noon_partner_sku IS NULL/)
   })
@@ -229,9 +229,9 @@ describe('amazonZohoStock Noon matching', () => {
     timestamps: {},
   }
 
-  it('maps Amazon marketplaces to Noon countries', () => {
+  it('locks Noon comparison matching to UAE', () => {
     assert.equal(noonCountryCode('uae'), 'ae')
-    assert.equal(noonCountryCode('ksa'), 'sa')
+    assert.equal(noonCountryCode('ksa'), 'ae')
   })
 
   it('matches a Noon PSKU through the Zoho item-name alias', () => {
@@ -373,7 +373,7 @@ describe('amazonZohoStock Vigil quantity matching', () => {
   it('includes Noon listing and stock fields in CSV exports', () => {
     const csv = rowsToCsv([
       {
-        marketplace: 'KSA',
+        marketplace: 'UAE',
         sellerSku: 'SKU-1',
         amazon: {},
         zoho: {},

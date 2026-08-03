@@ -18,7 +18,6 @@ const STOCK_FILTERS = [
 ]
 
 const VALID_STOCK_FILTERS = new Set(STOCK_FILTERS.map((f) => f.value))
-const VALID_MARKETPLACES = new Set(['all', 'uae', 'ksa'])
 
 function parseStockFilter(raw) {
   const v = String(raw || 'all').trim()
@@ -26,13 +25,11 @@ function parseStockFilter(raw) {
 }
 
 function parseMarketplace(raw) {
-  const v = String(raw || 'all').trim().toLowerCase()
-  return VALID_MARKETPLACES.has(v) ? v : 'all'
+  void raw
+  return 'uae'
 }
 
-function marketplaceToClearance(mk) {
-  if (mk === 'ksa') return 'KSA'
-  if (mk === 'uae') return 'UAE'
+function marketplaceToClearance() {
   return 'UAE'
 }
 
@@ -132,7 +129,7 @@ async function matchAmazonZohoVigilStock(vigilRows, rows) {
 
 export function AmazonZohoStockPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const [marketplace, setMarketplace] = useState(() => parseMarketplace(searchParams.get('marketplace')))
+  const marketplace = parseMarketplace(searchParams.get('marketplace'))
   const [search, setSearch] = useState(() => String(searchParams.get('search') || ''))
   const [stockFilter, setStockFilter] = useState(() => parseStockFilter(searchParams.get('stockFilter')))
   const [page, setPage] = useState(1)
@@ -170,13 +167,6 @@ export function AmazonZohoStockPage() {
     syncUrl({ marketplace, stockFilter: v, search })
     if (v === 'amazonOutOfStock' || v === 'sellerCentralInactiveOos') scrollToSkuList()
   }, [marketplace, search, syncUrl, scrollToSkuList])
-
-  const applyMarketplace = useCallback((value) => {
-    const v = parseMarketplace(value)
-    setMarketplace(v)
-    setPage(1)
-    syncUrl({ marketplace: v, stockFilter, search })
-  }, [stockFilter, search, syncUrl])
 
   const queryParams = useMemo(() => ({
     marketplace,
@@ -342,13 +332,13 @@ export function AmazonZohoStockPage() {
         <p className="ainv-page__eyebrow">Admin Inventory</p>
         <h1 className="ainv-page__title">Amazon + Zoho + Noon Stock Comparison</h1>
         <p className="ainv-page__lead">
-          Compare <strong>Seller Flex / Amazon-fulfilled</strong> listings against Zoho and cached Noon UAE/KSA
+          Compare <strong>Amazon UAE Seller Flex / Amazon-fulfilled</strong> listings against Zoho and cached Noon UAE
           listings and stock. Noon reads are cache-first; stale stock refreshes are paced and capped.
         </p>
         <div className="ainv-callout-emerald">
           <p className="ainv-callout-emerald__title">Out of stock workflow (use this instead of slow clearance scans)</p>
           <ol>
-            <li>Pick marketplace (UAE or KSA), click <strong>Refresh</strong> once (background sync).</li>
+            <li>Click <strong>Refresh</strong> once to update the UAE comparison in the background.</li>
             <li>
               Click <strong>Amazon Out of Stock</strong> for active listings where FBA on-hand and fulfillable are both
               zero (not the full catalog).
@@ -377,7 +367,7 @@ export function AmazonZohoStockPage() {
             <span className="ainv-sync-progress__label">
               Syncing: {job?.progress?.step || 'Running refresh…'}
               {' — '}
-              table updates after each marketplace is saved.
+              table updates after the UAE cache is saved.
             </span>
             {job?.progress?.total > 0 ? (
               <span className="ainv-sync-progress__pct font-mono">
@@ -430,11 +420,9 @@ export function AmazonZohoStockPage() {
               <select
                 className="ainv-input"
                 value={marketplace}
-                onChange={(e) => applyMarketplace(e.target.value)}
+                disabled
               >
-                <option value="all">All</option>
                 <option value="uae">UAE</option>
-                <option value="ksa">KSA</option>
               </select>
             </label>
             <label className="ainv-label md:col-span-2">

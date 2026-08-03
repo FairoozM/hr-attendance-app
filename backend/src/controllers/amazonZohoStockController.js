@@ -19,11 +19,8 @@ const STOCK_FILTERS = new Set([
   'noonOutOfStock',
 ])
 
-function parseMarketplace(value) {
-  const v = String(value || 'all').trim().toLowerCase()
-  if (v === 'uae') return 'uae'
-  if (v === 'ksa') return 'ksa'
-  return 'all'
+function parseMarketplace() {
+  return 'uae'
 }
 
 function parseFilters(query) {
