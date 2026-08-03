@@ -269,6 +269,25 @@ describe('amazonZohoStock Noon matching', () => {
     assert.deepEqual([...result.matchedPartnerSkus], ['PARTNER-1'])
   })
 
+  it('matches compact Noon partner SKUs to dashed Amazon SKUs', () => {
+    const result = attachNoonToRows(
+      [{
+        ...baseRow,
+        sellerSku: 'LIFEP17S-36P-BLACK',
+        normalizedSku: 'LIFEP17S-36P-BLACK',
+        zoho: { sku: 'LIFEP17S-36P-BLACK', itemName: '', availableQty: 4 },
+      }],
+      [{
+        partner_sku: 'LIFEP17S36PBLACK',
+        is_active: true,
+      }],
+      'ae'
+    )
+
+    assert.equal(result.rows[0].noon.partnerSku, 'LIFEP17S36PBLACK')
+    assert.deepEqual([...result.matchedPartnerSkus], ['LIFEP17S36PBLACK'])
+  })
+
   it('appends active unmatched Noon rows and ignores inactive rows', () => {
     const rows = appendNoonOnlyRows({
       rows: [],

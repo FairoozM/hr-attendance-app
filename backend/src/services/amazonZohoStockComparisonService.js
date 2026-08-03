@@ -48,6 +48,10 @@ function noonCountryCode() {
   return 'ae'
 }
 
+function compactNoonMatchKey(value) {
+  return normalizeSku(value).replace(/[\s._\-/]+/g, '')
+}
+
 function buildNoonPricingCandidateSkus(rawItems, amazonListings = []) {
   const candidates = new Set()
   const add = (value) => {
@@ -116,15 +120,20 @@ function noonPayload(snapshot, countryCode) {
 function buildNoonSnapshotIndex(snapshots) {
   const index = new Map()
   const ambiguous = new Set()
+  const add = (key, snapshot) => {
+    if (!key) return
+    const previous = index.get(key)
+    if (previous && previous !== snapshot) {
+      ambiguous.add(key)
+      return
+    }
+    index.set(key, snapshot)
+  }
   for (const snapshot of snapshots || []) {
     if (!isActiveNoonSnapshot(snapshot)) continue
     for (const candidate of resolveNoonMatchKeys(snapshot)) {
-      const previous = index.get(candidate.key)
-      if (previous && previous !== snapshot) {
-        ambiguous.add(candidate.key)
-        continue
-      }
-      index.set(candidate.key, snapshot)
+      add(candidate.key, snapshot)
+      add(compactNoonMatchKey(candidate.key), snapshot)
     }
   }
   for (const key of ambiguous) index.delete(key)
@@ -134,6 +143,10 @@ function buildNoonSnapshotIndex(snapshots) {
 function rowNoonLookupKeys(row) {
   const keys = buildAmazonSkuSet([row?.sellerSku, row?.normalizedSku])
   for (const key of zohoItemLookupKeys(row?.zoho || {}, row?.zoho || {})) keys.add(key)
+  for (const key of Array.from(keys)) {
+    const compact = compactNoonMatchKey(key)
+    if (compact) keys.add(compact)
+  }
   return keys
 }
 
@@ -841,6 +854,7 @@ module.exports = {
     attachNoonToRows,
     buildNoonSnapshotIndex,
     buildNoonPricingCandidateSkus,
+    compactNoonMatchKey,
     noonCountryCode,
     isZohoItemActive,
     rowsToCsv,
