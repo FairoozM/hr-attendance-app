@@ -48,6 +48,29 @@ function noonCountryCode() {
   return 'ae'
 }
 
+function buildNoonPricingCandidateSkus(rawItems, amazonListings = []) {
+  const candidates = new Set()
+  const add = (value) => {
+    const raw = String(value || '').trim()
+    if (!raw || raw.length > 100 || !/\d/.test(raw)) return
+    const compact = raw.replace(/[\s._\-/]+/g, '')
+    if (compact) candidates.add(compact.toUpperCase())
+  }
+
+  for (const item of Array.isArray(rawItems) ? rawItems : []) {
+    add(item?.sku)
+    add(item?.item_code)
+    add(item?.code)
+    add(item?.part_number)
+    const itemName = String(item?.name || item?.item_name || '').trim()
+    if (itemName && itemName.split(/\s+/).length <= 3) add(itemName)
+  }
+  for (const listing of Array.isArray(amazonListings) ? amazonListings : []) {
+    add(listing?.sellerSku)
+  }
+  return Array.from(candidates)
+}
+
 function noonWarehouseCode(countryCode) {
   const countrySpecific = process.env[`NOON_WAREHOUSE_CODE_${String(countryCode).toUpperCase()}`]
   return String(countrySpecific || process.env.NOON_WAREHOUSE_CODE || '').trim()
@@ -562,7 +585,10 @@ async function refreshAmazonZohoStockComparison({ marketplace = 'all', progress,
     const noonWarnings = []
     try {
       progress?.({ step: `Refreshing Noon ${countryCode.toUpperCase()} catalog cache`, current: 0, total: 0 })
-      const catalogSync = await ensureNoonCatalogCache({ countryCode })
+      const catalogSync = await ensureNoonCatalogCache({
+        countryCode,
+        candidateSkus: buildNoonPricingCandidateSkus(warehouseStock?.rawItems, amazonResult.listings),
+      })
       if (catalogSync?.inProgress) {
         noonWarnings.push(`Noon ${countryCode.toUpperCase()} catalog refresh is already running; cached rows were used.`)
       }
@@ -814,6 +840,7 @@ module.exports = {
     appendNoonOnlyRows,
     attachNoonToRows,
     buildNoonSnapshotIndex,
+    buildNoonPricingCandidateSkus,
     noonCountryCode,
     isZohoItemActive,
     rowsToCsv,

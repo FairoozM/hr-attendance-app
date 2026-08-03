@@ -8,6 +8,7 @@ const {
     buildAmazonNotFoundRows,
     appendNoonOnlyRows,
     attachNoonToRows,
+    buildNoonPricingCandidateSkus,
     matchVigilStockForComparisonItems,
     isZohoItemActive,
     deriveRecommendedAction,
@@ -216,6 +217,22 @@ describe('amazonZohoStock amazonNotFound filter SQL scope', () => {
 })
 
 describe('amazonZohoStock Noon matching', () => {
+  it('builds compact Noon pricing candidates from Zoho and Amazon SKUs', () => {
+    const candidates = buildNoonPricingCandidateSkus(
+      [
+        { sku: '2FP17SET-BEIGE', item_code: 'R23 G', name: 'Long descriptive product title without code' },
+        { part_number: 'AC-29/393' },
+      ],
+      [{ sellerSku: 'AMZ_SKU-1' }]
+    )
+
+    assert.ok(candidates.includes('2FP17SETBEIGE'))
+    assert.ok(candidates.includes('R23G'))
+    assert.ok(candidates.includes('AC29393'))
+    assert.ok(candidates.includes('AMZSKU1'))
+    assert.equal(candidates.includes('Long descriptive product title without code'), false)
+  })
+
   const baseRow = {
     marketplaceKey: 'uae',
     marketplace: 'UAE',

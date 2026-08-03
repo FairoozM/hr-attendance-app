@@ -163,6 +163,53 @@ async function persistCatalogPricing(catalogItems, countryCode) {
   }
 }
 
+async function persistPricingDiscovery(candidateSkus, countryCode) {
+  const pricing = await fetchPricingForPartnerSkus(candidateSkus, countryCode)
+  const validItems = pricing.items.filter((item) => pricingStatusCode(item).toUpperCase() === 'OK')
+  const errors = [...pricing.errors]
+  let upserted = 0
+
+  for (const pricingItem of validItems) {
+    const partnerSku = typeof pricingItem.partner_sku === 'string' ? pricingItem.partner_sku.trim() : ''
+    if (!partnerSku) continue
+    try {
+      await upsertNoonProductSnapshot({
+        partnerSku,
+        countryCode,
+        price: pricingItem.price,
+        msrp: pricingItem.msrp,
+        isActive: pricingItem.is_active,
+        pricingStatusCode: pricingStatusCode(pricingItem),
+        rawCatalogJson: {},
+        rawPricingJson: pricingItem,
+      })
+      upserted += 1
+    } catch (error) {
+      errors.push({
+        code: 'NOON_SNAPSHOT_UPSERT_FAILED',
+        partnerSku,
+        message: error && error.message ? error.message : 'Snapshot upsert failed.',
+      })
+    }
+  }
+
+  return {
+    ok: errors.length === 0,
+    countryCode,
+    source: 'pricing-discovery',
+    totalCatalogItems: validItems.length,
+    pricingRequested: pricing.requested,
+    pricingReturned: pricing.returned,
+    upserted,
+    markedInactive: 0,
+    errors,
+  }
+}
+
+function isGlobalSellerCatalogError(error) {
+  return /only available to global sellers/i.test(String(error?.message || error || ''))
+}
+
 async function syncNoonCatalogPricing(options = {}) {
   const countryCode = normalizePricingCountryCode(options.countryCode || options.country_code)
   const limit = normalizeLimit(options.limit)
@@ -172,22 +219,32 @@ async function syncNoonCatalogPricing(options = {}) {
 
 async function syncNoonCatalogPricingFull(options = {}) {
   const countryCode = normalizePricingCountryCode(options.countryCode || options.country_code)
+  const candidateSkus = Array.isArray(options.candidateSkus) ? options.candidateSkus : []
   const now = Date.now()
-  if (!recentCatalog || now - recentCatalog.fetchedAt > 5 * 60 * 1000) {
-    if (!catalogFetchInFlight) {
-      catalogFetchInFlight = fetchAllEligibleCatalogItems({ pacingMs: apiPacingMs() })
-        .then((catalog) => {
-          recentCatalog = { catalog, fetchedAt: Date.now() }
-          return catalog
-        })
-        .finally(() => {
-          catalogFetchInFlight = null
-        })
+  let catalog
+  try {
+    if (!recentCatalog || now - recentCatalog.fetchedAt > 5 * 60 * 1000) {
+      if (!catalogFetchInFlight) {
+        catalogFetchInFlight = fetchAllEligibleCatalogItems({ pacingMs: apiPacingMs() })
+          .then((fetchedCatalog) => {
+            recentCatalog = { catalog: fetchedCatalog, fetchedAt: Date.now() }
+            return fetchedCatalog
+          })
+          .finally(() => {
+            catalogFetchInFlight = null
+          })
+      }
     }
+    catalog = recentCatalog && now - recentCatalog.fetchedAt <= 5 * 60 * 1000
+      ? recentCatalog.catalog
+      : await catalogFetchInFlight
+  } catch (error) {
+    if (!isGlobalSellerCatalogError(error) || candidateSkus.length === 0) throw error
+    const fallback = await persistPricingDiscovery(candidateSkus, countryCode)
+    fallback.catalogWarning = String(error.message || error)
+    return fallback
   }
-  const catalog = recentCatalog && now - recentCatalog.fetchedAt <= 5 * 60 * 1000
-    ? recentCatalog.catalog
-    : await catalogFetchInFlight
+
   const catalogItems = Array.isArray(catalog.items) ? catalog.items : []
   const result = await persistCatalogPricing(catalogItems, countryCode)
   result.pageCount = catalog.pageCount || 0
@@ -218,7 +275,10 @@ async function ensureNoonCatalogCache(options = {}) {
     return { ok: true, countryCode, cached: true, inProgress: true, state: await getNoonSyncState(countryCode) }
   }
 
-  const promise = syncNoonCatalogPricingFull({ countryCode })
+  const promise = syncNoonCatalogPricingFull({
+    countryCode,
+    candidateSkus: options.candidateSkus,
+  })
     .then(async (result) => {
       await completeNoonSync(countryCode, {
         status: result.ok ? 'completed' : 'failed',

@@ -256,18 +256,21 @@ async function upsertNoonProductSnapshot(payload) {
     )
     ON CONFLICT (partner_sku, country_code)
     DO UPDATE SET
-      noon_sku = EXCLUDED.noon_sku,
-      psku = EXCLUDED.psku,
-      title = EXCLUDED.title,
-      image_url = EXCLUDED.image_url,
-      barcode = EXCLUDED.barcode,
-      pbarcode = EXCLUDED.pbarcode,
-      storage_type = EXCLUDED.storage_type,
+      noon_sku = COALESCE(EXCLUDED.noon_sku, noon_product_snapshots.noon_sku),
+      psku = COALESCE(EXCLUDED.psku, noon_product_snapshots.psku),
+      title = COALESCE(EXCLUDED.title, noon_product_snapshots.title),
+      image_url = COALESCE(EXCLUDED.image_url, noon_product_snapshots.image_url),
+      barcode = COALESCE(EXCLUDED.barcode, noon_product_snapshots.barcode),
+      pbarcode = COALESCE(EXCLUDED.pbarcode, noon_product_snapshots.pbarcode),
+      storage_type = COALESCE(EXCLUDED.storage_type, noon_product_snapshots.storage_type),
       price = EXCLUDED.price,
       msrp = EXCLUDED.msrp,
       is_active = EXCLUDED.is_active,
       pricing_status_code = EXCLUDED.pricing_status_code,
-      raw_catalog_json = EXCLUDED.raw_catalog_json,
+      raw_catalog_json = CASE
+        WHEN EXCLUDED.raw_catalog_json = '{}'::jsonb THEN noon_product_snapshots.raw_catalog_json
+        ELSE EXCLUDED.raw_catalog_json
+      END,
       raw_pricing_json = EXCLUDED.raw_pricing_json,
       last_synced_at = NOW(),
       updated_at = NOW()
