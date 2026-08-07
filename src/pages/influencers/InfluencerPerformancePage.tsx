@@ -53,7 +53,6 @@ function InfluencerPerformancePageBody() {
     setRankingCustomFrom,
     rankingCustomTo,
     setRankingCustomTo,
-    contractsTotal,
     contractTimelineOptions,
     contractTimelineAnchorRef,
     activeSection,
@@ -180,7 +179,6 @@ function InfluencerPerformancePageBody() {
             rankingCustomTo={rankingCustomTo}
             onRankingCustomFromChange={setRankingCustomFrom}
             onRankingCustomToChange={setRankingCustomTo}
-            totalContracts={contractsTotal}
             showRankingSummary
             onEdit={canWritePerformance ? (row) => row?.latest && setEditingRecord(row.latest) : undefined}
             onDelete={canWritePerformance ? (contractId) => {

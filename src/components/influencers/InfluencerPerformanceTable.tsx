@@ -1,8 +1,23 @@
 import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Crown, Eye, Medal, MoreVertical, Pencil, Trash2 } from 'lucide-react'
+import {
+  Camera,
+  CalendarDays,
+  Crown,
+  Eye,
+  Heart,
+  Medal,
+  MessageSquare,
+  MoreVertical,
+  Pencil,
+  Send,
+  ShoppingBag,
+  Trash2,
+  TrendingUp,
+  WalletCards,
+} from 'lucide-react'
 import { formatNumber } from '../../utils/influencerPerformanceUtils'
-import { fmtDMY, fmtISO } from '../../utils/dateFormat'
+import { fmtISO } from '../../utils/dateFormat'
 import type {
   InfluencerContractRanking,
   InfluencerContractRow,
@@ -58,7 +73,6 @@ interface InfluencerPerformanceTableProps {
   rankingCustomTo?: string
   onRankingCustomFromChange?: (value: string) => void
   onRankingCustomToChange?: (value: string) => void
-  totalContracts?: number
   showRankingSummary?: boolean
 }
 
@@ -102,9 +116,9 @@ function tableColumns(showNetProfitColumn: boolean): Array<[TableColumnKey, stri
     ['likes', 'Likes'],
     ['comments', 'Comments'],
     ['shares', 'Shares'],
-    ['salesAed', 'Sales AED'],
+    ['salesAed', 'Sales (AED)'],
   ]
-  if (showNetProfitColumn) cols.push(['netProfitAed', 'Net profit'])
+  if (showNetProfitColumn) cols.push(['netProfitAed', 'Net Profit (AED)'])
   return [['rank', '#'], ...cols]
 }
 
@@ -144,7 +158,23 @@ function MetricCell({ field, record, bests, className = '', children }: MetricCe
 
 function sortIndicator(sort: InfluencerPerformanceSort, key: string) {
   if (sort.key !== key) return ''
-  return sort.direction === 'asc' ? ' ↑' : ' ↓'
+  return sort.direction === 'asc' ? '↑' : '↓'
+}
+
+function RankingMetricIcon({ metric, size = 14 }: { metric: TableColumnKey; size?: number }) {
+  const props = { size, strokeWidth: 2, 'aria-hidden': true as const }
+  switch (metric) {
+    case 'date': return <CalendarDays {...props} />
+    case 'influencer': return <Camera {...props} />
+    case 'cost': return <WalletCards {...props} />
+    case 'views': return <Eye {...props} />
+    case 'likes': return <Heart {...props} />
+    case 'comments': return <MessageSquare {...props} />
+    case 'shares': return <Send {...props} />
+    case 'salesAed': return <ShoppingBag {...props} />
+    case 'netProfitAed': return <TrendingUp {...props} />
+    default: return null
+  }
 }
 
 function RankCell({ rankInfo }: RankCellProps) {
@@ -301,7 +331,6 @@ export function InfluencerPerformanceTable({
   rankingCustomTo = '',
   onRankingCustomFromChange,
   onRankingCustomToChange,
-  totalContracts,
   showRankingSummary = false,
 }: InfluencerPerformanceTableProps) {
   const [rowMenu, setRowMenu] = useState<RowMenuState>(CLOSED_ROW_MENU)
@@ -372,8 +401,6 @@ export function InfluencerPerformanceTable({
   const columns = useMemo(() => tableColumns(showNetProfitColumn), [showNetProfitColumn])
   const metricKeys = useMemo(() => metricColumnKeySet(showNetProfitColumn), [showNetProfitColumn])
   const bests = useMetricBests(records, showNetProfitColumn)
-  const total = totalContracts != null ? totalContracts : records.length
-  const hasDateFilter = datePreset !== 'all_time'
   const rankingTotals = useMemo(
     () => (showRankingSummary ? sumPerformanceRankingTotals(records) : null),
     [records, showRankingSummary],
@@ -439,24 +466,10 @@ export function InfluencerPerformanceTable({
     <section className="ip-table-card">
       <div className="ip-section-heading ip-table-card__heading">
         <div className="ip-table-card__heading-copy">
-          <span className="ip-section-heading__icon"><Eye size={18} /></span>
+          <span className="ip-section-heading__icon ip-table-card__instagram-icon"><Camera size={19} /></span>
           <div>
             <h2>Influencers Performance Ranking</h2>
-            {hasDateFilter ? (
-              <p className="ip-table-card__filter-summary" role="status">
-                Showing <strong>{records.length}</strong> of <strong>{total}</strong> contracts
-                {datePreset === 'custom' && rankingCustomFrom && rankingCustomTo ? (
-                  <> for {fmtDMY(rankingCustomFrom)} – {fmtDMY(rankingCustomTo)}</>
-                ) : datePreset === 'custom' && rankingCustomFrom ? (
-                  <> from {fmtDMY(rankingCustomFrom)}</>
-                ) : datePreset === 'custom' && rankingCustomTo ? (
-                  <> through {fmtDMY(rankingCustomTo)}</>
-                ) : (
-                  <> ({PERFORMANCE_RANKING_DATE_PRESETS.find((item) => item.id === datePreset)?.label || 'Filtered'})</>
-                )}
-                .
-              </p>
-            ) : null}
+            <p>Track and compare influencer campaign performance.</p>
           </div>
         </div>
         <div className="ip-table-card__heading-toolbar">
@@ -469,6 +482,7 @@ export function InfluencerPerformanceTable({
                   className={`inf-chip ${datePreset === preset.id ? 'inf-chip--active' : ''}`}
                   onClick={() => onDatePresetChange?.(preset.id)}
                 >
+                  {preset.id === 'custom' ? <CalendarDays size={13} aria-hidden /> : null}
                   {preset.label}
                 </button>
               ))}
@@ -502,34 +516,55 @@ export function InfluencerPerformanceTable({
 
       {showRankingSummary && rankingTotals ? (
         <div className="ip-ranking-totals" aria-label="Ranking totals for visible rows">
-          <div className="ip-ranking-totals__item">
-            <span className="ip-ranking-totals__label">Total Cost</span>
-            <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.cost, { currency: 'AED' })}</strong>
+          <div className="ip-ranking-totals__item" data-metric="cost">
+            <span className="ip-ranking-totals__icon"><WalletCards size={18} aria-hidden /></span>
+            <span className="ip-ranking-totals__copy">
+              <span className="ip-ranking-totals__label">Total Cost</span>
+              <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.cost, { currency: 'AED' })}</strong>
+            </span>
           </div>
-          <div className="ip-ranking-totals__item">
-            <span className="ip-ranking-totals__label">Total Views</span>
-            <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.views)}</strong>
+          <div className="ip-ranking-totals__item" data-metric="views">
+            <span className="ip-ranking-totals__icon"><Eye size={18} aria-hidden /></span>
+            <span className="ip-ranking-totals__copy">
+              <span className="ip-ranking-totals__label">Total Views</span>
+              <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.views)}</strong>
+            </span>
           </div>
-          <div className="ip-ranking-totals__item">
-            <span className="ip-ranking-totals__label">Total Likes</span>
-            <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.likes)}</strong>
+          <div className="ip-ranking-totals__item" data-metric="likes">
+            <span className="ip-ranking-totals__icon"><Heart size={18} aria-hidden /></span>
+            <span className="ip-ranking-totals__copy">
+              <span className="ip-ranking-totals__label">Total Likes</span>
+              <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.likes)}</strong>
+            </span>
           </div>
-          <div className="ip-ranking-totals__item">
-            <span className="ip-ranking-totals__label">Total Comments</span>
-            <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.comments)}</strong>
+          <div className="ip-ranking-totals__item" data-metric="comments">
+            <span className="ip-ranking-totals__icon"><MessageSquare size={18} aria-hidden /></span>
+            <span className="ip-ranking-totals__copy">
+              <span className="ip-ranking-totals__label">Total Comments</span>
+              <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.comments)}</strong>
+            </span>
           </div>
-          <div className="ip-ranking-totals__item">
-            <span className="ip-ranking-totals__label">Total Shares</span>
-            <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.shares)}</strong>
+          <div className="ip-ranking-totals__item" data-metric="shares">
+            <span className="ip-ranking-totals__icon"><Send size={18} aria-hidden /></span>
+            <span className="ip-ranking-totals__copy">
+              <span className="ip-ranking-totals__label">Total Shares</span>
+              <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.shares)}</strong>
+            </span>
           </div>
-          <div className="ip-ranking-totals__item">
-            <span className="ip-ranking-totals__label">Total Sales</span>
-            <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.salesAed, { currency: 'AED' })}</strong>
+          <div className="ip-ranking-totals__item" data-metric="sales">
+            <span className="ip-ranking-totals__icon"><ShoppingBag size={18} aria-hidden /></span>
+            <span className="ip-ranking-totals__copy">
+              <span className="ip-ranking-totals__label">Total Sales</span>
+              <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.salesAed, { currency: 'AED' })}</strong>
+            </span>
           </div>
           {showNetProfitColumn ? (
-            <div className="ip-ranking-totals__item">
-              <span className="ip-ranking-totals__label">Total Net Profit</span>
-              <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.netProfitAed, { currency: 'AED' })}</strong>
+            <div className="ip-ranking-totals__item" data-metric="profit">
+              <span className="ip-ranking-totals__icon"><TrendingUp size={18} aria-hidden /></span>
+              <span className="ip-ranking-totals__copy">
+                <span className="ip-ranking-totals__label">Total Net Profit</span>
+                <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.netProfitAed, { currency: 'AED' })}</strong>
+              </span>
             </div>
           ) : null}
         </div>
@@ -547,7 +582,11 @@ export function InfluencerPerformanceTable({
                   className={thClass(key, sort, metricKeys)}
                   onClick={() => onSort(key)}
                 >
-                  {label}{sortIndicator(sort, key)}
+                  <span className="ip-table__header-content">
+                    <span className="ip-table__header-icon"><RankingMetricIcon metric={key} /></span>
+                    <span>{label}</span>
+                    {sortIndicator(sort, key) ? <span className="ip-table__sort-indicator">{sortIndicator(sort, key)}</span> : null}
+                  </span>
                 </th>
               ))}
               <th className="ip-table__col--actions ip-table__col--actions-compact" aria-label="Actions" />
