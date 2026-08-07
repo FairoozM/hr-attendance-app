@@ -17,10 +17,23 @@ import type {
 export type InfluencerDashboardDatePreset =
   | 'this_month'
   | 'last_month'
+  | 'last_30_days'
+  | 'last_90_days'
   | 'this_quarter'
   | 'this_year'
   | 'custom'
   | 'all_time'
+
+export const INFLUENCER_DASHBOARD_DATE_PRESETS: Array<{ id: InfluencerDashboardDatePreset; label: string }> = [
+  { id: 'this_month', label: 'This Month' },
+  { id: 'last_month', label: 'Last Month' },
+  { id: 'last_30_days', label: 'Last 30 Days' },
+  { id: 'last_90_days', label: 'Last 90 Days' },
+  { id: 'this_quarter', label: 'This Quarter' },
+  { id: 'this_year', label: 'This Year' },
+  { id: 'all_time', label: 'All Time' },
+  { id: 'custom', label: 'Custom Range' },
+]
 
 export type InfluencerDashboardGroupMode = 'influencer' | 'contract'
 
@@ -84,6 +97,7 @@ export type DashboardRecentActivityItem = {
 
 export type InfluencerDashboardSnapshot = {
   totalInfluencers: number
+  totalContracts: number
   activeContracts: number
   completedContracts: number
   totalCost: number
@@ -91,11 +105,16 @@ export type InfluencerDashboardSnapshot = {
   totalNetProfit: number
   overallRoi: number
   profitMargin: number
+  totalViews: number
+  totalEngagement: number
   contracts: DashboardContractMetrics[]
   influencers: DashboardInfluencerMetrics[]
   topByNetProfit: Array<DashboardContractMetrics | DashboardInfluencerMetrics>
   topBySales: Array<DashboardContractMetrics | DashboardInfluencerMetrics>
   topByRoi: Array<DashboardContractMetrics | DashboardInfluencerMetrics>
+  topInfluencersByNetProfit: DashboardInfluencerMetrics[]
+  topInfluencersBySales: DashboardInfluencerMetrics[]
+  topInfluencersByRoi: DashboardInfluencerMetrics[]
   activeContractRows: DashboardContractMetrics[]
   upcomingCheckIns: DashboardUpcomingCheckIn[]
   contractsEndingSoon: DashboardContractMetrics[]
@@ -145,6 +164,14 @@ export function resolveDashboardDateRange(
       from: startOfMonthIso(prev.getUTCFullYear(), prev.getUTCMonth()),
       to: endOfMonthIso(prev.getUTCFullYear(), prev.getUTCMonth()),
     }
+  }
+  if (preset === 'last_30_days') {
+    const to = utcTodayIso()
+    return { from: addDays(to, -29), to }
+  }
+  if (preset === 'last_90_days') {
+    const to = utcTodayIso()
+    return { from: addDays(to, -89), to }
   }
   if (preset === 'this_quarter') {
     return quarterBounds(now)
@@ -201,6 +228,17 @@ function contractStatus(contract: InfluencerContract, today = utcTodayIso()) {
   const isCompleted = recordedDays >= monitoringDays || (end && end < today)
   const isActive = !isCompleted && Boolean(span) && span.start <= today && end >= today
   return { isActive, isCompleted }
+}
+
+/** Views summed across check-ins on contract.totals (matches Analytics). */
+export function contractViewsFromMetrics(row: DashboardContractMetrics): number {
+  return toNumber(row.contract.totals?.views)
+}
+
+/** Likes + comments + shares summed across check-ins (matches Analytics). */
+export function contractEngagementFromMetrics(row: DashboardContractMetrics): number {
+  const totals = row.contract.totals
+  return toNumber(totals?.likes) + toNumber(totals?.comments) + toNumber(totals?.shares)
 }
 
 function toContractMetrics(contract: InfluencerContract, today = utcTodayIso()): DashboardContractMetrics {
@@ -358,8 +396,11 @@ export function buildInfluencerDashboardSnapshot({
   const totalCost = filteredContracts.reduce((sum, row) => sum + row.cost, 0)
   const totalSales = filteredContracts.reduce((sum, row) => sum + row.salesAed, 0)
   const totalNetProfit = filteredContracts.reduce((sum, row) => sum + row.netProfitAed, 0)
+  const totalViews = filteredContracts.reduce((sum, row) => sum + contractViewsFromMetrics(row), 0)
+  const totalEngagement = filteredContracts.reduce((sum, row) => sum + contractEngagementFromMetrics(row), 0)
 
   const rankingSource = groupMode === 'influencer' ? influencerRows : filteredContracts
+  const influencerRankingSource = influencerRows
   const pickNetProfit = (row: DashboardContractMetrics | DashboardInfluencerMetrics) => toNumber(row.netProfitAed)
   const pickSales = (row: DashboardContractMetrics | DashboardInfluencerMetrics) => toNumber(row.salesAed)
   const pickRoi = (row: DashboardContractMetrics | DashboardInfluencerMetrics) => toNumber(row.roi)
@@ -368,6 +409,7 @@ export function buildInfluencerDashboardSnapshot({
 
   return {
     totalInfluencers: range ? influencerIdsInRange.size : roster.length,
+    totalContracts: filteredContracts.length,
     activeContracts: filteredContracts.filter((row) => row.isActive).length,
     completedContracts: filteredContracts.filter((row) => row.isCompleted).length,
     totalCost,
@@ -375,11 +417,16 @@ export function buildInfluencerDashboardSnapshot({
     totalNetProfit,
     overallRoi: safeRatioPercent(totalNetProfit, totalCost),
     profitMargin: safeRatioPercent(totalNetProfit, totalSales),
+    totalViews,
+    totalEngagement,
     contracts: filteredContracts,
     influencers: influencerRows,
     topByNetProfit: topN(rankingSource, pickNetProfit),
     topBySales: topN(rankingSource, pickSales),
     topByRoi: topN(rankingSource, pickRoi),
+    topInfluencersByNetProfit: topN(influencerRankingSource, pickNetProfit),
+    topInfluencersBySales: topN(influencerRankingSource, pickSales),
+    topInfluencersByRoi: topN(influencerRankingSource.filter((row) => toNumber(row.cost) > 0), pickRoi),
     activeContractRows: filteredContracts
       .filter((row) => row.isActive)
       .sort((a, b) => a.contractEndDate.localeCompare(b.contractEndDate)),

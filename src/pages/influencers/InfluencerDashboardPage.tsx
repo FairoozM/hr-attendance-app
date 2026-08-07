@@ -1,31 +1,28 @@
-import { useNavigate } from 'react-router-dom'
-import { AlertCircle, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react'
-import { useAuth, canViewInfluencerPerformanceNetProfit } from '../../contexts/AuthContext'
+import { Link, useNavigate } from 'react-router-dom'
+import type { ReactNode } from 'react'
+import {
+  AlertCircle,
+  ArrowRight,
+  BarChart3,
+  Plus,
+  RefreshCw,
+  TrendingDown,
+  Users,
+} from 'lucide-react'
+import { useAuth, canMutateInfluencerPerformance, canViewInfluencerPerformanceNetProfit, hasPermission } from '../../contexts/AuthContext'
 import { influencerInitials } from '../../components/influencers/influencerPerformanceTableShared'
-import { formatNumber, toNumber } from '../../utils/influencerPerformanceUtils'
-import { fmtDMY, fmtDMYRange } from '../../utils/dateFormat'
+import { formatNumber } from '../../utils/influencerPerformanceUtils'
+import { fmtDMY } from '../../utils/dateFormat'
 import { useInfluencerDashboard } from './useInfluencerDashboard'
 import {
+  INFLUENCER_DASHBOARD_DATE_PRESETS,
   influencerProfileUrl,
-  performanceContractUrl,
   type DashboardContractMetrics,
   type DashboardInfluencerMetrics,
   type DashboardRecentActivityItem,
-  type DashboardUpcomingCheckIn,
-  type InfluencerDashboardDatePreset,
-  type InfluencerDashboardGroupMode,
 } from './influencerDashboardUtils'
 import './influencers.css'
 import './InfluencerDashboard.css'
-
-const DATE_PRESETS: Array<{ id: InfluencerDashboardDatePreset; label: string }> = [
-  { id: 'this_month', label: 'This Month' },
-  { id: 'last_month', label: 'Last Month' },
-  { id: 'this_quarter', label: 'This Quarter' },
-  { id: 'this_year', label: 'This Year' },
-  { id: 'custom', label: 'Custom Range' },
-  { id: 'all_time', label: 'All Time' },
-]
 
 function formatAed(value: number): string {
   return formatNumber(value, { currency: 'AED' })
@@ -36,42 +33,17 @@ function formatPct(value: number): string {
   return `${value.toFixed(1)}%`
 }
 
-type RankRow = DashboardContractMetrics | DashboardInfluencerMetrics
-
-function isContractRow(row: RankRow): row is DashboardContractMetrics {
-  return 'contractId' in row
+function formatCompactCount(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+  if (value >= 10_000) return `${(value / 1_000).toFixed(1)}K`
+  return formatNumber(value)
 }
 
-function rowName(row: RankRow): string {
-  if (isContractRow(row)) return row.influencer?.name || 'Influencer'
-  return row.influencer?.name || 'Influencer'
-}
-
-function rowHandle(row: RankRow): string {
-  const handle = row.influencer?.username || ''
-  if (isContractRow(row)) return handle || row.campaignName
-  return handle || `${row.contractCount} contract${row.contractCount === 1 ? '' : 's'}`
-}
-
-function rowImage(row: RankRow): string {
-  return row.influencer?.profileImage || ''
-}
-
-function KpiCard({
-  label,
-  value,
-  tone = 'blue',
-  hint,
-}: {
-  label: string
-  value: string
-  tone?: string
-  hint?: string
-}) {
+function ExecKpi({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className={`inf-stat inf-stat--${tone}`} title={hint}>
-      <div className="inf-stat__value">{value}</div>
-      <div className="inf-stat__label">{label}</div>
+    <div className="inf-dashboard__exec-kpi" title={hint}>
+      <span className="inf-dashboard__exec-kpi-value">{value}</span>
+      <span className="inf-dashboard__exec-kpi-label">{label}</span>
     </div>
   )
 }
@@ -87,68 +59,68 @@ function Avatar({ name, imageUrl }: { name: string; imageUrl?: string }) {
 function DashboardSkeleton() {
   return (
     <div>
-      <div className="inf-dashboard__skeleton-grid">
-        {Array.from({ length: 8 }).map((_, index) => (
-          <div key={index} className="inf-dashboard__skeleton" />
+      <div className="inf-dashboard__exec-kpi-row inf-dashboard__exec-kpi-row--skeleton">
+        {Array.from({ length: 9 }).map((_, index) => (
+          <div key={index} className="inf-dashboard__skeleton inf-dashboard__skeleton--kpi" />
         ))}
       </div>
-      <div className="inf-dashboard__grid">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} className="inf-dashboard__panel inf-dashboard__panel--half inf-dashboard__skeleton-panel" />
+      <div className="inf-dashboard__sections">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <div key={index} className="inf-dashboard__section inf-dashboard__skeleton-panel" />
         ))}
       </div>
     </div>
   )
 }
 
-function EmptyPanel({ title, message }: { title: string; message: string }) {
+function SectionHead({
+  title,
+  subtitle,
+  action,
+}: {
+  title: string
+  subtitle?: string
+  action?: ReactNode
+}) {
   return (
-    <section className="clay-card inf-dashboard__panel">
-      <div className="inf-empty">
-        <div className="inf-empty__title">{title}</div>
-        <div className="inf-empty__desc">{message}</div>
+    <div className="inf-dashboard__section-head">
+      <div>
+        <h2 className="inf-dashboard__section-title">{title}</h2>
+        {subtitle ? <p className="inf-dashboard__section-sub">{subtitle}</p> : null}
       </div>
-    </section>
+      {action}
+    </div>
   )
 }
 
-function RankList({
+function InfluencerRankList({
   title,
-  subtitle,
   rows,
   metricLabel,
   metricValue,
   onRowClick,
 }: {
   title: string
-  subtitle: string
-  rows: RankRow[]
+  rows: DashboardInfluencerMetrics[]
   metricLabel: string
-  metricValue: (row: RankRow) => string
-  onRowClick: (row: RankRow) => void
+  metricValue: (row: DashboardInfluencerMetrics) => string
+  onRowClick: (row: DashboardInfluencerMetrics) => void
 }) {
   return (
-    <section className="clay-card inf-dashboard__panel inf-dashboard__panel--third">
-      <div className="inf-dashboard__panel-head">
-        <div>
-          <h2 className="inf-dashboard__panel-title">{title}</h2>
-          <p className="inf-dashboard__panel-sub">{subtitle}</p>
-        </div>
-      </div>
+    <div className="inf-dashboard__rank-card">
+      <h3 className="inf-dashboard__rank-title">{title}</h3>
       {rows.length === 0 ? (
-        <div className="inf-empty">
-          <div className="inf-empty__desc">No data for this date range.</div>
-        </div>
+        <p className="inf-dashboard__empty-note">No data for this period.</p>
       ) : (
-        <ol className="inf-dashboard__list">
+        <ol className="inf-dashboard__list inf-dashboard__list--compact">
           {rows.map((row, index) => (
-            <li key={isContractRow(row) ? row.contractId : row.influencerId}>
-              <button type="button" className="inf-dashboard__row" onClick={() => onRowClick(row)}>
+            <li key={row.influencerId}>
+              <button type="button" className="inf-dashboard__row inf-dashboard__row--compact" onClick={() => onRowClick(row)}>
                 <span className="inf-dashboard__rank">{index + 1}</span>
-                <Avatar name={rowName(row)} imageUrl={rowImage(row)} />
+                <Avatar name={row.influencer?.name || 'Influencer'} imageUrl={row.influencer?.profileImage} />
                 <span className="inf-dashboard__copy">
-                  <strong>{rowName(row)}</strong>
-                  <em>{rowHandle(row)}</em>
+                  <strong>{row.influencer?.name || 'Influencer'}</strong>
+                  <em>{row.contractCount} contract{row.contractCount === 1 ? '' : 's'}</em>
                 </span>
                 <span className="inf-dashboard__metric">
                   {metricValue(row)}
@@ -159,14 +131,23 @@ function RankList({
           ))}
         </ol>
       )}
-    </section>
+    </div>
   )
+}
+
+function contractStatusLabel(row: DashboardContractMetrics): string {
+  if (row.isActive) return 'Active'
+  if (row.isCompleted) return 'Completed'
+  return 'In progress'
 }
 
 export function InfluencerDashboardPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const showNetProfit = canViewInfluencerPerformanceNetProfit(user)
+  const canAddContract = canMutateInfluencerPerformance(user)
+  const canAddInfluencer = hasPermission(user, 'influencers', 'manage')
+
   const {
     loading,
     error,
@@ -178,26 +159,20 @@ export function InfluencerDashboardPage() {
     setCustomFrom,
     customTo,
     setCustomTo,
-    groupMode,
-    setGroupMode,
     rosterTotal,
   } = useInfluencerDashboard()
 
-  function openRankRow(row: RankRow) {
-    if (isContractRow(row)) {
-      navigate(performanceContractUrl(row.contractId))
-      return
-    }
+  function openInfluencer(row: DashboardInfluencerMetrics) {
     navigate(influencerProfileUrl(row.influencerId))
   }
 
   function openContract(row: DashboardContractMetrics) {
-    navigate(performanceContractUrl(row.contractId))
+    navigate(`/influencers/performance?contract=${encodeURIComponent(row.contractId)}`)
   }
 
   function openActivity(item: DashboardRecentActivityItem) {
     if (item.contractId) {
-      navigate(performanceContractUrl(item.contractId))
+      navigate(`/influencers/performance?contract=${encodeURIComponent(item.contractId)}`)
       return
     }
     navigate(influencerProfileUrl(item.influencerId))
@@ -222,14 +197,15 @@ export function InfluencerDashboardPage() {
 
   if (!snapshot) return <DashboardSkeleton />
 
-  const groupingLabel = groupMode === 'influencer' ? 'By Influencer' : 'By Contract'
+  const activeRows = snapshot.activeContractRows.slice(0, 8)
+  const recentActivity = snapshot.recentActivity.slice(0, 8)
 
   return (
     <div className="inf-dashboard">
       <div className="inf-dashboard__toolbar">
         <div className="inf-dashboard__filters">
           <span className="inf-dashboard__filter-label">Period</span>
-          {DATE_PRESETS.map((preset) => (
+          {INFLUENCER_DASHBOARD_DATE_PRESETS.map((preset) => (
             <button
               key={preset.id}
               type="button"
@@ -240,27 +216,27 @@ export function InfluencerDashboardPage() {
             </button>
           ))}
         </div>
-        <div className="inf-dashboard__grouping">
-          <span className="inf-dashboard__filter-label">Group</span>
-          <button
-            type="button"
-            className={`inf-chip ${groupMode === 'influencer' ? 'inf-chip--active' : ''}`}
-            onClick={() => setGroupMode('influencer' satisfies InfluencerDashboardGroupMode)}
-          >
-            By Influencer
-          </button>
-          <button
-            type="button"
-            className={`inf-chip ${groupMode === 'contract' ? 'inf-chip--active' : ''}`}
-            onClick={() => setGroupMode('contract' satisfies InfluencerDashboardGroupMode)}
-          >
-            By Contract
-          </button>
+        <div className="inf-dashboard__quick-actions">
+          {canAddInfluencer ? (
+            <Link to="/influencers/new" className="inf-btn inf-btn--ghost inf-btn--xs">
+              <Plus size={14} aria-hidden /> Add Influencer
+            </Link>
+          ) : null}
+          {canAddContract ? (
+            <Link to="/influencers/performance?add=1" className="inf-btn inf-btn--ghost inf-btn--xs">
+              <Plus size={14} aria-hidden /> Add Contract
+            </Link>
+          ) : null}
+          <Link to="/influencers/list" className="inf-btn inf-btn--ghost inf-btn--xs">View Roster</Link>
+          <Link to="/influencers/contracts" className="inf-btn inf-btn--ghost inf-btn--xs">View Contracts</Link>
+          <Link to="/influencers/analytics" className="inf-btn inf-btn--ghost inf-btn--xs">
+            <BarChart3 size={14} aria-hidden /> Analytics
+          </Link>
         </div>
       </div>
 
       {datePreset === 'custom' ? (
-        <div className="inf-dashboard__custom-range clay-card" style={{ marginBottom: '1rem', padding: '0.85rem 1rem' }}>
+        <div className="inf-dashboard__custom-range clay-card">
           <label>
             From
             <input className="ip-control" type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
@@ -272,247 +248,195 @@ export function InfluencerDashboardPage() {
         </div>
       ) : null}
 
-      <div className="inf-dashboard__kpi-grid">
-        <KpiCard
-          label="Total Influencers"
-          value={String(snapshot.totalInfluencers)}
-          tone="blue"
-          hint={datePreset === 'all_time' ? `${rosterTotal} in roster` : 'Influencers with contracts in range'}
+      <section className="inf-dashboard__section" aria-labelledby="inf-dashboard-exec-heading">
+        <SectionHead
+          title="Executive overview"
+          subtitle="Management totals for the selected period"
         />
-        <KpiCard label="Active Contracts" value={String(snapshot.activeContracts)} tone="green" />
-        <KpiCard label="Completed Contracts" value={String(snapshot.completedContracts)} tone="teal" />
-        <KpiCard label="Total Influencer Cost" value={formatAed(snapshot.totalCost)} tone="amber" />
-        <KpiCard label="Total Sales" value={formatAed(snapshot.totalSales)} tone="purple" />
-        {showNetProfit ? (
-          <>
-            <KpiCard label="Total Net Profit" value={formatAed(snapshot.totalNetProfit)} tone="pink" />
-            <KpiCard label="Overall ROI" value={formatPct(snapshot.overallRoi)} tone="indigo" hint="Net profit / cost" />
-            <KpiCard label="Profit Margin" value={formatPct(snapshot.profitMargin)} tone="cyan" hint="Net profit / sales" />
-          </>
+        <div id="inf-dashboard-exec-heading" className="inf-dashboard__exec-kpi-row">
+          <ExecKpi
+            label="Influencers"
+            value={String(snapshot.totalInfluencers)}
+            hint={datePreset === 'all_time' ? `${rosterTotal} in roster` : 'Influencers with contracts in range'}
+          />
+          <ExecKpi label="Contracts" value={String(snapshot.totalContracts)} />
+          <ExecKpi label="Influencer cost" value={formatAed(snapshot.totalCost)} />
+          <ExecKpi label="Sales" value={formatAed(snapshot.totalSales)} />
+          {showNetProfit ? (
+            <>
+              <ExecKpi label="Net profit" value={formatAed(snapshot.totalNetProfit)} />
+              <ExecKpi label="Overall ROI" value={formatPct(snapshot.overallRoi)} hint="Net profit / cost" />
+            </>
+          ) : (
+            <>
+              <ExecKpi label="Net profit" value="—" hint="Restricted" />
+              <ExecKpi label="Overall ROI" value="—" hint="Restricted" />
+            </>
+          )}
+          <ExecKpi label="Views" value={formatCompactCount(snapshot.totalViews)} />
+          <ExecKpi label="Engagement" value={formatCompactCount(snapshot.totalEngagement)} />
+          <ExecKpi label="Active contracts" value={String(snapshot.activeContracts)} />
+        </div>
+      </section>
+
+      <section className="inf-dashboard__section" aria-labelledby="inf-dashboard-perf-heading">
+        <SectionHead
+          title="Performance snapshot"
+          subtitle="Top influencers and campaigns needing attention"
+        />
+        <div id="inf-dashboard-perf-heading" className="inf-dashboard__perf-grid">
+          <InfluencerRankList
+            title="Top by sales"
+            rows={snapshot.topInfluencersBySales}
+            metricLabel="Sales"
+            metricValue={(row) => formatAed(row.salesAed)}
+            onRowClick={openInfluencer}
+          />
+          {showNetProfit ? (
+            <InfluencerRankList
+              title="Top by net profit"
+              rows={snapshot.topInfluencersByNetProfit}
+              metricLabel="Net profit"
+              metricValue={(row) => formatAed(row.netProfitAed)}
+              onRowClick={openInfluencer}
+            />
+          ) : null}
+          {showNetProfit ? (
+            <InfluencerRankList
+              title="Top by ROI"
+              rows={snapshot.topInfluencersByRoi}
+              metricLabel="ROI"
+              metricValue={(row) => formatPct(row.roi)}
+              onRowClick={openInfluencer}
+            />
+          ) : null}
+          {showNetProfit ? (
+            <div className="inf-dashboard__rank-card inf-dashboard__rank-card--attention">
+              <h3 className="inf-dashboard__rank-title">
+                <TrendingDown size={15} aria-hidden /> Needs attention
+              </h3>
+              {snapshot.lossMaking.length === 0 ? (
+                <p className="inf-dashboard__empty-note">No loss-making campaigns in this period.</p>
+              ) : (
+                <ol className="inf-dashboard__list inf-dashboard__list--compact">
+                  {snapshot.lossMaking.slice(0, 5).map((row) => (
+                    <li key={row.contractId}>
+                      <button type="button" className="inf-dashboard__row inf-dashboard__row--compact inf-dashboard__row--warn" onClick={() => openContract(row)}>
+                        <Avatar name={row.influencer?.name || 'Influencer'} imageUrl={row.influencer?.profileImage} />
+                        <span className="inf-dashboard__copy">
+                          <strong>{row.influencer?.name || 'Influencer'}</strong>
+                          <em>{row.campaignName}</em>
+                        </span>
+                        <span className="inf-dashboard__metric">
+                          {formatAed(row.netProfitAed)}
+                          <small>Net profit</small>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="inf-dashboard__section" aria-labelledby="inf-dashboard-active-heading">
+        <SectionHead
+          title="Active contracts"
+          subtitle="Operational view of contracts currently in monitoring"
+          action={(
+            <Link to="/influencers/contracts" className="inf-dashboard__section-link">
+              View all performance contracts <ArrowRight size={14} aria-hidden />
+            </Link>
+          )}
+        />
+        {activeRows.length === 0 ? (
+          <p className="inf-dashboard__empty-note">No active contracts in this period.</p>
         ) : (
-          <>
-            <KpiCard label="Total Net Profit" value="—" tone="pink" hint="Admin only" />
-            <KpiCard label="Overall ROI" value="—" tone="indigo" hint="Admin only" />
-            <KpiCard label="Profit Margin" value="—" tone="cyan" hint="Admin only" />
-          </>
-        )}
-      </div>
-
-      <div className="inf-dashboard__grid">
-        {showNetProfit ? (
-          <RankList
-            title="Top 5 by Net Profit"
-            subtitle={groupingLabel}
-            rows={snapshot.topByNetProfit}
-            metricLabel="Net profit"
-            metricValue={(row) => formatAed(row.netProfitAed)}
-            onRowClick={openRankRow}
-          />
-        ) : null}
-        <RankList
-          title="Top 5 by Sales"
-          subtitle={groupingLabel}
-          rows={snapshot.topBySales}
-          metricLabel="Sales"
-          metricValue={(row) => formatAed(row.salesAed)}
-          onRowClick={openRankRow}
-        />
-        {showNetProfit ? (
-          <RankList
-            title="Top 5 by ROI"
-            subtitle={groupingLabel}
-            rows={snapshot.topByRoi.filter((row) => toNumber(row.cost) > 0)}
-            metricLabel="ROI"
-            metricValue={(row) => formatPct(row.roi)}
-            onRowClick={openRankRow}
-          />
-        ) : null}
-
-        <section className="clay-card inf-dashboard__panel inf-dashboard__panel--half">
-          <div className="inf-dashboard__panel-head">
-            <div>
-              <h2 className="inf-dashboard__panel-title">Active Contracts</h2>
-              <p className="inf-dashboard__panel-sub">In monitoring window with open check-in days</p>
-            </div>
-          </div>
-          {snapshot.activeContractRows.length === 0 ? (
-            <div className="inf-empty"><div className="inf-empty__desc">No active contracts in this period.</div></div>
-          ) : (
-            <ul className="inf-dashboard__list">
-              {snapshot.activeContractRows.slice(0, 6).map((row) => (
-                <li key={row.contractId}>
-                  <button type="button" className="inf-dashboard__row" onClick={() => openContract(row)}>
-                    <Avatar name={rowName(row)} imageUrl={rowImage(row)} />
-                    <span className="inf-dashboard__copy">
-                      <strong>{row.campaignName}</strong>
-                      <em>{row.influencer?.username || row.influencer?.name} · {row.recordedDays}/{row.monitoringDays} check-ins</em>
-                    </span>
-                    <span className="inf-dashboard__metric">
-                      {fmtDMYRange(row.contractStartDate, row.contractEndDate, ' – ')}
-                      <small>Ends {fmtDMY(row.contractEndDate)}</small>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="clay-card inf-dashboard__panel inf-dashboard__panel--half">
-          <div className="inf-dashboard__panel-head">
-            <div>
-              <h2 className="inf-dashboard__panel-title">Upcoming Check-ins</h2>
-              <p className="inf-dashboard__panel-sub">Open days in active contract windows</p>
-            </div>
-          </div>
-          {snapshot.upcomingCheckIns.length === 0 ? (
-            <div className="inf-empty"><div className="inf-empty__desc">No upcoming check-ins scheduled.</div></div>
-          ) : (
-            <ul className="inf-dashboard__list">
-              {snapshot.upcomingCheckIns.map((row: DashboardUpcomingCheckIn) => (
-                <li key={`${row.contractId}-${row.checkDate}`}>
-                  <button type="button" className="inf-dashboard__row" onClick={() => openContract(toContractFromUpcoming(row))}>
-                    <Avatar name={row.influencer?.name || 'Influencer'} imageUrl={row.influencer?.profileImage} />
-                    <span className="inf-dashboard__copy">
-                      <strong>{row.campaignName}</strong>
-                      <em>{row.influencer?.name} · Day {row.dayNumber}</em>
-                    </span>
-                    <span className="inf-dashboard__metric">
-                      {fmtDMY(row.checkDate)}
-                      <small>Due check-in</small>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="clay-card inf-dashboard__panel inf-dashboard__panel--half">
-          <div className="inf-dashboard__panel-head">
-            <div>
-              <h2 className="inf-dashboard__panel-title">Contracts Ending Soon</h2>
-              <p className="inf-dashboard__panel-sub">Within the next 7 days</p>
-            </div>
-          </div>
-          {snapshot.contractsEndingSoon.length === 0 ? (
-            <div className="inf-empty"><div className="inf-empty__desc">No contracts ending soon.</div></div>
-          ) : (
-            <ul className="inf-dashboard__list">
-              {snapshot.contractsEndingSoon.map((row) => (
-                <li key={row.contractId}>
-                  <button type="button" className="inf-dashboard__row" onClick={() => openContract(row)}>
-                    <Avatar name={rowName(row)} imageUrl={rowImage(row)} />
-                    <span className="inf-dashboard__copy">
-                      <strong>{row.campaignName}</strong>
-                      <em>{row.influencer?.name}</em>
-                    </span>
-                    <span className="inf-dashboard__metric">
-                      {fmtDMY(row.contractEndDate)}
-                      <small>{row.recordedDays}/{row.monitoringDays} done</small>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        {showNetProfit ? (
-          <section className="clay-card inf-dashboard__panel inf-dashboard__panel--half">
-            <div className="inf-dashboard__panel-head">
-              <div>
-                <h2 className="inf-dashboard__panel-title">Loss-Making Campaigns</h2>
-                <p className="inf-dashboard__panel-sub">Negative net profit on latest check-in</p>
-              </div>
-              <TrendingDown size={18} aria-hidden style={{ opacity: 0.65 }} />
-            </div>
-            {snapshot.lossMaking.length === 0 ? (
-              <div className="inf-empty"><div className="inf-empty__desc">No loss-making campaigns in this period.</div></div>
-            ) : (
-              <ul className="inf-dashboard__list">
-                {snapshot.lossMaking.slice(0, 6).map((row) => (
-                  <li key={row.contractId}>
-                    <button type="button" className="inf-dashboard__row inf-dashboard__row--warn" onClick={() => openContract(row)}>
-                      <Avatar name={rowName(row)} imageUrl={rowImage(row)} />
-                      <span className="inf-dashboard__copy">
-                        <strong>{row.campaignName}</strong>
-                        <em>{row.influencer?.name}</em>
-                      </span>
-                      <span className="inf-dashboard__metric">
-                        {formatAed(row.netProfitAed)}
-                        <small>Net profit</small>
-                      </span>
-                    </button>
-                  </li>
+          <div className="inf-dashboard__table-wrap">
+            <table className="inf-dashboard__table">
+              <thead>
+                <tr>
+                  <th>Influencer</th>
+                  <th>Campaign</th>
+                  <th>Cost</th>
+                  <th>Sales</th>
+                  {showNetProfit ? <th>Net profit</th> : null}
+                  {showNetProfit ? <th>ROI</th> : null}
+                  <th>Check-ins</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activeRows.map((row) => (
+                  <tr key={row.contractId}>
+                    <td>
+                      <button type="button" className="inf-dashboard__table-link" onClick={() => navigate(influencerProfileUrl(row.influencerId))}>
+                        {row.influencer?.name || 'Influencer'}
+                      </button>
+                    </td>
+                    <td>
+                      <button type="button" className="inf-dashboard__table-link" onClick={() => openContract(row)}>
+                        {row.campaignName}
+                      </button>
+                    </td>
+                    <td>{formatAed(row.cost)}</td>
+                    <td>{formatAed(row.salesAed)}</td>
+                    {showNetProfit ? <td>{formatAed(row.netProfitAed)}</td> : null}
+                    {showNetProfit ? <td>{formatPct(row.roi)}</td> : null}
+                    <td>{row.recordedDays}/{row.monitoringDays}</td>
+                    <td><span className="inf-dashboard__status">{contractStatusLabel(row)}</span></td>
+                  </tr>
                 ))}
-              </ul>
-            )}
-          </section>
-        ) : null}
-
-        <section className={`clay-card inf-dashboard__panel ${showNetProfit ? 'inf-dashboard__panel--half' : ''}`}>
-          <div className="inf-dashboard__panel-head">
-            <div>
-              <h2 className="inf-dashboard__panel-title">Recent Activity</h2>
-              <p className="inf-dashboard__panel-sub">Check-ins and workflow timeline events</p>
-            </div>
-            <TrendingUp size={18} aria-hidden style={{ opacity: 0.65 }} />
+              </tbody>
+            </table>
           </div>
-          {snapshot.recentActivity.length === 0 ? (
-            <div className="inf-empty"><div className="inf-empty__desc">No recent activity in this period.</div></div>
-          ) : (
-            <ul className="inf-dashboard__list">
-              {snapshot.recentActivity.map((item) => (
-                <li key={item.id}>
-                  <button type="button" className="inf-dashboard__row" onClick={() => openActivity(item)}>
-                    <Avatar name={item.influencer?.name || item.subtitle} imageUrl={item.influencer?.profileImage} />
-                    <span className="inf-dashboard__copy">
-                      <strong>{item.title}</strong>
-                      <em>{item.subtitle}</em>
-                    </span>
-                    <span className="inf-dashboard__metric">
-                      {fmtDMY(item.date)}
-                      <small>{item.kind === 'check_in' ? 'Check-in' : 'Timeline'}</small>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+        )}
+      </section>
+
+      <section className="inf-dashboard__section" aria-labelledby="inf-dashboard-activity-heading">
+        <SectionHead
+          title="Recent activity"
+          subtitle="Latest check-ins and workflow timeline events"
+          action={(
+            <Link to="/influencers/timeline" className="inf-dashboard__section-link">
+              View full timeline <ArrowRight size={14} aria-hidden />
+            </Link>
           )}
-        </section>
-      </div>
+        />
+        {recentActivity.length === 0 ? (
+          <p className="inf-dashboard__empty-note">No recent activity in this period.</p>
+        ) : (
+          <ul className="inf-dashboard__list">
+            {recentActivity.map((item) => (
+              <li key={item.id}>
+                <button type="button" className="inf-dashboard__row inf-dashboard__row--compact" onClick={() => openActivity(item)}>
+                  <Avatar name={item.influencer?.name || item.subtitle} imageUrl={item.influencer?.profileImage} />
+                  <span className="inf-dashboard__copy">
+                    <strong>{item.title}</strong>
+                    <em>{item.subtitle}</em>
+                  </span>
+                  <span className="inf-dashboard__metric">
+                    {fmtDMY(item.date)}
+                    <small>{item.kind === 'check_in' ? 'Check-in' : 'Timeline'}</small>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {snapshot.contracts.length === 0 ? (
-        <EmptyPanel
-          title="No contract performance in this period"
-          message="Try widening the date range or add performance check-ins from the Performance tab."
-        />
+        <section className="clay-card inf-dashboard__panel">
+          <div className="inf-empty">
+            <Users size={24} aria-hidden style={{ opacity: 0.65 }} />
+            <div className="inf-empty__title">No contract performance in this period</div>
+            <div className="inf-empty__desc">Widen the date range or add performance check-ins from the Performance tab.</div>
+          </div>
+        </section>
       ) : null}
     </div>
   )
-}
-
-function toContractFromUpcoming(row: DashboardUpcomingCheckIn): DashboardContractMetrics {
-  const contract = row.contract
-  return {
-    contractId: row.contractId,
-    influencerId: row.influencerId,
-    influencer: row.influencer,
-    campaignName: row.campaignName,
-    videoTitle: contract.videoTitle || row.campaignName,
-    contractStartDate: contract.contractStartDate,
-    contractEndDate: contract.contractEndDate || '',
-    latestDate: contract.latestDate || '',
-    cost: toNumber(contract.totals?.cost),
-    salesAed: toNumber(contract.totals?.salesAed),
-    netProfitAed: toNumber(contract.totals?.netProfitAed),
-    roi: 0,
-    profitMargin: 0,
-    recordedDays: contract.recordedDays,
-    monitoringDays: contract.monitoringDays,
-    isActive: true,
-    isCompleted: false,
-    contract,
-  }
 }

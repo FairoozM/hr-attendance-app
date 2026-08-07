@@ -486,11 +486,11 @@ export function Layout() {
     can('influencers', 'view') && { label: 'Dashboard', to: '/influencers/dashboard' },
     can('influencers', 'view') && { label: 'Performance Contracts', to: '/influencers/contracts' },
     can('influencers', 'performance') && { label: 'Performance', to: '/influencers/performance' },
-    can('influencers', 'payments') && { label: 'Payments & ROI', to: '/influencers/payments' },
-    can('influencers', 'view') && { label: 'Timeline', to: '/influencers/timeline' },
     can('influencers', 'view') && { label: 'Analytics', to: '/influencers/analytics' },
+    can('influencers', 'view') && { label: 'Timeline', to: '/influencers/timeline' },
     can('influencers', 'view') && { label: 'Influencer Roster', to: '/influencers/list' },
     can('influencers', 'agreements') && { label: 'Agreements', to: '/influencers/agreements' },
+    can('influencers', 'payments') && { label: 'Payments & ROI', to: '/influencers/payments' },
   ].filter(Boolean)
 
   const hrItems = [

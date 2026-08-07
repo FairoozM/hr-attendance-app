@@ -33,19 +33,15 @@ import {
   performanceContractUrl,
   type InfluencerAnalyticsPoint,
 } from './influencerAnalyticsUtils'
+import { INFLUENCER_DASHBOARD_DATE_PRESETS } from './influencerDashboardUtils'
 import './influencers.css'
 import './InfluencerDashboard.css'
 import './InfluencerAnalytics.css'
 import './InfluencerContracts.css'
 
-const DATE_PRESETS = [
-  { id: 'this_month', label: 'This Month' },
-  { id: 'last_month', label: 'Last Month' },
-  { id: 'this_quarter', label: 'This Quarter' },
-  { id: 'this_year', label: 'This Year' },
-  { id: 'custom', label: 'Custom' },
-  { id: 'all_time', label: 'All Time' },
-] as const
+const DATE_PRESETS = INFLUENCER_DASHBOARD_DATE_PRESETS.map((preset) => (
+  preset.id === 'custom' ? { ...preset, label: 'Custom' } : preset
+))
 
 type TooltipPayload = { value?: number; name?: string; color?: string }
 

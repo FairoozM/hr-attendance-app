@@ -14,6 +14,8 @@ import type { Influencer } from '../../lib/influencers'
 import type { InfluencerPerformanceInput } from '../../types/influencer'
 import {
   buildInfluencerDashboardSnapshot,
+  contractEngagementFromMetrics,
+  contractViewsFromMetrics,
   resolveDashboardDateRange,
   safeRatioPercent,
   type DashboardContractMetrics,
@@ -116,8 +118,7 @@ export interface InfluencerAnalyticsSnapshot {
 }
 
 function engagementFromContract(row: DashboardContractMetrics): number {
-  const totals = row.contract.totals
-  return toNumber(totals?.likes) + toNumber(totals?.comments) + toNumber(totals?.shares)
+  return contractEngagementFromMetrics(row)
 }
 
 function contractToPoint(row: DashboardContractMetrics): InfluencerAnalyticsPoint {
@@ -206,8 +207,8 @@ export function summarizeAnalyticsContracts(contracts: DashboardContractMetrics[
   const totalCost = contracts.reduce((sum, row) => sum + row.cost, 0)
   const totalSales = contracts.reduce((sum, row) => sum + row.salesAed, 0)
   const totalNetProfit = contracts.reduce((sum, row) => sum + row.netProfitAed, 0)
-  const totalViews = contracts.reduce((sum, row) => sum + toNumber(row.contract.totals?.views), 0)
-  const totalEngagement = contracts.reduce((sum, row) => sum + engagementFromContract(row), 0)
+  const totalViews = contracts.reduce((sum, row) => sum + contractViewsFromMetrics(row), 0)
+  const totalEngagement = contracts.reduce((sum, row) => sum + contractEngagementFromMetrics(row), 0)
   return {
     totalCost,
     totalSales,
@@ -514,6 +515,9 @@ export function reconcileWithDashboard(
     && expected.totalSales === analyticsSummary.totalSales
     && expected.totalNetProfit === analyticsSummary.totalNetProfit
     && expected.overallRoi === analyticsSummary.overallRoi
+    && expected.totalViews === analyticsSummary.totalViews
+    && expected.totalEngagement === analyticsSummary.totalEngagement
+    && expected.contractsAnalysed === analyticsSummary.contractsAnalysed
   )
 }
 

@@ -39,18 +39,12 @@ import {
   performanceUrlForContract,
 } from './influencerModuleTimelineUtils'
 import type { InfluencerDashboardDatePreset } from './influencerDashboardUtils'
+import { INFLUENCER_DASHBOARD_DATE_PRESETS } from './influencerDashboardUtils'
 import './influencers.css'
 import './InfluencerDashboard.css'
 import './InfluencerContracts.css'
 
-const DATE_PRESETS: Array<{ id: InfluencerDashboardDatePreset; label: string }> = [
-  { id: 'this_month', label: 'This Month' },
-  { id: 'last_month', label: 'Last Month' },
-  { id: 'this_quarter', label: 'This Quarter' },
-  { id: 'this_year', label: 'This Year' },
-  { id: 'custom', label: 'Custom Range' },
-  { id: 'all_time', label: 'All Time' },
-]
+const DATE_PRESETS = INFLUENCER_DASHBOARD_DATE_PRESETS
 
 const STATUS_FILTERS: Array<{ id: InfluencerContractStatusFilter; label: string }> = [
   { id: 'all', label: 'All statuses' },

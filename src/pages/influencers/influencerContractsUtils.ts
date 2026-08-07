@@ -315,7 +315,7 @@ export function readContractsFiltersFromSearchParams(params: URLSearchParams): I
 
   return {
     ...defaults,
-    datePreset: period && ['this_month', 'last_month', 'this_quarter', 'this_year', 'custom', 'all_time'].includes(period)
+    datePreset: period && ['this_month', 'last_month', 'last_30_days', 'last_90_days', 'this_quarter', 'this_year', 'custom', 'all_time'].includes(period)
       ? period
       : defaults.datePreset,
     customFrom: params.get('from') || '',

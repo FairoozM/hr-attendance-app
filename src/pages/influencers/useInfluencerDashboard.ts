@@ -8,7 +8,6 @@ import {
   buildInfluencerDashboardSnapshot,
   resolveDashboardDateRange,
   type InfluencerDashboardDatePreset,
-  type InfluencerDashboardGroupMode,
   type InfluencerDashboardSnapshot,
 } from './influencerDashboardUtils'
 
@@ -32,10 +31,9 @@ export function useInfluencerDashboard() {
   const [performanceError, setPerformanceError] = useState<string | null>(null)
   const [performanceLoading, setPerformanceLoading] = useState(true)
 
-  const [datePreset, setDatePreset] = useState<InfluencerDashboardDatePreset>('this_month')
+  const [datePreset, setDatePreset] = useState<InfluencerDashboardDatePreset>('all_time')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
-  const [groupMode, setGroupMode] = useState<InfluencerDashboardGroupMode>('influencer')
 
   const loadPerformance = useCallback(async () => {
     if (!user) return
@@ -71,9 +69,9 @@ export function useInfluencerDashboard() {
       records,
       roster: influencers,
       range: dateRange,
-      groupMode,
+      groupMode: 'influencer',
     })
-  }, [records, influencers, dateRange, groupMode])
+  }, [records, influencers, dateRange])
 
   const loading = authLoading || rosterLoading || performanceLoading
   const error = rosterError || performanceError
@@ -89,8 +87,6 @@ export function useInfluencerDashboard() {
     setCustomFrom,
     customTo,
     setCustomTo,
-    groupMode,
-    setGroupMode,
     rosterTotal: influencers.length,
   }
 }

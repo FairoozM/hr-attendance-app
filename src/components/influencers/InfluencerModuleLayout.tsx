@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { Plus, Users } from 'lucide-react'
+import { Plus, UserPlus, Users } from 'lucide-react'
 import { useAuth, hasPermission, canMutateInfluencerPerformance } from '../../contexts/AuthContext'
 import { INFLUENCER_MODULE_TABS } from './influencerModuleNav'
 import '../../pages/influencers/influencers.css'
@@ -14,6 +14,7 @@ export function InfluencerModuleLayout() {
   ))
 
   const canAddContract = canMutateInfluencerPerformance(user)
+  const canAddInfluencer = hasPermission(user, 'influencers', 'manage')
 
   function isTabActive(tabTo: string): boolean {
     if (tabTo.endsWith('/dashboard')) {
@@ -45,11 +46,18 @@ export function InfluencerModuleLayout() {
             ))}
           </nav>
         </div>
-        {canAddContract ? (
+        {canAddContract || canAddInfluencer ? (
           <div className="inf-module-layout__actions">
-            <NavLink to="/influencers/performance?add=1" className="inf-btn inf-btn--primary inf-module-layout__add-btn">
-              <Plus size={16} aria-hidden /> Add Contract
-            </NavLink>
+            {canAddInfluencer ? (
+              <NavLink to="/influencers/new" className="inf-btn inf-btn--ghost inf-module-layout__add-btn inf-module-layout__add-btn--secondary">
+                <UserPlus size={16} aria-hidden /> Add Influencer
+              </NavLink>
+            ) : null}
+            {canAddContract ? (
+              <NavLink to="/influencers/performance?add=1" className="inf-btn inf-btn--primary inf-module-layout__add-btn">
+                <Plus size={16} aria-hidden /> Add Contract
+              </NavLink>
+            ) : null}
           </div>
         ) : null}
       </header>

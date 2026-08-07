@@ -13,9 +13,9 @@ export const INFLUENCER_MODULE_TABS: InfluencerModuleTab[] = [
   { key: 'dashboard', label: 'Dashboard', to: `${INFLUENCER_MODULE_BASE}/dashboard` },
   { key: 'contracts', label: 'Performance Contracts', to: `${INFLUENCER_MODULE_BASE}/contracts` },
   { key: 'performance', label: 'Performance', to: `${INFLUENCER_MODULE_BASE}/performance`, action: 'performance' },
-  { key: 'payments', label: 'Payments & ROI', to: `${INFLUENCER_MODULE_BASE}/payments`, action: 'payments' },
-  { key: 'timeline', label: 'Timeline', to: `${INFLUENCER_MODULE_BASE}/timeline` },
   { key: 'analytics', label: 'Analytics', to: `${INFLUENCER_MODULE_BASE}/analytics` },
+  { key: 'timeline', label: 'Timeline', to: `${INFLUENCER_MODULE_BASE}/timeline` },
+  { key: 'payments', label: 'Payments & ROI', to: `${INFLUENCER_MODULE_BASE}/payments`, action: 'payments' },
 ]
 
 /** Segments reserved for module tabs — not influencer profile ids. */
