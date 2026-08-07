@@ -270,12 +270,12 @@ function RankingTableColgroup({ showNetProfitColumn }: { showNetProfitColumn: bo
       <col className="ip-table__col-rank" />
       <col className="ip-table__col-dates" />
       <col className="ip-table__col-influencer" />
-      <col className="ip-table__col-metric-amount" />
+      <col className="ip-table__col-cost" />
       <col className="ip-table__col-metric-sm" />
       <col className="ip-table__col-metric-sm" />
       <col className="ip-table__col-metric-md" />
       <col className="ip-table__col-metric-sm" />
-      <col className="ip-table__col-metric-amount" />
+      <col className="ip-table__col-sales" />
       {showNetProfitColumn ? <col className="ip-table__col-metric-net" /> : null}
       <col className="ip-table__col-actions" />
     </colgroup>

@@ -2356,20 +2356,22 @@
   -webkit-overflow-scrolling: touch;
 }
 
-/* Ranking table: colgroup sets fixed metric widths; influencer col absorbs remainder. */
+/* Ranking table: every column has one authoritative width; narrow viewports scroll in-card. */
 .ip-table.inf-table {
   width: 100%;
-  min-width: 62rem;
+  min-width: 78.25rem;
   table-layout: fixed;
 }
 
-.ip-table col.ip-table__col-rank { width: 4rem; }
-.ip-table col.ip-table__col-dates { width: 11.5rem; }
-.ip-table col.ip-table__col-metric-sm { width: 4.25rem; }
-.ip-table col.ip-table__col-metric-md { width: 4.75rem; }
-.ip-table col.ip-table__col-metric-amount { width: 5.5rem; }
-.ip-table col.ip-table__col-metric-net { width: 5.75rem; }
-.ip-table col.ip-table__col-actions { width: 2.75rem; }
+.ip-table col.ip-table__col-rank { width: 4.75rem; }
+.ip-table col.ip-table__col-dates { width: 12.5rem; }
+.ip-table col.ip-table__col-influencer { width: 17.5rem; }
+.ip-table col.ip-table__col-cost { width: 6.5rem; }
+.ip-table col.ip-table__col-metric-sm { width: 4.5rem; }
+.ip-table col.ip-table__col-metric-md { width: 5rem; }
+.ip-table col.ip-table__col-sales { width: 7.5rem; }
+.ip-table col.ip-table__col-metric-net { width: 7.5rem; }
+.ip-table col.ip-table__col-actions { width: 3rem; }
 
 .ip-table th,
 .ip-table td {
