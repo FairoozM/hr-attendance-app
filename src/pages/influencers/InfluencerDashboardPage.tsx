@@ -399,11 +399,6 @@ export function InfluencerDashboardPage() {
         <SectionHead
           title="Recent activity"
           subtitle="Latest check-ins and workflow timeline events"
-          action={(
-            <Link to="/influencers/timeline" className="inf-dashboard__section-link">
-              View full timeline <ArrowRight size={14} aria-hidden />
-            </Link>
-          )}
         />
         {recentActivity.length === 0 ? (
           <p className="inf-dashboard__empty-note">No recent activity in this period.</p>

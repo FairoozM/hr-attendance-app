@@ -32,12 +32,9 @@ import {
 } from './influencerContractsUtils'
 import {
   influencerProfileUrl,
+  paymentsUrlForContract,
   performanceContractUrl,
 } from './influencerPaymentsRoiUtils'
-import {
-  paymentsUrlForContract,
-  performanceUrlForContract,
-} from './influencerModuleTimelineUtils'
 import type { InfluencerDashboardDatePreset } from './influencerDashboardUtils'
 import { INFLUENCER_DASHBOARD_DATE_PRESETS } from './influencerDashboardUtils'
 import './influencers.css'
@@ -165,11 +162,8 @@ function ContractRowActions({
               Edit in Performance
             </button>
           ) : null}
-          <button type="button" className="inf-contracts__menu-item" onClick={() => run(performanceUrlForContract(row.contractId))}>
+          <button type="button" className="inf-contracts__menu-item" onClick={() => run(performanceContractUrl(row.contractId))}>
             Open Performance
-          </button>
-          <button type="button" className="inf-contracts__menu-item" onClick={() => run(`/influencers/timeline?influencer=${encodeURIComponent(row.influencerId)}&contract=${encodeURIComponent(row.contractId)}`)}>
-            Open Timeline
           </button>
           <button type="button" className="inf-contracts__menu-item" onClick={() => run(paymentsUrlForContract(row.contractId))}>
             Open Payments

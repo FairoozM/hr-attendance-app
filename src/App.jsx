@@ -27,7 +27,6 @@ import { AddInfluencerPage } from './pages/influencers/AddInfluencerPage'
 import { InfluencerModuleLayout } from './components/influencers/InfluencerModuleLayout'
 import { InfluencerDashboardPage } from './pages/influencers/InfluencerDashboardPage'
 import { InfluencerContractsPage } from './pages/influencers/InfluencerContractsPage'
-import { InfluencerTimelinePage } from './pages/influencers/InfluencerTimelinePage'
 import { InfluencerAnalyticsPage } from './pages/influencers/InfluencerAnalyticsPage'
 import { InfluencerDetailPage } from './pages/influencers/InfluencerDetailPage'
 
@@ -911,11 +910,6 @@ function AppContent() {
             <Route path="payments" element={
               <PermissionGuard module="influencers" action="payments">
                 <PaymentsPage />
-              </PermissionGuard>
-            } />
-            <Route path="timeline" element={
-              <PermissionGuard module="influencers" action="view">
-                <InfluencerTimelinePage />
               </PermissionGuard>
             } />
             <Route path="analytics" element={

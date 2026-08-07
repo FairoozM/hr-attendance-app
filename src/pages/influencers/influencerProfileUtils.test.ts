@@ -378,7 +378,6 @@ describe('influencerProfileUtils', () => {
     const links = moduleDeepLinks('inf-42')
     expect(links.performance).toBe('/influencers/performance?influencer=inf-42')
     expect(links.payments).toBe('/influencers/payments?influencer=inf-42')
-    expect(links.timeline).toBe('/influencers/timeline?influencer=inf-42')
     expect(links.analytics).toBe('/influencers/analytics?influencer=inf-42')
     expect(links.contracts).toBe('/influencers/contracts?influencer=inf-42')
     expect(influencerQueryParam('inf-42')).toBe('influencer=inf-42')
@@ -404,37 +403,6 @@ describe('influencerProfileUtils', () => {
       payments: [],
     })
     expect(profileEngagementRate(snapshot!.contracts)).toBeGreaterThan(0)
-  })
-
-  it('timeline events are scoped to influencer id', () => {
-    const roster = [rosterRow('inf-1', 'Creator'), rosterRow('inf-2', 'Other')]
-    const records = [
-      normalizePerformanceRecord({
-        id: 'd1',
-        contractId: 'ip-contract::c1::2026-05-01',
-        influencerId: 'inf-1',
-        date: '2026-05-01',
-        contractStartDate: '2026-05-01',
-        monitoringDays: 3,
-      }),
-      normalizePerformanceRecord({
-        id: 'd2',
-        contractId: 'ip-contract::c2::2026-05-01',
-        influencerId: 'inf-2',
-        date: '2026-05-01',
-        contractStartDate: '2026-05-01',
-        monitoringDays: 3,
-      }),
-    ]
-    const profile = buildInfluencerProfileSnapshot({
-      influencerId: 'inf-1',
-      roster,
-      records,
-      payments: [],
-      today: '2026-05-01',
-    })
-    expect(profile?.timelineEvents.every((event) => event.influencerId === 'inf-1')).toBe(true)
-    expect(profile?.recentEvents.length).toBeLessThanOrEqual(10)
   })
 
   it('omits empty optional CRM note fields', () => {

@@ -279,6 +279,10 @@ export function performanceContractUrl(contractId: string): string {
   return `/influencers/performance?contract=${encodeURIComponent(contractId)}`
 }
 
+export function paymentsUrlForContract(contractId: string): string {
+  return `/influencers/payments?contract=${encodeURIComponent(contractId)}`
+}
+
 export function readPaymentsInfluencerFilter(params: URLSearchParams): string {
   return params.get('influencer') || 'All'
 }

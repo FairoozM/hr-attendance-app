@@ -11,11 +11,8 @@ import {
   profileEngagementRate,
   type InfluencerProfileTab,
 } from './influencerProfileUtils'
-import { performanceContractUrl } from './influencerPaymentsRoiUtils'
-import { performanceUrlForContract } from './influencerModuleTimelineUtils'
+import { performanceContractUrl, type InfluencerContractPaymentRow } from './influencerPaymentsRoiUtils'
 import type { DashboardContractMetrics } from './influencerDashboardUtils'
-import type { InfluencerContractPaymentRow } from './influencerPaymentsRoiUtils'
-import type { InfluencerModuleTimelineEvent } from '../../types/influencer'
 import './influencers.css'
 import './InfluencerDashboard.css'
 import './InfluencerProfile.css'
@@ -25,7 +22,6 @@ const TABS: Array<{ id: InfluencerProfileTab; label: string }> = [
   { id: 'contracts', label: 'Contracts' },
   { id: 'performance', label: 'Performance' },
   { id: 'payments', label: 'Payments' },
-  { id: 'timeline', label: 'Timeline' },
   { id: 'notes', label: 'Notes' },
 ]
 
@@ -133,18 +129,6 @@ function PaymentRow({ row, onClick }: { row: InfluencerContractPaymentRow; onCli
   )
 }
 
-function TimelineRow({ event, onClick }: { event: InfluencerModuleTimelineEvent; onClick: () => void }) {
-  return (
-    <button type="button" className="inf-profile__timeline-item" onClick={onClick} style={{ width: '100%', background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer' }}>
-      <span className="inf-table__muted">{fmtDMY(event.date)}</span>
-      <span>
-        <strong>{event.title}</strong>
-        <div className="inf-table__muted">{event.description}</div>
-      </span>
-    </button>
-  )
-}
-
 export function InfluencerDetailPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
@@ -200,18 +184,6 @@ export function InfluencerDetailPage() {
 
   function openContract(contractId: string) {
     navigate(performanceContractUrl(contractId))
-  }
-
-  function openTimelineEvent(event: InfluencerModuleTimelineEvent) {
-    if (event.type.startsWith('payment') && event.contractId) {
-      navigate(`${links.payments}&contract=${encodeURIComponent(event.contractId)}`)
-      return
-    }
-    if (event.contractId) {
-      navigate(performanceUrlForContract(event.contractId))
-      return
-    }
-    navigate(links.profile)
   }
 
   return (
@@ -311,20 +283,6 @@ export function InfluencerDetailPage() {
                   </li>
                 ))}
               </ul>
-            )}
-          </section>
-
-          <section className="clay-card inf-profile__section" style={{ gridColumn: '1 / -1' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-              <h2 className="inf-profile__section-title" style={{ margin: 0 }}>Recent activity</h2>
-              <Link to={links.timeline} className="inf-btn inf-btn--ghost inf-btn--xs">Open full timeline</Link>
-            </div>
-            {snapshot.recentEvents.length === 0 ? (
-              <p className="inf-table__muted">No timeline events yet.</p>
-            ) : (
-              snapshot.recentEvents.map((event) => (
-                <TimelineRow key={event.id} event={event} onClick={() => openTimelineEvent(event)} />
-              ))
             )}
           </section>
         </div>
@@ -457,21 +415,6 @@ export function InfluencerDetailPage() {
                 </tbody>
               </table>
             </div>
-          )}
-        </section>
-      ) : null}
-
-      {activeTab === 'timeline' ? (
-        <section className="clay-card inf-profile__section">
-          <Link to={links.timeline} className="inf-btn inf-btn--ghost inf-btn--xs" style={{ marginBottom: '0.65rem' }}>
-            <ExternalLink size={14} /> Open full timeline
-          </Link>
-          {snapshot.timelineEvents.length === 0 ? (
-            <p className="inf-table__muted">No events for this influencer.</p>
-          ) : (
-            snapshot.timelineEvents.map((event) => (
-              <TimelineRow key={event.id} event={event} onClick={() => openTimelineEvent(event)} />
-            ))
           )}
         </section>
       ) : null}

@@ -22,7 +22,6 @@ const VALID_TABS: InfluencerProfileTab[] = [
   'contracts',
   'performance',
   'payments',
-  'timeline',
   'notes',
 ]
 

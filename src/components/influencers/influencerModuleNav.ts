@@ -14,7 +14,6 @@ export const INFLUENCER_MODULE_TABS: InfluencerModuleTab[] = [
   { key: 'contracts', label: 'Performance Contracts', to: `${INFLUENCER_MODULE_BASE}/contracts` },
   { key: 'performance', label: 'Performance', to: `${INFLUENCER_MODULE_BASE}/performance`, action: 'performance' },
   { key: 'analytics', label: 'Analytics', to: `${INFLUENCER_MODULE_BASE}/analytics` },
-  { key: 'timeline', label: 'Timeline', to: `${INFLUENCER_MODULE_BASE}/timeline` },
   { key: 'payments', label: 'Payments & ROI', to: `${INFLUENCER_MODULE_BASE}/payments`, action: 'payments' },
 ]
 
@@ -24,7 +23,6 @@ export const INFLUENCER_RESERVED_SEGMENTS = new Set([
   'contracts',
   'performance',
   'payments',
-  'timeline',
   'analytics',
   'list',
   'new',

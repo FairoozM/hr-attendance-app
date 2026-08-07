@@ -1,11 +1,10 @@
 /**
- * Consolidated influencer profile — aggregates roster, performance, payments, timeline.
+ * Consolidated influencer profile — aggregates roster, performance, and payments.
  * All financial totals reuse Dashboard / Analytics definitions (latest check-in per contract).
  */
 import type { Influencer } from '../../lib/influencers'
 import type {
   InfluencerContractPayment,
-  InfluencerModuleTimelineEvent,
   InfluencerPerformanceInput,
 } from '../../types/influencer'
 import {
@@ -20,12 +19,9 @@ import {
   type InfluencerAnalyticsSummary,
 } from './influencerAnalyticsUtils'
 import {
-  buildInfluencerModuleTimelineEvents,
-  performanceUrlForContract,
-  paymentsUrlForContract,
-} from './influencerModuleTimelineUtils'
-import {
   buildInfluencerPaymentRows,
+  paymentsUrlForContract,
+  performanceContractUrl,
   summarizePaymentsRoi,
   type InfluencerContractPaymentRow,
 } from './influencerPaymentsRoiUtils'
@@ -37,7 +33,6 @@ export type InfluencerProfileTab =
   | 'contracts'
   | 'performance'
   | 'payments'
-  | 'timeline'
   | 'notes'
 
 export type InfluencerProfileAttentionItem = {
@@ -64,8 +59,6 @@ export type InfluencerProfileSnapshot = {
   activeContracts: DashboardContractMetrics[]
   paymentRows: InfluencerContractPaymentRow[]
   finance: InfluencerProfileFinanceSnapshot
-  recentEvents: InfluencerModuleTimelineEvent[]
-  timelineEvents: InfluencerModuleTimelineEvent[]
   needsAttention: InfluencerProfileAttentionItem[]
   performancePoints: InfluencerAnalyticsPoint[]
   notesFields: Array<{ key: string; label: string; value: string }>
@@ -86,7 +79,6 @@ export function moduleDeepLinks(influencerId: string) {
     contracts: `/influencers/contracts?${q}`,
     performance: `/influencers/performance?${q}`,
     payments: `/influencers/payments?${q}`,
-    timeline: `/influencers/timeline?${q}`,
     analytics: `/influencers/analytics?${q}`,
   }
 }
@@ -184,7 +176,7 @@ export function buildProfileNeedsAttention({
         label: 'Loss-making active contract',
         detail: `${row.campaignName} · net profit ${row.netProfitAed.toLocaleString()} AED`,
         tone: 'danger',
-        href: performanceUrlForContract(row.contractId),
+        href: performanceContractUrl(row.contractId),
       })
     }
     if (row.isActive && row.contractEndDate >= today && row.contractEndDate <= endingSoonCutoff) {
@@ -193,7 +185,7 @@ export function buildProfileNeedsAttention({
         label: 'Contract ending soon',
         detail: `${row.campaignName} ends ${row.contractEndDate}`,
         tone: 'warning',
-        href: performanceUrlForContract(row.contractId),
+        href: performanceContractUrl(row.contractId),
       })
     }
     if (row.isActive && row.recordedDays < row.monitoringDays) {
@@ -204,7 +196,7 @@ export function buildProfileNeedsAttention({
           label: 'Upcoming check-in',
           detail: `${row.campaignName} · Day ${nextDay.dayNumber} due ${nextDay.date}`,
           tone: 'info',
-          href: performanceUrlForContract(row.contractId),
+          href: performanceContractUrl(row.contractId),
         })
       }
     }
@@ -265,16 +257,6 @@ export function buildInfluencerProfileSnapshot({
     today,
   })
 
-  const allEvents = buildInfluencerModuleTimelineEvents({
-    records: influencerRecords,
-    roster: [influencer],
-    payments,
-    today,
-  })
-
-  const timelineEvents = allEvents.filter((event) => event.influencerId === String(influencerId))
-  const recentEvents = timelineEvents.slice(0, 10)
-
   const activeContracts = dashboard.contracts.filter((row) => row.isActive)
 
   return {
@@ -290,8 +272,6 @@ export function buildInfluencerProfileSnapshot({
     activeContracts,
     paymentRows,
     finance: buildFinanceSnapshot(paymentRows),
-    recentEvents,
-    timelineEvents,
     needsAttention: buildProfileNeedsAttention({ contracts: dashboard.contracts, paymentRows, today }),
     performancePoints: analytics.points,
     notesFields: buildNotesFields(influencer),
