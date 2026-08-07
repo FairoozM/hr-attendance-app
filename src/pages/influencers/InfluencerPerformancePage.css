@@ -2674,14 +2674,24 @@
 }
 
 .ip-table__influencer-copy {
+  flex: 1 1 auto;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .ip-table__influencer-copy .inf-table__name,
 .ip-table__influencer-copy .ip-table__sub {
+  display: block;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.ip-table__influencer-copy .inf-table__name {
+  direction: ltr;
+  unicode-bidi: plaintext;
 }
 
 .ip-table__sub {
