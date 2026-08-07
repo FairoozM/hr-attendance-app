@@ -19,73 +19,23 @@ import {
   storyPostingLabel,
   toNumber,
 } from '../../utils/influencerPerformanceUtils'
+import type {
+  InfluencerContract,
+  InfluencerContractDay,
+  InfluencerPerformanceInput,
+} from '../../types/influencer'
 import { influencerInitials } from './influencerPerformanceTableShared'
 import { StepBadge } from './StepBadge'
 
 type TimelineMetricKey = 'views' | 'shares' | 'likes' | 'comments'
 type StoryPostingChoice = '' | 'yes' | 'no'
 
-interface TimelineRecord {
-  id?: string | number
-  influencerId?: string | number
-  date?: string
-  platform?: string
-  postUrl?: string
-  campaignName?: string
-  contractId?: string | number
-  contractStartDate?: string
-  monitoringDays?: number
-  views?: number
-  storyViews?: number
-  likes?: number
-  comments?: number
-  shares?: number
-  salesAed?: number
-  cost?: number
-  netProfitAed?: number
-  notes?: string
-  screenshotUrl?: string
-  createdAt?: string
-  updatedAt?: string
-}
-
-interface TimelineDay {
-  dayNumber?: number
-  date?: string
-  record?: TimelineRecord | null
-  isRecorded?: boolean
-  /** False for display-only columns after the contract window (HUD always shows 5 days). */
-  inContractWindow?: boolean
-}
-
-interface TimelineInfluencer {
-  name?: string
-  profileImage?: string | null
-  followers?: number | string
-}
-
-interface TimelineContract {
-  id: string | number
-  influencerId?: string | number
-  influencer?: TimelineInfluencer
-  platform?: string
-  postUrl?: string
-  campaignName?: string
-  contractStartDate?: string
-  monitoringDays?: number
-  recordedDays?: number
-  latest?: TimelineRecord
-  days?: TimelineDay[]
-  totals?: Partial<Record<TimelineMetricKey, number>>
-  averageEngagementRate?: number | string
-}
-
 interface InfluencerContractTimelineProps {
-  contracts: TimelineContract[]
-  onEditRecord?: (record: TimelineRecord) => void
+  contracts: InfluencerContract[]
+  onEditRecord?: (record: InfluencerPerformanceInput) => void
   onDeleteRecord?: (recordId: string | number) => void
-  onEditContract?: (contract: TimelineContract) => void
-  onSaveRecord?: (record: TimelineRecord) => void
+  onEditContract?: (contract: InfluencerContract) => void
+  onSaveRecord?: (record: InfluencerPerformanceInput) => void
 }
 
 interface MetricConfigItem {
@@ -99,7 +49,7 @@ type DayDraft = Partial<Record<TimelineMetricKey, string | number>> & {
 }
 type DraftsState = Record<string, DayDraft>
 
-function contractStatus(contract: TimelineContract) {
+function contractStatus(contract: InfluencerContract) {
   if (toNumber(contract.recordedDays) >= toNumber(contract.monitoringDays)) return 'Completed'
   if (toNumber(contract.recordedDays) > 0) return 'Monitoring'
   return 'Pending'
@@ -156,7 +106,7 @@ function displayDate(date?: string | null) {
   return timelineDateFormatter.format(utcDate)
 }
 
-function metricTotal(contract: TimelineContract, key: TimelineMetricKey) {
+function metricTotal(contract: InfluencerContract, key: TimelineMetricKey) {
   const days = Array.isArray(contract?.days) ? contract.days : []
   const fromDays = days.reduce((sum, day) => sum + toNumber(day?.record?.[key]), 0)
   const anyDayRecorded = days.some((day) => day?.isRecorded)
@@ -170,7 +120,7 @@ function HudContractCard({
   onDeleteRecord,
   onEditContract,
   onSaveRecord,
-}: Omit<InfluencerContractTimelineProps, 'contracts'> & { contract: TimelineContract }) {
+}: Omit<InfluencerContractTimelineProps, 'contracts'> & { contract: InfluencerContract }) {
   const influencer = contract.influencer
   const influencerName = influencer?.name || 'Influencer'
   const profileImage = influencer?.profileImage || ''
@@ -199,7 +149,7 @@ function HudContractCard({
     comments: metricTotal(contract, 'comments'),
   }
 
-  function getStoryDraft(day: TimelineDay): StoryPostingChoice {
+  function getStoryDraft(day: InfluencerContractDay): StoryPostingChoice {
     const id = draftKey(day)
     const draft = drafts[id]?.storyPosting
     if (draft === 'yes' || draft === 'no') return draft
@@ -207,7 +157,7 @@ function HudContractCard({
     return isStoryPosting(day?.record?.storyViews) ? 'yes' : 'no'
   }
 
-  function updateStoryDraft(day: TimelineDay, value: StoryPostingChoice) {
+  function updateStoryDraft(day: InfluencerContractDay, value: StoryPostingChoice) {
     setDrafts((current) => ({
       ...current,
       [draftKey(day)]: {
@@ -217,7 +167,7 @@ function HudContractCard({
     }))
   }
 
-  function dayStoryPosted(day: TimelineDay) {
+  function dayStoryPosted(day: InfluencerContractDay) {
     const draft = getStoryDraft(day)
     if (draft === 'yes') return true
     if (draft === 'no') return false
@@ -228,7 +178,7 @@ function HudContractCard({
     return days.some((day) => dayStoryPosted(day)) ? 'Yes' : 'No'
   }
 
-  function makeDraftRecord(day: TimelineDay): TimelineRecord {
+  function makeDraftRecord(day: InfluencerContractDay): InfluencerPerformanceInput {
     return {
       influencerId: contract.influencerId,
       date: day.date,
@@ -250,17 +200,17 @@ function HudContractCard({
     }
   }
 
-  function draftKey(day: TimelineDay) {
+  function draftKey(day: InfluencerContractDay) {
     return String(day?.record?.id || `${contract.id}:${day?.date || day?.dayNumber || ''}`)
   }
 
-  function getDraft(day: TimelineDay, key: TimelineMetricKey) {
+  function getDraft(day: InfluencerContractDay, key: TimelineMetricKey) {
     const id = draftKey(day)
     if (drafts[id]?.[key] != null) return drafts[id][key]
     return day?.isRecorded ? toNumber(day?.record?.[key]) : ''
   }
 
-  function updateDraft(day: TimelineDay, key: TimelineMetricKey, value: string | number) {
+  function updateDraft(day: InfluencerContractDay, key: TimelineMetricKey, value: string | number) {
     setDrafts((current) => ({
       ...current,
       [draftKey(day)]: {
@@ -270,7 +220,7 @@ function HudContractCard({
     }))
   }
 
-  function hasDraft(day: TimelineDay) {
+  function hasDraft(day: InfluencerContractDay) {
     const values = drafts[draftKey(day)]
     if (!values) return false
     if (values.storyPosting === 'yes' || values.storyPosting === 'no') {
@@ -285,18 +235,18 @@ function HudContractCard({
     })
   }
 
-  function metricCellFocusId(day: TimelineDay, key: TimelineMetricKey) {
+  function metricCellFocusId(day: InfluencerContractDay, key: TimelineMetricKey) {
     return `${draftKey(day)}:${key}`
   }
 
-  function inlineMetricDisplayValue(day: TimelineDay, key: TimelineMetricKey) {
+  function inlineMetricDisplayValue(day: InfluencerContractDay, key: TimelineMetricKey) {
     const raw = getDraft(day, key)
     if (raw === '' || raw == null) return ''
     if (focusedMetricCell === metricCellFocusId(day, key)) return String(raw)
     return formatNumber(parseMetricInput(raw))
   }
 
-  function saveDay(day: TimelineDay) {
+  function saveDay(day: InfluencerContractDay) {
     if (!onSaveRecord || !day?.date || day.inContractWindow === false) return
     const values = drafts[draftKey(day)] || {}
     const base = day?.record || makeDraftRecord(day)

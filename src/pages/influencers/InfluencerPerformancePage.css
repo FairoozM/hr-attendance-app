@@ -2579,6 +2579,22 @@
   min-width: 0;
 }
 
+.ip-table__influencer-cell--link {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.ip-table__influencer-cell--link:hover .inf-table__name {
+  color: var(--accent, #2563eb);
+}
+
 .ip-table__avatar {
   position: relative;
   display: grid;
@@ -3851,5 +3867,68 @@
   .ip-leaderboard-podium__grid--count-2 {
     grid-template-columns: 1fr;
     max-width: none;
+  }
+}
+
+/* Responsive performance layout: compact phone view shares one page with desktop dashboard. */
+.ip-performance-layout {
+  display: flex;
+  flex-direction: column;
+}
+
+.ip-performance-desktop-only {
+  display: block;
+}
+
+.ip-performance-mobile-only {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .ip-performance-desktop-only {
+    display: none !important;
+  }
+
+  .ip-performance-mobile-only {
+    display: flex;
+  }
+
+  .ip-performance-layout.ip-page {
+    --ip-phone-canvas: #f1f5f9;
+    padding-left: max(0.85rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.85rem, env(safe-area-inset-right, 0px));
+    padding-bottom: max(1.25rem, env(safe-area-inset-bottom, 0px));
+    padding-top: max(0.5rem, env(safe-area-inset-top, 0px));
+    max-width: min(430px, 100%);
+    margin-left: auto;
+    margin-right: auto;
+    box-sizing: border-box;
+    background-color: var(--ip-phone-canvas);
+    min-height: 100dvh;
+  }
+
+  :root[data-theme='dark'] .ip-performance-layout.ip-page {
+    --ip-phone-canvas: color-mix(in oklab, var(--theme-bg-mid) 92%, #020617);
+  }
+
+  .ip-performance-mobile-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.85rem;
+    margin-bottom: 1.1rem;
+  }
+
+  .ip-performance-mobile-header__copy .inf-page-title {
+    font-size: clamp(1.28rem, 4.5vw, 1.68rem);
+  }
+
+  .ip-performance-mobile-header__add {
+    align-self: stretch;
+    justify-content: center;
+  }
+
+  .ip-performance-contract-panel {
+    order: -1;
+    margin-top: 0;
   }
 }

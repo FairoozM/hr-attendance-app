@@ -24,11 +24,12 @@ import BulkZohoInvoicePage from './pages/admin/BulkZohoInvoicePage'
 import BulkQuantityAdjustmentPage from './pages/admin/zoho/bulkQuantityAdjustment/BulkQuantityAdjustmentPage'
 import { InfluencerListPage } from './pages/influencers/InfluencerListPage'
 import { AddInfluencerPage } from './pages/influencers/AddInfluencerPage'
-/** /influencers/:id (legacy profile URL) — send users straight to the editor. */
-function InfluencerIdToEditRedirect() {
-  const { id } = useParams()
-  return <Navigate to={`/influencers/${encodeURIComponent(id)}/edit`} replace />
-}
+import { InfluencerModuleLayout } from './components/influencers/InfluencerModuleLayout'
+import { InfluencerDashboardPage } from './pages/influencers/InfluencerDashboardPage'
+import { InfluencerContractsPage } from './pages/influencers/InfluencerContractsPage'
+import { InfluencerTimelinePage } from './pages/influencers/InfluencerTimelinePage'
+import { InfluencerAnalyticsPage } from './pages/influencers/InfluencerAnalyticsPage'
+import { InfluencerDetailPage } from './pages/influencers/InfluencerDetailPage'
 
 function AdminOnly({ children }) {
   const { user } = useAuth()
@@ -890,6 +891,45 @@ function AppContent() {
 
         {/* Influencers Module */}
         <Route path="influencers">
+          <Route element={<InfluencerModuleLayout />}>
+            <Route index element={<Navigate to="dashboard" replace />} />
+            <Route path="dashboard" element={
+              <PermissionGuard module="influencers" action="view">
+                <InfluencerDashboardPage />
+              </PermissionGuard>
+            } />
+            <Route path="contracts" element={
+              <PermissionGuard module="influencers" action="view">
+                <InfluencerContractsPage />
+              </PermissionGuard>
+            } />
+            <Route path="performance" element={
+              <PermissionGuard module="influencers" action="performance">
+                <InfluencerPerformancePage />
+              </PermissionGuard>
+            } />
+            <Route path="payments" element={
+              <PermissionGuard module="influencers" action="payments">
+                <PaymentsPage />
+              </PermissionGuard>
+            } />
+            <Route path="timeline" element={
+              <PermissionGuard module="influencers" action="view">
+                <InfluencerTimelinePage />
+              </PermissionGuard>
+            } />
+            <Route path="analytics" element={
+              <PermissionGuard module="influencers" action="view">
+                <InfluencerAnalyticsPage />
+              </PermissionGuard>
+            } />
+            <Route path=":influencerId" element={
+              <PermissionGuard module="influencers" action="view">
+                <InfluencerDetailPage />
+              </PermissionGuard>
+            } />
+          </Route>
+          {/* Legacy routes — preserved until migrated into module sections */}
           <Route path="list" element={
             <PermissionGuard module="influencers" action="view">
               <InfluencerListPage />
@@ -900,24 +940,9 @@ function AppContent() {
               <AddInfluencerPage />
             </PermissionGuard>
           } />
-          <Route path="payments" element={
-            <PermissionGuard module="influencers" action="payments">
-              <PaymentsPage />
-            </PermissionGuard>
-          } />
           <Route path="agreements" element={
             <PermissionGuard module="influencers" action="agreements">
               <AgreementsPage />
-            </PermissionGuard>
-          } />
-          <Route path="performance" element={
-            <PermissionGuard module="influencers" action="performance">
-              <InfluencerPerformancePage />
-            </PermissionGuard>
-          } />
-          <Route path=":id" element={
-            <PermissionGuard module="influencers" action="view">
-              <InfluencerIdToEditRedirect />
             </PermissionGuard>
           } />
           <Route path=":id/edit" element={

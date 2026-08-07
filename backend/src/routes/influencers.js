@@ -8,6 +8,7 @@ const {
 } = require('../middleware/auth')
 const influencersController = require('../controllers/influencersController')
 const influencerPerformanceController = require('../controllers/influencerPerformanceController')
+const influencerContractPaymentsController = require('../controllers/influencerContractPaymentsController')
 
 const router = express.Router()
 
@@ -33,6 +34,20 @@ router.delete(
   requireAuth,
   requireInfluencersPerformanceWrite,
   influencerPerformanceController.deletePerformanceRecord,
+)
+router.get(
+  '/contract-payments',
+  attachAuth,
+  requireAuth,
+  requirePermission('influencers', 'payments'),
+  influencerContractPaymentsController.listContractPayments,
+)
+router.patch(
+  '/contract-payments/:contractId',
+  attachAuth,
+  requireAuth,
+  requireInfluencersWrite,
+  influencerContractPaymentsController.patchContractPayment,
 )
 router.post('/', attachAuth, requireAuth, requireInfluencersWrite, influencersController.createInfluencer)
 router.put('/', attachAuth, requireAuth, requireInfluencersWrite, influencersController.putInfluencers)

@@ -422,7 +422,14 @@ export function Layout() {
     if (location.pathname.startsWith('/settings')) return 'Settings'
     if (location.pathname.startsWith('/roles-permissions')) return 'Roles & Permissions'
     if (location.pathname.startsWith('/lists/sim-cards')) return 'Sim Cards List'
-    if (location.pathname.startsWith('/influencers/performance')) return 'Influencer Performance'
+    if (location.pathname.startsWith('/influencers/dashboard')) return 'Dashboard'
+    if (location.pathname.startsWith('/influencers/contracts')) return 'Performance Contracts'
+    if (location.pathname.startsWith('/influencers/performance')) return 'Performance'
+    if (location.pathname.startsWith('/influencers/payments')) return 'Payments & ROI'
+    if (location.pathname.startsWith('/influencers/timeline')) return 'Timeline'
+    if (location.pathname.startsWith('/influencers/analytics')) return 'Analytics'
+    if (location.pathname.startsWith('/influencers/list')) return 'Influencer Roster'
+    if (location.pathname.startsWith('/influencers/agreements')) return 'Agreements'
     if (location.pathname.startsWith('/influencers')) return 'Influencers'
     if (location.pathname.startsWith('/account')) return 'My Account'
     if (location.pathname.startsWith('/management/amazon-uae-payment-clearing')) return 'Amazon UAE Payment Clearing'
@@ -476,10 +483,14 @@ export function Layout() {
   }, [location.pathname])
 
   const INFLUENCER_ITEMS = [
-    can('influencers', 'view') && { label: 'Influencer List', to: '/influencers/list' },
-    can('influencers', 'agreements') && { label: 'Agreements', to: '/influencers/agreements' },
-    can('influencers', 'payments') && { label: 'Payments', to: '/influencers/payments' },
+    can('influencers', 'view') && { label: 'Dashboard', to: '/influencers/dashboard' },
+    can('influencers', 'view') && { label: 'Performance Contracts', to: '/influencers/contracts' },
     can('influencers', 'performance') && { label: 'Performance', to: '/influencers/performance' },
+    can('influencers', 'payments') && { label: 'Payments & ROI', to: '/influencers/payments' },
+    can('influencers', 'view') && { label: 'Timeline', to: '/influencers/timeline' },
+    can('influencers', 'view') && { label: 'Analytics', to: '/influencers/analytics' },
+    can('influencers', 'view') && { label: 'Influencer Roster', to: '/influencers/list' },
+    can('influencers', 'agreements') && { label: 'Agreements', to: '/influencers/agreements' },
   ].filter(Boolean)
 
   const hrItems = [

@@ -486,6 +486,31 @@ async function ensureInfluencerPerformanceRecordsTable() {
   `)
 }
 
+/** Per performance-contract payment rows (finance tracking; separate from influencers_snapshot). */
+async function ensureInfluencerContractPaymentsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS influencer_contract_payments (
+      contract_id TEXT PRIMARY KEY REFERENCES influencer_performance_contracts(id) ON DELETE CASCADE,
+      influencer_id TEXT NOT NULL,
+      amount_paid NUMERIC(14, 2) NOT NULL DEFAULT 0,
+      payment_status VARCHAR(50) NOT NULL DEFAULT 'Not Due',
+      due_date DATE,
+      payment_date DATE,
+      invoice_reference TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '',
+      zoho_vendor_bill_id TEXT,
+      zoho_payment_id TEXT,
+      zoho_last_synced_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_icp_influencer ON influencer_contract_payments(influencer_id)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_icp_status ON influencer_contract_payments(payment_status)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_icp_due_date ON influencer_contract_payments(due_date)`)
+}
+
 async function ensureDocumentExpiryTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS document_expiry (
@@ -1057,6 +1082,11 @@ async function testConnection() {
     await ensureInfluencerPerformanceRecordsTable()
   } catch (e) {
     console.error('[db] ensureInfluencerPerformanceRecordsTable skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
+    await ensureInfluencerContractPaymentsTable()
+  } catch (e) {
+    console.error('[db] ensureInfluencerContractPaymentsTable skipped/failed (non-fatal):', e.message || e)
   }
   // Must run before username migration: migrateUsernamesToEmail() can throw on edge
   // duplicate data; if it aborts testConnection(), annual_leave columns would never apply.
@@ -1806,6 +1836,7 @@ module.exports = {
   resyncAdminPasswordFromEnvIfRequested,
   ensureInfluencersSnapshotTable,
   ensureInfluencerPerformanceRecordsTable,
+  ensureInfluencerContractPaymentsTable,
   ensureDocumentExpiryTable,
   ensureNotificationSyncStateTable,
   ensureSubscriptionsTables,

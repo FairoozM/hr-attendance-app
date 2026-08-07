@@ -1,6 +1,40 @@
 const { query, pool, ensureInfluencerPerformanceRecordsTable } = require('../db')
 const influencersService = require('./influencersService')
 
+/**
+ * Performance metrics are stored as opaque JSONB; ranking and totals are computed on the frontend.
+ * @typedef {object} PerformanceRecordInput
+ * @property {string} [id]
+ * @property {string} [contractId]
+ * @property {string} [influencerId]
+ * @property {string} [date]
+ * @property {string} [contractStartDate]
+ * @property {string} [contractEndDate]
+ * @property {number|string} [monitoringDays]
+ * @property {number|string} [views]
+ * @property {number|string} [likes]
+ * @property {number|string} [comments]
+ * @property {number|string} [shares]
+ * @property {number|string} [salesAed]
+ * @property {number|string} [cost]
+ * @property {number|string} [netProfitAed]
+ */
+
+/**
+ * @param {unknown} value
+ * @returns {number}
+ */
+function coerceMetric(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (value == null || value === '') return 0
+  const parsed = Number(String(value).replace(/[^0-9.-]/g, ''))
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+/**
+ * @param {unknown} value
+ * @returns {string} YYYY-MM-DD or ''
+ */
 function isoDateSlice(value) {
   if (value == null || value === '') return ''
   const s = String(value).slice(0, 10)
@@ -179,7 +213,25 @@ async function bulkUpsertPerformanceRecords(records, updatedByUserId, isAdmin = 
     }
 
     const contractId = await upsertContractFromRecord({ ...raw, id, influencerId, date: checkDate }, validUid)
-    const body = { ...raw, id, contractId, influencerId, date: checkDate }
+    /** Persist numeric metrics as finite numbers (or omit invalid values). Rankings stay client-side. */
+    const body = {
+      ...raw,
+      id,
+      contractId,
+      influencerId,
+      date: checkDate,
+      views: coerceMetric(raw.views),
+      likes: coerceMetric(raw.likes),
+      comments: coerceMetric(raw.comments),
+      shares: coerceMetric(raw.shares),
+      saves: coerceMetric(raw.saves),
+      salesAed: coerceMetric(raw.salesAed),
+      cost: coerceMetric(raw.cost),
+      storyViews: coerceMetric(raw.storyViews),
+    }
+    if (Object.prototype.hasOwnProperty.call(raw, 'netProfitAed')) {
+      body.netProfitAed = coerceMetric(raw.netProfitAed)
+    }
     if (!isAdmin) {
       delete body.netProfitAed
       const previous = await getPerformanceRecordBodyById(id)

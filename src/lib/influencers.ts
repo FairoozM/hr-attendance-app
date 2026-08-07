@@ -84,6 +84,37 @@ export interface Influencer {
   updatedAt?: string
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isKeyUrlPair(value: unknown): value is { key: string; url: string } {
+  return (
+    isPlainObject(value) &&
+    typeof value.key === 'string' &&
+    typeof value.url === 'string'
+  )
+}
+
+function isUploadUrlPair(value: unknown): value is { uploadUrl: string; key: string } {
+  return (
+    isPlainObject(value) &&
+    typeof value.uploadUrl === 'string' &&
+    typeof value.key === 'string'
+  )
+}
+
+function isUploadUrlWithContentType(
+  value: unknown,
+): value is { uploadUrl: string; key: string; contentType: string } {
+  return (
+    isPlainObject(value) &&
+    typeof value.uploadUrl === 'string' &&
+    typeof value.key === 'string' &&
+    typeof value.contentType === 'string'
+  )
+}
+
 export async function fetchInfluencersRaw(opts?: { page?: number; limit?: number }) {
   const q = new URLSearchParams()
   if (opts?.page != null) q.set("page", String(opts.page))
@@ -125,13 +156,18 @@ export async function fetchInsightsImageUrls(
   influencerId: string,
 ): Promise<{ key: string; url: string }[]> {
   const data = await apiFetch(`/api/influencers/${encodeURIComponent(influencerId)}/insights-images/urls`)
-  return Array.isArray(data?.items) ? data.items : []
+  if (!isPlainObject(data) || !Array.isArray(data.items)) return []
+  return data.items.filter(isKeyUrlPair)
 }
 
 export async function fetchProfileImageUrl(
   influencerId: string,
 ): Promise<{ key: string; url: string }> {
-  return apiFetch(`/api/influencers/${encodeURIComponent(influencerId)}/profile-image/url`)
+  const data = await apiFetch(`/api/influencers/${encodeURIComponent(influencerId)}/profile-image/url`)
+  if (!isKeyUrlPair(data)) {
+    throw new Error('Invalid profile image URL response')
+  }
+  return data
 }
 
 /** iOS/ Safari often send empty or application/octet-stream; must match presigned Content-Type. */
@@ -154,26 +190,34 @@ export async function getInsightsImageUploadUrl(
   influencerId: string,
   payload: { fileName: string; contentType: string },
 ): Promise<{ uploadUrl: string; key: string }> {
-  return apiFetch(`/api/influencers/${encodeURIComponent(influencerId)}/insights-images/upload-url`, {
+  const data = await apiFetch(`/api/influencers/${encodeURIComponent(influencerId)}/insights-images/upload-url`, {
     method: "POST",
     body: JSON.stringify({
       fileName: payload.fileName || "image.jpg",
       contentType: payload.contentType,
     }),
   })
+  if (!isUploadUrlPair(data)) {
+    throw new Error('Invalid insights image upload URL response')
+  }
+  return data
 }
 
 export async function getProfileImageUploadUrl(
   influencerId: string,
   payload: { fileName: string; contentType: string },
 ): Promise<{ uploadUrl: string; key: string; contentType: string }> {
-  return apiFetch(`/api/influencers/${encodeURIComponent(influencerId)}/profile-image/upload-url`, {
+  const data = await apiFetch(`/api/influencers/${encodeURIComponent(influencerId)}/profile-image/upload-url`, {
     method: "POST",
     body: JSON.stringify({
       fileName: payload.fileName || "profile-image.jpg",
       contentType: payload.contentType,
     }),
   })
+  if (!isUploadUrlWithContentType(data)) {
+    throw new Error('Invalid profile image upload URL response')
+  }
+  return data
 }
 
 /** Batch presign: 1 round trip for N files. Falls back to N parallel single-presign calls if missing. */
@@ -189,7 +233,12 @@ export async function getInsightsImageUploadUrlsBatch(
         body: JSON.stringify({ items }),
       },
     )
-    if (Array.isArray(data?.items) && data.items.length === items.length) {
+    if (
+      isPlainObject(data) &&
+      Array.isArray(data.items) &&
+      data.items.length === items.length &&
+      data.items.every(isUploadUrlWithContentType)
+    ) {
       return data.items
     }
     throw new Error("Batch endpoint returned unexpected payload")

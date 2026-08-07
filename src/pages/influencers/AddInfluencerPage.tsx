@@ -1,0 +1,811 @@
+import { useState, useEffect, useRef, type ChangeEvent } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import {
+  User, Smartphone, Mail, Globe2, MapPin, Sparkles,
+  Camera, Video, Hash, MessageCircle, Share2, AtSign,
+  Users, TrendingUp, Eye, BarChart2, DollarSign, Link2,
+  Phone, FileText, CreditCard, Building2, BadgeCheck, Calendar,
+  Clock, X, CheckCircle2, List,
+  type LucideIcon,
+} from 'lucide-react'
+import {
+  useInfluencers,
+  WORKFLOW_STAGES, APPROVAL_STATUSES, PAYMENT_STATUSES,
+  COLLABORATION_TYPES, CONTACT_STATUSES, CURRENCIES,
+  type InfluencersContextValue,
+} from '../../contexts/InfluencersContext'
+import { useAuth, hasPermission } from '../../contexts/AuthContext'
+import { InsightsImagesSection } from './InsightsImagesSection'
+import {
+  getProfileImageUploadUrl,
+  guessImageContentType,
+  uploadInsightsImageToS3,
+  type InfluencerSocial,
+} from '../../lib/influencers'
+import type { InfluencerFormState, InfluencerUpdatePayload } from '../../types/influencer'
+import './influencers.css'
+
+/* ─── Static data ──────────────────────────────────────────── */
+const EMPTY_FORM: InfluencerFormState = {
+  name: '', mobile: '', whatsapp: '', email: '', nationality: '', basedIn: '', niche: '', notes: '',
+  instagram: { handle: '', url: '' }, youtube: { handle: '', url: '' }, tiktok: { handle: '', url: '' },
+  snapchat: '', facebook: '', twitter: '', telegram: '', website: '', otherSocial: '',
+  followersCount: '', engagementRate: '', avgReelViews: '', avgStoryReach: '',
+  audienceNotes: '', insightsReceived: false,
+  reelsPrice: '', storiesPrice: '', packagePrice: '', currency: 'AED',
+  deliverables: '', collaborationType: '', reelStaysOnPage: false, contentForBrand: false,
+  contactStatus: 'Not Contacted', discussionNotes: '', negotiationNotes: '',
+  offerShared: false, approvalNotes: '', rejectionNotes: '', followUpReminder: '',
+  bankName: '', accountTitle: '', iban: '', paymentMethod: '', paymentNotes: '',
+  workflowStatus: 'New Lead', approvalStatus: 'Pending', paymentStatus: 'Not Requested', assignedTo: '',
+  shootDate: '', shootTime: '', shootLocation: '', campaign: '',
+  agreementStatus: 'Not Generated',
+  profileImageKey: '',
+  profileImageUrl: '',
+  insightsImageKeys: [],
+  insightsImageRotations: {},
+}
+
+type SelectOption = string | { value: string; label: string }
+
+type SocialFieldKey = 'instagram' | 'youtube' | 'tiktok'
+
+type SocialSubKey = keyof InfluencerSocial
+
+function mergeExistingIntoForm(existing: NonNullable<InfluencersContextValue['influencers'][number]>): InfluencerFormState {
+  return {
+    ...EMPTY_FORM,
+    ...existing,
+    instagram: existing.instagram || { handle: '', url: '' },
+    youtube: existing.youtube || { handle: '', url: '' },
+    tiktok: existing.tiktok || { handle: '', url: '' },
+    followersCount: existing.followersCount != null ? String(existing.followersCount) : '',
+    reelsPrice: existing.reelsPrice != null ? String(existing.reelsPrice) : '',
+    storiesPrice: existing.storiesPrice != null ? String(existing.storiesPrice) : '',
+    packagePrice: existing.packagePrice != null ? String(existing.packagePrice) : '',
+    insightsImageKeys: existing.insightsImageKeys ?? [],
+    insightsImageRotations: existing.insightsImageRotations ?? {},
+    profileImageKey: existing.profileImageKey ?? '',
+    profileImageUrl: existing.profileImageUrl ?? '',
+  }
+}
+
+/* ─── Field atoms — module-level (stable identity, no focus loss) ── */
+
+/** Icon + input row, matches reference FuturisticField exactly */
+function FInput({
+  icon: Icon,
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = 'text',
+  readOnly = false,
+}: {
+  icon?: LucideIcon
+  label: string
+  value: string | number | undefined
+  onChange: (value: string) => void
+  placeholder?: string
+  type?: string
+  readOnly?: boolean
+}) {
+  return (
+    <div className="aif-field">
+      <label className="aif-field-label">{label}</label>
+      <div className="aif-field-outer">
+        <div className="aif-field-inner">
+          {Icon && <div className="aif-field-icon"><Icon size={14} /></div>}
+          <input
+            className="aif-field-ctrl"
+            type={type}
+            value={value || ''}
+            onChange={e => !readOnly && onChange(e.target.value)}
+            placeholder={placeholder}
+            readOnly={readOnly}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Icon + select row */
+function FSelect({
+  icon: Icon,
+  label,
+  value,
+  onChange,
+  options,
+  readOnly = false,
+}: {
+  icon?: LucideIcon
+  label: string
+  value: string | undefined
+  onChange: (value: string) => void
+  options: readonly SelectOption[]
+  readOnly?: boolean
+}) {
+  return (
+    <div className="aif-field">
+      <label className="aif-field-label">{label}</label>
+      <div className="aif-field-outer">
+        <div className="aif-field-inner">
+          {Icon && <div className="aif-field-icon"><Icon size={14} /></div>}
+          <select
+            className="aif-field-ctrl aif-field-ctrl--sel"
+            value={value || ''}
+            onChange={e => !readOnly && onChange(e.target.value)}
+            disabled={readOnly}
+          >
+            {options.map(o =>
+              typeof o === 'string'
+                ? <option key={o} value={o}>{o || '— select —'}</option>
+                : <option key={o.value} value={o.value}>{o.label}</option>
+            )}
+          </select>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Instagram live preview card shown in the Social step */
+function InstagramPreviewCard({ handle, storedPicUrl }: { handle?: string; storedPicUrl?: string }) {
+  const [visible, setVisible] = useState(false)
+  const [imgError, setImgError] = useState(false)
+  const username = handle ? handle.replace(/^@/, '').trim() : ''
+
+  useEffect(() => {
+    setImgError(false)
+    setVisible(false)
+    if (!username) return
+    const t = setTimeout(() => setVisible(true), 600)
+    return () => clearTimeout(t)
+  }, [username])
+
+  if (!username || !visible) return null
+
+  const profileUrl = `https://www.instagram.com/${username}/`
+  const avatarSrc = storedPicUrl || ''
+
+  return (
+    <div className="aif-ig-preview">
+      <p className="aif-ig-preview__label">Instagram Preview</p>
+      <a href={profileUrl} target="_blank" rel="noopener noreferrer" className="ig-profile-card">
+        <div className="ig-profile-card__avatar-wrap">
+          {avatarSrc && !imgError ? (
+            <img
+              src={avatarSrc}
+              alt={username}
+              className="ig-profile-card__avatar"
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            <div className="ig-profile-card__avatar-fallback">
+              <span>{username.slice(0, 2).toUpperCase()}</span>
+            </div>
+          )}
+          <div className="ig-profile-card__avatar-ring" />
+        </div>
+        <div className="ig-profile-card__info">
+          <span className="ig-profile-card__name">@{username}</span>
+          <span className="ig-profile-card__cta">View on Instagram ↗</span>
+        </div>
+        <div className="ig-profile-card__logo">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="ig-grad-wiz" x1="0" y1="24" x2="24" y2="0" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="#f09433"/>
+                <stop offset="25%" stopColor="#e6683c"/>
+                <stop offset="50%" stopColor="#dc2743"/>
+                <stop offset="75%" stopColor="#cc2366"/>
+                <stop offset="100%" stopColor="#bc1888"/>
+              </linearGradient>
+            </defs>
+            <rect x="2" y="2" width="20" height="20" rx="6" fill="url(#ig-grad-wiz)"/>
+            <circle cx="12" cy="12" r="4.5" stroke="white" strokeWidth="1.8" fill="none"/>
+            <circle cx="17.5" cy="6.5" r="1.2" fill="white"/>
+          </svg>
+        </div>
+      </a>
+    </div>
+  )
+}
+
+/** Textarea — wider outer radius matching reference */
+function FTextarea({
+  label,
+  value,
+  onChange,
+  placeholder,
+  rows = 5,
+  readOnly = false,
+}: {
+  label: string
+  value: string | undefined
+  onChange: (value: string) => void
+  placeholder?: string
+  rows?: number
+  readOnly?: boolean
+}) {
+  return (
+    <div className="aif-field aif-field--wide">
+      <label className="aif-field-label">{label}</label>
+      <div className="aif-ta-outer">
+        <textarea
+          className="aif-ta-ctrl"
+          value={value || ''}
+          onChange={e => !readOnly && onChange(e.target.value)}
+          placeholder={placeholder}
+          rows={rows}
+          readOnly={readOnly}
+        />
+      </div>
+    </div>
+  )
+}
+
+/** Toggle switch */
+function FToggle({
+  label,
+  value,
+  onChange,
+  readOnly = false,
+}: {
+  label: string
+  value: boolean
+  onChange: (value: boolean) => void
+  readOnly?: boolean
+}) {
+  return (
+    <label className="aif-toggle-row">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={value}
+        className={`aif-toggle${value ? ' is-on' : ''}`}
+        disabled={readOnly}
+        onClick={() => !readOnly && onChange(!value)}
+      >
+        <span className="aif-toggle-thumb" />
+      </button>
+      <span className="aif-toggle-label">{label}</span>
+    </label>
+  )
+}
+
+/** Section divider title */
+function STitle({ children }: { children: React.ReactNode }) {
+  return <h3 className="aif-section-title">{children}</h3>
+}
+
+function isLikelyImageFile(file: File | undefined): file is File {
+  const name = file?.name || ''
+  if (file?.type?.startsWith?.('image/')) return true
+  return /\.(jpe?g|png|webp|gif|heic|heif|avif|bmp|tiff?)$/i.test(name)
+}
+
+function ProfileImageUploader({
+  influencerId,
+  name,
+  imageKey,
+  imageUrl,
+  canEdit,
+  updateInfluencer,
+}: {
+  influencerId: string
+  name: string
+  imageKey?: string
+  imageUrl?: string
+  canEdit: boolean
+  updateInfluencer: InfluencersContextValue['updateInfluencer']
+}) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [localPreview, setLocalPreview] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [status, setStatus] = useState('')
+  const [imageError, setImageError] = useState(false)
+  const displayUrl = localPreview || imageUrl || ''
+  const initials = String(name || 'IN')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'IN'
+
+  useEffect(() => {
+    setImageError(false)
+  }, [displayUrl])
+
+  useEffect(() => {
+    if (!imageUrl || !localPreview) return undefined
+    const old = localPreview
+    const t = setTimeout(() => setLocalPreview(''), 300)
+    return () => {
+      clearTimeout(t)
+      try {
+        URL.revokeObjectURL(old)
+      } catch (_) {}
+    }
+  }, [imageUrl, localPreview])
+
+  useEffect(() => () => {
+    if (localPreview) {
+      try {
+        URL.revokeObjectURL(localPreview)
+      } catch (_) {}
+    }
+  }, [localPreview])
+
+  const pickFile = () => {
+    if (!canEdit || busy) return
+    if (!influencerId) {
+      setStatus('Save the influencer first, then upload a DP.')
+      return
+    }
+    fileRef.current?.click()
+  }
+
+  const onFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (!isLikelyImageFile(file)) {
+      setStatus('Choose an image file: JPG, PNG, WebP, GIF, HEIC, or AVIF.')
+      return
+    }
+    setBusy(true)
+    setStatus('Uploading DP…')
+    let preview = ''
+    try {
+      preview = URL.createObjectURL(file)
+      setLocalPreview((old) => {
+        if (old) {
+          try {
+            URL.revokeObjectURL(old)
+          } catch (_) {}
+        }
+        return preview
+      })
+      const contentType = guessImageContentType(file)
+      const presigned = await getProfileImageUploadUrl(influencerId, {
+        fileName: file.name || 'profile-image.jpg',
+        contentType,
+      })
+      await uploadInsightsImageToS3(presigned.uploadUrl, file, presigned.contentType || contentType)
+      await updateInfluencer(influencerId, { profileImageKey: presigned.key })
+      setStatus('DP uploaded.')
+      setTimeout(() => setStatus(''), 2500)
+    } catch (err) {
+      if (preview) {
+        try {
+          URL.revokeObjectURL(preview)
+        } catch (_) {}
+      }
+      setLocalPreview('')
+      setStatus(err instanceof Error ? err.message : 'DP upload failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeImage = async () => {
+    if (!canEdit || busy || !imageKey) return
+    if (!window.confirm('Remove this influencer DP?')) return
+    setBusy(true)
+    setStatus('Removing DP…')
+    try {
+      await updateInfluencer(influencerId, { profileImageKey: '' })
+      setLocalPreview('')
+      setStatus('DP removed.')
+      setTimeout(() => setStatus(''), 2500)
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : 'Could not remove DP.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="aif-dp-uploader">
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*,image/heic,image/heif"
+        className="inf-prod-images__hidden-file"
+        onChange={onFileChange}
+        disabled={busy || !canEdit}
+      />
+      <div className="aif-dp-uploader__avatar" aria-hidden>
+        {displayUrl && !imageError ? (
+          <img src={displayUrl} alt="" onError={() => setImageError(true)} />
+        ) : (
+          <span>{initials}</span>
+        )}
+      </div>
+      <div className="aif-dp-uploader__body">
+        <div>
+          <p className="aif-dp-uploader__label">Influencer DP</p>
+          <p className="aif-dp-uploader__hint">
+            Upload a manual display picture. This same image appears in the influencer list and performance section.
+          </p>
+        </div>
+        <div className="aif-dp-uploader__actions">
+          <button type="button" className="inf-btn inf-btn--ghost inf-btn--xs" onClick={pickFile} disabled={!canEdit || busy}>
+            {busy ? 'Working…' : imageKey ? 'Replace DP' : 'Upload DP'}
+          </button>
+          {imageKey ? (
+            <button type="button" className="inf-btn inf-btn--ghost inf-btn--xs" onClick={removeImage} disabled={!canEdit || busy}>
+              Remove
+            </button>
+          ) : null}
+        </div>
+        {status ? <p className="aif-dp-uploader__status" role="status">{status}</p> : null}
+      </div>
+    </div>
+  )
+}
+
+/* ─── Main component ──────────────────────────────────────── */
+export function AddInfluencerPage({ asModal = false, onClose }: { asModal?: boolean; onClose?: () => void }) {
+  const { influencers, addInfluencer, updateInfluencer } = useInfluencers()
+  const { user } = useAuth()
+  const canInfl = (action) => hasPermission(user, 'influencers', action)
+  const navigate = useNavigate()
+  const { id }   = useParams()
+  const isEdit   = Boolean(id)
+  const liveRow = isEdit && id ? influencers.find((i) => String(i.id) === String(id)) : null
+  const existing = liveRow
+
+  const [form, setForm] = useState<InfluencerFormState>(() =>
+    existing ? mergeExistingIntoForm(existing) : EMPTY_FORM,
+  )
+  const dirtyRef = useRef(false)
+  const [hasLoadedFromServer, setHasLoadedFromServer] = useState(Boolean(existing) || !isEdit)
+  const [saved, setSaved] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState('')
+
+  /**
+   * If we mounted before the influencer list arrived, init the form once it does.
+   * This prevents a Save from sending EMPTY_FORM and wiping every field on the server.
+   */
+  useEffect(() => {
+    if (!isEdit) return
+    if (!existing) return
+    if (hasLoadedFromServer) return
+    if (dirtyRef.current) {
+      setHasLoadedFromServer(true)
+      return
+    }
+    setHasLoadedFromServer(true)
+    setForm(mergeExistingIntoForm(existing))
+  }, [isEdit, existing, hasLoadedFromServer])
+
+  const canWrite = isEdit
+    ? (canInfl('manage') || canInfl('approve'))
+    : canInfl('manage')
+  const ro = !canWrite
+
+  const set = (key: keyof InfluencerFormState, val: InfluencerFormState[keyof InfluencerFormState]) => {
+    dirtyRef.current = true
+    setSubmitError('')
+    setForm((f) => ({ ...f, [key]: val }))
+  }
+  const setNested = (key: SocialFieldKey, sub: SocialSubKey, val: string) => {
+    dirtyRef.current = true
+    setSubmitError('')
+    setForm((f) => ({ ...f, [key]: { ...f[key], [sub]: val } }))
+  }
+  const cancel    = ()               => { if (asModal) onClose?.(); else navigate(-1) }
+  const goToList  = ()               => { if (asModal) onClose?.(); navigate('/influencers/list') }
+
+  const submit = async () => {
+    if (isSubmitting) return
+    setSubmitError('')
+    if (!form.name?.trim()) {
+      setSubmitError('Influencer name is required before creating a profile.')
+      try {
+        document.getElementById('aif-section-basic')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      } catch (_) {}
+      return
+    }
+    setIsSubmitting(true)
+    try {
+      if (isEdit) {
+        if (!hasLoadedFromServer) {
+          /** Refuse to save before we have ever seen the server row — would wipe all fields. */
+          setSubmitError('Profile is still loading. Try again in a moment.')
+          return
+        }
+        const payload: InfluencerUpdatePayload = { ...form, id }
+        /** Image fields are managed exclusively by uploaders; never overwrite from the form. */
+        delete payload.profileImageKey
+        delete payload.profileImageUrl
+        delete payload.insightsImageKeys
+        delete payload.insightsImageRotations
+        await updateInfluencer(id, payload)
+        dirtyRef.current = false
+        setSaved(true)
+        setTimeout(() => setSaved(false), 2500)
+      } else {
+        const newId = await addInfluencer(form)
+        if (asModal) onClose?.()
+        else navigate(`/influencers/${newId}/edit`)
+      }
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Could not save profile. Please try again.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const formSections = () => (
+    <>
+      <div className="aif-form-section" id="aif-section-basic">
+        <STitle>Identity &amp; Contact</STitle>
+        <div className="aif-row2">
+          <FInput readOnly={ro} icon={User}       label="Influencer Name *" value={form.name}        onChange={v => set('name', v)}        placeholder="Full name" />
+          <FInput readOnly={ro} icon={Sparkles}   label="Niche / Category"  value={form.niche}       onChange={v => set('niche', v)}       placeholder="Fashion, Beauty, Food…" />
+          <FInput readOnly={ro} icon={Smartphone} label="Mobile Number"     value={form.mobile}      onChange={v => set('mobile', v)}      placeholder="+971 50 000 0000" />
+          <FInput readOnly={ro} icon={Smartphone} label="WhatsApp Number"   value={form.whatsapp}    onChange={v => set('whatsapp', v)}    placeholder="+971 50 000 0000" />
+          <FInput readOnly={ro} icon={Mail}       label="Email Address"     value={form.email}       onChange={v => set('email', v)}       placeholder="name@example.com" type="email" />
+          <FInput readOnly={ro} icon={Globe2}     label="Nationality"       value={form.nationality} onChange={v => set('nationality', v)} placeholder="e.g. Emirati, Lebanese" />
+          <FInput readOnly={ro} icon={MapPin}     label="Based In"          value={form.basedIn}     onChange={v => set('basedIn', v)}     placeholder="e.g. Dubai, Abu Dhabi" />
+        </div>
+        {isEdit && id ? (
+          <ProfileImageUploader
+            influencerId={id}
+            name={liveRow?.name ?? form.name}
+            imageKey={liveRow?.profileImageKey ?? form.profileImageKey}
+            imageUrl={liveRow?.profileImageUrl ?? form.profileImageUrl}
+            canEdit={canWrite}
+            updateInfluencer={updateInfluencer}
+          />
+        ) : (
+          <p className="aif-dp-uploader__create-hint">
+            Save the influencer once, then upload a manual DP.
+          </p>
+        )}
+        <FTextarea readOnly={ro} label="Notes / Intelligence" value={form.notes} onChange={v => set('notes', v)}
+          placeholder="Strategic notes, communication preferences, past campaign performance…" rows={6} />
+      </div>
+
+      <div className="aif-form-section" id="aif-section-social">
+        <STitle>Handles &amp; Profile URLs</STitle>
+        <div className="aif-row2">
+          <FInput readOnly={ro} icon={Camera}        label="Instagram Handle"  value={form.instagram?.handle} onChange={v => setNested('instagram', 'handle', v)} placeholder="@handle" />
+          <FInput readOnly={ro} icon={Link2}         label="Instagram URL"     value={form.instagram?.url}    onChange={v => setNested('instagram', 'url', v)}    placeholder="https://instagram.com/…" />
+          <FInput readOnly={ro} icon={Camera}        label="Instagram Profile Pic URL (optional)" value={form.instagram?.picUrl} onChange={v => setNested('instagram', 'picUrl', v)} placeholder="Paste direct image URL for profile pic" />
+        </div>
+        <InstagramPreviewCard handle={form.instagram?.handle} storedPicUrl={form.instagram?.picUrl} />
+        <div className="aif-row2">
+          <FInput readOnly={ro} icon={Video}         label="YouTube Handle"    value={form.youtube?.handle}   onChange={v => setNested('youtube', 'handle', v)}   placeholder="Channel name" />
+          <FInput readOnly={ro} icon={Link2}         label="YouTube URL"       value={form.youtube?.url}      onChange={v => setNested('youtube', 'url', v)}      placeholder="https://youtube.com/@…" />
+          <FInput readOnly={ro} icon={Hash}          label="TikTok Handle"     value={form.tiktok?.handle}    onChange={v => setNested('tiktok', 'handle', v)}    placeholder="@handle" />
+          <FInput readOnly={ro} icon={Link2}         label="TikTok URL"        value={form.tiktok?.url}       onChange={v => setNested('tiktok', 'url', v)}       placeholder="https://tiktok.com/@…" />
+          <FInput readOnly={ro} icon={Hash}          label="Snapchat Handle"   value={form.snapchat}          onChange={v => set('snapchat', v)}               placeholder="username" />
+          <FInput readOnly={ro} icon={Share2}        label="Facebook Page"     value={form.facebook}          onChange={v => set('facebook', v)}               placeholder="Page name or URL" />
+          <FInput readOnly={ro} icon={AtSign}        label="X / Twitter"       value={form.twitter}           onChange={v => set('twitter', v)}                placeholder="@handle" />
+          <FInput readOnly={ro} icon={MessageCircle} label="Telegram"          value={form.telegram}          onChange={v => set('telegram', v)}               placeholder="@username or channel" />
+          <FInput readOnly={ro} icon={Link2}         label="Website"           value={form.website}           onChange={v => set('website', v)}                placeholder="https://…" />
+          <FInput readOnly={ro} icon={Hash}          label="Other Socials"     value={form.otherSocial}       onChange={v => set('otherSocial', v)}            placeholder="LinkedIn, Pinterest…" />
+        </div>
+      </div>
+
+      <div className="aif-form-section" id="aif-section-audience">
+        <STitle>Audience Metrics</STitle>
+        <div className="aif-row2">
+          <FInput readOnly={ro} icon={Users}      label="Followers Count"  value={form.followersCount}  onChange={v => set('followersCount', v)}  placeholder="e.g. 125,000" />
+          <FInput readOnly={ro} icon={TrendingUp} label="Engagement Rate"  value={form.engagementRate}  onChange={v => set('engagementRate', v)}  placeholder="e.g. 4.2%" />
+          <FInput readOnly={ro} icon={Eye}        label="Avg Reel Views"   value={form.avgReelViews}    onChange={v => set('avgReelViews', v)}    placeholder="e.g. 80,000" />
+          <FInput readOnly={ro} icon={BarChart2}  label="Avg Story Reach"  value={form.avgStoryReach}   onChange={v => set('avgStoryReach', v)}   placeholder="e.g. 15,000" />
+        </div>
+        <FTextarea readOnly={ro} label="Audience Location Notes" value={form.audienceNotes} onChange={v => set('audienceNotes', v)}
+          placeholder="e.g. Mainly UAE-based, 65% female, high engagement in Dubai…" rows={3} />
+        <div className="aif-toggles">
+          <FToggle readOnly={ro} label="Insights screenshots / data received" value={form.insightsReceived} onChange={v => set('insightsReceived', v)} />
+        </div>
+        {isEdit && id ? (
+          <>
+            <STitle>Insights images</STitle>
+            <InsightsImagesSection
+              influencerId={id}
+              imageKeys={liveRow?.insightsImageKeys ?? form.insightsImageKeys ?? []}
+              imageRotations={liveRow?.insightsImageRotations ?? form.insightsImageRotations ?? {}}
+              canEdit={canInfl('manage') || canInfl('approve')}
+              updateInfluencer={updateInfluencer}
+              className="aif-insights-embed"
+            />
+          </>
+        ) : (
+          <p className="aif-insights-wizard-hint">
+            Save the profile once, then you can add up to 6 insights screenshots here.
+          </p>
+        )}
+      </div>
+
+      <div className="aif-form-section" id="aif-section-commercial">
+        <STitle>Pricing &amp; Deliverables</STitle>
+        <div className="aif-row3">
+          <FSelect readOnly={ro} icon={DollarSign} label="Currency"           value={form.currency}          onChange={v => set('currency', v)}          options={CURRENCIES} />
+          <FInput readOnly={ro}  icon={DollarSign} label="Reels Price"        value={form.reelsPrice}        onChange={v => set('reelsPrice', v)}        placeholder="0" type="number" />
+          <FInput readOnly={ro}  icon={DollarSign} label="Stories Price"      value={form.storiesPrice}      onChange={v => set('storiesPrice', v)}      placeholder="0" type="number" />
+          <FInput readOnly={ro}  icon={DollarSign} label="Package Price"      value={form.packagePrice}      onChange={v => set('packagePrice', v)}      placeholder="0" type="number" />
+          <FSelect readOnly={ro} icon={Sparkles}   label="Collaboration Type" value={form.collaborationType} onChange={v => set('collaborationType', v)} options={['', ...COLLABORATION_TYPES]} />
+        </div>
+        <FTextarea readOnly={ro} label="Deliverables" value={form.deliverables} onChange={v => set('deliverables', v)}
+          placeholder="e.g. 1 Reel + 3 Stories on influencer page, usage rights included…" rows={3} />
+        <div className="aif-toggles">
+          <FToggle readOnly={ro} label="Reel stays permanently on influencer's channel" value={form.reelStaysOnPage} onChange={v => set('reelStaysOnPage', v)} />
+          <FToggle readOnly={ro} label="Content production for brand channel included"  value={form.contentForBrand} onChange={v => set('contentForBrand', v)} />
+        </div>
+      </div>
+
+      <div className="aif-form-section" id="aif-section-contact">
+        <STitle>Negotiation &amp; Follow-up</STitle>
+        <div className="aif-row2">
+          <FSelect readOnly={ro} icon={Phone}    label="Contact Status"     value={form.contactStatus}    onChange={v => set('contactStatus', v)}    options={CONTACT_STATUSES} />
+          <FInput readOnly={ro}  icon={Calendar} label="Follow-up Reminder" value={form.followUpReminder} onChange={v => set('followUpReminder', v)} type="date" />
+        </div>
+        <div className="aif-stack">
+          <FTextarea readOnly={ro} label="Discussion Notes"        value={form.discussionNotes}  onChange={v => set('discussionNotes', v)}  placeholder="Key points from initial discussions…"   rows={3} />
+          <FTextarea readOnly={ro} label="Price Negotiation Notes" value={form.negotiationNotes} onChange={v => set('negotiationNotes', v)} placeholder="Pricing discussion and counter-offers…" rows={3} />
+          <FTextarea readOnly={ro} label="Approval Notes"          value={form.approvalNotes}    onChange={v => set('approvalNotes', v)}    placeholder="Why approved — key considerations…"      rows={2} />
+          <FTextarea readOnly={ro} label="Rejection Notes"         value={form.rejectionNotes}   onChange={v => set('rejectionNotes', v)}   placeholder="Reason for rejection (if applicable)…"  rows={2} />
+        </div>
+        <div className="aif-toggles">
+          <FToggle readOnly={ro} label="Offer / brief has been shared with influencer" value={form.offerShared} onChange={v => set('offerShared', v)} />
+        </div>
+      </div>
+
+      <div className="aif-form-section" id="aif-section-payment">
+        <STitle>Bank &amp; Payment Details</STitle>
+        <div className="aif-row2">
+          <FInput readOnly={ro}  icon={Building2}  label="Bank Name"          value={form.bankName}      onChange={v => set('bankName', v)}      placeholder="e.g. Emirates NBD" />
+          <FInput readOnly={ro}  icon={User}       label="Account Title"      value={form.accountTitle}  onChange={v => set('accountTitle', v)}  placeholder="Account holder name" />
+          <FInput readOnly={ro}  icon={CreditCard} label="IBAN / Account No." value={form.iban}          onChange={v => set('iban', v)}          placeholder="AE…" />
+          <FSelect readOnly={ro} icon={CreditCard} label="Payment Method"     value={form.paymentMethod} onChange={v => set('paymentMethod', v)} options={['', 'Bank Transfer', 'Cash', 'Cheque', 'Online Transfer', 'Other']} />
+        </div>
+        <FTextarea readOnly={ro} label="Payment Notes" value={form.paymentNotes} onChange={v => set('paymentNotes', v)}
+          placeholder="Any notes for the finance team…" rows={3} />
+      </div>
+
+      <div className="aif-form-section" id="aif-section-status">
+        <STitle>Workflow &amp; Assignment</STitle>
+        <div className="aif-row2">
+          <FSelect readOnly={ro} icon={BadgeCheck} label="Workflow Stage"   value={form.workflowStatus}  onChange={v => set('workflowStatus', v)}  options={WORKFLOW_STAGES} />
+          <FSelect readOnly={ro} icon={BadgeCheck} label="Approval Status"  value={form.approvalStatus}  onChange={v => set('approvalStatus', v)}  options={APPROVAL_STATUSES} />
+          <FSelect readOnly={ro} icon={CreditCard} label="Payment Status"   value={form.paymentStatus}   onChange={v => set('paymentStatus', v)}   options={PAYMENT_STATUSES} />
+          <FInput readOnly={ro}  icon={User}       label="Assigned To"      value={form.assignedTo}      onChange={v => set('assignedTo', v)}      placeholder="Team member name" />
+        </div>
+        <STitle>Shoot Details</STitle>
+        <div className="aif-row2">
+          <FInput readOnly={ro} icon={Calendar} label="Shoot Date"      value={form.shootDate}     onChange={v => set('shootDate', v)}     type="date" />
+          <FInput readOnly={ro} icon={Clock}    label="Shoot Time"      value={form.shootTime}     onChange={v => set('shootTime', v)}     type="time" />
+          <FInput readOnly={ro} icon={MapPin}   label="Shoot Location"  value={form.shootLocation} onChange={v => set('shootLocation', v)} placeholder="Studio, store address…" />
+          <FInput readOnly={ro} icon={FileText} label="Campaign / Offer" value={form.campaign}     onChange={v => set('campaign', v)}      placeholder="Campaign name or offer" />
+        </div>
+      </div>
+    </>
+  )
+
+  /* ─── Rendered page content ─── */
+  const content = (
+    <div className="aif-page">
+
+      {/* Background orbs — match page gradient directions */}
+      <div className="aif-bg-orb aif-bg-orb--tl" aria-hidden="true" />
+      <div className="aif-bg-orb aif-bg-orb--tr" aria-hidden="true" />
+      <div className="aif-bg-orb aif-bg-orb--bc" aria-hidden="true" />
+
+      <div className="aif-content">
+
+        {/* ── Top bar ── */}
+        <header className="aif-topbar">
+          <div className="aif-topbar__text">
+            <div className="aif-back-row">
+              <button
+                type="button"
+                className="inf-hero__back-btn"
+                onClick={goToList}
+                aria-label="Back to influencer list"
+              >
+                <List size={16} strokeWidth={2.25} aria-hidden />
+                Back to list
+              </button>
+            </div>
+            <div className="aif-eyebrow">
+              <Sparkles size={11} />
+              Influencer Intelligence System
+            </div>
+            <h1 className="aif-title">
+              {isEdit ? 'Edit Influencer' : 'Add Influencer'}
+            </h1>
+            <p className="aif-subtitle">
+              {isEdit
+                ? `Update every section below in one place · ${existing?.name || ''}`.trim()
+                : 'Fill in each section on this page — no step tabs, scroll to review before saving.'}
+            </p>
+          </div>
+
+          <div className="aif-topbar__actions">
+            <button type="button" className="aif-btn-ghost" onClick={cancel}>
+              <X size={14} /> Cancel
+            </button>
+            <button
+              type="button"
+              className="aif-btn-primary"
+              onClick={submit}
+              disabled={!canWrite || isSubmitting || (isEdit && !hasLoadedFromServer)}
+            >
+              {isSubmitting
+                ? 'Saving...'
+                : saved
+                  ? <><CheckCircle2 size={14} /> Saved</>
+                  : isEdit
+                    ? (hasLoadedFromServer ? 'Save Changes' : 'Loading…')
+                    : 'Create Profile'}
+            </button>
+          </div>
+        </header>
+        {submitError ? (
+          <div
+            role="alert"
+            style={{
+              marginTop: '0.75rem',
+              marginBottom: '0.25rem',
+              color: '#b91c1c',
+              fontWeight: 600,
+              fontSize: '0.92rem',
+            }}
+          >
+            {submitError}
+          </div>
+        ) : null}
+
+        <div className="aif-layout aif-layout--single">
+          <section className="aif-panel aif-panel--stacked">
+            <div className="aif-panel__grad" aria-hidden="true" />
+            <div className="aif-panel__orb aif-panel__orb--tr" aria-hidden="true" />
+            <div className="aif-panel__orb aif-panel__orb--bl" aria-hidden="true" />
+            <div className="aif-panel__body aif-panel__body--longform">
+              {formSections()}
+            </div>
+            <footer className="aif-panel__footer aif-panel__footer--end">
+              <div className="aif-panel__footer-btns" style={{ width: '100%', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  className="aif-btn-primary"
+                  onClick={submit}
+                  disabled={!canWrite || isSubmitting || (isEdit && !hasLoadedFromServer)}
+                >
+                  {isSubmitting
+                    ? 'Saving...'
+                    : saved
+                      ? <><CheckCircle2 size={14} /> Saved</>
+                      : isEdit
+                        ? (hasLoadedFromServer ? 'Save changes' : 'Loading…')
+                        : 'Create profile'}
+                </button>
+              </div>
+            </footer>
+          </section>
+        </div>
+      </div>
+    </div>
+  )
+
+  if (asModal) {
+    return (
+      <div className="inf-modal-overlay" onClick={cancel}>
+        <div className="aif-modal-wrap" onClick={e => e.stopPropagation()}>
+          {content}
+        </div>
+      </div>
+    )
+  }
+
+  return content
+}

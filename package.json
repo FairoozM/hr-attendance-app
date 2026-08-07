@@ -12,6 +12,7 @@
     "deploy:all": "bash scripts/deploy-all.sh",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:influencer-performance-utils": "vitest run src/utils/influencerPerformanceUtils.test.ts",
     "test:amazon-catalog-image-cache": "node backend/scripts/test-amazon-catalog-image-cache.js",
     "test:amazon-dashboard-images": "node backend/scripts/test-amazon-dashboard-images.js",
     "test:amazon-orders-images": "node backend/scripts/test-amazon-orders-images.js"

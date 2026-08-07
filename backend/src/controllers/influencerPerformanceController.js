@@ -1,5 +1,35 @@
 const influencerPerformanceService = require('../services/influencerPerformanceService')
 
+/**
+ * @typedef {object} InfluencerPerformanceRecordBody
+ * @property {string} [id]
+ * @property {string} [contractId]
+ * @property {string} [influencerId]
+ * @property {string} [date] YYYY-MM-DD check-in date
+ * @property {string} [platform]
+ * @property {string} [postUrl]
+ * @property {string} [campaignName]
+ * @property {string} [videoTitle]
+ * @property {string} [contractStartDate]
+ * @property {string} [contractEndDate]
+ * @property {number|string} [monitoringDays] Clamped 3–5 server-side
+ * @property {number|string} [views]
+ * @property {number|string} [likes]
+ * @property {number|string} [comments]
+ * @property {number|string} [shares]
+ * @property {number|string} [saves]
+ * @property {number|string} [storyViews]
+ * @property {number|string} [salesAed]
+ * @property {number|string} [cost]
+ * @property {number|string} [netProfitAed] Admin-only; stripped for non-admins
+ * @property {string} [notes]
+ */
+
+/**
+ * @param {InfluencerPerformanceRecordBody[]|unknown} records
+ * @param {boolean} isAdmin
+ * @returns {InfluencerPerformanceRecordBody[]|unknown}
+ */
 function redactNetProfitUnlessAdmin(records, isAdmin) {
   if (isAdmin || !Array.isArray(records)) return records
   return records.map((row) => {
@@ -10,6 +40,9 @@ function redactNetProfitUnlessAdmin(records, isAdmin) {
   })
 }
 
+/**
+ * @param {InfluencerPerformanceRecordBody} [record]
+ */
 function buildContractFromRecord(record = {}) {
   return {
     id: record.contractId,
@@ -23,6 +56,12 @@ function buildContractFromRecord(record = {}) {
   }
 }
 
+/**
+ * GET /api/influencers/performance-records
+ * Returns { records, contracts }. Rankings/totals are computed on the client.
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
 async function listPerformanceRecords(req, res) {
   try {
     const isAdmin = req.user?.role === 'admin'
@@ -44,12 +83,28 @@ async function listPerformanceRecords(req, res) {
   }
 }
 
+/**
+ * POST /api/influencers/performance-records/bulk-upsert
+ * Body: { records: InfluencerPerformanceRecordBody[] }
+ * Each row requires id, influencerId, and date (YYYY-MM-DD).
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
 async function bulkUpsertPerformanceRecords(req, res) {
   try {
     const body = req.body
-    const records = body && Array.isArray(body.records) ? body.records : null
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return res.status(400).json({ error: 'Body must be a JSON object with a "records" array' })
+    }
+    const records = Array.isArray(body.records) ? body.records : null
     if (!records) {
       return res.status(400).json({ error: 'Body must include a "records" array' })
+    }
+    const invalidIndex = records.findIndex(
+      (row) => !row || typeof row !== 'object' || Array.isArray(row),
+    )
+    if (invalidIndex >= 0) {
+      return res.status(400).json({ error: `records[${invalidIndex}] must be an object` })
     }
     const userId = req.user?.userId != null ? String(req.user.userId) : null
     const isAdmin = req.user?.role === 'admin'
@@ -61,9 +116,17 @@ async function bulkUpsertPerformanceRecords(req, res) {
   }
 }
 
+/**
+ * DELETE /api/influencers/performance-records/:id
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
 async function deletePerformanceRecord(req, res) {
   try {
-    const id = req.params.id
+    const id = typeof req.params.id === 'string' ? req.params.id.trim() : ''
+    if (!id) {
+      return res.status(400).json({ error: 'Record id is required' })
+    }
     const userId = req.user?.userId != null ? String(req.user.userId) : null
     const result = await influencerPerformanceService.deletePerformanceRecord(id, userId)
     if (!result.deleted) {

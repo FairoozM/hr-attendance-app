@@ -1,0 +1,853 @@
+import { resolveInfluencerProfileImageUrl } from '../lib/influencerProfileImageUrl'
+import type { Influencer } from '../lib/influencers'
+import type {
+  InfluencerAggregatedMetrics,
+  InfluencerContract,
+  InfluencerContractDay,
+  InfluencerContractRanking,
+  InfluencerContractRow,
+  InfluencerFormatNumberOptions,
+  InfluencerPerformance,
+  InfluencerPerformanceInput,
+  InfluencerPerformanceProfile,
+  InfluencerPerformanceSort,
+} from '../types/influencer'
+
+export const INFLUENCER_PLATFORMS = ['TikTok', 'Instagram', 'Snapchat', 'YouTube', 'Facebook'] as const
+
+export const INFLUENCER_PERFORMANCE_STATUSES = ['Active', 'Paused', 'Completed'] as const
+
+/** HUD always shows five day columns; active contract window is 3–5 days. */
+export const CONTRACT_TIMELINE_DISPLAY_DAYS = 5
+export const CONTRACT_MONITORING_DAYS_MIN = 3
+export const CONTRACT_MONITORING_DAYS_MAX = 5
+
+type ContractSeed = {
+  id: string
+  naturalKey: string
+  influencerId: string
+  influencer?: InfluencerPerformanceProfile
+  platform?: string
+  videoTitle: string
+  postUrl: string
+  campaignName: string
+  contractStartDate: string
+  latestDate: string
+  monitoringDays: number
+  records: InfluencerPerformance[]
+  totals: InfluencerAggregatedMetrics
+}
+
+export function clampMonitoringDays(days: unknown): number {
+  const n = toNumber(days)
+  if (!n) return CONTRACT_MONITORING_DAYS_MAX
+  return Math.min(CONTRACT_MONITORING_DAYS_MAX, Math.max(CONTRACT_MONITORING_DAYS_MIN, Math.round(n)))
+}
+
+/** Inclusive calendar days from contract opening through ending (3–5). */
+export function monitoringDaysFromContractDates(startIso: unknown, endIso: unknown): number | null {
+  const start = isoDateSlice(startIso)
+  const end = isoDateSlice(endIso)
+  if (!start || !end) return null
+  const span = daysBetweenIso(start, end)
+  if (!Number.isFinite(span) || span < 0) return null
+  return clampMonitoringDays(span + 1)
+}
+
+export function contractEndDateFromStartAndDays(startIso: unknown, monitoringDays: unknown): string {
+  const start = isoDateSlice(startIso)
+  const days = clampMonitoringDays(monitoringDays)
+  if (!start) return ''
+  return addDays(start, Math.max(0, days - 1))
+}
+
+export function toNumber(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (value == null || value === '') return 0
+  const parsed = Number(String(value).replace(/[^0-9.-]/g, ''))
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+/** storyViews is a yes/no flag (1 = posted); legacy rows may store large view counts. */
+export function isStoryPosting(value: unknown): boolean {
+  return toNumber(value) > 0
+}
+
+export function storyPostingLabel(value: unknown): 'Yes' | 'No' {
+  return isStoryPosting(value) ? 'Yes' : 'No'
+}
+
+/** True when any saved day on the contract has story posting. */
+export function contractHasStoryPosting(contract: Partial<InfluencerContract> | null | undefined): boolean {
+  const days = Array.isArray(contract?.days) ? contract.days : []
+  if (days.some((day) => day?.isRecorded && isStoryPosting(day?.record?.storyViews))) return true
+  if (Array.isArray(contract?.records)) {
+    return contract.records.some((rec) => isStoryPosting(rec?.storyViews))
+  }
+  return isStoryPosting(contract?.totals?.storyViews)
+}
+
+/**
+ * Parse inline metric field text: supports optional K/M suffix (e.g. 98.5K, 1.2M).
+ * Falls back to {@link toNumber} for plain digit strings. Use for timeline inputs, not currency.
+ */
+export function parseMetricInput(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (value == null || value === '') return 0
+  const trimmed = String(value).trim().replace(/,/g, '')
+  if (!trimmed) return 0
+  const loose = /^(-?[\d.]+)\s*([kKmM]?)$/.exec(trimmed)
+  if (loose) {
+    const n = Number(loose[1])
+    if (!Number.isFinite(n)) return 0
+    const suf = String(loose[2] || '').toLowerCase()
+    if (suf === 'k') return n * 1000
+    if (suf === 'm') return n * 1_000_000
+    return n
+  }
+  return toNumber(value)
+}
+
+export function calculateEngagementRate({
+  likes = 0,
+  comments = 0,
+  shares = 0,
+  views = 0,
+}: { likes?: unknown; comments?: unknown; shares?: unknown; views?: unknown } = {}): number {
+  const safeViews = toNumber(views)
+  if (safeViews <= 0) return 0
+  const interactions = toNumber(likes) + toNumber(comments) + toNumber(shares)
+  return Number(((interactions / safeViews) * 100).toFixed(2))
+}
+
+export function formatNumber(value: unknown, options: InfluencerFormatNumberOptions = {}): string {
+  const n = toNumber(value)
+  if (options.currency) {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: options.currency,
+      maximumFractionDigits: n >= 1000 ? 0 : 2,
+    }).format(n)
+  }
+  if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`
+  if (Math.abs(n) >= 1_000) return `${(n / 1_000).toFixed(n >= 100_000 ? 0 : 1)}K`
+  return new Intl.NumberFormat('en-US').format(n)
+}
+
+export function addDays(dateString: unknown, days: number): string {
+  const d = isoDateSlice(dateString)
+  if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return ''
+  const [year, month, day] = d.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
+/** ISO calendar date YYYY-MM-DD slice (safe for comparisons). */
+export function isoDateSlice(value: unknown): string {
+  if (value == null || value === '') return ''
+  return String(value).slice(0, 10)
+}
+
+/** Format YYYY-MM-DD as DD/MM/YYYY for influencer forms (display only). */
+export function formatIsoDateDdMmYyyy(iso: unknown): string {
+  const d = isoDateSlice(iso)
+  if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return ''
+  const [y, m, day] = d.split('-')
+  return `${day}/${m}/${y}`
+}
+
+/** Parse DD/MM/YYYY to YYYY-MM-DD; invalid calendar dates return ''. */
+export function parseDdMmYyyyToIso(text: unknown): string {
+  const s = String(text || '').trim()
+  const match = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (!match) return ''
+  const day = Number(match[1])
+  const month = Number(match[2])
+  const year = Number(match[3])
+  if (month < 1 || month > 12 || day < 1 || day > 31) return ''
+  const dt = new Date(Date.UTC(year, month - 1, day))
+  if (dt.getUTCFullYear() !== year || dt.getUTCMonth() !== month - 1 || dt.getUTCDate() !== day) return ''
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+/** Parse ISO date as UTC noon to avoid timezone shifting calendar days. */
+function parseIsoDateUtcMs(iso: unknown): number {
+  const d = isoDateSlice(iso)
+  if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return NaN
+  const [y, month, day] = d.split('-').map(Number)
+  return Date.UTC(y, month - 1, day)
+}
+
+/** Whole calendar days from start → end (inclusive offset for matching timeline slots). */
+export function daysBetweenIso(startIso: unknown, endIso: unknown): number {
+  const a = parseIsoDateUtcMs(startIso)
+  const b = parseIsoDateUtcMs(endIso)
+  if (Number.isNaN(a) || Number.isNaN(b)) return NaN
+  return Math.round((b - a) / 86_400_000)
+}
+
+export function minIsoDate(a: unknown, b: unknown): string {
+  const ca = isoDateSlice(a)
+  const cb = isoDateSlice(b)
+  if (!ca) return cb
+  if (!cb) return ca
+  return ca <= cb ? ca : cb
+}
+
+export function getDayNumber(startDate: unknown, date: unknown): number | null {
+  if (!startDate || !date) return null
+  const offset = daysBetweenIso(startDate, date)
+  if (!Number.isFinite(offset)) return null
+  return offset + 1
+}
+
+function normalizeContractText(value: unknown): string {
+  return String(value || '')
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+}
+
+function normalizeContractUrl(value: unknown): string {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  try {
+    const url = new URL(raw)
+    const hostname = url.hostname.toLowerCase().replace(/^www\./, '')
+    const pathname = url.pathname.replace(/\/+$/, '')
+    return `${hostname}${pathname}`.toLowerCase()
+  } catch {
+    return normalizeContractText(raw).replace(/[?#].*$/, '')
+  }
+}
+
+function slugContractPart(value: unknown): string {
+  return normalizeContractText(value)
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'contract'
+}
+
+function isExplicitPerformanceContractId(value: unknown): boolean {
+  return String(value || '').startsWith('ip-contract::')
+}
+
+export function getVideoContractKey(record: InfluencerPerformanceInput = {}): string {
+  const influencerId = record.influencerId || 'unknown'
+  const postUrl = normalizeContractUrl(record.postUrl)
+  if (postUrl) return `${influencerId}::url::${postUrl}`
+  const video = normalizeContractText(record.videoTitle || record.campaignName || 'video')
+  return `${influencerId}::video::${video}`
+}
+
+export function ensurePerformanceContractId(record: InfluencerPerformanceInput = {}): string {
+  if (isExplicitPerformanceContractId(record.contractId)) return String(record.contractId)
+  const signature = getVideoContractKey(record)
+  const start = isoDateSlice(record.contractStartDate || record.date) || 'unknown-date'
+  return `ip-contract::${slugContractPart(signature)}::${start}`
+}
+
+export function getPerformanceRecordKey(record: InfluencerPerformanceInput = {}): string {
+  if (record.id) return `id::${record.id}`
+  const cid = isExplicitPerformanceContractId(record.contractId)
+    ? String(record.contractId)
+    : ensurePerformanceContractId(record)
+  return `${cid}::${record.date || 'no-date'}`
+}
+
+export function dedupePerformanceRecords(
+  records: InfluencerPerformanceInput[] = [],
+): InfluencerPerformanceInput[] {
+  const byId = new Map<string, InfluencerPerformanceInput>()
+  const noId: InfluencerPerformanceInput[] = []
+  records.forEach((record) => {
+    const id = String(record?.id || '').trim()
+    if (!id) {
+      noId.push(record)
+      return
+    }
+    const current = byId.get(id)
+    if (!current) {
+      byId.set(id, record)
+      return
+    }
+    const currentTime = new Date(current.updatedAt || current.createdAt || 0).getTime()
+    const nextTime = new Date(record.updatedAt || record.createdAt || 0).getTime()
+    byId.set(id, nextTime >= currentTime ? record : current)
+  })
+  const rows = [...byId.values(), ...noId]
+  const bySameExplicitDay = new Map<string, InfluencerPerformanceInput>()
+  rows.forEach((record) => {
+    const date = isoDateSlice(record?.date)
+    const cid = isExplicitPerformanceContractId(record?.contractId) ? String(record.contractId) : ''
+    const key = cid && date ? `${cid}::${date}` : `row::${record?.id || Math.random()}`
+    const current = bySameExplicitDay.get(key)
+    if (!current) {
+      bySameExplicitDay.set(key, record)
+      return
+    }
+    const currentTime = new Date(current.updatedAt || current.createdAt || 0).getTime()
+    const nextTime = new Date(record.updatedAt || record.createdAt || 0).getTime()
+    bySameExplicitDay.set(key, nextTime >= currentTime ? record : current)
+  })
+  return Array.from(bySameExplicitDay.values())
+}
+
+function shouldJoinContractCluster(
+  cluster: ContractSeed,
+  record: InfluencerPerformance,
+  daysFallback: number,
+): boolean {
+  const date = isoDateSlice(record.date)
+  if (!date) return false
+  const start = isoDateSlice(record.contractStartDate || record.date) || date
+  const monitoringDays = Math.max(cluster.monitoringDays, toNumber(record.monitoringDays) || daysFallback)
+  const earliest = minIsoDate(cluster.contractStartDate, start)
+  const latest = [cluster.latestDate, date, start].filter(Boolean).sort().slice(-1)[0]
+  const span = daysBetweenIso(earliest, latest)
+  return Number.isFinite(span) && span <= Math.max(1, monitoringDays - 1)
+}
+
+function makeContractSeed(
+  record: InfluencerPerformance,
+  influencersById: Map<string, InfluencerPerformanceProfile>,
+  daysFallback: number,
+): ContractSeed {
+  const signature = getVideoContractKey(record)
+  const start = isoDateSlice(record.contractStartDate || record.date) || isoDateSlice(record.date)
+  const contractId = isExplicitPerformanceContractId(record.contractId)
+    ? String(record.contractId)
+    : ensurePerformanceContractId({ ...record, contractStartDate: start })
+  return {
+    id: contractId,
+    naturalKey: signature,
+    influencerId: String(record.influencerId),
+    influencer: influencersById.get(String(record.influencerId)),
+    platform: record.platform,
+    videoTitle: record.videoTitle || record.campaignName || 'Contracted video',
+    postUrl: record.postUrl || '',
+    campaignName: record.campaignName || 'Campaign',
+    contractStartDate: start || record.date,
+    latestDate: isoDateSlice(record.date),
+    monitoringDays: clampMonitoringDays(record.monitoringDays || daysFallback),
+    records: [],
+    totals: {
+      views: 0,
+      likes: 0,
+      comments: 0,
+      shares: 0,
+      storyViews: 0,
+      saves: 0,
+      cost: 0,
+      salesAed: 0,
+      netProfitAed: 0,
+    },
+  }
+}
+
+function addRecordToContract(contract: ContractSeed, record: InfluencerPerformance): void {
+  const assigned: InfluencerPerformance = { ...record, contractId: contract.id }
+  contract.records.push(assigned)
+  contract.contractStartDate = minIsoDate(
+    contract.contractStartDate,
+    record.contractStartDate || record.date,
+  )
+  contract.latestDate = [contract.latestDate, isoDateSlice(record.date)].filter(Boolean).sort().slice(-1)[0] || contract.latestDate
+  contract.monitoringDays = Math.max(contract.monitoringDays, toNumber(record.monitoringDays) || 5)
+  contract.totals.views += toNumber(record.views)
+  contract.totals.likes += toNumber(record.likes)
+  contract.totals.comments += toNumber(record.comments)
+  contract.totals.shares += toNumber(record.shares)
+  contract.totals.storyViews = Math.max(
+    contract.totals.storyViews,
+    isStoryPosting(record.storyViews) ? 1 : 0,
+  )
+  contract.totals.saves += toNumber(record.saves)
+  /* cost / sales / net profit are contract-level (latest check-in only), not summed — see getVideoContractTimelines */
+}
+
+function buildContractGroups(
+  records: InfluencerPerformanceInput[] = [],
+  influencers: InfluencerPerformanceProfile[] = [],
+  daysFallback = 5,
+): ContractSeed[] {
+  const influencersById = new Map(influencers.map((item) => [String(item.id), item]))
+  const bySignature = new Map<string, ContractSeed[]>()
+  const rows = dedupePerformanceRecords(records)
+    .map((record) => normalizePerformanceRecord(record))
+    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')))
+
+  rows.forEach((record) => {
+    const signature = getVideoContractKey(record)
+    const clusters = bySignature.get(signature) || []
+    let cluster = clusters.find((item) => shouldJoinContractCluster(item, record, daysFallback))
+    if (!cluster) {
+      cluster = makeContractSeed(record, influencersById, daysFallback)
+      clusters.push(cluster)
+      bySignature.set(signature, clusters)
+    }
+    addRecordToContract(cluster, record)
+  })
+
+  return Array.from(bySignature.values()).flat()
+}
+
+export function getVideoContractTimelines(
+  records: InfluencerPerformanceInput[] = [],
+  influencers: InfluencerPerformanceProfile[] = [],
+  daysFallback = 5,
+): InfluencerContract[] {
+  return buildContractGroups(records, influencers, daysFallback)
+    .map((contract) => {
+      const orderedRecords = [...contract.records].sort((a, b) =>
+        String(a.date || '').localeCompare(String(b.date || '')),
+      )
+      const declaredStart = isoDateSlice(contract.contractStartDate) || isoDateSlice(orderedRecords[0]?.date)
+      const earliestCheckIn = orderedRecords.reduce(
+        (min, r) => minIsoDate(min, r.date),
+        isoDateSlice(orderedRecords[0]?.date),
+      )
+      // Anchor window so the earliest saved check-in always maps to a column (avoids empty HUD when
+      // contract start and check-in date were misaligned by a day or saved out of order).
+      const startDate = minIsoDate(declaredStart, earliestCheckIn) || declaredStart
+      const monitoringDays = clampMonitoringDays(toNumber(contract.monitoringDays) || daysFallback)
+      const contractEndDate = contractEndDateFromStartAndDays(startDate, monitoringDays)
+      const days: InfluencerContractDay[] = Array.from({ length: CONTRACT_TIMELINE_DISPLAY_DAYS }, (_, index) => ({
+        dayNumber: index + 1,
+        date: addDays(startDate, index),
+        inContractWindow: index < monitoringDays,
+        record: null,
+        isRecorded: false,
+      }))
+
+      orderedRecords.forEach((rec) => {
+        const offset = daysBetweenIso(startDate, rec.date)
+        if (!Number.isFinite(offset) || offset < 0 || offset >= monitoringDays) return
+        const existing = days[offset].record
+        const recTime = new Date(rec.updatedAt || rec.createdAt || 0).getTime()
+        const exTime = existing ? new Date(existing.updatedAt || existing.createdAt || 0).getTime() : -Infinity
+        if (!existing || recTime >= exTime) {
+          days[offset].record = rec
+          days[offset].isRecorded = true
+        }
+      })
+
+      const latest = orderedRecords[orderedRecords.length - 1]
+      const totals: InfluencerAggregatedMetrics = {
+        ...contract.totals,
+        cost: toNumber(latest?.cost),
+        salesAed: toNumber(latest?.salesAed),
+        netProfitAed: toNumber(latest?.netProfitAed),
+        storyViews: orderedRecords.some((rec) => isStoryPosting(rec.storyViews)) ? 1 : 0,
+      }
+      return {
+        ...contract,
+        id: contract.id,
+        contractStartDate: startDate,
+        contractEndDate,
+        monitoringDays,
+        days,
+        latest,
+        totals,
+        recordedDays: days.filter((item) => item.inContractWindow && item.isRecorded).length,
+        averageEngagementRate: calculateEngagementRate(totals),
+      }
+    })
+    .sort((a, b) => String(b.latest?.date || '').localeCompare(String(a.latest?.date || '')))
+}
+
+export function buildContractRows(
+  records: InfluencerPerformanceInput[] = [],
+  influencers: InfluencerPerformanceProfile[] = [],
+  rankingsByContractId: Map<string, InfluencerContractRanking> = new Map(),
+  sort: InfluencerPerformanceSort = { key: 'date', direction: 'desc' },
+): InfluencerContractRow[] {
+  const influencersById = new Map(influencers.map((influencer) => [String(influencer.id), influencer]))
+  const rows: InfluencerContractRow[] = getVideoContractTimelines(records, influencers).map((contract) => ({
+    id: contract.id,
+    contractId: contract.id,
+    influencerId: contract.influencerId,
+    influencer: contract.influencer,
+    platform: contract.platform,
+    postUrl: contract.postUrl,
+    campaignName: contract.campaignName,
+    videoTitle: contract.videoTitle,
+    contractStartDate: contract.contractStartDate,
+    startDate: contract.contractStartDate,
+    latestDate: contract.latest?.date || contract.latestDate || contract.contractStartDate,
+    date: contract.contractStartDate,
+    monitoringDays: contract.monitoringDays,
+    recordedDays: contract.recordedDays,
+    days: contract.days,
+    latest: contract.latest,
+    records: contract.records,
+    totals: contract.totals,
+    cost: contract.totals.cost,
+    views: contract.totals.views,
+    likes: contract.totals.likes,
+    comments: contract.totals.comments,
+    shares: contract.totals.shares,
+    salesAed: contract.totals.salesAed,
+    netProfitAed: contract.totals.netProfitAed,
+    saves: contract.totals.saves,
+    storyViews: contract.totals.storyViews,
+    engagementRate: contract.averageEngagementRate,
+  }))
+
+  return rows.sort((a, b) => {
+    if (sort.key === 'rank') {
+      const rankA = rankingsByContractId.get(a.id)?.rank ?? Number.MAX_SAFE_INTEGER
+      const rankB = rankingsByContractId.get(b.id)?.rank ?? Number.MAX_SAFE_INTEGER
+      if (rankA !== rankB) return sort.direction === 'asc' ? rankA - rankB : rankB - rankA
+      return String(b.latestDate || '').localeCompare(String(a.latestDate || ''))
+    }
+    if (sort.key === 'date') {
+      const aDate = a.latestDate || a.startDate
+      const bDate = b.latestDate || b.startDate
+      return sort.direction === 'asc'
+        ? String(aDate || '').localeCompare(String(bDate || ''))
+        : String(bDate || '').localeCompare(String(aDate || ''))
+    }
+    if (sort.key === 'influencer') {
+      const aName = influencersById.get(String(a.influencerId))?.name || ''
+      const bName = influencersById.get(String(b.influencerId))?.name || ''
+      return sort.direction === 'asc' ? aName.localeCompare(bName) : bName.localeCompare(aName)
+    }
+    const valueA = a[sort.key as keyof InfluencerContractRow]
+    const valueB = b[sort.key as keyof InfluencerContractRow]
+    if (typeof valueA === 'number' || typeof valueB === 'number') {
+      return sort.direction === 'asc' ? toNumber(valueA) - toNumber(valueB) : toNumber(valueB) - toNumber(valueA)
+    }
+    return sort.direction === 'asc'
+      ? String(valueA || '').localeCompare(String(valueB || ''))
+      : String(valueB || '').localeCompare(String(valueA || ''))
+  })
+}
+
+/**
+ * Rank video contracts by net profit (AED) from each contract's **latest** daily record.
+ * Higher net profit = better rank (1 is best).
+ */
+export function computeContractRankings(
+  contracts: InfluencerContract[] = [],
+): Map<string, InfluencerContractRanking> {
+  const out = new Map<string, InfluencerContractRanking>()
+  if (!Array.isArray(contracts) || contracts.length === 0) return out
+
+  const rows = contracts.map((contract) => {
+    const rec: Partial<InfluencerPerformance> = contract.latest || {}
+    return {
+      contractId: String(contract.id || ''),
+      netProfitAed: toNumber(rec.netProfitAed),
+      latestDate: isoDateSlice(rec.date) || '',
+    }
+  })
+
+  rows.sort((a, b) => {
+    if (b.netProfitAed !== a.netProfitAed) return b.netProfitAed - a.netProfitAed
+    return String(a.latestDate || '').localeCompare(String(b.latestDate || ''))
+  })
+
+  const maxProfit = Math.max(...rows.map((row) => row.netProfitAed), 0)
+
+  rows.forEach((row, index) => {
+    const rank = index + 1
+    const score = row.netProfitAed
+    const score100 = maxProfit > 0
+      ? Math.min(100, Math.max(0, Math.round((row.netProfitAed / maxProfit) * 100)))
+      : 0
+    out.set(row.contractId, {
+      rank,
+      score,
+      score100,
+      contractId: row.contractId,
+    })
+  })
+
+  return out
+}
+
+export function getTopInfluencer(
+  records: InfluencerPerformanceInput[] = [],
+  influencers: InfluencerPerformanceProfile[] = [],
+) {
+  const byId = new Map<string, { influencerId: string; views: number; engagements: number; cost: number }>()
+  records.forEach((record) => {
+    const id = String(record.influencerId || '')
+    const current = byId.get(id) || {
+      influencerId: id,
+      views: 0,
+      engagements: 0,
+      cost: 0,
+    }
+    current.views += toNumber(record.views)
+    current.engagements += toNumber(record.likes) + toNumber(record.comments) + toNumber(record.shares)
+    current.cost += toNumber(record.cost)
+    byId.set(id, current)
+  })
+
+  const top = Array.from(byId.values()).sort((a, b) => b.views - a.views || b.engagements - a.engagements)[0]
+  if (!top) return null
+  const influencer = influencers.find((item) => String(item.id) === String(top.influencerId))
+  return {
+    ...top,
+    name: influencer?.name || 'Unknown influencer',
+    platform: influencer?.platform || 'Instagram',
+  }
+}
+
+export function getDailyTotals(
+  records: InfluencerPerformanceInput[] = [],
+  date = new Date().toISOString().slice(0, 10),
+) {
+  const empty = {
+    views: 0,
+    likes: 0,
+    comments: 0,
+    shares: 0,
+    saves: 0,
+    salesAed: 0,
+    cost: 0,
+  }
+  return records
+    .filter((record) => record.date === date)
+    .reduce((totals, record) => ({
+      views: totals.views + toNumber(record.views),
+      likes: totals.likes + toNumber(record.likes),
+      comments: totals.comments + toNumber(record.comments),
+      shares: totals.shares + toNumber(record.shares),
+      saves: totals.saves + toNumber(record.saves),
+      salesAed: totals.salesAed + toNumber(record.salesAed),
+      cost: totals.cost + toNumber(record.cost),
+    }), empty)
+}
+
+export function getPlatformStats(records: InfluencerPerformanceInput[] = []) {
+  const stats = new Map<string, {
+    platform: string
+    views: number
+    likes: number
+    comments: number
+    shares: number
+    saves: number
+    cost: number
+    records: number
+  }>()
+  records.forEach((record) => {
+    const platform = record.platform || 'Unknown'
+    const current = stats.get(platform) || {
+      platform,
+      views: 0,
+      likes: 0,
+      comments: 0,
+      shares: 0,
+      saves: 0,
+      cost: 0,
+      records: 0,
+    }
+    current.views += toNumber(record.views)
+    current.likes += toNumber(record.likes)
+    current.comments += toNumber(record.comments)
+    current.shares += toNumber(record.shares)
+    current.saves += toNumber(record.saves)
+    current.cost += toNumber(record.cost)
+    current.records += 1
+    stats.set(platform, current)
+  })
+
+  return Array.from(stats.values()).map((item) => ({
+    ...item,
+    engagementRate: calculateEngagementRate(item),
+  }))
+}
+
+export function getHighestEngagementRecord(
+  records: InfluencerPerformanceInput[] = [],
+  influencers: InfluencerPerformanceProfile[] = [],
+) {
+  const record = [...records].sort((a, b) => toNumber(b.engagementRate) - toNumber(a.engagementRate))[0]
+  if (!record) return null
+  const influencer = influencers.find((item) => String(item.id) === String(record.influencerId))
+  return {
+    ...record,
+    influencerName: influencer?.name || 'Unknown influencer',
+  }
+}
+
+export function normalizePerformanceRecord(record: InfluencerPerformanceInput): InfluencerPerformance {
+  const date = isoDateSlice(record.date) || String(record.date || '')
+  const contractStartDate = isoDateSlice(record.contractStartDate || record.date) || record.contractStartDate || date
+  const fromDates = monitoringDaysFromContractDates(contractStartDate, record.contractEndDate)
+  const monitoringDays = clampMonitoringDays(fromDates ?? record.monitoringDays ?? 5)
+  const contractEndDate = isoDateSlice(record.contractEndDate)
+    || contractEndDateFromStartAndDays(contractStartDate, monitoringDays)
+  const contractId = ensurePerformanceContractId({ ...record, contractStartDate, date })
+  const normalized: InfluencerPerformance = {
+    id: String(record.id || ''),
+    influencerId: String(record.influencerId || ''),
+    date,
+    contractId,
+    contractStartDate,
+    contractEndDate,
+    monitoringDays,
+    platform: record.platform,
+    postUrl: record.postUrl,
+    campaignName: record.campaignName,
+    videoTitle: record.videoTitle || record.campaignName || 'Contracted video',
+    views: toNumber(record.views),
+    likes: toNumber(record.likes),
+    comments: toNumber(record.comments),
+    shares: toNumber(record.shares),
+    saves: toNumber(record.saves),
+    salesAed: toNumber(record.salesAed),
+    storyViews: isStoryPosting(record.storyViews) ? 1 : 0,
+    cost: toNumber(record.cost),
+    notes: record.notes,
+    screenshotUrl: record.screenshotUrl,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  }
+  if (record.netProfitAed != null && String(record.netProfitAed).trim() !== '') {
+    normalized.netProfitAed = toNumber(record.netProfitAed)
+  }
+  return {
+    ...normalized,
+    engagementRate: calculateEngagementRate(normalized),
+  }
+}
+
+export function createInfluencerFromAppRecord(
+  record: Influencer,
+  index = 0,
+): InfluencerPerformanceProfile {
+  const platforms = [
+    record.tiktok?.handle && 'TikTok',
+    record.instagram?.handle && 'Instagram',
+    record.snapchat && 'Snapchat',
+    record.youtube?.handle && 'YouTube',
+    record.facebook && 'Facebook',
+  ].filter(Boolean) as string[]
+  const platform = platforms[0] || INFLUENCER_PLATFORMS[index % INFLUENCER_PLATFORMS.length]
+  const username =
+    platform === 'TikTok' ? record.tiktok?.handle :
+      platform === 'YouTube' ? record.youtube?.handle :
+        platform === 'Snapchat' ? record.snapchat :
+          platform === 'Facebook' ? record.facebook :
+            record.instagram?.handle
+
+  return {
+    id: String(record.id),
+    name: record.name || 'Unnamed influencer',
+    platform,
+    username: username || record.instagram?.handle || record.youtube?.handle || '@creator',
+    niche: record.niche || 'Lifestyle',
+    profileImage: resolveInfluencerProfileImageUrl(record),
+    followers: toNumber(record.followersCount),
+    assignedCampaign: record.campaign || record.collaborationType || 'General campaign',
+    status: record.workflowStatus === 'Closed' ? 'Completed' : record.workflowStatus === 'Rejected' ? 'Paused' : 'Active',
+    createdAt: record.createdAt || new Date().toISOString(),
+    updatedAt: record.updatedAt || new Date().toISOString(),
+  }
+}
+
+export const mockInfluencers: InfluencerPerformanceProfile[] = [
+  {
+    id: 'inf-layla',
+    name: 'Layla Noor',
+    platform: 'Instagram',
+    username: '@laylanoor',
+    niche: 'Beauty & lifestyle',
+    profileImage: '',
+    followers: 186000,
+    assignedCampaign: 'Ramadan Glow',
+    status: 'Active',
+    createdAt: '2026-04-01T08:00:00.000Z',
+    updatedAt: '2026-04-30T10:00:00.000Z',
+  },
+  {
+    id: 'inf-omar',
+    name: 'Omar Eats',
+    platform: 'TikTok',
+    username: '@omareats',
+    niche: 'Food reviews',
+    profileImage: '',
+    followers: 412000,
+    assignedCampaign: 'Weekend Brunch',
+    status: 'Active',
+    createdAt: '2026-04-02T08:00:00.000Z',
+    updatedAt: '2026-04-30T11:00:00.000Z',
+  },
+  {
+    id: 'inf-mira',
+    name: 'Mira Studio',
+    platform: 'YouTube',
+    username: '@mirastudio',
+    niche: 'Home & decor',
+    profileImage: '',
+    followers: 97000,
+    assignedCampaign: 'Spring Home Edit',
+    status: 'Paused',
+    createdAt: '2026-04-03T08:00:00.000Z',
+    updatedAt: '2026-04-29T12:00:00.000Z',
+  },
+  {
+    id: 'inf-sara',
+    name: 'Sara Fit',
+    platform: 'Snapchat',
+    username: '@sarafit',
+    niche: 'Fitness',
+    profileImage: '',
+    followers: 251000,
+    assignedCampaign: 'Active May',
+    status: 'Completed',
+    createdAt: '2026-04-04T08:00:00.000Z',
+    updatedAt: '2026-04-28T12:00:00.000Z',
+  },
+]
+
+export function createMockPerformanceRecords(
+  influencers: InfluencerPerformanceProfile[] = mockInfluencers,
+): InfluencerPerformance[] {
+  const today = new Date()
+  const day = (offsetFromToday: number) => {
+    const date = new Date(today)
+    date.setDate(today.getDate() - offsetFromToday)
+    return date.toISOString().slice(0, 10)
+  }
+
+  return influencers.slice(0, 6).flatMap((influencer, influencerIndex) => (
+    [0, 1, 2, 3, 4].map((dayIndex) => {
+      const contractStartDate = day(4)
+      const recordDate = addDays(contractStartDate, dayIndex)
+      const views = 42000 + influencerIndex * 17500 + dayIndex * 6300
+      const likes = Math.round(views * (0.045 + influencerIndex * 0.006))
+      const comments = Math.round(views * 0.0045)
+      const shares = Math.round(views * 0.003)
+      const record: InfluencerPerformanceInput = {
+        id: `perf-${influencer.id}-${dayIndex}`,
+        contractId: `contract-${influencer.id}-${contractStartDate}`,
+        influencerId: influencer.id,
+        date: recordDate,
+        platform: influencer.platform,
+        postUrl: `https://example.com/${influencer.username.replace('@', '')}/weekly-video`,
+        campaignName: influencer.assignedCampaign,
+        contractStartDate,
+        monitoringDays: 5,
+        views,
+        likes,
+        comments,
+        shares,
+        salesAed: 0,
+        engagementRate: 0,
+        cost: 1200 + influencerIndex * 450,
+        notes: dayIndex === 0 ? 'Day 1 baseline after upload.' : '',
+        screenshotUrl: '',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+      return normalizePerformanceRecord(record)
+    })
+  ))
+}
