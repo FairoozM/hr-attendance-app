@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  BadgeDollarSign,
   Camera,
   CalendarDays,
   Crown,
@@ -14,7 +15,6 @@ import {
   ShoppingBag,
   Trash2,
   TrendingUp,
-  WalletCards,
 } from 'lucide-react'
 import { formatNumber } from '../../utils/influencerPerformanceUtils'
 import { fmtISO } from '../../utils/dateFormat'
@@ -166,7 +166,7 @@ function RankingMetricIcon({ metric, size = 14 }: { metric: TableColumnKey; size
   switch (metric) {
     case 'date': return <CalendarDays {...props} />
     case 'influencer': return <Camera {...props} />
-    case 'cost': return <WalletCards {...props} />
+    case 'cost': return <BadgeDollarSign {...props} />
     case 'views': return <Eye {...props} />
     case 'likes': return <Heart {...props} />
     case 'comments': return <MessageSquare {...props} />
@@ -516,13 +516,6 @@ export function InfluencerPerformanceTable({
 
       {showRankingSummary && rankingTotals ? (
         <div className="ip-ranking-totals" aria-label="Ranking totals for visible rows">
-          <div className="ip-ranking-totals__item" data-metric="cost">
-            <span className="ip-ranking-totals__icon"><WalletCards size={18} aria-hidden /></span>
-            <span className="ip-ranking-totals__copy">
-              <span className="ip-ranking-totals__label">Total Cost</span>
-              <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.cost, { currency: 'AED' })}</strong>
-            </span>
-          </div>
           <div className="ip-ranking-totals__item" data-metric="views">
             <span className="ip-ranking-totals__icon"><Eye size={18} aria-hidden /></span>
             <span className="ip-ranking-totals__copy">
@@ -549,6 +542,13 @@ export function InfluencerPerformanceTable({
             <span className="ip-ranking-totals__copy">
               <span className="ip-ranking-totals__label">Total Shares</span>
               <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.shares)}</strong>
+            </span>
+          </div>
+          <div className="ip-ranking-totals__item" data-metric="cost">
+            <span className="ip-ranking-totals__icon"><BadgeDollarSign size={18} aria-hidden /></span>
+            <span className="ip-ranking-totals__copy">
+              <span className="ip-ranking-totals__label">Total Influencer Cost</span>
+              <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.cost, { currency: 'AED' })}</strong>
             </span>
           </div>
           <div className="ip-ranking-totals__item" data-metric="sales">
