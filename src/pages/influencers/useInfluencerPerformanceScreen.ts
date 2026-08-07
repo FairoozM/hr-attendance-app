@@ -21,7 +21,15 @@ import {
   pruneTombstones,
   saveRecords,
 } from './influencerPerformanceScreenShared'
-import { fmtISO } from '../../utils/dateFormat'
+import {
+  filterRankingRowsByDatePreset,
+  type InfluencerPerformanceRankingDatePreset,
+} from './influencerPerformanceRankingUtils'
+import {
+  readPerformanceSection,
+  writePerformanceSection,
+  type InfluencerPerformanceSection,
+} from './influencerPerformanceSections'
 import type {
   InfluencerContract,
   InfluencerContractRow,
@@ -63,41 +71,6 @@ function parseBulkUpsertResponse(data: unknown): InfluencerPerformanceBulkUpsert
   }
 }
 
-function getContractIsoSpan(contract: Partial<InfluencerContractRow> | Partial<InfluencerContract> | null | undefined) {
-  const startDate =
-    contract && 'startDate' in contract && typeof contract.startDate === 'string'
-      ? contract.startDate
-      : ''
-  const start = fmtISO(contract?.contractStartDate || startDate || '')
-  const end = fmtISO(contract?.latest?.date || contract?.latestDate || contract?.contractStartDate || '')
-  const s = start || end
-  const e = end || start
-  if (!s && !e) return null
-  return s <= e ? { start: s, end: e } : { start: e, end: s }
-}
-
-/** Inclusive overlap: contract window vs optional filter from/to (YYYY-MM-DD). */
-function contractMatchesDateFilter(
-  contract: InfluencerContractRow,
-  filterFrom: string,
-  filterTo: string,
-): boolean {
-  const hasFilter = Boolean(filterFrom || filterTo)
-  const span = getContractIsoSpan(contract)
-  if (!span) return !hasFilter
-  if (!hasFilter) return true
-  if (filterFrom && !filterTo) return span.end >= filterFrom
-  if (!filterFrom && filterTo) return span.start <= filterTo
-  let lo = filterFrom
-  let hi = filterTo
-  if (lo && hi && lo > hi) {
-    const t = lo
-    lo = hi
-    hi = t
-  }
-  return span.start <= hi && span.end >= lo
-}
-
 export function useInfluencerPerformanceScreen() {
   const { user, loading: authLoading } = useAuth()
   const userRef = useRef(user)
@@ -115,10 +88,12 @@ export function useInfluencerPerformanceScreen() {
   const [isAddRecordOpen, setIsAddRecordOpen] = useState(false)
   const [activeMonitorContractId, setActiveMonitorContractId] = useState<string | number | null>(null)
   const [contractTimelineQuery, setContractTimelineQuery] = useState('')
-  const [tableDateFrom, setTableDateFrom] = useState('')
-  const [tableDateTo, setTableDateTo] = useState('')
+  const [rankingDatePreset, setRankingDatePreset] = useState<InfluencerPerformanceRankingDatePreset>('all_time')
+  const [rankingCustomFrom, setRankingCustomFrom] = useState('')
+  const [rankingCustomTo, setRankingCustomTo] = useState('')
   const contractTimelineAnchorRef = useRef<HTMLDivElement | null>(null)
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeSection = readPerformanceSection(searchParams)
   const canWritePerformance = canMutateInfluencerPerformance(user)
   const showNetProfitColumn = canViewInfluencerPerformanceNetProfit(user)
 
@@ -243,7 +218,14 @@ export function useInfluencerPerformanceScreen() {
     const contractFromUrl = searchParams.get('contract')
     if (!contractFromUrl) return
     setActiveMonitorContractId(contractFromUrl)
-  }, [searchParams])
+    if (readPerformanceSection(searchParams) !== 'timeline') {
+      setSearchParams(writePerformanceSection(searchParams, 'timeline'), { replace: true })
+    }
+  }, [searchParams, setSearchParams])
+
+  const setActiveSection = useCallback((section: InfluencerPerformanceSection) => {
+    setSearchParams(writePerformanceSection(searchParams, section), { replace: false })
+  }, [searchParams, setSearchParams])
 
   const influencerFilterId = searchParams.get('influencer') || ''
   const addFromUrl = searchParams.get('add') === '1'
@@ -276,11 +258,8 @@ export function useInfluencerPerformanceScreen() {
     if (influencerFilterId) {
       list = list.filter((row) => String(row.influencerId) === String(influencerFilterId))
     }
-    const from = fmtISO(tableDateFrom)
-    const to = fmtISO(tableDateTo)
-    if (!from && !to) return list
-    return list.filter((row) => contractMatchesDateFilter(row, from, to))
-  }, [contractRowsAll, tableDateFrom, tableDateTo, influencerFilterId])
+    return filterRankingRowsByDatePreset(list, rankingDatePreset, rankingCustomFrom, rankingCustomTo)
+  }, [contractRowsAll, rankingDatePreset, rankingCustomFrom, rankingCustomTo, influencerFilterId])
 
   const activeMonitorContracts = useMemo(() => (
     activeMonitorContractId
@@ -304,15 +283,20 @@ export function useInfluencerPerformanceScreen() {
     })
   }, [contractTimelineQuery, videoContracts])
 
-  function toggleActiveMonitorContract(contract: InfluencerContract | InfluencerContractRow | null | undefined) {
-    if (!contract?.id) return
-    const isSameContract = String(activeMonitorContractId || '') === String(contract.id)
-    setActiveMonitorContractId(isSameContract ? null : contract.id)
+  function openTimelineSection() {
+    setActiveSection('timeline')
     requestAnimationFrame(() => {
       setTimeout(() => {
         contractTimelineAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }, 80)
     })
+  }
+
+  function toggleActiveMonitorContract(contract: InfluencerContract | InfluencerContractRow | null | undefined) {
+    if (!contract?.id) return
+    const isSameContract = String(activeMonitorContractId || '') === String(contract.id)
+    setActiveMonitorContractId(isSameContract ? null : contract.id)
+    if (!isSameContract) openTimelineSection()
   }
 
   function handleSort(key: string) {
@@ -330,11 +314,7 @@ export function useInfluencerPerformanceScreen() {
   function handlePodiumSelectContract(contract: InfluencerContract | null | undefined) {
     if (!contract?.influencerId) return
     setActiveMonitorContractId(contract.id || null)
-    requestAnimationFrame(() => {
-      setTimeout(() => {
-        contractTimelineAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }, 80)
-    })
+    openTimelineSection()
   }
 
   function handleSortPreset(value: string) {
@@ -443,13 +423,17 @@ export function useInfluencerPerformanceScreen() {
     setActiveMonitorContractId,
     contractTimelineQuery,
     setContractTimelineQuery,
-    tableDateFrom,
-    setTableDateFrom,
-    tableDateTo,
-    setTableDateTo,
+    rankingDatePreset,
+    setRankingDatePreset,
+    rankingCustomFrom,
+    setRankingCustomFrom,
+    rankingCustomTo,
+    setRankingCustomTo,
     contractsTotal,
     contractTimelineOptions,
     contractTimelineAnchorRef,
+    activeSection,
+    setActiveSection,
     canWritePerformance,
     showNetProfitColumn,
     allRecords,

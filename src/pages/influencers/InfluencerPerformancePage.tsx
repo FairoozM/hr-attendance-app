@@ -9,6 +9,12 @@ import { useAuth, canMutateInfluencerPerformance } from '../../contexts/AuthCont
 import type { InfluencerContractRow } from '../../types/influencer'
 import { useInfluencerPerformanceScreen } from './useInfluencerPerformanceScreen'
 import { influencerProfileUrl } from './influencerPaymentsRoiUtils'
+import {
+  INFLUENCER_PERFORMANCE_SECTION_LABELS,
+  INFLUENCER_PERFORMANCE_SECTIONS,
+  isPerformanceSectionActive,
+  type InfluencerPerformanceSection,
+} from './influencerPerformanceSections'
 import './influencers.css'
 import './InfluencerPerformancePage.css'
 import './InfluencerContracts.css'
@@ -41,13 +47,17 @@ function InfluencerPerformancePageBody() {
     setActiveMonitorContractId,
     contractTimelineQuery,
     setContractTimelineQuery,
-    tableDateFrom,
-    setTableDateFrom,
-    tableDateTo,
-    setTableDateTo,
+    rankingDatePreset,
+    setRankingDatePreset,
+    rankingCustomFrom,
+    setRankingCustomFrom,
+    rankingCustomTo,
+    setRankingCustomTo,
     contractsTotal,
     contractTimelineOptions,
     contractTimelineAnchorRef,
+    activeSection,
+    setActiveSection,
     canWritePerformance,
     showNetProfitColumn,
     filteredContracts,
@@ -76,7 +86,7 @@ function InfluencerPerformancePageBody() {
     : undefined
 
   return (
-    <div className="inf-page ip-page ip-performance-layout">
+    <div className="ip-page ip-performance-layout">
       {filteredInfluencer ? (
         <div className="inf-contracts__filter-banner">
           <UserRound size={14} aria-hidden />
@@ -131,60 +141,81 @@ function InfluencerPerformancePageBody() {
         </button>
       </header>
 
-      <div className="ip-performance-desktop-only">
-        <InfluencerLeaderboardPodium
-          videoContracts={videoContracts}
-          rankingsByContractId={rankingsByContractId}
-          onSelectContract={handlePodiumSelectContract}
-        />
+      <nav className="ip-performance-section-nav" aria-label="Performance sections">
+        {INFLUENCER_PERFORMANCE_SECTIONS.map((section: InfluencerPerformanceSection) => (
+          <button
+            key={section}
+            type="button"
+            className={`ip-performance-section-nav__btn ${isPerformanceSectionActive(activeSection, section) ? 'ip-performance-section-nav__btn--active' : ''}`}
+            aria-current={isPerformanceSectionActive(activeSection, section) ? 'page' : undefined}
+            onClick={() => setActiveSection(section)}
+          >
+            {INFLUENCER_PERFORMANCE_SECTION_LABELS[section]}
+          </button>
+        ))}
+      </nav>
 
-        <InfluencerPerformanceTable
-          records={filteredContracts}
-          influencersById={influencersById}
-          rankingsByContractId={rankingsByContractId}
-          showNetProfitColumn={showNetProfitColumn}
-          sort={sort}
-          onSort={handleSort}
-          dateFrom={tableDateFrom}
-          dateTo={tableDateTo}
-          onDateFromChange={setTableDateFrom}
-          onDateToChange={setTableDateTo}
-          onClearTableDates={() => {
-            setTableDateFrom('')
-            setTableDateTo('')
-          }}
-          totalContracts={contractsTotal}
-          onEdit={canWritePerformance ? (row) => row?.latest && setEditingRecord(row.latest) : undefined}
-          onDelete={canWritePerformance ? (contractId) => {
-            const row = filteredContracts.find((item) => String(item.id) === String(contractId))
-            const sortedRecords = [...(row?.records || [])]
-              .filter((r): r is NonNullable<typeof r> => Boolean(r && r.id))
-              .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')))
-            const rid = row?.latest?.id || sortedRecords[sortedRecords.length - 1]?.id
-            if (rid) handleDelete(rid)
-          } : undefined}
-          activeMonitorInfluencerId={activeMonitorContractId}
-          onToggleMonitor={(_influencerId, row: InfluencerContractRow) => toggleActiveMonitorContract(row)}
-          onInfluencerClick={(influencerId) => navigate(influencerProfileUrl(influencerId))}
-        />
-      </div>
+      {isPerformanceSectionActive(activeSection, 'leaderboard') ? (
+        <div className="ip-performance-desktop-only">
+          <InfluencerLeaderboardPodium
+            videoContracts={videoContracts}
+            rankingsByContractId={rankingsByContractId}
+            onSelectContract={handlePodiumSelectContract}
+          />
+        </div>
+      ) : null}
 
-      <InfluencerPerformanceContractPanel
-        contractTimelineAnchorRef={contractTimelineAnchorRef}
-        contractTimelineQuery={contractTimelineQuery}
-        onContractTimelineQueryChange={setContractTimelineQuery}
-        contractTimelineOptions={contractTimelineOptions}
-        activeMonitorContractId={activeMonitorContractId}
-        onSelectContract={setActiveMonitorContractId}
-        activeMonitorContracts={activeMonitorContracts}
-        canWritePerformance={canWritePerformance}
-        onOpenAddRecord={openAddRecord}
-        showAddRecordInHeading
-        onEditRecord={canWritePerformance ? setEditingRecord : undefined}
-        onDeleteRecord={canWritePerformance ? handleDelete : undefined}
-        onSaveRecord={canWritePerformance ? handleSubmit : undefined}
-        onSetEditingContract={canWritePerformance ? setEditingContract : undefined}
-      />
+      {isPerformanceSectionActive(activeSection, 'ranking') ? (
+        <div className="ip-performance-desktop-only">
+          <InfluencerPerformanceTable
+            records={filteredContracts}
+            influencersById={influencersById}
+            rankingsByContractId={rankingsByContractId}
+            showNetProfitColumn={showNetProfitColumn}
+            sort={sort}
+            onSort={handleSort}
+            datePreset={rankingDatePreset}
+            onDatePresetChange={setRankingDatePreset}
+            rankingCustomFrom={rankingCustomFrom}
+            rankingCustomTo={rankingCustomTo}
+            onRankingCustomFromChange={setRankingCustomFrom}
+            onRankingCustomToChange={setRankingCustomTo}
+            totalContracts={contractsTotal}
+            showRankingSummary
+            onEdit={canWritePerformance ? (row) => row?.latest && setEditingRecord(row.latest) : undefined}
+            onDelete={canWritePerformance ? (contractId) => {
+              const row = filteredContracts.find((item) => String(item.id) === String(contractId))
+              const sortedRecords = [...(row?.records || [])]
+                .filter((r): r is NonNullable<typeof r> => Boolean(r && r.id))
+                .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')))
+              const rid = row?.latest?.id || sortedRecords[sortedRecords.length - 1]?.id
+              if (rid) handleDelete(rid)
+            } : undefined}
+            activeMonitorInfluencerId={activeMonitorContractId}
+            onToggleMonitor={(_influencerId, row: InfluencerContractRow) => toggleActiveMonitorContract(row)}
+            onInfluencerClick={(influencerId) => navigate(influencerProfileUrl(influencerId))}
+          />
+        </div>
+      ) : null}
+
+      {isPerformanceSectionActive(activeSection, 'timeline') ? (
+        <InfluencerPerformanceContractPanel
+          contractTimelineAnchorRef={contractTimelineAnchorRef}
+          contractTimelineQuery={contractTimelineQuery}
+          onContractTimelineQueryChange={setContractTimelineQuery}
+          contractTimelineOptions={contractTimelineOptions}
+          activeMonitorContractId={activeMonitorContractId}
+          onSelectContract={setActiveMonitorContractId}
+          activeMonitorContracts={activeMonitorContracts}
+          canWritePerformance={canWritePerformance}
+          onOpenAddRecord={openAddRecord}
+          showAddRecordInHeading
+          onEditRecord={canWritePerformance ? setEditingRecord : undefined}
+          onDeleteRecord={canWritePerformance ? handleDelete : undefined}
+          onSaveRecord={canWritePerformance ? handleSubmit : undefined}
+          onSetEditingContract={canWritePerformance ? setEditingContract : undefined}
+        />
+      ) : null}
 
       <InfluencerPerformanceModals
         influencers={influencers}

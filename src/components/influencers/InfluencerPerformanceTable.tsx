@@ -18,6 +18,11 @@ import {
   winnerPillMod,
   WINNER_TITLE,
 } from './influencerPerformanceTableShared'
+import {
+  PERFORMANCE_RANKING_DATE_PRESETS,
+  sumPerformanceRankingTotals,
+  type InfluencerPerformanceRankingDatePreset,
+} from '../../pages/influencers/influencerPerformanceRankingUtils'
 
 const AMOUNT_COLUMN_KEYS = new Set<InfluencerMetricBestField>(['cost', 'salesAed', 'netProfitAed'])
 
@@ -47,12 +52,14 @@ interface InfluencerPerformanceTableProps {
   headerAction?: ReactNode
   activeMonitorInfluencerId?: string | number | null
   onToggleMonitor: (influencerId: string | number | undefined, row: InfluencerContractRow) => void
-  dateFrom?: string
-  dateTo?: string
-  onDateFromChange?: (value: string) => void
-  onDateToChange?: (value: string) => void
-  onClearTableDates?: () => void
+  datePreset?: InfluencerPerformanceRankingDatePreset
+  onDatePresetChange?: (preset: InfluencerPerformanceRankingDatePreset) => void
+  rankingCustomFrom?: string
+  rankingCustomTo?: string
+  onRankingCustomFromChange?: (value: string) => void
+  onRankingCustomToChange?: (value: string) => void
   totalContracts?: number
+  showRankingSummary?: boolean
 }
 
 interface MetricCellProps {
@@ -270,12 +277,14 @@ export function InfluencerPerformanceTable({
   headerAction,
   activeMonitorInfluencerId,
   onToggleMonitor,
-  dateFrom = '',
-  dateTo = '',
-  onDateFromChange,
-  onDateToChange,
-  onClearTableDates,
+  datePreset = 'all_time',
+  onDatePresetChange,
+  rankingCustomFrom = '',
+  rankingCustomTo = '',
+  onRankingCustomFromChange,
+  onRankingCustomToChange,
   totalContracts,
+  showRankingSummary = false,
 }: InfluencerPerformanceTableProps) {
   const [rowMenu, setRowMenu] = useState<RowMenuState>(CLOSED_ROW_MENU)
 
@@ -346,7 +355,11 @@ export function InfluencerPerformanceTable({
   const metricKeys = useMemo(() => metricColumnKeySet(showNetProfitColumn), [showNetProfitColumn])
   const bests = useMetricBests(records, showNetProfitColumn)
   const total = totalContracts != null ? totalContracts : records.length
-  const hasTableDateFilter = Boolean(dateFrom || dateTo)
+  const hasDateFilter = datePreset !== 'all_time'
+  const rankingTotals = useMemo(
+    () => (showRankingSummary ? sumPerformanceRankingTotals(records) : null),
+    [records, showRankingSummary],
+  )
 
   const openMenuRecord = useMemo(
     () => (rowMenu.openId ? records.find((r) => String(r.id) === String(rowMenu.openId)) : null),
@@ -411,15 +424,17 @@ export function InfluencerPerformanceTable({
           <span className="ip-section-heading__icon"><Eye size={18} /></span>
           <div>
             <h2>Influencers Performance Ranking</h2>
-            {hasTableDateFilter ? (
+            {hasDateFilter ? (
               <p className="ip-table-card__filter-summary" role="status">
                 Showing <strong>{records.length}</strong> of <strong>{total}</strong> contracts
-                {dateFrom && dateTo ? (
-                  <> for {fmtDMY(dateFrom)} – {fmtDMY(dateTo)}</>
-                ) : dateFrom ? (
-                  <> from {fmtDMY(dateFrom)}</>
+                {datePreset === 'custom' && rankingCustomFrom && rankingCustomTo ? (
+                  <> for {fmtDMY(rankingCustomFrom)} – {fmtDMY(rankingCustomTo)}</>
+                ) : datePreset === 'custom' && rankingCustomFrom ? (
+                  <> from {fmtDMY(rankingCustomFrom)}</>
+                ) : datePreset === 'custom' && rankingCustomTo ? (
+                  <> through {fmtDMY(rankingCustomTo)}</>
                 ) : (
-                  <> through {fmtDMY(dateTo)}</>
+                  <> ({PERFORMANCE_RANKING_DATE_PRESETS.find((item) => item.id === datePreset)?.label || 'Filtered'})</>
                 )}
                 .
               </p>
@@ -427,38 +442,80 @@ export function InfluencerPerformanceTable({
           </div>
         </div>
         <div className="ip-table-card__heading-toolbar">
-          <div className="ip-table-card__heading-filters" role="group" aria-label="Filter ranking by contract dates">
-            <label className="ip-field ip-field--inline">
-              <span>From</span>
-              <input
-                className="ip-control"
-                type="date"
-                value={dateFrom}
-                onChange={(e) => onDateFromChange?.(e.target.value)}
-              />
-            </label>
-            <label className="ip-field ip-field--inline">
-              <span>To</span>
-              <input
-                className="ip-control"
-                type="date"
-                value={dateTo}
-                onChange={(e) => onDateToChange?.(e.target.value)}
-              />
-            </label>
-            {hasTableDateFilter ? (
-              <button
-                type="button"
-                className="inf-btn inf-btn--ghost inf-btn--xs ip-table-card__clear-dates"
-                onClick={() => onClearTableDates?.()}
-              >
-                Clear dates
-              </button>
+          <div className="ip-table-card__heading-filters ip-ranking-date-filters" role="group" aria-label="Filter ranking by time period">
+            <div className="ip-ranking-date-filters__presets">
+              {PERFORMANCE_RANKING_DATE_PRESETS.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className={`inf-chip ${datePreset === preset.id ? 'inf-chip--active' : ''}`}
+                  onClick={() => onDatePresetChange?.(preset.id)}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+            {datePreset === 'custom' ? (
+              <div className="ip-ranking-date-filters__custom">
+                <label className="ip-field ip-field--inline">
+                  <span>From</span>
+                  <input
+                    className="ip-control"
+                    type="date"
+                    value={rankingCustomFrom}
+                    onChange={(e) => onRankingCustomFromChange?.(e.target.value)}
+                  />
+                </label>
+                <label className="ip-field ip-field--inline">
+                  <span>To</span>
+                  <input
+                    className="ip-control"
+                    type="date"
+                    value={rankingCustomTo}
+                    onChange={(e) => onRankingCustomToChange?.(e.target.value)}
+                  />
+                </label>
+              </div>
             ) : null}
           </div>
           {headerAction ? <div className="ip-table-card__heading-action">{headerAction}</div> : null}
         </div>
       </div>
+
+      {showRankingSummary && rankingTotals ? (
+        <div className="ip-ranking-totals" aria-label="Ranking totals for visible rows">
+          <div className="ip-ranking-totals__item">
+            <span className="ip-ranking-totals__label">Total Cost</span>
+            <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.cost, { currency: 'AED' })}</strong>
+          </div>
+          <div className="ip-ranking-totals__item">
+            <span className="ip-ranking-totals__label">Total Views</span>
+            <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.views)}</strong>
+          </div>
+          <div className="ip-ranking-totals__item">
+            <span className="ip-ranking-totals__label">Total Likes</span>
+            <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.likes)}</strong>
+          </div>
+          <div className="ip-ranking-totals__item">
+            <span className="ip-ranking-totals__label">Total Comments</span>
+            <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.comments)}</strong>
+          </div>
+          <div className="ip-ranking-totals__item">
+            <span className="ip-ranking-totals__label">Total Shares</span>
+            <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.shares)}</strong>
+          </div>
+          <div className="ip-ranking-totals__item">
+            <span className="ip-ranking-totals__label">Total Sales</span>
+            <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.salesAed, { currency: 'AED' })}</strong>
+          </div>
+          {showNetProfitColumn ? (
+            <div className="ip-ranking-totals__item">
+              <span className="ip-ranking-totals__label">Total Net Profit</span>
+              <strong className="ip-ranking-totals__value">{formatNumber(rankingTotals.netProfitAed, { currency: 'AED' })}</strong>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="inf-table-wrap ip-table-wrap">
         <table className="inf-table ip-table">
@@ -543,6 +600,27 @@ export function InfluencerPerformanceTable({
               )
             })}
           </tbody>
+          {showRankingSummary && rankingTotals && records.length > 0 ? (
+            <tfoot>
+              <tr className="ip-table__total-row">
+                <td className="ip-table__col--metric ip-table__col--rank"><strong>TOTAL</strong></td>
+                <td />
+                <td />
+                <td className="ip-table__col--metric ip-table__col--amount"><strong>{formatNumber(rankingTotals.cost, { currency: 'AED' })}</strong></td>
+                <td className="ip-table__col--metric"><strong>{formatNumber(rankingTotals.views)}</strong></td>
+                <td className="ip-table__col--metric"><strong>{formatNumber(rankingTotals.likes)}</strong></td>
+                <td className="ip-table__col--metric"><strong>{formatNumber(rankingTotals.comments)}</strong></td>
+                <td className="ip-table__col--metric"><strong>{formatNumber(rankingTotals.shares)}</strong></td>
+                <td className="ip-table__col--metric ip-table__col--amount"><strong>{formatNumber(rankingTotals.salesAed, { currency: 'AED' })}</strong></td>
+                {showNetProfitColumn ? (
+                  <td className="ip-table__col--metric ip-table__col--amount ip-table__col--netprofit">
+                    <strong>{formatNumber(rankingTotals.netProfitAed, { currency: 'AED' })}</strong>
+                  </td>
+                ) : null}
+                <td className="ip-table__col--actions ip-table__col--actions-compact" />
+              </tr>
+            </tfoot>
+          ) : null}
         </table>
       </div>
       {rowMenuPortal}
