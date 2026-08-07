@@ -619,6 +619,8 @@
   border-radius: 26px;
   padding: 1.15rem;
   margin-bottom: 1.25rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .ip-contract-pin-panel {
@@ -2348,14 +2350,31 @@
 
 .ip-table-wrap {
   border-radius: 22px;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Ranking table: fixed layout fits desktop; min-width enables in-card scroll on narrow viewports. */
+.ip-table.inf-table {
+  width: 100%;
+  min-width: 59rem;
+  table-layout: fixed;
 }
 
 .ip-table th,
 .ip-table td {
   font-size: 0.76rem;
-  padding: 0.5rem 0.65rem;
+  padding: 0.5rem 0.45rem;
   text-align: center;
   vertical-align: middle;
+}
+
+.ip-table th.ip-table__col--metric,
+.ip-table td.ip-table__col--metric {
+  padding-left: 0.35rem;
+  padding-right: 0.35rem;
 }
 
 .ip-table thead th {
@@ -2372,9 +2391,33 @@
   text-align: right;
 }
 
+.ip-table th[data-col='rank'],
+.ip-table td.ip-table__col--rank {
+  width: 3.25rem;
+}
+
+.ip-table th[data-col='date'],
+.ip-table td:has(.ip-table__contract-dates) {
+  width: 7.5rem;
+}
+
 .ip-table th[data-col='influencer'],
 .ip-table td.ip-table__col--influencer {
+  width: 10rem;
+  min-width: 0;
   text-align: left;
+}
+
+.ip-table th[data-col='cost'],
+.ip-table th[data-col='views'],
+.ip-table th[data-col='likes'],
+.ip-table th[data-col='comments'],
+.ip-table th[data-col='shares'] {
+  width: 4.75rem;
+}
+
+.ip-table th[data-col='salesAed'] {
+  width: 5.75rem;
 }
 
 .ip-table td.ip-table__col--influencer .ip-table__influencer-cell {
@@ -2649,7 +2692,8 @@
   display: inline-flex;
   flex-direction: column;
   gap: 0.18rem;
-  min-width: 8.25rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .ip-table__contract-dates strong {
@@ -3794,10 +3838,10 @@
   color: #38bdf8;
 }
 
-.ip-table th[data-col="netProfitAed"],
+.ip-table th[data-col='netProfitAed'],
 .ip-table td.ip-table__col--netprofit {
-  min-width: 6.5rem;
-  max-width: 8.5rem;
+  width: 6.25rem;
+  min-width: 6.25rem;
   white-space: nowrap;
 }
 
