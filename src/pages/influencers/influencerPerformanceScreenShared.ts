@@ -10,6 +10,12 @@ import type { InfluencerPerformance, InfluencerPerformanceInput } from '../../ty
 /** Cap contract-search results in performance timeline panels (desktop + phone). */
 export const CONTRACT_TIMELINE_RESULTS_CAP = 60
 
+export function addContractUrl(influencerId?: string): string {
+  const base = '/influencers/performance?add=1'
+  if (!influencerId || influencerId === 'all') return base
+  return `${base}&influencer=${encodeURIComponent(influencerId)}`
+}
+
 export const STORAGE_KEY = 'hr-influencer-performance-v1'
 export const TOMBSTONE_KEY = 'hr-influencer-performance-tombstones-v1'
 

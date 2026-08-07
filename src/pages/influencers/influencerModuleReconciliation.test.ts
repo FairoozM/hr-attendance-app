@@ -8,10 +8,6 @@ import {
 } from './influencerAnalyticsUtils'
 import { buildInfluencerDashboardSnapshot } from './influencerDashboardUtils'
 import {
-  buildInfluencerContractListRows,
-  reconcileContractListRow,
-} from './influencerContractsUtils'
-import {
   buildInfluencerPaymentRows,
   summarizePaymentsRoi,
 } from './influencerPaymentsRoiUtils'
@@ -90,7 +86,7 @@ describe('influencer module reconciliation', () => {
     expect(dashboard.totalSales).not.toBe(33000)
   })
 
-  it('keeps dashboard, analytics, profile, contracts, and payments aligned for one influencer', () => {
+  it('keeps dashboard, analytics, profile, and payments aligned for one influencer', () => {
     const payments = [{
       contractId: 'ip-contract::c1::2026-05-01',
       influencerId: 'inf-1',
@@ -122,12 +118,6 @@ describe('influencer module reconciliation', () => {
       payments,
       today: '2026-05-03',
     })
-    const contractRows = buildInfluencerContractListRows({
-      records: cumulativeRecords,
-      roster,
-      payments,
-      today: '2026-05-03',
-    })
     const paymentRows = buildInfluencerPaymentRows({
       records: cumulativeRecords,
       roster,
@@ -141,13 +131,7 @@ describe('influencer module reconciliation', () => {
     expect(reconcileProfileWithAnalytics(profile!, analytics.summary)).toBe(true)
     expect(reconcileProfileWithPayments(profile!)).toBe(true)
 
-    const contractRow = contractRows[0]
-    const dashboardContract = dashboard.contracts[0]
     const paymentRow = paymentRows[0]
-    expect(reconcileContractListRow(contractRow, dashboardContract, paymentRow)).toBe(true)
-
-    expect(contractRow.salesAed).toBe(18000)
-    expect(contractRow.cost).toBe(100)
     expect(paymentRow.contractCost).toBe(100)
     expect(paymentRow.salesAed).toBe(18000)
     expect(summarizePaymentsRoi(paymentRows).totalContractedCost).toBe(100)

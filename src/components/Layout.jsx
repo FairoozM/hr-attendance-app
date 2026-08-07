@@ -422,8 +422,6 @@ export function Layout() {
     if (location.pathname.startsWith('/settings')) return 'Settings'
     if (location.pathname.startsWith('/roles-permissions')) return 'Roles & Permissions'
     if (location.pathname.startsWith('/lists/sim-cards')) return 'Sim Cards List'
-    if (location.pathname.startsWith('/influencers/dashboard')) return 'Dashboard'
-    if (location.pathname.startsWith('/influencers/contracts')) return 'Performance Contracts'
     if (location.pathname.startsWith('/influencers/performance')) return 'Performance'
     if (location.pathname.startsWith('/influencers/list')) return 'Influencer Roster'
     if (location.pathname.startsWith('/influencers/agreements')) return 'Agreements'
@@ -480,8 +478,6 @@ export function Layout() {
   }, [location.pathname])
 
   const INFLUENCER_ITEMS = [
-    can('influencers', 'view') && { label: 'Dashboard', to: '/influencers/dashboard' },
-    can('influencers', 'view') && { label: 'Performance Contracts', to: '/influencers/contracts' },
     can('influencers', 'performance') && { label: 'Performance', to: '/influencers/performance' },
     can('influencers', 'view') && { label: 'Influencer Roster', to: '/influencers/list' },
     can('influencers', 'agreements') && { label: 'Agreements', to: '/influencers/agreements' },

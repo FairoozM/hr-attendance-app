@@ -17,8 +17,10 @@ export function InfluencerModuleLayout() {
   const canAddInfluencer = hasPermission(user, 'influencers', 'manage')
 
   function isTabActive(tabTo: string): boolean {
-    if (tabTo.endsWith('/dashboard')) {
-      return location.pathname === tabTo || location.pathname === '/influencers'
+    if (tabTo.endsWith('/performance')) {
+      return location.pathname === tabTo
+        || location.pathname === '/influencers'
+        || location.pathname.startsWith(`${tabTo}/`)
     }
     return location.pathname === tabTo || location.pathname.startsWith(`${tabTo}/`)
   }
@@ -36,7 +38,7 @@ export function InfluencerModuleLayout() {
               <NavLink
                 key={tab.key}
                 to={tab.to}
-                end={tab.key === 'dashboard'}
+                end={tab.key === 'performance'}
                 className={() => (
                   isTabActive(tab.to) ? 'inf-module-subnav__link inf-module-subnav__link--active' : 'inf-module-subnav__link'
                 )}

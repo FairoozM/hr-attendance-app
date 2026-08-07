@@ -25,7 +25,7 @@ import {
   type InfluencerContractPaymentRow,
 } from './influencerPaymentsRoiUtils'
 import { calculateEngagementRate, toNumber } from '../../utils/influencerPerformanceUtils'
-import { addContractUrl } from './influencerContractsUtils'
+import { addContractUrl } from './influencerPerformanceScreenShared'
 
 export type InfluencerProfileTab =
   | 'overview'
@@ -74,7 +74,6 @@ export function moduleDeepLinks(influencerId: string) {
     profile: `/influencers/${encodeURIComponent(influencerId)}`,
     edit: `/influencers/${encodeURIComponent(influencerId)}/edit`,
     addContract: addContractUrl(influencerId),
-    contracts: `/influencers/contracts?${q}`,
     performance: `/influencers/performance?${q}`,
   }
 }
@@ -160,7 +159,7 @@ export function buildProfileNeedsAttention({
         label: 'Missing finance tracking',
         detail: `${row.contractLabel} has no payment record (Untracked)`,
         tone: 'warning',
-        href: moduleDeepLinks(row.influencerId).contracts,
+        href: moduleDeepLinks(row.influencerId).performance,
       })
     }
   })

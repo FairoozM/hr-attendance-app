@@ -25,8 +25,6 @@ import BulkQuantityAdjustmentPage from './pages/admin/zoho/bulkQuantityAdjustmen
 import { InfluencerListPage } from './pages/influencers/InfluencerListPage'
 import { AddInfluencerPage } from './pages/influencers/AddInfluencerPage'
 import { InfluencerModuleLayout } from './components/influencers/InfluencerModuleLayout'
-import { InfluencerDashboardPage } from './pages/influencers/InfluencerDashboardPage'
-import { InfluencerContractsPage } from './pages/influencers/InfluencerContractsPage'
 import { InfluencerDetailPage } from './pages/influencers/InfluencerDetailPage'
 
 function AdminOnly({ children }) {
@@ -889,17 +887,7 @@ function AppContent() {
         {/* Influencers Module */}
         <Route path="influencers">
           <Route element={<InfluencerModuleLayout />}>
-            <Route index element={<Navigate to="dashboard" replace />} />
-            <Route path="dashboard" element={
-              <PermissionGuard module="influencers" action="view">
-                <InfluencerDashboardPage />
-              </PermissionGuard>
-            } />
-            <Route path="contracts" element={
-              <PermissionGuard module="influencers" action="view">
-                <InfluencerContractsPage />
-              </PermissionGuard>
-            } />
+            <Route index element={<Navigate to="performance" replace />} />
             <Route path="performance" element={
               <PermissionGuard module="influencers" action="performance">
                 <InfluencerPerformancePage />

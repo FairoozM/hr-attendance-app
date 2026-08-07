@@ -151,7 +151,7 @@ export function InfluencerDetailPage() {
         <div className="inf-empty">
           <div className="inf-empty__title">Influencer not found</div>
           <div className="inf-empty__desc">No roster record matches id &quot;{influencerId}&quot;.</div>
-          <Link to="/influencers/dashboard" className="inf-btn inf-btn--ghost inf-btn--xs">Back to dashboard</Link>
+          <Link to="/influencers/performance" className="inf-btn inf-btn--ghost inf-btn--xs">Back to performance</Link>
         </div>
       </section>
     )
@@ -277,8 +277,8 @@ export function InfluencerDetailPage() {
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.65rem', gap: '0.5rem', flexWrap: 'wrap' }}>
             <h2 className="inf-profile__section-title" style={{ margin: 0 }}>All contracts</h2>
             <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-              <Link to={links.contracts} className="inf-btn inf-btn--ghost inf-btn--xs">
-                <ExternalLink size={14} /> Open all contracts
+              <Link to={links.performance} className="inf-btn inf-btn--ghost inf-btn--xs">
+                <ExternalLink size={14} /> Open in Performance
               </Link>
               <Link to={links.addContract} className="inf-btn inf-btn--primary inf-btn--xs"><Plus size={14} /> Add Contract</Link>
             </div>
