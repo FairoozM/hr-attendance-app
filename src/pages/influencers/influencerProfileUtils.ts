@@ -20,7 +20,6 @@ import {
 } from './influencerAnalyticsUtils'
 import {
   buildInfluencerPaymentRows,
-  paymentsUrlForContract,
   performanceContractUrl,
   summarizePaymentsRoi,
   type InfluencerContractPaymentRow,
@@ -32,7 +31,6 @@ export type InfluencerProfileTab =
   | 'overview'
   | 'contracts'
   | 'performance'
-  | 'payments'
   | 'notes'
 
 export type InfluencerProfileAttentionItem = {
@@ -78,8 +76,6 @@ export function moduleDeepLinks(influencerId: string) {
     addContract: addContractUrl(influencerId),
     contracts: `/influencers/contracts?${q}`,
     performance: `/influencers/performance?${q}`,
-    payments: `/influencers/payments?${q}`,
-    analytics: `/influencers/analytics?${q}`,
   }
 }
 
@@ -155,7 +151,7 @@ export function buildProfileNeedsAttention({
         label: 'Overdue tracked payment',
         detail: `${row.contractLabel} · ${row.amountOutstanding.toLocaleString()} AED outstanding`,
         tone: 'danger',
-        href: paymentsUrlForContract(row.contractId),
+        href: performanceContractUrl(row.contractId),
       })
     }
     if (!row.hasPersistedPayment && row.contractCost > 0) {
@@ -164,7 +160,7 @@ export function buildProfileNeedsAttention({
         label: 'Missing finance tracking',
         detail: `${row.contractLabel} has no payment record (Untracked)`,
         tone: 'warning',
-        href: moduleDeepLinks(row.influencerId).payments,
+        href: moduleDeepLinks(row.influencerId).contracts,
       })
     }
   })

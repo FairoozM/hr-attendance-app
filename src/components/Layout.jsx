@@ -425,8 +425,6 @@ export function Layout() {
     if (location.pathname.startsWith('/influencers/dashboard')) return 'Dashboard'
     if (location.pathname.startsWith('/influencers/contracts')) return 'Performance Contracts'
     if (location.pathname.startsWith('/influencers/performance')) return 'Performance'
-    if (location.pathname.startsWith('/influencers/payments')) return 'Payments & ROI'
-    if (location.pathname.startsWith('/influencers/analytics')) return 'Analytics'
     if (location.pathname.startsWith('/influencers/list')) return 'Influencer Roster'
     if (location.pathname.startsWith('/influencers/agreements')) return 'Agreements'
     if (location.pathname.startsWith('/influencers')) return 'Influencers'
@@ -485,10 +483,8 @@ export function Layout() {
     can('influencers', 'view') && { label: 'Dashboard', to: '/influencers/dashboard' },
     can('influencers', 'view') && { label: 'Performance Contracts', to: '/influencers/contracts' },
     can('influencers', 'performance') && { label: 'Performance', to: '/influencers/performance' },
-    can('influencers', 'view') && { label: 'Analytics', to: '/influencers/analytics' },
     can('influencers', 'view') && { label: 'Influencer Roster', to: '/influencers/list' },
     can('influencers', 'agreements') && { label: 'Agreements', to: '/influencers/agreements' },
-    can('influencers', 'payments') && { label: 'Payments & ROI', to: '/influencers/payments' },
   ].filter(Boolean)
 
   const hrItems = [

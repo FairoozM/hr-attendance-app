@@ -11,7 +11,7 @@ import {
   profileEngagementRate,
   type InfluencerProfileTab,
 } from './influencerProfileUtils'
-import { performanceContractUrl, type InfluencerContractPaymentRow } from './influencerPaymentsRoiUtils'
+import { performanceContractUrl } from './influencerPaymentsRoiUtils'
 import type { DashboardContractMetrics } from './influencerDashboardUtils'
 import './influencers.css'
 import './InfluencerDashboard.css'
@@ -21,7 +21,6 @@ const TABS: Array<{ id: InfluencerProfileTab; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'contracts', label: 'Contracts' },
   { id: 'performance', label: 'Performance' },
-  { id: 'payments', label: 'Payments' },
   { id: 'notes', label: 'Notes' },
 ]
 
@@ -111,21 +110,6 @@ function ContractRow({ row, onClick, showNetProfit }: { row: DashboardContractMe
         </span>
       </button>
     </li>
-  )
-}
-
-function PaymentRow({ row, onClick }: { row: InfluencerContractPaymentRow; onClick: () => void }) {
-  return (
-    <tr onClick={onClick} style={{ cursor: 'pointer' }}>
-      <td>{row.contractLabel}</td>
-      <td>{formatAed(row.contractCost)}</td>
-      <td>{formatAed(row.amountPaid)}</td>
-      <td>{row.hasPersistedPayment ? formatAed(row.amountOutstanding) : '—'}</td>
-      <td><span className={payBadge(row.effectiveStatus)}>{row.effectiveStatus}</span></td>
-      <td>{row.dueDate ? fmtDMY(row.dueDate) : '—'}</td>
-      <td>{row.paymentDate ? fmtDMY(row.paymentDate) : '—'}</td>
-      <td>{row.invoiceReference || '—'}</td>
-    </tr>
   )
 }
 
@@ -343,7 +327,6 @@ export function InfluencerDetailPage() {
         <section className="clay-card inf-profile__section">
           <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.65rem' }}>
             <Link to={links.performance} className="inf-btn inf-btn--ghost inf-btn--xs"><ExternalLink size={14} /> Open in Performance</Link>
-            <Link to={links.analytics} className="inf-btn inf-btn--ghost inf-btn--xs"><ExternalLink size={14} /> Open in Analytics</Link>
           </div>
           {snapshot.performancePoints.length === 0 ? (
             <p className="inf-table__muted">No performance data.</p>
@@ -374,43 +357,6 @@ export function InfluencerDetailPage() {
                       <td>{formatAed(row.salesAed)}</td>
                       {showNetProfit ? <><td>{formatAed(row.netProfitAed)}</td><td>{formatPct(row.roi)}</td></> : null}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      ) : null}
-
-      {activeTab === 'payments' ? (
-        <section className="clay-card inf-profile__section">
-          <Link to={links.payments} className="inf-btn inf-btn--ghost inf-btn--xs" style={{ marginBottom: '0.65rem' }}>
-            <ExternalLink size={14} /> Open Payments & ROI
-          </Link>
-          {snapshot.paymentRows.length === 0 ? (
-            <p className="inf-table__muted">No contracts with payment context.</p>
-          ) : (
-            <div className="inf-table-wrap">
-              <table className="inf-table">
-                <thead>
-                  <tr>
-                    <th>Contract</th>
-                    <th>Cost</th>
-                    <th>Paid</th>
-                    <th>Outstanding</th>
-                    <th>Status</th>
-                    <th>Due</th>
-                    <th>Paid on</th>
-                    <th>Invoice</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {snapshot.paymentRows.map((row) => (
-                    <PaymentRow
-                      key={row.contractId}
-                      row={row}
-                      onClick={() => navigate(`${links.payments}&contract=${encodeURIComponent(row.contractId)}`)}
-                    />
                   ))}
                 </tbody>
               </table>

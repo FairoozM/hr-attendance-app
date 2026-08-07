@@ -27,7 +27,6 @@ import { AddInfluencerPage } from './pages/influencers/AddInfluencerPage'
 import { InfluencerModuleLayout } from './components/influencers/InfluencerModuleLayout'
 import { InfluencerDashboardPage } from './pages/influencers/InfluencerDashboardPage'
 import { InfluencerContractsPage } from './pages/influencers/InfluencerContractsPage'
-import { InfluencerAnalyticsPage } from './pages/influencers/InfluencerAnalyticsPage'
 import { InfluencerDetailPage } from './pages/influencers/InfluencerDetailPage'
 
 function AdminOnly({ children }) {
@@ -51,7 +50,6 @@ function AiHubGuard({ children }) {
   if (!allowed) return <Navigate to="/account" replace />
   return children
 }
-import { PaymentsPage } from './pages/influencers/PaymentsPage'
 import { AgreementsPage } from './pages/influencers/AgreementsPage'
 import { InfluencerPerformancePage } from './pages/influencers/InfluencerPerformancePage'
 import { SimCardsPage } from './pages/SimCardsPage'
@@ -905,16 +903,6 @@ function AppContent() {
             <Route path="performance" element={
               <PermissionGuard module="influencers" action="performance">
                 <InfluencerPerformancePage />
-              </PermissionGuard>
-            } />
-            <Route path="payments" element={
-              <PermissionGuard module="influencers" action="payments">
-                <PaymentsPage />
-              </PermissionGuard>
-            } />
-            <Route path="analytics" element={
-              <PermissionGuard module="influencers" action="view">
-                <InfluencerAnalyticsPage />
               </PermissionGuard>
             } />
             <Route path=":influencerId" element={

@@ -3,7 +3,6 @@ import type { ReactNode } from 'react'
 import {
   AlertCircle,
   ArrowRight,
-  BarChart3,
   Plus,
   RefreshCw,
   TrendingDown,
@@ -229,9 +228,6 @@ export function InfluencerDashboardPage() {
           ) : null}
           <Link to="/influencers/list" className="inf-btn inf-btn--ghost inf-btn--xs">View Roster</Link>
           <Link to="/influencers/contracts" className="inf-btn inf-btn--ghost inf-btn--xs">View Contracts</Link>
-          <Link to="/influencers/analytics" className="inf-btn inf-btn--ghost inf-btn--xs">
-            <BarChart3 size={14} aria-hidden /> Analytics
-          </Link>
         </div>
       </div>
 

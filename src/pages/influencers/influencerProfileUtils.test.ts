@@ -377,8 +377,6 @@ describe('influencerProfileUtils', () => {
   it('moduleDeepLinks use influencer query parameter consistently', () => {
     const links = moduleDeepLinks('inf-42')
     expect(links.performance).toBe('/influencers/performance?influencer=inf-42')
-    expect(links.payments).toBe('/influencers/payments?influencer=inf-42')
-    expect(links.analytics).toBe('/influencers/analytics?influencer=inf-42')
     expect(links.contracts).toBe('/influencers/contracts?influencer=inf-42')
     expect(influencerQueryParam('inf-42')).toBe('influencer=inf-42')
   })

@@ -32,7 +32,6 @@ import {
 } from './influencerContractsUtils'
 import {
   influencerProfileUrl,
-  paymentsUrlForContract,
   performanceContractUrl,
 } from './influencerPaymentsRoiUtils'
 import type { InfluencerDashboardDatePreset } from './influencerDashboardUtils'
@@ -164,9 +163,6 @@ function ContractRowActions({
           ) : null}
           <button type="button" className="inf-contracts__menu-item" onClick={() => run(performanceContractUrl(row.contractId))}>
             Open Performance
-          </button>
-          <button type="button" className="inf-contracts__menu-item" onClick={() => run(paymentsUrlForContract(row.contractId))}>
-            Open Payments
           </button>
         </div>
       ) : null}

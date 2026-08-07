@@ -13,8 +13,6 @@ export const INFLUENCER_MODULE_TABS: InfluencerModuleTab[] = [
   { key: 'dashboard', label: 'Dashboard', to: `${INFLUENCER_MODULE_BASE}/dashboard` },
   { key: 'contracts', label: 'Performance Contracts', to: `${INFLUENCER_MODULE_BASE}/contracts` },
   { key: 'performance', label: 'Performance', to: `${INFLUENCER_MODULE_BASE}/performance`, action: 'performance' },
-  { key: 'analytics', label: 'Analytics', to: `${INFLUENCER_MODULE_BASE}/analytics` },
-  { key: 'payments', label: 'Payments & ROI', to: `${INFLUENCER_MODULE_BASE}/payments`, action: 'payments' },
 ]
 
 /** Segments reserved for module tabs — not influencer profile ids. */
@@ -22,8 +20,6 @@ export const INFLUENCER_RESERVED_SEGMENTS = new Set([
   'dashboard',
   'contracts',
   'performance',
-  'payments',
-  'analytics',
   'list',
   'new',
   'agreements',
