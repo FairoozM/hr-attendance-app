@@ -2356,12 +2356,20 @@
   -webkit-overflow-scrolling: touch;
 }
 
-/* Ranking table: fixed layout + proportional columns; min-width enables in-card scroll on narrow viewports. */
+/* Ranking table: colgroup sets fixed metric widths; influencer col absorbs remainder. */
 .ip-table.inf-table {
   width: 100%;
-  min-width: 52rem;
+  min-width: 62rem;
   table-layout: fixed;
 }
+
+.ip-table col.ip-table__col-rank { width: 4rem; }
+.ip-table col.ip-table__col-dates { width: 11.5rem; }
+.ip-table col.ip-table__col-metric-sm { width: 4.25rem; }
+.ip-table col.ip-table__col-metric-md { width: 4.75rem; }
+.ip-table col.ip-table__col-metric-amount { width: 5.5rem; }
+.ip-table col.ip-table__col-metric-net { width: 5.75rem; }
+.ip-table col.ip-table__col-actions { width: 2.75rem; }
 
 .ip-table th,
 .ip-table td {
@@ -2369,6 +2377,7 @@
   padding: 0.5rem 0.45rem;
   text-align: center;
   vertical-align: middle;
+  overflow: hidden;
 }
 
 .ip-table th.ip-table__col--metric,
@@ -2391,54 +2400,21 @@
   text-align: right;
 }
 
-/* Column proportions (sum 100%): text-heavy cols wider, metrics compact. */
 .ip-table th[data-col='rank'],
 .ip-table td.ip-table__col--rank {
-  width: 3%;
-  padding-left: 0.28rem;
-  padding-right: 0.28rem;
+  padding-left: 0.35rem;
+  padding-right: 0.35rem;
 }
 
 .ip-table th[data-col='date'],
-.ip-table td:has(.ip-table__contract-dates) {
-  width: 16%;
+.ip-table td.ip-table__col--dates {
+  text-align: left;
 }
 
 .ip-table th[data-col='influencer'],
 .ip-table td.ip-table__col--influencer {
-  width: 32%;
   min-width: 0;
   text-align: left;
-}
-
-.ip-table th[data-col='cost'] {
-  width: 8%;
-}
-
-.ip-table th[data-col='views'],
-.ip-table th[data-col='likes'],
-.ip-table th[data-col='shares'] {
-  width: 5%;
-}
-
-.ip-table th[data-col='comments'] {
-  width: 5.5%;
-}
-
-.ip-table th[data-col='salesAed'] {
-  width: 9%;
-}
-
-.ip-table th[data-col='netProfitAed'],
-.ip-table td.ip-table__col--netprofit {
-  width: 9%;
-  min-width: 0;
-  white-space: nowrap;
-}
-
-.ip-table th.ip-table__col--actions-compact,
-.ip-table td.ip-table__col--actions-compact {
-  width: 2.5%;
 }
 
 .ip-table td.ip-table__col--influencer .ip-table__influencer-cell {
@@ -2709,11 +2685,12 @@
 }
 
 .ip-table__contract-dates {
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
   gap: 0.18rem;
   min-width: 0;
   max-width: 100%;
+  text-align: left;
 }
 
 .ip-table__contract-dates strong {
@@ -2722,6 +2699,8 @@
   font-weight: 800;
   letter-spacing: -0.01em;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ip-table__contract-dates span {
@@ -3745,10 +3724,12 @@
   scroll-margin-top: 1rem;
 }
 
-/* Compact ⋮ menu (actions open on click) */
-.ip-table .ip-table__col--actions-compact {
-  min-width: 2.5rem;
-  max-width: 2.75rem;
+.ip-table td.ip-table__col--netprofit {
+  white-space: nowrap;
+}
+
+.ip-table th.ip-table__col--actions-compact,
+.ip-table td.ip-table__col--actions-compact {
   padding-left: 0.2rem;
   padding-right: 0.2rem;
 }

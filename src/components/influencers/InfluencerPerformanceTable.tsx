@@ -255,12 +255,30 @@ function ContractDatesCell({ record }: ContractDatesCellProps) {
   const dateText = compactContractDateRange(start, latest)
   const dayText = `${record.recordedDays || 0} of ${record.monitoringDays || 5} check-ins`
   return (
-    <td>
+    <td className="ip-table__col--dates">
       <div className="ip-table__contract-dates">
         <strong>{dateText}</strong>
         <span>{dayText}</span>
       </div>
     </td>
+  )
+}
+
+function RankingTableColgroup({ showNetProfitColumn }: { showNetProfitColumn: boolean }) {
+  return (
+    <colgroup>
+      <col className="ip-table__col-rank" />
+      <col className="ip-table__col-dates" />
+      <col className="ip-table__col-influencer" />
+      <col className="ip-table__col-metric-amount" />
+      <col className="ip-table__col-metric-sm" />
+      <col className="ip-table__col-metric-sm" />
+      <col className="ip-table__col-metric-md" />
+      <col className="ip-table__col-metric-sm" />
+      <col className="ip-table__col-metric-amount" />
+      {showNetProfitColumn ? <col className="ip-table__col-metric-net" /> : null}
+      <col className="ip-table__col-actions" />
+    </colgroup>
   )
 }
 
@@ -519,6 +537,7 @@ export function InfluencerPerformanceTable({
 
       <div className="inf-table-wrap ip-table-wrap">
         <table className="inf-table ip-table">
+          <RankingTableColgroup showNetProfitColumn={showNetProfitColumn} />
           <thead>
             <tr>
               {columns.map(([key, label]) => (
