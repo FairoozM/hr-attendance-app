@@ -2356,10 +2356,10 @@
   -webkit-overflow-scrolling: touch;
 }
 
-/* Ranking table: fixed layout fits desktop; min-width enables in-card scroll on narrow viewports. */
+/* Ranking table: fixed layout + proportional columns; min-width enables in-card scroll on narrow viewports. */
 .ip-table.inf-table {
   width: 100%;
-  min-width: 59rem;
+  min-width: 52rem;
   table-layout: fixed;
 }
 
@@ -2373,8 +2373,8 @@
 
 .ip-table th.ip-table__col--metric,
 .ip-table td.ip-table__col--metric {
-  padding-left: 0.35rem;
-  padding-right: 0.35rem;
+  padding-left: 0.28rem;
+  padding-right: 0.28rem;
 }
 
 .ip-table thead th {
@@ -2391,33 +2391,54 @@
   text-align: right;
 }
 
+/* Column proportions (sum 100%): text-heavy cols wider, metrics compact. */
 .ip-table th[data-col='rank'],
 .ip-table td.ip-table__col--rank {
-  width: 3.25rem;
+  width: 3%;
+  padding-left: 0.28rem;
+  padding-right: 0.28rem;
 }
 
 .ip-table th[data-col='date'],
 .ip-table td:has(.ip-table__contract-dates) {
-  width: 7.5rem;
+  width: 16%;
 }
 
 .ip-table th[data-col='influencer'],
 .ip-table td.ip-table__col--influencer {
-  width: 10rem;
+  width: 32%;
   min-width: 0;
   text-align: left;
 }
 
-.ip-table th[data-col='cost'],
+.ip-table th[data-col='cost'] {
+  width: 8%;
+}
+
 .ip-table th[data-col='views'],
 .ip-table th[data-col='likes'],
-.ip-table th[data-col='comments'],
 .ip-table th[data-col='shares'] {
-  width: 4.75rem;
+  width: 5%;
+}
+
+.ip-table th[data-col='comments'] {
+  width: 5.5%;
 }
 
 .ip-table th[data-col='salesAed'] {
-  width: 5.75rem;
+  width: 9%;
+}
+
+.ip-table th[data-col='netProfitAed'],
+.ip-table td.ip-table__col--netprofit {
+  width: 9%;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.ip-table th.ip-table__col--actions-compact,
+.ip-table td.ip-table__col--actions-compact {
+  width: 2.5%;
 }
 
 .ip-table td.ip-table__col--influencer .ip-table__influencer-cell {
@@ -2425,7 +2446,6 @@
 }
 
 .ip-table__col--rank {
-  width: 3.75rem;
   vertical-align: middle;
 }
 
@@ -2709,6 +2729,8 @@
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.01em;
+  line-height: 1.25;
+  white-space: normal;
 }
 
 .ip-table .inf-btn-icon {
@@ -3725,9 +3747,8 @@
 
 /* Compact ⋮ menu (actions open on click) */
 .ip-table .ip-table__col--actions-compact {
-  width: 2.75rem;
-  min-width: 2.75rem;
-  max-width: 3rem;
+  min-width: 2.5rem;
+  max-width: 2.75rem;
   padding-left: 0.2rem;
   padding-right: 0.2rem;
 }
@@ -3836,13 +3857,6 @@
 :root[data-theme='dark'] .ip-table__row-menu-trigger:focus-visible {
   background: rgba(56, 189, 248, 0.14);
   color: #38bdf8;
-}
-
-.ip-table th[data-col='netProfitAed'],
-.ip-table td.ip-table__col--netprofit {
-  width: 6.25rem;
-  min-width: 6.25rem;
-  white-space: nowrap;
 }
 
 :root[data-theme='dark'] .ip-leaderboard-podium {
