@@ -20,6 +20,9 @@ const { buildNoonOrderHierarchy } = require('../src/services/noonPaymentClearing
 const {
   matchNoonRowsToInvoices,
   wouldParentMatchChildInvoice,
+  mapInvoice,
+  deriveInvoiceRange,
+  INVOICE_LOOKBACK_DAYS,
 } = require('../src/services/noonPaymentClearing/noonPaymentClearingZohoMatcher')
 const {
   buildNoonReconciliationSummary,
@@ -534,6 +537,83 @@ describe('duplicate statement identity', () => {
       )
     )
     assert.equal(parsed.metadata.referenceNr, 'PS-DUP-1')
+  })
+})
+
+describe('Zoho invoice field matching', () => {
+  it('matches Zoho Order Number custom field (UI column), not only PO/reference', () => {
+    const rows = [
+      normalizeNoonStatementRow({
+        'order-nr': 'NAEI70003640128',
+        'item-nr': 'NAEI70003640128-1',
+        'transaction-type': 'order',
+        title: 'SKU A Pot',
+        skus: 'SKU-A',
+        'net-proceed': '100',
+        total: '90',
+      }, 1),
+    ]
+    const invoices = [
+      {
+        invoice_id: 'inv-order-col',
+        invoice_number: 'INV-047155',
+        reference_number: '',
+        customer_id: 'cust-1',
+        total: 191,
+        custom_fields: [{ label: 'Order Number', value: 'NAEI70003640128-1' }],
+      },
+    ]
+    const match = matchNoonRowsToInvoices(rows, invoices)
+    assert.equal(match.matchedOrders.length, 1)
+    assert.equal(match.matchedOrders[0].zohoInvoiceId, 'inv-order-col')
+    assert.equal(match.matchedOrders[0].matchType, 'order_number')
+  })
+
+  it('mapInvoice prefers Order Number custom field into matchKeys', () => {
+    const mapped = mapInvoice({
+      invoice_id: '1',
+      invoice_number: 'INV-1',
+      reference_number: 'OTHER',
+      custom_fields: [{ label: 'Order Number', value: 'NAR80348578688-1' }],
+    })
+    assert.ok(mapped.matchKeys.includes('NAR80348578688-1'))
+    assert.ok(mapped.matchKeys.includes('OTHER'))
+  })
+
+  it('accepts fetchInvoices result shape { rows } without treating it as empty', () => {
+    const rows = [
+      normalizeNoonStatementRow({
+        'order-nr': 'NAEI70003640128',
+        'item-nr': 'NAEI70003640128-2',
+        'transaction-type': 'order',
+        title: 'SKU B',
+        skus: 'SKU-B',
+        'net-proceed': '200',
+        total: '180',
+      }, 1),
+    ]
+    const match = matchNoonRowsToInvoices(rows, {
+      rows: [
+        {
+          invoice_id: 'inv-b',
+          invoice_number: 'INV-B',
+          reference_number: 'NAEI70003640128-2',
+          total: 220,
+        },
+      ],
+      truncated: false,
+      pages: 1,
+    })
+    assert.equal(match.matchedOrders.length, 1)
+    assert.equal(match.matchedOrders[0].zohoInvoiceId, 'inv-b')
+  })
+
+  it('uses a multi-year invoice lookback so older Noon invoices are still fetched', () => {
+    assert.ok(INVOICE_LOOKBACK_DAYS >= 365)
+    const range = deriveInvoiceRange([
+      { orderDate: '2026-07-01', transactionDate: '2026-07-08' },
+    ])
+    assert.ok(range.fromDate <= '2024-07-01')
   })
 })
 

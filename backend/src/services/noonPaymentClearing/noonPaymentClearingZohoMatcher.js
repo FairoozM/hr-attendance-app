@@ -16,7 +16,8 @@ const {
 const { getNoonPaymentClearingMarketplaceConfig } = require('./noonPaymentClearingMarketplaceConfig')
 const { normalizeNoonDate } = require('./noonStatementParserService')
 
-const INVOICE_LOOKBACK_DAYS = 120
+/** Noon invoices can be created long before settlement payout — keep a wide window. */
+const INVOICE_LOOKBACK_DAYS = 1095
 const INVOICE_FORWARD_DAYS = 90
 
 const customerIdByNameCache = new Map()
@@ -31,15 +32,44 @@ function poNumber(invoice) {
   )
 }
 
+/** Zoho UI "Order Number" column — often reference_number, otherwise custom field / sales order. */
+function orderNumber(invoice) {
+  const direct = clean(
+    invoice?.order_number ||
+      invoice?.orderNumber ||
+      invoice?.salesorder_number ||
+      invoice?.sales_order_number
+  )
+  if (direct) return direct
+  for (const cf of Array.isArray(invoice?.custom_fields) ? invoice.custom_fields : []) {
+    const label = clean(cf?.label || cf?.placeholder || cf?.api_name || cf?.field_name || '').toLowerCase()
+    if (
+      label === 'order number' ||
+      label === 'order_number' ||
+      label === 'ordernumber' ||
+      label === 'cf_order_number'
+    ) {
+      const value = clean(cf?.value ?? cf?.value_formatted)
+      if (value) return value
+    }
+  }
+  return ''
+}
+
 function invoiceNumber(invoice) {
   return clean(invoice?.invoice_number || invoice?.number)
 }
 
 function mapInvoice(invoice) {
+  const zohoPoNumber = poNumber(invoice)
+  const zohoOrderNumber = orderNumber(invoice)
   return {
     zohoInvoiceId: clean(invoice?.invoice_id || invoice?.id),
     zohoInvoiceNumber: invoiceNumber(invoice),
-    zohoPoNumber: poNumber(invoice),
+    zohoPoNumber,
+    zohoOrderNumber,
+    /** Primary Noon match key candidates (item-level IDs). */
+    matchKeys: [zohoOrderNumber, zohoPoNumber].filter(Boolean),
     zohoCustomerId: clean(invoice?.customer_id || invoice?.customerId),
     zohoCustomerName: clean(invoice?.customer_name || invoice?.customerName),
     zohoInvoiceTotal: num(invoice?.total ?? invoice?.invoice_total),
@@ -50,7 +80,7 @@ function mapInvoice(invoice) {
 
 function indexInvoices(invoices) {
   const byInvoiceNumber = new Map()
-  const byPoNumber = new Map()
+  const byOrderRef = new Map()
   for (const invoice of Array.isArray(invoices) ? invoices : []) {
     const mapped = mapInvoice(invoice)
     const invoiceKey = matchKey(mapped.zohoInvoiceNumber)
@@ -58,26 +88,26 @@ function indexInvoices(invoices) {
       if (!byInvoiceNumber.has(invoiceKey)) byInvoiceNumber.set(invoiceKey, [])
       byInvoiceNumber.get(invoiceKey).push(mapped)
     }
-    const poKey = matchKey(mapped.zohoPoNumber)
-    if (poKey) {
-      if (!byPoNumber.has(poKey)) byPoNumber.set(poKey, [])
-      byPoNumber.get(poKey).push(mapped)
+    for (const rawKey of mapped.matchKeys) {
+      const key = matchKey(rawKey)
+      if (!key) continue
+      if (!byOrderRef.has(key)) byOrderRef.set(key, [])
+      byOrderRef.get(key).push(mapped)
     }
   }
-  return { byInvoiceNumber, byPoNumber }
+  return { byInvoiceNumber, byOrderRef, byPoNumber: byOrderRef }
 }
 
 /**
  * Exact item-level match only. Never accept parent PO when matching a child item ID.
  */
-function findExactInvoiceMatches(itemOrderId, byPoNumber, byInvoiceNumber) {
+function findExactInvoiceMatches(itemOrderId, byOrderRef, byInvoiceNumber) {
   const key = matchKey(itemOrderId)
   if (!key) return { matches: [], matchType: '' }
-  const poMatches = (byPoNumber.get(key) || []).filter((inv) => {
-    // Reject if Zoho PO is somehow a parent while we asked for a child — equality already ensures exactness.
-    return matchKey(inv.zohoPoNumber) === key
-  })
-  if (poMatches.length > 0) return { matches: poMatches, matchType: 'po_number' }
+  const orderMatches = (byOrderRef.get(key) || []).filter((inv) =>
+    (inv.matchKeys || []).some((candidate) => matchKey(candidate) === key)
+  )
+  if (orderMatches.length > 0) return { matches: orderMatches, matchType: 'order_number' }
   const invMatches = (byInvoiceNumber.get(key) || []).filter(
     (inv) => matchKey(inv.zohoInvoiceNumber) === key
   )
@@ -163,7 +193,8 @@ function saleItemGroups(rows) {
  * Match sale item groups to Zoho invoices using FULL item-level Noon IDs only.
  */
 function matchNoonRowsToInvoices(rows, invoices) {
-  const { byInvoiceNumber, byPoNumber } = indexInvoices(invoices)
+  const list = Array.isArray(invoices) ? invoices : Array.isArray(invoices?.rows) ? invoices.rows : []
+  const { byInvoiceNumber, byOrderRef } = indexInvoices(list)
   const matchedItems = []
   const unmatchedItems = []
   const multipleMatchItems = []
@@ -206,23 +237,22 @@ function matchNoonRowsToInvoices(rows, invoices) {
     }
 
     // Protect against parent→child false matches: if someone stored parent on Zoho for a child ID search, reject.
-    const { matches, matchType } = findExactInvoiceMatches(itemOrderId, byPoNumber, byInvoiceNumber)
+    const { matches, matchType } = findExactInvoiceMatches(itemOrderId, byOrderRef, byInvoiceNumber)
 
     // Extra guard: drop any match that is only a parent of this item.
     const parsedItem = parseNoonOrderId(itemOrderId)
     const exact = matches.filter((inv) => {
-      const po = inv.zohoPoNumber
-      const invNo = inv.zohoInvoiceNumber
-      if (isParentOnlyMatch({ candidate: po, itemOrderId, parentOrderId })) return false
-      if (isParentOnlyMatch({ candidate: invNo, itemOrderId, parentOrderId })) return false
+      const candidates = [...(inv.matchKeys || []), inv.zohoInvoiceNumber]
+      if (candidates.some((c) => isParentOnlyMatch({ candidate: c, itemOrderId, parentOrderId }))) {
+        return false
+      }
       if (
         parsedItem.shape === 'item' &&
-        (matchKey(po) === matchKey(parsedItem.parentOrderId) ||
-          matchKey(invNo) === matchKey(parsedItem.parentOrderId))
+        candidates.some((c) => matchKey(c) === matchKey(parsedItem.parentOrderId))
       ) {
         return false
       }
-      return matchKey(po) === matchKey(itemOrderId) || matchKey(invNo) === matchKey(itemOrderId)
+      return candidates.some((c) => matchKey(c) === matchKey(itemOrderId))
     })
 
     if (exact.length === 1) {
@@ -330,18 +360,17 @@ async function matchZohoInvoicesForNoonRows(rows, options = {}) {
     throw err
   }
   const range = deriveInvoiceRange(rows)
-  const invoices = await fetchInvoices({
-    customerId,
-    fromDate: range.fromDate,
-    toDate: range.toDate,
-  })
+  // zohoBooksClient.fetchInvoices(fromDate, toDate, customerId) — positional args.
+  const fetched = await fetchInvoices(range.fromDate, range.toDate, customerId || null)
+  const invoices = Array.isArray(fetched?.rows) ? fetched.rows : Array.isArray(fetched) ? fetched : []
   const result = matchNoonRowsToInvoices(rows, invoices)
   return {
     ...result,
     zohoCustomerId: customerId,
     zohoCustomerName: customerName,
     invoiceDateRange: range,
-    invoiceCount: Array.isArray(invoices) ? invoices.length : 0,
+    invoiceCount: invoices.length,
+    invoiceFetchTruncated: Boolean(fetched?.truncated),
   }
 }
 
@@ -359,6 +388,7 @@ function wouldParentMatchChildInvoice(parentOrderId, childItemOrderId, invoicePo
 
 module.exports = {
   poNumber,
+  orderNumber,
   invoiceNumber,
   mapInvoice,
   matchNoonRowsToInvoices,
@@ -369,4 +399,5 @@ module.exports = {
   findExactInvoiceMatches,
   wouldParentMatchChildInvoice,
   indexInvoices,
+  INVOICE_LOOKBACK_DAYS,
 }
