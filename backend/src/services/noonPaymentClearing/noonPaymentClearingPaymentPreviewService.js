@@ -89,13 +89,17 @@ function buildInvoicePaymentPlan(item, accounts) {
   }
 }
 
-function buildPaymentPreviewFromBatch(batch, mappingRules = []) {
+function buildPaymentPreviewFromBatch(batch, mappingRules = [], clearingAccount = {}) {
   requireBatchForPaymentPreview(batch)
   const cfg = getNoonPaymentClearingMarketplaceConfig()
   const accounts = cfg.paymentPreviewAccounts
   const matched = Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []
   const invoicePayments = matched.map((item) => buildInvoicePaymentPlan(item, accounts))
-  const feeJournalLines = buildFeeJournalPreviewLines(batch.allRows || [], mappingRules)
+  const feeJournalLines = buildFeeJournalPreviewLines(
+    batch.allRows || [],
+    mappingRules,
+    clearingAccount || batch.clearingAccount || {}
+  )
   const parentChargeLines = feeJournalLines.filter((l) => l.rowClass === 'parent_order_charge')
   const statementFeeLines = feeJournalLines.filter((l) => l.rowClass === 'statement_fee')
   const adjustmentLines = feeJournalLines.filter((l) => l.rowClass === 'order_adjustment')

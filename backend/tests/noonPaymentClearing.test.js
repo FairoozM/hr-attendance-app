@@ -34,10 +34,13 @@ const {
   buildNoonReconciliationSummary,
   isNoonSettlementReconciliationAcceptable,
 } = require('../src/services/noonPaymentClearing/noonPaymentClearingReconciliationService')
-const { buildPreview } = require('../src/services/noonPaymentClearing/noonPaymentClearingPreviewService')
+const { buildPreview, buildFeeJournalPreviewLines } = require('../src/services/noonPaymentClearing/noonPaymentClearingPreviewService')
 const { buildPaymentPreviewFromBatch } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+const { resolveNoonFeeJournalSides } = require('../src/services/noonPaymentClearing/noonPaymentClearingJournalDirection')
 const { validateBatchReadyForApproval } = require('../src/services/noonPaymentClearing/noonPaymentClearingService')
 const { flattenInvoicePayments, ensureCanPostBatch } = require('../src/services/noonPaymentClearing/noonPaymentClearingPostingService')
+
+const NOON_CLEARING = { accountId: 'noon-clearing-1', accountName: 'Noon' }
 
 function csvHeader() {
   return [
@@ -467,44 +470,38 @@ describe('acceptance: NAEI70003640128 parent / children / parent charge', () => 
   it('payment preview separates invoice payments from parent/statement journals and assigns parent fallback once', () => {
     const parsed = parseNoonStatementReport(statement)
     const match = matchNoonRowsToInvoices(parsed.rows, invoices)
+    const mappingRules = [
+      {
+        normalizedFeeType: 'NOON_ADVERTISING_FEE',
+        zohoAccountId: 'd1',
+        zohoAccountName: 'Advertising Expense',
+        debitAccountId: 'd1',
+        debitAccountName: 'Advertising Expense',
+        isActive: true,
+      },
+      {
+        normalizedFeeType: 'FULFILLMENT',
+        zohoAccountId: 'd2',
+        zohoAccountName: 'Fulfillment / Logistics Expense',
+        debitAccountId: 'd2',
+        debitAccountName: 'Fulfillment / Logistics Expense',
+        isActive: true,
+      },
+      {
+        normalizedFeeType: 'ORDER_ADJUSTMENT',
+        zohoAccountId: 'd3',
+        zohoAccountName: 'Marketplace Adjustments',
+        debitAccountId: 'd3',
+        debitAccountName: 'Marketplace Adjustments',
+        isActive: true,
+      },
+    ]
     const preview = buildPreview({
       rows: parsed.rows,
       metadata: parsed.metadata,
       matchResult: match,
-      mappingRules: [
-        {
-          normalizedFeeType: 'NOON_ADVERTISING_FEE',
-          debitAccountId: 'd1',
-          creditAccountId: 'c1',
-          debitAccountName: 'Adv',
-          creditAccountName: 'Undep',
-          isActive: true,
-        },
-        {
-          normalizedFeeType: 'PARENT_ORDER_CHARGE',
-          debitAccountId: 'd2',
-          creditAccountId: 'c2',
-          debitAccountName: 'Ship',
-          creditAccountName: 'Undep',
-          isActive: true,
-        },
-        {
-          normalizedFeeType: 'FULFILLMENT',
-          debitAccountId: 'd2',
-          creditAccountId: 'c2',
-          debitAccountName: 'Ship',
-          creditAccountName: 'Undep',
-          isActive: true,
-        },
-        {
-          normalizedFeeType: 'ORDER_ADJUSTMENT',
-          debitAccountId: 'd3',
-          creditAccountId: 'c3',
-          debitAccountName: 'Adj',
-          creditAccountName: 'Undep',
-          isActive: true,
-        },
-      ],
+      mappingRules,
+      clearingAccount: NOON_CLEARING,
     })
     const parentCharge = preview.parentCharges[0]
     assert.equal(parentCharge.originalParentOrderId, 'NAEI70003640128')
@@ -519,6 +516,11 @@ describe('acceptance: NAEI70003640128 parent / children / parent charge', () => 
     assert.ok(advLine)
     assert.equal(advLine.signedAmount, -2009.62)
     assert.equal(advLine.displayLabel, 'Advertising Fee')
+    assert.equal(advLine.mappingStatus, 'mapped')
+    assert.equal(advLine.debit.accountName, 'Advertising Expense')
+    assert.equal(advLine.credit.accountName, 'Noon')
+    assert.equal(advLine.accountingPreview.debit, 'Advertising Expense')
+    assert.equal(advLine.accountingPreview.credit, 'Noon')
     assert.match(advLine.previewNote, /No invoice required/i)
     assert.ok(!preview.blockingIssues.some((i) => i.code === 'UNEXPLAINED_OTHER'))
 
@@ -533,32 +535,7 @@ describe('acceptance: NAEI70003640128 parent / children / parent charge', () => 
       reportSnapshot: preview.metadata,
       feeJournalLines: preview.feeJournalLines,
     }
-    const paymentPreview = buildPaymentPreviewFromBatch(batch, [
-      {
-        normalizedFeeType: 'NOON_ADVERTISING_FEE',
-        debitAccountId: 'd1',
-        creditAccountId: 'c1',
-        isActive: true,
-      },
-      {
-        normalizedFeeType: 'FULFILLMENT',
-        debitAccountId: 'd2',
-        creditAccountId: 'c2',
-        isActive: true,
-      },
-      {
-        normalizedFeeType: 'PARENT_ORDER_CHARGE',
-        debitAccountId: 'd2',
-        creditAccountId: 'c2',
-        isActive: true,
-      },
-      {
-        normalizedFeeType: 'ORDER_ADJUSTMENT',
-        debitAccountId: 'd3',
-        creditAccountId: 'c3',
-        isActive: true,
-      },
-    ])
+    const paymentPreview = buildPaymentPreviewFromBatch(batch, mappingRules, NOON_CLEARING)
     assert.equal(paymentPreview.invoicePayments.length, 2)
     assert.ok(paymentPreview.invoicePayments.every((p) => p.itemOrderId.includes('-')))
     assert.ok(paymentPreview.parentLevelCharges.length >= 1)
@@ -698,6 +675,62 @@ describe('classifyNoonStatementRow edge', () => {
       }),
       ROW_CLASS.PARENT_ORDER_CHARGE
     )
+  })
+})
+
+describe('Noon fee journal direction', () => {
+  it('debits expense and credits Noon for negative advertising', () => {
+    const sides = resolveNoonFeeJournalSides({
+      feeAccountId: 'exp-1',
+      feeAccountName: 'Advertising Expense',
+      clearingAccountId: 'noon-1',
+      clearingAccountName: 'Noon',
+      signedAmount: -2009.62,
+    })
+    assert.equal(sides.direction, 'expense')
+    assert.equal(sides.amount, 2009.62)
+    assert.equal(sides.debit.accountName, 'Advertising Expense')
+    assert.equal(sides.credit.accountName, 'Noon')
+  })
+
+  it('reverses sides for positive shipping/subsidy credits', () => {
+    const sides = resolveNoonFeeJournalSides({
+      feeAccountId: 'ship-1',
+      feeAccountName: 'Shipping Expense',
+      clearingAccountId: 'noon-1',
+      clearingAccountName: 'Noon',
+      signedAmount: 4.73,
+    })
+    assert.equal(sides.direction, 'credit_reversal')
+    assert.equal(sides.amount, 4.73)
+    assert.equal(sides.debit.accountName, 'Noon')
+    assert.equal(sides.credit.accountName, 'Shipping Expense')
+  })
+
+  it('marks journal mapped only when fee account and clearing account exist', () => {
+    const rows = [
+      {
+        rowNumber: 1,
+        rowClass: 'statement_fee',
+        normalizedFeeType: 'NOON_ADVERTISING_FEE',
+        title: 'Advertising Fee',
+        total: -2009.62,
+      },
+    ]
+    const unmapped = buildFeeJournalPreviewLines(
+      rows,
+      [{ normalizedFeeType: 'NOON_ADVERTISING_FEE', zohoAccountId: 'exp-1', zohoAccountName: 'Advertising Expense', isActive: true }],
+      { accountId: '', accountName: '' }
+    )
+    assert.equal(unmapped[0].mappingStatus, 'needs_mapping')
+    const mapped = buildFeeJournalPreviewLines(
+      rows,
+      [{ normalizedFeeType: 'NOON_ADVERTISING_FEE', zohoAccountId: 'exp-1', zohoAccountName: 'Advertising Expense', isActive: true }],
+      NOON_CLEARING
+    )
+    assert.equal(mapped[0].mappingStatus, 'mapped')
+    assert.equal(mapped[0].debit.accountId, 'exp-1')
+    assert.equal(mapped[0].credit.accountId, 'noon-clearing-1')
   })
 })
 

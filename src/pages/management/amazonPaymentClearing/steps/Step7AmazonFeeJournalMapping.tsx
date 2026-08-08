@@ -5,12 +5,9 @@ import {
   type AmazonFeeJournalMapping,
   type ZohoChartAccount,
 } from '../../../../api/amazonPaymentClearing'
+import { SearchableZohoAccountPicker } from '../../../../components/zoho/SearchableZohoAccountPicker'
 import { money, SummaryCard } from '../clearingShared'
 import type { ClearingContext } from './clearingContext'
-
-function accountLabel(account: ZohoChartAccount) {
-  return [account.accountName, account.accountCode ? `(${account.accountCode})` : ''].filter(Boolean).join(' ')
-}
 
 function statusLabel(status: string) {
   if (status === 'mapped') return 'Mapped'
@@ -18,137 +15,6 @@ function statusLabel(status: string) {
   if (status === 'suspense_mapping_used') return 'Suspense Mapping Used'
   if (status === 'inactive_mapping') return 'Inactive Mapping'
   return 'Needs Mapping'
-}
-
-function SearchableAccountPicker({
-  label,
-  accounts,
-  selectedId,
-  fallbackLabel,
-  onSelected,
-}: {
-  label: string
-  accounts: ZohoChartAccount[]
-  selectedId: string
-  fallbackLabel?: string
-  onSelected: (accountId: string) => void
-}) {
-  const accountById = useMemo(() => new Map(accounts.map((account) => [account.accountId, account])), [accounts])
-  const labelById = useMemo(() => new Map(accounts.map((account) => [account.accountId, accountLabel(account)])), [accounts])
-  const [query, setQuery] = useState('')
-  const [open, setOpen] = useState(false)
-  const [userEditing, setUserEditing] = useState(false)
-  const [hydratedSource, setHydratedSource] = useState('')
-
-  useEffect(() => {
-    if (userEditing) return
-    const selectedLabel = selectedId ? labelById.get(selectedId) : ''
-    const nextSource = selectedId
-      ? `selected:${selectedId}:${selectedLabel || ''}`
-      : fallbackLabel
-        ? `fallback:${fallbackLabel}`
-        : 'empty'
-    if (nextSource === hydratedSource) return
-    setHydratedSource(nextSource)
-    setQuery(selectedLabel || fallbackLabel || '')
-    if (!selectedId && fallbackLabel) {
-      const cleanFallback = fallbackLabel.trim().toLowerCase()
-      const exact = accounts.find((account) =>
-        account.accountName.trim().toLowerCase() === cleanFallback ||
-        accountLabel(account).toLowerCase() === cleanFallback
-      )
-      if (exact) onSelected(exact.accountId)
-    }
-  }, [accounts, fallbackLabel, hydratedSource, labelById, onSelected, selectedId, userEditing])
-
-  const filteredAccounts = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    const pool = needle ? accounts.filter((account) => {
-      const hay = [
-        account.accountName,
-        account.accountCode,
-        account.accountType,
-        account.accountId,
-      ].filter(Boolean).join(' ').toLowerCase()
-      return hay.includes(needle)
-    }) : accounts
-    return pool.slice(0, 30)
-  }, [accounts, query])
-
-  function chooseAccount(account: ZohoChartAccount) {
-    onSelected(account.accountId)
-    setQuery(accountLabel(account))
-    setUserEditing(false)
-    setOpen(false)
-  }
-
-  function selectSingleFilteredAccount() {
-    if (selectedId || !query.trim()) return
-    const matches = filteredAccounts
-    if (matches.length === 1) {
-      chooseAccount(matches[0])
-    }
-  }
-
-  const selected = selectedId ? accountById.get(selectedId) : null
-
-  return (
-    <div className="apc-step-stack" style={{ gap: '0.2rem', minWidth: '16rem', position: 'relative' }}>
-      <input
-        className="ainv-input"
-        placeholder={`${label} account...`}
-        value={query}
-        onFocus={() => setOpen(true)}
-        onChange={(event) => {
-          const next = event.target.value
-          setUserEditing(true)
-          setQuery(next)
-          onSelected('')
-          setOpen(true)
-        }}
-        onBlur={() => {
-          selectSingleFilteredAccount()
-          window.setTimeout(() => setOpen(false), 120)
-        }}
-      />
-      {open ? (
-        <div
-          className="apc-card"
-          style={{
-            position: 'absolute',
-            top: '2.8rem',
-            left: 0,
-            right: 0,
-            zIndex: 20,
-            maxHeight: '14rem',
-            overflowY: 'auto',
-            padding: '0.35rem',
-            boxShadow: '0 10px 24px rgba(15, 23, 42, 0.16)',
-          }}
-        >
-          {filteredAccounts.length ? filteredAccounts.map((account) => (
-            <button
-              key={account.accountId}
-              type="button"
-              className="ainv-btn ainv-btn--ghost"
-              style={{ display: 'block', width: '100%', textAlign: 'left', marginBottom: '0.2rem' }}
-              onMouseDown={(event) => {
-                event.preventDefault()
-                chooseAccount(account)
-              }}
-            >
-              {accountLabel(account)}
-              {account.accountType ? <span className="apc-muted apc-cell-sub"> {account.accountType}</span> : null}
-            </button>
-          )) : (
-            <div className="apc-muted apc-cell-sub" style={{ padding: '0.5rem' }}>No matching Zoho account found.</div>
-          )}
-        </div>
-      ) : null}
-      {query && !selectedId ? <span className="apc-muted apc-cell-sub">Select an account from the search results.</span> : null}
-      {selected ? <span className="apc-muted apc-cell-sub">Selected: {selected.accountName}</span> : null}
-    </div>
-  )
 }
 
 function MappingAction({
@@ -177,14 +43,14 @@ function MappingAction({
 
   return (
     <div className="apc-button-row" style={{ gap: '0.35rem', flexWrap: 'wrap' }}>
-      <SearchableAccountPicker
+      <SearchableZohoAccountPicker
         label="Debit"
         accounts={accounts}
         selectedId={debitId}
         fallbackLabel={row.debitAccountName}
         onSelected={setDebitId}
       />
-      <SearchableAccountPicker
+      <SearchableZohoAccountPicker
         label="Credit"
         accounts={accounts}
         selectedId={creditId}

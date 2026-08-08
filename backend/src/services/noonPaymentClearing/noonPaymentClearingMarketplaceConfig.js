@@ -33,15 +33,17 @@ function getNoonPaymentClearingMarketplaceConfig() {
         depositToAccountId: process.env.NOON_AE_ZOHO_FULFILLMENT_ACCOUNT_ID || '',
       },
     },
+    // Suggested Zoho expense/income account names per fee type.
+    // Counter account is always the configured Noon clearing account (not per-fee).
     feeJournalAccountSuggestions: [
-      { normalizedFeeType: 'NOON_ADVERTISING_FEE', debitAccountName: 'Noon Advertising Exp', creditAccountName: 'Noon Undeposited Funds' },
-      { normalizedFeeType: 'ADVERTISING', debitAccountName: 'Noon Advertising Exp', creditAccountName: 'Noon Undeposited Funds' },
-      { normalizedFeeType: 'STATEMENT_FEE', debitAccountName: 'Noon Marketplace Fees', creditAccountName: 'Noon Undeposited Funds' },
-      { normalizedFeeType: 'FULFILLMENT', debitAccountName: 'Noon Uncleared Fulfillment Exp', creditAccountName: 'Noon Undeposited Funds' },
-      { normalizedFeeType: 'SHIPPING', debitAccountName: 'Noon Uncleared Fulfillment Exp', creditAccountName: 'Noon Undeposited Funds' },
-      { normalizedFeeType: 'PARENT_ORDER_CHARGE', debitAccountName: 'Noon Uncleared Fulfillment Exp', creditAccountName: 'Noon Undeposited Funds' },
-      { normalizedFeeType: 'ORDER_ADJUSTMENT', debitAccountName: 'Noon Marketplace Adjustments', creditAccountName: 'Noon Undeposited Funds' },
-      { normalizedFeeType: 'OTHER', debitAccountName: 'Noon Marketplace Fees', creditAccountName: 'Noon Undeposited Funds' },
+      { normalizedFeeType: 'NOON_ADVERTISING_FEE', zohoAccountName: 'Noon Advertising Exp' },
+      { normalizedFeeType: 'ADVERTISING', zohoAccountName: 'Noon Advertising Exp' },
+      { normalizedFeeType: 'STATEMENT_FEE', zohoAccountName: 'Noon Marketplace Fees' },
+      { normalizedFeeType: 'FULFILLMENT', zohoAccountName: 'Noon Uncleared Fulfillment Exp' },
+      { normalizedFeeType: 'SHIPPING', zohoAccountName: 'Noon Uncleared Fulfillment Exp' },
+      { normalizedFeeType: 'PARENT_ORDER_CHARGE', zohoAccountName: 'Noon Uncleared Fulfillment Exp' },
+      { normalizedFeeType: 'ORDER_ADJUSTMENT', zohoAccountName: 'Noon Marketplace Adjustments' },
+      { normalizedFeeType: 'OTHER', zohoAccountName: 'Noon Marketplace Fees' },
     ],
   }
 }

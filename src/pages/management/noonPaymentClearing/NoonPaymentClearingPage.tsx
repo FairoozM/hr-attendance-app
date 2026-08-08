@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   approveNoonPaymentClearingBatch,
-  fetchNoonFeeJournalMappings,
   fetchNoonPaymentClearingBatch,
   fetchNoonSavedBatches,
   fetchNoonZohoCustomers,
@@ -14,10 +13,10 @@ import {
   type NoonSavedBatchSummary,
   postNoonPaymentClearingToZoho,
   previewNoonStatementUpload,
-  saveNoonFeeJournalMapping,
 } from '../../../api/noonPaymentClearing'
 import { CLEARING_STEPS, type StepStatus } from './clearingSteps'
 import { ClearingStepper, StepPanel } from './components/ClearingStepper'
+import { NoonFeeJournalMappingPanel } from './components/NoonFeeJournalMappingPanel'
 import './NoonPaymentClearingPage.css'
 
 const STEP_KEY_TO_ID = new Map(CLEARING_STEPS.map((s) => [s.key, s.id]))
@@ -51,15 +50,6 @@ export function NoonPaymentClearingPage() {
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
-  const [feeMappings, setFeeMappings] = useState<Array<Record<string, unknown>>>([])
-  const [mappingDraft, setMappingDraft] = useState({
-    normalizedFeeType: 'ADVERTISING',
-    debitAccountName: '',
-    debitAccountId: '',
-    creditAccountName: '',
-    creditAccountId: '',
-  })
-
   const loadedBatchId = preview?.batchId != null ? String(preview.batchId) : ''
   const stepFromKey = STEP_KEY_TO_ID.get(routeStepKey)
   const activeStep = preview ? (stepFromKey ?? 2) : 1
@@ -95,12 +85,6 @@ export function NoonPaymentClearingPage() {
       }
       try {
         await refreshBatches()
-      } catch (err) {
-        if (!cancelled) setError(safeError(err))
-      }
-      try {
-        const data = await fetchNoonFeeJournalMappings()
-        if (!cancelled) setFeeMappings(data.mappings || [])
       } catch (err) {
         if (!cancelled) setError(safeError(err))
       }
@@ -261,22 +245,10 @@ export function NoonPaymentClearingPage() {
     }
   }
 
-  async function onSaveMapping() {
-    setLoading(true)
-    try {
-      await saveNoonFeeJournalMapping(mappingDraft)
-      const data = await fetchNoonFeeJournalMappings()
-      setFeeMappings(data.mappings || [])
-      if (preview?.batchId) {
-        const refreshed = await fetchNoonPaymentClearingBatch(preview.batchId)
-        setPreview(refreshed)
-      }
-      setNotice('Fee journal mapping saved.')
-    } catch (err) {
-      setError(safeError(err))
-    } finally {
-      setLoading(false)
-    }
+  async function refreshPreviewFromServer() {
+    if (!preview?.batchId) return
+    const refreshed = await fetchNoonPaymentClearingBatch(preview.batchId)
+    setPreview(refreshed)
   }
 
   const rows = preview?.allRows || []
@@ -759,85 +731,7 @@ export function NoonPaymentClearingPage() {
             )}
 
             {step.id === 9 && preview && (
-              <div className="npc-step-stack">
-                <div className="npc-table-wrap">
-                  <table className="npc-table">
-                    <thead>
-                      <tr>
-                        <th>Fee type</th>
-                        <th>Amount</th>
-                        <th>Parent</th>
-                        <th>Mapping</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(preview.feeJournalLines || []).map((line) => (
-                        <tr key={line.lineIndex}>
-                          <td>
-                            {String(line.displayLabel || line.feeType || '')}
-                            {line.previewNote ? (
-                              <div className="npc-muted" style={{ marginTop: 4 }}>
-                                {String(line.previewNote)}
-                              </div>
-                            ) : null}
-                          </td>
-                          <td className="npc-money">
-                            {money(Number(line.signedAmount != null ? line.signedAmount : line.amount) || 0)}
-                          </td>
-                          <td>{line.parentOrderId || '—'}</td>
-                          <td>{line.mappingStatus}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="npc-actions">
-                  <label className="ainv-label">
-                    Fee type
-                    <input
-                      className="ainv-input"
-                      value={mappingDraft.normalizedFeeType}
-                      onChange={(e) => setMappingDraft((d) => ({ ...d, normalizedFeeType: e.target.value }))}
-                    />
-                  </label>
-                  <label className="ainv-label">
-                    Debit account name
-                    <input
-                      className="ainv-input"
-                      value={mappingDraft.debitAccountName}
-                      onChange={(e) => setMappingDraft((d) => ({ ...d, debitAccountName: e.target.value }))}
-                    />
-                  </label>
-                  <label className="ainv-label">
-                    Debit account id
-                    <input
-                      className="ainv-input"
-                      value={mappingDraft.debitAccountId}
-                      onChange={(e) => setMappingDraft((d) => ({ ...d, debitAccountId: e.target.value }))}
-                    />
-                  </label>
-                  <label className="ainv-label">
-                    Credit account name
-                    <input
-                      className="ainv-input"
-                      value={mappingDraft.creditAccountName}
-                      onChange={(e) => setMappingDraft((d) => ({ ...d, creditAccountName: e.target.value }))}
-                    />
-                  </label>
-                  <label className="ainv-label">
-                    Credit account id
-                    <input
-                      className="ainv-input"
-                      value={mappingDraft.creditAccountId}
-                      onChange={(e) => setMappingDraft((d) => ({ ...d, creditAccountId: e.target.value }))}
-                    />
-                  </label>
-                </div>
-                <button type="button" className="ainv-btn" disabled={loading} onClick={onSaveMapping}>
-                  Save fee mapping
-                </button>
-                <p className="npc-muted">{feeMappings.length} mapping rule(s) stored.</p>
-              </div>
+              <NoonFeeJournalMappingPanel preview={preview} onPreviewRefresh={refreshPreviewFromServer} />
             )}
 
             {step.id === 10 && (

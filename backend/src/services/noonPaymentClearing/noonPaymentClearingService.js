@@ -1,6 +1,6 @@
 const store = require('./noonPaymentClearingStore')
 const { parseNoonStatementReportBuffer } = require('./noonStatementParserService')
-const { buildPreview } = require('./noonPaymentClearingPreviewService')
+const { buildPreview, buildFeeJournalPreviewLines } = require('./noonPaymentClearingPreviewService')
 const { matchZohoInvoicesForNoonRows, matchNoonRowsToInvoices } = require('./noonPaymentClearingZohoMatcher')
 const { getNoonPaymentClearingMarketplaceConfig } = require('./noonPaymentClearingMarketplaceConfig')
 const { isNoonSettlementReconciliationAcceptable } = require('./noonPaymentClearingReconciliationService')
@@ -42,11 +42,21 @@ function validateBatchReadyForApproval(batch) {
   }
 }
 
+async function loadMappingContext() {
+  const mappingRules = await store.listFeeJournalMappings('AE').catch(() => [])
+  const settings = await store.getSettings('AE').catch(() => ({ clearingAccount: {} }))
+  return {
+    mappingRules,
+    clearingAccount: settings.clearingAccount || {},
+    settings,
+  }
+}
+
 async function buildPreviewFromUpload(buffer, fileName, options = {}) {
   const parsed = parseNoonStatementReportBuffer(buffer, fileName)
   const cfg = getNoonPaymentClearingMarketplaceConfig()
   const customerName = clean(options.customerName) || cfg.zohoCustomerName
-  const mappingRules = await store.listFeeJournalMappings('AE').catch(() => [])
+  const { mappingRules, clearingAccount } = await loadMappingContext()
 
   let matchResult
   if (options.skipZohoMatch || options.invoices) {
@@ -75,6 +85,7 @@ async function buildPreviewFromUpload(buffer, fileName, options = {}) {
     metadata: parsed.metadata,
     matchResult,
     mappingRules,
+    clearingAccount,
     zohoCustomerId: matchResult.zohoCustomerId || options.customerId || '',
     zohoCustomerName: matchResult.zohoCustomerName || customerName,
     warnings: parsed.warnings,
@@ -96,6 +107,9 @@ async function getBatchPreview(batchId) {
     err.status = 404
     throw err
   }
+  const { mappingRules, clearingAccount, settings } = await loadMappingContext()
+  // Rebuild fee journals live so mapping / clearing-account changes apply to draft batches.
+  const feeJournalLines = buildFeeJournalPreviewLines(batch.allRows || [], mappingRules, clearingAccount)
   return {
     batch,
     batchId: batch.batchId,
@@ -109,7 +123,9 @@ async function getBatchPreview(batchId) {
     adjustments: batch.adjustments,
     statementFees: batch.statementFees,
     reconciliationSummary: batch.reconciliationSummary,
-    feeJournalLines: batch.feeJournalLines,
+    feeJournalLines,
+    clearingAccount,
+    settings,
     blockingIssues: batch.blockingIssues,
     warnings: batch.warnings,
     zohoCustomerId: batch.zohoCustomerId,
@@ -118,7 +134,8 @@ async function getBatchPreview(batchId) {
     isCleanForApproval:
       isNoonSettlementReconciliationAcceptable(batch.reconciliationSummary) &&
       !(batch.unmatchedOrders || []).length &&
-      !(batch.multipleMatchItems || []).length,
+      !(batch.multipleMatchItems || []).length &&
+      !feeJournalLines.some((l) => l.mappingStatus === 'needs_mapping'),
     status: batch.status,
     postedToZoho: batch.postedToZoho,
     postingSummary: batch.postingSummary,
@@ -135,20 +152,21 @@ async function approveSavedBatch(batchId, approvedBy) {
 
 async function generatePaymentPreview(batchId, createdBy) {
   const batch = await store.getBatchById(batchId)
-  const mappingRules = await store.listFeeJournalMappings('AE')
-  const paymentPreview = buildPaymentPreviewFromBatch(batch, mappingRules)
+  const { mappingRules, clearingAccount } = await loadMappingContext()
+  const paymentPreview = buildPaymentPreviewFromBatch(batch, mappingRules, clearingAccount)
   return store.savePaymentPreview(batchId, paymentPreview, createdBy)
 }
 
 async function postBatchToZoho(batchId, options = {}) {
   const batch = await store.getBatchById(batchId)
-  const mappingRules = await store.listFeeJournalMappings('AE')
+  const { mappingRules, clearingAccount } = await loadMappingContext()
   return postApprovedBatch({
     batch,
     dryRun: options.dryRun !== false,
     allowPosted: options.allowPosted === true,
     postedBy: options.postedBy,
     mappingRules,
+    clearingAccount,
     createPayment: options.createPayment,
     buildPayloadPreview: options.buildPayloadPreview,
     createManualJournal: options.createManualJournal,
@@ -158,12 +176,13 @@ async function postBatchToZoho(batchId, options = {}) {
 
 async function forceRepost(batchId, options = {}) {
   const batch = await store.getBatchById(batchId)
-  const mappingRules = await store.listFeeJournalMappings('AE')
+  const { mappingRules, clearingAccount } = await loadMappingContext()
   return forceRepostBatch({
     batch,
     reason: options.reason,
     actorUserId: options.actorUserId,
     mappingRules,
+    clearingAccount,
   })
 }
 
@@ -178,5 +197,8 @@ module.exports = {
   listSavedBatches: store.listSavedBatches,
   listFeeJournalMappings: store.listFeeJournalMappings,
   saveFeeJournalMapping: store.saveFeeJournalMapping,
+  deactivateFeeJournalMapping: store.deactivateFeeJournalMapping,
+  getSettings: store.getSettings,
+  saveClearingAccount: store.saveClearingAccount,
   getNoonPaymentClearingMarketplaceConfig,
 }

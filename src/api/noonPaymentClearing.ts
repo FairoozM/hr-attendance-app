@@ -111,6 +111,12 @@ export interface NoonSavedBatchSummary {
   createdAt: string | null
 }
 
+export interface NoonClearingAccount {
+  accountId: string
+  accountName: string
+  accountCode?: string
+}
+
 export interface NoonPaymentClearingPreview {
   batchId: number
   batch?: { batchId: number; status: string; postedToZoho?: boolean; postingSummary?: Record<string, unknown> }
@@ -143,9 +149,15 @@ export interface NoonPaymentClearingPreview {
     assignedItemOrderId?: string
     originalParentOrderId?: string
     assignmentReason?: string
+    zohoAccountName?: string
+    zohoAccountId?: string
+    journalDirection?: string
+    counterAccountName?: string
+    accountingPreview?: { debit?: string; credit?: string }
     debit?: { accountId: string; accountName: string }
     credit?: { accountId: string; accountName: string }
   }>
+  clearingAccount?: NoonClearingAccount
   blockingIssues: NoonBlockingIssue[]
   warnings: string[]
   zohoCustomerId: string
@@ -273,27 +285,79 @@ export async function forceRepostNoonPaymentClearing(batchId: string | number, r
   return unwrap(data)
 }
 
+export interface NoonFeeJournalMapping {
+  id: number
+  marketplace: string
+  normalizedFeeType: string
+  zohoAccountId: string
+  zohoAccountName: string
+  debitAccountId?: string
+  debitAccountName?: string
+  isActive: boolean
+  priority?: number
+}
+
 export async function fetchNoonFeeJournalMappings() {
   const data = await api.get<{
     success: boolean
-    mappings: Array<Record<string, unknown>>
+    mappings: NoonFeeJournalMapping[]
     suggestions: Array<Record<string, string>>
+    clearingAccount?: NoonClearingAccount
+    counterAccountLabel?: string
+    settings?: { clearingAccount?: NoonClearingAccount }
   }>(`${BASE}/fee-journal-mappings`)
   return unwrap(data)
 }
 
-export async function saveNoonFeeJournalMapping(body: Record<string, unknown>) {
-  const data = await api.post<{ success: boolean; mapping: Record<string, unknown> }>(
+export async function saveNoonFeeJournalMapping(body: {
+  id?: number
+  normalizedFeeType: string
+  zohoAccountId: string
+  zohoAccountName: string
+  isActive?: boolean
+}) {
+  const data = await api.post<{ success: boolean; mapping: NoonFeeJournalMapping }>(
     `${BASE}/fee-journal-mappings`,
     body
   )
   return unwrap(data).mapping
 }
 
-export async function fetchNoonZohoChartAccounts() {
-  const data = await api.get<{ success: boolean; accounts: Array<Record<string, unknown>> }>(
-    `${BASE}/zoho/chart-accounts`,
-    longOpts
+export async function deleteNoonFeeJournalMapping(id: number | string) {
+  const data = await api.delete<{ success: boolean; mapping: NoonFeeJournalMapping }>(
+    `${BASE}/fee-journal-mappings/${id}`
   )
+  return unwrap(data).mapping
+}
+
+export async function fetchNoonClearingSettings() {
+  const data = await api.get<{
+    success: boolean
+    settings: { clearingAccount: NoonClearingAccount }
+    clearingAccount: NoonClearingAccount
+  }>(`${BASE}/settings`)
+  return unwrap(data)
+}
+
+export async function saveNoonClearingAccount(account: NoonClearingAccount) {
+  const data = await api.put<{
+    success: boolean
+    settings: { clearingAccount: NoonClearingAccount }
+    clearingAccount: NoonClearingAccount
+  }>(`${BASE}/settings/clearing-account`, account)
+  return unwrap(data).clearingAccount
+}
+
+export async function fetchNoonZohoChartAccounts() {
+  const data = await api.get<{
+    success: boolean
+    accounts: Array<{
+      accountId: string
+      accountName: string
+      accountCode?: string
+      accountType?: string
+      isActive?: boolean
+    }>
+  }>(`${BASE}/zoho/chart-accounts`, longOpts)
   return unwrap(data).accounts || []
 }

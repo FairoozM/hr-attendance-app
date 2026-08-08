@@ -16,6 +16,10 @@ const {
 } = require('./noonPaymentClearingReconciliationService')
 const { buildSettlementReference } = require('./noonPaymentClearingReferenceService')
 const { applyParentOrderChargeFallback } = require('./noonPaymentClearingParentChargeFallback')
+const {
+  resolveNoonFeeJournalSides,
+  isNoonFeeMappingComplete,
+} = require('./noonPaymentClearingJournalDirection')
 
 function buildBlockingIssues({ annotatedRows, unmatchedOrders, multipleMatchItems, reconciliation }) {
   const issues = []
@@ -64,7 +68,16 @@ function findFeeMappingRule(mappingRules, feeType) {
   )
 }
 
-function buildFeeJournalPreviewLines(rows, mappingRules = []) {
+function normalizeClearingAccount(clearingAccount = {}) {
+  return {
+    accountId: clean(clearingAccount.accountId || clearingAccount.clearingAccountId),
+    accountName: clean(clearingAccount.accountName || clearingAccount.clearingAccountName) || 'Noon',
+    accountCode: clean(clearingAccount.accountCode || clearingAccount.clearingAccountCode),
+  }
+}
+
+function buildFeeJournalPreviewLines(rows, mappingRules = [], clearingAccount = {}) {
+  const clearing = normalizeClearingAccount(clearingAccount)
   const journalRows = (Array.isArray(rows) ? rows : []).filter(
     (row) =>
       row.rowClass === ROW_CLASS.STATEMENT_FEE ||
@@ -75,13 +88,35 @@ function buildFeeJournalPreviewLines(rows, mappingRules = []) {
     const feeType = row.normalizedFeeType || 'OTHER'
     const rule = findFeeMappingRule(mappingRules, feeType)
     const signedAmount = round2(num(row.total))
-    const amount = Math.abs(signedAmount)
     const displayLabel = row.displayLabel || displayLabelForFeeRow(row)
     const isAdvertising =
       feeType === 'NOON_ADVERTISING_FEE' || feeType === 'ADVERTISING' || /advertis/i.test(displayLabel)
     const originalParentOrderId = clean(row.originalParentOrderId || row.parentOrderId)
     const assignedItemOrderId = clean(row.assignedItemOrderId)
     const assignmentReason = clean(row.assignmentReason)
+    const feeAccountId = clean(rule?.zohoAccountId || rule?.debitAccountId)
+    const feeAccountName = clean(rule?.zohoAccountName || rule?.debitAccountName)
+    const mapped = isNoonFeeMappingComplete(feeAccountId, clearing.accountId)
+    const sides = mapped
+      ? resolveNoonFeeJournalSides({
+          feeAccountId,
+          feeAccountName,
+          clearingAccountId: clearing.accountId,
+          clearingAccountName: clearing.accountName,
+          signedAmount,
+        })
+      : {
+          amount: Math.abs(signedAmount),
+          signedAmount,
+          direction: signedAmount > 0 ? 'credit_reversal' : 'expense',
+          debit: { accountId: '', accountName: feeAccountName || '' },
+          credit: { accountId: '', accountName: clearing.accountName || 'Noon' },
+          preview: {
+            debitLabel: signedAmount > 0 ? clearing.accountName || 'Noon' : feeAccountName || 'Fee account',
+            creditLabel: signedAmount > 0 ? feeAccountName || 'Fee account' : clearing.accountName || 'Noon',
+          },
+        }
+
     return {
       lineIndex: idx + 1,
       rowNumber: row.rowNumber,
@@ -100,10 +135,18 @@ function buildFeeJournalPreviewLines(rows, mappingRules = []) {
       displayLabel,
       accountingTreatment: row.accountingTreatment || accountingTreatmentForFeeRow(row),
       signedAmount,
-      amount,
+      amount: sides.amount,
       currency: row.currency || 'AED',
       isStatementLevelExpense: row.rowClass === ROW_CLASS.STATEMENT_FEE,
       invoiceRequired: false,
+      journalDirection: sides.direction,
+      counterAccountName: clearing.accountName || 'Noon',
+      zohoAccountName: feeAccountName,
+      zohoAccountId: feeAccountId,
+      accountingPreview: {
+        debit: sides.preview.debitLabel,
+        credit: sides.preview.creditLabel,
+      },
       previewNote: isAdvertising
         ? 'Statement-level expense · No invoice required'
         : assignedItemOrderId
@@ -111,13 +154,9 @@ function buildFeeJournalPreviewLines(rows, mappingRules = []) {
           : originalParentOrderId
             ? `Parent: ${originalParentOrderId}`
             : '',
-      mappingStatus: rule && rule.debitAccountId && rule.creditAccountId ? 'mapped' : 'needs_mapping',
-      debit: rule
-        ? { accountId: rule.debitAccountId, accountName: rule.debitAccountName }
-        : { accountId: '', accountName: '' },
-      credit: rule
-        ? { accountId: rule.creditAccountId, accountName: rule.creditAccountName }
-        : { accountId: '', accountName: '' },
+      mappingStatus: mapped ? 'mapped' : 'needs_mapping',
+      debit: sides.debit,
+      credit: sides.credit,
     }
   })
 }
@@ -127,6 +166,7 @@ function buildPreview({
   metadata,
   matchResult,
   mappingRules = [],
+  clearingAccount = {},
   zohoCustomerId = '',
   zohoCustomerName = '',
   warnings = [],
@@ -145,7 +185,7 @@ function buildPreview({
     multipleMatchItems,
     reconciliation,
   })
-  const feeJournalLines = buildFeeJournalPreviewLines(annotatedRows, mappingRules)
+  const feeJournalLines = buildFeeJournalPreviewLines(annotatedRows, mappingRules, clearingAccount)
   const parentCharges = annotatedRows.filter((r) => r.rowClass === ROW_CLASS.PARENT_ORDER_CHARGE)
   const adjustments = annotatedRows.filter((r) => r.rowClass === ROW_CLASS.ORDER_ADJUSTMENT)
   const statementFees = annotatedRows.filter((r) => r.rowClass === ROW_CLASS.STATEMENT_FEE)
@@ -171,6 +211,7 @@ function buildPreview({
     statementFees,
     reconciliationSummary: reconciliation,
     feeJournalLines,
+    clearingAccount: normalizeClearingAccount(clearingAccount),
     blockingIssues,
     warnings: Array.isArray(warnings) ? warnings : [],
     zohoCustomerId,
@@ -193,4 +234,5 @@ module.exports = {
   buildPreview,
   buildBlockingIssues,
   buildFeeJournalPreviewLines,
+  normalizeClearingAccount,
 }

@@ -150,6 +150,17 @@ async function ensureNoonPaymentClearingTables() {
     `CREATE INDEX IF NOT EXISTS idx_noon_fee_journal_mappings_lookup
      ON noon_payment_clearing_fee_journal_mappings (marketplace, normalized_fee_type, is_active, priority DESC)`
   )
+  await query(`
+    CREATE TABLE IF NOT EXISTS noon_payment_clearing_settings (
+      marketplace VARCHAR(16) PRIMARY KEY DEFAULT 'AE',
+      clearing_account_id VARCHAR(128),
+      clearing_account_name TEXT,
+      clearing_account_code VARCHAR(64),
+      updated_by INTEGER NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
 }
 
 function num(value) {
@@ -207,18 +218,49 @@ function mapBatch(row) {
 
 function mapFeeJournalMapping(row) {
   if (!row) return null
+  const zohoAccountId = row.debit_account_id || ''
+  const zohoAccountName = row.debit_account_name || ''
   return {
     id: Number(row.id),
     marketplace: row.marketplace || 'AE',
     normalizedFeeType: row.normalized_fee_type || '',
     rawTransactionType: row.raw_transaction_type || '',
     descriptionPattern: row.description_pattern || '',
-    debitAccountName: row.debit_account_name || '',
-    debitAccountId: row.debit_account_id || '',
+    /** Mapped Noon fee / expense account (user-selected). */
+    zohoAccountId,
+    zohoAccountName,
+    /** Legacy debit/credit columns — debit stores the fee account; credit filled from clearing at journal time. */
+    debitAccountName: zohoAccountName,
+    debitAccountId: zohoAccountId,
     creditAccountName: row.credit_account_name || '',
     creditAccountId: row.credit_account_id || '',
     isActive: row.is_active === true || row.is_active === 't',
     priority: num(row.priority),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+  }
+}
+
+function mapSettings(row) {
+  if (!row) {
+    return {
+      marketplace: 'AE',
+      clearingAccount: {
+        accountId: '',
+        accountName: '',
+        accountCode: '',
+      },
+      updatedAt: null,
+    }
+  }
+  return {
+    marketplace: row.marketplace || 'AE',
+    clearingAccount: {
+      accountId: row.clearing_account_id || '',
+      accountName: row.clearing_account_name || '',
+      accountCode: row.clearing_account_code || '',
+    },
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
   }
 }
 
@@ -518,19 +560,149 @@ async function getLatestPaymentPreviewForBatch(batchId) {
   }
 }
 
-async function listFeeJournalMappings(marketplace = 'AE') {
+async function listFeeJournalMappings(marketplace = 'AE', { includeInactive = false } = {}) {
   await ensureNoonPaymentClearingTables()
   const result = await query(
     `SELECT * FROM noon_payment_clearing_fee_journal_mappings
      WHERE marketplace = $1
-     ORDER BY priority ASC, id ASC`,
-    [marketplace]
+       AND ($2::boolean = true OR is_active = true)
+     ORDER BY normalized_fee_type ASC, priority ASC, id ASC`,
+    [marketplace, Boolean(includeInactive)]
   )
   return result.rows.map(mapFeeJournalMapping)
 }
 
+async function getSettings(marketplace = 'AE') {
+  await ensureNoonPaymentClearingTables()
+  const result = await query(
+    `SELECT * FROM noon_payment_clearing_settings WHERE marketplace = $1 LIMIT 1`,
+    [marketplace]
+  )
+  return mapSettings(result.rows[0])
+}
+
+async function saveClearingAccount(clearingAccount = {}, userId = null, marketplace = 'AE') {
+  await ensureNoonPaymentClearingTables()
+  const accountId = String(clearingAccount.accountId || clearingAccount.clearingAccountId || '').trim()
+  const accountName = String(clearingAccount.accountName || clearingAccount.clearingAccountName || '').trim()
+  const accountCode = String(clearingAccount.accountCode || clearingAccount.clearingAccountCode || '').trim()
+  if (!accountId || !accountName) {
+    const err = new Error('Noon clearing account requires a Zoho account selection.')
+    err.code = 'NOON_PAYMENT_CLEARING_CLEARING_ACCOUNT_REQUIRED'
+    err.status = 422
+    throw err
+  }
+  const result = await query(
+    `INSERT INTO noon_payment_clearing_settings (
+      marketplace, clearing_account_id, clearing_account_name, clearing_account_code, updated_by, created_at, updated_at
+    ) VALUES ($1,$2,$3,$4,$5,NOW(),NOW())
+    ON CONFLICT (marketplace) DO UPDATE
+    SET clearing_account_id = EXCLUDED.clearing_account_id,
+        clearing_account_name = EXCLUDED.clearing_account_name,
+        clearing_account_code = EXCLUDED.clearing_account_code,
+        updated_by = EXCLUDED.updated_by,
+        updated_at = NOW()
+    RETURNING *`,
+    [marketplace, accountId, accountName, accountCode || null, userId == null ? null : Number(userId)]
+  )
+  return mapSettings(result.rows[0])
+}
+
 async function saveFeeJournalMapping(mapping, userId = null) {
   await ensureNoonPaymentClearingTables()
+  const marketplace = mapping.marketplace || 'AE'
+  const normalizedFeeType = String(mapping.normalizedFeeType || '').trim()
+  if (!normalizedFeeType) {
+    const err = new Error('Fee type is required.')
+    err.code = 'NOON_PAYMENT_CLEARING_FEE_TYPE_REQUIRED'
+    err.status = 422
+    throw err
+  }
+  // Single user-facing account: the Noon fee / expense Zoho account.
+  const zohoAccountId = String(
+    mapping.zohoAccountId || mapping.expenseAccountId || mapping.debitAccountId || ''
+  ).trim()
+  const zohoAccountName = String(
+    mapping.zohoAccountName || mapping.expenseAccountName || mapping.debitAccountName || ''
+  ).trim()
+  if (!zohoAccountId || !zohoAccountName) {
+    const err = new Error('Select a Zoho Chart of Accounts account for this fee type.')
+    err.code = 'NOON_PAYMENT_CLEARING_FEE_ACCOUNT_REQUIRED'
+    err.status = 422
+    throw err
+  }
+  const settings = await getSettings(marketplace)
+  const clearing = settings.clearingAccount || {}
+  const id = mapping.id == null ? null : Number(mapping.id)
+  const values = [
+    marketplace,
+    normalizedFeeType,
+    mapping.rawTransactionType || null,
+    mapping.descriptionPattern || null,
+    zohoAccountName,
+    zohoAccountId,
+    // Snapshot clearing as credit for storage compatibility; journals resolve by sign at preview/post.
+    clearing.accountName || mapping.creditAccountName || 'Noon',
+    clearing.accountId || mapping.creditAccountId || null,
+    mapping.isActive !== false,
+    mapping.priority == null ? 100 : Number(mapping.priority),
+    userId == null ? null : Number(userId),
+  ]
+  if (id) {
+    const result = await query(
+      `UPDATE noon_payment_clearing_fee_journal_mappings
+       SET marketplace = $1,
+           normalized_fee_type = $2,
+           raw_transaction_type = $3,
+           description_pattern = $4,
+           debit_account_name = $5,
+           debit_account_id = $6,
+           credit_account_name = $7,
+           credit_account_id = $8,
+           is_active = $9,
+           priority = $10,
+           updated_by = $11,
+           updated_at = NOW()
+       WHERE id = $12
+       RETURNING *`,
+      [...values, id]
+    )
+    if (!result.rows[0]) {
+      const err = new Error('Fee journal mapping not found.')
+      err.code = 'NOON_PAYMENT_CLEARING_MAPPING_NOT_FOUND'
+      err.status = 404
+      throw err
+    }
+    return mapFeeJournalMapping(result.rows[0])
+  }
+  // Upsert by marketplace + fee type (active row).
+  const existing = await query(
+    `SELECT id FROM noon_payment_clearing_fee_journal_mappings
+     WHERE marketplace = $1 AND normalized_fee_type = $2 AND is_active = true
+     ORDER BY id ASC LIMIT 1`,
+    [marketplace, normalizedFeeType]
+  )
+  if (existing.rows[0]) {
+    const result = await query(
+      `UPDATE noon_payment_clearing_fee_journal_mappings
+       SET marketplace = $1,
+           normalized_fee_type = $2,
+           raw_transaction_type = $3,
+           description_pattern = $4,
+           debit_account_name = $5,
+           debit_account_id = $6,
+           credit_account_name = $7,
+           credit_account_id = $8,
+           is_active = $9,
+           priority = $10,
+           updated_by = $11,
+           updated_at = NOW()
+       WHERE id = $12
+       RETURNING *`,
+      [...values, Number(existing.rows[0].id)]
+    )
+    return mapFeeJournalMapping(result.rows[0])
+  }
   const result = await query(
     `INSERT INTO noon_payment_clearing_fee_journal_mappings (
       marketplace, normalized_fee_type, raw_transaction_type, description_pattern,
@@ -538,20 +710,26 @@ async function saveFeeJournalMapping(mapping, userId = null) {
       is_active, priority, created_by, updated_by
     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)
     RETURNING *`,
-    [
-      mapping.marketplace || 'AE',
-      mapping.normalizedFeeType,
-      mapping.rawTransactionType || null,
-      mapping.descriptionPattern || null,
-      mapping.debitAccountName || null,
-      mapping.debitAccountId || null,
-      mapping.creditAccountName || null,
-      mapping.creditAccountId || null,
-      mapping.isActive !== false,
-      mapping.priority == null ? 100 : Number(mapping.priority),
-      userId == null ? null : Number(userId),
-    ]
+    values
   )
+  return mapFeeJournalMapping(result.rows[0])
+}
+
+async function deactivateFeeJournalMapping(id, userId = null) {
+  await ensureNoonPaymentClearingTables()
+  const result = await query(
+    `UPDATE noon_payment_clearing_fee_journal_mappings
+     SET is_active = false, updated_by = $2, updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [Number(id), userId == null ? null : Number(userId)]
+  )
+  if (!result.rows[0]) {
+    const err = new Error('Fee journal mapping not found.')
+    err.code = 'NOON_PAYMENT_CLEARING_MAPPING_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
   return mapFeeJournalMapping(result.rows[0])
 }
 
@@ -654,6 +832,9 @@ module.exports = {
   getLatestPaymentPreviewForBatch,
   listFeeJournalMappings,
   saveFeeJournalMapping,
+  deactivateFeeJournalMapping,
+  getSettings,
+  saveClearingAccount,
   findGroupedPosting,
   insertPosting,
   listPostingsForBatch,

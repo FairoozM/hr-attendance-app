@@ -51,8 +51,12 @@ async function ensureCanPostBatch(batch, paymentPreviewExists, options = {}) {
     err.status = 422
     throw err
   }
+  const feeLines = Array.isArray(options.feeJournalLines)
+    ? options.feeJournalLines
+    : Array.isArray(batch.feeJournalLines)
+      ? batch.feeJournalLines
+      : []
   if (!dryRun) {
-    const feeLines = Array.isArray(batch.feeJournalLines) ? batch.feeJournalLines : []
     const unmapped = feeLines.filter((row) => row.mappingStatus === 'needs_mapping')
     if (unmapped.length > 0) {
       const err = new Error('Posting requires all Noon fee journal mappings to be mapped.')
@@ -160,14 +164,19 @@ async function postApprovedBatch({
   allowPosted = false,
   postedBy,
   mappingRules = [],
+  clearingAccount = {},
   createPayment = zohoPaymentService.createZohoCustomerPayment,
   buildPayloadPreview = zohoPaymentService.buildCustomerPaymentPayloadPreview,
   createManualJournal = zohoPaymentService.createZohoManualJournal,
   buildJournalPayloadPreview = zohoPaymentService.buildManualJournalPayloadPreview,
 } = {}) {
   const latestPreview = await store.getLatestPaymentPreviewForBatch(batch.batchId)
-  await ensureCanPostBatch(batch, Boolean(latestPreview), { dryRun, allowPosted })
-  const paymentPreview = buildPaymentPreviewFromBatch(batch, mappingRules)
+  const paymentPreview = buildPaymentPreviewFromBatch(batch, mappingRules, clearingAccount)
+  await ensureCanPostBatch(batch, Boolean(latestPreview), {
+    dryRun,
+    allowPosted,
+    feeJournalLines: paymentPreview.feeJournalLines,
+  })
   const paymentRows = flattenInvoicePayments(paymentPreview)
   const customerId =
     clean(batch.zohoCustomerId) ||
@@ -369,7 +378,7 @@ async function postApprovedBatch({
   return store.withBatchPostingLock(batch.batchId, run)
 }
 
-async function forceRepostBatch({ batch, reason, actorUserId, mappingRules = [] }) {
+async function forceRepostBatch({ batch, reason, actorUserId, mappingRules = [], clearingAccount = {} }) {
   if (!batch || (batch.status !== 'posted' && !batch.postedToZoho)) {
     const err = new Error('Force repost requires a previously posted batch.')
     err.code = 'NOON_PAYMENT_CLEARING_NOT_POSTED'
@@ -397,6 +406,7 @@ async function forceRepostBatch({ batch, reason, actorUserId, mappingRules = [] 
     allowPosted: true,
     postedBy: actorUserId,
     mappingRules,
+    clearingAccount,
   })
 }
 

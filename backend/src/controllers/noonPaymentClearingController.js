@@ -108,10 +108,14 @@ async function postForceRepost(req, res) {
 async function getFeeJournalMappings(req, res) {
   try {
     const mappings = await service.listFeeJournalMappings('AE')
+    const settings = await service.getSettings('AE')
     const cfg = service.getNoonPaymentClearingMarketplaceConfig()
     return res.json({
       success: true,
       mappings,
+      settings,
+      clearingAccount: settings.clearingAccount,
+      counterAccountLabel: settings.clearingAccount?.accountName || 'Noon',
       suggestions: cfg.feeJournalAccountSuggestions,
     })
   } catch (err) {
@@ -123,10 +127,14 @@ async function postFeeJournalMapping(req, res) {
   try {
     const mapping = await service.saveFeeJournalMapping(
       {
+        id: req.body?.id,
         marketplace: 'AE',
         normalizedFeeType: req.body?.normalizedFeeType,
         rawTransactionType: req.body?.rawTransactionType,
         descriptionPattern: req.body?.descriptionPattern,
+        zohoAccountId: req.body?.zohoAccountId || req.body?.expenseAccountId,
+        zohoAccountName: req.body?.zohoAccountName || req.body?.expenseAccountName,
+        // Legacy fields accepted but not required from UI.
         debitAccountName: req.body?.debitAccountName,
         debitAccountId: req.body?.debitAccountId,
         creditAccountName: req.body?.creditAccountName,
@@ -137,6 +145,41 @@ async function postFeeJournalMapping(req, res) {
       userId(req)
     )
     return res.json({ success: true, mapping })
+  } catch (err) {
+    return sendError(res, err)
+  }
+}
+
+async function deleteFeeJournalMapping(req, res) {
+  try {
+    const mapping = await service.deactivateFeeJournalMapping(req.params.id, userId(req))
+    return res.json({ success: true, mapping })
+  } catch (err) {
+    return sendError(res, err)
+  }
+}
+
+async function getSettings(req, res) {
+  try {
+    const settings = await service.getSettings('AE')
+    return res.json({ success: true, settings, clearingAccount: settings.clearingAccount })
+  } catch (err) {
+    return sendError(res, err)
+  }
+}
+
+async function putClearingAccount(req, res) {
+  try {
+    const settings = await service.saveClearingAccount(
+      {
+        accountId: req.body?.accountId || req.body?.clearingAccountId,
+        accountName: req.body?.accountName || req.body?.clearingAccountName,
+        accountCode: req.body?.accountCode || req.body?.clearingAccountCode,
+      },
+      userId(req),
+      'AE'
+    )
+    return res.json({ success: true, settings, clearingAccount: settings.clearingAccount })
   } catch (err) {
     return sendError(res, err)
   }
@@ -162,5 +205,8 @@ module.exports = {
   postForceRepost,
   getFeeJournalMappings,
   postFeeJournalMapping,
+  deleteFeeJournalMapping,
+  getSettings,
+  putClearingAccount,
   getZohoChartAccounts,
 }
