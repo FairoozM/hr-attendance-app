@@ -70,7 +70,6 @@ export function InfluencerContractTimeline({
       <div className="ip-section-heading ip-hud-section-heading">
         <div>
           <h2>Video Contract Monitoring</h2>
-          <p>One contracted video per influencer, tracked across consecutive Day 1 to Day 5 performance checks.</p>
         </div>
         {contracts.length === 1 && visibleContract ? (
           <span className="ip-hud-heading-status">
@@ -541,12 +540,7 @@ function HudContractCard({
       <footer className="ip-hud-bottom">
         <div className="ip-hud-posted">
           <span className="ip-hud-ig-logo" aria-hidden="true" />
-          <div>
-            <div className="ip-hud-posted-platform">Posted on {contract.platform || 'platform'}</div>
-            <div className="ip-hud-posted-label">
-              Contract ID #{contract.id} · {contract.videoTitle || contract.campaignName || 'Video contract'}
-            </div>
-          </div>
+          <div className="ip-hud-posted-platform">Posted on {contract.platform || 'platform'}</div>
         </div>
         <div className="ip-hud-footer-actions">
           <button type="button" className="ip-hud-export-button" onClick={() => window.print()}>

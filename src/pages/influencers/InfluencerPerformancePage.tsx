@@ -103,7 +103,6 @@ function InfluencerPerformancePageBody() {
         <div>
           <span className="ip-eyebrow"><Gauge size={15} /> Marketing / Social Media</span>
           <h1 className="inf-page-title">Influencer Performance</h1>
-          <p className="inf-page-subtitle">Track one contracted video per influencer across 4-5 consecutive daily performance checks.</p>
           {syncHint ? (
             <p className="inf-page-subtitle ip-sync-hint" role="status">{syncHint}</p>
           ) : null}
