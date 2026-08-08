@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
-  CalendarClock,
   Check,
+  Download,
   ExternalLink,
   Eye,
   GalleryHorizontal,
@@ -49,12 +49,6 @@ type DayDraft = Partial<Record<TimelineMetricKey, string | number>> & {
 }
 type DraftsState = Record<string, DayDraft>
 
-function contractStatus(contract: InfluencerContract) {
-  if (toNumber(contract.recordedDays) >= toNumber(contract.monitoringDays)) return 'Completed'
-  if (toNumber(contract.recordedDays) > 0) return 'Monitoring'
-  return 'Pending'
-}
-
 const timelineDateFormatter = new Intl.DateTimeFormat('en-GB', {
   day: '2-digit',
   month: 'short',
@@ -69,14 +63,21 @@ export function InfluencerContractTimeline({
   onEditContract,
   onSaveRecord,
 }: InfluencerContractTimelineProps) {
+  const visibleContract = contracts[0]
+
   return (
     <section className="ip-contract-panel" aria-label="Video contract monitoring">
-      <div className="ip-section-heading">
-        <span className="ip-section-heading__icon"><CalendarClock size={18} /></span>
+      <div className="ip-section-heading ip-hud-section-heading">
         <div>
-          <h2>Video contract monitoring</h2>
+          <h2>Video Contract Monitoring</h2>
           <p>One contracted video per influencer, tracked across consecutive Day 1 to Day 5 performance checks.</p>
         </div>
+        {contracts.length === 1 && visibleContract ? (
+          <span className="ip-hud-heading-status">
+            <span aria-hidden="true" />
+            {visibleContract.platform || 'Platform'} · {visibleContract.recordedDays}/{visibleContract.monitoringDays} days
+          </span>
+        ) : null}
       </div>
 
       <div className="ip-hud-list">
@@ -239,6 +240,11 @@ function HudContractCard({
     return `${draftKey(day)}:${key}`
   }
 
+  function metricProgress(day: InfluencerContractDay, key: TimelineMetricKey) {
+    if (!day?.isRecorded || totals[key] <= 0) return 0
+    return Math.min(100, Math.max(0, (toNumber(day?.record?.[key]) / totals[key]) * 100))
+  }
+
   function inlineMetricDisplayValue(day: InfluencerContractDay, key: TimelineMetricKey) {
     const raw = getDraft(day, key)
     if (raw === '' || raw == null) return ''
@@ -334,7 +340,7 @@ function HudContractCard({
               </div>
             </div>
             <div className="ip-hud-identity-copy">
-              <div className="ip-hud-label">// contract monitor · {contractStatus(contract).toLowerCase()}</div>
+              <div className="ip-hud-label">Contract monitor</div>
               <div className="ip-hud-name-row">
                 <h3 className="ip-hud-name">{influencerName}</h3>
                 {onEditContract ? (
@@ -478,10 +484,13 @@ function HudContractCard({
                     {day?.isRecorded ? formatNumber(day?.record?.[key]) : '-'}
                   </strong>
                 )}
+                <div className="ip-hud-metric-progress" aria-hidden="true">
+                  <i style={{ width: `${metricProgress(day, key)}%` }} />
+                </div>
               </div>
             ))}
             <div className="ip-hud-metric-row">
-              <span><GalleryHorizontal size={15} /> Story posting</span>
+              <span><GalleryHorizontal size={15} /> Story</span>
               {!inWindow ? (
                 <strong className="ip-hud-value ip-hud-value--muted ip-hud-value--storyViews">—</strong>
               ) : onSaveRecord ? (
@@ -506,6 +515,7 @@ function HudContractCard({
         })}
         <section className="ip-hud-day ip-hud-day--total" aria-label="Total performance">
           <div className="ip-hud-day-head">
+            <span className="ip-hud-total-badge" aria-hidden="true">Σ</span>
             <div className="ip-hud-day-total-title">Total</div>
           </div>
           {metricConfig.map(({ label, key, Icon }) => (
@@ -514,10 +524,13 @@ function HudContractCard({
               <strong className={`ip-hud-value ip-hud-value--${key}`}>
                 {formatNumber(totals[key])}
               </strong>
+              <div className="ip-hud-metric-progress" aria-hidden="true">
+                <i style={{ width: '100%' }} />
+              </div>
             </div>
           ))}
           <div className="ip-hud-metric-row">
-            <span><GalleryHorizontal size={13} /> Story posting</span>
+            <span><GalleryHorizontal size={13} /> Story</span>
             <strong className="ip-hud-value ip-hud-value--storyViews">
               {contractStoryPostingSummary()}
             </strong>
@@ -526,15 +539,25 @@ function HudContractCard({
       </div>
 
       <footer className="ip-hud-bottom">
-        <div>
-          <div className="ip-hud-posted-label">// posted on</div>
-          <div className="ip-hud-posted-platform"><span className="ip-hud-ig-logo" /> {contract.platform}</div>
+        <div className="ip-hud-posted">
+          <span className="ip-hud-ig-logo" aria-hidden="true" />
+          <div>
+            <div className="ip-hud-posted-platform">Posted on {contract.platform || 'platform'}</div>
+            <div className="ip-hud-posted-label">
+              Contract ID #{contract.id} · {contract.videoTitle || contract.campaignName || 'Video contract'}
+            </div>
+          </div>
         </div>
-        {contract.postUrl ? (
-          <a className="ip-hud-open-link" href={contract.postUrl} target="_blank" rel="noopener noreferrer">
-            Open Video <ExternalLink size={16} />
-          </a>
-        ) : null}
+        <div className="ip-hud-footer-actions">
+          <button type="button" className="ip-hud-export-button" onClick={() => window.print()}>
+            <Download size={15} /> Export Report
+          </button>
+          {contract.postUrl ? (
+            <a className="ip-hud-open-link" href={contract.postUrl} target="_blank" rel="noopener noreferrer">
+              Open Video <ExternalLink size={16} />
+            </a>
+          ) : null}
+        </div>
       </footer>
     </article>
   )

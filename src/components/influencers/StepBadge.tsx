@@ -5,7 +5,9 @@ interface StepBadgeProps {
 
 export function StepBadge({ number, className = '' }: StepBadgeProps) {
   const value = Number(number)
-  const displayNumber = Number.isFinite(value) ? Math.max(1, Math.trunc(value)) : ''
+  const displayNumber = Number.isFinite(value)
+    ? String(Math.max(1, Math.trunc(value))).padStart(2, '0')
+    : ''
 
   return (
     <span
