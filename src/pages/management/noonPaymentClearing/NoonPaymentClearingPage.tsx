@@ -83,16 +83,31 @@ export function NoonPaymentClearingPage() {
   }, [])
 
   useEffect(() => {
-    fetchNoonZohoCustomers()
-      .then((rows) => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const rows = await fetchNoonZohoCustomers()
+        if (cancelled) return
         setCustomers(rows)
         if (rows[0]?.name) setZohoCustomerName(rows[0].name)
-      })
-      .catch(() => {})
-    refreshBatches().catch(() => {})
-    fetchNoonFeeJournalMappings()
-      .then((data) => setFeeMappings(data.mappings || []))
-      .catch(() => {})
+      } catch (err) {
+        if (!cancelled) setError(safeError(err))
+      }
+      try {
+        await refreshBatches()
+      } catch (err) {
+        if (!cancelled) setError(safeError(err))
+      }
+      try {
+        const data = await fetchNoonFeeJournalMappings()
+        if (!cancelled) setFeeMappings(data.mappings || [])
+      } catch (err) {
+        if (!cancelled) setError(safeError(err))
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [refreshBatches])
 
   useEffect(() => {

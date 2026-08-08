@@ -110,8 +110,11 @@ app.use('/api/purchase-planning', authMiddleware.attachAuth, purchasePlanningRou
 app.use('/api/prices', authMiddleware.attachAuth, pricesCompositeRoutes)
 app.use('/api/ai', authMiddleware.attachAuth, aiRoutes)
 app.use('/api/amazon', authMiddleware.attachAuth, amazonListingRoutes)
-app.use('/api/noon', authMiddleware.attachAuth, noonRoutes)
+// More specific Noon clearing routes must mount before /api/noon, otherwise the
+// general Noon router swallows /api/noon/payment-clearing/* and the SPA sees
+// the catch-all "API route not found".
 app.use('/api/noon/payment-clearing', authMiddleware.attachAuth, noonPaymentClearingRoutes)
+app.use('/api/noon', authMiddleware.attachAuth, noonRoutes)
 app.use('/api/inventory', authMiddleware.attachAuth, inventoryRoutes)
 app.use('/api/sku-coverage', authMiddleware.attachAuth, skuChannelCoverageRoutes)
 app.use('/api/listings', authMiddleware.attachAuth, listingBatchesRoutes)
