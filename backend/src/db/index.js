@@ -1267,6 +1267,12 @@ async function testConnection() {
     console.error('[db] ensureAmazonPaymentClearingTables skipped/failed (non-fatal):', e.message || e)
   }
   try {
+    const { ensureNoonPaymentClearingTables } = require('../services/noonPaymentClearing/noonPaymentClearingStore')
+    await ensureNoonPaymentClearingTables()
+  } catch (e) {
+    console.error('[db] ensureNoonPaymentClearingTables skipped/failed (non-fatal):', e.message || e)
+  }
+  try {
     const { ensureAmazonKsaRtoLabelingTables } = require('../services/amazonKsaRtoLabelingService')
     await ensureAmazonKsaRtoLabelingTables()
   } catch (e) {

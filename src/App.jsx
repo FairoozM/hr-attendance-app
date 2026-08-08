@@ -56,6 +56,7 @@ import { SubscriptionsPage } from './pages/management/subscriptions/Subscription
 import { PaymentsPage as CompanyPaymentsPage } from './pages/management/PaymentsPage'
 import { PurchasePlanningPage } from './pages/management/PurchasePlanningPage'
 import { AmazonPaymentClearingPage } from './pages/management/amazonPaymentClearing/AmazonPaymentClearingPage'
+import { NoonPaymentClearingPage } from './pages/management/noonPaymentClearing/NoonPaymentClearingPage'
 import { AmazonReturnReconciliationPage } from './pages/management/amazonReturnReconciliation/AmazonReturnReconciliationPage'
 import { InventoryHealthDashboardPage } from './pages/management/inventoryHealth/InventoryHealthDashboardPage'
 import { AccountBalanceWatchlistPage } from './pages/management/accountBalanceWatchlist/AccountBalanceWatchlistPage'
@@ -308,6 +309,38 @@ function AppContent() {
           element={
             <AdminOnly>
               <AmazonPaymentClearingPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="management/noon-payment-clearing"
+          element={
+            <AdminOnly>
+              <NoonPaymentClearingPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="management/noon-payment-clearing/:stepKey"
+          element={
+            <AdminOnly>
+              <NoonPaymentClearingPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="management/noon-payment-clearing/batch/:batchId"
+          element={
+            <AdminOnly>
+              <NoonPaymentClearingPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="management/noon-payment-clearing/batch/:batchId/:stepKey"
+          element={
+            <AdminOnly>
+              <NoonPaymentClearingPage />
             </AdminOnly>
           }
         />

@@ -427,6 +427,7 @@ export function Layout() {
     if (location.pathname.startsWith('/influencers/agreements')) return 'Agreements'
     if (location.pathname.startsWith('/influencers')) return 'Influencers'
     if (location.pathname.startsWith('/account')) return 'My Account'
+    if (location.pathname.startsWith('/management/noon-payment-clearing')) return 'Noon Payment Clearance'
     if (location.pathname.startsWith('/management/amazon-uae-payment-clearing')) return 'Amazon UAE Payment Clearing'
     if (location.pathname.startsWith('/management/amazon-payment-clearing')) return 'Amazon KSA Payment Clearing'
     if (location.pathname.startsWith('/management/amazon-return-reconciliation')) return 'Amazon Return Reconciliation'
@@ -584,6 +585,7 @@ export function Layout() {
     isAdmin && { label: 'Account Balance Watchlist', to: '/management/account-balance-watchlist' },
     isAdmin && { label: 'Amazon KSA Payment Clearing', to: '/management/amazon-payment-clearing' },
     isAdmin && { label: 'Amazon UAE Payment Clearing', to: '/management/amazon-uae-payment-clearing' },
+    isAdmin && { label: 'Noon Payment Clearance', to: '/management/noon-payment-clearing' },
     isAdmin && { label: 'Amazon Return Reconciliation', to: '/management/amazon-return-reconciliation' },
   ].filter(Boolean)
 
