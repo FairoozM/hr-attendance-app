@@ -1709,31 +1709,30 @@
   min-width: 0;
   gap: 0.4rem;
   color: #0f172a;
-  font-size: 1.05rem;
+  font-size: 1rem;
   font-weight: 800;
   letter-spacing: 0;
   text-transform: none;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .ip-hud-metric-row span .ip-hud-metric-label-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
+  text-overflow: unset;
   white-space: nowrap;
 }
 
 .ip-hud-metric-row span svg {
   flex-shrink: 0;
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
   stroke-width: 2.4;
 }
 
 .ip-hud-value {
   font-family: 'Space Mono', ui-monospace, monospace;
   flex: 0 0 auto;
-  min-width: 3.25rem;
+  min-width: 0;
   font-size: 1.05rem;
   font-weight: 900;
   margin-left: auto;
@@ -2243,7 +2242,7 @@
 }
 
 .ip-hud-days {
-  grid-template-columns: repeat(6, minmax(186px, 1fr));
+  grid-template-columns: repeat(6, minmax(168px, 1fr));
   gap: 0.85rem;
   margin-bottom: 1.45rem;
   overflow-x: auto;
@@ -2251,8 +2250,8 @@
 }
 
 .ip-hud-day {
-  min-width: 186px;
-  min-height: 350px;
+  min-width: 168px;
+  min-height: 390px;
   padding: 1rem 1.05rem;
   border-color: #e4eaf2;
   border-radius: 22px;
@@ -2308,11 +2307,10 @@
 
 .ip-hud-metric-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
-  column-gap: 0.75rem;
-  row-gap: 0.4rem;
-  align-items: center;
-  padding: 0.7rem 0;
+  grid-template-columns: 1fr;
+  align-items: start;
+  gap: 0.18rem;
+  padding: 0.58rem 0;
   border: 0;
 }
 
@@ -2321,40 +2319,42 @@
   align-items: center;
   gap: 0.4rem;
   min-width: 0;
+  max-width: 100%;
   color: #0f172a;
   font-family: inherit;
-  font-size: 1.05rem;
+  font-size: 1rem;
   font-weight: 800;
   letter-spacing: 0;
   text-transform: none;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .ip-hud-metric-row > span .ip-hud-metric-label-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
+  text-overflow: unset;
   white-space: nowrap;
 }
 
 .ip-hud-metric-row > span svg {
   display: block;
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
   flex-shrink: 0;
 }
 
 .ip-hud-value {
   color: #0f172a;
   font-family: inherit;
-  font-size: 1.05rem;
+  font-size: 1.2rem;
   font-weight: 900;
-  justify-self: end;
-  flex-shrink: 0;
-  min-width: 3.25rem;
+  justify-self: stretch;
+  width: 100%;
+  min-width: 0;
   max-width: none;
+  margin: 0;
+  padding-left: 1.55rem;
   overflow: visible;
-  text-align: right;
+  text-align: left;
   text-overflow: unset;
   white-space: nowrap;
 }
@@ -2365,13 +2365,19 @@
 
 .ip-hud-value-input,
 .ip-hud-value-select {
-  width: 4.5rem;
+  box-sizing: border-box;
+  width: calc(100% - 1.55rem);
+  min-width: 0;
+  max-width: none;
+  margin-left: 1.55rem;
+  padding-left: 0.2rem;
   font-family: inherit;
-  font-size: 1.05rem;
+  font-size: 1.15rem;
+  text-align: left;
 }
 
 .ip-hud-metric-progress {
-  grid-column: 1 / -1;
+  grid-column: 1;
   height: 3px;
   overflow: hidden;
   border-radius: 999px;
@@ -2414,16 +2420,21 @@
   font-weight: 900;
 }
 
-.ip-hud-day--total .ip-hud-metric-row > span {
-  color: #e8eef8;
+.ip-hud-day--total .ip-hud-metric-row > span,
+.ip-hud-day--total .ip-hud-metric-label-text {
+  color: #f8fafc;
 }
 
-.ip-hud-day--total .ip-hud-value {
-  color: #fff;
+.ip-hud-day--total .ip-hud-value,
+.ip-hud-day--total .ip-hud-value--views,
+.ip-hud-day--total .ip-hud-value--shares,
+.ip-hud-day--total .ip-hud-value--likes,
+.ip-hud-day--total .ip-hud-value--comments {
+  color: #ffffff;
 }
 
 .ip-hud-day--total .ip-hud-value--storyViews {
-  color: #21c58b;
+  color: #34d399;
 }
 
 .ip-hud-day--total .ip-hud-metric-progress {
