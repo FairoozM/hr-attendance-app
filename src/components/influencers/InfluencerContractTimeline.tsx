@@ -520,7 +520,7 @@ function HudContractCard({
           </div>
           {metricConfig.map(({ label, key, Icon }) => (
             <div key={key} className="ip-hud-metric-row">
-              <span><Icon size={13} /> {label}</span>
+              <span><Icon size={15} /> {label}</span>
               <strong className={`ip-hud-value ip-hud-value--${key}`}>
                 {formatNumber(totals[key])}
               </strong>
