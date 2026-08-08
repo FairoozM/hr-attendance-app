@@ -127,7 +127,10 @@ export function collectLegacyPreferencePatches(serverPrefs) {
   if (!ownsPref(sp, K.PREF_THEME)) {
     const raw = tryGetLocal('hr-attendance-theme')
     if (raw && typeof raw === 'string' && ['light', 'dark', 'comfort', 'system'].includes(raw)) {
-      patches.push({ key: K.PREF_THEME, value: raw })
+      patches.push({
+        key: K.PREF_THEME,
+        value: ['dark', 'comfort'].includes(raw) ? raw : 'comfort',
+      })
     }
   }
 

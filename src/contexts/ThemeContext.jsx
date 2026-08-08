@@ -6,7 +6,7 @@ import { PREF_THEME } from '../constants/userPreferenceKeys'
 
 const SYSTEM_THEME_QUERY = '(prefers-color-scheme: dark)'
 
-const VALID_THEMES = new Set(['light', 'dark', 'comfort', 'system'])
+const VALID_THEMES = new Set(['dark', 'comfort'])
 
 const ThemeContext = createContext(null)
 
@@ -28,7 +28,7 @@ export function ThemeProvider({ children }) {
   const { user } = useAuth()
   const { ready, getPref, setPref, prefsVersion } = useUserPreferences()
   const onLoginRoute = location.pathname === '/login'
-  const [themePreference, setThemePreference] = useState('system')
+  const [themePreference, setThemePreference] = useState('comfort')
   const [systemTheme, setSystemTheme] = useState(getSystemTheme)
   const skipPrefWrite = useRef(false)
 
@@ -50,17 +50,16 @@ export function ThemeProvider({ children }) {
   useEffect(() => {
     if (!user || !ready) return
     const saved = getPref(PREF_THEME, null)
-    if (saved && VALID_THEMES.has(saved)) {
-      skipPrefWrite.current = true
-      setThemePreference(saved)
-    }
+    const normalizedTheme = saved && VALID_THEMES.has(saved) ? saved : 'comfort'
+    setThemePreference((current) => {
+      skipPrefWrite.current = current !== normalizedTheme
+      return normalizedTheme
+    })
   }, [user, ready, prefsVersion, getPref])
 
   const resolvedTheme = onLoginRoute
     ? systemTheme
-    : themePreference === 'system'
-      ? systemTheme
-      : themePreference
+    : themePreference
 
   useEffect(() => {
     applyThemeToDocument(resolvedTheme)
@@ -74,23 +73,17 @@ export function ThemeProvider({ children }) {
   }, [themePreference, user, ready, setPref])
 
   const toggleTheme = useCallback(() => {
-    setThemePreference((prev) => {
-      const activeTheme = prev === 'system' ? systemTheme : prev
-      if (activeTheme === 'dark') return 'light'
-      if (activeTheme === 'light') return 'comfort'
-      return 'dark'
-    })
-  }, [systemTheme])
+    setThemePreference((prev) => (prev === 'dark' ? 'comfort' : 'dark'))
+  }, [])
 
   const setTheme = useCallback((nextTheme) => {
-    setThemePreference(VALID_THEMES.has(nextTheme) ? nextTheme : 'system')
+    setThemePreference(VALID_THEMES.has(nextTheme) ? nextTheme : 'comfort')
   }, [])
 
   const value = useMemo(
     () => ({
       themePreference,
       resolvedTheme,
-      isSystemTheme: themePreference === 'system',
       setTheme,
       setThemePreference: setTheme,
       toggleTheme,
