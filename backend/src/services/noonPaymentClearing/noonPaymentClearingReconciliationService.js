@@ -36,7 +36,11 @@ function buildNoonReconciliationSummary(rows, metadata = {}) {
   const statementLevelFees = sumTotals(list, (r) => r.rowClass === ROW_CLASS.STATEMENT_FEE)
   const advertisingFees = sumTotals(
     list,
-    (r) => r.rowClass === ROW_CLASS.STATEMENT_FEE && /advertising/i.test(String(r.title || ''))
+    (r) =>
+      r.rowClass === ROW_CLASS.STATEMENT_FEE &&
+      (r.normalizedFeeType === 'NOON_ADVERTISING_FEE' ||
+        r.normalizedFeeType === 'ADVERTISING' ||
+        /advertis/i.test(String(r.title || '')))
   )
   const otherFees = sumTotals(list, (r) => r.rowClass === ROW_CLASS.OTHER)
   const otherOrderFees = sumField(list, 'otherOrderFees')

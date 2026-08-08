@@ -1,4 +1,13 @@
-const { ROW_CLASS, round2, num, clean } = require('./noonPaymentClearingCategoryService')
+const {
+  ROW_CLASS,
+  round2,
+  num,
+  clean,
+  displayLabelForFeeRow,
+  accountingTreatmentForFeeRow,
+  reclassifyExplainableOtherRows,
+  feeMappingTypeCandidates,
+} = require('./noonPaymentClearingCategoryService')
 const { buildNoonOrderHierarchy } = require('./noonPaymentClearingHierarchyService')
 const {
   buildNoonReconciliationSummary,
@@ -6,6 +15,7 @@ const {
   RECONCILIATION_TOLERANCE,
 } = require('./noonPaymentClearingReconciliationService')
 const { buildSettlementReference } = require('./noonPaymentClearingReferenceService')
+const { applyParentOrderChargeFallback } = require('./noonPaymentClearingParentChargeFallback')
 
 function buildBlockingIssues({ annotatedRows, unmatchedOrders, multipleMatchItems, reconciliation }) {
   const issues = []
@@ -47,6 +57,13 @@ function buildBlockingIssues({ annotatedRows, unmatchedOrders, multipleMatchItem
   return issues
 }
 
+function findFeeMappingRule(mappingRules, feeType) {
+  const candidates = new Set(feeMappingTypeCandidates(feeType).map((t) => clean(t)))
+  return (Array.isArray(mappingRules) ? mappingRules : []).find(
+    (r) => r.isActive !== false && candidates.has(clean(r.normalizedFeeType))
+  )
+}
+
 function buildFeeJournalPreviewLines(rows, mappingRules = []) {
   const journalRows = (Array.isArray(rows) ? rows : []).filter(
     (row) =>
@@ -56,22 +73,44 @@ function buildFeeJournalPreviewLines(rows, mappingRules = []) {
   )
   return journalRows.map((row, idx) => {
     const feeType = row.normalizedFeeType || 'OTHER'
-    const rule = (Array.isArray(mappingRules) ? mappingRules : []).find(
-      (r) => r.isActive !== false && clean(r.normalizedFeeType) === clean(feeType)
-    )
-    const amount = Math.abs(round2(num(row.total)))
+    const rule = findFeeMappingRule(mappingRules, feeType)
+    const signedAmount = round2(num(row.total))
+    const amount = Math.abs(signedAmount)
+    const displayLabel = row.displayLabel || displayLabelForFeeRow(row)
+    const isAdvertising =
+      feeType === 'NOON_ADVERTISING_FEE' || feeType === 'ADVERTISING' || /advertis/i.test(displayLabel)
+    const originalParentOrderId = clean(row.originalParentOrderId || row.parentOrderId)
+    const assignedItemOrderId = clean(row.assignedItemOrderId)
+    const assignmentReason = clean(row.assignmentReason)
     return {
       lineIndex: idx + 1,
       rowNumber: row.rowNumber,
-      parentOrderId: row.parentOrderId || '',
-      itemOrderId: row.itemOrderId || '',
+      parentOrderId: originalParentOrderId,
+      itemOrderId: clean(row.itemOrderId),
+      originalParentOrderId,
+      assignedItemOrderId,
+      assignmentReason,
+      assignmentReasonLabel: clean(row.assignmentReasonLabel),
+      parentFallbackStatus: clean(row.parentFallbackStatus),
       title: row.title || '',
       transactionType: row.transactionType || '',
       rowClass: row.rowClass,
       feeType,
       normalizedFeeType: feeType,
+      displayLabel,
+      accountingTreatment: row.accountingTreatment || accountingTreatmentForFeeRow(row),
+      signedAmount,
       amount,
       currency: row.currency || 'AED',
+      isStatementLevelExpense: row.rowClass === ROW_CLASS.STATEMENT_FEE,
+      invoiceRequired: false,
+      previewNote: isAdvertising
+        ? 'Statement-level expense · No invoice required'
+        : assignedItemOrderId
+          ? `Parent: ${originalParentOrderId} · Cleared via: ${assignedItemOrderId} · Parent-order fallback`
+          : originalParentOrderId
+            ? `Parent: ${originalParentOrderId}`
+            : '',
       mappingStatus: rule && rule.debitAccountId && rule.creditAccountId ? 'mapped' : 'needs_mapping',
       debit: rule
         ? { accountId: rule.debitAccountId, accountName: rule.debitAccountName }
@@ -92,12 +131,14 @@ function buildPreview({
   zohoCustomerName = '',
   warnings = [],
 } = {}) {
-  const annotatedRows = matchResult?.annotatedRows || rows || []
+  const matchedOrders = matchResult?.matchedOrders || []
+  let annotatedRows = reclassifyExplainableOtherRows(matchResult?.annotatedRows || rows || [])
+  annotatedRows = applyParentOrderChargeFallback(annotatedRows, matchedOrders)
+
   const hierarchy = buildNoonOrderHierarchy(annotatedRows)
   const reconciliation = buildNoonReconciliationSummary(annotatedRows, metadata)
   const unmatchedOrders = matchResult?.unmatchedOrders || []
   const multipleMatchItems = matchResult?.multipleMatchItems || []
-  const matchedOrders = matchResult?.matchedOrders || []
   const blockingIssues = buildBlockingIssues({
     annotatedRows,
     unmatchedOrders,

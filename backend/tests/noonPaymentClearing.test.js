@@ -6,12 +6,18 @@ const {
   resolveNoonOrderIds,
   isParentOnlyMatch,
   isRecognizedNoonItemOrderId,
+  isStrictChildOfParent,
 } = require('../src/services/noonPaymentClearing/noonOrderIdHelper')
 const {
   classifyNoonStatementRow,
   ROW_CLASS,
+  NORMALIZED_FEE_TYPE,
   requiresZohoInvoice,
 } = require('../src/services/noonPaymentClearing/noonPaymentClearingCategoryService')
+const {
+  applyParentOrderChargeFallback,
+  findDeterministicChildForParent,
+} = require('../src/services/noonPaymentClearing/noonPaymentClearingParentChargeFallback')
 const {
   parseNoonStatementReport,
   normalizeNoonStatementRow,
@@ -112,7 +118,43 @@ describe('classification', () => {
       total: '-2009.62',
     })
     assert.equal(row.rowClass, ROW_CLASS.STATEMENT_FEE)
+    assert.equal(row.normalizedFeeType, NORMALIZED_FEE_TYPE.NOON_ADVERTISING_FEE)
     assert.equal(requiresZohoInvoice(row.rowClass), false)
+  })
+
+  it('classifies real Noon export statement_fee + Order Nr NA as advertising', () => {
+    const row = normalizeNoonStatementRow({
+      contract: 'MPABUKYTZQAE',
+      'contract-title': 'NOON-AE',
+      'reference-nr': 'PS-11752-AE20260708',
+      'order-nr': 'NA',
+      'item-nr': '',
+      'transaction-date': '2026-07-08',
+      title: 'Advertising Fee',
+      'transaction-type': 'statement_fee',
+      currency: 'AED',
+      'non-order-fees-including-vat': '-2009.62',
+      total: '-2009.62',
+    })
+    assert.equal(row.parentOrderId, '')
+    assert.equal(row.rowClass, ROW_CLASS.STATEMENT_FEE)
+    assert.equal(row.normalizedFeeType, NORMALIZED_FEE_TYPE.NOON_ADVERTISING_FEE)
+    assert.equal(requiresZohoInvoice(row.rowClass), false)
+  })
+
+  it('maps Fullfilment & Logistics + Order Subsidies headers and preserves positive credits', () => {
+    const row = normalizeNoonStatementRow({
+      'order-nr': 'NAEI70003640128',
+      'item-nr': '',
+      'transaction-type': 'order',
+      title: 'PGB2706778467A',
+      'fullfilment-&-logistics-fees-including-vat': '0',
+      'order-subsidies-including-vat': '4.73',
+      total: '4.73',
+    })
+    assert.equal(row.rowClass, ROW_CLASS.PARENT_ORDER_CHARGE)
+    assert.equal(row.total, 4.73)
+    assert.equal(row.othersInclVat, 4.73)
   })
 
   it('classifies order_update as adjustment (no invoice)', () => {
@@ -422,7 +464,7 @@ describe('acceptance: NAEI70003640128 parent / children / parent charge', () => 
     )
   })
 
-  it('payment preview separates invoice payments from parent/statement journals and does not allocate parent charge', () => {
+  it('payment preview separates invoice payments from parent/statement journals and assigns parent fallback once', () => {
     const parsed = parseNoonStatementReport(statement)
     const match = matchNoonRowsToInvoices(parsed.rows, invoices)
     const preview = buildPreview({
@@ -431,7 +473,7 @@ describe('acceptance: NAEI70003640128 parent / children / parent charge', () => 
       matchResult: match,
       mappingRules: [
         {
-          normalizedFeeType: 'ADVERTISING',
+          normalizedFeeType: 'NOON_ADVERTISING_FEE',
           debitAccountId: 'd1',
           creditAccountId: 'c1',
           debitAccountName: 'Adv',
@@ -464,6 +506,22 @@ describe('acceptance: NAEI70003640128 parent / children / parent charge', () => 
         },
       ],
     })
+    const parentCharge = preview.parentCharges[0]
+    assert.equal(parentCharge.originalParentOrderId, 'NAEI70003640128')
+    assert.equal(parentCharge.assignedItemOrderId, 'NAEI70003640128-1')
+    assert.equal(parentCharge.assignmentReason, 'parent_order_fallback')
+    assert.equal(parentCharge.itemOrderId, '')
+    assert.equal(
+      preview.parentCharges.filter((p) => p.assignedItemOrderId === 'NAEI70003640128-1').length,
+      1
+    )
+    const advLine = preview.feeJournalLines.find((l) => l.normalizedFeeType === 'NOON_ADVERTISING_FEE')
+    assert.ok(advLine)
+    assert.equal(advLine.signedAmount, -2009.62)
+    assert.equal(advLine.displayLabel, 'Advertising Fee')
+    assert.match(advLine.previewNote, /No invoice required/i)
+    assert.ok(!preview.blockingIssues.some((i) => i.code === 'UNEXPLAINED_OTHER'))
+
     const batch = {
       batchId: 1,
       status: 'approved',
@@ -477,7 +535,7 @@ describe('acceptance: NAEI70003640128 parent / children / parent charge', () => 
     }
     const paymentPreview = buildPaymentPreviewFromBatch(batch, [
       {
-        normalizedFeeType: 'ADVERTISING',
+        normalizedFeeType: 'NOON_ADVERTISING_FEE',
         debitAccountId: 'd1',
         creditAccountId: 'c1',
         isActive: true,
@@ -505,8 +563,17 @@ describe('acceptance: NAEI70003640128 parent / children / parent charge', () => 
     assert.ok(paymentPreview.invoicePayments.every((p) => p.itemOrderId.includes('-')))
     assert.ok(paymentPreview.parentLevelCharges.length >= 1)
     assert.ok(paymentPreview.statementLevelCharges.length >= 1)
-    // Parent charge must not appear as an invoice payment allocation
+    const parentJournal = paymentPreview.parentLevelCharges[0]
+    assert.equal(parentJournal.assignedItemOrderId, 'NAEI70003640128-1')
+    assert.match(String(parentJournal.previewNote || ''), /Cleared via: NAEI70003640128-1/)
+    // Parent charge must not appear as an invoice payment allocation / must not be duplicated
     assert.ok(!paymentPreview.invoicePayments.some((p) => p.itemOrderId === 'NAEI70003640128'))
+    assert.equal(
+      paymentPreview.feeJournalLines.filter(
+        (l) => l.rowNumber === parentCharge.rowNumber && l.rowClass === 'parent_order_charge'
+      ).length,
+      1
+    )
     const flat = flattenInvoicePayments(paymentPreview)
     assert.ok(flat.every((r) => r.itemOrderId === 'NAEI70003640128-1' || r.itemOrderId === 'NAEI70003640128-2'))
   })
@@ -631,5 +698,77 @@ describe('classifyNoonStatementRow edge', () => {
       }),
       ROW_CLASS.PARENT_ORDER_CHARGE
     )
+  })
+})
+
+describe('parent-order fallback bounds', () => {
+  it('uses strict parent/child comparison and lowest suffix', () => {
+    assert.equal(isStrictChildOfParent('NAEI70003640128', 'NAEI70003640128-1'), true)
+    assert.equal(isStrictChildOfParent('NAEI70003640128', 'NAEI700036401280-1'), false)
+    assert.equal(isStrictChildOfParent('NAEI70003640128', 'NAEI70003640128'), false)
+
+    const child = findDeterministicChildForParent('NAEI70003640128', [
+      {
+        matchStatus: 'matched',
+        itemOrderId: 'NAEI70003640128-2',
+        zohoInvoiceId: 'inv-2',
+      },
+      {
+        matchStatus: 'matched',
+        itemOrderId: 'NAEI70003640128-1',
+        zohoInvoiceId: 'inv-1',
+      },
+      {
+        matchStatus: 'matched',
+        itemOrderId: 'NAEI700036401280-1',
+        zohoInvoiceId: 'inv-trap',
+      },
+    ])
+    assert.equal(child.itemOrderId, 'NAEI70003640128-1')
+
+    const rows = applyParentOrderChargeFallback(
+      [
+        {
+          rowNumber: 9,
+          rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+          parentOrderId: 'NAEI70003640128',
+          itemOrderId: '',
+          total: -18.9,
+          fulfillmentFee: -18.9,
+          title: 'PGSHIP',
+        },
+      ],
+      [
+        { matchStatus: 'matched', itemOrderId: 'NAEI70003640128-2', zohoInvoiceId: 'inv-2' },
+        { matchStatus: 'matched', itemOrderId: 'NAEI70003640128-1', zohoInvoiceId: 'inv-1' },
+      ]
+    )
+    assert.equal(rows[0].assignedItemOrderId, 'NAEI70003640128-1')
+    assert.equal(rows[0].originalParentOrderId, 'NAEI70003640128')
+    assert.equal(rows[0].itemOrderId, '')
+    assert.equal(rows[0].assignmentReason, 'parent_order_fallback')
+  })
+
+  it('still flags genuine unexplained other amounts', () => {
+    const row = normalizeNoonStatementRow(
+      {
+        'transaction-type': 'mystery',
+        title: 'Unknown blob',
+        total: '-12.34',
+      },
+      99
+    )
+    assert.equal(row.rowClass, ROW_CLASS.OTHER)
+    const preview = buildPreview({
+      rows: [row],
+      metadata: { actualSettlementTotal: -12.34 },
+      matchResult: {
+        annotatedRows: [row],
+        matchedOrders: [],
+        unmatchedOrders: [],
+        multipleMatchItems: [],
+      },
+    })
+    assert.ok(preview.blockingIssues.some((i) => i.code === 'UNEXPLAINED_OTHER' && i.rowNumber === 99))
   })
 })

@@ -8,6 +8,25 @@ function clean(value) {
   return String(value == null ? '' : value).trim()
 }
 
+/** Noon exports sometimes put placeholder tokens in Order Nr for statement fees. */
+function cleanNoonOrderToken(value) {
+  const raw = clean(value)
+  if (!raw) return ''
+  const lower = raw.toLowerCase()
+  if (
+    lower === 'na' ||
+    lower === 'n/a' ||
+    lower === 'null' ||
+    lower === 'none' ||
+    lower === '-' ||
+    lower === '--' ||
+    lower === 'nil'
+  ) {
+    return ''
+  }
+  return raw
+}
+
 /** Parent-shaped Noon order IDs (no item suffix). */
 const NOON_PARENT_ORDER_RE = /^(NAE[I]?[A-Z0-9]+)$/i
 /** Item-shaped Noon order IDs: parent-N */
@@ -78,8 +97,8 @@ function parseNoonOrderId(value) {
  * Never throws either identifier away. Matching must use item_order_id only.
  */
 function resolveNoonOrderIds({ orderNr, itemNr } = {}) {
-  const orderRaw = clean(orderNr)
-  const itemRaw = clean(itemNr)
+  const orderRaw = cleanNoonOrderToken(orderNr)
+  const itemRaw = cleanNoonOrderToken(itemNr)
   const orderParsed = parseNoonOrderId(orderRaw)
   const itemParsed = parseNoonOrderId(itemRaw)
 
@@ -135,6 +154,19 @@ function resolveNoonOrderIds({ orderNr, itemNr } = {}) {
 }
 
 /**
+ * True only when itemOrderId is a recognized child of the exact parent (suffix form).
+ * Rejects prefix traps like NAEI700036401280 vs NAEI70003640128.
+ */
+function isStrictChildOfParent(parentOrderId, itemOrderId) {
+  const parent = clean(parentOrderId)
+  const item = clean(itemOrderId)
+  if (!parent || !item) return false
+  const parsed = parseNoonOrderId(item)
+  if (parsed.shape !== 'item') return false
+  return matchKey(parsed.parentOrderId) === matchKey(parent)
+}
+
+/**
  * Parent-only match against a child invoice PO must never succeed for sales.
  * Returns true if candidateKey is exactly the parent of itemOrderId (or equals parentOrderId)
  * and is NOT equal to the full itemOrderId.
@@ -155,11 +187,13 @@ function isParentOnlyMatch({ candidate, itemOrderId, parentOrderId } = {}) {
 
 module.exports = {
   clean,
+  cleanNoonOrderToken,
   matchKey,
   isRecognizedNoonParentOrderId,
   isRecognizedNoonItemOrderId,
   parseNoonOrderId,
   resolveNoonOrderIds,
+  isStrictChildOfParent,
   isParentOnlyMatch,
   NOON_PARENT_ORDER_RE,
   NOON_ITEM_ORDER_RE,

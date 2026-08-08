@@ -655,10 +655,18 @@ export function NoonPaymentClearingPage() {
                         const related =
                           parents.find((p) => p.parentOrderId === row.parentOrderId)?.children.map((c) => c.itemOrderId) ||
                           []
+                        const assigned = String(row.assignedItemOrderId || '')
                         return (
                           <tr key={row.rowNumber}>
                             <td>
                               <code className="npc-ref">{row.parentOrderId}</code>
+                              {assigned ? (
+                                <div className="npc-muted" style={{ marginTop: 4 }}>
+                                  Cleared via: <code className="npc-ref">{assigned}</code>
+                                  <br />
+                                  Parent-order fallback
+                                </div>
+                              ) : null}
                             </td>
                             <td>{row.title || 'Parent Order Charge'}</td>
                             <td className="npc-money">{money(row.fulfillmentFee)}</td>
@@ -765,8 +773,17 @@ export function NoonPaymentClearingPage() {
                     <tbody>
                       {(preview.feeJournalLines || []).map((line) => (
                         <tr key={line.lineIndex}>
-                          <td>{line.feeType}</td>
-                          <td className="npc-money">{money(line.amount)}</td>
+                          <td>
+                            {String(line.displayLabel || line.feeType || '')}
+                            {line.previewNote ? (
+                              <div className="npc-muted" style={{ marginTop: 4 }}>
+                                {String(line.previewNote)}
+                              </div>
+                            ) : null}
+                          </td>
+                          <td className="npc-money">
+                            {money(Number(line.signedAmount != null ? line.signedAmount : line.amount) || 0)}
+                          </td>
                           <td>{line.parentOrderId || '—'}</td>
                           <td>{line.mappingStatus}</td>
                         </tr>
@@ -885,22 +902,34 @@ export function NoonPaymentClearingPage() {
                       <table className="npc-table">
                         <thead>
                           <tr>
-                            <th>Class</th>
-                            <th>Fee</th>
-                            <th>Parent</th>
+                            <th>Charge</th>
                             <th>Amount</th>
+                            <th>Clearing detail</th>
                           </tr>
                         </thead>
                         <tbody>
                           {[
                             ...(paymentPreview.parentLevelCharges || []),
                             ...(paymentPreview.statementLevelCharges || []),
+                            ...(paymentPreview.adjustmentClearings || []),
                           ].map((line, idx) => (
                             <tr key={idx}>
-                              <td>{String(line.rowClass || '')}</td>
-                              <td>{String(line.feeType || '')}</td>
-                              <td>{String(line.parentOrderId || '—')}</td>
-                              <td className="npc-money">{money(Number(line.amount) || 0)}</td>
+                              <td>
+                                <strong>{String(line.displayLabel || line.feeType || '')}</strong>
+                                {line.accountingTreatment ? (
+                                  <div className="npc-muted">{String(line.accountingTreatment)}</div>
+                                ) : null}
+                              </td>
+                              <td className="npc-money">
+                                {money(Number(line.signedAmount != null ? line.signedAmount : line.amount) || 0)}
+                              </td>
+                              <td>
+                                {line.previewNote ? (
+                                  <span className="npc-muted">{String(line.previewNote)}</span>
+                                ) : (
+                                  String(line.parentOrderId || '—')
+                                )}
+                              </td>
                             </tr>
                           ))}
                         </tbody>

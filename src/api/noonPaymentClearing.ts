@@ -14,6 +14,7 @@ export interface NoonStatementRow {
   title: string
   transactionType: string
   rowClass: string
+  normalizedFeeType?: string
   netProceed: number
   referralFee: number
   fulfillmentFee: number
@@ -27,6 +28,13 @@ export interface NoonStatementRow {
   zohoInvoiceId?: string
   zohoInvoiceNumber?: string
   blockingReason?: string
+  originalParentOrderId?: string
+  assignedItemOrderId?: string
+  assignmentReason?: string
+  assignmentReasonLabel?: string
+  parentFallbackStatus?: string
+  displayLabel?: string
+  accountingTreatment?: string
 }
 
 export interface NoonHierarchyChild {
@@ -124,10 +132,17 @@ export interface NoonPaymentClearingPreview {
     lineIndex: number
     feeType: string
     amount: number
+    signedAmount?: number
     mappingStatus: string
     parentOrderId?: string
     title?: string
     rowClass?: string
+    displayLabel?: string
+    previewNote?: string
+    accountingTreatment?: string
+    assignedItemOrderId?: string
+    originalParentOrderId?: string
+    assignmentReason?: string
     debit?: { accountId: string; accountName: string }
     credit?: { accountId: string; accountName: string }
   }>
@@ -158,6 +173,7 @@ export interface NoonPaymentPreview {
   }>
   parentLevelCharges: Array<Record<string, unknown>>
   statementLevelCharges: Array<Record<string, unknown>>
+  adjustmentClearings?: Array<Record<string, unknown>>
   feeJournalLines: Array<Record<string, unknown>>
   summary: {
     invoicePaymentCount: number

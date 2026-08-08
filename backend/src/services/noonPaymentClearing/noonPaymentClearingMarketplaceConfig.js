@@ -34,6 +34,7 @@ function getNoonPaymentClearingMarketplaceConfig() {
       },
     },
     feeJournalAccountSuggestions: [
+      { normalizedFeeType: 'NOON_ADVERTISING_FEE', debitAccountName: 'Noon Advertising Exp', creditAccountName: 'Noon Undeposited Funds' },
       { normalizedFeeType: 'ADVERTISING', debitAccountName: 'Noon Advertising Exp', creditAccountName: 'Noon Undeposited Funds' },
       { normalizedFeeType: 'STATEMENT_FEE', debitAccountName: 'Noon Marketplace Fees', creditAccountName: 'Noon Undeposited Funds' },
       { normalizedFeeType: 'FULFILLMENT', debitAccountName: 'Noon Uncleared Fulfillment Exp', creditAccountName: 'Noon Undeposited Funds' },

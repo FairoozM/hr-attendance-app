@@ -95,7 +95,12 @@ function normalizeNoonStatementRow(row, rowNumber = 0) {
   const normalized = {
     rowNumber,
     contract: pick(row, ['contract', 'merchant-account', 'merchant account']),
-    contractType: pick(row, ['contract-type', 'contract type']),
+    contractType: pick(row, [
+      'contract-type',
+      'contract type',
+      'contract-title',
+      'contract title',
+    ]),
     referenceNr: pick(row, ['reference-nr', 'reference nr', 'reference-number', 'reference number', 'statement-id', 'statement id']),
     orderNr,
     itemNr,
@@ -106,29 +111,114 @@ function normalizeNoonStatementRow(row, rowNumber = 0) {
     transactionDate: normalizeNoonDate(pick(row, ['transaction-date', 'transaction date'])),
     title: pick(row, ['title', 'item-title', 'item title', 'product-title', 'product title']),
     sku: pick(row, ['skus', 'sku', 'seller-sku', 'seller sku']),
-    partnerSku: pick(row, ['partner-sku', 'partner sku', 'psku']),
+    partnerSku: pick(row, ['partner-skus', 'partner skus', 'partner-sku', 'partner sku', 'psku']),
     transactionType: pick(row, ['transaction-type', 'transaction type']),
     currency: pick(row, ['currency', 'currency-code', 'currency code']) || 'AED',
-    netProceed: parseAmount(pick(row, ['net-proceed', 'net proceed', 'net-proceeds', 'net proceeds'])),
-    referralFee: parseAmount(pick(row, ['referral-fee', 'referral fee'])),
-    fulfillmentFee: parseAmount(pick(row, ['fulfillment-fee', 'fulfillment fee', 'fulfillment'])),
-    shippingCharges: parseAmount(pick(row, ['shipping-charges', 'shipping charges', 'shipping-charge', 'shipping charge'])),
-    otherOrderFees: parseAmount(pick(row, ['other-order-fees', 'other order fees', 'other-order', 'other order'])),
+    netProceed: parseAmount(
+      pick(row, ['net-proceed', 'net proceed', 'net-proceeds', 'net proceeds'])
+    ),
+    referralFee: parseAmount(
+      pick(row, [
+        'referral-fee',
+        'referral fee',
+        'referral-fee-including-vat',
+        'referral fee including vat',
+      ])
+    ),
+    fulfillmentFee: parseAmount(
+      pick(row, [
+        'fulfillment-fee',
+        'fulfillment fee',
+        'fulfillment',
+        // Real Noon export spelling + long header
+        'fullfilment-&-logistics-fees-including-vat',
+        'fulfillment-&-logistics-fees-including-vat',
+        'fullfilment-and-logistics-fees-including-vat',
+        'fulfillment-and-logistics-fees-including-vat',
+        'fullfilment-&-logistics-fees',
+        'fulfillment-&-logistics-fees',
+      ])
+    ),
+    shippingCharges: parseAmount(
+      pick(row, [
+        'shipping-charges',
+        'shipping charges',
+        'shipping-charge',
+        'shipping charge',
+        'shipping-credits-including-vat',
+        'shipping credits including vat',
+        'shipping-credits',
+        'shipping credits',
+      ])
+    ),
+    otherOrderFees: parseAmount(
+      pick(row, [
+        'other-order-fees',
+        'other order fees',
+        'other-order',
+        'other order',
+        'other-order-fees-including-vat',
+        'other order fees including vat',
+      ])
+    ),
+    orderSubsidies: parseAmount(
+      pick(row, [
+        'order-subsidies',
+        'order subsidies',
+        'order-subsidies-including-vat',
+        'order subsidies including vat',
+        'order-subscription-fees',
+        'order subscription fees',
+      ])
+    ),
     orderSubscriptionFees: parseAmount(
       pick(row, ['order-subscription-fees', 'order subscription fees', 'subs', 'order-subs'])
     ),
-    nonOrderFees: parseAmount(pick(row, ['non-order-fees', 'non order fees', 'non-order', 'non order'])),
+    nonOrderFees: parseAmount(
+      pick(row, [
+        'non-order-fees',
+        'non order fees',
+        'non-order',
+        'non order',
+        'non-order-fees-including-vat',
+        'non-order fees including vat',
+        'non order fees including vat',
+      ])
+    ),
     nonOrderSubscriptionFees: parseAmount(
-      pick(row, ['non-order-subscription-fees', 'non order subscription fees', 'non-order-subs'])
+      pick(row, [
+        'non-order-subscription-fees',
+        'non order subscription fees',
+        'non-order-subs',
+        'non-order-subsidies-including-vat',
+        'non-order subsidies including vat',
+        'non order subsidies including vat',
+      ])
     ),
     othersInclVat: parseAmount(
-      pick(row, ['others-incl.-vat', 'others-incl-vat', 'others incl. vat', 'others incl vat', 'others'])
+      pick(row, [
+        'others-incl.-vat',
+        'others-incl-vat',
+        'others incl. vat',
+        'others incl vat',
+        'others-including-vat',
+        'others including vat',
+        'others',
+      ])
     ),
-    total: parseAmount(pick(row, ['total', 'total-amount', 'total amount'])),
+    total: parseAmount(pick(row, ['total', 'total-amount', 'total amount', 'total-payment', 'total payment'])),
     originalRawRow: row,
   }
+  // Combine order subsidies into othersInclVat for reconciliation subsidy rollups
+  // when the dedicated "Others" column is empty.
+  if (normalized.orderSubsidies !== 0 && normalized.othersInclVat === 0) {
+    normalized.othersInclVat = normalized.orderSubsidies
+  } else if (normalized.orderSubsidies !== 0) {
+    normalized.othersInclVat = round2(normalized.othersInclVat + normalized.orderSubsidies)
+  }
   // If Total column empty, derive from components.
-  if (!pick(row, ['total', 'total-amount', 'total amount'])) {
+  // othersInclVat already includes orderSubsidies when merged above.
+  if (!pick(row, ['total', 'total-amount', 'total amount', 'total-payment', 'total payment'])) {
     normalized.total = round2(
       normalized.netProceed +
         normalized.referralFee +

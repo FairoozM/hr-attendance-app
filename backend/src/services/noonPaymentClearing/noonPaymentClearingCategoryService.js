@@ -1,4 +1,4 @@
-const { resolveNoonOrderIds } = require('./noonOrderIdHelper')
+const { resolveNoonOrderIds, parseNoonOrderId } = require('./noonOrderIdHelper')
 
 const ROW_CLASS = Object.freeze({
   SALE_ITEM: 'sale_item',
@@ -12,6 +12,9 @@ const NORMALIZED_FEE_TYPE = Object.freeze({
   REFERRAL_COMMISSION: 'REFERRAL_COMMISSION',
   FULFILLMENT: 'FULFILLMENT',
   SHIPPING: 'SHIPPING',
+  /** Statement-level Noon advertising expense (no invoice). */
+  NOON_ADVERTISING_FEE: 'NOON_ADVERTISING_FEE',
+  /** Legacy alias kept for existing mapping rows. */
   ADVERTISING: 'ADVERTISING',
   STATEMENT_FEE: 'STATEMENT_FEE',
   SUBSIDY: 'SUBSIDY',
@@ -33,6 +36,24 @@ function round2(value) {
   return Math.round((Number(value) || 0) * 100) / 100
 }
 
+function normalizeTransactionType(value) {
+  return clean(value).toLowerCase().replace(/[\s-]+/g, '_')
+}
+
+function isStatementTransactionType(tx) {
+  const t = normalizeTransactionType(tx)
+  return t === 'statement' || t === 'statement_fee' || t === 'non_order' || t === 'nonorder'
+}
+
+function isAdvertisingTitle(title) {
+  return /advertis|ad\s*fee|ads?\s*expense/i.test(clean(title))
+}
+
+function isAdvertisingFeeRow(row) {
+  // Advertising is identified from Noon title/context — not from amount sign alone.
+  return isAdvertisingTitle(row.title)
+}
+
 function hasProductSaleSignal(row) {
   const netProceed = num(row.netProceed)
   const sku = clean(row.sku || row.partnerSku)
@@ -40,31 +61,47 @@ function hasProductSaleSignal(row) {
   const looksLikeProductTitle =
     title.length > 0 &&
     !/^PG[A-Z0-9]+$/i.test(title) &&
+    !/,PG[A-Z0-9]+/i.test(title) &&
     !/fee/i.test(title) &&
-    title.toLowerCase() !== 'advertising fee'
+    !isAdvertisingTitle(title)
   return netProceed > 0 || (Boolean(sku) && looksLikeProductTitle && num(row.total) !== 0)
 }
 
-function isFeeOnlyOrderRow(row) {
-  const netProceed = num(row.netProceed)
-  const referral = num(row.referralFee)
-  const fulfillment = num(row.fulfillmentFee)
-  const shipping = num(row.shippingCharges)
-  const otherOrder = num(row.otherOrderFees)
-  const othersVat = num(row.othersInclVat)
-  const nonOrder = num(row.nonOrderFees)
+/**
+ * Order-level charge/credit (shipping, logistics, VAT on fees, subsidies, etc.).
+ * Uses signed Noon columns — positive totals are valid reversals/credits.
+ * Also treats nonzero Total with zero Net Proceed as a charge when fee columns
+ * failed to parse (spreadsheet header drift).
+ */
+function isOrderLevelChargeRow(row) {
+  if (num(row.netProceed) !== 0) return false
+  if (hasProductSaleSignal(row)) return false
+  if (isAdvertisingFeeRow(row)) return false
   return (
-    netProceed === 0 &&
-    (fulfillment !== 0 || shipping !== 0 || otherOrder !== 0 || othersVat !== 0 || referral !== 0 || nonOrder !== 0)
+    num(row.fulfillmentFee) !== 0 ||
+    num(row.shippingCharges) !== 0 ||
+    num(row.otherOrderFees) !== 0 ||
+    num(row.othersInclVat) !== 0 ||
+    num(row.orderSubsidies) !== 0 ||
+    num(row.referralFee) !== 0 ||
+    num(row.orderSubscriptionFees) !== 0 ||
+    (Math.abs(num(row.total)) >= 0.01 && num(row.nonOrderFees) === 0)
   )
 }
 
-function classifyNoonStatementRow(row) {
-  const tx = clean(row.transactionType).toLowerCase()
-  const ids = resolveNoonOrderIds({ orderNr: row.orderNr, itemNr: row.itemNr })
-  const title = clean(row.title)
+function isFeeOnlyOrderRow(row) {
+  return isOrderLevelChargeRow(row)
+}
 
-  if (tx === 'statement' || (!ids.parentOrderId && !ids.itemOrderId && (num(row.nonOrderFees) !== 0 || /advertising/i.test(title)))) {
+function classifyNoonStatementRow(row) {
+  const tx = normalizeTransactionType(row.transactionType)
+  const ids = resolveNoonOrderIds({ orderNr: row.orderNr, itemNr: row.itemNr })
+
+  if (isAdvertisingFeeRow(row) || isStatementTransactionType(tx)) {
+    return ROW_CLASS.STATEMENT_FEE
+  }
+
+  if (!ids.parentOrderId && !ids.itemOrderId && (num(row.nonOrderFees) !== 0 || isAdvertisingTitle(row.title))) {
     return ROW_CLASS.STATEMENT_FEE
   }
 
@@ -77,18 +114,26 @@ function classifyNoonStatementRow(row) {
       return ROW_CLASS.SALE_ITEM
     }
     if (hasProductSaleSignal(row) && ids.parentOrderId && !ids.hasItemLevelId) {
-      // Sale proceeds on a parent-shaped ID with no distinct item nr — still require invoice
-      // against the best available item key (parent used as item only when no child exists).
       return ROW_CLASS.SALE_ITEM
     }
-    if (isFeeOnlyOrderRow(row)) {
+    if (isOrderLevelChargeRow(row)) {
       if (ids.hasItemLevelId) return ROW_CLASS.ORDER_ADJUSTMENT
       if (ids.parentOrderId) return ROW_CLASS.PARENT_ORDER_CHARGE
       return ROW_CLASS.ORDER_ADJUSTMENT
     }
   }
 
-  if (isFeeOnlyOrderRow(row) && ids.parentOrderId && !ids.hasItemLevelId) {
+  if (isOrderLevelChargeRow(row) && ids.parentOrderId && !ids.hasItemLevelId) {
+    return ROW_CLASS.PARENT_ORDER_CHARGE
+  }
+
+  // Last-chance: nonzero amount with a parent-shaped Noon ID and no sale → parent charge.
+  if (
+    Math.abs(num(row.total)) >= 0.01 &&
+    !hasProductSaleSignal(row) &&
+    ids.parentOrderId &&
+    !ids.hasItemLevelId
+  ) {
     return ROW_CLASS.PARENT_ORDER_CHARGE
   }
 
@@ -101,30 +146,95 @@ function requiresZohoInvoice(rowClass) {
 
 function normalizeNoonFeeType(row) {
   const rowClass = row.rowClass || classifyNoonStatementRow(row)
-  const title = clean(row.title).toLowerCase()
-  if (rowClass === ROW_CLASS.STATEMENT_FEE) {
-    if (title.includes('advertising')) return NORMALIZED_FEE_TYPE.ADVERTISING
+  if (rowClass === ROW_CLASS.STATEMENT_FEE || isAdvertisingFeeRow(row)) {
+    if (isAdvertisingFeeRow(row) || isAdvertisingTitle(row.title)) {
+      return NORMALIZED_FEE_TYPE.NOON_ADVERTISING_FEE
+    }
     return NORMALIZED_FEE_TYPE.STATEMENT_FEE
   }
-  if (rowClass === ROW_CLASS.PARENT_ORDER_CHARGE) {
+  if (rowClass === ROW_CLASS.PARENT_ORDER_CHARGE || rowClass === ROW_CLASS.ORDER_ADJUSTMENT) {
     if (num(row.fulfillmentFee) !== 0) return NORMALIZED_FEE_TYPE.FULFILLMENT
     if (num(row.shippingCharges) !== 0) return NORMALIZED_FEE_TYPE.SHIPPING
+    if (
+      num(row.othersInclVat) !== 0 ||
+      num(row.otherOrderFees) !== 0 ||
+      num(row.orderSubsidies) !== 0
+    ) {
+      return NORMALIZED_FEE_TYPE.SHIPPING
+    }
+    if (rowClass === ROW_CLASS.ORDER_ADJUSTMENT) return NORMALIZED_FEE_TYPE.ORDER_ADJUSTMENT
     return NORMALIZED_FEE_TYPE.PARENT_ORDER_CHARGE
   }
-  if (rowClass === ROW_CLASS.ORDER_ADJUSTMENT) return NORMALIZED_FEE_TYPE.ORDER_ADJUSTMENT
   if (num(row.referralFee) !== 0 && num(row.netProceed) === 0) return NORMALIZED_FEE_TYPE.REFERRAL_COMMISSION
   return NORMALIZED_FEE_TYPE.OTHER
+}
+
+function displayLabelForFeeRow(row) {
+  const feeType = row.normalizedFeeType || normalizeNoonFeeType(row)
+  if (
+    feeType === NORMALIZED_FEE_TYPE.NOON_ADVERTISING_FEE ||
+    feeType === NORMALIZED_FEE_TYPE.ADVERTISING
+  ) {
+    return 'Advertising Fee'
+  }
+  if (feeType === NORMALIZED_FEE_TYPE.FULFILLMENT) return 'Fulfillment / Logistics'
+  if (feeType === NORMALIZED_FEE_TYPE.SHIPPING) return 'Shipping / Logistics'
+  if (feeType === NORMALIZED_FEE_TYPE.PARENT_ORDER_CHARGE) return 'Parent Order Charge'
+  if (feeType === NORMALIZED_FEE_TYPE.ORDER_ADJUSTMENT) return 'Order Adjustment'
+  if (feeType === NORMALIZED_FEE_TYPE.STATEMENT_FEE) return 'Statement Fee'
+  return clean(row.title) || 'Other'
+}
+
+function accountingTreatmentForFeeRow(row) {
+  const feeType = row.normalizedFeeType || normalizeNoonFeeType(row)
+  if (
+    feeType === NORMALIZED_FEE_TYPE.NOON_ADVERTISING_FEE ||
+    feeType === NORMALIZED_FEE_TYPE.ADVERTISING
+  ) {
+    return 'Noon Advertising Expense'
+  }
+  if (feeType === NORMALIZED_FEE_TYPE.FULFILLMENT || feeType === NORMALIZED_FEE_TYPE.SHIPPING) {
+    return 'Noon Uncleared Fulfillment Exp'
+  }
+  if (feeType === NORMALIZED_FEE_TYPE.PARENT_ORDER_CHARGE) return 'Noon Uncleared Fulfillment Exp'
+  if (feeType === NORMALIZED_FEE_TYPE.ORDER_ADJUSTMENT) return 'Noon Marketplace Adjustments'
+  if (feeType === NORMALIZED_FEE_TYPE.STATEMENT_FEE) return 'Noon Marketplace Fees'
+  return 'Noon Marketplace Fees'
 }
 
 function invoiceMatchKeyForRow(row) {
   const ids = resolveNoonOrderIds({ orderNr: row.orderNr, itemNr: row.itemNr })
   if (ids.itemOrderId) return ids.itemOrderId
-  // Only for sale rows with no distinct item: use parent as last-resort match key.
-  // Caller must still never match a different child invoice via parent.
   if (row.rowClass === ROW_CLASS.SALE_ITEM || classifyNoonStatementRow(row) === ROW_CLASS.SALE_ITEM) {
     return ids.parentOrderId
   }
   return ''
+}
+
+/**
+ * Reclassify rows that landed as OTHER but are known Noon charge patterns.
+ * Does not invent sale_item matches.
+ */
+function reclassifyExplainableOtherRows(rows) {
+  return (Array.isArray(rows) ? rows : []).map((row) => {
+    if (row.rowClass !== ROW_CLASS.OTHER) return row
+    const nextClass = classifyNoonStatementRow(row)
+    if (nextClass === ROW_CLASS.OTHER) return row
+    return {
+      ...row,
+      rowClass: nextClass,
+      normalizedFeeType: normalizeNoonFeeType({ ...row, rowClass: nextClass }),
+      reclassifiedFrom: 'other',
+    }
+  })
+}
+
+function feeMappingTypeCandidates(feeType) {
+  const t = clean(feeType)
+  if (t === NORMALIZED_FEE_TYPE.NOON_ADVERTISING_FEE || t === NORMALIZED_FEE_TYPE.ADVERTISING) {
+    return [NORMALIZED_FEE_TYPE.NOON_ADVERTISING_FEE, NORMALIZED_FEE_TYPE.ADVERTISING]
+  }
+  return [t]
 }
 
 module.exports = {
@@ -133,10 +243,18 @@ module.exports = {
   classifyNoonStatementRow,
   requiresZohoInvoice,
   normalizeNoonFeeType,
+  displayLabelForFeeRow,
+  accountingTreatmentForFeeRow,
   hasProductSaleSignal,
   isFeeOnlyOrderRow,
+  isOrderLevelChargeRow,
+  isAdvertisingFeeRow,
+  isStatementTransactionType,
   invoiceMatchKeyForRow,
+  reclassifyExplainableOtherRows,
+  feeMappingTypeCandidates,
   round2,
   num,
   clean,
+  parseNoonOrderId,
 }
