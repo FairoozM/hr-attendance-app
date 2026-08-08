@@ -1,6 +1,10 @@
 const store = require('./noonPaymentClearingStore')
 const { parseNoonStatementReportBuffer } = require('./noonStatementParserService')
-const { buildPreview, buildFeeJournalPreviewLines } = require('./noonPaymentClearingPreviewService')
+const {
+  buildPreview,
+  buildFeeJournalPreviewLines,
+  summarizeFeeJournalVat,
+} = require('./noonPaymentClearingPreviewService')
 const { matchZohoInvoicesForNoonRows, matchNoonRowsToInvoices } = require('./noonPaymentClearingZohoMatcher')
 const { getNoonPaymentClearingMarketplaceConfig } = require('./noonPaymentClearingMarketplaceConfig')
 const { isNoonSettlementReconciliationAcceptable } = require('./noonPaymentClearingReconciliationService')
@@ -42,13 +46,83 @@ function validateBatchReadyForApproval(batch) {
   }
 }
 
+async function resolveAccountByCodeOrName(target) {
+  const code = clean(target?.accountCode)
+  const name = clean(target?.accountName)
+  if (clean(target?.accountId)) return target
+  if (!code && !name) return target || {}
+  try {
+    const { listZohoChartAccounts } = require('../amazonPaymentClearingZohoPaymentService')
+    const accounts = await listZohoChartAccounts()
+    const hit = (Array.isArray(accounts) ? accounts : []).find((a) => {
+      const aCode = clean(a.accountCode || a.account_code)
+      const aName = clean(a.accountName || a.account_name)
+      return (code && aCode === code) || (name && aName === name)
+    })
+    if (hit) {
+      return {
+        accountId: clean(hit.accountId || hit.account_id),
+        accountName: clean(hit.accountName || hit.account_name) || name,
+        accountCode: clean(hit.accountCode || hit.account_code) || code,
+      }
+    }
+  } catch {
+    // Preview/tests can run with codes only.
+  }
+  return target || {}
+}
+
 async function loadMappingContext() {
   const mappingRules = await store.listFeeJournalMappings('AE').catch(() => [])
-  const settings = await store.getSettings('AE').catch(() => ({ clearingAccount: {} }))
+  const inputVatSettings = await store.getInputVatSettings('AE').catch(() => null)
+  const cfg = getNoonPaymentClearingMarketplaceConfig()
+  const undeposited = await resolveAccountByCodeOrName(cfg.undepositedFundsAccount)
+  const unclearedCommission = await resolveAccountByCodeOrName(cfg.unclearedCommissionAccount)
+  const unclearedShipping = await resolveAccountByCodeOrName(cfg.unclearedShippingAccount)
+  const inputVatDefault = await resolveAccountByCodeOrName(cfg.inputVatAccount)
+  const inputVatAccount = {
+    ...inputVatDefault,
+    ...(inputVatSettings || {}),
+    accountId: clean(inputVatSettings?.accountId || inputVatSettings?.inputVatAccountId) || inputVatDefault.accountId,
+    accountName:
+      clean(inputVatSettings?.accountName || inputVatSettings?.inputVatAccountName) ||
+      inputVatDefault.accountName,
+    accountCode:
+      clean(inputVatSettings?.accountCode || inputVatSettings?.inputVatAccountCode) ||
+      inputVatDefault.accountCode,
+    vatRate: inputVatSettings?.vatRate ?? cfg.vatRate,
+  }
+  // Patch cfg-style payment accounts with resolved IDs for this request.
+  cfg.undepositedFundsAccount = undeposited
+  cfg.unclearedCommissionAccount = unclearedCommission
+  cfg.unclearedShippingAccount = unclearedShipping
+  cfg.inputVatAccount = inputVatDefault
+  cfg.paymentPreviewAccounts = {
+    NET_BALANCE: {
+      depositToAccountCode: undeposited.accountCode,
+      depositToAccountName: undeposited.accountName,
+      depositToAccountId: undeposited.accountId,
+    },
+    COMMISSION: {
+      depositToAccountCode: unclearedCommission.accountCode,
+      depositToAccountName: unclearedCommission.accountName,
+      depositToAccountId: unclearedCommission.accountId,
+    },
+    FULFILLMENT_SHIPPING: {
+      depositToAccountCode: unclearedShipping.accountCode,
+      depositToAccountName: unclearedShipping.accountName,
+      depositToAccountId: unclearedShipping.accountId,
+    },
+  }
   return {
     mappingRules,
-    clearingAccount: settings.clearingAccount || {},
-    settings,
+    /** Advertising / default fee-journal counter (Amazon 1024 parallel). */
+    settlementBridgeAccount: undeposited,
+    unclearedShippingAccount: unclearedShipping,
+    unclearedCommissionAccount: unclearedCommission,
+    inputVatAccount,
+    zohoCustomerName: cfg.zohoCustomerName,
+    marketplaceConfig: cfg,
   }
 }
 
@@ -56,7 +130,7 @@ async function buildPreviewFromUpload(buffer, fileName, options = {}) {
   const parsed = parseNoonStatementReportBuffer(buffer, fileName)
   const cfg = getNoonPaymentClearingMarketplaceConfig()
   const customerName = clean(options.customerName) || cfg.zohoCustomerName
-  const { mappingRules, clearingAccount } = await loadMappingContext()
+  const { mappingRules, inputVatAccount } = await loadMappingContext()
 
   let matchResult
   if (options.skipZohoMatch || options.invoices) {
@@ -85,7 +159,7 @@ async function buildPreviewFromUpload(buffer, fileName, options = {}) {
     metadata: parsed.metadata,
     matchResult,
     mappingRules,
-    clearingAccount,
+    inputVatAccount,
     zohoCustomerId: matchResult.zohoCustomerId || options.customerId || '',
     zohoCustomerName: matchResult.zohoCustomerName || customerName,
     warnings: parsed.warnings,
@@ -107,9 +181,11 @@ async function getBatchPreview(batchId) {
     err.status = 404
     throw err
   }
-  const { mappingRules, clearingAccount, settings } = await loadMappingContext()
-  // Rebuild fee journals live so mapping / clearing-account changes apply to draft batches.
-  const feeJournalLines = buildFeeJournalPreviewLines(batch.allRows || [], mappingRules, clearingAccount)
+  const { mappingRules, settlementBridgeAccount, inputVatAccount, marketplaceConfig } =
+    await loadMappingContext()
+  // Rebuild fee journals live so mapping / VAT / Amazon-style clearing counters apply.
+  const feeJournalLines = buildFeeJournalPreviewLines(batch.allRows || [], mappingRules, inputVatAccount)
+  const feeJournalVatSummary = summarizeFeeJournalVat(feeJournalLines)
   return {
     batch,
     batchId: batch.batchId,
@@ -124,13 +200,19 @@ async function getBatchPreview(batchId) {
     statementFees: batch.statementFees,
     reconciliationSummary: batch.reconciliationSummary,
     feeJournalLines,
-    clearingAccount,
-    settings,
+    feeJournalVatSummary,
+    settlementBridgeAccount,
+    paymentPreviewAccounts: marketplaceConfig?.paymentPreviewAccounts,
+    inputVatAccount,
     blockingIssues: batch.blockingIssues,
     warnings: batch.warnings,
     zohoCustomerId: batch.zohoCustomerId,
     zohoCustomerName: batch.zohoCustomerName,
-    totals: batch.totals,
+    totals: {
+      ...(batch.totals || {}),
+      feeJournalInputVat: feeJournalVatSummary.inputVat,
+      feeJournalNetExpense: feeJournalVatSummary.netExpense,
+    },
     isCleanForApproval:
       isNoonSettlementReconciliationAcceptable(batch.reconciliationSummary) &&
       !(batch.unmatchedOrders || []).length &&
@@ -152,21 +234,22 @@ async function approveSavedBatch(batchId, approvedBy) {
 
 async function generatePaymentPreview(batchId, createdBy) {
   const batch = await store.getBatchById(batchId)
-  const { mappingRules, clearingAccount } = await loadMappingContext()
-  const paymentPreview = buildPaymentPreviewFromBatch(batch, mappingRules, clearingAccount)
+  const { mappingRules, inputVatAccount } = await loadMappingContext()
+  const paymentPreview = buildPaymentPreviewFromBatch(batch, mappingRules, inputVatAccount)
   return store.savePaymentPreview(batchId, paymentPreview, createdBy)
 }
 
 async function postBatchToZoho(batchId, options = {}) {
   const batch = await store.getBatchById(batchId)
-  const { mappingRules, clearingAccount } = await loadMappingContext()
+  const { mappingRules, settlementBridgeAccount, inputVatAccount } = await loadMappingContext()
   return postApprovedBatch({
     batch,
     dryRun: options.dryRun !== false,
     allowPosted: options.allowPosted === true,
     postedBy: options.postedBy,
     mappingRules,
-    clearingAccount,
+    settlementBridgeAccount,
+    inputVatAccount,
     createPayment: options.createPayment,
     buildPayloadPreview: options.buildPayloadPreview,
     createManualJournal: options.createManualJournal,
@@ -176,13 +259,14 @@ async function postBatchToZoho(batchId, options = {}) {
 
 async function forceRepost(batchId, options = {}) {
   const batch = await store.getBatchById(batchId)
-  const { mappingRules, clearingAccount } = await loadMappingContext()
+  const { mappingRules, settlementBridgeAccount, inputVatAccount } = await loadMappingContext()
   return forceRepostBatch({
     batch,
     reason: options.reason,
     actorUserId: options.actorUserId,
     mappingRules,
-    clearingAccount,
+    settlementBridgeAccount,
+    inputVatAccount,
   })
 }
 
@@ -198,7 +282,7 @@ module.exports = {
   listFeeJournalMappings: store.listFeeJournalMappings,
   saveFeeJournalMapping: store.saveFeeJournalMapping,
   deactivateFeeJournalMapping: store.deactivateFeeJournalMapping,
-  getSettings: store.getSettings,
-  saveClearingAccount: store.saveClearingAccount,
+  getInputVatSettings: store.getInputVatSettings,
+  saveInputVatSettings: store.saveInputVatSettings,
   getNoonPaymentClearingMarketplaceConfig,
 }

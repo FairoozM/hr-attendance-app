@@ -111,10 +111,20 @@ export interface NoonSavedBatchSummary {
   createdAt: string | null
 }
 
-export interface NoonClearingAccount {
+export interface NoonSettlementBridgeAccount {
   accountId: string
   accountName: string
   accountCode?: string
+}
+
+export interface NoonInputVatAccount {
+  accountId: string
+  accountName: string
+  accountCode?: string
+  inputVatAccountId?: string
+  inputVatAccountName?: string
+  inputVatAccountCode?: string
+  vatRate?: number
 }
 
 export interface NoonPaymentClearingPreview {
@@ -151,13 +161,52 @@ export interface NoonPaymentClearingPreview {
     assignmentReason?: string
     zohoAccountName?: string
     zohoAccountId?: string
+    inputVatAccountId?: string
+    inputVatAccountName?: string
     journalDirection?: string
     counterAccountName?: string
-    accountingPreview?: { debit?: string; credit?: string }
+    vatTreatment?: string
+    grossInclVat?: number
+    netExpense?: number
+    inputVatAmount?: number
+    vatBreakdown?: {
+      originalGrossAmount: number
+      vatRate: number
+      netAmount: number
+      vatAmount: number
+      vatInclusive: boolean
+      vatSource: string
+      expenseAccountId?: string
+      inputVatAccountId?: string
+    }
+    clearingAccountName?: string
+    clearingAccountId?: string
+    settlementBridgeAccountName?: string
+    accountingPreview?: {
+      debit?: string
+      credit?: string
+      lines?: Array<{ accountName?: string; debitOrCredit?: string; amount?: number }>
+      grossInclVat?: number
+      netExpense?: number
+      inputVat?: number
+      expenseAccount?: string
+      vatAccount?: string
+      clearingAccount?: string
+      customerAccount?: string
+    }
     debit?: { accountId: string; accountName: string }
     credit?: { accountId: string; accountName: string }
+    lineItems?: Array<{ accountId?: string; accountName?: string; debitOrCredit?: string; amount?: number }>
   }>
-  clearingAccount?: NoonClearingAccount
+  feeJournalVatSummary?: {
+    grossInclVat: number
+    netExpense: number
+    inputVat: number
+    vatInclusiveLineCount: number
+  }
+  settlementBridgeAccount?: NoonSettlementBridgeAccount
+  paymentPreviewAccounts?: Record<string, { depositToAccountCode?: string; depositToAccountName?: string; depositToAccountId?: string }>
+  inputVatAccount?: NoonInputVatAccount
   blockingIssues: NoonBlockingIssue[]
   warnings: string[]
   zohoCustomerId: string
@@ -302,11 +351,39 @@ export async function fetchNoonFeeJournalMappings() {
     success: boolean
     mappings: NoonFeeJournalMapping[]
     suggestions: Array<Record<string, string>>
-    clearingAccount?: NoonClearingAccount
-    counterAccountLabel?: string
-    settings?: { clearingAccount?: NoonClearingAccount }
+    zohoCustomerName?: string
+    undepositedFundsAccount?: NoonSettlementBridgeAccount
+    unclearedCommissionAccount?: NoonSettlementBridgeAccount
+    unclearedShippingAccount?: NoonSettlementBridgeAccount
+    customerCounterAccount?: NoonSettlementBridgeAccount
+    settlementBridgeAccount?: NoonSettlementBridgeAccount
+    paymentPreviewAccounts?: Record<string, { depositToAccountCode?: string; depositToAccountName?: string; depositToAccountId?: string }>
+    inputVatAccount?: NoonInputVatAccount
   }>(`${BASE}/fee-journal-mappings`)
   return unwrap(data)
+}
+
+export async function fetchNoonInputVatSettings() {
+  const data = await api.get<{
+    success: boolean
+    settings: NoonInputVatAccount
+    inputVatAccount: NoonInputVatAccount
+  }>(`${BASE}/settings/input-vat`)
+  return unwrap(data).inputVatAccount || unwrap(data).settings
+}
+
+export async function saveNoonInputVatSettings(body: {
+  inputVatAccountId: string
+  inputVatAccountName: string
+  inputVatAccountCode?: string
+  vatRate?: number
+}) {
+  const data = await api.put<{
+    success: boolean
+    settings: NoonInputVatAccount
+    inputVatAccount: NoonInputVatAccount
+  }>(`${BASE}/settings/input-vat`, body)
+  return unwrap(data).inputVatAccount || unwrap(data).settings
 }
 
 export async function saveNoonFeeJournalMapping(body: {
@@ -328,24 +405,6 @@ export async function deleteNoonFeeJournalMapping(id: number | string) {
     `${BASE}/fee-journal-mappings/${id}`
   )
   return unwrap(data).mapping
-}
-
-export async function fetchNoonClearingSettings() {
-  const data = await api.get<{
-    success: boolean
-    settings: { clearingAccount: NoonClearingAccount }
-    clearingAccount: NoonClearingAccount
-  }>(`${BASE}/settings`)
-  return unwrap(data)
-}
-
-export async function saveNoonClearingAccount(account: NoonClearingAccount) {
-  const data = await api.put<{
-    success: boolean
-    settings: { clearingAccount: NoonClearingAccount }
-    clearingAccount: NoonClearingAccount
-  }>(`${BASE}/settings/clearing-account`, account)
-  return unwrap(data).clearingAccount
 }
 
 export async function fetchNoonZohoChartAccounts() {

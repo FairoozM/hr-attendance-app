@@ -108,16 +108,62 @@ async function postForceRepost(req, res) {
 async function getFeeJournalMappings(req, res) {
   try {
     const mappings = await service.listFeeJournalMappings('AE')
-    const settings = await service.getSettings('AE')
+    const inputVatAccount = await service.getInputVatSettings('AE')
     const cfg = service.getNoonPaymentClearingMarketplaceConfig()
     return res.json({
       success: true,
       mappings,
-      settings,
-      clearingAccount: settings.clearingAccount,
-      counterAccountLabel: settings.clearingAccount?.accountName || 'Noon',
+      /** Zoho CUSTOMER for invoice Record Payments only. */
+      zohoCustomerName: cfg.zohoCustomerName,
+      /** Amazon-parallel payment deposit accounts. */
+      paymentPreviewAccounts: cfg.paymentPreviewAccounts,
+      undepositedFundsAccount: cfg.undepositedFundsAccount,
+      unclearedCommissionAccount: cfg.unclearedCommissionAccount,
+      unclearedShippingAccount: cfg.unclearedShippingAccount,
+      settlementBridgeAccount: cfg.undepositedFundsAccount,
+      /** Zoho Input VAT CoA (default 1085) — overridable via settings picker. */
+      inputVatAccount: {
+        ...cfg.inputVatAccount,
+        ...(inputVatAccount || {}),
+        accountId: inputVatAccount?.accountId || inputVatAccount?.inputVatAccountId || cfg.inputVatAccount.accountId,
+        accountName:
+          inputVatAccount?.accountName ||
+          inputVatAccount?.inputVatAccountName ||
+          cfg.inputVatAccount.accountName,
+        accountCode:
+          inputVatAccount?.accountCode ||
+          inputVatAccount?.inputVatAccountCode ||
+          cfg.inputVatAccount.accountCode,
+      },
       suggestions: cfg.feeJournalAccountSuggestions,
     })
+  } catch (err) {
+    return sendError(res, err)
+  }
+}
+
+async function getInputVatSettings(req, res) {
+  try {
+    const settings = await service.getInputVatSettings('AE')
+    return res.json({ success: true, settings, inputVatAccount: settings })
+  } catch (err) {
+    return sendError(res, err)
+  }
+}
+
+async function putInputVatSettings(req, res) {
+  try {
+    const settings = await service.saveInputVatSettings(
+      {
+        marketplace: 'AE',
+        inputVatAccountId: req.body?.inputVatAccountId || req.body?.accountId,
+        inputVatAccountName: req.body?.inputVatAccountName || req.body?.accountName,
+        inputVatAccountCode: req.body?.inputVatAccountCode || req.body?.accountCode,
+        vatRate: req.body?.vatRate,
+      },
+      userId(req)
+    )
+    return res.json({ success: true, settings, inputVatAccount: settings })
   } catch (err) {
     return sendError(res, err)
   }
@@ -159,32 +205,6 @@ async function deleteFeeJournalMapping(req, res) {
   }
 }
 
-async function getSettings(req, res) {
-  try {
-    const settings = await service.getSettings('AE')
-    return res.json({ success: true, settings, clearingAccount: settings.clearingAccount })
-  } catch (err) {
-    return sendError(res, err)
-  }
-}
-
-async function putClearingAccount(req, res) {
-  try {
-    const settings = await service.saveClearingAccount(
-      {
-        accountId: req.body?.accountId || req.body?.clearingAccountId,
-        accountName: req.body?.accountName || req.body?.clearingAccountName,
-        accountCode: req.body?.accountCode || req.body?.clearingAccountCode,
-      },
-      userId(req),
-      'AE'
-    )
-    return res.json({ success: true, settings, clearingAccount: settings.clearingAccount })
-  } catch (err) {
-    return sendError(res, err)
-  }
-}
-
 async function getZohoChartAccounts(req, res) {
   try {
     const accounts = await listZohoChartAccounts()
@@ -206,7 +226,7 @@ module.exports = {
   getFeeJournalMappings,
   postFeeJournalMapping,
   deleteFeeJournalMapping,
-  getSettings,
-  putClearingAccount,
+  getInputVatSettings,
+  putInputVatSettings,
   getZohoChartAccounts,
 }

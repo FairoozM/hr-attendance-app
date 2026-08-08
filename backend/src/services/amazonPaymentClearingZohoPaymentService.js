@@ -53,11 +53,27 @@ function buildCustomerPaymentPayload(payment, opts = {}) {
 
 function buildManualJournalPayload(journal, opts = {}) {
   const journalDate = journal.date || opts.date || todayLocalDate()
-  return {
+  const base = {
     journal_date: journalDate,
     reference_number: journal.referenceNumber || undefined,
     notes: journal.notes || undefined,
     journal_type: journal.journalType || 'both',
+  }
+  // Multi-line journals (e.g. Noon VAT-inclusive fee = net expense + input VAT + bridge).
+  if (Array.isArray(journal.lineItems) && journal.lineItems.length >= 2) {
+    return {
+      ...base,
+      line_items: journal.lineItems.map((line) => ({
+        account_id: line.accountId || line.account_id || undefined,
+        customer_id: line.customerId || line.customer_id || journal.customerId || undefined,
+        debit_or_credit: line.debitOrCredit || line.debit_or_credit,
+        amount: Number(line.amount) || 0,
+        description: line.description || journal.description || journal.feeType || undefined,
+      })),
+    }
+  }
+  return {
+    ...base,
     line_items: [
       {
         account_id: journal.debitAccountId || opts.debitAccountId || undefined,
@@ -300,6 +316,27 @@ async function resolveJournalAccount(account, opts = {}) {
 }
 
 async function buildManualJournalPayloadPreview(journal, opts = {}) {
+  if (Array.isArray(journal.lineItems) && journal.lineItems.length >= 2) {
+    const resolvedLines = []
+    for (const line of journal.lineItems) {
+      const account = await resolveJournalAccount(line, opts)
+      resolvedLines.push({
+        account_id: account.accountId,
+        account_name: account.accountName,
+        customer_id: line.customerId || line.customer_id || journal.customerId || undefined,
+        debit_or_credit: line.debitOrCredit || line.debit_or_credit,
+        amount: Number(line.amount) || 0,
+        description: line.description || journal.description || journal.feeType || undefined,
+      })
+    }
+    return {
+      journal_date: journal.date || opts.date || todayLocalDate(),
+      reference_number: journal.referenceNumber || '',
+      notes: journal.notes || '',
+      journal_type: journal.journalType || 'both',
+      line_items: resolvedLines,
+    }
+  }
   const debit = await resolveJournalAccount(journal.debit || {}, opts)
   const credit = await resolveJournalAccount(journal.credit || {}, opts)
   const payload = buildManualJournalPayload(journal, {
@@ -320,13 +357,27 @@ async function buildManualJournalPayloadPreview(journal, opts = {}) {
 }
 
 async function createZohoManualJournal(journal, opts = {}) {
-  const debit = await resolveJournalAccount(journal.debit || {}, opts)
-  const credit = await resolveJournalAccount(journal.credit || {}, opts)
-  const payload = buildManualJournalPayload(journal, {
-    ...opts,
-    debitAccountId: debit.accountId,
-    creditAccountId: credit.accountId,
-  })
+  let payload
+  if (Array.isArray(journal.lineItems) && journal.lineItems.length >= 2) {
+    const resolvedItems = []
+    for (const line of journal.lineItems) {
+      const account = await resolveJournalAccount(line, opts)
+      resolvedItems.push({
+        ...line,
+        accountId: account.accountId,
+        accountName: account.accountName,
+      })
+    }
+    payload = buildManualJournalPayload({ ...journal, lineItems: resolvedItems }, opts)
+  } else {
+    const debit = await resolveJournalAccount(journal.debit || {}, opts)
+    const credit = await resolveJournalAccount(journal.credit || {}, opts)
+    payload = buildManualJournalPayload(journal, {
+      ...opts,
+      debitAccountId: debit.accountId,
+      creditAccountId: credit.accountId,
+    })
+  }
   const json = await zohoBooksJsonRequest(
     `${BOOKS_V3}/journals`,
     new URLSearchParams(),

@@ -23,7 +23,7 @@ router.post('/batches/:id/force-repost', ctrl.postForceRepost)
 router.get('/fee-journal-mappings', ctrl.getFeeJournalMappings)
 router.post('/fee-journal-mappings', ctrl.postFeeJournalMapping)
 router.delete('/fee-journal-mappings/:id', ctrl.deleteFeeJournalMapping)
-router.get('/settings', ctrl.getSettings)
-router.put('/settings/clearing-account', ctrl.putClearingAccount)
+router.get('/settings/input-vat', ctrl.getInputVatSettings)
+router.put('/settings/input-vat', ctrl.putInputVatSettings)
 
 module.exports = router

@@ -150,17 +150,100 @@ async function ensureNoonPaymentClearingTables() {
     `CREATE INDEX IF NOT EXISTS idx_noon_fee_journal_mappings_lookup
      ON noon_payment_clearing_fee_journal_mappings (marketplace, normalized_fee_type, is_active, priority DESC)`
   )
+  // Input VAT is a real Zoho CoA setting (not the Noon customer).
   await query(`
     CREATE TABLE IF NOT EXISTS noon_payment_clearing_settings (
-      marketplace VARCHAR(16) PRIMARY KEY DEFAULT 'AE',
-      clearing_account_id VARCHAR(128),
-      clearing_account_name TEXT,
-      clearing_account_code VARCHAR(64),
-      updated_by INTEGER NULL,
+      marketplace TEXT PRIMARY KEY,
+      input_vat_account_id TEXT,
+      input_vat_account_name TEXT,
+      input_vat_account_code TEXT,
+      vat_rate NUMERIC(8,6) DEFAULT 0.05,
+      updated_by INTEGER,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `)
+  // Drop legacy incorrect columns if an older "Noon clearing CoA" shape exists.
+  await query(`ALTER TABLE noon_payment_clearing_settings DROP COLUMN IF EXISTS clearing_account_id`)
+  await query(`ALTER TABLE noon_payment_clearing_settings DROP COLUMN IF EXISTS clearing_account_name`)
+  await query(`ALTER TABLE noon_payment_clearing_settings DROP COLUMN IF EXISTS clearing_account_code`)
+}
+
+function mapInputVatSettings(row) {
+  if (!row) {
+    return {
+      marketplace: 'AE',
+      inputVatAccountId: '',
+      inputVatAccountName: '',
+      inputVatAccountCode: '',
+      vatRate: 0.05,
+      accountId: '',
+      accountName: '',
+      accountCode: '',
+    }
+  }
+  const accountId = row.input_vat_account_id || ''
+  const accountName = row.input_vat_account_name || ''
+  const accountCode = row.input_vat_account_code || ''
+  return {
+    marketplace: row.marketplace || 'AE',
+    inputVatAccountId: accountId,
+    inputVatAccountName: accountName,
+    inputVatAccountCode: accountCode,
+    vatRate: row.vat_rate == null ? 0.05 : Number(row.vat_rate) || 0.05,
+    accountId,
+    accountName,
+    accountCode,
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+  }
+}
+
+async function getInputVatSettings(marketplace = 'AE') {
+  await ensureNoonPaymentClearingTables()
+  const result = await query(
+    `SELECT * FROM noon_payment_clearing_settings WHERE marketplace = $1 LIMIT 1`,
+    [marketplace || 'AE']
+  )
+  return mapInputVatSettings(result.rows[0] || null)
+}
+
+async function saveInputVatSettings(settings = {}, userId = null) {
+  await ensureNoonPaymentClearingTables()
+  const marketplace = String(settings.marketplace || 'AE').trim() || 'AE'
+  const accountId = String(settings.inputVatAccountId || settings.accountId || '').trim()
+  const accountName = String(settings.inputVatAccountName || settings.accountName || '').trim()
+  const accountCode = String(settings.inputVatAccountCode || settings.accountCode || '').trim()
+  if (!accountId || !accountName) {
+    const err = new Error('Select an Input VAT account from the Zoho Chart of Accounts.')
+    err.code = 'NOON_INPUT_VAT_ACCOUNT_REQUIRED'
+    err.status = 422
+    throw err
+  }
+  const vatRate =
+    settings.vatRate == null || settings.vatRate === ''
+      ? 0.05
+      : Number(settings.vatRate)
+  if (!Number.isFinite(vatRate) || vatRate < 0 || vatRate > 1) {
+    const err = new Error('VAT rate must be between 0 and 1 (e.g. 0.05 for 5%).')
+    err.code = 'NOON_VAT_RATE_INVALID'
+    err.status = 422
+    throw err
+  }
+  const result = await query(
+    `INSERT INTO noon_payment_clearing_settings (
+       marketplace, input_vat_account_id, input_vat_account_name, input_vat_account_code, vat_rate, updated_by, updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, NOW())
+     ON CONFLICT (marketplace) DO UPDATE SET
+       input_vat_account_id = EXCLUDED.input_vat_account_id,
+       input_vat_account_name = EXCLUDED.input_vat_account_name,
+       input_vat_account_code = EXCLUDED.input_vat_account_code,
+       vat_rate = EXCLUDED.vat_rate,
+       updated_by = EXCLUDED.updated_by,
+       updated_at = NOW()
+     RETURNING *`,
+    [marketplace, accountId, accountName, accountCode || null, vatRate, userId]
+  )
+  return mapInputVatSettings(result.rows[0])
 }
 
 function num(value) {
@@ -237,29 +320,6 @@ function mapFeeJournalMapping(row) {
     isActive: row.is_active === true || row.is_active === 't',
     priority: num(row.priority),
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
-    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
-  }
-}
-
-function mapSettings(row) {
-  if (!row) {
-    return {
-      marketplace: 'AE',
-      clearingAccount: {
-        accountId: '',
-        accountName: '',
-        accountCode: '',
-      },
-      updatedAt: null,
-    }
-  }
-  return {
-    marketplace: row.marketplace || 'AE',
-    clearingAccount: {
-      accountId: row.clearing_account_id || '',
-      accountName: row.clearing_account_name || '',
-      accountCode: row.clearing_account_code || '',
-    },
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
   }
 }
@@ -572,42 +632,6 @@ async function listFeeJournalMappings(marketplace = 'AE', { includeInactive = fa
   return result.rows.map(mapFeeJournalMapping)
 }
 
-async function getSettings(marketplace = 'AE') {
-  await ensureNoonPaymentClearingTables()
-  const result = await query(
-    `SELECT * FROM noon_payment_clearing_settings WHERE marketplace = $1 LIMIT 1`,
-    [marketplace]
-  )
-  return mapSettings(result.rows[0])
-}
-
-async function saveClearingAccount(clearingAccount = {}, userId = null, marketplace = 'AE') {
-  await ensureNoonPaymentClearingTables()
-  const accountId = String(clearingAccount.accountId || clearingAccount.clearingAccountId || '').trim()
-  const accountName = String(clearingAccount.accountName || clearingAccount.clearingAccountName || '').trim()
-  const accountCode = String(clearingAccount.accountCode || clearingAccount.clearingAccountCode || '').trim()
-  if (!accountId || !accountName) {
-    const err = new Error('Noon clearing account requires a Zoho account selection.')
-    err.code = 'NOON_PAYMENT_CLEARING_CLEARING_ACCOUNT_REQUIRED'
-    err.status = 422
-    throw err
-  }
-  const result = await query(
-    `INSERT INTO noon_payment_clearing_settings (
-      marketplace, clearing_account_id, clearing_account_name, clearing_account_code, updated_by, created_at, updated_at
-    ) VALUES ($1,$2,$3,$4,$5,NOW(),NOW())
-    ON CONFLICT (marketplace) DO UPDATE
-    SET clearing_account_id = EXCLUDED.clearing_account_id,
-        clearing_account_name = EXCLUDED.clearing_account_name,
-        clearing_account_code = EXCLUDED.clearing_account_code,
-        updated_by = EXCLUDED.updated_by,
-        updated_at = NOW()
-    RETURNING *`,
-    [marketplace, accountId, accountName, accountCode || null, userId == null ? null : Number(userId)]
-  )
-  return mapSettings(result.rows[0])
-}
-
 async function saveFeeJournalMapping(mapping, userId = null) {
   await ensureNoonPaymentClearingTables()
   const marketplace = mapping.marketplace || 'AE'
@@ -618,7 +642,7 @@ async function saveFeeJournalMapping(mapping, userId = null) {
     err.status = 422
     throw err
   }
-  // Single user-facing account: the Noon fee / expense Zoho account.
+  // Single user-facing account: fee/expense Chart of Accounts account.
   const zohoAccountId = String(
     mapping.zohoAccountId || mapping.expenseAccountId || mapping.debitAccountId || ''
   ).trim()
@@ -631,8 +655,12 @@ async function saveFeeJournalMapping(mapping, userId = null) {
     err.status = 422
     throw err
   }
-  const settings = await getSettings(marketplace)
-  const clearing = settings.clearingAccount || {}
+  // Amazon-style credit/counter by fee type (1066 undeposited / 1068 uncleared shipping).
+  const {
+    getNoonPaymentClearingMarketplaceConfig,
+    getNoonFeeJournalCounterAccount,
+  } = require('./noonPaymentClearingMarketplaceConfig')
+  const counter = getNoonFeeJournalCounterAccount(normalizedFeeType)
   const id = mapping.id == null ? null : Number(mapping.id)
   const values = [
     marketplace,
@@ -641,9 +669,8 @@ async function saveFeeJournalMapping(mapping, userId = null) {
     mapping.descriptionPattern || null,
     zohoAccountName,
     zohoAccountId,
-    // Snapshot clearing as credit for storage compatibility; journals resolve by sign at preview/post.
-    clearing.accountName || mapping.creditAccountName || 'Noon',
-    clearing.accountId || mapping.creditAccountId || null,
+    mapping.creditAccountName || counter.accountName || 'Noon Undeposited Funds',
+    mapping.creditAccountId || counter.accountId || null,
     mapping.isActive !== false,
     mapping.priority == null ? 100 : Number(mapping.priority),
     userId == null ? null : Number(userId),
@@ -833,8 +860,8 @@ module.exports = {
   listFeeJournalMappings,
   saveFeeJournalMapping,
   deactivateFeeJournalMapping,
-  getSettings,
-  saveClearingAccount,
+  getInputVatSettings,
+  saveInputVatSettings,
   findGroupedPosting,
   insertPosting,
   listPostingsForBatch,

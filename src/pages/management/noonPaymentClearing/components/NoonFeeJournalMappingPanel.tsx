@@ -3,10 +3,10 @@ import {
   deleteNoonFeeJournalMapping,
   fetchNoonFeeJournalMappings,
   fetchNoonZohoChartAccounts,
-  saveNoonClearingAccount,
   saveNoonFeeJournalMapping,
-  type NoonClearingAccount,
+  saveNoonInputVatSettings,
   type NoonFeeJournalMapping,
+  type NoonInputVatAccount,
   type NoonPaymentClearingPreview,
 } from '../../../../api/noonPaymentClearing'
 import {
@@ -44,10 +44,10 @@ export function NoonFeeJournalMappingPanel({
 }) {
   const [accounts, setAccounts] = useState<ZohoChartAccount[]>([])
   const [mappings, setMappings] = useState<NoonFeeJournalMapping[]>([])
-  const [clearingAccount, setClearingAccount] = useState<NoonClearingAccount>({
-    accountId: '',
-    accountName: '',
-  })
+  const [undepositedName, setUndepositedName] = useState('Noon Undeposited Funds (1066)')
+  const [shippingClearingName, setShippingClearingName] = useState('Noon Uncleared Shipping Charges (1068)')
+  const [inputVat, setInputVat] = useState<NoonInputVatAccount | null>(null)
+  const [selectedInputVatAccountId, setSelectedInputVatAccountId] = useState('')
   const [feeType, setFeeType] = useState('NOON_ADVERTISING_FEE')
   const [selectedFeeAccountId, setSelectedFeeAccountId] = useState('')
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -59,6 +59,7 @@ export function NoonFeeJournalMappingPanel({
   const accountById = useMemo(() => new Map(accounts.map((a) => [a.accountId, a])), [accounts])
   const feeLines = preview.feeJournalLines || []
   const unmappedCount = feeLines.filter((l) => l.mappingStatus === 'needs_mapping').length
+  const vatSummary = preview.feeJournalVatSummary
 
   const feeTypeOptions = useMemo(() => {
     const fromLines = feeLines.map((l) => String(l.normalizedFeeType || l.feeType || '')).filter(Boolean)
@@ -68,8 +69,19 @@ export function NoonFeeJournalMappingPanel({
   const loadMappings = useCallback(async () => {
     const data = await fetchNoonFeeJournalMappings()
     setMappings(data.mappings || [])
-    const clearing = data.clearingAccount || data.settings?.clearingAccount
-    if (clearing) setClearingAccount(clearing)
+    const undep = data.undepositedFundsAccount || data.settlementBridgeAccount
+    if (undep?.accountName) {
+      setUndepositedName(
+        `${undep.accountName}${undep.accountCode ? ` (${undep.accountCode})` : ''}`
+      )
+    }
+    if (data.unclearedShippingAccount?.accountName) {
+      const s = data.unclearedShippingAccount
+      setShippingClearingName(`${s.accountName}${s.accountCode ? ` (${s.accountCode})` : ''}`)
+    }
+    const vat = data.inputVatAccount || null
+    setInputVat(vat)
+    setSelectedInputVatAccountId(vat?.accountId || vat?.inputVatAccountId || '')
   }, [])
 
   useEffect(() => {
@@ -93,26 +105,26 @@ export function NoonFeeJournalMappingPanel({
     }
   }, [loadMappings])
 
-  async function onSaveClearingAccount(accountId: string) {
-    if (!accountId) {
-      setClearingAccount({ accountId: '', accountName: '' })
+  async function onSaveInputVat() {
+    const account = accountById.get(selectedInputVatAccountId)
+    if (!account) {
+      setError('Select the Zoho Input VAT account from the Chart of Accounts.')
       return
     }
-    const account = accountById.get(accountId)
-    if (!account) return
     setBusy(true)
     setError('')
     setNotice('')
     try {
-      const saved = await saveNoonClearingAccount({
-        accountId: account.accountId,
-        accountName: account.accountName,
-        accountCode: account.accountCode || '',
+      const saved = await saveNoonInputVatSettings({
+        inputVatAccountId: account.accountId,
+        inputVatAccountName: account.accountName,
+        inputVatAccountCode: account.accountCode,
+        vatRate: 0.05,
       })
-      setClearingAccount(saved)
-      setNotice(`Noon clearing account set to ${saved.accountName}.`)
-      await onPreviewRefresh()
+      setInputVat(saved)
+      setNotice(`Saved Input VAT account: ${account.accountName}`)
       await loadMappings()
+      await onPreviewRefresh()
     } catch (err) {
       setError(safeError(err))
     } finally {
@@ -123,11 +135,7 @@ export function NoonFeeJournalMappingPanel({
   async function onSaveMapping() {
     const account = accountById.get(selectedFeeAccountId)
     if (!account) {
-      setError('Select a Zoho account for this fee type.')
-      return
-    }
-    if (!clearingAccount.accountId) {
-      setError('Configure the global Noon clearing account first.')
+      setError('Select a Zoho Chart of Accounts account for this fee type.')
       return
     }
     setBusy(true)
@@ -141,7 +149,7 @@ export function NoonFeeJournalMappingPanel({
         zohoAccountName: account.accountName,
         isActive: true,
       })
-      setNotice(`Saved mapping: ${feeType} → ${account.accountName}`)
+      setNotice(`Saved mapping: ${feeType} → ${account.accountName} (net expense)`)
       setEditingId(null)
       setSelectedFeeAccountId('')
       await loadMappings()
@@ -182,47 +190,47 @@ export function NoonFeeJournalMappingPanel({
   }
 
   const selectedFeeAccount = selectedFeeAccountId ? accountById.get(selectedFeeAccountId) : null
-  const sampleExpensePreview =
-    selectedFeeAccount && clearingAccount.accountName
-      ? {
-          debit: selectedFeeAccount.accountName,
-          credit: clearingAccount.accountName,
-        }
-      : null
+  const inputVatName =
+    inputVat?.accountName ||
+    inputVat?.inputVatAccountName ||
+    'Input VAT - All Except Basmat Goods WH (1085)'
+  const isShippingFee =
+    /FULFILL|SHIP|PARENT_ORDER/i.test(feeType)
+  const exampleClearing = isShippingFee ? shippingClearingName : undepositedName
 
   return (
     <div className="npc-step-stack">
       <div className={unmappedCount ? 'npc-alert npc-alert--error' : 'npc-alert'}>
-        <strong>Zoho Chart of Accounts picker</strong> — select accounts by name. Do not type account IDs.
-        Map each Noon fee type to one Zoho expense/income account. The counter account is always the configured
-        Noon clearing account. Journal debit/credit direction follows the signed statement amount automatically.
+        <strong>Amazon-style Noon clearing</strong> — map each fee type to the <em>net</em> expense
+        account. VAT-inclusive fees split at 5% into net expense + Input VAT. Journal counters:
+        Advertising → <strong>{undepositedName}</strong>; Shipping/fulfillment →{' '}
+        <strong>{shippingClearingName}</strong>. Referral stays an invoice payment to Uncleared
+        Commission (1067). Noon customer is used on invoice payments only.
       </div>
 
       <section className="npc-card" style={{ padding: '1rem', border: '1px solid rgba(15,23,42,0.08)', borderRadius: 8 }}>
-        <h3 style={{ marginTop: 0 }}>Noon Clearing Account</h3>
-        <p className="npc-muted">
-          Global counterpart for every fee journal. Shown as <strong>Noon</strong> in accounting previews.
+        <h3 style={{ marginTop: 0 }}>Input VAT Account</h3>
+        <p className="npc-muted" style={{ marginTop: 0 }}>
+          Default: Input VAT - All Except Basmat Goods WH (1085). Confirm via CoA picker if needed.
         </p>
         {loadingAccounts ? <p className="npc-muted">Loading Zoho chart of accounts…</p> : null}
-        <SearchableZohoAccountPicker
-          label="Noon Clearing Account"
-          placeholder="Search Zoho Chart of Accounts..."
-          accounts={accounts}
-          selectedId={clearingAccount.accountId || ''}
-          fallbackLabel={clearingAccount.accountName || ''}
-          onSelected={(id) => {
-            void onSaveClearingAccount(id)
-          }}
-        />
-        {clearingAccount.accountId ? (
-          <p className="npc-muted" style={{ marginTop: '0.5rem' }}>
-            Counter account: <strong>{clearingAccount.accountName || 'Noon'}</strong>
-          </p>
-        ) : (
-          <p className="npc-muted" style={{ marginTop: '0.5rem' }}>
-            Select the Noon clearing / settlement account once. Fee mappings reuse it automatically.
-          </p>
-        )}
+        <div className="npc-actions" style={{ alignItems: 'flex-end', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <div style={{ flex: '1 1 18rem' }}>
+            <SearchableZohoAccountPicker
+              label="Input VAT Account"
+              placeholder="Search Zoho Chart of Accounts..."
+              accounts={accounts}
+              selectedId={selectedInputVatAccountId}
+              onSelected={setSelectedInputVatAccountId}
+            />
+          </div>
+          <button type="button" className="ainv-btn ainv-btn--primary-sky" disabled={busy} onClick={onSaveInputVat}>
+            Save Input VAT account
+          </button>
+        </div>
+        <div className="npc-muted" style={{ marginTop: '0.75rem' }}>
+          Current: <strong>{inputVatName}</strong> · VAT rate 5% (inclusive)
+        </div>
       </section>
 
       <section className="npc-card" style={{ padding: '1rem', border: '1px solid rgba(15,23,42,0.08)', borderRadius: 8 }}>
@@ -245,7 +253,7 @@ export function NoonFeeJournalMappingPanel({
           </label>
           <div style={{ flex: '1 1 18rem' }}>
             <SearchableZohoAccountPicker
-              label="Zoho Account"
+              label="Net expense Zoho Account"
               placeholder="Search Zoho Chart of Accounts..."
               accounts={accounts}
               selectedId={selectedFeeAccountId}
@@ -269,16 +277,18 @@ export function NoonFeeJournalMappingPanel({
             </button>
           ) : null}
         </div>
-        {sampleExpensePreview ? (
+        {selectedFeeAccount ? (
           <div className="npc-muted" style={{ marginTop: '0.75rem' }}>
-            Accounting preview for a normal negative fee:
+            Example VAT-inclusive negative fee:
             <div>
-              Debit: <strong>{sampleExpensePreview.debit}</strong>
+              Debit net expense: <strong>{selectedFeeAccount.accountName}</strong>
             </div>
             <div>
-              Credit: <strong>{sampleExpensePreview.credit}</strong>
+              Debit Input VAT: <strong>{inputVatName}</strong>
             </div>
-            <div style={{ marginTop: 4 }}>Positive credits/reversals swap debit and credit automatically.</div>
+            <div>
+              Credit: <strong>{exampleClearing}</strong> (gross)
+            </div>
           </div>
         ) : null}
       </section>
@@ -294,14 +304,20 @@ export function NoonFeeJournalMappingPanel({
         </div>
       ) : null}
 
+      {vatSummary && vatSummary.vatInclusiveLineCount > 0 ? (
+        <div className="npc-alert">
+          Fee-journal VAT: Gross {money(vatSummary.grossInclVat)} · Net {money(vatSummary.netExpense)} ·
+          Input VAT {money(vatSummary.inputVat)} ({vatSummary.vatInclusiveLineCount} lines)
+        </div>
+      ) : null}
+
       <h3>Saved mappings</h3>
       <div className="npc-table-wrap">
         <table className="npc-table">
           <thead>
             <tr>
               <th>Fee Type</th>
-              <th>Zoho Account</th>
-              <th>Counter Account</th>
+              <th>Net Expense Account</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -310,7 +326,6 @@ export function NoonFeeJournalMappingPanel({
               <tr key={mapping.id}>
                 <td>{mapping.normalizedFeeType}</td>
                 <td>{mapping.zohoAccountName || mapping.debitAccountName || '—'}</td>
-                <td>{clearingAccount.accountName || 'Noon'}</td>
                 <td>
                   <div className="npc-button-row" style={{ gap: '0.35rem' }}>
                     <button type="button" className="ainv-btn ainv-btn--sm" disabled={busy} onClick={() => onEdit(mapping)}>
@@ -330,7 +345,7 @@ export function NoonFeeJournalMappingPanel({
             ))}
             {mappings.length === 0 ? (
               <tr>
-                <td colSpan={4} className="npc-empty">
+                <td colSpan={3} className="npc-empty">
                   No fee mappings saved yet.
                 </td>
               </tr>
@@ -345,37 +360,75 @@ export function NoonFeeJournalMappingPanel({
           <thead>
             <tr>
               <th>Fee</th>
-              <th>Amount</th>
-              <th>Zoho Account</th>
+              <th>VAT split</th>
+              <th>Accounts</th>
               <th>Journal preview</th>
               <th>Status</th>
             </tr>
           </thead>
           <tbody>
-            {feeLines.map((line) => (
-              <tr key={line.lineIndex}>
-                <td>
-                  <strong>{String(line.displayLabel || line.feeType || '')}</strong>
-                  <div className="npc-muted">{String(line.normalizedFeeType || '')}</div>
-                </td>
-                <td className="npc-money">
-                  {money(Number(line.signedAmount != null ? line.signedAmount : line.amount) || 0)}
-                </td>
-                <td>{String(line.zohoAccountName || '—')}</td>
-                <td>
-                  {line.accountingPreview ? (
-                    <div className="npc-muted">
-                      Debit: {String(line.accountingPreview.debit || '—')}
-                      <br />
-                      Credit: {String(line.accountingPreview.credit || '—')}
+            {feeLines.map((line) => {
+              const vatInclusive = Boolean(
+                line.vatBreakdown?.vatInclusive && Math.abs(Number(line.inputVatAmount) || 0) >= 0.005
+              )
+              return (
+                <tr key={line.lineIndex}>
+                  <td>
+                    <strong>{String(line.displayLabel || line.feeType || '')}</strong>
+                    <div className="npc-muted">{String(line.normalizedFeeType || '')}</div>
+                    {line.previewNote ? <div className="npc-muted">{String(line.previewNote)}</div> : null}
+                  </td>
+                  <td className="npc-money">
+                    {vatInclusive ? (
+                      <div>
+                        <div>Gross incl. VAT: {money(line.grossInclVat ?? line.signedAmount)}</div>
+                        <div>Net Expense: {money(line.netExpense)}</div>
+                        <div>Input VAT 5%: {money(line.inputVatAmount)}</div>
+                      </div>
+                    ) : (
+                      <div>
+                        <div>Gross: {money(line.signedAmount != null ? line.signedAmount : line.amount)}</div>
+                        <div className="npc-muted">No service-fee VAT split</div>
+                      </div>
+                    )}
+                  </td>
+                  <td>
+                    <div>Expense: {String(line.zohoAccountName || '—')}</div>
+                    {vatInclusive ? <div>VAT: {String(line.inputVatAccountName || inputVatName)}</div> : null}
+                    <div>
+                      Clearing:{' '}
+                      {String(
+                        line.accountingPreview?.clearingAccount ||
+                          line.clearingAccountName ||
+                          line.settlementBridgeAccountName ||
+                          '—'
+                      )}
                     </div>
-                  ) : (
-                    '—'
-                  )}
-                </td>
-                <td>{line.mappingStatus}</td>
-              </tr>
-            ))}
+                  </td>
+                  <td>
+                    {line.accountingPreview?.lines && line.accountingPreview.lines.length > 0 ? (
+                      <div className="npc-muted">
+                        {line.accountingPreview.lines.map((jl, i) => (
+                          <div key={`${line.lineIndex}-${i}`}>
+                            {String(jl.debitOrCredit || '').toUpperCase()}: {String(jl.accountName || '—')}{' '}
+                            {money(jl.amount)}
+                          </div>
+                        ))}
+                      </div>
+                    ) : line.accountingPreview ? (
+                      <div className="npc-muted">
+                        Debit: {String(line.accountingPreview.debit || '—')}
+                        <br />
+                        Credit: {String(line.accountingPreview.credit || '—')}
+                      </div>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                  <td>{line.mappingStatus}</td>
+                </tr>
+              )
+            })}
             {feeLines.length === 0 ? (
               <tr>
                 <td colSpan={5} className="npc-empty">

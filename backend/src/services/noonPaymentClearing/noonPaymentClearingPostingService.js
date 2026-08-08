@@ -164,14 +164,15 @@ async function postApprovedBatch({
   allowPosted = false,
   postedBy,
   mappingRules = [],
-  clearingAccount = {},
+  settlementBridgeAccount = null,
+  inputVatAccount = null,
   createPayment = zohoPaymentService.createZohoCustomerPayment,
   buildPayloadPreview = zohoPaymentService.buildCustomerPaymentPayloadPreview,
   createManualJournal = zohoPaymentService.createZohoManualJournal,
   buildJournalPayloadPreview = zohoPaymentService.buildManualJournalPayloadPreview,
 } = {}) {
   const latestPreview = await store.getLatestPaymentPreviewForBatch(batch.batchId)
-  const paymentPreview = buildPaymentPreviewFromBatch(batch, mappingRules, clearingAccount)
+  const paymentPreview = buildPaymentPreviewFromBatch(batch, mappingRules, inputVatAccount)
   await ensureCanPostBatch(batch, Boolean(latestPreview), {
     dryRun,
     allowPosted,
@@ -305,6 +306,16 @@ async function postApprovedBatch({
         amount: line.amount,
         debit: line.debit,
         credit: line.credit,
+        customerId: clean(line.zohoCustomerId || batch.zohoCustomerId || customerId),
+        lineItems: Array.isArray(line.lineItems)
+          ? line.lineItems.map((item) => ({
+              ...item,
+              customerId:
+                clean(item.customerId) ||
+                clean(line.zohoCustomerId || batch.zohoCustomerId || customerId),
+            }))
+          : undefined,
+        vatBreakdown: line.vatBreakdown || null,
         referenceNumber: buildEntryReference(metadata, line.feeType),
         date: paymentDate,
       }
@@ -378,7 +389,14 @@ async function postApprovedBatch({
   return store.withBatchPostingLock(batch.batchId, run)
 }
 
-async function forceRepostBatch({ batch, reason, actorUserId, mappingRules = [], clearingAccount = {} }) {
+async function forceRepostBatch({
+  batch,
+  reason,
+  actorUserId,
+  mappingRules = [],
+  settlementBridgeAccount = null,
+  inputVatAccount = null,
+}) {
   if (!batch || (batch.status !== 'posted' && !batch.postedToZoho)) {
     const err = new Error('Force repost requires a previously posted batch.')
     err.code = 'NOON_PAYMENT_CLEARING_NOT_POSTED'
@@ -406,7 +424,8 @@ async function forceRepostBatch({ batch, reason, actorUserId, mappingRules = [],
     allowPosted: true,
     postedBy: actorUserId,
     mappingRules,
-    clearingAccount,
+    settlementBridgeAccount,
+    inputVatAccount,
   })
 }
 

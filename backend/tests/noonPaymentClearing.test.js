@@ -37,10 +37,47 @@ const {
 const { buildPreview, buildFeeJournalPreviewLines } = require('../src/services/noonPaymentClearing/noonPaymentClearingPreviewService')
 const { buildPaymentPreviewFromBatch } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
 const { resolveNoonFeeJournalSides } = require('../src/services/noonPaymentClearing/noonPaymentClearingJournalDirection')
+const {
+  splitVatInclusiveAmount,
+  resolveVatSplit,
+  extractVatFromNoonRow,
+} = require('../src/services/noonPaymentClearing/noonPaymentClearingVatService')
 const { validateBatchReadyForApproval } = require('../src/services/noonPaymentClearing/noonPaymentClearingService')
 const { flattenInvoicePayments, ensureCanPostBatch } = require('../src/services/noonPaymentClearing/noonPaymentClearingPostingService')
 
-const NOON_CLEARING = { accountId: 'noon-clearing-1', accountName: 'Noon' }
+/** Amazon-style clearing GLs (codes from Noon CoA). */
+const NOON_UNDEPOSITED = {
+  accountId: 'undep-1',
+  accountName: 'Noon Undeposited Funds',
+  accountCode: '1066',
+}
+const NOON_UNCLEARED_SHIPPING = {
+  accountId: 'ship-clear-1',
+  accountName: 'Noon Uncleared Shipping Charges',
+  accountCode: '1068',
+}
+const NOON_CUSTOMER = { customerId: 'cust-noon', customerName: 'Noon' }
+/** Zoho Input VAT CoA — 1085 */
+const NOON_INPUT_VAT = {
+  accountId: 'vat-1',
+  accountName: 'Input VAT - All Except Basmat Goods WH',
+  accountCode: '1085',
+  vatRate: 0.05,
+}
+
+// Resolve Amazon-parallel Noon accounts by code/id for tests (same roles as KSA 1024/1026/1028).
+process.env.NOON_AE_ZOHO_UNDEPOSITED_FUNDS_ACCOUNT_ID = NOON_UNDEPOSITED.accountId
+process.env.NOON_AE_ZOHO_UNDEPOSITED_FUNDS_ACCOUNT_CODE = NOON_UNDEPOSITED.accountCode
+process.env.NOON_AE_ZOHO_UNDEPOSITED_FUNDS_ACCOUNT_NAME = NOON_UNDEPOSITED.accountName
+process.env.NOON_AE_ZOHO_COMMISSION_ACCOUNT_ID = 'comm-clear-1'
+process.env.NOON_AE_ZOHO_COMMISSION_ACCOUNT_CODE = '1067'
+process.env.NOON_AE_ZOHO_COMMISSION_ACCOUNT_NAME = 'Noon Uncleared Commission 14%'
+process.env.NOON_AE_ZOHO_SHIPPING_ACCOUNT_ID = NOON_UNCLEARED_SHIPPING.accountId
+process.env.NOON_AE_ZOHO_SHIPPING_ACCOUNT_CODE = NOON_UNCLEARED_SHIPPING.accountCode
+process.env.NOON_AE_ZOHO_SHIPPING_ACCOUNT_NAME = NOON_UNCLEARED_SHIPPING.accountName
+process.env.NOON_AE_ZOHO_INPUT_VAT_ACCOUNT_ID = NOON_INPUT_VAT.accountId
+process.env.NOON_AE_ZOHO_INPUT_VAT_ACCOUNT_CODE = NOON_INPUT_VAT.accountCode
+process.env.NOON_AE_ZOHO_INPUT_VAT_ACCOUNT_NAME = NOON_INPUT_VAT.accountName
 
 function csvHeader() {
   return [
@@ -501,7 +538,9 @@ describe('acceptance: NAEI70003640128 parent / children / parent charge', () => 
       metadata: parsed.metadata,
       matchResult: match,
       mappingRules,
-      clearingAccount: NOON_CLEARING,
+      inputVatAccount: NOON_INPUT_VAT,
+      zohoCustomerId: NOON_CUSTOMER.customerId,
+      zohoCustomerName: NOON_CUSTOMER.customerName,
     })
     const parentCharge = preview.parentCharges[0]
     assert.equal(parentCharge.originalParentOrderId, 'NAEI70003640128')
@@ -517,10 +556,24 @@ describe('acceptance: NAEI70003640128 parent / children / parent charge', () => 
     assert.equal(advLine.signedAmount, -2009.62)
     assert.equal(advLine.displayLabel, 'Advertising Fee')
     assert.equal(advLine.mappingStatus, 'mapped')
+    assert.equal(advLine.netExpense, -1913.92)
+    assert.equal(advLine.inputVatAmount, -95.7)
     assert.equal(advLine.debit.accountName, 'Advertising Expense')
-    assert.equal(advLine.credit.accountName, 'Noon')
-    assert.equal(advLine.accountingPreview.debit, 'Advertising Expense')
-    assert.equal(advLine.accountingPreview.credit, 'Noon')
+    assert.equal(advLine.credit.accountName, 'Noon Undeposited Funds')
+    assert.equal(advLine.credit.accountCode, '1066')
+    assert.equal(advLine.accountingPreview.credit, 'Noon Undeposited Funds')
+    assert.equal(advLine.accountingPreview.expenseAccount, 'Advertising Expense')
+    assert.equal(advLine.accountingPreview.vatAccount, 'Input VAT - All Except Basmat Goods WH')
+    assert.equal(advLine.lineItems.length, 3)
+    assert.equal(advLine.lineItems[0].amount, 1913.92)
+    assert.equal(advLine.lineItems[1].accountName, 'Input VAT - All Except Basmat Goods WH')
+    assert.equal(advLine.lineItems[1].amount, 95.7)
+    assert.equal(advLine.lineItems[2].accountName, 'Noon Undeposited Funds')
+    assert.equal(advLine.lineItems[2].amount, 2009.62)
+    const shipLine = preview.feeJournalLines.find((l) => l.normalizedFeeType === 'FULFILLMENT' || l.rowClass === 'parent_order_charge')
+    assert.ok(shipLine)
+    assert.equal(shipLine.credit.accountName, 'Noon Uncleared Shipping Charges')
+    assert.equal(shipLine.credit.accountCode, '1068')
     assert.match(advLine.previewNote, /No invoice required/i)
     assert.ok(!preview.blockingIssues.some((i) => i.code === 'UNEXPLAINED_OTHER'))
 
@@ -535,7 +588,7 @@ describe('acceptance: NAEI70003640128 parent / children / parent charge', () => 
       reportSnapshot: preview.metadata,
       feeJournalLines: preview.feeJournalLines,
     }
-    const paymentPreview = buildPaymentPreviewFromBatch(batch, mappingRules, NOON_CLEARING)
+    const paymentPreview = buildPaymentPreviewFromBatch(batch, mappingRules, NOON_INPUT_VAT)
     assert.equal(paymentPreview.invoicePayments.length, 2)
     assert.ok(paymentPreview.invoicePayments.every((p) => p.itemOrderId.includes('-')))
     assert.ok(paymentPreview.parentLevelCharges.length >= 1)
@@ -679,35 +732,38 @@ describe('classifyNoonStatementRow edge', () => {
 })
 
 describe('Noon fee journal direction', () => {
-  it('debits expense and credits Noon for negative advertising', () => {
+  it('debits expense and credits Undeposited Funds for negative advertising', () => {
     const sides = resolveNoonFeeJournalSides({
       feeAccountId: 'exp-1',
       feeAccountName: 'Advertising Expense',
-      clearingAccountId: 'noon-1',
-      clearingAccountName: 'Noon',
+      clearingAccountId: 'undep-1',
+      clearingAccountName: 'Noon Undeposited Funds',
+      clearingAccountCode: '1066',
       signedAmount: -2009.62,
     })
     assert.equal(sides.direction, 'expense')
     assert.equal(sides.amount, 2009.62)
     assert.equal(sides.debit.accountName, 'Advertising Expense')
-    assert.equal(sides.credit.accountName, 'Noon')
+    assert.equal(sides.credit.accountName, 'Noon Undeposited Funds')
+    assert.equal(sides.credit.accountCode, '1066')
   })
 
-  it('reverses sides for positive shipping/subsidy credits', () => {
+  it('reverses sides for positive shipping credits against Uncleared Shipping', () => {
     const sides = resolveNoonFeeJournalSides({
       feeAccountId: 'ship-1',
-      feeAccountName: 'Shipping Expense',
-      clearingAccountId: 'noon-1',
-      clearingAccountName: 'Noon',
+      feeAccountName: 'Noon Shipping Exp',
+      clearingAccountId: 'ship-clear-1',
+      clearingAccountName: 'Noon Uncleared Shipping Charges',
+      clearingAccountCode: '1068',
       signedAmount: 4.73,
     })
     assert.equal(sides.direction, 'credit_reversal')
     assert.equal(sides.amount, 4.73)
-    assert.equal(sides.debit.accountName, 'Noon')
-    assert.equal(sides.credit.accountName, 'Shipping Expense')
+    assert.equal(sides.debit.accountName, 'Noon Uncleared Shipping Charges')
+    assert.equal(sides.credit.accountName, 'Noon Shipping Exp')
   })
 
-  it('marks journal mapped only when fee account and clearing account exist', () => {
+  it('marks journal mapped only when fee account and clearing GL exist', () => {
     const rows = [
       {
         rowNumber: 1,
@@ -717,22 +773,258 @@ describe('Noon fee journal direction', () => {
         total: -2009.62,
       },
     ]
-    const unmapped = buildFeeJournalPreviewLines(
-      rows,
-      [{ normalizedFeeType: 'NOON_ADVERTISING_FEE', zohoAccountId: 'exp-1', zohoAccountName: 'Advertising Expense', isActive: true }],
-      { accountId: '', accountName: '' }
-    )
+    const unmapped = buildFeeJournalPreviewLines(rows, [], { accountId: '', accountCode: '', accountName: '' })
     assert.equal(unmapped[0].mappingStatus, 'needs_mapping')
+    // Row has only total (no VAT-inclusive source column) → no VAT split required.
     const mapped = buildFeeJournalPreviewLines(
       rows,
       [{ normalizedFeeType: 'NOON_ADVERTISING_FEE', zohoAccountId: 'exp-1', zohoAccountName: 'Advertising Expense', isActive: true }],
-      NOON_CLEARING
+      { accountId: '', accountCode: '', accountName: '' }
     )
     assert.equal(mapped[0].mappingStatus, 'mapped')
     assert.equal(mapped[0].debit.accountId, 'exp-1')
-    assert.equal(mapped[0].credit.accountId, 'noon-clearing-1')
+    assert.equal(mapped[0].credit.accountId, 'undep-1')
+    assert.equal(mapped[0].credit.accountName, 'Noon Undeposited Funds')
+
+    const vatRows = [{ ...rows[0], nonOrderFees: -2009.62, total: -2009.62 }]
+    const needsVatAccount = buildFeeJournalPreviewLines(
+      vatRows,
+      [{ normalizedFeeType: 'NOON_ADVERTISING_FEE', zohoAccountId: 'exp-1', zohoAccountName: 'Advertising Expense', isActive: true }],
+      { accountId: '', accountCode: '', accountName: '' }
+    )
+    assert.equal(needsVatAccount[0].mappingStatus, 'needs_mapping')
+    const withVatAccount = buildFeeJournalPreviewLines(
+      vatRows,
+      [{ normalizedFeeType: 'NOON_ADVERTISING_FEE', zohoAccountId: 'exp-1', zohoAccountName: 'Advertising Expense', isActive: true }],
+      NOON_INPUT_VAT
+    )
+    assert.equal(withVatAccount[0].mappingStatus, 'mapped')
+    assert.equal(withVatAccount[0].inputVatAccountId, 'vat-1')
+    assert.equal(withVatAccount[0].lineItems[2].accountCode, '1066')
   })
 })
+
+describe('Noon VAT-inclusive service fees', () => {
+  it('splits -42.84 VAT-inclusive fulfillment to net -40.80 and VAT -2.04', () => {
+    const split = splitVatInclusiveAmount(-42.84, 0.05)
+    assert.equal(split.netAmount, -40.8)
+    assert.equal(split.vatAmount, -2.04)
+    assert.equal(split.originalGrossAmount, -42.84)
+    assert.equal(round2(split.netAmount + split.vatAmount), -42.84)
+  })
+
+  it('splits VAT-inclusive referral fee', () => {
+    const extracted = extractVatFromNoonRow({
+      referralFee: -21,
+      total: -21,
+      netProceed: 0,
+    })
+    assert.equal(extracted.vatInclusive, true)
+    assert.equal(extracted.netAmount, -20)
+    assert.equal(extracted.vatAmount, -1)
+    assert.equal(extracted.vatSource, 'calculated')
+  })
+
+  it('splits VAT-inclusive shipping fee and positive reversal with sign preserved', () => {
+    const ship = extractVatFromNoonRow({ shippingCharges: -10.5, total: -10.5 })
+    assert.equal(ship.netAmount, -10)
+    assert.equal(ship.vatAmount, -0.5)
+
+    const credit = extractVatFromNoonRow({ shippingCharges: 4.73, total: 4.73 })
+    assert.equal(credit.originalGrossAmount, 4.73)
+    assert.equal(round2(credit.netAmount + credit.vatAmount), 4.73)
+    assert.ok(credit.netAmount > 0)
+    assert.ok(credit.vatAmount > 0)
+
+    const sides = resolveNoonFeeJournalSides({
+      feeAccountId: 'ship-1',
+      feeAccountName: 'Noon Shipping Exp',
+      clearingAccountId: 'ship-clear-1',
+      clearingAccountName: 'Noon Uncleared Shipping Charges',
+      clearingAccountCode: '1068',
+      inputVatAccountId: 'vat-1',
+      inputVatAccountName: 'Input VAT - All Except Basmat Goods WH',
+      inputVatAccountCode: '1085',
+      signedAmount: 4.73,
+      netAmount: credit.netAmount,
+      vatAmount: credit.vatAmount,
+      vatInclusive: true,
+    })
+    assert.equal(sides.direction, 'credit_reversal')
+    assert.equal(sides.lineItems.length, 3)
+    assert.equal(sides.lineItems[0].debitOrCredit, 'debit')
+    assert.equal(sides.lineItems[0].accountName, 'Noon Uncleared Shipping Charges')
+    assert.equal(sides.lineItems[0].accountCode, '1068')
+    assert.equal(sides.lineItems[0].amount, 4.73)
+  })
+
+  it('does not VAT-split product sales proceeds / netProceed', () => {
+    const sale = extractVatFromNoonRow({
+      netProceed: 100,
+      referralFee: 0,
+      fulfillmentFee: 0,
+      total: 100,
+    })
+    assert.equal(sale.vatInclusive, false)
+    assert.equal(sale.vatAmount, 0)
+    assert.equal(sale.netAmount, 100)
+    assert.equal(sale.nonVatResidue, 100)
+  })
+
+  it('does not invent VAT for unknown fees without including-VAT source fields', () => {
+    const unknown = extractVatFromNoonRow({
+      total: -12.34,
+      netProceed: 0,
+      title: 'Mystery',
+    })
+    assert.equal(unknown.vatInclusive, false)
+    assert.equal(unknown.vatAmount, 0)
+    assert.equal(unknown.netAmount, -12.34)
+  })
+
+  it('prefers explicit Noon VAT over calculated VAT', () => {
+    const split = resolveVatSplit({
+      grossAmount: -42.84,
+      explicitVatAmount: -2.1,
+      vatInclusive: true,
+      vatRate: 0.05,
+    })
+    assert.equal(split.vatSource, 'explicit')
+    assert.equal(split.vatAmount, -2.1)
+    assert.equal(split.netAmount, -40.74)
+  })
+
+  it('rounds to AED 0.01 and guarantees net + VAT = gross', () => {
+    const awkward = splitVatInclusiveAmount(-1.01, 0.05)
+    assert.equal(round2(awkward.netAmount + awkward.vatAmount), -1.01)
+    assert.match(awkward.netAmount.toFixed(2), /^\-?\d+\.\d{2}$/)
+    assert.match(awkward.vatAmount.toFixed(2), /^\-?\d+\.\d{2}$/)
+  })
+
+  it('keeps statement settlement unchanged after VAT decomposition (fixture)', () => {
+    const parsed = parseNoonStatementReport(
+      [
+        csvHeader(),
+        csvRow([
+          'MPABUKYYZQAE',
+          'NOON-AE',
+          'PS-VAT-FIX',
+          '',
+          '',
+          '',
+          '08/07/2026',
+          'Advertising Fee',
+          '',
+          '',
+          'statement',
+          'AED',
+          '0',
+          '0',
+          '0',
+          '0',
+          '0',
+          '0',
+          '-2009.62',
+          '0',
+          '0',
+          '-2009.62',
+        ]),
+        csvRow([
+          'MPABUKYYZQAE',
+          'NOON-AE',
+          'PS-VAT-FIX',
+          'NAEI1',
+          'NAEI1-1',
+          '01/07/2026',
+          '08/07/2026',
+          'Item',
+          'SKU',
+          '',
+          'order',
+          'AED',
+          '11100.28',
+          '0',
+          '0',
+          '0',
+          '0',
+          '0',
+          '0',
+          '0',
+          '0',
+          '11100.28',
+        ]),
+      ].join('\n')
+    )
+    // Force expected settlement metadata like Noon export.
+    parsed.metadata.actualSettlementTotal = 9090.66
+    // Adjust so calculated = 9090.66: 11100.28 - 2009.62 = 9090.66
+    const recon = buildNoonReconciliationSummary(parsed.rows, parsed.metadata)
+    assert.equal(recon.calculatedSettlement, 9090.66)
+    assert.equal(recon.expectedSettlement, 9090.66)
+
+    const preview = buildPreview({
+      rows: parsed.rows,
+      metadata: parsed.metadata,
+      matchResult: {
+        annotatedRows: parsed.rows,
+        matchedOrders: [],
+        unmatchedOrders: [],
+        multipleMatchItems: [],
+      },
+      mappingRules: [
+        {
+          normalizedFeeType: 'NOON_ADVERTISING_FEE',
+          zohoAccountId: 'd1',
+          zohoAccountName: 'Advertising Expense',
+          isActive: true,
+        },
+      ],
+      inputVatAccount: NOON_INPUT_VAT,
+    })
+    assert.equal(preview.reconciliationSummary.calculatedSettlement, 9090.66)
+    const adv = preview.feeJournalLines.find((l) => l.normalizedFeeType === 'NOON_ADVERTISING_FEE')
+    assert.equal(adv.signedAmount, -2009.62)
+    assert.equal(adv.netExpense, -1913.92)
+    assert.equal(adv.inputVatAmount, -95.7)
+    assert.equal(round2(adv.netExpense + adv.inputVatAmount), -2009.62)
+    assert.equal(adv.credit.accountCode, '1066')
+  })
+
+  it('builds fee journal preview with VAT accounts; shipping clears to 1068', () => {
+    const lines = buildFeeJournalPreviewLines(
+      [
+        {
+          rowNumber: 1,
+          rowClass: 'parent_order_charge',
+          normalizedFeeType: 'FULFILLMENT',
+          title: 'PGSHIP',
+          fulfillmentFee: -42.84,
+          total: -42.84,
+        },
+      ],
+      [
+        {
+          normalizedFeeType: 'FULFILLMENT',
+          zohoAccountId: 'ful-1',
+          zohoAccountName: 'Noon Shipping Exp',
+          isActive: true,
+        },
+      ],
+      NOON_INPUT_VAT
+    )
+    assert.equal(lines[0].netExpense, -40.8)
+    assert.equal(lines[0].inputVatAmount, -2.04)
+    assert.equal(lines[0].vatBreakdown.expenseAccountId, 'ful-1')
+    assert.equal(lines[0].vatBreakdown.inputVatAccountId, 'vat-1')
+    assert.equal(lines[0].inputVatAccountId, 'vat-1')
+    assert.equal(lines[0].credit.accountName, 'Noon Uncleared Shipping Charges')
+    assert.equal(lines[0].credit.accountCode, '1068')
+  })
+})
+
+function round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100
+}
 
 describe('parent-order fallback bounds', () => {
   it('uses strict parent/child comparison and lowest suffix', () => {

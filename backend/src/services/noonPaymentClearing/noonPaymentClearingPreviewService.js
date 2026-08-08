@@ -20,6 +20,14 @@ const {
   resolveNoonFeeJournalSides,
   isNoonFeeMappingComplete,
 } = require('./noonPaymentClearingJournalDirection')
+const {
+  getNoonPaymentClearingMarketplaceConfig,
+  getNoonFeeJournalCounterAccount,
+} = require('./noonPaymentClearingMarketplaceConfig')
+const {
+  DEFAULT_VAT_RATE,
+  extractVatFromNoonRow,
+} = require('./noonPaymentClearingVatService')
 
 function buildBlockingIssues({ annotatedRows, unmatchedOrders, multipleMatchItems, reconciliation }) {
   const issues = []
@@ -68,16 +76,63 @@ function findFeeMappingRule(mappingRules, feeType) {
   )
 }
 
-function normalizeClearingAccount(clearingAccount = {}) {
+/** Normalize a clearing/expense account object (id/name/code). */
+function normalizeGlAccount(account = null, fallbackName = '') {
+  if (!account) {
+    return { accountId: '', accountName: fallbackName, accountCode: '' }
+  }
   return {
-    accountId: clean(clearingAccount.accountId || clearingAccount.clearingAccountId),
-    accountName: clean(clearingAccount.accountName || clearingAccount.clearingAccountName) || 'Noon',
-    accountCode: clean(clearingAccount.accountCode || clearingAccount.clearingAccountCode),
+    accountId: clean(account.accountId || account.depositToAccountId),
+    accountName: clean(account.accountName || account.depositToAccountName) || fallbackName,
+    accountCode: clean(account.accountCode || account.depositToAccountCode),
   }
 }
 
-function buildFeeJournalPreviewLines(rows, mappingRules = [], clearingAccount = {}) {
-  const clearing = normalizeClearingAccount(clearingAccount)
+/**
+ * Amazon-style undeposited account (invoice net deposit-to + advertising journal counter).
+ * @deprecated name kept for callers; prefer getNoonFeeJournalCounterAccount(feeType).
+ */
+function getSettlementBridgeAccount(override = null) {
+  if (override && (override.accountId || override.depositToAccountId || override.accountCode)) {
+    return normalizeGlAccount(override, 'Noon Undeposited Funds')
+  }
+  const cfg = getNoonPaymentClearingMarketplaceConfig()
+  return normalizeGlAccount(cfg.undepositedFundsAccount, 'Noon Undeposited Funds')
+}
+
+function normalizeInputVatAccount(inputVatAccount = null, vatRate = DEFAULT_VAT_RATE) {
+  const cfg = getNoonPaymentClearingMarketplaceConfig()
+  const defaults = cfg.inputVatAccount || {}
+  // null/undefined → marketplace default (1085). Explicit empty object disables VAT account.
+  let source = defaults
+  if (inputVatAccount != null) {
+    const hasAny = Boolean(
+      clean(inputVatAccount.accountId || inputVatAccount.inputVatAccountId) ||
+        clean(inputVatAccount.accountCode || inputVatAccount.inputVatAccountCode) ||
+        clean(inputVatAccount.accountName || inputVatAccount.inputVatAccountName)
+    )
+    source = hasAny ? inputVatAccount : { accountId: '', accountName: '', accountCode: '' }
+  }
+  return {
+    accountId: clean(source.accountId || source.inputVatAccountId || source.depositToAccountId),
+    accountName:
+      clean(source.accountName || source.inputVatAccountName || source.depositToAccountName) ||
+      (source === defaults ? 'Input VAT' : ''),
+    accountCode: clean(source.accountCode || source.inputVatAccountCode || source.depositToAccountCode),
+    vatRate:
+      source.vatRate == null || source.vatRate === ''
+        ? cfg.vatRate || vatRate
+        : Number(source.vatRate) || vatRate,
+  }
+}
+
+function resolveClearingForFeeType(feeType) {
+  return normalizeGlAccount(getNoonFeeJournalCounterAccount(feeType))
+}
+
+function buildFeeJournalPreviewLines(rows, mappingRules = [], inputVatAccount = null) {
+  const cfg = getNoonPaymentClearingMarketplaceConfig()
+  const vatAcct = normalizeInputVatAccount(inputVatAccount, cfg.vatRate || DEFAULT_VAT_RATE)
   const journalRows = (Array.isArray(rows) ? rows : []).filter(
     (row) =>
       row.rowClass === ROW_CLASS.STATEMENT_FEE ||
@@ -88,34 +143,73 @@ function buildFeeJournalPreviewLines(rows, mappingRules = [], clearingAccount = 
     const feeType = row.normalizedFeeType || 'OTHER'
     const rule = findFeeMappingRule(mappingRules, feeType)
     const signedAmount = round2(num(row.total))
+    const vatBreakdown = extractVatFromNoonRow(row, { vatRate: vatAcct.vatRate })
     const displayLabel = row.displayLabel || displayLabelForFeeRow(row)
     const isAdvertising =
       feeType === 'NOON_ADVERTISING_FEE' || feeType === 'ADVERTISING' || /advertis/i.test(displayLabel)
     const originalParentOrderId = clean(row.originalParentOrderId || row.parentOrderId)
     const assignedItemOrderId = clean(row.assignedItemOrderId)
     const assignmentReason = clean(row.assignmentReason)
+    const suggestion = (cfg.feeJournalAccountSuggestions || []).find(
+      (s) => clean(s.normalizedFeeType) === clean(feeType)
+    )
     const feeAccountId = clean(rule?.zohoAccountId || rule?.debitAccountId)
-    const feeAccountName = clean(rule?.zohoAccountName || rule?.debitAccountName)
-    const mapped = isNoonFeeMappingComplete(feeAccountId, clearing.accountId)
+    const feeAccountName =
+      clean(rule?.zohoAccountName || rule?.debitAccountName) || clean(suggestion?.zohoAccountName)
+    const feeAccountCode = clean(rule?.zohoAccountCode || suggestion?.zohoAccountCode)
+    // Prefer saved mapping credit when present; else Amazon-style counter by fee type.
+    const clearing =
+      rule?.creditAccountId || rule?.creditAccountName
+        ? normalizeGlAccount({
+            accountId: rule.creditAccountId,
+            accountName: rule.creditAccountName,
+            accountCode: rule.creditAccountCode || suggestion?.creditAccountCode,
+          })
+        : resolveClearingForFeeType(feeType)
+    const mapped = isNoonFeeMappingComplete(feeAccountId, clearing.accountId, {
+      vatAmount: vatBreakdown.vatAmount,
+      inputVatAccountId: vatAcct.accountId,
+      clearingAccountCode: clearing.accountCode,
+      inputVatAccountCode: vatAcct.accountCode,
+    })
     const sides = mapped
       ? resolveNoonFeeJournalSides({
           feeAccountId,
           feeAccountName,
+          feeAccountCode,
           clearingAccountId: clearing.accountId,
           clearingAccountName: clearing.accountName,
+          clearingAccountCode: clearing.accountCode,
+          inputVatAccountId: vatAcct.accountId,
+          inputVatAccountName: vatAcct.accountName,
+          inputVatAccountCode: vatAcct.accountCode,
           signedAmount,
+          netAmount: vatBreakdown.netAmount,
+          vatAmount: vatBreakdown.vatAmount,
+          vatInclusive: vatBreakdown.vatInclusive,
         })
       : {
           amount: Math.abs(signedAmount),
           signedAmount,
+          netAmount: vatBreakdown.netAmount,
+          vatAmount: vatBreakdown.vatAmount,
           direction: signedAmount > 0 ? 'credit_reversal' : 'expense',
           debit: { accountId: '', accountName: feeAccountName || '' },
-          credit: { accountId: '', accountName: clearing.accountName || 'Noon' },
+          credit: { accountId: '', accountName: clearing.accountName },
+          lineItems: [],
           preview: {
-            debitLabel: signedAmount > 0 ? clearing.accountName || 'Noon' : feeAccountName || 'Fee account',
-            creditLabel: signedAmount > 0 ? feeAccountName || 'Fee account' : clearing.accountName || 'Noon',
+            debitLabel: signedAmount > 0 ? clearing.accountName : feeAccountName || 'Fee account',
+            creditLabel: signedAmount > 0 ? feeAccountName || 'Fee account' : clearing.accountName,
+            lines: [],
           },
         }
+
+    const vatTreatment =
+      vatBreakdown.vatInclusive && Math.abs(vatBreakdown.vatAmount) >= 0.005
+        ? 'vat_inclusive_split'
+        : vatBreakdown.components.length === 0 && Math.abs(signedAmount) >= 0.005
+          ? 'not_vat_inclusive_or_unknown'
+          : 'no_vat'
 
     return {
       lineIndex: idx + 1,
@@ -140,15 +234,49 @@ function buildFeeJournalPreviewLines(rows, mappingRules = [], clearingAccount = 
       isStatementLevelExpense: row.rowClass === ROW_CLASS.STATEMENT_FEE,
       invoiceRequired: false,
       journalDirection: sides.direction,
-      counterAccountName: clearing.accountName || 'Noon',
+      clearingAccountName: clearing.accountName,
+      clearingAccountId: clearing.accountId,
+      clearingAccountCode: clearing.accountCode,
+      settlementBridgeAccountName: clearing.accountName,
+      settlementBridgeAccountId: clearing.accountId,
       zohoAccountName: feeAccountName,
       zohoAccountId: feeAccountId,
+      zohoAccountCode: feeAccountCode,
+      inputVatAccountId: vatAcct.accountId,
+      inputVatAccountName: vatAcct.accountName,
+      inputVatAccountCode: vatAcct.accountCode,
+      vatTreatment,
+      vatBreakdown: {
+        originalGrossAmount: vatBreakdown.originalGrossAmount,
+        vatRate: vatBreakdown.vatRate,
+        netAmount: vatBreakdown.netAmount,
+        vatAmount: vatBreakdown.vatAmount,
+        vatInclusive: vatBreakdown.vatInclusive,
+        vatSource: vatBreakdown.vatSource,
+        expenseAccountId: feeAccountId,
+        inputVatAccountId: vatAcct.accountId,
+        clearingAccountId: clearing.accountId,
+        components: vatBreakdown.components,
+        nonVatResidue: vatBreakdown.nonVatResidue,
+      },
+      grossInclVat: vatBreakdown.originalGrossAmount,
+      netExpense: vatBreakdown.netAmount,
+      inputVatAmount: vatBreakdown.vatAmount,
       accountingPreview: {
         debit: sides.preview.debitLabel,
         credit: sides.preview.creditLabel,
+        lines: sides.preview.lines || [],
+        grossInclVat: vatBreakdown.originalGrossAmount,
+        netExpense: vatBreakdown.netAmount,
+        inputVat: vatBreakdown.vatAmount,
+        expenseAccount: feeAccountName,
+        vatAccount: vatAcct.accountName,
+        clearingAccount: clearing.accountName,
       },
       previewNote: isAdvertising
-        ? 'Statement-level expense · No invoice required'
+        ? vatBreakdown.vatInclusive
+          ? 'Statement-level expense · VAT-inclusive · Credit: Noon Undeposited Funds (1066) · No invoice required'
+          : 'Statement-level expense · Credit: Noon Undeposited Funds (1066) · No invoice required'
         : assignedItemOrderId
           ? `Parent: ${originalParentOrderId} · Cleared via: ${assignedItemOrderId} · Parent-order fallback`
           : originalParentOrderId
@@ -157,8 +285,24 @@ function buildFeeJournalPreviewLines(rows, mappingRules = [], clearingAccount = 
       mappingStatus: mapped ? 'mapped' : 'needs_mapping',
       debit: sides.debit,
       credit: sides.credit,
+      lineItems: sides.lineItems || [],
     }
   })
+}
+
+function summarizeFeeJournalVat(feeJournalLines = []) {
+  let grossInclVat = 0
+  let netExpense = 0
+  let inputVat = 0
+  let vatInclusiveLineCount = 0
+  for (const line of feeJournalLines) {
+    if (!line?.vatBreakdown?.vatInclusive) continue
+    vatInclusiveLineCount += 1
+    grossInclVat = round2(grossInclVat + num(line.vatBreakdown.originalGrossAmount))
+    netExpense = round2(netExpense + num(line.vatBreakdown.netAmount))
+    inputVat = round2(inputVat + num(line.vatBreakdown.vatAmount))
+  }
+  return { grossInclVat, netExpense, inputVat, vatInclusiveLineCount }
 }
 
 function buildPreview({
@@ -166,11 +310,13 @@ function buildPreview({
   metadata,
   matchResult,
   mappingRules = [],
-  clearingAccount = {},
+  settlementBridgeAccount = null,
+  inputVatAccount = null,
   zohoCustomerId = '',
   zohoCustomerName = '',
   warnings = [],
 } = {}) {
+  const cfg = getNoonPaymentClearingMarketplaceConfig()
   const matchedOrders = matchResult?.matchedOrders || []
   let annotatedRows = reclassifyExplainableOtherRows(matchResult?.annotatedRows || rows || [])
   annotatedRows = applyParentOrderChargeFallback(annotatedRows, matchedOrders)
@@ -185,10 +331,12 @@ function buildPreview({
     multipleMatchItems,
     reconciliation,
   })
-  const feeJournalLines = buildFeeJournalPreviewLines(annotatedRows, mappingRules, clearingAccount)
+  const feeJournalLines = buildFeeJournalPreviewLines(annotatedRows, mappingRules, inputVatAccount)
   const parentCharges = annotatedRows.filter((r) => r.rowClass === ROW_CLASS.PARENT_ORDER_CHARGE)
   const adjustments = annotatedRows.filter((r) => r.rowClass === ROW_CLASS.ORDER_ADJUSTMENT)
   const statementFees = annotatedRows.filter((r) => r.rowClass === ROW_CLASS.STATEMENT_FEE)
+  const vatSummary = summarizeFeeJournalVat(feeJournalLines)
+  const inputVat = normalizeInputVatAccount(inputVatAccount)
 
   const isCleanForApproval =
     isNoonSettlementReconciliationAcceptable(reconciliation) &&
@@ -211,11 +359,15 @@ function buildPreview({
     statementFees,
     reconciliationSummary: reconciliation,
     feeJournalLines,
-    clearingAccount: normalizeClearingAccount(clearingAccount),
+    feeJournalVatSummary: vatSummary,
+    settlementBridgeAccount: getSettlementBridgeAccount(settlementBridgeAccount),
+    paymentPreviewAccounts: cfg.paymentPreviewAccounts,
+    inputVatAccount: inputVat,
     blockingIssues,
     warnings: Array.isArray(warnings) ? warnings : [],
-    zohoCustomerId,
-    zohoCustomerName,
+    zohoCustomerId: zohoCustomerId || matchResult?.zohoCustomerId || '',
+    zohoCustomerName:
+      zohoCustomerName || matchResult?.zohoCustomerName || cfg.zohoCustomerName || 'Noon',
     isCleanForApproval,
     totals: {
       rowCount: annotatedRows.length,
@@ -226,6 +378,8 @@ function buildPreview({
       adjustmentCount: adjustments.length,
       statementFeeCount: statementFees.length,
       settlementTotal: reconciliation.calculatedSettlement,
+      feeJournalInputVat: vatSummary.inputVat,
+      feeJournalNetExpense: vatSummary.netExpense,
     },
   }
 }
@@ -234,5 +388,7 @@ module.exports = {
   buildPreview,
   buildBlockingIssues,
   buildFeeJournalPreviewLines,
-  normalizeClearingAccount,
+  getSettlementBridgeAccount,
+  getNoonFeeJournalCounterAccount,
+  summarizeFeeJournalVat,
 }

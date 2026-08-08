@@ -2,54 +2,205 @@ const MARKETPLACE = 'AE'
 
 const ZOHO_CUSTOMER_NAME = process.env.NOON_AE_ZOHO_CUSTOMER_NAME || 'Noon'
 
+function accountFromEnv(prefix, defaults) {
+  return {
+    accountCode: process.env[`${prefix}_CODE`] || defaults.accountCode || '',
+    accountName: process.env[`${prefix}_NAME`] || defaults.accountName || '',
+    accountId: process.env[`${prefix}_ID`] || defaults.accountId || '',
+  }
+}
+
+/**
+ * Noon AE payment clearing — Amazon-KSA parallel account roles.
+ *
+ * Invoice Record Payments (customer = Noon):
+ *   net → 1066 Undeposited
+ *   commission/referral → 1067 Uncleared Commission 14%
+ *   shipping/fulfillment → 1068 Uncleared Shipping Charges
+ *
+ * Fee journals (no customer_id on journal lines — Amazon-style):
+ *   Advertising → Dr 2053 (+ Input VAT 1085) / Cr 1066
+ *   Shipping/fulfillment fees → Dr 2162 (+ Input VAT 1085) / Cr 1068
+ */
 function getNoonPaymentClearingMarketplaceConfig() {
+  const undepositedFunds = accountFromEnv('NOON_AE_ZOHO_UNDEPOSITED_FUNDS_ACCOUNT', {
+    accountCode: '1066',
+    accountName: 'Noon Undeposited Funds',
+  })
+  const unclearedCommission = accountFromEnv('NOON_AE_ZOHO_COMMISSION_ACCOUNT', {
+    accountCode: '1067',
+    accountName: 'Noon Uncleared Commission 14%',
+  })
+  const unclearedShipping = accountFromEnv('NOON_AE_ZOHO_SHIPPING_ACCOUNT', {
+    accountCode: '1068',
+    accountName: 'Noon Uncleared Shipping Charges',
+  })
+  const shippingBenefit = accountFromEnv('NOON_AE_ZOHO_SHIPPING_BENEFIT_ACCOUNT', {
+    accountCode: '1065',
+    accountName: 'Noon Shipping Benefit',
+  })
+  const advertisingExpense = accountFromEnv('NOON_AE_ZOHO_ADVERTISING_EXPENSE_ACCOUNT', {
+    accountCode: '2053',
+    accountName: 'Noon Advertising Exp',
+  })
+  const shippingExpense = accountFromEnv('NOON_AE_ZOHO_SHIPPING_EXPENSE_ACCOUNT', {
+    accountCode: '2162',
+    accountName: 'Noon Shipping Exp',
+  })
+  const commissionExpense = accountFromEnv('NOON_AE_ZOHO_COMMISSION_EXPENSE_ACCOUNT', {
+    accountCode: '2143',
+    accountName: '14% Noon Commission',
+  })
+  const storageFees = accountFromEnv('NOON_AE_ZOHO_STORAGE_FEES_ACCOUNT', {
+    accountCode: '1207',
+    accountName: 'Noon Storage Fees',
+  })
+  const monthlyStorageFees = accountFromEnv('NOON_AE_ZOHO_MONTHLY_STORAGE_FEES_ACCOUNT', {
+    accountCode: '1208',
+    accountName: 'Noon Monthly Storage Fees',
+  })
+  const longTermStorageFees = accountFromEnv('NOON_AE_ZOHO_LONG_TERM_STORAGE_FEES_ACCOUNT', {
+    accountCode: '1209',
+    accountName: 'Noon Long Term Storage Fees',
+  })
+  const inputVat = accountFromEnv('NOON_AE_ZOHO_INPUT_VAT_ACCOUNT', {
+    accountCode: '1085',
+    accountName: 'Input VAT - All Except Basmat Goods WH',
+  })
+
   return {
     marketplace: MARKETPLACE,
     marketplaceKey: 'ae',
     contractType: 'NOON-AE',
     currency: 'AED',
     channelPrefix: 'NOON-AE',
+    vatRate: 0.05,
+    /** Zoho Books CUSTOMER for invoice Record Payments — not a journal GL account. */
     zohoCustomerName: ZOHO_CUSTOMER_NAME,
     zohoCustomerOptions: [
       { name: ZOHO_CUSTOMER_NAME, label: `${ZOHO_CUSTOMER_NAME} (NOON-AE)`, available: true },
     ],
+    undepositedFundsAccount: undepositedFunds,
+    unclearedCommissionAccount: unclearedCommission,
+    unclearedShippingAccount: unclearedShipping,
+    shippingBenefitAccount: shippingBenefit,
+    advertisingExpenseAccount: advertisingExpense,
+    shippingExpenseAccount: shippingExpense,
+    commissionExpenseAccount: commissionExpense,
+    storageFeesAccount: storageFees,
+    monthlyStorageFeesAccount: monthlyStorageFees,
+    longTermStorageFeesAccount: longTermStorageFees,
+    inputVatAccount: inputVat,
     paymentPreviewAccounts: {
       NET_BALANCE: {
-        depositToAccountCode: process.env.NOON_AE_ZOHO_UNDEPOSITED_FUNDS_ACCOUNT_CODE || '1024',
-        depositToAccountName:
-          process.env.NOON_AE_ZOHO_UNDEPOSITED_FUNDS_ACCOUNT_NAME || 'Noon Undeposited Funds',
-        depositToAccountId: process.env.NOON_AE_ZOHO_UNDEPOSITED_FUNDS_ACCOUNT_ID || '',
+        depositToAccountCode: undepositedFunds.accountCode,
+        depositToAccountName: undepositedFunds.accountName,
+        depositToAccountId: undepositedFunds.accountId,
       },
       COMMISSION: {
-        depositToAccountCode: process.env.NOON_AE_ZOHO_COMMISSION_ACCOUNT_CODE || '1026',
-        depositToAccountName:
-          process.env.NOON_AE_ZOHO_COMMISSION_ACCOUNT_NAME || 'Noon Uncleared Commission Exp',
-        depositToAccountId: process.env.NOON_AE_ZOHO_COMMISSION_ACCOUNT_ID || '',
+        depositToAccountCode: unclearedCommission.accountCode,
+        depositToAccountName: unclearedCommission.accountName,
+        depositToAccountId: unclearedCommission.accountId,
       },
       FULFILLMENT_SHIPPING: {
-        depositToAccountCode: process.env.NOON_AE_ZOHO_FULFILLMENT_ACCOUNT_CODE || '1028',
-        depositToAccountName:
-          process.env.NOON_AE_ZOHO_FULFILLMENT_ACCOUNT_NAME || 'Noon Uncleared Fulfillment Exp',
-        depositToAccountId: process.env.NOON_AE_ZOHO_FULFILLMENT_ACCOUNT_ID || '',
+        depositToAccountCode: unclearedShipping.accountCode,
+        depositToAccountName: unclearedShipping.accountName,
+        depositToAccountId: unclearedShipping.accountId,
       },
     },
-    // Suggested Zoho expense/income account names per fee type.
-    // Counter account is always the configured Noon clearing account (not per-fee).
+    /**
+     * Suggested net-expense CoA per fee type (Amazon feeJournalAccountSuggestions parallel).
+     * Counter side is resolved separately by fee type (see getNoonFeeJournalCounterAccount).
+     */
     feeJournalAccountSuggestions: [
-      { normalizedFeeType: 'NOON_ADVERTISING_FEE', zohoAccountName: 'Noon Advertising Exp' },
-      { normalizedFeeType: 'ADVERTISING', zohoAccountName: 'Noon Advertising Exp' },
-      { normalizedFeeType: 'STATEMENT_FEE', zohoAccountName: 'Noon Marketplace Fees' },
-      { normalizedFeeType: 'FULFILLMENT', zohoAccountName: 'Noon Uncleared Fulfillment Exp' },
-      { normalizedFeeType: 'SHIPPING', zohoAccountName: 'Noon Uncleared Fulfillment Exp' },
-      { normalizedFeeType: 'PARENT_ORDER_CHARGE', zohoAccountName: 'Noon Uncleared Fulfillment Exp' },
-      { normalizedFeeType: 'ORDER_ADJUSTMENT', zohoAccountName: 'Noon Marketplace Adjustments' },
-      { normalizedFeeType: 'OTHER', zohoAccountName: 'Noon Marketplace Fees' },
+      {
+        normalizedFeeType: 'NOON_ADVERTISING_FEE',
+        zohoAccountName: advertisingExpense.accountName,
+        zohoAccountCode: advertisingExpense.accountCode,
+        creditAccountName: undepositedFunds.accountName,
+        creditAccountCode: undepositedFunds.accountCode,
+      },
+      {
+        normalizedFeeType: 'ADVERTISING',
+        zohoAccountName: advertisingExpense.accountName,
+        zohoAccountCode: advertisingExpense.accountCode,
+        creditAccountName: undepositedFunds.accountName,
+        creditAccountCode: undepositedFunds.accountCode,
+      },
+      {
+        normalizedFeeType: 'FULFILLMENT',
+        zohoAccountName: shippingExpense.accountName,
+        zohoAccountCode: shippingExpense.accountCode,
+        creditAccountName: unclearedShipping.accountName,
+        creditAccountCode: unclearedShipping.accountCode,
+      },
+      {
+        normalizedFeeType: 'SHIPPING',
+        zohoAccountName: shippingExpense.accountName,
+        zohoAccountCode: shippingExpense.accountCode,
+        creditAccountName: unclearedShipping.accountName,
+        creditAccountCode: unclearedShipping.accountCode,
+      },
+      {
+        normalizedFeeType: 'PARENT_ORDER_CHARGE',
+        zohoAccountName: shippingExpense.accountName,
+        zohoAccountCode: shippingExpense.accountCode,
+        creditAccountName: unclearedShipping.accountName,
+        creditAccountCode: unclearedShipping.accountCode,
+      },
+      {
+        normalizedFeeType: 'STATEMENT_FEE',
+        zohoAccountName: advertisingExpense.accountName,
+        zohoAccountCode: advertisingExpense.accountCode,
+        creditAccountName: undepositedFunds.accountName,
+        creditAccountCode: undepositedFunds.accountCode,
+      },
+      {
+        normalizedFeeType: 'ORDER_ADJUSTMENT',
+        zohoAccountName: shippingExpense.accountName,
+        zohoAccountCode: shippingExpense.accountCode,
+        creditAccountName: undepositedFunds.accountName,
+        creditAccountCode: undepositedFunds.accountCode,
+      },
+      {
+        normalizedFeeType: 'OTHER',
+        zohoAccountName: '',
+        creditAccountName: undepositedFunds.accountName,
+        creditAccountCode: undepositedFunds.accountCode,
+      },
     ],
   }
+}
+
+/**
+ * Amazon-style fee-journal counter (credit for expenses / debit for reversals).
+ * Advertising → Undeposited 1066
+ * Shipping/fulfillment → Uncleared Shipping 1068
+ * Default → Undeposited 1066
+ */
+function getNoonFeeJournalCounterAccount(feeType, cfg = null) {
+  const config = cfg || getNoonPaymentClearingMarketplaceConfig()
+  const t = String(feeType || '')
+    .trim()
+    .toUpperCase()
+  if (
+    t === 'FULFILLMENT' ||
+    t === 'SHIPPING' ||
+    t === 'PARENT_ORDER_CHARGE' ||
+    t.includes('SHIP') ||
+    t.includes('FULFILL')
+  ) {
+    return { ...config.unclearedShippingAccount, role: 'uncleared_shipping' }
+  }
+  if (t.includes('COMMISSION') || t.includes('REFERRAL')) {
+    return { ...config.unclearedCommissionAccount, role: 'uncleared_commission' }
+  }
+  return { ...config.undepositedFundsAccount, role: 'undeposited' }
 }
 
 module.exports = {
   MARKETPLACE,
   ZOHO_CUSTOMER_NAME,
   getNoonPaymentClearingMarketplaceConfig,
+  getNoonFeeJournalCounterAccount,
 }
