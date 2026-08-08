@@ -2214,7 +2214,9 @@
 }
 
 .ip-hud-header-total span svg {
-  display: none;
+  display: block;
+  width: 13px;
+  height: 13px;
 }
 
 .ip-hud-header-total__label {
@@ -2308,7 +2310,7 @@
 }
 
 .ip-hud-metric-row > span svg {
-  display: none;
+  display: block;
 }
 
 .ip-hud-value {
