@@ -1713,7 +1713,13 @@
   font-weight: 800;
   letter-spacing: 0;
   text-transform: none;
-  overflow: visible;
+  overflow: hidden;
+}
+
+.ip-hud-metric-row span .ip-hud-metric-label-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1726,13 +1732,13 @@
 
 .ip-hud-value {
   font-family: 'Space Mono', ui-monospace, monospace;
-  min-width: 0;
+  flex: 0 0 auto;
+  min-width: 3.25rem;
   font-size: 1.05rem;
   font-weight: 900;
   margin-left: auto;
-  overflow: hidden;
+  overflow: visible;
   text-align: right;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -2237,14 +2243,17 @@
 }
 
 .ip-hud-days {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(186px, 1fr));
   gap: 0.85rem;
   margin-bottom: 1.45rem;
+  overflow-x: auto;
+  padding-bottom: 0.2rem;
 }
 
 .ip-hud-day {
+  min-width: 186px;
   min-height: 350px;
-  padding: 1rem 1rem;
+  padding: 1rem 1.05rem;
   border-color: #e4eaf2;
   border-radius: 22px;
   background: rgba(255, 255, 255, 0.86);
@@ -2299,21 +2308,32 @@
 
 .ip-hud-metric-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.45rem 0.5rem;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  column-gap: 0.75rem;
+  row-gap: 0.4rem;
+  align-items: center;
   padding: 0.7rem 0;
   border: 0;
 }
 
 .ip-hud-metric-row > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
   color: #0f172a;
   font-family: inherit;
   font-size: 1.05rem;
   font-weight: 800;
   letter-spacing: 0;
   text-transform: none;
-  overflow: visible;
-  text-overflow: unset;
+  overflow: hidden;
+}
+
+.ip-hud-metric-row > span .ip-hud-metric-label-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -2329,6 +2349,14 @@
   font-family: inherit;
   font-size: 1.05rem;
   font-weight: 900;
+  justify-self: end;
+  flex-shrink: 0;
+  min-width: 3.25rem;
+  max-width: none;
+  overflow: visible;
+  text-align: right;
+  text-overflow: unset;
+  white-space: nowrap;
 }
 
 .ip-hud-value--storyViews {
