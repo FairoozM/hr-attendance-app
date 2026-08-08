@@ -193,6 +193,7 @@ export function NoonFeeJournalMappingPanel({
   return (
     <div className="npc-step-stack">
       <div className={unmappedCount ? 'npc-alert npc-alert--error' : 'npc-alert'}>
+        <strong>Zoho Chart of Accounts picker</strong> — select accounts by name. Do not type account IDs.
         Map each Noon fee type to one Zoho expense/income account. The counter account is always the configured
         Noon clearing account. Journal debit/credit direction follows the signed statement amount automatically.
       </div>

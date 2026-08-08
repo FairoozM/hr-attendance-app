@@ -60,7 +60,7 @@ export const CLEARING_STEPS: ClearingStep[] = [
     id: 9,
     key: 'fee-journals',
     title: 'Noon Fee Journal Mapping',
-    description: 'Map Noon fees to Zoho chart accounts. Account IDs are configurable, not hardcoded.',
+    description: 'Map Noon fees via searchable Zoho Chart of Accounts. Counter account is the global Noon clearing account.',
   },
   {
     id: 10,
