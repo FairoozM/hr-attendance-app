@@ -2270,11 +2270,18 @@
 
 .ip-hud-day-head {
   align-items: center;
+  justify-content: center;
   margin-bottom: 1.55rem;
 }
 
 .ip-hud-day-head-main {
+  justify-content: center;
+  flex: 0 1 auto;
   gap: 0.5rem;
+}
+
+.ip-hud-day-head-copy {
+  justify-content: center;
 }
 
 .ip-step-badge {
@@ -2308,15 +2315,18 @@
 .ip-hud-metric-row {
   display: grid;
   grid-template-columns: 1fr;
-  align-items: start;
+  justify-items: center;
+  align-items: center;
   gap: 0.18rem;
   padding: 0.58rem 0;
   border: 0;
+  text-align: center;
 }
 
 .ip-hud-metric-row > span {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.4rem;
   min-width: 0;
   max-width: 100%;
@@ -2347,14 +2357,14 @@
   font-family: inherit;
   font-size: 1.2rem;
   font-weight: 900;
-  justify-self: stretch;
-  width: 100%;
+  justify-self: center;
+  width: auto;
   min-width: 0;
-  max-width: none;
+  max-width: 100%;
   margin: 0;
-  padding-left: 1.55rem;
+  padding-left: 0;
   overflow: visible;
-  text-align: left;
+  text-align: center;
   text-overflow: unset;
   white-space: nowrap;
 }
@@ -2366,18 +2376,20 @@
 .ip-hud-value-input,
 .ip-hud-value-select {
   box-sizing: border-box;
-  width: calc(100% - 1.55rem);
+  width: 100%;
+  max-width: 6.5rem;
   min-width: 0;
-  max-width: none;
-  margin-left: 1.55rem;
+  margin-left: 0;
   padding-left: 0.2rem;
   font-family: inherit;
   font-size: 1.15rem;
-  text-align: left;
+  text-align: center;
 }
 
 .ip-hud-metric-progress {
   grid-column: 1;
+  justify-self: center;
+  width: min(100%, 5.5rem);
   height: 3px;
   overflow: hidden;
   border-radius: 999px;
