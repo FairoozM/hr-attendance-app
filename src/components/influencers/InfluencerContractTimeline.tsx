@@ -139,7 +139,7 @@ function HudContractCard({
     { label: 'Views', key: 'views', Icon: Eye },
     { label: 'Shares', key: 'shares', Icon: Send },
     { label: 'Likes', key: 'likes', Icon: Heart },
-    { label: 'Cmts', key: 'comments', Icon: MessageCircle },
+    { label: 'Comments', key: 'comments', Icon: MessageCircle },
   ]
 
   const totals: Record<TimelineMetricKey, number> = {
@@ -447,7 +447,7 @@ function HudContractCard({
             </div>
             {metricConfig.map(({ label, key, Icon }) => (
               <div key={key} className="ip-hud-metric-row">
-                <span><Icon size={15} /> {label}</span>
+                <span><Icon size={18} /> {label}</span>
                 {!inWindow ? (
                   <strong className={`ip-hud-value ip-hud-value--muted ip-hud-value--${key}`}>—</strong>
                 ) : onSaveRecord ? (
@@ -489,7 +489,7 @@ function HudContractCard({
               </div>
             ))}
             <div className="ip-hud-metric-row">
-              <span><GalleryHorizontal size={15} /> Story</span>
+              <span><GalleryHorizontal size={18} /> Story</span>
               {!inWindow ? (
                 <strong className="ip-hud-value ip-hud-value--muted ip-hud-value--storyViews">—</strong>
               ) : onSaveRecord ? (
@@ -519,7 +519,7 @@ function HudContractCard({
           </div>
           {metricConfig.map(({ label, key, Icon }) => (
             <div key={key} className="ip-hud-metric-row">
-              <span><Icon size={15} /> {label}</span>
+              <span><Icon size={18} /> {label}</span>
               <strong className={`ip-hud-value ip-hud-value--${key}`}>
                 {formatNumber(totals[key])}
               </strong>
@@ -529,7 +529,7 @@ function HudContractCard({
             </div>
           ))}
           <div className="ip-hud-metric-row">
-            <span><GalleryHorizontal size={13} /> Story</span>
+            <span><GalleryHorizontal size={18} /> Story</span>
             <strong className="ip-hud-value ip-hud-value--storyViews">
               {contractStoryPostingSummary()}
             </strong>
