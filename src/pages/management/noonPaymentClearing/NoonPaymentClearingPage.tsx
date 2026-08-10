@@ -108,7 +108,28 @@ export function NoonPaymentClearingPage() {
 
   const isApproved = preview?.status === 'approved' || preview?.batch?.status === 'approved'
   const isPosted = Boolean(preview?.postedToZoho || preview?.status === 'posted' || preview?.batch?.status === 'posted')
-  const isClean = Boolean(preview?.isCleanForApproval)
+
+  // Same rules as backend validateBatchReadyForApproval — fee journal mapping is Step 9, not approval.
+  const approvalBlockers = useMemo(() => {
+    if (!preview) return [] as string[]
+    const reasons: string[] = []
+    if (preview.reconciliationSummary?.reconciliationStatus === 'mismatch') {
+      reasons.push('Statement reconciliation does not balance.')
+    }
+    if ((preview.unmatchedOrders || []).length > 0) {
+      reasons.push(`${preview.unmatchedOrders.length} item order(s) still missing a Zoho invoice.`)
+    }
+    if ((preview.multipleMatchItems || []).length > 0) {
+      reasons.push(`${preview.multipleMatchItems.length} item order(s) matched more than one invoice.`)
+    }
+    for (const issue of preview.blockingIssues || []) {
+      if (issue.code === 'UNEXPLAINED_OTHER') {
+        reasons.push(issue.message || 'Unexplained transaction amount remains.')
+      }
+    }
+    return Array.from(new Set(reasons))
+  }, [preview])
+  const canApproveSettlement = Boolean(preview) && approvalBlockers.length === 0
 
   const stepStatuses = useMemo(() => {
     const s: Record<number, StepStatus> = {}
@@ -127,18 +148,22 @@ export function NoonPaymentClearingPage() {
       : preview.reconciliationSummary?.reconciliationStatus === 'mismatch'
         ? 'blocked'
         : 'completed'
-    s[8] = !preview ? 'not_started' : isApproved || isPosted ? 'completed' : isClean ? 'ready' : 'blocked'
+    s[8] = !preview
+      ? 'not_started'
+      : isApproved || isPosted
+        ? 'completed'
+        : canApproveSettlement
+          ? 'ready'
+          : 'blocked'
     s[9] = !preview
       ? 'not_started'
       : (preview.feeJournalLines || []).some((l) => l.mappingStatus === 'needs_mapping')
         ? 'blocked'
-        : isApproved || isPosted
-          ? 'ready'
-          : 'not_started'
+        : 'ready'
     s[10] = paymentPreview ? 'completed' : isApproved || isPosted ? 'ready' : 'not_started'
     s[11] = isPosted ? 'completed' : paymentPreview ? 'ready' : 'not_started'
     return s
-  }, [preview, isApproved, isPosted, isClean, paymentPreview])
+  }, [preview, isApproved, isPosted, canApproveSettlement, paymentPreview])
 
   async function onUpload(file: File | null | undefined) {
     if (!file) return
@@ -295,13 +320,27 @@ export function NoonPaymentClearingPage() {
             status={status}
             collapsed={collapsed}
             onExpand={() => goToStep(step.id)}
+            blocker={
+              step.id === 8 && approvalBlockers.length
+                ? approvalBlockers[0]
+                : step.id === 9 &&
+                    (preview?.feeJournalLines || []).some((l) => l.mappingStatus === 'needs_mapping')
+                  ? 'Map expense accounts for fee journals first.'
+                  : undefined
+            }
             summary={
               collapsed && preview
                 ? step.id === 4
                   ? `${preview.matchedOrders?.length || 0} matched · ${preview.unmatchedOrders?.length || 0} missing`
                   : step.id === 7
                     ? preview.reconciliationSummary?.reconciliationStatus
-                    : undefined
+                    : step.id === 8
+                      ? canApproveSettlement
+                        ? isApproved || isPosted
+                          ? 'Approved'
+                          : 'Ready to approve'
+                        : approvalBlockers[0]
+                      : undefined
                 : undefined
             }
           >
@@ -706,23 +745,26 @@ export function NoonPaymentClearingPage() {
 
             {step.id === 8 && preview && (
               <div className="npc-step-stack">
-                {(preview.blockingIssues || []).length ? (
+                {isApproved || isPosted ? (
+                  <div className="npc-alert npc-approved-panel">Settlement approved.</div>
+                ) : approvalBlockers.length ? (
                   <div className="npc-alert npc-alert--error">
+                    <p>Cannot approve yet:</p>
                     <ul>
-                      {preview.blockingIssues.map((issue, idx) => (
-                        <li key={`${issue.code}-${idx}`}>
-                          {issue.code}: {issue.message}
-                        </li>
+                      {approvalBlockers.map((reason) => (
+                        <li key={reason}>{reason}</li>
                       ))}
                     </ul>
                   </div>
                 ) : (
-                  <div className="npc-alert npc-approved-panel">Ready for approval.</div>
+                  <div className="npc-alert npc-approved-panel">
+                    Ready for approval. Fee account mapping is the next step — it does not block approval.
+                  </div>
                 )}
                 <button
                   type="button"
                   className="ainv-btn ainv-btn--primary-sky"
-                  disabled={!isClean || isApproved || isPosted || loading}
+                  disabled={!canApproveSettlement || isApproved || isPosted || loading}
                   onClick={onApprove}
                 >
                   {isApproved || isPosted ? 'Approved' : 'Approve settlement'}

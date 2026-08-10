@@ -54,7 +54,8 @@ export const CLEARING_STEPS: ClearingStep[] = [
     id: 8,
     key: 'approve',
     title: 'Approve Settlement',
-    description: 'No Zoho writes before approval. Parent/statement fees without invoices do not block approval.',
+    description:
+      'No Zoho writes before approval. Missing fee-account mapping does not block this step — map those in the next step.',
   },
   {
     id: 9,
@@ -79,7 +80,7 @@ export const CLEARING_STEPS: ClearingStep[] = [
 export const STEP_STATUS_LABEL: Record<StepStatus, string> = {
   not_started: 'Not started',
   in_progress: 'In progress',
-  blocked: 'Blocked',
+  blocked: 'Needs attention',
   ready: 'Ready',
   completed: 'Completed',
 }

@@ -213,11 +213,12 @@ async function getBatchPreview(batchId) {
       feeJournalInputVat: feeJournalVatSummary.inputVat,
       feeJournalNetExpense: feeJournalVatSummary.netExpense,
     },
+    // Fee journal mappings are Step 9 — they must not block Step 8 approval.
     isCleanForApproval:
       isNoonSettlementReconciliationAcceptable(batch.reconciliationSummary) &&
       !(batch.unmatchedOrders || []).length &&
       !(batch.multipleMatchItems || []).length &&
-      !feeJournalLines.some((l) => l.mappingStatus === 'needs_mapping'),
+      !(batch.blockingIssues || []).some((i) => i.code === 'UNEXPLAINED_OTHER'),
     status: batch.status,
     postedToZoho: batch.postedToZoho,
     postingSummary: batch.postingSummary,
