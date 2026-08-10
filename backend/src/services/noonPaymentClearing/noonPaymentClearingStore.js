@@ -586,6 +586,24 @@ async function markBatchPosted(batchId, postedBy, postingSummary = {}) {
   return mapBatch(result.rows[0])
 }
 
+/** Clear posted flags so force-repost / incomplete retry can run again. */
+async function resetBatchToApprovedForRepost(batchId) {
+  await ensureNoonPaymentClearingTables()
+  const result = await query(
+    `UPDATE noon_payment_clearing_batches
+     SET status = 'approved',
+         posted_to_zoho = false,
+         posted_by = NULL,
+         posted_at = NULL,
+         posting_summary = '{}'::jsonb,
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [batchId]
+  )
+  return mapBatch(result.rows[0])
+}
+
 async function savePaymentPreview(batchId, paymentPreview, createdBy = null) {
   await ensureNoonPaymentClearingTables()
   const result = await query(
@@ -871,6 +889,7 @@ module.exports = {
   savePreviewBatch,
   approveBatch,
   markBatchPosted,
+  resetBatchToApprovedForRepost,
   savePaymentPreview,
   getLatestPaymentPreviewForBatch,
   listFeeJournalMappings,

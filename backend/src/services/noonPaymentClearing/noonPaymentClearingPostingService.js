@@ -641,9 +641,10 @@ async function forceRepostBatch({
   unclearedShippingAccount = null,
   marketplaceConfig = null,
 }) {
-  if (!batch || (batch.status !== 'posted' && !batch.postedToZoho)) {
-    const err = new Error('Force repost requires a previously posted batch.')
-    err.code = 'NOON_PAYMENT_CLEARING_NOT_POSTED'
+  // Approved OR posted (including partial/stuck “already posted” DB rows).
+  if (!batch || (batch.status !== 'approved' && batch.status !== 'posted' && !batch.postedToZoho)) {
+    const err = new Error('Force repost requires an approved or previously posted Noon batch.')
+    err.code = 'NOON_PAYMENT_CLEARING_FORCE_REPOST_NOT_ALLOWED'
     err.status = 422
     throw err
   }
@@ -660,10 +661,17 @@ async function forceRepostBatch({
     reason,
     actorUserId,
     previousZohoPaymentIds: prior.map((p) => p.zohoPaymentId).filter(Boolean),
+    details: {
+      priorPaymentTypes: prior.map((p) => p.paymentType).filter(Boolean),
+      priorStatus: batch.status,
+    },
   })
+  // Wipe local “already posted” rows so net_balance / shipping are not skipped.
   await store.clearPostingsForBatch(batch.batchId)
+  await store.resetBatchToApprovedForRepost(batch.batchId)
+  const refreshed = (await store.getBatchById(batch.batchId)) || { ...batch, status: 'approved', postedToZoho: false }
   return postApprovedBatch({
-    batch,
+    batch: refreshed,
     dryRun: false,
     allowPosted: true,
     postedBy: actorUserId,

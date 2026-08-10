@@ -285,10 +285,22 @@ export function NoonPaymentClearingPage() {
 
   async function onForceRepost() {
     if (!preview?.batchId) return
+    const ok = window.confirm(
+      'FORCE REPOST\n\n' +
+        'This clears local “already posted” flags and posts again to Zoho.\n\n' +
+        'If Zoho already has Noon payments for this statement (e.g. commission #5560), ' +
+        'VOID them first or you will get duplicates / amount errors.\n\n' +
+        'Continue?'
+    )
+    if (!ok) return
     const reason = window.prompt('Force repost reason (min 4 characters)?') || ''
-    if (reason.trim().length < 4) return
+    if (reason.trim().length < 4) {
+      window.alert('Force repost cancelled — reason must be at least 4 characters.')
+      return
+    }
     setLoading(true)
     setError('')
+    setNotice('')
     try {
       const result = await forceRepostNoonPaymentClearing(preview.batchId, reason.trim())
       setPostingResult(result)
@@ -302,6 +314,7 @@ export function NoonPaymentClearingPage() {
       setPreview(data)
       if (result.success === false) setError(headline)
       else setNotice(headline)
+      goToStep(11)
       requestAnimationFrame(() => {
         postingResultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       })
@@ -1082,12 +1095,20 @@ export function NoonPaymentClearingPage() {
                   >
                     {postingResult && postingResult.success === false ? 'Retry post to Zoho' : 'Post to Zoho'}
                   </button>
-                  {isPosted ? (
-                    <button type="button" className="ainv-btn" disabled={loading} onClick={onForceRepost}>
-                      Force repost
-                    </button>
-                  ) : null}
+                  <button
+                    type="button"
+                    className="ainv-btn ainv-btn--danger"
+                    disabled={!paymentPreview || loading || (!isApproved && !isPosted)}
+                    onClick={onForceRepost}
+                    title="Clears local already-posted flags and posts all three payment buckets again"
+                  >
+                    Force repost
+                  </button>
                 </div>
+                <p className="npc-muted" style={{ marginTop: 8 }}>
+                  Stuck because the system thinks a payment is already posted? Use <strong>Force repost</strong> —
+                  void any existing Noon payments for this statement in Zoho first (e.g. #5560), then force.
+                </p>
                 {postingResult ? (
                   <div
                     className={`npc-alert ${
