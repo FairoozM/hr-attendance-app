@@ -403,18 +403,52 @@ export async function generateNoonPaymentPreview(batchId: string | number) {
   return unwrap(data).paymentPreview
 }
 
+/** Gateway hiccups (CloudFront 502/503/504) must not abort a post that is still running. */
+const TRANSIENT_POLL_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504])
+const MAX_CONSECUTIVE_POLL_FAILURES = 15
+
 async function pollNoonPostingJob(jobId: string) {
   const deadline = Date.now() + longOpts.timeoutMs
+  let consecutiveFailures = 0
+  let lastPollError = ''
+
   while (Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    const job = await api.get<{
+    await new Promise((resolve) => setTimeout(resolve, consecutiveFailures ? 5000 : 2000))
+
+    let job: {
       success: boolean
       status?: string
       error?: string
       progress?: { step?: string; current?: number; total?: number }
       result?: NoonPostingResult
-    }>(`${BASE}/posting-jobs/${encodeURIComponent(jobId)}`, longOpts)
+    }
+    try {
+      job = await api.get(`${BASE}/posting-jobs/${encodeURIComponent(jobId)}`, longOpts)
+    } catch (err) {
+      const status = Number((err as { status?: number })?.status) || 0
+      lastPollError = (err as { message?: string })?.message || `HTTP ${status}`
 
+      // Job vanished — backend restarted (deploy) while posting. Never report a hard failure:
+      // Zoho may already have the payments.
+      if (status === 404) {
+        throw new Error(
+          'Lost track of the Noon posting job (the API restarted while posting). ' +
+            'Do NOT force repost yet — check Zoho for this statement first, then reopen the batch to see its status.'
+        )
+      }
+      if (status && !TRANSIENT_POLL_STATUSES.has(status)) throw err
+
+      consecutiveFailures += 1
+      if (consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
+        throw new Error(
+          `Lost connection while waiting for the Noon posting job (${lastPollError}). ` +
+            'The post may still be running server-side — check Zoho and reopen the batch before retrying.'
+        )
+      }
+      continue
+    }
+
+    consecutiveFailures = 0
     if (job.status === 'completed' && job.result) {
       return unwrap({ success: true, ...job.result })
     }
