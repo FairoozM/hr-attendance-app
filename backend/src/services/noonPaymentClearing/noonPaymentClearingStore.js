@@ -163,6 +163,14 @@ async function ensureNoonPaymentClearingTables() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `)
+  // Existing prod table may predate Input VAT columns — add them if missing.
+  await query(`ALTER TABLE noon_payment_clearing_settings ADD COLUMN IF NOT EXISTS input_vat_account_id TEXT`)
+  await query(`ALTER TABLE noon_payment_clearing_settings ADD COLUMN IF NOT EXISTS input_vat_account_name TEXT`)
+  await query(`ALTER TABLE noon_payment_clearing_settings ADD COLUMN IF NOT EXISTS input_vat_account_code TEXT`)
+  await query(`ALTER TABLE noon_payment_clearing_settings ADD COLUMN IF NOT EXISTS vat_rate NUMERIC(8,6) DEFAULT 0.05`)
+  await query(`ALTER TABLE noon_payment_clearing_settings ADD COLUMN IF NOT EXISTS updated_by INTEGER`)
+  await query(`ALTER TABLE noon_payment_clearing_settings ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`)
+  await query(`ALTER TABLE noon_payment_clearing_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`)
   // Drop legacy incorrect columns if an older "Noon clearing CoA" shape exists.
   await query(`ALTER TABLE noon_payment_clearing_settings DROP COLUMN IF EXISTS clearing_account_id`)
   await query(`ALTER TABLE noon_payment_clearing_settings DROP COLUMN IF EXISTS clearing_account_name`)

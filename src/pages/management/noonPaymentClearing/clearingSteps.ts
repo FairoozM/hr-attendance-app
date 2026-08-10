@@ -60,7 +60,7 @@ export const CLEARING_STEPS: ClearingStep[] = [
     id: 9,
     key: 'fee-journals',
     title: 'Noon Fee Journal Mapping',
-    description: 'Map Noon fees via Zoho CoA (Amazon-style). Advertising → Undeposited 1066; shipping → Uncleared Shipping 1068; VAT → 1085.',
+    description: 'Pick expense account (after VAT) + Input VAT account. Same split as Gross / Expense after VAT / Input VAT.',
   },
   {
     id: 10,

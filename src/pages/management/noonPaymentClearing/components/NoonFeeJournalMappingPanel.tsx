@@ -25,6 +25,21 @@ const FEE_TYPE_OPTIONS = [
   'OTHER',
 ]
 
+const FEE_TYPE_LABELS: Record<string, string> = {
+  NOON_ADVERTISING_FEE: 'Advertising Fee',
+  ADVERTISING: 'Advertising Fee',
+  FULFILLMENT: 'Fulfillment / Logistics',
+  SHIPPING: 'Shipping',
+  PARENT_ORDER_CHARGE: 'Parent-order shipping / logistics',
+  ORDER_ADJUSTMENT: 'Order adjustment',
+  STATEMENT_FEE: 'Statement fee',
+  OTHER: 'Other fee',
+}
+
+function feeTypeLabel(type: string) {
+  return FEE_TYPE_LABELS[type] || type
+}
+
 function money(value: number | undefined | null) {
   const n = Number(value) || 0
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -108,7 +123,7 @@ export function NoonFeeJournalMappingPanel({
   async function onSaveInputVat() {
     const account = accountById.get(selectedInputVatAccountId)
     if (!account) {
-      setError('Select the Zoho Input VAT account from the Chart of Accounts.')
+      setError('Pick the Input VAT Zoho account first.')
       return
     }
     setBusy(true)
@@ -122,7 +137,7 @@ export function NoonFeeJournalMappingPanel({
         vatRate: 0.05,
       })
       setInputVat(saved)
-      setNotice(`Saved Input VAT account: ${account.accountName}`)
+      setNotice(`Saved Input VAT → ${account.accountName}`)
       await loadMappings()
       await onPreviewRefresh()
     } catch (err) {
@@ -135,7 +150,7 @@ export function NoonFeeJournalMappingPanel({
   async function onSaveMapping() {
     const account = accountById.get(selectedFeeAccountId)
     if (!account) {
-      setError('Select a Zoho Chart of Accounts account for this fee type.')
+      setError('Pick the expense account for this fee first.')
       return
     }
     setBusy(true)
@@ -149,7 +164,7 @@ export function NoonFeeJournalMappingPanel({
         zohoAccountName: account.accountName,
         isActive: true,
       })
-      setNotice(`Saved mapping: ${feeType} → ${account.accountName} (net expense)`)
+      setNotice(`Saved: ${feeTypeLabel(feeType)} expense → ${account.accountName}`)
       setEditingId(null)
       setSelectedFeeAccountId('')
       await loadMappings()
@@ -170,7 +185,7 @@ export function NoonFeeJournalMappingPanel({
   }
 
   async function onDelete(mapping: NoonFeeJournalMapping) {
-    if (!window.confirm(`Remove mapping for ${mapping.normalizedFeeType}?`)) return
+    if (!window.confirm(`Remove expense mapping for ${feeTypeLabel(mapping.normalizedFeeType)}?`)) return
     setBusy(true)
     setError('')
     try {
@@ -181,7 +196,7 @@ export function NoonFeeJournalMappingPanel({
       }
       await loadMappings()
       await onPreviewRefresh()
-      setNotice(`Deleted mapping for ${mapping.normalizedFeeType}.`)
+      setNotice(`Removed mapping for ${feeTypeLabel(mapping.normalizedFeeType)}.`)
     } catch (err) {
       setError(safeError(err))
     } finally {
@@ -194,30 +209,60 @@ export function NoonFeeJournalMappingPanel({
     inputVat?.accountName ||
     inputVat?.inputVatAccountName ||
     'Input VAT - All Except Basmat Goods WH (1085)'
-  const isShippingFee =
-    /FULFILL|SHIP|PARENT_ORDER/i.test(feeType)
+  const isShippingFee = /FULFILL|SHIP|PARENT_ORDER/i.test(feeType)
   const exampleClearing = isShippingFee ? shippingClearingName : undepositedName
 
   return (
     <div className="npc-step-stack">
       <div className={unmappedCount ? 'npc-alert npc-alert--error' : 'npc-alert'}>
-        <strong>Amazon-style Noon clearing</strong> — map each fee type to the <em>net</em> expense
-        account. VAT-inclusive fees split at 5% into net expense + Input VAT. Journal counters:
-        Advertising → <strong>{undepositedName}</strong>; Shipping/fulfillment →{' '}
-        <strong>{shippingClearingName}</strong>. Referral stays an invoice payment to Uncleared
-        Commission (1067). Noon customer is used on invoice payments only.
+        <strong>How Noon fees are split</strong>
+        <div style={{ marginTop: 8 }}>
+          Noon charges a <strong>Gross</strong> amount that already includes 5% VAT. We split it before
+          posting:
+        </div>
+        <table className="npc-table" style={{ marginTop: 10, maxWidth: 520 }}>
+          <thead>
+            <tr>
+              <th>Piece</th>
+              <th>Example (Advertising)</th>
+              <th>Goes to</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Gross (Noon charged)</td>
+              <td className="npc-money">2,009.62</td>
+              <td>Full statement amount</td>
+            </tr>
+            <tr>
+              <td>Expense after VAT</td>
+              <td className="npc-money">1,913.92</td>
+              <td>Expense account you pick below</td>
+            </tr>
+            <tr>
+              <td>Input VAT 5%</td>
+              <td className="npc-money">95.70</td>
+              <td>{inputVatName}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div className="npc-muted" style={{ marginTop: 8 }}>
+          Credit side (automatic): Advertising → {undepositedName}. Shipping/logistics →{' '}
+          {shippingClearingName}.
+        </div>
       </div>
 
       <section className="npc-card" style={{ padding: '1rem', border: '1px solid rgba(15,23,42,0.08)', borderRadius: 8 }}>
-        <h3 style={{ marginTop: 0 }}>Input VAT Account</h3>
+        <h3 style={{ marginTop: 0 }}>1. Where does Input VAT go?</h3>
         <p className="npc-muted" style={{ marginTop: 0 }}>
-          Default: Input VAT - All Except Basmat Goods WH (1085). Confirm via CoA picker if needed.
+          This is the Zoho account for the VAT portion (95.70 in the example). Usually:{' '}
+          <strong>Input VAT - All Except Basmat Goods WH (1085)</strong>.
         </p>
-        {loadingAccounts ? <p className="npc-muted">Loading Zoho chart of accounts…</p> : null}
+        {loadingAccounts ? <p className="npc-muted">Loading Zoho accounts…</p> : null}
         <div className="npc-actions" style={{ alignItems: 'flex-end', flexWrap: 'wrap', gap: '0.75rem' }}>
           <div style={{ flex: '1 1 18rem' }}>
             <SearchableZohoAccountPicker
-              label="Input VAT Account"
+              label="Input VAT account (Zoho)"
               placeholder="Search Zoho Chart of Accounts..."
               accounts={accounts}
               selectedId={selectedInputVatAccountId}
@@ -229,15 +274,21 @@ export function NoonFeeJournalMappingPanel({
           </button>
         </div>
         <div className="npc-muted" style={{ marginTop: '0.75rem' }}>
-          Current: <strong>{inputVatName}</strong> · VAT rate 5% (inclusive)
+          Saved as: <strong>{inputVatName}</strong>
         </div>
       </section>
 
       <section className="npc-card" style={{ padding: '1rem', border: '1px solid rgba(15,23,42,0.08)', borderRadius: 8 }}>
-        <h3 style={{ marginTop: 0 }}>{editingId ? 'Edit fee mapping' : 'Add fee mapping'}</h3>
+        <h3 style={{ marginTop: 0 }}>
+          {editingId ? '2. Edit: where does the expense (after VAT) go?' : '2. Where does the expense (after VAT) go?'}
+        </h3>
+        <p className="npc-muted" style={{ marginTop: 0 }}>
+          Pick the fee type, then the Zoho <strong>expense</strong> account for the amount after VAT is
+          removed (1,913.92 in the example — not the full 2,009.62).
+        </p>
         <div className="npc-actions" style={{ alignItems: 'flex-end', flexWrap: 'wrap', gap: '0.75rem' }}>
           <label className="ainv-label">
-            Fee Type
+            Which Noon fee?
             <select
               className="ainv-input"
               value={feeType}
@@ -246,14 +297,14 @@ export function NoonFeeJournalMappingPanel({
             >
               {feeTypeOptions.map((type) => (
                 <option key={type} value={type}>
-                  {type}
+                  {feeTypeLabel(type)}
                 </option>
               ))}
             </select>
           </label>
           <div style={{ flex: '1 1 18rem' }}>
             <SearchableZohoAccountPicker
-              label="Net expense Zoho Account"
+              label="Expense account after VAT (Zoho)"
               placeholder="Search Zoho Chart of Accounts..."
               accounts={accounts}
               selectedId={selectedFeeAccountId}
@@ -273,22 +324,39 @@ export function NoonFeeJournalMappingPanel({
                 setSelectedFeeAccountId('')
               }}
             >
-              Cancel edit
+              Cancel
             </button>
           ) : null}
         </div>
         {selectedFeeAccount ? (
-          <div className="npc-muted" style={{ marginTop: '0.75rem' }}>
-            Example VAT-inclusive negative fee:
-            <div>
-              Debit net expense: <strong>{selectedFeeAccount.accountName}</strong>
-            </div>
-            <div>
-              Debit Input VAT: <strong>{inputVatName}</strong>
-            </div>
-            <div>
-              Credit: <strong>{exampleClearing}</strong> (gross)
-            </div>
+          <div style={{ marginTop: '0.75rem' }}>
+            <strong>Journal for this fee (example Advertising 2,009.62):</strong>
+            <table className="npc-table" style={{ marginTop: 8, maxWidth: 560 }}>
+              <thead>
+                <tr>
+                  <th>Side</th>
+                  <th>Account</th>
+                  <th>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Debit</td>
+                  <td>{selectedFeeAccount.accountName} (expense after VAT)</td>
+                  <td className="npc-money">1,913.92</td>
+                </tr>
+                <tr>
+                  <td>Debit</td>
+                  <td>{inputVatName}</td>
+                  <td className="npc-money">95.70</td>
+                </tr>
+                <tr>
+                  <td>Credit</td>
+                  <td>{exampleClearing} (gross)</td>
+                  <td className="npc-money">2,009.62</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         ) : null}
       </section>
@@ -306,25 +374,26 @@ export function NoonFeeJournalMappingPanel({
 
       {vatSummary && vatSummary.vatInclusiveLineCount > 0 ? (
         <div className="npc-alert">
-          Fee-journal VAT: Gross {money(vatSummary.grossInclVat)} · Net {money(vatSummary.netExpense)} ·
-          Input VAT {money(vatSummary.inputVat)} ({vatSummary.vatInclusiveLineCount} lines)
+          This statement’s fee journals: Gross {money(vatSummary.grossInclVat)} = Expense after VAT{' '}
+          {money(vatSummary.netExpense)} + Input VAT {money(vatSummary.inputVat)} (
+          {vatSummary.vatInclusiveLineCount} lines)
         </div>
       ) : null}
 
-      <h3>Saved mappings</h3>
+      <h3>Saved expense mappings</h3>
       <div className="npc-table-wrap">
         <table className="npc-table">
           <thead>
             <tr>
-              <th>Fee Type</th>
-              <th>Net Expense Account</th>
+              <th>Noon fee</th>
+              <th>Expense account (after VAT)</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {mappings.map((mapping) => (
               <tr key={mapping.id}>
-                <td>{mapping.normalizedFeeType}</td>
+                <td>{feeTypeLabel(mapping.normalizedFeeType)}</td>
                 <td>{mapping.zohoAccountName || mapping.debitAccountName || '—'}</td>
                 <td>
                   <div className="npc-button-row" style={{ gap: '0.35rem' }}>
@@ -346,7 +415,7 @@ export function NoonFeeJournalMappingPanel({
             {mappings.length === 0 ? (
               <tr>
                 <td colSpan={3} className="npc-empty">
-                  No fee mappings saved yet.
+                  No expense mappings saved yet.
                 </td>
               </tr>
             ) : null}
@@ -354,15 +423,15 @@ export function NoonFeeJournalMappingPanel({
         </table>
       </div>
 
-      <h3>Statement fee lines</h3>
+      <h3>Fees on this statement</h3>
       <div className="npc-table-wrap">
         <table className="npc-table">
           <thead>
             <tr>
               <th>Fee</th>
-              <th>VAT split</th>
+              <th>Gross / Expense after VAT / Input VAT</th>
               <th>Accounts</th>
-              <th>Journal preview</th>
+              <th>Journal</th>
               <th>Status</th>
             </tr>
           </thead>
@@ -374,29 +443,28 @@ export function NoonFeeJournalMappingPanel({
               return (
                 <tr key={line.lineIndex}>
                   <td>
-                    <strong>{String(line.displayLabel || line.feeType || '')}</strong>
-                    <div className="npc-muted">{String(line.normalizedFeeType || '')}</div>
-                    {line.previewNote ? <div className="npc-muted">{String(line.previewNote)}</div> : null}
+                    <strong>{String(line.displayLabel || feeTypeLabel(String(line.feeType || '')))}</strong>
+                    <div className="npc-muted">{feeTypeLabel(String(line.normalizedFeeType || line.feeType || ''))}</div>
                   </td>
                   <td className="npc-money">
                     {vatInclusive ? (
                       <div>
-                        <div>Gross incl. VAT: {money(line.grossInclVat ?? line.signedAmount)}</div>
-                        <div>Net Expense: {money(line.netExpense)}</div>
+                        <div>Gross: {money(line.grossInclVat ?? line.signedAmount)}</div>
+                        <div>Expense after VAT: {money(line.netExpense)}</div>
                         <div>Input VAT 5%: {money(line.inputVatAmount)}</div>
                       </div>
                     ) : (
                       <div>
                         <div>Gross: {money(line.signedAmount != null ? line.signedAmount : line.amount)}</div>
-                        <div className="npc-muted">No service-fee VAT split</div>
+                        <div className="npc-muted">No VAT split</div>
                       </div>
                     )}
                   </td>
                   <td>
-                    <div>Expense: {String(line.zohoAccountName || '—')}</div>
-                    {vatInclusive ? <div>VAT: {String(line.inputVatAccountName || inputVatName)}</div> : null}
+                    <div>Expense after VAT: {String(line.zohoAccountName || '—')}</div>
+                    {vatInclusive ? <div>Input VAT: {String(line.inputVatAccountName || inputVatName)}</div> : null}
                     <div>
-                      Clearing:{' '}
+                      Credit (gross):{' '}
                       {String(
                         line.accountingPreview?.clearingAccount ||
                           line.clearingAccountName ||
@@ -425,7 +493,7 @@ export function NoonFeeJournalMappingPanel({
                       '—'
                     )}
                   </td>
-                  <td>{line.mappingStatus}</td>
+                  <td>{line.mappingStatus === 'mapped' ? 'Ready' : 'Needs expense account'}</td>
                 </tr>
               )
             })}
