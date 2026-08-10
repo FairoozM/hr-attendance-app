@@ -1132,8 +1132,9 @@ export function NoonPaymentClearingPage() {
                   </button>
                 </div>
                 <p className="npc-muted" style={{ marginTop: 8 }}>
-                  Stuck because the system thinks a payment is already posted? Use <strong>Force repost</strong> —
-                  void any existing Noon payments for this statement in Zoho first (e.g. #5560), then force.
+                  Stuck because a payment or journal shows <strong>skipped</strong>? Void those Noon entries in
+                  Zoho for this statement, then use <strong>Force repost</strong> (clears local already-posted
+                  flags and posts all three payment buckets + journals again).
                 </p>
                 {postingResult ? (
                   <div
@@ -1277,7 +1278,15 @@ export function NoonPaymentClearingPage() {
                                   <td className="npc-money">
                                     {money(Number(j.signedAmount != null ? j.signedAmount : j.amount) || 0)}
                                   </td>
-                                  <td>{String(j.status || '')}</td>
+                                  <td>
+                                    {String(j.status || '')}
+                                    {j.reason ? (
+                                      <div className="npc-muted">{String(j.reason)}</div>
+                                    ) : null}
+                                    {j.zohoJournalId ? (
+                                      <div className="npc-muted">Zoho #{String(j.zohoJournalId)}</div>
+                                    ) : null}
+                                  </td>
                                 </tr>
                               )
                             })}

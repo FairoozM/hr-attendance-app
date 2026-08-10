@@ -704,13 +704,17 @@ async function postApprovedBatch({
         }
       }
       const existing = await store.findGroupedPosting(batch.batchId, paymentType)
-      if (existing && existing.status === 'posted') {
+      // Dry run always previews the full journal plan — never hide advertising as "skipped"
+      // just because a prior live post left a local row.
+      if (existing && existing.status === 'posted' && !dryRun) {
         result.summary.journalsSkipped += 1
         result.journals.push({
           ...line,
           paymentType,
           status: 'skipped',
           zohoJournalId: existing.zohoPaymentId,
+          reason:
+            'Already posted for this batch (local record). Void that Zoho journal if it should be recreated, then Force repost.',
         })
         continue
       }
