@@ -5,6 +5,56 @@ const { isNoonSettlementReconciliationAcceptable } = require('./noonPaymentClear
 const { buildSettlementReference, buildEntryReference } = require('./noonPaymentClearingReferenceService')
 const store = require('./noonPaymentClearingStore')
 
+const chartAccountCache = { at: 0, rows: null }
+
+async function resolveNoonGlAccount(account = {}) {
+  const accountId = clean(account.accountId)
+  const accountCode = clean(account.accountCode)
+  const accountName = clean(account.accountName)
+  if (accountId) {
+    return { accountId, accountName, accountCode }
+  }
+  if (!accountCode && !accountName) {
+    return { accountId: '', accountName, accountCode }
+  }
+  try {
+    const now = Date.now()
+    if (!chartAccountCache.rows || now - chartAccountCache.at > 5 * 60 * 1000) {
+      chartAccountCache.rows = await zohoPaymentService.listZohoChartAccounts()
+      chartAccountCache.at = now
+    }
+    const hit = (chartAccountCache.rows || []).find((a) => {
+      const aCode = clean(a.accountCode || a.account_code)
+      const aName = clean(a.accountName || a.account_name)
+      return (accountCode && aCode === accountCode) || (accountName && aName === accountName)
+    })
+    if (hit) {
+      return {
+        accountId: clean(hit.accountId || hit.account_id),
+        accountName: clean(hit.accountName || hit.account_name) || accountName,
+        accountCode: clean(hit.accountCode || hit.account_code) || accountCode,
+      }
+    }
+  } catch (err) {
+    console.warn('[noon-payment-clearing] chart account resolve failed:', err?.message || err)
+  }
+  return { accountId: '', accountName, accountCode }
+}
+
+async function enrichJournalLineItems(lineItems = []) {
+  const out = []
+  for (const item of Array.isArray(lineItems) ? lineItems : []) {
+    const resolved = await resolveNoonGlAccount(item)
+    out.push({
+      accountId: resolved.accountId,
+      accountName: resolved.accountName || clean(item.accountName),
+      accountCode: resolved.accountCode || clean(item.accountCode),
+      debitOrCredit: item.debitOrCredit,
+      amount: item.amount,
+    })
+  }
+  return out
+}
 const PAYMENT_TYPES = Object.freeze({
   NET_BALANCE: 'net_balance',
   COMMISSION: 'commission',
@@ -334,23 +384,20 @@ async function postApprovedBatch({
         result.journals.push(error)
         continue
       }
+      const enrichedLineItems = await enrichJournalLineItems(
+        Array.isArray(line.lineItems) ? line.lineItems : []
+      )
+      const debit = await resolveNoonGlAccount(line.debit || {})
+      const credit = await resolveNoonGlAccount(line.credit || {})
       const journalRequest = {
         feeType: line.feeType,
         description: line.displayLabel || line.title || line.feeType,
         amount: line.amount,
-        debit: line.debit,
-        credit: line.credit,
+        debit,
+        credit,
         // Amazon-style: no customer on fee / uncleared-reclass journals
         customerId: '',
-        lineItems: Array.isArray(line.lineItems)
-          ? line.lineItems.map((item) => ({
-              accountId: item.accountId,
-              accountName: item.accountName,
-              accountCode: item.accountCode,
-              debitOrCredit: item.debitOrCredit,
-              amount: item.amount,
-            }))
-          : undefined,
+        lineItems: enrichedLineItems.length >= 2 ? enrichedLineItems : undefined,
         vatBreakdown: line.vatBreakdown || null,
         referenceNumber: buildEntryReference(metadata, line.feeType || paymentType),
         date: paymentDate,
@@ -359,6 +406,27 @@ async function postApprovedBatch({
       try {
         zohoPayloadPreview = await buildJournalPayloadPreview(journalRequest)
       } catch (err) {
+        // Still surface the planned journal on dry run — do not hide uncleared→expense work.
+        if (dryRun) {
+          result.summary.journalsCreated += 1
+          result.journals.push({
+            ...line,
+            paymentType,
+            status: 'dry_run',
+            warning: err?.message || 'Journal account resolve failed; posting will need Zoho CoA IDs',
+            zohoPayloadPreview: {
+              line_items: (enrichedLineItems.length ? enrichedLineItems : line.lineItems || []).map((item) => ({
+                account_id: item.accountId || '',
+                account_name: item.accountName || '',
+                account_code: item.accountCode || '',
+                debit_or_credit: item.debitOrCredit,
+                amount: item.amount,
+              })),
+            },
+            lineItems: enrichedLineItems.length ? enrichedLineItems : line.lineItems,
+          })
+          continue
+        }
         result.summary.errors += 1
         const error = {
           ...line,
@@ -372,7 +440,13 @@ async function postApprovedBatch({
       }
       if (dryRun) {
         result.summary.journalsCreated += 1
-        result.journals.push({ ...line, paymentType, status: 'dry_run', zohoPayloadPreview })
+        result.journals.push({
+          ...line,
+          paymentType,
+          status: 'dry_run',
+          zohoPayloadPreview,
+          lineItems: enrichedLineItems.length ? enrichedLineItems : line.lineItems,
+        })
         continue
       }
       try {

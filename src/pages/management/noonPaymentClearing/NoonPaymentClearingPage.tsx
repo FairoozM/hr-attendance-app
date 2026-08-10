@@ -999,6 +999,25 @@ export function NoonPaymentClearingPage() {
 
             {step.id === 11 && (
               <div className="npc-step-stack">
+                {paymentPreview?.unclearedReclassJournals?.length ? (
+                  <div className="npc-alert npc-approved-panel">
+                    <strong>This post will also clear uncleared balances into expense + VAT</strong>
+                    <ul style={{ margin: '8px 0 0', paddingLeft: '1.2rem' }}>
+                      {paymentPreview.unclearedReclassJournals.map((line, idx) => (
+                        <li key={`will-reclass-${idx}`}>
+                          {String(line.displayLabel || line.feeType)} — Gross {money(Number(line.amount) || 0)},
+                          expense after VAT {money(Number(line.netExpense) || 0)}, Input VAT{' '}
+                          {money(Number(line.inputVatAmount) || 0)}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <div className="npc-alert npc-alert--error">
+                    No uncleared→expense reclass journals in the payment preview. Hard-refresh, then click{' '}
+                    <strong>Generate payment preview</strong> on Step 10 again.
+                  </div>
+                )}
                 <div className="npc-button-row">
                   <button type="button" className="ainv-btn" disabled={!paymentPreview || loading} onClick={() => onPost(true)}>
                     Dry run
@@ -1030,6 +1049,19 @@ export function NoonPaymentClearingPage() {
                       {postingResult.dryRun ? ' (preview)' : ''}, errors:{' '}
                       {postingResult.summary?.errors ?? 0}
                     </div>
+                    {(postingResult.errors || []).length > 0 ? (
+                      <div className="npc-alert npc-alert--error" style={{ marginTop: 8 }}>
+                        <strong>Errors</strong>
+                        <ul>
+                          {(postingResult.errors || []).map((err, idx) => (
+                            <li key={`err-${idx}`}>
+                              {String(err.displayLabel || err.paymentType || err.feeType || 'item')}:{' '}
+                              {String(err.error || 'failed')}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
                     {(postingResult.payments || []).length > 0 ? (
                       <div className="npc-table-wrap" style={{ marginTop: 12 }}>
                         <table className="npc-table">
@@ -1063,38 +1095,77 @@ export function NoonPaymentClearingPage() {
                         No invoice payment groups in this dry run (missing Zoho invoice IDs or zero amounts).
                       </p>
                     )}
+                    <h3 style={{ marginTop: 16 }}>Journals (advertising + uncleared → expense)</h3>
                     {(postingResult.journals || []).length > 0 ? (
-                      <div className="npc-table-wrap" style={{ marginTop: 12 }}>
+                      <div className="npc-table-wrap">
                         <table className="npc-table">
                           <thead>
                             <tr>
                               <th>Journal</th>
-                              <th>Amount</th>
+                              <th>Lines</th>
+                              <th>Gross</th>
                               <th>Status</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {postingResult.journals.map((j, idx) => (
-                              <tr key={`j-${idx}`}>
-                                <td>
-                                  {String(j.displayLabel || j.feeType || j.paymentType || '')}
-                                  {j.isUnclearedReclass ? (
-                                    <div className="npc-muted">
-                                      Exp {money(j.netExpense)} + VAT {money(j.inputVatAmount)} / Cr uncleared{' '}
-                                      {money(j.amount)}
-                                    </div>
-                                  ) : null}
-                                </td>
-                                <td className="npc-money">
-                                  {money(Number(j.signedAmount != null ? j.signedAmount : j.amount) || 0)}
-                                </td>
-                                <td>{String(j.status || '')}</td>
-                              </tr>
-                            ))}
+                            {postingResult.journals.map((j, idx) => {
+                              const lines =
+                                (Array.isArray(j.zohoPayloadPreview?.line_items) &&
+                                  j.zohoPayloadPreview.line_items) ||
+                                (Array.isArray(j.lineItems) && j.lineItems) ||
+                                (Array.isArray(j.accountingPreview?.lines) && j.accountingPreview.lines) ||
+                                []
+                              return (
+                                <tr key={`j-${idx}`}>
+                                  <td>
+                                    <strong>{String(j.displayLabel || j.feeType || j.paymentType || '')}</strong>
+                                    {j.isUnclearedReclass ? (
+                                      <div className="npc-muted">Uncleared → expense + Input VAT</div>
+                                    ) : null}
+                                    {j.warning ? (
+                                      <div className="npc-muted">Warning: {String(j.warning)}</div>
+                                    ) : null}
+                                    {j.error ? <div className="npc-muted">Error: {String(j.error)}</div> : null}
+                                  </td>
+                                  <td>
+                                    {lines.length ? (
+                                      <div className="npc-muted">
+                                        {lines.map((jl: Record<string, unknown>, i: number) => (
+                                          <div key={`${idx}-line-${i}`}>
+                                            {String(
+                                              jl.debit_or_credit || jl.debitOrCredit || ''
+                                            ).toUpperCase()}
+                                            : {String(jl.account_name || jl.accountName || '—')}
+                                            {jl.account_code || jl.accountCode
+                                              ? ` (${String(jl.account_code || jl.accountCode)})`
+                                              : ''}{' '}
+                                            {money(Number(jl.amount) || 0)}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : j.isUnclearedReclass ? (
+                                      <div className="npc-muted">
+                                        Exp {money(Number(j.netExpense) || 0)} + VAT{' '}
+                                        {money(Number(j.inputVatAmount) || 0)} / Cr uncleared{' '}
+                                        {money(Number(j.amount) || 0)}
+                                      </div>
+                                    ) : (
+                                      '—'
+                                    )}
+                                  </td>
+                                  <td className="npc-money">
+                                    {money(Number(j.signedAmount != null ? j.signedAmount : j.amount) || 0)}
+                                  </td>
+                                  <td>{String(j.status || '')}</td>
+                                </tr>
+                              )
+                            })}
                           </tbody>
                         </table>
                       </div>
-                    ) : null}
+                    ) : (
+                      <p className="npc-muted">No journals in this dry run.</p>
+                    )}
                   </div>
                 ) : null}
               </div>
