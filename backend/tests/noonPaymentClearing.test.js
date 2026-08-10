@@ -1310,3 +1310,61 @@ describe('stale Zoho payment skip handling', () => {
     assert.match(String(decision.error || ''), /void that payment/i)
   })
 })
+
+describe('orphan parent logistics → Zoho invoice', () => {
+  it('assigns parent charge to Zoho child invoice when sale is not in this statement', () => {
+    const {
+      applyParentOrderChargeFallbackWithSynthetics,
+      ASSIGNMENT_REASON_ZOHO,
+    } = require('../src/services/noonPaymentClearing/noonPaymentClearingParentChargeFallback')
+    const { ROW_CLASS } = require('../src/services/noonPaymentClearing/noonPaymentClearingCategoryService')
+
+    const result = applyParentOrderChargeFallbackWithSynthetics(
+      [
+        {
+          rowNumber: 2,
+          rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+          parentOrderId: 'NAEI60012472440',
+          itemOrderId: '',
+          total: -21.42,
+          fulfillmentFee: -26.78,
+          orderSubsidies: 5.36,
+          title: 'PGB6199827833A',
+        },
+      ],
+      [], // no sales in this statement
+      [
+        {
+          zohoInvoiceId: 'inv-orphan',
+          zohoInvoiceNumber: 'INV-041000',
+          zohoOrderNumber: 'NAEI60012472440-1',
+          zohoPoNumber: 'NAEI60012472440-1',
+          matchKeys: ['NAEI60012472440-1'],
+          zohoInvoiceTotal: 190,
+        },
+      ]
+    )
+    assert.equal(result.rows[0].assignedItemOrderId, 'NAEI60012472440-1')
+    assert.equal(result.rows[0].assignedZohoInvoiceNumber, 'INV-041000')
+    assert.equal(result.rows[0].assignmentReason, ASSIGNMENT_REASON_ZOHO)
+    assert.equal(result.rows[0].parentFallbackStatus, 'assigned_zoho_orphan')
+    assert.equal(result.syntheticMatchedOrders.length, 1)
+    assert.equal(result.syntheticMatchedOrders[0].zohoInvoiceId, 'inv-orphan')
+    assert.equal(result.syntheticMatchedOrders[0].logisticsOnly, true)
+  })
+
+  it('falls back to parent-level Zoho order id when child id is not on the invoice', () => {
+    const { findZohoInvoiceForOrphanParent } = require('../src/services/noonPaymentClearing/noonPaymentClearingParentChargeFallback')
+    const hit = findZohoInvoiceForOrphanParent('NAEI60028701639', [
+      {
+        zohoInvoiceId: 'inv-parent',
+        zohoInvoiceNumber: 'INV-041001',
+        matchKeys: ['NAEI60028701639'],
+        zohoInvoiceTotal: 100,
+      },
+    ])
+    assert.ok(hit)
+    assert.equal(hit.zohoInvoiceId, 'inv-parent')
+    assert.equal(hit.itemOrderId, 'NAEI60028701639')
+  })
+})

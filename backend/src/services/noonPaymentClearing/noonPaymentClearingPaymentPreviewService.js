@@ -180,10 +180,12 @@ function buildFoldedUnclearedChargeSummaries(allRows = []) {
       parentOrderId: clean(row.originalParentOrderId || row.parentOrderId),
       assignedItemOrderId: clean(row.assignedItemOrderId) || clean(row.itemOrderId),
       previewNote: clean(row.assignedItemOrderId)
-        ? `Folded into invoice payment for ${clean(row.assignedItemOrderId)} → uncleared GL`
+        ? row.assignmentReason === 'zoho_invoice_orphan_parent'
+          ? `Folded via Zoho invoice ${clean(row.assignedZohoInvoiceNumber) || clean(row.assignedItemOrderId)} (sale not in this statement) → uncleared GL`
+          : `Folded into invoice payment for ${clean(row.assignedItemOrderId)} → uncleared GL`
         : clean(row.itemOrderId)
           ? `Cleared via invoice payment for ${clean(row.itemOrderId)} → uncleared GL`
-          : 'Uncleared via invoice payment (no child assignment)',
+          : 'Uncleared via invoice payment (no child assignment — no Zoho invoice for this Noon parent order)',
       clearingPath: 'invoice_payment_uncleared',
     }))
 }

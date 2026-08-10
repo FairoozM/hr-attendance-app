@@ -913,6 +913,11 @@ export function NoonPaymentClearingPage() {
                       </table>
                     </div>
                     <h3>Parent / adjustment logistics (folded into invoice payments → uncleared)</h3>
+                    <p className="npc-muted">
+                      Parent shipping lines with no sale in this statement are matched to existing Noon Zoho
+                      invoices by order id (no Excel upload). &quot;No child assignment&quot; means Zoho also has no
+                      invoice for that Noon parent order.
+                    </p>
                     <div className="npc-table-wrap">
                       <table className="npc-table">
                         <thead>

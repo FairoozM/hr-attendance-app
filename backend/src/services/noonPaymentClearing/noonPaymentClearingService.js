@@ -5,12 +5,18 @@ const {
   buildFeeJournalPreviewLines,
   summarizeFeeJournalVat,
 } = require('./noonPaymentClearingPreviewService')
-const { matchZohoInvoicesForNoonRows, matchNoonRowsToInvoices } = require('./noonPaymentClearingZohoMatcher')
+const { matchZohoInvoicesForNoonRows, matchNoonRowsToInvoices, mapInvoice } = require('./noonPaymentClearingZohoMatcher')
+const {
+  applyParentOrderChargeFallbackWithSynthetics,
+  needsParentOrderFallback,
+} = require('./noonPaymentClearingParentChargeFallback')
+const { buildNoonOrderHierarchy } = require('./noonPaymentClearingHierarchyService')
 const { getNoonPaymentClearingMarketplaceConfig } = require('./noonPaymentClearingMarketplaceConfig')
 const { isNoonSettlementReconciliationAcceptable } = require('./noonPaymentClearingReconciliationService')
 const { buildPaymentPreviewFromBatch } = require('./noonPaymentClearingPaymentPreviewService')
 const { postApprovedBatch, forceRepostBatch } = require('./noonPaymentClearingPostingService')
-const { clean } = require('./noonOrderIdHelper')
+const { clean, matchKey } = require('./noonOrderIdHelper')
+const { ROW_CLASS } = require('./noonPaymentClearingCategoryService')
 
 function validateBatchReadyForApproval(batch) {
   if (!batch) {
@@ -140,9 +146,13 @@ async function buildPreviewFromUpload(buffer, fileName, options = {}) {
 
   let matchResult
   if (options.skipZohoMatch || options.invoices) {
-    matchResult = matchNoonRowsToInvoices(parsed.rows, options.invoices || [])
+    const invoiceList = options.invoices || []
+    matchResult = matchNoonRowsToInvoices(parsed.rows, invoiceList)
     matchResult.zohoCustomerName = customerName
     matchResult.zohoCustomerId = options.customerId || ''
+    matchResult.invoices = invoiceList.map((inv) =>
+      inv && inv.zohoInvoiceId ? inv : mapInvoice(inv)
+    )
   } else {
     try {
       matchResult = await matchZohoInvoicesForNoonRows(parsed.rows, {
@@ -239,8 +249,67 @@ async function approveSavedBatch(batchId, approvedBy) {
   return store.approveBatch(batchId, approvedBy)
 }
 
+async function rematchOrphanParentLogistics(batch) {
+  if (!batch) return batch
+  const rows = Array.isArray(batch.allRows) ? batch.allRows : []
+  const orphans = rows.filter(
+    (r) =>
+      needsParentOrderFallback(r) &&
+      (!clean(r.assignedItemOrderId) || r.parentFallbackStatus === 'no_matched_child')
+  )
+  if (!orphans.length) return batch
+
+  const matchResult = await matchZohoInvoicesForNoonRows(rows, {
+    customerName: batch.zohoCustomerName,
+    customerId: batch.zohoCustomerId,
+  })
+  const parentAssign = applyParentOrderChargeFallbackWithSynthetics(
+    rows,
+    batch.matchedOrders || [],
+    matchResult.invoices || []
+  )
+  const existingMatched = Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []
+  const matchedOrders = [
+    ...existingMatched,
+    ...(parentAssign.syntheticMatchedOrders || []).filter(
+      (syn) =>
+        !existingMatched.some(
+          (m) =>
+            clean(m.zohoInvoiceId) === clean(syn.zohoInvoiceId) ||
+            matchKey(m.itemOrderId) === matchKey(syn.itemOrderId)
+        )
+    ),
+  ]
+  const hierarchy = buildNoonOrderHierarchy(parentAssign.rows)
+  const parentCharges = parentAssign.rows.filter((r) => r.rowClass === ROW_CLASS.PARENT_ORDER_CHARGE)
+  const stillOrphan = parentAssign.rows.filter((r) => r.parentFallbackStatus === 'no_matched_child')
+  const blockingIssues = (batch.blockingIssues || []).filter((i) => i.code !== 'ORPHAN_PARENT_LOGISTICS')
+  for (const row of stillOrphan) {
+    blockingIssues.push({
+      code: 'ORPHAN_PARENT_LOGISTICS',
+      severity: 'warning',
+      rowNumber: row.rowNumber,
+      parentOrderId: row.parentOrderId || row.originalParentOrderId || '',
+      message: `Parent logistics ${clean(row.parentOrderId || row.originalParentOrderId)} has no matched child in this statement and no Zoho invoice for that Noon order id.`,
+    })
+  }
+  return store.updateBatchParentAssignments(batch.batchId, {
+    allRows: parentAssign.rows,
+    matchedOrders,
+    parentCharges,
+    hierarchy,
+    blockingIssues,
+  })
+}
+
 async function generatePaymentPreview(batchId, createdBy) {
-  const batch = await store.getBatchById(batchId)
+  let batch = await store.getBatchById(batchId)
+  // Re-fetch Zoho invoices for parent logistics that had no child in this statement.
+  try {
+    batch = (await rematchOrphanParentLogistics(batch)) || batch
+  } catch (err) {
+    console.warn('[noon-payment-clearing] orphan parent Zoho rematch failed:', err?.message || err)
+  }
   const ctx = await loadMappingContext()
   const paymentPreview = buildPaymentPreviewFromBatch(batch, ctx.mappingRules, ctx.inputVatAccount, {
     commissionExpenseAccount: ctx.commissionExpenseAccount,

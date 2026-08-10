@@ -604,6 +604,30 @@ async function resetBatchToApprovedForRepost(batchId) {
   return mapBatch(result.rows[0])
 }
 
+async function updateBatchParentAssignments(batchId, patch = {}) {
+  await ensureNoonPaymentClearingTables()
+  const result = await query(
+    `UPDATE noon_payment_clearing_batches
+     SET all_rows = COALESCE($2::jsonb, all_rows),
+         matched_orders = COALESCE($3::jsonb, matched_orders),
+         parent_charges = COALESCE($4::jsonb, parent_charges),
+         hierarchy = COALESCE($5::jsonb, hierarchy),
+         blocking_issues = COALESCE($6::jsonb, blocking_issues),
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [
+      batchId,
+      patch.allRows != null ? JSON.stringify(patch.allRows) : null,
+      patch.matchedOrders != null ? JSON.stringify(patch.matchedOrders) : null,
+      patch.parentCharges != null ? JSON.stringify(patch.parentCharges) : null,
+      patch.hierarchy != null ? JSON.stringify(patch.hierarchy) : null,
+      patch.blockingIssues != null ? JSON.stringify(patch.blockingIssues) : null,
+    ]
+  )
+  return mapBatch(result.rows[0])
+}
+
 async function savePaymentPreview(batchId, paymentPreview, createdBy = null) {
   await ensureNoonPaymentClearingTables()
   const result = await query(
@@ -890,6 +914,7 @@ module.exports = {
   approveBatch,
   markBatchPosted,
   resetBatchToApprovedForRepost,
+  updateBatchParentAssignments,
   savePaymentPreview,
   getLatestPaymentPreviewForBatch,
   listFeeJournalMappings,

@@ -364,8 +364,10 @@ async function matchZohoInvoicesForNoonRows(rows, options = {}) {
   const fetched = await fetchInvoices(range.fromDate, range.toDate, customerId || null)
   const invoices = Array.isArray(fetched?.rows) ? fetched.rows : Array.isArray(fetched) ? fetched : []
   const result = matchNoonRowsToInvoices(rows, invoices)
+  const mappedInvoices = invoices.map(mapInvoice).filter((inv) => inv.zohoInvoiceId)
   return {
     ...result,
+    invoices: mappedInvoices,
     zohoCustomerId: customerId,
     zohoCustomerName: customerName,
     invoiceDateRange: range,

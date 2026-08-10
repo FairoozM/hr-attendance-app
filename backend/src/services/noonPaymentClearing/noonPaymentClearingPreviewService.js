@@ -16,7 +16,9 @@ const {
   RECONCILIATION_TOLERANCE,
 } = require('./noonPaymentClearingReconciliationService')
 const { buildSettlementReference } = require('./noonPaymentClearingReferenceService')
-const { applyParentOrderChargeFallback } = require('./noonPaymentClearingParentChargeFallback')
+const {
+  applyParentOrderChargeFallbackWithSynthetics,
+} = require('./noonPaymentClearingParentChargeFallback')
 const {
   resolveNoonFeeJournalSides,
   isNoonFeeMappingComplete,
@@ -315,9 +317,26 @@ function buildPreview({
   warnings = [],
 } = {}) {
   const cfg = getNoonPaymentClearingMarketplaceConfig()
-  const matchedOrders = matchResult?.matchedOrders || []
+  const matchedFromStatement = matchResult?.matchedOrders || []
+  const zohoInvoices = matchResult?.invoices || []
   let annotatedRows = reclassifyExplainableOtherRows(matchResult?.annotatedRows || rows || [])
-  annotatedRows = applyParentOrderChargeFallback(annotatedRows, matchedOrders)
+  const parentAssign = applyParentOrderChargeFallbackWithSynthetics(
+    annotatedRows,
+    matchedFromStatement,
+    zohoInvoices
+  )
+  annotatedRows = parentAssign.rows
+  const matchedOrders = [
+    ...matchedFromStatement,
+    ...(parentAssign.syntheticMatchedOrders || []).filter(
+      (syn) =>
+        !(matchedFromStatement || []).some(
+          (m) =>
+            clean(m.zohoInvoiceId) === clean(syn.zohoInvoiceId) ||
+            clean(m.itemOrderId).toLowerCase() === clean(syn.itemOrderId).toLowerCase()
+        )
+    ),
+  ]
 
   const hierarchy = buildNoonOrderHierarchy(annotatedRows)
   const reconciliation = buildNoonReconciliationSummary(annotatedRows, metadata)
@@ -329,6 +348,20 @@ function buildPreview({
     multipleMatchItems,
     reconciliation,
   })
+  const orphanParents = annotatedRows.filter(
+    (r) =>
+      (r.rowClass === ROW_CLASS.PARENT_ORDER_CHARGE || r.rowClass === ROW_CLASS.ORDER_ADJUSTMENT) &&
+      r.parentFallbackStatus === 'no_matched_child'
+  )
+  for (const row of orphanParents) {
+    blockingIssues.push({
+      code: 'ORPHAN_PARENT_LOGISTICS',
+      severity: 'warning',
+      rowNumber: row.rowNumber,
+      parentOrderId: row.parentOrderId || row.originalParentOrderId || '',
+      message: `Parent logistics ${clean(row.parentOrderId || row.originalParentOrderId)} has no matched child in this statement and no Zoho invoice for that Noon order id.`,
+    })
+  }
   const feeJournalLines = buildFeeJournalPreviewLines(annotatedRows, mappingRules, inputVatAccount)
   const parentCharges = annotatedRows.filter((r) => r.rowClass === ROW_CLASS.PARENT_ORDER_CHARGE)
   const adjustments = annotatedRows.filter((r) => r.rowClass === ROW_CLASS.ORDER_ADJUSTMENT)
