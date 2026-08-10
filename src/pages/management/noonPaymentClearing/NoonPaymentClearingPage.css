@@ -486,6 +486,29 @@
 
 .npc-cell-sub { font-size: 0.72rem; }
 
+/* Open-balance rows the user excluded stay visible, just dimmed. */
+.npc-row-muted > td { opacity: 0.62; }
+
+.npc-badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.npc-badge--muted {
+  background: color-mix(in srgb, var(--theme-text, #475569) 12%, transparent);
+  color: var(--theme-text, #475569);
+}
+
+.npc-badge--error {
+  background: color-mix(in srgb, #dc2626 15%, transparent);
+  color: #b91c1c;
+}
+
 .npc-table-caption { margin: 0 0 0.4rem; font-size: 0.8rem; }
 
 .npc-ref-card {

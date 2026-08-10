@@ -148,6 +148,16 @@ export function NoonPaymentClearingPage() {
     }
     return Array.from(new Set(reasons))
   }, [preview])
+
+  // Blocking rows first, then the ones already excluded — excluded rows stay on screen.
+  const openBalanceRows = useMemo(() => {
+    const blocking = (preview?.openBalanceShortfalls || []).map((s) => ({ ...s, excluded: false }))
+    const excludedKeys = new Set(blocking.map((s) => `${s.zohoInvoiceId}|${s.itemOrderId}`))
+    const excluded = (preview?.openBalanceExcluded || [])
+      .filter((s) => !excludedKeys.has(`${s.zohoInvoiceId}|${s.itemOrderId}`))
+      .map((s) => ({ ...s, excluded: true }))
+    return [...blocking, ...excluded]
+  }, [preview])
   const canApproveSettlement = Boolean(preview) && approvalBlockers.length === 0
 
   const stepStatuses = useMemo(() => {
@@ -210,11 +220,11 @@ export function NoonPaymentClearingPage() {
     }
   }
 
-  async function onExcludeOpenBalanceShortfall(zohoInvoiceId: string) {
-    if (!preview?.batchId || !zohoInvoiceId) return
+  async function onExcludeOpenBalanceShortfall(zohoInvoiceId: string, itemOrderId?: string) {
+    if (!preview?.batchId || !(zohoInvoiceId || itemOrderId)) return
     if (
       !window.confirm(
-        `Exclude clearing for ${zohoInvoiceId} from Zoho payments?\n\nUse this when the invoice is already paid (orphan logistics). It will not be posted as a Record Payment.`
+        `Exclude clearing for ${zohoInvoiceId || itemOrderId} from Zoho payments?\n\nUse this when the invoice is already paid (orphan logistics). It will not be posted as a Record Payment, and it stays listed here as excluded.`
       )
     ) {
       return
@@ -223,10 +233,32 @@ export function NoonPaymentClearingPage() {
     setError('')
     try {
       const data = await excludeNoonOpenBalanceShortfalls(preview.batchId, {
-        zohoInvoiceIds: [zohoInvoiceId],
+        zohoInvoiceIds: zohoInvoiceId ? [zohoInvoiceId] : [],
+        itemOrderIds: itemOrderId ? [itemOrderId] : [],
       })
       setPreview(data)
-      setNotice(`Excluded ${zohoInvoiceId} from payment clearing. Re-checked open balances.`)
+      setNotice(
+        `Excluded ${zohoInvoiceId || itemOrderId} from payment clearing. Re-checked open balances.`
+      )
+    } catch (err) {
+      setError(safeError(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function onRestoreOpenBalanceShortfall(zohoInvoiceId: string, itemOrderId?: string) {
+    if (!preview?.batchId || !(zohoInvoiceId || itemOrderId)) return
+    setLoading(true)
+    setError('')
+    try {
+      const data = await excludeNoonOpenBalanceShortfalls(preview.batchId, {
+        zohoInvoiceIds: zohoInvoiceId ? [zohoInvoiceId] : [],
+        itemOrderIds: itemOrderId ? [itemOrderId] : [],
+        restore: true,
+      })
+      setPreview(data)
+      setNotice(`Restored ${zohoInvoiceId || itemOrderId} into payment clearing. Re-checked open balances.`)
     } catch (err) {
       setError(safeError(err))
     } finally {
@@ -492,9 +524,11 @@ export function NoonPaymentClearingPage() {
                   : step.id === 6
                     ? (preview.openBalanceShortfalls || []).length
                       ? `${preview.openBalanceShortfalls!.length} open-balance shortfall(s)`
-                      : preview.openBalanceCheckedAt
-                        ? 'Open balances OK'
-                        : 'Check open balances'
+                      : (preview.openBalanceExcluded || []).length
+                        ? `${preview.openBalanceExcluded!.length} excluded from payment`
+                        : preview.openBalanceCheckedAt
+                          ? 'Open balances OK'
+                          : 'Check open balances'
                   : step.id === 7
                     ? preview.reconciliationSummary?.reconciliationStatus
                     : step.id === 8
@@ -838,11 +872,26 @@ export function NoonPaymentClearingPage() {
                 ) : (
                   <p className="npc-muted">Not checked yet — run Check open balances before approving.</p>
                 )}
-                {(preview.openBalanceShortfalls || []).length > 0 ? (
-                  <div className="npc-alert npc-alert--error" role="alert">
+                {openBalanceRows.length > 0 ? (
+                  <div
+                    className={
+                      (preview.openBalanceShortfalls || []).length
+                        ? 'npc-alert npc-alert--error'
+                        : 'npc-alert'
+                    }
+                    role={(preview.openBalanceShortfalls || []).length ? 'alert' : undefined}
+                  >
                     <strong>
-                      {(preview.openBalanceShortfalls || []).length} invoice(s) cannot clear — open balance too low
+                      {(preview.openBalanceShortfalls || []).length
+                        ? `${(preview.openBalanceShortfalls || []).length} invoice(s) cannot clear — open balance too low`
+                        : 'All open-balance issues excluded — nothing blocking'}
                     </strong>
+                    {(preview.openBalanceExcluded || []).length ? (
+                      <div className="npc-muted">
+                        {(preview.openBalanceExcluded || []).length} excluded invoice(s) stay listed below — they
+                        will not be posted as Record Payments.
+                      </div>
+                    ) : null}
                     <div className="npc-table-wrap" style={{ marginTop: 10 }}>
                       <table className="npc-table">
                         <thead>
@@ -852,12 +901,16 @@ export function NoonPaymentClearingPage() {
                             <th>Planned clearing</th>
                             <th>Open balance</th>
                             <th>Over by</th>
+                            <th>Status</th>
                             <th>Action</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {(preview.openBalanceShortfalls || []).map((s) => (
-                            <tr key={`${s.zohoInvoiceId}-${s.itemOrderId}`}>
+                          {openBalanceRows.map((s) => (
+                            <tr
+                              key={`${s.zohoInvoiceId}-${s.itemOrderId}`}
+                              className={s.excluded ? 'npc-row-muted' : undefined}
+                            >
                               <td>
                                 {s.zohoInvoiceNumber || '—'}
                                 <div className="npc-muted">
@@ -872,14 +925,32 @@ export function NoonPaymentClearingPage() {
                               <td className="npc-money">{money(s.openBalance)}</td>
                               <td className="npc-money">{money(s.overBy)}</td>
                               <td>
-                                <button
-                                  type="button"
-                                  className="ainv-btn"
-                                  disabled={loading}
-                                  onClick={() => onExcludeOpenBalanceShortfall(s.zohoInvoiceId)}
-                                >
-                                  Exclude from payment
-                                </button>
+                                {s.excluded ? (
+                                  <span className="npc-badge npc-badge--muted">Excluded — not paid</span>
+                                ) : (
+                                  <span className="npc-badge npc-badge--error">Blocking</span>
+                                )}
+                              </td>
+                              <td>
+                                {s.excluded ? (
+                                  <button
+                                    type="button"
+                                    className="ainv-btn"
+                                    disabled={loading}
+                                    onClick={() => onRestoreOpenBalanceShortfall(s.zohoInvoiceId, s.itemOrderId)}
+                                  >
+                                    Restore
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="ainv-btn"
+                                    disabled={loading}
+                                    onClick={() => onExcludeOpenBalanceShortfall(s.zohoInvoiceId, s.itemOrderId)}
+                                  >
+                                    Exclude from payment
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           ))}

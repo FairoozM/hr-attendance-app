@@ -112,6 +112,7 @@ async function postExcludeOpenBalanceShortfalls(req, res) {
     const preview = await service.excludeOpenBalanceShortfalls(req.params.id, {
       zohoInvoiceIds: req.body?.zohoInvoiceIds || [],
       itemOrderIds: req.body?.itemOrderIds || [],
+      restore: req.body?.restore === true,
     })
     return res.json({ success: true, ...preview })
   } catch (err) {

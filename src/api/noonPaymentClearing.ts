@@ -218,19 +218,24 @@ export interface NoonPaymentClearingPreview {
   status?: string
   postedToZoho?: boolean
   postingSummary?: Record<string, unknown>
-  openBalanceShortfalls?: Array<{
-    itemOrderId: string
-    zohoInvoiceId: string
-    zohoInvoiceNumber: string
-    invoiceTotal: number
-    openBalance: number
-    totalClearingAmount: number
-    overBy: number
-    shipping?: number
-    commission?: number
-    reason?: string
-  }>
+  openBalanceShortfalls?: NoonOpenBalanceShortfall[]
+  /** Shortfalls the user excluded — kept on screen so nothing silently disappears. */
+  openBalanceExcluded?: NoonOpenBalanceShortfall[]
   openBalanceCheckedAt?: string | null
+}
+
+export interface NoonOpenBalanceShortfall {
+  itemOrderId: string
+  zohoInvoiceId: string
+  zohoInvoiceNumber: string
+  invoiceTotal: number
+  openBalance: number
+  totalClearingAmount: number
+  overBy: number
+  shipping?: number
+  commission?: number
+  reason?: string
+  excluded?: boolean
 }
 
 export interface NoonPaymentPreview {
@@ -384,7 +389,7 @@ export async function reconcileNoonOpenBalances(batchId: string | number) {
 
 export async function excludeNoonOpenBalanceShortfalls(
   batchId: string | number,
-  body: { zohoInvoiceIds?: string[]; itemOrderIds?: string[] } = {}
+  body: { zohoInvoiceIds?: string[]; itemOrderIds?: string[]; restore?: boolean } = {}
 ) {
   const data = await api.post<{ success: boolean } & NoonPaymentClearingPreview>(
     `${BASE}/batches/${batchId}/exclude-open-balance-shortfalls`,

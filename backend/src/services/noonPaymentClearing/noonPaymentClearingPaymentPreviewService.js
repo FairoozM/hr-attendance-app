@@ -17,6 +17,11 @@ function positiveAmount(value) {
   return Math.abs(round2(Number(value) || 0))
 }
 
+/** Same normalization as noonOrderIdHelper.matchKey — keeps exclusions comparable. */
+function itemOrderMatchKey(value) {
+  return clean(value).toLowerCase().replace(/\s+/g, '')
+}
+
 function requireBatchForPaymentPreview(batch) {
   if (!batch) {
     const err = new Error('Noon payment clearing batch not found.')
@@ -118,9 +123,15 @@ function buildInvoicePaymentPlansFromBatch(batch, accountOverrides = {}) {
       .map((id) => clean(id))
       .filter(Boolean)
   )
+  const excludedItemOrderIds = new Set(
+    (batch?.reportSnapshot?.openBalanceReconcile?.excludedItemOrderIds || [])
+      .map((id) => itemOrderMatchKey(id))
+      .filter(Boolean)
+  )
   const matched = (Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []).filter((item) => {
     if (item.excludeFromPaymentClearing) return false
     if (excludedInvoiceIds.has(clean(item.zohoInvoiceId))) return false
+    if (excludedItemOrderIds.has(itemOrderMatchKey(item.itemOrderId))) return false
     return true
   })
   const allRows = batch.allRows || []

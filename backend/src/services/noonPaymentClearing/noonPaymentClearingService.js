@@ -227,6 +227,7 @@ async function getBatchPreview(batchId) {
   const feeJournalLines = buildFeeJournalPreviewLines(batch.allRows || [], mappingRules, inputVatAccount)
   const feeJournalVatSummary = summarizeFeeJournalVat(feeJournalLines)
   const openBalanceShortfalls = batch.reportSnapshot?.openBalanceReconcile?.shortfalls || []
+  const openBalanceExcluded = batch.reportSnapshot?.openBalanceReconcile?.excludedShortfalls || []
   const openBalanceCheckedAt = batch.reportSnapshot?.openBalanceReconcile?.checkedAt || null
   const hasOpenBalanceBlock = openBalanceShortfalls.length > 0 ||
     (batch.blockingIssues || []).some((i) => i.code === 'OPEN_BALANCE_SHORT')
@@ -253,6 +254,7 @@ async function getBatchPreview(batchId) {
     zohoCustomerId: batch.zohoCustomerId,
     zohoCustomerName: batch.zohoCustomerName,
     openBalanceShortfalls,
+    openBalanceExcluded,
     openBalanceCheckedAt,
     totals: {
       ...(batch.totals || {}),
@@ -313,8 +315,18 @@ async function reconcileOpenBalances(batchId) {
     return getBatchPreview(batch.batchId)
   }
   const { invoiceBalanceShortfalls } = annotateInvoicePaymentsWithLiveBalances(plans, invoiceById)
-  const blockingIssues = (batch.blockingIssues || []).filter((i) => i.code !== 'OPEN_BALANCE_SHORT')
+  const excludedInvoiceIds = collectExcludedInvoiceIds(batch)
+  const excludedItemOrderIds = collectExcludedItemOrderIds(batch)
+  // An excluded invoice is already filtered out of the payment plans, so it must never
+  // re-appear as a shortfall — that is what left the last row stuck on screen.
+  const activeShortfalls = []
+  const reExcluded = []
   for (const s of invoiceBalanceShortfalls) {
+    if (isExcludedShortfall(s, excludedInvoiceIds, excludedItemOrderIds)) reExcluded.push(s)
+    else activeShortfalls.push(s)
+  }
+  const blockingIssues = (batch.blockingIssues || []).filter((i) => i.code !== 'OPEN_BALANCE_SHORT')
+  for (const s of activeShortfalls) {
     blockingIssues.push({
       code: 'OPEN_BALANCE_SHORT',
       severity: 'error',
@@ -330,8 +342,13 @@ async function reconcileOpenBalances(batchId) {
   await store.updateBatchOpenBalanceReconcile(batch.batchId, {
     openBalanceReconcile: {
       checkedAt: new Date().toISOString(),
-      shortfalls: invoiceBalanceShortfalls,
-      excludedInvoiceIds: [...collectExcludedInvoiceIds(batch)],
+      shortfalls: activeShortfalls,
+      excludedShortfalls: mergeExcludedShortfalls(
+        batch.reportSnapshot?.openBalanceReconcile?.excludedShortfalls,
+        reExcluded
+      ),
+      excludedInvoiceIds: [...excludedInvoiceIds],
+      excludedItemOrderIds: [...excludedItemOrderIds],
     },
     allRows: batch.allRows,
     matchedOrders: batch.matchedOrders,
@@ -345,7 +362,10 @@ async function reconcileOpenBalances(batchId) {
  * Rectify: exclude logistics / logistics-only matches on already-paid invoices
  * so they are not sent as Record Payments (user handles offline if needed).
  */
-async function excludeOpenBalanceShortfalls(batchId, { zohoInvoiceIds = [], itemOrderIds = [] } = {}) {
+async function excludeOpenBalanceShortfalls(
+  batchId,
+  { zohoInvoiceIds = [], itemOrderIds = [], restore = false } = {}
+) {
   const batch = await store.getBatchById(batchId)
   if (!batch) {
     const err = new Error('Noon payment clearing batch not found.')
@@ -353,41 +373,59 @@ async function excludeOpenBalanceShortfalls(batchId, { zohoInvoiceIds = [], item
     err.status = 404
     throw err
   }
-  const invSet = new Set((zohoInvoiceIds || []).map((id) => clean(id)).filter(Boolean))
-  const itemSet = new Set((itemOrderIds || []).map((id) => matchKey(id)).filter(Boolean))
-  // If nothing specified, exclude all current shortfalls.
-  const shortfalls = batch.reportSnapshot?.openBalanceReconcile?.shortfalls || []
-  if (!invSet.size && !itemSet.size) {
-    for (const s of shortfalls) {
-      if (s.zohoInvoiceId) invSet.add(clean(s.zohoInvoiceId))
-      if (s.itemOrderId) itemSet.add(matchKey(s.itemOrderId))
+  const snap = batch.reportSnapshot?.openBalanceReconcile || {}
+  const shortfalls = snap.shortfalls || []
+  const excludedShortfalls = snap.excludedShortfalls || []
+
+  const targetInv = new Set((zohoInvoiceIds || []).map((id) => clean(id)).filter(Boolean))
+  const targetItem = new Set((itemOrderIds || []).map((id) => matchKey(id)).filter(Boolean))
+  // Nothing specified = act on every row currently listed for this step.
+  if (!targetInv.size && !targetItem.size) {
+    for (const s of restore ? excludedShortfalls : shortfalls) {
+      if (s.zohoInvoiceId) targetInv.add(clean(s.zohoInvoiceId))
+      if (s.itemOrderId) targetItem.add(matchKey(s.itemOrderId))
     }
   }
-  if (!invSet.size && !itemSet.size) {
-    const err = new Error('No open-balance shortfall invoices to exclude.')
+  if (!targetInv.size && !targetItem.size) {
+    const err = new Error(
+      restore ? 'No excluded invoices to restore.' : 'No open-balance shortfall invoices to exclude.'
+    )
     err.code = 'NOON_PAYMENT_CLEARING_NO_SHORTFALLS'
     err.status = 422
     throw err
   }
+  // Excluding by invoice must also pin the item order id (and vice versa), otherwise a
+  // rematch re-folds the same logistics onto the invoice and the row never clears.
+  for (const s of [...shortfalls, ...excludedShortfalls]) {
+    const inv = clean(s.zohoInvoiceId)
+    const item = matchKey(s.itemOrderId)
+    if ((inv && targetInv.has(inv)) || (item && targetItem.has(item))) {
+      if (inv) targetInv.add(inv)
+      if (item) targetItem.add(item)
+    }
+  }
+
+  const isTarget = (inv, item) =>
+    Boolean((inv && targetInv.has(inv)) || (item && targetItem.has(item)))
 
   const matchedOrders = (batch.matchedOrders || []).map((m) => {
-    const hit =
-      (m.zohoInvoiceId && invSet.has(clean(m.zohoInvoiceId))) ||
-      (m.itemOrderId && itemSet.has(matchKey(m.itemOrderId)))
-    if (!hit) return m
-    return {
-      ...m,
-      excludeFromPaymentClearing: true,
-      excludeReason: 'open_balance_short_already_paid',
+    if (!isTarget(clean(m.zohoInvoiceId), matchKey(m.itemOrderId))) return m
+    if (restore) {
+      const { excludeFromPaymentClearing, excludeReason, ...rest } = m
+      return rest
     }
+    return { ...m, excludeFromPaymentClearing: true, excludeReason: 'open_balance_short_already_paid' }
   })
 
   const allRows = (batch.allRows || []).map((row) => {
     const assignedInv = clean(row.assignedZohoInvoiceId || row.zohoInvoiceId)
     const assignedItem = matchKey(row.assignedItemOrderId || row.itemOrderId)
-    const hit =
-      (assignedInv && invSet.has(assignedInv)) || (assignedItem && itemSet.has(assignedItem))
-    if (!hit) return row
+    if (!isTarget(assignedInv, assignedItem)) return row
+    if (restore) {
+      if (row.excludeReason && row.excludeReason !== 'open_balance_short_already_paid') return row
+      const { excludeFromPaymentClearing, excludeReason, ...rest } = row
+      return rest
+    }
     // Only exclude uncleared logistics / parent charges — not sale lines with net proceeds.
     const isLogistics =
       row.rowClass === ROW_CLASS.PARENT_ORDER_CHARGE ||
@@ -403,6 +441,27 @@ async function excludeOpenBalanceShortfalls(batchId, { zohoInvoiceIds = [], item
     }
   })
 
+  const keepExcluded = (list) =>
+    (list || []).filter(
+      (s) => !isTarget(clean(s.zohoInvoiceId), matchKey(s.itemOrderId))
+    )
+  const nextExcludedShortfalls = restore
+    ? keepExcluded(excludedShortfalls)
+    : mergeExcludedShortfalls(
+        excludedShortfalls,
+        shortfalls.filter((s) => isTarget(clean(s.zohoInvoiceId), matchKey(s.itemOrderId)))
+      )
+
+  const prevInv = new Set((snap.excludedInvoiceIds || []).map((id) => clean(id)).filter(Boolean))
+  const prevItem = new Set((snap.excludedItemOrderIds || []).map((id) => matchKey(id)).filter(Boolean))
+  if (restore) {
+    for (const id of targetInv) prevInv.delete(id)
+    for (const id of targetItem) prevItem.delete(id)
+  } else {
+    for (const id of targetInv) prevInv.add(id)
+    for (const id of targetItem) prevItem.add(id)
+  }
+
   const parentCharges = allRows.filter((r) => r.rowClass === ROW_CLASS.PARENT_ORDER_CHARGE)
   await store.updateBatchOpenBalanceReconcile(batch.batchId, {
     allRows,
@@ -410,10 +469,13 @@ async function excludeOpenBalanceShortfalls(batchId, { zohoInvoiceIds = [], item
     parentCharges,
     blockingIssues: (batch.blockingIssues || []).filter((i) => i.code !== 'OPEN_BALANCE_SHORT'),
     openBalanceReconcile: {
-      checkedAt: batch.reportSnapshot?.openBalanceReconcile?.checkedAt || null,
-      shortfalls: [],
+      ...snap,
+      checkedAt: snap.checkedAt || null,
+      shortfalls: restore ? shortfalls : keepExcluded(shortfalls),
+      excludedShortfalls: nextExcludedShortfalls,
       lastExcludeAt: new Date().toISOString(),
-      excludedInvoiceIds: [...invSet],
+      excludedInvoiceIds: [...prevInv],
+      excludedItemOrderIds: [...prevItem],
     },
   })
   // Re-check live balances after exclusions.
@@ -527,6 +589,33 @@ function collectExcludedInvoiceIds(batch) {
   return ids
 }
 
+function collectExcludedItemOrderIds(batch) {
+  const ids = new Set()
+  for (const id of batch?.reportSnapshot?.openBalanceReconcile?.excludedItemOrderIds || []) {
+    const c = matchKey(id)
+    if (c) ids.add(c)
+  }
+  for (const m of batch?.matchedOrders || []) {
+    if (m?.excludeFromPaymentClearing && matchKey(m.itemOrderId)) ids.add(matchKey(m.itemOrderId))
+  }
+  return ids
+}
+
+function isExcludedShortfall(shortfall, invoiceIds, itemOrderIds) {
+  const inv = clean(shortfall?.zohoInvoiceId)
+  const item = matchKey(shortfall?.itemOrderId)
+  return Boolean((inv && invoiceIds.has(inv)) || (item && itemOrderIds.has(item)))
+}
+
+/** Keep excluded rows visible in Step 6 (with refreshed live numbers) instead of vanishing. */
+function mergeExcludedShortfalls(previous = [], current = []) {
+  const key = (s) => `${clean(s?.zohoInvoiceId)}|${matchKey(s?.itemOrderId)}`
+  const byKey = new Map()
+  for (const s of previous || []) byKey.set(key(s), { ...s, excluded: true })
+  for (const s of current || []) byKey.set(key(s), { ...(byKey.get(key(s)) || {}), ...s, excluded: true })
+  return [...byKey.values()]
+}
+
 function preserveRowExclusions(oldRows = [], newRows = []) {
   const byNumber = new Map(
     (Array.isArray(oldRows) ? oldRows : [])
@@ -548,9 +637,15 @@ function preserveRowExclusions(oldRows = [], newRows = []) {
 function reapplyExcludedInvoices(batch) {
   if (!batch) return batch
   const excludedInvoiceIds = collectExcludedInvoiceIds(batch)
-  if (!excludedInvoiceIds.size) return batch
+  const excludedItemOrderIds = collectExcludedItemOrderIds(batch)
+  if (!excludedInvoiceIds.size && !excludedItemOrderIds.size) return batch
   const matchedOrders = (batch.matchedOrders || []).map((m) => {
-    if (!excludedInvoiceIds.has(clean(m.zohoInvoiceId))) return m
+    if (
+      !excludedInvoiceIds.has(clean(m.zohoInvoiceId)) &&
+      !excludedItemOrderIds.has(matchKey(m.itemOrderId))
+    ) {
+      return m
+    }
     return {
       ...m,
       excludeFromPaymentClearing: true,
@@ -583,6 +678,7 @@ function reapplyExcludedInvoices(batch) {
       openBalanceReconcile: {
         ...(batch.reportSnapshot?.openBalanceReconcile || {}),
         excludedInvoiceIds: [...excludedInvoiceIds],
+        excludedItemOrderIds: [...excludedItemOrderIds],
       },
     },
   }
@@ -612,7 +708,7 @@ async function generatePaymentPreview(batchId, createdBy) {
   }
   batch = reapplyExcludedInvoices(batch)
   // Persist re-applied exclusions so Generate stays stable.
-  if (collectExcludedInvoiceIds(batch).size) {
+  if (collectExcludedInvoiceIds(batch).size || collectExcludedItemOrderIds(batch).size) {
     await store.updateBatchOpenBalanceReconcile(batch.batchId, {
       allRows: batch.allRows,
       matchedOrders: batch.matchedOrders,
@@ -620,6 +716,7 @@ async function generatePaymentPreview(batchId, createdBy) {
       openBalanceReconcile: {
         ...(batch.reportSnapshot?.openBalanceReconcile || {}),
         excludedInvoiceIds: [...collectExcludedInvoiceIds(batch)],
+        excludedItemOrderIds: [...collectExcludedItemOrderIds(batch)],
         shortfalls: batch.reportSnapshot?.openBalanceReconcile?.shortfalls || [],
         checkedAt: batch.reportSnapshot?.openBalanceReconcile?.checkedAt || null,
       },

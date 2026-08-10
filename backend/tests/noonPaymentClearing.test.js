@@ -1528,6 +1528,51 @@ describe('live Zoho balance gate on payment preview', () => {
     assert.equal(plans[0].zohoInvoiceNumber, 'INV-OK')
     assert.equal(plans[0].totalClearingAmount, 100)
   })
+
+  it('skips plans for item order ids excluded in the open balance reconcile', () => {
+    const {
+      buildInvoicePaymentPlansFromBatch,
+    } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+    const { getNoonPaymentClearingMarketplaceConfig } = require('../src/services/noonPaymentClearing/noonPaymentClearingMarketplaceConfig')
+    const plans = buildInvoicePaymentPlansFromBatch(
+      {
+        matchedOrders: [
+          {
+            // Same row still flagged only in the snapshot (rematch dropped the row flag).
+            itemOrderId: 'NAEI78009406690-1',
+            zohoInvoiceId: 'inv-paid',
+            zohoInvoiceNumber: 'INV-042333',
+            zohoInvoiceTotal: 100,
+            netProceed: 0,
+            referralFee: 0,
+            fulfillmentFee: -7.56,
+            shippingCharges: 0,
+          },
+          {
+            itemOrderId: 'NAEI-2',
+            zohoInvoiceId: 'inv-open',
+            zohoInvoiceNumber: 'INV-OK',
+            zohoInvoiceTotal: 100,
+            netProceed: 100,
+            referralFee: -10,
+            fulfillmentFee: -5,
+            shippingCharges: 0,
+          },
+        ],
+        allRows: [],
+        reportSnapshot: {
+          openBalanceReconcile: { excludedItemOrderIds: ['naei78009406690-1'] },
+        },
+        reconciliationSummary: { expectedSettlement: 0 },
+        status: 'approved',
+        unmatchedOrders: [],
+        multipleMatchItems: [],
+      },
+      { paymentPreviewAccounts: getNoonPaymentClearingMarketplaceConfig().paymentPreviewAccounts }
+    )
+    assert.equal(plans.length, 1)
+    assert.equal(plans[0].zohoInvoiceNumber, 'INV-OK')
+  })
 })
 
 describe('orphan parent logistics → Zoho invoice', () => {
