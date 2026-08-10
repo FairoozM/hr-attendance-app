@@ -62,13 +62,19 @@ function requireBatchForPaymentPreview(batch) {
  * Do NOT add orderSubsidies on top of othersInclVat — the parser already merges
  * subsidies into othersInclVat (double-count produced bogus 22.68 from -37.8+7.56+7.56).
  */
-function collectAssignedUnclearedPaymentAddOns(allRows = []) {
+function collectAssignedUnclearedPaymentAddOns(allRows = [], planExclusions = null) {
   const byItem = new Map()
+  const exInv = planExclusions?.excludedInvoiceIds
+  const exItem = planExclusions?.excludedItemOrderIds
   for (const row of Array.isArray(allRows) ? allRows : []) {
     if (row.excludeFromPaymentClearing) continue
     if (!isUnclearedInvoicePaymentBucketRow(row)) continue
     const itemId = clean(row.assignedItemOrderId) || clean(row.itemOrderId)
     if (!itemId) continue
+    const rowInv = clean(row.assignedZohoInvoiceId || row.zohoInvoiceId)
+    const rowItemKey = itemOrderMatchKey(itemId)
+    if (exInv && rowInv && exInv.has(rowInv)) continue
+    if (exItem && rowItemKey && exItem.has(rowItemKey)) continue
 
     const entry = byItem.get(itemId) || {
       commission: 0,
@@ -111,13 +117,8 @@ function collectAssignedUnclearedPaymentAddOns(allRows = []) {
   return byItem
 }
 
-/** Invoice payment plans for balance checks — works before approval. */
-function buildInvoicePaymentPlansFromBatch(batch, accountOverrides = {}) {
-  const cfg = getNoonPaymentClearingMarketplaceConfig()
-  const accounts = {
-    ...cfg.paymentPreviewAccounts,
-    ...(accountOverrides.paymentPreviewAccounts || {}),
-  }
+/** Merged exclusion sets: snapshot + row flags + matched-order flags. */
+function collectPlanExclusions(batch) {
   const excludedInvoiceIds = new Set(
     (batch?.reportSnapshot?.openBalanceReconcile?.excludedInvoiceIds || [])
       .map((id) => clean(id))
@@ -128,6 +129,32 @@ function buildInvoicePaymentPlansFromBatch(batch, accountOverrides = {}) {
       .map((id) => itemOrderMatchKey(id))
       .filter(Boolean)
   )
+  for (const m of batch?.matchedOrders || []) {
+    if (!m?.excludeFromPaymentClearing) continue
+    const inv = clean(m.zohoInvoiceId)
+    const item = itemOrderMatchKey(m.itemOrderId)
+    if (inv) excludedInvoiceIds.add(inv)
+    if (item) excludedItemOrderIds.add(item)
+  }
+  for (const row of batch?.allRows || []) {
+    if (!row?.excludeFromPaymentClearing) continue
+    const inv = clean(row.assignedZohoInvoiceId || row.zohoInvoiceId)
+    const item = itemOrderMatchKey(row.assignedItemOrderId || row.itemOrderId)
+    if (inv) excludedInvoiceIds.add(inv)
+    if (item) excludedItemOrderIds.add(item)
+  }
+  return { excludedInvoiceIds, excludedItemOrderIds }
+}
+
+/** Invoice payment plans for balance checks — works before approval. */
+function buildInvoicePaymentPlansFromBatch(batch, accountOverrides = {}) {
+  const cfg = getNoonPaymentClearingMarketplaceConfig()
+  const accounts = {
+    ...cfg.paymentPreviewAccounts,
+    ...(accountOverrides.paymentPreviewAccounts || {}),
+  }
+  const planExclusions = collectPlanExclusions(batch)
+  const { excludedInvoiceIds, excludedItemOrderIds } = planExclusions
   const matched = (Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []).filter((item) => {
     if (item.excludeFromPaymentClearing) return false
     if (excludedInvoiceIds.has(clean(item.zohoInvoiceId))) return false
@@ -135,7 +162,7 @@ function buildInvoicePaymentPlansFromBatch(batch, accountOverrides = {}) {
     return true
   })
   const allRows = batch.allRows || []
-  const addOnsByItem = collectAssignedUnclearedPaymentAddOns(allRows)
+  const addOnsByItem = collectAssignedUnclearedPaymentAddOns(allRows, planExclusions)
   return matched.map((item) =>
     buildInvoicePaymentPlan(item, accounts, addOnsByItem.get(clean(item.itemOrderId)) || null)
   )
@@ -466,6 +493,7 @@ module.exports = {
   buildInvoicePaymentPlansFromBatch,
   buildPaymentPreviewFromBatch,
   collectAssignedUnclearedPaymentAddOns,
+  collectPlanExclusions,
   collectInvoiceOverpayments,
   assertNoInvoiceOverpayments,
   annotateInvoicePaymentsWithLiveBalances,

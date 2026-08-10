@@ -268,13 +268,6 @@ export function NoonPaymentClearingPage() {
 
   async function onExcludeOpenBalanceShortfall(zohoInvoiceId: string, itemOrderId?: string) {
     if (!preview?.batchId || !(zohoInvoiceId || itemOrderId)) return
-    if (
-      !window.confirm(
-        `Exclude clearing for ${zohoInvoiceId || itemOrderId} from Zoho payments?\n\nUse this when the invoice is already paid (orphan logistics). It will not be posted as a Record Payment, and it stays listed here as excluded.`
-      )
-    ) {
-      return
-    }
     setLoading(true)
     setError('')
     try {
@@ -282,14 +275,8 @@ export function NoonPaymentClearingPage() {
         zohoInvoiceIds: zohoInvoiceId ? [zohoInvoiceId] : [],
         itemOrderIds: itemOrderId ? [itemOrderId] : [],
       })
-      // #region agent log
-      dbg('NoonPaymentClearingPage.tsx:onExcludeOpenBalanceShortfall', 'exclude requested', { zohoInvoiceId, itemOrderId }, 'A,B')
-      dbgState('NoonPaymentClearingPage.tsx:onExcludeOpenBalanceShortfall', 'state after exclude', data, 'A,B')
-      // #endregion
       setPreview(data)
-      setNotice(
-        `Excluded ${zohoInvoiceId || itemOrderId} from payment clearing. Re-checked open balances.`
-      )
+      setNotice(`Excluded ${zohoInvoiceId || itemOrderId} from payment clearing.`)
     } catch (err) {
       setError(safeError(err))
     } finally {
@@ -338,7 +325,7 @@ export function NoonPaymentClearingPage() {
       dbgState('NoonPaymentClearingPage.tsx:onExcludeAllOpenBalanceShortfalls', 'state after exclude all', data, 'A,B')
       // #endregion
       setPreview(data)
-      setNotice('Excluded shortfall invoices from payment clearing. Re-checked open balances.')
+      setNotice('Excluded shortfall invoices from payment clearing.')
     } catch (err) {
       setError(safeError(err))
     } finally {

@@ -386,14 +386,7 @@ async function excludeOpenBalanceShortfalls(
       const { excludeFromPaymentClearing, excludeReason, ...rest } = row
       return rest
     }
-    // Only exclude uncleared logistics / parent charges — not sale lines with net proceeds.
-    const isLogistics =
-      row.rowClass === ROW_CLASS.PARENT_ORDER_CHARGE ||
-      row.rowClass === ROW_CLASS.ORDER_ADJUSTMENT ||
-      (Math.abs(Number(row.netProceed) || 0) < 0.01 &&
-        (Math.abs(Number(row.total) || 0) >= 0.01 ||
-          Math.abs(Number(row.fulfillmentFee) || 0) >= 0.01))
-    if (!isLogistics) return row
+    // Exclude every statement row tied to this invoice/item — not only parent-charge rows.
     return {
       ...row,
       excludeFromPaymentClearing: true,
@@ -401,12 +394,16 @@ async function excludeOpenBalanceShortfalls(
     }
   })
 
-  const keepExcluded = (list) =>
-    (list || []).filter(
-      (s) => !isTarget(clean(s.zohoInvoiceId), matchKey(s.itemOrderId))
-    )
+  const restoredItems = restore
+    ? excludedShortfalls.filter((s) => isTarget(clean(s.zohoInvoiceId), matchKey(s.itemOrderId)))
+    : []
+  const nextShortfalls = restore
+    ? [...shortfalls, ...restoredItems]
+    : shortfalls.filter((s) => !isTarget(clean(s.zohoInvoiceId), matchKey(s.itemOrderId)))
   const nextExcludedShortfalls = restore
-    ? keepExcluded(excludedShortfalls)
+    ? excludedShortfalls.filter(
+        (s) => !isTarget(clean(s.zohoInvoiceId), matchKey(s.itemOrderId))
+      )
     : mergeExcludedShortfalls(
         excludedShortfalls,
         shortfalls.filter((s) => isTarget(clean(s.zohoInvoiceId), matchKey(s.itemOrderId)))
@@ -422,24 +419,40 @@ async function excludeOpenBalanceShortfalls(
     for (const id of targetItem) prevItem.add(id)
   }
 
+  const blockingIssues = (batch.blockingIssues || []).filter((i) => i.code !== 'OPEN_BALANCE_SHORT')
+  for (const s of nextShortfalls) {
+    blockingIssues.push({
+      code: 'OPEN_BALANCE_SHORT',
+      severity: 'error',
+      itemOrderId: s.itemOrderId,
+      zohoInvoiceId: s.zohoInvoiceId,
+      zohoInvoiceNumber: s.zohoInvoiceNumber,
+      openBalance: s.openBalance,
+      totalClearingAmount: s.totalClearingAmount,
+      overBy: s.overBy,
+      message: `${s.zohoInvoiceNumber || s.itemOrderId}: clearing ${s.totalClearingAmount} > open balance ${s.openBalance} (over by ${s.overBy}). Exclude already-paid logistics or void Zoho payments first.`,
+    })
+  }
+
   const parentCharges = allRows.filter((r) => r.rowClass === ROW_CLASS.PARENT_ORDER_CHARGE)
   await store.updateBatchOpenBalanceReconcile(batch.batchId, {
     allRows,
     matchedOrders,
     parentCharges,
-    blockingIssues: (batch.blockingIssues || []).filter((i) => i.code !== 'OPEN_BALANCE_SHORT'),
+    blockingIssues,
     openBalanceReconcile: {
       ...snap,
-      checkedAt: snap.checkedAt || null,
-      shortfalls: restore ? shortfalls : keepExcluded(shortfalls),
+      checkedAt: snap.checkedAt || new Date().toISOString(),
+      shortfalls: nextShortfalls,
       excludedShortfalls: nextExcludedShortfalls,
       lastExcludeAt: new Date().toISOString(),
       excludedInvoiceIds: [...prevInv],
       excludedItemOrderIds: [...prevItem],
     },
   })
-  // Re-check live balances after exclusions.
-  return reconcileOpenBalances(batch.batchId)
+  // Do NOT re-run live Zoho reconcile here — it re-fetches every invoice (slow / 504) and
+  // orphan rematch could undo exclusions. User clicks "Check open balances" when they want a refresh.
+  return getBatchPreview(batch.batchId)
 }
 
 /**
@@ -511,6 +524,7 @@ async function rematchOrphanParentLogistics(batch) {
   if (!batch) return batch
   const rows = Array.isArray(batch.allRows) ? batch.allRows : []
   const excludedInvoiceIds = collectExcludedInvoiceIds(batch)
+  const excludedItemOrderIds = collectExcludedItemOrderIds(batch)
   const orphans = rows.filter(
     (r) =>
       !r.excludeFromPaymentClearing &&
@@ -544,7 +558,12 @@ async function rematchOrphanParentLogistics(batch) {
   const matchedOrders = [
     ...existingMatched.map((m) => {
       const inv = clean(m.zohoInvoiceId)
-      if (inv && excludedInvoiceIds.has(inv)) {
+      const item = matchKey(m.itemOrderId)
+      if (
+        (inv && excludedInvoiceIds.has(inv)) ||
+        (item && excludedItemOrderIds.has(item)) ||
+        m.excludeFromPaymentClearing
+      ) {
         return {
           ...m,
           excludeFromPaymentClearing: true,
@@ -557,6 +576,7 @@ async function rematchOrphanParentLogistics(batch) {
       .filter(
         (syn) =>
           !excludedInvoiceIds.has(clean(syn.zohoInvoiceId)) &&
+          !excludedItemOrderIds.has(matchKey(syn.itemOrderId)) &&
           !existingMatched.some(
             (m) =>
               clean(m.zohoInvoiceId) === clean(syn.zohoInvoiceId) ||
