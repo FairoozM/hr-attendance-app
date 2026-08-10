@@ -237,6 +237,48 @@ function feeMappingTypeCandidates(feeType) {
   return [t]
 }
 
+/**
+ * Order-linked commission / shipping / fulfillment clear via invoice Record Payments
+ * to uncleared GLs (Amazon KSA parallel) — not via settlement fee journals.
+ */
+function isUnclearedInvoicePaymentBucketRow(row) {
+  if (!row) return false
+  const rowClass = row.rowClass || classifyNoonStatementRow(row)
+  if (rowClass !== ROW_CLASS.PARENT_ORDER_CHARGE && rowClass !== ROW_CLASS.ORDER_ADJUSTMENT) {
+    return false
+  }
+  const feeType = clean(row.normalizedFeeType || normalizeNoonFeeType(row))
+  if (
+    feeType === NORMALIZED_FEE_TYPE.FULFILLMENT ||
+    feeType === NORMALIZED_FEE_TYPE.SHIPPING ||
+    feeType === NORMALIZED_FEE_TYPE.REFERRAL_COMMISSION ||
+    feeType === NORMALIZED_FEE_TYPE.PARENT_ORDER_CHARGE
+  ) {
+    return true
+  }
+  return (
+    num(row.fulfillmentFee) !== 0 ||
+    num(row.shippingCharges) !== 0 ||
+    num(row.otherOrderFees) !== 0 ||
+    num(row.othersInclVat) !== 0 ||
+    num(row.orderSubsidies) !== 0 ||
+    (num(row.referralFee) !== 0 && num(row.netProceed) === 0)
+  )
+}
+
+/** Settlement fee journals = statement-level / advertising-style only (Amazon parallel). */
+function isSettlementFeeJournalRow(row) {
+  if (!row) return false
+  const rowClass = row.rowClass || classifyNoonStatementRow(row)
+  if (rowClass === ROW_CLASS.STATEMENT_FEE) return true
+  if (rowClass === ROW_CLASS.PARENT_ORDER_CHARGE) return false
+  if (rowClass === ROW_CLASS.ORDER_ADJUSTMENT) {
+    if (isUnclearedInvoicePaymentBucketRow(row)) return false
+    return Math.abs(num(row.total)) >= 0.01
+  }
+  return false
+}
+
 module.exports = {
   ROW_CLASS,
   NORMALIZED_FEE_TYPE,
@@ -253,6 +295,8 @@ module.exports = {
   invoiceMatchKeyForRow,
   reclassifyExplainableOtherRows,
   feeMappingTypeCandidates,
+  isUnclearedInvoicePaymentBucketRow,
+  isSettlementFeeJournalRow,
   round2,
   num,
   clean,

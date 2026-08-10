@@ -61,13 +61,15 @@ export const CLEARING_STEPS: ClearingStep[] = [
     id: 9,
     key: 'fee-journals',
     title: 'Noon Fee Journal Mapping',
-    description: 'Pick expense account (after VAT) + Input VAT account. Same split as Gross / Expense after VAT / Input VAT.',
+    description:
+      'Statement fees only (e.g. Advertising): pick expense after VAT + Input VAT. Commission and shipping clear via invoice payments to uncleared — expense reclass is later.',
   },
   {
     id: 10,
     key: 'preview',
     title: 'Payment Preview',
-    description: 'Invoice payments, parent charges, and statement fees shown separately before posting.',
+    description:
+      'Each invoice splits into Net (1066), Commission (1067), and Shipping/Fulfillment (1068). Statement fee journals shown separately.',
   },
   {
     id: 11,

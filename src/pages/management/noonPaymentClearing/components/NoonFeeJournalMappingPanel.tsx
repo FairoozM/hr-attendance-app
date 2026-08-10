@@ -17,10 +17,6 @@ import {
 const FEE_TYPE_OPTIONS = [
   'NOON_ADVERTISING_FEE',
   'ADVERTISING',
-  'FULFILLMENT',
-  'SHIPPING',
-  'PARENT_ORDER_CHARGE',
-  'ORDER_ADJUSTMENT',
   'STATEMENT_FEE',
   'OTHER',
 ]
@@ -28,12 +24,8 @@ const FEE_TYPE_OPTIONS = [
 const FEE_TYPE_LABELS: Record<string, string> = {
   NOON_ADVERTISING_FEE: 'Advertising Fee',
   ADVERTISING: 'Advertising Fee',
-  FULFILLMENT: 'Fulfillment / Logistics',
-  SHIPPING: 'Shipping',
-  PARENT_ORDER_CHARGE: 'Parent-order shipping / logistics',
-  ORDER_ADJUSTMENT: 'Order adjustment',
   STATEMENT_FEE: 'Statement fee',
-  OTHER: 'Other fee',
+  OTHER: 'Other statement fee',
 }
 
 function feeTypeLabel(type: string) {
@@ -60,7 +52,6 @@ export function NoonFeeJournalMappingPanel({
   const [accounts, setAccounts] = useState<ZohoChartAccount[]>([])
   const [mappings, setMappings] = useState<NoonFeeJournalMapping[]>([])
   const [undepositedName, setUndepositedName] = useState('Noon Undeposited Funds (1066)')
-  const [shippingClearingName, setShippingClearingName] = useState('Noon Uncleared Shipping Charges (1068)')
   const [inputVat, setInputVat] = useState<NoonInputVatAccount | null>(null)
   const [selectedInputVatAccountId, setSelectedInputVatAccountId] = useState('')
   const [feeType, setFeeType] = useState('NOON_ADVERTISING_FEE')
@@ -89,10 +80,6 @@ export function NoonFeeJournalMappingPanel({
       setUndepositedName(
         `${undep.accountName}${undep.accountCode ? ` (${undep.accountCode})` : ''}`
       )
-    }
-    if (data.unclearedShippingAccount?.accountName) {
-      const s = data.unclearedShippingAccount
-      setShippingClearingName(`${s.accountName}${s.accountCode ? ` (${s.accountCode})` : ''}`)
     }
     const vat = data.inputVatAccount || null
     setInputVat(vat)
@@ -209,17 +196,22 @@ export function NoonFeeJournalMappingPanel({
     inputVat?.accountName ||
     inputVat?.inputVatAccountName ||
     'Input VAT - All Except Basmat Goods WH (1085)'
-  const isShippingFee = /FULFILL|SHIP|PARENT_ORDER/i.test(feeType)
-  const exampleClearing = isShippingFee ? shippingClearingName : undepositedName
 
   return (
     <div className="npc-step-stack">
       <div className={unmappedCount ? 'npc-alert npc-alert--error' : 'npc-alert'}>
-        <strong>How Noon fees are split</strong>
-        <div style={{ marginTop: 8 }}>
-          Noon charges a <strong>Gross</strong> amount that already includes 5% VAT. We split it before
-          posting:
-        </div>
+        <strong>Amazon-style first entry</strong>
+        <ul style={{ margin: '8px 0 0', paddingLeft: '1.2rem' }}>
+          <li>
+            Commission and shipping/fulfillment → invoice <strong>Record Payments</strong> to uncleared
+            accounts (1067 / 1068). Not expense journals in this step.
+          </li>
+          <li>
+            Statement fees (Advertising) → fee journals here: Gross split into Expense after VAT + Input VAT,
+            credit {undepositedName}.
+          </li>
+          <li>Later (separate): uncleared → true Shipping Exp / Commission Exp.</li>
+        </ul>
         <table className="npc-table" style={{ marginTop: 10, maxWidth: 520 }}>
           <thead>
             <tr>
@@ -247,8 +239,7 @@ export function NoonFeeJournalMappingPanel({
           </tbody>
         </table>
         <div className="npc-muted" style={{ marginTop: 8 }}>
-          Credit side (automatic): Advertising → {undepositedName}. Shipping/logistics →{' '}
-          {shippingClearingName}.
+          Credit side (automatic): {undepositedName}.
         </div>
       </div>
 
@@ -283,8 +274,8 @@ export function NoonFeeJournalMappingPanel({
           {editingId ? '2. Edit: where does the expense (after VAT) go?' : '2. Where does the expense (after VAT) go?'}
         </h3>
         <p className="npc-muted" style={{ marginTop: 0 }}>
-          Pick the fee type, then the Zoho <strong>expense</strong> account for the amount after VAT is
-          removed (1,913.92 in the example — not the full 2,009.62).
+          Statement fees only (Advertising). Pick the Zoho <strong>expense</strong> account for the amount
+          after VAT is removed (1,913.92 in the example — not the full 2,009.62).
         </p>
         <div className="npc-actions" style={{ alignItems: 'flex-end', flexWrap: 'wrap', gap: '0.75rem' }}>
           <label className="ainv-label">
@@ -352,7 +343,7 @@ export function NoonFeeJournalMappingPanel({
                 </tr>
                 <tr>
                   <td>Credit</td>
-                  <td>{exampleClearing} (gross)</td>
+                  <td>{undepositedName} (gross)</td>
                   <td className="npc-money">2,009.62</td>
                 </tr>
               </tbody>
@@ -423,7 +414,7 @@ export function NoonFeeJournalMappingPanel({
         </table>
       </div>
 
-      <h3>Fees on this statement</h3>
+      <h3>Statement fee journals on this settlement</h3>
       <div className="npc-table-wrap">
         <table className="npc-table">
           <thead>
@@ -500,7 +491,7 @@ export function NoonFeeJournalMappingPanel({
             {feeLines.length === 0 ? (
               <tr>
                 <td colSpan={5} className="npc-empty">
-                  No fee journal lines on this statement.
+                  No statement fee journals on this settlement. Commission and shipping clear via invoice payments.
                 </td>
               </tr>
             ) : null}

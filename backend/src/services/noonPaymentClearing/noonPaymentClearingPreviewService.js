@@ -7,6 +7,7 @@ const {
   accountingTreatmentForFeeRow,
   reclassifyExplainableOtherRows,
   feeMappingTypeCandidates,
+  isSettlementFeeJournalRow,
 } = require('./noonPaymentClearingCategoryService')
 const { buildNoonOrderHierarchy } = require('./noonPaymentClearingHierarchyService')
 const {
@@ -133,12 +134,9 @@ function resolveClearingForFeeType(feeType) {
 function buildFeeJournalPreviewLines(rows, mappingRules = [], inputVatAccount = null) {
   const cfg = getNoonPaymentClearingMarketplaceConfig()
   const vatAcct = normalizeInputVatAccount(inputVatAccount, cfg.vatRate || DEFAULT_VAT_RATE)
-  const journalRows = (Array.isArray(rows) ? rows : []).filter(
-    (row) =>
-      row.rowClass === ROW_CLASS.STATEMENT_FEE ||
-      row.rowClass === ROW_CLASS.PARENT_ORDER_CHARGE ||
-      (row.rowClass === ROW_CLASS.ORDER_ADJUSTMENT && Math.abs(num(row.total)) >= 0.01)
-  )
+  // Amazon KSA parallel: order-linked commission/shipping stay on uncleared via
+  // Record Payments. Settlement fee journals are statement-level (advertising) only.
+  const journalRows = (Array.isArray(rows) ? rows : []).filter((row) => isSettlementFeeJournalRow(row))
   return journalRows.map((row, idx) => {
     const feeType = row.normalizedFeeType || 'OTHER'
     const rule = findFeeMappingRule(mappingRules, feeType)

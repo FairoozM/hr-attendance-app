@@ -13,14 +13,17 @@ function accountFromEnv(prefix, defaults) {
 /**
  * Noon AE payment clearing — Amazon-KSA parallel account roles.
  *
- * Invoice Record Payments (customer = Noon):
- *   net → 1066 Undeposited
- *   commission/referral → 1067 Uncleared Commission 14%
- *   shipping/fulfillment → 1068 Uncleared Shipping Charges
+ * First Zoho writes (this settlement):
+ *   Invoice Record Payments (customer = Noon):
+ *     net → 1066 Undeposited
+ *     commission/referral → 1067 Uncleared Commission 14%
+ *     shipping/fulfillment (sale + assigned parent logistics) → 1068 Uncleared Shipping
+ *   Fee journals (statement-level only, e.g. advertising):
+ *     Advertising → Dr 2053 (+ Input VAT 1085) / Cr 1066
  *
- * Fee journals (no customer_id on journal lines — Amazon-style):
- *   Advertising → Dr 2053 (+ Input VAT 1085) / Cr 1066
- *   Shipping/fulfillment fees → Dr 2162 (+ Input VAT 1085) / Cr 1068
+ * Later (separate / manual — not auto-posted here):
+ *   1067 → 2143 commission expense
+ *   1068 → 2162 shipping expense
  */
 function getNoonPaymentClearingMarketplaceConfig() {
   const undepositedFunds = accountFromEnv('NOON_AE_ZOHO_UNDEPOSITED_FUNDS_ACCOUNT', {
@@ -109,8 +112,8 @@ function getNoonPaymentClearingMarketplaceConfig() {
       },
     },
     /**
-     * Suggested net-expense CoA per fee type (Amazon feeJournalAccountSuggestions parallel).
-     * Counter side is resolved separately by fee type (see getNoonFeeJournalCounterAccount).
+     * Settlement fee-journal mapping suggestions (statement-level only).
+     * Commission/shipping expense codes 2143/2162 are later-reclass targets, not first-post journals.
      */
     feeJournalAccountSuggestions: [
       {
@@ -128,37 +131,9 @@ function getNoonPaymentClearingMarketplaceConfig() {
         creditAccountCode: undepositedFunds.accountCode,
       },
       {
-        normalizedFeeType: 'FULFILLMENT',
-        zohoAccountName: shippingExpense.accountName,
-        zohoAccountCode: shippingExpense.accountCode,
-        creditAccountName: unclearedShipping.accountName,
-        creditAccountCode: unclearedShipping.accountCode,
-      },
-      {
-        normalizedFeeType: 'SHIPPING',
-        zohoAccountName: shippingExpense.accountName,
-        zohoAccountCode: shippingExpense.accountCode,
-        creditAccountName: unclearedShipping.accountName,
-        creditAccountCode: unclearedShipping.accountCode,
-      },
-      {
-        normalizedFeeType: 'PARENT_ORDER_CHARGE',
-        zohoAccountName: shippingExpense.accountName,
-        zohoAccountCode: shippingExpense.accountCode,
-        creditAccountName: unclearedShipping.accountName,
-        creditAccountCode: unclearedShipping.accountCode,
-      },
-      {
         normalizedFeeType: 'STATEMENT_FEE',
         zohoAccountName: advertisingExpense.accountName,
         zohoAccountCode: advertisingExpense.accountCode,
-        creditAccountName: undepositedFunds.accountName,
-        creditAccountCode: undepositedFunds.accountCode,
-      },
-      {
-        normalizedFeeType: 'ORDER_ADJUSTMENT',
-        zohoAccountName: shippingExpense.accountName,
-        zohoAccountCode: shippingExpense.accountCode,
         creditAccountName: undepositedFunds.accountName,
         creditAccountCode: undepositedFunds.accountCode,
       },
@@ -173,16 +148,18 @@ function getNoonPaymentClearingMarketplaceConfig() {
 }
 
 /**
- * Amazon-style fee-journal counter (credit for expenses / debit for reversals).
- * Advertising → Undeposited 1066
- * Shipping/fulfillment → Uncleared Shipping 1068
- * Default → Undeposited 1066
+ * Settlement fee-journal counter (credit for expenses / debit for reversals).
+ * Advertising / statement fees → Undeposited 1066
+ * (Commission/shipping uncleared counters are for later reclass journals only.)
  */
 function getNoonFeeJournalCounterAccount(feeType, cfg = null) {
   const config = cfg || getNoonPaymentClearingMarketplaceConfig()
   const t = String(feeType || '')
     .trim()
     .toUpperCase()
+  if (t.includes('COMMISSION') || t.includes('REFERRAL')) {
+    return { ...config.unclearedCommissionAccount, role: 'uncleared_commission' }
+  }
   if (
     t === 'FULFILLMENT' ||
     t === 'SHIPPING' ||
@@ -191,9 +168,6 @@ function getNoonFeeJournalCounterAccount(feeType, cfg = null) {
     t.includes('FULFILL')
   ) {
     return { ...config.unclearedShippingAccount, role: 'uncleared_shipping' }
-  }
-  if (t.includes('COMMISSION') || t.includes('REFERRAL')) {
-    return { ...config.unclearedCommissionAccount, role: 'uncleared_commission' }
   }
   return { ...config.undepositedFundsAccount, role: 'undeposited' }
 }

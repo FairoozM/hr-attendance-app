@@ -570,10 +570,12 @@ describe('acceptance: NAEI70003640128 parent / children / parent charge', () => 
     assert.equal(advLine.lineItems[1].amount, 95.7)
     assert.equal(advLine.lineItems[2].accountName, 'Noon Undeposited Funds')
     assert.equal(advLine.lineItems[2].amount, 2009.62)
-    const shipLine = preview.feeJournalLines.find((l) => l.normalizedFeeType === 'FULFILLMENT' || l.rowClass === 'parent_order_charge')
-    assert.ok(shipLine)
-    assert.equal(shipLine.credit.accountName, 'Noon Uncleared Shipping Charges')
-    assert.equal(shipLine.credit.accountCode, '1068')
+    // Parent fulfillment is NOT a settlement fee journal — clears via invoice payment to 1068.
+    assert.ok(
+      !preview.feeJournalLines.some(
+        (l) => l.normalizedFeeType === 'FULFILLMENT' || l.rowClass === 'parent_order_charge'
+      )
+    )
     assert.match(advLine.previewNote, /No invoice required/i)
     assert.ok(!preview.blockingIssues.some((i) => i.code === 'UNEXPLAINED_OTHER'))
 
@@ -593,17 +595,27 @@ describe('acceptance: NAEI70003640128 parent / children / parent charge', () => 
     assert.ok(paymentPreview.invoicePayments.every((p) => p.itemOrderId.includes('-')))
     assert.ok(paymentPreview.parentLevelCharges.length >= 1)
     assert.ok(paymentPreview.statementLevelCharges.length >= 1)
-    const parentJournal = paymentPreview.parentLevelCharges[0]
-    assert.equal(parentJournal.assignedItemOrderId, 'NAEI70003640128-1')
-    assert.match(String(parentJournal.previewNote || ''), /Cleared via: NAEI70003640128-1/)
-    // Parent charge must not appear as an invoice payment allocation / must not be duplicated
-    assert.ok(!paymentPreview.invoicePayments.some((p) => p.itemOrderId === 'NAEI70003640128'))
+    const parentFolded = paymentPreview.parentLevelCharges[0]
+    assert.equal(parentFolded.assignedItemOrderId, 'NAEI70003640128-1')
+    assert.match(String(parentFolded.previewNote || ''), /Folded into invoice payment/i)
+    assert.equal(parentFolded.clearingPath, 'invoice_payment_uncleared')
+    // Parent charge must not appear as a fee journal
     assert.equal(
       paymentPreview.feeJournalLines.filter(
         (l) => l.rowNumber === parentCharge.rowNumber && l.rowClass === 'parent_order_charge'
       ).length,
-      1
+      0
     )
+    const child1 = paymentPreview.invoicePayments.find((p) => p.itemOrderId === 'NAEI70003640128-1')
+    assert.ok(child1)
+    // Parent fulfillment -15 + item order_update -5 → uncleared shipping payment
+    assert.equal(child1.fulfillmentPayment.amount, 20)
+    assert.equal(child1.parentLogisticsAddOn, 20)
+    assert.equal(child1.fulfillmentPayment.depositToAccountCode, '1068')
+    assert.equal(child1.commissionPayment.depositToAccountCode, '1067')
+    assert.equal(child1.netBalancePayment.depositToAccountCode, '1066')
+    // Parent charge must not appear as a fake parent-only invoice payment
+    assert.ok(!paymentPreview.invoicePayments.some((p) => p.itemOrderId === 'NAEI70003640128'))
     const flat = flattenInvoicePayments(paymentPreview)
     assert.ok(flat.every((r) => r.itemOrderId === 'NAEI70003640128-1' || r.itemOrderId === 'NAEI70003640128-2'))
   })
@@ -990,7 +1002,7 @@ describe('Noon VAT-inclusive service fees', () => {
     assert.equal(adv.credit.accountCode, '1066')
   })
 
-  it('builds fee journal preview with VAT accounts; shipping clears to 1068', () => {
+  it('does not build settlement fee journals for parent fulfillment (payment → 1068 instead)', () => {
     const lines = buildFeeJournalPreviewLines(
       [
         {
@@ -1000,6 +1012,7 @@ describe('Noon VAT-inclusive service fees', () => {
           title: 'PGSHIP',
           fulfillmentFee: -42.84,
           total: -42.84,
+          assignedItemOrderId: 'NAEI70003640128-1',
         },
       ],
       [
@@ -1012,13 +1025,7 @@ describe('Noon VAT-inclusive service fees', () => {
       ],
       NOON_INPUT_VAT
     )
-    assert.equal(lines[0].netExpense, -40.8)
-    assert.equal(lines[0].inputVatAmount, -2.04)
-    assert.equal(lines[0].vatBreakdown.expenseAccountId, 'ful-1')
-    assert.equal(lines[0].vatBreakdown.inputVatAccountId, 'vat-1')
-    assert.equal(lines[0].inputVatAccountId, 'vat-1')
-    assert.equal(lines[0].credit.accountName, 'Noon Uncleared Shipping Charges')
-    assert.equal(lines[0].credit.accountCode, '1068')
+    assert.equal(lines.length, 0)
   })
 })
 

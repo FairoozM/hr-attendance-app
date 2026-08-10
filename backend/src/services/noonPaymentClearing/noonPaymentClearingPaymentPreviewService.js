@@ -1,4 +1,10 @@
-const { round2, num, clean } = require('./noonPaymentClearingCategoryService')
+const {
+  round2,
+  num,
+  clean,
+  ROW_CLASS,
+  isUnclearedInvoicePaymentBucketRow,
+} = require('./noonPaymentClearingCategoryService')
 const { getNoonPaymentClearingMarketplaceConfig } = require('./noonPaymentClearingMarketplaceConfig')
 const { buildSettlementReference, buildEntryReference } = require('./noonPaymentClearingReferenceService')
 const { isNoonSettlementReconciliationAcceptable, RECONCILIATION_TOLERANCE } = require('./noonPaymentClearingReconciliationService')
@@ -43,11 +49,52 @@ function requireBatchForPaymentPreview(batch) {
   }
 }
 
-function buildInvoicePaymentPlan(item, accounts) {
+/**
+ * Parent / adjustment logistics assigned to a child invoice — add onto that child's
+ * Record Payment buckets (1067 commission / 1068 shipping), Amazon KSA style.
+ */
+function collectAssignedUnclearedPaymentAddOns(allRows = []) {
+  const byItem = new Map()
+  for (const row of Array.isArray(allRows) ? allRows : []) {
+    if (!isUnclearedInvoicePaymentBucketRow(row)) continue
+    const itemId = clean(row.assignedItemOrderId) || clean(row.itemOrderId)
+    if (!itemId) continue
+
+    const entry = byItem.get(itemId) || {
+      commission: 0,
+      fulfillment: 0,
+      sourceRowNumbers: [],
+    }
+
+    const referral = positiveAmount(row.referralFee)
+    let fulfillment = positiveAmount(
+      round2(
+        num(row.fulfillmentFee) +
+          num(row.shippingCharges) +
+          num(row.otherOrderFees) +
+          num(row.othersInclVat) +
+          num(row.orderSubsidies)
+      )
+    )
+    // Fee columns empty but total is a logistics/parent charge — use total.
+    if (referral === 0 && fulfillment === 0 && Math.abs(num(row.total)) >= 0.01) {
+      fulfillment = positiveAmount(row.total)
+    }
+
+    entry.commission = round2(entry.commission + referral)
+    entry.fulfillment = round2(entry.fulfillment + fulfillment)
+    entry.sourceRowNumbers.push(row.rowNumber)
+    byItem.set(itemId, entry)
+  }
+  return byItem
+}
+
+function buildInvoicePaymentPlan(item, accounts, addOns = null) {
   const netProceed = positiveAmount(item.netProceed)
-  const commission = positiveAmount(item.referralFee)
-  const fulfillmentShipping = positiveAmount(
-    round2(num(item.fulfillmentFee) + num(item.shippingCharges))
+  const commission = round2(positiveAmount(item.referralFee) + positiveAmount(addOns?.commission))
+  const fulfillmentShipping = round2(
+    positiveAmount(round2(num(item.fulfillmentFee) + num(item.shippingCharges))) +
+      positiveAmount(addOns?.fulfillment)
   )
   const netBalancePayment = {
     amount: netProceed,
@@ -81,6 +128,8 @@ function buildInvoicePaymentPlan(item, accounts) {
     netProceed,
     referralFee: commission,
     fulfillmentShipping,
+    parentLogisticsAddOn: positiveAmount(addOns?.fulfillment),
+    parentCommissionAddOn: positiveAmount(addOns?.commission),
     netBalancePayment,
     commissionPayment,
     fulfillmentPayment,
@@ -89,20 +138,49 @@ function buildInvoicePaymentPlan(item, accounts) {
   }
 }
 
+function buildFoldedUnclearedChargeSummaries(allRows = []) {
+  return (Array.isArray(allRows) ? allRows : [])
+    .filter((row) => isUnclearedInvoicePaymentBucketRow(row))
+    .map((row) => ({
+      rowNumber: row.rowNumber,
+      rowClass: row.rowClass,
+      feeType: row.normalizedFeeType || '',
+      displayLabel: row.displayLabel || row.title || '',
+      accountingTreatment: 'Invoice Record Payment → uncleared (first entry)',
+      signedAmount: round2(num(row.total)),
+      amount: Math.abs(round2(num(row.total))),
+      parentOrderId: clean(row.originalParentOrderId || row.parentOrderId),
+      assignedItemOrderId: clean(row.assignedItemOrderId) || clean(row.itemOrderId),
+      previewNote: clean(row.assignedItemOrderId)
+        ? `Folded into invoice payment for ${clean(row.assignedItemOrderId)} → uncleared GL`
+        : clean(row.itemOrderId)
+          ? `Cleared via invoice payment for ${clean(row.itemOrderId)} → uncleared GL`
+          : 'Uncleared via invoice payment (no child assignment)',
+      clearingPath: 'invoice_payment_uncleared',
+    }))
+}
+
 function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount = null) {
   requireBatchForPaymentPreview(batch)
   const cfg = getNoonPaymentClearingMarketplaceConfig()
   const accounts = cfg.paymentPreviewAccounts
   const matched = Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []
-  const invoicePayments = matched.map((item) => buildInvoicePaymentPlan(item, accounts))
+  const allRows = batch.allRows || []
+  const addOnsByItem = collectAssignedUnclearedPaymentAddOns(allRows)
+  const invoicePayments = matched.map((item) =>
+    buildInvoicePaymentPlan(item, accounts, addOnsByItem.get(clean(item.itemOrderId)) || null)
+  )
   const feeJournalLines = buildFeeJournalPreviewLines(
-    batch.allRows || [],
+    allRows,
     mappingRules,
     inputVatAccount || batch.inputVatAccount || null
   )
-  const parentChargeLines = feeJournalLines.filter((l) => l.rowClass === 'parent_order_charge')
+  const foldedUnclearedCharges = buildFoldedUnclearedChargeSummaries(allRows)
+  const parentChargeLines = foldedUnclearedCharges.filter((l) => l.rowClass === ROW_CLASS.PARENT_ORDER_CHARGE)
+  const adjustmentFolded = foldedUnclearedCharges.filter((l) => l.rowClass === ROW_CLASS.ORDER_ADJUSTMENT)
   const statementFeeLines = feeJournalLines.filter((l) => l.rowClass === 'statement_fee')
-  const adjustmentLines = feeJournalLines.filter((l) => l.rowClass === 'order_adjustment')
+  // Non-logistics adjustments that still journal (rare) stay as journal clearings.
+  const adjustmentJournalLines = feeJournalLines.filter((l) => l.rowClass === 'order_adjustment')
 
   const totalInvoicePayments = round2(invoicePayments.reduce((a, p) => a + p.totalClearingAmount, 0))
   const totalFeeJournals = round2(feeJournalLines.reduce((a, l) => a + l.amount, 0))
@@ -122,13 +200,15 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
     invoicePayments,
     parentLevelCharges: parentChargeLines,
     statementLevelCharges: statementFeeLines,
-    adjustmentClearings: adjustmentLines,
+    adjustmentClearings: [...adjustmentFolded, ...adjustmentJournalLines],
     feeJournalLines,
     summary: {
       invoicePaymentCount: invoicePayments.length,
       totalInvoicePayments,
       totalFeesJournals: totalFeeJournals,
-      totalAdjustments: round2(adjustmentLines.reduce((a, l) => a + l.amount, 0)),
+      totalAdjustments: round2(
+        [...adjustmentFolded, ...adjustmentJournalLines].reduce((a, l) => a + (Number(l.amount) || 0), 0)
+      ),
       expectedNoonSettlement: expectedSettlement,
       finalDifference: round2(
         expectedSettlement - round2(totalInvoicePayments - totalFeeJournals)
@@ -143,4 +223,5 @@ module.exports = {
   requireBatchForPaymentPreview,
   buildInvoicePaymentPlan,
   buildPaymentPreviewFromBatch,
+  collectAssignedUnclearedPaymentAddOns,
 }

@@ -325,7 +325,7 @@ export function NoonPaymentClearingPage() {
                 ? approvalBlockers[0]
                 : step.id === 9 &&
                     (preview?.feeJournalLines || []).some((l) => l.mappingStatus === 'needs_mapping')
-                  ? 'Map expense accounts for fee journals first.'
+                  ? 'Map statement fee expense accounts first (Advertising).'
                   : undefined
             }
             summary={
@@ -794,7 +794,7 @@ export function NoonPaymentClearingPage() {
                         <strong>{money(paymentPreview.summary.totalInvoicePayments)}</strong>
                       </div>
                       <div className="ainv-summary-card">
-                        <span>Fees / journals</span>
+                        <span>Statement fee journals</span>
                         <strong>{money(paymentPreview.summary.totalFeesJournals)}</strong>
                       </div>
                       <div className="ainv-summary-card">
@@ -802,17 +802,17 @@ export function NoonPaymentClearingPage() {
                         <strong>{money(paymentPreview.summary.expectedNoonSettlement)}</strong>
                       </div>
                     </div>
-                    <h3>Invoice payments (item-level)</h3>
+                    <h3>Invoice payments (Net 1066 / Commission 1067 / Shipping 1068)</h3>
                     <div className="npc-table-wrap">
                       <table className="npc-table">
                         <thead>
                           <tr>
                             <th>Item Order</th>
-                            <th>Parent</th>
-                            <th>SKU</th>
                             <th>Zoho Invoice</th>
-                            <th>Amount</th>
-                            <th>Action</th>
+                            <th>Net (1066)</th>
+                            <th>Commission (1067)</th>
+                            <th>Shipping / Fulfillment (1068)</th>
+                            <th>Total</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -820,20 +820,29 @@ export function NoonPaymentClearingPage() {
                             <tr key={p.itemOrderId}>
                               <td>
                                 <code className="npc-ref">{p.itemOrderId}</code>
+                                {p.parentLogisticsAddOn ? (
+                                  <div className="npc-muted">
+                                    incl. parent logistics {money(p.parentLogisticsAddOn)}
+                                  </div>
+                                ) : null}
                               </td>
-                              <td>
-                                <code className="npc-ref">{p.parentOrderId}</code>
-                              </td>
-                              <td>{p.sku || '—'}</td>
                               <td>{p.zohoInvoiceNumber}</td>
+                              <td className="npc-money">
+                                {money(p.netBalancePayment?.amount ?? p.netProceed)}
+                              </td>
+                              <td className="npc-money">
+                                {money(p.commissionPayment?.amount ?? p.referralFee)}
+                              </td>
+                              <td className="npc-money">
+                                {money(p.fulfillmentPayment?.amount ?? p.fulfillmentShipping)}
+                              </td>
                               <td className="npc-money">{money(p.totalClearingAmount)}</td>
-                              <td>{p.paymentAction}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
-                    <h3>Parent-level / statement charges (journals)</h3>
+                    <h3>Parent / adjustment logistics (folded into invoice payments → uncleared)</h3>
                     <div className="npc-table-wrap">
                       <table className="npc-table">
                         <thead>
@@ -846,10 +855,11 @@ export function NoonPaymentClearingPage() {
                         <tbody>
                           {[
                             ...(paymentPreview.parentLevelCharges || []),
-                            ...(paymentPreview.statementLevelCharges || []),
-                            ...(paymentPreview.adjustmentClearings || []),
+                            ...(paymentPreview.adjustmentClearings || []).filter(
+                              (line) => line.clearingPath === 'invoice_payment_uncleared'
+                            ),
                           ].map((line, idx) => (
-                            <tr key={idx}>
+                            <tr key={`folded-${idx}`}>
                               <td>
                                 <strong>{String(line.displayLabel || line.feeType || '')}</strong>
                                 {line.accountingTreatment ? (
@@ -868,6 +878,57 @@ export function NoonPaymentClearingPage() {
                               </td>
                             </tr>
                           ))}
+                          {(paymentPreview.parentLevelCharges || []).length === 0 &&
+                          (paymentPreview.adjustmentClearings || []).filter(
+                            (line) => line.clearingPath === 'invoice_payment_uncleared'
+                          ).length === 0 ? (
+                            <tr>
+                              <td colSpan={3} className="npc-empty">
+                                No parent/adjustment logistics folded into payments.
+                              </td>
+                            </tr>
+                          ) : null}
+                        </tbody>
+                      </table>
+                    </div>
+                    <h3>Statement fee journals (Advertising etc.)</h3>
+                    <div className="npc-table-wrap">
+                      <table className="npc-table">
+                        <thead>
+                          <tr>
+                            <th>Charge</th>
+                            <th>Amount</th>
+                            <th>Clearing detail</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(paymentPreview.statementLevelCharges || []).map((line, idx) => (
+                            <tr key={`stmt-${idx}`}>
+                              <td>
+                                <strong>{String(line.displayLabel || line.feeType || '')}</strong>
+                                {line.accountingTreatment ? (
+                                  <div className="npc-muted">{String(line.accountingTreatment)}</div>
+                                ) : null}
+                              </td>
+                              <td className="npc-money">
+                                {money(Number(line.signedAmount != null ? line.signedAmount : line.amount) || 0)}
+                              </td>
+                              <td>
+                                {line.previewNote ? (
+                                  <span className="npc-muted">{String(line.previewNote)}</span>
+                                ) : (
+                                  'Fee journal vs Undeposited Funds'
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                          {(paymentPreview.statementLevelCharges || []).length === 0 ? (
+                            <tr>
+                              <td colSpan={3} className="npc-empty">
+                                No statement fee journals.
+                              </td>
+                            </tr>
+                          ) : null}
                         </tbody>
                       </table>
                     </div>
