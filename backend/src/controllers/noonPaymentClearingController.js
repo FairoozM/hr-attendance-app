@@ -53,7 +53,7 @@ async function postPreviewUpload(req, res) {
     }
     // Async job — CloudFront origin timeout (~30s) cannot wait for Zoho matching.
     const { startPreviewUploadJob } = require('../services/noonPaymentClearing/noonPaymentClearingUploadJobService')
-    const job = startPreviewUploadJob({
+    const job = await startPreviewUploadJob({
       buffer: req.file.buffer,
       fileName: req.file.originalname || '',
       customerName: req.body?.zohoCustomerName || req.body?.customerName,
@@ -75,7 +75,7 @@ async function postPreviewUpload(req, res) {
 async function getPreviewUploadJob(req, res) {
   try {
     const { getPreviewUploadJob } = require('../services/noonPaymentClearing/noonPaymentClearingUploadJobService')
-    const job = getPreviewUploadJob(req.params.jobId)
+    const job = await getPreviewUploadJob(req.params.jobId)
     if (!job) {
       return res.status(404).json({
         success: false,
@@ -100,8 +100,16 @@ async function postApproveBatch(req, res) {
 
 async function postReconcileOpenBalances(req, res) {
   try {
-    const preview = await service.reconcileOpenBalances(req.params.id)
-    return res.json({ success: true, ...preview })
+    const { startReconcileOpenBalancesJob } = require('../services/noonPaymentClearing/noonPaymentClearingPostingJobService')
+    const job = await startReconcileOpenBalancesJob(req.params.id, { createdBy: userId(req) })
+    return res.status(202).json({
+      success: true,
+      async: true,
+      jobId: job.jobId,
+      status: job.status,
+      progress: job.progress,
+      batchId: job.batchId,
+    })
   } catch (err) {
     return sendError(res, err)
   }
@@ -123,7 +131,7 @@ async function postExcludeOpenBalanceShortfalls(req, res) {
 async function postPaymentPreview(req, res) {
   try {
     const { startPaymentPreviewJob } = require('../services/noonPaymentClearing/noonPaymentClearingPostingJobService')
-    const job = startPaymentPreviewJob(req.params.id, { createdBy: userId(req) })
+    const job = await startPaymentPreviewJob(req.params.id, { createdBy: userId(req) })
     return res.status(202).json({
       success: true,
       async: true,
@@ -149,7 +157,7 @@ async function postPostToZoho(req, res) {
       return res.json({ success: result.success !== false, ...result })
     }
     const { startPostToZohoJob } = require('../services/noonPaymentClearing/noonPaymentClearingPostingJobService')
-    const job = startPostToZohoJob(req.params.id, { postedBy: userId(req) })
+    const job = await startPostToZohoJob(req.params.id, { postedBy: userId(req) })
     return res.status(202).json({
       success: true,
       async: true,
@@ -166,7 +174,7 @@ async function postPostToZoho(req, res) {
 async function postForceRepost(req, res) {
   try {
     const { startForceRepostJob } = require('../services/noonPaymentClearing/noonPaymentClearingPostingJobService')
-    const job = startForceRepostJob(req.params.id, {
+    const job = await startForceRepostJob(req.params.id, {
       reason: req.body?.reason,
       actorUserId: userId(req),
     })
@@ -183,21 +191,25 @@ async function postForceRepost(req, res) {
   }
 }
 
-async function getPostingJob(req, res) {
+async function getClearingJob(req, res) {
   try {
     const { getPostingJob } = require('../services/noonPaymentClearing/noonPaymentClearingPostingJobService')
-    const job = getPostingJob(req.params.jobId)
+    const job = await getPostingJob(req.params.jobId)
     if (!job) {
       return res.status(404).json({
         success: false,
-        error: 'Posting job not found.',
-        code: 'NOON_PAYMENT_CLEARING_POSTING_JOB_NOT_FOUND',
+        error: 'Job not found.',
+        code: 'NOON_PAYMENT_CLEARING_JOB_NOT_FOUND',
       })
     }
     return res.json({ success: true, ...job })
   } catch (err) {
     return sendError(res, err)
   }
+}
+
+async function getPostingJob(req, res) {
+  return getClearingJob(req, res)
 }
 
 async function getFeeJournalMappings(req, res) {
@@ -321,6 +333,7 @@ module.exports = {
   postPaymentPreview,
   postPostToZoho,
   postForceRepost,
+  getClearingJob,
   getPostingJob,
   getFeeJournalMappings,
   postFeeJournalMapping,

@@ -378,15 +378,6 @@ export async function approveNoonPaymentClearingBatch(batchId: string | number) 
   return unwrap(data)
 }
 
-export async function reconcileNoonOpenBalances(batchId: string | number) {
-  const data = await api.post<{ success: boolean } & NoonPaymentClearingPreview>(
-    `${BASE}/batches/${batchId}/reconcile-open-balances`,
-    {},
-    longOpts
-  )
-  return unwrap(data)
-}
-
 export async function excludeNoonOpenBalanceShortfalls(
   batchId: string | number,
   body: { zohoInvoiceIds?: string[]; itemOrderIds?: string[]; restore?: boolean } = {}
@@ -436,7 +427,7 @@ async function pollNoonJob<T>(jobId: string, extract: (result: unknown) => T, jo
       result?: unknown
     }
     try {
-      job = await api.get(`${BASE}/posting-jobs/${encodeURIComponent(jobId)}`, longOpts)
+      job = await api.get(`${BASE}/jobs/${encodeURIComponent(jobId)}`, longOpts)
     } catch (err) {
       const status = Number((err as { status?: number })?.status) || 0
       lastPollError = (err as { message?: string })?.message || `HTTP ${status}`
@@ -487,6 +478,24 @@ async function pollNoonPaymentPreviewJob(jobId: string) {
       return r.paymentPreview
     },
     'payment preview'
+  )
+}
+
+export async function reconcileNoonOpenBalances(batchId: string | number) {
+  const started = await api.post<{
+    success: boolean
+    async?: boolean
+    jobId?: string
+    status?: string
+  } & NoonPaymentClearingPreview>(`${BASE}/batches/${batchId}/reconcile-open-balances`, {}, longOpts)
+
+  if (!started?.async || !started.jobId) {
+    return unwrap(started)
+  }
+  return pollNoonJob(
+    started.jobId,
+    (result) => unwrap({ success: true, ...(result as NoonPaymentClearingPreview) }),
+    'open balance check'
   )
 }
 

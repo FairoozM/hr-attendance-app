@@ -163,6 +163,28 @@ async function ensureNoonPaymentClearingTables() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `)
+  await query(`
+    CREATE TABLE IF NOT EXISTS noon_payment_clearing_jobs (
+      id UUID PRIMARY KEY,
+      batch_id BIGINT NULL REFERENCES noon_payment_clearing_batches(id) ON DELETE SET NULL,
+      kind VARCHAR(64) NOT NULL,
+      status VARCHAR(32) NOT NULL DEFAULT 'queued',
+      progress JSONB NOT NULL DEFAULT '{}'::jsonb,
+      result JSONB,
+      error TEXT,
+      created_by INTEGER NULL,
+      started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      completed_at TIMESTAMPTZ NULL
+    )
+  `)
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_noon_payment_clearing_jobs_batch
+     ON noon_payment_clearing_jobs (batch_id, started_at DESC)`
+  )
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_noon_payment_clearing_jobs_status
+     ON noon_payment_clearing_jobs (status, started_at DESC)`
+  )
   // Existing prod table may predate Input VAT columns — add them if missing.
   await query(`ALTER TABLE noon_payment_clearing_settings ADD COLUMN IF NOT EXISTS input_vat_account_id TEXT`)
   await query(`ALTER TABLE noon_payment_clearing_settings ADD COLUMN IF NOT EXISTS input_vat_account_name TEXT`)
@@ -952,6 +974,93 @@ async function withBatchPostingLock(batchId, fn) {
   }
 }
 
+function mapClearingJob(row) {
+  if (!row) return null
+  const status = String(row.status || 'queued')
+  return {
+    jobId: String(row.id),
+    batchId: row.batch_id != null ? Number(row.batch_id) : null,
+    kind: row.kind,
+    status,
+    progress: row.progress || {},
+    startedAt: row.started_at ? new Date(row.started_at).toISOString() : null,
+    completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
+    error: row.error || null,
+    result: status === 'completed' ? row.result : undefined,
+  }
+}
+
+async function findActiveClearingJobForBatch(batchId) {
+  await ensureNoonPaymentClearingTables()
+  const result = await query(
+    `SELECT * FROM noon_payment_clearing_jobs
+     WHERE batch_id = $1 AND status IN ('queued', 'running')
+     ORDER BY started_at DESC
+     LIMIT 1`,
+    [Number(batchId)]
+  )
+  return mapClearingJob(result.rows[0])
+}
+
+async function createClearingJob({ jobId, batchId, kind, createdBy, progress }) {
+  await ensureNoonPaymentClearingTables()
+  await query(
+    `INSERT INTO noon_payment_clearing_jobs (id, batch_id, kind, status, progress, created_by)
+     VALUES ($1, $2, $3, 'queued', $4::jsonb, $5)`,
+    [
+      jobId,
+      batchId == null ? null : Number(batchId),
+      kind,
+      JSON.stringify(progress || { step: 'Queued', current: 0, total: 3 }),
+      createdBy == null ? null : Number(createdBy),
+    ]
+  )
+  return getClearingJobById(jobId)
+}
+
+async function updateClearingJob(jobId, patch = {}) {
+  await ensureNoonPaymentClearingTables()
+  const sets = []
+  const vals = [jobId]
+  let i = 2
+  if (patch.status != null) {
+    sets.push(`status = $${i++}`)
+    vals.push(patch.status)
+  }
+  if (patch.progress != null) {
+    sets.push(`progress = $${i++}::jsonb`)
+    vals.push(JSON.stringify(patch.progress))
+  }
+  if (patch.result !== undefined) {
+    sets.push(`result = $${i++}::jsonb`)
+    vals.push(patch.result == null ? null : JSON.stringify(patch.result))
+  }
+  if (patch.error !== undefined) {
+    sets.push(`error = $${i++}`)
+    vals.push(patch.error)
+  }
+  if (patch.completedAt !== undefined) {
+    sets.push(`completed_at = $${i++}`)
+    vals.push(patch.completedAt)
+  }
+  if (patch.batchId !== undefined) {
+    sets.push(`batch_id = $${i++}`)
+    vals.push(patch.batchId == null ? null : Number(patch.batchId))
+  }
+  if (!sets.length) return getClearingJobById(jobId)
+  const result = await query(
+    `UPDATE noon_payment_clearing_jobs SET ${sets.join(', ')} WHERE id = $1 RETURNING *`,
+    vals
+  )
+  return mapClearingJob(result.rows[0])
+}
+
+async function getClearingJobById(jobId) {
+  await ensureNoonPaymentClearingTables()
+  const result = await query(`SELECT * FROM noon_payment_clearing_jobs WHERE id = $1`, [String(jobId)])
+  return mapClearingJob(result.rows[0])
+}
+
 module.exports = {
   ensureNoonPaymentClearingTables,
   findBatchByReference,
@@ -978,5 +1087,9 @@ module.exports = {
   clearPostingByGroupKey,
   insertAudit,
   withBatchPostingLock,
+  createClearingJob,
+  updateClearingJob,
+  getClearingJobById,
+  findActiveClearingJobForBatch,
   mapBatch,
 }

@@ -1,7 +1,7 @@
 const zohoPaymentService = require('../amazonPaymentClearingZohoPaymentService')
 const { fetchInvoicesByIds, invoiceBalanceDue } = require('../../integrations/zoho/zohoBooksClient')
 const { round2, clean } = require('./noonPaymentClearingCategoryService')
-const { buildPaymentPreviewFromBatch, PAYMENT_PREVIEW_TOLERANCE, assertNoInvoiceOverpayments, attachLiveZohoBalancesToPaymentPreview } = require('./noonPaymentClearingPaymentPreviewService')
+const { buildPaymentPreviewFromBatch, PAYMENT_PREVIEW_TOLERANCE, assertNoStatementOverpayments } = require('./noonPaymentClearingPaymentPreviewService')
 const { isNoonSettlementReconciliationAcceptable } = require('./noonPaymentClearingReconciliationService')
 const { buildSettlementReference, buildEntryReference, truncateZohoReference } = require('./noonPaymentClearingReferenceService')
 const store = require('./noonPaymentClearingStore')
@@ -175,7 +175,7 @@ async function ensureCanPostBatch(batch, paymentPreviewExists, options = {}) {
       throw err
     }
     if (options.paymentPreview) {
-      assertNoInvoiceOverpayments(options.paymentPreview)
+      assertNoStatementOverpayments(options.paymentPreview)
     }
   }
 }
@@ -530,12 +530,7 @@ async function postApprovedBatch({
     vatRate: inputVatAccount?.vatRate,
   })
   if (!dryRun) {
-    paymentPreview = await attachLiveZohoBalancesToPaymentPreview(paymentPreview)
-    try {
-      assertNoInvoiceOverpayments(paymentPreview)
-    } catch (err) {
-      await surfaceOpenBalanceBlockInStep6(batch, paymentPreview, err)
-    }
+    assertNoStatementOverpayments(paymentPreview)
   }
   const feeJournalLines = Array.isArray(paymentPreview.feeJournalLines) ? paymentPreview.feeJournalLines : []
   const unclearedReclassJournals = Array.isArray(paymentPreview.unclearedReclassJournals)
@@ -644,38 +639,25 @@ async function postApprovedBatch({
           })
         }
         if (round2(working.amount) < 0.01) {
-          result.summary.errors += 1
-          const error = {
+          result.summary.paymentsSkipped += 1
+          result.payments.push({
             ...row,
-            status: 'error',
-            error:
-              row.paymentType === PAYMENT_TYPES.FULFILLMENT_SHIPPING
-                ? 'Shipping payment (1068) is 0 after balance check — invoices already fully paid or no open balance. Void existing Noon payments for this statement in Zoho, then Force repost.'
-                : `Payment ${row.paymentType} is 0 after live invoice balance check. Void existing Zoho payments for this statement, then Force repost.`,
-            code: 'ZOHO_PAYMENT_NO_OPEN_BALANCE',
+            status: 'skipped',
+            reason:
+              'No open Zoho balance for this payment bucket (invoice(s) already paid or excluded in Step 6).',
             droppedAllocations: trimmed.dropped,
-          }
-          result.errors.push(error)
-          result.payments.push(error)
-          return { ok: false }
+          })
+          return { ok: true, skipped: true }
         }
-        // Existing Zoho payments still applied → open balance too small for this bucket.
         if (round2(working.amount) + 0.05 < round2(row.amount)) {
-          result.summary.errors += 1
-          const error = {
-            ...row,
-            status: 'error',
-            error:
-              `Open invoice balance only ${working.amount} but ${row.paymentType} needs ${round2(row.amount)}. ` +
-              `Void existing Noon payments for this statement in Zoho (net/commission/shipping), then Force repost.`,
-            code: 'ZOHO_PAYMENT_BALANCE_SHORT',
+          result.payments.push({
+            paymentType: row.paymentType,
+            status: 'warning',
+            reason: `Posting ${round2(working.amount)} of planned ${round2(row.amount)} — some invoices had no open balance`,
             plannedAmount: round2(row.amount),
             openBalanceAmount: round2(working.amount),
             droppedAllocations: trimmed.dropped,
-          }
-          result.errors.push(error)
-          result.payments.push(error)
-          return { ok: false }
+          })
         }
       }
 
@@ -988,25 +970,6 @@ async function forceRepostBatch({
     err.code = 'NOON_PAYMENT_CLEARING_FORCE_REPOST_REASON'
     err.status = 422
     throw err
-  }
-  // Check live Zoho balances BEFORE wiping local posted state. A late block used to
-  // leave the batch marked un-posted while Zoho still held the payments.
-  {
-    const previewForCheck = buildPaymentPreviewFromBatch(batch, mappingRules, inputVatAccount, {
-      commissionExpenseAccount,
-      shippingExpenseAccount,
-      unclearedCommissionAccount,
-      unclearedShippingAccount,
-      inputVatAccount,
-      paymentPreviewAccounts: marketplaceConfig?.paymentPreviewAccounts,
-      vatRate: inputVatAccount?.vatRate,
-    })
-    const withBalances = await attachLiveZohoBalancesToPaymentPreview(previewForCheck)
-    try {
-      assertNoInvoiceOverpayments(withBalances)
-    } catch (err) {
-      await surfaceOpenBalanceBlockInStep6(batch, withBalances, err)
-    }
   }
   const prior = await store.listPostingsForBatch(batch.batchId)
   await store.insertAudit({

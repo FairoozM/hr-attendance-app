@@ -251,33 +251,35 @@ function collectInvoiceOverpayments(invoicePayments = []) {
     }))
 }
 
-function assertNoInvoiceOverpayments(paymentPreview) {
+function assertNoStatementOverpayments(paymentPreview) {
   const overpayments = Array.isArray(paymentPreview?.invoiceOverpayments)
     ? paymentPreview.invoiceOverpayments
     : collectInvoiceOverpayments(paymentPreview?.invoicePayments)
+  if (!overpayments.length) return
+  const sample = overpayments
+    .slice(0, 5)
+    .map(
+      (o) =>
+        `${o.zohoInvoiceNumber || o.itemOrderId}: clearing ${o.totalClearingAmount} > invoice ${o.invoiceTotal} (over by ${o.overBy})`
+    )
+    .join('; ')
+  const more = overpayments.length > 5 ? ` (+${overpayments.length - 5} more)` : ''
+  const err = new Error(
+    `Payment preview blocked: ${overpayments.length} invoice(s) have payments totaling more than the Zoho invoice. Fix statement matching / parent logistics in Step 6. ${sample}${more}`
+  )
+  err.code = 'NOON_PAYMENT_CLEARING_INVOICE_OVERPAYMENT'
+  err.status = 422
+  err.details = { invoiceOverpayments: overpayments }
+  throw err
+}
+
+/** @deprecated Open-balance issues are gated in Step 6 only — use assertNoStatementOverpayments for invoice-total checks. */
+function assertNoInvoiceOverpayments(paymentPreview) {
+  assertNoStatementOverpayments(paymentPreview)
   const balanceShortfalls = Array.isArray(paymentPreview?.invoiceBalanceShortfalls)
     ? paymentPreview.invoiceBalanceShortfalls
     : []
-  if (!overpayments.length && !balanceShortfalls.length) return
-
-  if (overpayments.length) {
-    const sample = overpayments
-      .slice(0, 5)
-      .map(
-        (o) =>
-          `${o.zohoInvoiceNumber || o.itemOrderId}: clearing ${o.totalClearingAmount} > invoice ${o.invoiceTotal} (over by ${o.overBy})`
-      )
-      .join('; ')
-    const more = overpayments.length > 5 ? ` (+${overpayments.length - 5} more)` : ''
-    const err = new Error(
-      `Payment preview blocked: ${overpayments.length} invoice(s) have payments totaling more than the Zoho invoice. Fix statement matching / parent logistics before posting. ${sample}${more}`
-    )
-    err.code = 'NOON_PAYMENT_CLEARING_INVOICE_OVERPAYMENT'
-    err.status = 422
-    err.details = { invoiceOverpayments: overpayments, invoiceBalanceShortfalls: balanceShortfalls }
-    throw err
-  }
-
+  if (!balanceShortfalls.length) return
   const sample = balanceShortfalls
     .slice(0, 5)
     .map(
@@ -287,7 +289,7 @@ function assertNoInvoiceOverpayments(paymentPreview) {
     .join('; ')
   const more = balanceShortfalls.length > 5 ? ` (+${balanceShortfalls.length - 5} more)` : ''
   const err = new Error(
-    `Payment preview blocked: ${balanceShortfalls.length} invoice(s) do not have enough open Zoho balance for these payments (already paid / partial payments). Void existing Noon payments for this statement in Zoho, fix orphan logistics, then Generate payment preview again. ${sample}${more}`
+    `Payment preview blocked: ${balanceShortfalls.length} invoice(s) do not have enough open Zoho balance. Fix in Step 6 (exclude already-paid logistics). ${sample}${more}`
   )
   err.code = 'NOON_PAYMENT_CLEARING_INVOICE_BALANCE_SHORT'
   err.status = 422
@@ -495,6 +497,7 @@ module.exports = {
   collectAssignedUnclearedPaymentAddOns,
   collectPlanExclusions,
   collectInvoiceOverpayments,
+  assertNoStatementOverpayments,
   assertNoInvoiceOverpayments,
   annotateInvoicePaymentsWithLiveBalances,
   attachLiveZohoBalancesToPaymentPreview,
