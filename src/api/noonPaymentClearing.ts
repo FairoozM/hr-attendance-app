@@ -295,12 +295,38 @@ export async function previewNoonStatementUpload(file: File, zohoCustomerName: s
   form.append('file', file)
   form.append('zohoCustomerName', zohoCustomerName)
   form.append('allowMatchFailure', 'true')
-  const data = await api.postForm<NoonPaymentClearingPreview & { success: boolean }>(
-    `${BASE}/preview-upload`,
-    form,
-    longOpts
-  )
-  return unwrap(data)
+  const started = await api.postForm<{
+    success: boolean
+    async?: boolean
+    jobId?: string
+    status?: string
+    progress?: { step?: string; current?: number; total?: number }
+  } & NoonPaymentClearingPreview>(`${BASE}/preview-upload`, form, longOpts)
+
+  // Legacy sync response (no job) — keep working if an older backend is hit.
+  if (!started?.async || !started.jobId) {
+    return unwrap(started as NoonPaymentClearingPreview & { success: boolean })
+  }
+
+  const deadline = Date.now() + longOpts.timeoutMs
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    const job = await api.get<{
+      success: boolean
+      status?: string
+      error?: string
+      progress?: { step?: string; current?: number; total?: number }
+      result?: NoonPaymentClearingPreview
+    }>(`${BASE}/preview-upload/jobs/${encodeURIComponent(started.jobId)}`, longOpts)
+
+    if (job.status === 'completed' && job.result) {
+      return unwrap({ success: true, ...job.result })
+    }
+    if (job.status === 'failed') {
+      throw new Error(job.error || 'Noon statement upload failed')
+    }
+  }
+  throw new Error('Noon statement upload timed out while matching Zoho invoices. Re-open the batch from Saved if it finished server-side.')
 }
 
 export async function approveNoonPaymentClearingBatch(batchId: string | number) {

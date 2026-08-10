@@ -51,12 +51,39 @@ async function postPreviewUpload(req, res) {
         code: 'NOON_PAYMENT_CLEARING_UPLOAD_REQUIRED',
       })
     }
-    const preview = await service.buildPreviewFromUpload(req.file.buffer, req.file.originalname || '', {
+    // Async job — CloudFront origin timeout (~30s) cannot wait for Zoho matching.
+    const { startPreviewUploadJob } = require('../services/noonPaymentClearing/noonPaymentClearingUploadJobService')
+    const job = startPreviewUploadJob({
+      buffer: req.file.buffer,
+      fileName: req.file.originalname || '',
       customerName: req.body?.zohoCustomerName || req.body?.customerName,
       createdBy: userId(req),
       allowMatchFailure: String(req.body?.allowMatchFailure || '') === 'true',
     })
-    return res.json({ success: true, ...preview })
+    return res.status(202).json({
+      success: true,
+      async: true,
+      jobId: job.jobId,
+      status: job.status,
+      progress: job.progress,
+    })
+  } catch (err) {
+    return sendError(res, err)
+  }
+}
+
+async function getPreviewUploadJob(req, res) {
+  try {
+    const { getPreviewUploadJob } = require('../services/noonPaymentClearing/noonPaymentClearingUploadJobService')
+    const job = getPreviewUploadJob(req.params.jobId)
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Upload job not found.',
+        code: 'NOON_PAYMENT_CLEARING_UPLOAD_JOB_NOT_FOUND',
+      })
+    }
+    return res.json({ success: true, ...job })
   } catch (err) {
     return sendError(res, err)
   }
@@ -219,6 +246,7 @@ module.exports = {
   getSavedBatches,
   getBatch,
   postPreviewUpload,
+  getPreviewUploadJob,
   postApproveBatch,
   postPaymentPreview,
   postPostToZoho,

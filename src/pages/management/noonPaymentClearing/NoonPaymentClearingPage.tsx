@@ -169,7 +169,7 @@ export function NoonPaymentClearingPage() {
     if (!file) return
     setLoading(true)
     setError('')
-    setNotice('')
+    setNotice('Uploading statement… matching Zoho invoices in the background (avoids CloudFront timeout).')
     try {
       const data = await previewNoonStatementUpload(file, zohoCustomerName)
       setPreview(data)
@@ -180,6 +180,7 @@ export function NoonPaymentClearingPage() {
       setNotice(`Loaded statement batch #${data.batchId}`)
     } catch (err) {
       setError(safeError(err))
+      setNotice('')
     } finally {
       setLoading(false)
       if (fileRef.current) fileRef.current.value = ''
@@ -293,8 +294,9 @@ export function NoonPaymentClearingPage() {
       </header>
 
       <div className="npc-alert" role="note">
-        Zoho posting is guarded. Invoice payments use <strong>item-level</strong> Noon IDs only. Parent-order and
-        statement fees are journals — never missing invoices.
+        Zoho posting is guarded. Invoice payments use <strong>item-level</strong> Noon IDs only and split to
+        Undeposited (1066), Uncleared Commission (1067), and Uncleared Shipping (1068). Statement fees
+        (Advertising) are journals — parent logistics fold into invoice payments, never missing invoices.
       </div>
 
       {notice ? (
