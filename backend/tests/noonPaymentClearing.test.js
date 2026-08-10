@@ -1665,7 +1665,24 @@ describe('open balance reconcile', () => {
     assert.equal(invoiceBalanceShortfalls[0].overBy, 10)
   })
 
-  it('still lists excluded invoices in excludedShortfalls after reconcile', async () => {
+  it('does not treat a missing Zoho invoice as a zero-balance shortfall', () => {
+    const { annotateInvoicePaymentsWithLiveBalances } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+    const { invoiceBalanceShortfalls } = annotateInvoicePaymentsWithLiveBalances(
+      [
+        {
+          itemOrderId: 'NAEI-1',
+          zohoInvoiceId: 'inv-missing',
+          zohoInvoiceNumber: 'INV-042200',
+          invoiceTotal: 190,
+          totalClearingAmount: 190,
+        },
+      ],
+      new Map()
+    )
+    assert.equal(invoiceBalanceShortfalls.length, 0)
+  })
+
+  it('still lists excluded invoices in excludedShortfalls after reconcile', () => {
     const {
       aggregatePaymentPlansByInvoice,
       buildInvoicePaymentPlansFromBatch,

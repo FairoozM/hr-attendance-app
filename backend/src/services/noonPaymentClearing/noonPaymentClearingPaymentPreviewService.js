@@ -383,22 +383,6 @@ function annotateInvoicePaymentsWithLiveBalances(invoicePayments = [], invoiceBy
             ? 'Zoho invoice has zero open balance (already paid) — cannot clear shipping/commission onto it'
             : 'Planned payments exceed live Zoho balance due',
       })
-    } else if (invId && clearing >= 0.01 && !invoice) {
-      balanceShortfalls.push({
-        itemOrderId: p.itemOrderId || '',
-        zohoInvoiceId: invId,
-        zohoInvoiceNumber: p.zohoInvoiceNumber || '',
-        invoiceTotal: positiveAmount(p.invoiceTotal),
-        openBalance: null,
-        totalClearingAmount: clearing,
-        overBy: clearing,
-        netBalance: positiveAmount(p.netBalancePayment?.amount ?? p.invoiceClearingNetBalance),
-        commission: positiveAmount(p.commissionPayment?.amount ?? p.referralFee),
-        shipping: positiveAmount(p.fulfillmentPayment?.amount ?? p.fulfillmentShipping),
-        parentLogisticsAddOn: positiveAmount(p.parentLogisticsAddOn),
-        reason: 'Could not fetch Zoho invoice — cannot verify open balance',
-      })
-      next.balanceCheckMissingInvoice = true
     }
     return next
   })

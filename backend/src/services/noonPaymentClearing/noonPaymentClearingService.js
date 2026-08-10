@@ -27,9 +27,39 @@ const {
 } = require('./noonPaymentClearingPostingService')
 const { clean, matchKey } = require('./noonOrderIdHelper')
 const { ROW_CLASS } = require('./noonPaymentClearingCategoryService')
-const { fetchInvoicesByIds } = require('../../integrations/zoho/zohoBooksClient')
+const { fetchInvoicesByIds, fetchInvoices } = require('../../integrations/zoho/zohoBooksClient')
+const { deriveInvoiceRange } = require('./noonPaymentClearingZohoMatcher')
 
 const OPEN_BALANCE_CHECK_MAX_AGE_MS = 60 * 60 * 1000
+
+function isPseudoFetchShortfall(shortfall) {
+  return String(shortfall?.reason || '').includes('Could not fetch Zoho invoice')
+}
+
+/** Batched by-id fetch, then customer invoice list for any still missing. */
+async function fetchNoonInvoiceBalancesForBatch(batch, invoiceIds = []) {
+  const ids = [...new Set((Array.isArray(invoiceIds) ? invoiceIds : []).map(clean).filter(Boolean))]
+  const map = await fetchInvoicesByIds(ids, { concurrency: 5, retries: 2 })
+  const missing = ids.filter((id) => !map.has(clean(id)))
+  if (!missing.length) return map
+
+  const customerId = clean(batch?.zohoCustomerId)
+  if (!customerId) return map
+
+  try {
+    const range = deriveInvoiceRange(batch?.allRows || [])
+    const fetched = await fetchInvoices(range.fromDate, range.toDate, customerId)
+    const rows = Array.isArray(fetched?.rows) ? fetched.rows : []
+    const need = new Set(missing.map(clean))
+    for (const inv of rows) {
+      const id = clean(inv.invoice_id || inv.id)
+      if (id && need.has(id)) map.set(id, inv)
+    }
+  } catch (err) {
+    console.warn('[noon-payment-clearing] invoice list fallback for balances failed:', err?.message || err)
+  }
+  return map
+}
 
 async function resolveAccountByCodeOrName(target) {
   const code = clean(target?.accountCode)
@@ -267,7 +297,7 @@ async function reconcileOpenBalances(batchId) {
   let invoiceById = new Map()
   let fetchWarning = ''
   try {
-    invoiceById = await fetchInvoicesByIds(ids)
+    invoiceById = await fetchNoonInvoiceBalancesForBatch(batch, ids)
   } catch (err) {
     fetchWarning = err?.message || 'Could not fetch Zoho invoice balances'
   }
@@ -287,8 +317,9 @@ async function reconcileOpenBalances(batchId) {
     else activeByKey.set(shortfallKey(s), entry)
   }
 
-  // If Zoho fetch missed an invoice, keep the previous row instead of silently clearing it.
+  // If Zoho fetch missed an invoice, keep a prior real shortfall — never resurrect fetch-failure noise.
   for (const s of [...prevShortfalls, ...prevExcludedShortfalls]) {
+    if (isPseudoFetchShortfall(s)) continue
     const invId = clean(s.zohoInvoiceId)
     if (!invId || !unfetchedIds.has(invId)) continue
     const entry = { ...s, reason: s.reason || 'Could not re-fetch Zoho invoice — showing last known shortfall' }
@@ -305,7 +336,9 @@ async function reconcileOpenBalances(batchId) {
   const warnings = []
   if (fetchWarning) warnings.push(fetchWarning)
   if (unfetchedIds.size) {
-    warnings.push(`Could not fetch ${unfetchedIds.size} Zoho invoice(s) for balance check.`)
+    warnings.push(
+      `Could not verify open balance for ${unfetchedIds.size} invoice(s) — those rows are not blocking. Retry the check or fix Zoho access.`
+    )
   }
 
   const blockingIssues = (batch.blockingIssues || []).filter((i) => i.code !== 'OPEN_BALANCE_SHORT')
@@ -670,7 +703,9 @@ function getActiveOpenBalanceShortfalls(batch) {
   const shortfalls = batch?.reportSnapshot?.openBalanceReconcile?.shortfalls || []
   const excludedInvoiceIds = collectExcludedInvoiceIds(batch)
   const excludedItemOrderIds = collectExcludedItemOrderIds(batch)
-  return shortfalls.filter((s) => !isExcludedShortfall(s, excludedInvoiceIds, excludedItemOrderIds))
+  return shortfalls.filter(
+    (s) => !isPseudoFetchShortfall(s) && !isExcludedShortfall(s, excludedInvoiceIds, excludedItemOrderIds)
+  )
 }
 
 function validateBatchReadyForApproval(batch) {

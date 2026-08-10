@@ -277,19 +277,42 @@ async function fetchInvoiceById(invoiceId) {
   return json?.invoice || json || null
 }
 
+async function fetchInvoiceByIdWithRetry(invoiceId, retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fetchInvoiceById(invoiceId)
+    } catch (err) {
+      const status = Number(err?.status || err?.statusCode || 0)
+      const retryable = !status || status === 408 || status === 429 || status >= 500
+      if (!retryable || attempt >= retries) return null
+      await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)))
+    }
+  }
+  return null
+}
+
 /**
  * Fetch multiple invoices by id in parallel for payment balance checks.
  * @param {string[]} invoiceIds
+ * @param {{ concurrency?: number, retries?: number }} [options]
  * @returns {Promise<Map<string, object>>}
  */
-async function fetchInvoicesByIds(invoiceIds) {
+async function fetchInvoicesByIds(invoiceIds, options = {}) {
   const ids = [...new Set((Array.isArray(invoiceIds) ? invoiceIds : []).map(clean).filter(Boolean))]
-  const rows = await Promise.all(ids.map((id) => fetchInvoiceById(id).catch(() => null)))
+  const concurrency = Math.max(1, Math.min(Number(options.concurrency) || 5, 10))
+  const retries = Number.isFinite(Number(options.retries)) ? Number(options.retries) : 2
   const out = new Map()
-  for (const invoice of rows) {
-    if (!invoice) continue
-    const id = clean(invoice.invoice_id || invoice.id)
-    if (id) out.set(id, invoice)
+  for (let i = 0; i < ids.length; i += concurrency) {
+    const chunk = ids.slice(i, i + concurrency)
+    const rows = await Promise.all(chunk.map((id) => fetchInvoiceByIdWithRetry(id, retries)))
+    for (let j = 0; j < chunk.length; j++) {
+      const invoice = rows[j]
+      if (!invoice) continue
+      const id = clean(invoice.invoice_id || invoice.id)
+      const requestedId = clean(chunk[j])
+      if (id) out.set(id, invoice)
+      if (requestedId && requestedId !== id) out.set(requestedId, invoice)
+    }
   }
   return out
 }
