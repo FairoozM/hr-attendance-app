@@ -397,6 +397,27 @@ async function createZohoManualJournal(journal, opts = {}) {
   }
 }
 
+async function getZohoCustomerPayment(paymentId, opts = {}) {
+  const id = clean(paymentId)
+  if (!id) return null
+  try {
+    const json = await zohoBooksJsonRequest(
+      `${BOOKS_V3}/customerpayments/${encodeURIComponent(id)}`,
+      new URLSearchParams(),
+      'GET',
+      null,
+      {
+        source: opts.source || 'payment_clearing_verify',
+        skipCache: true,
+      }
+    )
+    return json?.payment || json?.customerpayment || json || null
+  } catch (err) {
+    if (Number(err?.httpStatus) === 404) return null
+    throw err
+  }
+}
+
 async function createZohoCustomerPayment(payment, opts = {}) {
   const account = await resolveConfiguredDepositAccount(payment, opts)
   const depositToAccountId = account.accountId
@@ -415,6 +436,7 @@ async function createZohoCustomerPayment(payment, opts = {}) {
   const body = json?.payment || json?.customerpayment || json || {}
   return {
     zohoPaymentId: body.payment_id || body.customerpayment_id || body.paymentId || body.id || '',
+    payment_id: body.payment_id || body.customerpayment_id || body.paymentId || body.id || '',
     raw: json,
   }
 }
@@ -538,6 +560,7 @@ module.exports = {
   buildCustomerPaymentPayloadPreview,
   buildManualJournalPayloadPreview,
   createZohoCustomerPayment,
+  getZohoCustomerPayment,
   createZohoManualJournal,
   configuredAccountByCode,
   configuredAccountMappings,

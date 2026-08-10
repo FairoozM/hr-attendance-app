@@ -179,6 +179,9 @@ function groupPayments(rows, customerId, paymentDate, metadata) {
     }
     const g = groups.get(row.paymentType)
     g.amount = round2(g.amount + row.amount)
+    if (!g.accountId && row.accountId) g.accountId = row.accountId
+    if (!g.accountName && row.accountName) g.accountName = row.accountName
+    if (!g.accountCode && row.accountCode) g.accountCode = row.accountCode
     g.invoiceAllocations.push({
       invoiceId: row.invoiceId,
       invoiceNumber: row.invoiceNumber,
@@ -206,6 +209,89 @@ function groupPayments(rows, customerId, paymentDate, metadata) {
       },
     }
   })
+}
+
+/**
+ * Skip only when the Zoho payment still exists with the expected amount.
+ * Stale DB rows after a voided/deleted Zoho payment must be cleared and re-posted
+ * (this caused only "commission" to appear after net_balance was deleted).
+ */
+async function resolveExistingPaymentSkip({
+  batchId,
+  row,
+  getPayment = zohoPaymentService.getZohoCustomerPayment,
+  clearPosting = store.clearPostingForPaymentType,
+  findPosting = store.findGroupedPosting,
+}) {
+  const existing = await findPosting(batchId, row.paymentType)
+  if (!existing || existing.status !== 'posted') {
+    return { skip: false }
+  }
+  const zohoPaymentId = clean(existing.zohoPaymentId)
+  if (!zohoPaymentId) {
+    await clearPosting(batchId, row.paymentType)
+    return { skip: false, cleared: 'empty_zoho_payment_id' }
+  }
+  let payment = null
+  try {
+    payment = await getPayment(zohoPaymentId)
+  } catch (err) {
+    return {
+      skip: false,
+      error: `Could not verify Zoho payment ${zohoPaymentId} for ${row.paymentType}: ${err?.message || err}`,
+      code: 'ZOHO_PAYMENT_VERIFY_FAILED',
+    }
+  }
+  if (!payment) {
+    await clearPosting(batchId, row.paymentType)
+    return { skip: false, cleared: 'zoho_payment_missing' }
+  }
+  const zohoAmount = round2(Number(payment.amount ?? payment.total ?? payment.payment_amount ?? 0))
+  if (Math.abs(zohoAmount - round2(row.amount)) > 0.05) {
+    return {
+      skip: false,
+      error:
+        `Zoho payment ${zohoPaymentId} (${row.paymentType}) still exists with amount ${zohoAmount}, ` +
+        `but this preview needs ${round2(row.amount)}. Void that payment in Zoho, then post again.`,
+      code: 'ZOHO_PAYMENT_AMOUNT_MISMATCH',
+      zohoPaymentId,
+    }
+  }
+  return { skip: true, existing, zohoPaymentId }
+}
+
+async function enrichPaymentGroupAccounts(postingRows) {
+  for (const row of postingRows) {
+    const resolved = await resolveNoonGlAccount({
+      accountId: row.accountId,
+      accountCode: row.accountCode,
+      accountName: row.accountName,
+    })
+    row.accountId = resolved.accountId || row.accountId
+    row.accountName = resolved.accountName || row.accountName
+    row.accountCode = resolved.accountCode || row.accountCode
+    if (row.zohoPaymentRequest) {
+      row.zohoPaymentRequest.depositToAccountId = row.accountId
+      row.zohoPaymentRequest.depositToAccountName = row.accountName
+      row.zohoPaymentRequest.depositToAccountCode = row.accountCode
+    }
+  }
+  return postingRows
+}
+
+function evaluatePaymentCompleteness(result, postingRows, { dryRun }) {
+  const requiredTypes = [...new Set((postingRows || []).map((r) => r.paymentType).filter(Boolean))]
+  const missing = []
+  for (const paymentType of requiredTypes) {
+    const row = (result.payments || []).find((p) => p.paymentType === paymentType)
+    const ok =
+      row &&
+      (row.status === 'posted' ||
+        row.status === 'skipped' ||
+        (dryRun && row.status === 'dry_run'))
+    if (!ok) missing.push(paymentType)
+  }
+  return { requiredTypes, missing }
 }
 
 async function postApprovedBatch({
@@ -258,7 +344,8 @@ async function postApprovedBatch({
   }
   const paymentDate = zohoPaymentService.todayLocalDate()
   const metadata = batch.reportSnapshot || batch.metadata || {}
-  const postingRows = paymentRows.length ? groupPayments(paymentRows, customerId, paymentDate, metadata) : []
+  let postingRows = paymentRows.length ? groupPayments(paymentRows, customerId, paymentDate, metadata) : []
+  postingRows = await enrichPaymentGroupAccounts(postingRows)
   const settlementReference = buildSettlementReference(metadata)
   const journalLinesToPost = [
     ...feeJournalLines.map((line, idx) => ({
@@ -276,6 +363,7 @@ async function postApprovedBatch({
     batchId: batch.batchId,
     status: dryRun ? 'dry_run' : 'posted',
     settlementReference,
+    message: '',
     summary: {
       invoicesPosted: new Set(paymentRows.map((r) => r.invoiceId)).size,
       paymentsCreated: 0,
@@ -283,6 +371,8 @@ async function postApprovedBatch({
       journalsCreated: 0,
       journalsSkipped: 0,
       errors: 0,
+      requiredPaymentTypes: 0,
+      missingPaymentTypes: 0,
     },
     payments: [],
     journals: [],
@@ -293,16 +383,35 @@ async function postApprovedBatch({
 
   const run = async () => {
     for (const row of postingRows) {
-      const existing = await store.findGroupedPosting(batch.batchId, row.paymentType)
-      if (existing && existing.status === 'posted') {
-        result.summary.paymentsSkipped += 1
-        result.payments.push({
-          ...row,
-          status: 'skipped',
-          zohoPaymentId: existing.zohoPaymentId,
-          reason: 'Already posted for batch/payment type.',
+      if (!dryRun) {
+        const existingDecision = await resolveExistingPaymentSkip({
+          batchId: batch.batchId,
+          row,
+          getPayment: zohoPaymentService.getZohoCustomerPayment,
         })
-        continue
+        if (existingDecision.error) {
+          result.summary.errors += 1
+          const error = {
+            ...row,
+            status: 'error',
+            error: existingDecision.error,
+            code: existingDecision.code || 'ZOHO_PAYMENT_STALE',
+            zohoPaymentId: existingDecision.zohoPaymentId || '',
+          }
+          result.errors.push(error)
+          result.payments.push(error)
+          continue
+        }
+        if (existingDecision.skip) {
+          result.summary.paymentsSkipped += 1
+          result.payments.push({
+            ...row,
+            status: 'skipped',
+            zohoPaymentId: existingDecision.zohoPaymentId || existingDecision.existing?.zohoPaymentId,
+            reason: 'Already posted in Zoho for batch/payment type (verified).',
+          })
+          continue
+        }
       }
       let zohoPayloadPreview = null
       try {
@@ -326,7 +435,9 @@ async function postApprovedBatch({
       }
       try {
         const created = await createPayment(row.zohoPaymentRequest)
-        const zohoPaymentId = clean(created?.payment_id || created?.paymentId || created?.id)
+        const zohoPaymentId = clean(
+          created?.zohoPaymentId || created?.payment_id || created?.paymentId || created?.id
+        )
         await store.insertPosting({
           batchId: batch.batchId,
           invoiceId: null,
@@ -451,8 +562,8 @@ async function postApprovedBatch({
       }
       try {
         const created = await createManualJournal(journalRequest)
-        const zohoJournalId = clean(created?.journal_id || created?.journalId || created?.id)
-        const zohoJournalNumber = clean(created?.journal_number || created?.journalNumber)
+        const zohoJournalId = clean(created?.journal_id || created?.journalId || created?.zohoJournalId || created?.id)
+        const zohoJournalNumber = clean(created?.journal_number || created?.journalNumber || created?.zohoJournalNumber)
         await store.insertPosting({
           batchId: batch.batchId,
           paymentType,
@@ -485,7 +596,20 @@ async function postApprovedBatch({
       }
     }
 
-    if (!dryRun && result.summary.errors === 0) {
+    const completeness = evaluatePaymentCompleteness(result, postingRows, { dryRun })
+    result.summary.requiredPaymentTypes = completeness.requiredTypes.length
+    result.summary.missingPaymentTypes = completeness.missing.length
+    result.missingPaymentTypes = completeness.missing
+
+    if (!dryRun && (result.summary.errors > 0 || completeness.missing.length > 0)) {
+      result.success = false
+      result.status = 'error'
+      result.message =
+        completeness.missing.length > 0
+          ? `Incomplete Zoho posting. Missing payment type(s): ${completeness.missing.join(', ')}. ` +
+            `Need net_balance (1066) + commission (1067) + fulfillment_shipping (1068). Fix errors and post again.`
+          : `Zoho posting finished with ${result.summary.errors} error(s). Nothing was marked fully posted.`
+    } else if (!dryRun && result.summary.errors === 0 && completeness.missing.length === 0) {
       await store.markBatchPosted(batch.batchId, postedBy, {
         reference: settlementReference,
         zohoPaymentIds: result.zohoPaymentIds,
@@ -493,9 +617,9 @@ async function postApprovedBatch({
         summary: result.summary,
       })
       result.status = 'posted'
-    } else if (!dryRun && result.summary.errors > 0) {
-      result.success = false
-      result.status = 'error'
+      result.message = `Posted ${result.summary.paymentsCreated} payment(s) and ${result.summary.journalsCreated} journal(s) to Zoho.`
+    } else if (dryRun) {
+      result.message = `Dry run: ${result.summary.paymentsCreated} payment(s) and ${result.summary.journalsCreated} journal(s) ready.`
     }
     return result
   }
@@ -559,5 +683,7 @@ module.exports = {
   postApprovedBatch,
   forceRepostBatch,
   flattenInvoicePayments,
+  resolveExistingPaymentSkip,
+  evaluatePaymentCompleteness,
   PAYMENT_TYPES,
 }

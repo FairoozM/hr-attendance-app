@@ -50,6 +50,7 @@ export function NoonPaymentClearingPage() {
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  const postingResultRef = useRef<HTMLDivElement | null>(null)
   const loadedBatchId = preview?.batchId != null ? String(preview.batchId) : ''
   const stepFromKey = STEP_KEY_TO_ID.get(routeStepKey)
   const activeStep = preview ? (stepFromKey ?? 2) : 1
@@ -239,16 +240,44 @@ export function NoonPaymentClearingPage() {
     if (!dryRun && !window.confirm('Post Noon invoice payments and fee journals to Zoho?')) return
     setLoading(true)
     setError('')
+    setNotice('')
     try {
       const result = await postNoonPaymentClearingToZoho(preview.batchId, dryRun)
       setPostingResult(result)
+      const created = result.summary?.paymentsCreated ?? 0
+      const skipped = result.summary?.paymentsSkipped ?? 0
+      const journals = result.summary?.journalsCreated ?? 0
+      const errors = result.summary?.errors ?? 0
+      const missing = Array.isArray((result as { missingPaymentTypes?: string[] }).missingPaymentTypes)
+        ? (result as { missingPaymentTypes?: string[] }).missingPaymentTypes || []
+        : []
+      const headline =
+        result.message ||
+        `${dryRun ? 'Dry run' : 'Post'} finished — payments created ${created}, skipped ${skipped}, journals ${journals}, errors ${errors}`
       if (!dryRun) {
+        window.alert(
+          missing.length || errors || result.success === false
+            ? `FAILED / INCOMPLETE\n\n${headline}\n\nMissing: ${missing.join(', ') || 'n/a'}\nCheck Step 11 for error details.`
+            : `SUCCESS\n\n${headline}\n\nYou should see 3 payment groups in Zoho: net_balance, commission, fulfillment_shipping.`
+        )
         const data = await fetchNoonPaymentClearingBatch(preview.batchId)
         setPreview(data)
+        if (result.success === false || errors > 0 || missing.length) {
+          setError(headline)
+        } else {
+          setNotice(headline)
+        }
+      } else {
+        setNotice(headline)
       }
       goToStep(11)
+      requestAnimationFrame(() => {
+        postingResultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
     } catch (err) {
-      setError(safeError(err))
+      const msg = safeError(err)
+      setError(msg)
+      window.alert(`Post failed\n\n${msg}`)
     } finally {
       setLoading(false)
     }
@@ -259,13 +288,27 @@ export function NoonPaymentClearingPage() {
     const reason = window.prompt('Force repost reason (min 4 characters)?') || ''
     if (reason.trim().length < 4) return
     setLoading(true)
+    setError('')
     try {
       const result = await forceRepostNoonPaymentClearing(preview.batchId, reason.trim())
       setPostingResult(result)
+      const headline = result.message || `Force repost status: ${result.status}`
+      window.alert(
+        result.success === false
+          ? `FORCE REPOST FAILED\n\n${headline}`
+          : `FORCE REPOST DONE\n\n${headline}`
+      )
       const data = await fetchNoonPaymentClearingBatch(preview.batchId)
       setPreview(data)
+      if (result.success === false) setError(headline)
+      else setNotice(headline)
+      requestAnimationFrame(() => {
+        postingResultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
     } catch (err) {
-      setError(safeError(err))
+      const msg = safeError(err)
+      setError(msg)
+      window.alert(`Force repost failed\n\n${msg}`)
     } finally {
       setLoading(false)
     }
@@ -1037,7 +1080,7 @@ export function NoonPaymentClearingPage() {
                     disabled={!paymentPreview || isPosted || loading}
                     onClick={() => onPost(false)}
                   >
-                    Post to Zoho
+                    {postingResult && postingResult.success === false ? 'Retry post to Zoho' : 'Post to Zoho'}
                   </button>
                   {isPosted ? (
                     <button type="button" className="ainv-btn" disabled={loading} onClick={onForceRepost}>
@@ -1046,11 +1089,20 @@ export function NoonPaymentClearingPage() {
                   ) : null}
                 </div>
                 {postingResult ? (
-                  <div className="npc-alert">
+                  <div
+                    className={`npc-alert ${
+                      postingResult.success === false || (postingResult.summary?.errors ?? 0) > 0
+                        ? 'npc-alert--error'
+                        : 'npc-approved-panel'
+                    }`}
+                    ref={postingResultRef}
+                    role="status"
+                  >
                     <div>
                       Status: <strong>{postingResult.status}</strong> {postingResult.dryRun ? '(dry run)' : ''}
                     </div>
-                    <div>
+                    {postingResult.message ? <div style={{ marginTop: 6 }}>{postingResult.message}</div> : null}
+                    <div style={{ marginTop: 6 }}>
                       Payments: {postingResult.summary?.paymentsCreated ?? 0}
                       {postingResult.dryRun ? ' (preview)' : ' created'}, skipped:{' '}
                       {postingResult.summary?.paymentsSkipped ?? 0}, journals:{' '}
@@ -1058,6 +1110,15 @@ export function NoonPaymentClearingPage() {
                       {postingResult.dryRun ? ' (preview)' : ''}, errors:{' '}
                       {postingResult.summary?.errors ?? 0}
                     </div>
+                    {Array.isArray((postingResult as { missingPaymentTypes?: string[] }).missingPaymentTypes) &&
+                    ((postingResult as { missingPaymentTypes?: string[] }).missingPaymentTypes || []).length > 0 ? (
+                      <div style={{ marginTop: 6 }}>
+                        Missing payment types:{' '}
+                        <strong>
+                          {((postingResult as { missingPaymentTypes?: string[] }).missingPaymentTypes || []).join(', ')}
+                        </strong>
+                      </div>
+                    ) : null}
                     {(postingResult.errors || []).length > 0 ? (
                       <div className="npc-alert npc-alert--error" style={{ marginTop: 8 }}>
                         <strong>Errors</strong>
@@ -1087,13 +1148,17 @@ export function NoonPaymentClearingPage() {
                             {postingResult.payments.map((p, idx) => (
                               <tr key={`pay-${idx}`}>
                                 <td>{String(p.paymentType || '')}</td>
-                                <td className="npc-money">{money(p.amount)}</td>
+                                <td className="npc-money">{money(p.amount as number)}</td>
                                 <td>
                                   {String(p.accountName || '')}
-                                  {p.accountCode ? ` (${p.accountCode})` : ''}
+                                  {p.accountCode ? ` (${String(p.accountCode)})` : ''}
                                 </td>
                                 <td>{Array.isArray(p.invoiceAllocations) ? p.invoiceAllocations.length : 0}</td>
-                                <td>{String(p.status || '')}</td>
+                                <td>
+                                  {String(p.status || '')}
+                                  {p.reason ? <div className="npc-muted">{String(p.reason)}</div> : null}
+                                  {p.error ? <div className="npc-muted">Error: {String(p.error)}</div> : null}
+                                </td>
                               </tr>
                             ))}
                           </tbody>

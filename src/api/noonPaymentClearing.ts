@@ -263,6 +263,8 @@ export interface NoonPostingResult {
   batchId: number
   status: string
   settlementReference?: string
+  message?: string
+  missingPaymentTypes?: string[]
   summary: Record<string, number>
   payments: Array<Record<string, unknown>>
   journals: Array<Record<string, unknown>>

@@ -823,6 +823,14 @@ async function clearPostingsForBatch(batchId) {
   await query(`DELETE FROM noon_payment_clearing_postings WHERE batch_id = $1`, [batchId])
 }
 
+async function clearPostingForPaymentType(batchId, paymentType) {
+  await ensureNoonPaymentClearingTables()
+  await query(
+    `DELETE FROM noon_payment_clearing_postings WHERE batch_id = $1 AND payment_type = $2`,
+    [batchId, paymentType]
+  )
+}
+
 async function insertAudit(entry) {
   await ensureNoonPaymentClearingTables()
   await query(
@@ -874,6 +882,7 @@ module.exports = {
   insertPosting,
   listPostingsForBatch,
   clearPostingsForBatch,
+  clearPostingForPaymentType,
   insertAudit,
   withBatchPostingLock,
   mapBatch,

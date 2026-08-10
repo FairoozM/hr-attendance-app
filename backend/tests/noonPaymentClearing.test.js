@@ -1261,3 +1261,52 @@ describe('uncleared → expense reclass journals', () => {
     assert.equal(ship.lineItems[0].accountCode, '2162')
   })
 })
+
+describe('stale Zoho payment skip handling', () => {
+  it('clears DB posting and retries when Zoho payment was deleted', async () => {
+    const { resolveExistingPaymentSkip } = require('../src/services/noonPaymentClearing/noonPaymentClearingPostingService')
+    let cleared = false
+    const decision = await resolveExistingPaymentSkip({
+      batchId: 99,
+      row: { paymentType: 'net_balance', amount: 605.86 },
+      findPosting: async () => ({ status: 'posted', zohoPaymentId: '5559', amount: 12000 }),
+      getPayment: async () => null,
+      clearPosting: async () => {
+        cleared = true
+      },
+    })
+    assert.equal(decision.skip, false)
+    assert.equal(cleared, true)
+    assert.equal(decision.cleared, 'zoho_payment_missing')
+  })
+
+  it('skips only when Zoho payment still exists with matching amount', async () => {
+    const { resolveExistingPaymentSkip } = require('../src/services/noonPaymentClearing/noonPaymentClearingPostingService')
+    const decision = await resolveExistingPaymentSkip({
+      batchId: 99,
+      row: { paymentType: 'commission', amount: 2322.37 },
+      findPosting: async () => ({ status: 'posted', zohoPaymentId: '5560', amount: 2322.37 }),
+      getPayment: async () => ({ amount: 2322.37 }),
+      clearPosting: async () => {
+        throw new Error('should not clear')
+      },
+    })
+    assert.equal(decision.skip, true)
+    assert.equal(decision.zohoPaymentId, '5560')
+  })
+
+  it('errors when Zoho payment still exists with wrong amount', async () => {
+    const { resolveExistingPaymentSkip } = require('../src/services/noonPaymentClearing/noonPaymentClearingPostingService')
+    const decision = await resolveExistingPaymentSkip({
+      batchId: 99,
+      row: { paymentType: 'net_balance', amount: 605.86 },
+      findPosting: async () => ({ status: 'posted', zohoPaymentId: '5559', amount: 12000 }),
+      getPayment: async () => ({ amount: 12000 }),
+      clearPosting: async () => {
+        throw new Error('should not clear while Zoho payment exists')
+      },
+    })
+    assert.equal(decision.skip, false)
+    assert.match(String(decision.error || ''), /void that payment/i)
+  })
+})
