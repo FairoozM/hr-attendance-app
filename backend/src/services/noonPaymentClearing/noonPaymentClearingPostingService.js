@@ -244,6 +244,7 @@ async function postApprovedBatch({
         continue
       }
       if (dryRun) {
+        result.summary.paymentsCreated += 1
         result.payments.push({ ...row, status: 'dry_run', zohoPaymentId: '', zohoPayloadPreview })
         continue
       }
@@ -335,6 +336,7 @@ async function postApprovedBatch({
         continue
       }
       if (dryRun) {
+        result.summary.journalsCreated += 1
         result.journals.push({ ...line, paymentType, status: 'dry_run', zohoPayloadPreview })
         continue
       }

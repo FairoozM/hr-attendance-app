@@ -52,6 +52,9 @@ function requireBatchForPaymentPreview(batch) {
 /**
  * Parent / adjustment logistics assigned to a child invoice — add onto that child's
  * Record Payment buckets (1067 commission / 1068 shipping), Amazon KSA style.
+ *
+ * Do NOT add orderSubsidies on top of othersInclVat — the parser already merges
+ * subsidies into othersInclVat (double-count produced bogus 22.68 from -37.8+7.56+7.56).
  */
 function collectAssignedUnclearedPaymentAddOns(allRows = []) {
   const byItem = new Map()
@@ -64,26 +67,38 @@ function collectAssignedUnclearedPaymentAddOns(allRows = []) {
       commission: 0,
       fulfillment: 0,
       sourceRowNumbers: [],
+      sourceBreakdown: [],
     }
 
     const referral = positiveAmount(row.referralFee)
-    let fulfillment = positiveAmount(
-      round2(
-        num(row.fulfillmentFee) +
-          num(row.shippingCharges) +
-          num(row.otherOrderFees) +
-          num(row.othersInclVat) +
-          num(row.orderSubsidies)
-      )
-    )
-    // Fee columns empty but total is a logistics/parent charge — use total.
-    if (referral === 0 && fulfillment === 0 && Math.abs(num(row.total)) >= 0.01) {
+    // Prefer statement Total when present — matches Noon settlement line.
+    let fulfillment = 0
+    if (Math.abs(num(row.total)) >= 0.01) {
       fulfillment = positiveAmount(row.total)
+    } else {
+      fulfillment = positiveAmount(
+        round2(
+          num(row.fulfillmentFee) +
+            num(row.shippingCharges) +
+            num(row.otherOrderFees) +
+            num(row.othersInclVat)
+        )
+      )
     }
 
     entry.commission = round2(entry.commission + referral)
     entry.fulfillment = round2(entry.fulfillment + fulfillment)
     entry.sourceRowNumbers.push(row.rowNumber)
+    entry.sourceBreakdown.push({
+      rowNumber: row.rowNumber,
+      rowClass: row.rowClass,
+      total: round2(num(row.total)),
+      fulfillmentFee: round2(num(row.fulfillmentFee)),
+      shippingCharges: round2(num(row.shippingCharges)),
+      othersInclVat: round2(num(row.othersInclVat)),
+      appliedFulfillment: fulfillment,
+      appliedCommission: referral,
+    })
     byItem.set(itemId, entry)
   }
   return byItem
@@ -130,6 +145,7 @@ function buildInvoicePaymentPlan(item, accounts, addOns = null) {
     fulfillmentShipping,
     parentLogisticsAddOn: positiveAmount(addOns?.fulfillment),
     parentCommissionAddOn: positiveAmount(addOns?.commission),
+    parentLogisticsSources: Array.isArray(addOns?.sourceBreakdown) ? addOns.sourceBreakdown : [],
     netBalancePayment,
     commissionPayment,
     fulfillmentPayment,

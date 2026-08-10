@@ -232,6 +232,7 @@ export interface NoonPaymentPreview {
     fulfillmentShipping: number
     parentLogisticsAddOn?: number
     parentCommissionAddOn?: number
+    parentLogisticsSources?: Array<Record<string, unknown>>
     netBalancePayment?: { amount: number; depositToAccountCode?: string; depositToAccountName?: string }
     commissionPayment?: { amount: number; depositToAccountCode?: string; depositToAccountName?: string }
     fulfillmentPayment?: { amount: number; depositToAccountCode?: string; depositToAccountName?: string }

@@ -824,7 +824,10 @@ export function NoonPaymentClearingPage() {
                                 <code className="npc-ref">{p.itemOrderId}</code>
                                 {p.parentLogisticsAddOn ? (
                                   <div className="npc-muted">
-                                    incl. parent logistics {money(p.parentLogisticsAddOn)}
+                                    incl. parent/adj logistics {money(p.parentLogisticsAddOn)}
+                                    {Array.isArray(p.parentLogisticsSources) && p.parentLogisticsSources[0]
+                                      ? ` (row ${p.parentLogisticsSources[0].rowNumber}: total ${money(p.parentLogisticsSources[0].total)})`
+                                      : ''}
                                   </div>
                                 ) : null}
                               </td>
@@ -967,10 +970,70 @@ export function NoonPaymentClearingPage() {
                       Status: <strong>{postingResult.status}</strong> {postingResult.dryRun ? '(dry run)' : ''}
                     </div>
                     <div>
-                      Payments created: {postingResult.summary?.paymentsCreated ?? 0}, skipped:{' '}
+                      Payments: {postingResult.summary?.paymentsCreated ?? 0}
+                      {postingResult.dryRun ? ' (preview)' : ' created'}, skipped:{' '}
                       {postingResult.summary?.paymentsSkipped ?? 0}, journals:{' '}
-                      {postingResult.summary?.journalsCreated ?? 0}, errors: {postingResult.summary?.errors ?? 0}
+                      {postingResult.summary?.journalsCreated ?? 0}
+                      {postingResult.dryRun ? ' (preview)' : ''}, errors:{' '}
+                      {postingResult.summary?.errors ?? 0}
                     </div>
+                    {(postingResult.payments || []).length > 0 ? (
+                      <div className="npc-table-wrap" style={{ marginTop: 12 }}>
+                        <table className="npc-table">
+                          <thead>
+                            <tr>
+                              <th>Payment type</th>
+                              <th>Amount</th>
+                              <th>Deposit account</th>
+                              <th>Invoices</th>
+                              <th>Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {postingResult.payments.map((p, idx) => (
+                              <tr key={`pay-${idx}`}>
+                                <td>{String(p.paymentType || '')}</td>
+                                <td className="npc-money">{money(p.amount)}</td>
+                                <td>
+                                  {String(p.accountName || '')}
+                                  {p.accountCode ? ` (${p.accountCode})` : ''}
+                                </td>
+                                <td>{Array.isArray(p.invoiceAllocations) ? p.invoiceAllocations.length : 0}</td>
+                                <td>{String(p.status || '')}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="npc-muted" style={{ marginTop: 8 }}>
+                        No invoice payment groups in this dry run (missing Zoho invoice IDs or zero amounts).
+                      </p>
+                    )}
+                    {(postingResult.journals || []).length > 0 ? (
+                      <div className="npc-table-wrap" style={{ marginTop: 12 }}>
+                        <table className="npc-table">
+                          <thead>
+                            <tr>
+                              <th>Journal</th>
+                              <th>Amount</th>
+                              <th>Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {postingResult.journals.map((j, idx) => (
+                              <tr key={`j-${idx}`}>
+                                <td>{String(j.displayLabel || j.feeType || j.paymentType || '')}</td>
+                                <td className="npc-money">
+                                  {money(Number(j.signedAmount != null ? j.signedAmount : j.amount) || 0)}
+                                </td>
+                                <td>{String(j.status || '')}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>

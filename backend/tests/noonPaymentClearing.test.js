@@ -608,7 +608,7 @@ describe('acceptance: NAEI70003640128 parent / children / parent charge', () => 
     )
     const child1 = paymentPreview.invoicePayments.find((p) => p.itemOrderId === 'NAEI70003640128-1')
     assert.ok(child1)
-    // Parent fulfillment -15 + item order_update -5 → uncleared shipping payment
+    // Parent fulfillment -15 + item order_update -5 → uncleared shipping payment (statement totals)
     assert.equal(child1.fulfillmentPayment.amount, 20)
     assert.equal(child1.parentLogisticsAddOn, 20)
     assert.equal(child1.fulfillmentPayment.depositToAccountCode, '1068')
@@ -1102,5 +1102,59 @@ describe('parent-order fallback bounds', () => {
       },
     })
     assert.ok(preview.blockingIssues.some((i) => i.code === 'UNEXPLAINED_OTHER' && i.rowNumber === 99))
+  })
+})
+
+describe('parent logistics payment add-ons', () => {
+  it('uses statement Total and does not double-count subsidies into shipping (PS-11752 NAEI70000251652)', () => {
+    const { collectAssignedUnclearedPaymentAddOns, buildInvoicePaymentPlan } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+    const { getNoonPaymentClearingMarketplaceConfig } = require('../src/services/noonPaymentClearing/noonPaymentClearingMarketplaceConfig')
+    const { applyParentOrderChargeFallback } = require('../src/services/noonPaymentClearing/noonPaymentClearingParentChargeFallback')
+    const { ROW_CLASS } = require('../src/services/noonPaymentClearing/noonPaymentClearingCategoryService')
+
+    // Real Noon columns: fulfillment -37.8 + subsidy +7.56 = total -30.24
+    // Parser merges subsidies into othersInclVat — old code summed both → bogus 22.68.
+    const rows = applyParentOrderChargeFallback(
+      [
+        {
+          rowNumber: 26,
+          rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+          normalizedFeeType: 'FULFILLMENT',
+          parentOrderId: 'NAEI70000251652',
+          itemOrderId: '',
+          fulfillmentFee: -37.8,
+          shippingCharges: 0,
+          otherOrderFees: 0,
+          orderSubsidies: 7.56,
+          othersInclVat: 7.56,
+          referralFee: 0,
+          total: -30.24,
+        },
+      ],
+      [{ matchStatus: 'matched', itemOrderId: 'NAEI70000251652-1', zohoInvoiceId: 'inv-x' }]
+    )
+    const addOns = collectAssignedUnclearedPaymentAddOns(rows)
+    const forChild = addOns.get('NAEI70000251652-1')
+    assert.ok(forChild)
+    assert.equal(forChild.fulfillment, 30.24)
+    assert.notEqual(forChild.fulfillment, 22.68)
+
+    const plan = buildInvoicePaymentPlan(
+      {
+        itemOrderId: 'NAEI70000251652-1',
+        parentOrderId: 'NAEI70000251652',
+        netProceed: 535,
+        referralFee: -84.26,
+        fulfillmentFee: 0,
+        shippingCharges: 0,
+        zohoInvoiceId: 'inv-x',
+        zohoInvoiceNumber: 'INV-X',
+        zohoInvoiceTotal: 450.74,
+      },
+      getNoonPaymentClearingMarketplaceConfig().paymentPreviewAccounts,
+      forChild
+    )
+    assert.equal(plan.fulfillmentPayment.amount, 30.24)
+    assert.equal(plan.parentLogisticsAddOn, 30.24)
   })
 })
