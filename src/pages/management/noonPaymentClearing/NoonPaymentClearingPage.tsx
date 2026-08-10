@@ -183,8 +183,11 @@ export function NoonPaymentClearingPage() {
     }
     if ((preview.openBalanceShortfalls || []).length > 0) {
       reasons.push(
-        `${preview.openBalanceShortfalls!.length} invoice(s) lack open Zoho balance — check Parent-Level Charges and exclude already-paid logistics.`
+        `${preview.openBalanceShortfalls!.length} invoice(s) lack open Zoho balance — go to Step 6 and exclude already-paid logistics.`
       )
+    }
+    if (!preview.openBalanceCheckedAt) {
+      reasons.push('Run "Check open balances (Zoho)" in Step 6 before approving.')
     }
     return Array.from(new Set(reasons))
   }, [preview])
@@ -397,13 +400,14 @@ export function NoonPaymentClearingPage() {
       goToStep(9)
       setNotice('Statement approved. Map fee journals, then generate payment preview.')
     } catch (err) {
-      setError(safeError(err))
+      const msg = safeError(err)
+      setError(msg)
+      window.alert(`Approve failed\n\n${msg}`)
+      await recoverFromOpenBalanceBlock(msg)
     } finally {
       setLoading(false)
     }
   }
-
-  async function onGeneratePaymentPreview() {
     if (!preview?.batchId) return
     setLoading(true)
     setError('')
@@ -490,7 +494,11 @@ export function NoonPaymentClearingPage() {
 
   /** Open-balance blocks are rectified in Step 6 — take the user there with fresh data. */
   async function recoverFromOpenBalanceBlock(msg: string) {
-    if (!preview?.batchId || !msg.includes('open Zoho balance')) return
+    const isBalanceIssue =
+      msg.includes('open Zoho balance') ||
+      msg.includes('open-balance check') ||
+      msg.includes('Check open balances')
+    if (!preview?.batchId || !isBalanceIssue) return
     try {
       const data = await fetchNoonPaymentClearingBatch(preview.batchId)
       // #region agent log
