@@ -648,47 +648,9 @@ async function postApprovedBatch({
       const outcome = await postOnePayment(row)
       if (outcome.ok) continue
 
-      // One dead invoice must not kill the entire shipping bucket — retry per invoice.
-      if (
-        !dryRun &&
-        row.paymentType === PAYMENT_TYPES.FULFILLMENT_SHIPPING &&
-        outcome.error &&
-        Array.isArray(row.invoiceAllocations) &&
-        row.invoiceAllocations.length > 1
-      ) {
-        const splits = splitPaymentRowPerInvoice(outcome.working || row)
-        let anyOk = false
-        for (const piece of splits) {
-          const pieceOut = await postOnePayment(piece)
-          if (pieceOut.ok) anyOk = true
-          else if (pieceOut.error) {
-            result.summary.errors += 1
-            const error = {
-              ...piece,
-              status: 'error',
-              error: pieceOut.error?.message || outcome.error?.message || 'Zoho shipping payment failed',
-              code: pieceOut.error?.code || outcome.error?.code || 'ZOHO_PAYMENT_FAILED',
-            }
-            result.errors.push(error)
-            result.payments.push(error)
-          }
-        }
-        if (!anyOk && outcome.error) {
-          result.summary.errors += 1
-          const error = {
-            ...row,
-            status: 'error',
-            error:
-              (outcome.error?.message || 'Zoho fulfillment_shipping payment failed') +
-              ' — also failed when split per invoice.',
-            code: outcome.error?.code || 'ZOHO_PAYMENT_FAILED',
-          }
-          result.errors.push(error)
-          result.payments.push(error)
-        }
-        continue
-      }
-
+      // Do NOT split into per-invoice payments (that created dozens of ship-1/ship-2 rows).
+      // Zero-balance invoices are already dropped in trimPaymentRowToLiveBalances;
+      // if the grouped payment still fails, surface one clear error.
       if (outcome.error) {
         result.summary.errors += 1
         const error = {
