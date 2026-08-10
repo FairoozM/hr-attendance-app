@@ -896,6 +896,59 @@ export function NoonPaymentClearingPage() {
                         </tbody>
                       </table>
                     </div>
+                    <h3>Uncleared → expense reclass (same post)</h3>
+                    <p className="npc-muted">
+                      After payments park amounts on 1067 / 1068, journals move them to Commission Exp (2143) /
+                      Shipping Exp (2162) and Input VAT (1085).
+                    </p>
+                    <div className="npc-table-wrap">
+                      <table className="npc-table">
+                        <thead>
+                          <tr>
+                            <th>Reclass</th>
+                            <th>Gross / Expense after VAT / Input VAT</th>
+                            <th>Journal</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(paymentPreview.unclearedReclassJournals || []).map((line, idx) => (
+                            <tr key={`reclass-${idx}`}>
+                              <td>
+                                <strong>{String(line.displayLabel || line.feeType || '')}</strong>
+                              </td>
+                              <td className="npc-money">
+                                <div>Gross: {money(line.grossInclVat ?? line.signedAmount)}</div>
+                                <div>Expense after VAT: {money(line.netExpense)}</div>
+                                <div>Input VAT 5%: {money(line.inputVatAmount)}</div>
+                              </td>
+                              <td>
+                                {line.accountingPreview?.lines && line.accountingPreview.lines.length > 0 ? (
+                                  <div className="npc-muted">
+                                    {line.accountingPreview.lines.map((jl: { debitOrCredit?: string; accountName?: string; amount?: number }, i: number) => (
+                                      <div key={`${idx}-${i}`}>
+                                        {String(jl.debitOrCredit || '').toUpperCase()}: {String(jl.accountName || '—')}{' '}
+                                        {money(jl.amount)}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  '—'
+                                )}
+                              </td>
+                              <td>{line.mappingStatus === 'mapped' ? 'Ready' : 'Needs accounts'}</td>
+                            </tr>
+                          ))}
+                          {(paymentPreview.unclearedReclassJournals || []).length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className="npc-empty">
+                                No uncleared commission/shipping to reclass.
+                              </td>
+                            </tr>
+                          ) : null}
+                        </tbody>
+                      </table>
+                    </div>
                     <h3>Statement fee journals (Advertising etc.)</h3>
                     <div className="npc-table-wrap">
                       <table className="npc-table">
@@ -1023,7 +1076,15 @@ export function NoonPaymentClearingPage() {
                           <tbody>
                             {postingResult.journals.map((j, idx) => (
                               <tr key={`j-${idx}`}>
-                                <td>{String(j.displayLabel || j.feeType || j.paymentType || '')}</td>
+                                <td>
+                                  {String(j.displayLabel || j.feeType || j.paymentType || '')}
+                                  {j.isUnclearedReclass ? (
+                                    <div className="npc-muted">
+                                      Exp {money(j.netExpense)} + VAT {money(j.inputVatAmount)} / Cr uncleared{' '}
+                                      {money(j.amount)}
+                                    </div>
+                                  ) : null}
+                                </td>
                                 <td className="npc-money">
                                   {money(Number(j.signedAmount != null ? j.signedAmount : j.amount) || 0)}
                                 </td>

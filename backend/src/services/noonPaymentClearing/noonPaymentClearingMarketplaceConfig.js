@@ -18,12 +18,11 @@ function accountFromEnv(prefix, defaults) {
  *     net → 1066 Undeposited
  *     commission/referral → 1067 Uncleared Commission 14%
  *     shipping/fulfillment (sale + assigned parent logistics) → 1068 Uncleared Shipping
- *   Fee journals (statement-level only, e.g. advertising):
+ *   Fee journals (statement-level, e.g. advertising):
  *     Advertising → Dr 2053 (+ Input VAT 1085) / Cr 1066
- *
- * Later (separate / manual — not auto-posted here):
- *   1067 → 2143 commission expense
- *   1068 → 2162 shipping expense
+ *   Uncleared reclass journals (same post, after payments):
+ *     1067 → Dr 2143 net + Dr 1085 VAT / Cr 1067 gross
+ *     1068 → Dr 2162 net + Dr 1085 VAT / Cr 1068 gross
  */
 function getNoonPaymentClearingMarketplaceConfig() {
   const undepositedFunds = accountFromEnv('NOON_AE_ZOHO_UNDEPOSITED_FUNDS_ACCOUNT', {

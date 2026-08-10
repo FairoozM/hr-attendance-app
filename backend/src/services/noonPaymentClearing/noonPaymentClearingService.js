@@ -79,6 +79,8 @@ async function loadMappingContext() {
   const undeposited = await resolveAccountByCodeOrName(cfg.undepositedFundsAccount)
   const unclearedCommission = await resolveAccountByCodeOrName(cfg.unclearedCommissionAccount)
   const unclearedShipping = await resolveAccountByCodeOrName(cfg.unclearedShippingAccount)
+  const commissionExpense = await resolveAccountByCodeOrName(cfg.commissionExpenseAccount)
+  const shippingExpense = await resolveAccountByCodeOrName(cfg.shippingExpenseAccount)
   const inputVatDefault = await resolveAccountByCodeOrName(cfg.inputVatAccount)
   const inputVatAccount = {
     ...inputVatDefault,
@@ -96,6 +98,8 @@ async function loadMappingContext() {
   cfg.undepositedFundsAccount = undeposited
   cfg.unclearedCommissionAccount = unclearedCommission
   cfg.unclearedShippingAccount = unclearedShipping
+  cfg.commissionExpenseAccount = commissionExpense
+  cfg.shippingExpenseAccount = shippingExpense
   cfg.inputVatAccount = inputVatDefault
   cfg.paymentPreviewAccounts = {
     NET_BALANCE: {
@@ -120,6 +124,8 @@ async function loadMappingContext() {
     settlementBridgeAccount: undeposited,
     unclearedShippingAccount: unclearedShipping,
     unclearedCommissionAccount: unclearedCommission,
+    commissionExpenseAccount: commissionExpense,
+    shippingExpenseAccount: shippingExpense,
     inputVatAccount,
     zohoCustomerName: cfg.zohoCustomerName,
     marketplaceConfig: cfg,
@@ -235,22 +241,35 @@ async function approveSavedBatch(batchId, approvedBy) {
 
 async function generatePaymentPreview(batchId, createdBy) {
   const batch = await store.getBatchById(batchId)
-  const { mappingRules, inputVatAccount } = await loadMappingContext()
-  const paymentPreview = buildPaymentPreviewFromBatch(batch, mappingRules, inputVatAccount)
+  const ctx = await loadMappingContext()
+  const paymentPreview = buildPaymentPreviewFromBatch(batch, ctx.mappingRules, ctx.inputVatAccount, {
+    commissionExpenseAccount: ctx.commissionExpenseAccount,
+    shippingExpenseAccount: ctx.shippingExpenseAccount,
+    unclearedCommissionAccount: ctx.unclearedCommissionAccount,
+    unclearedShippingAccount: ctx.unclearedShippingAccount,
+    inputVatAccount: ctx.inputVatAccount,
+    paymentPreviewAccounts: ctx.marketplaceConfig?.paymentPreviewAccounts,
+    vatRate: ctx.inputVatAccount?.vatRate,
+  })
   return store.savePaymentPreview(batchId, paymentPreview, createdBy)
 }
 
 async function postBatchToZoho(batchId, options = {}) {
   const batch = await store.getBatchById(batchId)
-  const { mappingRules, settlementBridgeAccount, inputVatAccount } = await loadMappingContext()
+  const ctx = await loadMappingContext()
   return postApprovedBatch({
     batch,
     dryRun: options.dryRun !== false,
     allowPosted: options.allowPosted === true,
     postedBy: options.postedBy,
-    mappingRules,
-    settlementBridgeAccount,
-    inputVatAccount,
+    mappingRules: ctx.mappingRules,
+    settlementBridgeAccount: ctx.settlementBridgeAccount,
+    inputVatAccount: ctx.inputVatAccount,
+    commissionExpenseAccount: ctx.commissionExpenseAccount,
+    shippingExpenseAccount: ctx.shippingExpenseAccount,
+    unclearedCommissionAccount: ctx.unclearedCommissionAccount,
+    unclearedShippingAccount: ctx.unclearedShippingAccount,
+    marketplaceConfig: ctx.marketplaceConfig,
     createPayment: options.createPayment,
     buildPayloadPreview: options.buildPayloadPreview,
     createManualJournal: options.createManualJournal,
@@ -260,14 +279,19 @@ async function postBatchToZoho(batchId, options = {}) {
 
 async function forceRepost(batchId, options = {}) {
   const batch = await store.getBatchById(batchId)
-  const { mappingRules, settlementBridgeAccount, inputVatAccount } = await loadMappingContext()
+  const ctx = await loadMappingContext()
   return forceRepostBatch({
     batch,
     reason: options.reason,
     actorUserId: options.actorUserId,
-    mappingRules,
-    settlementBridgeAccount,
-    inputVatAccount,
+    mappingRules: ctx.mappingRules,
+    settlementBridgeAccount: ctx.settlementBridgeAccount,
+    inputVatAccount: ctx.inputVatAccount,
+    commissionExpenseAccount: ctx.commissionExpenseAccount,
+    shippingExpenseAccount: ctx.shippingExpenseAccount,
+    unclearedCommissionAccount: ctx.unclearedCommissionAccount,
+    unclearedShippingAccount: ctx.unclearedShippingAccount,
+    marketplaceConfig: ctx.marketplaceConfig,
   })
 }
 

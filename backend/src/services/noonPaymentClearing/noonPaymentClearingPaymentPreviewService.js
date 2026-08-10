@@ -9,6 +9,7 @@ const { getNoonPaymentClearingMarketplaceConfig } = require('./noonPaymentCleari
 const { buildSettlementReference, buildEntryReference } = require('./noonPaymentClearingReferenceService')
 const { isNoonSettlementReconciliationAcceptable, RECONCILIATION_TOLERANCE } = require('./noonPaymentClearingReconciliationService')
 const { buildFeeJournalPreviewLines } = require('./noonPaymentClearingPreviewService')
+const { buildUnclearedReclassJournals } = require('./noonPaymentClearingUnclearedReclassService')
 
 const PAYMENT_PREVIEW_TOLERANCE = RECONCILIATION_TOLERANCE
 
@@ -176,10 +177,13 @@ function buildFoldedUnclearedChargeSummaries(allRows = []) {
     }))
 }
 
-function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount = null) {
+function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount = null, accountOverrides = {}) {
   requireBatchForPaymentPreview(batch)
   const cfg = getNoonPaymentClearingMarketplaceConfig()
-  const accounts = cfg.paymentPreviewAccounts
+  const accounts = {
+    ...cfg.paymentPreviewAccounts,
+    ...(accountOverrides.paymentPreviewAccounts || {}),
+  }
   const matched = Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []
   const allRows = batch.allRows || []
   const addOnsByItem = collectAssignedUnclearedPaymentAddOns(allRows)
@@ -189,7 +193,7 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
   const feeJournalLines = buildFeeJournalPreviewLines(
     allRows,
     mappingRules,
-    inputVatAccount || batch.inputVatAccount || null
+    inputVatAccount || batch.inputVatAccount || accountOverrides.inputVatAccount || null
   )
   const foldedUnclearedCharges = buildFoldedUnclearedChargeSummaries(allRows)
   const parentChargeLines = foldedUnclearedCharges.filter((l) => l.rowClass === ROW_CLASS.PARENT_ORDER_CHARGE)
@@ -204,7 +208,7 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
   const metadata = batch.reportSnapshot || batch.metadata || {}
   const settlementReference = buildSettlementReference(metadata)
 
-  return {
+  const basePreview = {
     batchId: batch.batchId || batch.id,
     status: 'previewed',
     settlementReference,
@@ -218,10 +222,28 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
     statementLevelCharges: statementFeeLines,
     adjustmentClearings: [...adjustmentFolded, ...adjustmentJournalLines],
     feeJournalLines,
+  }
+
+  const reclass = buildUnclearedReclassJournals(basePreview, {
+    commissionExpenseAccount: accountOverrides.commissionExpenseAccount || cfg.commissionExpenseAccount,
+    shippingExpenseAccount: accountOverrides.shippingExpenseAccount || cfg.shippingExpenseAccount,
+    unclearedCommissionAccount:
+      accountOverrides.unclearedCommissionAccount || cfg.unclearedCommissionAccount,
+    unclearedShippingAccount: accountOverrides.unclearedShippingAccount || cfg.unclearedShippingAccount,
+    inputVatAccount: inputVatAccount || batch.inputVatAccount || accountOverrides.inputVatAccount || cfg.inputVatAccount,
+    vatRate: accountOverrides.vatRate ?? cfg.vatRate,
+  })
+  const totalReclassJournals = round2(reclass.lines.reduce((a, l) => a + l.amount, 0))
+
+  return {
+    ...basePreview,
+    unclearedReclassJournals: reclass.lines,
+    unclearedReclassSummary: reclass.summary,
     summary: {
       invoicePaymentCount: invoicePayments.length,
       totalInvoicePayments,
       totalFeesJournals: totalFeeJournals,
+      totalUnclearedReclassJournals: totalReclassJournals,
       totalAdjustments: round2(
         [...adjustmentFolded, ...adjustmentJournalLines].reduce((a, l) => a + (Number(l.amount) || 0), 0)
       ),
@@ -230,6 +252,7 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
         expectedSettlement - round2(totalInvoicePayments - totalFeeJournals)
       ),
       unmappedFeeJournalCount: feeJournalLines.filter((l) => l.mappingStatus === 'needs_mapping').length,
+      unmappedUnclearedReclassCount: reclass.summary.unmappedCount,
     },
   }
 }

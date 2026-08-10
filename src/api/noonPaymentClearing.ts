@@ -242,14 +242,18 @@ export interface NoonPaymentPreview {
   statementLevelCharges: Array<Record<string, unknown>>
   adjustmentClearings?: Array<Record<string, unknown>>
   feeJournalLines: Array<Record<string, unknown>>
+  unclearedReclassJournals?: Array<Record<string, unknown>>
+  unclearedReclassSummary?: Record<string, unknown>
   summary: {
     invoicePaymentCount: number
     totalInvoicePayments: number
     totalFeesJournals: number
+    totalUnclearedReclassJournals?: number
     totalAdjustments: number
     expectedNoonSettlement: number
     finalDifference: number
     unmappedFeeJournalCount: number
+    unmappedUnclearedReclassCount?: number
   }
 }
 

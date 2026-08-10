@@ -75,7 +75,8 @@ export const CLEARING_STEPS: ClearingStep[] = [
     id: 11,
     key: 'post',
     title: 'Post to Zoho',
-    description: 'Dry run, then post grouped Record Payments and fee journals with idempotency protection.',
+    description:
+      'Dry run, then post grouped Record Payments, advertising fee journals, and uncleared→expense reclass journals (commission 1067→2143, shipping 1068→2162, + Input VAT).',
   },
 ]
 

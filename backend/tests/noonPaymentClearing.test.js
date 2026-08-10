@@ -1158,3 +1158,73 @@ describe('parent logistics payment add-ons', () => {
     assert.equal(plan.parentLogisticsAddOn, 30.24)
   })
 })
+
+describe('uncleared → expense reclass journals', () => {
+  it('builds VAT-split reclass journals from commission and shipping payment totals', () => {
+    const { buildUnclearedReclassJournals } = require('../src/services/noonPaymentClearing/noonPaymentClearingUnclearedReclassService')
+    const { splitVatInclusiveAmount } = require('../src/services/noonPaymentClearing/noonPaymentClearingVatService')
+
+    const preview = {
+      invoicePayments: [
+        {
+          commissionPayment: { amount: 2322.37 },
+          fulfillmentPayment: { amount: 932.12 },
+        },
+      ],
+    }
+    const { lines, summary } = buildUnclearedReclassJournals(preview, {
+      commissionExpenseAccount: {
+        accountId: 'exp-comm',
+        accountName: '14% Noon Commission',
+        accountCode: '2143',
+      },
+      shippingExpenseAccount: {
+        accountId: 'exp-ship',
+        accountName: 'Noon Shipping Exp',
+        accountCode: '2162',
+      },
+      unclearedCommissionAccount: {
+        accountId: 'und-comm',
+        accountName: 'Noon Uncleared Commission 14%',
+        accountCode: '1067',
+      },
+      unclearedShippingAccount: {
+        accountId: 'und-ship',
+        accountName: 'Noon Uncleared Shipping Charges',
+        accountCode: '1068',
+      },
+      inputVatAccount: {
+        accountId: 'vat-1',
+        accountName: 'Input VAT - All Except Basmat Goods WH',
+        accountCode: '1085',
+      },
+      vatRate: 0.05,
+    })
+
+    assert.equal(lines.length, 2)
+    assert.equal(summary.commissionGross, 2322.37)
+    assert.equal(summary.shippingGross, 932.12)
+
+    const comm = lines.find((l) => l.feeType === 'UNCLEARED_COMMISSION_RECLASS')
+    const ship = lines.find((l) => l.feeType === 'UNCLEARED_SHIPPING_RECLASS')
+    assert.ok(comm)
+    assert.ok(ship)
+    assert.equal(comm.mappingStatus, 'mapped')
+    assert.equal(ship.mappingStatus, 'mapped')
+
+    const expectComm = splitVatInclusiveAmount(-2322.37, 0.05)
+    assert.equal(comm.netExpense, expectComm.netAmount)
+    assert.equal(comm.inputVatAmount, expectComm.vatAmount)
+    assert.equal(comm.credit.accountCode, '1067')
+    assert.equal(comm.lineItems.length, 3)
+    assert.equal(comm.lineItems[0].accountCode, '2143')
+    assert.equal(comm.lineItems[1].accountCode, '1085')
+    assert.equal(comm.lineItems[2].accountCode, '1067')
+
+    const expectShip = splitVatInclusiveAmount(-932.12, 0.05)
+    assert.equal(ship.netExpense, expectShip.netAmount)
+    assert.equal(ship.inputVatAmount, expectShip.vatAmount)
+    assert.equal(ship.credit.accountCode, '1068')
+    assert.equal(ship.lineItems[0].accountCode, '2162')
+  })
+})

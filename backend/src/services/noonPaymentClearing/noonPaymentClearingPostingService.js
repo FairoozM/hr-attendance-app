@@ -166,17 +166,34 @@ async function postApprovedBatch({
   mappingRules = [],
   settlementBridgeAccount = null,
   inputVatAccount = null,
+  commissionExpenseAccount = null,
+  shippingExpenseAccount = null,
+  unclearedCommissionAccount = null,
+  unclearedShippingAccount = null,
+  marketplaceConfig = null,
   createPayment = zohoPaymentService.createZohoCustomerPayment,
   buildPayloadPreview = zohoPaymentService.buildCustomerPaymentPayloadPreview,
   createManualJournal = zohoPaymentService.createZohoManualJournal,
   buildJournalPayloadPreview = zohoPaymentService.buildManualJournalPayloadPreview,
 } = {}) {
   const latestPreview = await store.getLatestPaymentPreviewForBatch(batch.batchId)
-  const paymentPreview = buildPaymentPreviewFromBatch(batch, mappingRules, inputVatAccount)
+  const paymentPreview = buildPaymentPreviewFromBatch(batch, mappingRules, inputVatAccount, {
+    commissionExpenseAccount,
+    shippingExpenseAccount,
+    unclearedCommissionAccount,
+    unclearedShippingAccount,
+    inputVatAccount,
+    paymentPreviewAccounts: marketplaceConfig?.paymentPreviewAccounts,
+    vatRate: inputVatAccount?.vatRate,
+  })
+  const feeJournalLines = Array.isArray(paymentPreview.feeJournalLines) ? paymentPreview.feeJournalLines : []
+  const unclearedReclassJournals = Array.isArray(paymentPreview.unclearedReclassJournals)
+    ? paymentPreview.unclearedReclassJournals
+    : []
   await ensureCanPostBatch(batch, Boolean(latestPreview), {
     dryRun,
     allowPosted,
-    feeJournalLines: paymentPreview.feeJournalLines,
+    feeJournalLines: [...feeJournalLines, ...unclearedReclassJournals],
   })
   const paymentRows = flattenInvoicePayments(paymentPreview)
   const customerId =
@@ -192,8 +209,17 @@ async function postApprovedBatch({
   const paymentDate = zohoPaymentService.todayLocalDate()
   const metadata = batch.reportSnapshot || batch.metadata || {}
   const postingRows = paymentRows.length ? groupPayments(paymentRows, customerId, paymentDate, metadata) : []
-  const feeJournalLines = Array.isArray(paymentPreview.feeJournalLines) ? paymentPreview.feeJournalLines : []
   const settlementReference = buildSettlementReference(metadata)
+  const journalLinesToPost = [
+    ...feeJournalLines.map((line, idx) => ({
+      ...line,
+      paymentType: `fee_journal_${idx + 1}`,
+    })),
+    ...unclearedReclassJournals.map((line) => ({
+      ...line,
+      paymentType: line.paymentType || `uncleared_reclass_${line.feeType}`,
+    })),
+  ]
   const result = {
     success: true,
     dryRun: Boolean(dryRun),
@@ -281,8 +307,8 @@ async function postApprovedBatch({
       }
     }
 
-    for (const [idx, line] of feeJournalLines.entries()) {
-      const paymentType = `fee_journal_${idx + 1}`
+    for (const line of journalLinesToPost) {
+      const paymentType = line.paymentType
       const existing = await store.findGroupedPosting(batch.batchId, paymentType)
       if (existing && existing.status === 'posted') {
         result.summary.journalsSkipped += 1
@@ -296,28 +322,37 @@ async function postApprovedBatch({
       }
       if (line.mappingStatus === 'needs_mapping' && !dryRun) {
         result.summary.errors += 1
-        const error = { ...line, paymentType, status: 'error', error: 'Fee journal unmapped' }
+        const error = {
+          ...line,
+          paymentType,
+          status: 'error',
+          error: line.isUnclearedReclass
+            ? 'Uncleared→expense reclass accounts not resolved (2143/2162/1085)'
+            : 'Fee journal unmapped',
+        }
         result.errors.push(error)
         result.journals.push(error)
         continue
       }
       const journalRequest = {
         feeType: line.feeType,
-        description: line.title || line.feeType,
+        description: line.displayLabel || line.title || line.feeType,
         amount: line.amount,
         debit: line.debit,
         credit: line.credit,
-        customerId: clean(line.zohoCustomerId || batch.zohoCustomerId || customerId),
+        // Amazon-style: no customer on fee / uncleared-reclass journals
+        customerId: '',
         lineItems: Array.isArray(line.lineItems)
           ? line.lineItems.map((item) => ({
-              ...item,
-              customerId:
-                clean(item.customerId) ||
-                clean(line.zohoCustomerId || batch.zohoCustomerId || customerId),
+              accountId: item.accountId,
+              accountName: item.accountName,
+              accountCode: item.accountCode,
+              debitOrCredit: item.debitOrCredit,
+              amount: item.amount,
             }))
           : undefined,
         vatBreakdown: line.vatBreakdown || null,
-        referenceNumber: buildEntryReference(metadata, line.feeType),
+        referenceNumber: buildEntryReference(metadata, line.feeType || paymentType),
         date: paymentDate,
       }
       let zohoPayloadPreview = null
@@ -353,7 +388,11 @@ async function postApprovedBatch({
           amount: line.amount,
           referenceNumber: journalRequest.referenceNumber,
           description: journalRequest.description,
-          mappingSnapshot: { feeType: line.feeType, parentOrderId: line.parentOrderId },
+          mappingSnapshot: {
+            feeType: line.feeType,
+            parentOrderId: line.parentOrderId,
+            isUnclearedReclass: Boolean(line.isUnclearedReclass),
+          },
           status: 'posted',
         })
         result.summary.journalsCreated += 1
@@ -398,6 +437,11 @@ async function forceRepostBatch({
   mappingRules = [],
   settlementBridgeAccount = null,
   inputVatAccount = null,
+  commissionExpenseAccount = null,
+  shippingExpenseAccount = null,
+  unclearedCommissionAccount = null,
+  unclearedShippingAccount = null,
+  marketplaceConfig = null,
 }) {
   if (!batch || (batch.status !== 'posted' && !batch.postedToZoho)) {
     const err = new Error('Force repost requires a previously posted batch.')
@@ -428,6 +472,11 @@ async function forceRepostBatch({
     mappingRules,
     settlementBridgeAccount,
     inputVatAccount,
+    commissionExpenseAccount,
+    shippingExpenseAccount,
+    unclearedCommissionAccount,
+    unclearedShippingAccount,
+    marketplaceConfig,
   })
 }
 
