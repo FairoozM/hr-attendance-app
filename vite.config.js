@@ -4,7 +4,8 @@ import react from '@vitejs/plugin-react'
 /** Dev/proxy: when nothing listens on :5001, return JSON so the UI shows a useful message instead of "Internal Server Error". */
 function attendanceApiProxy() {
   return {
-    target: 'http://localhost:5001',
+    // Override with DEV_API_PROXY_TARGET to point local dev at a deployed API (e.g. for debugging with prod data).
+    target: process.env.DEV_API_PROXY_TARGET || 'http://localhost:5001',
     changeOrigin: true,
     configure(proxy) {
       proxy.on('error', (_err, _req, res) => {

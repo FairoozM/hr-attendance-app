@@ -20,7 +20,11 @@ const {
   buildInvoicePaymentPlansFromBatch,
   annotateInvoicePaymentsWithLiveBalances,
 } = require('./noonPaymentClearingPaymentPreviewService')
-const { postApprovedBatch, forceRepostBatch } = require('./noonPaymentClearingPostingService')
+const {
+  postApprovedBatch,
+  forceRepostBatch,
+  surfaceOpenBalanceBlockInStep6,
+} = require('./noonPaymentClearingPostingService')
 const { clean, matchKey } = require('./noonOrderIdHelper')
 const { ROW_CLASS } = require('./noonPaymentClearingCategoryService')
 const { fetchInvoicesByIds } = require('../../integrations/zoho/zohoBooksClient')
@@ -737,7 +741,12 @@ async function generatePaymentPreview(batchId, createdBy) {
   })
   // Live Zoho open-balance check — blocks orphan logistics on already-paid invoices (Zoho 24016).
   const withBalances = await attachLiveZohoBalancesToPaymentPreview(paymentPreview)
-  assertNoInvoiceOverpayments(withBalances)
+  try {
+    assertNoInvoiceOverpayments(withBalances)
+  } catch (err) {
+    // Push the shortfalls into Step 6 so the user can exclude/rectify there instead of a dead end.
+    await surfaceOpenBalanceBlockInStep6(batch, withBalances, err)
+  }
   return store.savePaymentPreview(batchId, withBalances, createdBy)
 }
 

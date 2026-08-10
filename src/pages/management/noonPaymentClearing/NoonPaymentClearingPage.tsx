@@ -139,6 +139,9 @@ export function NoonPaymentClearingPage() {
     setLoading(true)
     fetchNoonPaymentClearingBatch(routeBatchId)
       .then((data) => {
+        // #region agent log
+        dbgState('NoonPaymentClearingPage.tsx:routeAutoLoad', 'batch auto-loaded from route', data, 'B,C')
+        // #endregion
         setPreview(data)
         setError('')
       })
@@ -423,6 +426,7 @@ export function NoonPaymentClearingPage() {
       setError(msg)
       setNotice('')
       window.alert(`Generate payment preview failed\n\n${msg}`)
+      await recoverFromOpenBalanceBlock(msg)
     } finally {
       setLoading(false)
     }
@@ -478,8 +482,25 @@ export function NoonPaymentClearingPage() {
       const msg = safeError(err)
       setError(msg)
       window.alert(`Post failed\n\n${msg}`)
+      await recoverFromOpenBalanceBlock(msg)
     } finally {
       setLoading(false)
+    }
+  }
+
+  /** Open-balance blocks are rectified in Step 6 — take the user there with fresh data. */
+  async function recoverFromOpenBalanceBlock(msg: string) {
+    if (!preview?.batchId || !msg.includes('open Zoho balance')) return
+    try {
+      const data = await fetchNoonPaymentClearingBatch(preview.batchId)
+      // #region agent log
+      dbgState('NoonPaymentClearingPage.tsx:recoverFromOpenBalanceBlock', 'state after post-time balance block', data, 'E')
+      // #endregion
+      setPreview(data)
+      goToStep(6)
+      setNotice('Blocked invoices are listed below — exclude the already-paid ones, or void their Zoho payments, then retry.')
+    } catch {
+      /* keep the alert error visible */
     }
   }
 
@@ -529,6 +550,7 @@ export function NoonPaymentClearingPage() {
       const msg = safeError(err)
       setError(msg)
       window.alert(`Force repost failed\n\n${msg}`)
+      await recoverFromOpenBalanceBlock(msg)
     } finally {
       setLoading(false)
     }

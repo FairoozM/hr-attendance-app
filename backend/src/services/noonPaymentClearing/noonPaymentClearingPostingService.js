@@ -80,6 +80,47 @@ async function enrichJournalLineItems(lineItems = []) {
   return out
 }
 
+/**
+ * A live-balance block at post time must never be a dead end: persist the shortfalls
+ * into the Step 6 (open balance reconcile) state so the user immediately gets the
+ * Exclude buttons there, then rethrow with directions.
+ */
+async function surfaceOpenBalanceBlockInStep6(batch, paymentPreview, err) {
+  const shortfalls = Array.isArray(paymentPreview?.invoiceBalanceShortfalls)
+    ? paymentPreview.invoiceBalanceShortfalls
+    : []
+  if (err?.code !== 'NOON_PAYMENT_CLEARING_INVOICE_BALANCE_SHORT' || !shortfalls.length) throw err
+  try {
+    const snap = batch.reportSnapshot?.openBalanceReconcile || {}
+    await store.updateBatchOpenBalanceReconcile(batch.batchId, {
+      blockingIssues: [
+        ...(batch.blockingIssues || []).filter((i) => i.code !== 'OPEN_BALANCE_SHORT'),
+        ...shortfalls.map((s) => ({
+          code: 'OPEN_BALANCE_SHORT',
+          severity: 'error',
+          itemOrderId: s.itemOrderId,
+          zohoInvoiceId: s.zohoInvoiceId,
+          zohoInvoiceNumber: s.zohoInvoiceNumber,
+          openBalance: s.openBalance,
+          totalClearingAmount: s.totalClearingAmount,
+          overBy: s.overBy,
+          message: `${s.zohoInvoiceNumber || s.itemOrderId}: clearing ${s.totalClearingAmount} > open balance ${s.openBalance} (over by ${s.overBy}).`,
+        })),
+      ],
+      openBalanceReconcile: {
+        ...snap,
+        checkedAt: new Date().toISOString(),
+        shortfalls,
+      },
+    })
+  } catch (persistErr) {
+    console.warn('[noon-payment-clearing] could not persist post-time shortfalls:', persistErr?.message || persistErr)
+  }
+  err.message +=
+    ' The blocked invoice(s) are now listed in Step 6 (Parent Charges & Open Balance) — exclude them there if they are already paid, or void the existing Zoho payments, then retry. If the previous post already succeeded in Zoho, no repost is needed.'
+  throw err
+}
+
 async function ensureCanPostBatch(batch, paymentPreviewExists, options = {}) {
   const dryRun = options.dryRun !== false
   const allowPosted = options.allowPosted === true
@@ -490,7 +531,11 @@ async function postApprovedBatch({
   })
   if (!dryRun) {
     paymentPreview = await attachLiveZohoBalancesToPaymentPreview(paymentPreview)
-    assertNoInvoiceOverpayments(paymentPreview)
+    try {
+      assertNoInvoiceOverpayments(paymentPreview)
+    } catch (err) {
+      await surfaceOpenBalanceBlockInStep6(batch, paymentPreview, err)
+    }
   }
   const feeJournalLines = Array.isArray(paymentPreview.feeJournalLines) ? paymentPreview.feeJournalLines : []
   const unclearedReclassJournals = Array.isArray(paymentPreview.unclearedReclassJournals)
@@ -944,6 +989,25 @@ async function forceRepostBatch({
     err.status = 422
     throw err
   }
+  // Check live Zoho balances BEFORE wiping local posted state. A late block used to
+  // leave the batch marked un-posted while Zoho still held the payments.
+  {
+    const previewForCheck = buildPaymentPreviewFromBatch(batch, mappingRules, inputVatAccount, {
+      commissionExpenseAccount,
+      shippingExpenseAccount,
+      unclearedCommissionAccount,
+      unclearedShippingAccount,
+      inputVatAccount,
+      paymentPreviewAccounts: marketplaceConfig?.paymentPreviewAccounts,
+      vatRate: inputVatAccount?.vatRate,
+    })
+    const withBalances = await attachLiveZohoBalancesToPaymentPreview(previewForCheck)
+    try {
+      assertNoInvoiceOverpayments(withBalances)
+    } catch (err) {
+      await surfaceOpenBalanceBlockInStep6(batch, withBalances, err)
+    }
+  }
   const prior = await store.listPostingsForBatch(batch.batchId)
   await store.insertAudit({
     batchId: batch.batchId,
@@ -978,6 +1042,7 @@ async function forceRepostBatch({
 
 module.exports = {
   ensureCanPostBatch,
+  surfaceOpenBalanceBlockInStep6,
   postApprovedBatch,
   forceRepostBatch,
   flattenInvoicePayments,
