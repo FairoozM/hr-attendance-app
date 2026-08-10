@@ -156,19 +156,24 @@ function buildFeeJournalPreviewLines(rows, mappingRules = [], inputVatAccount = 
     const feeAccountId = clean(rule?.zohoAccountId || rule?.debitAccountId)
     const feeAccountName =
       clean(rule?.zohoAccountName || rule?.debitAccountName) || clean(suggestion?.zohoAccountName)
-    const feeAccountCode = clean(rule?.zohoAccountCode || suggestion?.zohoAccountCode)
-    // Prefer saved mapping credit when present; else Amazon-style counter by fee type.
-    const clearing =
-      rule?.creditAccountId || rule?.creditAccountName
-        ? normalizeGlAccount({
-            accountId: rule.creditAccountId,
-            accountName: rule.creditAccountName,
-            accountCode: rule.creditAccountCode || suggestion?.creditAccountCode,
-          })
-        : resolveClearingForFeeType(feeType)
+    const feeAccountCode = clean(rule?.zohoAccountCode || rule?.debitAccountCode || suggestion?.zohoAccountCode)
+    // Always merge marketplace clearing (1066 etc.) — saved mappings often store credit
+    // name only with empty id/code, which previously wiped accountCode and forced remapping.
+    const defaultClearing = resolveClearingForFeeType(feeType)
+    const clearing = normalizeGlAccount(
+      {
+        accountId: rule?.creditAccountId || defaultClearing.accountId,
+        accountName: rule?.creditAccountName || suggestion?.creditAccountName || defaultClearing.accountName,
+        accountCode:
+          rule?.creditAccountCode || suggestion?.creditAccountCode || defaultClearing.accountCode,
+      },
+      defaultClearing.accountName || 'Noon Undeposited Funds'
+    )
     const mapped = isNoonFeeMappingComplete(feeAccountId, clearing.accountId, {
       vatAmount: vatBreakdown.vatAmount,
       inputVatAccountId: vatAcct.accountId,
+      // Only treat fee as mapped when user saved an account id (or explicit rule code) — not suggestion alone.
+      feeAccountCode: clean(rule?.zohoAccountCode || rule?.debitAccountCode),
       clearingAccountCode: clearing.accountCode,
       inputVatAccountCode: vatAcct.accountCode,
     })

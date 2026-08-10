@@ -863,8 +863,17 @@ export function NoonPaymentClearingPage() {
                     <h3>Invoice payments (Net 1066 / Commission 1067 / Shipping 1068)</h3>
                     <p className="npc-muted">
                       Noon CSV &quot;Net Proceeds&quot; is invoice gross. 1066 gets the residual after commission and
-                      shipping (e.g. 759 − 119.54 − 33.60 = 605.86). Three payments sum to the invoice.
+                      shipping (e.g. 759 − 119.54 − 33.60 = 605.86). Zoho gets exactly three grouped payments
+                      (net / commission / shipping) — not one payment per invoice line.
                     </p>
+                    {paymentPreview.summary?.blocked ||
+                    (paymentPreview.summary?.invoiceOverpaymentCount ?? 0) > 0 ? (
+                      <div className="npc-alert npc-alert--error" role="alert">
+                        Blocked: payment totals exceed Zoho invoice value on{' '}
+                        {paymentPreview.summary.invoiceOverpaymentCount} invoice(s). Fix matching / logistics
+                        before posting.
+                      </div>
+                    ) : null}
                     <div className="npc-table-wrap">
                       <table className="npc-table">
                         <thead>
@@ -1089,13 +1098,20 @@ export function NoonPaymentClearingPage() {
                   </div>
                 )}
                 <div className="npc-button-row">
-                  <button type="button" className="ainv-btn" disabled={!paymentPreview || loading} onClick={() => onPost(true)}>
+                  <button
+                    type="button"
+                    className="ainv-btn"
+                    disabled={!paymentPreview || loading || Boolean(paymentPreview.summary?.blocked)}
+                    onClick={() => onPost(true)}
+                  >
                     Dry run
                   </button>
                   <button
                     type="button"
                     className="ainv-btn ainv-btn--danger"
-                    disabled={!paymentPreview || isPosted || loading}
+                    disabled={
+                      !paymentPreview || isPosted || loading || Boolean(paymentPreview.summary?.blocked)
+                    }
                     onClick={() => onPost(false)}
                   >
                     {postingResult && postingResult.success === false ? 'Retry post to Zoho' : 'Post to Zoho'}
@@ -1103,7 +1119,12 @@ export function NoonPaymentClearingPage() {
                   <button
                     type="button"
                     className="ainv-btn ainv-btn--danger"
-                    disabled={!paymentPreview || loading || (!isApproved && !isPosted)}
+                    disabled={
+                      !paymentPreview ||
+                      loading ||
+                      (!isApproved && !isPosted) ||
+                      Boolean(paymentPreview.summary?.blocked)
+                    }
                     onClick={onForceRepost}
                     title="Clears local already-posted flags and posts all three payment buckets again"
                   >

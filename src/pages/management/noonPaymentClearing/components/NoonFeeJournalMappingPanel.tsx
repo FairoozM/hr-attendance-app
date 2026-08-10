@@ -107,6 +107,17 @@ export function NoonFeeJournalMappingPanel({
     }
   }, [loadMappings])
 
+  // Once a fee type is saved, keep the picker on that account — never force remapping from blank.
+  useEffect(() => {
+    if (editingId) return
+    const saved = mappings.find(
+      (m) => m.isActive !== false && String(m.normalizedFeeType) === String(feeType)
+    )
+    if (saved?.zohoAccountId || saved?.debitAccountId) {
+      setSelectedFeeAccountId(saved.zohoAccountId || saved.debitAccountId || '')
+    }
+  }, [feeType, mappings, editingId])
+
   async function onSaveInputVat() {
     const account = accountById.get(selectedInputVatAccountId)
     if (!account) {
@@ -199,8 +210,23 @@ export function NoonFeeJournalMappingPanel({
 
   return (
     <div className="npc-step-stack">
-      <div className={unmappedCount ? 'npc-alert npc-alert--error' : 'npc-alert'}>
-        <strong>Amazon-style first entry</strong>
+      <div className={unmappedCount ? 'npc-alert npc-alert--error' : 'npc-alert npc-approved-panel'}>
+        {unmappedCount ? (
+          <>
+            <strong>{unmappedCount} fee line(s) still need an expense account.</strong>
+            <div className="npc-muted" style={{ marginTop: 6 }}>
+              Map each Noon fee type once — the same mapping is reused on every future statement.
+            </div>
+          </>
+        ) : (
+          <>
+            <strong>Fee accounts ready — using your saved mappings.</strong>
+            <div className="npc-muted" style={{ marginTop: 6 }}>
+              Advertising and other statement fees already have expense accounts. You do not need to map
+              them again unless you want to change an account.
+            </div>
+          </>
+        )}
         <ul style={{ margin: '8px 0 0', paddingLeft: '1.2rem' }}>
           <li>
             Commission and shipping/fulfillment → invoice <strong>Record Payments</strong> to uncleared
@@ -210,43 +236,14 @@ export function NoonFeeJournalMappingPanel({
             Statement fees (Advertising) → fee journals here: Gross split into Expense after VAT + Input VAT,
             credit {undepositedName}.
           </li>
-          <li>Later (separate): uncleared → true Shipping Exp / Commission Exp.</li>
+          <li>Later (same post): uncleared → true Shipping Exp / Commission Exp.</li>
         </ul>
-        <table className="npc-table" style={{ marginTop: 10, maxWidth: 520 }}>
-          <thead>
-            <tr>
-              <th>Piece</th>
-              <th>Example (Advertising)</th>
-              <th>Goes to</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Gross (Noon charged)</td>
-              <td className="npc-money">2,009.62</td>
-              <td>Full statement amount</td>
-            </tr>
-            <tr>
-              <td>Expense after VAT</td>
-              <td className="npc-money">1,913.92</td>
-              <td>Expense account you pick below</td>
-            </tr>
-            <tr>
-              <td>Input VAT 5%</td>
-              <td className="npc-money">95.70</td>
-              <td>{inputVatName}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div className="npc-muted" style={{ marginTop: 8 }}>
-          Credit side (automatic): {undepositedName}.
-        </div>
       </div>
 
       <section className="npc-card" style={{ padding: '1rem', border: '1px solid rgba(15,23,42,0.08)', borderRadius: 8 }}>
         <h3 style={{ marginTop: 0 }}>1. Where does Input VAT go?</h3>
         <p className="npc-muted" style={{ marginTop: 0 }}>
-          This is the Zoho account for the VAT portion (95.70 in the example). Usually:{' '}
+          Saved once for all Noon AE statements. Usually:{' '}
           <strong>Input VAT - All Except Basmat Goods WH (1085)</strong>.
         </p>
         {loadingAccounts ? <p className="npc-muted">Loading Zoho accounts…</p> : null}
@@ -261,7 +258,9 @@ export function NoonFeeJournalMappingPanel({
             />
           </div>
           <button type="button" className="ainv-btn ainv-btn--primary-sky" disabled={busy} onClick={onSaveInputVat}>
-            Save Input VAT account
+            {selectedInputVatAccountId && inputVat?.accountId === selectedInputVatAccountId
+              ? 'Update Input VAT account'
+              : 'Save Input VAT account'}
           </button>
         </div>
         <div className="npc-muted" style={{ marginTop: '0.75rem' }}>
@@ -271,11 +270,14 @@ export function NoonFeeJournalMappingPanel({
 
       <section className="npc-card" style={{ padding: '1rem', border: '1px solid rgba(15,23,42,0.08)', borderRadius: 8 }}>
         <h3 style={{ marginTop: 0 }}>
-          {editingId ? '2. Edit: where does the expense (after VAT) go?' : '2. Where does the expense (after VAT) go?'}
+          {editingId
+            ? '2. Edit expense mapping'
+            : unmappedCount
+              ? '2. Map expense account (after VAT)'
+              : '2. Change a saved expense mapping (optional)'}
         </h3>
         <p className="npc-muted" style={{ marginTop: 0 }}>
-          Statement fees only (Advertising). Pick the Zoho <strong>expense</strong> account for the amount
-          after VAT is removed (1,913.92 in the example — not the full 2,009.62).
+          Statement fees only (Advertising). Pick once; next statements reuse this mapping automatically.
         </p>
         <div className="npc-actions" style={{ alignItems: 'flex-end', flexWrap: 'wrap', gap: '0.75rem' }}>
           <label className="ainv-label">
@@ -371,7 +373,11 @@ export function NoonFeeJournalMappingPanel({
         </div>
       ) : null}
 
-      <h3>Saved expense mappings</h3>
+      <h3>Saved expense mappings (reuse on every statement)</h3>
+      <p className="npc-muted" style={{ marginTop: 0 }}>
+        These stay in the database. New uploads apply them automatically — you only open this step to change
+        an account.
+      </p>
       <div className="npc-table-wrap">
         <table className="npc-table">
           <thead>

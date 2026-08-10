@@ -813,6 +813,24 @@ describe('Noon fee journal direction', () => {
     assert.equal(withVatAccount[0].mappingStatus, 'mapped')
     assert.equal(withVatAccount[0].inputVatAccountId, 'vat-1')
     assert.equal(withVatAccount[0].lineItems[2].accountCode, '1066')
+
+    // DB-saved mappings often have credit name but empty id — still must resolve via marketplace 1066.
+    const fromDbStyle = buildFeeJournalPreviewLines(
+      rows,
+      [
+        {
+          normalizedFeeType: 'NOON_ADVERTISING_FEE',
+          zohoAccountId: 'exp-1',
+          zohoAccountName: 'Advertising Expense',
+          creditAccountName: 'Noon Undeposited Funds',
+          creditAccountId: '',
+          isActive: true,
+        },
+      ],
+      NOON_INPUT_VAT
+    )
+    assert.equal(fromDbStyle[0].mappingStatus, 'mapped')
+    assert.equal(fromDbStyle[0].credit.accountCode, '1066')
   })
 })
 
@@ -1189,6 +1207,40 @@ describe('parent logistics payment add-ons', () => {
     assert.equal(plan.fulfillmentPayment.depositToAccountCode, '1068')
     assert.equal(plan.totalClearingAmount, 759)
     assert.notEqual(plan.netBalancePayment.amount, 759)
+  })
+
+  it('flags and blocks when fees exceed invoice (parent logistics over-allocation)', () => {
+    const {
+      buildInvoicePaymentPlan,
+      collectInvoiceOverpayments,
+      assertNoInvoiceOverpayments,
+    } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+    const { getNoonPaymentClearingMarketplaceConfig } = require('../src/services/noonPaymentClearing/noonPaymentClearingMarketplaceConfig')
+    const plan = buildInvoicePaymentPlan(
+      {
+        itemOrderId: 'NAEI-1',
+        netProceed: 100,
+        referralFee: -20,
+        fulfillmentFee: -10,
+        shippingCharges: 0,
+        zohoInvoiceId: 'inv-1',
+        zohoInvoiceNumber: 'INV-1',
+        zohoInvoiceTotal: 100,
+      },
+      getNoonPaymentClearingMarketplaceConfig().paymentPreviewAccounts,
+      { commission: 0, fulfillment: 90 }
+    )
+    // 100 - 20 - 100 = 0 residual; commission 20 + shipping 100 = 120 > invoice 100
+    assert.equal(plan.fulfillmentPayment.amount, 100)
+    assert.equal(plan.totalClearingAmount, 120)
+    assert.equal(plan.exceedsInvoiceTotal, true)
+    const over = collectInvoiceOverpayments([plan])
+    assert.equal(over.length, 1)
+    assert.equal(over[0].overBy, 20)
+    assert.throws(
+      () => assertNoInvoiceOverpayments({ invoicePayments: [plan], invoiceOverpayments: over }),
+      (err) => err && err.code === 'NOON_PAYMENT_CLEARING_INVOICE_OVERPAYMENT'
+    )
   })
 })
 

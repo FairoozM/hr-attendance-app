@@ -220,12 +220,14 @@ export interface NoonPaymentClearingPreview {
 
 export interface NoonPaymentPreview {
   paymentPreviewId?: number
+  status?: string
   invoicePayments: Array<{
     itemOrderId: string
     parentOrderId: string
     sku: string
     zohoInvoiceId: string
     zohoInvoiceNumber: string
+    invoiceTotal?: number
     totalClearingAmount: number
     netProceed: number
     referralFee: number
@@ -233,10 +235,18 @@ export interface NoonPaymentPreview {
     parentLogisticsAddOn?: number
     parentCommissionAddOn?: number
     parentLogisticsSources?: Array<Record<string, unknown>>
+    exceedsInvoiceTotal?: boolean
     netBalancePayment?: { amount: number; depositToAccountCode?: string; depositToAccountName?: string }
     commissionPayment?: { amount: number; depositToAccountCode?: string; depositToAccountName?: string }
     fulfillmentPayment?: { amount: number; depositToAccountCode?: string; depositToAccountName?: string }
     paymentAction: string
+  }>
+  invoiceOverpayments?: Array<{
+    itemOrderId: string
+    zohoInvoiceNumber: string
+    invoiceTotal: number
+    totalClearingAmount: number
+    overBy: number
   }>
   parentLevelCharges: Array<Record<string, unknown>>
   statementLevelCharges: Array<Record<string, unknown>>
@@ -254,6 +264,9 @@ export interface NoonPaymentPreview {
     finalDifference: number
     unmappedFeeJournalCount: number
     unmappedUnclearedReclassCount?: number
+    invoiceOverpaymentCount?: number
+    blocked?: boolean
+    blockedReason?: string | null
   }
 }
 

@@ -137,6 +137,10 @@ function buildInvoicePaymentPlan(item, accounts, addOns = null) {
     netBalancePayment.amount + commissionPayment.amount + fulfillmentPayment.amount
   )
   const invoiceTotal = round2(num(item.zohoInvoiceTotal))
+  const remainingDifference = round2(invoiceTotal - totalClearingAmount)
+  const exceedsInvoiceTotal =
+    totalClearingAmount >= 0.01 &&
+    (invoiceTotal < 0.01 || totalClearingAmount > invoiceTotal + PAYMENT_PREVIEW_TOLERANCE)
   return {
     itemOrderId: item.itemOrderId || '',
     parentOrderId: item.parentOrderId || '',
@@ -161,9 +165,49 @@ function buildInvoicePaymentPlan(item, accounts, addOns = null) {
     commissionPayment,
     fulfillmentPayment,
     totalClearingAmount,
-    remainingDifference: round2(invoiceTotal - totalClearingAmount),
+    remainingDifference,
+    exceedsInvoiceTotal,
     paymentAction: 'record_payment',
   }
+}
+
+function collectInvoiceOverpayments(invoicePayments = []) {
+  return (Array.isArray(invoicePayments) ? invoicePayments : [])
+    .filter((p) => p && p.exceedsInvoiceTotal)
+    .map((p) => ({
+      itemOrderId: p.itemOrderId || '',
+      zohoInvoiceId: p.zohoInvoiceId || '',
+      zohoInvoiceNumber: p.zohoInvoiceNumber || '',
+      invoiceTotal: positiveAmount(p.invoiceTotal),
+      totalClearingAmount: positiveAmount(p.totalClearingAmount),
+      overBy: round2(positiveAmount(p.totalClearingAmount) - positiveAmount(p.invoiceTotal)),
+      netBalance: positiveAmount(p.netBalancePayment?.amount ?? p.invoiceClearingNetBalance),
+      commission: positiveAmount(p.commissionPayment?.amount ?? p.referralFee),
+      shipping: positiveAmount(p.fulfillmentPayment?.amount ?? p.fulfillmentShipping),
+      parentLogisticsAddOn: positiveAmount(p.parentLogisticsAddOn),
+    }))
+}
+
+function assertNoInvoiceOverpayments(paymentPreview) {
+  const overpayments = Array.isArray(paymentPreview?.invoiceOverpayments)
+    ? paymentPreview.invoiceOverpayments
+    : collectInvoiceOverpayments(paymentPreview?.invoicePayments)
+  if (!overpayments.length) return
+  const sample = overpayments
+    .slice(0, 5)
+    .map(
+      (o) =>
+        `${o.zohoInvoiceNumber || o.itemOrderId}: clearing ${o.totalClearingAmount} > invoice ${o.invoiceTotal} (over by ${o.overBy})`
+    )
+    .join('; ')
+  const more = overpayments.length > 5 ? ` (+${overpayments.length - 5} more)` : ''
+  const err = new Error(
+    `Payment preview blocked: ${overpayments.length} invoice(s) have payments totaling more than the Zoho invoice. Fix statement matching / parent logistics before posting. ${sample}${more}`
+  )
+  err.code = 'NOON_PAYMENT_CLEARING_INVOICE_OVERPAYMENT'
+  err.status = 422
+  err.details = { invoiceOverpayments: overpayments }
+  throw err
 }
 
 function buildFoldedUnclearedChargeSummaries(allRows = []) {
@@ -247,9 +291,13 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
     vatRate: accountOverrides.vatRate ?? cfg.vatRate,
   })
   const totalReclassJournals = round2(reclass.lines.reduce((a, l) => a + l.amount, 0))
+  const invoiceOverpayments = collectInvoiceOverpayments(invoicePayments)
+  const blocked = invoiceOverpayments.length > 0
 
   return {
     ...basePreview,
+    status: blocked ? 'blocked' : 'previewed',
+    invoiceOverpayments,
     unclearedReclassJournals: reclass.lines,
     unclearedReclassSummary: reclass.summary,
     summary: {
@@ -266,6 +314,11 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
       ),
       unmappedFeeJournalCount: feeJournalLines.filter((l) => l.mappingStatus === 'needs_mapping').length,
       unmappedUnclearedReclassCount: reclass.summary.unmappedCount,
+      invoiceOverpaymentCount: invoiceOverpayments.length,
+      blocked,
+      blockedReason: blocked
+        ? 'One or more invoice payment totals exceed the Zoho invoice value.'
+        : null,
     },
   }
 }
@@ -276,4 +329,6 @@ module.exports = {
   buildInvoicePaymentPlan,
   buildPaymentPreviewFromBatch,
   collectAssignedUnclearedPaymentAddOns,
+  collectInvoiceOverpayments,
+  assertNoInvoiceOverpayments,
 }

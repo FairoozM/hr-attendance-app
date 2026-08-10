@@ -1,7 +1,7 @@
 const zohoPaymentService = require('../amazonPaymentClearingZohoPaymentService')
 const { fetchInvoicesByIds, invoiceBalanceDue } = require('../../integrations/zoho/zohoBooksClient')
 const { round2, clean } = require('./noonPaymentClearingCategoryService')
-const { buildPaymentPreviewFromBatch, PAYMENT_PREVIEW_TOLERANCE } = require('./noonPaymentClearingPaymentPreviewService')
+const { buildPaymentPreviewFromBatch, PAYMENT_PREVIEW_TOLERANCE, assertNoInvoiceOverpayments } = require('./noonPaymentClearingPaymentPreviewService')
 const { isNoonSettlementReconciliationAcceptable } = require('./noonPaymentClearingReconciliationService')
 const { buildSettlementReference, buildEntryReference, truncateZohoReference } = require('./noonPaymentClearingReferenceService')
 const store = require('./noonPaymentClearingStore')
@@ -132,6 +132,9 @@ async function ensureCanPostBatch(batch, paymentPreviewExists, options = {}) {
       err.code = 'NOON_PAYMENT_CLEARING_FEE_JOURNAL_UNMAPPED'
       err.status = 422
       throw err
+    }
+    if (options.paymentPreview) {
+      assertNoInvoiceOverpayments(options.paymentPreview)
     }
   }
 }
@@ -458,6 +461,7 @@ async function postApprovedBatch({
     dryRun,
     allowPosted,
     feeJournalLines: [...feeJournalLines, ...unclearedReclassJournals],
+    paymentPreview,
   })
   const paymentRows = flattenInvoicePayments(paymentPreview)
   const customerId =

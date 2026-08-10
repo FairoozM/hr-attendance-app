@@ -13,7 +13,7 @@ const {
 const { buildNoonOrderHierarchy } = require('./noonPaymentClearingHierarchyService')
 const { getNoonPaymentClearingMarketplaceConfig } = require('./noonPaymentClearingMarketplaceConfig')
 const { isNoonSettlementReconciliationAcceptable } = require('./noonPaymentClearingReconciliationService')
-const { buildPaymentPreviewFromBatch } = require('./noonPaymentClearingPaymentPreviewService')
+const { buildPaymentPreviewFromBatch, assertNoInvoiceOverpayments } = require('./noonPaymentClearingPaymentPreviewService')
 const { postApprovedBatch, forceRepostBatch } = require('./noonPaymentClearingPostingService')
 const { clean, matchKey } = require('./noonOrderIdHelper')
 const { ROW_CLASS } = require('./noonPaymentClearingCategoryService')
@@ -320,6 +320,8 @@ async function generatePaymentPreview(batchId, createdBy) {
     paymentPreviewAccounts: ctx.marketplaceConfig?.paymentPreviewAccounts,
     vatRate: ctx.inputVatAccount?.vatRate,
   })
+  // Block before save/post — never send over-invoice payments to Zoho.
+  assertNoInvoiceOverpayments(paymentPreview)
   return store.savePaymentPreview(batchId, paymentPreview, createdBy)
 }
 

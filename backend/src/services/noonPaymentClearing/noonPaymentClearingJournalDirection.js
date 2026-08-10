@@ -106,10 +106,17 @@ function resolveNoonFeeJournalSides({
 function isNoonFeeMappingComplete(
   feeAccountId,
   clearingAccountId,
-  { vatAmount = 0, inputVatAccountId = '', clearingAccountCode = '', inputVatAccountCode = '' } = {}
+  {
+    vatAmount = 0,
+    inputVatAccountId = '',
+    feeAccountCode = '',
+    clearingAccountCode = '',
+    inputVatAccountCode = '',
+  } = {}
 ) {
+  const feeOk = Boolean(clean(feeAccountId) || clean(feeAccountCode))
   const clearingOk = Boolean(clean(clearingAccountId) || clean(clearingAccountCode))
-  if (!clean(feeAccountId) || !clearingOk) return false
+  if (!feeOk || !clearingOk) return false
   if (Math.abs(num(vatAmount)) >= 0.005) {
     const vatOk = Boolean(clean(inputVatAccountId) || clean(inputVatAccountCode))
     if (!vatOk) return false
