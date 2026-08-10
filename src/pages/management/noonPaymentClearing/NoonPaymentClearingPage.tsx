@@ -30,9 +30,46 @@ function money(value: number | undefined | null) {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+// #region agent log
+function dbg(location: string, message: string, data: Record<string, unknown>, hypothesisId = '') {
+  try {
+    fetch('http://127.0.0.1:7489/ingest/c517718a-1370-451d-8743-105c507e2000', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '03536a' },
+      body: JSON.stringify({ sessionId: '03536a', location, message, data, hypothesisId, timestamp: Date.now() }),
+    }).catch(() => {})
+  } catch { /* debug only */ }
+}
+function dbgState(location: string, message: string, p: NoonPaymentClearingPreview | null, hypothesisId = '') {
+  dbg(
+    location,
+    message,
+    {
+      batchId: p?.batchId,
+      status: p?.status,
+      isCleanForApproval: p?.isCleanForApproval,
+      checkedAt: p?.openBalanceCheckedAt,
+      shortfalls: (p?.openBalanceShortfalls || []).map((s) => ({
+        inv: s.zohoInvoiceNumber, invId: s.zohoInvoiceId, item: s.itemOrderId, over: s.overBy, open: s.openBalance, clearing: s.totalClearingAmount,
+      })),
+      excluded: (p?.openBalanceExcluded || []).map((s) => ({ inv: s.zohoInvoiceNumber, invId: s.zohoInvoiceId, item: s.itemOrderId })),
+      blockingIssues: (p?.blockingIssues || []).map((i) => ({ code: i.code, msg: String(i.message || '').slice(0, 160) })),
+      needsMapping: (p?.feeJournalLines || []).filter((l) => l.mappingStatus === 'needs_mapping').map((l) => l.feeType),
+      unmatched: p?.unmatchedOrders?.length || 0,
+      multiMatch: p?.multipleMatchItems?.length || 0,
+    },
+    hypothesisId
+  )
+}
+// #endregion
+
 function safeError(err: unknown) {
-  if (err && typeof err === 'object' && 'message' in err) return String((err as { message: string }).message)
-  return 'Something went wrong'
+  const msg =
+    err && typeof err === 'object' && 'message' in err ? String((err as { message: string }).message) : 'Something went wrong'
+  // #region agent log
+  dbg('NoonPaymentClearingPage.tsx:safeError', 'error surfaced to user', { msg, status: (err as { status?: number })?.status ?? null }, 'A,B,C,D,E')
+  // #endregion
+  return msg
 }
 
 export function NoonPaymentClearingPage() {
@@ -205,6 +242,9 @@ export function NoonPaymentClearingPage() {
     setNotice('Checking live Zoho open balances…')
     try {
       const data = await reconcileNoonOpenBalances(preview.batchId)
+      // #region agent log
+      dbgState('NoonPaymentClearingPage.tsx:onReconcileOpenBalances', 'after check open balances', data, 'A,B')
+      // #endregion
       setPreview(data)
       const n = data.openBalanceShortfalls?.length || 0
       setNotice(
@@ -236,6 +276,10 @@ export function NoonPaymentClearingPage() {
         zohoInvoiceIds: zohoInvoiceId ? [zohoInvoiceId] : [],
         itemOrderIds: itemOrderId ? [itemOrderId] : [],
       })
+      // #region agent log
+      dbg('NoonPaymentClearingPage.tsx:onExcludeOpenBalanceShortfall', 'exclude requested', { zohoInvoiceId, itemOrderId }, 'A,B')
+      dbgState('NoonPaymentClearingPage.tsx:onExcludeOpenBalanceShortfall', 'state after exclude', data, 'A,B')
+      // #endregion
       setPreview(data)
       setNotice(
         `Excluded ${zohoInvoiceId || itemOrderId} from payment clearing. Re-checked open balances.`
@@ -257,6 +301,9 @@ export function NoonPaymentClearingPage() {
         itemOrderIds: itemOrderId ? [itemOrderId] : [],
         restore: true,
       })
+      // #region agent log
+      dbgState('NoonPaymentClearingPage.tsx:onRestoreOpenBalanceShortfall', `state after restore ${zohoInvoiceId || itemOrderId}`, data, 'A,B')
+      // #endregion
       setPreview(data)
       setNotice(`Restored ${zohoInvoiceId || itemOrderId} into payment clearing. Re-checked open balances.`)
     } catch (err) {
@@ -281,6 +328,9 @@ export function NoonPaymentClearingPage() {
     setError('')
     try {
       const data = await excludeNoonOpenBalanceShortfalls(preview.batchId, {})
+      // #region agent log
+      dbgState('NoonPaymentClearingPage.tsx:onExcludeAllOpenBalanceShortfalls', 'state after exclude all', data, 'A,B')
+      // #endregion
       setPreview(data)
       setNotice('Excluded shortfall invoices from payment clearing. Re-checked open balances.')
     } catch (err) {
@@ -317,6 +367,9 @@ export function NoonPaymentClearingPage() {
     setError('')
     try {
       const data = await fetchNoonPaymentClearingBatch(batchId)
+      // #region agent log
+      dbgState('NoonPaymentClearingPage.tsx:onOpenBatch', 'batch loaded', data, 'B,C')
+      // #endregion
       setPreview(data)
       setPaymentPreview(null)
       navigate(clearingPath(2, batchId))
@@ -334,6 +387,9 @@ export function NoonPaymentClearingPage() {
     try {
       await approveNoonPaymentClearingBatch(preview.batchId)
       const data = await fetchNoonPaymentClearingBatch(preview.batchId)
+      // #region agent log
+      dbgState('NoonPaymentClearingPage.tsx:onApprove', 'state after approve', data, 'C')
+      // #endregion
       setPreview(data)
       goToStep(9)
       setNotice('Statement approved. Map fee journals, then generate payment preview.')
@@ -351,6 +407,14 @@ export function NoonPaymentClearingPage() {
     setNotice('Generating payment preview…')
     try {
       const pp = await generateNoonPaymentPreview(preview.batchId)
+      // #region agent log
+      dbg('NoonPaymentClearingPage.tsx:onGeneratePaymentPreview', 'payment preview generated', {
+        status: pp?.status,
+        payments: pp?.invoicePayments?.length,
+        summary: (pp as unknown as { summary?: Record<string, unknown> })?.summary || null,
+        balanceShortfalls: (pp as unknown as { invoiceBalanceShortfalls?: unknown[] })?.invoiceBalanceShortfalls?.length ?? null,
+      }, 'D')
+      // #endregion
       setPaymentPreview(pp)
       setNotice('Payment preview ready.')
       goToStep(10)
@@ -372,6 +436,13 @@ export function NoonPaymentClearingPage() {
     setNotice(dryRun ? '' : 'Posting to Zoho in the background — keep this tab open until the result appears.')
     try {
       const result = await postNoonPaymentClearingToZoho(preview.batchId, dryRun)
+      // #region agent log
+      dbg('NoonPaymentClearingPage.tsx:onPost', dryRun ? 'dry run result' : 'live post result', {
+        success: result?.success, message: result?.message, summary: result?.summary || null,
+        payments: (result as unknown as { payments?: Array<Record<string, unknown>> })?.payments?.map((p) => ({ type: p.paymentType, status: p.status, err: String(p.error || '').slice(0, 160) })),
+        journals: (result as unknown as { journals?: Array<Record<string, unknown>> })?.journals?.map((j) => ({ fee: j.feeType, status: j.status, reason: String(j.reason || j.error || '').slice(0, 160) })),
+      }, 'E')
+      // #endregion
       setPostingResult(result)
       const created = result.summary?.paymentsCreated ?? 0
       const skipped = result.summary?.paymentsSkipped ?? 0
@@ -432,6 +503,13 @@ export function NoonPaymentClearingPage() {
     setNotice('Force repost started — posting to Zoho in the background (may take a few minutes). Do not close this tab.')
     try {
       const result = await forceRepostNoonPaymentClearing(preview.batchId, reason.trim())
+      // #region agent log
+      dbg('NoonPaymentClearingPage.tsx:onForceRepost', 'force repost result', {
+        success: result?.success, message: result?.message, summary: result?.summary || null,
+        payments: (result as unknown as { payments?: Array<Record<string, unknown>> })?.payments?.map((p) => ({ type: p.paymentType, status: p.status, err: String(p.error || '').slice(0, 160) })),
+        journals: (result as unknown as { journals?: Array<Record<string, unknown>> })?.journals?.map((j) => ({ fee: j.feeType, status: j.status, reason: String(j.reason || j.error || '').slice(0, 160) })),
+      }, 'E')
+      // #endregion
       setPostingResult(result)
       const headline = result.message || `Force repost status: ${result.status}`
       window.alert(
