@@ -15,9 +15,11 @@ function accountFromEnv(prefix, defaults) {
  *
  * First Zoho writes (this settlement):
  *   Invoice Record Payments (customer = Noon):
- *     net → 1066 Undeposited
- *     commission/referral → 1067 Uncleared Commission 14%
- *     shipping/fulfillment (sale + assigned parent logistics) → 1068 Uncleared Shipping
+ *     Noon CSV "Net Proceeds" = sale/invoice gross (not cash after fees).
+ *     1066 Undeposited = Net Proceeds − commission − shipping (statement residual)
+ *     1067 Uncleared Commission = |referral fee| (+ parent commission add-ons)
+ *     1068 Uncleared Shipping = |fulfillment/shipping| (+ parent logistics add-ons)
+ *     Sum of three payments = invoice / Net Proceeds gross.
  *   Fee journals (statement-level, e.g. advertising):
  *     Advertising → Dr 2053 (+ Input VAT 1085) / Cr 1066
  *   Uncleared reclass journals (same post, after payments):

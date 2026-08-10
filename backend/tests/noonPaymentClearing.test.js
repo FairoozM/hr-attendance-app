@@ -1149,13 +1149,46 @@ describe('parent logistics payment add-ons', () => {
         shippingCharges: 0,
         zohoInvoiceId: 'inv-x',
         zohoInvoiceNumber: 'INV-X',
-        zohoInvoiceTotal: 450.74,
+        zohoInvoiceTotal: 535,
       },
       getNoonPaymentClearingMarketplaceConfig().paymentPreviewAccounts,
       forChild
     )
     assert.equal(plan.fulfillmentPayment.amount, 30.24)
     assert.equal(plan.parentLogisticsAddOn, 30.24)
+    // 1066 must be residual after fees — never the full Net Proceeds / invoice gross.
+    assert.equal(plan.netBalancePayment.amount, 420.5) // 535 - 84.26 - 30.24
+    assert.equal(plan.commissionPayment.amount, 84.26)
+    assert.equal(plan.totalClearingAmount, 535)
+    assert.equal(plan.remainingDifference, 0)
+  })
+
+  it('splits PS-11752 cookware sale into 1066 residual + 1067 + 1068 (not full 759 to 1066)', () => {
+    const { buildInvoicePaymentPlan } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+    const { getNoonPaymentClearingMarketplaceConfig } = require('../src/services/noonPaymentClearing/noonPaymentClearingMarketplaceConfig')
+    // Real CSV: Net Proceeds 759, Referral -119.54, Fulfillment -33.6, Total 605.86
+    const plan = buildInvoicePaymentPlan(
+      {
+        itemOrderId: 'NAEI60024715688-1',
+        netProceed: 759,
+        referralFee: -119.54,
+        fulfillmentFee: -33.6,
+        shippingCharges: 0,
+        zohoInvoiceId: 'inv-759',
+        zohoInvoiceNumber: 'INV-042276',
+        zohoInvoiceTotal: 759,
+      },
+      getNoonPaymentClearingMarketplaceConfig().paymentPreviewAccounts,
+      null
+    )
+    assert.equal(plan.netBalancePayment.amount, 605.86)
+    assert.equal(plan.netBalancePayment.depositToAccountCode, '1066')
+    assert.equal(plan.commissionPayment.amount, 119.54)
+    assert.equal(plan.commissionPayment.depositToAccountCode, '1067')
+    assert.equal(plan.fulfillmentPayment.amount, 33.6)
+    assert.equal(plan.fulfillmentPayment.depositToAccountCode, '1068')
+    assert.equal(plan.totalClearingAmount, 759)
+    assert.notEqual(plan.netBalancePayment.amount, 759)
   })
 })
 

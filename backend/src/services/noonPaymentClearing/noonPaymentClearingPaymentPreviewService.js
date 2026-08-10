@@ -106,14 +106,20 @@ function collectAssignedUnclearedPaymentAddOns(allRows = []) {
 }
 
 function buildInvoicePaymentPlan(item, accounts, addOns = null) {
-  const netProceed = positiveAmount(item.netProceed)
+  // Noon CSV "Net Proceeds" is sale/invoice gross (Amazon principal) — NOT cash after fees.
+  // Example: Net Proceeds 759 / Referral -119.54 / Fulfillment -33.6 / Total 605.86
+  // Record Payments that clear a 759 invoice:
+  //   1066 undeposited = 605.86, 1067 commission = 119.54, 1068 shipping = 33.6
+  const saleGross = positiveAmount(item.netProceed)
   const commission = round2(positiveAmount(item.referralFee) + positiveAmount(addOns?.commission))
   const fulfillmentShipping = round2(
     positiveAmount(round2(num(item.fulfillmentFee) + num(item.shippingCharges))) +
       positiveAmount(addOns?.fulfillment)
   )
+  // Residual after parking commission + shipping on uncleared GLs (Amazon invoiceClearingNetBalance).
+  const invoiceClearingNetBalance = round2(Math.max(0, saleGross - commission - fulfillmentShipping))
   const netBalancePayment = {
-    amount: netProceed,
+    amount: invoiceClearingNetBalance,
     paymentType: 'net_balance',
     ...accounts.NET_BALANCE,
   }
@@ -130,6 +136,7 @@ function buildInvoicePaymentPlan(item, accounts, addOns = null) {
   const totalClearingAmount = round2(
     netBalancePayment.amount + commissionPayment.amount + fulfillmentPayment.amount
   )
+  const invoiceTotal = round2(num(item.zohoInvoiceTotal))
   return {
     itemOrderId: item.itemOrderId || '',
     parentOrderId: item.parentOrderId || '',
@@ -140,8 +147,11 @@ function buildInvoicePaymentPlan(item, accounts, addOns = null) {
     zohoPoNumber: item.zohoPoNumber || '',
     customerId: item.zohoCustomerId || '',
     customerName: item.zohoCustomerName || '',
-    invoiceTotal: round2(item.zohoInvoiceTotal),
-    netProceed,
+    invoiceTotal,
+    /** Sale gross from Noon Net Proceeds (not the 1066 payment amount). */
+    netProceed: saleGross,
+    saleGross,
+    invoiceClearingNetBalance,
     referralFee: commission,
     fulfillmentShipping,
     parentLogisticsAddOn: positiveAmount(addOns?.fulfillment),
@@ -151,6 +161,7 @@ function buildInvoicePaymentPlan(item, accounts, addOns = null) {
     commissionPayment,
     fulfillmentPayment,
     totalClearingAmount,
+    remainingDifference: round2(invoiceTotal - totalClearingAmount),
     paymentAction: 'record_payment',
   }
 }

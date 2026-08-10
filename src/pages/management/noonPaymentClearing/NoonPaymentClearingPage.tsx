@@ -805,16 +805,20 @@ export function NoonPaymentClearingPage() {
                       </div>
                     </div>
                     <h3>Invoice payments (Net 1066 / Commission 1067 / Shipping 1068)</h3>
+                    <p className="npc-muted">
+                      Noon CSV &quot;Net Proceeds&quot; is invoice gross. 1066 gets the residual after commission and
+                      shipping (e.g. 759 − 119.54 − 33.60 = 605.86). Three payments sum to the invoice.
+                    </p>
                     <div className="npc-table-wrap">
                       <table className="npc-table">
                         <thead>
                           <tr>
                             <th>Item Order</th>
                             <th>Zoho Invoice</th>
-                            <th>Net (1066)</th>
+                            <th>Net undeposited (1066)</th>
                             <th>Commission (1067)</th>
                             <th>Shipping / Fulfillment (1068)</th>
-                            <th>Total</th>
+                            <th>Total (must = invoice)</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -831,9 +835,14 @@ export function NoonPaymentClearingPage() {
                                   </div>
                                 ) : null}
                               </td>
-                              <td>{p.zohoInvoiceNumber}</td>
+                              <td>
+                                {p.zohoInvoiceNumber}
+                                {p.invoiceTotal != null ? (
+                                  <div className="npc-muted">{money(p.invoiceTotal)}</div>
+                                ) : null}
+                              </td>
                               <td className="npc-money">
-                                {money(p.netBalancePayment?.amount ?? p.netProceed)}
+                                {money(p.netBalancePayment?.amount ?? p.invoiceClearingNetBalance)}
                               </td>
                               <td className="npc-money">
                                 {money(p.commissionPayment?.amount ?? p.referralFee)}
