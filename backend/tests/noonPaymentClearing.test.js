@@ -1311,6 +1311,48 @@ describe('stale Zoho payment skip handling', () => {
   })
 })
 
+describe('shipping payment posting helpers', () => {
+  it('posts commission and shipping before net_balance', () => {
+    const { sortPaymentPostingRows, PAYMENT_TYPES } = require('../src/services/noonPaymentClearing/noonPaymentClearingPostingService')
+    const sorted = sortPaymentPostingRows([
+      { paymentType: PAYMENT_TYPES.NET_BALANCE, amount: 1 },
+      { paymentType: PAYMENT_TYPES.FULFILLMENT_SHIPPING, amount: 2 },
+      { paymentType: PAYMENT_TYPES.COMMISSION, amount: 3 },
+    ])
+    assert.deepEqual(
+      sorted.map((r) => r.paymentType),
+      ['commission', 'fulfillment_shipping', 'net_balance']
+    )
+  })
+
+  it('drops zero-balance invoices from shipping payment instead of failing the whole group', async () => {
+    const { trimPaymentRowToLiveBalances } = require('../src/services/noonPaymentClearing/noonPaymentClearingPostingService')
+    const { row, dropped } = await trimPaymentRowToLiveBalances(
+      {
+        paymentType: 'fulfillment_shipping',
+        amount: 50,
+        invoiceAllocations: [
+          { invoiceId: 'open', invoiceNumber: 'INV-1', amountApplied: 30 },
+          { invoiceId: 'paid', invoiceNumber: 'INV-2', amountApplied: 20 },
+        ],
+        zohoPaymentRequest: { amount: 50, invoices: [] },
+      },
+      {
+        fetchInvoicesByIds: async () =>
+          new Map([
+            ['open', { invoice_id: 'open', balance: 30 }],
+            ['paid', { invoice_id: 'paid', balance: 0 }],
+          ]),
+      }
+    )
+    assert.equal(row.amount, 30)
+    assert.equal(row.invoiceAllocations.length, 1)
+    assert.equal(row.invoiceAllocations[0].invoiceId, 'open')
+    assert.equal(dropped.length, 1)
+    assert.equal(dropped[0].invoiceId, 'paid')
+  })
+})
+
 describe('orphan parent logistics → Zoho invoice', () => {
   it('assigns parent charge to Zoho child invoice when sale is not in this statement', () => {
     const {

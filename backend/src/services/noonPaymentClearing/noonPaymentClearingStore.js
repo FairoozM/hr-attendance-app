@@ -810,8 +810,17 @@ async function deactivateFeeJournalMapping(id, userId = null) {
   return mapFeeJournalMapping(result.rows[0])
 }
 
-async function findGroupedPosting(batchId, paymentType) {
+async function findGroupedPosting(batchId, paymentType, postingGroupKey = null) {
   await ensureNoonPaymentClearingTables()
+  if (postingGroupKey) {
+    const result = await query(
+      `SELECT * FROM noon_payment_clearing_postings
+       WHERE batch_id = $1 AND posting_group_key = $2
+       ORDER BY id DESC LIMIT 1`,
+      [batchId, postingGroupKey]
+    )
+    return mapPosting(result.rows[0])
+  }
   const result = await query(
     `SELECT * FROM noon_payment_clearing_postings
      WHERE batch_id = $1 AND payment_type = $2 AND posting_group_key IS NOT NULL
@@ -873,6 +882,14 @@ async function clearPostingForPaymentType(batchId, paymentType) {
   )
 }
 
+async function clearPostingByGroupKey(batchId, postingGroupKey) {
+  await ensureNoonPaymentClearingTables()
+  await query(
+    `DELETE FROM noon_payment_clearing_postings WHERE batch_id = $1 AND posting_group_key = $2`,
+    [batchId, postingGroupKey]
+  )
+}
+
 async function insertAudit(entry) {
   await ensureNoonPaymentClearingTables()
   await query(
@@ -927,6 +944,7 @@ module.exports = {
   listPostingsForBatch,
   clearPostingsForBatch,
   clearPostingForPaymentType,
+  clearPostingByGroupKey,
   insertAudit,
   withBatchPostingLock,
   mapBatch,

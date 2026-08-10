@@ -1,4 +1,5 @@
 const zohoPaymentService = require('../amazonPaymentClearingZohoPaymentService')
+const { fetchInvoicesByIds, invoiceBalanceDue } = require('../../integrations/zoho/zohoBooksClient')
 const { round2, clean } = require('./noonPaymentClearingCategoryService')
 const { buildPaymentPreviewFromBatch, PAYMENT_PREVIEW_TOLERANCE } = require('./noonPaymentClearingPaymentPreviewService')
 const { isNoonSettlementReconciliationAcceptable } = require('./noonPaymentClearingReconciliationService')
@@ -6,6 +7,29 @@ const { buildSettlementReference, buildEntryReference } = require('./noonPayment
 const store = require('./noonPaymentClearingStore')
 
 const chartAccountCache = { at: 0, rows: null }
+
+const PAYMENT_TYPES = Object.freeze({
+  NET_BALANCE: 'net_balance',
+  COMMISSION: 'commission',
+  FULFILLMENT_SHIPPING: 'fulfillment_shipping',
+})
+
+/** Fees first, net last — keeps invoice balance for 1067/1068 before residual 1066. */
+const PAYMENT_POST_ORDER = [
+  PAYMENT_TYPES.COMMISSION,
+  PAYMENT_TYPES.FULFILLMENT_SHIPPING,
+  PAYMENT_TYPES.NET_BALANCE,
+]
+
+function sortPaymentPostingRows(rows = []) {
+  const rank = new Map(PAYMENT_POST_ORDER.map((t, i) => [t, i]))
+  return [...rows].sort((a, b) => {
+    const ra = rank.has(a.paymentType) ? rank.get(a.paymentType) : 50
+    const rb = rank.has(b.paymentType) ? rank.get(b.paymentType) : 50
+    if (ra !== rb) return ra - rb
+    return String(a.paymentType || '').localeCompare(String(b.paymentType || ''))
+  })
+}
 
 async function resolveNoonGlAccount(account = {}) {
   const accountId = clean(account.accountId)
@@ -55,11 +79,6 @@ async function enrichJournalLineItems(lineItems = []) {
   }
   return out
 }
-const PAYMENT_TYPES = Object.freeze({
-  NET_BALANCE: 'net_balance',
-  COMMISSION: 'commission',
-  FULFILLMENT_SHIPPING: 'fulfillment_shipping',
-})
 
 async function ensureCanPostBatch(batch, paymentPreviewExists, options = {}) {
   const dryRun = options.dryRun !== false
@@ -220,16 +239,28 @@ async function resolveExistingPaymentSkip({
   batchId,
   row,
   getPayment = zohoPaymentService.getZohoCustomerPayment,
-  clearPosting = store.clearPostingForPaymentType,
+  clearPosting = null,
   findPosting = store.findGroupedPosting,
 }) {
-  const existing = await findPosting(batchId, row.paymentType)
+  const groupKey = clean(row.postingGroupKey) || null
+  const existing = await findPosting(batchId, row.paymentType, groupKey)
   if (!existing || existing.status !== 'posted') {
     return { skip: false }
   }
+  const clear = async () => {
+    if (typeof clearPosting === 'function') {
+      await clearPosting(batchId, row.paymentType)
+      return
+    }
+    if (groupKey) {
+      await store.clearPostingByGroupKey(batchId, groupKey)
+    } else {
+      await store.clearPostingForPaymentType(batchId, row.paymentType)
+    }
+  }
   const zohoPaymentId = clean(existing.zohoPaymentId)
   if (!zohoPaymentId) {
-    await clearPosting(batchId, row.paymentType)
+    await clear()
     return { skip: false, cleared: 'empty_zoho_payment_id' }
   }
   let payment = null
@@ -243,7 +274,7 @@ async function resolveExistingPaymentSkip({
     }
   }
   if (!payment) {
-    await clearPosting(batchId, row.paymentType)
+    await clear()
     return { skip: false, cleared: 'zoho_payment_missing' }
   }
   const zohoAmount = round2(Number(payment.amount ?? payment.total ?? payment.payment_amount ?? 0))
@@ -279,16 +310,103 @@ async function enrichPaymentGroupAccounts(postingRows) {
   return postingRows
 }
 
+/**
+ * Cap each invoice allocation to live Zoho balance due.
+ * Drops zero-balance lines (common for orphan logistics on already-paid invoices)
+ * so one dead line cannot kill the whole fulfillment_shipping payment.
+ */
+async function trimPaymentRowToLiveBalances(row, opts = {}) {
+  const fetchByIds = opts.fetchInvoicesByIds || fetchInvoicesByIds
+  const allocations = Array.isArray(row.invoiceAllocations) ? row.invoiceAllocations : []
+  if (!allocations.length) {
+    return { row, dropped: [], warnings: [] }
+  }
+  const invoiceMap = await fetchByIds(allocations.map((a) => a.invoiceId))
+  const kept = []
+  const dropped = []
+  const warnings = []
+  for (const alloc of allocations) {
+    const wanted = round2(Number(alloc.amountApplied) || 0)
+    if (wanted <= 0) continue
+    const invoice = invoiceMap.get(clean(alloc.invoiceId))
+    const balance = invoiceBalanceDue(invoice)
+    if (balance == null) {
+      // Could not read balance — keep allocation and let Zoho accept/reject.
+      kept.push({ ...alloc, amountApplied: wanted })
+      warnings.push(`No live balance for invoice ${alloc.invoiceNumber || alloc.invoiceId}; posting planned ${wanted}`)
+      continue
+    }
+    if (balance < 0.01) {
+      dropped.push({
+        ...alloc,
+        amountApplied: wanted,
+        balance,
+        reason: 'Invoice has zero open balance (already paid) — cannot receive payment',
+      })
+      continue
+    }
+    const applied = round2(Math.min(wanted, balance))
+    if (applied + 0.009 < wanted) {
+      warnings.push(
+        `${alloc.invoiceNumber || alloc.invoiceId}: wanted ${wanted}, balance ${balance}, applying ${applied}`
+      )
+    }
+    if (applied >= 0.01) {
+      kept.push({ ...alloc, amountApplied: applied, balanceBefore: balance })
+    } else {
+      dropped.push({ ...alloc, amountApplied: wanted, balance, reason: 'Balance too small' })
+    }
+  }
+  const amount = round2(kept.reduce((sum, a) => sum + (Number(a.amountApplied) || 0), 0))
+  const next = {
+    ...row,
+    amount,
+    invoiceAllocations: kept,
+    droppedAllocations: dropped,
+    balanceWarnings: warnings,
+    zohoPaymentRequest: {
+      ...row.zohoPaymentRequest,
+      amount,
+      invoices: kept,
+    },
+  }
+  return { row: next, dropped, warnings }
+}
+
+function splitPaymentRowPerInvoice(row) {
+  return (Array.isArray(row.invoiceAllocations) ? row.invoiceAllocations : [])
+    .filter((a) => round2(Number(a.amountApplied) || 0) >= 0.01)
+    .map((alloc, idx) => {
+      const amount = round2(Number(alloc.amountApplied) || 0)
+      const referenceNumber = `${row.referenceNumber || row.paymentType}-p${idx + 1}`
+      return {
+        ...row,
+        amount,
+        postingGroupKey: `${row.postingGroupKey || row.paymentType}:${alloc.invoiceId}`,
+        referenceNumber,
+        invoiceAllocations: [alloc],
+        zohoPaymentRequest: {
+          ...row.zohoPaymentRequest,
+          amount,
+          invoices: [alloc],
+          referenceNumber,
+          description: `${row.description || row.paymentType} ${alloc.invoiceNumber || alloc.invoiceId}`,
+        },
+      }
+    })
+}
+
 function evaluatePaymentCompleteness(result, postingRows, { dryRun }) {
   const requiredTypes = [...new Set((postingRows || []).map((r) => r.paymentType).filter(Boolean))]
   const missing = []
   for (const paymentType of requiredTypes) {
-    const row = (result.payments || []).find((p) => p.paymentType === paymentType)
-    const ok =
-      row &&
-      (row.status === 'posted' ||
+    const rows = (result.payments || []).filter((p) => p.paymentType === paymentType)
+    const ok = rows.some(
+      (row) =>
+        row.status === 'posted' ||
         row.status === 'skipped' ||
-        (dryRun && row.status === 'dry_run'))
+        (dryRun && row.status === 'dry_run')
+    )
     if (!ok) missing.push(paymentType)
   }
   return { requiredTypes, missing }
@@ -346,6 +464,7 @@ async function postApprovedBatch({
   const metadata = batch.reportSnapshot || batch.metadata || {}
   let postingRows = paymentRows.length ? groupPayments(paymentRows, customerId, paymentDate, metadata) : []
   postingRows = await enrichPaymentGroupAccounts(postingRows)
+  postingRows = sortPaymentPostingRows(postingRows)
   const settlementReference = buildSettlementReference(metadata)
   const journalLinesToPost = [
     ...feeJournalLines.map((line, idx) => ({
@@ -382,7 +501,7 @@ async function postApprovedBatch({
   }
 
   const run = async () => {
-    for (const row of postingRows) {
+    const postOnePayment = async (row) => {
       if (!dryRun) {
         const existingDecision = await resolveExistingPaymentSkip({
           batchId: batch.batchId,
@@ -400,7 +519,7 @@ async function postApprovedBatch({
           }
           result.errors.push(error)
           result.payments.push(error)
-          continue
+          return { ok: false }
         }
         if (existingDecision.skip) {
           result.summary.paymentsSkipped += 1
@@ -410,31 +529,62 @@ async function postApprovedBatch({
             zohoPaymentId: existingDecision.zohoPaymentId || existingDecision.existing?.zohoPaymentId,
             reason: 'Already posted in Zoho for batch/payment type (verified).',
           })
-          continue
+          return { ok: true, skipped: true }
         }
       }
+
+      let working = row
+      if (!dryRun) {
+        const trimmed = await trimPaymentRowToLiveBalances(row)
+        working = trimmed.row
+        if ((trimmed.dropped || []).length) {
+          result.payments.push({
+            paymentType: row.paymentType,
+            status: 'warning',
+            reason: `Dropped ${trimmed.dropped.length} invoice allocation(s) with no open Zoho balance`,
+            droppedAllocations: trimmed.dropped,
+          })
+        }
+        if (round2(working.amount) < 0.01) {
+          result.summary.errors += 1
+          const error = {
+            ...row,
+            status: 'error',
+            error:
+              row.paymentType === PAYMENT_TYPES.FULFILLMENT_SHIPPING
+                ? 'Shipping payment (1068) is 0 after balance check — invoices already fully paid or no open balance. Void net/commission over-payments or leave balance for shipping, then Force repost.'
+                : `Payment ${row.paymentType} is 0 after live invoice balance check.`,
+            code: 'ZOHO_PAYMENT_NO_OPEN_BALANCE',
+            droppedAllocations: trimmed.dropped,
+          }
+          result.errors.push(error)
+          result.payments.push(error)
+          return { ok: false }
+        }
+      }
+
       let zohoPayloadPreview = null
       try {
-        zohoPayloadPreview = await buildPayloadPreview(row.zohoPaymentRequest)
+        zohoPayloadPreview = await buildPayloadPreview(working.zohoPaymentRequest)
       } catch (err) {
         result.summary.errors += 1
         const error = {
-          ...row,
+          ...working,
           status: 'error',
           error: err?.message || 'Failed to build payment payload',
           code: err?.code || 'ZOHO_PAYMENT_PREVIEW_FAILED',
         }
         result.errors.push(error)
         result.payments.push(error)
-        continue
+        return { ok: false }
       }
       if (dryRun) {
         result.summary.paymentsCreated += 1
-        result.payments.push({ ...row, status: 'dry_run', zohoPaymentId: '', zohoPayloadPreview })
-        continue
+        result.payments.push({ ...working, status: 'dry_run', zohoPaymentId: '', zohoPayloadPreview })
+        return { ok: true }
       }
       try {
-        const created = await createPayment(row.zohoPaymentRequest)
+        const created = await createPayment(working.zohoPaymentRequest)
         const zohoPaymentId = clean(
           created?.zohoPaymentId || created?.payment_id || created?.paymentId || created?.id
         )
@@ -442,26 +592,83 @@ async function postApprovedBatch({
           batchId: batch.batchId,
           invoiceId: null,
           itemOrderId: null,
-          paymentType: row.paymentType,
-          postingGroupKey: row.postingGroupKey,
+          paymentType: working.paymentType,
+          postingGroupKey: working.postingGroupKey,
           zohoPaymentId,
-          amount: row.amount,
-          accountCode: row.accountCode,
-          invoiceAllocations: row.invoiceAllocations,
-          referenceNumber: row.referenceNumber,
-          description: row.description,
+          amount: working.amount,
+          accountCode: working.accountCode,
+          invoiceAllocations: working.invoiceAllocations,
+          referenceNumber: working.referenceNumber,
+          description: working.description,
           status: 'posted',
         })
         result.summary.paymentsCreated += 1
-        result.zohoPaymentIds.push({ zohoPaymentId, referenceNumber: row.referenceNumber })
-        result.payments.push({ ...row, status: 'posted', zohoPaymentId })
+        result.zohoPaymentIds.push({ zohoPaymentId, referenceNumber: working.referenceNumber })
+        result.payments.push({ ...working, status: 'posted', zohoPaymentId })
+        return { ok: true, zohoPaymentId }
       } catch (err) {
+        return {
+          ok: false,
+          error: err,
+          working,
+          zohoPayloadPreview,
+        }
+      }
+    }
+
+    for (const row of postingRows) {
+      const outcome = await postOnePayment(row)
+      if (outcome.ok) continue
+
+      // One dead invoice must not kill the entire shipping bucket — retry per invoice.
+      if (
+        !dryRun &&
+        row.paymentType === PAYMENT_TYPES.FULFILLMENT_SHIPPING &&
+        outcome.error &&
+        Array.isArray(row.invoiceAllocations) &&
+        row.invoiceAllocations.length > 1
+      ) {
+        const splits = splitPaymentRowPerInvoice(outcome.working || row)
+        let anyOk = false
+        for (const piece of splits) {
+          const pieceOut = await postOnePayment(piece)
+          if (pieceOut.ok) anyOk = true
+          else if (pieceOut.error) {
+            result.summary.errors += 1
+            const error = {
+              ...piece,
+              status: 'error',
+              error: pieceOut.error?.message || outcome.error?.message || 'Zoho shipping payment failed',
+              code: pieceOut.error?.code || outcome.error?.code || 'ZOHO_PAYMENT_FAILED',
+            }
+            result.errors.push(error)
+            result.payments.push(error)
+          }
+        }
+        if (!anyOk && outcome.error) {
+          result.summary.errors += 1
+          const error = {
+            ...row,
+            status: 'error',
+            error:
+              (outcome.error?.message || 'Zoho fulfillment_shipping payment failed') +
+              ' — also failed when split per invoice.',
+            code: outcome.error?.code || 'ZOHO_PAYMENT_FAILED',
+          }
+          result.errors.push(error)
+          result.payments.push(error)
+        }
+        continue
+      }
+
+      if (outcome.error) {
         result.summary.errors += 1
         const error = {
-          ...row,
+          ...(outcome.working || row),
           status: 'error',
-          error: err?.message || 'Zoho payment failed',
-          code: err?.code || 'ZOHO_PAYMENT_FAILED',
+          error: outcome.error?.message || 'Zoho payment failed',
+          code: outcome.error?.code || 'ZOHO_PAYMENT_FAILED',
+          zohoPayloadPreview: outcome.zohoPayloadPreview,
         }
         result.errors.push(error)
         result.payments.push(error)
@@ -693,5 +900,9 @@ module.exports = {
   flattenInvoicePayments,
   resolveExistingPaymentSkip,
   evaluatePaymentCompleteness,
+  trimPaymentRowToLiveBalances,
+  sortPaymentPostingRows,
+  splitPaymentRowPerInvoice,
   PAYMENT_TYPES,
+  PAYMENT_POST_ORDER,
 }
