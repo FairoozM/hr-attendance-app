@@ -354,22 +354,65 @@ export async function generateNoonPaymentPreview(batchId: string | number) {
   return unwrap(data).paymentPreview
 }
 
-export async function postNoonPaymentClearingToZoho(batchId: string | number, dryRun = true) {
-  const data = await api.post<NoonPostingResult & { success: boolean }>(
-    `${BASE}/batches/${batchId}/post-to-zoho`,
-    { dryRun },
-    longOpts
+async function pollNoonPostingJob(jobId: string) {
+  const deadline = Date.now() + longOpts.timeoutMs
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+    const job = await api.get<{
+      success: boolean
+      status?: string
+      error?: string
+      progress?: { step?: string; current?: number; total?: number }
+      result?: NoonPostingResult
+    }>(`${BASE}/posting-jobs/${encodeURIComponent(jobId)}`, longOpts)
+
+    if (job.status === 'completed' && job.result) {
+      return unwrap({ success: true, ...job.result })
+    }
+    if (job.status === 'failed') {
+      throw new Error(job.error || 'Noon Zoho posting failed')
+    }
+  }
+  throw new Error(
+    'Noon Zoho posting timed out while waiting for the background job. Check Zoho / Saved batch — it may still have finished server-side.'
   )
-  return unwrap(data)
+}
+
+export async function postNoonPaymentClearingToZoho(batchId: string | number, dryRun = true) {
+  if (dryRun) {
+    const data = await api.post<NoonPostingResult & { success: boolean }>(
+      `${BASE}/batches/${batchId}/post-to-zoho`,
+      { dryRun: true },
+      longOpts
+    )
+    return unwrap(data)
+  }
+
+  const started = await api.post<{
+    success: boolean
+    async?: boolean
+    jobId?: string
+    status?: string
+  } & NoonPostingResult>(`${BASE}/batches/${batchId}/post-to-zoho`, { dryRun: false }, longOpts)
+
+  if (!started?.async || !started.jobId) {
+    return unwrap(started as NoonPostingResult & { success: boolean })
+  }
+  return pollNoonPostingJob(started.jobId)
 }
 
 export async function forceRepostNoonPaymentClearing(batchId: string | number, reason: string) {
-  const data = await api.post<NoonPostingResult & { success: boolean }>(
-    `${BASE}/batches/${batchId}/force-repost`,
-    { reason },
-    longOpts
-  )
-  return unwrap(data)
+  const started = await api.post<{
+    success: boolean
+    async?: boolean
+    jobId?: string
+    status?: string
+  } & NoonPostingResult>(`${BASE}/batches/${batchId}/force-repost`, { reason }, longOpts)
+
+  if (!started?.async || !started.jobId) {
+    return unwrap(started as NoonPostingResult & { success: boolean })
+  }
+  return pollNoonPostingJob(started.jobId)
 }
 
 export interface NoonFeeJournalMapping {

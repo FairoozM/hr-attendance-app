@@ -240,7 +240,7 @@ export function NoonPaymentClearingPage() {
     if (!dryRun && !window.confirm('Post Noon invoice payments and fee journals to Zoho?')) return
     setLoading(true)
     setError('')
-    setNotice('')
+    setNotice(dryRun ? '' : 'Posting to Zoho in the background — keep this tab open until the result appears.')
     try {
       const result = await postNoonPaymentClearingToZoho(preview.batchId, dryRun)
       setPostingResult(result)
@@ -300,7 +300,7 @@ export function NoonPaymentClearingPage() {
     }
     setLoading(true)
     setError('')
-    setNotice('')
+    setNotice('Force repost started — posting to Zoho in the background (may take a few minutes). Do not close this tab.')
     try {
       const result = await forceRepostNoonPaymentClearing(preview.batchId, reason.trim())
       setPostingResult(result)

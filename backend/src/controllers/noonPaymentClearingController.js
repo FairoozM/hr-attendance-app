@@ -110,11 +110,24 @@ async function postPaymentPreview(req, res) {
 async function postPostToZoho(req, res) {
   try {
     const dryRun = req.body?.dryRun !== false
-    const result = await service.postBatchToZoho(req.params.id, {
-      dryRun,
-      postedBy: userId(req),
+    // Dry run stays sync (fast). Live post is async — CloudFront ~30s timeout.
+    if (dryRun) {
+      const result = await service.postBatchToZoho(req.params.id, {
+        dryRun: true,
+        postedBy: userId(req),
+      })
+      return res.json({ success: result.success !== false, ...result })
+    }
+    const { startPostToZohoJob } = require('../services/noonPaymentClearing/noonPaymentClearingPostingJobService')
+    const job = startPostToZohoJob(req.params.id, { postedBy: userId(req) })
+    return res.status(202).json({
+      success: true,
+      async: true,
+      jobId: job.jobId,
+      status: job.status,
+      progress: job.progress,
+      batchId: job.batchId,
     })
-    return res.json({ success: result.success !== false, ...result })
   } catch (err) {
     return sendError(res, err)
   }
@@ -122,11 +135,36 @@ async function postPostToZoho(req, res) {
 
 async function postForceRepost(req, res) {
   try {
-    const result = await service.forceRepost(req.params.id, {
+    const { startForceRepostJob } = require('../services/noonPaymentClearing/noonPaymentClearingPostingJobService')
+    const job = startForceRepostJob(req.params.id, {
       reason: req.body?.reason,
       actorUserId: userId(req),
     })
-    return res.json({ success: result.success !== false, ...result })
+    return res.status(202).json({
+      success: true,
+      async: true,
+      jobId: job.jobId,
+      status: job.status,
+      progress: job.progress,
+      batchId: job.batchId,
+    })
+  } catch (err) {
+    return sendError(res, err)
+  }
+}
+
+async function getPostingJob(req, res) {
+  try {
+    const { getPostingJob } = require('../services/noonPaymentClearing/noonPaymentClearingPostingJobService')
+    const job = getPostingJob(req.params.jobId)
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Posting job not found.',
+        code: 'NOON_PAYMENT_CLEARING_POSTING_JOB_NOT_FOUND',
+      })
+    }
+    return res.json({ success: true, ...job })
   } catch (err) {
     return sendError(res, err)
   }
@@ -251,6 +289,7 @@ module.exports = {
   postPaymentPreview,
   postPostToZoho,
   postForceRepost,
+  getPostingJob,
   getFeeJournalMappings,
   postFeeJournalMapping,
   deleteFeeJournalMapping,
