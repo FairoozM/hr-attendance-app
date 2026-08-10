@@ -1418,6 +1418,63 @@ describe('shipping payment posting helpers', () => {
     assert.equal(dropped.length, 1)
     assert.equal(dropped[0].invoiceId, 'paid')
   })
+
+  it('caps duplicate allocations to the same invoice against remaining open balance', async () => {
+    const { trimPaymentRowToLiveBalances } = require('../src/services/noonPaymentClearing/noonPaymentClearingPostingService')
+    const { row, warnings } = await trimPaymentRowToLiveBalances(
+      {
+        paymentType: 'fulfillment_shipping',
+        amount: 80,
+        invoiceAllocations: [
+          { invoiceId: 'inv-1', invoiceNumber: 'INV-1', amountApplied: 50 },
+          { invoiceId: 'inv-1', invoiceNumber: 'INV-1', amountApplied: 30 },
+        ],
+        zohoPaymentRequest: { amount: 80, invoices: [] },
+      },
+      {
+        fetchInvoicesByIds: async () => new Map([['inv-1', { invoice_id: 'inv-1', balance: 60 }]]),
+      }
+    )
+    assert.equal(row.amount, 60)
+    assert.equal(row.invoiceAllocations.length, 1)
+    assert.equal(row.invoiceAllocations[0].amountApplied, 60)
+    assert.ok(warnings.length >= 1)
+  })
+})
+
+describe('live Zoho balance gate on payment preview', () => {
+  it('blocks generate when clearing exceeds open balance', () => {
+    const {
+      annotateInvoicePaymentsWithLiveBalances,
+      assertNoInvoiceOverpayments,
+    } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+    const { invoicePayments, invoiceBalanceShortfalls } = annotateInvoicePaymentsWithLiveBalances(
+      [
+        {
+          itemOrderId: 'NAEI-1',
+          zohoInvoiceId: 'inv-1',
+          zohoInvoiceNumber: 'INV-1',
+          invoiceTotal: 190,
+          totalClearingAmount: 21.42,
+          fulfillmentPayment: { amount: 21.42 },
+          commissionPayment: { amount: 0 },
+          netBalancePayment: { amount: 0 },
+        },
+      ],
+      new Map([['inv-1', { invoice_id: 'inv-1', balance: 0 }]])
+    )
+    assert.equal(invoicePayments[0].exceedsOpenBalance, true)
+    assert.equal(invoiceBalanceShortfalls.length, 1)
+    assert.throws(
+      () =>
+        assertNoInvoiceOverpayments({
+          invoicePayments,
+          invoiceOverpayments: [],
+          invoiceBalanceShortfalls,
+        }),
+      (err) => err && err.code === 'NOON_PAYMENT_CLEARING_INVOICE_BALANCE_SHORT'
+    )
+  })
 })
 
 describe('orphan parent logistics → Zoho invoice', () => {

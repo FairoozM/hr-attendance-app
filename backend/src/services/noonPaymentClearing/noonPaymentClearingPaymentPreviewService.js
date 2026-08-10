@@ -192,22 +192,130 @@ function assertNoInvoiceOverpayments(paymentPreview) {
   const overpayments = Array.isArray(paymentPreview?.invoiceOverpayments)
     ? paymentPreview.invoiceOverpayments
     : collectInvoiceOverpayments(paymentPreview?.invoicePayments)
-  if (!overpayments.length) return
-  const sample = overpayments
+  const balanceShortfalls = Array.isArray(paymentPreview?.invoiceBalanceShortfalls)
+    ? paymentPreview.invoiceBalanceShortfalls
+    : []
+  if (!overpayments.length && !balanceShortfalls.length) return
+
+  if (overpayments.length) {
+    const sample = overpayments
+      .slice(0, 5)
+      .map(
+        (o) =>
+          `${o.zohoInvoiceNumber || o.itemOrderId}: clearing ${o.totalClearingAmount} > invoice ${o.invoiceTotal} (over by ${o.overBy})`
+      )
+      .join('; ')
+    const more = overpayments.length > 5 ? ` (+${overpayments.length - 5} more)` : ''
+    const err = new Error(
+      `Payment preview blocked: ${overpayments.length} invoice(s) have payments totaling more than the Zoho invoice. Fix statement matching / parent logistics before posting. ${sample}${more}`
+    )
+    err.code = 'NOON_PAYMENT_CLEARING_INVOICE_OVERPAYMENT'
+    err.status = 422
+    err.details = { invoiceOverpayments: overpayments, invoiceBalanceShortfalls: balanceShortfalls }
+    throw err
+  }
+
+  const sample = balanceShortfalls
     .slice(0, 5)
     .map(
       (o) =>
-        `${o.zohoInvoiceNumber || o.itemOrderId}: clearing ${o.totalClearingAmount} > invoice ${o.invoiceTotal} (over by ${o.overBy})`
+        `${o.zohoInvoiceNumber || o.itemOrderId}: clearing ${o.totalClearingAmount} > open balance ${o.openBalance} (over by ${o.overBy})`
     )
     .join('; ')
-  const more = overpayments.length > 5 ? ` (+${overpayments.length - 5} more)` : ''
+  const more = balanceShortfalls.length > 5 ? ` (+${balanceShortfalls.length - 5} more)` : ''
   const err = new Error(
-    `Payment preview blocked: ${overpayments.length} invoice(s) have payments totaling more than the Zoho invoice. Fix statement matching / parent logistics before posting. ${sample}${more}`
+    `Payment preview blocked: ${balanceShortfalls.length} invoice(s) do not have enough open Zoho balance for these payments (already paid / partial payments). Void existing Noon payments for this statement in Zoho, fix orphan logistics, then Generate payment preview again. ${sample}${more}`
   )
-  err.code = 'NOON_PAYMENT_CLEARING_INVOICE_OVERPAYMENT'
+  err.code = 'NOON_PAYMENT_CLEARING_INVOICE_BALANCE_SHORT'
   err.status = 422
-  err.details = { invoiceOverpayments: overpayments }
+  err.details = { invoiceBalanceShortfalls: balanceShortfalls }
   throw err
+}
+
+/**
+ * Compare planned clearing to live Zoho open balance (and invoice total).
+ * Catches orphan logistics on already-paid invoices before Zoho 24016.
+ */
+function annotateInvoicePaymentsWithLiveBalances(invoicePayments = [], invoiceById = new Map()) {
+  const balanceShortfalls = []
+  const annotated = (Array.isArray(invoicePayments) ? invoicePayments : []).map((p) => {
+    const invId = clean(p.zohoInvoiceId)
+    const invoice = invId ? invoiceById.get(invId) : null
+    let openBalance = null
+    if (invoice) {
+      const raw = invoice.balance ?? invoice.balance_due ?? invoice.unpaid_amount ?? invoice.amount_due
+      if (raw != null && raw !== '') openBalance = positiveAmount(raw)
+    }
+    const clearing = positiveAmount(p.totalClearingAmount)
+    const exceedsOpenBalance =
+      openBalance != null && clearing >= 0.01 && clearing > openBalance + PAYMENT_PREVIEW_TOLERANCE
+    const next = {
+      ...p,
+      openBalance,
+      exceedsOpenBalance,
+    }
+    if (exceedsOpenBalance) {
+      balanceShortfalls.push({
+        itemOrderId: p.itemOrderId || '',
+        zohoInvoiceId: invId,
+        zohoInvoiceNumber: p.zohoInvoiceNumber || '',
+        invoiceTotal: positiveAmount(p.invoiceTotal),
+        openBalance,
+        totalClearingAmount: clearing,
+        overBy: round2(clearing - openBalance),
+        netBalance: positiveAmount(p.netBalancePayment?.amount ?? p.invoiceClearingNetBalance),
+        commission: positiveAmount(p.commissionPayment?.amount ?? p.referralFee),
+        shipping: positiveAmount(p.fulfillmentPayment?.amount ?? p.fulfillmentShipping),
+        parentLogisticsAddOn: positiveAmount(p.parentLogisticsAddOn),
+        reason:
+          openBalance < 0.01
+            ? 'Zoho invoice has zero open balance (already paid) — cannot clear shipping/commission onto it'
+            : 'Planned payments exceed live Zoho balance due',
+      })
+    }
+    return next
+  })
+  return { invoicePayments: annotated, invoiceBalanceShortfalls: balanceShortfalls }
+}
+
+async function attachLiveZohoBalancesToPaymentPreview(paymentPreview, fetchByIds) {
+  if (!paymentPreview || !Array.isArray(paymentPreview.invoicePayments)) return paymentPreview
+  const fetchInvoices =
+    fetchByIds ||
+    require('../../integrations/zoho/zohoBooksClient').fetchInvoicesByIds
+  const ids = paymentPreview.invoicePayments.map((p) => p.zohoInvoiceId).filter(Boolean)
+  let invoiceById = new Map()
+  try {
+    invoiceById = await fetchInvoices(ids)
+  } catch (err) {
+    console.warn('[noon-payment-clearing] live balance fetch failed:', err?.message || err)
+    return {
+      ...paymentPreview,
+      balanceCheckWarning: err?.message || 'Could not fetch Zoho invoice balances',
+    }
+  }
+  const { invoicePayments, invoiceBalanceShortfalls } = annotateInvoicePaymentsWithLiveBalances(
+    paymentPreview.invoicePayments,
+    invoiceById
+  )
+  const blocked =
+    Boolean(paymentPreview.summary?.blocked) ||
+    invoiceBalanceShortfalls.length > 0 ||
+    (paymentPreview.invoiceOverpayments || []).length > 0
+  return {
+    ...paymentPreview,
+    invoicePayments,
+    invoiceBalanceShortfalls,
+    status: blocked ? 'blocked' : paymentPreview.status,
+    summary: {
+      ...paymentPreview.summary,
+      invoiceBalanceShortfallCount: invoiceBalanceShortfalls.length,
+      blocked,
+      blockedReason: invoiceBalanceShortfalls.length
+        ? 'One or more invoices lack open Zoho balance for the planned payments.'
+        : paymentPreview.summary?.blockedReason || null,
+    },
+  }
 }
 
 function buildFoldedUnclearedChargeSummaries(allRows = []) {
@@ -331,4 +439,6 @@ module.exports = {
   collectAssignedUnclearedPaymentAddOns,
   collectInvoiceOverpayments,
   assertNoInvoiceOverpayments,
+  annotateInvoicePaymentsWithLiveBalances,
+  attachLiveZohoBalancesToPaymentPreview,
 }

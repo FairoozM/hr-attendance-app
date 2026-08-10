@@ -1,7 +1,7 @@
 const zohoPaymentService = require('../amazonPaymentClearingZohoPaymentService')
 const { fetchInvoicesByIds, invoiceBalanceDue } = require('../../integrations/zoho/zohoBooksClient')
 const { round2, clean } = require('./noonPaymentClearingCategoryService')
-const { buildPaymentPreviewFromBatch, PAYMENT_PREVIEW_TOLERANCE, assertNoInvoiceOverpayments } = require('./noonPaymentClearingPaymentPreviewService')
+const { buildPaymentPreviewFromBatch, PAYMENT_PREVIEW_TOLERANCE, assertNoInvoiceOverpayments, attachLiveZohoBalancesToPaymentPreview } = require('./noonPaymentClearingPaymentPreviewService')
 const { isNoonSettlementReconciliationAcceptable } = require('./noonPaymentClearingReconciliationService')
 const { buildSettlementReference, buildEntryReference, truncateZohoReference } = require('./noonPaymentClearingReferenceService')
 const store = require('./noonPaymentClearingStore')
@@ -197,6 +197,7 @@ function groupPayments(rows, customerId, paymentDate, metadata) {
         accountName: row.accountName,
         accountId: row.accountId,
         invoiceAllocations: [],
+        _allocByInvoice: new Map(),
       })
     }
     const g = groups.get(row.paymentType)
@@ -204,14 +205,27 @@ function groupPayments(rows, customerId, paymentDate, metadata) {
     if (!g.accountId && row.accountId) g.accountId = row.accountId
     if (!g.accountName && row.accountName) g.accountName = row.accountName
     if (!g.accountCode && row.accountCode) g.accountCode = row.accountCode
-    g.invoiceAllocations.push({
-      invoiceId: row.invoiceId,
-      invoiceNumber: row.invoiceNumber,
-      orderId: row.itemOrderId,
-      amountApplied: row.amount,
-    })
+    const invId = clean(row.invoiceId)
+    if (!invId) continue
+    const prev = g._allocByInvoice.get(invId)
+    if (prev) {
+      // Same Zoho invoice must appear once — duplicate lines sum past balance due (Zoho 24016).
+      prev.amountApplied = round2((Number(prev.amountApplied) || 0) + (Number(row.amount) || 0))
+      if (!prev.orderId && row.itemOrderId) prev.orderId = row.itemOrderId
+      if (!prev.invoiceNumber && row.invoiceNumber) prev.invoiceNumber = row.invoiceNumber
+    } else {
+      const alloc = {
+        invoiceId: invId,
+        invoiceNumber: row.invoiceNumber,
+        orderId: row.itemOrderId,
+        amountApplied: round2(Number(row.amount) || 0),
+      }
+      g._allocByInvoice.set(invId, alloc)
+      g.invoiceAllocations.push(alloc)
+    }
   }
   return Array.from(groups.values()).map((group) => {
+    delete group._allocByInvoice
     const referenceNumber = buildEntryReference(metadata, group.paymentType)
     return {
       ...group,
@@ -325,14 +339,22 @@ async function trimPaymentRowToLiveBalances(row, opts = {}) {
     return { row, dropped: [], warnings: [] }
   }
   const invoiceMap = await fetchByIds(allocations.map((a) => a.invoiceId))
+  const remainingByInvoice = new Map()
   const kept = []
   const dropped = []
   const warnings = []
   for (const alloc of allocations) {
     const wanted = round2(Number(alloc.amountApplied) || 0)
     if (wanted <= 0) continue
-    const invoice = invoiceMap.get(clean(alloc.invoiceId))
-    const balance = invoiceBalanceDue(invoice)
+    const invId = clean(alloc.invoiceId)
+    const invoice = invoiceMap.get(invId)
+    let balance
+    if (remainingByInvoice.has(invId)) {
+      balance = remainingByInvoice.get(invId)
+    } else {
+      balance = invoiceBalanceDue(invoice)
+      if (balance != null) remainingByInvoice.set(invId, balance)
+    }
     if (balance == null) {
       // Could not read balance — keep allocation and let Zoho accept/reject.
       kept.push({ ...alloc, amountApplied: wanted })
@@ -349,6 +371,7 @@ async function trimPaymentRowToLiveBalances(row, opts = {}) {
       continue
     }
     const applied = round2(Math.min(wanted, balance))
+    remainingByInvoice.set(invId, round2(balance - applied))
     if (applied + 0.009 < wanted) {
       warnings.push(
         `${alloc.invoiceNumber || alloc.invoiceId}: wanted ${wanted}, balance ${balance}, applying ${applied}`
@@ -360,17 +383,29 @@ async function trimPaymentRowToLiveBalances(row, opts = {}) {
       dropped.push({ ...alloc, amountApplied: wanted, balance, reason: 'Balance too small' })
     }
   }
-  const amount = round2(kept.reduce((sum, a) => sum + (Number(a.amountApplied) || 0), 0))
+  // One line per invoice (Zoho rejects duplicate invoice_id lines / over-applied totals).
+  const merged = new Map()
+  for (const alloc of kept) {
+    const invId = clean(alloc.invoiceId)
+    const prev = merged.get(invId)
+    if (prev) {
+      prev.amountApplied = round2((Number(prev.amountApplied) || 0) + (Number(alloc.amountApplied) || 0))
+    } else {
+      merged.set(invId, { ...alloc })
+    }
+  }
+  const mergedKept = Array.from(merged.values())
+  const amount = round2(mergedKept.reduce((sum, a) => sum + (Number(a.amountApplied) || 0), 0))
   const next = {
     ...row,
     amount,
-    invoiceAllocations: kept,
+    invoiceAllocations: mergedKept,
     droppedAllocations: dropped,
     balanceWarnings: warnings,
     zohoPaymentRequest: {
       ...row.zohoPaymentRequest,
       amount,
-      invoices: kept,
+      invoices: mergedKept,
     },
   }
   return { row: next, dropped, warnings }
@@ -444,7 +479,7 @@ async function postApprovedBatch({
   buildJournalPayloadPreview = zohoPaymentService.buildManualJournalPayloadPreview,
 } = {}) {
   const latestPreview = await store.getLatestPaymentPreviewForBatch(batch.batchId)
-  const paymentPreview = buildPaymentPreviewFromBatch(batch, mappingRules, inputVatAccount, {
+  let paymentPreview = buildPaymentPreviewFromBatch(batch, mappingRules, inputVatAccount, {
     commissionExpenseAccount,
     shippingExpenseAccount,
     unclearedCommissionAccount,
@@ -453,6 +488,10 @@ async function postApprovedBatch({
     paymentPreviewAccounts: marketplaceConfig?.paymentPreviewAccounts,
     vatRate: inputVatAccount?.vatRate,
   })
+  if (!dryRun) {
+    paymentPreview = await attachLiveZohoBalancesToPaymentPreview(paymentPreview)
+    assertNoInvoiceOverpayments(paymentPreview)
+  }
   const feeJournalLines = Array.isArray(paymentPreview.feeJournalLines) ? paymentPreview.feeJournalLines : []
   const unclearedReclassJournals = Array.isArray(paymentPreview.unclearedReclassJournals)
     ? paymentPreview.unclearedReclassJournals
@@ -648,13 +687,27 @@ async function postApprovedBatch({
       }
     }
 
+    let stopPayments = false
     for (const row of postingRows) {
+      if (stopPayments) {
+        result.summary.errors += 1
+        const error = {
+          ...row,
+          status: 'error',
+          error: `Skipped — earlier payment failed. Void any Noon payments already created for this statement, then Force repost.`,
+          code: 'NOON_PAYMENT_CLEARING_ABORTED_AFTER_FAILURE',
+        }
+        result.errors.push(error)
+        result.payments.push(error)
+        continue
+      }
       const outcome = await postOnePayment(row)
       if (outcome.ok) continue
 
+      stopPayments = true
       // Do NOT split into per-invoice payments (that created dozens of ship-1/ship-2 rows).
       // Zero-balance invoices are already dropped in trimPaymentRowToLiveBalances;
-      // if the grouped payment still fails, surface one clear error.
+      // if the grouped payment still fails, surface one clear error and abort the rest.
       if (outcome.error) {
         result.summary.errors += 1
         const error = {
