@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   approveNoonPaymentClearingBatch,
+  excludeNoonOpenBalanceShortfalls,
   fetchNoonPaymentClearingBatch,
   fetchNoonSavedBatches,
   fetchNoonZohoCustomers,
@@ -13,6 +14,7 @@ import {
   type NoonSavedBatchSummary,
   postNoonPaymentClearingToZoho,
   previewNoonStatementUpload,
+  reconcileNoonOpenBalances,
 } from '../../../api/noonPaymentClearing'
 import { CLEARING_STEPS, type StepStatus } from './clearingSteps'
 import { ClearingStepper, StepPanel } from './components/ClearingStepper'
@@ -127,6 +129,14 @@ export function NoonPaymentClearingPage() {
       if (issue.code === 'UNEXPLAINED_OTHER') {
         reasons.push(issue.message || 'Unexplained transaction amount remains.')
       }
+      if (issue.code === 'OPEN_BALANCE_SHORT') {
+        reasons.push(issue.message || 'Invoice open balance is short — fix in Parent-Level Charges.')
+      }
+    }
+    if ((preview.openBalanceShortfalls || []).length > 0) {
+      reasons.push(
+        `${preview.openBalanceShortfalls!.length} invoice(s) lack open Zoho balance — check Parent-Level Charges and exclude already-paid logistics.`
+      )
     }
     return Array.from(new Set(reasons))
   }, [preview])
@@ -143,7 +153,11 @@ export function NoonPaymentClearingPage() {
         ? 'blocked'
         : 'completed'
     s[5] = preview ? 'completed' : 'not_started'
-    s[6] = preview ? 'completed' : 'not_started'
+    s[6] = !preview
+      ? 'not_started'
+      : (preview.openBalanceShortfalls || []).length > 0
+        ? 'blocked'
+        : 'completed'
     s[7] = !preview
       ? 'not_started'
       : preview.reconciliationSummary?.reconciliationStatus === 'mismatch'
@@ -165,6 +179,76 @@ export function NoonPaymentClearingPage() {
     s[11] = isPosted ? 'completed' : paymentPreview ? 'ready' : 'not_started'
     return s
   }, [preview, isApproved, isPosted, canApproveSettlement, paymentPreview])
+
+  async function onReconcileOpenBalances() {
+    if (!preview?.batchId) return
+    setLoading(true)
+    setError('')
+    setNotice('Checking live Zoho open balances…')
+    try {
+      const data = await reconcileNoonOpenBalances(preview.batchId)
+      setPreview(data)
+      const n = data.openBalanceShortfalls?.length || 0
+      setNotice(
+        n
+          ? `Open balance check: ${n} invoice(s) need attention — exclude already-paid logistics below.`
+          : 'Open balance check passed — all planned clearings fit live Zoho balances.'
+      )
+      goToStep(6)
+    } catch (err) {
+      setError(safeError(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function onExcludeOpenBalanceShortfall(zohoInvoiceId: string) {
+    if (!preview?.batchId || !zohoInvoiceId) return
+    if (
+      !window.confirm(
+        `Exclude clearing for ${zohoInvoiceId} from Zoho payments?\n\nUse this when the invoice is already paid (orphan logistics). It will not be posted as a Record Payment.`
+      )
+    ) {
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      const data = await excludeNoonOpenBalanceShortfalls(preview.batchId, {
+        zohoInvoiceIds: [zohoInvoiceId],
+      })
+      setPreview(data)
+      setNotice(`Excluded ${zohoInvoiceId} from payment clearing. Re-checked open balances.`)
+    } catch (err) {
+      setError(safeError(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function onExcludeAllOpenBalanceShortfalls() {
+    if (!preview?.batchId) return
+    const n = preview.openBalanceShortfalls?.length || 0
+    if (!n) return
+    if (
+      !window.confirm(
+        `Exclude all ${n} shortfall invoice(s) from Zoho payment clearing?\n\nUse when those invoices are already paid (orphan logistics only).`
+      )
+    ) {
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      const data = await excludeNoonOpenBalanceShortfalls(preview.batchId, {})
+      setPreview(data)
+      setNotice('Excluded shortfall invoices from payment clearing. Re-checked open balances.')
+    } catch (err) {
+      setError(safeError(err))
+    } finally {
+      setLoading(false)
+    }
+  }
 
   async function onUpload(file: File | null | undefined) {
     if (!file) return
@@ -379,17 +463,25 @@ export function NoonPaymentClearingPage() {
             collapsed={collapsed}
             onExpand={() => goToStep(step.id)}
             blocker={
-              step.id === 8 && approvalBlockers.length
-                ? approvalBlockers[0]
-                : step.id === 9 &&
-                    (preview?.feeJournalLines || []).some((l) => l.mappingStatus === 'needs_mapping')
-                  ? 'Map statement fee expense accounts first (Advertising).'
-                  : undefined
+              step.id === 6 && (preview?.openBalanceShortfalls || []).length > 0
+                ? `${preview!.openBalanceShortfalls!.length} invoice(s) lack open Zoho balance — exclude already-paid logistics.`
+                : step.id === 8 && approvalBlockers.length
+                  ? approvalBlockers[0]
+                  : step.id === 9 &&
+                      (preview?.feeJournalLines || []).some((l) => l.mappingStatus === 'needs_mapping')
+                    ? 'Map statement fee expense accounts first (Advertising).'
+                    : undefined
             }
             summary={
               collapsed && preview
                 ? step.id === 4
                   ? `${preview.matchedOrders?.length || 0} matched · ${preview.unmatchedOrders?.length || 0} missing`
+                  : step.id === 6
+                    ? (preview.openBalanceShortfalls || []).length
+                      ? `${preview.openBalanceShortfalls!.length} open-balance shortfall(s)`
+                      : preview.openBalanceCheckedAt
+                        ? 'Open balances OK'
+                        : 'Check open balances'
                   : step.id === 7
                     ? preview.reconciliationSummary?.reconciliationStatus
                     : step.id === 8
@@ -704,9 +796,91 @@ export function NoonPaymentClearingPage() {
             {step.id === 6 && preview && (
               <div className="npc-step-stack">
                 <div className="npc-alert">
-                  Parent Order Charges are legitimate. They are <strong>not</strong> missing invoices and are not assigned
-                  to a single child invoice.
+                  Parent logistics fold onto a child / Zoho invoice for Record Payment (1068). Before approve, check{' '}
+                  <strong>live Zoho open balance</strong> — already-paid invoices must be excluded here, not at Force
+                  repost.
                 </div>
+                <div className="npc-button-row">
+                  <button
+                    type="button"
+                    className="ainv-btn ainv-btn--primary-sky"
+                    disabled={loading}
+                    onClick={onReconcileOpenBalances}
+                  >
+                    Check open balances (Zoho)
+                  </button>
+                  {(preview.openBalanceShortfalls || []).length > 0 ? (
+                    <button
+                      type="button"
+                      className="ainv-btn ainv-btn--danger"
+                      disabled={loading}
+                      onClick={onExcludeAllOpenBalanceShortfalls}
+                    >
+                      Exclude all shortfalls from payment
+                    </button>
+                  ) : null}
+                </div>
+                {preview.openBalanceCheckedAt ? (
+                  <p className="npc-muted">Last checked: {preview.openBalanceCheckedAt}</p>
+                ) : (
+                  <p className="npc-muted">Not checked yet — run Check open balances before approving.</p>
+                )}
+                {(preview.openBalanceShortfalls || []).length > 0 ? (
+                  <div className="npc-alert npc-alert--error" role="alert">
+                    <strong>
+                      {(preview.openBalanceShortfalls || []).length} invoice(s) cannot clear — open balance too low
+                    </strong>
+                    <div className="npc-table-wrap" style={{ marginTop: 10 }}>
+                      <table className="npc-table">
+                        <thead>
+                          <tr>
+                            <th>Invoice</th>
+                            <th>Item / logistics</th>
+                            <th>Planned clearing</th>
+                            <th>Open balance</th>
+                            <th>Over by</th>
+                            <th>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(preview.openBalanceShortfalls || []).map((s) => (
+                            <tr key={`${s.zohoInvoiceId}-${s.itemOrderId}`}>
+                              <td>
+                                {s.zohoInvoiceNumber || '—'}
+                                <div className="npc-muted">
+                                  <code className="npc-ref">{s.zohoInvoiceId}</code>
+                                </div>
+                              </td>
+                              <td>
+                                <code className="npc-ref">{s.itemOrderId || '—'}</code>
+                                {s.reason ? <div className="npc-muted">{s.reason}</div> : null}
+                              </td>
+                              <td className="npc-money">{money(s.totalClearingAmount)}</td>
+                              <td className="npc-money">{money(s.openBalance)}</td>
+                              <td className="npc-money">{money(s.overBy)}</td>
+                              <td>
+                                <button
+                                  type="button"
+                                  className="ainv-btn"
+                                  disabled={loading}
+                                  onClick={() => onExcludeOpenBalanceShortfall(s.zohoInvoiceId)}
+                                >
+                                  Exclude from payment
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : preview.openBalanceCheckedAt ? (
+                  <div className="npc-alert npc-approved-panel">
+                    Open balances OK — planned clearings fit live Zoho balances.
+                  </div>
+                ) : null}
+
+                <h3>Parent-level charges</h3>
                 <div className="npc-table-wrap">
                   <table className="npc-table">
                     <thead>
@@ -725,6 +899,7 @@ export function NoonPaymentClearingPage() {
                           parents.find((p) => p.parentOrderId === row.parentOrderId)?.children.map((c) => c.itemOrderId) ||
                           []
                         const assigned = String(row.assignedItemOrderId || '')
+                        const excluded = Boolean(row.excludeFromPaymentClearing)
                         return (
                           <tr key={row.rowNumber}>
                             <td>
@@ -734,6 +909,11 @@ export function NoonPaymentClearingPage() {
                                   Cleared via: <code className="npc-ref">{assigned}</code>
                                   <br />
                                   Parent-order fallback
+                                </div>
+                              ) : null}
+                              {excluded ? (
+                                <div className="npc-muted" style={{ marginTop: 4 }}>
+                                  Excluded from payment clearing (already paid)
                                 </div>
                               ) : null}
                             </td>

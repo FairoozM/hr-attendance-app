@@ -1475,6 +1475,59 @@ describe('live Zoho balance gate on payment preview', () => {
       (err) => err && err.code === 'NOON_PAYMENT_CLEARING_INVOICE_BALANCE_SHORT'
     )
   })
+
+  it('skips excluded logistics when building payment plans', () => {
+    const {
+      buildInvoicePaymentPlansFromBatch,
+    } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+    const { getNoonPaymentClearingMarketplaceConfig } = require('../src/services/noonPaymentClearing/noonPaymentClearingMarketplaceConfig')
+    const { ROW_CLASS } = require('../src/services/noonPaymentClearing/noonPaymentClearingCategoryService')
+    const plans = buildInvoicePaymentPlansFromBatch(
+      {
+        matchedOrders: [
+          {
+            itemOrderId: 'NAEI-1',
+            zohoInvoiceId: 'inv-paid',
+            zohoInvoiceNumber: 'INV-042327',
+            zohoInvoiceTotal: 100,
+            netProceed: 0,
+            referralFee: 0,
+            fulfillmentFee: 0,
+            shippingCharges: 0,
+            logisticsOnly: true,
+            excludeFromPaymentClearing: true,
+          },
+          {
+            itemOrderId: 'NAEI-2',
+            zohoInvoiceId: 'inv-open',
+            zohoInvoiceNumber: 'INV-OK',
+            zohoInvoiceTotal: 100,
+            netProceed: 100,
+            referralFee: -10,
+            fulfillmentFee: -5,
+            shippingCharges: 0,
+          },
+        ],
+        allRows: [
+          {
+            rowNumber: 1,
+            rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+            assignedItemOrderId: 'NAEI-1',
+            total: -1.68,
+            excludeFromPaymentClearing: true,
+          },
+        ],
+        reconciliationSummary: { expectedSettlement: 0 },
+        status: 'approved',
+        unmatchedOrders: [],
+        multipleMatchItems: [],
+      },
+      { paymentPreviewAccounts: getNoonPaymentClearingMarketplaceConfig().paymentPreviewAccounts }
+    )
+    assert.equal(plans.length, 1)
+    assert.equal(plans[0].zohoInvoiceNumber, 'INV-OK')
+    assert.equal(plans[0].totalClearingAmount, 100)
+  })
 })
 
 describe('orphan parent logistics → Zoho invoice', () => {

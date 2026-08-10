@@ -35,6 +35,8 @@ export interface NoonStatementRow {
   parentFallbackStatus?: string
   displayLabel?: string
   accountingTreatment?: string
+  excludeFromPaymentClearing?: boolean
+  excludeReason?: string
 }
 
 export interface NoonHierarchyChild {
@@ -216,6 +218,19 @@ export interface NoonPaymentClearingPreview {
   status?: string
   postedToZoho?: boolean
   postingSummary?: Record<string, unknown>
+  openBalanceShortfalls?: Array<{
+    itemOrderId: string
+    zohoInvoiceId: string
+    zohoInvoiceNumber: string
+    invoiceTotal: number
+    openBalance: number
+    totalClearingAmount: number
+    overBy: number
+    shipping?: number
+    commission?: number
+    reason?: string
+  }>
+  openBalanceCheckedAt?: string | null
 }
 
 export interface NoonPaymentPreview {
@@ -353,6 +368,27 @@ export async function approveNoonPaymentClearingBatch(batchId: string | number) 
   const data = await api.post<{ success: boolean; batch: { batchId: number; status: string } }>(
     `${BASE}/batches/${batchId}/approve`,
     {},
+    longOpts
+  )
+  return unwrap(data)
+}
+
+export async function reconcileNoonOpenBalances(batchId: string | number) {
+  const data = await api.post<{ success: boolean } & NoonPaymentClearingPreview>(
+    `${BASE}/batches/${batchId}/reconcile-open-balances`,
+    {},
+    longOpts
+  )
+  return unwrap(data)
+}
+
+export async function excludeNoonOpenBalanceShortfalls(
+  batchId: string | number,
+  body: { zohoInvoiceIds?: string[]; itemOrderIds?: string[] } = {}
+) {
+  const data = await api.post<{ success: boolean } & NoonPaymentClearingPreview>(
+    `${BASE}/batches/${batchId}/exclude-open-balance-shortfalls`,
+    body,
     longOpts
   )
   return unwrap(data)

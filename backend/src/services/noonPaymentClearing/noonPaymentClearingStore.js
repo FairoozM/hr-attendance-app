@@ -628,6 +628,36 @@ async function updateBatchParentAssignments(batchId, patch = {}) {
   return mapBatch(result.rows[0])
 }
 
+async function updateBatchOpenBalanceReconcile(batchId, patch = {}) {
+  await ensureNoonPaymentClearingTables()
+  const batch = await getBatchById(batchId)
+  if (!batch) return null
+  const snap = {
+    ...(batch.reportSnapshot || {}),
+    openBalanceReconcile: patch.openBalanceReconcile || batch.reportSnapshot?.openBalanceReconcile || null,
+  }
+  const result = await query(
+    `UPDATE noon_payment_clearing_batches
+     SET all_rows = COALESCE($2::jsonb, all_rows),
+         matched_orders = COALESCE($3::jsonb, matched_orders),
+         parent_charges = COALESCE($4::jsonb, parent_charges),
+         blocking_issues = COALESCE($5::jsonb, blocking_issues),
+         report_snapshot = $6::jsonb,
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [
+      batchId,
+      patch.allRows != null ? JSON.stringify(patch.allRows) : null,
+      patch.matchedOrders != null ? JSON.stringify(patch.matchedOrders) : null,
+      patch.parentCharges != null ? JSON.stringify(patch.parentCharges) : null,
+      patch.blockingIssues != null ? JSON.stringify(patch.blockingIssues) : null,
+      JSON.stringify(snap),
+    ]
+  )
+  return mapBatch(result.rows[0])
+}
+
 async function savePaymentPreview(batchId, paymentPreview, createdBy = null) {
   await ensureNoonPaymentClearingTables()
   const result = await query(
@@ -932,6 +962,7 @@ module.exports = {
   markBatchPosted,
   resetBatchToApprovedForRepost,
   updateBatchParentAssignments,
+  updateBatchOpenBalanceReconcile,
   savePaymentPreview,
   getLatestPaymentPreviewForBatch,
   listFeeJournalMappings,

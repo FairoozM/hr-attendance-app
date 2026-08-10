@@ -60,6 +60,7 @@ function requireBatchForPaymentPreview(batch) {
 function collectAssignedUnclearedPaymentAddOns(allRows = []) {
   const byItem = new Map()
   for (const row of Array.isArray(allRows) ? allRows : []) {
+    if (row.excludeFromPaymentClearing) continue
     if (!isUnclearedInvoicePaymentBucketRow(row)) continue
     const itemId = clean(row.assignedItemOrderId) || clean(row.itemOrderId)
     if (!itemId) continue
@@ -103,6 +104,23 @@ function collectAssignedUnclearedPaymentAddOns(allRows = []) {
     byItem.set(itemId, entry)
   }
   return byItem
+}
+
+/** Invoice payment plans for balance checks — works before approval. */
+function buildInvoicePaymentPlansFromBatch(batch, accountOverrides = {}) {
+  const cfg = getNoonPaymentClearingMarketplaceConfig()
+  const accounts = {
+    ...cfg.paymentPreviewAccounts,
+    ...(accountOverrides.paymentPreviewAccounts || {}),
+  }
+  const matched = (Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []).filter(
+    (item) => !item.excludeFromPaymentClearing
+  )
+  const allRows = batch.allRows || []
+  const addOnsByItem = collectAssignedUnclearedPaymentAddOns(allRows)
+  return matched.map((item) =>
+    buildInvoicePaymentPlan(item, accounts, addOnsByItem.get(clean(item.itemOrderId)) || null)
+  )
 }
 
 function buildInvoicePaymentPlan(item, accounts, addOns = null) {
@@ -345,16 +363,8 @@ function buildFoldedUnclearedChargeSummaries(allRows = []) {
 function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount = null, accountOverrides = {}) {
   requireBatchForPaymentPreview(batch)
   const cfg = getNoonPaymentClearingMarketplaceConfig()
-  const accounts = {
-    ...cfg.paymentPreviewAccounts,
-    ...(accountOverrides.paymentPreviewAccounts || {}),
-  }
-  const matched = Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []
+  const invoicePayments = buildInvoicePaymentPlansFromBatch(batch, accountOverrides)
   const allRows = batch.allRows || []
-  const addOnsByItem = collectAssignedUnclearedPaymentAddOns(allRows)
-  const invoicePayments = matched.map((item) =>
-    buildInvoicePaymentPlan(item, accounts, addOnsByItem.get(clean(item.itemOrderId)) || null)
-  )
   const feeJournalLines = buildFeeJournalPreviewLines(
     allRows,
     mappingRules,
@@ -435,6 +445,7 @@ module.exports = {
   PAYMENT_PREVIEW_TOLERANCE,
   requireBatchForPaymentPreview,
   buildInvoicePaymentPlan,
+  buildInvoicePaymentPlansFromBatch,
   buildPaymentPreviewFromBatch,
   collectAssignedUnclearedPaymentAddOns,
   collectInvoiceOverpayments,

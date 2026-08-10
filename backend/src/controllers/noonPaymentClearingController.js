@@ -98,6 +98,27 @@ async function postApproveBatch(req, res) {
   }
 }
 
+async function postReconcileOpenBalances(req, res) {
+  try {
+    const preview = await service.reconcileOpenBalances(req.params.id)
+    return res.json({ success: true, ...preview })
+  } catch (err) {
+    return sendError(res, err)
+  }
+}
+
+async function postExcludeOpenBalanceShortfalls(req, res) {
+  try {
+    const preview = await service.excludeOpenBalanceShortfalls(req.params.id, {
+      zohoInvoiceIds: req.body?.zohoInvoiceIds || [],
+      itemOrderIds: req.body?.itemOrderIds || [],
+    })
+    return res.json({ success: true, ...preview })
+  } catch (err) {
+    return sendError(res, err)
+  }
+}
+
 async function postPaymentPreview(req, res) {
   try {
     const paymentPreview = await service.generatePaymentPreview(req.params.id, userId(req))
@@ -286,6 +307,8 @@ module.exports = {
   postPreviewUpload,
   getPreviewUploadJob,
   postApproveBatch,
+  postReconcileOpenBalances,
+  postExcludeOpenBalanceShortfalls,
   postPaymentPreview,
   postPostToZoho,
   postForceRepost,

@@ -41,8 +41,9 @@ export const CLEARING_STEPS: ClearingStep[] = [
   {
     id: 6,
     key: 'parent-charges',
-    title: 'Parent-Level Charges',
-    description: 'Charges on the parent order (not missing invoices). Not allocated to a child invoice.',
+    title: 'Parent Charges & Open Balance',
+    description:
+      'Parent logistics assigned to child/Zoho invoices. Check live Zoho open balance here and exclude already-paid logistics before approve.',
   },
   {
     id: 7,

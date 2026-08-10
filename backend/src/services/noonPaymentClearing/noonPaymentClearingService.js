@@ -13,10 +13,17 @@ const {
 const { buildNoonOrderHierarchy } = require('./noonPaymentClearingHierarchyService')
 const { getNoonPaymentClearingMarketplaceConfig } = require('./noonPaymentClearingMarketplaceConfig')
 const { isNoonSettlementReconciliationAcceptable } = require('./noonPaymentClearingReconciliationService')
-const { buildPaymentPreviewFromBatch, assertNoInvoiceOverpayments, attachLiveZohoBalancesToPaymentPreview } = require('./noonPaymentClearingPaymentPreviewService')
+const {
+  buildPaymentPreviewFromBatch,
+  assertNoInvoiceOverpayments,
+  attachLiveZohoBalancesToPaymentPreview,
+  buildInvoicePaymentPlansFromBatch,
+  annotateInvoicePaymentsWithLiveBalances,
+} = require('./noonPaymentClearingPaymentPreviewService')
 const { postApprovedBatch, forceRepostBatch } = require('./noonPaymentClearingPostingService')
 const { clean, matchKey } = require('./noonOrderIdHelper')
 const { ROW_CLASS } = require('./noonPaymentClearingCategoryService')
+const { fetchInvoicesByIds } = require('../../integrations/zoho/zohoBooksClient')
 
 function validateBatchReadyForApproval(batch) {
   if (!batch) {
@@ -48,6 +55,21 @@ function validateBatchReadyForApproval(batch) {
     const err = new Error('Approval blocked: unexplained transaction amounts remain.')
     err.code = 'NOON_PAYMENT_CLEARING_UNEXPLAINED_OTHER'
     err.status = 422
+    throw err
+  }
+  const balanceIssues = (batch.blockingIssues || []).filter((i) => i.code === 'OPEN_BALANCE_SHORT')
+  const shortfalls = batch.reportSnapshot?.openBalanceReconcile?.shortfalls || []
+  if (balanceIssues.length || shortfalls.length) {
+    const sample = (shortfalls[0] &&
+      `${shortfalls[0].zohoInvoiceNumber || shortfalls[0].itemOrderId}: clearing ${shortfalls[0].totalClearingAmount} > open balance ${shortfalls[0].openBalance}`) ||
+      balanceIssues[0]?.message ||
+      ''
+    const err = new Error(
+      `Approval blocked: ${shortfalls.length || balanceIssues.length} invoice(s) lack open Zoho balance. Fix in Parent-Level Charges (exclude already-paid logistics). ${sample}`
+    )
+    err.code = 'NOON_PAYMENT_CLEARING_OPEN_BALANCE_SHORT'
+    err.status = 422
+    err.details = { invoiceBalanceShortfalls: shortfalls }
     throw err
   }
 }
@@ -182,11 +204,13 @@ async function buildPreviewFromUpload(buffer, fileName, options = {}) {
   })
 
   const batch = await store.savePreviewBatch(preview, options.createdBy)
-  return {
-    ...preview,
-    batch,
-    batchId: batch.batchId,
+  // Early open-balance check (before approve / payment preview).
+  try {
+    await reconcileOpenBalances(batch.batchId)
+  } catch (err) {
+    console.warn('[noon-payment-clearing] open balance reconcile after upload failed:', err?.message || err)
   }
+  return getBatchPreview(batch.batchId)
 }
 
 async function getBatchPreview(batchId) {
@@ -202,6 +226,10 @@ async function getBatchPreview(batchId) {
   // Rebuild fee journals live so mapping / VAT / Amazon-style clearing counters apply.
   const feeJournalLines = buildFeeJournalPreviewLines(batch.allRows || [], mappingRules, inputVatAccount)
   const feeJournalVatSummary = summarizeFeeJournalVat(feeJournalLines)
+  const openBalanceShortfalls = batch.reportSnapshot?.openBalanceReconcile?.shortfalls || []
+  const openBalanceCheckedAt = batch.reportSnapshot?.openBalanceReconcile?.checkedAt || null
+  const hasOpenBalanceBlock = openBalanceShortfalls.length > 0 ||
+    (batch.blockingIssues || []).some((i) => i.code === 'OPEN_BALANCE_SHORT')
   return {
     batch,
     batchId: batch.batchId,
@@ -224,17 +252,22 @@ async function getBatchPreview(batchId) {
     warnings: batch.warnings,
     zohoCustomerId: batch.zohoCustomerId,
     zohoCustomerName: batch.zohoCustomerName,
+    openBalanceShortfalls,
+    openBalanceCheckedAt,
     totals: {
       ...(batch.totals || {}),
       feeJournalInputVat: feeJournalVatSummary.inputVat,
       feeJournalNetExpense: feeJournalVatSummary.netExpense,
+      openBalanceShortfallCount: openBalanceShortfalls.length,
     },
     // Fee journal mappings are Step 9 — they must not block Step 8 approval.
+    // Open-balance shortfalls DO block approval (fix in Parent Charges step).
     isCleanForApproval:
       isNoonSettlementReconciliationAcceptable(batch.reconciliationSummary) &&
       !(batch.unmatchedOrders || []).length &&
       !(batch.multipleMatchItems || []).length &&
-      !(batch.blockingIssues || []).some((i) => i.code === 'UNEXPLAINED_OTHER'),
+      !(batch.blockingIssues || []).some((i) => i.code === 'UNEXPLAINED_OTHER') &&
+      !hasOpenBalanceBlock,
     status: batch.status,
     postedToZoho: batch.postedToZoho,
     postingSummary: batch.postingSummary,
@@ -243,7 +276,148 @@ async function getBatchPreview(batchId) {
   }
 }
 
+/**
+ * Early reconcile: compare planned clearing vs live Zoho open balance.
+ * Stores shortfalls on the batch so Step 6 / Approve can show + rectify them.
+ */
+async function reconcileOpenBalances(batchId) {
+  let batch = await store.getBatchById(batchId)
+  if (!batch) {
+    const err = new Error('Noon payment clearing batch not found.')
+    err.code = 'NOON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  // Ensure orphan logistics are assigned before balance check.
+  try {
+    batch = (await rematchOrphanParentLogistics(batch)) || batch
+  } catch (err) {
+    console.warn('[noon-payment-clearing] orphan rematch during balance reconcile failed:', err?.message || err)
+  }
+  const plans = buildInvoicePaymentPlansFromBatch(batch)
+  const ids = plans.map((p) => p.zohoInvoiceId).filter(Boolean)
+  let invoiceById = new Map()
+  try {
+    invoiceById = await fetchInvoicesByIds(ids)
+  } catch (err) {
+    const warn = err?.message || 'Could not fetch Zoho invoice balances'
+    await store.updateBatchOpenBalanceReconcile(batch.batchId, {
+      openBalanceReconcile: {
+        checkedAt: new Date().toISOString(),
+        shortfalls: [],
+        warning: warn,
+      },
+      blockingIssues: (batch.blockingIssues || []).filter((i) => i.code !== 'OPEN_BALANCE_SHORT'),
+    })
+    return getBatchPreview(batch.batchId)
+  }
+  const { invoiceBalanceShortfalls } = annotateInvoicePaymentsWithLiveBalances(plans, invoiceById)
+  const blockingIssues = (batch.blockingIssues || []).filter((i) => i.code !== 'OPEN_BALANCE_SHORT')
+  for (const s of invoiceBalanceShortfalls) {
+    blockingIssues.push({
+      code: 'OPEN_BALANCE_SHORT',
+      severity: 'error',
+      itemOrderId: s.itemOrderId,
+      zohoInvoiceId: s.zohoInvoiceId,
+      zohoInvoiceNumber: s.zohoInvoiceNumber,
+      openBalance: s.openBalance,
+      totalClearingAmount: s.totalClearingAmount,
+      overBy: s.overBy,
+      message: `${s.zohoInvoiceNumber || s.itemOrderId}: clearing ${s.totalClearingAmount} > open balance ${s.openBalance} (over by ${s.overBy}). Exclude already-paid logistics or void Zoho payments first.`,
+    })
+  }
+  await store.updateBatchOpenBalanceReconcile(batch.batchId, {
+    openBalanceReconcile: {
+      checkedAt: new Date().toISOString(),
+      shortfalls: invoiceBalanceShortfalls,
+    },
+    blockingIssues,
+  })
+  return getBatchPreview(batch.batchId)
+}
+
+/**
+ * Rectify: exclude logistics / logistics-only matches on already-paid invoices
+ * so they are not sent as Record Payments (user handles offline if needed).
+ */
+async function excludeOpenBalanceShortfalls(batchId, { zohoInvoiceIds = [], itemOrderIds = [] } = {}) {
+  const batch = await store.getBatchById(batchId)
+  if (!batch) {
+    const err = new Error('Noon payment clearing batch not found.')
+    err.code = 'NOON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  const invSet = new Set((zohoInvoiceIds || []).map((id) => clean(id)).filter(Boolean))
+  const itemSet = new Set((itemOrderIds || []).map((id) => matchKey(id)).filter(Boolean))
+  // If nothing specified, exclude all current shortfalls.
+  const shortfalls = batch.reportSnapshot?.openBalanceReconcile?.shortfalls || []
+  if (!invSet.size && !itemSet.size) {
+    for (const s of shortfalls) {
+      if (s.zohoInvoiceId) invSet.add(clean(s.zohoInvoiceId))
+      if (s.itemOrderId) itemSet.add(matchKey(s.itemOrderId))
+    }
+  }
+  if (!invSet.size && !itemSet.size) {
+    const err = new Error('No open-balance shortfall invoices to exclude.')
+    err.code = 'NOON_PAYMENT_CLEARING_NO_SHORTFALLS'
+    err.status = 422
+    throw err
+  }
+
+  const matchedOrders = (batch.matchedOrders || []).map((m) => {
+    const hit =
+      (m.zohoInvoiceId && invSet.has(clean(m.zohoInvoiceId))) ||
+      (m.itemOrderId && itemSet.has(matchKey(m.itemOrderId)))
+    if (!hit) return m
+    return {
+      ...m,
+      excludeFromPaymentClearing: true,
+      excludeReason: 'open_balance_short_already_paid',
+    }
+  })
+
+  const allRows = (batch.allRows || []).map((row) => {
+    const assignedInv = clean(row.assignedZohoInvoiceId || row.zohoInvoiceId)
+    const assignedItem = matchKey(row.assignedItemOrderId || row.itemOrderId)
+    const hit =
+      (assignedInv && invSet.has(assignedInv)) || (assignedItem && itemSet.has(assignedItem))
+    if (!hit) return row
+    // Only exclude uncleared logistics / parent charges — not sale lines with net proceeds.
+    const isLogistics =
+      row.rowClass === ROW_CLASS.PARENT_ORDER_CHARGE ||
+      row.rowClass === ROW_CLASS.ORDER_ADJUSTMENT ||
+      (Math.abs(Number(row.netProceed) || 0) < 0.01 &&
+        (Math.abs(Number(row.total) || 0) >= 0.01 ||
+          Math.abs(Number(row.fulfillmentFee) || 0) >= 0.01))
+    if (!isLogistics) return row
+    return {
+      ...row,
+      excludeFromPaymentClearing: true,
+      excludeReason: 'open_balance_short_already_paid',
+    }
+  })
+
+  const parentCharges = allRows.filter((r) => r.rowClass === ROW_CLASS.PARENT_ORDER_CHARGE)
+  await store.updateBatchOpenBalanceReconcile(batch.batchId, {
+    allRows,
+    matchedOrders,
+    parentCharges,
+    blockingIssues: (batch.blockingIssues || []).filter((i) => i.code !== 'OPEN_BALANCE_SHORT'),
+    openBalanceReconcile: {
+      checkedAt: batch.reportSnapshot?.openBalanceReconcile?.checkedAt || null,
+      shortfalls: [],
+      lastExcludeAt: new Date().toISOString(),
+      excludedInvoiceIds: [...invSet],
+    },
+  })
+  // Re-check live balances after exclusions.
+  return reconcileOpenBalances(batch.batchId)
+}
+
 async function approveSavedBatch(batchId, approvedBy) {
+  // Refresh live balances before approve so Step 8 cannot ignore open-balance issues.
+  await reconcileOpenBalances(batchId)
   const batch = await store.getBatchById(batchId)
   validateBatchReadyForApproval(batch)
   return store.approveBatch(batchId, approvedBy)
@@ -370,6 +544,8 @@ async function forceRepost(batchId, options = {}) {
 module.exports = {
   buildPreviewFromUpload,
   getBatchPreview,
+  reconcileOpenBalances,
+  excludeOpenBalanceShortfalls,
   approveSavedBatch,
   validateBatchReadyForApproval,
   generatePaymentPreview,
