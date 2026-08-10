@@ -1,5 +1,8 @@
 const { clean } = require('./noonOrderIdHelper')
 
+/** Zoho Books customer payment reference_number max length. */
+const ZOHO_REFERENCE_MAX_LEN = 50
+
 function formatDayMonYear(isoDate) {
   const s = clean(isoDate)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s || ''
@@ -16,14 +19,44 @@ function buildSettlementReference(metadata = {}) {
   return ref ? `NOON-AE ${ref}` : 'NOON-AE Settlement'
 }
 
+/** Short suffixes so Zoho reference_number stays under 50 chars. */
+function shortReferenceLabel(label = '') {
+  const raw = clean(label)
+  const key = raw.toLowerCase().replace(/\s+/g, '_')
+  const map = {
+    net_balance: 'net',
+    net_undeposited: 'net',
+    net: 'net',
+    commission: 'comm',
+    fulfillment_shipping: 'ship',
+    fulfillment: 'ship',
+    shipping: 'ship',
+  }
+  if (map[key]) return map[key]
+  if (key.startsWith('uncleared_reclass')) return 'reclass'
+  if (key.startsWith('fee_journal') || key.includes('advertising')) return 'fee'
+  // Keep short readable stub
+  return raw.length <= 12 ? raw : raw.slice(0, 12)
+}
+
+function truncateZohoReference(value, maxLen = ZOHO_REFERENCE_MAX_LEN) {
+  const s = clean(value)
+  if (s.length <= maxLen) return s
+  return s.slice(0, maxLen)
+}
+
 function buildEntryReference(metadata = {}, label = '') {
   const base = buildSettlementReference(metadata)
-  const suffix = clean(label)
-  return suffix ? `${base} ${suffix}` : base
+  const suffix = shortReferenceLabel(label)
+  const full = suffix ? `${base} ${suffix}` : base
+  return truncateZohoReference(full, ZOHO_REFERENCE_MAX_LEN)
 }
 
 module.exports = {
+  ZOHO_REFERENCE_MAX_LEN,
   buildSettlementReference,
   buildEntryReference,
+  shortReferenceLabel,
+  truncateZohoReference,
   formatDayMonYear,
 }

@@ -3,7 +3,7 @@ const { fetchInvoicesByIds, invoiceBalanceDue } = require('../../integrations/zo
 const { round2, clean } = require('./noonPaymentClearingCategoryService')
 const { buildPaymentPreviewFromBatch, PAYMENT_PREVIEW_TOLERANCE } = require('./noonPaymentClearingPaymentPreviewService')
 const { isNoonSettlementReconciliationAcceptable } = require('./noonPaymentClearingReconciliationService')
-const { buildSettlementReference, buildEntryReference } = require('./noonPaymentClearingReferenceService')
+const { buildSettlementReference, buildEntryReference, truncateZohoReference } = require('./noonPaymentClearingReferenceService')
 const store = require('./noonPaymentClearingStore')
 
 const chartAccountCache = { at: 0, rows: null }
@@ -378,7 +378,9 @@ function splitPaymentRowPerInvoice(row) {
     .filter((a) => round2(Number(a.amountApplied) || 0) >= 0.01)
     .map((alloc, idx) => {
       const amount = round2(Number(alloc.amountApplied) || 0)
-      const referenceNumber = `${row.referenceNumber || row.paymentType}-p${idx + 1}`
+      const referenceNumber = truncateZohoReference(
+        `${row.referenceNumber || row.paymentType}-${idx + 1}`
+      )
       return {
         ...row,
         amount,
@@ -394,6 +396,14 @@ function splitPaymentRowPerInvoice(row) {
         },
       }
     })
+}
+
+function paymentTypePostedOrSkipped(result, paymentType) {
+  return (result.payments || []).some(
+    (p) =>
+      p.paymentType === paymentType &&
+      (p.status === 'posted' || p.status === 'skipped' || p.status === 'dry_run')
+  )
 }
 
 function evaluatePaymentCompleteness(result, postingRows, { dryRun }) {
@@ -552,9 +562,27 @@ async function postApprovedBatch({
             status: 'error',
             error:
               row.paymentType === PAYMENT_TYPES.FULFILLMENT_SHIPPING
-                ? 'Shipping payment (1068) is 0 after balance check — invoices already fully paid or no open balance. Void net/commission over-payments or leave balance for shipping, then Force repost.'
-                : `Payment ${row.paymentType} is 0 after live invoice balance check.`,
+                ? 'Shipping payment (1068) is 0 after balance check — invoices already fully paid or no open balance. Void existing Noon payments for this statement in Zoho, then Force repost.'
+                : `Payment ${row.paymentType} is 0 after live invoice balance check. Void existing Zoho payments for this statement, then Force repost.`,
             code: 'ZOHO_PAYMENT_NO_OPEN_BALANCE',
+            droppedAllocations: trimmed.dropped,
+          }
+          result.errors.push(error)
+          result.payments.push(error)
+          return { ok: false }
+        }
+        // Existing Zoho payments still applied → open balance too small for this bucket.
+        if (round2(working.amount) + 0.05 < round2(row.amount)) {
+          result.summary.errors += 1
+          const error = {
+            ...row,
+            status: 'error',
+            error:
+              `Open invoice balance only ${working.amount} but ${row.paymentType} needs ${round2(row.amount)}. ` +
+              `Void existing Noon payments for this statement in Zoho (net/commission/shipping), then Force repost.`,
+            code: 'ZOHO_PAYMENT_BALANCE_SHORT',
+            plannedAmount: round2(row.amount),
+            openBalanceAmount: round2(working.amount),
             droppedAllocations: trimmed.dropped,
           }
           result.errors.push(error)
@@ -677,6 +705,38 @@ async function postApprovedBatch({
 
     for (const line of journalLinesToPost) {
       const paymentType = line.paymentType
+      // Never reclass uncleared GLs until the Record Payments that fund 1067/1068 succeeded.
+      if (line.isUnclearedReclass && !dryRun) {
+        const fee = clean(line.feeType || paymentType).toUpperCase()
+        const needsCommission = fee.includes('COMMISSION')
+        const needsShipping = fee.includes('SHIPPING') || fee.includes('FULFILLMENT')
+        if (needsCommission && !paymentTypePostedOrSkipped(result, PAYMENT_TYPES.COMMISSION)) {
+          result.summary.errors += 1
+          const error = {
+            ...line,
+            paymentType,
+            status: 'error',
+            error:
+              'Blocked uncleared commission reclass journal — commission payment (1067) did not post. Void this journal if it was created earlier, then post payments first.',
+          }
+          result.errors.push(error)
+          result.journals.push(error)
+          continue
+        }
+        if (needsShipping && !paymentTypePostedOrSkipped(result, PAYMENT_TYPES.FULFILLMENT_SHIPPING)) {
+          result.summary.errors += 1
+          const error = {
+            ...line,
+            paymentType,
+            status: 'error',
+            error:
+              'Blocked uncleared shipping reclass journal — shipping payment (1068) did not post. Void this journal if it was created earlier, then post payments first.',
+          }
+          result.errors.push(error)
+          result.journals.push(error)
+          continue
+        }
+      }
       const existing = await store.findGroupedPosting(batch.batchId, paymentType)
       if (existing && existing.status === 'posted') {
         result.summary.journalsSkipped += 1

@@ -1311,6 +1311,21 @@ describe('stale Zoho payment skip handling', () => {
   })
 })
 
+describe('Zoho payment reference length', () => {
+  it('keeps fulfillment_shipping reference under 50 characters', () => {
+    const {
+      buildEntryReference,
+      ZOHO_REFERENCE_MAX_LEN,
+    } = require('../src/services/noonPaymentClearing/noonPaymentClearingReferenceService')
+    const ref = buildEntryReference(
+      { statementStartDate: '2026-06-26', statementEndDate: '2026-07-08' },
+      'fulfillment_shipping'
+    )
+    assert.ok(ref.length <= ZOHO_REFERENCE_MAX_LEN, ref)
+    assert.match(ref, /ship$/i)
+  })
+})
+
 describe('shipping payment posting helpers', () => {
   it('posts commission and shipping before net_balance', () => {
     const { sortPaymentPostingRows, PAYMENT_TYPES } = require('../src/services/noonPaymentClearing/noonPaymentClearingPostingService')
