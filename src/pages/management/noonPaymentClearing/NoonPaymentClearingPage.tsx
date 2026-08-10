@@ -408,6 +408,8 @@ export function NoonPaymentClearingPage() {
       setLoading(false)
     }
   }
+
+  async function onGeneratePaymentPreview() {
     if (!preview?.batchId) return
     setLoading(true)
     setError('')
