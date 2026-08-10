@@ -288,12 +288,13 @@ async function reconcileOpenBalances(batchId) {
     err.status = 404
     throw err
   }
-  // Ensure orphan logistics are assigned before balance check.
+  // Ensure orphan logistics are assigned before balance check — without wiping exclusions.
   try {
     batch = (await rematchOrphanParentLogistics(batch)) || batch
   } catch (err) {
     console.warn('[noon-payment-clearing] orphan rematch during balance reconcile failed:', err?.message || err)
   }
+  batch = reapplyExcludedInvoices(batch)
   const plans = buildInvoicePaymentPlansFromBatch(batch)
   const ids = plans.map((p) => p.zohoInvoiceId).filter(Boolean)
   let invoiceById = new Map()
@@ -330,7 +331,11 @@ async function reconcileOpenBalances(batchId) {
     openBalanceReconcile: {
       checkedAt: new Date().toISOString(),
       shortfalls: invoiceBalanceShortfalls,
+      excludedInvoiceIds: [...collectExcludedInvoiceIds(batch)],
     },
+    allRows: batch.allRows,
+    matchedOrders: batch.matchedOrders,
+    parentCharges: batch.parentCharges,
     blockingIssues,
   })
   return getBatchPreview(batch.batchId)
@@ -426,8 +431,10 @@ async function approveSavedBatch(batchId, approvedBy) {
 async function rematchOrphanParentLogistics(batch) {
   if (!batch) return batch
   const rows = Array.isArray(batch.allRows) ? batch.allRows : []
+  const excludedInvoiceIds = collectExcludedInvoiceIds(batch)
   const orphans = rows.filter(
     (r) =>
+      !r.excludeFromPaymentClearing &&
       needsParentOrderFallback(r) &&
       (!clean(r.assignedItemOrderId) || r.parentFallbackStatus === 'no_matched_child')
   )
@@ -442,21 +449,48 @@ async function rematchOrphanParentLogistics(batch) {
     batch.matchedOrders || [],
     matchResult.invoices || []
   )
+  // Never wipe user exclusions when rematching orphans.
+  const allRows = preserveRowExclusions(rows, parentAssign.rows).map((row) => {
+    const inv = clean(row.assignedZohoInvoiceId || row.zohoInvoiceId)
+    if (inv && excludedInvoiceIds.has(inv) && needsParentOrderFallback(row)) {
+      return {
+        ...row,
+        excludeFromPaymentClearing: true,
+        excludeReason: row.excludeReason || 'open_balance_short_already_paid',
+      }
+    }
+    return row
+  })
   const existingMatched = Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []
   const matchedOrders = [
-    ...existingMatched,
-    ...(parentAssign.syntheticMatchedOrders || []).filter(
-      (syn) =>
-        !existingMatched.some(
-          (m) =>
-            clean(m.zohoInvoiceId) === clean(syn.zohoInvoiceId) ||
-            matchKey(m.itemOrderId) === matchKey(syn.itemOrderId)
-        )
-    ),
+    ...existingMatched.map((m) => {
+      const inv = clean(m.zohoInvoiceId)
+      if (inv && excludedInvoiceIds.has(inv)) {
+        return {
+          ...m,
+          excludeFromPaymentClearing: true,
+          excludeReason: m.excludeReason || 'open_balance_short_already_paid',
+        }
+      }
+      return m
+    }),
+    ...(parentAssign.syntheticMatchedOrders || [])
+      .filter(
+        (syn) =>
+          !excludedInvoiceIds.has(clean(syn.zohoInvoiceId)) &&
+          !existingMatched.some(
+            (m) =>
+              clean(m.zohoInvoiceId) === clean(syn.zohoInvoiceId) ||
+              matchKey(m.itemOrderId) === matchKey(syn.itemOrderId)
+          )
+      )
+      .map((syn) => syn),
   ]
-  const hierarchy = buildNoonOrderHierarchy(parentAssign.rows)
-  const parentCharges = parentAssign.rows.filter((r) => r.rowClass === ROW_CLASS.PARENT_ORDER_CHARGE)
-  const stillOrphan = parentAssign.rows.filter((r) => r.parentFallbackStatus === 'no_matched_child')
+  const hierarchy = buildNoonOrderHierarchy(allRows)
+  const parentCharges = allRows.filter((r) => r.rowClass === ROW_CLASS.PARENT_ORDER_CHARGE)
+  const stillOrphan = allRows.filter(
+    (r) => !r.excludeFromPaymentClearing && r.parentFallbackStatus === 'no_matched_child'
+  )
   const blockingIssues = (batch.blockingIssues || []).filter((i) => i.code !== 'ORPHAN_PARENT_LOGISTICS')
   for (const row of stillOrphan) {
     blockingIssues.push({
@@ -468,7 +502,7 @@ async function rematchOrphanParentLogistics(batch) {
     })
   }
   return store.updateBatchParentAssignments(batch.batchId, {
-    allRows: parentAssign.rows,
+    allRows,
     matchedOrders,
     parentCharges,
     hierarchy,
@@ -476,13 +510,123 @@ async function rematchOrphanParentLogistics(batch) {
   })
 }
 
+function collectExcludedInvoiceIds(batch) {
+  const ids = new Set()
+  for (const id of batch?.reportSnapshot?.openBalanceReconcile?.excludedInvoiceIds || []) {
+    const c = clean(id)
+    if (c) ids.add(c)
+  }
+  for (const m of batch?.matchedOrders || []) {
+    if (m?.excludeFromPaymentClearing && clean(m.zohoInvoiceId)) ids.add(clean(m.zohoInvoiceId))
+  }
+  for (const row of batch?.allRows || []) {
+    if (!row?.excludeFromPaymentClearing) continue
+    const inv = clean(row.assignedZohoInvoiceId || row.zohoInvoiceId)
+    if (inv) ids.add(inv)
+  }
+  return ids
+}
+
+function preserveRowExclusions(oldRows = [], newRows = []) {
+  const byNumber = new Map(
+    (Array.isArray(oldRows) ? oldRows : [])
+      .filter((r) => r && r.rowNumber != null)
+      .map((r) => [Number(r.rowNumber), r])
+  )
+  return (Array.isArray(newRows) ? newRows : []).map((row) => {
+    const prev = byNumber.get(Number(row.rowNumber))
+    if (!prev?.excludeFromPaymentClearing) return row
+    return {
+      ...row,
+      excludeFromPaymentClearing: true,
+      excludeReason: prev.excludeReason || row.excludeReason || 'open_balance_short_already_paid',
+    }
+  })
+}
+
+/** Re-apply persisted exclusions after rematch / reload. */
+function reapplyExcludedInvoices(batch) {
+  if (!batch) return batch
+  const excludedInvoiceIds = collectExcludedInvoiceIds(batch)
+  if (!excludedInvoiceIds.size) return batch
+  const matchedOrders = (batch.matchedOrders || []).map((m) => {
+    if (!excludedInvoiceIds.has(clean(m.zohoInvoiceId))) return m
+    return {
+      ...m,
+      excludeFromPaymentClearing: true,
+      excludeReason: m.excludeReason || 'open_balance_short_already_paid',
+    }
+  })
+  const allRows = (batch.allRows || []).map((row) => {
+    const inv = clean(row.assignedZohoInvoiceId || row.zohoInvoiceId)
+    if (!inv || !excludedInvoiceIds.has(inv)) return row
+    if (
+      row.rowClass !== ROW_CLASS.PARENT_ORDER_CHARGE &&
+      row.rowClass !== ROW_CLASS.ORDER_ADJUSTMENT &&
+      !(Math.abs(Number(row.netProceed) || 0) < 0.01)
+    ) {
+      return row
+    }
+    return {
+      ...row,
+      excludeFromPaymentClearing: true,
+      excludeReason: row.excludeReason || 'open_balance_short_already_paid',
+    }
+  })
+  return {
+    ...batch,
+    matchedOrders,
+    allRows,
+    parentCharges: allRows.filter((r) => r.rowClass === ROW_CLASS.PARENT_ORDER_CHARGE),
+    reportSnapshot: {
+      ...(batch.reportSnapshot || {}),
+      openBalanceReconcile: {
+        ...(batch.reportSnapshot?.openBalanceReconcile || {}),
+        excludedInvoiceIds: [...excludedInvoiceIds],
+      },
+    },
+  }
+}
+
 async function generatePaymentPreview(batchId, createdBy) {
   let batch = await store.getBatchById(batchId)
+  if (!batch) {
+    const err = new Error('Noon payment clearing batch not found.')
+    err.code = 'NOON_PAYMENT_CLEARING_BATCH_NOT_FOUND'
+    err.status = 404
+    throw err
+  }
+  if (batch.status !== 'approved' && batch.status !== 'posted') {
+    const err = new Error(
+      `Payment preview requires an approved statement (current status: ${batch.status || 'unknown'}). Go to Step 8 and click Approve settlement.`
+    )
+    err.code = 'NOON_PAYMENT_CLEARING_BATCH_NOT_APPROVED'
+    err.status = 422
+    throw err
+  }
   // Re-fetch Zoho invoices for parent logistics that had no child in this statement.
   try {
     batch = (await rematchOrphanParentLogistics(batch)) || batch
   } catch (err) {
     console.warn('[noon-payment-clearing] orphan parent Zoho rematch failed:', err?.message || err)
+  }
+  batch = reapplyExcludedInvoices(batch)
+  // Persist re-applied exclusions so Generate stays stable.
+  if (collectExcludedInvoiceIds(batch).size) {
+    await store.updateBatchOpenBalanceReconcile(batch.batchId, {
+      allRows: batch.allRows,
+      matchedOrders: batch.matchedOrders,
+      parentCharges: batch.parentCharges,
+      openBalanceReconcile: {
+        ...(batch.reportSnapshot?.openBalanceReconcile || {}),
+        excludedInvoiceIds: [...collectExcludedInvoiceIds(batch)],
+        shortfalls: batch.reportSnapshot?.openBalanceReconcile?.shortfalls || [],
+        checkedAt: batch.reportSnapshot?.openBalanceReconcile?.checkedAt || null,
+      },
+      blockingIssues: (batch.blockingIssues || []).filter((i) => i.code !== 'OPEN_BALANCE_SHORT'),
+    })
+    batch = (await store.getBatchById(batch.batchId)) || batch
+    batch = reapplyExcludedInvoices(batch)
   }
   const ctx = await loadMappingContext()
   const paymentPreview = buildPaymentPreviewFromBatch(batch, ctx.mappingRules, ctx.inputVatAccount, {

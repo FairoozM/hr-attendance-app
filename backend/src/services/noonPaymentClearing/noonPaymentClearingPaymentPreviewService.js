@@ -113,9 +113,16 @@ function buildInvoicePaymentPlansFromBatch(batch, accountOverrides = {}) {
     ...cfg.paymentPreviewAccounts,
     ...(accountOverrides.paymentPreviewAccounts || {}),
   }
-  const matched = (Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []).filter(
-    (item) => !item.excludeFromPaymentClearing
+  const excludedInvoiceIds = new Set(
+    (batch?.reportSnapshot?.openBalanceReconcile?.excludedInvoiceIds || [])
+      .map((id) => clean(id))
+      .filter(Boolean)
   )
+  const matched = (Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []).filter((item) => {
+    if (item.excludeFromPaymentClearing) return false
+    if (excludedInvoiceIds.has(clean(item.zohoInvoiceId))) return false
+    return true
+  })
   const allRows = batch.allRows || []
   const addOnsByItem = collectAssignedUnclearedPaymentAddOns(allRows)
   return matched.map((item) =>

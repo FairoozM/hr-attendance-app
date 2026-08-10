@@ -109,8 +109,16 @@ export function NoonPaymentClearingPage() {
       .finally(() => setLoading(false))
   }, [routeBatchId, preview])
 
-  const isApproved = preview?.status === 'approved' || preview?.batch?.status === 'approved'
-  const isPosted = Boolean(preview?.postedToZoho || preview?.status === 'posted' || preview?.batch?.status === 'posted')
+  const isApproved =
+    preview?.status === 'approved' ||
+    preview?.batch?.status === 'approved' ||
+    String((preview as { batch?: { status?: string } })?.batch?.status || '') === 'approved'
+  const isPosted = Boolean(
+    preview?.postedToZoho ||
+      preview?.status === 'posted' ||
+      preview?.batch?.status === 'posted' ||
+      preview?.batch?.postedToZoho
+  )
 
   // Same rules as backend validateBatchReadyForApproval — fee journal mapping is Step 9, not approval.
   const approvalBlockers = useMemo(() => {
@@ -308,12 +316,17 @@ export function NoonPaymentClearingPage() {
     if (!preview?.batchId) return
     setLoading(true)
     setError('')
+    setNotice('Generating payment preview…')
     try {
       const pp = await generateNoonPaymentPreview(preview.batchId)
       setPaymentPreview(pp)
+      setNotice('Payment preview ready.')
       goToStep(10)
     } catch (err) {
-      setError(safeError(err))
+      const msg = safeError(err)
+      setError(msg)
+      setNotice('')
+      window.alert(`Generate payment preview failed\n\n${msg}`)
     } finally {
       setLoading(false)
     }
@@ -1016,14 +1029,29 @@ export function NoonPaymentClearingPage() {
 
             {step.id === 10 && (
               <div className="npc-step-stack">
+                {error ? (
+                  <div className="npc-alert npc-alert--error" role="alert">
+                    {error}
+                  </div>
+                ) : null}
                 <button
                   type="button"
                   className="ainv-btn ainv-btn--primary-sky"
                   disabled={(!isApproved && !isPosted) || loading}
                   onClick={onGeneratePaymentPreview}
                 >
-                  Generate payment preview
+                  {loading ? 'Generating…' : 'Generate payment preview'}
                 </button>
+                {!isApproved && !isPosted ? (
+                  <p className="npc-muted">
+                    Statement is not approved yet (status: {String(preview?.status || preview?.batch?.status || '—')}).
+                    Go to <strong>Step 8</strong> and click Approve settlement.
+                  </p>
+                ) : !paymentPreview ? (
+                  <p className="npc-muted">
+                    Settlement is approved. Click <strong>Generate payment preview</strong> above.
+                  </p>
+                ) : null}
                 {paymentPreview ? (
                   <>
                     <div className="npc-summary-grid">
@@ -1250,9 +1278,7 @@ export function NoonPaymentClearingPage() {
                       </table>
                     </div>
                   </>
-                ) : (
-                  <p className="npc-muted">Approve the settlement, then generate the preview.</p>
-                )}
+                ) : null}
               </div>
             )}
 
