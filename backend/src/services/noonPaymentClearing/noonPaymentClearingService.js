@@ -17,6 +17,7 @@ const {
   buildPaymentPreviewFromBatch,
   assertNoStatementOverpayments,
   buildInvoicePaymentPlansFromBatch,
+  aggregatePaymentPlansByInvoice,
   annotateInvoicePaymentsWithLiveBalances,
 } = require('./noonPaymentClearingPaymentPreviewService')
 const {
@@ -186,6 +187,7 @@ async function getBatchPreview(batchId) {
   const openBalanceShortfalls = getActiveOpenBalanceShortfalls(batchWithExclusions)
   const openBalanceExcluded = batch.reportSnapshot?.openBalanceReconcile?.excludedShortfalls || []
   const openBalanceCheckedAt = batch.reportSnapshot?.openBalanceReconcile?.checkedAt || null
+  const openBalanceCheckWarning = batch.reportSnapshot?.openBalanceReconcile?.warning || null
   const hasOpenBalanceBlock =
     openBalanceShortfalls.length > 0 ||
     !openBalanceCheckedAt ||
@@ -215,6 +217,7 @@ async function getBatchPreview(batchId) {
     openBalanceShortfalls,
     openBalanceExcluded,
     openBalanceCheckedAt,
+    openBalanceCheckWarning,
     totals: {
       ...(batch.totals || {}),
       feeJournalInputVat: feeJournalVatSummary.inputVat,
@@ -240,6 +243,9 @@ async function getBatchPreview(batchId) {
 /**
  * Early reconcile: compare planned clearing vs live Zoho open balance.
  * Stores shortfalls on the batch so Step 6 / Approve can show + rectify them.
+ *
+ * Detection always includes excluded invoices (they land in excludedShortfalls) so
+ * "Check open balances" never wipes visible rows by skipping excluded plans.
  */
 async function reconcileOpenBalances(batchId) {
   let batch = await store.getBatchById(batchId)
@@ -249,41 +255,59 @@ async function reconcileOpenBalances(batchId) {
     err.status = 404
     throw err
   }
-  // Ensure orphan logistics are assigned before balance check — without wiping exclusions.
-  try {
-    batch = (await rematchOrphanParentLogistics(batch)) || batch
-  } catch (err) {
-    console.warn('[noon-payment-clearing] orphan rematch during balance reconcile failed:', err?.message || err)
-  }
   batch = reapplyExcludedInvoices(batch)
-  const plans = buildInvoicePaymentPlansFromBatch(batch)
-  const ids = plans.map((p) => p.zohoInvoiceId).filter(Boolean)
+  const snap = batch.reportSnapshot?.openBalanceReconcile || {}
+  const prevShortfalls = Array.isArray(snap.shortfalls) ? snap.shortfalls : []
+  const prevExcludedShortfalls = Array.isArray(snap.excludedShortfalls) ? snap.excludedShortfalls : []
+
+  const fullPlans = aggregatePaymentPlansByInvoice(
+    buildInvoicePaymentPlansFromBatch(batch, {}, { ignoreExclusions: true })
+  )
+  const ids = [...new Set(fullPlans.map((p) => clean(p.zohoInvoiceId)).filter(Boolean))]
   let invoiceById = new Map()
+  let fetchWarning = ''
   try {
     invoiceById = await fetchInvoicesByIds(ids)
   } catch (err) {
-    const warn = err?.message || 'Could not fetch Zoho invoice balances'
-    await store.updateBatchOpenBalanceReconcile(batch.batchId, {
-      openBalanceReconcile: {
-        checkedAt: new Date().toISOString(),
-        shortfalls: [],
-        warning: warn,
-      },
-      blockingIssues: (batch.blockingIssues || []).filter((i) => i.code !== 'OPEN_BALANCE_SHORT'),
-    })
-    return getBatchPreview(batch.batchId)
+    fetchWarning = err?.message || 'Could not fetch Zoho invoice balances'
   }
-  const { invoiceBalanceShortfalls } = annotateInvoicePaymentsWithLiveBalances(plans, invoiceById)
+  const unfetchedIds = new Set(ids.filter((id) => !invoiceById.has(clean(id))))
+
+  const { invoiceBalanceShortfalls: detected } = annotateInvoicePaymentsWithLiveBalances(fullPlans, invoiceById)
   const excludedInvoiceIds = collectExcludedInvoiceIds(batch)
   const excludedItemOrderIds = collectExcludedItemOrderIds(batch)
-  // An excluded invoice is already filtered out of the payment plans, so it must never
-  // re-appear as a shortfall — that is what left the last row stuck on screen.
-  const activeShortfalls = []
-  const reExcluded = []
-  for (const s of invoiceBalanceShortfalls) {
-    if (isExcludedShortfall(s, excludedInvoiceIds, excludedItemOrderIds)) reExcluded.push(s)
-    else activeShortfalls.push(s)
+
+  const shortfallKey = (s) => `${clean(s?.zohoInvoiceId)}|${matchKey(s?.itemOrderId)}`
+  const activeByKey = new Map()
+  const excludedByKey = new Map()
+
+  for (const s of detected) {
+    const entry = { ...s, excluded: isExcludedShortfall(s, excludedInvoiceIds, excludedItemOrderIds) }
+    if (entry.excluded) excludedByKey.set(shortfallKey(s), entry)
+    else activeByKey.set(shortfallKey(s), entry)
   }
+
+  // If Zoho fetch missed an invoice, keep the previous row instead of silently clearing it.
+  for (const s of [...prevShortfalls, ...prevExcludedShortfalls]) {
+    const invId = clean(s.zohoInvoiceId)
+    if (!invId || !unfetchedIds.has(invId)) continue
+    const entry = { ...s, reason: s.reason || 'Could not re-fetch Zoho invoice — showing last known shortfall' }
+    if (isExcludedShortfall(s, excludedInvoiceIds, excludedItemOrderIds)) {
+      if (!excludedByKey.has(shortfallKey(s))) excludedByKey.set(shortfallKey(s), { ...entry, excluded: true })
+    } else if (!activeByKey.has(shortfallKey(s))) {
+      activeByKey.set(shortfallKey(s), entry)
+    }
+  }
+
+  const activeShortfalls = [...activeByKey.values()]
+  const excludedShortfalls = mergeExcludedShortfalls(prevExcludedShortfalls, [...excludedByKey.values()])
+
+  const warnings = []
+  if (fetchWarning) warnings.push(fetchWarning)
+  if (unfetchedIds.size) {
+    warnings.push(`Could not fetch ${unfetchedIds.size} Zoho invoice(s) for balance check.`)
+  }
+
   const blockingIssues = (batch.blockingIssues || []).filter((i) => i.code !== 'OPEN_BALANCE_SHORT')
   for (const s of activeShortfalls) {
     blockingIssues.push({
@@ -295,23 +319,22 @@ async function reconcileOpenBalances(batchId) {
       openBalance: s.openBalance,
       totalClearingAmount: s.totalClearingAmount,
       overBy: s.overBy,
-      message: `${s.zohoInvoiceNumber || s.itemOrderId}: clearing ${s.totalClearingAmount} > open balance ${s.openBalance} (over by ${s.overBy}). Exclude already-paid logistics or void Zoho payments first.`,
+      message: `${s.zohoInvoiceNumber || s.itemOrderId}: clearing ${s.totalClearingAmount} > open balance ${s.openBalance ?? '?'} (over by ${s.overBy}). Exclude already-paid logistics or void Zoho payments first.`,
     })
   }
+
   await store.updateBatchOpenBalanceReconcile(batch.batchId, {
     openBalanceReconcile: {
+      ...snap,
       checkedAt: new Date().toISOString(),
       shortfalls: activeShortfalls,
-      excludedShortfalls: mergeExcludedShortfalls(
-        batch.reportSnapshot?.openBalanceReconcile?.excludedShortfalls,
-        reExcluded
-      ),
+      excludedShortfalls,
       excludedInvoiceIds: [...excludedInvoiceIds],
       excludedItemOrderIds: [...excludedItemOrderIds],
+      balanceCheckInvoiceCount: ids.length,
+      balanceCheckFetchedCount: invoiceById.size,
+      warning: warnings.length ? warnings.join(' ') : null,
     },
-    allRows: batch.allRows,
-    matchedOrders: batch.matchedOrders,
-    parentCharges: batch.parentCharges,
     blockingIssues,
   })
   return getBatchPreview(batch.batchId)

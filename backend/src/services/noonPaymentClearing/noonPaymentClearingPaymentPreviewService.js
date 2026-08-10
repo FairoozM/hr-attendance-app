@@ -62,12 +62,12 @@ function requireBatchForPaymentPreview(batch) {
  * Do NOT add orderSubsidies on top of othersInclVat — the parser already merges
  * subsidies into othersInclVat (double-count produced bogus 22.68 from -37.8+7.56+7.56).
  */
-function collectAssignedUnclearedPaymentAddOns(allRows = [], planExclusions = null) {
+function collectAssignedUnclearedPaymentAddOns(allRows = [], planExclusions = null, options = {}) {
   const byItem = new Map()
   const exInv = planExclusions?.excludedInvoiceIds
   const exItem = planExclusions?.excludedItemOrderIds
   for (const row of Array.isArray(allRows) ? allRows : []) {
-    if (row.excludeFromPaymentClearing) continue
+    if (!options.ignoreExclusions && row.excludeFromPaymentClearing) continue
     if (!isUnclearedInvoicePaymentBucketRow(row)) continue
     const itemId = clean(row.assignedItemOrderId) || clean(row.itemOrderId)
     if (!itemId) continue
@@ -146,23 +146,69 @@ function collectPlanExclusions(batch) {
   return { excludedInvoiceIds, excludedItemOrderIds }
 }
 
+/** Sum planned clearing per Zoho invoice — open balance is per invoice, not per item line. */
+function aggregatePaymentPlansByInvoice(plans = []) {
+  const byInv = new Map()
+  for (const p of Array.isArray(plans) ? plans : []) {
+    const invId = clean(p.zohoInvoiceId)
+    if (!invId) continue
+    const cur = byInv.get(invId)
+    if (!cur) {
+      byInv.set(invId, {
+        ...p,
+        itemOrderId: clean(p.itemOrderId) || '',
+        itemOrderIds: clean(p.itemOrderId) ? [clean(p.itemOrderId)] : [],
+      })
+      continue
+    }
+    const items = new Set(cur.itemOrderIds || [])
+    if (clean(p.itemOrderId)) items.add(clean(p.itemOrderId))
+    cur.itemOrderIds = [...items]
+    cur.itemOrderId = cur.itemOrderIds.join(', ')
+    cur.totalClearingAmount = round2(
+      positiveAmount(cur.totalClearingAmount) + positiveAmount(p.totalClearingAmount)
+    )
+    cur.netBalancePayment = {
+      ...(cur.netBalancePayment || {}),
+      amount: round2(positiveAmount(cur.netBalancePayment?.amount) + positiveAmount(p.netBalancePayment?.amount)),
+    }
+    cur.commissionPayment = {
+      ...(cur.commissionPayment || {}),
+      amount: round2(positiveAmount(cur.commissionPayment?.amount) + positiveAmount(p.commissionPayment?.amount)),
+    }
+    cur.fulfillmentPayment = {
+      ...(cur.fulfillmentPayment || {}),
+      amount: round2(positiveAmount(cur.fulfillmentPayment?.amount) + positiveAmount(p.fulfillmentPayment?.amount)),
+    }
+    cur.parentLogisticsAddOn = round2(
+      positiveAmount(cur.parentLogisticsAddOn) + positiveAmount(p.parentLogisticsAddOn)
+    )
+  }
+  return [...byInv.values()]
+}
+
 /** Invoice payment plans for balance checks — works before approval. */
-function buildInvoicePaymentPlansFromBatch(batch, accountOverrides = {}) {
+function buildInvoicePaymentPlansFromBatch(batch, accountOverrides = {}, options = {}) {
   const cfg = getNoonPaymentClearingMarketplaceConfig()
   const accounts = {
     ...cfg.paymentPreviewAccounts,
     ...(accountOverrides.paymentPreviewAccounts || {}),
   }
-  const planExclusions = collectPlanExclusions(batch)
-  const { excludedInvoiceIds, excludedItemOrderIds } = planExclusions
+  const planExclusions = options.ignoreExclusions ? null : collectPlanExclusions(batch)
+  const { excludedInvoiceIds, excludedItemOrderIds } = planExclusions || {
+    excludedInvoiceIds: new Set(),
+    excludedItemOrderIds: new Set(),
+  }
   const matched = (Array.isArray(batch.matchedOrders) ? batch.matchedOrders : []).filter((item) => {
-    if (item.excludeFromPaymentClearing) return false
-    if (excludedInvoiceIds.has(clean(item.zohoInvoiceId))) return false
-    if (excludedItemOrderIds.has(itemOrderMatchKey(item.itemOrderId))) return false
+    if (!options.ignoreExclusions && item.excludeFromPaymentClearing) return false
+    if (!options.ignoreExclusions && excludedInvoiceIds.has(clean(item.zohoInvoiceId))) return false
+    if (!options.ignoreExclusions && excludedItemOrderIds.has(itemOrderMatchKey(item.itemOrderId))) return false
     return true
   })
   const allRows = batch.allRows || []
-  const addOnsByItem = collectAssignedUnclearedPaymentAddOns(allRows, planExclusions)
+  const addOnsByItem = collectAssignedUnclearedPaymentAddOns(allRows, planExclusions, {
+    ignoreExclusions: options.ignoreExclusions,
+  })
   return matched.map((item) =>
     buildInvoicePaymentPlan(item, accounts, addOnsByItem.get(clean(item.itemOrderId)) || null)
   )
@@ -302,14 +348,14 @@ function assertNoInvoiceOverpayments(paymentPreview) {
  * Catches orphan logistics on already-paid invoices before Zoho 24016.
  */
 function annotateInvoicePaymentsWithLiveBalances(invoicePayments = [], invoiceById = new Map()) {
+  const { invoiceBalanceDue } = require('../../integrations/zoho/zohoBooksClient')
   const balanceShortfalls = []
   const annotated = (Array.isArray(invoicePayments) ? invoicePayments : []).map((p) => {
     const invId = clean(p.zohoInvoiceId)
     const invoice = invId ? invoiceById.get(invId) : null
     let openBalance = null
     if (invoice) {
-      const raw = invoice.balance ?? invoice.balance_due ?? invoice.unpaid_amount ?? invoice.amount_due
-      if (raw != null && raw !== '') openBalance = positiveAmount(raw)
+      openBalance = positiveAmount(invoiceBalanceDue(invoice))
     }
     const clearing = positiveAmount(p.totalClearingAmount)
     const exceedsOpenBalance =
@@ -337,6 +383,22 @@ function annotateInvoicePaymentsWithLiveBalances(invoicePayments = [], invoiceBy
             ? 'Zoho invoice has zero open balance (already paid) — cannot clear shipping/commission onto it'
             : 'Planned payments exceed live Zoho balance due',
       })
+    } else if (invId && clearing >= 0.01 && !invoice) {
+      balanceShortfalls.push({
+        itemOrderId: p.itemOrderId || '',
+        zohoInvoiceId: invId,
+        zohoInvoiceNumber: p.zohoInvoiceNumber || '',
+        invoiceTotal: positiveAmount(p.invoiceTotal),
+        openBalance: null,
+        totalClearingAmount: clearing,
+        overBy: clearing,
+        netBalance: positiveAmount(p.netBalancePayment?.amount ?? p.invoiceClearingNetBalance),
+        commission: positiveAmount(p.commissionPayment?.amount ?? p.referralFee),
+        shipping: positiveAmount(p.fulfillmentPayment?.amount ?? p.fulfillmentShipping),
+        parentLogisticsAddOn: positiveAmount(p.parentLogisticsAddOn),
+        reason: 'Could not fetch Zoho invoice — cannot verify open balance',
+      })
+      next.balanceCheckMissingInvoice = true
     }
     return next
   })
@@ -493,6 +555,7 @@ module.exports = {
   requireBatchForPaymentPreview,
   buildInvoicePaymentPlan,
   buildInvoicePaymentPlansFromBatch,
+  aggregatePaymentPlansByInvoice,
   buildPaymentPreviewFromBatch,
   collectAssignedUnclearedPaymentAddOns,
   collectPlanExclusions,

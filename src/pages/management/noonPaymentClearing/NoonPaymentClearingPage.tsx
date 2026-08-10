@@ -977,9 +977,15 @@ export function NoonPaymentClearingPage() {
                     </div>
                   </div>
                 ) : preview.openBalanceCheckedAt ? (
-                  <div className="npc-alert npc-approved-panel">
-                    Open balances OK — planned clearings fit live Zoho balances.
-                  </div>
+                  preview.openBalanceCheckWarning ? (
+                    <div className="npc-alert" role="alert">
+                      Open balance check incomplete: {preview.openBalanceCheckWarning}
+                    </div>
+                  ) : (
+                    <div className="npc-alert npc-approved-panel">
+                      Open balances OK — planned clearings fit live Zoho balances.
+                    </div>
+                  )
                 ) : null}
 
                 <h3>Parent-level charges</h3>

@@ -222,6 +222,7 @@ export interface NoonPaymentClearingPreview {
   /** Shortfalls the user excluded — kept on screen so nothing silently disappears. */
   openBalanceExcluded?: NoonOpenBalanceShortfall[]
   openBalanceCheckedAt?: string | null
+  openBalanceCheckWarning?: string | null
 }
 
 export interface NoonOpenBalanceShortfall {

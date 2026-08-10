@@ -1632,3 +1632,77 @@ describe('orphan parent logistics → Zoho invoice', () => {
     assert.equal(hit.itemOrderId, 'NAEI60028701639')
   })
 })
+
+describe('open balance reconcile', () => {
+  it('aggregates clearing per invoice before comparing to open balance', () => {
+    const {
+      aggregatePaymentPlansByInvoice,
+      annotateInvoicePaymentsWithLiveBalances,
+    } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+    const aggregated = aggregatePaymentPlansByInvoice([
+      {
+        itemOrderId: 'NAEI-1',
+        zohoInvoiceId: 'inv-1',
+        zohoInvoiceNumber: 'INV-1',
+        invoiceTotal: 100,
+        totalClearingAmount: 20,
+      },
+      {
+        itemOrderId: 'NAEI-2',
+        zohoInvoiceId: 'inv-1',
+        zohoInvoiceNumber: 'INV-1',
+        invoiceTotal: 100,
+        totalClearingAmount: 20,
+      },
+    ])
+    assert.equal(aggregated.length, 1)
+    assert.equal(aggregated[0].totalClearingAmount, 40)
+    const { invoiceBalanceShortfalls } = annotateInvoicePaymentsWithLiveBalances(
+      aggregated,
+      new Map([['inv-1', { invoice_id: 'inv-1', balance: 30 }]])
+    )
+    assert.equal(invoiceBalanceShortfalls.length, 1)
+    assert.equal(invoiceBalanceShortfalls[0].overBy, 10)
+  })
+
+  it('still lists excluded invoices in excludedShortfalls after reconcile', async () => {
+    const {
+      aggregatePaymentPlansByInvoice,
+      buildInvoicePaymentPlansFromBatch,
+      annotateInvoicePaymentsWithLiveBalances,
+    } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+    const batch = {
+      matchedOrders: [
+        {
+          itemOrderId: 'NAEI70009406690-1',
+          zohoInvoiceId: 'inv-paid',
+          zohoInvoiceNumber: 'INV-042333',
+          zohoInvoiceTotal: 100,
+          netProceed: 0,
+          referralFee: 0,
+          fulfillmentFee: -7.56,
+          shippingCharges: 0,
+          logisticsOnly: true,
+          excludeFromPaymentClearing: true,
+        },
+      ],
+      allRows: [],
+      reportSnapshot: {
+        openBalanceReconcile: {
+          excludedInvoiceIds: ['inv-paid'],
+          excludedItemOrderIds: ['naei70009406690-1'],
+        },
+      },
+    }
+    const fullPlans = aggregatePaymentPlansByInvoice(
+      buildInvoicePaymentPlansFromBatch(batch, {}, { ignoreExclusions: true })
+    )
+    assert.equal(fullPlans.length, 1)
+    const { invoiceBalanceShortfalls } = annotateInvoicePaymentsWithLiveBalances(
+      fullPlans,
+      new Map([['inv-paid', { invoice_id: 'inv-paid', balance: 0 }]])
+    )
+    assert.equal(invoiceBalanceShortfalls.length, 1)
+    assert.equal(invoiceBalanceShortfalls[0].zohoInvoiceNumber, 'INV-042333')
+  })
+})
