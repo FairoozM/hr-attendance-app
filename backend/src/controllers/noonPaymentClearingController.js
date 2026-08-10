@@ -122,8 +122,16 @@ async function postExcludeOpenBalanceShortfalls(req, res) {
 
 async function postPaymentPreview(req, res) {
   try {
-    const paymentPreview = await service.generatePaymentPreview(req.params.id, userId(req))
-    return res.json({ success: true, paymentPreview })
+    const { startPaymentPreviewJob } = require('../services/noonPaymentClearing/noonPaymentClearingPostingJobService')
+    const job = startPaymentPreviewJob(req.params.id, { createdBy: userId(req) })
+    return res.status(202).json({
+      success: true,
+      async: true,
+      jobId: job.jobId,
+      status: job.status,
+      progress: job.progress,
+      batchId: job.batchId,
+    })
   } catch (err) {
     return sendError(res, err)
   }

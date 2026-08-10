@@ -792,11 +792,16 @@ async function generatePaymentPreview(batchId, createdBy) {
     err.status = 422
     throw err
   }
-  // Re-fetch Zoho invoices for parent logistics that had no child in this statement.
-  try {
-    batch = (await rematchOrphanParentLogistics(batch)) || batch
-  } catch (err) {
-    console.warn('[noon-payment-clearing] orphan parent Zoho rematch failed:', err?.message || err)
+  const snap = batch.reportSnapshot?.openBalanceReconcile || {}
+  const checkedAt = snap.checkedAt ? Date.parse(snap.checkedAt) : 0
+  const balanceCheckFresh = checkedAt && Date.now() - checkedAt < OPEN_BALANCE_CHECK_MAX_AGE_MS
+  // Re-fetch Zoho invoices for parent logistics only when Step 6 has not run recently.
+  if (!balanceCheckFresh) {
+    try {
+      batch = (await rematchOrphanParentLogistics(batch)) || batch
+    } catch (err) {
+      console.warn('[noon-payment-clearing] orphan parent Zoho rematch failed:', err?.message || err)
+    }
   }
   batch = reapplyExcludedInvoices(batch)
   // Persist re-applied exclusions so Generate stays stable.
@@ -827,13 +832,27 @@ async function generatePaymentPreview(batchId, createdBy) {
     paymentPreviewAccounts: ctx.marketplaceConfig?.paymentPreviewAccounts,
     vatRate: ctx.inputVatAccount?.vatRate,
   })
-  // Live Zoho open-balance check — blocks orphan logistics on already-paid invoices (Zoho 24016).
-  const withBalances = await attachLiveZohoBalancesToPaymentPreview(paymentPreview)
-  try {
-    assertNoInvoiceOverpayments(withBalances)
-  } catch (err) {
-    // Push the shortfalls into Step 6 so the user can exclude/rectify there instead of a dead end.
-    await surfaceOpenBalanceBlockInStep6(batch, withBalances, err)
+  // Step 6 already checked live Zoho balances — do not re-fetch every invoice here (504 risk).
+  batch = reapplyExcludedInvoices(batch)
+  const activeShortfalls = getActiveOpenBalanceShortfalls(batch)
+  let withBalances = paymentPreview
+  if (balanceCheckFresh && activeShortfalls.length === 0) {
+    withBalances = paymentPreview
+  } else if (activeShortfalls.length > 0) {
+    const err = new Error(
+      `Payment preview blocked: ${activeShortfalls.length} invoice(s) lack open Zoho balance. Go to Step 6 and exclude already-paid logistics.`
+    )
+    err.code = 'NOON_PAYMENT_CLEARING_INVOICE_BALANCE_SHORT'
+    err.status = 422
+    err.details = { invoiceBalanceShortfalls: activeShortfalls }
+    await surfaceOpenBalanceBlockInStep6(batch, { invoiceBalanceShortfalls: activeShortfalls }, err)
+  } else {
+    withBalances = await attachLiveZohoBalancesToPaymentPreview(paymentPreview)
+    try {
+      assertNoInvoiceOverpayments(withBalances)
+    } catch (err) {
+      await surfaceOpenBalanceBlockInStep6(batch, withBalances, err)
+    }
   }
   return store.savePaymentPreview(batchId, withBalances, createdBy)
 }

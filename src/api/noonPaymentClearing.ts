@@ -400,19 +400,27 @@ export async function excludeNoonOpenBalanceShortfalls(
 }
 
 export async function generateNoonPaymentPreview(batchId: string | number) {
-  const data = await api.post<{ success: boolean; paymentPreview: NoonPaymentPreview }>(
-    `${BASE}/batches/${batchId}/payment-preview`,
-    {},
-    longOpts
-  )
-  return unwrap(data).paymentPreview
+  const started = await api.post<{
+    success: boolean
+    async?: boolean
+    jobId?: string
+    status?: string
+    paymentPreview?: NoonPaymentPreview
+  }>(`${BASE}/batches/${batchId}/payment-preview`, {}, longOpts)
+
+  if (!started?.async || !started.jobId) {
+    const legacy = started as { paymentPreview?: NoonPaymentPreview }
+    if (legacy.paymentPreview) return legacy.paymentPreview
+    return unwrap(started as { paymentPreview: NoonPaymentPreview }).paymentPreview
+  }
+  return pollNoonPaymentPreviewJob(started.jobId)
 }
 
 /** Gateway hiccups (CloudFront 502/503/504) must not abort a post that is still running. */
 const TRANSIENT_POLL_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504])
 const MAX_CONSECUTIVE_POLL_FAILURES = 15
 
-async function pollNoonPostingJob(jobId: string) {
+async function pollNoonJob<T>(jobId: string, extract: (result: unknown) => T, jobLabel: string) {
   const deadline = Date.now() + longOpts.timeoutMs
   let consecutiveFailures = 0
   let lastPollError = ''
@@ -425,7 +433,7 @@ async function pollNoonPostingJob(jobId: string) {
       status?: string
       error?: string
       progress?: { step?: string; current?: number; total?: number }
-      result?: NoonPostingResult
+      result?: unknown
     }
     try {
       job = await api.get(`${BASE}/posting-jobs/${encodeURIComponent(jobId)}`, longOpts)
@@ -433,12 +441,9 @@ async function pollNoonPostingJob(jobId: string) {
       const status = Number((err as { status?: number })?.status) || 0
       lastPollError = (err as { message?: string })?.message || `HTTP ${status}`
 
-      // Job vanished — backend restarted (deploy) while posting. Never report a hard failure:
-      // Zoho may already have the payments.
       if (status === 404) {
         throw new Error(
-          'Lost track of the Noon posting job (the API restarted while posting). ' +
-            'Do NOT force repost yet — check Zoho for this statement first, then reopen the batch to see its status.'
+          `Lost track of the Noon ${jobLabel} job (the API restarted). Reopen the batch to see if it finished.`
         )
       }
       if (status && !TRANSIENT_POLL_STATUSES.has(status)) throw err
@@ -446,23 +451,42 @@ async function pollNoonPostingJob(jobId: string) {
       consecutiveFailures += 1
       if (consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
         throw new Error(
-          `Lost connection while waiting for the Noon posting job (${lastPollError}). ` +
-            'The post may still be running server-side — check Zoho and reopen the batch before retrying.'
+          `Lost connection while waiting for the Noon ${jobLabel} job (${lastPollError}). Reopen the batch — it may still have finished server-side.`
         )
       }
       continue
     }
 
     consecutiveFailures = 0
-    if (job.status === 'completed' && job.result) {
-      return unwrap({ success: true, ...job.result })
+    if (job.status === 'completed' && job.result != null) {
+      return extract(job.result)
     }
     if (job.status === 'failed') {
-      throw new Error(job.error || 'Noon Zoho posting failed')
+      throw new Error(job.error || `Noon ${jobLabel} failed`)
     }
   }
   throw new Error(
-    'Noon Zoho posting timed out while waiting for the background job. Check Zoho / Saved batch — it may still have finished server-side.'
+    `Noon ${jobLabel} timed out while waiting for the background job. Reopen the batch — it may still have finished server-side.`
+  )
+}
+
+async function pollNoonPostingJob(jobId: string) {
+  return pollNoonJob(
+    jobId,
+    (result) => unwrap({ success: true, ...(result as NoonPostingResult) }),
+    'posting'
+  )
+}
+
+async function pollNoonPaymentPreviewJob(jobId: string) {
+  return pollNoonJob(
+    jobId,
+    (result) => {
+      const r = result as { paymentPreview?: NoonPaymentPreview }
+      if (!r?.paymentPreview) throw new Error('Payment preview job completed without a preview payload.')
+      return r.paymentPreview
+    },
+    'payment preview'
   )
 }
 

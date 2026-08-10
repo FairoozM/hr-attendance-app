@@ -30,11 +30,11 @@ function serializeJob(job) {
 }
 
 function safeError(err) {
-  const msg = err && err.message ? String(err.message) : 'Noon Zoho posting failed'
+  const msg = err && err.message ? String(err.message) : 'Noon payment clearing job failed'
   return msg.slice(0, 800)
 }
 
-function startJob(batchId, kind, runner, progressStep) {
+function startJob(batchId, kind, runner, progressStep, completedStep = 'Completed') {
   pruneOldJobs()
   const id = Number(batchId)
   if (!Number.isFinite(id) || id <= 0) {
@@ -75,7 +75,7 @@ function startJob(batchId, kind, runner, progressStep) {
       job.progress = { step: progressStep, current: 2, total: 3 }
       job.result = await runner()
       job.progress = {
-        step: 'Posting completed',
+        step: completedStep,
         current: 3,
         total: 3,
       }
@@ -130,6 +130,23 @@ function startForceRepostJob(batchId, options = {}) {
   )
 }
 
+/**
+ * Payment preview — async so CloudFront (~30s) does not 504 on large statements.
+ */
+function startPaymentPreviewJob(batchId, options = {}) {
+  return startJob(
+    batchId,
+    'payment_preview',
+    async () => {
+      const service = require('./noonPaymentClearingService')
+      const paymentPreview = await service.generatePaymentPreview(batchId, options.createdBy)
+      return { paymentPreview }
+    },
+    'Generating Noon payment preview',
+    'Payment preview ready'
+  )
+}
+
 function getPostingJob(jobId) {
   pruneOldJobs()
   const id = String(jobId || '').trim()
@@ -139,5 +156,6 @@ function getPostingJob(jobId) {
 module.exports = {
   startPostToZohoJob,
   startForceRepostJob,
+  startPaymentPreviewJob,
   getPostingJob,
 }

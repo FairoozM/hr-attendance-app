@@ -400,7 +400,7 @@ export function NoonPaymentClearingPage() {
     if (!preview?.batchId) return
     setLoading(true)
     setError('')
-    setNotice('Generating payment preview…')
+    setNotice('Generating payment preview in the background — keep this tab open…')
     try {
       const pp = await generateNoonPaymentPreview(preview.batchId)
       // #region agent log
