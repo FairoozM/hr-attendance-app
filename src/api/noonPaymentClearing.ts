@@ -276,6 +276,7 @@ export interface NoonPaymentPreview {
   feeJournalLines: Array<Record<string, unknown>>
   unclearedReclassJournals?: Array<Record<string, unknown>>
   unclearedReclassSummary?: Record<string, unknown>
+  undepositedSettlementBridgeJournal?: Record<string, unknown> | null
   summary: {
     invoicePaymentCount: number
     totalInvoicePayments: number
@@ -283,10 +284,15 @@ export interface NoonPaymentPreview {
     totalUnclearedReclassJournals?: number
     totalAdjustments: number
     expectedNoonSettlement: number
+    targetUndeposited1066?: number
+    plannedUndeposited1066?: number
+    undepositedSettlementBridgeAmount?: number
     finalDifference: number
     unmappedFeeJournalCount: number
     unmappedUnclearedReclassCount?: number
     invoiceOverpaymentCount?: number
+    orphanShippingToUncleared?: number
+    /** @deprecated use orphanShippingToUncleared */
     orphanShippingToUndeposited?: number
     orphanShippingInvoiceCount?: number
     inStatementShippingToUncleared?: number

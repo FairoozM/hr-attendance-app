@@ -10,6 +10,7 @@ const { buildSettlementReference, buildEntryReference } = require('./noonPayment
 const { isNoonSettlementReconciliationAcceptable, RECONCILIATION_TOLERANCE } = require('./noonPaymentClearingReconciliationService')
 const { buildFeeJournalPreviewLines } = require('./noonPaymentClearingPreviewService')
 const { buildUnclearedReclassJournals } = require('./noonPaymentClearingUnclearedReclassService')
+const { resolveNoonFeeJournalSides } = require('./noonPaymentClearingJournalDirection')
 
 const ORPHAN_PARENT_ASSIGNMENT_REASON = 'zoho_invoice_orphan_parent'
 const PAYMENT_PREVIEW_TOLERANCE = RECONCILIATION_TOLERANCE
@@ -18,7 +19,7 @@ function positiveAmount(value) {
   return Math.abs(round2(Number(value) || 0))
 }
 
-/** Parent logistics with no sale in this statement — clears to Undeposited (1066), not Uncleared Shipping (1068). */
+/** Parent/adjustment logistics with no sale in this statement — still clears via 1068 (uncleared), not 1066. */
 function isOrphanParentLogisticsRow(row) {
   if (!row) return false
   if (clean(row.assignmentReason) === ORPHAN_PARENT_ASSIGNMENT_REASON) return true
@@ -66,7 +67,8 @@ function requireBatchForPaymentPreview(batch) {
 
 /**
  * Parent / adjustment logistics assigned to a child invoice.
- * In-statement folds → 1067 / 1068 (uncleared). Orphan parent logistics → 1066 (undeposited).
+ * All parent / adjustment folds → 1067 / 1068 (uncleared). Orphans use the same 1068 path so
+ * settlement deductions already in the Noon payout are not double-counted on Undeposited (1066).
  *
  * Do NOT add orderSubsidies on top of othersInclVat — the parser already merges
  * subsidies into othersInclVat (double-count produced bogus 22.68 from -37.8+7.56+7.56).
@@ -110,10 +112,9 @@ function collectAssignedUnclearedPaymentAddOns(allRows = [], planExclusions = nu
     }
 
     entry.commission = round2(entry.commission + referral)
+    entry.fulfillment = round2(entry.fulfillment + fulfillment)
     if (isOrphanParentLogisticsRow(row)) {
       entry.fulfillmentOrphan = round2((entry.fulfillmentOrphan || 0) + fulfillment)
-    } else {
-      entry.fulfillment = round2(entry.fulfillment + fulfillment)
     }
     entry.sourceRowNumbers.push(row.rowNumber)
     entry.sourceBreakdown.push({
@@ -237,21 +238,29 @@ function buildInvoicePaymentPlan(item, accounts, addOns = null) {
   // Example: Net Proceeds 759 / Referral -119.54 / Fulfillment -33.6 / Total 605.86
   // Record Payments that clear a 759 invoice:
   //   1066 undeposited = 605.86, 1067 commission = 119.54, 1068 shipping = 33.6
-  // Orphan parent logistics (no sale in statement) clear to 1066 — deducted from settlement.
   const saleGross = positiveAmount(item.netProceed)
-  const commission = round2(positiveAmount(item.referralFee) + positiveAmount(addOns?.commission))
+  const itemCommission = positiveAmount(item.referralFee)
   const itemFulfillment = positiveAmount(round2(num(item.fulfillmentFee) + num(item.shippingCharges)))
-  const itemFulfillmentOrphan = item.logisticsOnly ? itemFulfillment : 0
-  const itemFulfillmentStatement = item.logisticsOnly ? 0 : itemFulfillment
+  const parentCommission = positiveAmount(addOns?.commission)
+  const parentFulfillment = positiveAmount(addOns?.fulfillment)
+  const parentOrphanFulfillment = positiveAmount(addOns?.fulfillmentOrphan)
+  const parentInStatementFulfillment = round2(Math.max(0, parentFulfillment - parentOrphanFulfillment))
+  const commission = round2(itemCommission + parentCommission)
   const fulfillmentShipping = round2(
-    itemFulfillmentStatement + positiveAmount(addOns?.fulfillment)
+    (item.logisticsOnly ? 0 : itemFulfillment) + parentFulfillment + (item.logisticsOnly ? itemFulfillment : 0)
   )
-  const orphanUndeposited = round2(
-    itemFulfillmentOrphan + positiveAmount(addOns?.fulfillmentOrphan)
-  )
-  const invoiceClearingNetBalance = round2(
-    Math.max(0, saleGross - commission - fulfillmentShipping) + orphanUndeposited
-  )
+  let invoiceClearingNetBalance = 0
+  if (!item.logisticsOnly) {
+    const statementTotal = num(item.total)
+    if (Math.abs(statementTotal) >= 0.01) {
+      // Statement Total already nets item-level fees; only subtract parent folds parked on 1068/1067.
+      invoiceClearingNetBalance = round2(
+        Math.max(0, statementTotal - parentCommission - parentFulfillment)
+      )
+    } else {
+      invoiceClearingNetBalance = round2(Math.max(0, saleGross - commission - fulfillmentShipping))
+    }
+  }
   const netBalancePayment = {
     amount: invoiceClearingNetBalance,
     paymentType: 'net_balance',
@@ -292,8 +301,8 @@ function buildInvoicePaymentPlan(item, accounts, addOns = null) {
     invoiceClearingNetBalance,
     referralFee: commission,
     fulfillmentShipping,
-    parentLogisticsAddOn: positiveAmount(addOns?.fulfillment),
-    parentLogisticsOrphanAddOn: round2(itemFulfillmentOrphan + positiveAmount(addOns?.fulfillmentOrphan)),
+    parentLogisticsAddOn: parentInStatementFulfillment,
+    parentLogisticsOrphanAddOn: parentOrphanFulfillment,
     parentCommissionAddOn: positiveAmount(addOns?.commission),
     parentLogisticsSources: Array.isArray(addOns?.sourceBreakdown) ? addOns.sourceBreakdown : [],
     netBalancePayment,
@@ -455,6 +464,80 @@ async function attachLiveZohoBalancesToPaymentPreview(paymentPreview, fetchByIds
   }
 }
 
+function computeStatementUndepositedTarget(allRows = []) {
+  return round2(
+    (Array.isArray(allRows) ? allRows : [])
+      .filter((row) => row.rowClass !== ROW_CLASS.STATEMENT_FEE)
+      .reduce((sum, row) => sum + num(row.total), 0)
+  )
+}
+
+/**
+ * Orphan parent/adjustment rows clear via 1068 but are already deducted from the Noon payout.
+ * When planned 1066 exceeds the statement subtotal (pre-advertising), post a bridge journal Cr 1066.
+ */
+function buildUndepositedSettlementBridgeJournal(invoicePayments, allRows, accountOverrides = {}) {
+  const cfg = getNoonPaymentClearingMarketplaceConfig()
+  const targetUndeposited = computeStatementUndepositedTarget(allRows)
+  const plannedUndeposited = round2(
+    (Array.isArray(invoicePayments) ? invoicePayments : []).reduce(
+      (sum, p) => sum + num(p.netBalancePayment?.amount),
+      0
+    )
+  )
+  const excessUndeposited = round2(plannedUndeposited - targetUndeposited)
+  if (excessUndeposited < 0.01) return null
+
+  const expense = accountOverrides.shippingExpenseAccount || cfg.shippingExpenseAccount
+  const undeposited = accountOverrides.undepositedFundsAccount || cfg.undepositedFundsAccount
+  const signedAmount = round2(-excessUndeposited)
+  const sides = resolveNoonFeeJournalSides({
+    feeAccountId: expense.accountId,
+    feeAccountName: expense.accountName,
+    feeAccountCode: expense.accountCode,
+    clearingAccountId: undeposited.accountId,
+    clearingAccountName: undeposited.accountName,
+    clearingAccountCode: undeposited.accountCode,
+    signedAmount,
+    netAmount: signedAmount,
+    vatAmount: 0,
+    vatInclusive: false,
+  })
+
+  return {
+    paymentType: 'undeposited_settlement_bridge',
+    feeType: 'UNDEPOSITED_SETTLEMENT_BRIDGE',
+    normalizedFeeType: 'UNDEPOSITED_SETTLEMENT_BRIDGE',
+    displayLabel: 'Settlement bridge — orphan logistics already in Noon payout',
+    accountingTreatment: 'Dr Shipping Exp / Cr Undeposited (1066)',
+    rowClass: 'settlement_bridge',
+    signedAmount,
+    amount: excessUndeposited,
+    targetUndeposited1066: targetUndeposited,
+    plannedUndeposited1066: plannedUndeposited,
+    zohoAccountId: expense.accountId,
+    zohoAccountName: expense.accountName,
+    zohoAccountCode: expense.accountCode,
+    clearingAccountId: undeposited.accountId,
+    clearingAccountName: undeposited.accountName,
+    clearingAccountCode: undeposited.accountCode,
+    debit: sides.debit,
+    credit: sides.credit,
+    lineItems: sides.lineItems || [],
+    accountingPreview: {
+      debit: sides.preview?.debitLabel,
+      credit: sides.preview?.creditLabel,
+      lines: sides.preview?.lines || [],
+      expenseAccount: expense.accountName,
+      clearingAccount: undeposited.accountName,
+    },
+    previewNote:
+      `Planned undeposited ${plannedUndeposited} exceeds statement subtotal ${targetUndeposited} — ` +
+      'orphan parent/adjustment logistics already deducted from Noon payout.',
+    mappingStatus: 'mapped',
+  }
+}
+
 function buildFoldedUnclearedChargeSummaries(allRows = []) {
   return (Array.isArray(allRows) ? allRows : [])
     .filter((row) => isUnclearedInvoicePaymentBucketRow(row))
@@ -470,39 +553,42 @@ function buildFoldedUnclearedChargeSummaries(allRows = []) {
       assignedItemOrderId: clean(row.assignedItemOrderId) || clean(row.itemOrderId),
       previewNote: clean(row.assignedItemOrderId)
         ? isOrphanParentLogisticsRow(row)
-          ? `Folded via Zoho invoice ${clean(row.assignedZohoInvoiceNumber) || clean(row.assignedItemOrderId)} (sale not in this statement) → Noon Undeposited Funds (1066)`
+          ? `Folded via Zoho invoice ${clean(row.assignedZohoInvoiceNumber) || clean(row.assignedItemOrderId)} (sale not in this statement) → uncleared GL (1068)`
           : `Folded into invoice payment for ${clean(row.assignedItemOrderId)} → uncleared GL`
         : clean(row.itemOrderId)
           ? `Cleared via invoice payment for ${clean(row.itemOrderId)} → uncleared GL`
           : 'Uncleared via invoice payment (no child assignment — no Zoho invoice for this Noon parent order)',
-      clearingPath: isOrphanParentLogisticsRow(row)
-        ? 'invoice_payment_undeposited_orphan'
-        : 'invoice_payment_uncleared',
+      clearingPath: 'invoice_payment_uncleared',
     }))
 }
 
 function summarizeShippingBreakup(invoicePayments = []) {
-  let orphanShippingToUndeposited = 0
+  let orphanShippingToUncleared = 0
   let inStatementShippingToUncleared = 0
   let orphanShippingInvoiceCount = 0
   let inStatementShippingLineCount = 0
+  let shippingToUncleared1068 = 0
   for (const p of Array.isArray(invoicePayments) ? invoicePayments : []) {
     const orphan = positiveAmount(p.parentLogisticsOrphanAddOn)
     const shipping = positiveAmount(p.fulfillmentPayment?.amount)
+    const inStatement = round2(Math.max(0, shipping - orphan))
     if (orphan >= 0.01) orphanShippingInvoiceCount += 1
-    if (shipping >= 0.01) inStatementShippingLineCount += 1
-    orphanShippingToUndeposited = round2(orphanShippingToUndeposited + orphan)
-    inStatementShippingToUncleared = round2(inStatementShippingToUncleared + shipping)
+    if (inStatement >= 0.01) inStatementShippingLineCount += 1
+    orphanShippingToUncleared = round2(orphanShippingToUncleared + orphan)
+    inStatementShippingToUncleared = round2(inStatementShippingToUncleared + inStatement)
+    shippingToUncleared1068 = round2(shippingToUncleared1068 + shipping)
   }
   return {
-    /** Orphan parent logistics — clears via net_balance / 1066 (settlement deduction). */
-    orphanShippingToUndeposited,
+    /** Orphan parent logistics — same 1068 uncleared path (reclass journal after payment). */
+    orphanShippingToUncleared,
+    /** @deprecated use orphanShippingToUncleared */
+    orphanShippingToUndeposited: orphanShippingToUncleared,
     orphanShippingInvoiceCount,
     /** In-statement shipping — clears via fulfillment_shipping / 1068, then reclass journal. */
     inStatementShippingToUncleared,
     inStatementShippingLineCount,
-    /** Matches uncleared shipping reclass journal gross (1068 only, excludes orphans). */
-    shippingReclassJournalGross: inStatementShippingToUncleared,
+    /** Matches uncleared shipping reclass journal gross (all 1068 fulfillment payments). */
+    shippingReclassJournalGross: shippingToUncleared1068,
   }
 }
 
@@ -558,6 +644,18 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
   const invoiceOverpayments = collectInvoiceOverpayments(invoicePayments)
   const blocked = invoiceOverpayments.length > 0
   const shippingBreakup = summarizeShippingBreakup(invoicePayments)
+  const undepositedSettlementBridgeJournal = buildUndepositedSettlementBridgeJournal(
+    invoicePayments,
+    allRows,
+    {
+      shippingExpenseAccount: accountOverrides.shippingExpenseAccount || cfg.shippingExpenseAccount,
+      undepositedFundsAccount: accountOverrides.undepositedFundsAccount || cfg.undepositedFundsAccount,
+    }
+  )
+  const targetUndeposited1066 = computeStatementUndepositedTarget(allRows)
+  const plannedUndeposited1066 = round2(
+    invoicePayments.reduce((sum, p) => sum + num(p.netBalancePayment?.amount), 0)
+  )
 
   return {
     ...basePreview,
@@ -566,6 +664,7 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
     unclearedReclassJournals: reclass.lines,
     unclearedReclassSummary: reclass.summary,
     shippingBreakup,
+    undepositedSettlementBridgeJournal,
     summary: {
       invoicePaymentCount: invoicePayments.length,
       totalInvoicePayments,
@@ -575,6 +674,9 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
         [...adjustmentFolded, ...adjustmentJournalLines].reduce((a, l) => a + (Number(l.amount) || 0), 0)
       ),
       expectedNoonSettlement: expectedSettlement,
+      targetUndeposited1066,
+      plannedUndeposited1066,
+      undepositedSettlementBridgeAmount: undepositedSettlementBridgeJournal?.amount || 0,
       finalDifference: round2(
         expectedSettlement - round2(totalInvoicePayments - totalFeeJournals)
       ),
@@ -605,4 +707,6 @@ module.exports = {
   assertNoInvoiceOverpayments,
   annotateInvoicePaymentsWithLiveBalances,
   attachLiveZohoBalancesToPaymentPreview,
+  computeStatementUndepositedTarget,
+  buildUndepositedSettlementBridgeJournal,
 }

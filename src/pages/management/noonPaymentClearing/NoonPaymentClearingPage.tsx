@@ -1162,12 +1162,35 @@ export function NoonPaymentClearingPage() {
                         <span>Expected settlement</span>
                         <strong>{money(paymentPreview.summary.expectedNoonSettlement)}</strong>
                       </div>
-                      {(paymentPreview.summary.orphanShippingToUndeposited ?? 0) > 0 ||
+                      {paymentPreview.summary.targetUndeposited1066 != null ? (
+                        <div className="ainv-summary-card">
+                          <span>Undeposited target (1066, pre-advertising)</span>
+                          <strong>{money(paymentPreview.summary.targetUndeposited1066)}</strong>
+                          <div className="npc-muted">
+                            planned {money(paymentPreview.summary.plannedUndeposited1066)}
+                          </div>
+                        </div>
+                      ) : null}
+                      {(paymentPreview.summary.undepositedSettlementBridgeAmount ?? 0) > 0 ? (
+                        <div className="ainv-summary-card">
+                          <span>Settlement bridge Cr 1066</span>
+                          <strong>{money(paymentPreview.summary.undepositedSettlementBridgeAmount)}</strong>
+                          <div className="npc-muted">orphan logistics already in Noon payout</div>
+                        </div>
+                      ) : null}
+                      {(paymentPreview.summary.orphanShippingToUncleared ??
+                        paymentPreview.summary.orphanShippingToUndeposited ??
+                        0) > 0 ||
                       (paymentPreview.summary.inStatementShippingToUncleared ?? 0) > 0 ? (
                         <>
                           <div className="ainv-summary-card">
-                            <span>Orphan shipping → 1066 (undeposited)</span>
-                            <strong>{money(paymentPreview.summary.orphanShippingToUndeposited)}</strong>
+                            <span>Orphan shipping → 1068 (uncleared)</span>
+                            <strong>
+                              {money(
+                                paymentPreview.summary.orphanShippingToUncleared ??
+                                  paymentPreview.summary.orphanShippingToUndeposited
+                              )}
+                            </strong>
                             <div className="npc-muted">
                               {paymentPreview.summary.orphanShippingInvoiceCount ?? 0} invoice line(s)
                             </div>
@@ -1231,17 +1254,17 @@ export function NoonPaymentClearingPage() {
                               </td>
                               <td className="npc-money">
                                 {money(p.netBalancePayment?.amount ?? p.invoiceClearingNetBalance)}
-                                {p.parentLogisticsOrphanAddOn ? (
-                                  <div className="npc-muted">
-                                    incl. orphan logistics {money(p.parentLogisticsOrphanAddOn)}
-                                  </div>
-                                ) : null}
                               </td>
                               <td className="npc-money">
                                 {money(p.commissionPayment?.amount ?? p.referralFee)}
                               </td>
                               <td className="npc-money">
                                 {money(p.fulfillmentPayment?.amount ?? p.fulfillmentShipping)}
+                                {p.parentLogisticsOrphanAddOn ? (
+                                  <div className="npc-muted">
+                                    incl. orphan logistics {money(p.parentLogisticsOrphanAddOn)}
+                                  </div>
+                                ) : null}
                               </td>
                               <td className="npc-money">{money(p.totalClearingAmount)}</td>
                             </tr>

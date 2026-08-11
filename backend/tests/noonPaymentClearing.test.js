@@ -1617,7 +1617,7 @@ describe('orphan parent logistics → Zoho invoice', () => {
     assert.equal(result.syntheticMatchedOrders[0].logisticsOnly, true)
   })
 
-  it('routes orphan parent logistics to net_balance / 1066, not fulfillment_shipping / 1068', () => {
+  it('routes orphan parent logistics to fulfillment_shipping / 1068, not net_balance / 1066', () => {
     const {
       applyParentOrderChargeFallbackWithSynthetics,
       ASSIGNMENT_REASON_ZOHO,
@@ -1664,11 +1664,82 @@ describe('orphan parent logistics → Zoho invoice', () => {
       paymentPreviewAccounts: getNoonPaymentClearingMarketplaceConfig().paymentPreviewAccounts,
     })
     assert.equal(plans.length, 1)
-    assert.equal(plans[0].fulfillmentPayment.amount, 0)
+    assert.equal(plans[0].fulfillmentPayment.amount, 21.42)
     assert.equal(plans[0].fulfillmentPayment.depositToAccountCode, '1068')
-    assert.equal(plans[0].netBalancePayment.amount, 21.42)
+    assert.equal(plans[0].netBalancePayment.amount, 0)
     assert.equal(plans[0].netBalancePayment.depositToAccountCode, '1066')
     assert.equal(plans[0].parentLogisticsOrphanAddOn, 21.42)
+  })
+
+  it('uses statement Total for 1066 when subsidies reduce the sale line (PS-11752)', () => {
+    const { buildInvoicePaymentPlan } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+    const { getNoonPaymentClearingMarketplaceConfig } = require('../src/services/noonPaymentClearing/noonPaymentClearingMarketplaceConfig')
+    const plan = buildInvoicePaymentPlan(
+      {
+        itemOrderId: 'NAEI60012098831-1',
+        netProceed: 160.07,
+        referralFee: 0,
+        fulfillmentFee: 0,
+        shippingCharges: 0,
+        total: 151.02,
+        zohoInvoiceId: 'inv-subsidy',
+        zohoInvoiceNumber: 'INV-SUB',
+        zohoInvoiceTotal: 160.07,
+      },
+      getNoonPaymentClearingMarketplaceConfig().paymentPreviewAccounts,
+      null
+    )
+    assert.equal(plan.netBalancePayment.amount, 151.02)
+    assert.notEqual(plan.netBalancePayment.amount, 160.07)
+  })
+
+  it('builds undeposited settlement bridge when orphan logistics inflate planned 1066 (PS-11752 shape)', () => {
+    const {
+      buildUndepositedSettlementBridgeJournal,
+      buildInvoicePaymentPlan,
+    } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+    const { getNoonPaymentClearingMarketplaceConfig } = require('../src/services/noonPaymentClearing/noonPaymentClearingMarketplaceConfig')
+    const { ROW_CLASS } = require('../src/services/noonPaymentClearing/noonPaymentClearingCategoryService')
+    const cfg = getNoonPaymentClearingMarketplaceConfig()
+    const salePlan = buildInvoicePaymentPlan(
+      {
+        itemOrderId: 'NAEI60024715688-1',
+        netProceed: 759,
+        referralFee: -119.54,
+        fulfillmentFee: -33.6,
+        total: 605.86,
+        zohoInvoiceId: 'inv-759',
+        zohoInvoiceNumber: 'INV-042276',
+        zohoInvoiceTotal: 759,
+      },
+      cfg.paymentPreviewAccounts,
+      null
+    )
+    const orphanPlan = buildInvoicePaymentPlan(
+      {
+        itemOrderId: 'NAEI60012472440-1',
+        logisticsOnly: true,
+        netProceed: 0,
+        referralFee: 0,
+        fulfillmentFee: 0,
+        zohoInvoiceId: 'inv-orphan',
+        zohoInvoiceNumber: 'INV-041000',
+        zohoInvoiceTotal: 190,
+      },
+      cfg.paymentPreviewAccounts,
+      { fulfillment: 21.42, fulfillmentOrphan: 21.42, sourceBreakdown: [] }
+    )
+    const allRows = [
+      { rowClass: ROW_CLASS.SALE_ITEM, total: 605.86 },
+      { rowClass: ROW_CLASS.PARENT_ORDER_CHARGE, total: -21.42 },
+      { rowClass: ROW_CLASS.STATEMENT_FEE, total: -2009.62 },
+    ]
+    const bridge = buildUndepositedSettlementBridgeJournal([salePlan, orphanPlan], allRows, cfg)
+    assert.ok(bridge)
+    assert.equal(bridge.amount, 21.42)
+    assert.equal(bridge.credit.accountCode, '1066')
+    assert.equal(bridge.targetUndeposited1066, 584.44)
+    assert.equal(bridge.plannedUndeposited1066, 605.86)
   })
 
   it('falls back to parent-level Zoho order id when child id is not on the invoice', () => {

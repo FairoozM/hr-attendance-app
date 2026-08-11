@@ -536,10 +536,15 @@ async function postApprovedBatch({
   const unclearedReclassJournals = Array.isArray(paymentPreview.unclearedReclassJournals)
     ? paymentPreview.unclearedReclassJournals
     : []
+  const settlementBridgeJournal = paymentPreview.undepositedSettlementBridgeJournal || null
   await ensureCanPostBatch(batch, Boolean(latestPreview), {
     dryRun,
     allowPosted,
-    feeJournalLines: [...feeJournalLines, ...unclearedReclassJournals],
+    feeJournalLines: [
+      ...feeJournalLines,
+      ...unclearedReclassJournals,
+      ...(settlementBridgeJournal ? [settlementBridgeJournal] : []),
+    ],
     paymentPreview,
   })
   const paymentRows = flattenInvoicePayments(paymentPreview)
@@ -568,6 +573,9 @@ async function postApprovedBatch({
       ...line,
       paymentType: line.paymentType || `uncleared_reclass_${line.feeType}`,
     })),
+    ...(settlementBridgeJournal
+      ? [{ ...settlementBridgeJournal, paymentType: 'undeposited_settlement_bridge' }]
+      : []),
   ]
   const result = {
     success: true,
