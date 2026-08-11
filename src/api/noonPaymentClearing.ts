@@ -254,6 +254,7 @@ export interface NoonPaymentPreview {
     referralFee: number
     fulfillmentShipping: number
     parentLogisticsAddOn?: number
+    parentLogisticsOrphanAddOn?: number
     parentCommissionAddOn?: number
     parentLogisticsSources?: Array<Record<string, unknown>>
     exceedsInvoiceTotal?: boolean
@@ -286,6 +287,11 @@ export interface NoonPaymentPreview {
     unmappedFeeJournalCount: number
     unmappedUnclearedReclassCount?: number
     invoiceOverpaymentCount?: number
+    orphanShippingToUndeposited?: number
+    orphanShippingInvoiceCount?: number
+    inStatementShippingToUncleared?: number
+    inStatementShippingLineCount?: number
+    shippingReclassJournalGross?: number
     blocked?: boolean
     blockedReason?: string | null
   }

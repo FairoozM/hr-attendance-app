@@ -1162,6 +1162,26 @@ export function NoonPaymentClearingPage() {
                         <span>Expected settlement</span>
                         <strong>{money(paymentPreview.summary.expectedNoonSettlement)}</strong>
                       </div>
+                      {(paymentPreview.summary.orphanShippingToUndeposited ?? 0) > 0 ||
+                      (paymentPreview.summary.inStatementShippingToUncleared ?? 0) > 0 ? (
+                        <>
+                          <div className="ainv-summary-card">
+                            <span>Orphan shipping → 1066 (undeposited)</span>
+                            <strong>{money(paymentPreview.summary.orphanShippingToUndeposited)}</strong>
+                            <div className="npc-muted">
+                              {paymentPreview.summary.orphanShippingInvoiceCount ?? 0} invoice line(s)
+                            </div>
+                          </div>
+                          <div className="ainv-summary-card">
+                            <span>In-statement shipping → 1068 (uncleared)</span>
+                            <strong>{money(paymentPreview.summary.inStatementShippingToUncleared)}</strong>
+                            <div className="npc-muted">
+                              {paymentPreview.summary.inStatementShippingLineCount ?? 0} invoice line(s) · reclass
+                              journal gross {money(paymentPreview.summary.shippingReclassJournalGross)}
+                            </div>
+                          </div>
+                        </>
+                      ) : null}
                     </div>
                     <h3>Invoice payments (Net 1066 / Commission 1067 / Shipping 1068)</h3>
                     <p className="npc-muted">
@@ -1211,6 +1231,11 @@ export function NoonPaymentClearingPage() {
                               </td>
                               <td className="npc-money">
                                 {money(p.netBalancePayment?.amount ?? p.invoiceClearingNetBalance)}
+                                {p.parentLogisticsOrphanAddOn ? (
+                                  <div className="npc-muted">
+                                    incl. orphan logistics {money(p.parentLogisticsOrphanAddOn)}
+                                  </div>
+                                ) : null}
                               </td>
                               <td className="npc-money">
                                 {money(p.commissionPayment?.amount ?? p.referralFee)}

@@ -481,6 +481,31 @@ function buildFoldedUnclearedChargeSummaries(allRows = []) {
     }))
 }
 
+function summarizeShippingBreakup(invoicePayments = []) {
+  let orphanShippingToUndeposited = 0
+  let inStatementShippingToUncleared = 0
+  let orphanShippingInvoiceCount = 0
+  let inStatementShippingLineCount = 0
+  for (const p of Array.isArray(invoicePayments) ? invoicePayments : []) {
+    const orphan = positiveAmount(p.parentLogisticsOrphanAddOn)
+    const shipping = positiveAmount(p.fulfillmentPayment?.amount)
+    if (orphan >= 0.01) orphanShippingInvoiceCount += 1
+    if (shipping >= 0.01) inStatementShippingLineCount += 1
+    orphanShippingToUndeposited = round2(orphanShippingToUndeposited + orphan)
+    inStatementShippingToUncleared = round2(inStatementShippingToUncleared + shipping)
+  }
+  return {
+    /** Orphan parent logistics — clears via net_balance / 1066 (settlement deduction). */
+    orphanShippingToUndeposited,
+    orphanShippingInvoiceCount,
+    /** In-statement shipping — clears via fulfillment_shipping / 1068, then reclass journal. */
+    inStatementShippingToUncleared,
+    inStatementShippingLineCount,
+    /** Matches uncleared shipping reclass journal gross (1068 only, excludes orphans). */
+    shippingReclassJournalGross: inStatementShippingToUncleared,
+  }
+}
+
 function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount = null, accountOverrides = {}) {
   requireBatchForPaymentPreview(batch)
   const cfg = getNoonPaymentClearingMarketplaceConfig()
@@ -532,6 +557,7 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
   const totalReclassJournals = round2(reclass.lines.reduce((a, l) => a + l.amount, 0))
   const invoiceOverpayments = collectInvoiceOverpayments(invoicePayments)
   const blocked = invoiceOverpayments.length > 0
+  const shippingBreakup = summarizeShippingBreakup(invoicePayments)
 
   return {
     ...basePreview,
@@ -539,6 +565,7 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
     invoiceOverpayments,
     unclearedReclassJournals: reclass.lines,
     unclearedReclassSummary: reclass.summary,
+    shippingBreakup,
     summary: {
       invoicePaymentCount: invoicePayments.length,
       totalInvoicePayments,
@@ -558,6 +585,7 @@ function buildPaymentPreviewFromBatch(batch, mappingRules = [], inputVatAccount 
       blockedReason: blocked
         ? 'One or more invoice payment totals exceed the Zoho invoice value.'
         : null,
+      ...shippingBreakup,
     },
   }
 }
