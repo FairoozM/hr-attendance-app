@@ -1617,6 +1617,60 @@ describe('orphan parent logistics → Zoho invoice', () => {
     assert.equal(result.syntheticMatchedOrders[0].logisticsOnly, true)
   })
 
+  it('routes orphan parent logistics to net_balance / 1066, not fulfillment_shipping / 1068', () => {
+    const {
+      applyParentOrderChargeFallbackWithSynthetics,
+      ASSIGNMENT_REASON_ZOHO,
+    } = require('../src/services/noonPaymentClearing/noonPaymentClearingParentChargeFallback')
+    const {
+      buildInvoicePaymentPlansFromBatch,
+    } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+    const { getNoonPaymentClearingMarketplaceConfig } = require('../src/services/noonPaymentClearing/noonPaymentClearingMarketplaceConfig')
+    const { ROW_CLASS } = require('../src/services/noonPaymentClearing/noonPaymentClearingCategoryService')
+
+    const parentAssign = applyParentOrderChargeFallbackWithSynthetics(
+      [
+        {
+          rowNumber: 2,
+          rowClass: ROW_CLASS.PARENT_ORDER_CHARGE,
+          parentOrderId: 'NAEI60012472440',
+          itemOrderId: '',
+          total: -21.42,
+          fulfillmentFee: -21.42,
+          title: 'PGB6199827833A',
+        },
+      ],
+      [],
+      [
+        {
+          zohoInvoiceId: 'inv-orphan',
+          zohoInvoiceNumber: 'INV-041000',
+          zohoOrderNumber: 'NAEI60012472440-1',
+          matchKeys: ['NAEI60012472440-1'],
+          zohoInvoiceTotal: 190,
+        },
+      ]
+    )
+    assert.equal(parentAssign.rows[0].assignmentReason, ASSIGNMENT_REASON_ZOHO)
+    const batch = {
+      status: 'approved',
+      reconciliationSummary: { reconciliationStatus: 'reconciled', reconciliationDifference: 0 },
+      unmatchedOrders: [],
+      multipleMatchItems: [],
+      matchedOrders: parentAssign.syntheticMatchedOrders,
+      allRows: parentAssign.rows,
+    }
+    const plans = buildInvoicePaymentPlansFromBatch(batch, {
+      paymentPreviewAccounts: getNoonPaymentClearingMarketplaceConfig().paymentPreviewAccounts,
+    })
+    assert.equal(plans.length, 1)
+    assert.equal(plans[0].fulfillmentPayment.amount, 0)
+    assert.equal(plans[0].fulfillmentPayment.depositToAccountCode, '1068')
+    assert.equal(plans[0].netBalancePayment.amount, 21.42)
+    assert.equal(plans[0].netBalancePayment.depositToAccountCode, '1066')
+    assert.equal(plans[0].parentLogisticsOrphanAddOn, 21.42)
+  })
+
   it('falls back to parent-level Zoho order id when child id is not on the invoice', () => {
     const { findZohoInvoiceForOrphanParent } = require('../src/services/noonPaymentClearing/noonPaymentClearingParentChargeFallback')
     const hit = findZohoInvoiceForOrphanParent('NAEI60028701639', [

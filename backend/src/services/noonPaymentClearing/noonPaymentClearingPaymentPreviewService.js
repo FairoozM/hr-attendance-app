@@ -11,10 +11,19 @@ const { isNoonSettlementReconciliationAcceptable, RECONCILIATION_TOLERANCE } = r
 const { buildFeeJournalPreviewLines } = require('./noonPaymentClearingPreviewService')
 const { buildUnclearedReclassJournals } = require('./noonPaymentClearingUnclearedReclassService')
 
+const ORPHAN_PARENT_ASSIGNMENT_REASON = 'zoho_invoice_orphan_parent'
 const PAYMENT_PREVIEW_TOLERANCE = RECONCILIATION_TOLERANCE
 
 function positiveAmount(value) {
   return Math.abs(round2(Number(value) || 0))
+}
+
+/** Parent logistics with no sale in this statement — clears to Undeposited (1066), not Uncleared Shipping (1068). */
+function isOrphanParentLogisticsRow(row) {
+  if (!row) return false
+  if (clean(row.assignmentReason) === ORPHAN_PARENT_ASSIGNMENT_REASON) return true
+  if (clean(row.parentFallbackStatus) === 'assigned_zoho_orphan') return true
+  return false
 }
 
 /** Same normalization as noonOrderIdHelper.matchKey — keeps exclusions comparable. */
@@ -56,8 +65,8 @@ function requireBatchForPaymentPreview(batch) {
 }
 
 /**
- * Parent / adjustment logistics assigned to a child invoice — add onto that child's
- * Record Payment buckets (1067 commission / 1068 shipping), Amazon KSA style.
+ * Parent / adjustment logistics assigned to a child invoice.
+ * In-statement folds → 1067 / 1068 (uncleared). Orphan parent logistics → 1066 (undeposited).
  *
  * Do NOT add orderSubsidies on top of othersInclVat — the parser already merges
  * subsidies into othersInclVat (double-count produced bogus 22.68 from -37.8+7.56+7.56).
@@ -79,6 +88,7 @@ function collectAssignedUnclearedPaymentAddOns(allRows = [], planExclusions = nu
     const entry = byItem.get(itemId) || {
       commission: 0,
       fulfillment: 0,
+      fulfillmentOrphan: 0,
       sourceRowNumbers: [],
       sourceBreakdown: [],
     }
@@ -100,7 +110,11 @@ function collectAssignedUnclearedPaymentAddOns(allRows = [], planExclusions = nu
     }
 
     entry.commission = round2(entry.commission + referral)
-    entry.fulfillment = round2(entry.fulfillment + fulfillment)
+    if (isOrphanParentLogisticsRow(row)) {
+      entry.fulfillmentOrphan = round2((entry.fulfillmentOrphan || 0) + fulfillment)
+    } else {
+      entry.fulfillment = round2(entry.fulfillment + fulfillment)
+    }
     entry.sourceRowNumbers.push(row.rowNumber)
     entry.sourceBreakdown.push({
       rowNumber: row.rowNumber,
@@ -111,6 +125,7 @@ function collectAssignedUnclearedPaymentAddOns(allRows = [], planExclusions = nu
       othersInclVat: round2(num(row.othersInclVat)),
       appliedFulfillment: fulfillment,
       appliedCommission: referral,
+      orphanLogistics: isOrphanParentLogisticsRow(row),
     })
     byItem.set(itemId, entry)
   }
@@ -183,6 +198,9 @@ function aggregatePaymentPlansByInvoice(plans = []) {
     cur.parentLogisticsAddOn = round2(
       positiveAmount(cur.parentLogisticsAddOn) + positiveAmount(p.parentLogisticsAddOn)
     )
+    cur.parentLogisticsOrphanAddOn = round2(
+      positiveAmount(cur.parentLogisticsOrphanAddOn) + positiveAmount(p.parentLogisticsOrphanAddOn)
+    )
   }
   return [...byInv.values()]
 }
@@ -219,14 +237,21 @@ function buildInvoicePaymentPlan(item, accounts, addOns = null) {
   // Example: Net Proceeds 759 / Referral -119.54 / Fulfillment -33.6 / Total 605.86
   // Record Payments that clear a 759 invoice:
   //   1066 undeposited = 605.86, 1067 commission = 119.54, 1068 shipping = 33.6
+  // Orphan parent logistics (no sale in statement) clear to 1066 — deducted from settlement.
   const saleGross = positiveAmount(item.netProceed)
   const commission = round2(positiveAmount(item.referralFee) + positiveAmount(addOns?.commission))
+  const itemFulfillment = positiveAmount(round2(num(item.fulfillmentFee) + num(item.shippingCharges)))
+  const itemFulfillmentOrphan = item.logisticsOnly ? itemFulfillment : 0
+  const itemFulfillmentStatement = item.logisticsOnly ? 0 : itemFulfillment
   const fulfillmentShipping = round2(
-    positiveAmount(round2(num(item.fulfillmentFee) + num(item.shippingCharges))) +
-      positiveAmount(addOns?.fulfillment)
+    itemFulfillmentStatement + positiveAmount(addOns?.fulfillment)
   )
-  // Residual after parking commission + shipping on uncleared GLs (Amazon invoiceClearingNetBalance).
-  const invoiceClearingNetBalance = round2(Math.max(0, saleGross - commission - fulfillmentShipping))
+  const orphanUndeposited = round2(
+    itemFulfillmentOrphan + positiveAmount(addOns?.fulfillmentOrphan)
+  )
+  const invoiceClearingNetBalance = round2(
+    Math.max(0, saleGross - commission - fulfillmentShipping) + orphanUndeposited
+  )
   const netBalancePayment = {
     amount: invoiceClearingNetBalance,
     paymentType: 'net_balance',
@@ -268,6 +293,7 @@ function buildInvoicePaymentPlan(item, accounts, addOns = null) {
     referralFee: commission,
     fulfillmentShipping,
     parentLogisticsAddOn: positiveAmount(addOns?.fulfillment),
+    parentLogisticsOrphanAddOn: round2(itemFulfillmentOrphan + positiveAmount(addOns?.fulfillmentOrphan)),
     parentCommissionAddOn: positiveAmount(addOns?.commission),
     parentLogisticsSources: Array.isArray(addOns?.sourceBreakdown) ? addOns.sourceBreakdown : [],
     netBalancePayment,
@@ -443,13 +469,15 @@ function buildFoldedUnclearedChargeSummaries(allRows = []) {
       parentOrderId: clean(row.originalParentOrderId || row.parentOrderId),
       assignedItemOrderId: clean(row.assignedItemOrderId) || clean(row.itemOrderId),
       previewNote: clean(row.assignedItemOrderId)
-        ? row.assignmentReason === 'zoho_invoice_orphan_parent'
-          ? `Folded via Zoho invoice ${clean(row.assignedZohoInvoiceNumber) || clean(row.assignedItemOrderId)} (sale not in this statement) → uncleared GL`
+        ? isOrphanParentLogisticsRow(row)
+          ? `Folded via Zoho invoice ${clean(row.assignedZohoInvoiceNumber) || clean(row.assignedItemOrderId)} (sale not in this statement) → Noon Undeposited Funds (1066)`
           : `Folded into invoice payment for ${clean(row.assignedItemOrderId)} → uncleared GL`
         : clean(row.itemOrderId)
           ? `Cleared via invoice payment for ${clean(row.itemOrderId)} → uncleared GL`
           : 'Uncleared via invoice payment (no child assignment — no Zoho invoice for this Noon parent order)',
-      clearingPath: 'invoice_payment_uncleared',
+      clearingPath: isOrphanParentLogisticsRow(row)
+        ? 'invoice_payment_undeposited_orphan'
+        : 'invoice_payment_uncleared',
     }))
 }
 
@@ -540,6 +568,7 @@ module.exports = {
   buildInvoicePaymentPlan,
   buildInvoicePaymentPlansFromBatch,
   aggregatePaymentPlansByInvoice,
+  isOrphanParentLogisticsRow,
   buildPaymentPreviewFromBatch,
   collectAssignedUnclearedPaymentAddOns,
   collectPlanExclusions,
