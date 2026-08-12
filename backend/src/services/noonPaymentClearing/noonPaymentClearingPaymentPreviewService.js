@@ -15,6 +15,7 @@ const {
   buildSaleParentOrderIdSet,
   isSettlementAdjustmentSourceRow,
   isPaidInvoiceSubsidyAdjustmentRow,
+  isZeroSaleCrossWeekLogisticsSettlementRow,
   buildSettlementAdjustmentJournal,
   collectSettlementAdjustmentSourceRows,
 } = require('./noonPaymentClearingSettlementAdjustmentService')
@@ -320,12 +321,24 @@ function buildInvoicePaymentPlansFromBatch(batch, accountOverrides = {}, options
     return true
   })
   const allRows = batch.allRows || []
+  const saleParentSet = buildSaleParentOrderIdSet(allRows)
   const addOnsByItem = collectAssignedUnclearedPaymentAddOns(allRows, planExclusions, {
     ignoreExclusions: options.ignoreExclusions,
   })
-  return matched.map((item) =>
-    buildInvoicePaymentPlan(item, accounts, addOnsByItem.get(clean(item.itemOrderId)) || null)
-  )
+  return matched
+    .filter((item) => {
+      if (options.ignoreExclusions) return true
+      // Invoice match ≠ payment eligibility — zero Net Proceeds lines clear via settlement adjustment.
+      if (num(item.netProceed) < 0.01) return false
+      const row = allRows.find(
+        (r) => clean(r.itemOrderId).toLowerCase() === clean(item.itemOrderId).toLowerCase()
+      )
+      if (row && isZeroSaleCrossWeekLogisticsSettlementRow(row, saleParentSet)) return false
+      return true
+    })
+    .map((item) =>
+      buildInvoicePaymentPlan(item, accounts, addOnsByItem.get(clean(item.itemOrderId)) || null)
+    )
 }
 
 function buildInvoicePaymentPlan(item, accounts, addOns = null) {

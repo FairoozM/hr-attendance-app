@@ -198,8 +198,20 @@ export function NoonPaymentClearingPage() {
       : (preview.feeJournalLines || []).some((l) => l.mappingStatus === 'needs_mapping')
         ? 'blocked'
         : 'ready'
-    s[10] = paymentPreview ? 'completed' : isApproved || isPosted ? 'ready' : 'not_started'
-    s[11] = isPosted ? 'completed' : paymentPreview ? 'ready' : 'not_started'
+    s[10] = !paymentPreview
+      ? isApproved || isPosted
+        ? 'ready'
+        : 'not_started'
+      : paymentPreview.summary?.blocked
+        ? 'blocked'
+        : 'completed'
+    s[11] = isPosted
+      ? 'completed'
+      : paymentPreview
+        ? paymentPreview.summary?.blocked
+          ? 'blocked'
+          : 'ready'
+        : 'not_started'
     return s
   }, [preview, isApproved, isPosted, canApproveSettlement, paymentPreview])
 
@@ -1218,12 +1230,32 @@ export function NoonPaymentClearingPage() {
                       shipping (e.g. 759 − 119.54 − 33.60 = 605.86). Zoho gets exactly three grouped payments
                       (net / commission / shipping) — not one payment per invoice line.
                     </p>
-                    {paymentPreview.summary?.blocked ||
-                    (paymentPreview.summary?.invoiceOverpaymentCount ?? 0) > 0 ? (
+                    {(paymentPreview.summary?.invoiceOverpaymentCount ?? 0) > 0 ? (
                       <div className="npc-alert npc-alert--error" role="alert">
                         Blocked: payment totals exceed Zoho invoice value on{' '}
                         {paymentPreview.summary.invoiceOverpaymentCount} invoice(s). Fix matching / logistics
                         before posting.
+                      </div>
+                    ) : null}
+                    {paymentPreview.summary?.blocked &&
+                    Math.abs(Number(paymentPreview.summary.undepositedPlanningDifference) || 0) >= 0.01 &&
+                    (paymentPreview.summary.invoiceOverpaymentCount ?? 0) === 0 ? (
+                      <div className="npc-alert npc-alert--error" role="alert">
+                        Blocked: Noon undeposited reconciliation differs by AED{' '}
+                        {money(Math.abs(Number(paymentPreview.summary.undepositedPlanningDifference) || 0))}. Target{' '}
+                        {money(paymentPreview.summary.targetUndeposited1066)} vs planned{' '}
+                        {money(paymentPreview.summary.plannedUndeposited1066)}.
+                        {Array.isArray(paymentPreview.undepositedReconciliation?.nonZeroDeltas) &&
+                        paymentPreview.undepositedReconciliation.nonZeroDeltas.length > 0 ? (
+                          <ul style={{ margin: '8px 0 0', paddingLeft: '1.2rem' }}>
+                            {paymentPreview.undepositedReconciliation.nonZeroDeltas.slice(0, 8).map((row) => (
+                              <li key={`delta-${String(row.rowNumber)}`}>
+                                Row {String(row.rowNumber)} · {String(row.itemOrderId || row.parentOrderId)} · delta{' '}
+                                {money(Number(row.delta) || 0)} · {String(row.reason || '')}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
                       </div>
                     ) : null}
                     <div className="npc-table-wrap">

@@ -27,14 +27,45 @@ function parentOrderIdForRow(row) {
   ).toLowerCase()
 }
 
+function isSaleBearingSaleRow(row) {
+  return row?.rowClass === ROW_CLASS.SALE_ITEM && num(row.netProceed) >= 0.01
+}
+
+/** Parents with a genuine sale line (Net Proceeds > 0) in this statement — not zero-sale logistics rows. */
 function buildSaleParentOrderIdSet(rows = []) {
   const set = new Set()
   for (const row of rows) {
-    if (row.rowClass !== ROW_CLASS.SALE_ITEM) continue
+    if (!isSaleBearingSaleRow(row)) continue
     const parent = parentOrderIdForRow(row)
     if (parent) set.add(parent)
   }
   return set
+}
+
+function hasMarketplaceLogisticsCharge(row) {
+  if (!row) return false
+  return (
+    Math.abs(num(row.fulfillmentFee)) >= 0.005 ||
+    Math.abs(num(row.shippingCharges)) >= 0.005 ||
+    Math.abs(num(row.otherOrderFees)) >= 0.005 ||
+    Math.abs(num(row.othersInclVat)) >= 0.005
+  )
+}
+
+/**
+ * Item-level (or parent) logistics with Net Proceeds = 0 and no sale-bearing parent in this statement.
+ * Zoho invoice match is audit-only — route to settlement adjustment, not Record Payment / 1068.
+ */
+function isZeroSaleCrossWeekLogisticsSettlementRow(row, saleParentSet) {
+  if (!row || row.excludeFromPaymentClearing) return false
+  if (num(row.netProceed) >= 0.01) return false
+  if (!hasMarketplaceLogisticsCharge(row)) return false
+  if (row.rowClass === ROW_CLASS.SALE_ITEM && num(row.total) > 0.01) return false
+  const parent = parentOrderIdForRow(row)
+  if (!parent) return false
+  const parents = saleParentSet || buildSaleParentOrderIdSet([])
+  if (parents.has(parent)) return false
+  return true
 }
 
 function isCrossWeekSettlementAdjustmentRow(row, saleParentSet) {
@@ -80,6 +111,7 @@ function isSettlementAdjustmentSourceRow(row, planExclusions = null, saleParentS
   if (!row) return false
   if (isPaidInvoiceSubsidyAdjustmentRow(row, planExclusions)) return true
   const parents = saleParentSet || buildSaleParentOrderIdSet([])
+  if (isZeroSaleCrossWeekLogisticsSettlementRow(row, parents)) return true
   if (isSameWeekPositiveParentSubsidyRow(row, parents)) return true
   if (row.excludeFromPaymentClearing) return false
   return isCrossWeekSettlementAdjustmentRow(row, parents)
@@ -144,6 +176,10 @@ function primaryOrderIdForRow(row) {
 }
 
 function adjustmentDescriptionLabel(row) {
+  const fulfillment = Math.abs(
+    round2(num(row.fulfillmentFee) + num(row.shippingCharges) + num(row.otherOrderFees))
+  )
+  if (fulfillment >= 0.01) return 'shipping'
   const raw = (displayLabelForFeeRow(row) || 'shipping').toLowerCase()
   if (raw.includes('fulfillment') || raw.includes('shipping') || raw.includes('logistics')) {
     return 'shipping'
@@ -188,7 +224,7 @@ function lineItemFromAccount(account, debitOrCredit, amount, description = '', c
   return item
 }
 
-function buildSourceRowAdjustmentFragments(row, accounts, metadata) {
+function buildSourceRowAdjustmentFragments(row, accounts, metadata, saleParentSet = null) {
   const signedGross = round2(num(row.total))
   if (Math.abs(signedGross) < 0.01) return null
 
@@ -254,7 +290,9 @@ function buildSourceRowAdjustmentFragments(row, accounts, metadata) {
     displayLabel: row.displayLabel || displayLabelForFeeRow(row) || 'Settlement adjustment',
     accountingTreatment: isPaidInvoiceSubsidyAdjustmentRow(row)
       ? 'Cross-week settlement adjustment (paid-invoice subsidy)'
-      : 'Cross-week settlement adjustment',
+      : isZeroSaleCrossWeekLogisticsSettlementRow(row, saleParentSet || buildSaleParentOrderIdSet([]))
+        ? 'Cross-week zero-sale item logistics — settlement adjustment journal'
+        : 'Cross-week settlement adjustment',
     paidInvoiceSubsidy: Boolean(row.paidInvoiceSubsidy),
     isPositiveReversal,
   }
@@ -308,6 +346,7 @@ function buildSettlementAdjustmentJournal(allRows = [], metadata = {}, accountOv
   const sourceRows = collectSettlementAdjustmentSourceRows(allRows, planExclusions)
   if (!sourceRows.length) return null
 
+  const saleParentSet = buildSaleParentOrderIdSet(allRows)
   const sourceDetails = []
   const detailLineItems = []
   let undepositedDebit = 0
@@ -315,7 +354,7 @@ function buildSettlementAdjustmentJournal(allRows = [], metadata = {}, accountOv
   let undepositedAccount = normalizeGlAccount(accounts.undepositedFundsAccount, 'Noon Undeposited Funds')
 
   for (const row of sourceRows) {
-    const fragment = buildSourceRowAdjustmentFragments(row, accounts, metadata)
+    const fragment = buildSourceRowAdjustmentFragments(row, accounts, metadata, saleParentSet)
     if (!fragment) continue
     sourceDetails.push(fragment.sourceDetail)
     detailLineItems.push(...fragment.detailLineItems)
@@ -389,7 +428,10 @@ function buildSettlementAdjustmentJournal(allRows = [], metadata = {}, accountOv
 module.exports = {
   SETTLEMENT_ADJUSTMENT_FEE_TYPE,
   parentOrderIdForRow,
+  isSaleBearingSaleRow,
   buildSaleParentOrderIdSet,
+  hasMarketplaceLogisticsCharge,
+  isZeroSaleCrossWeekLogisticsSettlementRow,
   isCrossWeekSettlementAdjustmentRow,
   isPaidInvoiceSubsidyAdjustmentRow,
   isSameWeekPositiveParentSubsidyRow,

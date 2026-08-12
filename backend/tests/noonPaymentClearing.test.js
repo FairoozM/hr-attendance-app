@@ -2202,3 +2202,129 @@ describe('open balance reconcile', () => {
     assert.equal(journal.summary.netUndepositedImpact, -59.53)
   })
 })
+
+describe('zero-sale cross-week item logistics (PS-11752-AE20260624 row 41)', () => {
+  const {
+    isZeroSaleCrossWeekLogisticsSettlementRow,
+    buildSettlementAdjustmentJournal,
+    buildAdjustmentLineDescription,
+    isSettlementAdjustmentSourceRow,
+  } = require('../src/services/noonPaymentClearing/noonPaymentClearingSettlementAdjustmentService')
+  const {
+    buildPaymentPreviewFromBatch,
+    buildInvoicePaymentPlan,
+  } = require('../src/services/noonPaymentClearing/noonPaymentClearingPaymentPreviewService')
+  const {
+    classifyRowAccounting,
+    expected1066Contribution,
+    buildUndepositedReconciliation,
+  } = require('../src/services/noonPaymentClearing/noonPaymentClearingUndepositedReconciliationService')
+  const { getNoonPaymentClearingMarketplaceConfig } = require('../src/services/noonPaymentClearing/noonPaymentClearingMarketplaceConfig')
+  const { ROW_CLASS } = require('../src/services/noonPaymentClearing/noonPaymentClearingCategoryService')
+
+  const zeroSaleRow = {
+    rowNumber: 41,
+    rowClass: ROW_CLASS.SALE_ITEM,
+    transactionType: 'order',
+    parentOrderId: 'NAEI60054137318',
+    itemOrderId: 'NAEI60054137318-3',
+    originalParentOrderId: 'NAEI60054137318',
+    netProceed: 0,
+    referralFee: 0,
+    fulfillmentFee: -17.85,
+    shippingCharges: 0,
+    total: -17.85,
+    zohoInvoiceId: 'inv-041977',
+    zohoInvoiceNumber: 'INV-041977',
+    zohoInvoiceTotal: 229,
+    zohoCustomerId: 'noon-cust',
+    matchStatus: 'matched',
+  }
+
+  it('classifies zero-sale item logistics as settlement adjustment when parent has no sale-bearing row', () => {
+    const allRows = [zeroSaleRow]
+    assert.ok(isZeroSaleCrossWeekLogisticsSettlementRow(zeroSaleRow, new Set()))
+    assert.ok(isSettlementAdjustmentSourceRow(zeroSaleRow, null, new Set()))
+  })
+
+  it('excludes zero-sale matched invoice from Record Payment and routes to settlement adjustment journal', () => {
+    const ref = 'PS-11752-AE20260624'
+    const allRows = [zeroSaleRow]
+    const batch = {
+      status: 'approved',
+      zohoCustomerId: 'noon-cust',
+      reconciliationSummary: { reconciliationStatus: 'reconciled', reconciliationDifference: 0, expectedSettlement: -17.85 },
+      unmatchedOrders: [],
+      multipleMatchItems: [],
+      matchedOrders: [
+        {
+          itemOrderId: 'NAEI60054137318-3',
+          parentOrderId: 'NAEI60054137318',
+          netProceed: 0,
+          referralFee: 0,
+          fulfillmentFee: -17.85,
+          shippingCharges: 0,
+          total: -17.85,
+          zohoInvoiceId: 'inv-041977',
+          zohoInvoiceNumber: 'INV-041977',
+          zohoInvoiceTotal: 229,
+          zohoCustomerId: 'noon-cust',
+        },
+      ],
+      allRows,
+      reportSnapshot: { referenceNr: ref },
+    }
+    const preview = buildPaymentPreviewFromBatch(batch, [])
+    assert.equal(preview.invoicePayments.length, 0)
+    assert.ok(preview.settlementAdjustmentJournal)
+    assert.equal(preview.summary.settlementAdjustment1066, -17.85)
+    assert.equal(preview.summary.undepositedPlanningDifference, 0)
+    assert.equal(preview.summary.targetUndeposited1066, -17.85)
+    assert.equal(preview.summary.plannedUndeposited1066, -17.85)
+
+    const journal = preview.settlementAdjustmentJournal
+    assert.equal(journal.summary.grossNegativeAdjustments, 17.85)
+    assert.match(
+      buildAdjustmentLineDescription(zeroSaleRow, { referenceNr: ref }, 'expense'),
+      /Noon shipping \| NAEI60054137318-3 \| PS-11752-AE20260624 \| Gross 17\.85/
+    )
+    const expenseLine = journal.lineItems.find((l) => l.description.includes('Noon shipping'))
+    const vatLine = journal.lineItems.find((l) => l.description.startsWith('Noon VAT'))
+    assert.ok(expenseLine)
+    assert.ok(vatLine)
+    assert.equal(expenseLine.amount, 17)
+    assert.equal(vatLine.amount, 0.85)
+    assert.equal(preview.undepositedReconciliation.nonZeroDeltas.length, 0)
+    assert.equal(preview.undepositedReconciliation.deltaSum, 0)
+    assert.equal(preview.undepositedReconciliation.difference, 0)
+  })
+
+  it('reconciliation audit flags ZERO_SALE_LOGISTICS_ROUTED_TO_1068 when misrouted to Record Payment', () => {
+    const plan = buildInvoicePaymentPlan(
+      {
+        itemOrderId: 'NAEI60054137318-3',
+        netProceed: 0,
+        referralFee: 0,
+        fulfillmentFee: -17.85,
+        total: -17.85,
+        zohoInvoiceTotal: 229,
+      },
+      getNoonPaymentClearingMarketplaceConfig().paymentPreviewAccounts,
+      null
+    )
+    assert.equal(plan.netBalancePayment.amount, 0)
+    assert.equal(plan.fulfillmentPayment.amount, 17.85)
+
+    const ctx = {
+      saleParentSet: new Set(),
+      planExclusions: null,
+      adjSourceByRow: new Map(),
+      invoicePaymentByItem: new Map([['NAEI60054137318-3', plan]]),
+    }
+    const cls = classifyRowAccounting(zeroSaleRow, ctx)
+    assert.equal(cls.reason, 'ZERO_SALE_LOGISTICS_ROUTED_TO_1068')
+    assert.equal(expected1066Contribution(zeroSaleRow, ctx), -17.85)
+    assert.equal(cls.recordPayment1066 + cls.settlementAdjustment1066, 0)
+    assert.equal(round2(expected1066Contribution(zeroSaleRow, ctx) - (cls.recordPayment1066 + cls.settlementAdjustment1066)), -17.85)
+  })
+})

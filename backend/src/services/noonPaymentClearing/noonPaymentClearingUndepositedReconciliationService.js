@@ -3,6 +3,7 @@ const {
   buildSaleParentOrderIdSet,
   parentOrderIdForRow,
   isSettlementAdjustmentSourceRow,
+  isZeroSaleCrossWeekLogisticsSettlementRow,
   collectSettlementAdjustmentSourceRows,
 } = require('./noonPaymentClearingSettlementAdjustmentService')
 
@@ -27,50 +28,108 @@ function positiveAmount(value) {
   return Math.abs(round2(Number(value) || 0))
 }
 
+function rowItemLogisticsFees(row) {
+  return round2(num(row.fulfillmentFee) + num(row.shippingCharges))
+}
+
+function expected1066Contribution(row, ctx) {
+  const { planExclusions, adjSourceByRow, saleParentSet } = ctx
+  const total = round2(num(row.total))
+  const isAdvertising = row.rowClass === ROW_CLASS.STATEMENT_FEE
+  const isSettlementAdj = isSettlementAdjustmentSourceRow(row, planExclusions, saleParentSet)
+  const adjLine = adjSourceByRow.get(row.rowNumber)
+
+  if (isAdvertising) {
+    return round2(-Math.abs(total))
+  }
+  if (isSettlementAdj) {
+    return adjLine ? round2(num(adjLine.undepositedImpact)) : total
+  }
+  if (row.rowClass === ROW_CLASS.SALE_ITEM) {
+    if (num(row.netProceed) < 0.01) {
+      return round2(num(row.total))
+    }
+    // Row Total is the net cash/1066-bound amount; fees route to 1067/1068 via Record Payment.
+    return round2(num(row.total))
+  }
+  if (
+    (row.rowClass === ROW_CLASS.PARENT_ORDER_CHARGE || row.rowClass === ROW_CLASS.ORDER_ADJUSTMENT) &&
+    saleParentSet.has(parentOrderIdForRow(row))
+  ) {
+    return total
+  }
+  return total
+}
+
 function classifyRowAccounting(row, ctx) {
-  const {
-    saleParentSet,
-    planExclusions,
-    adjSourceByRow,
-    invoicePaymentByItem,
-    advertising1066,
-  } = ctx
+  const { saleParentSet, planExclusions, adjSourceByRow, invoicePaymentByItem } = ctx
   const parent = parentOrderIdForRow(row)
   const saleInStatement = saleParentSet.has(parent)
   const isSale = row.rowClass === ROW_CLASS.SALE_ITEM
   const isAdvertising = row.rowClass === ROW_CLASS.STATEMENT_FEE
   const isSettlementAdj = isSettlementAdjustmentSourceRow(row, planExclusions, saleParentSet)
   const adjLine = adjSourceByRow.get(row.rowNumber)
+  const expected1066 = expected1066Contribution(row, ctx)
 
   if (isAdvertising) {
     return {
       classification: 'advertising_journal',
       recordPayment1066: 0,
+      recordPayment1068: 0,
       settlementAdjustment1066: round2(-Math.abs(num(row.total))),
-      expected1066: round2(-Math.abs(num(row.total))),
+      expected1066,
       reason: 'Statement advertising fee journal Cr 1066',
     }
   }
+
+  const zeroSaleLogistics =
+    isSale && num(row.netProceed) < 0.01 && isZeroSaleCrossWeekLogisticsSettlementRow(row, saleParentSet)
+  const plan = isSale ? invoicePaymentByItem.get(clean(row.itemOrderId)) : null
+  const rp1066FromPlan = plan ? round2(num(plan.netBalancePayment?.amount)) : 0
+  const rp1068FromPlan = plan ? round2(num(plan.fulfillmentPayment?.amount)) : 0
+
+  if (
+    zeroSaleLogistics &&
+    plan &&
+    rp1068FromPlan >= 0.01 &&
+    Math.abs(rp1066FromPlan) < 0.01 &&
+    !adjSourceByRow.has(row.rowNumber)
+  ) {
+    return {
+      classification: 'zero_sale_logistics_misrouted_to_record_payment',
+      recordPayment1066: rp1066FromPlan,
+      recordPayment1068: rp1068FromPlan,
+      settlementAdjustment1066: 0,
+      expected1066,
+      reason: 'ZERO_SALE_LOGISTICS_ROUTED_TO_1068',
+    }
+  }
+
   if (isSettlementAdj) {
     const impact = adjLine ? num(adjLine.undepositedImpact) : round2(num(row.total))
+    const isZeroSaleLogistics = isZeroSaleCrossWeekLogisticsSettlementRow(row, saleParentSet)
     return {
       classification: adjLine?.paidInvoiceSubsidy
         ? 'settlement_adjustment_paid_invoice_subsidy'
-        : 'settlement_adjustment_cross_week',
+        : isZeroSaleLogistics
+          ? 'settlement_adjustment_zero_sale_logistics'
+          : 'settlement_adjustment_cross_week',
       recordPayment1066: 0,
+      recordPayment1068: 0,
       settlementAdjustment1066: impact,
-      expected1066: impact,
-      reason: 'Cross-week / paid-invoice subsidy settlement adjustment journal',
+      expected1066,
+      reason: isZeroSaleLogistics
+        ? 'ZERO_SALE_LOGISTICS_SETTLEMENT_ADJUSTMENT'
+        : 'Cross-week / paid-invoice subsidy settlement adjustment journal',
     }
   }
   if (isSale) {
-    const plan = invoicePaymentByItem.get(clean(row.itemOrderId))
-    const actual = plan ? num(plan.netBalancePayment?.amount) : 0
     return {
       classification: 'record_payment_sale_1066',
-      recordPayment1066: actual,
+      recordPayment1066: rp1066FromPlan,
+      recordPayment1068: rp1068FromPlan,
       settlementAdjustment1066: 0,
-      expected1066: actual,
+      expected1066,
       reason: 'Sale row net undeposited via Record Payment',
     }
   }
@@ -78,23 +137,54 @@ function classifyRowAccounting(row, ctx) {
     (row.rowClass === ROW_CLASS.PARENT_ORDER_CHARGE || row.rowClass === ROW_CLASS.ORDER_ADJUSTMENT) &&
     saleInStatement
   ) {
-    const signed = signedParentRowFulfillment(row)
     return {
       classification: 'in_statement_parent_fold',
-      recordPayment1066: signed,
+      recordPayment1066: 0,
+      recordPayment1068: 0,
       settlementAdjustment1066: 0,
-      expected1066: signed,
+      expected1066,
       reason:
-        'Same-week parent/adjustment folded into sale invoice clearing (signed net, not |total|)',
+        'Same-week parent/adjustment folded into assigned sale invoice clearing (1066 via child net balance)',
     }
   }
   return {
     classification: 'UNCLASSIFIED_CASH_EFFECT',
     recordPayment1066: 0,
+    recordPayment1068: 0,
     settlementAdjustment1066: 0,
-    expected1066: round2(num(row.total)),
+    expected1066,
     reason: 'No accounting destination mapped for this row',
   }
+}
+
+function filterActionableNonZeroDeltas(candidateRows = []) {
+  const foldGroupDelta = new Map()
+  for (const row of candidateRows) {
+    if (Math.abs(num(row.delta)) < 0.01) continue
+    if (row.classification === 'in_statement_parent_fold') {
+      const key = clean(row.assignedItemOrderId || row.itemOrderId)
+      if (!key) continue
+      foldGroupDelta.set(key, round2((foldGroupDelta.get(key) || 0) + num(row.delta)))
+    }
+    if (row.classification === 'record_payment_sale_1066') {
+      const key = clean(row.itemOrderId)
+      if (!key) continue
+      foldGroupDelta.set(key, round2((foldGroupDelta.get(key) || 0) + num(row.delta)))
+    }
+  }
+
+  return candidateRows.filter((row) => {
+    if (Math.abs(num(row.delta)) < 0.01) return false
+    if (row.reason === 'ZERO_SALE_LOGISTICS_ROUTED_TO_1068') return true
+    if (row.classification === 'UNCLASSIFIED_CASH_EFFECT') return true
+    if (row.classification === 'in_statement_parent_fold') return false
+    if (row.classification === 'record_payment_sale_1066') {
+      const key = clean(row.itemOrderId)
+      const groupNet = key ? foldGroupDelta.get(key) : null
+      if (groupNet != null && Math.abs(groupNet) < 0.01) return false
+    }
+    return true
+  })
 }
 
 function buildUndepositedReconciliation(batch, preview, planExclusions = null) {
@@ -102,7 +192,9 @@ function buildUndepositedReconciliation(batch, preview, planExclusions = null) {
   const metadata = batch?.reportSnapshot || batch?.metadata || {}
   const saleParentSet = buildSaleParentOrderIdSet(allRows)
   const adjSources = collectSettlementAdjustmentSourceRows(allRows, planExclusions)
-  const adjSourceByRow = new Map(adjSources.map((line) => [line.rowNumber, line]))
+  const adjSourceByRow = new Map(
+    (preview?.settlementAdjustmentJournal?.sourceLines || []).map((line) => [line.rowNumber, line])
+  )
   const invoicePaymentByItem = new Map(
     (preview?.invoicePayments || []).map((p) => [clean(p.itemOrderId), p])
   )
@@ -134,9 +226,11 @@ function buildUndepositedReconciliation(batch, preview, planExclusions = null) {
     .filter((row) => row.rowClass !== ROW_CLASS.STATEMENT_FEE)
     .map((row) => {
       const cls = classifyRowAccounting(row, ctx)
-      const plannedContribution = round2(cls.recordPayment1066 + cls.settlementAdjustment1066)
-      const expectedContribution = round2(cls.expected1066)
-      const delta = round2(expectedContribution - plannedContribution)
+      const planned1066Contribution = round2(
+        cls.recordPayment1066 + cls.settlementAdjustment1066
+      )
+      const expected1066Contribution = round2(cls.expected1066)
+      const delta = round2(expected1066Contribution - planned1066Contribution)
       return {
         rowNumber: row.rowNumber,
         rowClass: row.rowClass,
@@ -154,13 +248,16 @@ function buildUndepositedReconciliation(batch, preview, planExclusions = null) {
             ? 'sale'
             : 'cross_week',
         assignedZohoInvoiceId: clean(row.assignedZohoInvoiceId || row.zohoInvoiceId),
-        assignedZohoInvoiceNumber: clean(row.assignedZohoInvoiceNumber),
+        assignedZohoInvoiceNumber: clean(row.assignedZohoInvoiceNumber || row.zohoInvoiceNumber),
         logisticsOnly: Boolean(row.logisticsOnly),
         settlementAdjustment: Boolean(adjSourceByRow.has(row.rowNumber)),
         recordPayment: cls.classification.startsWith('record_payment'),
         classification: cls.classification,
-        expected1066Contribution: expectedContribution,
-        planned1066Contribution: plannedContribution,
+        expected1066Contribution,
+        planned1066Contribution,
+        recordPayment1066: round2(cls.recordPayment1066),
+        recordPayment1068: round2(cls.recordPayment1068),
+        settlementAdjustment1066: round2(cls.settlementAdjustment1066),
         delta,
         reason: cls.reason,
       }
@@ -186,12 +283,14 @@ function buildUndepositedReconciliation(batch, preview, planExclusions = null) {
       settlementAdjustment1066Impact,
     },
     candidateRows,
-    nonZeroDeltas: candidateRows.filter((row) => Math.abs(num(row.delta)) >= 0.01),
+    nonZeroDeltas: filterActionableNonZeroDeltas(candidateRows),
   }
 }
 
 module.exports = {
   signedParentRowFulfillment,
   parentFulfillmentChargeMagnitude,
+  expected1066Contribution,
+  classifyRowAccounting,
   buildUndepositedReconciliation,
 }
